@@ -1,0 +1,43 @@
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
+
+/** UI stays usable at any zoom the user can reach */
+const ZOOM_MIN = 0.7
+const ZOOM_MAX = 1.5
+import type { ChatEvent, ChatRequest, CockpitApi, Provider, SessionQuery } from '../shared/types'
+
+const api: CockpitApi = {
+  sendChat: (req: ChatRequest) => ipcRenderer.invoke('chat:send', req),
+  cancelChat: (turnId: string) => ipcRenderer.invoke('chat:cancel', turnId),
+  onChatEvent: (cb: (ev: ChatEvent) => void) => {
+    const handler = (_e: unknown, ev: ChatEvent): void => cb(ev)
+    ipcRenderer.on('chat-event', handler)
+    return () => ipcRenderer.removeListener('chat-event', handler)
+  },
+  getSources: () => ipcRenderer.invoke('sources:get'),
+  addSource: (path: string, provider: Provider, label: string) =>
+    ipcRenderer.invoke('sources:add', path, provider, label),
+  removeSource: (path: string) => ipcRenderer.invoke('sources:remove', path),
+  listRepos: () => ipcRenderer.invoke('repos:list'),
+  pageSessions: (query: SessionQuery) => ipcRenderer.invoke('sessions:page', query),
+  getSessionMessages: (id: string) => ipcRenderer.invoke('sessions:messages', id),
+  setArchived: (sessionId: string, archived: boolean) =>
+    ipcRenderer.invoke('sessions:archive', sessionId, archived),
+  getPrs: (repoRoot: string) => ipcRenderer.invoke('github:prs', repoRoot),
+  createWorkspace: (repoRoot: string, name?: string) =>
+    ipcRenderer.invoke('workspace:create', repoRoot, name),
+  createPr: (cwd: string) => ipcRenderer.invoke('workspace:pr', cwd),
+  getExtensions: () => ipcRenderer.invoke('extensions:get'),
+  shareMcp: (name: string, to: Provider) => ipcRenderer.invoke('extensions:share-mcp', name, to),
+  getAccounts: () => ipcRenderer.invoke('accounts:get'),
+  getZoomFactor: () => webFrame.getZoomFactor(),
+  setZoomFactor: (factor: number) =>
+    webFrame.setZoomFactor(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, factor))),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:open', url),
+  onIndexUpdated: (cb: () => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('index-updated', handler)
+    return () => ipcRenderer.removeListener('index-updated', handler)
+  }
+}
+
+contextBridge.exposeInMainWorld('cockpit', api)
