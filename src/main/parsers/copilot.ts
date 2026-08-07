@@ -1,5 +1,5 @@
 import { basename, dirname, join } from 'node:path'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import {
   capText,
@@ -74,6 +74,30 @@ export function parseCopilotMeta(file: string, sourceLabel: string): SessionMeta
   return parseLegacyMeta(file, sourceLabel)
 }
 
+/**
+ * The generated session name lives in workspace.yaml next to events.jsonl
+ * (`name: Instructions access inquiry`). Line-based extraction — no YAML dep.
+ */
+export function copilotWorkspaceFile(eventsFile: string): string {
+  return join(dirname(eventsFile), 'workspace.yaml')
+}
+
+function workspaceName(eventsFile: string): string {
+  let raw: string
+  try {
+    raw = readFileSync(copilotWorkspaceFile(eventsFile), 'utf8')
+  } catch {
+    return ''
+  }
+  const m = raw.match(/^name:[ \t]*(.+)$/m)
+  if (!m) return ''
+  let v = m[1].trim()
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1)
+  }
+  return v
+}
+
 function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null {
   const head = readHead(file, META_HEAD_BYTES)
   if (!head.text) return null
@@ -116,6 +140,9 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
   // A session whose first user message falls past the head cap is still a session —
   // session.start alone (cwd/repo/branch known) is enough to index it.
   if (!sawStart && messageCount === 0 && !title) return null
+
+  const generated = workspaceName(file)
+  if (generated) title = truncate(generated)
 
   const ft = fileTimes(file)
   return {

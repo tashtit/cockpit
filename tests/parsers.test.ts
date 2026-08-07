@@ -44,6 +44,21 @@ beforeAll(() => {
       'not-json-garbage'
     ]) + 'trailing garbage line\n'
   )
+  // Session with generated titles: ai-title wins over summary, custom-title wins over both
+  writeFileSync(
+    join(claudeDir, 'aaaa-2222.jsonl'),
+    jsonl([
+      {
+        type: 'user',
+        message: { role: 'user', content: 'do the thing' },
+        timestamp: '2026-08-01T12:00:00Z',
+        sessionId: 'aaaa-2222'
+      },
+      { type: 'summary', summary: 'Old summary' },
+      { type: 'ai-title', aiTitle: 'Generated name', sessionId: 'aaaa-2222' },
+      { type: 'custom-title', customTitle: 'User name', sessionId: 'aaaa-2222' }
+    ])
+  )
 
   // --- Codex fixture ---
   const codexDir = join(root, 'codex', 'sessions', '2026', '08', '01')
@@ -78,6 +93,44 @@ beforeAll(() => {
         timestamp: '2026-08-01T11:00:12Z',
         type: 'response_item',
         payload: { type: 'function_call', name: 'shell', arguments: '{"cmd":"pytest"}' }
+      }
+    ])
+  )
+  // Out-of-band thread names, keyed by session_meta's session_id
+  writeFileSync(
+    join(root, 'codex', 'session_index.jsonl'),
+    jsonl([{ id: 'ssss-9999', thread_name: 'Add unit tests properly', updated_at: '2026-08-01T11:05:00Z' }])
+  )
+  writeFileSync(
+    join(codexDir, 'rollout-2026-08-01-eeee.jsonl'),
+    jsonl([
+      {
+        timestamp: '2026-08-01T12:00:00Z',
+        type: 'session_meta',
+        payload: {
+          id: 'eeee-5555',
+          session_id: 'ssss-9999',
+          cwd: '/Users/titan/dev/other',
+          originator: 'codex_cli_rs'
+        }
+      },
+      {
+        timestamp: '2026-08-01T12:00:01Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: '# AGENTS.md instructions preamble' }]
+        }
+      },
+      {
+        timestamp: '2026-08-01T12:00:02Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'real prompt' }]
+        }
       }
     ])
   )
@@ -136,24 +189,36 @@ beforeAll(() => {
       }
     ])
   )
+  writeFileSync(
+    join(copilotStateDir, 'workspace.yaml'),
+    [
+      'id: dddd-4444',
+      'cwd: /Users/titan/.copilot/copilot-worktrees/site/feat-x',
+      'name: Pricing page launch',
+      'user_named: false'
+    ].join('\n') + '\n'
+  )
 })
 
 describe('claude parser', () => {
   it('lists sessions with meta', () => {
     const s = listClaudeSessions(join(root, 'claude'), 'claude-test')
-    expect(s).toHaveLength(1)
-    expect(s[0]).toMatchObject({
+    expect(s).toHaveLength(2)
+    expect(s.find((x) => x.nativeId === 'aaaa-1111')).toMatchObject({
       provider: 'claude',
-      nativeId: 'aaaa-1111',
       title: 'Fix login bug',
       cwd: '/Users/titan/dev/myrepo',
       gitBranch: 'main',
       messageCount: 2
     })
   })
+  it('prefers custom-title over ai-title over summary', () => {
+    const s = listClaudeSessions(join(root, 'claude'), 'claude-test')
+    expect(s.find((x) => x.nativeId === 'aaaa-2222')?.title).toBe('User name')
+  })
   it('parses messages incl. tool calls, tolerating garbage lines', () => {
     const s = listClaudeSessions(join(root, 'claude'), 'claude-test')
-    const msgs = parseClaudeMessages(s[0].sourcePath)
+    const msgs = parseClaudeMessages(s.find((x) => x.nativeId === 'aaaa-1111')!.sourcePath)
     expect(msgs.map((m) => m.kind)).toEqual(['text', 'text', 'tool_call'])
     expect(msgs[2].toolName).toBe('Bash')
   })
@@ -162,18 +227,21 @@ describe('claude parser', () => {
 describe('codex parser', () => {
   it('lists sessions using session_meta id', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')
-    expect(s).toHaveLength(1)
-    expect(s[0]).toMatchObject({
+    expect(s).toHaveLength(2)
+    expect(s.find((x) => x.nativeId === 'bbbb-2222')).toMatchObject({
       provider: 'codex',
-      nativeId: 'bbbb-2222',
       title: 'add unit tests',
       cwd: '/Users/titan/dev/other',
       messageCount: 2
     })
   })
+  it('uses session_index thread_name and skips AGENTS.md preambles', () => {
+    const s = listCodexSessions(join(root, 'codex'), 'codex-test')
+    expect(s.find((x) => x.nativeId === 'eeee-5555')?.title).toBe('Add unit tests properly')
+  })
   it('parses messages and function calls', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')
-    const msgs = parseCodexMessages(s[0].sourcePath)
+    const msgs = parseCodexMessages(s.find((x) => x.nativeId === 'bbbb-2222')!.sourcePath)
     expect(msgs.map((m) => m.kind)).toEqual(['text', 'text', 'tool_call'])
     expect(msgs[0].role).toBe('user')
   })
@@ -191,11 +259,11 @@ describe('copilot parser', () => {
       messageCount: 2
     })
   })
-  it('reads repo/branch/title from events.jsonl session.start', () => {
+  it('reads repo/branch from session.start and the name from workspace.yaml', () => {
     const s = listCopilotSessions(join(root, 'copilot'), 'copilot-test')
     const current = s.find((x) => x.nativeId === 'dddd-4444')
     expect(current).toMatchObject({
-      title: 'ship the new pricing page',
+      title: 'Pricing page launch',
       cwd: '/Users/titan/.copilot/copilot-worktrees/site/feat-x',
       gitBranch: 'titan/feat-x',
       repoFullName: 'acme/site',

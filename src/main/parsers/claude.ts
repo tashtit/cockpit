@@ -7,6 +7,7 @@ import {
   parseJsonlText,
   readHead,
   readJsonlTail,
+  readTail,
   toMs,
   truncate,
   walkFiles
@@ -14,6 +15,8 @@ import {
 
 /** Meta lives in the first lines (summary/cwd/branch/first prompt) — never read the whole log. */
 const META_HEAD_BYTES = 256 * 1024
+/** Title lines are re-appended as the session grows — the newest ones live near the end. */
+const TITLE_TAIL_BYTES = 64 * 1024
 
 /**
  * Claude Code sessions: <configDir>/projects/<sanitized-cwd>/<session-uuid>.jsonl
@@ -47,10 +50,21 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
 
   let cwd: string | null = null
   let gitBranch: string | null = null
-  let title = ''
+  // Generated names: custom-title (user-set) beats ai-title beats legacy summary
+  // beats first-prompt fallback. Later lines supersede earlier ones.
+  let customTitle = ''
+  let aiTitle = ''
+  let summary = ''
+  let firstPrompt = ''
   let firstTs: number | null = null
   let lastTs: number | null = null
   let messageCount = 0
+
+  const scanTitles = (l: any): void => {
+    if (l.type === 'custom-title' && typeof l.customTitle === 'string') customTitle = l.customTitle
+    if (l.type === 'ai-title' && typeof l.aiTitle === 'string') aiTitle = l.aiTitle
+    if (l.type === 'summary' && typeof l.summary === 'string') summary = l.summary
+  }
 
   for (const l of lines) {
     if (l.cwd && !cwd) cwd = l.cwd
@@ -60,19 +74,26 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
       if (!firstTs) firstTs = ts
       lastTs = ts
     }
-    if (l.type === 'summary' && typeof l.summary === 'string') title = l.summary
+    scanTitles(l)
     if (l.type === 'user' || l.type === 'assistant') {
       messageCount++
-      if (!title && l.type === 'user') {
+      if (!firstPrompt && l.type === 'user') {
         const t = contentToText(l.message?.content)
-        if (t && !t.startsWith('<')) title = truncate(t)
+        if (t && !t.startsWith('<')) firstPrompt = truncate(t)
       }
     }
   }
   if (messageCount === 0) return null
   if (head.truncated) {
     messageCount = Math.max(messageCount, Math.round((messageCount * head.size) / META_HEAD_BYTES))
+    // The current title may have been re-appended past the head window — check the tail.
+    const tail = readTail(file, TITLE_TAIL_BYTES)
+    if (tail.text) {
+      const text = tail.truncated ? tail.text.slice(tail.text.indexOf('\n') + 1) : tail.text
+      for (const l of parseJsonlText(text, false)) scanTitles(l)
+    }
   }
+  const title = truncate(customTitle || aiTitle || summary || firstPrompt)
 
   const ft = fileTimes(file)
   return {
