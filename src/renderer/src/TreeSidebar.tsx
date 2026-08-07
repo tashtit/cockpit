@@ -138,9 +138,9 @@ export function TreeSidebar({
         )}
         <button
           className="icon-btn"
-          title="Extensions — MCP servers, skills, plugins"
+          title="AI Setup — shared instructions, MCP servers, skills, plugins"
           onClick={onOpenExtensions}
-          aria-label="Extensions"
+          aria-label="AI Setup"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M6.5 1.75V4H4a2 2 0 0 0-2 2v2.5h2.25a1.75 1.75 0 1 1 0 3.5H2V14a2 2 0 0 0 2 2h2.5v-2.25a1.75 1.75 0 1 1 3.5 0V16H12a2 2 0 0 0 2-2v-2.5h1.25a1.75 1.75 0 1 0 0-3.5H14V6a2 2 0 0 0-2-2H9.5V1.75a1.75 1.75 0 1 0-3 0Z" opacity="0.9" />

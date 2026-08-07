@@ -159,6 +159,11 @@ export interface McpServerInfo {
   config: McpConfig
   /** Which agents have this server configured */
   agents: Provider[]
+  /**
+   * Where the definitions were found: 'user' (agent's global config) and/or
+   * 'project:<dirname>' (claude stores per-project servers in ~/.claude.json).
+   */
+  origins: string[]
 }
 
 export interface SkillInfo {
@@ -187,6 +192,35 @@ export interface ExtensionsInventory {
   marketplaces: MarketplaceInfo[]
 }
 
+/* ---------- shared AI instructions ---------- */
+
+export type InstructionStatus =
+  /** File doesn't exist yet — applying creates it */
+  | 'missing'
+  /** File exists but has no cockpit-managed block */
+  | 'unmanaged'
+  /** Managed block matches the shared baseline */
+  | 'synced'
+  /** Managed block differs from the baseline (stale, or hand-edited) */
+  | 'drifted'
+
+export interface InstructionFile {
+  /** Agents that read this file (repo AGENTS.md covers codex + copilot) */
+  agents: Provider[]
+  path: string
+  exists: boolean
+  content: string
+  status: InstructionStatus
+}
+
+export interface InstructionsState {
+  /** null = global scope (agent home dirs); otherwise a repo root */
+  repoRoot: string | null
+  /** The shared baseline text (stored in cockpit config, per scope) */
+  baseline: string
+  files: InstructionFile[]
+}
+
 export type ChatEvent =
   | { turnId: string; type: 'session'; nativeSessionId: string }
   | { turnId: string; type: 'text'; text: string }
@@ -210,6 +244,16 @@ export interface CockpitApi {
   createPr(cwd: string): Promise<string>
   getExtensions(): Promise<ExtensionsInventory>
   shareMcp(name: string, to: Provider): Promise<void>
+  shareSkill(name: string, from: Provider, to: Provider): Promise<void>
+  getInstructions(repoRoot: string | null): Promise<InstructionsState>
+  saveInstructionsBaseline(repoRoot: string | null, baseline: string): Promise<InstructionsState>
+  /** Fan the baseline out into every target file (or just one path) */
+  applyInstructions(repoRoot: string | null, onlyPath?: string): Promise<InstructionsState>
+  saveInstructionFile(
+    repoRoot: string | null,
+    path: string,
+    content: string
+  ): Promise<InstructionsState>
   getAccounts(): Promise<AccountsSnapshot>
   /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
   getZoomFactor(): number
