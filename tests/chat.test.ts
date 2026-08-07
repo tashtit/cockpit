@@ -1,0 +1,99 @@
+import { describe, it, expect } from 'vitest'
+import { buildCommand, parseClaudeStreamLine, parseCodexStreamLine } from '../src/main/chat'
+
+describe('buildCommand', () => {
+  it('claude new chat, auto-edit', () => {
+    const { cmd, args } = buildCommand({
+      provider: 'claude',
+      cwd: '/x',
+      prompt: 'hi',
+      permissionMode: 'auto-edit'
+    })
+    expect(cmd).toBe('claude')
+    expect(args).toContain('--permission-mode')
+    expect(args).toContain('stream-json')
+    expect(args[args.length - 1]).toBe('hi')
+  })
+  it('claude resume', () => {
+    const { args } = buildCommand({
+      provider: 'claude',
+      cwd: '/x',
+      prompt: 'more',
+      resumeNativeId: 'abc',
+      permissionMode: 'safe'
+    })
+    expect(args).toContain('--resume')
+    expect(args).toContain('abc')
+  })
+  it('codex resume inserts subcommand', () => {
+    const { cmd, args } = buildCommand({
+      provider: 'codex',
+      cwd: '/x',
+      prompt: 'go',
+      resumeNativeId: 'sid',
+      permissionMode: 'auto-edit'
+    })
+    expect(cmd).toBe('codex')
+    expect(args.slice(0, 3)).toEqual(['exec', 'resume', 'sid'])
+    expect(args).toContain('--full-auto')
+  })
+  it('copilot yolo', () => {
+    const { args } = buildCommand({
+      provider: 'copilot',
+      cwd: '/x',
+      prompt: 'p',
+      permissionMode: 'yolo'
+    })
+    expect(args).toContain('--allow-all-tools')
+  })
+})
+
+describe('parseClaudeStreamLine', () => {
+  it('captures session id from init', () => {
+    const ev = parseClaudeStreamLine('t', { type: 'system', subtype: 'init', session_id: 's1' })
+    expect(ev).toEqual([{ turnId: 't', type: 'session', nativeSessionId: 's1' }])
+  })
+  it('extracts text and tool_use from assistant', () => {
+    const ev = parseClaudeStreamLine('t', {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'text', text: 'hello' },
+          { type: 'tool_use', name: 'Bash', input: { command: 'ls' } }
+        ]
+      }
+    })
+    expect(ev[0]).toMatchObject({ type: 'text', text: 'hello' })
+    expect(ev[1]).toMatchObject({ type: 'tool', toolName: 'Bash' })
+  })
+  it('result emits done with cost', () => {
+    const ev = parseClaudeStreamLine('t', { type: 'result', session_id: 's1', total_cost_usd: 0.12 })
+    expect(ev.find((e) => e.type === 'done')).toMatchObject({ costUsd: 0.12 })
+  })
+})
+
+describe('parseCodexStreamLine', () => {
+  it('new shape: thread + item + turn', () => {
+    expect(parseCodexStreamLine('t', { type: 'thread.started', thread_id: 'th1' })[0]).toMatchObject(
+      { type: 'session', nativeSessionId: 'th1' }
+    )
+    expect(
+      parseCodexStreamLine('t', { type: 'item.completed', item: { type: 'agent_message', text: 'ok' } })[0]
+    ).toMatchObject({ type: 'text', text: 'ok' })
+    expect(parseCodexStreamLine('t', { type: 'turn.completed' })[0]).toMatchObject({ type: 'done' })
+  })
+  it('old shape: msg events', () => {
+    expect(
+      parseCodexStreamLine('t', { msg: { type: 'session_configured', session_id: 's9' } })[0]
+    ).toMatchObject({ type: 'session', nativeSessionId: 's9' })
+    expect(
+      parseCodexStreamLine('t', { msg: { type: 'agent_message', message: 'done it' } })[0]
+    ).toMatchObject({ type: 'text', text: 'done it' })
+    expect(parseCodexStreamLine('t', { msg: { type: 'task_complete' } })[0]).toMatchObject({
+      type: 'done'
+    })
+  })
+  it('ignores unknown lines', () => {
+    expect(parseCodexStreamLine('t', { type: 'whatever' })).toEqual([])
+  })
+})

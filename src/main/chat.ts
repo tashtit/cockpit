@@ -1,0 +1,290 @@
+import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
+import type { ChatEvent, ChatRequest } from '../shared/types'
+import { contentToText, truncate } from './parsers/util'
+import { cliEnv } from './env'
+
+type Emit = (ev: ChatEvent) => void
+
+/**
+ * Session ids are parsed out of provider log files that other tools write — treat them
+ * as semi-untrusted and never let one become a CLI flag (e.g. "--dangerously-...").
+ */
+export function isValidNativeId(id: string): boolean {
+  return /^[A-Za-z0-9._-]{1,128}$/.test(id) && !id.startsWith('-')
+}
+
+/** Model names are renderer-supplied free text — keep them argv-safe. */
+export function isValidModel(model: string): boolean {
+  return /^[A-Za-z0-9._:\/-]{1,64}$/.test(model) && !model.startsWith('-')
+}
+
+const CODEX_SANDBOXES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
+
+/** Build argv for each provider's headless one-turn invocation. */
+export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } {
+  const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
+  switch (req.provider) {
+    case 'claude': {
+      const args = ['-p', '--output-format', 'stream-json', '--verbose']
+      if (model) args.push('--model', model)
+      if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
+      if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
+      if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
+      args.push(req.prompt)
+      return { cmd: 'claude', args }
+    }
+    case 'codex': {
+      const args = ['exec', '--json']
+      if (model) args.push('--model', model)
+      const sandbox = req.options?.codexSandbox
+      if (sandbox && CODEX_SANDBOXES.has(sandbox) && req.permissionMode !== 'yolo') {
+        args.push('--sandbox', sandbox)
+      }
+      if (req.permissionMode === 'auto-edit' && !sandbox) args.push('--full-auto')
+      if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
+      if (req.resumeNativeId) args.splice(1, 0, 'resume', req.resumeNativeId)
+      args.push(req.prompt)
+      return { cmd: 'codex', args }
+    }
+    case 'copilot': {
+      const args = ['-p', req.prompt]
+      if (model) args.push('--model', model)
+      if (req.permissionMode !== 'safe') args.push('--allow-all-tools')
+      if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
+      return { cmd: 'copilot', args }
+    }
+  }
+}
+
+/** Parse one claude stream-json line into chat events. Exported for tests. */
+export function parseClaudeStreamLine(turnId: string, line: any): ChatEvent[] {
+  const out: ChatEvent[] = []
+  if (line?.type === 'system' && line.subtype === 'init' && line.session_id) {
+    out.push({ turnId, type: 'session', nativeSessionId: String(line.session_id) })
+  } else if (line?.type === 'assistant') {
+    const content = line.message?.content
+    const text = contentToText(content)
+    if (text) out.push({ turnId, type: 'text', text })
+    if (Array.isArray(content)) {
+      for (const b of content) {
+        if (b?.type === 'tool_use')
+          out.push({
+            turnId,
+            type: 'tool',
+            toolName: b.name ?? 'tool',
+            detail: truncate(JSON.stringify(b.input ?? {}), 200)
+          })
+      }
+    }
+  } else if (line?.type === 'result') {
+    if (line.session_id) out.push({ turnId, type: 'session', nativeSessionId: String(line.session_id) })
+    out.push({ turnId, type: 'done', costUsd: typeof line.total_cost_usd === 'number' ? line.total_cost_usd : undefined })
+  }
+  return out
+}
+
+/** Parse one codex exec --json line into chat events. Handles old and new event shapes. Exported for tests. */
+export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
+  const out: ChatEvent[] = []
+  // new shape: {type:"thread.started",thread_id} / {type:"item.completed",item:{...}} / {type:"turn.completed"}
+  if (line?.thread_id && (line.type === 'thread.started' || line.type === 'session.created')) {
+    out.push({ turnId, type: 'session', nativeSessionId: String(line.thread_id) })
+  } else if (line?.type === 'item.completed' && line.item) {
+    const it = line.item
+    if ((it.type === 'agent_message' || it.item_type === 'assistant_message') && (it.text || it.message))
+      out.push({ turnId, type: 'text', text: String(it.text ?? it.message) })
+    if (it.type === 'command_execution')
+      out.push({ turnId, type: 'tool', toolName: 'shell', detail: truncate(String(it.command ?? ''), 200) })
+    if (it.type === 'file_change')
+      out.push({ turnId, type: 'tool', toolName: 'edit', detail: truncate(JSON.stringify(it.changes ?? ''), 200) })
+  } else if (line?.type === 'turn.completed') {
+    out.push({ turnId, type: 'done' })
+  }
+  // old shape: {id, msg:{type:"agent_message",message}} / {msg:{type:"session_configured",session_id}}
+  else if (line?.msg?.type) {
+    const m = line.msg
+    if (m.type === 'session_configured' && m.session_id)
+      out.push({ turnId, type: 'session', nativeSessionId: String(m.session_id) })
+    if (m.type === 'agent_message' && m.message)
+      out.push({ turnId, type: 'text', text: String(m.message) })
+    if (m.type === 'exec_command_begin' && m.command)
+      out.push({ turnId, type: 'tool', toolName: 'shell', detail: truncate(Array.isArray(m.command) ? m.command.join(' ') : String(m.command), 200) })
+    if (m.type === 'task_complete') out.push({ turnId, type: 'done' })
+  }
+  return out
+}
+
+interface RunningTurn {
+  child: ChildProcess
+  doneSent: boolean
+}
+
+export class ChatManager {
+  private turns = new Map<string, RunningTurn>()
+  private emit: Emit
+
+  constructor(emit: Emit) {
+    this.emit = emit
+  }
+
+  send(req: ChatRequest): string {
+    const turnId = randomUUID()
+    if (req.resumeNativeId && !isValidNativeId(req.resumeNativeId)) {
+      queueMicrotask(() => {
+        this.emit({ turnId, type: 'error', message: 'Refusing to resume: session id in the log looks malformed.' })
+        this.emit({ turnId, type: 'done' })
+      })
+      return turnId
+    }
+    try {
+      if (!statSync(req.cwd).isDirectory()) throw new Error('not a directory')
+    } catch {
+      queueMicrotask(() => {
+        this.emit({ turnId, type: 'error', message: `Working directory no longer exists: ${req.cwd}` })
+        this.emit({ turnId, type: 'done' })
+      })
+      return turnId
+    }
+    const { cmd, args } = buildCommand(req)
+    const env = cliEnv()
+    // per-account config homes: each provider has its own env var for this
+    if (req.configDir) {
+      if (req.provider === 'claude') env.CLAUDE_CONFIG_DIR = req.configDir
+      else if (req.provider === 'codex') env.CODEX_HOME = req.configDir
+      else env.COPILOT_HOME = req.configDir
+    }
+    const child = spawn(cmd, args, {
+      cwd: req.cwd,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
+      // own process group so cancel() can reach grandchildren (bash tools, MCP servers)
+      detached: true
+    })
+    const turn: RunningTurn = { child, doneSent: false }
+    this.turns.set(turnId, turn)
+
+    const sendDone = (): void => {
+      if (!turn.doneSent) {
+        turn.doneSent = true
+        this.emit({ turnId, type: 'done' })
+      }
+    }
+
+    let buf = ''
+    let sawStructured = false
+    child.stdout!.setEncoding('utf8')
+    child.stdout!.on('data', (chunk: string) => {
+      if (req.provider === 'copilot') {
+        // copilot -p streams plain text
+        this.emit({ turnId, type: 'text', text: chunk })
+        return
+      }
+      buf += chunk
+      let nl: number
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const raw = buf.slice(0, nl).trim()
+        buf = buf.slice(nl + 1)
+        if (!raw) continue
+        let parsed: any
+        try {
+          parsed = JSON.parse(raw)
+        } catch {
+          this.emit({ turnId, type: 'text', text: raw })
+          continue
+        }
+        sawStructured = true
+        const events =
+          req.provider === 'claude'
+            ? parseClaudeStreamLine(turnId, parsed)
+            : parseCodexStreamLine(turnId, parsed)
+        for (const ev of events) {
+          if (ev.type === 'done') turn.doneSent = true
+          this.emit(ev)
+        }
+      }
+    })
+
+    let errBuf = ''
+    child.stderr!.setEncoding('utf8')
+    child.stderr!.on('data', (c: string) => {
+      errBuf = (errBuf + c).slice(-4000)
+    })
+
+    child.on('error', (err) => {
+      this.emit({
+        turnId,
+        type: 'error',
+        message:
+          (err as NodeJS.ErrnoException).code === 'ENOENT'
+            ? `'${cmd}' not found on PATH — is the ${req.provider} CLI installed?`
+            : String(err)
+      })
+      sendDone()
+      this.turns.delete(turnId)
+    })
+
+    child.on('close', (code) => {
+      // flush a final line that arrived without a trailing newline — it can carry the
+      // session_id / result event, without which resume breaks
+      const rest = buf.trim()
+      if (rest && sawStructured) {
+        try {
+          const parsed = JSON.parse(rest)
+          const events =
+            req.provider === 'claude'
+              ? parseClaudeStreamLine(turnId, parsed)
+              : parseCodexStreamLine(turnId, parsed)
+          for (const ev of events) {
+            if (ev.type === 'done') turn.doneSent = true
+            this.emit(ev)
+          }
+          buf = ''
+        } catch {
+          /* not a complete JSON line */
+        }
+      }
+      if (code !== 0 && !turn.doneSent) {
+        this.emit({
+          turnId,
+          type: 'error',
+          message: `${cmd} exited with code ${code}${errBuf ? `:\n${errBuf.trim()}` : ''}`
+        })
+      }
+      if (!sawStructured && req.provider !== 'copilot' && code === 0 && buf.trim()) {
+        this.emit({ turnId, type: 'text', text: buf.trim() })
+      }
+      sendDone()
+      this.turns.delete(turnId)
+    })
+
+    return turnId
+  }
+
+  cancel(turnId: string): void {
+    const t = this.turns.get(turnId)
+    if (!t) return
+    this.turns.delete(turnId)
+    const pid = t.child.pid
+    // kill the whole process group (agent CLIs spawn bash tools / MCP servers)
+    const signal = (sig: NodeJS.Signals): void => {
+      try {
+        if (pid) process.kill(-pid, sig)
+        else t.child.kill(sig)
+      } catch {
+        t.child.kill(sig)
+      }
+    }
+    signal('SIGTERM')
+    const hardKill = setTimeout(() => {
+      if (t.child.exitCode === null && !t.child.killed) signal('SIGKILL')
+    }, 3000)
+    t.child.once('close', () => clearTimeout(hardKill))
+  }
+
+  cancelAll(): void {
+    for (const [id] of this.turns) this.cancel(id)
+  }
+}
