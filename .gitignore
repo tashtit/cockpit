@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+*.log
+.DS_Store
+
+# Editor / local tooling
+.idea/
+.vscode/
+.claude/settings.local.json
+*.local
