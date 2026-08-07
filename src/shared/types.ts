@@ -18,6 +18,8 @@ export interface RepoGroup extends RepoInfo {
   archivedCount: number
   lastActivity: number
   providers: Provider[]
+  /** User chose not to display this project (still listed here for the chooser UI) */
+  hidden: boolean
 }
 
 export interface SessionMeta {
@@ -239,6 +241,7 @@ export interface CockpitApi {
   pageSessions(query: SessionQuery): Promise<SessionPage>
   getSessionMessages(id: string): Promise<SessionMessage[]>
   setArchived(sessionId: string, archived: boolean): Promise<void>
+  setRepoHidden(repoKey: string, hidden: boolean): Promise<void>
   getPrs(repoRoot: string): Promise<PrStatus[]>
   createWorkspace(repoRoot: string, name?: string): Promise<WorkspaceInfo>
   createPr(cwd: string): Promise<string>
