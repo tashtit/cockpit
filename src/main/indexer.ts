@@ -18,12 +18,14 @@ import {
   parseClaudeMessages
 } from './parsers/claude'
 import {
+  codexIndexFile,
   listCodexSessionFiles,
   listCodexSessionRoots,
   parseCodexMeta,
   parseCodexMessages
 } from './parsers/codex'
 import {
+  copilotWorkspaceFile,
   listCopilotSessionFiles,
   listCopilotSessionRoots,
   parseCopilotMeta,
@@ -56,7 +58,7 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 3
+const CACHE_VERSION = 4
 /** Yield to the event loop every N files so scans never starve IPC. */
 const YIELD_EVERY = 50
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -68,7 +70,27 @@ const CACHE_SAVE_INTERVAL_MS = 30_000
 interface CacheEntry {
   mtimeMs: number
   size: number
+  /** mtime of the out-of-band name source (codex session_index / copilot workspace.yaml) */
+  aux?: number
   meta: SessionMeta | null
+}
+
+/**
+ * Codex and Copilot store generated session names outside the transcript file, so a
+ * rename doesn't touch the transcript's (mtime,size). Stamp the side file's mtime into
+ * the cache entry so name changes invalidate it.
+ */
+function auxStamp(file: string, source: SourceDir): number {
+  let p: string | null = null
+  if (source.provider === 'codex') p = codexIndexFile(source.path)
+  else if (source.provider === 'copilot' && file.endsWith('events.jsonl'))
+    p = copilotWorkspaceFile(file)
+  if (!p) return 0
+  try {
+    return statSync(p).mtimeMs
+  } catch {
+    return 0
+  }
 }
 
 /**
@@ -133,6 +155,19 @@ export class SessionIndexer {
           console.error(`[indexer] cannot watch ${root}:`, err)
         }
       }
+      // Codex thread names live in <CODEX_HOME>/session_index.jsonl, outside the sessions
+      // root. Watch the home dir non-recursively and react to just that file.
+      if (s.provider === 'codex') {
+        try {
+          const w = watch(s.path, (_event, filename) => {
+            if (filename?.toString() === 'session_index.jsonl') this.scheduleRescan()
+          })
+          w.on('error', (err) => console.error(`[indexer] watcher error for ${s.path}:`, err))
+          this.watchers.push(w)
+        } catch (err) {
+          console.error(`[indexer] cannot watch ${s.path}:`, err)
+        }
+      }
     }
     return scan
   }
@@ -143,6 +178,14 @@ export class SessionIndexer {
    * fall back to a full rescan.
    */
   private markDirty(event: string, path: string): void {
+    // Copilot writes the generated session name to workspace.yaml, not the transcript —
+    // treat it as a change to the sibling events.jsonl so the title refreshes.
+    if (path.endsWith('/workspace.yaml')) {
+      const sibling = join(dirname(path), 'events.jsonl')
+      if (this.fileSource.has(sibling)) path = sibling
+      else return
+      event = 'change'
+    }
     // 'change' on a known session file → cheap single-file refresh
     if (event === 'change' && this.fileSource.has(path)) {
       this.dirty.add(path)
@@ -247,8 +290,16 @@ export class SessionIndexer {
     } catch {
       return null
     }
+    const aux = auxStamp(file, source)
     const cached = this.fileCache.get(file)
-    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.meta
+    if (
+      cached &&
+      cached.mtimeMs === st.mtimeMs &&
+      cached.size === st.size &&
+      (cached.aux ?? 0) === aux
+    ) {
+      return cached.meta
+    }
     let meta: SessionMeta | null = null
     try {
       meta = META_PARSERS[source.provider](file, source.label)
@@ -256,7 +307,7 @@ export class SessionIndexer {
       console.error(`[indexer] parse failed for ${file}:`, err)
     }
     if (meta) this.annotateRepo(meta)
-    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, meta })
+    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, meta })
     this.cacheDirty = true
     return meta
   }

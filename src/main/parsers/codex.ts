@@ -1,4 +1,5 @@
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { statSync } from 'node:fs'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import {
   capText,
@@ -6,6 +7,7 @@ import {
   fileTimes,
   parseJsonlText,
   readHead,
+  readJsonl,
   readJsonlTail,
   toMs,
   truncate,
@@ -28,6 +30,46 @@ export function listCodexSessionFiles(sourceDir: string): string[] {
   return walkFiles(join(sourceDir, 'sessions'), 5).filter((f) => f.endsWith('.jsonl'))
 }
 
+/** Codex keeps generated thread names out-of-band: { id, thread_name, updated_at } per line. */
+export function codexIndexFile(sourceDir: string): string {
+  return join(sourceDir, 'session_index.jsonl')
+}
+
+/** thread_name index, cached on the file's mtime so rescans don't re-read it per session. */
+const indexCache = new Map<string, { mtimeMs: number; names: Map<string, string> }>()
+
+function threadNames(sourceDir: string): Map<string, string> {
+  const file = codexIndexFile(sourceDir)
+  let mtimeMs = 0
+  try {
+    mtimeMs = statSync(file).mtimeMs
+  } catch {
+    /* no index yet */
+  }
+  const cached = indexCache.get(file)
+  if (cached && cached.mtimeMs === mtimeMs) return cached.names
+  const names = new Map<string, string>()
+  if (mtimeMs) {
+    for (const l of readJsonl(file)) {
+      if (l?.id && typeof l.thread_name === 'string' && l.thread_name) {
+        names.set(String(l.id), l.thread_name)
+      }
+    }
+  }
+  indexCache.set(file, { mtimeMs, names })
+  return names
+}
+
+/** Rollouts live at <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl — walk up to the home dir. */
+function codexHomeOf(file: string): string | null {
+  let d = dirname(file)
+  for (let i = 0; i < 6; i++) {
+    if (basename(d) === 'sessions') return dirname(d)
+    d = dirname(d)
+  }
+  return null
+}
+
 export function listCodexSessions(sourceDir: string, sourceLabel: string): SessionMeta[] {
   const files = listCodexSessionFiles(sourceDir)
   const out: SessionMeta[] = []
@@ -45,6 +87,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
   if (lines.length === 0) return null
 
   let nativeId = basename(file, '.jsonl')
+  let threadId: string | null = null
   let cwd: string | null = null
   let gitBranch: string | null = null
   let title = ''
@@ -61,6 +104,8 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
     const p = l.payload ?? l
     if (l.type === 'session_meta' || p?.originator) {
       if (p.id) nativeId = String(p.id)
+      // The name index is keyed by thread id (continuation rollouts share it)
+      if (p.session_id || p.id) threadId = String(p.session_id ?? p.id)
       if (p.cwd) cwd = p.cwd
       if (p.git?.branch) gitBranch = p.git.branch
     }
@@ -72,7 +117,8 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       const role = p.role ?? (p.type === 'user_message' ? 'user' : 'assistant')
       if (!title && role === 'user') {
         const t = contentToText(p.content) || (typeof p.message === 'string' ? p.message : '')
-        if (t && !t.startsWith('<')) title = truncate(t)
+        // skip injected preambles (XML-ish context blocks, AGENTS.md instructions)
+        if (t && !t.startsWith('<') && !t.startsWith('# AGENTS.md')) title = truncate(t)
       }
     }
   }
@@ -80,6 +126,10 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
   if (head.truncated) {
     messageCount = Math.max(messageCount, Math.round((messageCount * head.size) / META_HEAD_BYTES))
   }
+
+  const home = codexHomeOf(file)
+  const threadName = home && threadId ? threadNames(home).get(threadId) : undefined
+  if (threadName) title = truncate(threadName)
 
   const ft = fileTimes(file)
   return {
