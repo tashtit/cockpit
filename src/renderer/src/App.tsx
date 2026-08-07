@@ -13,7 +13,7 @@ import { TreeSidebar } from './TreeSidebar'
 import { ChatView } from './ChatView'
 import { NewSession } from './NewSession'
 import { Settings } from './Settings'
-import { Extensions } from './Extensions'
+import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
 import type { AccountChoice } from './NewSession'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
@@ -343,7 +343,8 @@ export function App(): JSX.Element {
       {view.kind === 'settings' ? (
         <Settings onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
       ) : view.kind === 'extensions' ? (
-        <Extensions
+        <AiSetup
+          repos={repos}
           onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
           onOpenUrl={openUrl}
         />

@@ -529,3 +529,34 @@ select#ns-account, .ns-account-single { font-family: var(--mono); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ext-agents { display: flex; gap: var(--s2); flex-shrink: 0; }
 .ext-actions { display: flex; gap: var(--s1); flex-shrink: 0; }
+.ext-origin { margin-left: var(--s2); color: var(--fg-dim); font-weight: 400;
+  font-size: var(--fs-xs); font-family: var(--mono); }
+
+/* ---------- AI Setup: shared instructions ---------- */
+.inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
+.inst-scope label { font-size: var(--fs-xs); color: var(--fg-dim); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px; }
+.inst-scope select { flex: 1; min-width: 0; background: var(--surface); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: var(--s2) var(--s3); font-size: var(--fs-sm); }
+.inst-baseline { width: 100%; font-family: var(--mono); font-size: var(--fs-sm);
+  line-height: 1.5; }
+.inst-actions { display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--s2); margin: var(--s2) 0 var(--s3); }
+.inst-dirty { color: var(--warn); font-size: var(--fs-xs); margin-right: auto; }
+.inst-file { align-items: flex-start; }
+.inst-file .ext-agents { padding-top: 2px; }
+.inst-path { font-family: var(--mono); font-weight: 500; font-size: var(--fs-sm);
+  user-select: text; }
+.inst-status { margin-left: var(--s2); font-size: var(--fs-xs); font-weight: 600;
+  padding: 0 var(--s2); border-radius: 999px; border: 1px solid var(--border);
+  color: var(--fg-dim); white-space: nowrap; }
+.inst-status.synced { color: var(--ok); border-color: rgba(46, 160, 67, 0.5); }
+.inst-status.drifted { color: var(--warn); border-color: rgba(210, 153, 34, 0.5); }
+.inst-status.missing { font-style: italic; }
+.inst-edit { margin-top: var(--s1); }
+.inst-edit summary { color: var(--fg-dim); font-size: var(--fs-xs); cursor: pointer; }
+.inst-edit summary:hover { color: var(--fg); }
+.inst-edit textarea { width: 100%; margin-top: var(--s2); font-family: var(--mono);
+  font-size: var(--fs-xs); line-height: 1.5; }
+.inst-edit .inst-actions { margin-bottom: 0; }

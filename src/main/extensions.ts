@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type {
   ExtensionsInventory,
   MarketplaceInfo,
@@ -33,19 +33,49 @@ function readJsonFile(path: string): any | null {
 
 /* ---------- readers ---------- */
 
-function readClaudeMcp(): Map<string, McpConfig> {
-  const out = new Map<string, McpConfig>()
+interface FoundServer {
+  config: McpConfig
+  origins: string[]
+}
+
+function normalizeMcp(cfg: any): McpConfig {
+  return {
+    command: cfg?.command,
+    args: Array.isArray(cfg?.args) ? cfg.args : undefined,
+    env: cfg?.env,
+    url: cfg?.url,
+    type: cfg?.type
+  }
+}
+
+function addFound(out: Map<string, FoundServer>, name: string, cfg: any, origin: string): void {
+  const existing = out.get(name)
+  if (existing) {
+    if (!existing.origins.includes(origin)) existing.origins.push(origin)
+  } else {
+    out.set(name, { config: normalizeMcp(cfg), origins: [origin] })
+  }
+}
+
+/**
+ * Claude keeps user-level servers at the top of ~/.claude.json AND per-project
+ * ones under projects[<path>].mcpServers — most real setups only have the latter.
+ */
+function readClaudeMcp(): Map<string, FoundServer> {
+  const out = new Map<string, FoundServer>()
   const j = readJsonFile(claudeJsonPath())
   const servers = j?.mcpServers
   if (servers && typeof servers === 'object') {
-    for (const [name, cfg] of Object.entries<any>(servers)) {
-      out.set(name, {
-        command: cfg?.command,
-        args: Array.isArray(cfg?.args) ? cfg.args : undefined,
-        env: cfg?.env,
-        url: cfg?.url,
-        type: cfg?.type
-      })
+    for (const [name, cfg] of Object.entries<any>(servers)) addFound(out, name, cfg, 'user')
+  }
+  const projects = j?.projects
+  if (projects && typeof projects === 'object') {
+    for (const [projPath, proj] of Object.entries<any>(projects)) {
+      const ps = proj?.mcpServers
+      if (!ps || typeof ps !== 'object') continue
+      for (const [name, cfg] of Object.entries<any>(ps)) {
+        addFound(out, name, cfg, `project:${basename(projPath)}`)
+      }
     }
   }
   return out
@@ -183,17 +213,25 @@ function readMarketplaces(): MarketplaceInfo[] {
 /* ---------- inventory ---------- */
 
 export function getExtensions(): ExtensionsInventory {
-  const byAgent: Array<{ agent: Provider; servers: Map<string, McpConfig> }> = [
+  const asFound = (servers: Map<string, McpConfig>): Map<string, FoundServer> =>
+    new Map([...servers].map(([n, config]) => [n, { config, origins: ['user'] }]))
+  const byAgent: Array<{ agent: Provider; servers: Map<string, FoundServer> }> = [
     { agent: 'claude', servers: readClaudeMcp() },
-    { agent: 'codex', servers: readCodexMcp() },
-    { agent: 'copilot', servers: readCopilotMcp() }
+    { agent: 'codex', servers: asFound(readCodexMcp()) },
+    { agent: 'copilot', servers: asFound(readCopilotMcp()) }
   ]
   const merged = new Map<string, McpServerInfo>()
   for (const { agent, servers } of byAgent) {
-    for (const [name, config] of servers) {
+    for (const [name, found] of servers) {
       const existing = merged.get(name)
-      if (existing) existing.agents.push(agent)
-      else merged.set(name, { name, config, agents: [agent] })
+      if (existing) {
+        existing.agents.push(agent)
+        for (const o of found.origins) {
+          if (!existing.origins.includes(o)) existing.origins.push(o)
+        }
+      } else {
+        merged.set(name, { name, config: found.config, agents: [agent], origins: found.origins })
+      }
     }
   }
   return {
@@ -257,6 +295,27 @@ function shareToCodex(name: string, cfg: McpConfig): void {
     }
   }
   writeFileSync(path, raw.endsWith('\n') || raw === '' ? raw + block : raw + '\n' + block)
+}
+
+/* ---------- skill sharing ---------- */
+
+const SKILL_DIRS: Partial<Record<Provider, string>> = {
+  claude: join(homedir(), '.claude', 'skills'),
+  copilot: join(homedir(), '.copilot', 'skills')
+}
+
+/** Copy a personal skill directory between agents (claude ↔ copilot). */
+export function shareSkill(name: string, from: Provider, to: Provider): void {
+  if (!NAME_RE.test(name)) throw new Error('invalid skill name')
+  const fromDir = SKILL_DIRS[from]
+  const toDir = SKILL_DIRS[to]
+  if (!fromDir || !toDir) throw new Error('skills are only supported for Claude and Copilot')
+  const src = join(fromDir, name)
+  const dst = join(toDir, name)
+  if (!existsSync(src)) throw new Error(`skill not found: ${src}`)
+  if (existsSync(dst)) throw new Error(`${to} already has "${name}"`)
+  mkdirSync(toDir, { recursive: true })
+  cpSync(src, dst, { recursive: true })
 }
 
 function shareToCopilot(name: string, cfg: McpConfig): void {
