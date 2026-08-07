@@ -15,8 +15,6 @@ import {
 const PAGE = 20
 /** Server-side page clamp — hide "more" past this. */
 const MAX_LOADED = 1000
-/** collapsedOrgs key for the flat Chats section (sessions with no repo) */
-const CHATS_KEY = 'chats'
 
 /** Live-index refetches must not churn row identity when nothing visible changed. */
 function sameList(a: SessionMeta[], b: SessionMeta[]): boolean {
@@ -39,33 +37,6 @@ function fmtTime(ms: number): string {
   return today
     ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-
-interface OrgGroup {
-  /** GitHub owner login, or the pseudo-owner 'Local' */
-  owner: string
-  kind: 'github' | 'local'
-  repos: RepoGroup[]
-  lastActivity: number
-}
-
-function groupByOwner(repos: RepoGroup[]): OrgGroup[] {
-  const m = new Map<string, OrgGroup>()
-  for (const r of repos) {
-    const kind = r.fullName ? 'github' : 'local'
-    const owner = kind === 'github' ? r.fullName!.split('/')[0] : 'Local'
-    let g = m.get(`${kind}:${owner}`)
-    if (!g) {
-      g = { owner, kind, repos: [], lastActivity: 0 }
-      m.set(`${kind}:${owner}`, g)
-    }
-    g.repos.push(r)
-    if (r.lastActivity > g.lastActivity) g.lastActivity = r.lastActivity
-  }
-  const rank = { github: 0, local: 1 } as const
-  return [...m.values()].sort(
-    (a, b) => rank[a.kind] - rank[b.kind] || b.lastActivity - a.lastActivity
-  )
 }
 
 export function TreeSidebar({
@@ -98,19 +69,16 @@ export function TreeSidebar({
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [collapsedOrgs, setCollapsedOrgs] = useState<Set<string>>(new Set())
   const autoExpanded = useRef(false)
 
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
-  // non-repo sessions get their own flat Chats section instead of a faux org/repo nesting
+  // non-repo sessions get their own flat Chats section instead of a faux repo row
   const general = useMemo(
     () => visibleRepos.find((r) => r.key === 'general') ?? null,
     [visibleRepos]
   )
-  const orgs = useMemo(
-    () => groupByOwner(visibleRepos.filter((r) => r.key !== 'general')),
-    [visibleRepos]
-  )
+  const repoList = useMemo(() => visibleRepos.filter((r) => r.key !== 'general'), [visibleRepos])
+  const [chatsOpen, setChatsOpen] = useState(true)
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 250)
@@ -119,11 +87,11 @@ export function TreeSidebar({
 
   // first repo starts expanded — once, so a later index update can't undo a collapse-all
   useEffect(() => {
-    if (visibleRepos.length > 0 && !autoExpanded.current) {
+    if (repoList.length > 0 && !autoExpanded.current) {
       autoExpanded.current = true
-      setExpanded(new Set([visibleRepos[0].key]))
+      setExpanded(new Set([repoList[0].key]))
     }
-  }, [visibleRepos])
+  }, [repoList])
 
   const toggle = (key: string): void =>
     setExpanded((prev) => {
@@ -198,87 +166,29 @@ export function TreeSidebar({
             onSelect={onSelect}
           />
         ) : (
-          orgs.map((org) => {
-            const orgKey = `${org.kind}:${org.owner}`
-            const open = !collapsedOrgs.has(orgKey)
-            return (
-              <div key={orgKey} className="org-node" role="presentation">
-                <div
-                  className="org-row"
-                  role="treeitem"
-                  aria-expanded={open}
-                  tabIndex={0}
-                  onClick={() =>
-                    setCollapsedOrgs((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(orgKey)) next.delete(orgKey)
-                      else next.add(orgKey)
-                      return next
-                    })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      ;(e.currentTarget as HTMLElement).click()
-                    }
-                  }}
-                >
-                  <span className={`chev ${open ? 'open' : ''}`}>▸</span>
-                  <span className="org-icon">
-                    <OrgIcon size={12} />
-                  </span>
-                  <span className="org-name">{org.owner}</span>
-                  {org.kind === 'github' && (
-                    <span className="row-actions">
-                      <button
-                        className="icon-btn small"
-                        title={`Open ${org.owner} on GitHub`}
-                        aria-label={`Open ${org.owner} on GitHub`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onOpenUrl(`https://github.com/${org.owner}`)
-                        }}
-                      >
-                        <LinkExternalIcon size={10} />
-                      </button>
-                    </span>
-                  )}
-                  <span className="repo-count">{org.repos.length}</span>
-                </div>
-                {open &&
-                  org.repos.map((r) => (
-                    <RepoNode
-                      key={r.key}
-                      repo={r}
-                      open={expanded.has(r.key)}
-                      indexVersion={indexVersion}
-                      accounts={accounts}
-                      selectedId={selectedId}
-                      onToggle={() => toggle(r.key)}
-                      onSelect={onSelect}
-                      onNewSession={onNewSession}
-                      onOpenUrl={onOpenUrl}
-                    />
-                  ))}
-              </div>
-            )
-          })
+          repoList.map((r) => (
+            <RepoNode
+              key={r.key}
+              repo={r}
+              open={expanded.has(r.key)}
+              indexVersion={indexVersion}
+              accounts={accounts}
+              selectedId={selectedId}
+              onToggle={() => toggle(r.key)}
+              onSelect={onSelect}
+              onNewSession={onNewSession}
+              onOpenUrl={onOpenUrl}
+            />
+          ))
         )}
         {!debounced && general && (
           <ChatsSection
             repo={general}
-            open={!collapsedOrgs.has(CHATS_KEY)}
+            open={chatsOpen}
             indexVersion={indexVersion}
             accounts={accounts}
             selectedId={selectedId}
-            onToggle={() =>
-              setCollapsedOrgs((prev) => {
-                const next = new Set(prev)
-                if (next.has(CHATS_KEY)) next.delete(CHATS_KEY)
-                else next.add(CHATS_KEY)
-                return next
-              })
-            }
+            onToggle={() => setChatsOpen((v) => !v)}
             onSelect={onSelect}
           />
         )}
@@ -427,7 +337,7 @@ function RepoNode({
         role="treeitem"
         aria-expanded={open}
         tabIndex={0}
-        title={repo.fullName ?? repo.root ?? repo.name}
+        title={repo.root ?? repo.fullName ?? repo.name}
         onClick={onToggle}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -441,7 +351,16 @@ function RepoNode({
         <span className="repo-icon">
           <RepoIcon size={13} />
         </span>
-        <span className="repo-name">{repo.name}</span>
+        <span className="repo-name">
+          {repo.fullName ? (
+            <>
+              <span className="repo-owner">{repo.fullName.split('/')[0]}/</span>
+              {repo.fullName.split('/')[1]}
+            </>
+          ) : (
+            repo.name
+          )}
+        </span>
         <span className="repo-providers">
           {repo.providers.map((p) => (
             <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
@@ -538,9 +457,9 @@ function ChatsSection({
   const [showArchived, setShowArchived] = useState(false)
 
   return (
-    <div className="org-node chats-section" role="presentation">
+    <div className="chats-section" role="presentation">
       <div
-        className="org-row"
+        className="section-row"
         role="treeitem"
         aria-expanded={open}
         tabIndex={0}
@@ -555,10 +474,10 @@ function ChatsSection({
         }}
       >
         <span className={`chev ${open ? 'open' : ''}`}>▸</span>
-        <span className="org-icon">
+        <span className="section-icon">
           <ChatIcon size={12} />
         </span>
-        <span className="org-name">Chats</span>
+        <span className="section-name">Chats</span>
         <span className="repo-providers">
           {repo.providers.map((p) => (
             <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
