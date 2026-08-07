@@ -17,6 +17,11 @@ import {
 import { getAccounts, setCopilotActiveUser } from './accounts'
 import { homedir } from 'node:os'
 
+// e2e/dev isolation only — a packaged app must never honor a data-dir override
+if (!app.isPackaged && process.env['COCKPIT_USER_DATA']) {
+  app.setPath('userData', resolve(process.env['COCKPIT_USER_DATA']))
+}
+
 let win: BrowserWindow | null = null
 let indexer: SessionIndexer
 let chat: ChatManager
