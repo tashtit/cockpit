@@ -538,7 +538,7 @@ function ChatsSection({
   const [showArchived, setShowArchived] = useState(false)
 
   return (
-    <div className="org-node" role="presentation">
+    <div className="org-node chats-section" role="presentation">
       <div
         className="org-row"
         role="treeitem"
