@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChatEvent,
   PermissionMode,
@@ -321,6 +321,9 @@ export function App(): JSX.Element {
 
   const openUrl = useCallback((url: string) => void api.openExternal(url), [])
 
+  // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
+  const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
+
   return (
     <div className="app">
       <TreeSidebar
@@ -351,14 +354,14 @@ export function App(): JSX.Element {
       ) : view.kind === 'new' ? (
         <NewSession
           repo={view.repo}
-          repos={repos}
+          repos={visibleRepos}
           busy={creating}
           onStart={startSession}
           onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
         />
       ) : view.kind === 'welcome' ? (
         <HomeView
-          repos={repos}
+          repos={visibleRepos}
           indexVersion={indexVersion}
           busy={creating}
           onStart={startSession}

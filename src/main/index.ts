@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import type { ChatRequest, Provider, SessionQuery } from '../shared/types'
 import { SessionIndexer } from './indexer'
 import { ChatManager } from './chat'
-import { loadConfig, saveConfig, setSessionArchived } from './config'
+import { loadConfig, saveConfig, setRepoHidden, setSessionArchived } from './config'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
 import { getExtensions, shareMcp, shareSkill } from './extensions'
@@ -82,6 +82,7 @@ app.whenReady().then(() => {
     cacheFile: join(app.getPath('userData'), 'index-cache.json')
   })
   indexer.setArchived(cfg.archived ?? [])
+  indexer.setHiddenRepos(cfg.hiddenRepos ?? [])
   void indexer.setSources(cfg.sources)
 
   ipcMain.handle('sources:get', () => loadConfig().sources)
@@ -110,6 +111,9 @@ app.whenReady().then(() => {
   ipcMain.handle('sessions:messages', (_e, id: string) => indexer.getMessages(id))
   ipcMain.handle('sessions:archive', (_e, id: string, archived: boolean) => {
     indexer.setArchived(setSessionArchived(id, archived))
+  })
+  ipcMain.handle('repos:set-hidden', (_e, key: string, hidden: boolean) => {
+    indexer.setHiddenRepos(setRepoHidden(String(key), Boolean(hidden)))
   })
   ipcMain.handle('github:prs', (_e, repoRoot: string) => getPrs(assertKnownRepoRoot(repoRoot)))
   ipcMain.handle('workspace:create', (_e, repoRoot: string, name?: string) =>

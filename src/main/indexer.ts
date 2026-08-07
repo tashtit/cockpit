@@ -11,6 +11,7 @@ import type {
   SourceDir
 } from '../shared/types'
 import { GENERAL_REPO, clearRepoCache, resolveRepo } from './repos'
+import { listProviderArchivedIds } from './providerArchived'
 import {
   listClaudeSessionFiles,
   listClaudeSessionRoots,
@@ -118,6 +119,11 @@ export class SessionIndexer {
   private scanQueued = false
   private sources: SourceDir[] = []
   private archived = new Set<string>()
+  /** Archived in the provider's own app — excluded everywhere (see providerArchived.ts) */
+  private providerArchived = new Set<string>()
+  private providerArchivedTimer: NodeJS.Timeout | null = null
+  /** Repo keys the user chose not to display */
+  private hiddenRepos = new Set<string>()
   private onUpdate: () => void
   private cacheFile: string | null
 
@@ -131,6 +137,29 @@ export class SessionIndexer {
   setArchived(ids: string[]): void {
     this.archived = new Set(ids)
     this.emitUpdate()
+  }
+
+  /** Applied at query time; repo groups stay listed (flagged hidden) for the chooser UI. */
+  setHiddenRepos(keys: string[]): void {
+    this.hiddenRepos = new Set(keys)
+    this.emitUpdate()
+  }
+
+  private async refreshProviderArchived(): Promise<void> {
+    const next = await listProviderArchivedIds(this.sources, this.providerArchived)
+    const changed =
+      next.size !== this.providerArchived.size ||
+      [...next].some((id) => !this.providerArchived.has(id))
+    this.providerArchived = next
+    if (changed) this.emitUpdate()
+  }
+
+  private scheduleProviderArchivedRefresh(): void {
+    if (this.providerArchivedTimer) return
+    this.providerArchivedTimer = setTimeout(() => {
+      this.providerArchivedTimer = null
+      void this.refreshProviderArchived()
+    }, 2000)
   }
 
   setSources(sources: SourceDir[]): Promise<void> {
@@ -161,6 +190,20 @@ export class SessionIndexer {
         try {
           const w = watch(s.path, (_event, filename) => {
             if (filename?.toString() === 'session_index.jsonl') this.scheduleRescan()
+          })
+          w.on('error', (err) => console.error(`[indexer] watcher error for ${s.path}:`, err))
+          this.watchers.push(w)
+        } catch (err) {
+          console.error(`[indexer] cannot watch ${s.path}:`, err)
+        }
+      }
+      // copilot's archive flag lives in <home>/data.db, outside the session roots —
+      // a shallow watch on the home dir picks up archive toggles made in the app
+      if (s.provider === 'copilot') {
+        try {
+          const w = watch(s.path, (_event, filename) => {
+            if (filename && !filename.toString().startsWith('data.db')) return
+            this.scheduleProviderArchivedRefresh()
           })
           w.on('error', (err) => console.error(`[indexer] watcher error for ${s.path}:`, err))
           this.watchers.push(w)
@@ -236,6 +279,7 @@ export class SessionIndexer {
     }
     this.scanning = true
     try {
+      await this.refreshProviderArchived()
       // repo remotes can change between scans — resolution is cheap cached fs reads
       clearRepoCache()
       const next = new Map<string, SessionMeta>()
@@ -340,10 +384,18 @@ export class SessionIndexer {
   listRepos(): RepoGroup[] {
     const groups = new Map<string, RepoGroup>()
     for (const s of this.sessions.values()) {
+      if (this.providerArchived.has(s.id)) continue
       const info = s.repo ?? GENERAL_REPO
       let g = groups.get(info.key)
       if (!g) {
-        g = { ...info, sessionCount: 0, archivedCount: 0, lastActivity: 0, providers: [] }
+        g = {
+          ...info,
+          sessionCount: 0,
+          archivedCount: 0,
+          lastActivity: 0,
+          providers: [],
+          hidden: this.hiddenRepos.has(info.key)
+        }
         groups.set(info.key, g)
       }
       if (this.archived.has(s.id)) g.archivedCount++
@@ -372,9 +424,13 @@ export class SessionIndexer {
 
   page(query: SessionQuery): SessionPage {
     let all = [...this.sessions.values()]
+    all = all.filter((s) => !this.providerArchived.has(s.id))
     all = all.filter((s) => this.archived.has(s.id) === !!query.archived)
     if (query.repoKey) {
       all = all.filter((s) => (s.repo?.key ?? 'general') === query.repoKey)
+    } else {
+      // global queries (search) skip repos the user chose not to display
+      all = all.filter((s) => !this.hiddenRepos.has(s.repo?.key ?? 'general'))
     }
     if (query.providers?.length) {
       const set = new Set<Provider>(query.providers)
@@ -480,6 +536,10 @@ export class SessionIndexer {
   stopWatchers(): void {
     for (const w of this.watchers) void w.close()
     this.watchers = []
+    if (this.providerArchivedTimer) {
+      clearTimeout(this.providerArchivedTimer)
+      this.providerArchivedTimer = null
+    }
   }
 }
 

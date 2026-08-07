@@ -14,6 +14,8 @@ interface AppConfig {
     /** Keyed by repo root path */
     repos?: Record<string, string>
   }
+  /** Repo keys the user chose not to display (everything is visible by default) */
+  hiddenRepos?: string[]
 }
 
 function configPath(): string {
@@ -52,6 +54,16 @@ export function setSessionArchived(sessionId: string, archived: boolean): string
   cfg.archived = [...set]
   saveConfig(cfg)
   return cfg.archived
+}
+
+export function setRepoHidden(repoKey: string, hidden: boolean): string[] {
+  const cfg = loadConfig()
+  const set = new Set(cfg.hiddenRepos ?? [])
+  if (hidden) set.add(repoKey)
+  else set.delete(repoKey)
+  cfg.hiddenRepos = [...set]
+  saveConfig(cfg)
+  return cfg.hiddenRepos
 }
 
 export function saveConfig(cfg: AppConfig): void {
