@@ -28,6 +28,15 @@ const api: CockpitApi = {
   createPr: (cwd: string) => ipcRenderer.invoke('workspace:pr', cwd),
   getExtensions: () => ipcRenderer.invoke('extensions:get'),
   shareMcp: (name: string, to: Provider) => ipcRenderer.invoke('extensions:share-mcp', name, to),
+  shareSkill: (name: string, from: Provider, to: Provider) =>
+    ipcRenderer.invoke('extensions:share-skill', name, from, to),
+  getInstructions: (repoRoot: string | null) => ipcRenderer.invoke('instructions:get', repoRoot),
+  saveInstructionsBaseline: (repoRoot: string | null, baseline: string) =>
+    ipcRenderer.invoke('instructions:save-baseline', repoRoot, baseline),
+  applyInstructions: (repoRoot: string | null, onlyPath?: string) =>
+    ipcRenderer.invoke('instructions:apply', repoRoot, onlyPath),
+  saveInstructionFile: (repoRoot: string | null, path: string, content: string) =>
+    ipcRenderer.invoke('instructions:save-file', repoRoot, path, content),
   getAccounts: () => ipcRenderer.invoke('accounts:get'),
   getZoomFactor: () => webFrame.getZoomFactor(),
   setZoomFactor: (factor: number) =>

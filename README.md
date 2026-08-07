@@ -16,7 +16,9 @@ npm test           # vitest parser/indexer tests
 
 - Auto-detects `~/.claude`, `~/.codex`, `~/.copilot` on first run and indexes all sessions found there, **grouped by git repository** (worktree-aware: sessions in linked worktrees group under their main repo; GitHub `owner/repo` is read from the origin remote). Non-repo sessions land in a "General" bucket (dedicated general-chat UX comes later).
 - Compact **treeview sidebar**: GitHub **organizations/accounts → repositories → sessions** (paginated "more…", global search, per-repo archived section). The full index is never shipped to or rendered by the UI.
-- **Extensions manager**: inventory of MCP servers, skills, plugins, and marketplaces across all three agents, with one-click **MCP sharing** that translates a server definition into each agent's own config format (`~/.claude.json`, `~/.codex/config.toml`, `~/.copilot/mcp-config.json`).
+- **AI Setup**: one place to manage the shared AI experience across all three agents.
+  - **Shared instructions**: write one baseline (global, or per-repo) and fan it out into each agent's own instructions file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.copilot/copilot-instructions.md`; in repos `CLAUDE.md` + `AGENTS.md` — Codex and Copilot both read AGENTS.md natively). The shared text lives inside `<!-- cockpit:shared -->` markers; everything outside is that agent's own and never touched. Drift detection (in sync / out of date / not applied) with one-click re-apply, plus inline editing of each full file.
+  - **MCP / skills / plugins / marketplaces** inventory, with one-click **MCP sharing** that translates a server definition into each agent's own config format (`~/.claude.json`, `~/.codex/config.toml`, `~/.copilot/mcp-config.json`) and **skill copying** between Claude and Copilot. Claude's per-project MCP servers (under `projects.*` in `~/.claude.json`) are inventoried too, labeled with their project.
 - **Per-agent session options**: model override for all agents, sandbox mode for Codex — validated main-side before touching argv.
 - **Fast by architecture**: only per-provider session roots are walked/watched (never `pkg/`, `repos/`, logs, or SQLite files); meta parsing reads at most 256KB per file (copilot's session.start line carries repo/branch/cwd); the stat-cache (mtime+size) persists to userData so restarts only re-parse changed files; scans yield to the event loop so IPC never blocks.
 - **Archiving**: sessions can be archived in-app (stored in cockpit config — provider logs have no such flag); archived sessions collapse into a dimmed per-repo section.
@@ -35,14 +37,16 @@ src/shared/types.ts       shared contracts (SessionMeta, RepoInfo, CockpitApi, �
 src/main/parsers/         per-provider session log parsers (failure-tolerant)
 src/main/repos.ts         cwd → git repo resolution (worktree-aware, GitHub remote)
 src/main/indexer.ts       scan + stat-cache + fs.watch(recursive) + repo grouping + paging
-src/main/extensions.ts    MCP/skills/plugins inventory + cross-agent MCP sharing
+src/main/extensions.ts    MCP/skills/plugins inventory + cross-agent MCP/skill sharing
+src/main/instructions-core.ts  shared-instructions pure logic (markers, drift, targets)
+src/main/instructions.ts  shared-instructions IO (baseline storage + fan-out)
 src/main/github.ts        PR status per repo via `gh pr list` (cached)
 src/main/workspace.ts     worktree/branch creation + push/`gh pr create`
 src/main/chat.ts          ChatManager: spawn provider CLIs, parse stream events
 src/main/config.ts        source-dir registry
 src/main/index.ts         electron bootstrap + IPC
 src/preload/index.ts      contextBridge → window.cockpit
-src/renderer/             React UI (TreeSidebar, ChatView, NewSession, Settings, logos.tsx)
+src/renderer/             React UI (TreeSidebar, ChatView, NewSession, AiSetup, Settings, logos.tsx)
 ```
 
 ## Notes

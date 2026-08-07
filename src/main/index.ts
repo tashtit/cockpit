@@ -7,7 +7,13 @@ import { ChatManager } from './chat'
 import { loadConfig, saveConfig, setSessionArchived } from './config'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
-import { getExtensions, shareMcp } from './extensions'
+import { getExtensions, shareMcp, shareSkill } from './extensions'
+import {
+  applyInstructions,
+  getInstructions,
+  saveBaseline,
+  saveInstructionFile
+} from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
 import { homedir } from 'node:os'
 
@@ -120,6 +126,28 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('extensions:get', () => getExtensions())
   ipcMain.handle('extensions:share-mcp', (_e, name: string, to: Provider) => shareMcp(name, to))
+  ipcMain.handle('extensions:share-skill', (_e, name: string, from: Provider, to: Provider) =>
+    shareSkill(name, from, to)
+  )
+
+  // instruction scopes come from the renderer — null = global, else a repo the
+  // indexer itself derived (never an arbitrary path)
+  const instructionScope = (repoRoot: unknown): string | null =>
+    repoRoot === null ? null : assertKnownRepoRoot(repoRoot)
+  ipcMain.handle('instructions:get', (_e, repoRoot: string | null) =>
+    getInstructions(instructionScope(repoRoot))
+  )
+  ipcMain.handle('instructions:save-baseline', (_e, repoRoot: string | null, baseline: string) =>
+    saveBaseline(instructionScope(repoRoot), String(baseline))
+  )
+  ipcMain.handle('instructions:apply', (_e, repoRoot: string | null, onlyPath?: string) =>
+    applyInstructions(instructionScope(repoRoot), onlyPath ? String(onlyPath) : undefined)
+  )
+  ipcMain.handle(
+    'instructions:save-file',
+    (_e, repoRoot: string | null, path: string, content: string) =>
+      saveInstructionFile(instructionScope(repoRoot), String(path), String(content))
+  )
   ipcMain.handle('shell:open', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
     return Promise.resolve()

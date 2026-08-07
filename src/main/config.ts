@@ -8,6 +8,12 @@ interface AppConfig {
   sources: SourceDir[]
   /** Session ids the user archived in Cockpit (provider logs have no such flag) */
   archived?: string[]
+  /** Shared AI instruction baselines — fanned out into each agent's own file */
+  sharedInstructions?: {
+    global?: string
+    /** Keyed by repo root path */
+    repos?: Record<string, string>
+  }
 }
 
 function configPath(): string {
