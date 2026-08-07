@@ -14,7 +14,7 @@ npm test           # vitest parser/indexer tests
 
 ## What it does (GitHub-first)
 
-- Auto-detects `~/.claude`, `~/.codex`, `~/.copilot` on first run and indexes all sessions found there, **grouped by git repository** (worktree-aware: sessions in linked worktrees group under their main repo; GitHub `owner/repo` is read from the origin remote). Non-repo sessions land in a "General" bucket (dedicated general-chat UX comes later).
+- Auto-detects `~/.claude`, `~/.codex`, `~/.copilot` on first run and indexes all sessions found there, **grouped by git repository** (worktree-aware: sessions in linked worktrees group under their main repo; GitHub `owner/repo` is read from the origin remote). Non-repo sessions land in a flat "Chats" section at the bottom of the sidebar.
 - Compact **treeview sidebar**: GitHub **organizations/accounts → repositories → sessions** (paginated "more…", global search, per-repo archived section). The full index is never shipped to or rendered by the UI.
 - **AI Setup**: one place to manage the shared AI experience across all three agents.
   - **Shared instructions**: write one baseline (global, or per-repo) and fan it out into each agent's own instructions file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.copilot/copilot-instructions.md`; in repos `CLAUDE.md` + `AGENTS.md` — Codex and Copilot both read AGENTS.md natively). The shared text lives inside `<!-- cockpit:shared -->` markers; everything outside is that agent's own and never touched. Drift detection (in sync / out of date / not applied) with one-click re-apply, plus inline editing of each full file.

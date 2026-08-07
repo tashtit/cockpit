@@ -3,8 +3,10 @@
 > Extends `MASTER.md`. Rules here win for this view.
 
 **Pattern:** GitHub-first navigation tree: org (owner) → repo → sessions, ordered
-GitHub orgs first, then Local, then General, each by last activity. The sidebar is the
-exhaustive session list (Home shows only a taste).
+GitHub orgs first, then Local, each by last activity. Sessions with no repo don't get a
+faux org/repo nesting — they live in a flat **Chats** section pinned last: an org-style
+header with the sessions directly under it. The sidebar is the exhaustive session list
+(Home shows only a taste).
 
 ## Structure
 
@@ -21,6 +23,11 @@ exhaustive session list (Home shows only a taste).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
     logo, title, optional `.acct-chip` (only when that provider has multiple accounts),
     compact `PrBadge` **or** timestamp (exclusive slot), archived = strikethrough + dimmed.
+  - Chats section — split off the repo tree by a full-bleed hairline divider + extra gap
+    (`.chats-section`, suppressed when it's the only section): an `.org-row` header
+    (comment icon, per-provider logos, session count as plain text) whose
+    `.repo-children` are the sessions themselves: no repo row in between, same
+    pagination and archived toggle as a repo.
 - Hover/focus-within actions (`+` new session, archive) float in `.row-actions` over the
   row's right edge — nothing reflows.
 - `.sidebar-footer`: who each agent runs as (always visible), plus GitHub identity from
