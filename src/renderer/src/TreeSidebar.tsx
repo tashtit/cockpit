@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AccountsSnapshot, PrStatus, RepoGroup, SessionMeta } from '../../shared/types'
 import { api } from './api'
 import {
+  ChatIcon,
   CockpitLogo,
   LinkExternalIcon,
   OrgIcon,
@@ -14,6 +15,8 @@ import {
 const PAGE = 20
 /** Server-side page clamp — hide "more" past this. */
 const MAX_LOADED = 1000
+/** collapsedOrgs key for the flat Chats section (sessions with no repo) */
+const CHATS_KEY = 'chats'
 
 /** Live-index refetches must not churn row identity when nothing visible changed. */
 function sameList(a: SessionMeta[], b: SessionMeta[]): boolean {
@@ -39,9 +42,9 @@ function fmtTime(ms: number): string {
 }
 
 interface OrgGroup {
-  /** GitHub owner login, or the pseudo-owners 'Local' / 'General' */
+  /** GitHub owner login, or the pseudo-owner 'Local' */
   owner: string
-  kind: 'github' | 'local' | 'general'
+  kind: 'github' | 'local'
   repos: RepoGroup[]
   lastActivity: number
 }
@@ -49,8 +52,8 @@ interface OrgGroup {
 function groupByOwner(repos: RepoGroup[]): OrgGroup[] {
   const m = new Map<string, OrgGroup>()
   for (const r of repos) {
-    const kind = r.key === 'general' ? 'general' : r.fullName ? 'github' : 'local'
-    const owner = kind === 'github' ? r.fullName!.split('/')[0] : kind === 'local' ? 'Local' : 'General'
+    const kind = r.fullName ? 'github' : 'local'
+    const owner = kind === 'github' ? r.fullName!.split('/')[0] : 'Local'
     let g = m.get(`${kind}:${owner}`)
     if (!g) {
       g = { owner, kind, repos: [], lastActivity: 0 }
@@ -59,7 +62,7 @@ function groupByOwner(repos: RepoGroup[]): OrgGroup[] {
     g.repos.push(r)
     if (r.lastActivity > g.lastActivity) g.lastActivity = r.lastActivity
   }
-  const rank = { github: 0, local: 1, general: 2 } as const
+  const rank = { github: 0, local: 1 } as const
   return [...m.values()].sort(
     (a, b) => rank[a.kind] - rank[b.kind] || b.lastActivity - a.lastActivity
   )
@@ -99,7 +102,15 @@ export function TreeSidebar({
   const autoExpanded = useRef(false)
 
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
-  const orgs = useMemo(() => groupByOwner(visibleRepos), [visibleRepos])
+  // non-repo sessions get their own flat Chats section instead of a faux org/repo nesting
+  const general = useMemo(
+    () => visibleRepos.find((r) => r.key === 'general') ?? null,
+    [visibleRepos]
+  )
+  const orgs = useMemo(
+    () => groupByOwner(visibleRepos.filter((r) => r.key !== 'general')),
+    [visibleRepos]
+  )
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 250)
@@ -252,6 +263,24 @@ export function TreeSidebar({
               </div>
             )
           })
+        )}
+        {!debounced && general && (
+          <ChatsSection
+            repo={general}
+            open={!collapsedOrgs.has(CHATS_KEY)}
+            indexVersion={indexVersion}
+            accounts={accounts}
+            selectedId={selectedId}
+            onToggle={() =>
+              setCollapsedOrgs((prev) => {
+                const next = new Set(prev)
+                if (next.has(CHATS_KEY)) next.delete(CHATS_KEY)
+                else next.add(CHATS_KEY)
+                return next
+              })
+            }
+            onSelect={onSelect}
+          />
         )}
         {repos.length === 0 && (
           <div className="empty-item">
@@ -488,6 +517,95 @@ function RepoNode({
   )
 }
 
+/** Sessions with no repo: one flat section — a Chats header with the sessions right under it. */
+function ChatsSection({
+  repo,
+  open,
+  indexVersion,
+  accounts,
+  selectedId,
+  onToggle,
+  onSelect
+}: {
+  repo: RepoGroup
+  open: boolean
+  indexVersion: number
+  accounts: AccountsSnapshot | null
+  selectedId: string | null
+  onToggle: () => void
+  onSelect: (s: SessionMeta) => void
+}): JSX.Element {
+  const [showArchived, setShowArchived] = useState(false)
+
+  return (
+    <div className="org-node" role="presentation">
+      <div
+        className="org-row"
+        role="treeitem"
+        aria-expanded={open}
+        tabIndex={0}
+        title="Chats without a repository"
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggle()
+          } else if (e.key === 'ArrowRight' && !open) onToggle()
+          else if (e.key === 'ArrowLeft' && open) onToggle()
+        }}
+      >
+        <span className={`chev ${open ? 'open' : ''}`}>▸</span>
+        <span className="org-icon">
+          <ChatIcon size={12} />
+        </span>
+        <span className="org-name">Chats</span>
+        <span className="repo-providers">
+          {repo.providers.map((p) => (
+            <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
+              <ProviderLogo p={p} size={9} />
+            </span>
+          ))}
+        </span>
+        <span className="repo-count">{repo.sessionCount}</span>
+      </div>
+      {open && (
+        <div className="repo-children" role="group">
+          <SessionList
+            repoKey={repo.key}
+            archived={false}
+            prs={[]}
+            indexVersion={indexVersion}
+            accounts={accounts}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onOpenUrl={() => {}}
+          />
+          {repo.archivedCount > 0 && (
+            <>
+              <button className="archived-toggle" onClick={() => setShowArchived((v) => !v)}>
+                <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
+                Archived ({repo.archivedCount})
+              </button>
+              {showArchived && (
+                <SessionList
+                  repoKey={repo.key}
+                  archived
+                  prs={[]}
+                  indexVersion={indexVersion}
+                  accounts={accounts}
+                  selectedId={selectedId}
+                  onSelect={onSelect}
+                  onOpenUrl={() => {}}
+                />
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SessionList({
   repoKey,
   archived,
@@ -639,7 +757,7 @@ function SearchResults({
 
   const groups = new Map<string, SessionMeta[]>()
   for (const s of items) {
-    const k = s.repo?.name ?? 'General'
+    const k = s.repo?.name ?? 'Chats'
     if (!groups.has(k)) groups.set(k, [])
     groups.get(k)!.push(s)
   }
