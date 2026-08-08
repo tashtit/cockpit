@@ -1,0 +1,7 @@
+# Proposes reviewed updates for the release-tag-pinned actions in .github/workflows.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

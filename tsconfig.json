@@ -12,5 +12,11 @@
     "esModuleInterop": true,
     "types": ["node"]
   },
-  "include": ["src/**/*", "tests/**/*", "electron.vite.config.ts"]
+  "include": [
+    "src/**/*",
+    "tests/**/*",
+    "electron.vite.config.ts",
+    "vitest.workspace.ts",
+    "playwright.config.ts"
+  ]
 }

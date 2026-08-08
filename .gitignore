@@ -4,6 +4,10 @@ dist/
 *.log
 .DS_Store
 
+# Test output
+test-results/
+playwright-report/
+
 # Editor / local tooling
 .idea/
 .vscode/

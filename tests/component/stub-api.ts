@@ -1,0 +1,37 @@
+import { vi } from 'vitest'
+import type { CockpitApi } from '../../src/shared/types'
+
+/**
+ * A complete CockpitApi double with empty-state defaults. Tests override
+ * individual methods via vi.mocked(window.cockpit.method).mockResolvedValue(...).
+ */
+export function freshApi(): CockpitApi {
+  return {
+    sendChat: vi.fn(async () => 'turn-1'),
+    cancelChat: vi.fn(async () => {}),
+    onChatEvent: vi.fn(() => () => {}),
+    getSources: vi.fn(async () => []),
+    addSource: vi.fn(async () => []),
+    removeSource: vi.fn(async () => []),
+    listRepos: vi.fn(async () => []),
+    pageSessions: vi.fn(async () => ({ total: 0, items: [] })),
+    getSessionMessages: vi.fn(async () => []),
+    setArchived: vi.fn(async () => {}),
+    setRepoHidden: vi.fn(async () => {}),
+    getPrs: vi.fn(async () => []),
+    createWorkspace: vi.fn(async () => ({ cwd: '/tmp/wt', branch: 'main' })),
+    createPr: vi.fn(async () => 'https://github.com/o/r/pull/1'),
+    getExtensions: vi.fn(async () => ({ mcp: [], skills: [], plugins: [], marketplaces: [] })),
+    shareMcp: vi.fn(async () => {}),
+    shareSkill: vi.fn(async () => {}),
+    getInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
+    saveInstructionsBaseline: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
+    applyInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
+    saveInstructionFile: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
+    getAccounts: vi.fn(async () => ({ accounts: [], githubUser: null })),
+    getZoomFactor: vi.fn(() => 1),
+    setZoomFactor: vi.fn(),
+    openExternal: vi.fn(async () => {}),
+    onIndexUpdated: vi.fn(() => () => {})
+  }
+}
