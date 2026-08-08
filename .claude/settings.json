@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$PWD\" in */.claude/worktrees/*) git fetch origin main --quiet 2>/dev/null && git merge --ff-only origin/main 2>/dev/null || true ;; esac",
+            "timeout": 30,
+            "statusMessage": "Syncing worktree with origin/main"
+          }
+        ]
+      }
+    ]
+  }
+}
