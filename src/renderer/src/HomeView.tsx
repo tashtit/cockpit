@@ -102,7 +102,7 @@ export function HomeView({
     <main className="chat home-view">
       <div className="home-inner">
         <div className="home-hero">
-          <CockpitLogo size={40} />
+          <CockpitLogo size={48} />
           <h2>What should we ship?</h2>
           <p className="home-sub">
             Assign a task to an agent — it runs in an isolated worktree and lands as a PR.
@@ -206,7 +206,7 @@ export function HomeView({
                 <li key={s.id}>
                   <button className="recent-row" onClick={() => onOpenSession(s)}>
                     <span className={`plogo plogo-${s.provider}`} title={PROVIDER_LABEL[s.provider]}>
-                      <ProviderLogo p={s.provider} size={13} />
+                      <ProviderLogo p={s.provider} size={14} />
                     </span>
                     <span className="recent-title">{s.title}</span>
                     <span className="recent-meta">

@@ -18,7 +18,7 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 - Tree rows, in visual grammar:
   - `.org-row` — sticky (`top: 0`, solid `--bg2` so scrolling rows pass under it),
     lowercase micro-caps, plain-text repo count.
-  - `.repo-row` — chevron, repo icon, name, tiny per-provider logos (9px), bordered
+  - `.repo-row` — chevron, repo icon, name, tiny per-provider logos (10px), bordered
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
     logo, title, optional `.acct-chip` (only when that provider has multiple accounts),

@@ -20,26 +20,29 @@
 
 ## Design Language
 
-Refined OLED dark: deep gradient base (`--bg` → `--bg-deep`), elevated translucent surfaces,
-hairline rgba borders, one indigo accent, and **per-agent identity colors** used consistently
-everywhere an agent appears. GitHub PR-state colors match github.com exactly.
+Refined OLED dark: deep gradient base (`--bg` → `--bg-deep`) with a faint accent aurora at
+the top of the window, elevated translucent surfaces, hairline rgba borders, one indigo
+accent, and **per-agent identity colors** used consistently everywhere an agent appears.
+Neutrals, surfaces, and borders all carry a subtle indigo cast (tinted rgba, not pure
+white/grey) so the whole app harmonizes with the accent. GitHub PR-state colors match
+github.com exactly.
 
 - Dark mode only. Never add a light theme without a full contrast re-audit.
-- Density is intentionally high (11–13px UI text, 26–28px rows). This is a pro desktop tool, not a marketing site.
+- Density is intentionally high (11–13px UI chrome, 28–30px rows). This is a pro desktop tool, not a marketing site. The one deliberate exception: transcript prose and composer text read at `--fs-prose` (14px/1.6) — chrome is scanned, prose is read.
 - Motion is subtle: 160ms `--ease` transitions on background/border/color only. No entrance choreography, no scroll reveals, no layout-shifting transforms (pressed state = `filter: brightness(0.88)`).
 
 ## Color Tokens (actual values from style.css)
 
 | Role | Value | Token |
 |------|-------|-------|
-| Background (gradient top) | `#0b0d12` | `--bg` |
-| Background (gradient bottom) | `#07080c` | `--bg-deep` |
-| Elevated surface 1 / 2 | `#11141c` / `#1a1e29` | `--bg2` / `--bg3` |
-| Translucent surface | `rgba(255,255,255,0.04)` | `--surface` |
-| Border / strong border | `rgba(255,255,255,0.09)` / `0.16` | `--border` / `--border-strong` |
-| Foreground / dim | `#e8eaf2` / `#969db1` | `--fg` / `--fg-dim` |
+| Background (gradient top) | `#0b0d16` | `--bg` |
+| Background (gradient bottom) | `#05060b` | `--bg-deep` |
+| Elevated surface 1 / 2 | `#121521` / `#1b2031` | `--bg2` / `--bg3` |
+| Translucent surface | `rgba(167,178,255,0.05)` | `--surface` |
+| Border / strong border | `rgba(167,178,255,0.11)` / `0.19` | `--border` / `--border-strong` |
+| Foreground / dim | `#eceef8` / `#9aa3bf` | `--fg` / `--fg-dim` |
 | Accent (text/icon on dark) | `#8b95ff` | `--accent` |
-| Accent (button fill, white text ≥4.5:1) | `#4650cf` | `--accent-btn` |
+| Accent (button fill, white text ≥4.5:1) | `#545ee0` | `--accent-btn` |
 | Accent glow ring | `rgba(94,106,210,0.22)` | `--accent-glow` |
 | Claude / Codex / Copilot | `#d97757` / `#10a37f` / `#9a7bff` | `--claude` / `--codex` / `--copilot` |
 | Branch blue | `#79b8ff` | `--branch` |
@@ -56,7 +59,9 @@ everywhere an agent appears. GitHub PR-state colors match github.com exactly.
 
 - **UI font:** system stack (`-apple-system, 'Inter', 'Segoe UI'`) — no webfont import; this is a desktop app, load nothing over the network.
 - **Mono:** `--mono` (`ui-monospace, 'SF Mono', 'Fira Code'`) — used for account IDs, branches, paths, code. Mono = "machine identifier" is a semantic signal, keep it.
-- **Scale:** `--fs-xs` 11 / `--fs-sm` 12 / `--fs-base` 13 / `--fs-md` 15 / `--fs-lg` 16 / `--fs-xl` 24. Body text never below `--fs-base`; `--fs-xs` is for metadata (chips, timestamps, counts) only.
+- **Scale:** `--fs-xs` 11 / `--fs-sm` 12 / `--fs-base` 13 / `--fs-prose` 14 / `--fs-md` 15 / `--fs-lg` 16 / `--fs-xl` 26. Body text never below `--fs-base`; `--fs-xs` is for metadata (chips, timestamps, counts) only; `--fs-prose` (with 1.6 line-height) is for transcript prose and composer textareas only.
+- **Icon scale** (keep to these four steps, don't invent in-between sizes): 10px minis (per-provider dots on repo/section rows), 12px footer/metadata glyphs, 13–14px row icons (session logos, repo icons, avatars), 16px toolbar glyphs inside 28px `.icon-btn`s.
+- **Micro-labels:** uppercase labels (`.ns-label`, `.inst-scope label`) are 600 weight with 0.9px tracking; lowercase section headers (`.section-row`, `.search-group`, `.repo-filter-head`) use 0.6px. Wide tracking at tiny sizes is the refinement signal — keep it consistent.
 - `tabular-nums` on `time` and counts.
 
 ## Spacing & Shape
@@ -64,6 +69,7 @@ everywhere an agent appears. GitHub PR-state colors match github.com exactly.
 - **Spacing:** `--s1` 4 / `--s2` 6 / `--s3` 8 / `--s4` 12 / `--s5` 16 / `--s6` 24. Tree indent tokens: `--indent-1` 14 / `--indent-15` 22 / `--indent-2` 30.
 - **Radii:** `--radius-sm` 6 / `--radius` 8 / `--radius-lg` 14; pills are `999px`.
 - **Shadows:** cards float with `0 8px 40px rgba(0,0,0,0.35–0.4)`; the only glow is `--accent-glow` on primary buttons and focus rings.
+- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) and filled buttons (`.btn-primary`, `.btn-pr`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` (or a `color-mix` of the fill with white) plus a 1px `inset` white-rgba highlight. Reuse this recipe for new elevated elements; never invent new fill colors.
 
 ## Motion
 
