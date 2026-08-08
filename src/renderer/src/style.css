@@ -31,7 +31,7 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 button, input, select, textarea, details { transition: background 160ms var(--ease),
   border-color 160ms var(--ease), color 160ms var(--ease), box-shadow 160ms var(--ease),
   opacity 160ms var(--ease), filter 160ms var(--ease); }
-.org-row, .repo-row, .session-row { transition: background 160ms var(--ease),
+.section-row, .repo-row, .session-row { transition: background 160ms var(--ease),
   color 160ms var(--ease); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: -1px;
   border-radius: var(--radius-sm); }
@@ -143,20 +143,9 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
 
 .tree { overflow-y: auto; flex: 1; min-height: 0; padding: 0 var(--s2) var(--s4); }
 
-.org-row { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2);
-  cursor: pointer; font-size: var(--fs-xs); font-weight: 700; text-transform: lowercase;
-  letter-spacing: 0.3px; color: var(--fg-dim); border-radius: var(--radius-sm);
-  min-height: 26px; margin-top: var(--s2);
-  position: sticky; top: 0; z-index: 2; background: var(--bg2); }
-.org-row:hover { background: var(--bg3); color: var(--fg); }
-/* org count is contextual plain text — the bordered pill means "session count on a repo" */
-.org-row .repo-count { background: none; border: none; padding: 0; }
-.org-icon { display: inline-flex; flex-shrink: 0; }
-.org-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
 .repo-node { margin-top: 1px; }
 .repo-row { display: flex; align-items: center; gap: var(--s2);
-  padding: 3px var(--s2) 3px var(--indent-1); cursor: pointer; font-size: var(--fs-base);
+  padding: 3px var(--s2); cursor: pointer; font-size: var(--fs-base);
   font-weight: 600; min-height: 28px; border-radius: var(--radius-sm); }
 .repo-row:hover { background: var(--bg3); }
 .chev { width: 10px; color: var(--fg-dim); font-size: 10px; flex-shrink: 0;
@@ -164,21 +153,23 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
 .chev.open { transform: rotate(90deg); }
 .repo-icon { color: var(--fg-dim); display: inline-flex; flex-shrink: 0; }
 .repo-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.repo-owner { color: var(--fg-dim); font-weight: 500; }
 .repo-providers { display: inline-flex; gap: 3px; flex-shrink: 0; align-items: center; }
 .repo-count { color: var(--fg-dim); font-size: var(--fs-xs); background: var(--surface);
   border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; flex-shrink: 0; }
 
 /* hover actions float over the row's right edge — nothing reflows */
-.org-row, .repo-row, .session-row { position: relative; }
+.repo-row, .session-row { position: relative; }
 .row-actions { display: none; position: absolute; right: var(--s2); top: 50%;
   transform: translateY(-50%); align-items: center; background: var(--bg3);
   border-radius: 5px; }
-.org-row:hover .row-actions, .repo-row:hover .row-actions, .session-row:hover .row-actions,
-.org-row:focus-within .row-actions, .repo-row:focus-within .row-actions,
+.repo-row:hover .row-actions, .session-row:hover .row-actions,
+.repo-row:focus-within .row-actions,
 .session-row:focus-within .row-actions { display: inline-flex; }
 
-/* an indent guide makes containment unambiguous: sessions hang off their repo */
-.repo-children { padding-bottom: var(--s1); margin-left: 19px;
+/* an indent guide makes containment unambiguous: sessions hang off their repo.
+   11px centers the guide under the repo row's chevron (6px pad + half of 10px). */
+.repo-children { padding-bottom: var(--s1); margin-left: 11px;
   border-left: 1px solid var(--border); }
 
 /* chats are a different kind of thing — a full-bleed divider + breathing room split them
@@ -186,6 +177,16 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
 .chats-section { margin: var(--s5) calc(-1 * var(--s2)) 0;
   padding: var(--s2) var(--s2) 0; border-top: 1px solid var(--border); }
 .chats-section:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+/* section header — the quiet, lowercase treatment the org rows used to carry */
+.section-row { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2);
+  cursor: pointer; font-size: var(--fs-xs); font-weight: 700; text-transform: lowercase;
+  letter-spacing: 0.3px; color: var(--fg-dim); border-radius: var(--radius-sm);
+  min-height: 26px; position: sticky; top: 0; z-index: 2; background: var(--bg2); }
+.section-row:hover { background: var(--bg3); color: var(--fg); }
+/* section count is contextual plain text — the bordered pill means "session count on a repo" */
+.section-row .repo-count { background: none; border: none; padding: 0; }
+.section-icon { display: inline-flex; flex-shrink: 0; }
+.section-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .session-row { display: flex; align-items: center; gap: var(--s2);
   padding: 2px var(--s2) 2px var(--s3); cursor: pointer; font-size: 12.5px;
   min-height: 27px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
