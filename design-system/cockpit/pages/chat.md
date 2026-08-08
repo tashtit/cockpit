@@ -9,9 +9,11 @@ turns are compact right-aligned bubbles.
 ## Header (`.chat-header`)
 
 Identity + situation in one row, left to right:
-solid agent `.badge` · `.acct-chip` ("running as") · title + sub (branch chip, clickable
+solid agent `.badge` · `.acct-chip` ("running as" — shows the identity's local part,
+full identity in the tooltip; shed entirely ≤780px) · title + sub (branch chip, clickable
 cwd that copies its path, "· not started" when no native session yet) · PR affordance ·
-permission mode select.
+permission mode select. Header min-height is 52px — it's the drag region, keep it a real
+grab target.
 
 - The PR slot is exclusive: a `PrBadge` when the branch has a PR, else green `.btn-pr`
   "Create PR" (GitHub merge-button semantics), else nothing. Never both.

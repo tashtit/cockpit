@@ -115,11 +115,13 @@ export function ChatView({
         <span className={`badge badge-${binding.provider}`}>
           <ProviderLogo p={binding.provider} size={11} /> {PROVIDER_LABEL[binding.provider]}
         </span>
+        {/* compact: the local part identifies the account at a glance; the full
+            identity lives in the tooltip (same pattern as the sidebar footer) */}
         <span
           className={`acct-chip acct-${binding.provider}`}
           title={`Running as ${binding.accountLabel ?? 'default account'}`}
         >
-          {binding.accountLabel ?? 'default account'}
+          {(binding.accountLabel ?? 'default account').split('@')[0]}
         </span>
         <div className="chat-header-text">
           <div className="chat-title">{binding.title}</div>

@@ -47,6 +47,9 @@ button, input, select, textarea, details { transition: background 160ms var(--ea
 }
 
 .app { display: grid; grid-template-columns: clamp(240px, 26vw, 320px) 1fr; height: 100vh; }
+/* grid items default to min-width auto — without this the chat pane's min-content
+   (header badges + buttons) can push the 1fr column wider than the window */
+.app > * { min-width: 0; }
 @media (max-width: 700px) {
   .app { grid-template-columns: clamp(200px, 34vw, 240px) 1fr; }
 }
@@ -286,7 +289,9 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
 .chat { display: flex; flex-direction: column; min-height: 0; }
 .chat-header { display: flex; align-items: center; gap: var(--s3);
   padding: var(--s3) var(--s5); border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(8px); }
+  background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(8px);
+  /* a real grab target: the header is the chat view's window drag region */
+  min-height: 52px; }
 .chat-header-text { flex: 1; min-width: 0; }
 .chat-title { font-weight: 600; font-size: var(--fs-base); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
