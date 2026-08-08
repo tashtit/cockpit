@@ -326,6 +326,9 @@ export function App(): JSX.Element {
 
   return (
     <div className="app">
+      {/* non-chat views have no draggable header of their own — give the window a
+          slim grab strip along the top edge (chat's header is already a drag region) */}
+      {view.kind !== 'chat' && <div className="drag-strip" aria-hidden />}
       <TreeSidebar
         repos={repos}
         indexVersion={indexVersion}

@@ -9,9 +9,12 @@ view allowed hero-scale type (`--fs-xl`) and a floating card shadow.
 ## Layout
 
 - `.home-inner`: `min(700px, 94%)` column, vertically centered (`justify-content: center`),
-  `--s5` gaps. Scrolls as a whole (`.home-view { overflow-y: auto }`).
+  `--s5` gaps. Scrolls as a whole (`.home-view { overflow-y: auto }`). Centering is
+  `justify-content: safe center` and children carry `flex-shrink: 0` — both load-bearing:
+  unqualified centering clips the top out of scroll reach, and shrinkable children let the
+  composer card collapse to a sliver on short windows.
 - Order: hero (logo + h2 + sub + kbd hints) → `.composer-card` → error line → Recent activity.
-- Short windows (≤560px height): hero is dropped, content top-aligns — composer is the
+- Short windows (≤600px height): hero is dropped, content top-aligns — composer is the
   priority, never the branding.
 
 ## Composer card

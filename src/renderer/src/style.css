@@ -50,21 +50,13 @@ button, input, select, textarea, details { transition: background 160ms var(--ea
 @media (max-width: 700px) {
   .app { grid-template-columns: clamp(200px, 34vw, 240px) 1fr; }
 }
-/* narrow windows: shed decorative chips before anything truncates or wraps badly */
-@media (max-width: 780px) {
-  .repo-providers, .session-row .acct-chip, .recent-meta .branch-chip { display: none; }
-  .messages { padding: var(--s4); }
-  .tool-row, .thinking, .sys-row { margin-left: 0; }
-  .ns-card { padding: var(--s5); margin: var(--s4) auto; }
-}
-@media (max-height: 560px) {
-  .home-hero { display: none; }
-  .home-inner { justify-content: flex-start; padding-top: var(--s4); }
-  .ns-card { margin: var(--s3) auto; }
-}
 
 /* native chrome: sidebar top + chat header double as the window drag region */
 .tree-top, .chat-header { -webkit-app-region: drag; }
+/* views without their own draggable header get a slim top grab strip; interactive
+   content must stay below it (tree-top's 40px pad and view top margins already do) */
+.drag-strip { position: fixed; top: 0; left: 0; right: 0; height: 22px;
+  -webkit-app-region: drag; z-index: 30; }
 .tree-top button, .chat-header button, .chat-header select { -webkit-app-region: no-drag; }
 /* the subtitle carries paths/branches a developer copies — selectable, not draggable */
 .chat-header .chat-sub { -webkit-app-region: no-drag; user-select: text; }
@@ -234,13 +226,19 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
   font-size: var(--fs-sm); display: flex; flex-direction: column; align-items: center;
   gap: var(--s3); }
 
-/* who each agent runs as — always visible */
-.sidebar-footer { display: flex; flex-direction: column; align-items: stretch; gap: 1px;
+/* identity bar: agent logos + GitHub login in one quiet row; details in the
+   tooltip, full management one click away in Settings */
+.sidebar-footer { display: flex; align-items: stretch;
   padding: var(--s2) var(--s3); border-top: 1px solid var(--border); font-size: var(--fs-xs); }
-.footer-acct { display: flex; align-items: center; gap: var(--s2); min-height: 22px;
+.footer-ids { display: flex; align-items: center; gap: var(--s2); flex: 1; min-width: 0;
+  min-height: 26px; padding: 2px var(--s2); border-radius: var(--radius-sm);
   color: var(--fg-dim); }
-.acct-id { font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden;
+.footer-ids:hover { background: var(--bg3); color: var(--fg); }
+.footer-ids .plogo { opacity: 0.8; }
+.footer-gh { display: inline-flex; align-items: center; gap: var(--s1);
+  font-family: var(--mono); margin-left: auto; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
+.footer-gh svg { flex-shrink: 0; }
 .gh-missing { color: var(--danger); opacity: 0.8; }
 
 /* ---------- PR badges ---------- */
@@ -424,7 +422,12 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
 .home-view { overflow-y: auto; }
 .home-inner { width: min(700px, 94%); margin: 0 auto; padding: var(--s6) 0;
   display: flex; flex-direction: column; gap: var(--s5); min-height: 100%;
-  justify-content: center; }
+  /* `safe` falls back to flex-start when content overflows — an unqualified center
+     would clip the top of the column out of scroll reach */
+  justify-content: safe center; }
+/* children must never shrink below content height — without this the composer card
+   (overflow: hidden → zero min-content) collapses to a sliver on short windows */
+.home-inner > * { flex-shrink: 0; }
 .home-hero { display: flex; flex-direction: column; align-items: center; gap: var(--s2);
   text-align: center; }
 .home-hero h2 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.5px;
@@ -611,3 +614,20 @@ select#ns-account, .ns-account-single { font-family: var(--mono); }
 .inst-edit textarea { width: 100%; margin-top: var(--s2); font-family: var(--mono);
   font-size: var(--fs-xs); line-height: 1.5; }
 .inst-edit .inst-actions { margin-bottom: 0; }
+
+/* ---------- responsive: shed decoration before anything truncates ----------
+   These live at the END of the file on purpose: they override same-specificity
+   component rules above (e.g. .repo-providers { display: inline-flex }), which
+   would silently win if these blocks sat earlier in the cascade. */
+@media (max-width: 780px) {
+  .repo-providers, .session-row .acct-chip, .recent-meta .branch-chip,
+  .chat-header .acct-chip { display: none; }
+  .messages { padding: var(--s4); }
+  .tool-row, .thinking, .sys-row { margin-left: 0; }
+  .ns-card { padding: var(--s5); margin: var(--s4) auto; }
+}
+@media (max-height: 600px) {
+  .home-hero { display: none; }
+  .home-inner { justify-content: flex-start; padding-top: var(--s4); }
+  .ns-card { margin: var(--s3) auto; }
+}

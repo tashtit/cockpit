@@ -207,27 +207,38 @@ export function TreeSidebar({
         )}
       </div>
       <footer className="sidebar-footer">
-        {accounts?.accounts.map((a) => (
-          <div
-            key={a.path}
-            className="footer-acct"
-            title={`${PROVIDER_LABEL[a.provider]} — ${a.identity ?? a.label}\n${a.path}`}
-          >
-            <span className={`plogo plogo-${a.provider}`}>
+        {/* one compact identity bar: agent logos (accounts in the tooltip), GitHub
+            login on the right; the whole row opens Settings for the full detail */}
+        <button
+          className="footer-ids"
+          onClick={onOpenSettings}
+          aria-label="Accounts — open settings"
+          title={[
+            ...(accounts?.accounts.map(
+              (a) =>
+                `${PROVIDER_LABEL[a.provider]} — ${a.identity ?? a.label}` +
+                (a.isDefault ? '' : ` (${a.label})`)
+            ) ?? []),
+            accounts?.githubUser
+              ? `GitHub (PRs) — @${accounts.githubUser}`
+              : 'GitHub: gh not signed in'
+          ].join('\n')}
+        >
+          {accounts?.accounts.map((a) => (
+            <span key={a.path} className={`plogo plogo-${a.provider}`}>
               <ProviderLogo p={a.provider} size={12} />
             </span>
-            <span className="acct-id">{a.identity ?? a.label}</span>
-            {!a.isDefault && <span className="acct-chip">{a.label}</span>}
-          </div>
-        ))}
-        <div className="footer-acct" title="GitHub identity used for PRs (gh CLI)">
-          <OrgIcon size={12} />
+          ))}
           {accounts?.githubUser ? (
-            <span className="acct-id">@{accounts.githubUser}</span>
+            <span className="footer-gh">
+              <OrgIcon size={11} /> @{accounts.githubUser}
+            </span>
           ) : (
-            <span className="acct-id gh-missing">gh: not signed in</span>
+            <span className="footer-gh gh-missing">
+              <OrgIcon size={11} /> gh: not signed in
+            </span>
           )}
-        </div>
+        </button>
       </footer>
     </aside>
   )

@@ -100,7 +100,8 @@ Reuse these; don't invent parallel variants:
 - Long transcripts render only the last `RENDER_LAST` messages with an explicit "showing the last N of M" note; `Message` is memoized. Keep both when touching ChatView.
 - Window drag regions: `.tree-top` and `.chat-header` are `-webkit-app-region: drag`; every interactive child must opt out with `no-drag`. Copyable text (paths, branches) must be `user-select: text` + `no-drag`.
 - `.tree-top` top padding (40px) clears macOS traffic lights (hiddenInset) — don't shrink it.
-- Narrow windows (≤780px) shed decorative chips before anything truncates; short windows (≤560px) drop the home hero. Follow this "shed decoration first" pattern for new responsive cases.
+- Narrow windows (≤780px) shed decorative chips before anything truncates; short windows (≤600px) drop the home hero. Follow this "shed decoration first" pattern for new responsive cases. The shed media queries live at the **end** of style.css on purpose — earlier in the file they'd lose the cascade to same-specificity component rules; keep new shed rules there.
+- Window drag: `.tree-top` and `.chat-header` are drag regions; every other view gets the fixed 22px `.drag-strip` along the top edge (rendered by App for non-chat views). Keep interactive content below 22px from the window top.
 
 ## Anti-Patterns (Do NOT Use)
 
