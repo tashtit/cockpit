@@ -1,0 +1,70 @@
+# AGENTS.md
+
+This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copilot) when working with code in this repository. `CLAUDE.md` is a symlink to this file.
+
+## Commands
+
+- `npm run dev` — Electron app with HMR
+- `npm run typecheck` — `tsc --noEmit` (there is no linter; this is the static gate)
+- `npm test` — all vitest tests
+- `npx vitest run tests/indexer.test.ts` — one test file
+- `npx vitest run -t "pattern"` — tests matching a name
+- `npm run build` — production build into `out/`
+
+Both `npm run typecheck` and `npm test` must pass before delivering.
+
+## Architecture
+
+Cockpit is an Electron desktop hub that indexes and drives Claude Code / Codex / Copilot CLI sessions (macOS-focused, dark-only). Three processes with a strict boundary:
+
+- **main** (`src/main/`) — all Node work: fs scanning, git, spawning provider CLIs.
+- **preload** (`src/preload/index.ts`) — contextBridge exposing `window.cockpit`.
+- **renderer** (`src/renderer/src/`) — React 18 UI, fully sandboxed (`contextIsolation`, `sandbox: true`, navigation blocked). No Node access, hand-written CSS (no Tailwind, no component library).
+
+The entire IPC surface is the `CockpitApi` interface in `src/shared/types.ts`. Adding a capability means touching four places, in order:
+
+1. types + `CockpitApi` method in `src/shared/types.ts`
+2. `ipcMain.handle(...)` in `src/main/index.ts`
+3. bridge method in `src/preload/index.ts`
+4. renderer call via `src/renderer/src/api.ts`
+
+**Renderer input is untrusted.** Any path arriving over IPC must be validated against roots the indexer itself derived — see `assertKnownRepoRoot` in `src/main/index.ts`. Never act on an arbitrary renderer-supplied path.
+
+### Indexing pipeline (the core data flow)
+
+`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo (worktree-aware: linked worktrees group under the main repo; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s.
+
+Performance invariants — all deliberate, keep them:
+
+- The full index is never shipped to or rendered by the UI. Always paginate.
+- Meta parsing reads at most 256KB per file. Parsers are failure-tolerant: session log formats are provider-internal and drift between releases, so skip anything unreadable rather than fail the scan.
+- The stat-cache (mtime+size, persisted to userData) means restarts only re-parse changed files; scans yield to the event loop so IPC never blocks.
+- Only per-provider session roots are walked/watched (never `pkg/`, `repos/`, logs, or SQLite files). Watching uses Node's `fs.watch(root, {recursive: true})` — chokidar was dropped on purpose (its bundled fsevents broke on the Electron 43 upgrade); the indexer does its own debouncing.
+
+### Other main-process subsystems
+
+- `chat.ts` — spawns provider CLIs headless (`claude -p --output-format stream-json`, `codex exec --json`, `copilot -p`) and parses their stream events. Both old (`msg.type`) and new (`thread.started`/`item.completed`) Codex event shapes must stay handled.
+- `instructions-core.ts` vs `instructions.ts` — the shared-instructions marker/drift logic is deliberately IO-free in `-core.ts` (that's what the tests target); keep IO in `instructions.ts`.
+- `workspace.ts` — "always worktrees, always PRs": new sessions get a `cockpit/<name>` branch in an isolated worktree under the app's userData, never in the user's checkout; PRs go through `gh`.
+- `extensions.ts` — MCP/skills/plugins inventory and cross-agent sharing; each agent has its own config format (`~/.claude.json`, `~/.codex/config.toml`, `~/.copilot/mcp-config.json`).
+
+### Tests
+
+Vitest with real tmpdir fixtures — tests write fake session logs and fake `.git/config` files to disk and run the real indexer/parsers over them. No mocking framework; follow that pattern for new tests.
+
+## UI work
+
+Before touching anything in `src/renderer/`, read `design-system/cockpit/MASTER.md`. Per-view rules in `design-system/cockpit/pages/<view>.md` override it. Canonical design tokens live in the `:root` block of `src/renderer/src/style.css` — components use tokens only, never raw hex. Dark mode only.
+
+## Repo skills
+
+Project skills (Agent Skills standard, `SKILL.md` format) live in **`.agents/skills/`** — the single source of truth. Codex and Copilot read that directory natively; `.claude/skills` is a symlink to it for Claude Code. Add new skills there, one directory per skill:
+
+- `add-ipc-capability` — the four-file recipe for extending the renderer↔main IPC surface
+- `add-session-parser` — provider log parser rules (bounded reads, failure tolerance, fixtures)
+- `cockpit-ui` — design-system compliance for renderer work
+
+## Conventions
+
+- Conventional Commits (`feat(indexer): …`, `docs: …`), matching existing history.
+- No AI attribution: no `Co-Authored-By` lines or "Generated with" footers in commits or PRs.
