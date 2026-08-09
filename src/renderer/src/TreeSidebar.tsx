@@ -144,6 +144,18 @@ export function TreeSidebar({
         className="tree"
         role="tree"
         aria-label="Repositories and sessions"
+        // roving focus: the tree is one Tab stop; rows are tabIndex -1 and arrows move
+        // between them, so Tab never has to walk the whole session list
+        tabIndex={0}
+        onFocus={(e) => {
+          if (e.target !== e.currentTarget) return
+          const target =
+            e.currentTarget.querySelector<HTMLElement>('[aria-selected="true"]') ??
+            e.currentTarget.querySelector<HTMLElement>(
+              '[role="treeitem"], .archived-toggle, .tree-more'
+            )
+          target?.focus()
+        }}
         onKeyDown={(e) => {
           if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
           const rows = Array.from(
@@ -248,15 +260,24 @@ export function TreeSidebar({
 function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
   const hiddenCount = repos.filter((r) => r.hidden).length
 
   useEffect(() => {
     if (!open) return
+    // keyboard users land inside the popover; Esc closes it and returns focus
+    popRef.current?.querySelector<HTMLInputElement>('input')?.focus()
     const onDown = (e: MouseEvent): void => {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        // the popover owns this Esc — App's view-level handler must not also fire
+        e.stopPropagation()
+        setOpen(false)
+        btnRef.current?.focus()
+      }
     }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
@@ -269,6 +290,7 @@ function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
   return (
     <div className="repo-filter-wrap" ref={wrapRef}>
       <button
+        ref={btnRef}
         className={`icon-btn ${hiddenCount > 0 ? 'filter-active' : ''}`}
         title={
           hiddenCount > 0
@@ -276,6 +298,7 @@ function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
             : 'Choose projects to display'
         }
         aria-label="Choose projects to display"
+        aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
@@ -285,7 +308,7 @@ function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
         {hiddenCount > 0 && <span className="filter-dot" aria-hidden />}
       </button>
       {open && (
-        <div className="repo-filter-pop" role="dialog" aria-label="Projects to display">
+        <div className="repo-filter-pop" role="dialog" aria-label="Projects to display" ref={popRef}>
           <div className="repo-filter-head">Projects</div>
           {repos.map((r) => (
             <label key={r.key} className="repo-filter-row" title={r.fullName ?? r.root ?? r.name}>
@@ -347,7 +370,8 @@ function RepoNode({
         className="repo-row"
         role="treeitem"
         aria-expanded={open}
-        tabIndex={0}
+        aria-level={1}
+        tabIndex={-1}
         title={repo.root ?? repo.fullName ?? repo.name}
         onClick={onToggle}
         onKeyDown={(e) => {
@@ -423,7 +447,12 @@ function RepoNode({
           />
           {repo.archivedCount > 0 && (
             <>
-              <button className="archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}>
+              <button
+                className="archived-toggle"
+                aria-expanded={showArchived}
+                tabIndex={-1}
+                onClick={() => setShowArchived((v) => !v)}
+              >
                 <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
                 Archived ({repo.archivedCount})
               </button>
@@ -473,7 +502,8 @@ function ChatsSection({
         className="section-row"
         role="treeitem"
         aria-expanded={open}
-        tabIndex={0}
+        aria-level={1}
+        tabIndex={-1}
         title="Chats without a repository"
         onClick={onToggle}
         onKeyDown={(e) => {
@@ -512,7 +542,12 @@ function ChatsSection({
           />
           {repo.archivedCount > 0 && (
             <>
-              <button className="archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}>
+              <button
+                className="archived-toggle"
+                aria-expanded={showArchived}
+                tabIndex={-1}
+                onClick={() => setShowArchived((v) => !v)}
+              >
                 <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
                 Archived ({repo.archivedCount})
               </button>
@@ -556,7 +591,8 @@ function SessionList({
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [pages, setPages] = useState(1)
-  const [items, setItems] = useState<SessionMeta[]>([])
+  // null = first page still loading — "no sessions" must never flash during the fetch
+  const [items, setItems] = useState<SessionMeta[] | null>(null)
   const [total, setTotal] = useState(0)
 
   useEffect(() => {
@@ -567,12 +603,14 @@ function SessionList({
         if (dead) return
         setTotal(p.total)
         // keep row identity stable across live-index refetches when nothing changed
-        setItems((prev) => (sameList(prev, p.items) ? prev : p.items))
+        setItems((prev) => (prev && sameList(prev, p.items) ? prev : p.items))
       })
     return () => {
       dead = true
     }
   }, [repoKey, archived, pages, indexVersion])
+
+  if (items === null) return <div className="tree-empty">loading…</div>
 
   return (
     <>
@@ -589,7 +627,7 @@ function SessionList({
       ))}
       {items.length === 0 && <div className="tree-empty">no sessions</div>}
       {items.length < total && items.length < MAX_LOADED && (
-        <button className="tree-more" onClick={() => setPages((p) => p + 1)}>
+        <button className="tree-more" tabIndex={-1} onClick={() => setPages((p) => p + 1)}>
           more… ({items.length}/{total})
         </button>
       )}
@@ -602,6 +640,7 @@ function SessionRow({
   pr,
   accounts,
   selected,
+  level = 2,
   onSelect,
   onOpenUrl
 }: {
@@ -609,6 +648,8 @@ function SessionRow({
   pr?: PrStatus
   accounts?: AccountsSnapshot | null
   selected: boolean
+  /** 2 under a repo/section row, 1 in flat search results */
+  level?: number
   onSelect: (s: SessionMeta) => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
@@ -620,7 +661,8 @@ function SessionRow({
       className={`session-row ${selected ? 'selected' : ''} ${s.archived ? 'archived' : ''}`}
       role="treeitem"
       aria-selected={selected}
-      tabIndex={0}
+      aria-level={level}
+      tabIndex={-1}
       title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}\n~${s.messageCount} messages`}
       onClick={() => onSelect(s)}
       onKeyDown={(e) => {
@@ -653,7 +695,7 @@ function SessionRow({
       {pr ? (
         <PrBadge pr={pr} onOpen={onOpenUrl} compact />
       ) : (
-        <time>{fmtTime(s.updatedAt)}</time>
+        <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtTime(s.updatedAt)}</time>
       )}
     </div>
   )
@@ -670,7 +712,8 @@ function SearchResults({
   selectedId: string | null
   onSelect: (s: SessionMeta) => void
 }): JSX.Element {
-  const [items, setItems] = useState<SessionMeta[]>([])
+  // null = search in flight — don't flash "no matches" while waiting
+  const [items, setItems] = useState<SessionMeta[] | null>(null)
   const [total, setTotal] = useState(0)
 
   useEffect(() => {
@@ -685,6 +728,8 @@ function SearchResults({
     }
   }, [query, indexVersion])
 
+  if (items === null) return <div className="tree-empty">searching…</div>
+
   const groups = new Map<string, SessionMeta[]>()
   for (const s of items) {
     const k = s.repo?.name ?? 'Chats'
@@ -695,10 +740,17 @@ function SearchResults({
   return (
     <>
       {[...groups.entries()].map(([name, list]) => (
-        <div key={name} className="repo-node" role="presentation">
-          <div className="search-group">{name}</div>
+        <div key={name} className="repo-node" role="group" aria-label={name}>
+          <div className="search-group" aria-hidden="true">{name}</div>
           {list.map((s) => (
-            <SessionRow key={s.id} s={s} selected={selectedId === s.id} onSelect={onSelect} onOpenUrl={() => {}} />
+            <SessionRow
+              key={s.id}
+              s={s}
+              selected={selectedId === s.id}
+              level={1}
+              onSelect={onSelect}
+              onOpenUrl={() => {}}
+            />
           ))}
         </div>
       ))}

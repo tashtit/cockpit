@@ -53,6 +53,7 @@ export function App(): JSX.Element {
   const [log, setLog] = useState<SessionMessage[]>([])
   const [activeTurn, setActiveTurn] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [creatingPr, setCreatingPr] = useState(false)
   const activeTurnRef = useRef<string | null>(null)
   activeTurnRef.current = activeTurn
   /** Events can beat the sendChat() reply for fast-failing spawns — hold them briefly. */
@@ -310,7 +311,9 @@ export function App(): JSX.Element {
   }, [activeTurn])
 
   const createPr = useCallback(async () => {
-    if (!binding) return
+    // in-flight guard: a double-click must not race two `gh pr create` runs
+    if (!binding || creatingPr) return
+    setCreatingPr(true)
     setLog((l) => [...l, { role: 'system', kind: 'system', text: 'Pushing branch and opening PR…' }])
     try {
       const url = await api.createPr(binding.cwd)
@@ -322,8 +325,10 @@ export function App(): JSX.Element {
         ...l,
         { role: 'system', kind: 'system', text: `PR failed: ${err instanceof Error ? err.message : err}` }
       ])
+    } finally {
+      setCreatingPr(false)
     }
-  }, [binding])
+  }, [binding, creatingPr])
 
   const openUrl = useCallback((url: string) => void api.openExternal(url), [])
 
@@ -382,6 +387,7 @@ export function App(): JSX.Element {
           prs={prs}
           log={log}
           busy={activeTurn !== null}
+          prBusy={creatingPr}
           onSend={send}
           onCancel={cancel}
           onCreatePr={createPr}

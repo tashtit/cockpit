@@ -16,15 +16,15 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 - `.search` input with ⌘K hint, 250ms debounce. Non-empty search swaps the whole tree for
   `SearchResults` grouped by repo name.
 - Tree rows, in visual grammar:
-  - `.org-row` — sticky (`top: 0`, solid `--bg2` so scrolling rows pass under it),
-    lowercase micro-caps, plain-text repo count.
+  - `.section-row` — sticky (`top: 0`, solid `--bg2` so scrolling rows pass under it),
+    lowercase micro-caps, plain-text session count (the Chats header).
   - `.repo-row` — chevron, repo icon, name, tiny per-provider logos (10px), bordered
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
     logo, title, optional `.acct-chip` (only when that provider has multiple accounts),
     compact `PrBadge` **or** timestamp (exclusive slot), archived = strikethrough + dimmed.
   - Chats section — split off the repo tree by a full-bleed hairline divider + extra gap
-    (`.chats-section`, suppressed when it's the only section): an `.org-row` header
+    (`.chats-section`, suppressed when it's the only section): a `.section-row` header
     (comment icon, per-provider logos, session count as plain text) whose
     `.repo-children` are the sessions themselves: no repo row in between, same
     pagination and archived toggle as a repo.
@@ -45,11 +45,14 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 
 ## Keyboard & ARIA
 
-- Container is `role="tree"`; org/repo/session rows are `role="treeitem"` with
-  `tabIndex={0}`; org/repo carry `aria-expanded`, sessions `aria-selected`.
+- Container is `role="tree"` and the single Tab stop (`tabIndex={0}`): rows are
+  `role="treeitem"` with `tabIndex={-1}` (roving focus). Focusing the tree forwards focus
+  to the selected row, else the first row. Section/repo rows carry `aria-expanded` +
+  `aria-level={1}`, sessions `aria-selected` + `aria-level={2}` (1 in flat search results).
 - Arrow Up/Down/Home/End move focus across all visible rows (handled on `.tree`);
   Enter/Space activate; ArrowRight/Left expand/collapse repos. Extend this handler if new
-  focusable row types appear — don't add per-row key handlers that fight it.
+  focusable row types appear — don't add per-row key handlers that fight it; new row types
+  keep `tabIndex={-1}` so Tab never walks the list.
 - First repo auto-expands exactly once; a later index update must never undo the user's
   collapse-all (the `autoExpanded` ref guards this).
 

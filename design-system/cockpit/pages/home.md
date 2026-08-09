@@ -29,6 +29,9 @@ view allowed hero-scale type (`--fs-xl`) and a floating card shadow.
   `.no-acct` red dot — never disable them (clicking reveals the "not signed in" chip).
 - ⌘Enter submits; the button label is the action: "Start with Claude Code", or "Starting…"
   while busy. Errors render in `.new-error` directly under the card, never a toast.
+- Mode options and hints come from the shared `MODES` table (exported by NewSession);
+  choosing YOLO shows the `.ns-hint.yolo` warning line under the card — the bypass mode is
+  never silent.
 - Prompt textarea autofocuses on mount — the user should be able to type immediately.
 
 ## Recent activity

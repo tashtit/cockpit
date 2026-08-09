@@ -8,7 +8,7 @@ import type {
   SessionMeta
 } from '../../shared/types'
 import { api } from './api'
-import { accountOptions, savedAccount, type AccountChoice } from './NewSession'
+import { accountOptions, MODES, savedAccount, type AccountChoice } from './NewSession'
 import { BranchIcon, CockpitLogo, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { Select } from './Select'
 
@@ -177,11 +177,7 @@ export function HomeView({
             <Select
               ariaLabel="Permission mode"
               value={mode}
-              options={[
-                { value: 'safe', label: 'Safe' },
-                { value: 'auto-edit', label: 'Auto-edit' },
-                { value: 'yolo', label: 'YOLO' }
-              ]}
+              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
               onChange={(v) => setMode(v as PermissionMode)}
             />
             <button
@@ -194,7 +190,10 @@ export function HomeView({
             </button>
           </div>
         </div>
-        {error && <div className="new-error">{error}</div>}
+        {mode === 'yolo' && (
+          <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
+        )}
+        {error && <div className="new-error" role="alert">{error}</div>}
 
         {recent.length > 0 && (
           <section className="home-recent">
@@ -212,10 +211,12 @@ export function HomeView({
                       {s.gitBranch && (
                         <span className="branch-chip">
                           <BranchIcon size={10} />
-                          {s.gitBranch}
+                          <span className="chip-text">{s.gitBranch}</span>
                         </span>
                       )}
-                      <time>{fmtTime(s.updatedAt)}</time>
+                      <time dateTime={new Date(s.updatedAt).toISOString()}>
+                        {fmtTime(s.updatedAt)}
+                      </time>
                     </span>
                   </button>
                 </li>

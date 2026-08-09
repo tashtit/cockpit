@@ -60,7 +60,8 @@ export function savedAccount(snap: AccountsSnapshot | null, p: Provider): Accoun
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
-const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = [
+/** The one permission-mode table — HomeView and ChatView import it so wording never drifts. */
+export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = [
   { v: 'safe', label: 'Safe', hint: 'provider defaults; tools may be blocked headless' },
   { v: 'auto-edit', label: 'Auto-edit', hint: 'auto-approve file edits (Copilot: allows all tools)' },
   { v: 'yolo', label: 'YOLO', hint: 'bypass all approvals — trusted repos only' }
@@ -193,20 +194,31 @@ export function NewSession({
 
         <div className="ns-options">
           <div className="ns-opt">
-            <label className="ns-label" htmlFor="ns-account">Account</label>
             {opts.length > 1 ? (
-              <Select
-                id="ns-account"
-                ariaLabel="Account"
-                mono
-                value={account?.key ?? ''}
-                options={opts.map((o) => ({ value: o.key, label: o.display }))}
-                onChange={setAccountKey}
-              />
+              <>
+                {/* the Select trigger is a button — labelable, so label-for works */}
+                <label className="ns-label" htmlFor="ns-account">Account</label>
+                <Select
+                  id="ns-account"
+                  ariaLabel="Account"
+                  mono
+                  value={account?.key ?? ''}
+                  options={opts.map((o) => ({ value: o.key, label: o.display }))}
+                  onChange={setAccountKey}
+                />
+              </>
             ) : (
-              <div id="ns-account" className="ns-account-single" title={account?.display}>
-                {account?.display ?? 'not signed in'}
-              </div>
+              // static text, not a form control — label-for can't associate with a div
+              <>
+                <span className="ns-label" id="ns-account-label">Account</span>
+                <div
+                  className="ns-account-single"
+                  aria-labelledby="ns-account-label"
+                  title={account?.display}
+                >
+                  {account?.display ?? 'not signed in'}
+                </div>
+              </>
             )}
           </div>
           <div className="ns-opt">
@@ -284,7 +296,7 @@ export function NewSession({
           }}
         />
 
-        {error && <div className="new-error">{error}</div>}
+        {error && <div className="new-error" role="alert">{error}</div>}
 
         <div className="ns-actions">
           <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
