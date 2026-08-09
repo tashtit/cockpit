@@ -133,7 +133,8 @@ summary::-webkit-details-marker { display: none; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--fg-dim); }
 .icon-btn:hover { background: var(--bg3); color: var(--fg); }
-.icon-btn.small { width: 18px; height: 18px; font-size: var(--fs-sm); line-height: 1; }
+/* row hover actions: 22px is the floor for a comfortable pointer target */
+.icon-btn.small { width: 22px; height: 22px; font-size: var(--fs-sm); line-height: 1; }
 /* projects-to-display chooser (eye popover) */
 .repo-filter-wrap { position: relative; display: inline-flex; }
 .icon-btn.filter-active { color: var(--accent); }
@@ -395,6 +396,8 @@ select option { background: var(--bg2); color: var(--fg); }
   border: 1px solid var(--border); color: var(--fg-dim); opacity: 0; }
 .codeblock:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
 .code-copy:hover { color: var(--fg); }
+/* copy acknowledgment: brief OK tint, no layout shift */
+.code-copy.copied, .chat-cwd.copied { color: var(--ok); border-color: rgba(46, 160, 67, 0.5); }
 .hljs-comment, .hljs-quote { color: var(--fg-dim); font-style: italic; }
 .hljs-keyword, .hljs-selector-tag, .hljs-tag, .hljs-name { color: var(--accent); }
 .hljs-string, .hljs-attr, .hljs-symbol, .hljs-regexp { color: var(--pr-open); }

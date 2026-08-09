@@ -16,13 +16,20 @@ function nodeText(node: ReactNode): string {
 }
 
 function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
+  // copy must acknowledge — a click with no visible result reads as broken
+  const [copied, setCopied] = useState(false)
   return (
     <div className="codeblock">
       <button
-        className="code-copy"
-        onClick={() => void navigator.clipboard.writeText(nodeText(children))}
+        className={`code-copy ${copied ? 'copied' : ''}`}
+        aria-label="Copy code"
+        onClick={() => {
+          void navigator.clipboard.writeText(nodeText(children))
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        }}
       >
-        Copy
+        {copied ? 'Copied' : 'Copy'}
       </button>
       <pre>{children}</pre>
     </div>
@@ -58,6 +65,7 @@ export function ChatView({
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [draft, setDraft] = useState('')
+  const [cwdCopied, setCwdCopied] = useState(false)
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -133,9 +141,13 @@ export function ChatView({
               </span>
             )}
             <button
-              className="chat-cwd"
+              className={`chat-cwd ${cwdCopied ? 'copied' : ''}`}
               title={`${binding.cwd}${binding.nativeSessionId ? `\nsession ${binding.nativeSessionId}` : ''}\nclick to copy path`}
-              onClick={() => void navigator.clipboard.writeText(binding.cwd)}
+              onClick={() => {
+                void navigator.clipboard.writeText(binding.cwd)
+                setCwdCopied(true)
+                setTimeout(() => setCwdCopied(false), 1200)
+              }}
             >
               {binding.cwd}
             </button>

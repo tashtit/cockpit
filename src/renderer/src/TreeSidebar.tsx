@@ -423,7 +423,7 @@ function RepoNode({
           />
           {repo.archivedCount > 0 && (
             <>
-              <button className="archived-toggle" onClick={() => setShowArchived((v) => !v)}>
+              <button className="archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}>
                 <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
                 Archived ({repo.archivedCount})
               </button>
@@ -512,7 +512,7 @@ function ChatsSection({
           />
           {repo.archivedCount > 0 && (
             <>
-              <button className="archived-toggle" onClick={() => setShowArchived((v) => !v)}>
+              <button className="archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}>
                 <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
                 Archived ({repo.archivedCount})
               </button>
