@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AccountsSnapshot, Provider, SourceDir, SourceStats } from '../../shared/types'
 import { api } from './api'
 import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { Select } from './Select'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -118,7 +119,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
         </p>
         <ul className="source-list">
           {stats.map((s) => (
-            <li key={s.path} className={`source-row source-${s.provider}`}>
+            <li key={s.path} className={`source-row tint-${s.provider}`}>
               <span className={`plogo plogo-${s.provider}`} aria-hidden="true">
                 <ProviderLogo p={s.provider} size={13} />
               </span>
@@ -219,16 +220,13 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
           <div className="ns-options">
             <div className="ns-opt">
               <label className="ns-label" htmlFor="src-provider">Agent</label>
-              <select
+              <Select
                 id="src-provider"
-                className="ns-select"
+                ariaLabel="Agent"
                 value={provider}
-                onChange={(e) => setProvider(e.target.value as Provider)}
-              >
-                {PROVIDERS.map((p) => (
-                  <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>
-                ))}
-              </select>
+                options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
+                onChange={(v) => setProvider(v as Provider)}
+              />
             </div>
             <div className="ns-opt source-opt-path">
               <label className="ns-label" htmlFor="src-path">Config home</label>

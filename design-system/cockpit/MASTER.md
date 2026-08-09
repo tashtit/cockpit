@@ -91,13 +91,15 @@ Reuse these; don't invent parallel variants:
 - **Cards:** `.ns-card` (600px, `.wide` 760px) for forms; `.composer-card` for the home prompt.
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.
 - **Semantic count pills:** bordered pill = "session count on a repo"; org counts are plain text.
+- **`Select`** — the one dropdown (see Native Controls); never a raw `<select>`.
+- **`.tint-{claude,codex,copilot}`** — rest-intensity agent identity for bordered rows (2px inset bar + faint gradient); used by settings source rows and ai-setup instruction files.
 
 ## Native Controls
 
 Nothing renders with stock Chromium chrome:
 
-- `:root { color-scheme: dark }` keeps native surfaces (select popups, autofill, fallback scrollbars) dark — never remove it.
-- Selects are `appearance: none` with the `--select-chevron` token (a data-URI whose stroke mirrors `--fg-dim` — data URIs can't reference tokens, so change both together). `.mode-select`/`.ns-select` are the two select classes; new selects join those rules, they don't restyle from scratch.
+- **Dropdowns are never native `<select>`** — OS popups can't be styled. Use the `Select` component (`Select.tsx`): trigger button + portaled fixed-position listbox (portal is load-bearing: `backdrop-filter` ancestors trap fixed positioning, `overflow: hidden` cards clip it). It carries the full keyboard contract (arrows/Home/End, Enter/Space, Escape-returns-focus, type-ahead) and ARIA listbox semantics — don't reimplement dropdowns. Variants: `mono` (machine identifiers), `quiet` (borderless, inside an already-bordered control). A read-only value next to Selects uses `.ns-account-single` (trigger-shaped, inert).
+- `:root { color-scheme: dark }` keeps remaining native surfaces (autofill, fallback scrollbars) dark — never remove it.
 - Checkboxes/radios use `accent-color: var(--accent)`; text inputs get `caret-color: var(--accent)`; placeholders are `--fg-dim`.
 - Every `<summary>` draws its own ▸ indicator (UA markers are globally suppressed) — a new `<details>` must add one, or it will look inert.
 

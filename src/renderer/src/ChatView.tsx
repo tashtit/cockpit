@@ -5,6 +5,7 @@ import rehypeHighlight from 'rehype-highlight'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import type { ChatBinding } from './App'
 import { BranchIcon, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { Select } from './Select'
 
 function nodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -164,23 +165,16 @@ export function ChatView({
             </button>
           )
         )}
-        <select
-          className="mode-select"
+        <Select
+          className="mode-select-wrap"
           value={mode}
-          aria-label="Permission mode"
-          title={MODES.find((m) => m.v === mode)?.hint}
-          onChange={(e) => {
-            const v = e.target.value as PermissionMode
-            setMode(v)
+          ariaLabel="Permission mode"
+          options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+          onChange={(v) => {
+            setMode(v as PermissionMode)
             window.localStorage.setItem('cockpit:mode', v)
           }}
-        >
-          {MODES.map((m) => (
-            <option key={m.v} value={m.v}>
-              {m.label}
-            </option>
-          ))}
-        </select>
+        />
       </header>
 
       <div className="messages" ref={scrollRef}>

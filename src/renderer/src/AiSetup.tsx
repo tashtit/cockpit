@@ -9,6 +9,7 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { Select } from './Select'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 type Tab = 'instructions' | 'mcp' | 'skills' | 'plugins' | 'marketplace'
@@ -331,14 +332,17 @@ function InstructionsTab({
 
       <div className="inst-scope">
         <label htmlFor="inst-scope-sel">Scope</label>
-        <select id="inst-scope-sel" value={scope} onChange={(e) => setScope(e.target.value)}>
-          <option value="global">Global — every session, all repos</option>
-          {gitRepos.map((r) => (
-            <option key={r.key} value={r.root as string}>
-              {r.fullName ?? r.name}
-            </option>
-          ))}
-        </select>
+        <Select
+          id="inst-scope-sel"
+          ariaLabel="Scope"
+          className="inst-scope-select"
+          value={scope}
+          options={[
+            { value: 'global', label: 'Global — every session, all repos' },
+            ...gitRepos.map((r) => ({ value: r.root as string, label: r.fullName ?? r.name }))
+          ]}
+          onChange={setScope}
+        />
       </div>
 
       {!inst && <div className="tree-empty">loading…</div>}
@@ -411,7 +415,7 @@ function InstructionFileRow({
   useEffect(() => setText(file.content), [file.content])
 
   return (
-    <li className="ext-row inst-file">
+    <li className={`ext-row inst-file ${file.agents.length === 1 ? `tint-${file.agents[0]}` : ''}`}>
       <div className="ext-agents" aria-label={`Read by ${file.agents.map((a) => PROVIDER_LABEL[a]).join(' and ')}`}>
         {file.agents.map((a) => (
           <span key={a} className={`plogo plogo-${a}`} title={PROVIDER_LABEL[a]}>

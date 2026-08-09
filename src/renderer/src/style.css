@@ -27,9 +27,6 @@
   /* --fs-prose: transcript/composer reading size — chrome stays at --fs-base */
   --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-prose: 14px; --fs-md: 15px;
   --fs-lg: 16px; --fs-xl: 26px;
-  /* custom select chevron — stroke is the --fg-dim value (data URIs can't reference
-     tokens); if --fg-dim changes, change the %23 color here with it */
-  --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa3bf' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -65,7 +62,7 @@ button, input, select, textarea, details { transition: background 160ms var(--ea
    content must stay below it (tree-top's 40px pad and view top margins already do) */
 .drag-strip { position: fixed; top: 0; left: 0; right: 0; height: 22px;
   -webkit-app-region: drag; z-index: 30; }
-.tree-top button, .chat-header button, .chat-header select { -webkit-app-region: no-drag; }
+.tree-top button, .chat-header button { -webkit-app-region: no-drag; }
 /* the subtitle carries paths/branches a developer copies — selectable, not draggable */
 .chat-header .chat-sub { -webkit-app-region: no-drag; user-select: text; }
 
@@ -323,18 +320,32 @@ summary::-webkit-details-marker { display: none; }
   padding: 0 7px; font-size: var(--fs-xs); font-family: var(--mono); max-width: 180px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
 .branch-chip svg { flex-shrink: 0; }
-/* selects lose the stock chrome: flat fill, tokenized chevron, room for it on the right */
-.mode-select, .ns-select, .inst-scope select { appearance: none; cursor: pointer;
-  background-color: var(--bg3); color: var(--fg);
-  background-image: var(--select-chevron); background-repeat: no-repeat;
-  background-position: right var(--s3) center; background-size: 10px 6px;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px 26px 5px var(--s3); font-size: var(--fs-sm); min-height: 28px;
-  text-overflow: ellipsis; }
-.mode-select:hover, .ns-select:hover, .inst-scope select:hover {
-  border-color: var(--border-strong); }
-/* mac popups follow color-scheme; this is the fallback for the option list elsewhere */
-select option { background: var(--bg2); color: var(--fg); }
+/* ---------- Select: the app's own dropdown (native popups can't be styled) ---------- */
+.select-wrap { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
+.select-trigger { display: flex; align-items: center; gap: var(--s2);
+  background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 4px var(--s3); min-height: 28px;
+  font-size: var(--fs-sm); cursor: pointer; min-width: 0; max-width: 100%; width: 100%; }
+.select-trigger:hover { border-color: var(--border-strong); }
+.select-trigger.quiet { border: none; background: none; min-height: 24px; padding: 2px var(--s2); }
+.select-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; text-align: left; }
+.select-chev { flex-shrink: 0; color: var(--fg-dim); transition: transform 160ms var(--ease); }
+.select-trigger[aria-expanded='true'] .select-chev { transform: rotate(180deg); }
+.select-pop { position: fixed; z-index: 60; list-style: none; margin: 0;
+  max-height: 300px; overflow-y: auto; padding: var(--s1);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 24px rgba(0, 0, 0, 0.45); }
+.select-pop:focus { outline: none; }
+.select-opt { display: flex; align-items: center; gap: var(--s2);
+  padding: 4px var(--s3); border-radius: var(--radius-sm); font-size: var(--fs-sm);
+  color: var(--fg); cursor: pointer; min-height: 27px; white-space: nowrap; }
+.select-opt.active { background: var(--bg3); }
+.select-opt[aria-selected='true'] { color: var(--accent); }
+.select-opt-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.select-opt-hint { color: var(--fg-dim); font-size: var(--fs-xs); }
+.select-check { flex-shrink: 0; }
+.select-wrap.mono .select-trigger, .select-pop.mono { font-family: var(--mono); }
 
 .badge { font-size: var(--fs-xs); font-weight: 700; padding: 2px var(--s3);
   border-radius: 999px; color: var(--bg); flex-shrink: 0; display: inline-flex;
@@ -508,11 +519,8 @@ select option { background: var(--bg2); color: var(--fg); }
   box-shadow: inset 0 0 0 1.5px var(--copilot); }
 .composer-agent.no-acct::after { content: ''; position: absolute; top: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
-/* borderless inside the identity control, but keeps the chevron from .ns-select;
-   24px tall so the fused control matches the 28px bar rhythm (2px wrapper padding) */
-select.composer-acct-select { font-family: var(--mono); font-size: var(--fs-sm);
-  border: none; background-color: transparent; max-width: 210px;
-  min-height: 24px; padding: 0 22px 0 var(--s2); }
+/* account select sits borderless inside the identity control (quiet variant) */
+.composer-acct-wrap { max-width: 210px; }
 .composer-bar .btn-primary { margin-left: auto; }
 .home-recent { display: flex; flex-direction: column; gap: var(--s2); }
 .recent-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
@@ -566,9 +574,12 @@ select.composer-acct-select { font-family: var(--mono); font-size: var(--fs-sm);
 .ns-opt { display: flex; flex-direction: column; gap: var(--s1); flex: 1; min-width: 130px; }
 .ns-opt input { padding: var(--s2) var(--s3); background: var(--surface); color: var(--fg);
   border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
-select#ns-account, .ns-account-single { font-family: var(--mono); }
-.ns-account-single { color: var(--fg); overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; }
+/* single-account read-only field — trigger-shaped, but inert */
+.ns-account-single { font-family: var(--mono); color: var(--fg); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 4px var(--s3); min-height: 28px; font-size: var(--fs-sm);
+  display: flex; align-items: center; }
 .ns-branch-row { display: flex; align-items: center; gap: var(--s2); }
 .ns-branch-prefix { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-sm); }
 .ns-branch-row input { flex: 1; min-width: 0; padding: var(--s2) var(--s3);
@@ -589,12 +600,13 @@ select#ns-account, .ns-account-single { font-family: var(--mono); }
 .source-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   min-height: 46px; }
-/* rest-intensity agent identity (the sidebar's selected-row recipe, quieter) */
-.source-row.source-claude { box-shadow: inset 2px 0 0 var(--claude);
+/* rest-intensity agent identity for any bordered row (the sidebar's selected-row
+   recipe, quieter) — used by settings source rows and ai-setup instruction files */
+.tint-claude { box-shadow: inset 2px 0 0 var(--claude);
   background: linear-gradient(90deg, rgba(var(--claude-rgb), 0.07), var(--surface) 45%); }
-.source-row.source-codex { box-shadow: inset 2px 0 0 var(--codex);
+.tint-codex { box-shadow: inset 2px 0 0 var(--codex);
   background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.06), var(--surface) 45%); }
-.source-row.source-copilot { box-shadow: inset 2px 0 0 var(--copilot);
+.tint-copilot { box-shadow: inset 2px 0 0 var(--copilot);
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.07), var(--surface) 45%); }
 .source-body { flex: 1; min-width: 0; }
 .source-label { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
@@ -645,7 +657,7 @@ select#ns-account, .ns-account-single { font-family: var(--mono); }
 .inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
 .inst-scope label { font-size: var(--fs-xs); color: var(--fg-dim); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.9px; }
-.inst-scope select { flex: 1; min-width: 0; }
+.inst-scope .select-wrap { flex: 1; min-width: 0; }
 .inst-baseline { width: 100%; font-family: var(--mono); font-size: var(--fs-sm);
   line-height: 1.5; }
 .inst-actions { display: flex; align-items: center; justify-content: flex-end;

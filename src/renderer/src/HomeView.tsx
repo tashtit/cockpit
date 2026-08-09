@@ -10,6 +10,7 @@ import type {
 import { api } from './api'
 import { accountOptions, savedAccount, type AccountChoice } from './NewSession'
 import { BranchIcon, CockpitLogo, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import { Select } from './Select'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -124,19 +125,17 @@ export function HomeView({
           />
           <div className="composer-bar">
             <span className="composer-repo-icon"><RepoIcon size={13} /></span>
-            <select
-              className="ns-select composer-repo"
-              aria-label="Repository"
+            <Select
+              className="composer-repo"
+              ariaLabel="Repository"
               value={selected?.key ?? ''}
-              onChange={(e) => setRepoKey(e.target.value)}
-            >
-              {selectable.map((r) => (
-                <option key={r.key} value={r.key}>
-                  {r.fullName ?? r.name}
-                </option>
-              ))}
-              {selectable.length === 0 && <option value="">no repositories indexed yet</option>}
-            </select>
+              options={
+                selectable.length > 0
+                  ? selectable.map((r) => ({ value: r.key, label: r.fullName ?? r.name }))
+                  : [{ value: '', label: 'no repositories indexed yet' }]
+              }
+              onChange={setRepoKey}
+            />
             <div className="composer-identity">
               <div className="composer-agents" role="group" aria-label="Agent">
                 {PROVIDERS.map((p) => {
@@ -158,34 +157,33 @@ export function HomeView({
                 })}
               </div>
               {opts.length > 0 ? (
-                <select
-                  className="ns-select composer-acct-select"
-                  aria-label={`${PROVIDER_LABEL[provider]} account`}
+                <Select
+                  className="composer-acct-wrap"
+                  mono
+                  quiet
+                  ariaLabel={`${PROVIDER_LABEL[provider]} account`}
                   title={`${PROVIDER_LABEL[provider]} account in use`}
                   value={account?.key ?? ''}
-                  onChange={(e) => {
-                    window.localStorage.setItem(`cockpit:account:${provider}`, e.target.value)
-                    setAccountKey(e.target.value)
+                  options={opts.map((o) => ({ value: o.key, label: o.display }))}
+                  onChange={(v) => {
+                    window.localStorage.setItem(`cockpit:account:${provider}`, v)
+                    setAccountKey(v)
                   }}
-                >
-                  {opts.map((o) => (
-                    <option key={o.key} value={o.key}>{o.display}</option>
-                  ))}
-                </select>
+                />
               ) : (
                 <span className="acct-chip missing">not signed in</span>
               )}
             </div>
-            <select
-              className="ns-select"
-              aria-label="Permission mode"
+            <Select
+              ariaLabel="Permission mode"
               value={mode}
-              onChange={(e) => setMode(e.target.value as PermissionMode)}
-            >
-              <option value="safe">Safe</option>
-              <option value="auto-edit">Auto-edit</option>
-              <option value="yolo">YOLO</option>
-            </select>
+              options={[
+                { value: 'safe', label: 'Safe' },
+                { value: 'auto-edit', label: 'Auto-edit' },
+                { value: 'yolo', label: 'YOLO' }
+              ]}
+              onChange={(v) => setMode(v as PermissionMode)}
+            />
             <button
               className="btn-primary"
               title={account ? `runs as ${account.display}` : undefined}
