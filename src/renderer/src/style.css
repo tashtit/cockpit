@@ -1,5 +1,7 @@
 * { margin: 0; box-sizing: border-box; }
 :root {
+  /* native widgets (select popups, scrollbars, autofill) render dark, not stock white */
+  color-scheme: dark;
   /* refined dark: deep gradient base, elevated surfaces, hairline rgba borders.
      neutrals carry a deliberate indigo cast so the whole app harmonizes with the accent;
      borders/surfaces are tinted rgba, not pure white, for the same reason. */
@@ -25,6 +27,9 @@
   /* --fs-prose: transcript/composer reading size — chrome stays at --fs-base */
   --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-prose: 14px; --fs-md: 15px;
   --fs-lg: 16px; --fs-xl: 26px;
+  /* custom select chevron — stroke is the --fg-dim value (data URIs can't reference
+     tokens); if --fg-dim changes, change the %23 color here with it */
+  --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa3bf' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -76,6 +81,18 @@ button, input, select, textarea, details { transition: background 160ms var(--ea
 /* stable pressed feedback: brightness, never layout-shifting transforms */
 button:active:not(:disabled) { filter: brightness(0.88); }
 time, .repo-count { font-variant-numeric: tabular-nums; }
+
+/* native form-control coverage: nothing renders with stock chrome */
+input, textarea { caret-color: var(--accent); }
+input[type='checkbox'], input[type='radio'] { accent-color: var(--accent); }
+::placeholder { color: var(--fg-dim); opacity: 0.85; }
+/* every <summary> draws its own indicator — kill the UA marker in both engines' forms */
+summary { list-style: none; }
+summary::-webkit-details-marker { display: none; }
+.inst-edit summary::before { content: '▸'; display: inline-block; width: 10px;
+  font-size: 10px; margin-right: var(--s1);
+  transition: transform 160ms var(--ease); }
+.inst-edit[open] summary::before { transform: rotate(90deg); }
 
 /* ---------- identity ---------- */
 .logo-claude, .plogo-claude { color: var(--claude); }
@@ -140,7 +157,6 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
 .search { margin: 0 var(--s4) var(--s3); padding: 7px var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border);
   border-radius: var(--radius); font-size: var(--fs-base); }
-.search::placeholder { color: var(--fg-dim); }
 .search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 
 .tree { overflow-y: auto; flex: 1; min-height: 0; padding: 0 var(--s2) var(--s4); }
@@ -306,9 +322,18 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
   padding: 0 7px; font-size: var(--fs-xs); font-family: var(--mono); max-width: 180px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
 .branch-chip svg { flex-shrink: 0; }
-.mode-select, .ns-select { background: var(--bg3); color: var(--fg);
+/* selects lose the stock chrome: flat fill, tokenized chevron, room for it on the right */
+.mode-select, .ns-select, .inst-scope select { appearance: none; cursor: pointer;
+  background-color: var(--bg3); color: var(--fg);
+  background-image: var(--select-chevron); background-repeat: no-repeat;
+  background-position: right var(--s3) center; background-size: 10px 6px;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px var(--s3); font-size: var(--fs-sm); min-height: 28px; }
+  padding: 5px 26px 5px var(--s3); font-size: var(--fs-sm); min-height: 28px;
+  text-overflow: ellipsis; }
+.mode-select:hover, .ns-select:hover, .inst-scope select:hover {
+  border-color: var(--border-strong); }
+/* mac popups follow color-scheme; this is the fallback for the option list elsewhere */
+select option { background: var(--bg2); color: var(--fg); }
 
 .badge { font-size: var(--fs-xs); font-weight: 700; padding: 2px var(--s3);
   border-radius: 999px; color: var(--bg); flex-shrink: 0; display: inline-flex;
@@ -480,8 +505,11 @@ time, .repo-count { font-variant-numeric: tabular-nums; }
   box-shadow: inset 0 0 0 1.5px var(--copilot); }
 .composer-agent.no-acct::after { content: ''; position: absolute; top: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
+/* borderless inside the identity control, but keeps the chevron from .ns-select;
+   24px tall so the fused control matches the 28px bar rhythm (2px wrapper padding) */
 select.composer-acct-select { font-family: var(--mono); font-size: var(--fs-sm);
-  border: none; background: none; max-width: 210px; }
+  border: none; background-color: transparent; max-width: 210px;
+  min-height: 24px; padding: 0 22px 0 var(--s2); }
 .composer-bar .btn-primary { margin-left: auto; }
 .home-recent { display: flex; flex-direction: column; gap: var(--s2); }
 .recent-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
@@ -595,9 +623,7 @@ select#ns-account, .ns-account-single { font-family: var(--mono); }
 .inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
 .inst-scope label { font-size: var(--fs-xs); color: var(--fg-dim); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.9px; }
-.inst-scope select { flex: 1; min-width: 0; background: var(--surface); color: var(--fg);
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: var(--s2) var(--s3); font-size: var(--fs-sm); }
+.inst-scope select { flex: 1; min-width: 0; }
 .inst-baseline { width: 100%; font-family: var(--mono); font-size: var(--fs-sm);
   line-height: 1.5; }
 .inst-actions { display: flex; align-items: center; justify-content: flex-end;

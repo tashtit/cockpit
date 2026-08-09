@@ -92,6 +92,15 @@ Reuse these; don't invent parallel variants:
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.
 - **Semantic count pills:** bordered pill = "session count on a repo"; org counts are plain text.
 
+## Native Controls
+
+Nothing renders with stock Chromium chrome:
+
+- `:root { color-scheme: dark }` keeps native surfaces (select popups, autofill, fallback scrollbars) dark — never remove it.
+- Selects are `appearance: none` with the `--select-chevron` token (a data-URI whose stroke mirrors `--fg-dim` — data URIs can't reference tokens, so change both together). `.mode-select`/`.ns-select` are the two select classes; new selects join those rules, they don't restyle from scratch.
+- Checkboxes/radios use `accent-color: var(--accent)`; text inputs get `caret-color: var(--accent)`; placeholders are `--fg-dim`.
+- Every `<summary>` draws its own ▸ indicator (UA markers are globally suppressed) — a new `<details>` must add one, or it will look inert.
+
 ## Interaction Rules
 
 - Focus: global `:focus-visible` 2px accent outline; inputs get accent border + 3px glow ring. Never remove.
