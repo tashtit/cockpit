@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
@@ -199,5 +199,203 @@ describe('provider-archived sessions (claude desktop store)', () => {
     // and excluded from the repo group count
     const repoA = idx.listRepos().find((r) => r.key === 'gh:acme/repo-a')
     expect((repoA?.sessionCount ?? 0) + (repoA?.archivedCount ?? 0)).toBe(1)
+  })
+})
+
+// Watcher 'change' events are driven through markDirty directly — real fs.watch
+// delivery timing is OS-dependent and would make these tests flaky.
+describe('watcher-event probing (codex subagent rollouts)', () => {
+  const codexDir = join(root, 'codex')
+  const dayDir = join(codexDir, 'sessions', '2026', '08', '09')
+
+  function writeRollout(name: string, objs: unknown[]): string {
+    mkdirSync(dayDir, { recursive: true })
+    const p = join(dayDir, name)
+    writeFileSync(p, jsonl(objs))
+    return p
+  }
+
+  // subagent rollouts carry session_meta but no user/agent messages — parseCodexMeta
+  // returns null for them, and they live in the same YYYY/MM/DD dirs as real rollouts
+  const subagentLines = [
+    {
+      timestamp: '2026-08-09T10:00:02Z',
+      type: 'session_meta',
+      payload: { id: 'sub1', cwd: '/nowhere/x' }
+    },
+    {
+      timestamp: '2026-08-09T10:00:03Z',
+      type: 'response_item',
+      payload: { type: 'function_call', name: 'Bash', arguments: '{}' }
+    }
+  ]
+
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    writeRollout('rollout-main.jsonl', [
+      {
+        timestamp: '2026-08-09T10:00:00Z',
+        type: 'session_meta',
+        payload: { id: 'm1', cwd: '/nowhere/x' }
+      },
+      {
+        timestamp: '2026-08-09T10:00:01Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'hello' }
+      }
+    ])
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: codexDir, provider: 'codex', label: 'cx' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('probes an unknown file on change and remembers a null parse instead of rescanning', () => {
+    const anyIdx = idx as any
+    const sub = writeRollout('rollout-sub.jsonl', subagentLines)
+    anyIdx.markDirty('change', sub)
+    expect(anyIdx.rescanTimer).toBeNull() // no full rescan was scheduled
+    expect(anyIdx.knownNonSessions.has(sub)).toBe(true)
+    // the streamed appends short-circuit on the remembered verdict
+    writeFileSync(
+      sub,
+      jsonl([
+        ...subagentLines,
+        {
+          timestamp: '2026-08-09T10:00:04Z',
+          type: 'response_item',
+          payload: { type: 'function_call_output', output: 'ok' }
+        }
+      ])
+    )
+    anyIdx.markDirty('change', sub)
+    expect(anyIdx.rescanTimer).toBeNull()
+    expect(idx.page({}).items.map((s) => s.nativeId)).not.toContain('sub1')
+  })
+
+  it('indexes a real session discovered by the change probe without a rescan', () => {
+    const anyIdx = idx as any
+    const p = writeRollout('rollout-second.jsonl', [
+      {
+        timestamp: '2026-08-09T11:00:00Z',
+        type: 'session_meta',
+        payload: { id: 'm2', cwd: '/nowhere/x' }
+      },
+      {
+        timestamp: '2026-08-09T11:00:01Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'second session' }
+      }
+    ])
+    anyIdx.markDirty('change', p)
+    expect(anyIdx.rescanTimer).toBeNull()
+    expect(idx.page({}).items.map((s) => s.nativeId)).toContain('m2')
+  })
+
+  it('re-derives probe verdicts on the next full rescan', async () => {
+    await idx.rescan()
+    expect((idx as any).knownNonSessions.size).toBe(0)
+    const ids = idx.page({}).items.map((s) => s.nativeId)
+    expect(ids).toContain('m1')
+    expect(ids).toContain('m2')
+    expect(ids).not.toContain('sub1')
+  })
+
+  it('does not let a change on a known file cancel a pending full rescan', () => {
+    const anyIdx = idx as any
+    anyIdx.scheduleRescan()
+    expect(anyIdx.rescanTimer).not.toBeNull()
+    anyIdx.markDirty('change', join(dayDir, 'rollout-main.jsonl'))
+    expect(anyIdx.rescanTimer).not.toBeNull()
+    expect(anyIdx.dirtyTimer).toBeNull()
+    idx.stopWatchers() // clear the pending timer before the suite ends
+  })
+})
+
+describe.skipIf(!hasSqlite3())('provider-archived persistence across launches', () => {
+  const cpDir = join(root, 'copilot-persist')
+  const cacheFile = join(root, 'cache', 'stat-cache.json')
+
+  function writeCpSession(id: string, title: string, ts: string): void {
+    const dir = join(cpDir, 'session-state', id)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'events.jsonl'),
+      jsonl([
+        {
+          type: 'session.start',
+          timestamp: ts,
+          data: { sessionId: id, context: { cwd: '/nowhere/persist', branch: 'main' } }
+        },
+        { type: 'user.message', timestamp: ts, data: { content: title } }
+      ])
+    )
+  }
+
+  it('seeds the archived set from the cache when the first sweep fails', async () => {
+    writeCpSession('p1', 'active session', '2026-08-01T10:00:00Z')
+    writeCpSession('p2', 'archived in the copilot app', '2026-08-02T10:00:00Z')
+    execFileSync('sqlite3', [
+      join(cpDir, 'data.db'),
+      "CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, archived_at TEXT);" +
+        "INSERT INTO sessions VALUES ('p1', NULL), ('p2', '2026-08-02T11:00:00Z');"
+    ])
+
+    const first = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    await first.setSources([{ path: cpDir, provider: 'copilot', label: 'cp' }])
+    first.stopWatchers()
+    expect(first.page({}).items.map((s) => s.nativeId)).not.toContain('p2')
+    first.saveCache()
+
+    // next launch: the db read fails (stands in for a locked db / missing sqlite3)
+    writeFileSync(join(cpDir, 'data.db'), 'not a sqlite database')
+    const second = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    await second.setSources([{ path: cpDir, provider: 'copilot', label: 'cp' }])
+    second.stopWatchers()
+    const ids = second.page({}).items.map((s) => s.nativeId)
+    expect(ids).toContain('p1')
+    expect(ids).not.toContain('p2')
+  })
+})
+
+describe('lazy watcher install (source root appears after setSources)', () => {
+  const lateHome = join(root, 'claude-late')
+  let idx: SessionIndexer
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('keeps a missing source, then watches and indexes it once the dir appears', async () => {
+    idx = new SessionIndexer(() => {}, { watchRetryMs: 50, claudeStoreDir: null })
+    // lateHome does not exist yet — the desktop-store-installed-later scenario
+    await idx.setSources([{ path: lateHome, provider: 'claude', label: 'late' }])
+    expect(idx.page({}).total).toBe(0)
+    expect((idx as any).pendingWatches).toHaveLength(1)
+
+    const dir = join(lateHome, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'late1.jsonl'),
+      jsonl([
+        {
+          type: 'user',
+          message: { role: 'user', content: 'born after setSources' },
+          timestamp: '2026-08-09T12:00:00Z',
+          sessionId: 'late1',
+          cwd: '/nowhere/late',
+          gitBranch: 'main'
+        },
+        {
+          type: 'assistant',
+          message: { role: 'assistant', content: 'ok' },
+          timestamp: '2026-08-09T12:00:01Z'
+        }
+      ])
+    )
+
+    await vi.waitFor(() => expect(idx.page({}).total).toBe(1), { timeout: 5000, interval: 100 })
+    expect((idx as any).pendingWatches).toHaveLength(0)
+    expect((idx as any).watchers.length).toBeGreaterThan(0)
   })
 })
