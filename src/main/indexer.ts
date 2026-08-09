@@ -8,7 +8,8 @@ import type {
   SessionMessage,
   SessionPage,
   SessionQuery,
-  SourceDir
+  SourceDir,
+  SourceStats
 } from '../shared/types'
 import { GENERAL_REPO, clearRepoCache, resolveRepo } from './repos'
 import { defaultClaudeStoreDir, listProviderArchivedIds } from './providerArchived'
@@ -405,6 +406,30 @@ export class SessionIndexer {
       this.updateTimer = null
       this.onUpdate()
     }, UPDATE_THROTTLE_MS)
+  }
+
+  /** Per-source health for Settings. Takes the config's source list (the config is
+   *  authoritative — a deleted directory drops out of this.sources but must still
+   *  show, flagged missing, so the user can see and remove the dead entry). */
+  sourceStats(sources: SourceDir[]): SourceStats[] {
+    const by = new Map<string, { count: number; last: number | null }>()
+    for (const s of this.sessions.values()) {
+      if (this.providerArchived.has(s.id)) continue
+      const key = `${s.provider}:${s.source}`
+      const e = by.get(key) ?? { count: 0, last: null }
+      e.count++
+      if (e.last === null || s.updatedAt > e.last) e.last = s.updatedAt
+      by.set(key, e)
+    }
+    return sources.map((src) => {
+      const e = by.get(`${src.provider}:${src.label}`)
+      return {
+        ...src,
+        count: e?.count ?? 0,
+        lastUpdatedAt: e?.last ?? null,
+        missing: !existsSync(src.path)
+      }
+    })
   }
 
   listRepos(): RepoGroup[] {

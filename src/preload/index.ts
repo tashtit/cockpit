@@ -14,6 +14,8 @@ const api: CockpitApi = {
     return () => ipcRenderer.removeListener('chat-event', handler)
   },
   getSources: () => ipcRenderer.invoke('sources:get'),
+  getSourceStats: () => ipcRenderer.invoke('sources:stats'),
+  pickDirectory: () => ipcRenderer.invoke('sources:pick-dir'),
   addSource: (path: string, provider: Provider, label: string) =>
     ipcRenderer.invoke('sources:add', path, provider, label),
   removeSource: (path: string) => ipcRenderer.invoke('sources:remove', path),

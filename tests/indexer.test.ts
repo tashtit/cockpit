@@ -97,6 +97,16 @@ describe('SessionIndexer', () => {
     expect(page.items[0].title).toBe('add pagination — updated')
   })
 
+  it('reports per-source health stats keyed on the config source list', () => {
+    const src = { path: claudeDir, provider: 'claude' as const, label: 'test' }
+    const dead = { path: join(root, 'gone'), provider: 'codex' as const, label: 'dead' }
+    const stats = indexer.sourceStats([src, dead])
+    expect(stats).toHaveLength(2)
+    expect(stats[0]).toMatchObject({ label: 'test', count: 3, missing: false })
+    expect(stats[0].lastUpdatedAt).toBeGreaterThan(0)
+    expect(stats[1]).toMatchObject({ label: 'dead', count: 0, lastUpdatedAt: null, missing: true })
+  })
+
   it('hides unselected projects from global queries but keeps them listed', () => {
     indexer.setHiddenRepos(['gh:acme/repo-a'])
     const repos = indexer.listRepos()

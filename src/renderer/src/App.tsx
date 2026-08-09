@@ -96,6 +96,12 @@ export function App(): JSX.Element {
         e.preventDefault()
         setView({ kind: 'welcome' })
       } else if (e.key === 'Escape') {
+        // a habitual Escape must not discard a half-typed field: first blur, then close
+        const t = e.target as HTMLElement | null
+        if (t && t.closest('input, textarea, select')) {
+          t.blur()
+          return
+        }
         setView((v) =>
           v.kind === 'settings' || v.kind === 'extensions' || v.kind === 'new'
             ? bindingRef.current
