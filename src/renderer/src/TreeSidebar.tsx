@@ -123,12 +123,12 @@ export function TreeSidebar({
           onClick={onOpenExtensions}
           aria-label="AI Setup"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M6.5 1.75V4H4a2 2 0 0 0-2 2v2.5h2.25a1.75 1.75 0 1 1 0 3.5H2V14a2 2 0 0 0 2 2h2.5v-2.25a1.75 1.75 0 1 1 3.5 0V16H12a2 2 0 0 0 2-2v-2.5h1.25a1.75 1.75 0 1 0 0-3.5H14V6a2 2 0 0 0-2-2H9.5V1.75a1.75 1.75 0 1 0-3 0Z" opacity="0.9" />
           </svg>
         </button>
         <button className="icon-btn" title="Settings" onClick={onOpenSettings} aria-label="Settings">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294a6.214 6.214 0 0 1 0 .772c-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z" />
           </svg>
         </button>
@@ -207,27 +207,38 @@ export function TreeSidebar({
         )}
       </div>
       <footer className="sidebar-footer">
-        {accounts?.accounts.map((a) => (
-          <div
-            key={a.path}
-            className="footer-acct"
-            title={`${PROVIDER_LABEL[a.provider]} — ${a.identity ?? a.label}\n${a.path}`}
-          >
-            <span className={`plogo plogo-${a.provider}`}>
-              <ProviderLogo p={a.provider} size={11} />
+        {/* one compact identity bar: agent logos (accounts in the tooltip), GitHub
+            login on the right; the whole row opens Settings for the full detail */}
+        <button
+          className="footer-ids"
+          onClick={onOpenSettings}
+          aria-label="Accounts — open settings"
+          title={[
+            ...(accounts?.accounts.map(
+              (a) =>
+                `${PROVIDER_LABEL[a.provider]} — ${a.identity ?? a.label}` +
+                (a.isDefault ? '' : ` (${a.label})`)
+            ) ?? []),
+            accounts?.githubUser
+              ? `GitHub (PRs) — @${accounts.githubUser}`
+              : 'GitHub: gh not signed in'
+          ].join('\n')}
+        >
+          {accounts?.accounts.map((a) => (
+            <span key={a.path} className={`plogo plogo-${a.provider}`}>
+              <ProviderLogo p={a.provider} size={12} />
             </span>
-            <span className="acct-id">{a.identity ?? a.label}</span>
-            {!a.isDefault && <span className="acct-chip">{a.label}</span>}
-          </div>
-        ))}
-        <div className="footer-acct" title="GitHub identity used for PRs (gh CLI)">
-          <OrgIcon size={11} />
+          ))}
           {accounts?.githubUser ? (
-            <span className="acct-id">@{accounts.githubUser}</span>
+            <span className="footer-gh">
+              <OrgIcon size={11} /> @{accounts.githubUser}
+            </span>
           ) : (
-            <span className="acct-id gh-missing">gh: not signed in</span>
+            <span className="footer-gh gh-missing">
+              <OrgIcon size={11} /> gh: not signed in
+            </span>
           )}
-        </div>
+        </button>
       </footer>
     </aside>
   )
@@ -268,7 +279,7 @@ function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z" />
         </svg>
         {hiddenCount > 0 && <span className="filter-dot" aria-hidden />}
@@ -364,7 +375,7 @@ function RepoNode({
         <span className="repo-providers">
           {repo.providers.map((p) => (
             <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
-              <ProviderLogo p={p} size={9} />
+              <ProviderLogo p={p} size={10} />
             </span>
           ))}
         </span>
@@ -412,7 +423,7 @@ function RepoNode({
           />
           {repo.archivedCount > 0 && (
             <>
-              <button className="archived-toggle" onClick={() => setShowArchived((v) => !v)}>
+              <button className="archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}>
                 <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
                 Archived ({repo.archivedCount})
               </button>
@@ -481,7 +492,7 @@ function ChatsSection({
         <span className="repo-providers">
           {repo.providers.map((p) => (
             <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
-              <ProviderLogo p={p} size={9} />
+              <ProviderLogo p={p} size={10} />
             </span>
           ))}
         </span>
@@ -501,7 +512,7 @@ function ChatsSection({
           />
           {repo.archivedCount > 0 && (
             <>
-              <button className="archived-toggle" onClick={() => setShowArchived((v) => !v)}>
+              <button className="archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}>
                 <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
                 Archived ({repo.archivedCount})
               </button>
@@ -620,7 +631,7 @@ function SessionRow({
       }}
     >
       <span className={`plogo plogo-${s.provider}`} title={PROVIDER_LABEL[s.provider]}>
-        <ProviderLogo p={s.provider} size={11} />
+        <ProviderLogo p={s.provider} size={13} />
       </span>
       <span className="session-title">{s.title}</span>
       {multiAccount && acct && <span className="acct-chip">{acct.label}</span>}

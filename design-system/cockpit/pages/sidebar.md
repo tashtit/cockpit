@@ -18,7 +18,7 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 - Tree rows, in visual grammar:
   - `.org-row` — sticky (`top: 0`, solid `--bg2` so scrolling rows pass under it),
     lowercase micro-caps, plain-text repo count.
-  - `.repo-row` — chevron, repo icon, name, tiny per-provider logos (9px), bordered
+  - `.repo-row` — chevron, repo icon, name, tiny per-provider logos (10px), bordered
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
     logo, title, optional `.acct-chip` (only when that provider has multiple accounts),
@@ -30,8 +30,10 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     pagination and archived toggle as a repo.
 - Hover/focus-within actions (`+` new session, archive) float in `.row-actions` over the
   row's right edge — nothing reflows.
-- `.sidebar-footer`: who each agent runs as (always visible), plus GitHub identity from
-  `gh` — `@login` or red "gh: not signed in".
+- `.sidebar-footer`: one compact `.footer-ids` identity bar — agent logos, then the
+  GitHub login (`@login`, or red "gh: not signed in") right-aligned in mono. Per-account
+  detail lives in the tooltip; clicking the bar opens Settings. Don't grow this back into
+  per-account rows — the footer is a glance, Settings is the manager.
 
 ## Pagination (product rule: always paginate)
 

@@ -96,6 +96,12 @@ export function App(): JSX.Element {
         e.preventDefault()
         setView({ kind: 'welcome' })
       } else if (e.key === 'Escape') {
+        // a habitual Escape must not discard a half-typed field: first blur, then close
+        const t = e.target as HTMLElement | null
+        if (t && t.closest('input, textarea, select')) {
+          t.blur()
+          return
+        }
         setView((v) =>
           v.kind === 'settings' || v.kind === 'extensions' || v.kind === 'new'
             ? bindingRef.current
@@ -326,6 +332,9 @@ export function App(): JSX.Element {
 
   return (
     <div className="app">
+      {/* non-chat views have no draggable header of their own — give the window a
+          slim grab strip along the top edge (chat's header is already a drag region) */}
+      {view.kind !== 'chat' && <div className="drag-strip" aria-hidden />}
       <TreeSidebar
         repos={repos}
         indexVersion={indexVersion}

@@ -103,6 +103,10 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
     }
     const p = l.payload ?? l
     if (l.type === 'session_meta' || p?.originator) {
+      // subagent rollouts (guardian etc.) live in the same sessions/ dirs but are
+      // parts of a thread, never sessions — and archiving the parent thread moves
+      // only the parent's rollout, so these would surface as phantom sessions
+      if (p.thread_source === 'subagent') return null
       if (p.id) nativeId = String(p.id)
       // The name index is keyed by thread id (continuation rollouts share it)
       if (p.session_id || p.id) threadId = String(p.session_id ?? p.id)

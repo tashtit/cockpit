@@ -5,6 +5,7 @@ import rehypeHighlight from 'rehype-highlight'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import type { ChatBinding } from './App'
 import { BranchIcon, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { Select } from './Select'
 
 function nodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -16,13 +17,20 @@ function nodeText(node: ReactNode): string {
 }
 
 function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
+  // copy must acknowledge — a click with no visible result reads as broken
+  const [copied, setCopied] = useState(false)
   return (
     <div className="codeblock">
       <button
-        className="code-copy"
-        onClick={() => void navigator.clipboard.writeText(nodeText(children))}
+        className={`code-copy ${copied ? 'copied' : ''}`}
+        aria-label="Copy code"
+        onClick={() => {
+          void navigator.clipboard.writeText(nodeText(children))
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        }}
       >
-        Copy
+        {copied ? 'Copied' : 'Copy'}
       </button>
       <pre>{children}</pre>
     </div>
@@ -58,6 +66,7 @@ export function ChatView({
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [draft, setDraft] = useState('')
+  const [cwdCopied, setCwdCopied] = useState(false)
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -115,11 +124,13 @@ export function ChatView({
         <span className={`badge badge-${binding.provider}`}>
           <ProviderLogo p={binding.provider} size={11} /> {PROVIDER_LABEL[binding.provider]}
         </span>
+        {/* compact: the local part identifies the account at a glance; the full
+            identity lives in the tooltip (same pattern as the sidebar footer) */}
         <span
           className={`acct-chip acct-${binding.provider}`}
           title={`Running as ${binding.accountLabel ?? 'default account'}`}
         >
-          {binding.accountLabel ?? 'default account'}
+          {(binding.accountLabel ?? 'default account').split('@')[0]}
         </span>
         <div className="chat-header-text">
           <div className="chat-title">{binding.title}</div>
@@ -131,9 +142,13 @@ export function ChatView({
               </span>
             )}
             <button
-              className="chat-cwd"
+              className={`chat-cwd ${cwdCopied ? 'copied' : ''}`}
               title={`${binding.cwd}${binding.nativeSessionId ? `\nsession ${binding.nativeSessionId}` : ''}\nclick to copy path`}
-              onClick={() => void navigator.clipboard.writeText(binding.cwd)}
+              onClick={() => {
+                void navigator.clipboard.writeText(binding.cwd)
+                setCwdCopied(true)
+                setTimeout(() => setCwdCopied(false), 1200)
+              }}
             >
               {binding.cwd}
             </button>
@@ -150,23 +165,16 @@ export function ChatView({
             </button>
           )
         )}
-        <select
-          className="mode-select"
+        <Select
+          className="mode-select-wrap"
           value={mode}
-          aria-label="Permission mode"
-          title={MODES.find((m) => m.v === mode)?.hint}
-          onChange={(e) => {
-            const v = e.target.value as PermissionMode
-            setMode(v)
+          ariaLabel="Permission mode"
+          options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+          onChange={(v) => {
+            setMode(v as PermissionMode)
             window.localStorage.setItem('cockpit:mode', v)
           }}
-        >
-          {MODES.map((m) => (
-            <option key={m.v} value={m.v}>
-              {m.label}
-            </option>
-          ))}
-        </select>
+        />
       </header>
 
       <div className="messages" ref={scrollRef}>

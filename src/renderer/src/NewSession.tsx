@@ -9,6 +9,7 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { Select } from './Select'
 
 export interface AccountChoice {
   configDir?: string
@@ -158,18 +159,13 @@ export function NewSession({
         </div>
 
         <label className="ns-label" htmlFor="ns-repo">Project</label>
-        <select
+        <Select
           id="ns-repo"
-          className="ns-select"
+          ariaLabel="Project"
           value={selected.key}
-          onChange={(e) => setRepoKey(e.target.value)}
-        >
-          {selectable.map((r) => (
-            <option key={r.key} value={r.key}>
-              {r.fullName ?? r.name}
-            </option>
-          ))}
-        </select>
+          options={selectable.map((r) => ({ value: r.key, label: r.fullName ?? r.name }))}
+          onChange={setRepoKey}
+        />
 
         <label className="ns-label">Agent</label>
         <div className="ns-providers" role="group" aria-label="Agent">
@@ -199,18 +195,16 @@ export function NewSession({
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ns-account">Account</label>
             {opts.length > 1 ? (
-              <select
+              <Select
                 id="ns-account"
-                className="ns-select"
+                ariaLabel="Account"
+                mono
                 value={account?.key ?? ''}
-                onChange={(e) => setAccountKey(e.target.value)}
-              >
-                {opts.map((o) => (
-                  <option key={o.key} value={o.key}>{o.display}</option>
-                ))}
-              </select>
+                options={opts.map((o) => ({ value: o.key, label: o.display }))}
+                onChange={setAccountKey}
+              />
             ) : (
-              <div id="ns-account" className="ns-select ns-account-single" title={account?.display}>
+              <div id="ns-account" className="ns-account-single" title={account?.display}>
                 {account?.display ?? 'not signed in'}
               </div>
             )}
@@ -233,31 +227,30 @@ export function NewSession({
           {provider === 'codex' && (
             <div className="ns-opt">
               <label className="ns-label" htmlFor="ns-sandbox">Sandbox</label>
-              <select
+              <Select
                 id="ns-sandbox"
-                className="ns-select"
+                ariaLabel="Sandbox"
+                mono
                 value={codexSandbox}
-                onChange={(e) => setCodexSandbox(e.target.value as CodexSandbox | '')}
-              >
-                <option value="">default</option>
-                <option value="read-only">read-only</option>
-                <option value="workspace-write">workspace-write</option>
-                <option value="danger-full-access">danger-full-access</option>
-              </select>
+                options={[
+                  { value: '', label: 'default' },
+                  { value: 'read-only', label: 'read-only' },
+                  { value: 'workspace-write', label: 'workspace-write' },
+                  { value: 'danger-full-access', label: 'danger-full-access' }
+                ]}
+                onChange={(v) => setCodexSandbox(v as CodexSandbox | '')}
+              />
             </div>
           )}
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ns-mode">Permissions</label>
-            <select
+            <Select
               id="ns-mode"
-              className="ns-select"
+              ariaLabel="Permissions"
               value={mode}
-              onChange={(e) => setMode(e.target.value as PermissionMode)}
-            >
-              {MODES.map((m) => (
-                <option key={m.v} value={m.v}>{m.label}</option>
-              ))}
-            </select>
+              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+              onChange={(v) => setMode(v as PermissionMode)}
+            />
           </div>
         </div>
         <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>

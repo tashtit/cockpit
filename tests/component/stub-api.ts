@@ -11,6 +11,8 @@ export function freshApi(): CockpitApi {
     cancelChat: vi.fn(async () => {}),
     onChatEvent: vi.fn(() => () => {}),
     getSources: vi.fn(async () => []),
+    getSourceStats: vi.fn(async () => []),
+    pickDirectory: vi.fn(async () => null),
     addSource: vi.fn(async () => []),
     removeSource: vi.fn(async () => []),
     listRepos: vi.fn(async () => []),

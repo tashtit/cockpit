@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { ChatRequest, Provider, SessionQuery } from '../shared/types'
@@ -91,6 +91,16 @@ app.whenReady().then(() => {
   void indexer.setSources(cfg.sources)
 
   ipcMain.handle('sources:get', () => loadConfig().sources)
+  ipcMain.handle('sources:stats', () => indexer.sourceStats(loadConfig().sources))
+  ipcMain.handle('sources:pick-dir', async () => {
+    // main-process dialog: the renderer never supplies a path, it receives one
+    const res = await dialog.showOpenDialog(win!, {
+      title: 'Choose a config home to index',
+      defaultPath: homedir(),
+      properties: ['openDirectory', 'showHiddenFiles']
+    })
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
+  })
   ipcMain.handle('sources:add', (_e, path: string, provider: Provider, label: string) => {
     const p = resolve(String(path))
     if (!existsSync(p) || !statSync(p).isDirectory()) {

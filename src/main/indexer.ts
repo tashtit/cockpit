@@ -8,10 +8,11 @@ import type {
   SessionMessage,
   SessionPage,
   SessionQuery,
-  SourceDir
+  SourceDir,
+  SourceStats
 } from '../shared/types'
 import { GENERAL_REPO, clearRepoCache, resolveRepo } from './repos'
-import { listProviderArchivedIds } from './providerArchived'
+import { defaultClaudeStoreDir, listProviderArchivedIds } from './providerArchived'
 import {
   listClaudeSessionFiles,
   listClaudeSessionRoots,
@@ -59,7 +60,7 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 4
+const CACHE_VERSION = 5
 /** Yield to the event loop every N files so scans never starve IPC. */
 const YIELD_EVERY = 50
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -100,7 +101,9 @@ function auxStamp(file: string, source: SourceDir): number {
  * (e.g. sanitized cwd paths like "-Users-x-dev-app.web") aren't silently unwatched.
  */
 function watchIgnored(p: string): boolean {
-  if (/\/(checkpoints|files|research|logs)(\/|$)/.test(p)) return true
+  // subagents/**: sidechain transcripts the listers exclude — without this,
+  // every agent append would fall through markDirty into a full rescan
+  if (/\/(checkpoints|files|research|logs|subagents)(\/|$)/.test(p)) return true
   return /\.(db|db-wal|db-shm|sqlite|log|md|txt|png|jpe?g|gif|svg|zip|gz|tar|lock)$/i.test(p)
 }
 
@@ -126,10 +129,13 @@ export class SessionIndexer {
   private hiddenRepos = new Set<string>()
   private onUpdate: () => void
   private cacheFile: string | null
+  /** undefined → the real desktop-app store; null → disabled (tests) */
+  private claudeStoreDir: string | null
 
-  constructor(onUpdate: () => void, opts?: { cacheFile?: string }) {
+  constructor(onUpdate: () => void, opts?: { cacheFile?: string; claudeStoreDir?: string | null }) {
     this.onUpdate = onUpdate
     this.cacheFile = opts?.cacheFile ?? null
+    this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
     this.loadCache()
   }
 
@@ -146,7 +152,9 @@ export class SessionIndexer {
   }
 
   private async refreshProviderArchived(): Promise<void> {
-    const next = await listProviderArchivedIds(this.sources, this.providerArchived)
+    const next = await listProviderArchivedIds(this.sources, this.providerArchived, {
+      claudeStoreDir: this.claudeStoreDir
+    })
     const changed =
       next.size !== this.providerArchived.size ||
       [...next].some((id) => !this.providerArchived.has(id))
@@ -166,6 +174,25 @@ export class SessionIndexer {
     this.sources = sources.filter((s) => existsSync(s.path))
     this.stopWatchers()
     const scan = this.rescan()
+    // claude's archive flags live in the desktop app's store, outside every source —
+    // one recursive watch there picks up archive toggles made in the Claude app
+    if (
+      this.claudeStoreDir &&
+      this.sources.some((s) => s.provider === 'claude') &&
+      existsSync(this.claudeStoreDir)
+    ) {
+      try {
+        const w = watch(this.claudeStoreDir, { recursive: true }, () =>
+          this.scheduleProviderArchivedRefresh()
+        )
+        w.on('error', (err) =>
+          console.error(`[indexer] watcher error for ${this.claudeStoreDir}:`, err)
+        )
+        this.watchers.push(w)
+      } catch (err) {
+        console.error(`[indexer] cannot watch ${this.claudeStoreDir}:`, err)
+      }
+    }
     for (const s of this.sources) {
       for (const root of ROOT_LISTERS[s.provider](s.path)) {
         if (!existsSync(root)) continue
@@ -379,6 +406,30 @@ export class SessionIndexer {
       this.updateTimer = null
       this.onUpdate()
     }, UPDATE_THROTTLE_MS)
+  }
+
+  /** Per-source health for Settings. Takes the config's source list (the config is
+   *  authoritative — a deleted directory drops out of this.sources but must still
+   *  show, flagged missing, so the user can see and remove the dead entry). */
+  sourceStats(sources: SourceDir[]): SourceStats[] {
+    const by = new Map<string, { count: number; last: number | null }>()
+    for (const s of this.sessions.values()) {
+      if (this.providerArchived.has(s.id)) continue
+      const key = `${s.provider}:${s.source}`
+      const e = by.get(key) ?? { count: 0, last: null }
+      e.count++
+      if (e.last === null || s.updatedAt > e.last) e.last = s.updatedAt
+      by.set(key, e)
+    }
+    return sources.map((src) => {
+      const e = by.get(`${src.provider}:${src.label}`)
+      return {
+        ...src,
+        count: e?.count ?? 0,
+        lastUpdatedAt: e?.last ?? null,
+        missing: !existsSync(src.path)
+      }
+    })
   }
 
   listRepos(): RepoGroup[] {

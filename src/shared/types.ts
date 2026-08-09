@@ -67,6 +67,15 @@ export interface SourceDir {
   label: string
 }
 
+/** Per-source health for the Settings view: what is indexed, and is it alive. */
+export interface SourceStats extends SourceDir {
+  /** Indexed sessions attributed to this source (provider-archived excluded) */
+  count: number
+  lastUpdatedAt: number | null
+  /** The directory no longer exists on disk */
+  missing: boolean
+}
+
 export interface SessionQuery {
   /** RepoInfo.key to scope to one repository ('general' = sessions with no repo) */
   repoKey?: string
@@ -235,6 +244,9 @@ export interface CockpitApi {
   cancelChat(turnId: string): Promise<void>
   onChatEvent(cb: (ev: ChatEvent) => void): () => void
   getSources(): Promise<SourceDir[]>
+  getSourceStats(): Promise<SourceStats[]>
+  /** Native directory picker (main-process dialog); null when the user cancels */
+  pickDirectory(): Promise<string | null>
   addSource(path: string, provider: Provider, label: string): Promise<SourceDir[]>
   removeSource(path: string): Promise<SourceDir[]>
   listRepos(): Promise<RepoGroup[]>
