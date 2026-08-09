@@ -1,18 +1,22 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SourceDir } from '../shared/types'
 
 /**
- * Sessions archived inside the provider's own app must never show up in Cockpit —
- * not as active, not under Cockpit's own Archived toggle.
+ * Sessions archived — or deleted — inside the provider's own app must never show up in
+ * Cockpit: not as active, not under Cockpit's own Archived toggle.
  *
  * Where each provider keeps that state:
- * - copilot: an `archived_at` column in <home>/data.db (sessions table). The
- *   transcript files under session-state/ are left untouched, so the flag has to
- *   be read from the db.
+ * - copilot: data.db (sessions table) is the app's source of truth.
+ *   - archived: the row gets an `archived_at` timestamp; the transcript under
+ *     session-state/ is left untouched, so the flag has to be read from the db.
+ *   - deleted: the row is removed outright (the db has a session_deletion_intents
+ *     table and no deleted_at column), again leaving session-state/<id>/events.jsonl
+ *     behind. A row-less dir is treated as deleted only when its events.jsonl mtime
+ *     falls inside the era the db demonstrably covers — see copilotDeletedIds.
  * - codex: archiving physically moves the rollout file to <home>/archived_sessions/,
  *   which the indexer never walks — nothing extra to read.
  * - claude: the CLI persists nothing, but the Claude desktop app keeps one JSON
@@ -33,12 +37,16 @@ export async function listProviderArchivedIds(
   const jobs = sources
     .filter((s) => s.provider === 'copilot')
     .map(async (s) => {
-      const ids = await copilotArchivedIds(join(s.path, 'data.db'))
-      if (ids) for (const id of ids) out.add(`copilot:${id}`)
-      // read failed (locked db, missing sqlite3): keep what we knew rather than
-      // letting archived sessions flicker back into the tree; the indexer seeds
-      // prev from its persisted cache, so this holds across app launches too
-      else for (const id of prev) if (id.startsWith('copilot:')) out.add(id)
+      const rows = await copilotSessionRows(join(s.path, 'data.db'))
+      if (!rows) {
+        // read failed (locked db, missing sqlite3): keep what we knew rather than
+        // letting hidden sessions flicker back into the tree; the indexer seeds
+        // prev from its persisted cache, so this holds across app launches too
+        for (const id of prev) if (id.startsWith('copilot:')) out.add(id)
+        return
+      }
+      for (const r of rows) if (r.archived) out.add(`copilot:${r.id}`)
+      for (const id of copilotDeletedIds(s.path, rows)) out.add(`copilot:${id}`)
     })
   const claudeStore = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
   if (claudeStore && sources.some((s) => s.provider === 'claude')) {
@@ -85,26 +93,75 @@ async function claudeArchivedIds(
   }
 }
 
-/** null = the read failed; [] = it worked and nothing is archived. */
-function copilotArchivedIds(db: string): Promise<string[] | null> {
+interface CopilotRow {
+  id: string
+  archived: boolean
+}
+
+/** null = the read failed; [] = it worked and the table is empty. */
+function copilotSessionRows(db: string): Promise<CopilotRow[] | null> {
   if (!existsSync(db)) return Promise.resolve([])
   return new Promise((resolve) => {
     execFile(
       'sqlite3',
-      ['-readonly', db, 'SELECT id FROM sessions WHERE archived_at IS NOT NULL'],
+      ['-readonly', db, 'SELECT id, archived_at IS NOT NULL FROM sessions'],
       { timeout: 5000 },
       (err, stdout) => {
         if (err) {
-          console.error(`[indexer] copilot archive read failed for ${db}:`, err.message)
+          console.error(`[indexer] copilot session read failed for ${db}:`, err.message)
           return resolve(null)
         }
         resolve(
           stdout
             .split('\n')
             .map((l) => l.trim())
-            .filter(Boolean)
+            .filter((l) => l.includes('|'))
+            .map((l) => {
+              const sep = l.lastIndexOf('|')
+              return { id: l.slice(0, sep), archived: l.slice(sep + 1) === '1' }
+            })
         )
       }
     )
   })
+}
+
+/**
+ * Deletion leaves no tombstone, so absence from the sessions table is the only signal —
+ * but absence alone also matches pre-db CLI history the app never knew about. Bound the
+ * inference by time: the mtime span of the events.jsonl files the db DOES know is the
+ * era the db covers, and only row-less dirs inside that span were demonstrably known
+ * and dropped. Older dirs (pre-db history) and newer ones (a session the db hasn't
+ * recorded yet) stay visible. Deliberately derived from mtimes, not the db's
+ * created_at/updated_at columns: it needs no schema beyond the id column the archive
+ * read already requires, and it compares mtime against mtime rather than mixing clocks.
+ */
+function copilotDeletedIds(sourceDir: string, rows: CopilotRow[]): string[] {
+  if (rows.length === 0) return []
+  const known = new Set(rows.map((r) => r.id))
+  const stateRoot = join(sourceDir, 'session-state')
+  let dirs: string[]
+  try {
+    dirs = readdirSync(stateRoot)
+  } catch {
+    return []
+  }
+  let min = Infinity
+  let max = -Infinity
+  const candidates: { id: string; mtime: number }[] = []
+  for (const d of dirs) {
+    let mtime: number
+    try {
+      mtime = statSync(join(stateRoot, d, 'events.jsonl')).mtimeMs
+    } catch {
+      continue
+    }
+    if (known.has(d)) {
+      if (mtime < min) min = mtime
+      if (mtime > max) max = mtime
+    } else {
+      candidates.push({ id: d, mtime })
+    }
+  }
+  return candidates.filter((c) => c.mtime >= min && c.mtime <= max).map((c) => c.id)
 }

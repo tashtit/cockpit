@@ -143,7 +143,7 @@ export class SessionIndexer {
   private scanQueued = false
   private sources: SourceDir[] = []
   private archived = new Set<string>()
-  /** Archived in the provider's own app — excluded everywhere (see providerArchived.ts) */
+  /** Archived or deleted in the provider's own app — excluded everywhere (see providerArchived.ts) */
   private providerArchived = new Set<string>()
   private providerArchivedTimer: NodeJS.Timeout | null = null
   /** Repo keys the user chose not to display */

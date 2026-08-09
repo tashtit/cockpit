@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -22,6 +22,25 @@ function hasSqlite3(): boolean {
 
 function jsonl(objs: unknown[]): string {
   return objs.map((o) => JSON.stringify(o)) .join('\n') + '\n'
+}
+
+function writeCopilotSession(base: string, id: string, cwd: string, title: string, ts: string): void {
+  const dir = join(base, 'session-state', id)
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, 'events.jsonl')
+  writeFileSync(
+    file,
+    jsonl([
+      {
+        type: 'session.start',
+        timestamp: ts,
+        data: { sessionId: id, context: { cwd, branch: 'main' } }
+      },
+      { type: 'user.message', timestamp: ts, data: { content: title } }
+    ])
+  )
+  // deletion detection compares events.jsonl mtimes — pin them to the fixture timestamp
+  utimesSync(file, new Date(ts), new Date(ts))
 }
 
 function writeClaudeSession(name: string, cwd: string, title: string, ts: string): void {
@@ -121,27 +140,11 @@ describe('SessionIndexer', () => {
 })
 
 describe.skipIf(!hasSqlite3())('provider-archived sessions (copilot data.db)', () => {
-  function writeCopilotSession(id: string, cwd: string, title: string, ts: string): void {
-    const dir = join(copilotDir, 'session-state', id)
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(
-      join(dir, 'events.jsonl'),
-      jsonl([
-        {
-          type: 'session.start',
-          timestamp: ts,
-          data: { sessionId: id, context: { cwd, branch: 'main' } }
-        },
-        { type: 'user.message', timestamp: ts, data: { content: title } }
-      ])
-    )
-  }
-
   let idx: SessionIndexer
 
   beforeAll(async () => {
-    writeCopilotSession('c1', '/nowhere/one', 'active session', '2026-08-01T10:00:00Z')
-    writeCopilotSession('c2', '/nowhere/two', 'archived in the copilot app', '2026-08-02T10:00:00Z')
+    writeCopilotSession(copilotDir, 'c1', '/nowhere/one', 'active session', '2026-08-01T10:00:00Z')
+    writeCopilotSession(copilotDir, 'c2', '/nowhere/two', 'archived in the copilot app', '2026-08-02T10:00:00Z')
     execFileSync('sqlite3', [
       join(copilotDir, 'data.db'),
       "CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, archived_at TEXT);" +
@@ -397,5 +400,71 @@ describe('lazy watcher install (source root appears after setSources)', () => {
     await vi.waitFor(() => expect(idx.page({}).total).toBe(1), { timeout: 5000, interval: 100 })
     expect((idx as any).pendingWatches).toHaveLength(0)
     expect((idx as any).watchers.length).toBeGreaterThan(0)
+  })
+})
+
+describe.skipIf(!hasSqlite3())('provider-deleted sessions (copilot data.db)', () => {
+  // Deletion removes the sessions row but leaves session-state/<id>/events.jsonl on disk.
+  // A row-less dir is hidden only when its mtime falls inside the mtime span of the dirs
+  // the db does know (here 08-02 … 08-06).
+  const dir = join(root, 'copilot-deleted')
+  let idx: SessionIndexer
+
+  const visible = (): string[] => idx.page({}).items.map((s) => s.nativeId).sort()
+
+  beforeAll(async () => {
+    writeCopilotSession(dir, 'k-old', '/nowhere/a', 'oldest kept session', '2026-08-02T10:00:00Z')
+    writeCopilotSession(dir, 'k-new', '/nowhere/b', 'newest kept session', '2026-08-06T10:00:00Z')
+    writeCopilotSession(dir, 'pre-db', '/nowhere/c', 'history from before the db', '2026-07-01T10:00:00Z')
+    writeCopilotSession(dir, 'gone', '/nowhere/d', 'deleted in the copilot app', '2026-08-04T10:00:00Z')
+    writeCopilotSession(dir, 'unrecorded', '/nowhere/e', 'newer than anything in the db', '2026-08-08T10:00:00Z')
+    execFileSync('sqlite3', [
+      join(dir, 'data.db'),
+      "CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, archived_at TEXT);" +
+        "INSERT INTO sessions VALUES ('k-old', NULL), ('k-new', NULL);"
+    ])
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: dir, provider: 'copilot', label: 'cp' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('hides row-less dirs inside the db era, keeps pre-db history and unrecorded new dirs', () => {
+    expect(visible()).toEqual(['k-new', 'k-old', 'pre-db', 'unrecorded'])
+    // deleted sessions are not surfaced under Cockpit's own archived view either
+    expect(idx.page({ archived: true }).total).toBe(0)
+    const total = idx.listRepos().reduce((n, r) => n + r.sessionCount + r.archivedCount, 0)
+    expect(total).toBe(4)
+  })
+
+  it('keeps the previous hidden set when the db read fails (no flapping)', async () => {
+    writeFileSync(join(dir, 'data.db'), 'this is not a sqlite database')
+    await idx.rescan()
+    expect(visible()).toEqual(['k-new', 'k-old', 'pre-db', 'unrecorded'])
+  })
+})
+
+describe.skipIf(!hasSqlite3())('copilot data.db with an empty sessions table', () => {
+  // An empty table carries no evidence of deletion (and no date range) — hide nothing.
+  const dir = join(root, 'copilot-empty')
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    writeCopilotSession(dir, 'e1', '/nowhere/f', 'first session', '2026-08-01T10:00:00Z')
+    writeCopilotSession(dir, 'e2', '/nowhere/g', 'second session', '2026-08-02T10:00:00Z')
+    execFileSync('sqlite3', [
+      join(dir, 'data.db'),
+      'CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, archived_at TEXT);'
+    ])
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: dir, provider: 'copilot', label: 'cp' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('hides nothing', () => {
+    expect(idx.page({}).items.map((s) => s.nativeId).sort()).toEqual(['e1', 'e2'])
   })
 })
