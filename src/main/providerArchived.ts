@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { readFile, readdir, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SourceDir } from '../shared/types'
 
@@ -13,25 +15,73 @@ import type { SourceDir } from '../shared/types'
  *   be read from the db.
  * - codex: archiving physically moves the rollout file to <home>/archived_sessions/,
  *   which the indexer never walks — nothing extra to read.
- * - claude: archive state is not persisted anywhere readable on disk.
+ * - claude: the CLI persists nothing, but the Claude desktop app keeps one JSON
+ *   record per session under ~/Library/Application Support/Claude/
+ *   claude-code-sessions/<install>/<workspace>/<id>.json with an `isArchived`
+ *   flag and the `cliSessionId` the indexer derives session ids from.
  */
+export function defaultClaudeStoreDir(): string {
+  return join(homedir(), 'Library', 'Application Support', 'Claude', 'claude-code-sessions')
+}
+
 export async function listProviderArchivedIds(
   sources: SourceDir[],
-  prev: ReadonlySet<string>
+  prev: ReadonlySet<string>,
+  opts?: { claudeStoreDir?: string | null }
 ): Promise<Set<string>> {
   const out = new Set<string>()
-  await Promise.all(
-    sources
-      .filter((s) => s.provider === 'copilot')
-      .map(async (s) => {
-        const ids = await copilotArchivedIds(join(s.path, 'data.db'))
-        if (ids) for (const id of ids) out.add(`copilot:${id}`)
-        // read failed (locked db, missing sqlite3): keep what we knew rather than
-        // letting archived sessions flicker back into the tree
-        else for (const id of prev) out.add(id)
-      })
-  )
+  const jobs = sources
+    .filter((s) => s.provider === 'copilot')
+    .map(async (s) => {
+      const ids = await copilotArchivedIds(join(s.path, 'data.db'))
+      if (ids) for (const id of ids) out.add(`copilot:${id}`)
+      // read failed (locked db, missing sqlite3): keep what we knew rather than
+      // letting archived sessions flicker back into the tree
+      else for (const id of prev) if (id.startsWith('copilot:')) out.add(id)
+    })
+  const claudeStore = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
+  if (claudeStore && sources.some((s) => s.provider === 'claude')) {
+    jobs.push(claudeArchivedIds(claudeStore, prev, out))
+  }
+  await Promise.all(jobs)
   return out
+}
+
+/** Desktop-app records are small; anything bigger is not a session record. */
+const MAX_CLAUDE_RECORD_BYTES = 256 * 1024
+
+async function claudeArchivedIds(
+  dir: string,
+  prev: ReadonlySet<string>,
+  out: Set<string>
+): Promise<void> {
+  if (!existsSync(dir)) return
+  try {
+    const entries = await readdir(dir, { recursive: true, withFileTypes: true })
+    await Promise.all(
+      entries
+        .filter((e) => e.isFile() && e.name.endsWith('.json'))
+        .map(async (e) => {
+          try {
+            const full = join(e.parentPath, e.name)
+            if ((await stat(full)).size > MAX_CLAUDE_RECORD_BYTES) return
+            const rec = JSON.parse(await readFile(full, 'utf8')) as {
+              isArchived?: unknown
+              cliSessionId?: unknown
+            }
+            if (rec.isArchived === true && typeof rec.cliSessionId === 'string' && rec.cliSessionId) {
+              out.add(`claude:${rec.cliSessionId}`)
+            }
+          } catch {
+            // record mid-write or a shape we don't know — skip it, formats drift
+          }
+        })
+    )
+  } catch (err) {
+    console.error(`[indexer] claude archive read failed for ${dir}:`, err)
+    // same policy as copilot: a failed sweep keeps what we knew
+    for (const id of prev) if (id.startsWith('claude:')) out.add(id)
+  }
 }
 
 /** null = the read failed; [] = it worked and nothing is archived. */

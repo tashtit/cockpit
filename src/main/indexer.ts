@@ -11,7 +11,7 @@ import type {
   SourceDir
 } from '../shared/types'
 import { GENERAL_REPO, clearRepoCache, resolveRepo } from './repos'
-import { listProviderArchivedIds } from './providerArchived'
+import { defaultClaudeStoreDir, listProviderArchivedIds } from './providerArchived'
 import {
   listClaudeSessionFiles,
   listClaudeSessionRoots,
@@ -126,10 +126,13 @@ export class SessionIndexer {
   private hiddenRepos = new Set<string>()
   private onUpdate: () => void
   private cacheFile: string | null
+  /** undefined → the real desktop-app store; null → disabled (tests) */
+  private claudeStoreDir: string | null
 
-  constructor(onUpdate: () => void, opts?: { cacheFile?: string }) {
+  constructor(onUpdate: () => void, opts?: { cacheFile?: string; claudeStoreDir?: string | null }) {
     this.onUpdate = onUpdate
     this.cacheFile = opts?.cacheFile ?? null
+    this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
     this.loadCache()
   }
 
@@ -146,7 +149,9 @@ export class SessionIndexer {
   }
 
   private async refreshProviderArchived(): Promise<void> {
-    const next = await listProviderArchivedIds(this.sources, this.providerArchived)
+    const next = await listProviderArchivedIds(this.sources, this.providerArchived, {
+      claudeStoreDir: this.claudeStoreDir
+    })
     const changed =
       next.size !== this.providerArchived.size ||
       [...next].some((id) => !this.providerArchived.has(id))
@@ -166,6 +171,25 @@ export class SessionIndexer {
     this.sources = sources.filter((s) => existsSync(s.path))
     this.stopWatchers()
     const scan = this.rescan()
+    // claude's archive flags live in the desktop app's store, outside every source —
+    // one recursive watch there picks up archive toggles made in the Claude app
+    if (
+      this.claudeStoreDir &&
+      this.sources.some((s) => s.provider === 'claude') &&
+      existsSync(this.claudeStoreDir)
+    ) {
+      try {
+        const w = watch(this.claudeStoreDir, { recursive: true }, () =>
+          this.scheduleProviderArchivedRefresh()
+        )
+        w.on('error', (err) =>
+          console.error(`[indexer] watcher error for ${this.claudeStoreDir}:`, err)
+        )
+        this.watchers.push(w)
+      } catch (err) {
+        console.error(`[indexer] cannot watch ${this.claudeStoreDir}:`, err)
+      }
+    }
     for (const s of this.sources) {
       for (const root of ROOT_LISTERS[s.provider](s.path)) {
         if (!existsSync(root)) continue

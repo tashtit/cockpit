@@ -59,7 +59,7 @@ beforeAll(async () => {
   writeClaudeSession('s2', repoA, 'add pagination', '2026-08-02T10:00:00Z')
   writeClaudeSession('s3', '/nowhere/special', 'random chat', '2026-08-03T10:00:00Z')
 
-  indexer = new SessionIndexer(() => {})
+  indexer = new SessionIndexer(() => {}, { claudeStoreDir: null })
   await indexer.setSources([{ path: claudeDir, provider: 'claude', label: 'test' }])
   indexer.stopWatchers()
 })
@@ -137,7 +137,7 @@ describe.skipIf(!hasSqlite3())('provider-archived sessions (copilot data.db)', (
       "CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, archived_at TEXT);" +
         "INSERT INTO sessions VALUES ('c1', NULL), ('c2', '2026-08-02T11:00:00Z');"
     ])
-    idx = new SessionIndexer(() => {})
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
     await idx.setSources([{ path: copilotDir, provider: 'copilot', label: 'cp' }])
     idx.stopWatchers()
   })
@@ -153,5 +153,41 @@ describe.skipIf(!hasSqlite3())('provider-archived sessions (copilot data.db)', (
     // and excluded from repo-group session counts
     const total = idx.listRepos().reduce((n, r) => n + r.sessionCount + r.archivedCount, 0)
     expect(total).toBe(1)
+  })
+})
+
+describe('provider-archived sessions (claude desktop store)', () => {
+  const storeDir = join(root, 'claude-store')
+
+  function writeStoreRecord(name: string, rec: unknown): void {
+    // real layout: <store>/<install-uuid>/<workspace-uuid>/<session>.json
+    const dir = join(storeDir, 'install-1', 'workspace-1')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, name), typeof rec === 'string' ? rec : JSON.stringify(rec))
+  }
+
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    // s1 archived in the Claude app, s2 untouched; a corrupt record must not break the sweep
+    writeStoreRecord('local_a.json', { cliSessionId: 's1', isArchived: true, title: 'x' })
+    writeStoreRecord('local_b.json', { cliSessionId: 's2', isArchived: false, title: 'y' })
+    writeStoreRecord('broken.json', '{ not json')
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: storeDir })
+    await idx.setSources([{ path: claudeDir, provider: 'claude', label: 'test' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('hides sessions archived in the claude desktop app', () => {
+    const active = idx.page({ repoKey: 'gh:acme/repo-a' })
+    expect(active.items.map((s) => s.nativeId)).toContain('s2')
+    expect(active.items.map((s) => s.nativeId)).not.toContain('s1')
+    // not under Cockpit's own archived toggle either
+    expect(idx.page({ repoKey: 'gh:acme/repo-a', archived: true }).total).toBe(0)
+    // and excluded from the repo group count
+    const repoA = idx.listRepos().find((r) => r.key === 'gh:acme/repo-a')
+    expect((repoA?.sessionCount ?? 0) + (repoA?.archivedCount ?? 0)).toBe(1)
   })
 })
