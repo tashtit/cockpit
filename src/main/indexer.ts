@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSync, watch, type FSWatcher } from 'node:fs'
 import { writeFile, rename } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import type {
   Provider,
   RepoGroup,
@@ -68,6 +68,8 @@ const PUBLISH_EVERY = 300
 /** Broadcasts and cache writes are throttled — an active chat appends every second. */
 const UPDATE_THROTTLE_MS = 800
 const CACHE_SAVE_INTERVAL_MS = 30_000
+/** How often to re-check watch roots that didn't exist when sources were set. */
+const WATCH_RETRY_INTERVAL_MS = 30_000
 
 interface CacheEntry {
   mtimeMs: number
@@ -107,14 +109,33 @@ function watchIgnored(p: string): boolean {
   return /\.(db|db-wal|db-shm|sqlite|log|md|txt|png|jpe?g|gif|svg|zip|gz|tar|lock)$/i.test(p)
 }
 
+/** A watch we want installed; kept pending while its directory doesn't exist yet. */
+interface WatchSpec {
+  dir: string
+  recursive?: boolean
+  handler: (event: string, filename: string | Buffer | null) => void
+}
+
 export class SessionIndexer {
   private sessions = new Map<string, SessionMeta>()
   /** file path → parse result keyed on (mtime,size); only changed files get re-read */
   private fileCache = new Map<string, CacheEntry>()
   private fileSource = new Map<string, SourceDir>()
   private watchers: FSWatcher[] = []
+  /** Watch dirs that didn't exist yet (provider installed later) — retried on a timer */
+  private pendingWatches: WatchSpec[] = []
+  private watchRetryTimer: NodeJS.Timeout | null = null
+  private watchRetryMs: number
   private dirty = new Set<string>()
   private dirtyTimer: NodeJS.Timeout | null = null
+  private rescanTimer: NodeJS.Timeout | null = null
+  /**
+   * Session-shaped files whose parse came back null (e.g. codex subagent rollouts,
+   * which live in the same sessions/YYYY/MM/DD dirs as real rollouts). They stream
+   * appends for minutes — without this verdict cache every append would debounce
+   * into a full rescan. Cleared on rescan so the truth is re-derived.
+   */
+  private knownNonSessions = new Set<string>()
   private updateTimer: NodeJS.Timeout | null = null
   private saveTimer: NodeJS.Timeout | null = null
   private cacheDirty = false
@@ -132,9 +153,13 @@ export class SessionIndexer {
   /** undefined → the real desktop-app store; null → disabled (tests) */
   private claudeStoreDir: string | null
 
-  constructor(onUpdate: () => void, opts?: { cacheFile?: string; claudeStoreDir?: string | null }) {
+  constructor(
+    onUpdate: () => void,
+    opts?: { cacheFile?: string; watchRetryMs?: number; claudeStoreDir?: string | null }
+  ) {
     this.onUpdate = onUpdate
     this.cacheFile = opts?.cacheFile ?? null
+    this.watchRetryMs = opts?.watchRetryMs ?? WATCH_RETRY_INTERVAL_MS
     this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
     this.loadCache()
   }
@@ -159,7 +184,13 @@ export class SessionIndexer {
       next.size !== this.providerArchived.size ||
       [...next].some((id) => !this.providerArchived.has(id))
     this.providerArchived = next
-    if (changed) this.emitUpdate()
+    if (changed) {
+      this.emitUpdate()
+      // Persisted with the stat cache (and seeded back in loadCache) so a failed
+      // first sweep after launch can't flash provider-archived sessions into the tree.
+      this.cacheDirty = true
+      this.scheduleSaveCache()
+    }
   }
 
   private scheduleProviderArchivedRefresh(): void {
@@ -171,75 +202,108 @@ export class SessionIndexer {
   }
 
   setSources(sources: SourceDir[]): Promise<void> {
-    this.sources = sources.filter((s) => existsSync(s.path))
+    // Sources are kept even when their dir doesn't exist yet (a provider installed
+    // after launch): scans tolerate missing dirs, and the watch retries below pick
+    // the dir up when it appears.
+    this.sources = [...sources]
     this.stopWatchers()
     const scan = this.rescan()
     // claude's archive flags live in the desktop app's store, outside every source —
-    // one recursive watch there picks up archive toggles made in the Claude app
-    if (
-      this.claudeStoreDir &&
-      this.sources.some((s) => s.provider === 'claude') &&
-      existsSync(this.claudeStoreDir)
-    ) {
-      try {
-        const w = watch(this.claudeStoreDir, { recursive: true }, () =>
-          this.scheduleProviderArchivedRefresh()
-        )
-        w.on('error', (err) =>
-          console.error(`[indexer] watcher error for ${this.claudeStoreDir}:`, err)
-        )
-        this.watchers.push(w)
-      } catch (err) {
-        console.error(`[indexer] cannot watch ${this.claudeStoreDir}:`, err)
-      }
+    // one recursive watch there picks up archive toggles made in the Claude app.
+    // ensureWatch keeps retrying while the store doesn't exist yet (desktop app
+    // installed after launch), so toggles go live without waiting for a rescan.
+    if (this.claudeStoreDir && this.sources.some((s) => s.provider === 'claude')) {
+      this.ensureWatch({
+        dir: this.claudeStoreDir,
+        recursive: true,
+        handler: () => this.scheduleProviderArchivedRefresh()
+      })
     }
     for (const s of this.sources) {
       for (const root of ROOT_LISTERS[s.provider](s.path)) {
-        if (!existsSync(root)) continue
-        // node's recursive fs.watch rides FSEvents on macOS — no native-module dependency,
-        // no per-directory file descriptors
-        try {
-          const w = watch(root, { recursive: true }, (event, filename) => {
+        this.ensureWatch({
+          dir: root,
+          recursive: true,
+          handler: (event, filename) => {
             if (!filename) return this.scheduleRescan()
             const full = join(root, filename.toString())
             if (watchIgnored(full)) return
             this.markDirty(event, full)
-          })
-          w.on('error', (err) => console.error(`[indexer] watcher error for ${root}:`, err))
-          this.watchers.push(w)
-        } catch (err) {
-          console.error(`[indexer] cannot watch ${root}:`, err)
-        }
+          }
+        })
       }
       // Codex thread names live in <CODEX_HOME>/session_index.jsonl, outside the sessions
       // root. Watch the home dir non-recursively and react to just that file.
       if (s.provider === 'codex') {
-        try {
-          const w = watch(s.path, (_event, filename) => {
+        this.ensureWatch({
+          dir: s.path,
+          handler: (_event, filename) => {
             if (filename?.toString() === 'session_index.jsonl') this.scheduleRescan()
-          })
-          w.on('error', (err) => console.error(`[indexer] watcher error for ${s.path}:`, err))
-          this.watchers.push(w)
-        } catch (err) {
-          console.error(`[indexer] cannot watch ${s.path}:`, err)
-        }
+          }
+        })
       }
       // copilot's archive flag lives in <home>/data.db, outside the session roots —
       // a shallow watch on the home dir picks up archive toggles made in the app
       if (s.provider === 'copilot') {
-        try {
-          const w = watch(s.path, (_event, filename) => {
+        this.ensureWatch({
+          dir: s.path,
+          handler: (_event, filename) => {
             if (filename && !filename.toString().startsWith('data.db')) return
             this.scheduleProviderArchivedRefresh()
-          })
-          w.on('error', (err) => console.error(`[indexer] watcher error for ${s.path}:`, err))
-          this.watchers.push(w)
-        } catch (err) {
-          console.error(`[indexer] cannot watch ${s.path}:`, err)
-        }
+          }
+        })
       }
     }
     return scan
+  }
+
+  private ensureWatch(spec: WatchSpec): void {
+    if (existsSync(spec.dir)) {
+      this.tryWatch(spec)
+      return
+    }
+    // Dir doesn't exist yet (e.g. the Claude desktop store before the desktop app is
+    // installed) — keep the spec and retry so it gets watched when it appears.
+    this.pendingWatches.push(spec)
+    this.startWatchRetry()
+  }
+
+  private tryWatch(spec: WatchSpec): boolean {
+    // node's recursive fs.watch rides FSEvents on macOS — no native-module dependency,
+    // no per-directory file descriptors
+    try {
+      const w = spec.recursive
+        ? watch(spec.dir, { recursive: true }, spec.handler)
+        : watch(spec.dir, spec.handler)
+      w.on('error', (err) => console.error(`[indexer] watcher error for ${spec.dir}:`, err))
+      this.watchers.push(w)
+      return true
+    } catch (err) {
+      console.error(`[indexer] cannot watch ${spec.dir}:`, err)
+      return false
+    }
+  }
+
+  private startWatchRetry(): void {
+    if (this.watchRetryTimer) return
+    this.watchRetryTimer = setInterval(() => {
+      const still: WatchSpec[] = []
+      let appeared = false
+      for (const spec of this.pendingWatches) {
+        if (!existsSync(spec.dir)) {
+          still.push(spec)
+          continue
+        }
+        if (this.tryWatch(spec)) appeared = true
+      }
+      this.pendingWatches = still
+      if (still.length === 0 && this.watchRetryTimer) {
+        clearInterval(this.watchRetryTimer)
+        this.watchRetryTimer = null
+      }
+      // the dir appeared with content we never enumerated — index it now
+      if (appeared) this.scheduleRescan()
+    }, this.watchRetryMs)
   }
 
   /**
@@ -256,16 +320,55 @@ export class SessionIndexer {
       else return
       event = 'change'
     }
-    // 'change' on a known session file → cheap single-file refresh
-    if (event === 'change' && this.fileSource.has(path)) {
-      this.dirty.add(path)
-      if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
-      this.dirtyTimer = setTimeout(() => this.applyDirty(), 500)
-      return
+    if (event === 'change') {
+      // A file already judged not-a-session (codex subagent rollout) streaming appends —
+      // ignore until the next full rescan re-derives the verdict.
+      if (this.knownNonSessions.has(path)) return
+      // 'change' on a known session file → cheap single-file refresh
+      if (this.fileSource.has(path)) {
+        if (this.rescanTimer) return // a pending full rescan already covers it
+        this.dirty.add(path)
+        if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
+        this.dirtyTimer = setTimeout(() => {
+          this.dirtyTimer = null
+          this.applyDirty()
+        }, 500)
+        return
+      }
+      // 'change' on a session-shaped file we never enumerated: probe just that file
+      // instead of re-enumerating everything. Subagent rollouts can't be told apart
+      // by path — only the parser's verdict (null) identifies them.
+      if (/\.(jsonl|json)$/.test(path)) {
+        const source = this.sourceForFile(path)
+        if (source) {
+          const meta = this.metaFor(path, source)
+          if (meta) {
+            // a real session born after the last enumeration — index it in place
+            this.fileSource.set(path, source)
+            const existing = this.sessions.get(meta.id)
+            if (!existing || meta.updatedAt >= existing.updatedAt) this.sessions.set(meta.id, meta)
+            this.emitUpdate()
+            this.scheduleSaveCache()
+          } else {
+            this.knownNonSessions.add(path)
+          }
+          return
+        }
+      }
     }
     // 'rename' (created/deleted) or unknown file → structure changed, re-enumerate.
     // Only session-shaped files matter; other churn was already filtered by watchIgnored.
     if (/\.(jsonl|json)$/.test(path) || event === 'rename') this.scheduleRescan()
+  }
+
+  /** The source whose session roots contain this path — watcher events carry no source. */
+  private sourceForFile(path: string): SourceDir | null {
+    for (const s of this.sources) {
+      for (const root of ROOT_LISTERS[s.provider](s.path)) {
+        if (path.startsWith(root + sep)) return s
+      }
+    }
+    return null
   }
 
   private applyDirty(): void {
@@ -290,9 +393,17 @@ export class SessionIndexer {
   }
 
   private scheduleRescan(): void {
-    if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
+    // a full rescan supersedes any pending single-file refreshes
+    if (this.dirtyTimer) {
+      clearTimeout(this.dirtyTimer)
+      this.dirtyTimer = null
+    }
     this.dirty.clear()
-    this.dirtyTimer = setTimeout(() => void this.rescan(), 750)
+    if (this.rescanTimer) clearTimeout(this.rescanTimer)
+    this.rescanTimer = setTimeout(() => {
+      this.rescanTimer = null
+      void this.rescan()
+    }, 750)
   }
 
   /**
@@ -306,6 +417,8 @@ export class SessionIndexer {
     }
     this.scanning = true
     try {
+      // watcher-probe verdicts go stale the moment we re-enumerate — re-derive them
+      this.knownNonSessions.clear()
       await this.refreshProviderArchived()
       // repo remotes can change between scans — resolution is cheap cached fs reads
       clearRepoCache()
@@ -409,8 +522,8 @@ export class SessionIndexer {
   }
 
   /** Per-source health for Settings. Takes the config's source list (the config is
-   *  authoritative — a deleted directory drops out of this.sources but must still
-   *  show, flagged missing, so the user can see and remove the dead entry). */
+   *  authoritative); a source whose directory is gone still shows, flagged missing,
+   *  so the user can see and remove the dead entry. */
   sourceStats(sources: SourceDir[]): SourceStats[] {
     const by = new Map<string, { count: number; last: number | null }>()
     for (const s of this.sessions.values()) {
@@ -535,6 +648,13 @@ export class SessionIndexer {
           this.fileCache.set(path, entry)
         }
       }
+      // Last-known provider-archived ids: refreshProviderArchived keeps these when a
+      // sweep fails, so a locked copilot db at launch can't unhide archived sessions.
+      if (Array.isArray(raw.providerArchived)) {
+        this.providerArchived = new Set(
+          raw.providerArchived.filter((id: unknown): id is string => typeof id === 'string')
+        )
+      }
     } catch {
       /* no cache yet */
     }
@@ -555,7 +675,11 @@ export class SessionIndexer {
         ? { ...e, meta: { ...e.meta, repo: undefined, isWorktree: undefined, archived: undefined } }
         : e
     ])
-    return JSON.stringify({ v: CACHE_VERSION, entries })
+    return JSON.stringify({
+      v: CACHE_VERSION,
+      entries,
+      providerArchived: [...this.providerArchived]
+    })
   }
 
   private async saveCacheAsync(): Promise<void> {
@@ -587,6 +711,20 @@ export class SessionIndexer {
   stopWatchers(): void {
     for (const w of this.watchers) void w.close()
     this.watchers = []
+    this.pendingWatches = []
+    if (this.watchRetryTimer) {
+      clearInterval(this.watchRetryTimer)
+      this.watchRetryTimer = null
+    }
+    if (this.dirtyTimer) {
+      clearTimeout(this.dirtyTimer)
+      this.dirtyTimer = null
+    }
+    if (this.rescanTimer) {
+      clearTimeout(this.rescanTimer)
+      this.rescanTimer = null
+    }
+    this.dirty.clear()
     if (this.providerArchivedTimer) {
       clearTimeout(this.providerArchivedTimer)
       this.providerArchivedTimer = null

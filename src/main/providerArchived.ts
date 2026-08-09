@@ -36,7 +36,8 @@ export async function listProviderArchivedIds(
       const ids = await copilotArchivedIds(join(s.path, 'data.db'))
       if (ids) for (const id of ids) out.add(`copilot:${id}`)
       // read failed (locked db, missing sqlite3): keep what we knew rather than
-      // letting archived sessions flicker back into the tree
+      // letting archived sessions flicker back into the tree; the indexer seeds
+      // prev from its persisted cache, so this holds across app launches too
       else for (const id of prev) if (id.startsWith('copilot:')) out.add(id)
     })
   const claudeStore = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
