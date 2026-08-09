@@ -14,6 +14,14 @@ import { Select } from './Select'
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 type Tab = 'instructions' | 'mcp' | 'skills' | 'plugins' | 'marketplace'
 
+const TABS: Array<[Tab, string]> = [
+  ['instructions', 'Instructions'],
+  ['mcp', 'MCP Servers'],
+  ['skills', 'Skills'],
+  ['plugins', 'Plugins'],
+  ['marketplace', 'Marketplace']
+]
+
 const STATUS_LABEL: Record<InstructionFile['status'], string> = {
   synced: 'in sync',
   drifted: 'out of date',
@@ -85,20 +93,33 @@ export function AiSetup({
           <button className="btn-ghost" onClick={onClose}>Close</button>
         </div>
 
-        <div className="ext-tabs" role="tablist">
-          {(
-            [
-              ['instructions', 'Instructions'],
-              ['mcp', 'MCP Servers'],
-              ['skills', 'Skills'],
-              ['plugins', 'Plugins'],
-              ['marketplace', 'Marketplace']
-            ] as Array<[Tab, string]>
-          ).map(([t, label]) => (
+        <div
+          className="ext-tabs"
+          role="tablist"
+          aria-label="AI Setup sections"
+          // full tabs pattern: one tab stop (roving tabindex), arrows move + select
+          onKeyDown={(e) => {
+            const order = TABS.map(([t]) => t)
+            const i = order.indexOf(tab)
+            let next: Tab | undefined
+            if (e.key === 'ArrowRight') next = order[(i + 1) % order.length]
+            else if (e.key === 'ArrowLeft') next = order[(i - 1 + order.length) % order.length]
+            else if (e.key === 'Home') next = order[0]
+            else if (e.key === 'End') next = order[order.length - 1]
+            if (!next) return
+            e.preventDefault()
+            setTab(next)
+            document.getElementById(`tab-${next}`)?.focus()
+          }}
+        >
+          {TABS.map(([t, label]) => (
             <button
               key={t}
+              id={`tab-${t}`}
               role="tab"
               aria-selected={tab === t}
+              aria-controls={`panel-${t}`}
+              tabIndex={tab === t ? 0 : -1}
               className={`ext-tab ${tab === t ? 'active' : ''}`}
               onClick={() => setTab(t)}
             >
@@ -107,8 +128,16 @@ export function AiSetup({
           ))}
         </div>
 
-        {notice && <div className={`ext-notice ${notice.kind}`}>{notice.text}</div>}
+        {notice && (
+          <div
+            className={`ext-notice ${notice.kind}`}
+            role={notice.kind === 'error' ? 'alert' : 'status'}
+          >
+            {notice.text}
+          </div>
+        )}
 
+        <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="tab-panel">
         {tab === 'instructions' && <InstructionsTab repos={repos} setNotice={setNotice} />}
 
         {tab !== 'instructions' && !inv && <div className="tree-empty">loading…</div>}
@@ -256,6 +285,7 @@ export function AiSetup({
             </p>
           </>
         )}
+        </div>
       </div>
     </main>
   )
@@ -341,7 +371,11 @@ function InstructionsTab({
             { value: 'global', label: 'Global — every session, all repos' },
             ...gitRepos.map((r) => ({ value: r.root as string, label: r.fullName ?? r.name }))
           ]}
-          onChange={setScope}
+          onChange={(v) => {
+            // switching scope reloads the baseline — never silently drop unsaved edits
+            if (dirty && !window.confirm('Discard unsaved shared-instructions changes?')) return
+            setScope(v)
+          }}
         />
       </div>
 
@@ -412,7 +446,14 @@ function InstructionFileRow({
   onSaveFile: (content: string) => void
 }): JSX.Element {
   const [text, setText] = useState(file.content)
-  useEffect(() => setText(file.content), [file.content])
+  // a reload (e.g. applying another file) must not clobber an in-progress edit here:
+  // only follow file.content when the textarea still matched the previous content
+  const lastContent = useRef(file.content)
+  useEffect(() => {
+    if (file.content === lastContent.current) return
+    setText((t) => (t === lastContent.current ? file.content : t))
+    lastContent.current = file.content
+  }, [file.content])
 
   return (
     <li className={`ext-row inst-file ${file.agents.length === 1 ? `tint-${file.agents[0]}` : ''}`}>

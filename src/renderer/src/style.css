@@ -19,6 +19,8 @@
   --branch: #79b8ff;
   --pr-open: #3fb950; --pr-merged: #a371f7; --pr-closed: #f85149; --pr-draft: #8b949e;
   --danger: #f85149; --ok: #2ea043; --warn: #d29922;
+  /* button fills — darker than the text colors so white text passes 4.5:1 */
+  --ok-btn: #238636; --danger-btn: #da3633;
   --mono: ui-monospace, 'SF Mono', 'Fira Code', monospace;
   --radius-sm: 6px; --radius: 8px; --radius-lg: 14px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -100,8 +102,9 @@ summary::-webkit-details-marker { display: none; }
 .plogo { display: inline-flex; flex-shrink: 0; }
 .logo-cockpit { border-radius: 4px; -webkit-user-drag: none; user-select: none; }
 
-/* the one account-identity component, used everywhere identity appears */
-.acct-chip { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs);
+/* the one account-identity component, used everywhere identity appears.
+   inline-block (not flex): text-overflow only ellipsizes non-flex containers */
+.acct-chip { display: inline-block; font-size: var(--fs-xs);
   font-weight: 600; font-family: var(--mono); color: var(--fg);
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 999px;
   padding: 1px 8px; max-width: 200px; overflow: hidden; text-overflow: ellipsis;
@@ -137,8 +140,11 @@ summary::-webkit-details-marker { display: none; }
 .icon-btn.filter-active { color: var(--accent); }
 .filter-dot { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px;
   border-radius: 999px; background: var(--accent); }
-/* fixed so it can't overflow the window edge — the sidebar hugs the left */
+/* fixed so it can't overflow the window edge — the sidebar hugs the left.
+   no-drag: the popover hangs off .tree-top (a drag region); without the opt-out its
+   checkbox rows would start a window drag instead of receiving clicks */
 .repo-filter-pop { position: fixed; top: 76px; left: 10px; z-index: 20;
+  -webkit-app-region: no-drag;
   width: 260px; max-height: 340px; overflow-y: auto;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); padding: var(--s2); }
@@ -152,8 +158,9 @@ summary::-webkit-details-marker { display: none; }
 .repo-filter-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 
+/* form fields sit on the strong border — resting boundaries stay findable */
 .search { margin: 0 var(--s4) var(--s3); padding: 7px var(--s3);
-  background: var(--surface); color: var(--fg); border: 1px solid var(--border);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius); font-size: var(--fs-base); }
 .search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 
@@ -280,7 +287,7 @@ summary::-webkit-details-marker { display: none; }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-primary:disabled { opacity: 0.5; cursor: default;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1); }
-.btn-danger { background: var(--danger); color: #fff; border-radius: var(--radius);
+.btn-danger { background: var(--danger-btn); color: #fff; border-radius: var(--radius);
   padding: 7px var(--s5); font-weight: 600; font-size: var(--fs-sm); }
 .btn-ghost { color: var(--fg-dim); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 6px var(--s4); font-size: var(--fs-sm); }
@@ -289,8 +296,9 @@ summary::-webkit-details-marker { display: none; }
 .btn-ghost.small { padding: 2px var(--s3); font-size: var(--fs-xs);
   border-radius: var(--radius-sm); }
 .btn-pr { color: #fff; border-radius: var(--radius);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ok) 82%, #fff) 0%,
-    var(--ok) 62%);
+  /* top-lit like btn-primary, but on the darker --ok-btn so white text keeps 4.5:1 */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ok-btn) 82%, #fff) 0%,
+    var(--ok-btn) 62%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.45);
   padding: var(--s2) var(--s4); font-weight: 600; font-size: var(--fs-sm); flex-shrink: 0; }
 .btn-pr:hover:not(:disabled) { filter: brightness(1.12); }
@@ -315,11 +323,15 @@ summary::-webkit-details-marker { display: none; }
 .chat-cwd { overflow: hidden; text-overflow: ellipsis; color: inherit; font-size: inherit;
   padding: 0; text-align: left; cursor: copy; }
 .chat-cwd:hover { color: var(--fg); }
+/* transient "copied" confirmation next to copy affordances */
+.copy-flash { color: var(--ok); font-size: var(--fs-xs); flex-shrink: 0; }
 .branch-chip { display: inline-flex; align-items: center; gap: 3px;
   background: rgba(121, 184, 255, 0.09); color: var(--branch); border-radius: 999px;
   padding: 0 7px; font-size: var(--fs-xs); font-family: var(--mono); max-width: 180px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+  overflow: hidden; white-space: nowrap; flex-shrink: 0; }
 .branch-chip svg { flex-shrink: 0; }
+/* the text inside an icon chip — flex containers can't ellipsize bare text nodes */
+.chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ---------- Select: the app's own dropdown (native popups can't be styled) ---------- */
 .select-wrap { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .select-trigger { display: flex; align-items: center; gap: var(--s2);
@@ -450,7 +462,7 @@ summary::-webkit-details-marker { display: none; }
   border-top: 1px solid var(--border); background: rgba(255, 255, 255, 0.02);
   align-items: flex-end; }
 .composer textarea { flex: 1; resize: none; background: var(--bg2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: var(--radius);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
   padding: var(--s3) var(--s4); font: inherit; font-size: var(--fs-prose);
   field-sizing: content; min-height: 2.4lh; max-height: 12lh; }
 .composer textarea:focus { outline: none; border-color: var(--accent);
@@ -481,7 +493,8 @@ summary::-webkit-details-marker { display: none; }
   -webkit-background-clip: text; background-clip: text; color: transparent; }
 .home-sub { color: var(--fg-dim); font-size: var(--fs-sm); display: flex;
   flex-direction: column; gap: var(--s1); align-items: center; }
-.home-kbd { font-size: var(--fs-xs); opacity: 0.75; font-family: var(--mono); }
+/* 0.85 keeps the 11px kbd hints at/above 4.5:1 on the dark base */
+.home-kbd { font-size: var(--fs-xs); opacity: 0.85; font-family: var(--mono); }
 .composer-card { background: linear-gradient(180deg, var(--bg3), var(--bg2) 55%);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -506,10 +519,11 @@ summary::-webkit-details-marker { display: none; }
   margin-right: 6px; border-right: 1px solid var(--border); border-radius: 0; }
 .composer-agents { display: flex; gap: 2px; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius); padding: 2px; }
+/* 0.7 keeps inactive agent marks above the 3:1 non-text contrast floor */
 .composer-agent { display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 24px; border-radius: var(--radius-sm); opacity: 0.55;
+  width: 26px; height: 24px; border-radius: var(--radius-sm); opacity: 0.7;
   position: relative; }
-.composer-agent:hover { opacity: 0.85; background: var(--bg3); }
+.composer-agent:hover { opacity: 0.9; background: var(--bg3); }
 .composer-agent.active { opacity: 1; }
 .composer-agent.active.plogo-claude { background: rgba(var(--claude-rgb), 0.16);
   box-shadow: inset 0 0 0 1.5px var(--claude); }
@@ -573,7 +587,7 @@ summary::-webkit-details-marker { display: none; }
 .ns-options { display: flex; gap: var(--s4); flex-wrap: wrap; }
 .ns-opt { display: flex; flex-direction: column; gap: var(--s1); flex: 1; min-width: 130px; }
 .ns-opt input { padding: var(--s2) var(--s3); background: var(--surface); color: var(--fg);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 /* single-account read-only field — trigger-shaped, but inert */
 .ns-account-single { font-family: var(--mono); color: var(--fg); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; background: var(--bg3);
@@ -583,13 +597,13 @@ summary::-webkit-details-marker { display: none; }
 .ns-branch-row { display: flex; align-items: center; gap: var(--s2); }
 .ns-branch-prefix { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-sm); }
 .ns-branch-row input { flex: 1; min-width: 0; padding: var(--s2) var(--s3);
-  background: var(--surface); color: var(--fg); border: 1px solid var(--border);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm); font-size: var(--fs-sm); font-family: var(--mono); }
 .ns-hint { color: var(--fg-dim); font-size: var(--fs-xs); }
 .ns-hint.yolo { color: var(--danger); }
 .ns-hint code { color: var(--fg); font-family: var(--mono); }
 .ns-card textarea { resize: vertical; background: var(--surface); color: var(--fg);
-  border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s3);
+  border: 1px solid var(--border-strong); border-radius: var(--radius); padding: var(--s3);
   font: inherit; }
 .ns-card textarea:focus, .ns-card input:focus, .ns-card select:focus { outline: none;
   border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
@@ -623,7 +637,7 @@ summary::-webkit-details-marker { display: none; }
 .source-note code { font-family: var(--mono); color: var(--fg); }
 .source-add { display: flex; flex-direction: column; gap: var(--s2); }
 .source-add input { min-width: 0; padding: var(--s2) var(--s3);
-  background: var(--surface); color: var(--fg); border: 1px solid var(--border);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 /* the path is a machine identifier — mono, like .ns-branch-row input */
 .source-browse-row { display: flex; gap: var(--s2); }
@@ -637,6 +651,8 @@ summary::-webkit-details-marker { display: none; }
   border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .ext-tab:hover { color: var(--fg); }
 .ext-tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+/* the tabpanel wrapper keeps the card's vertical rhythm for its children */
+.tab-panel { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
 .ext-notice { background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: var(--s2) var(--s3); font-size: var(--fs-sm);
   color: var(--accent); }

@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import type { ChatBinding } from './App'
+import { MODES } from './NewSession'
 import { BranchIcon, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 
@@ -19,6 +20,11 @@ function nodeText(node: ReactNode): string {
 function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
   // copy must acknowledge — a click with no visible result reads as broken
   const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1200)
+    return () => clearTimeout(t)
+  }, [copied])
   return (
     <div className="codeblock">
       <button
@@ -27,7 +33,6 @@ function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
         onClick={() => {
           void navigator.clipboard.writeText(nodeText(children))
           setCopied(true)
-          setTimeout(() => setCopied(false), 1200)
         }}
       >
         {copied ? 'Copied' : 'Copy'}
@@ -37,12 +42,6 @@ function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
   )
 }
 
-const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = [
-  { v: 'safe', label: 'Safe', hint: 'provider defaults; tools may be blocked headless' },
-  { v: 'auto-edit', label: 'Auto-edit', hint: 'auto-approve file edits (Copilot: allows all tools)' },
-  { v: 'yolo', label: 'YOLO', hint: 'bypass all approvals — trusted repos only' }
-]
-
 /** Big transcripts are already tail-capped in main; this bounds the DOM too. */
 const RENDER_LAST = 400
 
@@ -51,6 +50,7 @@ export function ChatView({
   prs,
   log,
   busy,
+  prBusy,
   onSend,
   onCancel,
   onCreatePr,
@@ -60,27 +60,41 @@ export function ChatView({
   prs: PrStatus[]
   log: SessionMessage[]
   busy: boolean
+  prBusy: boolean
   onSend: (prompt: string, mode: PermissionMode) => void
   onCancel: () => void
   onCreatePr: () => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [draft, setDraft] = useState('')
-  const [cwdCopied, setCwdCopied] = useState(false)
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
+  const [cwdCopied, setCwdCopied] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
+  const atBottomRef = useRef(true)
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    if (atBottomRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [log, busy])
+
+  useEffect(() => {
+    if (!cwdCopied) return
+    const t = setTimeout(() => setCwdCopied(false), 1500)
+    return () => clearTimeout(t)
+  }, [cwdCopied])
 
   // focus follows the conversation: opening/starting a session lands in the composer
   useEffect(() => {
     if (binding) composerRef.current?.focus()
   }, [binding?.cwd, binding?.nativeSessionId === null])
+
+  // a freshly opened session always starts pinned to the bottom
+  useEffect(() => {
+    atBottomRef.current = true
+  }, [binding])
 
   const branchPr = useMemo(
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
@@ -88,11 +102,16 @@ export function ChatView({
   )
 
   const sliced = log.length > RENDER_LAST ? log.slice(-RENDER_LAST) : log
-  // providers repeat identical system notices; consecutive duplicates add nothing
-  const visible = sliced.filter(
-    (m, i) =>
-      !(m.kind === 'system' && sliced[i - 1]?.kind === 'system' && sliced[i - 1].text === m.text)
-  )
+  const base = log.length - sliced.length
+  // providers repeat identical system notices; consecutive duplicates add nothing.
+  // each row keeps its absolute log offset as the key — stable because the log is
+  // append-only, even when the dedup filter drops rows in the middle.
+  const visible: Array<{ m: SessionMessage; key: number }> = []
+  sliced.forEach((m, i) => {
+    if (m.kind === 'system' && sliced[i - 1]?.kind === 'system' && sliced[i - 1].text === m.text)
+      return
+    visible.push({ m, key: base + i })
+  })
   const hidden = log.length - sliced.length
 
   // screen-reader announcement on turn completion/failure — not per streamed token
@@ -138,7 +157,7 @@ export function ChatView({
             {binding.branch && (
               <span className="branch-chip">
                 <BranchIcon size={10} />
-                {binding.branch}
+                <span className="chip-text">{binding.branch}</span>
               </span>
             )}
             <button
@@ -147,11 +166,15 @@ export function ChatView({
               onClick={() => {
                 void navigator.clipboard.writeText(binding.cwd)
                 setCwdCopied(true)
-                setTimeout(() => setCwdCopied(false), 1200)
               }}
             >
               {binding.cwd}
             </button>
+            {cwdCopied && (
+              <span className="copy-flash" role="status">
+                copied
+              </span>
+            )}
             {!binding.nativeSessionId && ' · not started'}
           </div>
         </div>
@@ -160,8 +183,13 @@ export function ChatView({
         ) : (
           binding.repoRoot &&
           binding.branch && (
-            <button className="btn-pr" disabled={busy} onClick={onCreatePr} title="Push branch and open a pull request">
-              Create PR
+            <button
+              className="btn-pr"
+              disabled={busy || prBusy}
+              onClick={onCreatePr}
+              title="Push branch and open a pull request"
+            >
+              {prBusy ? 'Creating PR…' : 'Create PR'}
             </button>
           )
         )}
@@ -177,16 +205,23 @@ export function ChatView({
         />
       </header>
 
-      <div className="messages" ref={scrollRef}>
+      <div
+        className="messages"
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+        }}
+      >
         {hidden > 0 && <div className="sys-row">(showing the last {RENDER_LAST} of {log.length} messages)</div>}
-        {visible.map((m, i) => (
+        {visible.map(({ m, key }, i) => (
           <Message
-            key={log.length - visible.length + i}
+            key={key}
             m={m}
             provider={binding.provider}
             resultOf={
-              m.kind === 'tool_result' && visible[i - 1]?.kind === 'tool_call'
-                ? visible[i - 1].toolName
+              m.kind === 'tool_result' && visible[i - 1]?.m.kind === 'tool_call'
+                ? visible[i - 1].m.toolName
                 : undefined
             }
           />
@@ -247,8 +282,10 @@ const Message = memo(function Message({
       <details className="tool-row">
         <summary>
           <span className="tool-chip">
-            {/* ︎ forces text presentation — the bare gear renders as color emoji on some platforms */}
-            {m.kind === 'tool_call' ? `⚙︎ ${m.toolName ?? 'tool'}` : `↳ ${resultOf ?? 'result'}`}
+            {/* ︎ forces text presentation — the bare gear renders as color emoji on some
+                platforms; aria-hidden keeps screen readers from reading the glyph aloud */}
+            <span aria-hidden="true">{m.kind === 'tool_call' ? '⚙︎ ' : '↳ '}</span>
+            {m.kind === 'tool_call' ? (m.toolName ?? 'tool') : (resultOf ?? 'result')}
           </span>
           <code className="tool-preview">{m.text.slice(0, 120)}</code>
         </summary>

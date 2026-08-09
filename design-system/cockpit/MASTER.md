@@ -48,10 +48,11 @@ github.com exactly.
 | Branch blue | `#79b8ff` | `--branch` |
 | PR open / merged / closed / draft | `#3fb950` / `#a371f7` / `#f85149` / `#8b949e` | `--pr-*` |
 | Danger / OK / Warn | `#f85149` / `#2ea043` / `#d29922` | `--danger` / `--ok` / `--warn` |
+| OK / danger button fills (white text ≥4.5:1) | `#238636` / `#da3633` | `--ok-btn` / `--danger-btn` |
 
 **Rules:**
 - Never introduce raw hex in components — always tokens.
-- Two accents exist on purpose: `--accent` for text/icons on dark (passes contrast), `--accent-btn` for filled buttons under white text. Don't swap them.
+- Two accents exist on purpose: `--accent` for text/icons on dark (passes contrast), `--accent-btn` for filled buttons under white text. Don't swap them. The same split applies to OK/danger: `--ok`/`--danger` are text colors on dark, `--ok-btn`/`--danger-btn` are the darker button fills that keep white text at 4.5:1.
 - Agent tints use `rgba(var(--*-rgb), 0.10–0.16)` backgrounds with a solid agent-color border/inset — never solid agent-color fills behind text.
 - Codex logo renders white-on-dark (like ChatGPT's own mark); teal is reserved for codex tints/borders.
 
@@ -87,7 +88,7 @@ Reuse these; don't invent parallel variants:
 - **`.branch-chip`** — branch-blue mono pill.
 - **`.badge-{claude,codex,copilot}`** — solid agent badge (chat header).
 - **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`.
-- **Rows:** `.org-row` (sticky, lowercase), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.
+- **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.
 - **Cards:** `.ns-card` (600px, `.wide` 760px) for forms; `.composer-card` for the home prompt.
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.
 - **Semantic count pills:** bordered pill = "session count on a repo"; org counts are plain text.
