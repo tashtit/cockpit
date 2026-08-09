@@ -189,9 +189,15 @@ function parseLegacyMeta(file: string, sourceLabel: string): SessionMeta | null 
   const j = readJson(file)
   if (!j || typeof j !== 'object') return null
   const timeline = extractTimeline(j)
-  const nativeId = String(
-    j.sessionId ?? j.id ?? basename(dirname(file)) ?? basename(file, '.json')
-  )
+  // id-less files in the FLAT legacy roots must fall back to the file stem — the
+  // parent dir there is the root itself ('sessions'/'history-session-state'), and
+  // basename() never returns nullish, so a `??` chain can't express this
+  const parentDir = basename(dirname(file))
+  const dirFallback =
+    parentDir === 'sessions' || parentDir === 'history-session-state'
+      ? basename(file, '.json')
+      : parentDir
+  const nativeId = String(j.sessionId ?? j.id ?? dirFallback)
   if (!j.sessionId && !j.id && timeline.length === 0) return null
 
   let title = typeof j.title === 'string' ? j.title : typeof j.summary === 'string' ? j.summary : ''

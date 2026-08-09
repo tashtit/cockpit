@@ -1,4 +1,4 @@
-import { basename, join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import {
   capText,
@@ -28,7 +28,11 @@ export function listClaudeSessionRoots(sourceDir: string): string[] {
 }
 
 export function listClaudeSessionFiles(sourceDir: string): string[] {
-  return walkFiles(join(sourceDir, 'projects'), 3).filter((f) => f.endsWith('.jsonl'))
+  return walkFiles(join(sourceDir, 'projects'), 3).filter(
+    // <proj>/<session-id>/subagents/**: sidechain transcripts (Task-tool agents,
+    // workflow runs) — parts of a session, never sessions themselves
+    (f) => f.endsWith('.jsonl') && !f.includes(`${sep}subagents${sep}`)
+  )
 }
 
 export function listClaudeSessions(sourceDir: string, sourceLabel: string): SessionMeta[] {
@@ -66,7 +70,13 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
     if (l.type === 'summary' && typeof l.summary === 'string') summary = l.summary
   }
 
+  // Sidechain FILES (Task-tool/workflow agents) mark lines isSidechain from the
+  // first entry; older CLIs also inlined sidechain lines into real sessions, so
+  // only the first flag decides — a true after a false is an inline, not a file.
+  let sidechain: boolean | null = null
+
   for (const l of lines) {
+    if (sidechain === null && typeof l.isSidechain === 'boolean') sidechain = l.isSidechain
     if (l.cwd && !cwd) cwd = l.cwd
     if (l.gitBranch && !gitBranch) gitBranch = l.gitBranch
     const ts = toMs(l.timestamp)
@@ -83,7 +93,7 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
       }
     }
   }
-  if (messageCount === 0) return null
+  if (sidechain || messageCount === 0) return null
   if (head.truncated) {
     messageCount = Math.max(messageCount, Math.round((messageCount * head.size) / META_HEAD_BYTES))
     // The current title may have been re-appended past the head window — check the tail.

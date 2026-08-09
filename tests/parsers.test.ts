@@ -60,6 +60,49 @@ beforeAll(() => {
     ])
   )
 
+  // Sidechain transcripts are parts of a session, never sessions: one discovered
+  // by path (<session-id>/subagents/), one by its isSidechain-marked lines
+  const subDir = join(claudeDir, 'aaaa-1111', 'subagents')
+  mkdirSync(subDir, { recursive: true })
+  writeFileSync(
+    join(subDir, 'agent-deadbeef.jsonl'),
+    jsonl([
+      {
+        type: 'user',
+        isSidechain: true,
+        message: { role: 'user', content: 'You are reviewing the repository' },
+        timestamp: '2026-08-01T11:00:00Z'
+      },
+      { type: 'assistant', isSidechain: true, message: { role: 'assistant', content: 'ok' } }
+    ])
+  )
+  writeFileSync(
+    join(claudeDir, 'aaaa-3333.jsonl'),
+    jsonl([
+      {
+        type: 'user',
+        isSidechain: true,
+        message: { role: 'user', content: 'You are critiquing the UI' },
+        timestamp: '2026-08-01T11:30:00Z'
+      },
+      { type: 'assistant', isSidechain: true, message: { role: 'assistant', content: 'sure' } }
+    ])
+  )
+  // Inlined sidechain lines AFTER a main line must NOT hide a real session (old CLIs did this)
+  writeFileSync(
+    join(claudeDir, 'aaaa-4444.jsonl'),
+    jsonl([
+      {
+        type: 'user',
+        isSidechain: false,
+        message: { role: 'user', content: 'real session with inline agent' },
+        timestamp: '2026-08-01T13:00:00Z'
+      },
+      { type: 'user', isSidechain: true, message: { role: 'user', content: 'agent prompt' } },
+      { type: 'assistant', message: { role: 'assistant', content: 'done' } }
+    ])
+  )
+
   // --- Codex fixture ---
   const codexDir = join(root, 'codex', 'sessions', '2026', '08', '01')
   mkdirSync(codexDir, { recursive: true })
@@ -93,6 +136,42 @@ beforeAll(() => {
         timestamp: '2026-08-01T11:00:12Z',
         type: 'response_item',
         payload: { type: 'function_call', name: 'shell', arguments: '{"cmd":"pytest"}' }
+      }
+    ])
+  )
+  // Subagent rollouts (thread_source: subagent) share the sessions dirs but are
+  // parts of a thread — never listed as sessions
+  writeFileSync(
+    join(codexDir, 'rollout-2026-08-01-ffff.jsonl'),
+    jsonl([
+      {
+        timestamp: '2026-08-01T11:30:00Z',
+        type: 'session_meta',
+        payload: {
+          id: 'ffff-6666',
+          parent_thread_id: 'bbbb-2222',
+          thread_source: 'subagent',
+          cwd: '/Users/titan/dev/other',
+          originator: 'codex_cli_rs'
+        }
+      },
+      {
+        timestamp: '2026-08-01T11:30:01Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'You are the guardian reviewer' }]
+        }
+      },
+      {
+        timestamp: '2026-08-01T11:30:05Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'review done' }]
+        }
       }
     ])
   )
@@ -203,7 +282,7 @@ beforeAll(() => {
 describe('claude parser', () => {
   it('lists sessions with meta', () => {
     const s = listClaudeSessions(join(root, 'claude'), 'claude-test')
-    expect(s).toHaveLength(2)
+    expect(s).toHaveLength(3)
     expect(s.find((x) => x.nativeId === 'aaaa-1111')).toMatchObject({
       provider: 'claude',
       title: 'Fix login bug',
@@ -211,6 +290,15 @@ describe('claude parser', () => {
       gitBranch: 'main',
       messageCount: 2
     })
+  })
+  it('never lists sidechain transcripts as sessions', () => {
+    const s = listClaudeSessions(join(root, 'claude'), 'claude-test')
+    // by path: <session-id>/subagents/agent-*.jsonl
+    expect(s.find((x) => x.nativeId === 'agent-deadbeef')).toBeUndefined()
+    // by content: isSidechain from the first flagged line
+    expect(s.find((x) => x.nativeId === 'aaaa-3333')).toBeUndefined()
+    // but inlined sidechain lines after a main line keep the session listed
+    expect(s.find((x) => x.nativeId === 'aaaa-4444')?.title).toBe('real session with inline agent')
   })
   it('prefers custom-title over ai-title over summary', () => {
     const s = listClaudeSessions(join(root, 'claude'), 'claude-test')
@@ -238,6 +326,10 @@ describe('codex parser', () => {
   it('uses session_index thread_name and skips AGENTS.md preambles', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')
     expect(s.find((x) => x.nativeId === 'eeee-5555')?.title).toBe('Add unit tests properly')
+  })
+  it('never lists subagent rollouts as sessions', () => {
+    const s = listCodexSessions(join(root, 'codex'), 'codex-test')
+    expect(s.find((x) => x.nativeId === 'ffff-6666')).toBeUndefined()
   })
   it('parses messages and function calls', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')

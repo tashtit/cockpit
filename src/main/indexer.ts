@@ -59,7 +59,7 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 4
+const CACHE_VERSION = 5
 /** Yield to the event loop every N files so scans never starve IPC. */
 const YIELD_EVERY = 50
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -100,7 +100,9 @@ function auxStamp(file: string, source: SourceDir): number {
  * (e.g. sanitized cwd paths like "-Users-x-dev-app.web") aren't silently unwatched.
  */
 function watchIgnored(p: string): boolean {
-  if (/\/(checkpoints|files|research|logs)(\/|$)/.test(p)) return true
+  // subagents/**: sidechain transcripts the listers exclude — without this,
+  // every agent append would fall through markDirty into a full rescan
+  if (/\/(checkpoints|files|research|logs|subagents)(\/|$)/.test(p)) return true
   return /\.(db|db-wal|db-shm|sqlite|log|md|txt|png|jpe?g|gif|svg|zip|gz|tar|lock)$/i.test(p)
 }
 
