@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: 'read' # for actions/checkout
+      code-quality: 'write' # for actions/upload-code-coverage
+      pull-requests: 'read' # upload-code-coverage looks up the PR for pushes to main
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -45,13 +47,14 @@ jobs:
             | "## Coverage\n\n| Metric | % | Covered / Total |\n| --- | --- | --- |\n| Lines | \(.lines.pct)% | \(.lines.covered) / \(.lines.total) |\n| Statements | \(.statements.pct)% | \(.statements.covered) / \(.statements.total) |\n| Functions | \(.functions.pct)% | \(.functions.covered) / \(.functions.total) |\n| Branches | \(.branches.pct)% | \(.branches.covered) / \(.branches.total) |"' \
             coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v7.0.1
+      - name: ⬆️ Upload coverage to GitHub
+        # Fork PRs run with a read-only token, so the coverage API is unavailable there.
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-code-coverage@v1.4.2
         with:
-          name: coverage-report
-          path: coverage/
-          if-no-files-found: ignore
-          retention-days: 14
+          file: coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/vitest
 
       - name: Build
         run: npm run build
