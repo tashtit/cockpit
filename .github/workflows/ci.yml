@@ -36,11 +36,22 @@ jobs:
       - name: 🔎 Typecheck
         run: npm run typecheck
 
-      - name: 🧪 Unit tests
-        run: npm run test:unit
+      - name: 🧪 Unit + component tests (with coverage)
+        run: npm run test:coverage
 
-      - name: 🧩 Component tests
-        run: npm run test:component
+      - name: 📊 Coverage summary
+        run: |
+          jq -r '.total
+            | "## Coverage\n\n| Metric | % | Covered / Total |\n| --- | --- | --- |\n| Lines | \(.lines.pct)% | \(.lines.covered) / \(.lines.total) |\n| Statements | \(.statements.pct)% | \(.statements.covered) / \(.statements.total) |\n| Functions | \(.functions.pct)% | \(.functions.covered) / \(.functions.total) |\n| Branches | \(.branches.pct)% | \(.branches.covered) / \(.branches.total) |"' \
+            coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build
         run: npm run build
@@ -59,3 +70,19 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  # Blocks PRs that introduce dependencies with known vulnerabilities.
+  dependency-review:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: 'read'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: 🛡️ Dependency review
+        uses: actions/dependency-review-action@v5.0.0
+        with:
+          fail-on-severity: high

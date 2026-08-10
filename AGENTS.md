@@ -8,6 +8,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 - `npm run typecheck` — `tsc --noEmit` (there is no linter; this is the static gate)
 - `npm test` — all vitest tests (unit + component tiers)
 - `npm run test:unit` / `npm run test:component` — one tier
+- `npm run test:coverage` — unit + component with a v8 coverage report in `coverage/`
 - `npm run test:e2e` — Playwright E2E against the built app (run `npm run build` first)
 - `npx vitest run tests/indexer.test.ts` — one test file
 - `npx vitest run -t "pattern"` — tests matching a name

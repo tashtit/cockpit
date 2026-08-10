@@ -1,0 +1,3 @@
+# Every change routes review to the maintainers; any one of them satisfies
+# the code-owner review requirement in the branch ruleset.
+* @titan-ron @matansocher @amitbreuer
