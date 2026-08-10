@@ -1,10 +1,11 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import type {
   ExtensionsInventory,
   MarketplaceInfo,
   McpConfig,
+  McpPresence,
   McpServerInfo,
   PluginInfo,
   Provider,
@@ -33,9 +34,12 @@ function readJsonFile(path: string): any | null {
 
 /* ---------- readers ---------- */
 
+/** Scope without the agent — the agent is attached when inventories merge. */
+type FoundScope = Omit<McpPresence, 'agent'>
+
 interface FoundServer {
   config: McpConfig
-  origins: string[]
+  scopes: FoundScope[]
 }
 
 function normalizeMcp(cfg: any): McpConfig {
@@ -48,12 +52,14 @@ function normalizeMcp(cfg: any): McpConfig {
   }
 }
 
-function addFound(out: Map<string, FoundServer>, name: string, cfg: any, origin: string): void {
+function addFound(out: Map<string, FoundServer>, name: string, cfg: any, scope: FoundScope): void {
   const existing = out.get(name)
   if (existing) {
-    if (!existing.origins.includes(origin)) existing.origins.push(origin)
+    if (!existing.scopes.some((s) => s.scope === scope.scope && s.projectPath === scope.projectPath)) {
+      existing.scopes.push(scope)
+    }
   } else {
-    out.set(name, { config: normalizeMcp(cfg), origins: [origin] })
+    out.set(name, { config: normalizeMcp(cfg), scopes: [scope] })
   }
 }
 
@@ -66,7 +72,7 @@ function readClaudeMcp(): Map<string, FoundServer> {
   const j = readJsonFile(claudeJsonPath())
   const servers = j?.mcpServers
   if (servers && typeof servers === 'object') {
-    for (const [name, cfg] of Object.entries<any>(servers)) addFound(out, name, cfg, 'user')
+    for (const [name, cfg] of Object.entries<any>(servers)) addFound(out, name, cfg, { scope: 'user' })
   }
   const projects = j?.projects
   if (projects && typeof projects === 'object') {
@@ -74,7 +80,7 @@ function readClaudeMcp(): Map<string, FoundServer> {
       const ps = proj?.mcpServers
       if (!ps || typeof ps !== 'object') continue
       for (const [name, cfg] of Object.entries<any>(ps)) {
-        addFound(out, name, cfg, `project:${basename(projPath)}`)
+        addFound(out, name, cfg, { scope: 'project', projectPath: projPath })
       }
     }
   }
@@ -214,7 +220,7 @@ function readMarketplaces(): MarketplaceInfo[] {
 
 export function getExtensions(): ExtensionsInventory {
   const asFound = (servers: Map<string, McpConfig>): Map<string, FoundServer> =>
-    new Map([...servers].map(([n, config]) => [n, { config, origins: ['user'] }]))
+    new Map([...servers].map(([n, config]) => [n, { config, scopes: [{ scope: 'user' }] }]))
   const byAgent: Array<{ agent: Provider; servers: Map<string, FoundServer> }> = [
     { agent: 'claude', servers: readClaudeMcp() },
     { agent: 'codex', servers: asFound(readCodexMcp()) },
@@ -223,14 +229,13 @@ export function getExtensions(): ExtensionsInventory {
   const merged = new Map<string, McpServerInfo>()
   for (const { agent, servers } of byAgent) {
     for (const [name, found] of servers) {
+      const presences = found.scopes.map((s) => ({ agent, ...s }))
       const existing = merged.get(name)
       if (existing) {
         existing.agents.push(agent)
-        for (const o of found.origins) {
-          if (!existing.origins.includes(o)) existing.origins.push(o)
-        }
+        existing.presences.push(...presences)
       } else {
-        merged.set(name, { name, config: found.config, agents: [agent], origins: found.origins })
+        merged.set(name, { name, config: found.config, agents: [agent], presences })
       }
     }
   }
@@ -249,6 +254,22 @@ function findMcp(name: string): McpConfig {
   const server = inv.mcp.find((s) => s.name === name)
   if (!server) throw new Error(`MCP server not found: ${name}`)
   return server.config
+}
+
+/** Config for a named server, for probing — throws when unknown. */
+export function getMcpConfig(name: string): McpConfig {
+  return findMcp(name)
+}
+
+/**
+ * The renderer supplies projectPath — only trust it once it matches a project
+ * entry this module itself read from ~/.claude.json.
+ */
+export function assertClaudeProjectServer(name: string, projectPath: string): string {
+  const j = readJsonFile(claudeJsonPath())
+  const cfg = j?.projects?.[projectPath]?.mcpServers?.[name]
+  if (!cfg) throw new Error(`no project-scoped server "${name}" in ${projectPath}`)
+  return projectPath
 }
 
 const NAME_RE = /^[A-Za-z0-9_.-]{1,64}$/
@@ -330,5 +351,56 @@ function shareToCopilot(name: string, cfg: McpConfig): void {
         tools: ['*'],
         ...(cfg.env ? { env: cfg.env } : {})
       }
+  writeFileSync(path, JSON.stringify(j, null, 2))
+}
+
+/* ---------- removal ---------- */
+
+/**
+ * IO-free core of claude/copilot removal: delete the server from a parsed
+ * config object. projectPath targets claude's projects[<path>].mcpServers.
+ */
+export function removeMcpFromJson(j: any, name: string, projectPath?: string): void {
+  const table = projectPath ? j?.projects?.[projectPath]?.mcpServers : j?.mcpServers
+  if (!table || typeof table !== 'object' || !(name in table)) {
+    throw new Error(
+      projectPath ? `"${name}" not configured for project ${projectPath}` : `"${name}" not found`
+    )
+  }
+  delete table[name]
+}
+
+/**
+ * IO-free core of codex removal: drop [mcp_servers.<name>] and its subtables
+ * (e.g. .env) from the TOML, leaving every other section byte-identical.
+ */
+export function removeCodexMcpToml(raw: string, name: string): string {
+  if (!parseCodexMcpToml(raw).has(name)) throw new Error(`"${name}" not found in codex config`)
+  const lines = raw.split('\n')
+  const out: string[] = []
+  let dropping = false
+  for (const line of lines) {
+    const header = line.match(/^\s*\[([^\]]+)\]/)
+    if (header) {
+      const section = header[1]
+      dropping = section === `mcp_servers.${name}` || section.startsWith(`mcp_servers.${name}.`)
+    }
+    if (!dropping) out.push(line)
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
+export function removeMcp(name: string, agent: Provider, projectPath?: string): void {
+  if (!NAME_RE.test(name)) throw new Error('invalid server name')
+  if (agent === 'codex') {
+    const path = codexTomlPath()
+    const raw = existsSync(path) ? readFileSync(path, 'utf8') : ''
+    writeFileSync(path, removeCodexMcpToml(raw, name))
+    return
+  }
+  const path = agent === 'claude' ? claudeJsonPath() : copilotJsonPath()
+  const j = readJsonFile(path)
+  if (!j) throw new Error(`cannot read ${path}`)
+  removeMcpFromJson(j, name, agent === 'claude' ? projectPath : undefined)
   writeFileSync(path, JSON.stringify(j, null, 2))
 }
