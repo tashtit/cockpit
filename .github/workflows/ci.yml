@@ -38,26 +38,28 @@ jobs:
       - name: 🔎 Typecheck
         run: npm run typecheck
 
-      - name: 🧪 Unit + component tests (with coverage)
-        run: npm run test:coverage
+      - name: 🧪 Unit tests (with coverage)
+        run: npm run test:coverage:unit
 
-      - name: 📊 Coverage summary
-        run: |
-          jq -r '.total
-            | "## Coverage\n\n| Metric | % | Covered / Total |\n| --- | --- | --- |\n| Lines | \(.lines.pct)% | \(.lines.covered) / \(.lines.total) |\n| Statements | \(.statements.pct)% | \(.statements.covered) / \(.statements.total) |\n| Functions | \(.functions.pct)% | \(.functions.covered) / \(.functions.total) |\n| Branches | \(.branches.pct)% | \(.branches.covered) / \(.branches.total) |"' \
-            coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+      - name: 🧩 Component tests (with coverage)
+        run: npm run test:coverage:component
 
-      - name: ⬆️ Upload coverage to GitHub
+      - name: ⬆️ Upload unit coverage
         # Fork PRs run with a read-only token, so the coverage API is unavailable there.
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-code-coverage@v1.4.2
         with:
-          file: coverage/cobertura-coverage.xml
+          file: coverage/unit/cobertura-coverage.xml
           language: TypeScript
-          label: code-coverage/vitest
-          # Non-blocking until "Code quality" is enabled in repo settings
-          # (Settings → Security → Code quality); drop this once it is.
-          fail-on-error: false
+          label: code-coverage/unit
+
+      - name: ⬆️ Upload component coverage
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-code-coverage@v1.4.2
+        with:
+          file: coverage/component/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/component
 
       - name: Build
         run: npm run build

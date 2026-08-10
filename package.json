@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:unit": "vitest run --project unit --coverage --coverage.reportsDirectory=coverage/unit --coverage.include='src/main/**' --coverage.include='src/preload/**' --coverage.include='src/shared/**'",
+    "test:coverage:component": "vitest run --project component --coverage --coverage.reportsDirectory=coverage/component --coverage.include='src/renderer/**'",
     "test:unit": "vitest run --project unit",
     "test:component": "vitest run --project component",
     "test:e2e": "playwright test"

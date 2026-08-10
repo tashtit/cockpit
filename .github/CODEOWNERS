@@ -1,3 +1,2 @@
-# Every change routes review to the maintainers; any one of them satisfies
-# the code-owner review requirement in the branch ruleset.
-* @titan-ron @matansocher @amitbreuer
+# Every change routes review here; satisfies the ruleset's code-owner review rule.
+* @titan-ron
