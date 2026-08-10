@@ -4,6 +4,7 @@
   "description": "Unified desktop hub for Claude Code, Codex, and GitHub Copilot sessions",
   "main": "./out/main/index.js",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
