@@ -3,9 +3,11 @@
 > Extends `MASTER.md`. Rules here win for this view.
 
 **Pattern:** single `.ns-card` that is a *status readout first, config editor second* —
-it answers "what is Cockpit watching, as whom, and is it healthy" before anything is
-edited. Small surface — resist growth; new setting groups get a new `.ns-label` section
-in the same card before they ever get tabs (the GitHub section is the sanctioned example).
+it answers "what is Cockpit watching, as whom, how much of each subscription is used,
+and is it healthy" before anything is edited. Small surface — resist growth; new setting
+groups get a new `.ns-label` section in the same card before they ever get tabs (current
+sections, in order: Agent accounts & sources · History · Subscription usage · GitHub ·
+Add source).
 
 ## Rules
 
@@ -27,6 +29,15 @@ in the same card before they ever get tabs (the GitHub section is the sanctioned
   defaults are only auto-detected on first run). After removal an `.ns-hint` Undo line
   offers one-click restore. Adds/removes announce via the card's `sr-only`
   `role="status"` region (ChatView's pattern).
+- History section: one labeled `Select` ("Show sessions from" — preset day windows plus
+  "All history"). The `.ns-hint` must keep saying that older sessions are only hidden,
+  never touched on disk — this is a view filter, not a destructive setting.
+- Subscription usage section: one `.source-row.tint-<provider>` per provider account —
+  logo · label · `.acct-chip` identity · dim plan / "as of Xm ago" `.source-origin`
+  (staleness only shown past 15min). Body is `.usage-windows` rows: window label ·
+  `.usage-meter` fill bar in the agent's identity color (`.hot` ≥90%) · `.usage-num`
+  percentage (token detail in the `title` tooltip). Unavailable usage shows the
+  human-readable reason as `.source-note` prose — absence is not an error state.
 - GitHub section: one row — `OrgIcon` · "gh CLI" · `@login` acct-chip (or `.missing`)
   · `.source-note` prose (NOT mono; mono is machine identifiers only). Copy references
   real commands in `<code>` (`gh auth login`).

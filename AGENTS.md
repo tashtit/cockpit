@@ -6,7 +6,9 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 
 - `npm run dev` — Electron app with HMR
 - `npm run typecheck` — `tsc --noEmit` (there is no linter; this is the static gate)
-- `npm test` — all vitest tests
+- `npm test` — all vitest tests (unit + component tiers)
+- `npm run test:unit` / `npm run test:component` — one tier
+- `npm run test:e2e` — Playwright E2E against the built app (run `npm run build` first)
 - `npx vitest run tests/indexer.test.ts` — one test file
 - `npx vitest run -t "pattern"` — tests matching a name
 - `npm run build` — production build into `out/`
@@ -32,7 +34,7 @@ The entire IPC surface is the `CockpitApi` interface in `src/shared/types.ts`. A
 
 ### Indexing pipeline (the core data flow)
 
-`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo (worktree-aware: linked worktrees group under the main repo; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s.
+`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo (worktree-aware: linked worktrees group under the main repo; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s. Sessions archived or deleted in the provider's own app are dropped (`providerArchived.ts`), and the history-window setting (`historyDays` in config) hides sessions idle longer than N days.
 
 Performance invariants — all deliberate, keep them:
 
@@ -47,10 +49,18 @@ Performance invariants — all deliberate, keep them:
 - `instructions-core.ts` vs `instructions.ts` — the shared-instructions marker/drift logic is deliberately IO-free in `-core.ts` (that's what the tests target); keep IO in `instructions.ts`.
 - `workspace.ts` — "always worktrees, always PRs": new sessions get a `cockpit/<name>` branch in an isolated worktree under the app's userData, never in the user's checkout; PRs go through `gh`.
 - `extensions.ts` — MCP/skills/plugins inventory and cross-agent sharing; each agent has its own config format (`~/.claude.json`, `~/.codex/config.toml`, `~/.copilot/mcp-config.json`).
+- `accounts.ts` — who each agent CLI is signed in as, per config home (Claude `.claude.json` OAuth, Codex `auth.json` JWT, Copilot's multi-account `config.json`), plus the `gh` user for repo operations.
+- `usage.ts` — subscription usage per provider without touching credentials: Claude measured locally from session JSONLs, Codex from the rate-limit snapshots its CLI persists, Copilot via the GitHub billing API (fails soft).
+- `providerArchived.ts` — reads each provider's own archived/deleted state (Copilot `data.db`, Codex `archived_sessions/`, the Claude desktop app's session store) so those sessions never appear in Cockpit.
+- `env.ts` — `cliEnv()`: GUI apps on macOS get a minimal PATH; use it for every spawned CLI.
 
 ### Tests
 
-Vitest with real tmpdir fixtures — tests write fake session logs and fake `.git/config` files to disk and run the real indexer/parsers over them. No mocking framework; follow that pattern for new tests.
+Three tiers; CI (`.github/workflows/ci.yml`) runs all of them:
+
+- **unit** (`tests/*.test.ts`, node env) — real tmpdir fixtures: tests write fake session logs and fake `.git/config` files to disk and run the real indexer/parsers over them. No mocking framework; follow that pattern for new tests.
+- **component** (`tests/component/`, jsdom) — renderer components against the stubbed `window.cockpit` in `tests/component/stub-api.ts`.
+- **e2e** (`tests/e2e/`, Playwright) — drives the built Electron app; requires `npm run build` first.
 
 ## UI work
 

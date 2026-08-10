@@ -1,10 +1,11 @@
-# Sidebar — Org/Repo/Session Tree (`TreeSidebar.tsx`)
+# Sidebar — Repo/Session Tree (`TreeSidebar.tsx`)
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** GitHub-first navigation tree: org (owner) → repo → sessions, ordered
-GitHub orgs first, then Local, each by last activity. Sessions with no repo don't get a
-faux org/repo nesting — they live in a flat **Chats** section pinned last: an org-style
+**Pattern:** GitHub-first navigation tree, flattened: one **`owner/repo` row per
+repository** (dimmed owner prefix, no separate org header level) with its sessions
+directly under it, ordered by last activity. Sessions with no repo don't get a faux
+repo nesting — they live in a flat **Chats** section pinned last: a section-style
 header with the sessions directly under it. The sidebar is the exhaustive session list
 (Home shows only a taste).
 
@@ -18,7 +19,8 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 - Tree rows, in visual grammar:
   - `.section-row` — sticky (`top: 0`, solid `--bg2` so scrolling rows pass under it),
     lowercase micro-caps, plain-text session count (the Chats header).
-  - `.repo-row` — chevron, repo icon, name, tiny per-provider logos (10px), bordered
+  - `.repo-row` — chevron, repo icon, `owner/name` (owner prefix in dimmed `.repo-owner`;
+    local repos show just the name), tiny per-provider logos (10px), bordered
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
     logo, title, optional `.acct-chip` (only when that provider has multiple accounts),
