@@ -26,6 +26,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke('sessions:archive', sessionId, archived),
   setRepoHidden: (repoKey: string, hidden: boolean) =>
     ipcRenderer.invoke('repos:set-hidden', repoKey, hidden),
+  getHistoryDays: () => ipcRenderer.invoke('history:get'),
+  setHistoryDays: (days: number) => ipcRenderer.invoke('history:set', days),
   getPrs: (repoRoot: string) => ipcRenderer.invoke('github:prs', repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>
     ipcRenderer.invoke('workspace:create', repoRoot, name),

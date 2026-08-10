@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import type { ChatRequest, Provider, SessionQuery } from '../shared/types'
 import { SessionIndexer } from './indexer'
 import { ChatManager } from './chat'
-import { loadConfig, saveConfig, setRepoHidden, setSessionArchived } from './config'
+import { loadConfig, saveConfig, setHistoryDays, setRepoHidden, setSessionArchived } from './config'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
 import { getExtensions, shareMcp, shareSkill } from './extensions'
@@ -89,6 +89,7 @@ app.whenReady().then(() => {
   })
   indexer.setArchived(cfg.archived ?? [])
   indexer.setHiddenRepos(cfg.hiddenRepos ?? [])
+  indexer.setHistoryDays(cfg.historyDays ?? 0)
   void indexer.setSources(cfg.sources)
 
   ipcMain.handle('sources:get', () => loadConfig().sources)
@@ -130,6 +131,10 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('repos:set-hidden', (_e, key: string, hidden: boolean) => {
     indexer.setHiddenRepos(setRepoHidden(String(key), Boolean(hidden)))
+  })
+  ipcMain.handle('history:get', () => loadConfig().historyDays ?? 0)
+  ipcMain.handle('history:set', (_e, days: number) => {
+    indexer.setHistoryDays(setHistoryDays(Number(days)))
   })
   ipcMain.handle('github:prs', (_e, repoRoot: string) => getPrs(assertKnownRepoRoot(repoRoot)))
   ipcMain.handle('workspace:create', (_e, repoRoot: string, name?: string) =>

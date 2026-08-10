@@ -14,6 +14,17 @@ import { Select } from './Select'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
+/** History window presets; value is days as a string, '0' = all history. */
+const HISTORY_OPTIONS = [
+  { value: '0', label: 'All history' },
+  { value: '3', label: 'Last 3 days' },
+  { value: '7', label: 'Last 7 days' },
+  { value: '14', label: 'Last 14 days' },
+  { value: '30', label: 'Last 30 days' },
+  { value: '90', label: 'Last 90 days' },
+  { value: '365', label: 'Last year' }
+]
+
 function fmtAgo(ms: number): string {
   const mins = Math.round((Date.now() - ms) / 60000)
   if (mins < 1) return 'just now'
@@ -96,6 +107,8 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const [provider, setProvider] = useState<Provider>('claude')
   const [label, setLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
+  /** null until loaded — the Select only renders with a real value */
+  const [historyDays, setHistoryDays] = useState<number | null>(null)
   /** Path of the source whose Remove is in its confirm step */
   const [confirming, setConfirming] = useState<string | null>(null)
   const [lastRemoved, setLastRemoved] = useState<SourceDir | null>(null)
@@ -111,6 +124,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   }
   useEffect(() => {
     refresh()
+    void api.getHistoryDays().then(setHistoryDays)
     headingRef.current?.focus()
     // counts stay live while the indexer works
     return api.onIndexUpdated(refresh)
@@ -172,6 +186,18 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
+
+  const changeHistory = async (days: number): Promise<void> => {
+    setHistoryDays(days)
+    await api.setHistoryDays(days)
+    setStatus(days === 0 ? 'Showing all history' : `Showing the last ${days} days of history`)
+  }
+
+  // a hand-edited config value outside the presets still renders as itself
+  const historyOptions =
+    historyDays !== null && !HISTORY_OPTIONS.some((o) => o.value === String(historyDays))
+      ? [...HISTORY_OPTIONS, { value: String(historyDays), label: `Last ${historyDays} days` }]
+      : HISTORY_OPTIONS
 
   const totalSessions = stats.reduce((n, s) => n + s.count, 0)
 
@@ -257,6 +283,29 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
             <button className="link-btn" onClick={() => void undoRemove()}>Undo</button>
           </p>
         )}
+
+        <h3 className="ns-label">History</h3>
+        <p className="ns-hint">
+          How far back sessions appear in the sidebar, search, and counts. Older sessions are
+          only hidden from view — nothing on disk is touched, and switching back to all history
+          restores them.
+        </p>
+        <div className="ns-options">
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="history-days">Show sessions from</label>
+            {historyDays === null ? (
+              <span className="ns-hint">loading…</span>
+            ) : (
+              <Select
+                id="history-days"
+                ariaLabel="Show sessions from"
+                value={String(historyDays)}
+                options={historyOptions}
+                onChange={(v) => void changeHistory(Number(v))}
+              />
+            )}
+          </div>
+        </div>
 
         <h3 className="ns-label">Subscription usage</h3>
         <p className="ns-hint">

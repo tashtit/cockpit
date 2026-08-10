@@ -16,6 +16,8 @@ interface AppConfig {
   }
   /** Repo keys the user chose not to display (everything is visible by default) */
   hiddenRepos?: string[]
+  /** Days of history to display — sessions idle longer are hidden; 0/absent = all */
+  historyDays?: number
 }
 
 function configPath(): string {
@@ -64,6 +66,14 @@ export function setRepoHidden(repoKey: string, hidden: boolean): string[] {
   cfg.hiddenRepos = [...set]
   saveConfig(cfg)
   return cfg.hiddenRepos
+}
+
+export function setHistoryDays(days: number): number {
+  const cfg = loadConfig()
+  const d = Number.isFinite(days) && days > 0 ? Math.floor(days) : 0
+  cfg.historyDays = d
+  saveConfig(cfg)
+  return d
 }
 
 export function saveConfig(cfg: AppConfig): void {

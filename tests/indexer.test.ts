@@ -139,6 +139,63 @@ describe('SessionIndexer', () => {
   })
 })
 
+describe('history window (setHistoryDays)', () => {
+  // fixture timestamps are relative to now — the cutoff compares against Date.now()
+  const histDir = join(root, 'claude-history')
+  const day = 86_400_000
+  let idx: SessionIndexer
+
+  function writeSession(name: string, cwd: string, title: string, agoMs: number): void {
+    const dir = join(histDir, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    const ts = new Date(Date.now() - agoMs).toISOString()
+    writeFileSync(
+      join(dir, `${name}.jsonl`),
+      jsonl([
+        {
+          type: 'user',
+          message: { role: 'user', content: title },
+          timestamp: ts,
+          sessionId: name,
+          cwd,
+          gitBranch: 'main'
+        },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: ts }
+      ])
+    )
+  }
+
+  beforeAll(async () => {
+    writeSession('h-recent', repoA, 'recent work', 2 * day)
+    writeSession('h-old', '/nowhere/ancient', 'ancient chat', 40 * day)
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: histDir, provider: 'claude', label: 'hist' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('hides sessions idle longer than the window from pages and repo groups', () => {
+    idx.setHistoryDays(30)
+    expect(idx.page({}).items.map((s) => s.nativeId)).toEqual(['h-recent'])
+    // a repo whose only sessions aged out disappears entirely
+    expect(idx.listRepos().map((r) => r.key)).toEqual(['gh:acme/repo-a'])
+  })
+
+  it('0 restores all history (nothing was dropped from the index)', () => {
+    idx.setHistoryDays(0)
+    expect(idx.page({}).items.map((s) => s.nativeId).sort()).toEqual(['h-old', 'h-recent'])
+    expect(idx.listRepos().map((r) => r.key)).toEqual(['gh:acme/repo-a', 'general'])
+  })
+
+  it('leaves source health stats unfiltered — they report what is indexed', () => {
+    idx.setHistoryDays(30)
+    const src = { path: histDir, provider: 'claude' as const, label: 'hist' }
+    expect(idx.sourceStats([src])[0].count).toBe(2)
+    idx.setHistoryDays(0)
+  })
+})
+
 describe.skipIf(!hasSqlite3())('provider-archived sessions (copilot data.db)', () => {
   let idx: SessionIndexer
 
