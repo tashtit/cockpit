@@ -49,12 +49,22 @@ github.com exactly.
 | PR open / merged / closed / draft | `#3fb950` / `#a371f7` / `#f85149` / `#8b949e` | `--pr-*` |
 | Danger / OK / Warn | `#f85149` / `#2ea043` / `#d29922` | `--danger` / `--ok` / `--warn` |
 | OK / danger button fills (white text ≥4.5:1) | `#238636` / `#da3633` | `--ok-btn` / `--danger-btn` |
+| Text/icons on a filled button | `#fff` | `--white` |
+| Codex mark (white-on-dark, like ChatGPT's own) | `#ececf1` | `--codex-mark` |
+
+**Alpha companions.** Every color that also appears as a tint or border wash ships an
+`-rgb` triplet so components write `rgba(var(--x-rgb), α)` and never re-type channels:
+`--accent-rgb`, `--claude-rgb`, `--codex-rgb`, `--copilot-rgb`, `--danger-rgb`, `--ok-rgb`,
+`--warn-rgb`, `--branch-rgb`. `--accent-rgb` is deliberately *not* either accent hex — it's the
+deeper wash hue, so glows, selection gradients and user bubbles read as shadow-side accent
+rather than a pale rinse of the button fill.
 
 **Rules:**
-- Never introduce raw hex in components — always tokens.
+- Never introduce raw hex or a bare `rgba(…)` in components — the `:root` block is the only
+  place a literal color may appear. Everything below it composes tokens.
 - Two accents exist on purpose: `--accent` for text/icons on dark (passes contrast), `--accent-btn` for filled buttons under white text. Don't swap them. The same split applies to OK/danger: `--ok`/`--danger` are text colors on dark, `--ok-btn`/`--danger-btn` are the darker button fills that keep white text at 4.5:1.
 - Agent tints use `rgba(var(--*-rgb), 0.10–0.16)` backgrounds with a solid agent-color border/inset — never solid agent-color fills behind text.
-- Codex logo renders white-on-dark (like ChatGPT's own mark); teal is reserved for codex tints/borders.
+- Codex logo renders `--codex-mark` white-on-dark (like ChatGPT's own mark); teal (`--codex`) is reserved for codex tints/borders.
 
 ## Typography
 
@@ -68,13 +78,13 @@ github.com exactly.
 ## Spacing & Shape
 
 - **Spacing:** `--s1` 4 / `--s2` 6 / `--s3` 8 / `--s4` 12 / `--s5` 16 / `--s6` 24. Tree indent tokens: `--indent-1` 14 / `--indent-15` 22 / `--indent-2` 30.
-- **Radii:** `--radius-sm` 6 / `--radius` 8 / `--radius-lg` 14; pills are `999px`.
-- **Shadows:** cards float with `0 8px 40px rgba(0,0,0,0.35–0.4)`; the only glow is `--accent-glow` on primary buttons and focus rings.
-- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) and filled buttons (`.btn-primary`, `.btn-pr`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` (or a `color-mix` of the fill with white) plus a 1px `inset` white-rgba highlight. Reuse this recipe for new elevated elements; never invent new fill colors.
+- **Radii:** `--radius-sm` 6 / `--radius` 8 / `--radius-lg` 14 / `--radius-pill` 999. Nothing off-scale (the one exception is the 5px scrollbar thumb, which is half its own 10px track — geometry, not a design radius).
+- **Shadows:** three tokens, no ad-hoc values — `--shadow-card` (floating cards), `--shadow-pop` (popovers/listboxes), `--shadow-fill` (contact shadow under a filled button). The only glow is `--accent-glow` on primary buttons and focus rings.
+- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) and filled buttons (`.btn-primary`, `.btn-pr`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` (or a `color-mix` of the fill with `--white`) plus a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (sidebar, chat header, composer, composer bar) are all `--pane`. Reuse these; never invent new fill colors.
 
 ## Motion
 
-- Single easing: `--ease: cubic-bezier(0.16, 1, 0.3, 1)`, 160ms, on background/border/color/box-shadow/opacity/filter only.
+- Single easing and single duration: `--ease: cubic-bezier(0.16, 1, 0.3, 1)` at `--dur: 160ms`, on background/border/color/box-shadow/opacity/filter only. Both are tokens — never re-type `160ms`.
 - Never animate width/height/margin (layout thrash). Pressed = brightness filter, hover = background/color shift.
 - The only keyframe animation is the 1.2s `pulse` dot while an agent is working.
 - `prefers-reduced-motion: reduce` kills all animation and transitions globally — keep that rule intact.
@@ -129,7 +139,7 @@ Nothing renders with stock Chromium chrome:
 
 ## Pre-Delivery Checklist
 
-- [ ] Tokens only — no raw hex, px spacing from the `--s*` scale
+- [ ] Tokens only — no raw hex or bare `rgba()` outside `:root`, px spacing from the `--s*` scale, radii from `--radius*`, transitions at `--dur`/`--ease`
 - [ ] Icon-only controls have `aria-label`/`title`; decorative SVGs `aria-hidden`
 - [ ] Focus visible on every new interactive element
 - [ ] Hover + pressed states via background/brightness, 160ms `--ease`
