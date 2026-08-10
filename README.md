@@ -1,7 +1,7 @@
 # Cockpit
 
 Unified desktop hub for **Claude Code**, **Codex**, and **GitHub Copilot CLI** sessions.
-M1: read-only unified session timeline across all providers. (See `copilot-hub-implementation-plan.md` from the planning session for the full roadmap.)
+M1: read-only unified session timeline across all providers.
 
 ## Run
 
@@ -58,3 +58,7 @@ src/renderer/             React UI (TreeSidebar, ChatView, NewSession, AiSetup, 
 - No SQLite yet on purpose — in-memory index is plenty for M1 and avoids native-module rebuild pain. Revisit at M6 (full-text search).
 - Copilot chat streams plain text (no structured events), so a *new* Copilot chat doesn't learn its session id mid-conversation — the session appears in the sidebar after the first turn; click it to continue with proper resume. Claude/Codex bind their session id from the first response.
 - Codex event stream shapes changed between releases; both the old (`msg.type`) and new (`thread.started`/`item.completed`) shapes are handled.
+
+## License
+
+[Apache-2.0](LICENSE)
