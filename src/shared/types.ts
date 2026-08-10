@@ -232,6 +232,53 @@ export interface InstructionsState {
   files: InstructionFile[]
 }
 
+/* ---------- subscription usage ---------- */
+
+export interface UsageTokens {
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreate: number
+}
+
+/** One measured window of subscription usage ("5h", "weekly", "last 7 days", …). */
+export interface UsageWindow {
+  label: string
+  /** 0–100 of the subscription limit, when the provider reports it (codex) */
+  usedPercent?: number
+  /** Token totals measured locally from session logs (claude) */
+  tokens?: UsageTokens
+  /** API requests / premium requests counted in this window */
+  requests?: number
+  /** Requests billed beyond the included quota (copilot) */
+  requestsBilled?: number
+  /** Epoch ms when this window resets, when known */
+  resetsAt?: number
+}
+
+export interface ProviderUsage {
+  provider: Provider
+  /** Config home this was measured for (mirrors SourceDir.path; '' for copilot/gh) */
+  path: string
+  label: string
+  /** Identity the usage belongs to (email / GitHub login), when known */
+  identity?: string | null
+  /** Subscription plan when the provider reports it (codex plan_type) */
+  plan?: string
+  /** 'local-logs' = measured from session logs; 'provider' = reported by the service */
+  source: 'local-logs' | 'provider'
+  /** Epoch ms the underlying data was last observed */
+  measuredAt?: number
+  windows: UsageWindow[]
+  /** Human-readable reason when usage could not be determined */
+  unavailable?: string
+}
+
+export interface UsageSnapshot {
+  at: number
+  providers: ProviderUsage[]
+}
+
 export type ChatEvent =
   | { turnId: string; type: 'session'; nativeSessionId: string }
   | { turnId: string; type: 'text'; text: string }
@@ -270,6 +317,8 @@ export interface CockpitApi {
     content: string
   ): Promise<InstructionsState>
   getAccounts(): Promise<AccountsSnapshot>
+  /** Current subscription usage per configured provider account */
+  getUsage(): Promise<UsageSnapshot>
   /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
   getZoomFactor(): number
   setZoomFactor(factor: number): void

@@ -31,6 +31,7 @@ export function freshApi(): CockpitApi {
     applyInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     saveInstructionFile: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     getAccounts: vi.fn(async () => ({ accounts: [], githubUser: null })),
+    getUsage: vi.fn(async () => ({ at: 0, providers: [] })),
     getZoomFactor: vi.fn(() => 1),
     setZoomFactor: vi.fn(),
     openExternal: vi.fn(async () => {}),

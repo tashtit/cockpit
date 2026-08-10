@@ -42,6 +42,7 @@ const api: CockpitApi = {
   saveInstructionFile: (repoRoot: string | null, path: string, content: string) =>
     ipcRenderer.invoke('instructions:save-file', repoRoot, path, content),
   getAccounts: () => ipcRenderer.invoke('accounts:get'),
+  getUsage: () => ipcRenderer.invoke('usage:get'),
   getZoomFactor: () => webFrame.getZoomFactor(),
   setZoomFactor: (factor: number) =>
     webFrame.setZoomFactor(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, factor))),

@@ -15,6 +15,7 @@ import {
   saveInstructionFile
 } from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
+import { getUsage } from './usage'
 import { homedir } from 'node:os'
 
 // e2e/dev isolation only — a packaged app must never honor a data-dir override
@@ -173,6 +174,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('accounts:get', () => getAccounts(loadConfig().sources))
+  ipcMain.handle('usage:get', () => getUsage(loadConfig().sources))
 
   chat = new ChatManager((ev) => win?.webContents.send('chat-event', ev))
   ipcMain.handle('chat:send', (_e, req: ChatRequest) => {
