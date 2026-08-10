@@ -301,6 +301,9 @@ export interface CockpitApi {
   getSessionMessages(id: string): Promise<SessionMessage[]>
   setArchived(sessionId: string, archived: boolean): Promise<void>
   setRepoHidden(repoKey: string, hidden: boolean): Promise<void>
+  /** Days of history to display — sessions idle longer are hidden; 0 = all */
+  getHistoryDays(): Promise<number>
+  setHistoryDays(days: number): Promise<void>
   getPrs(repoRoot: string): Promise<PrStatus[]>
   createWorkspace(repoRoot: string, name?: string): Promise<WorkspaceInfo>
   createPr(cwd: string): Promise<string>

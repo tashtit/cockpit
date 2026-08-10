@@ -148,6 +148,8 @@ export class SessionIndexer {
   private providerArchivedTimer: NodeJS.Timeout | null = null
   /** Repo keys the user chose not to display */
   private hiddenRepos = new Set<string>()
+  /** Days of history to display — sessions idle longer are hidden; 0 = all */
+  private historyDays = 0
   private onUpdate: () => void
   private cacheFile: string | null
   /** undefined → the real desktop-app store; null → disabled (tests) */
@@ -174,6 +176,17 @@ export class SessionIndexer {
   setHiddenRepos(keys: string[]): void {
     this.hiddenRepos = new Set(keys)
     this.emitUpdate()
+  }
+
+  /** Applied at query time so changing the window never re-parses anything. */
+  setHistoryDays(days: number): void {
+    this.historyDays = days > 0 ? days : 0
+    this.emitUpdate()
+  }
+
+  /** Epoch ms floor for displayed sessions; 0 = no floor (all history). */
+  private historyCutoff(): number {
+    return this.historyDays > 0 ? Date.now() - this.historyDays * 86_400_000 : 0
   }
 
   private async refreshProviderArchived(): Promise<void> {
@@ -546,9 +559,11 @@ export class SessionIndexer {
   }
 
   listRepos(): RepoGroup[] {
+    const cutoff = this.historyCutoff()
     const groups = new Map<string, RepoGroup>()
     for (const s of this.sessions.values()) {
       if (this.providerArchived.has(s.id)) continue
+      if (s.updatedAt < cutoff) continue
       const info = s.repo ?? GENERAL_REPO
       let g = groups.get(info.key)
       if (!g) {
@@ -587,8 +602,9 @@ export class SessionIndexer {
   }
 
   page(query: SessionQuery): SessionPage {
+    const cutoff = this.historyCutoff()
     let all = [...this.sessions.values()]
-    all = all.filter((s) => !this.providerArchived.has(s.id))
+    all = all.filter((s) => !this.providerArchived.has(s.id) && s.updatedAt >= cutoff)
     all = all.filter((s) => this.archived.has(s.id) === !!query.archived)
     if (query.repoKey) {
       all = all.filter((s) => (s.repo?.key ?? 'general') === query.repoKey)
