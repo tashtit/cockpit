@@ -35,7 +35,7 @@
     "react-dom": "^18.3.1",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.6"
   },
   "optionalDependencies": {
     "fsevents": "^2.3.3"
