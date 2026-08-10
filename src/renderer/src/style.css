@@ -635,6 +635,22 @@ summary::-webkit-details-marker { display: none; }
 /* prose under a row label — NOT mono (mono is for machine identifiers) */
 .source-note { color: var(--fg-dim); font-size: var(--fs-xs); }
 .source-note code { font-family: var(--mono); color: var(--fg); }
+/* ---------- settings subscription usage ---------- */
+.usage-windows { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s1); }
+.usage-window { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-xs);
+  color: var(--fg-dim); }
+/* fixed label column keeps meters/numbers aligned across windows */
+.usage-win-label { flex: 0 0 130px; }
+.usage-meter { flex: 0 0 120px; height: var(--s2); border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+.usage-fill { display: block; height: 100%; border-radius: 999px; }
+/* no text sits on these fills — solid agent color is fine at 6px tall */
+.usage-fill-claude { background: var(--claude); }
+.usage-fill-codex { background: var(--codex); }
+.usage-fill-copilot { background: var(--copilot); }
+.usage-fill.hot { background: var(--danger); }
+.usage-num { color: var(--fg); font-variant-numeric: tabular-nums; }
+
 .source-add { display: flex; flex-direction: column; gap: var(--s2); }
 .source-add input { min-width: 0; padding: var(--s2) var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);

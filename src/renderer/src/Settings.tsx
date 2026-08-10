@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AccountsSnapshot, Provider, SourceDir, SourceStats } from '../../shared/types'
+import type {
+  AccountsSnapshot,
+  Provider,
+  SourceDir,
+  SourceStats,
+  UsageSnapshot,
+  UsageTokens,
+  UsageWindow
+} from '../../shared/types'
 import { api } from './api'
 import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -15,9 +23,75 @@ function fmtAgo(ms: number): string {
   return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
+function fmtCount(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`
+  return String(n)
+}
+
+/** "resets in 2h 15m" / "resets in 3d 4h" */
+function fmtResetIn(at: number): string {
+  const mins = Math.max(0, Math.round((at - Date.now()) / 60000))
+  if (mins < 60) return `resets in ${mins}m`
+  const h = Math.floor(mins / 60)
+  if (h < 24) return `resets in ${h}h ${mins % 60}m`
+  return `resets in ${Math.floor(h / 24)}d ${h % 24}h`
+}
+
+function tokensTitle(t: UsageTokens): string {
+  return `input ${fmtCount(t.input)} · output ${fmtCount(t.output)} · cache write ${fmtCount(
+    t.cacheCreate
+  )} · cache read ${fmtCount(t.cacheRead)}`
+}
+
+function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow }): JSX.Element {
+  const pct = typeof w.usedPercent === 'number' ? Math.round(w.usedPercent) : null
+  const idle = w.tokens && w.requests === 0
+  return (
+    <div className="usage-window">
+      <span className="usage-win-label">{w.label}</span>
+      {pct !== null && (
+        <>
+          <span
+            className="usage-meter"
+            role="meter"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={pct}
+            aria-label={`${w.label}: ${pct}% used`}
+          >
+            <span
+              className={`usage-fill usage-fill-${provider}${pct >= 90 ? ' hot' : ''}`}
+              style={{ width: `${pct}%` }}
+            />
+          </span>
+          <span className="usage-num">{pct}%</span>
+        </>
+      )}
+      {w.tokens &&
+        (idle ? (
+          <span>no activity</span>
+        ) : (
+          <span className="usage-num" title={tokensTitle(w.tokens)}>
+            {fmtCount(w.tokens.input + w.tokens.output)} tokens
+            {typeof w.requests === 'number' && ` · ${fmtCount(w.requests)} requests`}
+          </span>
+        ))}
+      {!w.tokens && pct === null && typeof w.requests === 'number' && (
+        <span className="usage-num">
+          {fmtCount(w.requests)} used
+          {(w.requestsBilled ?? 0) > 0 && ` · ${fmtCount(w.requestsBilled!)} billed beyond plan`}
+        </span>
+      )}
+      {w.resetsAt && <time>{fmtResetIn(w.resetsAt)}</time>}
+    </div>
+  )
+}
+
 export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const [stats, setStats] = useState<SourceStats[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
+  const [usage, setUsage] = useState<UsageSnapshot | null>(null)
   const [path, setPath] = useState('')
   const [provider, setProvider] = useState<Provider>('claude')
   const [label, setLabel] = useState('')
@@ -33,6 +107,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const refresh = (): void => {
     void api.getSourceStats().then(setStats)
     void api.getAccounts().then(setAccounts)
+    api.getUsage().then(setUsage, () => {})
   }
   useEffect(() => {
     refresh()
@@ -182,6 +257,49 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
             <button className="link-btn" onClick={() => void undoRemove()}>Undo</button>
           </p>
         )}
+
+        <h3 className="ns-label">Subscription usage</h3>
+        <p className="ns-hint">
+          Current usage per subscription — Claude measured locally from session logs, Codex from
+          its own rate-limit snapshots, Copilot premium requests from the GitHub billing API.
+          Nothing here reads credentials.
+        </p>
+        <ul className="source-list">
+          {usage === null && <li className="tree-empty">measuring…</li>}
+          {usage?.providers.map((u) => (
+            <li key={`${u.provider}:${u.path}`} className={`source-row tint-${u.provider}`}>
+              <span className={`plogo plogo-${u.provider}`} aria-hidden="true">
+                <ProviderLogo p={u.provider} size={13} />
+              </span>
+              <div className="source-body">
+                <div className="source-label">
+                  {u.label}
+                  {u.identity && (
+                    <span className={`acct-chip acct-${u.provider}`}>{u.identity}</span>
+                  )}
+                  {u.plan && <span className="source-origin">{u.plan} plan</span>}
+                  {!u.unavailable &&
+                    u.measuredAt !== undefined &&
+                    Date.now() - u.measuredAt > 15 * 60_000 && (
+                      <span className="source-origin">as of {fmtAgo(u.measuredAt)}</span>
+                    )}
+                </div>
+                {u.unavailable ? (
+                  <div className="source-note">{u.unavailable}</div>
+                ) : (
+                  <div className="usage-windows">
+                    {u.windows.map((w) => (
+                      <UsageWindowRow key={w.label} provider={u.provider} w={w} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+          {usage !== null && usage.providers.length === 0 && (
+            <li className="tree-empty">no provider accounts configured</li>
+          )}
+        </ul>
 
         <h3 className="ns-label">GitHub</h3>
         <ul className="source-list">

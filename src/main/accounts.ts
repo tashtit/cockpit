@@ -87,7 +87,7 @@ export function setCopilotActiveUser(configDir: string, login: string): void {
 
 let ghUserCache: { at: number; login: string | null } | null = null
 
-function ghUser(): Promise<string | null> {
+export function ghUser(): Promise<string | null> {
   if (ghUserCache && Date.now() - ghUserCache.at < 300_000) {
     return Promise.resolve(ghUserCache.login)
   }
