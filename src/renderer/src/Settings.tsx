@@ -17,6 +17,7 @@ const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** History window presets; value is days as a string, '0' = all history. */
 const HISTORY_OPTIONS = [
   { value: '0', label: 'All history' },
+  { value: '3', label: 'Last 3 days' },
   { value: '7', label: 'Last 7 days' },
   { value: '14', label: 'Last 14 days' },
   { value: '30', label: 'Last 30 days' },
