@@ -55,6 +55,9 @@ jobs:
           file: coverage/cobertura-coverage.xml
           language: TypeScript
           label: code-coverage/vitest
+          # Non-blocking until "Code quality" is enabled in repo settings
+          # (Settings → Security → Code quality); drop this once it is.
+          fail-on-error: false
 
       - name: Build
         run: npm run build
