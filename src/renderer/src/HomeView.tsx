@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
-  AgentOptions,
   PermissionMode,
   Provider,
   RepoGroup,
@@ -9,7 +8,7 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { useBusyMap } from './busy'
-import { accountOptions, MODES, savedAccount, type AccountChoice } from './NewSession'
+import { accountOptions, MODES, savedAccount, type StartSessionRequest } from './NewSession'
 import { BranchChip, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
@@ -36,15 +35,7 @@ export function HomeView({
   repos: RepoGroup[]
   indexVersion: number
   busy: boolean
-  onStart: (
-    repo: RepoGroup,
-    provider: Provider,
-    name: string,
-    prompt: string,
-    mode: PermissionMode,
-    options: AgentOptions,
-    account: AccountChoice
-  ) => Promise<string | null>
+  onStart: (req: StartSessionRequest) => Promise<string | null>
   onOpenSession: (s: SessionMeta) => void
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
@@ -96,10 +87,18 @@ export function HomeView({
     window.localStorage.setItem('cockpit:provider', provider)
     window.localStorage.setItem('cockpit:mode', mode)
     if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
-    const err = await onStart(selected, provider, '', prompt.trim(), mode, {}, {
-      configDir: account?.configDir,
-      copilotUser: account?.copilotUser,
-      display: account?.display
+    const err = await onStart({
+      repo: selected,
+      provider,
+      name: '',
+      prompt: prompt.trim(),
+      mode,
+      options: {},
+      account: {
+        configDir: account?.configDir,
+        copilotUser: account?.copilotUser,
+        display: account?.display
+      }
     })
     if (err) setError(err)
   }

@@ -17,23 +17,23 @@ import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
 import { initBusySessions } from './busy'
 import { initTimeFormat } from './time'
-import type { AccountChoice } from './NewSession'
+import type { StartSessionRequest } from './NewSession'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
 
-export interface ChatBinding {
-  provider: Provider
-  cwd: string
-  nativeSessionId: string | null
-  title: string
-  branch: string | null
-  repoRoot: string | null
+export type ChatBinding = {
+  readonly provider: Provider
+  readonly cwd: string
+  readonly nativeSessionId: string | null
+  readonly title: string
+  readonly branch: string | null
+  readonly repoRoot: string | null
   /** Per-agent options chosen at session start; reused for every turn */
-  options?: AgentOptions
+  readonly options?: AgentOptions
   /** Account chosen at session start (config home + copilot user) */
-  configDir?: string
-  copilotUser?: string
+  readonly configDir?: string
+  readonly copilotUser?: string
   /** Human-readable identity shown in the chat header */
-  accountLabel?: string
+  readonly accountLabel?: string
 }
 
 type View =
@@ -267,15 +267,8 @@ export function App(): JSX.Element {
 
   /** New session flow: create worktree, bind chat, fire the first prompt. */
   const startSession = useCallback(
-    async (
-      repo: RepoGroup,
-      provider: Provider,
-      name: string,
-      prompt: string,
-      mode: PermissionMode,
-      options: AgentOptions,
-      account: AccountChoice = {}
-    ): Promise<string | null> => {
+    async (req: StartSessionRequest): Promise<string | null> => {
+      const { repo, provider, name, prompt, mode, options, account } = req
       if (!repo.root) return 'This group has no git repository.'
       setCreating(true)
       try {

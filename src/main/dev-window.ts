@@ -10,11 +10,11 @@
  *    index into screen.getAllDisplays())
  */
 
-export interface DevWindowPrefs {
+export type DevWindowPrefs = {
   /** show the window without activating/focusing it */
-  background: boolean
+  readonly background: boolean
   /** 0-based display index to open on, or null for the OS default */
-  displayIndex: number | null
+  readonly displayIndex: number | null
 }
 
 export function readDevWindowPrefs(env: Record<string, string | undefined>): DevWindowPrefs {
@@ -26,11 +26,11 @@ export function readDevWindowPrefs(env: Record<string, string | undefined>): Dev
   }
 }
 
-export interface Rect {
-  x: number
-  y: number
-  width: number
-  height: number
+export type Rect = {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
 }
 
 /** Bounds that center a window of the given size in a display's work area. */

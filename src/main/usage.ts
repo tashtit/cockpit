@@ -3,6 +3,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type {
+  Mutable,
   ProviderUsage,
   SourceDir,
   UsageSnapshot,
@@ -29,9 +30,8 @@ const WEEK_HOURS = 7 * 24
 
 /* ---------- claude: local measurement ---------- */
 
-interface HourBucket extends UsageTokens {
-  requests: number
-}
+/** Accumulator — mutated in place by addUsage, hence Mutable. */
+type HourBucket = Mutable<UsageTokens> & { requests: number }
 
 /** Hourly token totals for one session file; re-parsed only when the file changes. */
 const claudeFileCache = new Map<
@@ -102,7 +102,7 @@ function sumBuckets(
   buckets: Map<number, HourBucket>,
   fromHour: number
 ): { tokens: UsageTokens; requests: number } {
-  const tokens = emptyTokens()
+  const tokens: Mutable<UsageTokens> = emptyTokens()
   let requests = 0
   for (const [hour, b] of buckets) {
     if (hour < fromHour) continue
@@ -172,8 +172,11 @@ export async function claudeUsage(configDir: string, now = Date.now()): Promise<
     : { tokens: emptyTokens(), requests: 0 }
   const week = sumBuckets(merged, weekFrom)
 
-  const blockWindow: UsageWindow = { label: 'current 5h block', ...block }
-  if (blockActive) blockWindow.resetsAt = (blockStart! + BLOCK_HOURS) * HOUR
+  const blockWindow: UsageWindow = {
+    label: 'current 5h block',
+    ...block,
+    ...(blockActive ? { resetsAt: (blockStart! + BLOCK_HOURS) * HOUR } : {})
+  }
   return [blockWindow, { label: 'last 7 days', ...week }]
 }
 
@@ -192,13 +195,12 @@ function codexWindowLabel(minutes: number): string {
 
 function codexWindow(w: any): UsageWindow | null {
   if (!w || typeof w.used_percent !== 'number') return null
-  const win: UsageWindow = {
-    label: typeof w.window_minutes === 'number' ? codexWindowLabel(w.window_minutes) : 'window',
-    usedPercent: Math.max(0, Math.min(100, w.used_percent))
-  }
   const resets = toMs(w.resets_at)
-  if (resets !== null) win.resetsAt = resets
-  return win
+  return {
+    label: typeof w.window_minutes === 'number' ? codexWindowLabel(w.window_minutes) : 'window',
+    usedPercent: Math.max(0, Math.min(100, w.used_percent)),
+    ...(resets !== null ? { resetsAt: resets } : {})
+  }
 }
 
 /** Last provider-reported rate-limit snapshot in one rollout file's tail, if any. */
@@ -287,7 +289,7 @@ function ghApi(path: string): Promise<{ out: string | null; err: string | null }
 }
 
 async function copilotUsage(login: string): Promise<ProviderUsage> {
-  const base: ProviderUsage = {
+  const base: Mutable<ProviderUsage> = {
     provider: 'copilot',
     path: '',
     label: 'GitHub Copilot',
@@ -349,7 +351,7 @@ async function buildSnapshot(sources: SourceDir[]): Promise<UsageSnapshot> {
   for (const s of sources) {
     if (!existsSync(s.path)) continue
     if (s.provider === 'claude') {
-      const entry: ProviderUsage = {
+      const entry: Mutable<ProviderUsage> = {
         provider: 'claude',
         path: s.path,
         label: s.label,
@@ -362,7 +364,7 @@ async function buildSnapshot(sources: SourceDir[]): Promise<UsageSnapshot> {
       providers.push(entry)
     } else if (s.provider === 'codex') {
       const snap = codexUsage(s.path)
-      const entry: ProviderUsage = {
+      const entry: Mutable<ProviderUsage> = {
         provider: 'codex',
         path: s.path,
         label: s.label,

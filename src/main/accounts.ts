@@ -109,22 +109,20 @@ export async function getAccounts(sources: SourceDir[]): Promise<AccountsSnapsho
   const accounts: AccountInfo[] = []
   for (const s of sources) {
     if (!existsSync(s.path)) continue
-    const base: AccountInfo = {
+    const base = {
       provider: s.provider,
       path: s.path,
       label: s.label,
-      identity: null,
       isDefault: s.path === defaults[s.provider]
     }
-    if (s.provider === 'claude') base.identity = claudeIdentity(s.path)
-    else if (s.provider === 'codex') base.identity = codexIdentity(s.path)
-    else {
+    if (s.provider === 'claude') {
+      accounts.push({ ...base, identity: claudeIdentity(s.path) })
+    } else if (s.provider === 'codex') {
+      accounts.push({ ...base, identity: codexIdentity(s.path) })
+    } else {
       const { users, active } = copilotUsers(s.path)
-      base.identity = active
-      base.users = users
-      base.activeUser = active
+      accounts.push({ ...base, identity: active, users, activeUser: active })
     }
-    accounts.push(base)
   }
   return { accounts, githubUser: await ghUser() }
 }

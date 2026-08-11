@@ -4,9 +4,9 @@ import type { RepoInfo } from '../shared/types'
 
 export const GENERAL_REPO: RepoInfo = { key: 'general', name: 'General', fullName: null, root: null }
 
-export interface ResolvedRepo {
-  repo: RepoInfo
-  isWorktree: boolean
+export type ResolvedRepo = {
+  readonly repo: RepoInfo
+  readonly isWorktree: boolean
 }
 
 /** cwd → resolution cache. Session cwds repeat heavily; resolution is pure fs reads. */

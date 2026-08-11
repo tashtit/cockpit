@@ -127,15 +127,16 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
   return out
 }
 
-interface RunningTurn {
-  child: ChildProcess
+type RunningTurn = {
+  readonly child: ChildProcess
+  /** Flipped when the CLI emits its done event — mutable turn state on purpose */
   doneSent: boolean
-  provider: Provider
+  readonly provider: Provider
   /** Epoch ms this turn was spawned — surfaces as elapsed time on the board */
-  startedAt: number
+  readonly startedAt: number
   /** Native session ids this turn is known under — the resumed id plus any the
    *  stream announces (claude forks a fresh id per resumed turn). */
-  sessionIds: Set<string>
+  readonly sessionIds: Set<string>
 }
 
 export class ChatManager {
