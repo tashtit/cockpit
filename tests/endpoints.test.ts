@@ -3,6 +3,8 @@ import {
   endpointAgents,
   endpointEnv,
   endpointSupports,
+  modelsRequest,
+  parseModelsResponse,
   sanitizeEndpoint
 } from '../src/shared/endpoints'
 import { endpointPreflight } from '../src/main/chat'
@@ -23,8 +25,8 @@ describe('sanitizeEndpoint', () => {
         label: '  ollama ',
         type: 'openai',
         baseUrl: ' http://localhost:11434/v1 ',
-        apiKeyEnvVar: ' MY_KEY ',
         wireApi: 'responses',
+        headers: { 'X-Tenant-Id': 'mai' },
         models: [' llama3.3 ', 'qwen2.5-coder']
       },
       'id-1'
@@ -34,8 +36,8 @@ describe('sanitizeEndpoint', () => {
       label: 'ollama',
       type: 'openai',
       baseUrl: 'http://localhost:11434/v1',
-      apiKeyEnvVar: 'MY_KEY',
       wireApi: 'responses',
+      headers: { 'X-Tenant-Id': 'mai' },
       models: ['llama3.3', 'qwen2.5-coder']
     })
   })
@@ -43,7 +45,7 @@ describe('sanitizeEndpoint', () => {
   it('accepts a minimal definition without optional fields', () => {
     const out = sanitizeEndpoint({ label: 'x', type: 'anthropic', baseUrl: 'https://a.example' }, 'i')
     expect(out).toEqual({ id: 'i', label: 'x', type: 'anthropic', baseUrl: 'https://a.example' })
-    expect(out).not.toHaveProperty('apiKeyEnvVar')
+    expect(out).not.toHaveProperty('headers')
   })
 
   it('rejects non-objects, missing label, unknown type', () => {
@@ -59,11 +61,14 @@ describe('sanitizeEndpoint', () => {
     expect(sanitizeEndpoint({ label: 'x', type: 'openai', baseUrl: 'file:///etc' }, 'i')).toBeNull()
   })
 
-  it('rejects malformed env-var names and wire APIs', () => {
+  it('rejects malformed headers and wire APIs', () => {
     const base = { label: 'x', type: 'openai', baseUrl: 'https://a.example' }
-    expect(sanitizeEndpoint({ ...base, apiKeyEnvVar: 'MY KEY' }, 'i')).toBeNull()
-    expect(sanitizeEndpoint({ ...base, apiKeyEnvVar: '1KEY' }, 'i')).toBeNull()
     expect(sanitizeEndpoint({ ...base, wireApi: 'grpc' }, 'i')).toBeNull()
+    // header names must be token-shaped; values must not be able to smuggle extra lines
+    expect(sanitizeEndpoint({ ...base, headers: { 'bad name': 'v' } }, 'i')).toBeNull()
+    expect(sanitizeEndpoint({ ...base, headers: { 'X-Ok': 'a\r\nInjected: b' } }, 'i')).toBeNull()
+    expect(sanitizeEndpoint({ ...base, headers: { 'X-Ok': 42 } }, 'i')).toBeNull()
+    expect(sanitizeEndpoint({ ...base, headers: ['a'] }, 'i')).toBeNull()
   })
 
   it('filters unsafe model names and drops an empty models list', () => {
@@ -129,9 +134,51 @@ describe('endpointEnv', () => {
     })
   })
 
+  it('custom headers become newline-separated Name: Value pairs for both CLIs', () => {
+    const withHeaders = ep({ headers: { 'X-Gateway-Key': 'abc', 'X-Tenant-Id': 'mai' } })
+    expect(endpointEnv('copilot', withHeaders)).toMatchObject({
+      COPILOT_PROVIDER_HEADERS: 'X-Gateway-Key: abc\nX-Tenant-Id: mai'
+    })
+    expect(
+      endpointEnv('claude', ep({ type: 'anthropic', headers: { 'anthropic-version': '2023-06-01' } }))
+    ).toMatchObject({ ANTHROPIC_CUSTOM_HEADERS: 'anthropic-version: 2023-06-01' })
+  })
+
   it('returns null for unsupported provider/endpoint pairs', () => {
     expect(endpointEnv('claude', ep({ type: 'openai' }))).toBeNull()
     expect(endpointEnv('codex', ep({ type: 'anthropic' }))).toBeNull()
+  })
+})
+
+describe('modelsRequest / parseModelsResponse', () => {
+  it('openai listing hits /models with a bearer token and custom headers', () => {
+    const req = modelsRequest(ep({ baseUrl: 'http://localhost:11434/v1/', headers: { 'X-A': 'b' } }), 'sk-1')
+    expect(req).toEqual({
+      url: 'http://localhost:11434/v1/models',
+      headers: { 'X-A': 'b', Authorization: 'Bearer sk-1' }
+    })
+  })
+
+  it('anthropic listing hits /v1/models with x-api-key and a version header', () => {
+    const req = modelsRequest(ep({ type: 'anthropic', baseUrl: 'https://api.anthropic.com' }), 'sk-ant')
+    expect(req).toEqual({
+      url: 'https://api.anthropic.com/v1/models',
+      headers: { 'anthropic-version': '2023-06-01', 'x-api-key': 'sk-ant' }
+    })
+  })
+
+  it('azure has no listable catalog', () => {
+    expect(modelsRequest(ep({ type: 'azure' }))).toBeNull()
+  })
+
+  it('parses the shared {data:[{id}]} shape and drops junk', () => {
+    expect(
+      parseModelsResponse({
+        data: [{ id: 'llama3.3' }, { id: 'claude-sonnet-4' }, { id: '--flag' }, { name: 'no-id' }, 42]
+      })
+    ).toEqual(['llama3.3', 'claude-sonnet-4'])
+    expect(parseModelsResponse({ models: [] })).toEqual([])
+    expect(parseModelsResponse('nope')).toEqual([])
   })
 })
 
@@ -158,9 +205,9 @@ describe('endpointPreflight', () => {
     expect(endpointPreflight(r, ep(), false)).toMatch(/can't be used with codex/)
   })
 
-  it('refuses when the named key env var is unset, and names it', () => {
+  it('refuses when the stored key cannot be decrypted', () => {
     const r = req({ options: { modelEndpoint: 'ep-1', model: 'm1' } })
-    expect(endpointPreflight(r, ep({ apiKeyEnvVar: 'GW_KEY' }), false)).toMatch(/GW_KEY/)
+    expect(endpointPreflight(r, ep({ hasKey: true }), false)).toMatch(/keychain/)
   })
 
   it('copilot needs an explicit valid model; claude does not', () => {
@@ -175,6 +222,6 @@ describe('endpointPreflight', () => {
 
   it('passes a fully-specified copilot BYOK turn', () => {
     const r = req({ options: { modelEndpoint: 'ep-1', model: 'llama3.3' } })
-    expect(endpointPreflight(r, ep({ apiKeyEnvVar: 'GW_KEY' }), true)).toBeNull()
+    expect(endpointPreflight(r, ep({ hasKey: true }), true)).toBeNull()
   })
 })

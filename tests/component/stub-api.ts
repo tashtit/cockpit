@@ -44,6 +44,7 @@ export function freshApi(): CockpitApi {
     getModelEndpoints: vi.fn(async () => []),
     addModelEndpoint: vi.fn(async () => []),
     removeModelEndpoint: vi.fn(async () => []),
+    listEndpointModels: vi.fn(async () => []),
     getZoomFactor: vi.fn(() => 1),
     setZoomFactor: vi.fn(),
     openExternal: vi.fn(async () => {}),

@@ -60,23 +60,40 @@ describe('NewSession endpoint select', () => {
     window.localStorage.setItem('cockpit:provider', 'claude')
     renderNew()
     // claude can use anthropic-type endpoints only
-    const trigger = await screen.findByLabelText('Endpoint')
+    const trigger = await screen.findByLabelText('Model provider')
     await userEvent.click(trigger)
     expect(screen.getByRole('option', { name: 'anthropic-gw' })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'ollama-local' })).not.toBeInTheDocument()
   })
 
-  it('copilot requires a model once an endpoint is picked', async () => {
+  it('copilot requires picking one of the provider models', async () => {
     vi.mocked(window.cockpit.getModelEndpoints).mockResolvedValue(endpoints)
     window.localStorage.setItem('cockpit:provider', 'copilot')
     renderNew()
-    const trigger = await screen.findByLabelText('Endpoint')
+    const trigger = await screen.findByLabelText('Model provider')
     await userEvent.click(trigger)
     await userEvent.click(screen.getByRole('option', { name: 'ollama-local' }))
     await userEvent.type(screen.getByLabelText('Task'), 'do the thing')
     const start = screen.getByRole('button', { name: 'Start session' })
     expect(start).toBeDisabled()
-    await userEvent.type(screen.getByLabelText('Model'), 'llama3.3')
+    // the cached catalog renders the model control as a picker, not free text
+    await userEvent.click(screen.getByLabelText('Model'))
+    await userEvent.click(screen.getByRole('option', { name: 'llama3.3' }))
     expect(start).toBeEnabled()
+  })
+
+  it('refreshes the catalog from the provider itself', async () => {
+    vi.mocked(window.cockpit.getModelEndpoints).mockResolvedValue(endpoints)
+    vi.mocked(window.cockpit.listEndpointModels).mockResolvedValue(['llama3.3', 'fresh-model'])
+    window.localStorage.setItem('cockpit:provider', 'copilot')
+    renderNew()
+    const trigger = await screen.findByLabelText('Model provider')
+    await userEvent.click(trigger)
+    await userEvent.click(screen.getByRole('option', { name: 'ollama-local' }))
+    await waitFor(() =>
+      expect(window.cockpit.listEndpointModels).toHaveBeenCalledWith('ep-openai')
+    )
+    await userEvent.click(screen.getByLabelText('Model'))
+    expect(await screen.findByRole('option', { name: 'fresh-model' })).toBeInTheDocument()
   })
 })

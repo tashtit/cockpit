@@ -120,6 +120,8 @@ export function NewSession({
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
   const [endpointId, setEndpointId] = useState('')
+  /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
+  const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -150,8 +152,20 @@ export function NewSession({
 
   const usableEndpoints = endpoints.filter((e) => endpointSupports(provider, e))
   const endpoint = usableEndpoints.find((e) => e.id === endpointId)
-  /** Copilot can't list a custom endpoint's models — BYOK there needs an explicit one. */
+  /** Copilot never learns a custom provider's catalog on its own — it needs an explicit model. */
   const modelMissing = provider === 'copilot' && !!endpoint && !model.trim()
+  /** Models to pick from: live listing when it arrived, else the cached list. */
+  const modelChoices = endpoint ? (endpointModels[endpoint.id] ?? endpoint.models ?? []) : []
+
+  // ask the provider itself which models it serves; the cached list covers the meantime
+  useEffect(() => {
+    if (!endpoint || endpointModels[endpoint.id]) return
+    const id = endpoint.id
+    void api
+      .listEndpointModels(id)
+      .then((m) => m.length > 0 && setEndpointModels((prev) => ({ ...prev, [id]: m })))
+      .catch(() => {}) // unreachable provider → free-text model entry still works
+  }, [endpoint?.id])
 
   const start = async (): Promise<void> => {
     if (busy || !prompt.trim()) return
@@ -255,10 +269,10 @@ export function NewSession({
           </div>
           {usableEndpoints.length > 0 && (
             <div className="ns-opt">
-              <label className="ns-label" htmlFor="ns-endpoint">Endpoint</label>
+              <label className="ns-label" htmlFor="ns-endpoint">Model provider</label>
               <Select
                 id="ns-endpoint"
-                ariaLabel="Endpoint"
+                ariaLabel="Model provider"
                 value={endpointId}
                 options={[
                   { value: '', label: 'default' },
@@ -270,20 +284,38 @@ export function NewSession({
           )}
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ns-model">Model</label>
-            <input
-              id="ns-model"
-              list="ns-models"
-              placeholder={modelMissing ? 'required' : 'default'}
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-            />
-            <datalist id="ns-models">
-              {(endpoint?.models?.length ? endpoint.models : MODEL_SUGGESTIONS[provider]).map(
-                (m) => (
-                  <option key={m} value={m} />
-                )
-              )}
-            </datalist>
+            {endpoint && modelChoices.length > 0 ? (
+              // the provider told us what it serves — pick from its own catalog
+              <Select
+                id="ns-model"
+                ariaLabel="Model"
+                mono
+                value={modelChoices.includes(model) ? model : ''}
+                options={[
+                  {
+                    value: '',
+                    label: provider === 'copilot' ? 'choose a model…' : 'default'
+                  },
+                  ...modelChoices.map((m) => ({ value: m, label: m }))
+                ]}
+                onChange={setModel}
+              />
+            ) : (
+              <>
+                <input
+                  id="ns-model"
+                  list="ns-models"
+                  placeholder={modelMissing ? 'required' : 'default'}
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                />
+                <datalist id="ns-models">
+                  {MODEL_SUGGESTIONS[provider].map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+              </>
+            )}
           </div>
           {provider === 'codex' && (
             <div className="ns-opt">
@@ -319,10 +351,11 @@ export function NewSession({
         </div>
         {endpoint && (
           <div className="ns-hint">
-            Runs on {endpoint.baseUrl} —{' '}
-            {provider === 'copilot'
-              ? 'a model this endpoint serves is required.'
-              : 'set a model this endpoint serves.'}
+            Runs on {endpoint.baseUrl}
+            {modelChoices.length === 0 &&
+              (provider === 'copilot'
+                ? ' — a model this provider serves is required.'
+                : ' — set a model this provider serves.')}
           </div>
         )}
 

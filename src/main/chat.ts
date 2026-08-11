@@ -8,6 +8,8 @@ import { cliEnv } from './env'
 
 type Emit = (ev: ChatEvent) => void
 type ResolveEndpoint = (id: string) => ModelEndpoint | undefined
+/** Decrypts the endpoint's stored API key (index.ts wires this to the keychain store). */
+type ResolveKey = (ep: ModelEndpoint) => string | undefined
 
 /**
  * Session ids are parsed out of provider log files that other tools write — treat them
@@ -140,16 +142,16 @@ export function endpointPreflight(
   keyResolved: boolean
 ): string | null {
   if (!req.options?.modelEndpoint) return null
-  if (!ep) return 'Custom endpoint is no longer configured — pick another in Settings.'
+  if (!ep) return 'Custom model provider is no longer configured — pick another in Settings.'
   if (!endpointSupports(req.provider, ep)) {
-    return `Endpoint "${ep.label}" (${ep.type}) can't be used with ${req.provider}.`
+    return `Provider "${ep.label}" (${ep.type}) can't be used with ${req.provider}.`
   }
-  if (ep.apiKeyEnvVar && !keyResolved) {
-    return `Environment variable ${ep.apiKeyEnvVar} is not set — export it in the environment Cockpit launches from, or edit the endpoint in Settings.`
+  if (ep.hasKey && !keyResolved) {
+    return `The stored API key for "${ep.label}" could not be read from the OS keychain — re-add the provider in Settings.`
   }
   const model = req.options.model
   if (req.provider === 'copilot' && !(model && isValidModel(model))) {
-    return `Endpoint "${ep.label}" needs an explicit model — custom providers can't advertise their models to Copilot.`
+    return `Provider "${ep.label}" needs an explicit model — pick one in the session form.`
   }
   return null
 }
@@ -171,15 +173,18 @@ export class ChatManager {
   private emit: Emit
   private onBusyChange?: (sessions: BusySession[]) => void
   private resolveEndpoint: ResolveEndpoint
+  private resolveKey: ResolveKey
 
   constructor(
     emit: Emit,
     onBusyChange?: (sessions: BusySession[]) => void,
-    resolveEndpoint: ResolveEndpoint = () => undefined
+    resolveEndpoint: ResolveEndpoint = () => undefined,
+    resolveKey: ResolveKey = () => undefined
   ) {
     this.emit = emit
     this.onBusyChange = onBusyChange
     this.resolveEndpoint = resolveEndpoint
+    this.resolveKey = resolveKey
   }
 
   /** Sessions with a provider process currently running (earliest start wins on overlap). */
@@ -224,7 +229,7 @@ export class ChatManager {
     const ep = req.options?.modelEndpoint
       ? this.resolveEndpoint(req.options.modelEndpoint)
       : undefined
-    const apiKey = ep?.apiKeyEnvVar ? env[ep.apiKeyEnvVar] : undefined
+    const apiKey = ep ? this.resolveKey(ep) : undefined
     const refusal = endpointPreflight(req, ep, Boolean(apiKey))
     if (refusal) {
       queueMicrotask(() => {

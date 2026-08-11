@@ -70,6 +70,7 @@ const api: CockpitApi = {
   getModelEndpoints: () => ipcRenderer.invoke('endpoints:get'),
   addModelEndpoint: (ep: NewModelEndpoint) => ipcRenderer.invoke('endpoints:add', ep),
   removeModelEndpoint: (id: string) => ipcRenderer.invoke('endpoints:remove', id),
+  listEndpointModels: (id: string) => ipcRenderer.invoke('endpoints:models', id),
   getZoomFactor: () => webFrame.getZoomFactor(),
   setZoomFactor: (factor: number) =>
     webFrame.setZoomFactor(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, factor))),

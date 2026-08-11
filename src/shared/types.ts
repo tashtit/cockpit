@@ -126,24 +126,26 @@ export type ModelEndpointType = 'openai' | 'azure' | 'anthropic'
 export type WireApi = 'completions' | 'responses'
 
 /**
- * A user-defined model endpoint (bring-your-own-key). Cockpit stores the endpoint,
- * never the key: `apiKeyEnvVar` names an environment variable that is resolved when
- * the agent CLI is spawned.
+ * A user-defined model provider endpoint (bring-your-own-key). The API key is entered
+ * once, encrypted with the OS keychain (Electron safeStorage), and kept out of config —
+ * this record only carries `hasKey` so the UI can show that one is stored.
  */
 export interface ModelEndpoint {
   id: string
   label: string
   type: ModelEndpointType
   baseUrl: string
-  /** Env var holding the API key; unset for endpoints that need no auth (local Ollama). */
-  apiKeyEnvVar?: string
+  /** An encrypted API key is stored for this endpoint (the key itself never crosses IPC back) */
+  hasKey?: boolean
   wireApi?: WireApi
-  /** Model suggestions offered in the new-session form. */
+  /** Extra HTTP headers sent to the provider (e.g. anthropic-version) */
+  headers?: Record<string, string>
+  /** Models this endpoint serves — cached from the provider's own /models listing */
   models?: string[]
 }
 
-/** Renderer-supplied endpoint definition — main assigns the id. */
-export type NewModelEndpoint = Omit<ModelEndpoint, 'id'>
+/** Renderer-supplied endpoint definition — main assigns the id and stores the key. */
+export type NewModelEndpoint = Omit<ModelEndpoint, 'id' | 'hasKey'> & { apiKey?: string }
 
 /** Per-agent knobs; each maps to that CLI's own flags. */
 export type AgentOptions = {
@@ -407,6 +409,8 @@ export type CockpitApi = {
   readonly getModelEndpoints: () => Promise<ModelEndpoint[]>
   readonly addModelEndpoint: (ep: NewModelEndpoint) => Promise<ModelEndpoint[]>
   readonly removeModelEndpoint: (id: string) => Promise<ModelEndpoint[]>
+  /** Ask the provider itself which models it serves (also refreshes the cached list) */
+  readonly listEndpointModels: (id: string) => Promise<string[]>
   /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
   readonly getZoomFactor: () => number
   readonly setZoomFactor: (factor: number) => void

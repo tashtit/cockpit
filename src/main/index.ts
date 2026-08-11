@@ -38,6 +38,8 @@ import {
 } from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
 import { centeredIn, readDevWindowPrefs } from './dev-window'
+import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
+import { fetchEndpointModels } from './endpointModels'
 import { getUsage } from './usage'
 import { homedir } from 'node:os'
 
@@ -275,11 +277,29 @@ app.whenReady().then(() => {
 
   ipcMain.handle('endpoints:get', () => listModelEndpoints())
   ipcMain.handle('endpoints:add', (_e, input: unknown) => {
-    const ep = sanitizeEndpoint(input, randomUUID())
-    if (!ep) throw new Error('Invalid endpoint: a label, a type, and an http(s) base URL are required.')
+    // the key never enters the endpoint definition — strip it, encrypt it separately
+    const { apiKey, ...def } = (input ?? {}) as { apiKey?: unknown }
+    const ep = sanitizeEndpoint(def, randomUUID())
+    if (!ep) {
+      throw new Error('Invalid provider: a name, a type, an http(s) base URL, and well-formed headers are required.')
+    }
+    const key = typeof apiKey === 'string' ? apiKey.trim() : ''
+    if (key) {
+      if (key.length > 4096 || /[\r\n\0]/.test(key)) throw new Error('Invalid API key value.')
+      setEndpointKey(ep.id, key) // throws before anything is saved if the keychain is unavailable
+      ep.hasKey = true
+    }
     return addModelEndpoint(ep)
   })
-  ipcMain.handle('endpoints:remove', (_e, id: string) => removeModelEndpoint(String(id)))
+  ipcMain.handle('endpoints:remove', (_e, id: string) => {
+    deleteEndpointKey(String(id))
+    return removeModelEndpoint(String(id))
+  })
+  ipcMain.handle('endpoints:models', (_e, id: string) => {
+    const ep = listModelEndpoints().find((e) => e.id === String(id))
+    if (!ep) throw new Error('Unknown model provider.')
+    return fetchEndpointModels(ep, ep.hasKey ? getEndpointKey(ep.id) : undefined)
+  })
 
   // BYOK turns in flight: when the stream reveals the native session id, remember which
   // endpoint the session runs on so later resumes stay on that backend
@@ -294,7 +314,8 @@ app.whenReady().then(() => {
       win?.webContents.send('chat-event', ev)
     },
     (ids) => win?.webContents.send('busy-sessions', ids),
-    (id) => listModelEndpoints().find((e) => e.id === id)
+    (id) => listModelEndpoints().find((e) => e.id === id),
+    (ep) => getEndpointKey(ep.id)
   )
   ipcMain.handle('sessions:busy', () => chat.busySessions())
   ipcMain.handle('chat:send', (_e, req: ChatRequest) => {

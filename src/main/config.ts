@@ -20,7 +20,7 @@ type AppConfig = {
   readonly historyDays?: number
   /** Clock format for session times in the UI; absent = 24h */
   readonly timeFormat?: TimeFormat
-  /** User-defined BYOK model endpoints (keys stay in env vars, never here) */
+  /** User-defined BYOK model providers (API keys live keychain-encrypted in secrets.ts, never here) */
   readonly modelEndpoints?: ModelEndpoint[]
   /** ModelEndpoint.id each BYOK session runs on, keyed by `${provider}:${nativeId}` */
   readonly sessionEndpoints?: Record<string, string>

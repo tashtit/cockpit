@@ -9,12 +9,13 @@ import type { ModelEndpoint, ModelEndpointType, Provider, WireApi } from './type
 export const ENDPOINT_TYPES: readonly ModelEndpointType[] = ['openai', 'azure', 'anthropic']
 export const WIRE_APIS: readonly WireApi[] = ['completions', 'responses']
 
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/
 /** Same shape chat.ts accepts for --model — endpoint model suggestions feed that flag. */
 const MODEL_NAME = /^[A-Za-z0-9._:\/-]{1,64}$/
+const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/
 
 /**
- * Renderer input is untrusted — normalize and validate every field.
+ * Renderer input is untrusted — normalize and validate every field. The API key is NOT
+ * part of the definition handled here: main strips it off and stores it encrypted.
  * Returns null when the definition is unusable.
  */
 export function sanitizeEndpoint(input: unknown, id: string): ModelEndpoint | null {
@@ -32,15 +33,25 @@ export function sanitizeEndpoint(input: unknown, id: string): ModelEndpoint | nu
     return null
   }
   const ep: ModelEndpoint = { id, label, type, baseUrl }
-  if (typeof o.apiKeyEnvVar === 'string' && o.apiKeyEnvVar.trim()) {
-    const name = o.apiKeyEnvVar.trim()
-    if (!ENV_NAME.test(name)) return null
-    ep.apiKeyEnvVar = name
-  }
   if (o.wireApi !== undefined && o.wireApi !== '') {
     const wire = WIRE_APIS.find((w) => w === o.wireApi)
     if (!wire) return null
     ep.wireApi = wire
+  }
+  if (o.headers !== undefined) {
+    if (typeof o.headers !== 'object' || o.headers === null || Array.isArray(o.headers)) return null
+    const headers: Record<string, string> = {}
+    for (const [k, v] of Object.entries(o.headers as Record<string, unknown>)) {
+      // header values become env-carried "Name: Value" lines — reject anything that
+      // could split lines or smuggle a second header
+      if (typeof v !== 'string') return null
+      if (!HEADER_NAME.test(k)) return null
+      if (/[\r\n\0]/.test(v) || v.length > 1024) return null
+      headers[k] = v.trim()
+    }
+    const names = Object.keys(headers)
+    if (names.length > 16) return null
+    if (names.length > 0) ep.headers = headers
   }
   if (o.models !== undefined) {
     if (!Array.isArray(o.models)) return null
@@ -79,6 +90,10 @@ export function endpointEnv(
   apiKey?: string
 ): Record<string, string> | null {
   if (!endpointSupports(provider, ep)) return null
+  // both CLIs take extra headers as newline-separated "Name: Value" pairs
+  const headerLines = ep.headers
+    ? Object.entries(ep.headers).map(([k, v]) => `${k}: ${v}`).join('\n')
+    : ''
   if (provider === 'copilot') {
     const env: Record<string, string> = {
       COPILOT_PROVIDER_BASE_URL: ep.baseUrl,
@@ -86,11 +101,50 @@ export function endpointEnv(
     }
     if (apiKey) env.COPILOT_PROVIDER_API_KEY = apiKey
     if (ep.wireApi) env.COPILOT_PROVIDER_WIRE_API = ep.wireApi
+    if (headerLines) env.COPILOT_PROVIDER_HEADERS = headerLines
     return env
   }
   // claude: ANTHROPIC_AUTH_TOKEN is the documented auth var for custom endpoints
   // (gateways expect Authorization: Bearer, unlike the first-party x-api-key)
   const env: Record<string, string> = { ANTHROPIC_BASE_URL: ep.baseUrl }
   if (apiKey) env.ANTHROPIC_AUTH_TOKEN = apiKey
+  if (headerLines) env.ANTHROPIC_CUSTOM_HEADERS = headerLines
   return env
+}
+
+/**
+ * The request that lists an endpoint's models, provider-shape aware. Null when the
+ * endpoint type has no listable catalog (Azure deployments need the management API).
+ */
+export function modelsRequest(
+  ep: ModelEndpoint,
+  apiKey?: string
+): { url: string; headers: Record<string, string> } | null {
+  const base = ep.baseUrl.replace(/\/+$/, '')
+  if (ep.type === 'openai') {
+    const headers: Record<string, string> = { ...ep.headers }
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+    return { url: `${base}/models`, headers }
+  }
+  if (ep.type === 'anthropic') {
+    const headers: Record<string, string> = {
+      'anthropic-version': '2023-06-01',
+      ...ep.headers
+    }
+    if (apiKey) headers['x-api-key'] = apiKey
+    return { url: `${base}/v1/models`, headers }
+  }
+  return null
+}
+
+/** Both the OpenAI and Anthropic list-models shapes are `{data: [{id}]}`. */
+export function parseModelsResponse(json: unknown): string[] {
+  const data = (json as { data?: unknown })?.data
+  if (!Array.isArray(data)) return []
+  return data
+    .map((m) => (m as { id?: unknown })?.id)
+    .filter((id): id is string => typeof id === 'string')
+    .map((id) => id.trim())
+    .filter((id) => MODEL_NAME.test(id) && !id.startsWith('-'))
+    .slice(0, 200)
 }
