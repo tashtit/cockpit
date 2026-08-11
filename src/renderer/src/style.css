@@ -351,6 +351,8 @@ summary::-webkit-details-marker { display: none; }
 .branch-chip svg { flex-shrink: 0; }
 /* the text inside an icon chip — flex containers can't ellipsize bare text nodes */
 .chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the constant cockpit/ worktree prefix, abbreviated and receded — the suffix is the signal */
+.chip-pre { opacity: 0.6; }
 /* ---------- Select: the app's own dropdown (native popups can't be styled) ---------- */
 .select-wrap { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .select-trigger { display: flex; align-items: center; gap: var(--s2);
@@ -476,6 +478,12 @@ summary::-webkit-details-marker { display: none; }
 .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
   animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 0.3 } 50% { opacity: 1 } }
+/* live-status dots in list rows carry the agent's identity color and hold their
+   slot (the row's exclusive meta position — running beats PR beats timestamp) */
+.pulse-claude { background: var(--claude); }
+.pulse-codex { background: var(--codex); }
+.pulse-copilot { background: var(--copilot); }
+.session-row .pulse, .recent-row .pulse { flex-shrink: 0; }
 
 .composer { display: flex; gap: var(--s3); padding: var(--s4) var(--s5);
   border-top: 1px solid var(--border); background: var(--pane);

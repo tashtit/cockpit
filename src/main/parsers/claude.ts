@@ -9,6 +9,7 @@ import {
   readJsonlTail,
   readTail,
   toMs,
+  toolPreview,
   truncate,
   walkFiles
 } from './util'
@@ -136,14 +137,17 @@ export function parseClaudeMessages(file: string): SessionMessage[] {
       if (text) out.push({ role: l.type, kind: 'text', text: capText(text), ts })
       if (Array.isArray(content)) {
         for (const b of content) {
-          if (b?.type === 'tool_use')
+          if (b?.type === 'tool_use') {
+            const preview = toolPreview(b.name ?? 'tool', b.input)
             out.push({
               role: 'assistant',
               kind: 'tool_call',
               toolName: b.name ?? 'tool',
               text: truncate(JSON.stringify(b.input ?? {}), 400),
+              ...(preview ? { preview: truncate(preview, 200) } : {}),
               ts
             })
+          }
           if (b?.type === 'tool_result')
             out.push({
               role: 'tool',

@@ -37,7 +37,8 @@ view allowed hero-scale type (`--fs-xl`) and a floating card shadow.
 ## Recent activity
 
 - `.recent-row` buttons: agent logo · title (truncates) · meta right-aligned
-  (repo pill, branch chip max 120px, `tabular-nums` time). Border appears on hover only
+  (repo pill, `BranchChip` max 120px, then `tabular-nums` time — or the agent-colored
+  `LiveDot` while that session's provider process runs). Border appears on hover only
   (`border: 1px solid transparent` reserved — no layout shift).
 - Capped at 10 via `pageSessions({ limit: 10 })` — the sidebar is the full list; don't grow this.
 - Section heading reuses `.ns-label` (uppercase micro-label), not a document heading size.

@@ -1,8 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
-import type { ChatEvent, ChatRequest } from '../shared/types'
-import { contentToText, truncate } from './parsers/util'
+import type { ChatEvent, ChatRequest, Provider } from '../shared/types'
+import { contentToText, toolPreview, truncate } from './parsers/util'
 import { cliEnv } from './env'
 
 type Emit = (ev: ChatEvent) => void
@@ -77,13 +77,16 @@ export function parseClaudeStreamLine(turnId: string, line: any): ChatEvent[] {
     if (text) out.push({ turnId, type: 'text', text })
     if (Array.isArray(content)) {
       for (const b of content) {
-        if (b?.type === 'tool_use')
+        if (b?.type === 'tool_use') {
+          const preview = toolPreview(b.name ?? 'tool', b.input)
           out.push({
             turnId,
             type: 'tool',
             toolName: b.name ?? 'tool',
-            detail: truncate(JSON.stringify(b.input ?? {}), 200)
+            detail: truncate(JSON.stringify(b.input ?? {}), 200),
+            ...(preview ? { preview: truncate(preview, 200) } : {})
           })
+        }
       }
     }
   } else if (line?.type === 'result') {
@@ -127,14 +130,33 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
 interface RunningTurn {
   child: ChildProcess
   doneSent: boolean
+  provider: Provider
+  /** Native session ids this turn is known under — the resumed id plus any the
+   *  stream announces (claude forks a fresh id per resumed turn). */
+  sessionIds: Set<string>
 }
 
 export class ChatManager {
   private turns = new Map<string, RunningTurn>()
   private emit: Emit
+  private onBusyChange?: (ids: string[]) => void
 
-  constructor(emit: Emit) {
+  constructor(emit: Emit, onBusyChange?: (ids: string[]) => void) {
     this.emit = emit
+    this.onBusyChange = onBusyChange
+  }
+
+  /** Session ids (`provider:nativeId`) with a provider process currently running. */
+  busySessionIds(): string[] {
+    const ids = new Set<string>()
+    for (const t of this.turns.values()) {
+      for (const nativeId of t.sessionIds) ids.add(`${t.provider}:${nativeId}`)
+    }
+    return [...ids]
+  }
+
+  private notifyBusy(): void {
+    this.onBusyChange?.(this.busySessionIds())
   }
 
   send(req: ChatRequest): string {
@@ -171,8 +193,14 @@ export class ChatManager {
       // own process group so cancel() can reach grandchildren (bash tools, MCP servers)
       detached: true
     })
-    const turn: RunningTurn = { child, doneSent: false }
+    const turn: RunningTurn = {
+      child,
+      doneSent: false,
+      provider: req.provider,
+      sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : [])
+    }
     this.turns.set(turnId, turn)
+    this.notifyBusy()
 
     const sendDone = (): void => {
       if (!turn.doneSent) {
@@ -210,6 +238,10 @@ export class ChatManager {
             : parseCodexStreamLine(turnId, parsed)
         for (const ev of events) {
           if (ev.type === 'done') turn.doneSent = true
+          if (ev.type === 'session' && !turn.sessionIds.has(ev.nativeSessionId)) {
+            turn.sessionIds.add(ev.nativeSessionId)
+            this.notifyBusy()
+          }
           this.emit(ev)
         }
       }
@@ -232,6 +264,7 @@ export class ChatManager {
       })
       sendDone()
       this.turns.delete(turnId)
+      this.notifyBusy()
     })
 
     child.on('close', (code) => {
@@ -266,6 +299,7 @@ export class ChatManager {
       }
       sendDone()
       this.turns.delete(turnId)
+      this.notifyBusy()
     })
 
     return turnId
@@ -275,6 +309,7 @@ export class ChatManager {
     const t = this.turns.get(turnId)
     if (!t) return
     this.turns.delete(turnId)
+    this.notifyBusy()
     const pid = t.child.pid
     // kill the whole process group (agent CLIs spawn bash tools / MCP servers)
     const signal = (sig: NodeJS.Signals): void => {

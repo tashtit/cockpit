@@ -178,3 +178,41 @@ export function truncate(s: string, n = 80): string {
   const one = s.replace(/\s+/g, ' ').trim()
   return one.length > n ? one.slice(0, n - 1) + '…' : one
 }
+
+/**
+ * Human-scannable one-liner for a tool call: the command for shell tools, the path
+ * for file tools — not the raw JSON input (that stays in the expanded detail).
+ * Returns null for tools without an obvious headline field (MCP tools, unknowns).
+ */
+export function toolPreview(name: string, input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null
+  const i = input as Record<string, unknown>
+  const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  switch (name) {
+    case 'Bash':
+      return str(i.command)
+    case 'Edit':
+    case 'Write':
+    case 'Read':
+      return str(i.file_path)
+    case 'NotebookEdit':
+      return str(i.notebook_path)
+    case 'Grep': {
+      const pattern = str(i.pattern)
+      const path = str(i.path)
+      return pattern && path ? `${pattern} in ${path}` : pattern
+    }
+    case 'Glob':
+      return str(i.pattern)
+    case 'WebFetch':
+      return str(i.url)
+    case 'WebSearch':
+      return str(i.query)
+    case 'Task':
+      return str(i.description) ?? str(i.prompt)
+    case 'Skill':
+      return str(i.skill)
+    default:
+      return null
+  }
+}

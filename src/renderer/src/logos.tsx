@@ -113,6 +113,36 @@ export const BranchIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_BRANCH} size={size} />
 )
 
+/** Live-status dot: this session's agent is running right now. Color = agent identity. */
+export function LiveDot({ p }: { p: Provider }): JSX.Element {
+  const label = `${PROVIDER_LABEL[p]} is working`
+  return <span className={`pulse pulse-${p}`} role="img" aria-label={label} title={label} />
+}
+
+/**
+ * Branch pill. Cockpit worktree branches all share the `cockpit/` prefix, so it
+ * carries no information — abbreviate it to a dimmed `c/` and spend the chip's
+ * width on the part that distinguishes branches. Full name stays in the tooltip.
+ */
+export function BranchChip({ branch }: { branch: string }): JSX.Element {
+  const suffix = branch.startsWith('cockpit/') ? branch.slice('cockpit/'.length) : null
+  return (
+    <span className="branch-chip" title={`⎇ ${branch}`}>
+      <BranchIcon size={10} />
+      <span className="chip-text">
+        {suffix !== null ? (
+          <>
+            <span className="chip-pre">c/</span>
+            {suffix}
+          </>
+        ) : (
+          branch
+        )}
+      </span>
+    </span>
+  )
+}
+
 export function PrBadge({
   pr,
   onOpen,

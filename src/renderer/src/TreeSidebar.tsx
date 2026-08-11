@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { AccountsSnapshot, PrStatus, RepoGroup, SessionMeta } from '../../shared/types'
 import { api } from './api'
+import { useSessionBusy } from './busy'
 import { fmtTime, useTimeFormat } from './time'
 import {
   ChatIcon,
   CockpitLogo,
   LinkExternalIcon,
+  LiveDot,
   OrgIcon,
   PrBadge,
   ProviderLogo,
@@ -647,6 +649,8 @@ function SessionRow({
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const timeFormat = useTimeFormat()
+  // the live dot takes the row's exclusive meta slot: running beats PR beats time
+  const working = useSessionBusy(s.id)
   const acct = accounts?.accounts.find((a) => a.provider === s.provider && a.label === s.source)
   const multiAccount =
     (accounts?.accounts.filter((a) => a.provider === s.provider).length ?? 0) > 1
@@ -686,7 +690,9 @@ function SessionRow({
           </svg>
         </button>
       </span>
-      {pr ? (
+      {working ? (
+        <LiveDot p={s.provider} />
+      ) : pr ? (
         <PrBadge pr={pr} onOpen={onOpenUrl} compact />
       ) : (
         <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtTime(s.updatedAt, timeFormat)}</time>

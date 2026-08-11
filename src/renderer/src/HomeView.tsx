@@ -8,8 +8,9 @@ import type {
   SessionMeta
 } from '../../shared/types'
 import { api } from './api'
+import { useSessionBusy } from './busy'
 import { accountOptions, MODES, savedAccount, type AccountChoice } from './NewSession'
-import { BranchIcon, CockpitLogo, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import { BranchChip, CockpitLogo, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { Select } from './Select'
 import { fmtTime, useTimeFormat } from './time'
 
@@ -54,7 +55,6 @@ export function HomeView({
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [accountKey, setAccountKey] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
-  const timeFormat = useTimeFormat()
 
   const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
   const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider) ?? null
@@ -194,31 +194,39 @@ export function HomeView({
             <h3 className="ns-label">Recent activity</h3>
             <ul className="recent-list">
               {recent.map((s) => (
-                <li key={s.id}>
-                  <button className="recent-row" onClick={() => onOpenSession(s)}>
-                    <span className={`plogo plogo-${s.provider}`} title={PROVIDER_LABEL[s.provider]}>
-                      <ProviderLogo p={s.provider} size={14} />
-                    </span>
-                    <span className="recent-title">{s.title}</span>
-                    <span className="recent-meta">
-                      {s.repo && <span className="recent-repo">{s.repo.name}</span>}
-                      {s.gitBranch && (
-                        <span className="branch-chip">
-                          <BranchIcon size={10} />
-                          <span className="chip-text">{s.gitBranch}</span>
-                        </span>
-                      )}
-                      <time dateTime={new Date(s.updatedAt).toISOString()}>
-                        {fmtTime(s.updatedAt, timeFormat)}
-                      </time>
-                    </span>
-                  </button>
-                </li>
+                <RecentRow key={s.id} s={s} onOpen={onOpenSession} />
               ))}
             </ul>
           </section>
         )}
       </div>
     </main>
+  )
+}
+
+/** One recent-activity row — its own component so it can subscribe to live status. */
+function RecentRow({ s, onOpen }: { s: SessionMeta; onOpen: (s: SessionMeta) => void }): JSX.Element {
+  const timeFormat = useTimeFormat()
+  const working = useSessionBusy(s.id)
+  return (
+    <li>
+      <button className="recent-row" onClick={() => onOpen(s)}>
+        <span className={`plogo plogo-${s.provider}`} title={PROVIDER_LABEL[s.provider]}>
+          <ProviderLogo p={s.provider} size={14} />
+        </span>
+        <span className="recent-title">{s.title}</span>
+        <span className="recent-meta">
+          {s.repo && <span className="recent-repo">{s.repo.name}</span>}
+          {s.gitBranch && <BranchChip branch={s.gitBranch} />}
+          {working ? (
+            <LiveDot p={s.provider} />
+          ) : (
+            <time dateTime={new Date(s.updatedAt).toISOString()}>
+              {fmtTime(s.updatedAt, timeFormat)}
+            </time>
+          )}
+        </span>
+      </button>
+    </li>
   )
 }

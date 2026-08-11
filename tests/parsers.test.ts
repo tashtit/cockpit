@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { listClaudeSessions, parseClaudeMessages } from '../src/main/parsers/claude'
 import { listCodexSessions, parseCodexMessages } from '../src/main/parsers/codex'
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
+import { toolPreview } from '../src/main/parsers/util'
 
 const root = join(tmpdir(), 'cockpit-test-fixtures')
 
@@ -309,6 +310,27 @@ describe('claude parser', () => {
     const msgs = parseClaudeMessages(s.find((x) => x.nativeId === 'aaaa-1111')!.sourcePath)
     expect(msgs.map((m) => m.kind)).toEqual(['text', 'text', 'tool_call'])
     expect(msgs[2].toolName).toBe('Bash')
+    // humanized preview alongside the raw JSON input
+    expect(msgs[2].preview).toBe('ls')
+    expect(msgs[2].text).toContain('"command"')
+  })
+})
+
+describe('toolPreview', () => {
+  it('extracts the headline field per tool', () => {
+    expect(toolPreview('Bash', { command: 'npm test', description: 'x' })).toBe('npm test')
+    expect(toolPreview('Edit', { file_path: 'src/a.ts', old_string: 'x' })).toBe('src/a.ts')
+    expect(toolPreview('Read', { file_path: '/tmp/f' })).toBe('/tmp/f')
+    expect(toolPreview('Grep', { pattern: 'foo', path: 'src' })).toBe('foo in src')
+    expect(toolPreview('WebSearch', { query: 'electron fs.watch' })).toBe('electron fs.watch')
+  })
+  it('returns null for unknown tools and malformed input', () => {
+    expect(toolPreview('mcp__server__tool', { a: 1 })).toBeNull()
+    expect(toolPreview('Bash', { command: '   ' })).toBeNull()
+    expect(toolPreview('Bash', 'not-an-object')).toBeNull()
+    expect(toolPreview('Bash', null)).toBeNull()
+    // wrong-typed field (format drift) degrades to null, never throws
+    expect(toolPreview('Bash', { command: 42 })).toBeNull()
   })
 })
 

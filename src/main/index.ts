@@ -262,7 +262,11 @@ app.whenReady().then(() => {
   ipcMain.handle('accounts:get', () => getAccounts(loadConfig().sources))
   ipcMain.handle('usage:get', () => getUsage(loadConfig().sources))
 
-  chat = new ChatManager((ev) => win?.webContents.send('chat-event', ev))
+  chat = new ChatManager(
+    (ev) => win?.webContents.send('chat-event', ev),
+    (ids) => win?.webContents.send('busy-sessions', ids)
+  )
+  ipcMain.handle('sessions:busy', () => chat.busySessionIds())
   ipcMain.handle('chat:send', (_e, req: ChatRequest) => {
     // copilot multi-account: activate the chosen logged-in user before spawning
     if (req.provider === 'copilot' && req.copilotUser) {
