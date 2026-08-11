@@ -15,6 +15,7 @@ import { NewSession } from './NewSession'
 import { Settings } from './Settings'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
+import { initBusySessions } from './busy'
 import { initTimeFormat } from './time'
 import type { AccountChoice } from './NewSession'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
@@ -64,6 +65,8 @@ export function App(): JSX.Element {
   /** Streamed text is batched (~40ms) so each stdout chunk doesn't re-render the log. */
   const textBufRef = useRef('')
   const textFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => initBusySessions(), [])
 
   useEffect(() => {
     void initTimeFormat()
@@ -165,7 +168,13 @@ export function App(): JSX.Element {
         flushText()
         setLog((l) => [
           ...l,
-          { role: 'assistant', kind: 'tool_call', toolName: ev.toolName, text: ev.detail }
+          {
+            role: 'assistant',
+            kind: 'tool_call',
+            toolName: ev.toolName,
+            text: ev.detail,
+            preview: ev.preview
+          }
         ])
       } else if (ev.type === 'error') {
         flushText()

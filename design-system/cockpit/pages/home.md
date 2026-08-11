@@ -2,9 +2,11 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** GitHub Agent HQ-style mission control — a task composer front and center,
-recent agent work below. This is the app's "what should we ship?" moment; it is the only
-view allowed hero-scale type (`--fs-xl`) and a floating card shadow.
+**Pattern:** mission control opens with **the board** — a departure-board of sessions,
+flying first — then the task composer. The board is the app's signature element; the
+composer is the action. This is the only view allowed hero-scale type (`--fs-xl`) and a
+floating card shadow (the composer card — the board is deliberately a quiet instrument
+surface, no shadow).
 
 ## Layout
 
@@ -13,9 +15,30 @@ view allowed hero-scale type (`--fs-xl`) and a floating card shadow.
   `justify-content: safe center` and children carry `flex-shrink: 0` — both load-bearing:
   unqualified centering clips the top out of scroll reach, and shrinkable children let the
   composer card collapse to a sliver on short windows.
-- Order: hero (logo + h2 + sub + kbd hints) → `.composer-card` → error line → Recent activity.
-- Short windows (≤600px height): hero is dropped, content top-aligns — composer is the
-  priority, never the branding.
+- Order: `.board` (only when sessions exist) → hero (h2 + sub + kbd hints; no logo — the
+  sidebar carries the mark) → `.composer-card` → error line.
+- The hero h2 is flat `--fg` (no gradient-clip decoration); when `gh` reports a user the
+  headline personalizes — "What should we ship`, Titan?`" — the login's first
+  hyphen/dot/underscore segment, capitalized (`firstName()`), in dim `.hero-name`.
+- Short windows (≤600px height): hero is dropped, content top-aligns — the board and
+  composer are the priority, never the branding.
+
+## The board (`.board`)
+
+- Grammar per row (`.board-row`, a button that opens the session): status dot ·
+  `.board-agent` placard (fixed 60px column, uppercase micro-caps) · `BranchChip` ·
+  title (truncates) · `.board-repo` pill · `.board-meta` (mono, `tabular-nums`).
+- **Flying** (session's provider process running, from the `useBusyMap()` store): `LiveDot`
+  pulse + placard lit in the agent's livery color + elapsed time (`fmtElapsed`, ticks at
+  1s only while ≥1 session is flying). **On the ground:** dim static dot, dim placard,
+  last-activity `fmtTime`.
+- Ordering: flying first (longest airborne on top), then idle by recency. Rows come from
+  the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
+  list; don't grow this.
+- `.board-eyebrow` (h3): "**N flying** · M on the ground" (M from the page total), or
+  "all on the ground" when idle. It is a polite `aria-live` region — turn starts and
+  completions announce the new counts.
+- ≤780px the row sheds `.board-repo` first — the branch chip carries more identity.
 
 ## Composer card
 
@@ -33,14 +56,6 @@ view allowed hero-scale type (`--fs-xl`) and a floating card shadow.
   choosing YOLO shows the `.ns-hint.yolo` warning line under the card — the bypass mode is
   never silent.
 - Prompt textarea autofocuses on mount — the user should be able to type immediately.
-
-## Recent activity
-
-- `.recent-row` buttons: agent logo · title (truncates) · meta right-aligned
-  (repo pill, branch chip max 120px, `tabular-nums` time). Border appears on hover only
-  (`border: 1px solid transparent` reserved — no layout shift).
-- Capped at 10 via `pageSessions({ limit: 10 })` — the sidebar is the full list; don't grow this.
-- Section heading reuses `.ns-label` (uppercase micro-label), not a document heading size.
 
 ## Invariants
 

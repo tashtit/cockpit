@@ -24,7 +24,8 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
     logo, title, optional `.acct-chip` (only when that provider has multiple accounts),
-    compact `PrBadge` **or** timestamp (exclusive slot), archived = strikethrough + dimmed.
+    then the exclusive meta slot: agent-colored `LiveDot` while the session's provider
+    process runs, else compact `PrBadge`, else timestamp. Archived = strikethrough + dimmed.
   - Chats section — split off the repo tree by a full-bleed hairline divider + extra gap
     (`.chats-section`, suppressed when it's the only section): a `.section-row` header
     (comment icon, per-provider logos, session count as plain text) whose

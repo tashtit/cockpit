@@ -99,7 +99,8 @@ test.afterAll(async () => {
   clearTimeout(kill)
 })
 
-const homeHeading = (): Locator => win.getByRole('heading', { name: 'What should we ship?' })
+// the heading may carry the gh login ("What should we ship, dev?") — match the stem
+const homeHeading = (): Locator => win.getByRole('heading', { name: /What should we ship/ })
 
 test('sidebar indexes the fixtures into a repo tree with a flat Chats section', async () => {
   await expect(win.getByRole('treeitem', { name: /acme\/\s*rocket/ })).toBeVisible()
@@ -125,10 +126,11 @@ test('home composer wires repo, agent, and permission controls', async () => {
   await expect(agents.getByRole('button', { name: 'Codex' })).toHaveAttribute('aria-pressed', 'false')
   await expect(agents.getByRole('button', { name: 'Copilot' })).toHaveAttribute('aria-pressed', 'false')
   await expect(win.getByRole('button', { name: 'Permission mode' })).toBeVisible()
-  // fixture sessions surface as recent activity
-  const recent = win.locator('.recent-list')
-  await expect(recent.getByText('add pagination to the sessions list')).toBeVisible()
-  await expect(recent.getByText('scratch ideas with no repository')).toBeVisible()
+  // fixture sessions surface on the board (idle fixtures = "all on the ground")
+  const board = win.locator('.board')
+  await expect(board.getByText('all on the ground')).toBeVisible()
+  await expect(board.getByText('add pagination to the sessions list')).toBeVisible()
+  await expect(board.getByText('scratch ideas with no repository')).toBeVisible()
 })
 
 test('sidebar search filters sessions and clearing restores the tree', async () => {

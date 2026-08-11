@@ -18,6 +18,8 @@ export function freshApi(): CockpitApi {
     listRepos: vi.fn(async () => []),
     pageSessions: vi.fn(async () => ({ total: 0, items: [] })),
     getSessionMessages: vi.fn(async () => []),
+    getBusySessions: vi.fn(async () => []),
+    onBusySessions: vi.fn(() => () => {}),
     setArchived: vi.fn(async () => {}),
     setRepoHidden: vi.fn(async () => {}),
     getHistoryDays: vi.fn(async () => 0),

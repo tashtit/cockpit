@@ -79,6 +79,7 @@ rather than a pale rinse of the button fill.
 
 - **Spacing:** `--s1` 4 / `--s2` 6 / `--s3` 8 / `--s4` 12 / `--s5` 16 / `--s6` 24. Tree indent tokens: `--indent-1` 14 / `--indent-15` 22 / `--indent-2` 30.
 - **Radii:** `--radius-sm` 6 / `--radius` 8 / `--radius-lg` 14 / `--radius-pill` 999. Nothing off-scale (the one exception is the 5px scrollbar thumb, which is half its own 10px track — geometry, not a design radius).
+- **Control heights — two steps only:** compact controls that share a row are **28px** (Select triggers, `.ns-opt`/`.source-add`/`.ns-branch-row` inputs, `.ns-account-single`, `.composer-identity`, `.btn-pr`, the composer bar's `.btn-primary`); standalone form buttons are **32px** (`.btn-primary`, `.btn-ghost`, `.btn-danger` in `.ns-actions`/composer footer). Never mix the two heights in one row — ragged bottom edges read as broken.
 - **Shadows:** three tokens, no ad-hoc values — `--shadow-card` (floating cards), `--shadow-pop` (popovers/listboxes), `--shadow-fill` (contact shadow under a filled button). The only glow is `--accent-glow` on primary buttons and focus rings.
 - **Depth without new colors:** cards (`.composer-card`, `.ns-card`) and filled buttons (`.btn-primary`, `.btn-pr`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` (or a `color-mix` of the fill with `--white`) plus a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (sidebar, chat header, composer, composer bar) are all `--pane`. Reuse these; never invent new fill colors.
 
@@ -86,7 +87,7 @@ rather than a pale rinse of the button fill.
 
 - Single easing and single duration: `--ease: cubic-bezier(0.16, 1, 0.3, 1)` at `--dur: 160ms`, on background/border/color/box-shadow/opacity/filter only. Both are tokens — never re-type `160ms`.
 - Never animate width/height/margin (layout thrash). Pressed = brightness filter, hover = background/color shift.
-- The only keyframe animation is the 1.2s `pulse` dot while an agent is working.
+- The only keyframe animation is the 1.2s `pulse` dot while an agent is working (chat "working…" line + `LiveDot` in session/recent rows).
 - `prefers-reduced-motion: reduce` kills all animation and transitions globally — keep that rule intact.
 
 ## Established Component Vocabulary
@@ -95,7 +96,9 @@ Reuse these; don't invent parallel variants:
 
 - **`.acct-chip`** — the one account-identity component (mono pill, agent-tinted border; `.missing` = warn/italic).
 - **`.pr-badge`** — PR state pill, GitHub colors, outline style.
-- **`.branch-chip`** — branch-blue mono pill.
+- **`.branch-chip`** — branch-blue mono pill (render via `BranchChip`: the constant `cockpit/` worktree prefix abbreviates to a dimmed `c/` so the distinguishing suffix wins truncation; full name in the tooltip).
+- **`LiveDot`** (`.pulse.pulse-{agent}`) — 7px agent-colored pulse: "this session's agent is running right now". Occupies the row's exclusive meta slot (running beats PR badge beats timestamp) in sidebar session rows and board rows.
+- **`.board`** — the app's signature element (home only): departure-board of sessions, flying first — livery-lit placard labels, branch chips, ticking elapsed time. Quiet `--surface` instrument panel; never give it the composer card's floating shadow. See `pages/home.md`.
 - **`.badge-{claude,codex,copilot}`** — solid agent badge (chat header).
 - **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`.
 - **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.

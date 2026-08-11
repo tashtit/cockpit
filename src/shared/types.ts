@@ -55,6 +55,8 @@ export interface SessionMessage {
   kind: MessageKind
   text: string
   toolName?: string
+  /** Human one-liner for tool calls (command/path); text keeps the raw input */
+  preview?: string
   ts?: number
   /** True while this message is still being streamed into */
   streaming?: boolean
@@ -293,10 +295,18 @@ export interface UsageSnapshot {
   providers: ProviderUsage[]
 }
 
+/** One session with a live provider process, for status displays (the board, LiveDots). */
+export interface BusySession {
+  /** Session id: `${provider}:${nativeId}` */
+  id: string
+  /** Epoch ms the running turn was started — elapsed time derives from this */
+  startedAt: number
+}
+
 export type ChatEvent =
   | { turnId: string; type: 'session'; nativeSessionId: string }
   | { turnId: string; type: 'text'; text: string }
-  | { turnId: string; type: 'tool'; toolName: string; detail: string }
+  | { turnId: string; type: 'tool'; toolName: string; detail: string; preview?: string }
   | { turnId: string; type: 'done'; costUsd?: number }
   | { turnId: string; type: 'error'; message: string }
 
@@ -316,6 +326,10 @@ export interface CockpitApi {
   listRepos(): Promise<RepoGroup[]>
   pageSessions(query: SessionQuery): Promise<SessionPage>
   getSessionMessages(id: string): Promise<SessionMessage[]>
+  /** Sessions with a provider process currently running */
+  getBusySessions(): Promise<BusySession[]>
+  /** Push: fires with the full busy set whenever a turn starts, ends, or gains a session id */
+  onBusySessions(cb: (sessions: BusySession[]) => void): () => void
   setArchived(sessionId: string, archived: boolean): Promise<void>
   setRepoHidden(repoKey: string, hidden: boolean): Promise<void>
   /** Days of history to display — sessions idle longer are hidden; 0 = all */

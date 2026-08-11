@@ -4,6 +4,7 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron'
 const ZOOM_MIN = 0.7
 const ZOOM_MAX = 1.5
 import type {
+  BusySession,
   ChatEvent,
   ChatRequest,
   CockpitApi,
@@ -29,6 +30,12 @@ const api: CockpitApi = {
   listRepos: () => ipcRenderer.invoke('repos:list'),
   pageSessions: (query: SessionQuery) => ipcRenderer.invoke('sessions:page', query),
   getSessionMessages: (id: string) => ipcRenderer.invoke('sessions:messages', id),
+  getBusySessions: () => ipcRenderer.invoke('sessions:busy'),
+  onBusySessions: (cb: (sessions: BusySession[]) => void) => {
+    const handler = (_e: unknown, sessions: BusySession[]): void => cb(sessions)
+    ipcRenderer.on('busy-sessions', handler)
+    return () => ipcRenderer.removeListener('busy-sessions', handler)
+  },
   setArchived: (sessionId: string, archived: boolean) =>
     ipcRenderer.invoke('sessions:archive', sessionId, archived),
   setRepoHidden: (repoKey: string, hidden: boolean) =>

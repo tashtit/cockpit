@@ -82,7 +82,8 @@ function createWindow(): void {
     minWidth: 560,
     minHeight: 420,
     title: 'Cockpit',
-    backgroundColor: '#0b0d12',
+    // matches --bg in style.css so pre-paint and resize flashes stay on-theme
+    backgroundColor: '#0b0d16',
     // frameless-with-inset-traffic-lights: the app draws its own chrome (macOS)
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } }
@@ -262,7 +263,11 @@ app.whenReady().then(() => {
   ipcMain.handle('accounts:get', () => getAccounts(loadConfig().sources))
   ipcMain.handle('usage:get', () => getUsage(loadConfig().sources))
 
-  chat = new ChatManager((ev) => win?.webContents.send('chat-event', ev))
+  chat = new ChatManager(
+    (ev) => win?.webContents.send('chat-event', ev),
+    (ids) => win?.webContents.send('busy-sessions', ids)
+  )
+  ipcMain.handle('sessions:busy', () => chat.busySessions())
   ipcMain.handle('chat:send', (_e, req: ChatRequest) => {
     // copilot multi-account: activate the chosen logged-in user before spawning
     if (req.provider === 'copilot' && req.copilotUser) {
