@@ -165,16 +165,30 @@ export interface McpConfig {
   type?: string
 }
 
+/**
+ * One place a server definition lives: an agent's global config ('user') or a
+ * claude per-project entry in ~/.claude.json ('project', with the project path).
+ */
+export interface McpPresence {
+  agent: Provider
+  scope: 'user' | 'project'
+  /** Absolute project path — set only when scope === 'project' */
+  projectPath?: string
+}
+
 export interface McpServerInfo {
   name: string
   config: McpConfig
-  /** Which agents have this server configured */
+  /** Which agents have this server configured (any scope) */
   agents: Provider[]
-  /**
-   * Where the definitions were found: 'user' (agent's global config) and/or
-   * 'project:<dirname>' (claude stores per-project servers in ~/.claude.json).
-   */
-  origins: string[]
+  /** Every (agent, scope) the definition was found in — removal targets one of these */
+  presences: McpPresence[]
+}
+
+export interface McpProbeResult {
+  /** ok = server answered an MCP initialize; needs-auth = HTTP 401/403 */
+  status: 'ok' | 'needs-auth' | 'error'
+  detail?: string
 }
 
 export interface SkillInfo {
@@ -309,6 +323,12 @@ export interface CockpitApi {
   createPr(cwd: string): Promise<string>
   getExtensions(): Promise<ExtensionsInventory>
   shareMcp(name: string, to: Provider): Promise<void>
+  /** Remove one presence: an agent's user-scope entry, or a claude project entry */
+  removeMcp(name: string, agent: Provider, projectPath?: string): Promise<void>
+  /** Probe the server (spawn stdio / hit URL) and report whether it answers */
+  checkMcp(name: string): Promise<McpProbeResult>
+  /** Run the agent CLI's own OAuth login for the server; resolves with its output */
+  loginMcp(name: string, agent: Provider, projectPath?: string): Promise<string>
   shareSkill(name: string, from: Provider, to: Provider): Promise<void>
   getInstructions(repoRoot: string | null): Promise<InstructionsState>
   saveInstructionsBaseline(repoRoot: string | null, baseline: string): Promise<InstructionsState>

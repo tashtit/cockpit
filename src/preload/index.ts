@@ -34,6 +34,11 @@ const api: CockpitApi = {
   createPr: (cwd: string) => ipcRenderer.invoke('workspace:pr', cwd),
   getExtensions: () => ipcRenderer.invoke('extensions:get'),
   shareMcp: (name: string, to: Provider) => ipcRenderer.invoke('extensions:share-mcp', name, to),
+  removeMcp: (name: string, agent: Provider, projectPath?: string) =>
+    ipcRenderer.invoke('extensions:remove-mcp', name, agent, projectPath),
+  checkMcp: (name: string) => ipcRenderer.invoke('extensions:check-mcp', name),
+  loginMcp: (name: string, agent: Provider, projectPath?: string) =>
+    ipcRenderer.invoke('extensions:login-mcp', name, agent, projectPath),
   shareSkill: (name: string, from: Provider, to: Provider) =>
     ipcRenderer.invoke('extensions:share-skill', name, from, to),
   getInstructions: (repoRoot: string | null) => ipcRenderer.invoke('instructions:get', repoRoot),

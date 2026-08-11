@@ -701,8 +701,36 @@ summary::-webkit-details-marker { display: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ext-agents { display: flex; gap: var(--s2); flex-shrink: 0; }
 .ext-actions { display: flex; gap: var(--s1); flex-shrink: 0; }
-.ext-origin { margin-left: var(--s2); color: var(--fg-dim); font-weight: 400;
-  font-size: var(--fs-xs); font-family: var(--mono); }
+
+/* ---------- AI Setup: MCP management ---------- */
+.mcp-tools { display: flex; justify-content: flex-end; }
+.mcp-row { align-items: flex-start; }
+.mcp-row .ext-actions { flex-wrap: wrap; justify-content: flex-end; }
+.mcp-status { margin-left: var(--s2); font-size: var(--fs-xs); font-weight: 600;
+  padding: 0 var(--s2); border-radius: var(--radius-pill); border: 1px solid var(--border);
+  color: var(--fg-dim); white-space: nowrap; }
+.mcp-status.ok { color: var(--ok); border-color: rgba(var(--ok-rgb), 0.5); }
+.mcp-status.needs-auth { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
+.mcp-status.error { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
+.mcp-status.checking { font-style: italic; }
+/* one chip per place a server is defined: agent tint + scope + its own remove × */
+.mcp-presences { display: flex; flex-wrap: wrap; gap: var(--s1); margin-top: var(--s1); }
+.mcp-scope { display: inline-flex; align-items: center; gap: var(--s1);
+  font-size: var(--fs-xs); font-family: var(--mono); color: var(--fg-dim);
+  border: 1px solid var(--border); border-radius: var(--radius-pill);
+  padding: 0 var(--s1) 0 var(--s2); line-height: 18px; }
+.mcp-scope.claude { border-color: rgba(var(--claude-rgb), 0.45);
+  background: rgba(var(--claude-rgb), 0.10); }
+.mcp-scope.codex { border-color: rgba(var(--codex-rgb), 0.45);
+  background: rgba(var(--codex-rgb), 0.10); }
+.mcp-scope.copilot { border-color: rgba(var(--copilot-rgb), 0.45);
+  background: rgba(var(--copilot-rgb), 0.10); }
+.mcp-scope-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.mcp-remove { color: var(--fg-dim); line-height: 1; padding: 0 var(--s1);
+  border-radius: var(--radius-pill); font-size: var(--fs-sm); }
+.mcp-remove:hover { color: var(--danger); }
+.mcp-remove.armed { color: var(--danger); font-size: var(--fs-xs); font-weight: 600; }
 
 /* ---------- AI Setup: shared instructions ---------- */
 .inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }

@@ -38,10 +38,19 @@ across all three agents. Instructions is first: it's the reason the view exists.
 
 - Every list is `.ext-list` of `.ext-row`s: leading agent logo(s), `.ext-body`
   (bold name + dimmed mono detail), actions right. New tabs must keep this shape.
-- **MCP**: agent presence = one logo per configured agent; share buttons are ghost-small
-  `+ <Agent>` rendered only for agents that *don't* have the server — absence is the
-  affordance. Servers found only in Claude's per-project config carry a dimmed mono
-  `.ext-origin` suffix (`project: ziqol, zipi`) so the user knows they're not global.
+- **MCP**: each row shows one `.mcp-scope` chip per *presence* — every (agent, scope) the
+  server is defined in: agent-tinted pill (10px logo + mono scope label: `global` or the
+  project dirname, full path in the title) with its own remove `×`. Removal uses the
+  Settings-style armed confirm (× → danger `remove?`, 4s / blur disarm) — never
+  `window.confirm`. Share buttons stay ghost-small `+ <Agent>` for agents that *don't*
+  have the server; absence is the affordance.
+  Per-row **Reload** probes the server (spawns the stdio command / hits the URL with an
+  MCP initialize) and reports via an `.mcp-status` pill next to the name: `connected`
+  (ok), `needs login` (warn), `unreachable` (danger, detail in title), italic
+  `checking…` while in flight. When a URL server reports `needs login`, ghost-small
+  `Log in · <Agent>` buttons appear for agents with an `mcp login` CLI (Claude, Codex —
+  never Copilot); the notice tells the user to finish the OAuth flow in the browser.
+  A right-aligned ghost-small "Refresh list" above the list re-reads configs from disk.
 - **Skills**: claude ↔ copilot copy via the same `+ <Agent>` affordance, hidden when the
   other agent already has a same-named skill. Codex never gets a skills button.
 - **Marketplace / Plugins**: unchanged from the old Extensions rules — external links via

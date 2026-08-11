@@ -7,7 +7,15 @@ import { ChatManager } from './chat'
 import { loadConfig, saveConfig, setHistoryDays, setRepoHidden, setSessionArchived } from './config'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
-import { getExtensions, shareMcp, shareSkill } from './extensions'
+import {
+  assertClaudeProjectServer,
+  getExtensions,
+  getMcpConfig,
+  removeMcp,
+  shareMcp,
+  shareSkill
+} from './extensions'
+import { loginMcp, probeMcp } from './mcp'
 import {
   applyInstructions,
   getInstructions,
@@ -154,6 +162,26 @@ app.whenReady().then(() => {
   ipcMain.handle('extensions:share-skill', (_e, name: string, from: Provider, to: Provider) =>
     shareSkill(name, from, to)
   )
+  // agent comes from the renderer and (for login) becomes a spawned command —
+  // only ever accept the three known providers
+  const asProvider = (agent: unknown): Provider => {
+    if (agent === 'claude' || agent === 'codex' || agent === 'copilot') return agent
+    throw new Error('unknown agent')
+  }
+  ipcMain.handle('extensions:remove-mcp', (_e, name: string, agent: Provider, projectPath?: string) =>
+    removeMcp(String(name), asProvider(agent), projectPath ? String(projectPath) : undefined)
+  )
+  ipcMain.handle('extensions:check-mcp', (_e, name: string) => probeMcp(getMcpConfig(String(name))))
+  ipcMain.handle('extensions:login-mcp', (_e, name: string, agent: Provider, projectPath?: string) => {
+    const provider = asProvider(agent)
+    // projectPath is renderer input — only trust it once it matches a claude
+    // project entry read from ~/.claude.json itself
+    const cwd =
+      provider === 'claude' && projectPath
+        ? assertClaudeProjectServer(String(name), String(projectPath))
+        : undefined
+    return loginMcp(String(name), provider, cwd)
+  })
 
   // instruction scopes come from the renderer — null = global, else a repo the
   // indexer itself derived (never an arbitrary path)
