@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { ChatRequest, Provider, SessionQuery, TimeFormat } from '../shared/types'
@@ -30,6 +30,7 @@ import {
   saveInstructionFile
 } from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
+import { centeredIn, readDevWindowPrefs } from './devWindow'
 import { getUsage } from './usage'
 import { homedir } from 'node:os'
 
@@ -43,7 +44,15 @@ let indexer: SessionIndexer
 let chat: ChatManager
 
 function createWindow(): void {
+  // dev-only: keep `npm run dev` relaunches from stealing focus, and let the
+  // window open on a chosen display — a packaged app ignores these env vars
+  const devPrefs = app.isPackaged
+    ? { background: false, displayIndex: null }
+    : readDevWindowPrefs(process.env)
+  const deferShow = devPrefs.background || devPrefs.displayIndex !== null
+
   win = new BrowserWindow({
+    show: !deferShow,
     width: 1100,
     height: 760,
     minWidth: 560,
@@ -73,6 +82,21 @@ function createWindow(): void {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
+
+  if (deferShow) {
+    const w = win
+    w.once('ready-to-show', () => {
+      if (devPrefs.displayIndex !== null) {
+        const display = screen.getAllDisplays()[devPrefs.displayIndex]
+        if (display) {
+          const [width, height] = w.getSize()
+          w.setBounds(centeredIn(display.workArea, width, height))
+        }
+      }
+      if (devPrefs.background) w.showInactive()
+      else w.show()
+    })
+  }
 
   // pinch-zoom would silently distort the layout — keyboard zoom (⌘+/-) stays available
   void win.webContents.setVisualZoomLevelLimits(1, 1)

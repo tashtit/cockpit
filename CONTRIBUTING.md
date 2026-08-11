@@ -42,6 +42,17 @@ Common causes:
 
 `npm run typecheck` and `npm test` must both pass before a PR; CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs typecheck plus all three test tiers.
 
+### Keeping the dev window out of your way
+
+`electron-vite dev` relaunches the app on every main-process change, and by default each relaunch fronts and focuses the window. Two env vars (honored only in dev, never in a packaged app) tame that:
+
+| | |
+| --- | --- |
+| `npm run dev:bg` | open the window **without stealing focus** (`COCKPIT_DEV_BACKGROUND=1`) |
+| `COCKPIT_DEV_DISPLAY=1 npm run dev` | open centered on a specific display (0-based index into the OS display list) |
+
+They compose: `COCKPIT_DEV_DISPLAY=1 npm run dev:bg` parks the app on your second screen and leaves your editor focused.
+
 ## Conventions
 
 - **Conventional Commits** (`feat(indexer): …`, `fix(parser): …`, `docs: …`), matching existing history.
