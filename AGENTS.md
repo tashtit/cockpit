@@ -36,7 +36,7 @@ The entire IPC surface is the `CockpitApi` interface in `src/shared/types.ts`. A
 
 ### Indexing pipeline (the core data flow)
 
-`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo (worktree-aware: linked worktrees group under the main repo; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s. Sessions archived or deleted in the provider's own app are dropped (`providerArchived.ts`), and the history-window setting (`historyDays` in config) hides sessions idle longer than N days.
+`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo (worktree-aware: linked worktrees group under the main repo; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s. Sessions archived or deleted in the provider's own app are dropped (`provider-archived.ts`), and the history-window setting (`historyDays` in config) hides sessions idle longer than N days.
 
 Performance invariants — all deliberate, keep them:
 
@@ -53,7 +53,7 @@ Performance invariants — all deliberate, keep them:
 - `extensions.ts` — MCP/skills/plugins inventory and cross-agent sharing; each agent has its own config format (`~/.claude.json`, `~/.codex/config.toml`, `~/.copilot/mcp-config.json`).
 - `accounts.ts` — who each agent CLI is signed in as, per config home (Claude `.claude.json` OAuth, Codex `auth.json` JWT, Copilot's multi-account `config.json`), plus the `gh` user for repo operations.
 - `usage.ts` — subscription usage per provider without touching credentials: Claude measured locally from session JSONLs, Codex from the rate-limit snapshots its CLI persists, Copilot via the GitHub billing API (fails soft).
-- `providerArchived.ts` — reads each provider's own archived/deleted state (Copilot `data.db`, Codex `archived_sessions/`, the Claude desktop app's session store) so those sessions never appear in Cockpit.
+- `provider-archived.ts` — reads each provider's own archived/deleted state (Copilot `data.db`, Codex `archived_sessions/`, the Claude desktop app's session store) so those sessions never appear in Cockpit.
 - `env.ts` — `cliEnv()`: GUI apps on macOS get a minimal PATH; use it for every spawned CLI.
 
 ### Tests
@@ -80,3 +80,11 @@ Project skills (Agent Skills standard, `SKILL.md` format) live in **`.agents/ski
 
 - Conventional Commits (`feat(indexer): …`, `docs: …`), matching existing history.
 - No AI attribution: no `Co-Authored-By` lines or "Generated with" footers in commits or PRs.
+
+### File naming
+
+- Non-component modules and tests: lowercase, kebab-case when multiword (`dev-window.ts`, `instructions-core.ts`, `stub-api.ts`).
+- React components: PascalCase `.tsx`, named for the component (`ChatView.tsx`). A `.tsx` file that is not itself a single component stays lowercase (`logos.tsx`, `main.tsx`).
+- Tests are named after the module under test, kebab-cased (`home-view.test.tsx` for `HomeView.tsx`); `.test.ts(x)` for vitest tiers, `.spec.ts` for Playwright e2e.
+- Entry points are `index.ts` / `main.tsx`; directories are single lowercase words.
+- CSS class names are kebab-case; symbols follow standard TS style (camelCase values, PascalCase types/components, SCREAMING_SNAKE module-level constants).
