@@ -39,7 +39,7 @@ import {
 import { getAccounts, setCopilotActiveUser } from './accounts'
 import { centeredIn, readDevWindowPrefs } from './dev-window'
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
-import { fetchEndpointModels } from './endpointModels'
+import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
 import { homedir } from 'node:os'
 
