@@ -48,11 +48,12 @@ function renderNew(): ReturnType<typeof render> {
 }
 
 describe('NewSession endpoint select', () => {
-  it('hides the endpoint control when no endpoint fits the provider', async () => {
+  it('hides the provider control when no endpoint fits the agent', async () => {
+    vi.mocked(window.cockpit.getModelEndpoints).mockResolvedValue(endpoints)
     window.localStorage.setItem('cockpit:provider', 'codex')
     renderNew()
     await waitFor(() => expect(window.cockpit.getModelEndpoints).toHaveBeenCalled())
-    expect(screen.queryByLabelText('Endpoint')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Model provider')).not.toBeInTheDocument()
   })
 
   it('offers only the endpoints the active provider can use', async () => {

@@ -140,7 +140,8 @@ export function NewSession({
   useEffect(() => {
     promptRef.current?.focus()
     void api.getAccounts().then(setAccounts)
-    void api.getModelEndpoints().then(setEndpoints)
+    // optional call: a preload from before this method must not crash the form (dev HMR)
+    void api.getModelEndpoints?.().then(setEndpoints)
   }, [])
 
   // model suggestions, accounts, and endpoints differ per agent — reset stale choices on switch
@@ -162,10 +163,18 @@ export function NewSession({
     if (!endpoint || endpointModels[endpoint.id]) return
     const id = endpoint.id
     void api
-      .listEndpointModels(id)
+      .listEndpointModels?.(id)
       .then((m) => m.length > 0 && setEndpointModels((prev) => ({ ...prev, [id]: m })))
       .catch(() => {}) // unreachable provider → free-text model entry still works
   }, [endpoint?.id])
+
+  // a model typed as free text must not silently survive once a catalog arrives
+  // that doesn't serve it — the picker would show "choose…" while the stale value runs
+  useEffect(() => {
+    if (endpoint && modelChoices.length > 0 && model && !modelChoices.includes(model)) {
+      setModel('')
+    }
+  }, [endpoint?.id, modelChoices.length])
 
   const start = async (): Promise<void> => {
     if (busy || !prompt.trim()) return

@@ -23,7 +23,8 @@ function readAll(): Record<string, string> {
 
 function writeAll(map: Record<string, string>): void {
   mkdirSync(app.getPath('userData'), { recursive: true })
-  writeFileSync(keysPath(), JSON.stringify(map, null, 2))
+  // ciphertext only, but keep it owner-readable regardless
+  writeFileSync(keysPath(), JSON.stringify(map, null, 2), { mode: 0o600 })
 }
 
 export function setEndpointKey(endpointId: string, key: string): void {

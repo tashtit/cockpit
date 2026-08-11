@@ -81,7 +81,7 @@ export function endpointSupports(provider: Provider, ep: ModelEndpoint): boolean
 
 /**
  * Env vars that point a provider CLI at a BYOK endpoint for one spawned turn.
- * The caller resolves `apiKey` (from the env var the endpoint names) — this stays pure.
+ * The caller decrypts `apiKey` from the keychain store — this stays pure.
  * Returns null when the provider can't use the endpoint.
  */
 export function endpointEnv(

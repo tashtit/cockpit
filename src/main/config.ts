@@ -93,12 +93,16 @@ export function listModelEndpoints(): ModelEndpoint[] {
   return loadConfig().modelEndpoints ?? []
 }
 
-/** Upsert by id — the caller (main) generates ids and sanitizes fields. */
+/** Upsert by id, in place — a models-cache refresh must not reorder the user's list. */
 export function addModelEndpoint(ep: ModelEndpoint): ModelEndpoint[] {
   const cfg = loadConfig()
-  cfg.modelEndpoints = [...(cfg.modelEndpoints ?? []).filter((e) => e.id !== ep.id), ep]
+  const eps = cfg.modelEndpoints ?? []
+  const i = eps.findIndex((e) => e.id === ep.id)
+  if (i >= 0) eps[i] = ep
+  else eps.push(ep)
+  cfg.modelEndpoints = eps
   saveConfig(cfg)
-  return cfg.modelEndpoints
+  return eps
 }
 
 export function removeModelEndpoint(id: string): ModelEndpoint[] {
@@ -120,6 +124,9 @@ const SESSION_ENDPOINT_CAP = 500
 export function bindSessionEndpoint(sessionId: string, endpointId: string): void {
   const cfg = loadConfig()
   const map = cfg.sessionEndpoints ?? {}
+  // claude emits two session events per turn — skip the rewrite when nothing changes
+  const keys0 = Object.keys(map)
+  if (map[sessionId] === endpointId && keys0[keys0.length - 1] === sessionId) return
   // re-insert so JSON key order doubles as recency for the cap below
   delete map[sessionId]
   map[sessionId] = endpointId

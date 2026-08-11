@@ -133,8 +133,8 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
 
 /**
  * Validate a BYOK turn before spawning. Returns a human-readable refusal, or null when
- * the turn may proceed. `keyResolved` says whether the endpoint's key env var has a
- * value in the spawn environment. Exported for tests.
+ * the turn may proceed. `keyResolved` says whether the endpoint's stored key decrypted
+ * successfully. Exported for tests.
  */
 export function endpointPreflight(
   req: ChatRequest,

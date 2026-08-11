@@ -147,7 +147,9 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const refresh = (): void => {
     void api.getSourceStats().then(setStats)
     void api.getAccounts().then(setAccounts)
-    void api.getModelEndpoints().then(setEndpoints)
+    // optional call: during dev HMR the renderer can outrun a preload that predates
+    // this method — a missing bridge must not take the whole Settings view down
+    void api.getModelEndpoints?.().then(setEndpoints)
     api.getUsage().then(setUsage, () => {})
   }
   useEffect(() => {
