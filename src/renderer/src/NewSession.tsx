@@ -370,6 +370,13 @@ export function NewSession({
                 : ' — set a model this provider serves.')}
           </div>
         )}
+        {endpoints.length > 0 && usableEndpoints.length === 0 && (
+          <div className="ns-hint">
+            {provider === 'codex'
+              ? 'Custom model providers can’t run Codex — it has no launch-time provider override.'
+              : 'Claude can only use anthropic-type custom providers — none is configured.'}
+          </div>
+        )}
 
         <label className="ns-label" htmlFor="ns-branch">Branch</label>
         <div className="ns-branch-row">

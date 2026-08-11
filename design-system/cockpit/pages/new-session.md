@@ -25,7 +25,9 @@ repo-row "+".
 - Model provider: a `Select` ("default" + each configured BYOK provider the active agent
   can use) that appears only when at least one fits — progressive disclosure, like the
   Codex sandbox. Picking one shows an `.ns-hint` naming the base URL; Copilot + provider
-  makes Model required (Start disabled until chosen).
+  makes Model required (Start disabled until chosen). When providers exist but none fits
+  the active agent, an `.ns-hint` says why (Codex has no provider override; Claude needs
+  anthropic-type) — the control disappearing silently reads as a bug.
 - Branch: `.ns-branch-row` shows the fixed prefix as dimmed mono with a mono input beside
   it — worktree branch naming is visible, not hidden (product rule: always worktrees + PRs).
 - Hints are `.ns-hint`; the YOLO warning uses `.ns-hint.yolo` (danger color). Permission

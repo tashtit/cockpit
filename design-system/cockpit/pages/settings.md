@@ -46,9 +46,12 @@ GitHub · Model providers · Add source).
   · `.source-note` prose (NOT mono; mono is machine identifiers only). Copy references
   real commands in `<code>` (`gh auth login`).
 - Model providers section (BYOK): `.source-row` per provider — `EndpointIcon` · display
-  name · `.acct-chip` type (+ wire api) · `.source-origin` naming the agents it applies
-  to · mono `.source-path` base URL · `.source-note` "key in keychain"/"no key" + cached
-  model count · two-step Remove (same recipe as sources; also deletes the stored key).
+  name · `.acct-chip` type (+ wire api) · `.repo-providers` mini agent logos
+  (`role="img"` with a "Works with …" title — agent applicability is per type, and it
+  must be visible per row, not implied) · mono `.source-path` base URL · `.source-note`
+  "key in keychain"/"no key" + cached model count · two-step Remove (same recipe as
+  sources; also deletes the stored key). The Type select's options carry the agents they
+  serve as `hint` annotations.
   The hint must keep saying keys are encrypted with the OS keychain, never written to
   config, and sent only to the provider. Add form mirrors Add source: labeled `.ns-opt`s
   — Display name · Type · Base URL · API key (`type="password"`, `autoComplete="off"`) ·

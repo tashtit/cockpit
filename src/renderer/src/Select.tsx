@@ -84,13 +84,20 @@ export function Select({
         close(false)
     }
     const onAway = (): void => close(false)
+    // page scroll detaches a fixed-position popup from its trigger → close; but the
+    // listbox scrolls its own overflow (long model catalogs, keyboard scrollIntoView)
+    // and must never close itself
+    const onScroll = (e: Event): void => {
+      if (e.target instanceof Node && listRef.current?.contains(e.target)) return
+      close(false)
+    }
     document.addEventListener('mousedown', onDown)
     window.addEventListener('resize', onAway)
-    document.addEventListener('scroll', onAway, true)
+    document.addEventListener('scroll', onScroll, true)
     return () => {
       document.removeEventListener('mousedown', onDown)
       window.removeEventListener('resize', onAway)
-      document.removeEventListener('scroll', onAway, true)
+      document.removeEventListener('scroll', onScroll, true)
     }
   }, [open])
 

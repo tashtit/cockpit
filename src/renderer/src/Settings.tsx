@@ -504,10 +504,11 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
         ) : (
           <>
         <p className="ns-hint">
-          Access models from other providers with your own API keys — Copilot runs against any
-          OpenAI-compatible, Azure, or Anthropic endpoint, Claude against an Anthropic-compatible
-          one. Pick a provider when starting a session. Keys stay private: encrypted with your OS
-          keychain, never written to config, and sent only to the provider itself.
+          Access models from other providers with your own API keys. Which agents a provider can
+          run depends on its type — Copilot speaks all three (OpenAI-compatible, Azure,
+          Anthropic), Claude only anthropic-type, and Codex none — each row shows the agents it
+          works with. Pick a provider when starting a session. Keys stay private: encrypted with
+          your OS keychain, never written to config, and sent only to the provider itself.
         </p>
         <ul className="source-list">
           {endpoints.map((ep) => (
@@ -522,8 +523,17 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
                     {ep.type}
                     {ep.wireApi ? ` · ${ep.wireApi}` : ''}
                   </span>
-                  <span className="source-origin">
-                    {endpointAgents(ep).map((p) => PROVIDER_LABEL[p]).join(' · ')}
+                  <span
+                    className="repo-providers"
+                    role="img"
+                    aria-label={`works with ${endpointAgents(ep).map((p) => PROVIDER_LABEL[p]).join(' and ')}`}
+                    title={`Works with ${endpointAgents(ep).map((p) => PROVIDER_LABEL[p]).join(' and ')}`}
+                  >
+                    {endpointAgents(ep).map((p) => (
+                      <span key={p} className={`plogo plogo-${p}`}>
+                        <ProviderLogo p={p} size={10} />
+                      </span>
+                    ))}
                   </span>
                 </div>
                 <div className="source-path" title={ep.baseUrl}>{ep.baseUrl}</div>
@@ -588,9 +598,9 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
                 mono
                 value={epType}
                 options={[
-                  { value: 'openai', label: 'openai — any OpenAI-compatible' },
-                  { value: 'azure', label: 'azure' },
-                  { value: 'anthropic', label: 'anthropic' }
+                  { value: 'openai', label: 'openai — any OpenAI-compatible', hint: 'Copilot' },
+                  { value: 'azure', label: 'azure', hint: 'Copilot' },
+                  { value: 'anthropic', label: 'anthropic', hint: 'Claude · Copilot' }
                 ]}
                 onChange={(v) => {
                   setEpType(v as ModelEndpointType)
