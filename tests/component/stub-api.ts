@@ -22,6 +22,8 @@ export function freshApi(): CockpitApi {
     setRepoHidden: vi.fn(async () => {}),
     getHistoryDays: vi.fn(async () => 0),
     setHistoryDays: vi.fn(async () => {}),
+    getTimeFormat: vi.fn(async () => '24h' as const),
+    setTimeFormat: vi.fn(async () => {}),
     getPrs: vi.fn(async () => []),
     createWorkspace: vi.fn(async () => ({ cwd: '/tmp/wt', branch: 'main' })),
     createPr: vi.fn(async () => 'https://github.com/o/r/pull/1'),

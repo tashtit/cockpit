@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { SourceDir } from '../shared/types'
+import type { SourceDir, TimeFormat } from '../shared/types'
 
 interface AppConfig {
   sources: SourceDir[]
@@ -18,6 +18,8 @@ interface AppConfig {
   hiddenRepos?: string[]
   /** Days of history to display — sessions idle longer are hidden; 0/absent = all */
   historyDays?: number
+  /** Clock format for session times in the UI; absent = 24h */
+  timeFormat?: TimeFormat
 }
 
 function configPath(): string {
@@ -74,6 +76,15 @@ export function setHistoryDays(days: number): number {
   cfg.historyDays = d
   saveConfig(cfg)
   return d
+}
+
+export function setTimeFormat(format: TimeFormat): TimeFormat {
+  const cfg = loadConfig()
+  // renderer input is untrusted — anything but the one alternate value means default
+  const f: TimeFormat = format === '12h' ? '12h' : '24h'
+  cfg.timeFormat = f
+  saveConfig(cfg)
+  return f
 }
 
 export function saveConfig(cfg: AppConfig): void {

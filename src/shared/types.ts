@@ -300,6 +300,9 @@ export type ChatEvent =
   | { turnId: string; type: 'done'; costUsd?: number }
   | { turnId: string; type: 'error'; message: string }
 
+/** Clock format for session timestamps shown in the UI */
+export type TimeFormat = '12h' | '24h'
+
 export interface CockpitApi {
   sendChat(req: ChatRequest): Promise<string>
   cancelChat(turnId: string): Promise<void>
@@ -318,6 +321,9 @@ export interface CockpitApi {
   /** Days of history to display — sessions idle longer are hidden; 0 = all */
   getHistoryDays(): Promise<number>
   setHistoryDays(days: number): Promise<void>
+  /** Clock format for session times (sidebar, home); default 24h */
+  getTimeFormat(): Promise<TimeFormat>
+  setTimeFormat(format: TimeFormat): Promise<void>
   getPrs(repoRoot: string): Promise<PrStatus[]>
   createWorkspace(repoRoot: string, name?: string): Promise<WorkspaceInfo>
   createPr(cwd: string): Promise<string>

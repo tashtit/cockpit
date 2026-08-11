@@ -15,6 +15,7 @@ import { NewSession } from './NewSession'
 import { Settings } from './Settings'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
+import { initTimeFormat } from './time'
 import type { AccountChoice } from './NewSession'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
 
@@ -65,6 +66,7 @@ export function App(): JSX.Element {
   const textFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
+    void initTimeFormat()
     const load = (): void => {
       void api.listRepos().then(setRepos)
       void api.getAccounts().then(setAccounts)

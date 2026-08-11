@@ -6,8 +6,8 @@
 it answers "what is Cockpit watching, as whom, how much of each subscription is used,
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
-sections, in order: Agent accounts & sources · History · Subscription usage · GitHub ·
-Add source).
+sections, in order: Agent accounts & sources · History · Display · Subscription usage ·
+GitHub · Add source).
 
 ## Rules
 
@@ -32,6 +32,10 @@ Add source).
 - History section: one labeled `Select` ("Show sessions from" — preset day windows plus
   "All history"). The `.ns-hint` must keep saying that older sessions are only hidden,
   never touched on disk — this is a view filter, not a destructive setting.
+- Display section: one labeled `Select` ("Time format" — 24-hour default vs 12-hour,
+  each option shows a concrete example like `14:30`). Applies live to session times in
+  the sidebar and home view via the shared `time.ts` store; changes announce through
+  the card's `role="status"` region like every other setting.
 - Subscription usage section: one `.source-row.tint-<provider>` per provider account —
   logo · label · `.acct-chip` identity · dim plan / "as of Xm ago" `.source-origin`
   (staleness only shown past 15min). Body is `.usage-windows` rows: window label ·

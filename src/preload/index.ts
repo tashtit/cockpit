@@ -3,7 +3,14 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron'
 /** UI stays usable at any zoom the user can reach */
 const ZOOM_MIN = 0.7
 const ZOOM_MAX = 1.5
-import type { ChatEvent, ChatRequest, CockpitApi, Provider, SessionQuery } from '../shared/types'
+import type {
+  ChatEvent,
+  ChatRequest,
+  CockpitApi,
+  Provider,
+  SessionQuery,
+  TimeFormat
+} from '../shared/types'
 
 const api: CockpitApi = {
   sendChat: (req: ChatRequest) => ipcRenderer.invoke('chat:send', req),
@@ -28,6 +35,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke('repos:set-hidden', repoKey, hidden),
   getHistoryDays: () => ipcRenderer.invoke('history:get'),
   setHistoryDays: (days: number) => ipcRenderer.invoke('history:set', days),
+  getTimeFormat: () => ipcRenderer.invoke('time-format:get'),
+  setTimeFormat: (format: TimeFormat) => ipcRenderer.invoke('time-format:set', format),
   getPrs: (repoRoot: string) => ipcRenderer.invoke('github:prs', repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>
     ipcRenderer.invoke('workspace:create', repoRoot, name),
