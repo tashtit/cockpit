@@ -36,15 +36,23 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       return { cmd: 'claude', args }
     }
     case 'codex': {
-      const args = ['exec', '--json']
+      const resume = req.resumeNativeId
+      const args = resume ? ['exec', 'resume', resume, '--json'] : ['exec', '--json']
       if (model) args.push('--model', model)
-      const sandbox = req.options?.codexSandbox
-      if (sandbox && CODEX_SANDBOXES.has(sandbox) && req.permissionMode !== 'yolo') {
-        args.push('--sandbox', sandbox)
+      const requested = req.options?.codexSandbox
+      // --full-auto was removed from `codex exec`; auto-edit maps to its old meaning
+      const sandbox =
+        requested && CODEX_SANDBOXES.has(requested)
+          ? requested
+          : req.permissionMode === 'auto-edit'
+            ? 'workspace-write'
+            : null
+      if (sandbox && req.permissionMode !== 'yolo') {
+        // `exec resume` accepts no --sandbox flag — only the -c config override form
+        if (resume) args.push('-c', `sandbox_mode="${sandbox}"`)
+        else args.push('--sandbox', sandbox)
       }
-      if (req.permissionMode === 'auto-edit' && !sandbox) args.push('--full-auto')
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
-      if (req.resumeNativeId) args.splice(1, 0, 'resume', req.resumeNativeId)
       args.push(req.prompt)
       return { cmd: 'codex', args }
     }

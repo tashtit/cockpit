@@ -25,7 +25,8 @@ describe('buildCommand', () => {
     expect(args).toContain('--resume')
     expect(args).toContain('abc')
   })
-  it('codex resume inserts subcommand', () => {
+  it('codex resume inserts subcommand and passes sandbox as a config override', () => {
+    // `codex exec resume` accepts neither --full-auto nor --sandbox — only -c
     const { cmd, args } = buildCommand({
       provider: 'codex',
       cwd: '/x',
@@ -35,7 +36,20 @@ describe('buildCommand', () => {
     })
     expect(cmd).toBe('codex')
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', 'sid'])
-    expect(args).toContain('--full-auto')
+    expect(args).not.toContain('--full-auto')
+    expect(args).not.toContain('--sandbox')
+    expect(args[args.indexOf('-c') + 1]).toBe('sandbox_mode="workspace-write"')
+    expect(args[args.length - 1]).toBe('go')
+  })
+  it('codex auto-edit maps to workspace-write (--full-auto no longer exists)', () => {
+    const { args } = buildCommand({
+      provider: 'codex',
+      cwd: '/x',
+      prompt: 'go',
+      permissionMode: 'auto-edit'
+    })
+    expect(args).not.toContain('--full-auto')
+    expect(args[args.indexOf('--sandbox') + 1]).toBe('workspace-write')
   })
   it('copilot yolo', () => {
     const { args } = buildCommand({
