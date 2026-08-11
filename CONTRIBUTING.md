@@ -53,6 +53,15 @@ Common causes:
 
 They compose: `COCKPIT_DEV_DISPLAY=1 npm run dev:bg` parks the app on your second screen and leaves your editor focused.
 
+Display order is OS-assigned and won't necessarily match your mental "first/second screen" — when `COCKPIT_DEV_DISPLAY` is set, the dev console prints the table so you can pick:
+
+```
+[dev] display 0: 1920x1080 at (0,0) primary
+[dev] display 1: 1728x1117 at (-1728,96) ← COCKPIT_DEV_DISPLAY
+[dev] display 2: 1920x1080 at (1920,0)
+[dev] window shown at {"x":-1414,"y":291,"width":1100,"height":760}
+```
+
 ## Conventions
 
 - **Conventional Commits** (`feat(indexer): …`, `fix(parser): …`, `docs: …`), matching existing history.
