@@ -84,7 +84,7 @@ export function App(): JSX.Element {
     return () => clearInterval(t)
   }, [])
 
-  // global shortcuts: ⌘K search, ⌘N new task, Esc backs out of secondary views
+  // global shortcuts: ⌘K search, ⌘N new task, ⌘, settings, Esc backs out of secondary views
   const bindingRef = useRef<ChatBinding | null>(null)
   bindingRef.current = binding
   useEffect(() => {
@@ -96,6 +96,9 @@ export function App(): JSX.Element {
       } else if (mod && e.key === 'n') {
         e.preventDefault()
         setView({ kind: 'welcome' })
+      } else if (mod && e.key === ',') {
+        e.preventDefault()
+        setView({ kind: 'settings' })
       } else if (e.key === 'Escape') {
         // a habitual Escape must not discard a half-typed field: first blur, then close
         const t = e.target as HTMLElement | null
