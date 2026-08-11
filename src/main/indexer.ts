@@ -12,7 +12,7 @@ import type {
   SourceStats
 } from '../shared/types'
 import { GENERAL_REPO, clearRepoCache, resolveRepo } from './repos'
-import { defaultClaudeStoreDir, listProviderArchivedIds } from './providerArchived'
+import { defaultClaudeStoreDir, listProviderArchivedIds } from './provider-archived'
 import {
   listClaudeSessionFiles,
   listClaudeSessionRoots,
@@ -143,7 +143,7 @@ export class SessionIndexer {
   private scanQueued = false
   private sources: SourceDir[] = []
   private archived = new Set<string>()
-  /** Archived or deleted in the provider's own app — excluded everywhere (see providerArchived.ts) */
+  /** Archived or deleted in the provider's own app — excluded everywhere (see provider-archived.ts) */
   private providerArchived = new Set<string>()
   private providerArchivedTimer: NodeJS.Timeout | null = null
   /** Repo keys the user chose not to display */
