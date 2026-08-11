@@ -4,15 +4,17 @@ Unified desktop hub for **Claude Code**, **Codex**, and **GitHub Copilot CLI**: 
 
 ## Run
 
+Requires Node 22 (`.nvmrc`) and npm.
+
 ```bash
-npm install
-npm run dev        # dev mode with HMR
+npm ci
+npm run dev        # dev mode with HMR — first run downloads the Electron binary
 npm run typecheck  # tsc (the static gate — there is no linter)
 npm test           # vitest: unit + component tiers
 npm run test:e2e   # Playwright against the built app (npm run build first)
 ```
 
-CI (`.github/workflows/ci.yml`) runs typecheck plus all three test tiers.
+CI (`.github/workflows/ci.yml`) runs typecheck plus all three test tiers. Setup details and troubleshooting (including "Electron failed to install correctly") are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What it does (GitHub-first)
 
