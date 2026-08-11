@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import type { PrStatus, Provider } from '../../shared/types'
 
 export const PROVIDER_LABEL: Record<Provider, string> = {

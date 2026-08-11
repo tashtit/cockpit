@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { AccountsSnapshot, PrStatus, RepoGroup, SessionMeta } from '../../shared/types'
 import { api } from './api'
 import {
