@@ -8,6 +8,7 @@ import type {
   ChatEvent,
   ChatRequest,
   CockpitApi,
+  NewModelEndpoint,
   Provider,
   SessionQuery,
   TimeFormat
@@ -66,6 +67,9 @@ const api: CockpitApi = {
     ipcRenderer.invoke('instructions:save-file', repoRoot, path, content),
   getAccounts: () => ipcRenderer.invoke('accounts:get'),
   getUsage: () => ipcRenderer.invoke('usage:get'),
+  getModelEndpoints: () => ipcRenderer.invoke('endpoints:get'),
+  addModelEndpoint: (ep: NewModelEndpoint) => ipcRenderer.invoke('endpoints:add', ep),
+  removeModelEndpoint: (id: string) => ipcRenderer.invoke('endpoints:remove', id),
   getZoomFactor: () => webFrame.getZoomFactor(),
   setZoomFactor: (factor: number) =>
     webFrame.setZoomFactor(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, factor))),

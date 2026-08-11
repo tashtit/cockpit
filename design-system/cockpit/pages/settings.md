@@ -7,7 +7,7 @@ it answers "what is Cockpit watching, as whom, how much of each subscription is 
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
 sections, in order: Agent accounts & sources · History · Display · Subscription usage ·
-GitHub · Add source).
+GitHub · Model endpoints · Add source).
 
 ## Rules
 
@@ -45,6 +45,13 @@ GitHub · Add source).
 - GitHub section: one row — `OrgIcon` · "gh CLI" · `@login` acct-chip (or `.missing`)
   · `.source-note` prose (NOT mono; mono is machine identifiers only). Copy references
   real commands in `<code>` (`gh auth login`).
+- Model endpoints section (BYOK): `.source-row` per endpoint — `EndpointIcon` · label ·
+  `.acct-chip` type (+ wire api) · `.source-origin` naming the agents it applies to ·
+  mono `.source-path` base URL · `.source-note` key env var (or "no key") · two-step
+  Remove (same recipe as sources). The hint must keep saying keys are read from the
+  named env var at launch and never stored. Add form mirrors Add source: labeled
+  `.ns-opt`s, Wire API only for openai type (progressive disclosure), primary disabled
+  until label + URL are non-empty.
 - Add form: a real `<form>` (Enter submits) of labeled `.ns-opt`s — Agent select ·
   Config home (mono input + ghost "Browse…" calling `pickDirectory()`, a main-process
   `dialog.showOpenDialog` with `showHiddenFiles` — config homes are dotdirs) · optional

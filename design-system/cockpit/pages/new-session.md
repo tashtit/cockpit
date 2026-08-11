@@ -15,8 +15,13 @@ repo with full control — the deliberate counterpart to Home's quick composer.
 - Account: single account renders as static `.ns-account-single` (mono); multiple render
   a mono `<select>`. Same `savedAccount` resolution rule as Home — saved choice, else
   first configured.
-- Model field is a free `<input>` with `<datalist>` suggestions (`MODEL_SUGGESTIONS`) —
-  suggestions only, the field accepts anything the CLI accepts. Don't harden into a select.
+- Model field is a free `<input>` with `<datalist>` suggestions (`MODEL_SUGGESTIONS`, or
+  the chosen endpoint's own model list) — suggestions only, the field accepts anything
+  the CLI accepts. Don't harden into a select.
+- Endpoint: a `Select` ("default" + each configured BYOK endpoint the active agent can
+  use) that appears only when at least one fits — progressive disclosure, like the Codex
+  sandbox. Picking one shows an `.ns-hint` naming the base URL; Copilot + endpoint makes
+  Model required (Start disabled until filled).
 - Branch: `.ns-branch-row` shows the fixed prefix as dimmed mono with a mono input beside
   it — worktree branch naming is visible, not hidden (product rule: always worktrees + PRs).
 - Hints are `.ns-hint`; the YOLO warning uses `.ns-hint.yolo` (danger color). Permission

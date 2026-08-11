@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  ModelEndpoint,
+  ModelEndpointType,
+  NewModelEndpoint,
   Provider,
   SourceDir,
   SourceStats,
   TimeFormat,
   UsageSnapshot,
   UsageTokens,
-  UsageWindow
+  UsageWindow,
+  WireApi
 } from '../../shared/types'
+import { endpointAgents } from '../../shared/endpoints'
 import { api } from './api'
-import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { EndpointIcon, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { setTimeFormat, useTimeFormat } from './time'
 
@@ -122,12 +127,25 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const [lastRemoved, setLastRemoved] = useState<SourceDir | null>(null)
   /** sr-only announcements (same pattern as ChatView's status region) */
   const [status, setStatus] = useState('')
+  /** Custom model endpoints (BYOK) — list plus the add-form fields */
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  const [epLabel, setEpLabel] = useState('')
+  const [epType, setEpType] = useState<ModelEndpointType>('openai')
+  const [epUrl, setEpUrl] = useState('')
+  const [epKeyVar, setEpKeyVar] = useState('')
+  const [epWire, setEpWire] = useState<'' | WireApi>('')
+  const [epModels, setEpModels] = useState('')
+  const [epError, setEpError] = useState<string | null>(null)
+  /** Endpoint id whose Remove is in its confirm step */
+  const [confirmingEp, setConfirmingEp] = useState<string | null>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const confirmEpTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refresh = (): void => {
     void api.getSourceStats().then(setStats)
     void api.getAccounts().then(setAccounts)
+    void api.getModelEndpoints().then(setEndpoints)
     api.getUsage().then(setUsage, () => {})
   }
   useEffect(() => {
@@ -139,6 +157,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   }, [])
   useEffect(() => () => {
     if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    if (confirmEpTimer.current) clearTimeout(confirmEpTimer.current)
   }, [])
 
   const identityOf = (p: string): string | null =>
@@ -193,6 +212,38 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
+  }
+
+  const addEndpoint = async (): Promise<void> => {
+    setEpError(null)
+    try {
+      const def: NewModelEndpoint = { label: epLabel.trim(), type: epType, baseUrl: epUrl.trim() }
+      if (epKeyVar.trim()) def.apiKeyEnvVar = epKeyVar.trim()
+      if (epType === 'openai' && epWire) def.wireApi = epWire
+      const models = epModels.split(',').map((m) => m.trim()).filter(Boolean)
+      if (models.length > 0) def.models = models
+      setEndpoints(await api.addModelEndpoint(def))
+      setEpLabel('')
+      setEpUrl('')
+      setEpKeyVar('')
+      setEpWire('')
+      setEpModels('')
+      setStatus(`Added endpoint ${def.label}`)
+    } catch (err) {
+      setEpError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const armRemoveEndpoint = (id: string): void => {
+    setConfirmingEp(id)
+    if (confirmEpTimer.current) clearTimeout(confirmEpTimer.current)
+    confirmEpTimer.current = setTimeout(() => setConfirmingEp(null), 4000)
+  }
+
+  const removeEndpoint = async (ep: ModelEndpoint): Promise<void> => {
+    setConfirmingEp(null)
+    setEndpoints(await api.removeModelEndpoint(ep.id))
+    setStatus(`Removed endpoint ${ep.label}`)
   }
 
   const changeHistory = async (days: number): Promise<void> => {
@@ -406,6 +457,161 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
             </div>
           </li>
         </ul>
+
+        <h3 className="ns-label">Model endpoints</h3>
+        <p className="ns-hint">
+          Custom model providers (bring your own key) — run Copilot against any
+          OpenAI-compatible, Azure, or Anthropic endpoint, and Claude against an
+          Anthropic-compatible one. Pick an endpoint when starting a session. The API key is
+          read from the named environment variable when the agent launches — Cockpit never
+          stores keys, so the variable must be set in the environment Cockpit runs from.
+        </p>
+        <ul className="source-list">
+          {endpoints.map((ep) => (
+            <li key={ep.id} className="source-row">
+              <span className="plogo" aria-hidden="true">
+                <EndpointIcon size={13} />
+              </span>
+              <div className="source-body">
+                <div className="source-label">
+                  {ep.label}
+                  <span className="acct-chip">
+                    {ep.type}
+                    {ep.wireApi ? ` · ${ep.wireApi}` : ''}
+                  </span>
+                  <span className="source-origin">
+                    {endpointAgents(ep).map((p) => PROVIDER_LABEL[p]).join(' · ')}
+                  </span>
+                </div>
+                <div className="source-path" title={ep.baseUrl}>{ep.baseUrl}</div>
+              </div>
+              <div className="source-health">
+                <span className="source-note">
+                  {ep.apiKeyEnvVar ? <>key from <code>{ep.apiKeyEnvVar}</code></> : 'no key'}
+                </span>
+              </div>
+              {confirmingEp === ep.id ? (
+                <button
+                  className="btn-danger"
+                  aria-label={`Confirm removing endpoint ${ep.label}`}
+                  title="Sessions started on this endpoint will refuse to resume until it is re-added."
+                  onBlur={() => setConfirmingEp(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.stopPropagation()
+                      setConfirmingEp(null)
+                    }
+                  }}
+                  onClick={() => void removeEndpoint(ep)}
+                >
+                  Remove?
+                </button>
+              ) : (
+                <button
+                  className="btn-ghost danger small"
+                  aria-label={`Remove endpoint ${ep.label} — ${ep.baseUrl}`}
+                  onClick={() => armRemoveEndpoint(ep.id)}
+                >
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+          {endpoints.length === 0 && <li className="tree-empty">no custom endpoints</li>}
+        </ul>
+        <form
+          className="source-add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void addEndpoint()
+          }}
+        >
+          <div className="ns-options">
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-label">Label</label>
+              <input
+                id="ep-label"
+                placeholder="ollama-local"
+                value={epLabel}
+                onChange={(e) => setEpLabel(e.target.value)}
+              />
+            </div>
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-type">Type</label>
+              <Select
+                id="ep-type"
+                ariaLabel="Endpoint type"
+                mono
+                value={epType}
+                options={[
+                  { value: 'openai', label: 'openai — any OpenAI-compatible' },
+                  { value: 'azure', label: 'azure' },
+                  { value: 'anthropic', label: 'anthropic' }
+                ]}
+                onChange={(v) => {
+                  setEpType(v as ModelEndpointType)
+                  if (v !== 'openai') setEpWire('')
+                }}
+              />
+            </div>
+            <div className="ns-opt source-opt-path">
+              <label className="ns-label" htmlFor="ep-url">Base URL</label>
+              <input
+                id="ep-url"
+                placeholder="http://localhost:11434/v1"
+                value={epUrl}
+                aria-invalid={!!epError}
+                aria-describedby={epError ? 'endpoint-add-error' : undefined}
+                onChange={(e) => {
+                  setEpUrl(e.target.value)
+                  setEpError(null)
+                }}
+              />
+            </div>
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-key">API key env var · optional</label>
+              <input
+                id="ep-key"
+                placeholder="MY_ENDPOINT_KEY"
+                value={epKeyVar}
+                onChange={(e) => setEpKeyVar(e.target.value)}
+              />
+            </div>
+            {epType === 'openai' && (
+              <div className="ns-opt">
+                <label className="ns-label" htmlFor="ep-wire">Wire API</label>
+                <Select
+                  id="ep-wire"
+                  ariaLabel="Wire API"
+                  mono
+                  value={epWire}
+                  options={[
+                    { value: '', label: 'completions (default)' },
+                    { value: 'responses', label: 'responses — GPT-5 series' }
+                  ]}
+                  onChange={(v) => setEpWire(v as '' | WireApi)}
+                />
+              </div>
+            )}
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-models">Models · optional</label>
+              <input
+                id="ep-models"
+                placeholder="llama3.3, qwen2.5-coder"
+                value={epModels}
+                onChange={(e) => setEpModels(e.target.value)}
+              />
+            </div>
+          </div>
+          {epError && (
+            <div id="endpoint-add-error" role="alert" className="new-error">{epError}</div>
+          )}
+          <div className="ns-actions">
+            <button type="submit" className="btn-primary" disabled={!epLabel.trim() || !epUrl.trim()}>
+              Add endpoint
+            </button>
+          </div>
+        </form>
 
         <h3 className="ns-label">Add source</h3>
         <form

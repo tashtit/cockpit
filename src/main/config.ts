@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { SourceDir, TimeFormat } from '../shared/types'
+import type { ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
 
 type AppConfig = {
   readonly sources: SourceDir[]
@@ -20,6 +20,10 @@ type AppConfig = {
   readonly historyDays?: number
   /** Clock format for session times in the UI; absent = 24h */
   readonly timeFormat?: TimeFormat
+  /** User-defined BYOK model endpoints (keys stay in env vars, never here) */
+  readonly modelEndpoints?: ModelEndpoint[]
+  /** ModelEndpoint.id each BYOK session runs on, keyed by `${provider}:${nativeId}` */
+  readonly sessionEndpoints?: Record<string, string>
 }
 
 function configPath(): string {
@@ -83,6 +87,50 @@ export function setTimeFormat(format: TimeFormat): TimeFormat {
   const f: TimeFormat = format === '12h' ? '12h' : '24h'
   saveConfig({ ...cfg, timeFormat: f })
   return f
+}
+
+export function listModelEndpoints(): ModelEndpoint[] {
+  return loadConfig().modelEndpoints ?? []
+}
+
+/** Upsert by id — the caller (main) generates ids and sanitizes fields. */
+export function addModelEndpoint(ep: ModelEndpoint): ModelEndpoint[] {
+  const cfg = loadConfig()
+  cfg.modelEndpoints = [...(cfg.modelEndpoints ?? []).filter((e) => e.id !== ep.id), ep]
+  saveConfig(cfg)
+  return cfg.modelEndpoints
+}
+
+export function removeModelEndpoint(id: string): ModelEndpoint[] {
+  const cfg = loadConfig()
+  cfg.modelEndpoints = (cfg.modelEndpoints ?? []).filter((e) => e.id !== id)
+  // sessions bound to a deleted endpoint must fail loudly on resume, not dangle
+  if (cfg.sessionEndpoints) {
+    for (const [sid, eid] of Object.entries(cfg.sessionEndpoints)) {
+      if (eid === id) delete cfg.sessionEndpoints[sid]
+    }
+  }
+  saveConfig(cfg)
+  return cfg.modelEndpoints
+}
+
+const SESSION_ENDPOINT_CAP = 500
+
+/** Remember which endpoint a session was started with so resume stays on that backend. */
+export function bindSessionEndpoint(sessionId: string, endpointId: string): void {
+  const cfg = loadConfig()
+  const map = cfg.sessionEndpoints ?? {}
+  // re-insert so JSON key order doubles as recency for the cap below
+  delete map[sessionId]
+  map[sessionId] = endpointId
+  const keys = Object.keys(map)
+  for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_ENDPOINT_CAP))) delete map[k]
+  cfg.sessionEndpoints = map
+  saveConfig(cfg)
+}
+
+export function sessionEndpointFor(sessionId: string): string | undefined {
+  return loadConfig().sessionEndpoints?.[sessionId]
 }
 
 export function saveConfig(cfg: AppConfig): void {

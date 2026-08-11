@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
-import type { BusySession, ChatEvent, ChatRequest, Provider } from '../shared/types'
+import type { BusySession, ChatEvent, ChatRequest, ModelEndpoint, Provider } from '../shared/types'
+import { endpointEnv, endpointSupports } from '../shared/endpoints'
 import { contentToText, toolPreview, truncate } from './parsers/util'
 import { cliEnv } from './env'
 
 type Emit = (ev: ChatEvent) => void
+type ResolveEndpoint = (id: string) => ModelEndpoint | undefined
 
 /**
  * Session ids are parsed out of provider log files that other tools write — treat them
@@ -127,6 +129,31 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
   return out
 }
 
+/**
+ * Validate a BYOK turn before spawning. Returns a human-readable refusal, or null when
+ * the turn may proceed. `keyResolved` says whether the endpoint's key env var has a
+ * value in the spawn environment. Exported for tests.
+ */
+export function endpointPreflight(
+  req: ChatRequest,
+  ep: ModelEndpoint | undefined,
+  keyResolved: boolean
+): string | null {
+  if (!req.options?.modelEndpoint) return null
+  if (!ep) return 'Custom endpoint is no longer configured — pick another in Settings.'
+  if (!endpointSupports(req.provider, ep)) {
+    return `Endpoint "${ep.label}" (${ep.type}) can't be used with ${req.provider}.`
+  }
+  if (ep.apiKeyEnvVar && !keyResolved) {
+    return `Environment variable ${ep.apiKeyEnvVar} is not set — export it in the environment Cockpit launches from, or edit the endpoint in Settings.`
+  }
+  const model = req.options.model
+  if (req.provider === 'copilot' && !(model && isValidModel(model))) {
+    return `Endpoint "${ep.label}" needs an explicit model — custom providers can't advertise their models to Copilot.`
+  }
+  return null
+}
+
 type RunningTurn = {
   readonly child: ChildProcess
   /** Flipped when the CLI emits its done event — mutable turn state on purpose */
@@ -143,10 +170,16 @@ export class ChatManager {
   private turns = new Map<string, RunningTurn>()
   private emit: Emit
   private onBusyChange?: (sessions: BusySession[]) => void
+  private resolveEndpoint: ResolveEndpoint
 
-  constructor(emit: Emit, onBusyChange?: (sessions: BusySession[]) => void) {
+  constructor(
+    emit: Emit,
+    onBusyChange?: (sessions: BusySession[]) => void,
+    resolveEndpoint: ResolveEndpoint = () => undefined
+  ) {
     this.emit = emit
     this.onBusyChange = onBusyChange
+    this.resolveEndpoint = resolveEndpoint
   }
 
   /** Sessions with a provider process currently running (earliest start wins on overlap). */
@@ -186,6 +219,21 @@ export class ChatManager {
     }
     const { cmd, args } = buildCommand(req)
     const env = cliEnv()
+    // BYOK: resolve the endpoint and its key, refuse loudly rather than silently
+    // falling back to the provider's own backend
+    const ep = req.options?.modelEndpoint
+      ? this.resolveEndpoint(req.options.modelEndpoint)
+      : undefined
+    const apiKey = ep?.apiKeyEnvVar ? env[ep.apiKeyEnvVar] : undefined
+    const refusal = endpointPreflight(req, ep, Boolean(apiKey))
+    if (refusal) {
+      queueMicrotask(() => {
+        this.emit({ turnId, type: 'error', message: refusal })
+        this.emit({ turnId, type: 'done' })
+      })
+      return turnId
+    }
+    if (ep) Object.assign(env, endpointEnv(req.provider, ep, apiKey))
     // per-account config homes: each provider has its own env var for this
     if (req.configDir) {
       if (req.provider === 'claude') env.CLAUDE_CONFIG_DIR = req.configDir

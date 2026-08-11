@@ -117,12 +117,42 @@ export type PermissionMode = 'safe' | 'auto-edit' | 'yolo'
 
 export type CodexSandbox = 'read-only' | 'workspace-write' | 'danger-full-access'
 
+/* ---------- custom model endpoints (BYOK) ---------- */
+
+/** Provider-API class of a custom endpoint (mirrors Copilot's COPILOT_PROVIDER_TYPE). */
+export type ModelEndpointType = 'openai' | 'azure' | 'anthropic'
+
+/** Copilot wire API for openai-type endpoints ('responses' for GPT-5-series models). */
+export type WireApi = 'completions' | 'responses'
+
+/**
+ * A user-defined model endpoint (bring-your-own-key). Cockpit stores the endpoint,
+ * never the key: `apiKeyEnvVar` names an environment variable that is resolved when
+ * the agent CLI is spawned.
+ */
+export interface ModelEndpoint {
+  id: string
+  label: string
+  type: ModelEndpointType
+  baseUrl: string
+  /** Env var holding the API key; unset for endpoints that need no auth (local Ollama). */
+  apiKeyEnvVar?: string
+  wireApi?: WireApi
+  /** Model suggestions offered in the new-session form. */
+  models?: string[]
+}
+
+/** Renderer-supplied endpoint definition — main assigns the id. */
+export type NewModelEndpoint = Omit<ModelEndpoint, 'id'>
+
 /** Per-agent knobs; each maps to that CLI's own flags. */
 export type AgentOptions = {
   /** All three CLIs accept --model */
   readonly model?: string
   /** Codex only: --sandbox */
   readonly codexSandbox?: CodexSandbox
+  /** Custom model endpoint (ModelEndpoint.id) — claude/copilot run against it via env */
+  readonly modelEndpoint?: string
 }
 
 export type ChatRequest = {
@@ -374,6 +404,9 @@ export type CockpitApi = {
   readonly getAccounts: () => Promise<AccountsSnapshot>
   /** Current subscription usage per configured provider account */
   readonly getUsage: () => Promise<UsageSnapshot>
+  readonly getModelEndpoints: () => Promise<ModelEndpoint[]>
+  readonly addModelEndpoint: (ep: NewModelEndpoint) => Promise<ModelEndpoint[]>
+  readonly removeModelEndpoint: (id: string) => Promise<ModelEndpoint[]>
   /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
   readonly getZoomFactor: () => number
   readonly setZoomFactor: (factor: number) => void

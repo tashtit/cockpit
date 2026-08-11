@@ -3,10 +3,12 @@ import type {
   AccountsSnapshot,
   AgentOptions,
   CodexSandbox,
+  ModelEndpoint,
   PermissionMode,
   Provider,
   RepoGroup
 } from '../../shared/types'
+import { endpointSupports } from '../../shared/endpoints'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -116,6 +118,8 @@ export function NewSession({
   const [prompt, setPrompt] = useState('')
   const [model, setModel] = useState('')
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  const [endpointId, setEndpointId] = useState('')
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -134,13 +138,20 @@ export function NewSession({
   useEffect(() => {
     promptRef.current?.focus()
     void api.getAccounts().then(setAccounts)
+    void api.getModelEndpoints().then(setEndpoints)
   }, [])
 
-  // model suggestions and accounts differ per agent — reset stale choices on switch
+  // model suggestions, accounts, and endpoints differ per agent — reset stale choices on switch
   useEffect(() => {
     setModel('')
     setAccountKey(null)
+    setEndpointId('')
   }, [provider])
+
+  const usableEndpoints = endpoints.filter((e) => endpointSupports(provider, e))
+  const endpoint = usableEndpoints.find((e) => e.id === endpointId)
+  /** Copilot can't list a custom endpoint's models — BYOK there needs an explicit one. */
+  const modelMissing = provider === 'copilot' && !!endpoint && !model.trim()
 
   const start = async (): Promise<void> => {
     if (busy || !prompt.trim()) return
@@ -149,7 +160,8 @@ export function NewSession({
     window.localStorage.setItem('cockpit:mode', mode)
     const options: AgentOptions = {
       model: model.trim() || undefined,
-      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined
+      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
+      modelEndpoint: endpoint?.id
     }
     if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
     const err = await onStart({
@@ -241,19 +253,36 @@ export function NewSession({
               </>
             )}
           </div>
+          {usableEndpoints.length > 0 && (
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ns-endpoint">Endpoint</label>
+              <Select
+                id="ns-endpoint"
+                ariaLabel="Endpoint"
+                value={endpointId}
+                options={[
+                  { value: '', label: 'default' },
+                  ...usableEndpoints.map((e) => ({ value: e.id, label: e.label, title: e.baseUrl }))
+                ]}
+                onChange={setEndpointId}
+              />
+            </div>
+          )}
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ns-model">Model</label>
             <input
               id="ns-model"
               list="ns-models"
-              placeholder="default"
+              placeholder={modelMissing ? 'required' : 'default'}
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
             <datalist id="ns-models">
-              {MODEL_SUGGESTIONS[provider].map((m) => (
-                <option key={m} value={m} />
-              ))}
+              {(endpoint?.models?.length ? endpoint.models : MODEL_SUGGESTIONS[provider]).map(
+                (m) => (
+                  <option key={m} value={m} />
+                )
+              )}
             </datalist>
           </div>
           {provider === 'codex' && (
@@ -288,6 +317,14 @@ export function NewSession({
         <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>
           {MODES.find((m) => m.v === mode)?.hint}
         </div>
+        {endpoint && (
+          <div className="ns-hint">
+            Runs on {endpoint.baseUrl} —{' '}
+            {provider === 'copilot'
+              ? 'a model this endpoint serves is required.'
+              : 'set a model this endpoint serves.'}
+          </div>
+        )}
 
         <label className="ns-label" htmlFor="ns-branch">Branch</label>
         <div className="ns-branch-row">
@@ -320,7 +357,11 @@ export function NewSession({
 
         <div className="ns-actions">
           <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button className="btn-primary" onClick={() => void start()} disabled={busy || !prompt.trim()}>
+          <button
+            className="btn-primary"
+            onClick={() => void start()}
+            disabled={busy || !prompt.trim() || modelMissing}
+          >
             {busy ? 'Creating worktree…' : 'Start session'}
           </button>
         </div>
