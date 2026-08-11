@@ -16,6 +16,12 @@ import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
+/** "titan-ron" → "Titan": the login's first name-ish segment, capitalized. */
+function firstName(login: string): string {
+  const first = login.split(/[-._]/, 1)[0] || login
+  return first.charAt(0).toUpperCase() + first.slice(1)
+}
+
 /**
  * Mission-control home, patterned after GitHub's Agent HQ: a task composer front
  * and center (repo + agent + permissions inline), recent agent work below it.
@@ -108,7 +114,7 @@ export function HomeView({
           <h2>
             What should we ship
             {accounts?.githubUser ? (
-              <span className="hero-name">, {accounts.githubUser}?</span>
+              <span className="hero-name">, {firstName(accounts.githubUser)}?</span>
             ) : (
               '?'
             )}
