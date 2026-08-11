@@ -54,7 +54,7 @@ jobs:
 
       - name: ⬆️ Upload unit coverage
         # Fork PRs run with a read-only token, so the coverage API is unavailable there.
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !github.event.pull_request.head.repo.fork }}
         uses: actions/upload-code-coverage@v1.4.2
         with:
           file: coverage/unit/cobertura-coverage.xml
@@ -62,7 +62,7 @@ jobs:
           label: code-coverage/unit
 
       - name: ⬆️ Upload component coverage
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !github.event.pull_request.head.repo.fork }}
         uses: actions/upload-code-coverage@v1.4.2
         with:
           file: coverage/component/cobertura-coverage.xml
