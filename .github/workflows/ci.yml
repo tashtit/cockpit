@@ -22,6 +22,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
+      # Blocks PRs that introduce dependencies with known vulnerabilities;
+      # diffs base..head, so it only applies to pull requests.
+      - name: 🛡️ Dependency review
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/dependency-review-action@v5.0.0
+        with:
+          fail-on-severity: high
+
       - name: Setup Node.js
         uses: actions/setup-node@v7.0.0
         with: { node-version-file: '.nvmrc', cache: 'npm' }
@@ -78,19 +86,3 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 14
-
-  # Blocks PRs that introduce dependencies with known vulnerabilities.
-  dependency-review:
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: 'read'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: 🛡️ Dependency review
-        uses: actions/dependency-review-action@v5.0.0
-        with:
-          fail-on-severity: high
