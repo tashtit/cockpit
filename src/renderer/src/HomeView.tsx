@@ -150,7 +150,12 @@ export function HomeView({
                   )
                 })}
               </div>
-              {opts.length > 0 ? (
+              {accounts === null ? (
+                // still loading — an empty placeholder, never a false "not signed in"
+                <span className="acct-chip" aria-hidden="true">
+                  …
+                </span>
+              ) : opts.length > 0 ? (
                 <Select
                   className="composer-acct-wrap"
                   mono

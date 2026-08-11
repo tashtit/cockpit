@@ -82,7 +82,8 @@ function createWindow(): void {
     minWidth: 560,
     minHeight: 420,
     title: 'Cockpit',
-    backgroundColor: '#0b0d12',
+    // matches --bg in style.css so pre-paint and resize flashes stay on-theme
+    backgroundColor: '#0b0d16',
     // frameless-with-inset-traffic-lights: the app draws its own chrome (macOS)
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } }

@@ -319,7 +319,8 @@ summary::-webkit-details-marker { display: none; }
   background: linear-gradient(180deg, color-mix(in srgb, var(--ok-btn) 82%, var(--white)) 0%,
     var(--ok-btn) 62%);
   box-shadow: inset 0 1px 0 var(--highlight-fill), var(--shadow-fill);
-  padding: var(--s2) var(--s4); font-weight: 600; font-size: var(--fs-sm); flex-shrink: 0; }
+  /* 5px vertical = 28px total — matches the Select trigger it sits beside */
+  padding: 5px var(--s4); font-weight: 600; font-size: var(--fs-sm); flex-shrink: 0; }
 .btn-pr:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-pr:disabled { opacity: 0.5; cursor: default; }
 .link-btn { color: var(--accent); font-size: inherit; padding: 0; }
@@ -539,9 +540,10 @@ summary::-webkit-details-marker { display: none; }
   background: var(--pane); flex-wrap: wrap; }
 .composer-repo-icon { color: var(--fg-dim); display: inline-flex; margin-left: var(--s1); }
 .composer-repo { max-width: 200px; flex: 1; min-width: 120px; }
-/* agent picker + account form one "who runs this" control */
+/* agent picker + account form one "who runs this" control.
+   1px padding: 24px agents + padding + border = 28px, level with the bar's selects */
 .composer-identity { display: inline-flex; align-items: center; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); padding: 2px; }
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 1px; }
 .composer-identity .composer-agents { border: none; background: none; padding: 0 4px 0 0;
   margin-right: 6px; border-right: 1px solid var(--border); border-radius: 0; }
 .composer-agents { display: flex; gap: 2px; background: var(--surface);
@@ -562,7 +564,8 @@ summary::-webkit-details-marker { display: none; }
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
 /* account select sits borderless inside the identity control (quiet variant) */
 .composer-acct-wrap { max-width: 210px; }
-.composer-bar .btn-primary { margin-left: auto; }
+/* every control in the bar is 28px tall — one shared bottom edge, no ragged line */
+.composer-bar .btn-primary { margin-left: auto; padding: 5px var(--s5); }
 .home-recent { display: flex; flex-direction: column; gap: var(--s2); }
 .recent-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .recent-row { display: flex; align-items: center; gap: var(--s3); width: 100%;
@@ -613,7 +616,8 @@ summary::-webkit-details-marker { display: none; }
 .ns-provider.active .acct-chip { color: inherit; }
 .ns-options { display: flex; gap: var(--s4); flex-wrap: wrap; }
 .ns-opt { display: flex; flex-direction: column; gap: var(--s1); flex: 1; min-width: 130px; }
-.ns-opt input { padding: var(--s2) var(--s3); background: var(--surface); color: var(--fg);
+/* 4px vertical = 28px with the border — level with Selects and .ns-account-single */
+.ns-opt input { padding: 4px var(--s3); background: var(--surface); color: var(--fg);
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 /* single-account read-only field — trigger-shaped, but inert */
 .ns-account-single { font-family: var(--mono); color: var(--fg); overflow: hidden;
@@ -623,7 +627,7 @@ summary::-webkit-details-marker { display: none; }
   display: flex; align-items: center; }
 .ns-branch-row { display: flex; align-items: center; gap: var(--s2); }
 .ns-branch-prefix { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-sm); }
-.ns-branch-row input { flex: 1; min-width: 0; padding: var(--s2) var(--s3);
+.ns-branch-row input { flex: 1; min-width: 0; padding: 4px var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm); font-size: var(--fs-sm); font-family: var(--mono); }
 .ns-hint { color: var(--fg-dim); font-size: var(--fs-xs); }
@@ -679,7 +683,7 @@ summary::-webkit-details-marker { display: none; }
 .usage-num { color: var(--fg); font-variant-numeric: tabular-nums; }
 
 .source-add { display: flex; flex-direction: column; gap: var(--s2); }
-.source-add input { min-width: 0; padding: var(--s2) var(--s3);
+.source-add input { min-width: 0; padding: 4px var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 /* the path is a machine identifier — mono, like .ns-branch-row input */

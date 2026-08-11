@@ -41,10 +41,13 @@ export function accountOptions(snap: AccountsSnapshot | null, provider: Provider
         })
       }
     } else {
+      const identity = a.identity ?? a.label
       out.push({
         key: a.path,
-        identity: a.identity ?? a.label,
-        display: `${a.identity ?? a.label}${a.isDefault ? '' : ` · ${a.label}`}`,
+        identity,
+        // the label is only appended when it adds information — when the identity is
+        // unknown it already falls back to the label, and "label · label" is noise
+        display: a.isDefault || identity === a.label ? identity : `${identity} · ${a.label}`,
         configDir: a.isDefault ? undefined : a.path
       })
     }
@@ -184,8 +187,12 @@ export function NewSession({
                 <ProviderLogo p={p} size={20} />
                 <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
                 <span className="ns-provider-blurb">{AGENT_BLURB[p]}</span>
-                <span className={`acct-chip${acct ? '' : ' missing'}`} title={acct?.display}>
-                  {acct?.identity ?? 'not signed in'}
+                {/* while accounts are still loading, absence is unknown — not "signed out" */}
+                <span
+                  className={`acct-chip${acct || accounts === null ? '' : ' missing'}`}
+                  title={acct?.display}
+                >
+                  {acct?.identity ?? (accounts === null ? '…' : 'not signed in')}
                 </span>
               </button>
             )
@@ -216,7 +223,7 @@ export function NewSession({
                   aria-labelledby="ns-account-label"
                   title={account?.display}
                 >
-                  {account?.display ?? 'not signed in'}
+                  {account?.display ?? (accounts === null ? '…' : 'not signed in')}
                 </div>
               </>
             )}
