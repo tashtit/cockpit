@@ -150,6 +150,11 @@ export function App(): JSX.Element {
   const applyEvent = useCallback(
     (ev: ChatEvent) => {
       if (ev.type === 'session') {
+        // keep the tree highlight tracking the live conversation: row ids are
+        // `${provider}:${nativeId}`, and providers can mint a new session id on
+        // resume (claude forks one per turn) or on first turn of a new session
+        const provider = bindingRef.current?.provider
+        if (provider) setSelectedSessionId(`${provider}:${ev.nativeSessionId}`)
         setBinding((b) => (b ? { ...b, nativeSessionId: ev.nativeSessionId } : b))
       } else if (ev.type === 'text') {
         textBufRef.current += ev.text
