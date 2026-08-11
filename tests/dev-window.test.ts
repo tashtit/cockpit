@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { centeredIn, readDevWindowPrefs } from '../src/main/devWindow'
+import { centeredIn, readDevWindowPrefs } from '../src/main/dev-window'
 
 describe('readDevWindowPrefs', () => {
   it('defaults to foreground on the OS-chosen display', () => {

@@ -30,7 +30,7 @@ import {
   saveInstructionFile
 } from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
-import { centeredIn, readDevWindowPrefs } from './devWindow'
+import { centeredIn, readDevWindowPrefs } from './dev-window'
 import { getUsage } from './usage'
 import { homedir } from 'node:os'
 
