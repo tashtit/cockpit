@@ -494,6 +494,15 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
         </ul>
 
         <h3 className="ns-label">Model providers</h3>
+        {typeof api.addModelEndpoint !== 'function' ? (
+          // an orphaned dev window can pair an old preload with hot-reloaded renderer
+          // code — say so up front instead of erroring after the form is filled in
+          <p className="ns-hint">
+            This window is running an older Cockpit bridge — restart the app to manage model
+            providers.
+          </p>
+        ) : (
+          <>
         <p className="ns-hint">
           Access models from other providers with your own API keys — Copilot runs against any
           OpenAI-compatible, Azure, or Anthropic endpoint, Claude against an Anthropic-compatible
@@ -650,6 +659,8 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
             </button>
           </div>
         </form>
+          </>
+        )}
 
         <h3 className="ns-label">Add source</h3>
         <form
