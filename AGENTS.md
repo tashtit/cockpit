@@ -23,7 +23,7 @@ Cockpit is an Electron desktop hub that indexes and drives Claude Code / Codex /
 
 - **main** (`src/main/`) — all Node work: fs scanning, git, spawning provider CLIs.
 - **preload** (`src/preload/index.ts`) — contextBridge exposing `window.cockpit`.
-- **renderer** (`src/renderer/src/`) — React 18 UI, fully sandboxed (`contextIsolation`, `sandbox: true`, navigation blocked). No Node access, hand-written CSS (no Tailwind, no component library).
+- **renderer** (`src/renderer/src/`) — React 19 UI, fully sandboxed (`contextIsolation`, `sandbox: true`, navigation blocked). No Node access, hand-written CSS (no Tailwind, no component library).
 
 The entire IPC surface is the `CockpitApi` interface in `src/shared/types.ts`. Adding a capability means touching four places, in order:
 

@@ -12,7 +12,7 @@
 
 **Project:** Cockpit — unified Electron desktop hub for Claude Code, Codex, and GitHub Copilot sessions
 **Category:** Developer Tool / IDE (desktop, dark-only)
-**Stack:** Electron + React 18 + Vite, hand-written CSS (no Tailwind, no component library)
+**Stack:** Electron + React 19 + Vite, hand-written CSS (no Tailwind, no component library)
 **Design Dials:** Motion 2/10 (Subtle) | Density 8/10 (Dense / Dashboard)
 **Product direction:** GitHub-first; agent/GitHub visual identity; always worktrees + PRs
 

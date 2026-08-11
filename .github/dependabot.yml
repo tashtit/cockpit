@@ -1,18 +1,41 @@
-# Proposes reviewed updates for the release-tag-pinned actions in .github/workflows
-# and for npm dependencies (minor/patch grouped into a single weekly PR).
+# Weekly reviewed dependency updates.
+#
+# Grouping strategy: routine (minor/patch) updates are combined so a week of
+# churn is one review each — dev dependencies in one PR, production (runtime)
+# dependencies in another, GitHub Actions pins in a third. Major versions stay
+# as individual PRs so each breaking upgrade gets its own review and CI run.
+#
+# Commit prefixes match the repo's Conventional Commits history:
+# "build(deps)"/"build(deps-dev)" for npm, "ci" for workflow action pins.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: ci
 
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 10
     groups:
-      npm-minor-patch:
+      dev-minor-patch:
+        dependency-type: development
         update-types:
           - minor
           - patch
+      prod-minor-patch:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: build
+      include: scope
