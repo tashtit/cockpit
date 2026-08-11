@@ -8,6 +8,9 @@ import { freshApi } from './stub-api'
 // (never reassign window.cockpit) so the captured reference stays live.
 window.cockpit = freshApi()
 
+// jsdom implements no layout, so it omits scrollIntoView entirely
+if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {}
+
 beforeEach(() => {
   Object.assign(window.cockpit, freshApi())
   window.localStorage.clear()

@@ -84,13 +84,20 @@ export function Select({
         close(false)
     }
     const onAway = (): void => close(false)
+    // scrolling an ancestor detaches the fixed popup from its trigger, so close —
+    // but scrolling the popup's own list must not dismiss it
+    const onScroll = (e: Event): void => {
+      const t = e.target as Node | null
+      if (t && listRef.current && (t === listRef.current || listRef.current.contains(t))) return
+      close(false)
+    }
     document.addEventListener('mousedown', onDown)
     window.addEventListener('resize', onAway)
-    document.addEventListener('scroll', onAway, true)
+    document.addEventListener('scroll', onScroll, true)
     return () => {
       document.removeEventListener('mousedown', onDown)
       window.removeEventListener('resize', onAway)
-      document.removeEventListener('scroll', onAway, true)
+      document.removeEventListener('scroll', onScroll, true)
     }
   }, [open])
 
