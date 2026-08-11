@@ -77,4 +77,5 @@ Project skills (Agent Skills standard, `SKILL.md` format) live in **`.agents/ski
 ## Conventions
 
 - Conventional Commits (`feat(indexer): …`, `docs: …`), matching existing history.
-- No AI attribution: no `Co-Authored-By` lines or "Generated with" footers in commits or PRs.
+- No `Co-Authored-By` trailers in commits, ever — for AI agents or anyone else.
+- No AI attribution anywhere: no "Generated with" footers, AI labels, or similar markers in commits or PRs.
