@@ -101,12 +101,15 @@ export function NewSession({
   repo,
   repos,
   busy,
+  initialPrompt,
   onStart,
   onCancel
 }: {
   repo: RepoGroup
   repos: RepoGroup[]
   busy: boolean
+  /** Draft carried over from Home's quick composer — typing is never lost on "Options…" */
+  initialPrompt?: string
   onStart: (req: StartSessionRequest) => Promise<string | null>
   onCancel: () => void
 }): JSX.Element {
@@ -115,7 +118,7 @@ export function NewSession({
     () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
   )
   const [name, setName] = useState('')
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const [model, setModel] = useState('')
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])

@@ -3,7 +3,9 @@
 > Extends `MASTER.md`. Rules here win for this view.
 
 **Pattern:** focused form card (`.ns-card`, 600px) for starting a session in a chosen
-repo with full control — the deliberate counterpart to Home's quick composer.
+repo with full control — the deliberate counterpart to Home's quick composer. Reached
+from Home's "Options…" (which passes the typed draft as `initialPrompt`) or the sidebar
+repo-row "+".
 
 ## Form grammar
 

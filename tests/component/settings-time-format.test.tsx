@@ -110,6 +110,7 @@ describe('session rows follow the time format live', () => {
         busy={false}
         onStart={vi.fn().mockResolvedValue(null)}
         onOpenSession={vi.fn()}
+        onOpenFull={vi.fn()}
       />
     )
 
