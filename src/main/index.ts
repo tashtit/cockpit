@@ -1,10 +1,17 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import type { ChatRequest, Provider, SessionQuery } from '../shared/types'
+import type { ChatRequest, Provider, SessionQuery, TimeFormat } from '../shared/types'
 import { SessionIndexer } from './indexer'
 import { ChatManager } from './chat'
-import { loadConfig, saveConfig, setHistoryDays, setRepoHidden, setSessionArchived } from './config'
+import {
+  loadConfig,
+  saveConfig,
+  setHistoryDays,
+  setRepoHidden,
+  setSessionArchived,
+  setTimeFormat
+} from './config'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
 import {
@@ -143,6 +150,10 @@ app.whenReady().then(() => {
   ipcMain.handle('history:get', () => loadConfig().historyDays ?? 0)
   ipcMain.handle('history:set', (_e, days: number) => {
     indexer.setHistoryDays(setHistoryDays(Number(days)))
+  })
+  ipcMain.handle('time-format:get', () => loadConfig().timeFormat ?? '24h')
+  ipcMain.handle('time-format:set', (_e, format: TimeFormat) => {
+    setTimeFormat(format)
   })
   ipcMain.handle('github:prs', (_e, repoRoot: string) => getPrs(assertKnownRepoRoot(repoRoot)))
   ipcMain.handle('workspace:create', (_e, repoRoot: string, name?: string) =>

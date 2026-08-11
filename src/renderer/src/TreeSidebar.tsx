@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AccountsSnapshot, PrStatus, RepoGroup, SessionMeta } from '../../shared/types'
 import { api } from './api'
+import { fmtTime, useTimeFormat } from './time'
 import {
   ChatIcon,
   CockpitLogo,
@@ -29,14 +30,6 @@ function sameList(a: SessionMeta[], b: SessionMeta[]): boolean {
       return false
   }
   return true
-}
-
-function fmtTime(ms: number): string {
-  const d = new Date(ms)
-  const today = new Date().toDateString() === d.toDateString()
-  return today
-    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 export function TreeSidebar({
@@ -653,6 +646,7 @@ function SessionRow({
   onSelect: (s: SessionMeta) => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
+  const timeFormat = useTimeFormat()
   const acct = accounts?.accounts.find((a) => a.provider === s.provider && a.label === s.source)
   const multiAccount =
     (accounts?.accounts.filter((a) => a.provider === s.provider).length ?? 0) > 1
@@ -695,7 +689,7 @@ function SessionRow({
       {pr ? (
         <PrBadge pr={pr} onOpen={onOpenUrl} compact />
       ) : (
-        <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtTime(s.updatedAt)}</time>
+        <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtTime(s.updatedAt, timeFormat)}</time>
       )}
     </div>
   )

@@ -4,6 +4,7 @@ import type {
   Provider,
   SourceDir,
   SourceStats,
+  TimeFormat,
   UsageSnapshot,
   UsageTokens,
   UsageWindow
@@ -11,6 +12,7 @@ import type {
 import { api } from './api'
 import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { setTimeFormat, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -23,6 +25,11 @@ const HISTORY_OPTIONS = [
   { value: '30', label: 'Last 30 days' },
   { value: '90', label: 'Last 90 days' },
   { value: '365', label: 'Last year' }
+]
+
+const TIME_FORMAT_OPTIONS = [
+  { value: '24h', label: '24-hour · 14:30' },
+  { value: '12h', label: '12-hour · 2:30 PM' }
 ]
 
 function fmtAgo(ms: number): string {
@@ -109,6 +116,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   /** null until loaded — the Select only renders with a real value */
   const [historyDays, setHistoryDays] = useState<number | null>(null)
+  const timeFormat = useTimeFormat()
   /** Path of the source whose Remove is in its confirm step */
   const [confirming, setConfirming] = useState<string | null>(null)
   const [lastRemoved, setLastRemoved] = useState<SourceDir | null>(null)
@@ -191,6 +199,11 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
     setHistoryDays(days)
     await api.setHistoryDays(days)
     setStatus(days === 0 ? 'Showing all history' : `Showing the last ${days} days of history`)
+  }
+
+  const changeTimeFormat = (f: TimeFormat): void => {
+    setTimeFormat(f)
+    setStatus(`Session times shown in ${f === '24h' ? '24-hour' : '12-hour'} format`)
   }
 
   // a hand-edited config value outside the presets still renders as itself
@@ -304,6 +317,24 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
                 onChange={(v) => void changeHistory(Number(v))}
               />
             )}
+          </div>
+        </div>
+
+        <h3 className="ns-label">Display</h3>
+        <p className="ns-hint">
+          How a session&apos;s last-activity time is shown in the sidebar and on the home view.
+          Sessions last active before today show a date instead.
+        </p>
+        <div className="ns-options">
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="time-format">Time format</label>
+            <Select
+              id="time-format"
+              ariaLabel="Time format"
+              value={timeFormat}
+              options={TIME_FORMAT_OPTIONS}
+              onChange={(v) => changeTimeFormat(v as TimeFormat)}
+            />
           </div>
         </div>
 

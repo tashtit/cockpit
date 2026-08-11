@@ -11,16 +11,9 @@ import { api } from './api'
 import { accountOptions, MODES, savedAccount, type AccountChoice } from './NewSession'
 import { BranchIcon, CockpitLogo, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { Select } from './Select'
+import { fmtTime, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
-
-function fmtTime(ms: number): string {
-  const d = new Date(ms)
-  const today = new Date().toDateString() === d.toDateString()
-  return today
-    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
 
 /**
  * Mission-control home, patterned after GitHub's Agent HQ: a task composer front
@@ -61,6 +54,7 @@ export function HomeView({
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [accountKey, setAccountKey] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
+  const timeFormat = useTimeFormat()
 
   const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
   const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider) ?? null
@@ -215,7 +209,7 @@ export function HomeView({
                         </span>
                       )}
                       <time dateTime={new Date(s.updatedAt).toISOString()}>
-                        {fmtTime(s.updatedAt)}
+                        {fmtTime(s.updatedAt, timeFormat)}
                       </time>
                     </span>
                   </button>
