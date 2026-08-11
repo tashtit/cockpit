@@ -1,7 +1,18 @@
-# Proposes reviewed updates for the release-tag-pinned actions in .github/workflows.
+# Proposes reviewed updates for the release-tag-pinned actions in .github/workflows
+# and for npm dependencies (minor/patch grouped into a single weekly PR).
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
