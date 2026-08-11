@@ -34,7 +34,8 @@ test.afterAll(async () => {
 test('boots to the home shell with a live composer', async () => {
   const win = await app.firstWindow()
   await expect(win).toHaveTitle('Cockpit')
-  await expect(win.getByRole('heading', { name: 'What should we ship?' })).toBeVisible()
+  // the heading may carry the gh login ("What should we ship, dev?") — match the stem
+  await expect(win.getByRole('heading', { name: /What should we ship/ })).toBeVisible()
 
   // composer wiring is alive: renderer state reacts through the preload bridge
   const prompt = win.getByRole('textbox', { name: 'Task description' })

@@ -8,11 +8,11 @@ import type {
   SessionMeta
 } from '../../shared/types'
 import { api } from './api'
-import { useSessionBusy } from './busy'
+import { useBusyMap } from './busy'
 import { accountOptions, MODES, savedAccount, type AccountChoice } from './NewSession'
-import { BranchChip, CockpitLogo, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import { BranchChip, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { Select } from './Select'
-import { fmtTime, useTimeFormat } from './time'
+import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -52,6 +52,7 @@ export function HomeView({
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [recent, setRecent] = useState<SessionMeta[]>([])
+  const [recentTotal, setRecentTotal] = useState(0)
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [accountKey, setAccountKey] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
@@ -73,7 +74,11 @@ export function HomeView({
 
   useEffect(() => {
     let dead = false
-    void api.pageSessions({ limit: 10 }).then((p) => !dead && setRecent(p.items))
+    void api.pageSessions({ limit: 10 }).then((p) => {
+      if (dead) return
+      setRecent(p.items)
+      setRecentTotal(p.total)
+    })
     return () => {
       dead = true
     }
@@ -96,9 +101,18 @@ export function HomeView({
   return (
     <main className="chat home-view">
       <div className="home-inner">
+        {recent.length > 0 && (
+          <Board sessions={recent} total={recentTotal} onOpen={onOpenSession} />
+        )}
         <div className="home-hero">
-          <CockpitLogo size={48} />
-          <h2>What should we ship?</h2>
+          <h2>
+            What should we ship
+            {accounts?.githubUser ? (
+              <span className="hero-name">, {accounts.githubUser}?</span>
+            ) : (
+              '?'
+            )}
+          </h2>
           <p className="home-sub">
             Assign a task to an agent — it runs in an isolated worktree and lands as a PR.
             <span className="home-kbd">⌘N new task · ⌘K search</span>
@@ -194,43 +208,105 @@ export function HomeView({
         )}
         {error && <div className="new-error" role="alert">{error}</div>}
 
-        {recent.length > 0 && (
-          <section className="home-recent">
-            <h3 className="ns-label">Recent activity</h3>
-            <ul className="recent-list">
-              {recent.map((s) => (
-                <RecentRow key={s.id} s={s} onOpen={onOpenSession} />
-              ))}
-            </ul>
-          </section>
-        )}
       </div>
     </main>
   )
 }
 
-/** One recent-activity row — its own component so it can subscribe to live status. */
-function RecentRow({ s, onOpen }: { s: SessionMeta; onOpen: (s: SessionMeta) => void }): JSX.Element {
+/**
+ * The board — the home view's opening move and the app's signature element:
+ * a departure-board of sessions, flying first. Livery-colored pulse + placard
+ * agent label + branch + elapsed time for running sessions; idle sessions keep
+ * their timestamp. Replaces the old "Recent activity" list (the sidebar remains
+ * the exhaustive one).
+ */
+function Board({
+  sessions,
+  total,
+  onOpen
+}: {
+  sessions: SessionMeta[]
+  total: number
+  onOpen: (s: SessionMeta) => void
+}): JSX.Element {
+  const busy = useBusyMap()
+  // the elapsed column ticks only while something is actually flying
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (busy.size === 0) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [busy.size])
+
+  // flying first (longest airborne on top); idle keep their recency order
+  const flying = sessions
+    .filter((s) => busy.has(s.id))
+    .sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
+  const ground = sessions.filter((s) => !busy.has(s.id))
+  const groundTotal = Math.max(total - flying.length, ground.length)
+
+  return (
+    <section className="board" aria-label="Session board">
+      <div className="board-head">
+        {/* polite live region: turn starts/completions announce the new counts */}
+        <h3 className="board-eyebrow" aria-live="polite">
+          {flying.length > 0 ? (
+            <>
+              <b>{flying.length} flying</b> · {groundTotal} on the ground
+            </>
+          ) : (
+            <>all on the ground</>
+          )}
+        </h3>
+      </div>
+      <ul className="board-list">
+        {[...flying, ...ground].map((s) => (
+          <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} now={now} onOpen={onOpen} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function BoardRow({
+  s,
+  startedAt,
+  now,
+  onOpen
+}: {
+  s: SessionMeta
+  /** Epoch ms the running turn started; undefined = on the ground */
+  startedAt: number | undefined
+  now: number
+  onOpen: (s: SessionMeta) => void
+}): JSX.Element {
   const timeFormat = useTimeFormat()
-  const working = useSessionBusy(s.id)
+  const flying = startedAt !== undefined
   return (
     <li>
-      <button className="recent-row" onClick={() => onOpen(s)}>
-        <span className={`plogo plogo-${s.provider}`} title={PROVIDER_LABEL[s.provider]}>
-          <ProviderLogo p={s.provider} size={14} />
+      <button
+        className={`board-row ${flying ? 'flying' : ''}`}
+        title={`${PROVIDER_LABEL[s.provider]} — ${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}`}
+        onClick={() => onOpen(s)}
+      >
+        {flying ? (
+          <LiveDot p={s.provider} />
+        ) : (
+          <span className="board-dot-idle" aria-hidden="true" />
+        )}
+        <span className={`board-agent board-agent-${s.provider}`}>
+          {PROVIDER_LABEL[s.provider]}
         </span>
-        <span className="recent-title">{s.title}</span>
-        <span className="recent-meta">
-          {s.repo && <span className="recent-repo">{s.repo.name}</span>}
-          {s.gitBranch && <BranchChip branch={s.gitBranch} />}
-          {working ? (
-            <LiveDot p={s.provider} />
-          ) : (
-            <time dateTime={new Date(s.updatedAt).toISOString()}>
-              {fmtTime(s.updatedAt, timeFormat)}
-            </time>
-          )}
-        </span>
+        {s.gitBranch && <BranchChip branch={s.gitBranch} />}
+        <span className="board-task">{s.title}</span>
+        {s.repo && <span className="board-repo">{s.repo.name}</span>}
+        {flying ? (
+          <span className="board-meta">{fmtElapsed(now - startedAt)}</span>
+        ) : (
+          <time className="board-meta" dateTime={new Date(s.updatedAt).toISOString()}>
+            {fmtTime(s.updatedAt, timeFormat)}
+          </time>
+        )}
       </button>
     </li>
   )

@@ -3,7 +3,7 @@ import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings } from '../../src/renderer/src/Settings'
 import { HomeView } from '../../src/renderer/src/HomeView'
-import { fmtTime, initTimeFormat, setTimeFormat } from '../../src/renderer/src/time'
+import { fmtElapsed, fmtTime, initTimeFormat, setTimeFormat } from '../../src/renderer/src/time'
 import type { RepoGroup, SessionMeta } from '../../src/shared/types'
 
 /** Today at 14:05 local — always "today" whatever the wall clock says. */
@@ -37,6 +37,17 @@ describe('fmtTime', () => {
     const date = new Date(lastWeek).toLocaleDateString([], { month: 'short', day: 'numeric' })
     expect(fmtTime(lastWeek, '24h')).toBe(date)
     expect(fmtTime(lastWeek, '12h')).toBe(date)
+  })
+})
+
+describe('fmtElapsed', () => {
+  it('steps from seconds to minutes to hours with padded remainders', () => {
+    expect(fmtElapsed(41_000)).toBe('41s')
+    expect(fmtElapsed(134_000)).toBe('2m 14s')
+    expect(fmtElapsed(3_780_000)).toBe('1h 03m')
+  })
+  it('clamps negative clock skew to zero', () => {
+    expect(fmtElapsed(-5_000)).toBe('0s')
   })
 })
 

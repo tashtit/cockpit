@@ -295,6 +295,14 @@ export interface UsageSnapshot {
   providers: ProviderUsage[]
 }
 
+/** One session with a live provider process, for status displays (the board, LiveDots). */
+export interface BusySession {
+  /** Session id: `${provider}:${nativeId}` */
+  id: string
+  /** Epoch ms the running turn was started — elapsed time derives from this */
+  startedAt: number
+}
+
 export type ChatEvent =
   | { turnId: string; type: 'session'; nativeSessionId: string }
   | { turnId: string; type: 'text'; text: string }
@@ -318,10 +326,10 @@ export interface CockpitApi {
   listRepos(): Promise<RepoGroup[]>
   pageSessions(query: SessionQuery): Promise<SessionPage>
   getSessionMessages(id: string): Promise<SessionMessage[]>
-  /** Session ids (`provider:nativeId`) with a provider process currently running */
-  getBusySessions(): Promise<string[]>
+  /** Sessions with a provider process currently running */
+  getBusySessions(): Promise<BusySession[]>
   /** Push: fires with the full busy set whenever a turn starts, ends, or gains a session id */
-  onBusySessions(cb: (ids: string[]) => void): () => void
+  onBusySessions(cb: (sessions: BusySession[]) => void): () => void
   setArchived(sessionId: string, archived: boolean): Promise<void>
   setRepoHidden(repoKey: string, hidden: boolean): Promise<void>
   /** Days of history to display — sessions idle longer are hidden; 0 = all */

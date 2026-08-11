@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
-import type { ChatEvent, ChatRequest, Provider } from '../shared/types'
+import type { BusySession, ChatEvent, ChatRequest, Provider } from '../shared/types'
 import { contentToText, toolPreview, truncate } from './parsers/util'
 import { cliEnv } from './env'
 
@@ -131,6 +131,8 @@ interface RunningTurn {
   child: ChildProcess
   doneSent: boolean
   provider: Provider
+  /** Epoch ms this turn was spawned — surfaces as elapsed time on the board */
+  startedAt: number
   /** Native session ids this turn is known under — the resumed id plus any the
    *  stream announces (claude forks a fresh id per resumed turn). */
   sessionIds: Set<string>
@@ -139,24 +141,28 @@ interface RunningTurn {
 export class ChatManager {
   private turns = new Map<string, RunningTurn>()
   private emit: Emit
-  private onBusyChange?: (ids: string[]) => void
+  private onBusyChange?: (sessions: BusySession[]) => void
 
-  constructor(emit: Emit, onBusyChange?: (ids: string[]) => void) {
+  constructor(emit: Emit, onBusyChange?: (sessions: BusySession[]) => void) {
     this.emit = emit
     this.onBusyChange = onBusyChange
   }
 
-  /** Session ids (`provider:nativeId`) with a provider process currently running. */
-  busySessionIds(): string[] {
-    const ids = new Set<string>()
+  /** Sessions with a provider process currently running (earliest start wins on overlap). */
+  busySessions(): BusySession[] {
+    const byId = new Map<string, number>()
     for (const t of this.turns.values()) {
-      for (const nativeId of t.sessionIds) ids.add(`${t.provider}:${nativeId}`)
+      for (const nativeId of t.sessionIds) {
+        const id = `${t.provider}:${nativeId}`
+        const prev = byId.get(id)
+        if (prev === undefined || t.startedAt < prev) byId.set(id, t.startedAt)
+      }
     }
-    return [...ids]
+    return [...byId].map(([id, startedAt]) => ({ id, startedAt }))
   }
 
   private notifyBusy(): void {
-    this.onBusyChange?.(this.busySessionIds())
+    this.onBusyChange?.(this.busySessions())
   }
 
   send(req: ChatRequest): string {
@@ -197,6 +203,7 @@ export class ChatManager {
       child,
       doneSent: false,
       provider: req.provider,
+      startedAt: Date.now(),
       sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : [])
     }
     this.turns.set(turnId, turn)
