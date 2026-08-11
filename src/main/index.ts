@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { ChatRequest, Provider, SessionQuery, TimeFormat } from '../shared/types'
@@ -30,6 +30,7 @@ import {
   saveInstructionFile
 } from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
+import { centeredIn, readDevWindowPrefs } from './dev-window'
 import { getUsage } from './usage'
 import { homedir } from 'node:os'
 
@@ -42,10 +43,42 @@ let win: BrowserWindow | null = null
 let indexer: SessionIndexer
 let chat: ChatManager
 
+/**
+ * Dev-only: resolve COCKPIT_DEV_DISPLAY to concrete window bounds, and print
+ * the display table so the developer can see which index is which screen.
+ */
+function pickDevDisplayBounds(index: number): ReturnType<typeof centeredIn> | null {
+  const displays = screen.getAllDisplays()
+  const primary = screen.getPrimaryDisplay()
+  for (const [i, d] of displays.entries()) {
+    const tags = [d.id === primary.id ? 'primary' : '', i === index ? '← COCKPIT_DEV_DISPLAY' : '']
+    console.log(
+      `[dev] display ${i}: ${d.size.width}x${d.size.height} at (${d.bounds.x},${d.bounds.y}) ${tags.filter(Boolean).join(' ')}`.trimEnd()
+    )
+  }
+  const chosen = displays[index]
+  if (!chosen) {
+    console.warn(`[dev] COCKPIT_DEV_DISPLAY=${index} is out of range — using the OS default`)
+    return null
+  }
+  return centeredIn(chosen.workArea, 1100, 760)
+}
+
 function createWindow(): void {
+  // dev-only: keep `npm run dev` relaunches from stealing focus, and let the
+  // window open on a chosen display — a packaged app ignores these env vars
+  const devPrefs = app.isPackaged
+    ? { background: false, displayIndex: null }
+    : readDevWindowPrefs(process.env)
+  // placing via constructor x/y (not a post-hoc setBounds) is what reliably
+  // lands the window on another display under macOS separate-Spaces
+  const devBounds = devPrefs.displayIndex !== null ? pickDevDisplayBounds(devPrefs.displayIndex) : null
+
   win = new BrowserWindow({
-    width: 1100,
-    height: 760,
+    show: !devPrefs.background,
+    ...(devBounds ? { x: devBounds.x, y: devBounds.y } : {}),
+    width: devBounds?.width ?? 1100,
+    height: devBounds?.height ?? 760,
     minWidth: 560,
     minHeight: 420,
     title: 'Cockpit',
@@ -73,6 +106,15 @@ function createWindow(): void {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
+
+  if (devPrefs.background) {
+    const w = win
+    w.once('ready-to-show', () => w.showInactive())
+  }
+  if (devPrefs.background || devBounds) {
+    const w = win
+    w.once('show', () => console.log(`[dev] window shown at ${JSON.stringify(w.getBounds())}`))
+  }
 
   // pinch-zoom would silently distort the layout — keyboard zoom (⌘+/-) stays available
   void win.webContents.setVisualZoomLevelLimits(1, 1)
