@@ -9,6 +9,7 @@ import type {
   SessionMessage
 } from '../../shared/types'
 import { api } from './api'
+import { withImageMarks, type ImageAttachment } from './attachments'
 import { TreeSidebar } from './TreeSidebar'
 import { ChatView } from './ChatView'
 import { NewSession } from './NewSession'
@@ -40,7 +41,7 @@ export type ChatBinding = {
 type View =
   | { kind: 'welcome' }
   | { kind: 'chat' }
-  | { kind: 'new'; repo: RepoGroup; draft?: string }
+  | { kind: 'new'; repo: RepoGroup; draft?: string; draftImages?: readonly ImageAttachment[] }
   | { kind: 'settings' }
   | { kind: 'extensions' }
   | { kind: 'profile' }
@@ -254,9 +255,7 @@ export function App(): JSX.Element {
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
       if (!binding || activeTurn) return
       // the transcript shows attachments as one marker line per image
-      const marks = images?.map((p) => `[image: ${p.split('/').pop() ?? p}]`).join('\n')
-      const logText = prompt && marks ? `${prompt}\n${marks}` : prompt || (marks ?? '')
-      setLog((l) => [...l, { role: 'user', kind: 'text', text: logText }])
+      setLog((l) => [...l, { role: 'user', kind: 'text', text: withImageMarks(prompt, images) }])
       const turnId = await api.sendChat({
         provider: binding.provider,
         cwd: binding.cwd,
@@ -276,7 +275,7 @@ export function App(): JSX.Element {
   /** New session flow: create worktree, bind chat, fire the first prompt. */
   const startSession = useCallback(
     async (req: StartSessionRequest): Promise<string | null> => {
-      const { repo, provider, name, prompt, mode, options, account } = req
+      const { repo, provider, name, prompt, mode, options, account, images } = req
       if (!repo.root) return 'This group has no git repository.'
       setCreating(true)
       try {
@@ -301,7 +300,7 @@ export function App(): JSX.Element {
             kind: 'system',
             text: `Worktree ready on ${ws.branch} — running isolated from your main checkout.`
           },
-          { role: 'user', kind: 'text', text: prompt }
+          { role: 'user', kind: 'text', text: withImageMarks(prompt, images) }
         ])
         const turnId = await api.sendChat({
           provider,
@@ -310,7 +309,8 @@ export function App(): JSX.Element {
           permissionMode: mode,
           options,
           configDir: account.configDir,
-          copilotUser: account.copilotUser
+          copilotUser: account.copilotUser,
+          images
         })
         beginTurn(turnId)
         return null
@@ -394,6 +394,7 @@ export function App(): JSX.Element {
           repos={visibleRepos}
           busy={creating}
           initialPrompt={view.draft}
+          initialImages={view.draftImages}
           onStart={startSession}
           onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
         />
@@ -404,7 +405,7 @@ export function App(): JSX.Element {
           busy={creating}
           onStart={startSession}
           onOpenSession={openSession}
-          onOpenFull={(repo, draft) => setView({ kind: 'new', repo, draft })}
+          onOpenFull={(repo, draft, draftImages) => setView({ kind: 'new', repo, draft, draftImages })}
         />
       ) : (
         <ChatView

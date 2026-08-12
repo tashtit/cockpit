@@ -4,8 +4,8 @@
 
 **Pattern:** focused form card (`.ns-card`, 600px) for starting a session in a chosen
 repo with full control — the deliberate counterpart to Home's quick composer. Reached
-from Home's "Options…" (which passes the typed draft as `initialPrompt`) or the sidebar
-repo-row "+".
+from Home's "Options…" (which passes the typed draft as `initialPrompt` and any pasted
+images as `initialImages`) or the sidebar repo-row "+".
 
 ## Form grammar
 
@@ -34,6 +34,9 @@ repo-row "+".
   mode labels/hints come from the shared `MODES` table — identical wording in ChatView.
 - Errors: `.new-error` inline under the actions. Actions right-align: ghost Cancel,
   primary Start.
+- Pasting an image into Task attaches it (shared `useImageAttachments` + `AttachRow`):
+  the `.composer-attach` chip row renders between the Task label and the textarea, and
+  an image-only start is allowed — same behavior as the chat and home composers.
 
 ## Invariants
 

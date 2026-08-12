@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import type { ChatBinding } from '../../src/renderer/src/App'
+import { pasteImage, stubObjectUrls } from './paste'
 
 const binding: ChatBinding = {
   provider: 'claude',
@@ -30,19 +31,8 @@ function renderChat(onSend = vi.fn()): { onSend: ReturnType<typeof vi.fn> } {
   return { onSend }
 }
 
-/** A React-testing paste event carrying one image file, jsdom-style. */
-function pasteImage(el: Element, file: File): void {
-  fireEvent.paste(el, {
-    clipboardData: {
-      items: [{ kind: 'file', type: file.type, getAsFile: () => file }]
-    }
-  })
-}
-
 beforeEach(() => {
-  // jsdom has no object URLs — the preview thumbnails need both ends stubbed
-  URL.createObjectURL = vi.fn(() => 'blob:preview')
-  URL.revokeObjectURL = vi.fn()
+  stubObjectUrls()
 })
 
 describe('ChatView image paste', () => {

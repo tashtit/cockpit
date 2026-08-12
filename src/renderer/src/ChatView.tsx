@@ -4,22 +4,10 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import type { ChatBinding } from './App'
-import { api } from './api'
+import { AttachRow, useImageAttachments } from './attachments'
 import { MODES } from './NewSession'
 import { BranchChip, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
-
-/** Mirrors MAX_CHAT_IMAGES in src/main/chat-images.ts (main enforces it; this is just UX). */
-const MAX_IMAGES = 8
-
-/** A pasted image already persisted by main; url is a local blob: preview. */
-type Attachment = { readonly path: string; readonly name: string; readonly url: string }
-
-/** IPC rejections arrive wrapped ("Error invoking remote method '…': Error: …") — unwrap. */
-function ipcErrorText(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err)
-  return msg.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
-}
 
 function nodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -80,8 +68,7 @@ export function ChatView({
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [draft, setDraft] = useState('')
-  const [attachments, setAttachments] = useState<Attachment[]>([])
-  const [attachError, setAttachError] = useState<string | null>(null)
+  const atts = useImageAttachments()
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -111,40 +98,10 @@ export function ChatView({
     atBottomRef.current = true
   }, [binding])
 
-  // attachments belong to the conversation they were pasted into — drop them on switch.
-  // The ref exists so this effect (and only it) can revoke without depending on state.
-  const attachmentsRef = useRef<Attachment[]>([])
-  attachmentsRef.current = attachments
+  // attachments belong to the conversation they were pasted into — drop them on switch
   useEffect(() => {
-    attachmentsRef.current.forEach((a) => URL.revokeObjectURL(a.url))
-    setAttachments([])
-    setAttachError(null)
+    atts.clear()
   }, [binding?.provider, binding?.cwd])
-
-  const attachImages = async (files: readonly File[]): Promise<void> => {
-    let count = attachmentsRef.current.length
-    for (const f of files) {
-      if (count >= MAX_IMAGES) {
-        setAttachError(`At most ${MAX_IMAGES} images per message.`)
-        return
-      }
-      try {
-        const bytes = new Uint8Array(await f.arrayBuffer())
-        const path = await api.saveChatImage(bytes, f.type)
-        const url = URL.createObjectURL(f)
-        setAttachments((prev) => [...prev, { path, name: f.name || 'pasted image', url }])
-        setAttachError(null)
-        count++
-      } catch (err) {
-        setAttachError(ipcErrorText(err))
-      }
-    }
-  }
-
-  const removeAttachment = (a: Attachment): void => {
-    URL.revokeObjectURL(a.url)
-    setAttachments((prev) => prev.filter((x) => x.path !== a.path))
-  }
 
   const branchPr = useMemo(
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
@@ -170,13 +127,11 @@ export function ChatView({
 
   const submit = (): void => {
     const p = draft.trim()
-    if ((!p && attachments.length === 0) || busy || !binding) return
+    if ((!p && atts.attachments.length === 0) || busy || !binding) return
     setDraft('')
-    const images = attachments.map((a) => a.path)
-    attachments.forEach((a) => URL.revokeObjectURL(a.url))
-    setAttachments([])
-    setAttachError(null)
-    onSend(p, mode, images.length > 0 ? images : undefined)
+    const images = atts.paths()
+    atts.clear()
+    onSend(p, mode, images)
   }
 
   if (!binding) {
@@ -289,43 +244,14 @@ export function ChatView({
       </div>
 
       <footer className="composer">
-        {(attachments.length > 0 || attachError) && (
-          <div className="composer-attach">
-            {attachments.map((a) => (
-              <span className="attach-chip" key={a.path} title={a.path}>
-                <img src={a.url} alt="" />
-                <span className="attach-name">{a.name}</span>
-                <button
-                  className="attach-remove"
-                  aria-label={`Remove ${a.name}`}
-                  onClick={() => removeAttachment(a)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {attachError && (
-              <span className="attach-error" role="alert">
-                {attachError}
-              </span>
-            )}
-          </div>
-        )}
+        <AttachRow atts={atts} />
         <textarea
           ref={composerRef}
           aria-label={`Message ${PROVIDER_LABEL[binding.provider]}`}
           placeholder={`Message ${PROVIDER_LABEL[binding.provider]}…  (Enter to send, Shift+Enter for newline)`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onPaste={(e) => {
-            const files = Array.from(e.clipboardData.items)
-              .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
-              .map((it) => it.getAsFile())
-              .filter((f): f is File => f !== null)
-            if (files.length === 0) return
-            e.preventDefault()
-            void attachImages(files)
-          }}
+          onPaste={atts.onPaste}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
@@ -340,7 +266,7 @@ export function ChatView({
         ) : (
           <button
             className="btn-primary"
-            disabled={!draft.trim() && attachments.length === 0}
+            disabled={!draft.trim() && atts.attachments.length === 0}
             onClick={submit}
           >
             Send

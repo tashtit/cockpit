@@ -61,13 +61,18 @@ surface, no shadow).
   choosing YOLO shows the `.ns-hint.yolo` warning line under the card — the bypass mode is
   never silent.
 - Prompt textarea autofocuses on mount — the user should be able to type immediately.
+- Pasting an image attaches it, exactly like the chat composer (shared
+  `useImageAttachments` + `AttachRow` from `attachments.tsx`): a `.composer-attach` chip
+  row appears as the card's first child (padded to the textarea's inset). An image-only
+  start is allowed; "All options" hands pending attachments to the full form along with
+  the draft.
 
 ## Invariants
 
 - Provider, mode, and per-provider account choices persist to
   `localStorage` (`cockpit:provider`, `cockpit:mode`, `cockpit:account:<provider>`) on
   start — HomeView, NewSession, and ChatView must stay in sync on these keys.
-- Start is disabled until: prompt non-empty, a repo selected, and (once accounts have
-  loaded) an account resolved. While `accounts === null` (still loading), don't flash the
+- Start is disabled until: prompt non-empty (or an image attached), a repo selected, and
+  (once accounts have loaded) an account resolved. While `accounts === null` (still loading), don't flash the
   missing-account state.
 - Keyboard hints in the hero use `.home-kbd` mono, and must match real bindings (⌘N, ⌘K).

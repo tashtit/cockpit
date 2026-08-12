@@ -59,7 +59,9 @@ grab target.
   the textarea, one `.attach-chip` (24px thumbnail + name + × remove) per image, save
   failures as an inline `.attach-error`. Chips clear on send and on session switch; a
   message may be images-only. Attached paths ride `ChatRequest.images` and reach the
-  agent as file references appended to the prompt.
+  agent as file references appended to the prompt. The mechanics live in
+  `attachments.tsx` (`useImageAttachments` + `AttachRow`) and are shared with the home
+  quick composer and the New-session form — never reimplement them per view.
 
 ## Accessibility
 

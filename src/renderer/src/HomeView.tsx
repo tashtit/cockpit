@@ -7,6 +7,7 @@ import type {
   SessionMeta
 } from '../../shared/types'
 import { api } from './api'
+import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
 import { accountOptions, MODES, savedAccount, type StartSessionRequest } from './NewSession'
 import { BranchChip, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
@@ -39,7 +40,7 @@ export function HomeView({
   onStart: (req: StartSessionRequest) => Promise<string | null>
   onOpenSession: (s: SessionMeta) => void
   /** Open the full New session form (branch, model, custom provider), keeping the draft */
-  onOpenFull: (repo: RepoGroup, draft: string) => void
+  onOpenFull: (repo: RepoGroup, draft: string, images?: readonly ImageAttachment[]) => void
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
@@ -50,6 +51,7 @@ export function HomeView({
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
   const [prompt, setPrompt] = useState('')
+  const atts = useImageAttachments()
   const [error, setError] = useState<string | null>(null)
   const [recent, setRecent] = useState<SessionMeta[]>([])
   const [recentTotal, setRecentTotal] = useState(0)
@@ -85,7 +87,7 @@ export function HomeView({
   }, [indexVersion])
 
   const start = async (): Promise<void> => {
-    if (busy || !prompt.trim() || !selected) return
+    if (busy || (!prompt.trim() && atts.attachments.length === 0) || !selected) return
     setError(null)
     window.localStorage.setItem('cockpit:provider', provider)
     window.localStorage.setItem('cockpit:mode', mode)
@@ -101,7 +103,8 @@ export function HomeView({
         configDir: account?.configDir,
         copilotUser: account?.copilotUser,
         display: account?.display
-      }
+      },
+      images: atts.paths()
     })
     if (err) setError(err)
   }
@@ -128,6 +131,7 @@ export function HomeView({
         </div>
 
         <div className="composer-card">
+          <AttachRow atts={atts} />
           <textarea
             ref={promptRef}
             aria-label="Task description"
@@ -135,6 +139,7 @@ export function HomeView({
             rows={3}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            onPaste={atts.onPaste}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
             }}
@@ -204,7 +209,12 @@ export function HomeView({
             <button
               className="btn-primary"
               title={account ? `runs as ${account.display}` : undefined}
-              disabled={busy || !prompt.trim() || !selected || (accounts !== null && !account)}
+              disabled={
+                busy ||
+                (!prompt.trim() && atts.attachments.length === 0) ||
+                !selected ||
+                (accounts !== null && !account)
+              }
               onClick={() => void start()}
             >
               {busy ? 'Starting…' : `Start with ${PROVIDER_LABEL[provider]}`}
@@ -216,7 +226,7 @@ export function HomeView({
             <button
               className="link-btn"
               disabled={busy}
-              onClick={() => onOpenFull(selected, prompt)}
+              onClick={() => onOpenFull(selected, prompt, atts.release())}
             >
               All options — branch name, model, custom model provider…
             </button>

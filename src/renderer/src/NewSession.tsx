@@ -10,6 +10,7 @@ import type {
 } from '../../shared/types'
 import { endpointSupports } from '../../shared/endpoints'
 import { api } from './api'
+import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 
@@ -37,6 +38,8 @@ export type StartSessionRequest = {
   readonly mode: PermissionMode
   readonly options: AgentOptions
   readonly account: AccountChoice
+  /** Pasted-image paths (saveChatImage) sent with the first prompt */
+  readonly images?: readonly string[]
 }
 
 /** Flatten the accounts snapshot into selectable options per provider. */
@@ -102,6 +105,7 @@ export function NewSession({
   repos,
   busy,
   initialPrompt,
+  initialImages,
   onStart,
   onCancel
 }: {
@@ -110,6 +114,8 @@ export function NewSession({
   busy: boolean
   /** Draft carried over from Home's quick composer — typing is never lost on "Options…" */
   initialPrompt?: string
+  /** Images pasted into Home's quick composer, carried over the same way */
+  initialImages?: readonly ImageAttachment[]
   onStart: (req: StartSessionRequest) => Promise<string | null>
   onCancel: () => void
 }): JSX.Element {
@@ -119,6 +125,7 @@ export function NewSession({
   )
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
+  const atts = useImageAttachments(initialImages)
   const [model, setModel] = useState('')
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
@@ -180,7 +187,7 @@ export function NewSession({
   }, [endpoint?.id, modelChoices.length])
 
   const start = async (): Promise<void> => {
-    if (busy || !prompt.trim()) return
+    if (busy || (!prompt.trim() && atts.attachments.length === 0)) return
     setError(null)
     window.localStorage.setItem('cockpit:provider', provider)
     window.localStorage.setItem('cockpit:mode', mode)
@@ -201,7 +208,8 @@ export function NewSession({
         configDir: account?.configDir,
         copilotUser: account?.copilotUser,
         display: account?.display
-      }
+      },
+      images: atts.paths()
     })
     if (err) setError(err)
   }
@@ -393,6 +401,7 @@ export function NewSession({
         </div>
 
         <label className="ns-label" htmlFor="ns-prompt">Task</label>
+        <AttachRow atts={atts} />
         <textarea
           id="ns-prompt"
           ref={promptRef}
@@ -400,6 +409,7 @@ export function NewSession({
           placeholder="What should the agent do?"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          onPaste={atts.onPaste}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
           }}
@@ -412,7 +422,7 @@ export function NewSession({
           <button
             className="btn-primary"
             onClick={() => void start()}
-            disabled={busy || !prompt.trim() || modelMissing}
+            disabled={busy || (!prompt.trim() && atts.attachments.length === 0) || modelMissing}
           >
             {busy ? 'Creating worktree…' : 'Start session'}
           </button>

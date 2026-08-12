@@ -521,6 +521,10 @@ summary::-webkit-details-marker { display: none; }
   color: var(--fg-dim); flex-shrink: 0; }
 .attach-remove:hover { color: var(--fg); background: var(--surface); }
 .attach-error { color: var(--danger); font-size: var(--fs-sm); }
+/* the same chip row inside Home's composer card (edge-to-edge children — indent to
+   the textarea's padding) and the New-session form (breathing room before the field) */
+.composer-card .composer-attach { padding: var(--s4) var(--s5) 0; }
+.ns-card .composer-attach { margin-bottom: var(--s2); }
 
 .empty-chat { flex: 1; display: flex; flex-direction: column; align-items: center;
   justify-content: center; color: var(--fg-dim); gap: var(--s3); padding: var(--s5);
