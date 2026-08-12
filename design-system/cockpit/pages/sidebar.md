@@ -11,9 +11,10 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 
 ## Structure
 
-- `.tree-top` (drag region, 40px top padding clears macOS traffic lights): app title
-  button (→ home) · zoom chip (only when zoom ≠ 100%, warn-colored, click resets) ·
-  Extensions and Settings `.icon-btn`s with octicon-style SVGs.
+- `.tree-top` (drag region, 40px top padding clears macOS traffic lights — the pad
+  drops to `--s3` when the dev `.dev-banner` row already provides that clearance):
+  app title button (→ home) · zoom chip (only when zoom ≠ 100%, warn-colored, click
+  resets) · Extensions and Settings `.icon-btn`s with octicon-style SVGs.
 - `.search` input with ⌘K hint, 250ms debounce. Non-empty search swaps the whole tree for
   `SearchResults` grouped by repo name.
 - Tree rows, in visual grammar:

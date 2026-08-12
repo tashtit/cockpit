@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { centeredIn, readDevWindowPrefs } from '../src/main/dev-window'
+import {
+  branchFromHead,
+  centeredIn,
+  parseGitdirPointer,
+  readDevWindowPrefs
+} from '../src/main/dev-window'
 
 describe('readDevWindowPrefs', () => {
   it('defaults to foreground on the OS-chosen display', () => {
@@ -22,6 +27,38 @@ describe('readDevWindowPrefs', () => {
     expect(readDevWindowPrefs({ COCKPIT_DEV_DISPLAY: 'left' }).displayIndex).toBeNull()
     expect(readDevWindowPrefs({ COCKPIT_DEV_DISPLAY: '-1' }).displayIndex).toBeNull()
     expect(readDevWindowPrefs({ COCKPIT_DEV_DISPLAY: '' }).displayIndex).toBeNull()
+  })
+})
+
+describe('parseGitdirPointer', () => {
+  it('reads the gitdir path from a linked worktree .git file', () => {
+    expect(parseGitdirPointer('gitdir: /repo/.git/worktrees/feature-x\n')).toBe(
+      '/repo/.git/worktrees/feature-x'
+    )
+  })
+
+  it('keeps relative pointers as written (caller resolves them)', () => {
+    expect(parseGitdirPointer('gitdir: ../../.git/worktrees/wt')).toBe('../../.git/worktrees/wt')
+  })
+
+  it('rejects content that is not a gitdir pointer', () => {
+    expect(parseGitdirPointer('ref: refs/heads/main')).toBeNull()
+    expect(parseGitdirPointer('')).toBeNull()
+  })
+})
+
+describe('branchFromHead', () => {
+  it('extracts the branch from a symbolic HEAD', () => {
+    expect(branchFromHead('ref: refs/heads/titan/fix-thing\n')).toBe('titan/fix-thing')
+  })
+
+  it('abbreviates a detached HEAD to a short hash', () => {
+    expect(branchFromHead('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678\n')).toBe('a1b2c3d')
+  })
+
+  it('rejects refs outside refs/heads and junk content', () => {
+    expect(branchFromHead('ref: refs/tags/v1.0.0')).toBeNull()
+    expect(branchFromHead('not a head')).toBeNull()
   })
 })
 

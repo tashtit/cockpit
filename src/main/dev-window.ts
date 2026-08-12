@@ -8,6 +8,10 @@
  *  - COCKPIT_DEV_BACKGROUND=1  — show the window without stealing focus
  *  - COCKPIT_DEV_DISPLAY=<n>   — open centered on display <n> (0-based,
  *    index into screen.getAllDisplays())
+ *
+ * This module also holds the pure parsing behind the dev branch indicator:
+ * parallel `npm run dev` instances from different worktrees look identical, so
+ * dev builds surface the source checkout's branch (window title + sidebar chip).
  */
 
 export type DevWindowPrefs = {
@@ -31,6 +35,27 @@ export type Rect = {
   readonly y: number
   readonly width: number
   readonly height: number
+}
+
+/**
+ * The gitdir a worktree's `.git` *file* points at (linked worktrees have a
+ * pointer file where the main checkout has a directory). Null if the content
+ * isn't a pointer — possibly relative; the caller resolves it.
+ */
+export function parseGitdirPointer(dotGitContents: string): string | null {
+  const m = /^gitdir:[ \t]*(.+)$/.exec(dotGitContents.trim())
+  return m?.[1]?.trim() ?? null
+}
+
+/**
+ * Branch name from a gitdir's HEAD contents (`ref: refs/heads/<branch>`), or
+ * the abbreviated commit hash when detached. Null for anything unrecognized.
+ */
+export function branchFromHead(headContents: string): string | null {
+  const head = headContents.trim()
+  const ref = /^ref:[ \t]*refs\/heads\/(.+)$/.exec(head)
+  if (ref?.[1]) return ref[1]
+  return /^[0-9a-f]{40}$/.test(head) ? head.slice(0, 7) : null
 }
 
 /** Bounds that center a window of the given size in a display's work area. */

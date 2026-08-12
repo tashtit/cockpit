@@ -7,6 +7,12 @@ import './style.css'
 window.addEventListener('dragover', (e) => e.preventDefault())
 window.addEventListener('drop', (e) => e.preventDefault())
 
+// dev-only: main tags the dev-server URL with the source branch so parallel
+// worktree instances are tellable apart — index.html's <title> would otherwise
+// reset the branded window title on load
+const devBranch = new URLSearchParams(location.search).get('devBranch')
+if (devBranch) document.title = `Cockpit — ${devBranch}`
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />

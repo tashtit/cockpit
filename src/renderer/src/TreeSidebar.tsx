@@ -113,6 +113,7 @@ export function TreeSidebar({
             {Math.round(zoom * 100)}%
           </button>
         )}
+
         <ProjectFilter repos={repos} />
         <button
           className="icon-btn"

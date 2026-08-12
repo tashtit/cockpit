@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { ChatRequest, Provider, SessionQuery, TimeFormat } from '../shared/types'
 import { sanitizeEndpoint } from '../shared/endpoints'
@@ -38,7 +38,7 @@ import {
   saveInstructionFile
 } from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
-import { centeredIn, readDevWindowPrefs } from './dev-window'
+import { branchFromHead, centeredIn, parseGitdirPointer, readDevWindowPrefs } from './dev-window'
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
 import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
@@ -75,12 +75,35 @@ function pickDevDisplayBounds(index: number): ReturnType<typeof centeredIn> | nu
   return centeredIn(chosen.workArea, 1100, 760)
 }
 
+/**
+ * Dev-only: the branch of the checkout `npm run dev` runs from, so parallel
+ * dev instances from different worktrees are tellable apart. Best-effort —
+ * anything unexpected (no repo, odd formats) quietly yields null.
+ */
+function readDevBranch(): string | null {
+  try {
+    const root = app.getAppPath()
+    const dotGit = join(root, '.git')
+    let gitDir = dotGit
+    if (statSync(dotGit).isFile()) {
+      const target = parseGitdirPointer(readFileSync(dotGit, 'utf8'))
+      if (!target) return null
+      gitDir = resolve(root, target)
+    }
+    return branchFromHead(readFileSync(join(gitDir, 'HEAD'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
 function createWindow(): void {
   // dev-only: keep `npm run dev` relaunches from stealing focus, and let the
   // window open on a chosen display — a packaged app ignores these env vars
   const devPrefs = app.isPackaged
     ? { background: false, displayIndex: null }
     : readDevWindowPrefs(process.env)
+  // dev-only: brand the window with the source branch (title + top banner)
+  const devBranch = app.isPackaged ? null : readDevBranch()
   // placing via constructor x/y (not a post-hoc setBounds) is what reliably
   // lands the window on another display under macOS separate-Spaces
   const devBounds = devPrefs.displayIndex !== null ? pickDevDisplayBounds(devPrefs.displayIndex) : null
@@ -92,7 +115,7 @@ function createWindow(): void {
     height: devBounds?.height ?? 760,
     minWidth: 560,
     minHeight: 420,
-    title: 'Cockpit',
+    title: devBranch ? `Cockpit — ${devBranch}` : 'Cockpit',
     // matches --bg in style.css so pre-paint and resize flashes stay on-theme
     backgroundColor: '#0b0d16',
     // frameless-with-inset-traffic-lights: the app draws its own chrome (macOS)
@@ -133,7 +156,10 @@ function createWindow(): void {
 
   // dev-server URL only in dev — a packaged app must never load an env-supplied origin
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    // the branch rides in as a query param — no IPC surface for a dev-only affordance
+    const url = new URL(process.env['ELECTRON_RENDERER_URL'])
+    if (devBranch) url.searchParams.set('devBranch', devBranch)
+    void win.loadURL(url.toString())
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
