@@ -15,9 +15,9 @@ in `src/main/profile.ts` from logs already on disk.
 Reuses the standard secondary-view shell (`.chat.settings-view` > `.ns-card.wide`), same as
 Settings and AI Setup: `.ns-head` (h2 + Close), then sections led by `.ns-label`.
 
-Order is fixed — identity line → `.pv-stats` → Activity → Agents → Languages → Top repos.
-Each section is dropped entirely when it has no data; only the identity line and `.pv-stats`
-are unconditional.
+Order is fixed — identity line → `.pv-stats` → Activity → Rhythm → Agents → Models →
+Accounts → Languages → Top repos. Each section is dropped entirely when it has no data;
+only the identity line and `.pv-stats` are unconditional.
 
 ## The heatmap (`.pv-heat`)
 
@@ -49,6 +49,30 @@ are unconditional.
   - zero lines with no failure → `.pv-untracked` "no measurable edits". Not a failure: Codex
     edits through shell commands rather than a structured edit tool, so nothing countable
     reaches the log. Never render a bare `+0 −0 0 files` — it reads as a bug.
+
+## Models (`.pv-models-list`)
+
+Same bar grammar as Languages, but the fill splits into **agent-tinted segments**
+(`.pv-bar-split`) proportional to each agent's share of that model's messages. This exists
+because model families cross agent boundaries — Copilot serves claude-opus, Claude serves
+fable — so "which model" and "which agent" are different questions and a flat bar would
+erase the difference. Model names are mono (machine identifiers). Counts are assistant
+messages — a proxy for use, labeled "msgs", never "requests" or "tokens". The
+`<synthetic>` placeholder Claude writes for injected turns is filtered in main, not here.
+
+## Accounts (`.pv-accounts`)
+
+One row per config home that produced sessions: provider logo, identity as the standard
+`.acct-chip.acct-{agent}` (or `.acct-chip.missing` "not signed in" — an honest gap, not an
+error), source label, session count pill. This is the "which users" answer for a local app:
+signed-in identities per config home, meaningful once a second account is added.
+
+## Rhythm (`.pv-rhythm`)
+
+Sessions started per local hour, 24 accent bars on a `--surface` strip with mono axis marks
+(00/06/12/18/23). A quiet instrument readout, not a chart — no gridlines, no y-axis; the
+peak hour is named in the `.ns-hint` line below instead. The strip is one `role="img"` with
+the peak in its label; per-hour detail lives in `title` tooltips.
 
 ## Honesty rules (load-bearing — don't soften these)
 

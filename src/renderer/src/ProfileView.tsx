@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { ActivityDay, ProfileStats, Provider } from '../../shared/types'
+import type { ActivityDay, ModelStat, ProfileStats, Provider } from '../../shared/types'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 
@@ -148,6 +148,73 @@ function Heatmap({ days, busiest }: { days: ActivityDay[]; busiest: number }): J
   )
 }
 
+/**
+ * One model's usage bar, segmented by the agents that served it. The split is
+ * the point: model families cross agent boundaries (Copilot serves claude-opus,
+ * Claude serves fable), so a flat bar would erase the page's best insight.
+ */
+function ModelBar({ model, max }: { model: ModelStat; max: number }): JSX.Element {
+  const width = Math.max(2, Math.round((model.count / max) * 100))
+  const parts = Object.entries(model.byProvider) as [Provider, number][]
+  const split = parts.map(([p, n]) => `${PROVIDER_LABEL[p]} ${fmtNum(n)}`).join(' · ')
+  return (
+    <li title={`${model.name} — ${fmtNum(model.count)} messages (${split})`}>
+      <span className="pv-model-name">{model.name}</span>
+      <span className="pv-bar" aria-hidden="true">
+        <span className="pv-bar-split" style={{ width: `${width}%` }}>
+          {parts.map(([p, n]) => (
+            <i
+              key={p}
+              style={{
+                flexGrow: n,
+                background: `rgba(var(--${p}-rgb), 0.85)`
+              }}
+            />
+          ))}
+        </span>
+      </span>
+      <span className="pv-lang-n">{fmtNum(model.count)} msgs</span>
+    </li>
+  )
+}
+
+/**
+ * Sessions started per hour, midnight→23. A quiet strip — the tallest hour is
+ * labeled in the summary line, the bars just show the shape of the day.
+ */
+function Rhythm({ hours }: { hours: number[] }): JSX.Element {
+  const max = Math.max(1, ...hours)
+  const peak = hours.indexOf(Math.max(...hours))
+  const total = hours.reduce((a, b) => a + b, 0)
+  const label = `Sessions by hour of day; busiest around ${String(peak).padStart(2, '0')}:00`
+  return (
+    <div className="pv-rhythm-wrap">
+      <div className="pv-rhythm" role="img" aria-label={label}>
+        {hours.map((n, h) => (
+          <i
+            key={h}
+            style={{ height: `${Math.max(n > 0 ? 8 : 2, Math.round((n / max) * 100))}%` }}
+            title={`${String(h).padStart(2, '0')}:00 — ${fmtNum(n)} session${n === 1 ? '' : 's'}`}
+          />
+        ))}
+      </div>
+      <div className="pv-rhythm-axis" aria-hidden="true">
+        <span>00</span>
+        <span>06</span>
+        <span>12</span>
+        <span>18</span>
+        <span>23</span>
+      </div>
+      {total > 0 && (
+        <p className="ns-hint">
+          Busiest around {String(peak).padStart(2, '0')}:00 — {fmtNum(hours[peak])} sessions
+          started in that hour.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function Stat({ value, label }: { value: string; label: string }): JSX.Element {
   return (
     <div className="pv-stat">
@@ -239,6 +306,9 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
               </span>
             </div>
 
+            <h3 className="ns-label">Rhythm</h3>
+            <Rhythm hours={profile.hourCounts} />
+
             <h3 className="ns-label">Agents</h3>
             <p className="ns-hint">
               Lines are counted from each agent&apos;s own edit tools — they measure edits made,
@@ -256,6 +326,7 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
                       <span className="repo-count">{fmtNum(p.sessions)}</span>
                       <span className="pv-agent-days">
                         {p.activeDays} active day{p.activeDays === 1 ? '' : 's'}
+                        {p.avgTurns > 0 && <> · ~{fmtNum(p.avgTurns)} turns/session</>}
                       </span>
                     </div>
                     <div className="pv-agent-meta">
@@ -303,6 +374,43 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
                 </li>
               ))}
             </ul>
+
+            {profile.models.length > 0 && (
+              <>
+                <h3 className="ns-label">Models</h3>
+                <p className="ns-hint">
+                  Counted in assistant messages, colored by the agent that served them — model
+                  families cross agent lines, so the split is worth watching.
+                </p>
+                <ul className="pv-langs pv-models-list">
+                  {profile.models.map((m) => (
+                    <ModelBar key={m.name} model={m} max={profile.models[0].count} />
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {profile.accounts.length > 0 && (
+              <>
+                <h3 className="ns-label">Accounts</h3>
+                <ul className="pv-accounts">
+                  {profile.accounts.map((a) => (
+                    <li key={`${a.provider}:${a.label}`}>
+                      <span className={`plogo plogo-${a.provider}`} aria-hidden="true">
+                        <ProviderLogo p={a.provider} size={13} />
+                      </span>
+                      {a.identity ? (
+                        <span className={`acct-chip acct-${a.provider}`}>{a.identity}</span>
+                      ) : (
+                        <span className="acct-chip missing">not signed in</span>
+                      )}
+                      <span className="pv-acct-label">{a.label}</span>
+                      <span className="repo-count">{fmtNum(a.sessions)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
 
             {profile.languages.length > 0 && (
               <>

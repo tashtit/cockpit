@@ -57,7 +57,10 @@ export function freshApi(): CockpitApi {
       days: [],
       providers: [],
       languages: [],
-      repos: []
+      repos: [],
+      models: [],
+      accounts: [],
+      hourCounts: new Array(24).fill(0)
     })),
     getZoomFactor: vi.fn(() => 1),
     setZoomFactor: vi.fn(),

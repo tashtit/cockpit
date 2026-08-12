@@ -23,6 +23,7 @@ function profile(over: Partial<ProfileStats> = {}): ProfileStats {
         provider: 'claude',
         sessions: 30,
         activeDays: 10,
+        avgTurns: 24,
         linesAdded: 1234,
         linesRemoved: 567,
         filesTouched: 89,
@@ -33,6 +34,7 @@ function profile(over: Partial<ProfileStats> = {}): ProfileStats {
         provider: 'codex',
         sessions: 12,
         activeDays: 4,
+        avgTurns: 0,
         linesAdded: 0,
         linesRemoved: 0,
         filesTouched: 0,
@@ -42,6 +44,21 @@ function profile(over: Partial<ProfileStats> = {}): ProfileStats {
     ],
     languages: [{ ext: 'ts', files: 20, linesAdded: 900 }],
     repos: [{ key: 'a', name: 'alpha', sessions: 30, lastActivity: Date.now() }],
+    models: [
+      { name: 'claude-opus-5', count: 30, byProvider: { claude: 22, copilot: 8 } },
+      { name: 'gpt-5.6-sol', count: 12, byProvider: { codex: 12 } }
+    ],
+    accounts: [
+      { provider: 'claude', label: 'claude', identity: 'dev@example.com', sessions: 30, lastActivity: Date.now() },
+      { provider: 'codex', label: 'codex', identity: null, sessions: 12, lastActivity: Date.now() }
+    ],
+    hourCounts: (() => {
+      const h = new Array(24).fill(0)
+      h[9] = 4
+      h[14] = 7
+      h[23] = 1
+      return h
+    })(),
     ...over
   }
 }
@@ -67,7 +84,8 @@ describe('ProfileView', () => {
     expect(screen.getByText('Claude')).toBeTruthy()
     expect(screen.getByText('+1,234')).toBeTruthy()
     expect(screen.getByText('−567')).toBeTruthy()
-    expect(screen.getByText('claude-opus-5')).toBeTruthy()
+    // the model name renders as an agent chip AND a model bar — assert the chip
+    expect(screen.getAllByText('claude-opus-5').length).toBeGreaterThan(0)
 
     expect(screen.getByText('.ts')).toBeTruthy()
     expect(screen.getByText('alpha')).toBeTruthy()
@@ -109,9 +127,46 @@ describe('ProfileView', () => {
     expect(codexRow?.textContent).not.toContain('0 files')
   })
 
+  it('renders model bars split by the agents that served each model', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
+    const { container } = render(<ProfileView onClose={() => {}} />)
+    await screen.findByText('octocat')
+    const names = [...container.querySelectorAll('.pv-model-name')].map((el) => el.textContent)
+    expect(names).toEqual(['claude-opus-5', 'gpt-5.6-sol'])
+    // opus is served by two agents → its bar splits into two tinted segments
+    const opusRow = container.querySelector('.pv-models-list li')
+    expect(opusRow?.querySelectorAll('.pv-bar-split i').length).toBe(2)
+    expect(opusRow?.getAttribute('title')).toContain('Claude 22')
+    expect(opusRow?.getAttribute('title')).toContain('Copilot 8')
+  })
+
+  it('lists accounts with their signed-in identity or an honest gap', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
+    render(<ProfileView onClose={() => {}} />)
+    await screen.findByText('octocat')
+    expect(screen.getByText('dev@example.com')).toBeTruthy()
+    expect(screen.getByText('not signed in')).toBeTruthy()
+  })
+
+  it('shows the daily rhythm with its peak hour named', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
+    render(<ProfileView onClose={() => {}} />)
+    await screen.findByText('octocat')
+    expect(screen.getByRole('img', { name: /busiest around 14:00/i })).toBeTruthy()
+    expect(screen.getByText(/Busiest around 14:00/)).toBeTruthy()
+  })
+
   it('shows the empty state when nothing is indexed', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(
-      profile({ totalSessions: 0, days: [], providers: [], languages: [], repos: [] })
+      profile({
+        totalSessions: 0,
+        days: [],
+        providers: [],
+        languages: [],
+        repos: [],
+        models: [],
+        accounts: []
+      })
     )
     render(<ProfileView onClose={() => {}} />)
     expect(await screen.findByText(/no sessions indexed yet/i)).toBeTruthy()
