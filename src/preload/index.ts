@@ -20,6 +20,8 @@ import type {
 const api: CockpitApi = {
   sendChat: (req: ChatRequest) => ipcRenderer.invoke('chat:send', req),
   cancelChat: (turnId: string) => ipcRenderer.invoke('chat:cancel', turnId),
+  saveChatImage: (data: Uint8Array, mime: string) =>
+    ipcRenderer.invoke('chat:save-image', data, mime),
   onChatEvent: (cb: (ev: ChatEvent) => void) => {
     const handler = (_e: unknown, ev: ChatEvent): void => cb(ev)
     ipcRenderer.on('chat-event', handler)

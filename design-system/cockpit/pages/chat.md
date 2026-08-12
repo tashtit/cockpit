@@ -55,6 +55,13 @@ grab target.
   opens or starts.
 - The action button swaps in place: `.btn-primary` Send ↔ `.btn-danger` Stop while busy —
   same slot, no layout shift.
+- Pasting an image attaches it: a full-width `.composer-attach` chip row appears above
+  the textarea, one `.attach-chip` (24px thumbnail + name + × remove) per image, save
+  failures as an inline `.attach-error`. Chips clear on send and on session switch; a
+  message may be images-only. Attached paths ride `ChatRequest.images` and reach the
+  agent as file references appended to the prompt. The mechanics live in
+  `attachments.tsx` (`useImageAttachments` + `AttachRow`) and are shared with the home
+  quick composer and the New-session form — never reimplement them per view.
 
 ## Accessibility
 

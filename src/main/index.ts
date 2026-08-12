@@ -6,6 +6,7 @@ import type { ChatRequest, Provider, SessionQuery, TimeFormat } from '../shared/
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { ChatManager } from './chat'
+import { assertChatImages, saveChatImage } from './chat-images'
 import {
   addModelEndpoint,
   bindSessionEndpoint,
@@ -148,6 +149,11 @@ function assertKnownRepoRoot(repoRoot: unknown): string {
 
 function worktreesDir(): string {
   return join(app.getPath('userData'), 'worktrees')
+}
+
+/** Where pasted chat images live — the only root chat:send accepts image paths from. */
+function chatImagesDir(): string {
+  return join(app.getPath('userData'), 'chat-images')
 }
 
 app.whenReady().then(() => {
@@ -321,7 +327,16 @@ app.whenReady().then(() => {
     }
   )
   ipcMain.handle('sessions:busy', () => chat.busySessions())
+  ipcMain.handle('chat:save-image', (_e, data: Uint8Array, mime: string) =>
+    saveChatImage(chatImagesDir(), data, mime)
+  )
   ipcMain.handle('chat:send', (_e, req: ChatRequest) => {
+    // pasted-image paths are renderer input — only accept files chat:save-image wrote
+    {
+      const { images: rawImages, ...rest } = req
+      const images = assertChatImages(chatImagesDir(), rawImages)
+      req = images ? { ...rest, images } : rest
+    }
     // a resumed BYOK session keeps the endpoint it was started with
     if (req.resumeNativeId && !req.options?.modelEndpoint) {
       const inherited = sessionEndpointFor(`${req.provider}:${req.resumeNativeId}`)

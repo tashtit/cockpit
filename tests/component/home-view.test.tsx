@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HomeView } from '../../src/renderer/src/HomeView'
 import type { AccountsSnapshot, RepoGroup, SessionMeta } from '../../src/shared/types'
+import { pasteImage, stubObjectUrls } from './paste'
 
 const repo: RepoGroup = {
   key: '/home/dev/cachely',
@@ -94,7 +95,45 @@ describe('HomeView composer', () => {
       'add rate limiting'
     )
     await userEvent.click(screen.getByRole('button', { name: /All options/ }))
-    expect(onOpenFull).toHaveBeenCalledWith(repo, 'add rate limiting')
+    // third arg: pasted images released to the full form (none here)
+    expect(onOpenFull).toHaveBeenCalledWith(repo, 'add rate limiting', [])
+  })
+
+  it('sends a pasted image with the task, allowing an empty prompt', async () => {
+    stubObjectUrls()
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    const { onStart } = renderHome()
+
+    const start = await screen.findByRole('button', { name: 'Start with Claude' })
+    expect(start).toBeDisabled()
+    pasteImage(
+      screen.getByRole('textbox', { name: 'Task description' }),
+      new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' })
+    )
+    await waitFor(() => expect(screen.getByText('shot.png')).toBeInTheDocument())
+    await waitFor(() => expect(start).toBeEnabled())
+    await userEvent.click(start)
+
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: '', images: ['/tmp/chat-images/img.png'] })
+    )
+  })
+
+  it('hands pasted images to the full form via "All options"', async () => {
+    stubObjectUrls()
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    const { onOpenFull } = renderHome()
+
+    pasteImage(
+      await screen.findByRole('textbox', { name: 'Task description' }),
+      new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' })
+    )
+    await waitFor(() => expect(screen.getByText('shot.png')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /All options/ }))
+
+    expect(onOpenFull).toHaveBeenCalledWith(repo, '', [
+      { path: '/tmp/chat-images/img.png', name: 'shot.png', url: 'blob:preview' }
+    ])
   })
 
   it('keeps start disabled and shows "not signed in" when the agent has no account', async () => {

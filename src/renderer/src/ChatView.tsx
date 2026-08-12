@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import type { ChatBinding } from './App'
+import { AttachRow, useImageAttachments } from './attachments'
 import { MODES } from './NewSession'
 import { BranchChip, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -61,12 +62,13 @@ export function ChatView({
   log: SessionMessage[]
   busy: boolean
   prBusy: boolean
-  onSend: (prompt: string, mode: PermissionMode) => void
+  onSend: (prompt: string, mode: PermissionMode, images?: readonly string[]) => void
   onCancel: () => void
   onCreatePr: () => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [draft, setDraft] = useState('')
+  const atts = useImageAttachments()
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -96,6 +98,11 @@ export function ChatView({
     atBottomRef.current = true
   }, [binding])
 
+  // attachments belong to the conversation they were pasted into — drop them on switch
+  useEffect(() => {
+    atts.clear()
+  }, [binding?.provider, binding?.cwd])
+
   const branchPr = useMemo(
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
     [prs, binding?.branch]
@@ -120,9 +127,11 @@ export function ChatView({
 
   const submit = (): void => {
     const p = draft.trim()
-    if (!p || busy || !binding) return
+    if ((!p && atts.attachments.length === 0) || busy || !binding) return
     setDraft('')
-    onSend(p, mode)
+    const images = atts.paths()
+    atts.clear()
+    onSend(p, mode, images)
   }
 
   if (!binding) {
@@ -235,12 +244,14 @@ export function ChatView({
       </div>
 
       <footer className="composer">
+        <AttachRow atts={atts} />
         <textarea
           ref={composerRef}
           aria-label={`Message ${PROVIDER_LABEL[binding.provider]}`}
           placeholder={`Message ${PROVIDER_LABEL[binding.provider]}…  (Enter to send, Shift+Enter for newline)`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onPaste={atts.onPaste}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
@@ -253,7 +264,11 @@ export function ChatView({
             Stop
           </button>
         ) : (
-          <button className="btn-primary" disabled={!draft.trim()} onClick={submit}>
+          <button
+            className="btn-primary"
+            disabled={!draft.trim() && atts.attachments.length === 0}
+            onClick={submit}
+          >
             Send
           </button>
         )}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildCommand, parseClaudeStreamLine, parseCodexStreamLine } from '../src/main/chat'
+import { buildCommand, parseClaudeStreamLine, parseCodexStreamLine, promptWithImages } from '../src/main/chat'
 
 describe('buildCommand', () => {
   it('claude new chat, auto-edit', () => {
@@ -59,6 +59,50 @@ describe('buildCommand', () => {
       permissionMode: 'yolo'
     })
     expect(args).toContain('--allow-all-tools')
+  })
+  it('attached images become prompt file references for every provider', () => {
+    for (const provider of ['claude', 'codex', 'copilot'] as const) {
+      const { args } = buildCommand({
+        provider,
+        cwd: '/x',
+        prompt: 'what is this?',
+        permissionMode: 'safe',
+        images: ['/data/chat-images/a.png', '/data/chat-images/b.jpg']
+      })
+      const prompt = provider === 'copilot' ? args[args.indexOf('-p') + 1] : args[args.length - 1]
+      expect(prompt).toContain('what is this?')
+      expect(prompt).toContain('/data/chat-images/a.png')
+      expect(prompt).toContain('/data/chat-images/b.jpg')
+    }
+  })
+  it('codex resume keeps image references in the prompt (no --image flag exists there)', () => {
+    const { args } = buildCommand({
+      provider: 'codex',
+      cwd: '/x',
+      prompt: 'look',
+      resumeNativeId: 'sid',
+      permissionMode: 'safe',
+      images: ['/data/chat-images/a.png']
+    })
+    expect(args).not.toContain('--image')
+    expect(args[args.length - 1]).toContain('/data/chat-images/a.png')
+  })
+})
+
+describe('promptWithImages', () => {
+  it('returns the prompt untouched without images', () => {
+    expect(promptWithImages({ provider: 'claude', cwd: '/x', prompt: 'hi', permissionMode: 'safe' })).toBe('hi')
+  })
+  it('an image-only turn still yields a non-empty prompt', () => {
+    const p = promptWithImages({
+      provider: 'claude',
+      cwd: '/x',
+      prompt: '',
+      permissionMode: 'safe',
+      images: ['/data/chat-images/a.png']
+    })
+    expect(p).toContain('/data/chat-images/a.png')
+    expect(p.trim().length).toBeGreaterThan(0)
   })
 })
 

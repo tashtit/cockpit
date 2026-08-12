@@ -26,6 +26,19 @@ export function isValidModel(model: string): boolean {
 
 const CODEX_SANDBOXES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 
+/**
+ * Fold attached images into the prompt as file references. All three CLIs view a
+ * referenced image through their own file-reading tools, and it is the one mechanism
+ * that works everywhere (codex `exec resume` accepts no --image flag). An image-only
+ * turn still produces a non-empty prompt. Exported for tests.
+ */
+export function promptWithImages(req: ChatRequest): string {
+  const images = req.images ?? []
+  if (images.length === 0) return req.prompt
+  const refs = images.map((p) => `[Attached image — view the file at ${p}]`).join('\n')
+  return req.prompt ? `${req.prompt}\n\n${refs}` : refs
+}
+
 /** Build argv for each provider's headless one-turn invocation. */
 export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } {
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
@@ -36,7 +49,7 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
-      args.push(req.prompt)
+      args.push(promptWithImages(req))
       return { cmd: 'claude', args }
     }
     case 'codex': {
@@ -57,11 +70,11 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
         else args.push('--sandbox', sandbox)
       }
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
-      args.push(req.prompt)
+      args.push(promptWithImages(req))
       return { cmd: 'codex', args }
     }
     case 'copilot': {
-      const args = ['-p', req.prompt]
+      const args = ['-p', promptWithImages(req)]
       if (model) args.push('--model', model)
       if (req.permissionMode !== 'safe') args.push('--allow-all-tools')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
