@@ -1,8 +1,11 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 
-/** UI stays usable at any zoom the user can reach */
+/** UI stays usable at any zoom the user can reach. The ceiling is 2.0 on purpose:
+ *  WCAG 1.4.4 wants text to reach 200% without loss of content, and this app's chrome
+ *  is deliberately dense (11–13px), so low-vision users need the whole range.
+ *  App.tsx mirrors these bounds to keep the zoom chip honest — change both. */
 const ZOOM_MIN = 0.7
-const ZOOM_MAX = 1.5
+const ZOOM_MAX = 2
 import type {
   BusySession,
   ChatEvent,

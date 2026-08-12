@@ -50,6 +50,12 @@ export function Select({
 
   const selectedIdx = Math.max(0, options.findIndex((o) => o.value === value))
   const selected = options[selectedIdx]
+  // an aria-label on the trigger would *replace* its contents, so the chosen option
+  // would never be announced ("Permission mode", never "Auto-edit"). Name the trigger
+  // from label + value instead, the way a native <select> reads.
+  const nameId = `${listId}-name`
+  const valueId = `${listId}-value`
+  const popId = `${listId}-pop`
 
   const openList = (): void => {
     const r = triggerRef.current?.getBoundingClientRect()
@@ -146,7 +152,8 @@ export function Select({
         className={`select-trigger ${quiet ? 'quiet' : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={ariaLabel}
+        aria-controls={open ? popId : undefined}
+        aria-labelledby={ariaLabel ? `${nameId} ${valueId}` : undefined}
         title={title ?? selected?.title}
         onClick={() => (open ? close(true) : openList())}
         onKeyDown={(e) => {
@@ -156,7 +163,9 @@ export function Select({
           }
         }}
       >
-        <span className="select-value">{selected?.label ?? ''}</span>
+        {/* sr-only is position:absolute — out of flow, so it costs no flex width or gap */}
+        {ariaLabel && <span id={nameId} className="sr-only">{ariaLabel}</span>}
+        <span id={valueId} className="select-value">{selected?.label ?? ''}</span>
         <svg className="select-chev" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
           <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5"
             strokeLinecap="round" strokeLinejoin="round" />
@@ -167,6 +176,7 @@ export function Select({
       {open && pos && createPortal(
         <ul
           ref={listRef}
+          id={popId}
           className={`select-pop ${mono ? 'mono' : ''}`}
           role="listbox"
           tabIndex={-1}

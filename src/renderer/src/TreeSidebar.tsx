@@ -268,7 +268,11 @@ function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
     // keyboard users land inside the popover; Esc closes it and returns focus
     popRef.current?.querySelector<HTMLInputElement>('input')?.focus()
     const onDown = (e: MouseEvent): void => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
+      if (wrapRef.current?.contains(e.target as Node)) return
+      // the popover is about to unmount — hand focus back to its trigger rather than
+      // letting it fall to <body> and restart Tab order at the top of the window
+      if (popRef.current?.contains(document.activeElement)) btnRef.current?.focus()
+      setOpen(false)
     }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
@@ -381,7 +385,7 @@ function RepoNode({
           else if (e.key === 'ArrowLeft' && open) onToggle()
         }}
       >
-        <span className={`chev ${open ? 'open' : ''}`}>▸</span>
+        <span className={`chev ${open ? 'open' : ''}`} aria-hidden="true">▸</span>
         <span className="repo-icon">
           <RepoIcon size={13} />
         </span>
@@ -452,7 +456,7 @@ function RepoNode({
                 tabIndex={-1}
                 onClick={() => setShowArchived((v) => !v)}
               >
-                <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
+                <span className={`chev ${showArchived ? 'open' : ''}`} aria-hidden="true">▸</span>
                 Archived ({repo.archivedCount})
               </button>
               {showArchived && (
@@ -513,7 +517,7 @@ function ChatsSection({
           else if (e.key === 'ArrowLeft' && open) onToggle()
         }}
       >
-        <span className={`chev ${open ? 'open' : ''}`}>▸</span>
+        <span className={`chev ${open ? 'open' : ''}`} aria-hidden="true">▸</span>
         <span className="section-icon">
           <ChatIcon size={12} />
         </span>
@@ -547,7 +551,7 @@ function ChatsSection({
                 tabIndex={-1}
                 onClick={() => setShowArchived((v) => !v)}
               >
-                <span className={`chev ${showArchived ? 'open' : ''}`}>▸</span>
+                <span className={`chev ${showArchived ? 'open' : ''}`} aria-hidden="true">▸</span>
                 Archived ({repo.archivedCount})
               </button>
               {showArchived && (
@@ -678,6 +682,9 @@ function SessionRow({
         <ProviderLogo p={s.provider} size={13} />
       </span>
       <span className="session-title">{s.title}</span>
+      {/* archived reads as strikethrough + dim visually — say it out loud too.
+          sr-only is position:absolute, so it costs no row width or gap */}
+      {s.archived && <span className="sr-only">(archived)</span>}
       {multiAccount && acct && <span className="acct-chip">{acct.label}</span>}
       <span className="row-actions">
         <button

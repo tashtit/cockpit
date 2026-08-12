@@ -170,6 +170,9 @@ export function PrBadge({
   return (
     <button
       className={`pr-badge pr-${cls} ${compact ? 'compact' : ''}`}
+      // the compact badge renders only "#42" — state lives in the border color alone,
+      // so it has to be in the name too (WCAG 1.4.1)
+      aria-label={`${label} pull request #${pr.number}: ${pr.title}`}
       title={`${label} — #${pr.number} ${pr.title}`}
       onClick={(e) => {
         e.stopPropagation()
