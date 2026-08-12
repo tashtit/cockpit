@@ -251,9 +251,12 @@ export function App(): JSX.Element {
   )
 
   const send = useCallback(
-    async (prompt: string, permissionMode: PermissionMode) => {
+    async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
       if (!binding || activeTurn) return
-      setLog((l) => [...l, { role: 'user', kind: 'text', text: prompt }])
+      // the transcript shows attachments as one marker line per image
+      const marks = images?.map((p) => `[image: ${p.split('/').pop() ?? p}]`).join('\n')
+      const logText = prompt && marks ? `${prompt}\n${marks}` : prompt || (marks ?? '')
+      setLog((l) => [...l, { role: 'user', kind: 'text', text: logText }])
       const turnId = await api.sendChat({
         provider: binding.provider,
         cwd: binding.cwd,
@@ -262,7 +265,8 @@ export function App(): JSX.Element {
         permissionMode,
         options: binding.options,
         configDir: binding.configDir,
-        copilotUser: binding.copilotUser
+        copilotUser: binding.copilotUser,
+        images
       })
       beginTurn(turnId)
     },

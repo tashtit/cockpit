@@ -497,7 +497,7 @@ summary::-webkit-details-marker { display: none; }
 .pulse-copilot { background: var(--copilot); }
 .session-row .pulse, .recent-row .pulse { flex-shrink: 0; }
 
-.composer { display: flex; gap: var(--s3); padding: var(--s4) var(--s5);
+.composer { display: flex; flex-wrap: wrap; gap: var(--s3); padding: var(--s4) var(--s5);
   border-top: 1px solid var(--border); background: var(--pane);
   align-items: flex-end; }
 .composer textarea { flex: 1; resize: none; background: var(--bg2); color: var(--fg);
@@ -506,6 +506,21 @@ summary::-webkit-details-marker { display: none; }
   field-sizing: content; min-height: 2.4lh; max-height: 12lh; }
 .composer textarea:focus { outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow); }
+/* pasted images waiting to be sent — a full-width chip row above the textarea */
+.composer-attach { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: var(--s2);
+  align-items: center; }
+.attach-chip { display: inline-flex; align-items: center; gap: var(--s2);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 2px var(--s1) 2px 2px; font-size: var(--fs-sm); color: var(--fg-dim);
+  max-width: 220px; }
+.attach-chip img { width: 24px; height: 24px; object-fit: cover;
+  border-radius: var(--radius-sm); display: block; }
+.attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 24px hit target inside a compact chip; color carries the hover, not layout */
+.attach-remove { width: 24px; height: 24px; line-height: 1; border-radius: var(--radius-sm);
+  color: var(--fg-dim); flex-shrink: 0; }
+.attach-remove:hover { color: var(--fg); background: var(--surface); }
+.attach-error { color: var(--danger); font-size: var(--fs-sm); }
 
 .empty-chat { flex: 1; display: flex; flex-direction: column; align-items: center;
   justify-content: center; color: var(--fg-dim); gap: var(--s3); padding: var(--s5);

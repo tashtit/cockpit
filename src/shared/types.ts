@@ -169,6 +169,8 @@ export type ChatRequest = {
   readonly configDir?: string
   /** Copilot: which logged-in GitHub user to run as */
   readonly copilotUser?: string
+  /** Pasted-image paths returned by saveChatImage — main re-validates them against its own image dir */
+  readonly images?: readonly string[]
 }
 
 /* ---------- accounts ---------- */
@@ -473,6 +475,8 @@ export type CockpitApi = {
   readonly sendChat: (req: ChatRequest) => Promise<string>
   readonly cancelChat: (turnId: string) => Promise<void>
   readonly onChatEvent: (cb: (ev: ChatEvent) => void) => () => void
+  /** Persist a pasted image in main's image dir; resolves to the absolute file path */
+  readonly saveChatImage: (data: Uint8Array, mime: string) => Promise<string>
   readonly getSources: () => Promise<SourceDir[]>
   readonly getSourceStats: () => Promise<SourceStats[]>
   /** Native directory picker (main-process dialog); null when the user cancels */

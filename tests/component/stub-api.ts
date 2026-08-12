@@ -10,6 +10,7 @@ export function freshApi(): CockpitApi {
     sendChat: vi.fn(async () => 'turn-1'),
     cancelChat: vi.fn(async () => {}),
     onChatEvent: vi.fn(() => () => {}),
+    saveChatImage: vi.fn(async () => '/tmp/chat-images/img.png'),
     getSources: vi.fn(async () => []),
     getSourceStats: vi.fn(async () => []),
     pickDirectory: vi.fn(async () => null),
