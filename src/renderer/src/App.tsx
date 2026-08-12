@@ -16,6 +16,7 @@ import { Settings } from './Settings'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
+import { DevBanner } from './DevBanner'
 import { initBusySessions } from './busy'
 import { initTimeFormat } from './time'
 import type { StartSessionRequest } from './NewSession'
@@ -353,6 +354,7 @@ export function App(): JSX.Element {
 
   return (
     <div className="app">
+      <DevBanner />
       {/* non-chat views have no draggable header of their own — give the window a
           slim grab strip along the top edge (chat's header is already a drag region) */}
       {view.kind !== 'chat' && <div className="drag-strip" aria-hidden />}

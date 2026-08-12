@@ -90,6 +90,22 @@ button, input, select, textarea, details { transition: background var(--dur) var
    content must stay below it (tree-top's 40px pad and view top margins already do) */
 .drag-strip { position: fixed; top: 0; left: 0; right: 0; height: 22px;
   -webkit-app-region: drag; z-index: 30; }
+/* dev-only worktree identity banner: full-width row above the grid naming the
+   branch this instance runs from — parallel `npm run dev` windows are otherwise
+   identical. Sits under the traffic lights (text is centered clear of them),
+   doubles as a drag region; the branch text itself is copyable. */
+.dev-banner { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center;
+  height: 28px; background: rgba(var(--branch-rgb), 0.09);
+  border-bottom: 1px solid rgba(var(--branch-rgb), 0.25);
+  color: var(--branch); font-family: var(--mono); font-size: var(--fs-xs);
+  -webkit-app-region: drag; }
+.dev-banner-text { display: inline-flex; align-items: center; gap: var(--s1);
+  min-width: 0; max-width: 60%; -webkit-app-region: no-drag; user-select: text; }
+.dev-banner svg { flex-shrink: 0; }
+/* the banner row claims the traffic-light clearance, so the sidebar top sheds
+   its 40px pad; the banner also replaces the 22px strip as the top drag target */
+.app:has(.dev-banner) { grid-template-rows: 28px minmax(0, 1fr); }
+.app:has(.dev-banner) .tree-top { padding-top: var(--s3); }
 .tree-top button, .chat-header button { -webkit-app-region: no-drag; }
 /* the subtitle carries paths/branches a developer copies — selectable, not draggable */
 .chat-header .chat-sub { -webkit-app-region: no-drag; user-select: text; }
@@ -154,14 +170,6 @@ summary::-webkit-details-marker { display: none; }
   border: 1px solid rgba(var(--warn-rgb), 0.4); border-radius: var(--radius-pill); padding: 0 var(--s2);
   flex-shrink: 0; min-height: 24px; }
 .zoom-chip:hover { background: var(--bg3); }
-/* dev-only worktree identity: branch of the checkout this instance runs from.
-   Non-interactive but copyable — hence selectable text + drag opt-out. */
-.dev-chip { display: inline-flex; align-items: center; min-height: 24px;
-  font-size: var(--fs-xs); font-family: var(--mono); color: var(--branch);
-  border: 1px solid rgba(var(--branch-rgb), 0.4); border-radius: var(--radius-pill);
-  padding: 0 var(--s2); min-width: 0; flex-shrink: 1; overflow: hidden;
-  user-select: text; -webkit-app-region: no-drag; }
-.dev-chip .chip-pre { flex-shrink: 0; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--fg-dim); }
 .icon-btn:hover { background: var(--bg3); color: var(--fg); }

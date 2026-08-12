@@ -101,7 +101,7 @@ function createWindow(): void {
   const devPrefs = app.isPackaged
     ? { background: false, displayIndex: null }
     : readDevWindowPrefs(process.env)
-  // dev-only: brand the window with the source branch (title + sidebar chip)
+  // dev-only: brand the window with the source branch (title + top banner)
   const devBranch = app.isPackaged ? null : readDevBranch()
   // placing via constructor x/y (not a post-hoc setBounds) is what reliably
   // lands the window on another display under macOS separate-Spaces

@@ -34,26 +34,6 @@ function sameList(a: SessionMeta[], b: SessionMeta[]): boolean {
   return true
 }
 
-/**
- * Dev-only: which branch/worktree this instance runs from — parallel
- * `npm run dev` windows look identical otherwise. Main tags the dev-server
- * URL with `?devBranch=`; a packaged app never carries the param.
- */
-function DevBranchChip(): JSX.Element | null {
-  const branch = new URLSearchParams(window.location.search).get('devBranch')
-  if (!branch) return null
-  // like BranchChip's c/ prefix: recede the namespace so the distinguishing
-  // suffix wins truncation
-  const slash = branch.indexOf('/')
-  const pre = slash > 0 ? branch.slice(0, slash + 1) : ''
-  return (
-    <span className="dev-chip" title={`dev build running from branch ${branch}`}>
-      {pre && <span className="chip-pre">{pre}</span>}
-      <span className="chip-text">{branch.slice(pre.length)}</span>
-    </span>
-  )
-}
-
 export function TreeSidebar({
   repos,
   indexVersion,
@@ -133,7 +113,6 @@ export function TreeSidebar({
             {Math.round(zoom * 100)}%
           </button>
         )}
-        <DevBranchChip />
 
         <ProjectFilter repos={repos} />
         <button
