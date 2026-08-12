@@ -1,16 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  ModelEndpoint,
+  ModelEndpointType,
+  NewModelEndpoint,
   Provider,
   SourceDir,
   SourceStats,
+  TimeFormat,
   UsageSnapshot,
   UsageTokens,
-  UsageWindow
+  UsageWindow,
+  WireApi
 } from '../../shared/types'
+import { endpointAgents } from '../../shared/endpoints'
 import { api } from './api'
-import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { EndpointIcon, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { setTimeFormat, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -23,6 +30,11 @@ const HISTORY_OPTIONS = [
   { value: '30', label: 'Last 30 days' },
   { value: '90', label: 'Last 90 days' },
   { value: '365', label: 'Last year' }
+]
+
+const TIME_FORMAT_OPTIONS = [
+  { value: '24h', label: '24-hour · 14:30' },
+  { value: '12h', label: '12-hour · 2:30 PM' }
 ]
 
 function fmtAgo(ms: number): string {
@@ -94,7 +106,9 @@ function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow })
           {(w.requestsBilled ?? 0) > 0 && ` · ${fmtCount(w.requestsBilled!)} billed beyond plan`}
         </span>
       )}
-      {w.resetsAt && <time>{fmtResetIn(w.resetsAt)}</time>}
+      {w.resetsAt && (
+        <time dateTime={new Date(w.resetsAt).toISOString()}>{fmtResetIn(w.resetsAt)}</time>
+      )}
     </div>
   )
 }
@@ -109,17 +123,35 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   /** null until loaded — the Select only renders with a real value */
   const [historyDays, setHistoryDays] = useState<number | null>(null)
+  const timeFormat = useTimeFormat()
   /** Path of the source whose Remove is in its confirm step */
   const [confirming, setConfirming] = useState<string | null>(null)
   const [lastRemoved, setLastRemoved] = useState<SourceDir | null>(null)
   /** sr-only announcements (same pattern as ChatView's status region) */
   const [status, setStatus] = useState('')
+  /** Custom model providers (BYOK) — list plus the add-form fields */
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  const [epLabel, setEpLabel] = useState('')
+  const [epType, setEpType] = useState<ModelEndpointType>('openai')
+  const [epUrl, setEpUrl] = useState('')
+  const [epKey, setEpKey] = useState('')
+  const [epWire, setEpWire] = useState<'' | WireApi>('')
+  const [epHeaders, setEpHeaders] = useState('')
+  const [epError, setEpError] = useState<string | null>(null)
+  /** Visible outcome of the add + model-listing probe (the sr-only region mirrors it) */
+  const [epNotice, setEpNotice] = useState<string | null>(null)
+  /** Endpoint id whose Remove is in its confirm step */
+  const [confirmingEp, setConfirmingEp] = useState<string | null>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const confirmEpTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refresh = (): void => {
     void api.getSourceStats().then(setStats)
     void api.getAccounts().then(setAccounts)
+    // optional call: during dev HMR the renderer can outrun a preload that predates
+    // this method — a missing bridge must not take the whole Settings view down
+    void api.getModelEndpoints?.().then(setEndpoints)
     api.getUsage().then(setUsage, () => {})
   }
   useEffect(() => {
@@ -131,6 +163,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   }, [])
   useEffect(() => () => {
     if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    if (confirmEpTimer.current) clearTimeout(confirmEpTimer.current)
   }, [])
 
   const identityOf = (p: string): string | null =>
@@ -187,10 +220,82 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
     }
   }
 
+  const addEndpoint = async (): Promise<void> => {
+    setEpError(null)
+    try {
+      let headers: Record<string, string> | undefined
+      if (epHeaders.trim() && epHeaders.trim() !== '{}') {
+        try {
+          headers = JSON.parse(epHeaders) as Record<string, string>
+        } catch {
+          throw new Error('Custom headers must be a JSON object, e.g. {"anthropic-version": "2023-06-01"}.')
+        }
+      }
+      const def: NewModelEndpoint = {
+        label: epLabel.trim(),
+        type: epType,
+        baseUrl: epUrl.trim(),
+        apiKey: epKey.trim() || undefined,
+        wireApi: epType === 'openai' && epWire ? epWire : undefined,
+        headers
+      }
+      const before = endpoints
+      const after = await api.addModelEndpoint(def)
+      setEndpoints(after)
+      setEpLabel('')
+      setEpUrl('')
+      setEpKey('')
+      setEpWire('')
+      setEpHeaders('')
+      const notice = (msg: string): void => {
+        setEpNotice(msg)
+        setStatus(msg)
+      }
+      notice(`Added ${def.label} — checking its model list…`)
+      // warm the model list so the session form can offer a picker; failure is advice, not an error
+      const added = after.find((e) => !before.some((o) => o.id === e.id))
+      if (added) {
+        try {
+          const models = await api.listEndpointModels(added.id)
+          setEndpoints(await api.getModelEndpoints())
+          notice(
+            models.length > 0
+              ? `Added ${def.label} — ${models.length} models found`
+              : `Added ${def.label} — it did not list any models; type one when starting a session`
+          )
+        } catch (err) {
+          notice(
+            `Added ${def.label} — couldn't list models (${err instanceof Error ? err.message : err})`
+          )
+        }
+      }
+    } catch (err) {
+      setEpError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const armRemoveEndpoint = (id: string): void => {
+    setConfirmingEp(id)
+    if (confirmEpTimer.current) clearTimeout(confirmEpTimer.current)
+    confirmEpTimer.current = setTimeout(() => setConfirmingEp(null), 4000)
+  }
+
+  const removeEndpoint = async (ep: ModelEndpoint): Promise<void> => {
+    setConfirmingEp(null)
+    setEndpoints(await api.removeModelEndpoint(ep.id))
+    setEpNotice(null)
+    setStatus(`Removed provider ${ep.label}`)
+  }
+
   const changeHistory = async (days: number): Promise<void> => {
     setHistoryDays(days)
     await api.setHistoryDays(days)
     setStatus(days === 0 ? 'Showing all history' : `Showing the last ${days} days of history`)
+  }
+
+  const changeTimeFormat = (f: TimeFormat): void => {
+    setTimeFormat(f)
+    setStatus(`Session times shown in ${f === '24h' ? '24-hour' : '12-hour'} format`)
   }
 
   // a hand-edited config value outside the presets still renders as itself
@@ -244,7 +349,11 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
                 ) : (
                   <>
                     <span className="repo-count">{s.count}</span>
-                    {s.lastUpdatedAt && <time>active {fmtAgo(s.lastUpdatedAt)}</time>}
+                    {s.lastUpdatedAt && (
+                      <time dateTime={new Date(s.lastUpdatedAt).toISOString()}>
+                        active {fmtAgo(s.lastUpdatedAt)}
+                      </time>
+                    )}
                   </>
                 )}
               </div>
@@ -304,6 +413,24 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
                 onChange={(v) => void changeHistory(Number(v))}
               />
             )}
+          </div>
+        </div>
+
+        <h3 className="ns-label">Display</h3>
+        <p className="ns-hint">
+          How a session&apos;s last-activity time is shown in the sidebar and on the home view.
+          Sessions last active before today show a date instead.
+        </p>
+        <div className="ns-options">
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="time-format">Time format</label>
+            <Select
+              id="time-format"
+              ariaLabel="Time format"
+              value={timeFormat}
+              options={TIME_FORMAT_OPTIONS}
+              onChange={(v) => changeTimeFormat(v as TimeFormat)}
+            />
           </div>
         </div>
 
@@ -375,6 +502,185 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
             </div>
           </li>
         </ul>
+
+        <h3 className="ns-label">Model providers</h3>
+        {typeof api.addModelEndpoint !== 'function' ? (
+          // an orphaned dev window can pair an old preload with hot-reloaded renderer
+          // code — say so up front instead of erroring after the form is filled in
+          <p className="ns-hint">
+            This window is running an older Cockpit bridge — restart the app to manage model
+            providers.
+          </p>
+        ) : (
+          <>
+        <p className="ns-hint">
+          Access models from other providers with your own API keys. Which agents a provider can
+          run depends on its type — Copilot speaks all three (OpenAI-compatible, Azure,
+          Anthropic), Claude only anthropic-type, and Codex none — each row shows the agents it
+          works with. Pick a provider when starting a session. Keys stay private: encrypted with
+          your OS keychain, never written to config, and sent only to the provider itself.
+        </p>
+        <ul className="source-list">
+          {endpoints.map((ep) => (
+            <li key={ep.id} className="source-row">
+              <span className="plogo" aria-hidden="true">
+                <EndpointIcon size={13} />
+              </span>
+              <div className="source-body">
+                <div className="source-label">
+                  {ep.label}
+                  <span className="acct-chip">
+                    {ep.type}
+                    {ep.wireApi ? ` · ${ep.wireApi}` : ''}
+                  </span>
+                  <span
+                    className="repo-providers"
+                    role="img"
+                    aria-label={`works with ${endpointAgents(ep).map((p) => PROVIDER_LABEL[p]).join(' and ')}`}
+                    title={`Works with ${endpointAgents(ep).map((p) => PROVIDER_LABEL[p]).join(' and ')}`}
+                  >
+                    {endpointAgents(ep).map((p) => (
+                      <span key={p} className={`plogo plogo-${p}`}>
+                        <ProviderLogo p={p} size={10} />
+                      </span>
+                    ))}
+                  </span>
+                </div>
+                <div className="source-path" title={ep.baseUrl}>{ep.baseUrl}</div>
+              </div>
+              <div className="source-health">
+                <span className="source-note">
+                  {ep.hasKey ? 'key in keychain' : 'no key'}
+                  {ep.models && ep.models.length > 0 && <> · {ep.models.length} models</>}
+                </span>
+              </div>
+              {confirmingEp === ep.id ? (
+                <button
+                  className="btn-danger"
+                  aria-label={`Confirm removing provider ${ep.label}`}
+                  title="Deletes its stored key. Sessions started on this provider will refuse to resume until it is re-added."
+                  onBlur={() => setConfirmingEp(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.stopPropagation()
+                      setConfirmingEp(null)
+                    }
+                  }}
+                  onClick={() => void removeEndpoint(ep)}
+                >
+                  Remove?
+                </button>
+              ) : (
+                <button
+                  className="btn-ghost danger small"
+                  aria-label={`Remove provider ${ep.label} — ${ep.baseUrl}`}
+                  onClick={() => armRemoveEndpoint(ep.id)}
+                >
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+          {endpoints.length === 0 && <li className="tree-empty">no custom providers</li>}
+        </ul>
+        <form
+          className="source-add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void addEndpoint()
+          }}
+        >
+          <div className="ns-options">
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-label">Display name</label>
+              <input
+                id="ep-label"
+                placeholder="Anthropic"
+                value={epLabel}
+                onChange={(e) => setEpLabel(e.target.value)}
+              />
+            </div>
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-type">Type</label>
+              <Select
+                id="ep-type"
+                ariaLabel="Provider type"
+                mono
+                value={epType}
+                options={[
+                  { value: 'openai', label: 'openai — any OpenAI-compatible', hint: 'Copilot' },
+                  { value: 'azure', label: 'azure', hint: 'Copilot' },
+                  { value: 'anthropic', label: 'anthropic', hint: 'Claude · Copilot' }
+                ]}
+                onChange={(v) => {
+                  setEpType(v as ModelEndpointType)
+                  if (v !== 'openai') setEpWire('')
+                }}
+              />
+            </div>
+            <div className="ns-opt source-opt-path">
+              <label className="ns-label" htmlFor="ep-url">Base URL</label>
+              <input
+                id="ep-url"
+                placeholder="https://api.anthropic.com"
+                value={epUrl}
+                aria-invalid={!!epError}
+                aria-describedby={epError ? 'endpoint-add-error' : undefined}
+                onChange={(e) => {
+                  setEpUrl(e.target.value)
+                  setEpError(null)
+                }}
+              />
+            </div>
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-key">API key · optional</label>
+              <input
+                id="ep-key"
+                type="password"
+                autoComplete="off"
+                placeholder="sk-…"
+                value={epKey}
+                onChange={(e) => setEpKey(e.target.value)}
+              />
+            </div>
+            {epType === 'openai' && (
+              <div className="ns-opt">
+                <label className="ns-label" htmlFor="ep-wire">Wire API</label>
+                <Select
+                  id="ep-wire"
+                  ariaLabel="Wire API"
+                  mono
+                  value={epWire}
+                  options={[
+                    { value: '', label: 'completions (default)' },
+                    { value: 'responses', label: 'responses — GPT-5 series' }
+                  ]}
+                  onChange={(v) => setEpWire(v as '' | WireApi)}
+                />
+              </div>
+            )}
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-headers">Custom headers (JSON) · optional</label>
+              <input
+                id="ep-headers"
+                placeholder='{"anthropic-version": "2023-06-01"}'
+                value={epHeaders}
+                onChange={(e) => setEpHeaders(e.target.value)}
+              />
+            </div>
+          </div>
+          {epError && (
+            <div id="endpoint-add-error" role="alert" className="new-error">{epError}</div>
+          )}
+          {epNotice && !epError && <p className="ns-hint">{epNotice}</p>}
+          <div className="ns-actions">
+            <button type="submit" className="btn-primary" disabled={!epLabel.trim() || !epUrl.trim()}>
+              Add provider
+            </button>
+          </div>
+        </form>
+          </>
+        )}
 
         <h3 className="ns-label">Add source</h3>
         <form

@@ -6,8 +6,8 @@
 it answers "what is Cockpit watching, as whom, how much of each subscription is used,
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
-sections, in order: Agent accounts & sources · History · Subscription usage · GitHub ·
-Add source).
+sections, in order: Agent accounts & sources · History · Display · Subscription usage ·
+GitHub · Model providers · Add source).
 
 ## Rules
 
@@ -32,6 +32,10 @@ Add source).
 - History section: one labeled `Select` ("Show sessions from" — preset day windows plus
   "All history"). The `.ns-hint` must keep saying that older sessions are only hidden,
   never touched on disk — this is a view filter, not a destructive setting.
+- Display section: one labeled `Select` ("Time format" — 24-hour default vs 12-hour,
+  each option shows a concrete example like `14:30`). Applies live to session times in
+  the sidebar and home view via the shared `time.ts` store; changes announce through
+  the card's `role="status"` region like every other setting.
 - Subscription usage section: one `.source-row.tint-<provider>` per provider account —
   logo · label · `.acct-chip` identity · dim plan / "as of Xm ago" `.source-origin`
   (staleness only shown past 15min). Body is `.usage-windows` rows: window label ·
@@ -41,6 +45,20 @@ Add source).
 - GitHub section: one row — `OrgIcon` · "gh CLI" · `@login` acct-chip (or `.missing`)
   · `.source-note` prose (NOT mono; mono is machine identifiers only). Copy references
   real commands in `<code>` (`gh auth login`).
+- Model providers section (BYOK): `.source-row` per provider — `EndpointIcon` · display
+  name · `.acct-chip` type (+ wire api) · `.repo-providers` mini agent logos
+  (`role="img"` with a "Works with …" title — agent applicability is per type, and it
+  must be visible per row, not implied) · mono `.source-path` base URL · `.source-note`
+  "key in keychain"/"no key" + cached model count · two-step Remove (same recipe as
+  sources; also deletes the stored key). The Type select's options carry the agents they
+  serve as `hint` annotations.
+  The hint must keep saying keys are encrypted with the OS keychain, never written to
+  config, and sent only to the provider. Add form mirrors Add source: labeled `.ns-opt`s
+  — Display name · Type · Base URL · API key (`type="password"`, `autoComplete="off"`) ·
+  Wire API only for openai type (progressive disclosure) · Custom headers (JSON object,
+  validated inline). Primary disabled until name + URL are non-empty. After add, the
+  provider's `/models` catalog is probed; the visible `.ns-hint` outcome line ("N models
+  found" / why not) is mirrored to the sr-only status region.
 - Add form: a real `<form>` (Enter submits) of labeled `.ns-opt`s — Agent select ·
   Config home (mono input + ghost "Browse…" calling `pickDirectory()`, a main-process
   `dialog.showOpenDialog` with `showHiddenFiles` — config homes are dotdirs) · optional

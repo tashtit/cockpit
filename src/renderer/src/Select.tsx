@@ -1,13 +1,13 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
-export interface SelectOption {
-  value: string
-  label: string
+export type SelectOption = {
+  readonly value: string
+  readonly label: string
   /** Right-aligned dim annotation (e.g. a count or state) */
-  hint?: string
+  readonly hint?: string
   /** Tooltip for the option row */
-  title?: string
+  readonly title?: string
 }
 
 /**
@@ -50,6 +50,12 @@ export function Select({
 
   const selectedIdx = Math.max(0, options.findIndex((o) => o.value === value))
   const selected = options[selectedIdx]
+  // an aria-label on the trigger would *replace* its contents, so the chosen option
+  // would never be announced ("Permission mode", never "Auto-edit"). Name the trigger
+  // from label + value instead, the way a native <select> reads.
+  const nameId = `${listId}-name`
+  const valueId = `${listId}-value`
+  const popId = `${listId}-pop`
 
   const openList = (): void => {
     const r = triggerRef.current?.getBoundingClientRect()
@@ -84,11 +90,11 @@ export function Select({
         close(false)
     }
     const onAway = (): void => close(false)
-    // scrolling an ancestor detaches the fixed popup from its trigger, so close —
-    // but scrolling the popup's own list must not dismiss it
+    // page scroll detaches a fixed-position popup from its trigger → close; but the
+    // listbox scrolls its own overflow (long model catalogs, keyboard scrollIntoView)
+    // and must never close itself
     const onScroll = (e: Event): void => {
-      const t = e.target as Node | null
-      if (t && listRef.current && (t === listRef.current || listRef.current.contains(t))) return
+      if (e.target instanceof Node && listRef.current?.contains(e.target)) return
       close(false)
     }
     document.addEventListener('mousedown', onDown)
@@ -146,7 +152,8 @@ export function Select({
         className={`select-trigger ${quiet ? 'quiet' : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={ariaLabel}
+        aria-controls={open ? popId : undefined}
+        aria-labelledby={ariaLabel ? `${nameId} ${valueId}` : undefined}
         title={title ?? selected?.title}
         onClick={() => (open ? close(true) : openList())}
         onKeyDown={(e) => {
@@ -156,7 +163,9 @@ export function Select({
           }
         }}
       >
-        <span className="select-value">{selected?.label ?? ''}</span>
+        {/* sr-only is position:absolute — out of flow, so it costs no flex width or gap */}
+        {ariaLabel && <span id={nameId} className="sr-only">{ariaLabel}</span>}
+        <span id={valueId} className="select-value">{selected?.label ?? ''}</span>
         <svg className="select-chev" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
           <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5"
             strokeLinecap="round" strokeLinejoin="round" />
@@ -167,6 +176,7 @@ export function Select({
       {open && pos && createPortal(
         <ul
           ref={listRef}
+          id={popId}
           className={`select-pop ${mono ? 'mono' : ''}`}
           role="listbox"
           tabIndex={-1}

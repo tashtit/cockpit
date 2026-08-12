@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   ChatEvent,
   PermissionMode,
@@ -15,29 +15,31 @@ import { NewSession } from './NewSession'
 import { Settings } from './Settings'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
-import type { AccountChoice } from './NewSession'
+import { initBusySessions } from './busy'
+import { initTimeFormat } from './time'
+import type { StartSessionRequest } from './NewSession'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
 
-export interface ChatBinding {
-  provider: Provider
-  cwd: string
-  nativeSessionId: string | null
-  title: string
-  branch: string | null
-  repoRoot: string | null
+export type ChatBinding = {
+  readonly provider: Provider
+  readonly cwd: string
+  readonly nativeSessionId: string | null
+  readonly title: string
+  readonly branch: string | null
+  readonly repoRoot: string | null
   /** Per-agent options chosen at session start; reused for every turn */
-  options?: AgentOptions
+  readonly options?: AgentOptions
   /** Account chosen at session start (config home + copilot user) */
-  configDir?: string
-  copilotUser?: string
+  readonly configDir?: string
+  readonly copilotUser?: string
   /** Human-readable identity shown in the chat header */
-  accountLabel?: string
+  readonly accountLabel?: string
 }
 
 type View =
   | { kind: 'welcome' }
   | { kind: 'chat' }
-  | { kind: 'new'; repo: RepoGroup }
+  | { kind: 'new'; repo: RepoGroup; draft?: string }
   | { kind: 'settings' }
   | { kind: 'extensions' }
 
@@ -64,7 +66,10 @@ export function App(): JSX.Element {
   const textBufRef = useRef('')
   const textFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  useEffect(() => initBusySessions(), [])
+
   useEffect(() => {
+    void initTimeFormat()
     const load = (): void => {
       void api.listRepos().then(setRepos)
       void api.getAccounts().then(setAccounts)
@@ -74,11 +79,13 @@ export function App(): JSX.Element {
     return api.onIndexUpdated(load)
   }, [])
 
-  // menu zoom (⌘+/-) has no renderer event — poll, clamp to limits, surface the level
+  // menu zoom (⌘+/-) has no renderer event — poll, clamp to limits, surface the level.
+  // Bounds mirror ZOOM_MIN/ZOOM_MAX in preload (which does the actual clamping); the
+  // ceiling is 2.0 so text can reach 200% per WCAG 1.4.4.
   useEffect(() => {
     const t = setInterval(() => {
       const z = api.getZoomFactor()
-      if (z > 1.5 || z < 0.7) api.setZoomFactor(z)
+      if (z > 2 || z < 0.7) api.setZoomFactor(z)
       setZoom(Math.round(api.getZoomFactor() * 100) / 100)
     }, 1200)
     return () => clearInterval(t)
@@ -163,7 +170,13 @@ export function App(): JSX.Element {
         flushText()
         setLog((l) => [
           ...l,
-          { role: 'assistant', kind: 'tool_call', toolName: ev.toolName, text: ev.detail }
+          {
+            role: 'assistant',
+            kind: 'tool_call',
+            toolName: ev.toolName,
+            text: ev.detail,
+            preview: ev.preview
+          }
         ])
       } else if (ev.type === 'error') {
         flushText()
@@ -256,15 +269,8 @@ export function App(): JSX.Element {
 
   /** New session flow: create worktree, bind chat, fire the first prompt. */
   const startSession = useCallback(
-    async (
-      repo: RepoGroup,
-      provider: Provider,
-      name: string,
-      prompt: string,
-      mode: PermissionMode,
-      options: AgentOptions,
-      account: AccountChoice = {}
-    ): Promise<string | null> => {
+    async (req: StartSessionRequest): Promise<string | null> => {
+      const { repo, provider, name, prompt, mode, options, account } = req
       if (!repo.root) return 'This group has no git repository.'
       setCreating(true)
       try {
@@ -378,6 +384,7 @@ export function App(): JSX.Element {
           repo={view.repo}
           repos={visibleRepos}
           busy={creating}
+          initialPrompt={view.draft}
           onStart={startSession}
           onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
         />
@@ -388,6 +395,7 @@ export function App(): JSX.Element {
           busy={creating}
           onStart={startSession}
           onOpenSession={openSession}
+          onOpenFull={(repo, draft) => setView({ kind: 'new', repo, draft })}
         />
       ) : (
         <ChatView

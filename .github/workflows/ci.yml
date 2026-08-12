@@ -16,9 +16,19 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: 'read' # for actions/checkout
+      code-quality: 'write' # for actions/upload-code-coverage
+      pull-requests: 'read' # upload-code-coverage looks up the PR for pushes to main
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+
+      # Blocks PRs that introduce dependencies with known vulnerabilities;
+      # diffs base..head, so it only applies to pull requests.
+      - name: 🛡️ Dependency review
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/dependency-review-action@v5.0.0
+        with:
+          fail-on-severity: high
 
       - name: Setup Node.js
         uses: actions/setup-node@v7.0.0
@@ -36,11 +46,28 @@ jobs:
       - name: 🔎 Typecheck
         run: npm run typecheck
 
-      - name: 🧪 Unit tests
-        run: npm run test:unit
+      - name: 🧪 Unit tests (with coverage)
+        run: npm run test:coverage:unit
 
-      - name: 🧩 Component tests
-        run: npm run test:component
+      - name: 🧩 Component tests (with coverage)
+        run: npm run test:coverage:component
+
+      - name: ⬆️ Upload unit coverage
+        # Fork PRs run with a read-only token, so the coverage API is unavailable there.
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        uses: actions/upload-code-coverage@v1.4.2
+        with:
+          file: coverage/unit/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/unit
+
+      - name: ⬆️ Upload component coverage
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        uses: actions/upload-code-coverage@v1.4.2
+        with:
+          file: coverage/component/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/component
 
       - name: Build
         run: npm run build

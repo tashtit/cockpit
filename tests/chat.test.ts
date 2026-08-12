@@ -80,6 +80,31 @@ describe('parseClaudeStreamLine', () => {
     expect(ev[0]).toMatchObject({ type: 'text', text: 'hello' })
     expect(ev[1]).toMatchObject({ type: 'tool', toolName: 'Bash' })
   })
+  it('tool events carry a humanized preview alongside the raw input', () => {
+    const [bash] = parseClaudeStreamLine('t', {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', name: 'Bash', input: { command: 'npm test', description: 'Run tests' } }
+        ]
+      }
+    })
+    expect(bash).toMatchObject({ type: 'tool', preview: 'npm test' })
+    if (bash.type === 'tool') expect(bash.detail).toContain('"command"')
+    const [edit] = parseClaudeStreamLine('t', {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'src/a.ts', old_string: 'x' } }]
+      }
+    })
+    expect(edit).toMatchObject({ type: 'tool', preview: 'src/a.ts' })
+    // unknown tools keep the JSON detail with no preview
+    const [mcp] = parseClaudeStreamLine('t', {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'mcp__x__y', input: { a: 1 } }] }
+    })
+    expect(mcp.type === 'tool' && mcp.preview).toBeFalsy()
+  })
   it('result emits done with cost', () => {
     const ev = parseClaudeStreamLine('t', { type: 'result', session_id: 's1', total_cost_usd: 0.12 })
     expect(ev.find((e) => e.type === 'done')).toMatchObject({ costUsd: 0.12 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCodexMcpToml } from '../src/main/extensions'
+import { parseCodexMcpToml, removeCodexMcpToml, removeMcpFromJson } from '../src/main/extensions'
 import { buildCommand, isValidModel } from '../src/main/chat'
 
 describe('parseCodexMcpToml', () => {
@@ -32,6 +32,74 @@ describe('parseCodexMcpToml', () => {
   it('tolerates empty/garbage input', () => {
     expect(parseCodexMcpToml('').size).toBe(0)
     expect(parseCodexMcpToml('not toml at all').size).toBe(0)
+  })
+})
+
+describe('removeCodexMcpToml', () => {
+  const toml = [
+    '[mcp_servers.idea]',
+    'url = "http://127.0.0.1:64342/stream"',
+    '',
+    '[mcp_servers.node_repl]',
+    'command = "/usr/local/bin/node_repl"',
+    'args = ["-y", "some-pkg"]',
+    '',
+    '[mcp_servers.node_repl.env]',
+    'NODE_PATH = "/opt/node"',
+    '',
+    '[other_section]',
+    'foo = "bar"'
+  ].join('\n')
+
+  it('drops the server section and its subtables, keeps everything else', () => {
+    const out = removeCodexMcpToml(toml, 'node_repl')
+    expect([...parseCodexMcpToml(out).keys()]).toEqual(['idea'])
+    expect(out).not.toContain('node_repl')
+    expect(out).toContain('[other_section]')
+    expect(out).toContain('foo = "bar"')
+    expect(out).toContain('url = "http://127.0.0.1:64342/stream"')
+  })
+
+  it('does not remove servers whose name shares a prefix', () => {
+    const out = removeCodexMcpToml(toml, 'idea')
+    expect([...parseCodexMcpToml(out).keys()]).toEqual(['node_repl'])
+    expect(parseCodexMcpToml(out).get('node_repl')).toMatchObject({ env: { NODE_PATH: '/opt/node' } })
+  })
+
+  it('throws when the server is not configured', () => {
+    expect(() => removeCodexMcpToml(toml, 'nope')).toThrow(/not found/)
+    expect(() => removeCodexMcpToml('', 'idea')).toThrow(/not found/)
+  })
+})
+
+describe('removeMcpFromJson', () => {
+  const fresh = () => ({
+    mcpServers: { linear: { type: 'sse', url: 'https://mcp.linear.app/sse' } },
+    projects: {
+      '/home/dev/cachely': {
+        mcpServers: { linear: { type: 'sse', url: 'https://mcp.linear.app/sse' } }
+      }
+    }
+  })
+
+  it('removes a user-scope server, leaving project entries alone', () => {
+    const j = fresh()
+    removeMcpFromJson(j, 'linear')
+    expect(j.mcpServers).toEqual({})
+    expect(j.projects['/home/dev/cachely'].mcpServers.linear).toBeDefined()
+  })
+
+  it('removes a project-scope server, leaving user scope alone', () => {
+    const j = fresh()
+    removeMcpFromJson(j, 'linear', '/home/dev/cachely')
+    expect(j.projects['/home/dev/cachely'].mcpServers).toEqual({})
+    expect(j.mcpServers.linear).toBeDefined()
+  })
+
+  it('throws when the entry is missing', () => {
+    expect(() => removeMcpFromJson(fresh(), 'nope')).toThrow(/not found/)
+    expect(() => removeMcpFromJson(fresh(), 'linear', '/wrong/path')).toThrow(/not configured/)
+    expect(() => removeMcpFromJson({}, 'linear')).toThrow()
   })
 })
 

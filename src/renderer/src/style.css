@@ -67,6 +67,11 @@ button, input, select, textarea, details { transition: background var(--dur) var
   color var(--dur) var(--ease); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: -1px;
   border-radius: var(--radius-sm); }
+/* filled buttons are the exception: an inset ring lands on the button's own fill, where
+   --accent only reaches 1.7–1.9:1 (WCAG 1.4.11 wants 3:1). Pushed outside it sits on the
+   dark surface at 6:1. The offset fits inside every container's padding — keep it that way. */
+.btn-primary:focus-visible, .btn-pr:focus-visible,
+.btn-danger:focus-visible { outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
@@ -147,13 +152,14 @@ summary::-webkit-details-marker { display: none; }
 /* visible whenever the window is not at 100% — no more mystery zoom states */
 .zoom-chip { font-size: var(--fs-xs); font-family: var(--mono); color: var(--warn);
   border: 1px solid rgba(var(--warn-rgb), 0.4); border-radius: var(--radius-pill); padding: 0 var(--s2);
-  flex-shrink: 0; }
+  flex-shrink: 0; min-height: 24px; }
 .zoom-chip:hover { background: var(--bg3); }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--fg-dim); }
 .icon-btn:hover { background: var(--bg3); color: var(--fg); }
-/* row hover actions: 22px is the floor for a comfortable pointer target */
-.icon-btn.small { width: 22px; height: 22px; font-size: var(--fs-sm); line-height: 1; }
+/* row hover actions: 24px is the floor — WCAG 2.5.8 minimum target, and these sit
+   adjacent to each other in .row-actions so the spacing exception doesn't apply */
+.icon-btn.small { width: 24px; height: 24px; font-size: var(--fs-sm); line-height: 1; }
 /* projects-to-display chooser (eye popover) */
 .repo-filter-wrap { position: relative; display: inline-flex; }
 .icon-btn.filter-active { color: var(--accent); }
@@ -255,12 +261,12 @@ summary::-webkit-details-marker { display: none; }
 
 .archived-toggle { display: flex; align-items: center; gap: var(--s2);
   padding: 2px var(--s2) 2px var(--s1); color: var(--fg-dim); font-size: var(--fs-xs);
-  width: 100%; min-height: 22px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  width: 100%; min-height: 24px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .archived-toggle:hover { background: var(--bg3); }
 .tree-empty { padding: 3px var(--s2) 3px var(--s3); color: var(--fg-dim);
   font-size: var(--fs-xs); font-style: italic; }
 .tree-more { display: block; padding: 2px var(--s2) 2px var(--s3); color: var(--accent);
-  font-size: var(--fs-xs); width: 100%; text-align: left;
+  font-size: var(--fs-xs); width: 100%; text-align: left; min-height: 24px;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .tree-more:hover { text-decoration: underline; }
 .search-group { padding: var(--s3) var(--s2) 2px; color: var(--fg-dim); font-size: var(--fs-xs);
@@ -285,9 +291,11 @@ summary::-webkit-details-marker { display: none; }
 .gh-missing { color: var(--danger); opacity: 0.8; }
 
 /* ---------- PR badges ---------- */
+/* min-height 24px: the badge is a button (opens the PR), so it carries the same
+   target-size floor as .icon-btn.small — the pill's type stays at --fs-xs */
 .pr-badge { display: inline-flex; align-items: center; gap: 3px; border-radius: var(--radius-pill);
   font-size: var(--fs-xs); font-weight: 600; padding: 0 6px; border: 1px solid;
-  white-space: nowrap; flex-shrink: 0; background: var(--surface); }
+  white-space: nowrap; flex-shrink: 0; background: var(--surface); min-height: 24px; }
 .pr-badge.compact { padding: 0 4px; font-family: var(--mono); }
 .pr-open { color: var(--pr-open); border-color: var(--pr-open); }
 .pr-merged { color: var(--pr-merged); border-color: var(--pr-merged); }
@@ -313,17 +321,21 @@ summary::-webkit-details-marker { display: none; }
 .btn-ghost:hover { color: var(--fg); background: var(--bg3); border-color: var(--border-strong); }
 .btn-ghost.danger:hover { color: var(--danger); border-color: var(--danger); }
 .btn-ghost.small { padding: 2px var(--s3); font-size: var(--fs-xs);
-  border-radius: var(--radius-sm); }
+  border-radius: var(--radius-sm); min-height: 24px; }
 .btn-pr { color: var(--white); border-radius: var(--radius);
   /* top-lit like btn-primary, but on the darker --ok-btn so white text keeps 4.5:1 */
   background: linear-gradient(180deg, color-mix(in srgb, var(--ok-btn) 82%, var(--white)) 0%,
     var(--ok-btn) 62%);
   box-shadow: inset 0 1px 0 var(--highlight-fill), var(--shadow-fill);
-  padding: var(--s2) var(--s4); font-weight: 600; font-size: var(--fs-sm); flex-shrink: 0; }
+  /* 5px vertical = 28px total — matches the Select trigger it sits beside */
+  padding: 5px var(--s4); font-weight: 600; font-size: var(--fs-sm); flex-shrink: 0; }
 .btn-pr:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-pr:disabled { opacity: 0.5; cursor: default; }
 .link-btn { color: var(--accent); font-size: inherit; padding: 0; }
 .link-btn:hover { text-decoration: underline; }
+/* the discoverable path from Home's quick composer to the full New session form */
+.home-more { display: flex; justify-content: flex-end; font-size: var(--fs-sm);
+  margin-top: calc(-1 * var(--s3)); }
 .new-error { color: var(--danger); font-size: var(--fs-sm); white-space: pre-wrap; }
 
 /* ---------- chat ---------- */
@@ -351,6 +363,8 @@ summary::-webkit-details-marker { display: none; }
 .branch-chip svg { flex-shrink: 0; }
 /* the text inside an icon chip — flex containers can't ellipsize bare text nodes */
 .chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the constant cockpit/ worktree prefix, abbreviated and receded — the suffix is the signal */
+.chip-pre { opacity: 0.6; }
 /* ---------- Select: the app's own dropdown (native popups can't be styled) ---------- */
 .select-wrap { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .select-trigger { display: flex; align-items: center; gap: var(--s2);
@@ -435,7 +449,7 @@ summary::-webkit-details-marker { display: none; }
 .codeblock { position: relative; }
 .code-copy { position: absolute; top: 6px; right: 6px; font-size: var(--fs-xs);
   padding: 2px var(--s3); border-radius: var(--radius-sm); background: var(--bg3);
-  border: 1px solid var(--border); color: var(--fg-dim); opacity: 0; }
+  border: 1px solid var(--border); color: var(--fg-dim); opacity: 0; min-height: 24px; }
 .codeblock:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
 .code-copy:hover { color: var(--fg); }
 /* copy acknowledgment: brief OK tint, no layout shift */
@@ -476,6 +490,12 @@ summary::-webkit-details-marker { display: none; }
 .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
   animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 0.3 } 50% { opacity: 1 } }
+/* live-status dots in list rows carry the agent's identity color and hold their
+   slot (the row's exclusive meta position — running beats PR beats timestamp) */
+.pulse-claude { background: var(--claude); }
+.pulse-codex { background: var(--codex); }
+.pulse-copilot { background: var(--copilot); }
+.session-row .pulse, .recent-row .pulse { flex-shrink: 0; }
 
 .composer { display: flex; gap: var(--s3); padding: var(--s4) var(--s5);
   border-top: 1px solid var(--border); background: var(--pane);
@@ -505,11 +525,9 @@ summary::-webkit-details-marker { display: none; }
 .home-inner > * { flex-shrink: 0; }
 .home-hero { display: flex; flex-direction: column; align-items: center; gap: var(--s2);
   text-align: center; }
-.home-hero h2 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.5px;
-  /* faint accent wash on the hero — tokens only, mixed, no new colors */
-  background: linear-gradient(180deg, var(--fg) 55%,
-    color-mix(in srgb, var(--fg) 62%, var(--accent)));
-  -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* flat, quietly confident — the board above it is the view's one bold move */
+.home-hero h2 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.5px; }
+.hero-name { color: var(--fg-dim); font-weight: 400; }
 .home-sub { color: var(--fg-dim); font-size: var(--fs-sm); display: flex;
   flex-direction: column; gap: var(--s1); align-items: center; }
 /* 0.85 keeps the 11px kbd hints at/above 4.5:1 on the dark base */
@@ -531,9 +549,10 @@ summary::-webkit-details-marker { display: none; }
   background: var(--pane); flex-wrap: wrap; }
 .composer-repo-icon { color: var(--fg-dim); display: inline-flex; margin-left: var(--s1); }
 .composer-repo { max-width: 200px; flex: 1; min-width: 120px; }
-/* agent picker + account form one "who runs this" control */
+/* agent picker + account form one "who runs this" control.
+   1px padding: 24px agents + padding + border = 28px, level with the bar's selects */
 .composer-identity { display: inline-flex; align-items: center; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); padding: 2px; }
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 1px; }
 .composer-identity .composer-agents { border: none; background: none; padding: 0 4px 0 0;
   margin-right: 6px; border-right: 1px solid var(--border); border-radius: 0; }
 .composer-agents { display: flex; gap: 2px; background: var(--surface);
@@ -554,22 +573,41 @@ summary::-webkit-details-marker { display: none; }
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
 /* account select sits borderless inside the identity control (quiet variant) */
 .composer-acct-wrap { max-width: 210px; }
-.composer-bar .btn-primary { margin-left: auto; }
-.home-recent { display: flex; flex-direction: column; gap: var(--s2); }
-.recent-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
-.recent-row { display: flex; align-items: center; gap: var(--s3); width: 100%;
-  text-align: left; padding: var(--s2) var(--s3); border-radius: var(--radius);
-  border: 1px solid transparent; min-height: 34px; }
-.recent-row:hover { background: var(--surface); border-color: var(--border); }
-.recent-title { min-width: 0; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; font-size: var(--fs-base); }
-.recent-meta { margin-left: auto; display: inline-flex; align-items: center;
-  gap: var(--s2); flex-shrink: 0; }
-.recent-meta .branch-chip { max-width: 120px; }
-.recent-repo { color: var(--fg-dim); font-size: var(--fs-xs); background: var(--surface);
+/* every control in the bar is 28px tall — one shared bottom edge, no ragged line */
+.composer-bar .btn-primary { margin-left: auto; padding: 5px var(--s5); }
+/* ---------- the board: the home view's opening move ----------
+   A departure-board of sessions, flying first. Quiet instrument surface on
+   purpose — the composer card below keeps the view's only floating shadow. */
+.board { border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--surface); overflow: hidden; }
+.board-head { padding: var(--s2) var(--s4); border-bottom: 1px solid var(--border); }
+.board-eyebrow { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.9px; color: var(--fg-dim); }
+.board-eyebrow b { color: var(--fg); font-weight: 700; }
+.board-list { list-style: none; }
+.board-list li + li .board-row { border-top: 1px solid var(--border); }
+.board-row { display: flex; align-items: center; gap: var(--s3); width: 100%;
+  text-align: left; padding: var(--s2) var(--s4); min-height: 32px;
+  font-size: var(--fs-base); }
+.board-row:hover { background: var(--bg3); }
+/* placard column: fixed width keeps branches/tasks on a shared grid line */
+.board-agent { flex: 0 0 60px; font-size: var(--fs-xs); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.9px; color: var(--fg-dim); }
+/* the livery lights up only while flying — state reads from color + dot */
+.board-row.flying .board-agent-claude { color: var(--claude); }
+.board-row.flying .board-agent-codex { color: var(--codex); }
+.board-row.flying .board-agent-copilot { color: var(--copilot); }
+.board-dot-idle { width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fg-dim); opacity: 0.35; flex-shrink: 0; }
+.board-row .pulse { flex-shrink: 0; }
+.board-row .branch-chip { max-width: 150px; }
+.board-task { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.board-repo { color: var(--fg-dim); font-size: var(--fs-xs); background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius); padding: 0 6px;
-  white-space: nowrap; }
-.recent-row time { color: var(--fg-dim); font-size: var(--fs-xs); white-space: nowrap; }
+  white-space: nowrap; flex-shrink: 0; }
+.board-meta { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
+  font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
 /* ---------- cards (new session / settings / extensions) ---------- */
 .new-session-view, .settings-view { overflow-y: auto; align-items: center; }
@@ -605,7 +643,8 @@ summary::-webkit-details-marker { display: none; }
 .ns-provider.active .acct-chip { color: inherit; }
 .ns-options { display: flex; gap: var(--s4); flex-wrap: wrap; }
 .ns-opt { display: flex; flex-direction: column; gap: var(--s1); flex: 1; min-width: 130px; }
-.ns-opt input { padding: var(--s2) var(--s3); background: var(--surface); color: var(--fg);
+/* 4px vertical = 28px with the border — level with Selects and .ns-account-single */
+.ns-opt input { padding: 4px var(--s3); background: var(--surface); color: var(--fg);
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 /* single-account read-only field — trigger-shaped, but inert */
 .ns-account-single { font-family: var(--mono); color: var(--fg); overflow: hidden;
@@ -615,7 +654,7 @@ summary::-webkit-details-marker { display: none; }
   display: flex; align-items: center; }
 .ns-branch-row { display: flex; align-items: center; gap: var(--s2); }
 .ns-branch-prefix { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-sm); }
-.ns-branch-row input { flex: 1; min-width: 0; padding: var(--s2) var(--s3);
+.ns-branch-row input { flex: 1; min-width: 0; padding: 4px var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm); font-size: var(--fs-sm); font-family: var(--mono); }
 .ns-hint { color: var(--fg-dim); font-size: var(--fs-xs); }
@@ -671,7 +710,7 @@ summary::-webkit-details-marker { display: none; }
 .usage-num { color: var(--fg); font-variant-numeric: tabular-nums; }
 
 .source-add { display: flex; flex-direction: column; gap: var(--s2); }
-.source-add input { min-width: 0; padding: var(--s2) var(--s3);
+.source-add input { min-width: 0; padding: 4px var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 /* the path is a machine identifier — mono, like .ns-branch-row input */
@@ -701,8 +740,38 @@ summary::-webkit-details-marker { display: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ext-agents { display: flex; gap: var(--s2); flex-shrink: 0; }
 .ext-actions { display: flex; gap: var(--s1); flex-shrink: 0; }
-.ext-origin { margin-left: var(--s2); color: var(--fg-dim); font-weight: 400;
-  font-size: var(--fs-xs); font-family: var(--mono); }
+
+/* ---------- AI Setup: MCP management ---------- */
+.mcp-tools { display: flex; justify-content: flex-end; }
+.mcp-row { align-items: flex-start; }
+.mcp-row .ext-actions { flex-wrap: wrap; justify-content: flex-end; }
+.mcp-status { margin-left: var(--s2); font-size: var(--fs-xs); font-weight: 600;
+  padding: 0 var(--s2); border-radius: var(--radius-pill); border: 1px solid var(--border);
+  color: var(--fg-dim); white-space: nowrap; }
+.mcp-status.ok { color: var(--ok); border-color: rgba(var(--ok-rgb), 0.5); }
+.mcp-status.needs-auth { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
+.mcp-status.error { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
+.mcp-status.checking { font-style: italic; }
+/* one chip per place a server is defined: agent tint + scope + its own remove × */
+.mcp-presences { display: flex; flex-wrap: wrap; gap: var(--s1); margin-top: var(--s1); }
+.mcp-scope { display: inline-flex; align-items: center; gap: var(--s1);
+  font-size: var(--fs-xs); font-family: var(--mono); color: var(--fg-dim);
+  border: 1px solid var(--border); border-radius: var(--radius-pill);
+  padding: 0 var(--s1) 0 var(--s2); line-height: 18px; min-height: 26px; }
+.mcp-scope.claude { border-color: rgba(var(--claude-rgb), 0.45);
+  background: rgba(var(--claude-rgb), 0.10); }
+.mcp-scope.codex { border-color: rgba(var(--codex-rgb), 0.45);
+  background: rgba(var(--codex-rgb), 0.10); }
+.mcp-scope.copilot { border-color: rgba(var(--copilot-rgb), 0.45);
+  background: rgba(var(--copilot-rgb), 0.10); }
+.mcp-scope-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+/* 24px square keeps the × at the target-size floor; the chip grows to 26px to hold it */
+.mcp-remove { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; min-height: 24px; color: var(--fg-dim); line-height: 1;
+  padding: 0 var(--s1); border-radius: var(--radius-pill); font-size: var(--fs-sm); }
+.mcp-remove:hover { color: var(--danger); }
+.mcp-remove.armed { color: var(--danger); font-size: var(--fs-xs); font-weight: 600; }
 
 /* ---------- AI Setup: shared instructions ---------- */
 .inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
@@ -736,7 +805,8 @@ summary::-webkit-details-marker { display: none; }
    component rules above (e.g. .repo-providers { display: inline-flex }), which
    would silently win if these blocks sat earlier in the cascade. */
 @media (max-width: 780px) {
-  .repo-providers, .session-row .acct-chip, .recent-meta .branch-chip,
+  /* board rows shed the repo pill first — the branch chip carries more identity */
+  .repo-providers, .session-row .acct-chip, .board-repo,
   .chat-header .acct-chip { display: none; }
   .messages { padding: var(--s4); }
   .tool-row, .thinking, .sys-row { margin-left: 0; }

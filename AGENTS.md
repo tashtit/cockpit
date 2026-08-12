@@ -8,6 +8,8 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 - `npm run typecheck` — `tsc --noEmit` (there is no linter; this is the static gate)
 - `npm test` — all vitest tests (unit + component tiers)
 - `npm run test:unit` / `npm run test:component` — one tier
+- `npm run test:coverage` — unit + component with a combined v8 coverage report in `coverage/`
+- `npm run test:coverage:unit` / `npm run test:coverage:component` — one tier, scoped to the code it exercises (`coverage/unit`, `coverage/component`); these are what CI uploads
 - `npm run test:e2e` — Playwright E2E against the built app (run `npm run build` first)
 - `npx vitest run tests/indexer.test.ts` — one test file
 - `npx vitest run -t "pattern"` — tests matching a name
@@ -21,7 +23,7 @@ Cockpit is an Electron desktop hub that indexes and drives Claude Code / Codex /
 
 - **main** (`src/main/`) — all Node work: fs scanning, git, spawning provider CLIs.
 - **preload** (`src/preload/index.ts`) — contextBridge exposing `window.cockpit`.
-- **renderer** (`src/renderer/src/`) — React 18 UI, fully sandboxed (`contextIsolation`, `sandbox: true`, navigation blocked). No Node access, hand-written CSS (no Tailwind, no component library).
+- **renderer** (`src/renderer/src/`) — React 19 UI, fully sandboxed (`contextIsolation`, `sandbox: true`, navigation blocked). No Node access, hand-written CSS (no Tailwind, no component library).
 
 The entire IPC surface is the `CockpitApi` interface in `src/shared/types.ts`. Adding a capability means touching four places, in order:
 
@@ -34,7 +36,7 @@ The entire IPC surface is the `CockpitApi` interface in `src/shared/types.ts`. A
 
 ### Indexing pipeline (the core data flow)
 
-`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo (worktree-aware: linked worktrees group under the main repo; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s. Sessions archived or deleted in the provider's own app are dropped (`providerArchived.ts`), and the history-window setting (`historyDays` in config) hides sessions idle longer than N days.
+`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo (worktree-aware: linked worktrees group under the main repo; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s. Sessions archived or deleted in the provider's own app are dropped (`provider-archived.ts`), and the history-window setting (`historyDays` in config) hides sessions idle longer than N days.
 
 Performance invariants — all deliberate, keep them:
 
@@ -46,12 +48,13 @@ Performance invariants — all deliberate, keep them:
 ### Other main-process subsystems
 
 - `chat.ts` — spawns provider CLIs headless (`claude -p --output-format stream-json`, `codex exec --json`, `copilot -p`) and parses their stream events. Both old (`msg.type`) and new (`thread.started`/`item.completed`) Codex event shapes must stay handled.
+- `src/shared/endpoints.ts` — custom model providers (BYOK): pure validation, env translation (`COPILOT_PROVIDER_*` for Copilot, `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`/`*_CUSTOM_HEADERS` for Claude; Codex unsupported — it would need config.toml writes), and the provider `/models` listing request/response shapes. Definitions live in cockpit config; API keys never do — `secrets.ts` encrypts them with the OS keychain (Electron safeStorage) into `endpoint-keys.json`, and `endpoint-models.ts` fetches+caches each provider's model catalog. `chat.ts` injects the env per turn, and `index.ts` persists which provider each session started on (`sessionEndpoints`) so resumes stay on that backend and refuse loudly if the provider was removed.
 - `instructions-core.ts` vs `instructions.ts` — the shared-instructions marker/drift logic is deliberately IO-free in `-core.ts` (that's what the tests target); keep IO in `instructions.ts`.
 - `workspace.ts` — "always worktrees, always PRs": new sessions get a `cockpit/<name>` branch in an isolated worktree under the app's userData, never in the user's checkout; PRs go through `gh`.
 - `extensions.ts` — MCP/skills/plugins inventory and cross-agent sharing; each agent has its own config format (`~/.claude.json`, `~/.codex/config.toml`, `~/.copilot/mcp-config.json`).
 - `accounts.ts` — who each agent CLI is signed in as, per config home (Claude `.claude.json` OAuth, Codex `auth.json` JWT, Copilot's multi-account `config.json`), plus the `gh` user for repo operations.
 - `usage.ts` — subscription usage per provider without touching credentials: Claude measured locally from session JSONLs, Codex from the rate-limit snapshots its CLI persists, Copilot via the GitHub billing API (fails soft).
-- `providerArchived.ts` — reads each provider's own archived/deleted state (Copilot `data.db`, Codex `archived_sessions/`, the Claude desktop app's session store) so those sessions never appear in Cockpit.
+- `provider-archived.ts` — reads each provider's own archived/deleted state (Copilot `data.db`, Codex `archived_sessions/`, the Claude desktop app's session store) so those sessions never appear in Cockpit.
 - `env.ts` — `cliEnv()`: GUI apps on macOS get a minimal PATH; use it for every spawned CLI.
 
 ### Tests
@@ -78,3 +81,25 @@ Project skills (Agent Skills standard, `SKILL.md` format) live in **`.agents/ski
 
 - Conventional Commits (`feat(indexer): …`, `docs: …`), matching existing history.
 - No AI attribution: no `Co-Authored-By` lines or "Generated with" footers in commits or PRs.
+
+### File naming
+
+- Non-component modules and tests: lowercase, kebab-case when multiword (`dev-window.ts`, `instructions-core.ts`, `stub-api.ts`).
+- React components: PascalCase `.tsx`, named for the component (`ChatView.tsx`). A `.tsx` file that is not itself a single component stays lowercase (`logos.tsx`, `main.tsx`).
+- Tests are named after the module under test, kebab-cased (`home-view.test.tsx` for `HomeView.tsx`); `.test.ts(x)` for vitest tiers, `.spec.ts` for Playwright e2e.
+- Entry points are `index.ts` / `main.tsx`; directories are single lowercase words.
+- CSS class names are kebab-case; symbols follow standard TS style (camelCase values, PascalCase types/components, SCREAMING_SNAKE module-level constants).
+
+### Code style
+
+- **`type`, not `interface`.** Declare object shapes as type aliases; compose with intersections
+  (`type B = A & {…}`) instead of `extends`. The one exception is declaration merging that
+  TypeScript only allows through interfaces (e.g. the `declare global { interface Window }`
+  augmentation in `src/renderer/src/api.ts`).
+- **`readonly` properties by default.** Every property of a shared or exported type is `readonly`
+  unless in-place mutation is the point (e.g. a main-process cache/accumulator) — leave a comment
+  on the property when you opt out. To derive a mutable working shape from a readonly type, map it
+  (`{ -readonly [K in keyof T]: T[K] }`) rather than duplicating the shape.
+- **Max 3 function parameters.** A signature that wants a 4th parameter gets restructured instead:
+  keep the 1–2 primary arguments positional and gather the rest into a single (usually optional)
+  options object. Never grow trailing boolean/optional parameter lists.

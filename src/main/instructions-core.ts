@@ -49,9 +49,9 @@ export function fileStatus(raw: string | null, baseline: string): InstructionSta
   return block.trim() === baseline.trim() ? 'synced' : 'drifted'
 }
 
-export interface InstructionTarget {
-  agents: InstructionFile['agents']
-  path: string
+export type InstructionTarget = {
+  readonly agents: InstructionFile['agents']
+  readonly path: string
 }
 
 export function instructionTargets(

@@ -28,7 +28,9 @@ grab target.
   - assistant → avatar + `.markdown` body, `max-width: min(85%, 76ch)`; `.streaming`
     shows the accent left border; `.reasoning` dims + italicizes
   - tool call/result → `.tool-row` collapsed `<details>`: gear/return-arrow chip + mono
-    120-char preview; expands to `.tool-full` (260px max, scrolls)
+    120-char preview — the humanized headline (`SessionMessage.preview`: Bash command,
+    Edit/Read/Write path, from `toolPreview()` in main) when available, else the raw
+    input; expands to `.tool-full` (260px max, scrolls) which always keeps the raw input
   - system → `.sys-row` dotted-left-border annotation, aligned with the assistant column
 - Tool/system glyphs are text-presentation unicode (`⚙︎` with U+FE0E, `↳`) — if these
   ever grow, switch to SVGs from `logos.tsx`; never bare emoji-presentation glyphs.

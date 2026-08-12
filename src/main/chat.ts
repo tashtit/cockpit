@@ -1,11 +1,15 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
-import type { ChatEvent, ChatRequest } from '../shared/types'
-import { contentToText, truncate } from './parsers/util'
+import type { BusySession, ChatEvent, ChatRequest, ModelEndpoint, Provider } from '../shared/types'
+import { endpointEnv, endpointSupports } from '../shared/endpoints'
+import { contentToText, toolPreview, truncate } from './parsers/util'
 import { cliEnv } from './env'
 
 type Emit = (ev: ChatEvent) => void
+type ResolveEndpoint = (id: string) => ModelEndpoint | undefined
+/** Decrypts the endpoint's stored API key (index.ts wires this to the keychain store). */
+type ResolveKey = (ep: ModelEndpoint) => string | undefined
 
 /**
  * Session ids are parsed out of provider log files that other tools write — treat them
@@ -77,13 +81,16 @@ export function parseClaudeStreamLine(turnId: string, line: any): ChatEvent[] {
     if (text) out.push({ turnId, type: 'text', text })
     if (Array.isArray(content)) {
       for (const b of content) {
-        if (b?.type === 'tool_use')
+        if (b?.type === 'tool_use') {
+          const preview = toolPreview(b.name ?? 'tool', b.input)
           out.push({
             turnId,
             type: 'tool',
             toolName: b.name ?? 'tool',
-            detail: truncate(JSON.stringify(b.input ?? {}), 200)
+            detail: truncate(JSON.stringify(b.input ?? {}), 200),
+            ...(preview ? { preview: truncate(preview, 200) } : {})
           })
+        }
       }
     }
   } else if (line?.type === 'result') {
@@ -124,17 +131,75 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
   return out
 }
 
-interface RunningTurn {
-  child: ChildProcess
+/**
+ * Validate a BYOK turn before spawning. Returns a human-readable refusal, or null when
+ * the turn may proceed. `keyResolved` says whether the endpoint's stored key decrypted
+ * successfully. Exported for tests.
+ */
+export function endpointPreflight(
+  req: ChatRequest,
+  ep: ModelEndpoint | undefined,
+  keyResolved: boolean
+): string | null {
+  if (!req.options?.modelEndpoint) return null
+  if (!ep) return 'Custom model provider is no longer configured — pick another in Settings.'
+  if (!endpointSupports(req.provider, ep)) {
+    return `Provider "${ep.label}" (${ep.type}) can't be used with ${req.provider}.`
+  }
+  if (ep.hasKey && !keyResolved) {
+    return `The stored API key for "${ep.label}" could not be read from the OS keychain — re-add the provider in Settings.`
+  }
+  const model = req.options.model
+  if (req.provider === 'copilot' && !(model && isValidModel(model))) {
+    return `Provider "${ep.label}" needs an explicit model — pick one in the session form.`
+  }
+  return null
+}
+
+type RunningTurn = {
+  readonly child: ChildProcess
+  /** Flipped when the CLI emits its done event — mutable turn state on purpose */
   doneSent: boolean
+  readonly provider: Provider
+  /** Epoch ms this turn was spawned — surfaces as elapsed time on the board */
+  readonly startedAt: number
+  /** Native session ids this turn is known under — the resumed id plus any the
+   *  stream announces (claude forks a fresh id per resumed turn). */
+  readonly sessionIds: Set<string>
+}
+
+/** Optional collaborators wired by index.ts (busy board + BYOK endpoint/keychain store). */
+type ChatManagerHooks = {
+  readonly onBusyChange?: (sessions: BusySession[]) => void
+  readonly resolveEndpoint?: ResolveEndpoint
+  readonly resolveKey?: ResolveKey
 }
 
 export class ChatManager {
   private turns = new Map<string, RunningTurn>()
-  private emit: Emit
+  private readonly emit: Emit
+  private readonly hooks: ChatManagerHooks
 
-  constructor(emit: Emit) {
+  constructor(emit: Emit, hooks: ChatManagerHooks = {}) {
     this.emit = emit
+    this.hooks = hooks
+  }
+
+  /** Sessions with a provider process currently running (earliest start wins on overlap). */
+  busySessions(): BusySession[] {
+    const byId = new Map<string, number>()
+    for (const t of this.turns.values()) {
+      for (const nativeId of t.sessionIds) {
+        const id = `${t.provider}:${nativeId}`
+        const prev = byId.get(id)
+        if (prev === undefined || t.startedAt < prev) byId.set(id, t.startedAt)
+      }
+    }
+    return [...byId].map(([id, startedAt]) => ({ id, startedAt }))
+  }
+
+  private notifyBusy(): void {
+    this.hooks.onBusyChange?.(this.busySessions())
   }
 
   send(req: ChatRequest): string {
@@ -157,6 +222,21 @@ export class ChatManager {
     }
     const { cmd, args } = buildCommand(req)
     const env = cliEnv()
+    // BYOK: resolve the endpoint and its key, refuse loudly rather than silently
+    // falling back to the provider's own backend
+    const ep = req.options?.modelEndpoint
+      ? this.hooks.resolveEndpoint?.(req.options.modelEndpoint)
+      : undefined
+    const apiKey = ep ? this.hooks.resolveKey?.(ep) : undefined
+    const refusal = endpointPreflight(req, ep, Boolean(apiKey))
+    if (refusal) {
+      queueMicrotask(() => {
+        this.emit({ turnId, type: 'error', message: refusal })
+        this.emit({ turnId, type: 'done' })
+      })
+      return turnId
+    }
+    if (ep) Object.assign(env, endpointEnv(req.provider, ep, apiKey))
     // per-account config homes: each provider has its own env var for this
     if (req.configDir) {
       if (req.provider === 'claude') env.CLAUDE_CONFIG_DIR = req.configDir
@@ -171,8 +251,15 @@ export class ChatManager {
       // own process group so cancel() can reach grandchildren (bash tools, MCP servers)
       detached: true
     })
-    const turn: RunningTurn = { child, doneSent: false }
+    const turn: RunningTurn = {
+      child,
+      doneSent: false,
+      provider: req.provider,
+      startedAt: Date.now(),
+      sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : [])
+    }
     this.turns.set(turnId, turn)
+    this.notifyBusy()
 
     const sendDone = (): void => {
       if (!turn.doneSent) {
@@ -210,6 +297,10 @@ export class ChatManager {
             : parseCodexStreamLine(turnId, parsed)
         for (const ev of events) {
           if (ev.type === 'done') turn.doneSent = true
+          if (ev.type === 'session' && !turn.sessionIds.has(ev.nativeSessionId)) {
+            turn.sessionIds.add(ev.nativeSessionId)
+            this.notifyBusy()
+          }
           this.emit(ev)
         }
       }
@@ -232,6 +323,7 @@ export class ChatManager {
       })
       sendDone()
       this.turns.delete(turnId)
+      this.notifyBusy()
     })
 
     child.on('close', (code) => {
@@ -266,6 +358,7 @@ export class ChatManager {
       }
       sendDone()
       this.turns.delete(turnId)
+      this.notifyBusy()
     })
 
     return turnId
@@ -275,6 +368,7 @@ export class ChatManager {
     const t = this.turns.get(turnId)
     if (!t) return
     this.turns.delete(turnId)
+    this.notifyBusy()
     const pid = t.child.pid
     // kill the whole process group (agent CLIs spawn bash tools / MCP servers)
     const signal = (sig: NodeJS.Signals): void => {

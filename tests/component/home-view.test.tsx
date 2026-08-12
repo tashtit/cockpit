@@ -36,6 +36,7 @@ function renderHome(over: Partial<Parameters<typeof HomeView>[0]> = {}) {
     busy: false,
     onStart: vi.fn().mockResolvedValue(null),
     onOpenSession: vi.fn(),
+    onOpenFull: vi.fn(),
     ...over
   }
   render(<HomeView {...props} />)
@@ -54,10 +55,18 @@ describe('HomeView composer', () => {
     await waitFor(() => expect(start).toBeEnabled())
     await userEvent.click(start)
 
-    expect(onStart).toHaveBeenCalledWith(repo, 'claude', '', 'add dark mode', 'auto-edit', {}, {
-      configDir: undefined,
-      copilotUser: undefined,
-      display: 'dev@example.com'
+    expect(onStart).toHaveBeenCalledWith({
+      repo,
+      provider: 'claude',
+      name: '',
+      prompt: 'add dark mode',
+      mode: 'auto-edit',
+      options: {},
+      account: {
+        configDir: undefined,
+        copilotUser: undefined,
+        display: 'dev@example.com'
+      }
     })
   })
 
@@ -74,6 +83,18 @@ describe('HomeView composer', () => {
     await userEvent.click(start)
 
     expect(await screen.findByText('claude CLI not found on PATH')).toBeInTheDocument()
+  })
+
+  it('opens the full form via "All options", carrying the typed draft', async () => {
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    const { onOpenFull } = renderHome()
+
+    await userEvent.type(
+      await screen.findByRole('textbox', { name: 'Task description' }),
+      'add rate limiting'
+    )
+    await userEvent.click(screen.getByRole('button', { name: /All options/ }))
+    expect(onOpenFull).toHaveBeenCalledWith(repo, 'add rate limiting')
   })
 
   it('keeps start disabled and shows "not signed in" when the agent has no account', async () => {

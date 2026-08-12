@@ -1,11 +1,11 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import type { ChatBinding } from './App'
 import { MODES } from './NewSession'
-import { BranchIcon, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { BranchChip, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 
 function nodeText(node: ReactNode): string {
@@ -154,12 +154,7 @@ export function ChatView({
         <div className="chat-header-text">
           <div className="chat-title">{binding.title}</div>
           <div className="chat-sub">
-            {binding.branch && (
-              <span className="branch-chip">
-                <BranchIcon size={10} />
-                <span className="chip-text">{binding.branch}</span>
-              </span>
-            )}
+            {binding.branch && <BranchChip branch={binding.branch} />}
             <button
               className={`chat-cwd ${cwdCopied ? 'copied' : ''}`}
               title={`${binding.cwd}${binding.nativeSessionId ? `\nsession ${binding.nativeSessionId}` : ''}\nclick to copy path`}
@@ -287,7 +282,7 @@ const Message = memo(function Message({
             <span aria-hidden="true">{m.kind === 'tool_call' ? '⚙︎ ' : '↳ '}</span>
             {m.kind === 'tool_call' ? (m.toolName ?? 'tool') : (resultOf ?? 'result')}
           </span>
-          <code className="tool-preview">{m.text.slice(0, 120)}</code>
+          <code className="tool-preview">{(m.preview ?? m.text).slice(0, 120)}</code>
         </summary>
         <pre className="tool-full">{m.text}</pre>
       </details>

@@ -8,8 +8,8 @@ import { freshApi } from './stub-api'
 // (never reassign window.cockpit) so the captured reference stays live.
 window.cockpit = freshApi()
 
-// jsdom implements no layout, so it omits scrollIntoView entirely
-if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {}
+// jsdom has no layout — Select scrolls its active option into view when opened
+Element.prototype.scrollIntoView ??= () => {}
 
 beforeEach(() => {
   Object.assign(window.cockpit, freshApi())

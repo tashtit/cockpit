@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import type {
   ExtensionsInventory,
   InstructionFile,
   InstructionsState,
+  McpPresence,
+  McpProbeResult,
   McpServerInfo,
   Provider,
   RepoGroup
@@ -59,20 +61,6 @@ export function AiSetup({
     reload()
     headingRef.current?.focus()
   }, [reload])
-
-  const share = async (server: McpServerInfo, to: Provider): Promise<void> => {
-    setNotice(null)
-    try {
-      await api.shareMcp(server.name, to)
-      setNotice({
-        text: `Added "${server.name}" to ${PROVIDER_LABEL[to]} — restart that CLI to pick it up.`,
-        kind: 'ok'
-      })
-      reload()
-    } catch (err) {
-      setNotice({ text: `Share failed: ${err instanceof Error ? err.message : err}`, kind: 'error' })
-    }
-  }
 
   const shareSkill = async (name: string, from: Provider, to: Provider): Promise<void> => {
     setNotice(null)
@@ -142,58 +130,7 @@ export function AiSetup({
 
         {tab !== 'instructions' && !inv && <div className="tree-empty">loading…</div>}
 
-        {inv && tab === 'mcp' && (
-          <>
-            <p className="ns-hint">
-              MCP servers configured across your agents — including Claude&apos;s per-project
-              servers from <code>~/.claude.json</code>. Sharing writes the server into the target
-              agent&apos;s own config format (<code>~/.claude.json</code>,{' '}
-              <code>~/.codex/config.toml</code>, <code>~/.copilot/mcp-config.json</code>).
-            </p>
-            <ul className="ext-list">
-              {inv.mcp.map((s) => {
-                const projects = s.origins
-                  .filter((o) => o.startsWith('project:'))
-                  .map((o) => o.slice('project:'.length))
-                return (
-                  <li key={s.name} className="ext-row">
-                    <div className="ext-body">
-                      <div className="ext-name">
-                        {s.name}
-                        {projects.length > 0 && (
-                          <span
-                            className="ext-origin"
-                            title={`Configured per-project in: ${projects.join(', ')}`}
-                          >
-                            project: {projects.join(', ')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="ext-detail" title={s.config.url ?? `${s.config.command ?? ''} ${(s.config.args ?? []).join(' ')}`}>
-                        {s.config.url ?? `${s.config.command ?? '?'} ${(s.config.args ?? []).join(' ')}`}
-                      </div>
-                    </div>
-                    <div className="ext-agents" aria-label={`Configured in ${s.agents.map((a) => PROVIDER_LABEL[a]).join(', ')}`}>
-                      {s.agents.map((a) => (
-                        <span key={a} className={`plogo plogo-${a}`} title={PROVIDER_LABEL[a]}>
-                          <ProviderLogo p={a} size={13} />
-                        </span>
-                      ))}
-                    </div>
-                    <div className="ext-actions">
-                      {PROVIDERS.filter((p) => !s.agents.includes(p)).map((p) => (
-                        <button key={p} className="btn-ghost small" onClick={() => void share(s, p)}>
-                          + {PROVIDER_LABEL[p]}
-                        </button>
-                      ))}
-                    </div>
-                  </li>
-                )
-              })}
-              {inv.mcp.length === 0 && <li className="tree-empty">no MCP servers configured in any agent</li>}
-            </ul>
-          </>
-        )}
+        {inv && tab === 'mcp' && <McpTab inv={inv} reload={reload} setNotice={setNotice} />}
 
         {inv && tab === 'skills' && (
           <>
@@ -288,6 +225,226 @@ export function AiSetup({
         </div>
       </div>
     </main>
+  )
+}
+
+/* ---------- MCP tab ---------- */
+
+const MCP_STATUS_LABEL: Record<McpProbeResult['status'], string> = {
+  ok: 'connected',
+  'needs-auth': 'needs login',
+  error: 'unreachable'
+}
+
+/** Agents whose CLI has an `mcp login` command */
+const LOGIN_AGENTS: Provider[] = ['claude', 'codex']
+
+function McpTab({
+  inv,
+  reload,
+  setNotice
+}: {
+  inv: ExtensionsInventory
+  reload: () => void
+  setNotice: (n: Notice) => void
+}): JSX.Element {
+  const [status, setStatus] = useState<Record<string, McpProbeResult | 'checking'>>({})
+  const [loginBusy, setLoginBusy] = useState<string | null>(null)
+  /** presence key whose remove × is in its confirm step */
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const presenceKey = (s: McpServerInfo, p: McpPresence): string =>
+    `${s.name}|${p.agent}|${p.projectPath ?? 'user'}`
+  const presenceLabel = (p: McpPresence): string =>
+    p.scope === 'project'
+      ? `${PROVIDER_LABEL[p.agent]} project ${p.projectPath?.split('/').pop() ?? ''}`
+      : `${PROVIDER_LABEL[p.agent]} global config`
+
+  const share = async (server: McpServerInfo, to: Provider): Promise<void> => {
+    setNotice(null)
+    try {
+      await api.shareMcp(server.name, to)
+      setNotice({
+        text: `Added "${server.name}" to ${PROVIDER_LABEL[to]} — restart that CLI to pick it up.`,
+        kind: 'ok'
+      })
+      reload()
+    } catch (err) {
+      setNotice({ text: `Share failed: ${err instanceof Error ? err.message : err}`, kind: 'error' })
+    }
+  }
+
+  const check = async (s: McpServerInfo): Promise<void> => {
+    setStatus((m) => ({ ...m, [s.name]: 'checking' }))
+    try {
+      const r = await api.checkMcp(s.name)
+      setStatus((m) => ({ ...m, [s.name]: r }))
+    } catch (err) {
+      setStatus((m) => ({
+        ...m,
+        [s.name]: { status: 'error', detail: err instanceof Error ? err.message : String(err) }
+      }))
+    }
+  }
+
+  const armRemove = (key: string): void => {
+    setConfirming(key)
+    if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    confirmTimer.current = setTimeout(() => setConfirming(null), 4000)
+  }
+
+  const remove = async (s: McpServerInfo, p: McpPresence): Promise<void> => {
+    setConfirming(null)
+    setNotice(null)
+    try {
+      await api.removeMcp(s.name, p.agent, p.projectPath)
+      setNotice({
+        text: `Removed "${s.name}" from ${presenceLabel(p)} — running sessions keep it until restarted.`,
+        kind: 'ok'
+      })
+      reload()
+    } catch (err) {
+      setNotice({ text: `Remove failed: ${err instanceof Error ? err.message : err}`, kind: 'error' })
+    }
+  }
+
+  const login = async (s: McpServerInfo, agent: Provider): Promise<void> => {
+    // claude project-only servers must log in from the project directory
+    const claudeUser = s.presences.some((p) => p.agent === 'claude' && p.scope === 'user')
+    const projectPath =
+      agent === 'claude' && !claudeUser
+        ? s.presences.find((p) => p.agent === 'claude')?.projectPath
+        : undefined
+    setNotice({
+      text: `Logging in to "${s.name}" with ${PROVIDER_LABEL[agent]} — complete the flow in your browser.`,
+      kind: 'ok'
+    })
+    setLoginBusy(`${s.name}|${agent}`)
+    try {
+      const msg = await api.loginMcp(s.name, agent, projectPath)
+      setNotice({ text: msg, kind: 'ok' })
+      void check(s)
+    } catch (err) {
+      setNotice({ text: `Login failed: ${err instanceof Error ? err.message : err}`, kind: 'error' })
+    } finally {
+      setLoginBusy(null)
+    }
+  }
+
+  return (
+    <>
+      <p className="ns-hint">
+        MCP servers configured across your agents. Chips show every place a server is defined —
+        an agent&apos;s global config (<code>~/.claude.json</code>,{' '}
+        <code>~/.codex/config.toml</code>, <code>~/.copilot/mcp-config.json</code>) or one of
+        Claude&apos;s per-project entries. Remove a single definition with its ×, check a server
+        with Reload, and re-run OAuth with Log in when it reports <em>needs login</em>.
+      </p>
+      <div className="mcp-tools">
+        <button
+          className="btn-ghost small"
+          title="Re-read every agent's config from disk"
+          onClick={reload}
+        >
+          Refresh list
+        </button>
+      </div>
+      <ul className="ext-list">
+        {inv.mcp.map((s) => {
+          const st = status[s.name]
+          const probing = st === 'checking'
+          const result = probing || !st ? null : st
+          return (
+            <li key={s.name} className="ext-row mcp-row">
+              <div className="ext-body">
+                <div className="ext-name">
+                  {s.name}
+                  {(probing || result) && (
+                    <span
+                      className={`mcp-status ${probing ? 'checking' : result!.status}`}
+                      title={result?.detail}
+                    >
+                      {probing ? 'checking…' : MCP_STATUS_LABEL[result!.status]}
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="ext-detail"
+                  title={s.config.url ?? `${s.config.command ?? ''} ${(s.config.args ?? []).join(' ')}`}
+                >
+                  {s.config.url ?? `${s.config.command ?? '?'} ${(s.config.args ?? []).join(' ')}`}
+                </div>
+                <div className="mcp-presences">
+                  {s.presences.map((p) => {
+                    const key = presenceKey(s, p)
+                    const armed = confirming === key
+                    const where =
+                      p.scope === 'project' ? (p.projectPath?.split('/').pop() ?? 'project') : 'global'
+                    return (
+                      <span key={key} className={`mcp-scope ${p.agent}`}>
+                        <span className={`plogo plogo-${p.agent}`} title={PROVIDER_LABEL[p.agent]}>
+                          <ProviderLogo p={p.agent} size={10} />
+                        </span>
+                        <span className="mcp-scope-label" title={p.projectPath ?? presenceLabel(p)}>
+                          {where}
+                        </span>
+                        <button
+                          className={`mcp-remove ${armed ? 'armed' : ''}`}
+                          aria-label={
+                            armed
+                              ? `Confirm removing ${s.name} from ${presenceLabel(p)}`
+                              : `Remove ${s.name} from ${presenceLabel(p)}`
+                          }
+                          title={armed ? 'Click again to remove' : `Remove from ${presenceLabel(p)}`}
+                          onBlur={() => setConfirming(null)}
+                          onClick={() => (armed ? void remove(s, p) : armRemove(key))}
+                        >
+                          {armed ? 'remove?' : '×'}
+                        </button>
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="ext-actions">
+                {PROVIDERS.filter((p) => !s.agents.includes(p)).map((p) => (
+                  <button key={p} className="btn-ghost small" onClick={() => void share(s, p)}>
+                    + {PROVIDER_LABEL[p]}
+                  </button>
+                ))}
+                {result?.status === 'needs-auth' &&
+                  s.config.url &&
+                  s.agents
+                    .filter((a) => LOGIN_AGENTS.includes(a))
+                    .map((a) => (
+                      <button
+                        key={a}
+                        className="btn-ghost small"
+                        disabled={loginBusy !== null}
+                        title={`Run “${a} mcp login ${s.name}” — opens your browser`}
+                        onClick={() => void login(s, a)}
+                      >
+                        {loginBusy === `${s.name}|${a}` ? 'waiting…' : `Log in · ${PROVIDER_LABEL[a]}`}
+                      </button>
+                    ))}
+                <button
+                  className="btn-ghost small"
+                  disabled={probing}
+                  title="Probe the server with your configured command or URL"
+                  onClick={() => void check(s)}
+                >
+                  Reload
+                </button>
+              </div>
+            </li>
+          )
+        })}
+        {inv.mcp.length === 0 && (
+          <li className="tree-empty">no MCP servers configured in any agent</li>
+        )}
+      </ul>
+    </>
   )
 }
 

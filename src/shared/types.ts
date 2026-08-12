@@ -1,206 +1,257 @@
 export type Provider = 'claude' | 'codex' | 'copilot'
 
+/** Strip readonly for a local builder/accumulator — never for shared state. */
+export type Mutable<T> = { -readonly [K in keyof T]: T[K] }
+
 /** Identity of the git repository a session belongs to. */
-export interface RepoInfo {
+export type RepoInfo = {
   /** Canonical main-repo root path; groups worktrees with their repo. 'general' when no repo. */
-  key: string
+  readonly key: string
   /** Repo directory name (e.g. "cachely") */
-  name: string
+  readonly name: string
   /** GitHub owner/repo parsed from the origin remote, if any */
-  fullName: string | null
+  readonly fullName: string | null
   /** Absolute path of the main repo root (null for the 'general' bucket) */
-  root: string | null
+  readonly root: string | null
 }
 
-export interface RepoGroup extends RepoInfo {
+export type RepoGroup = RepoInfo & {
   /** Active (non-archived) session count */
-  sessionCount: number
-  archivedCount: number
-  lastActivity: number
-  providers: Provider[]
+  readonly sessionCount: number
+  readonly archivedCount: number
+  readonly lastActivity: number
+  readonly providers: Provider[]
   /** User chose not to display this project (still listed here for the chooser UI) */
-  hidden: boolean
+  readonly hidden: boolean
 }
 
-export interface SessionMeta {
+export type SessionMeta = {
   /** Stable id: `${provider}:${nativeId}` */
-  id: string
-  provider: Provider
+  readonly id: string
+  readonly provider: Provider
   /** Provider-native session id (uuid, filename stem, etc.) */
-  nativeId: string
+  readonly nativeId: string
   /** Which registered source dir this came from (account isolation later) */
-  source: string
-  title: string
-  cwd: string | null
-  gitBranch: string | null
+  readonly source: string
+  readonly title: string
+  readonly cwd: string | null
+  readonly gitBranch: string | null
   /** GitHub owner/repo when the provider's log states it directly (Copilot does) */
-  repoFullName?: string | null
-  startedAt: number
-  updatedAt: number
-  messageCount: number
+  readonly repoFullName?: string | null
+  readonly startedAt: number
+  readonly updatedAt: number
+  readonly messageCount: number
   /** Absolute path of the backing file/dir, for on-demand full parse */
-  sourcePath: string
-  /** Filled in by the indexer after parsing (parsers leave it undefined) */
+  readonly sourcePath: string
+  /** Filled in by the indexer after parsing (parsers leave it undefined) — mutable on purpose */
   repo?: RepoInfo | null
-  /** True when cwd is a linked git worktree rather than the main checkout */
+  /** True when cwd is a linked git worktree rather than the main checkout — set with repo */
   isWorktree?: boolean
-  /** App-level flag (stored in cockpit config, not provider logs) */
+  /** App-level flag (stored in cockpit config, not provider logs) — set by the indexer */
   archived?: boolean
 }
 
 export type MessageKind = 'text' | 'tool_call' | 'tool_result' | 'reasoning' | 'system' | 'unknown'
 
-export interface SessionMessage {
-  role: 'user' | 'assistant' | 'system' | 'tool'
-  kind: MessageKind
-  text: string
-  toolName?: string
-  ts?: number
+export type SessionMessage = {
+  readonly role: 'user' | 'assistant' | 'system' | 'tool'
+  readonly kind: MessageKind
+  readonly text: string
+  readonly toolName?: string
+  /** Human one-liner for tool calls (command/path); text keeps the raw input */
+  readonly preview?: string
+  readonly ts?: number
   /** True while this message is still being streamed into */
-  streaming?: boolean
+  readonly streaming?: boolean
 }
 
-export interface SourceDir {
-  path: string
-  provider: Provider
+export type SourceDir = {
+  readonly path: string
+  readonly provider: Provider
   /** User label, e.g. account name ("claude-main") */
-  label: string
+  readonly label: string
 }
 
 /** Per-source health for the Settings view: what is indexed, and is it alive. */
-export interface SourceStats extends SourceDir {
+export type SourceStats = SourceDir & {
   /** Indexed sessions attributed to this source (provider-archived excluded) */
-  count: number
-  lastUpdatedAt: number | null
+  readonly count: number
+  readonly lastUpdatedAt: number | null
   /** The directory no longer exists on disk */
-  missing: boolean
+  readonly missing: boolean
 }
 
-export interface SessionQuery {
+export type SessionQuery = {
   /** RepoInfo.key to scope to one repository ('general' = sessions with no repo) */
-  repoKey?: string
-  providers?: Provider[]
-  search?: string
+  readonly repoKey?: string
+  readonly providers?: Provider[]
+  readonly search?: string
   /** false/undefined = active sessions; true = archived ones */
-  archived?: boolean
-  offset?: number
-  limit?: number
+  readonly archived?: boolean
+  readonly offset?: number
+  readonly limit?: number
 }
 
-export interface SessionPage {
-  total: number
-  items: SessionMeta[]
+export type SessionPage = {
+  readonly total: number
+  readonly items: SessionMeta[]
 }
 
 export type PrState = 'OPEN' | 'MERGED' | 'CLOSED'
 
-export interface PrStatus {
-  number: number
-  title: string
-  state: PrState
-  isDraft: boolean
-  headRefName: string
-  url: string
+export type PrStatus = {
+  readonly number: number
+  readonly title: string
+  readonly state: PrState
+  readonly isDraft: boolean
+  readonly headRefName: string
+  readonly url: string
 }
 
-export interface WorkspaceInfo {
-  cwd: string
-  branch: string
+export type WorkspaceInfo = {
+  readonly cwd: string
+  readonly branch: string
 }
 
 export type PermissionMode = 'safe' | 'auto-edit' | 'yolo'
 
 export type CodexSandbox = 'read-only' | 'workspace-write' | 'danger-full-access'
 
-/** Per-agent knobs; each maps to that CLI's own flags. */
-export interface AgentOptions {
-  /** All three CLIs accept --model */
-  model?: string
-  /** Codex only: --sandbox */
-  codexSandbox?: CodexSandbox
+/* ---------- custom model endpoints (BYOK) ---------- */
+
+/** Provider-API class of a custom endpoint (mirrors Copilot's COPILOT_PROVIDER_TYPE). */
+export type ModelEndpointType = 'openai' | 'azure' | 'anthropic'
+
+/** Copilot wire API for openai-type endpoints ('responses' for GPT-5-series models). */
+export type WireApi = 'completions' | 'responses'
+
+/**
+ * A user-defined model provider endpoint (bring-your-own-key). The API key is entered
+ * once, encrypted with the OS keychain (Electron safeStorage), and kept out of config —
+ * this record only carries `hasKey` so the UI can show that one is stored.
+ */
+export type ModelEndpoint = {
+  readonly id: string
+  readonly label: string
+  readonly type: ModelEndpointType
+  readonly baseUrl: string
+  /** An encrypted API key is stored for this endpoint (the key itself never crosses IPC back) */
+  readonly hasKey?: boolean
+  readonly wireApi?: WireApi
+  /** Extra HTTP headers sent to the provider (e.g. anthropic-version) */
+  readonly headers?: Record<string, string>
+  /** Models this endpoint serves — cached from the provider's own /models listing */
+  readonly models?: string[]
 }
 
-export interface ChatRequest {
-  provider: Provider
-  cwd: string
-  prompt: string
+/** Renderer-supplied endpoint definition — main assigns the id and stores the key. */
+export type NewModelEndpoint = Omit<ModelEndpoint, 'id' | 'hasKey'> & { apiKey?: string }
+
+/** Per-agent knobs; each maps to that CLI's own flags. */
+export type AgentOptions = {
+  /** All three CLIs accept --model */
+  readonly model?: string
+  /** Codex only: --sandbox */
+  readonly codexSandbox?: CodexSandbox
+  /** Custom model endpoint (ModelEndpoint.id) — claude/copilot run against it via env */
+  readonly modelEndpoint?: string
+}
+
+export type ChatRequest = {
+  readonly provider: Provider
+  readonly cwd: string
+  readonly prompt: string
   /** Provider-native session id to continue an existing conversation */
-  resumeNativeId?: string
-  permissionMode: PermissionMode
-  options?: AgentOptions
+  readonly resumeNativeId?: string
+  readonly permissionMode: PermissionMode
+  readonly options?: AgentOptions
   /** Config home of the chosen account (CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME) */
-  configDir?: string
+  readonly configDir?: string
   /** Copilot: which logged-in GitHub user to run as */
-  copilotUser?: string
+  readonly copilotUser?: string
 }
 
 /* ---------- accounts ---------- */
 
-export interface AccountInfo {
-  provider: Provider
+export type AccountInfo = {
+  readonly provider: Provider
   /** Config home directory (== SourceDir.path) */
-  path: string
-  label: string
+  readonly path: string
+  readonly label: string
   /** Signed-in identity: email (claude/codex) or GitHub login (copilot) */
-  identity: string | null
+  readonly identity: string | null
   /** Copilot: every logged-in GitHub user in this config home */
-  users?: string[]
-  activeUser?: string | null
-  isDefault: boolean
+  readonly users?: string[]
+  readonly activeUser?: string | null
+  readonly isDefault: boolean
 }
 
-export interface AccountsSnapshot {
-  accounts: AccountInfo[]
+export type AccountsSnapshot = {
+  readonly accounts: AccountInfo[]
   /** `gh` CLI user — the identity used for PR creation and status */
-  githubUser: string | null
+  readonly githubUser: string | null
 }
 
 /* ---------- extensions (MCP / skills / plugins) ---------- */
 
-export interface McpConfig {
-  command?: string
-  args?: string[]
-  env?: Record<string, string>
-  url?: string
-  type?: string
+export type McpConfig = {
+  readonly command?: string
+  readonly args?: string[]
+  readonly env?: Record<string, string>
+  readonly url?: string
+  readonly type?: string
 }
 
-export interface McpServerInfo {
-  name: string
-  config: McpConfig
-  /** Which agents have this server configured */
-  agents: Provider[]
-  /**
-   * Where the definitions were found: 'user' (agent's global config) and/or
-   * 'project:<dirname>' (claude stores per-project servers in ~/.claude.json).
-   */
-  origins: string[]
+/**
+ * One place a server definition lives: an agent's global config ('user') or a
+ * claude per-project entry in ~/.claude.json ('project', with the project path).
+ */
+export type McpPresence = {
+  readonly agent: Provider
+  readonly scope: 'user' | 'project'
+  /** Absolute project path — set only when scope === 'project' */
+  readonly projectPath?: string
 }
 
-export interface SkillInfo {
-  name: string
-  description: string
-  agent: Provider
-  path: string
+export type McpServerInfo = {
+  readonly name: string
+  readonly config: McpConfig
+  /** Which agents have this server configured (any scope) */
+  readonly agents: Provider[]
+  /** Every (agent, scope) the definition was found in — removal targets one of these */
+  readonly presences: McpPresence[]
 }
 
-export interface PluginInfo {
-  name: string
-  agent: Provider
-  detail?: string
+export type McpProbeResult = {
+  /** ok = server answered an MCP initialize; needs-auth = HTTP 401/403 */
+  readonly status: 'ok' | 'needs-auth' | 'error'
+  readonly detail?: string
 }
 
-export interface MarketplaceInfo {
-  name: string
-  agent: Provider
-  source?: string
+export type SkillInfo = {
+  readonly name: string
+  readonly description: string
+  readonly agent: Provider
+  readonly path: string
 }
 
-export interface ExtensionsInventory {
-  mcp: McpServerInfo[]
-  skills: SkillInfo[]
-  plugins: PluginInfo[]
-  marketplaces: MarketplaceInfo[]
+export type PluginInfo = {
+  readonly name: string
+  readonly agent: Provider
+  readonly detail?: string
+}
+
+export type MarketplaceInfo = {
+  readonly name: string
+  readonly agent: Provider
+  readonly source?: string
+}
+
+export type ExtensionsInventory = {
+  readonly mcp: McpServerInfo[]
+  readonly skills: SkillInfo[]
+  readonly plugins: PluginInfo[]
+  readonly marketplaces: MarketplaceInfo[]
 }
 
 /* ---------- shared AI instructions ---------- */
@@ -215,116 +266,154 @@ export type InstructionStatus =
   /** Managed block differs from the baseline (stale, or hand-edited) */
   | 'drifted'
 
-export interface InstructionFile {
+export type InstructionFile = {
   /** Agents that read this file (repo AGENTS.md covers codex + copilot) */
-  agents: Provider[]
-  path: string
-  exists: boolean
-  content: string
-  status: InstructionStatus
+  readonly agents: Provider[]
+  readonly path: string
+  readonly exists: boolean
+  readonly content: string
+  readonly status: InstructionStatus
 }
 
-export interface InstructionsState {
+export type InstructionsState = {
   /** null = global scope (agent home dirs); otherwise a repo root */
-  repoRoot: string | null
+  readonly repoRoot: string | null
   /** The shared baseline text (stored in cockpit config, per scope) */
-  baseline: string
-  files: InstructionFile[]
+  readonly baseline: string
+  readonly files: InstructionFile[]
 }
 
 /* ---------- subscription usage ---------- */
 
-export interface UsageTokens {
-  input: number
-  output: number
-  cacheRead: number
-  cacheCreate: number
+export type UsageTokens = {
+  readonly input: number
+  readonly output: number
+  readonly cacheRead: number
+  readonly cacheCreate: number
 }
 
 /** One measured window of subscription usage ("5h", "weekly", "last 7 days", …). */
-export interface UsageWindow {
-  label: string
+export type UsageWindow = {
+  readonly label: string
   /** 0–100 of the subscription limit, when the provider reports it (codex) */
-  usedPercent?: number
+  readonly usedPercent?: number
   /** Token totals measured locally from session logs (claude) */
-  tokens?: UsageTokens
+  readonly tokens?: UsageTokens
   /** API requests / premium requests counted in this window */
-  requests?: number
+  readonly requests?: number
   /** Requests billed beyond the included quota (copilot) */
-  requestsBilled?: number
+  readonly requestsBilled?: number
   /** Epoch ms when this window resets, when known */
-  resetsAt?: number
+  readonly resetsAt?: number
 }
 
-export interface ProviderUsage {
-  provider: Provider
+export type ProviderUsage = {
+  readonly provider: Provider
   /** Config home this was measured for (mirrors SourceDir.path; '' for copilot/gh) */
-  path: string
-  label: string
+  readonly path: string
+  readonly label: string
   /** Identity the usage belongs to (email / GitHub login), when known */
-  identity?: string | null
+  readonly identity?: string | null
   /** Subscription plan when the provider reports it (codex plan_type) */
-  plan?: string
+  readonly plan?: string
   /** 'local-logs' = measured from session logs; 'provider' = reported by the service */
-  source: 'local-logs' | 'provider'
+  readonly source: 'local-logs' | 'provider'
   /** Epoch ms the underlying data was last observed */
-  measuredAt?: number
-  windows: UsageWindow[]
+  readonly measuredAt?: number
+  readonly windows: UsageWindow[]
   /** Human-readable reason when usage could not be determined */
-  unavailable?: string
+  readonly unavailable?: string
 }
 
-export interface UsageSnapshot {
-  at: number
-  providers: ProviderUsage[]
+export type UsageSnapshot = {
+  readonly at: number
+  readonly providers: ProviderUsage[]
+}
+
+/** One session with a live provider process, for status displays (the board, LiveDots). */
+export type BusySession = {
+  /** Session id: `${provider}:${nativeId}` */
+  readonly id: string
+  /** Epoch ms the running turn was started — elapsed time derives from this */
+  readonly startedAt: number
 }
 
 export type ChatEvent =
-  | { turnId: string; type: 'session'; nativeSessionId: string }
-  | { turnId: string; type: 'text'; text: string }
-  | { turnId: string; type: 'tool'; toolName: string; detail: string }
-  | { turnId: string; type: 'done'; costUsd?: number }
-  | { turnId: string; type: 'error'; message: string }
+  | { readonly turnId: string; readonly type: 'session'; readonly nativeSessionId: string }
+  | { readonly turnId: string; readonly type: 'text'; readonly text: string }
+  | {
+      readonly turnId: string
+      readonly type: 'tool'
+      readonly toolName: string
+      readonly detail: string
+      readonly preview?: string
+    }
+  | { readonly turnId: string; readonly type: 'done'; readonly costUsd?: number }
+  | { readonly turnId: string; readonly type: 'error'; readonly message: string }
 
-export interface CockpitApi {
-  sendChat(req: ChatRequest): Promise<string>
-  cancelChat(turnId: string): Promise<void>
-  onChatEvent(cb: (ev: ChatEvent) => void): () => void
-  getSources(): Promise<SourceDir[]>
-  getSourceStats(): Promise<SourceStats[]>
+/** Clock format for session timestamps shown in the UI */
+export type TimeFormat = '12h' | '24h'
+
+export type CockpitApi = {
+  readonly sendChat: (req: ChatRequest) => Promise<string>
+  readonly cancelChat: (turnId: string) => Promise<void>
+  readonly onChatEvent: (cb: (ev: ChatEvent) => void) => () => void
+  readonly getSources: () => Promise<SourceDir[]>
+  readonly getSourceStats: () => Promise<SourceStats[]>
   /** Native directory picker (main-process dialog); null when the user cancels */
-  pickDirectory(): Promise<string | null>
-  addSource(path: string, provider: Provider, label: string): Promise<SourceDir[]>
-  removeSource(path: string): Promise<SourceDir[]>
-  listRepos(): Promise<RepoGroup[]>
-  pageSessions(query: SessionQuery): Promise<SessionPage>
-  getSessionMessages(id: string): Promise<SessionMessage[]>
-  setArchived(sessionId: string, archived: boolean): Promise<void>
-  setRepoHidden(repoKey: string, hidden: boolean): Promise<void>
+  readonly pickDirectory: () => Promise<string | null>
+  readonly addSource: (path: string, provider: Provider, label: string) => Promise<SourceDir[]>
+  readonly removeSource: (path: string) => Promise<SourceDir[]>
+  readonly listRepos: () => Promise<RepoGroup[]>
+  readonly pageSessions: (query: SessionQuery) => Promise<SessionPage>
+  readonly getSessionMessages: (id: string) => Promise<SessionMessage[]>
+  /** Sessions with a provider process currently running */
+  readonly getBusySessions: () => Promise<BusySession[]>
+  /** Push: fires with the full busy set whenever a turn starts, ends, or gains a session id */
+  readonly onBusySessions: (cb: (sessions: BusySession[]) => void) => () => void
+  readonly setArchived: (sessionId: string, archived: boolean) => Promise<void>
+  readonly setRepoHidden: (repoKey: string, hidden: boolean) => Promise<void>
   /** Days of history to display — sessions idle longer are hidden; 0 = all */
-  getHistoryDays(): Promise<number>
-  setHistoryDays(days: number): Promise<void>
-  getPrs(repoRoot: string): Promise<PrStatus[]>
-  createWorkspace(repoRoot: string, name?: string): Promise<WorkspaceInfo>
-  createPr(cwd: string): Promise<string>
-  getExtensions(): Promise<ExtensionsInventory>
-  shareMcp(name: string, to: Provider): Promise<void>
-  shareSkill(name: string, from: Provider, to: Provider): Promise<void>
-  getInstructions(repoRoot: string | null): Promise<InstructionsState>
-  saveInstructionsBaseline(repoRoot: string | null, baseline: string): Promise<InstructionsState>
+  readonly getHistoryDays: () => Promise<number>
+  readonly setHistoryDays: (days: number) => Promise<void>
+  /** Clock format for session times (sidebar, home); default 24h */
+  readonly getTimeFormat: () => Promise<TimeFormat>
+  readonly setTimeFormat: (format: TimeFormat) => Promise<void>
+  readonly getPrs: (repoRoot: string) => Promise<PrStatus[]>
+  readonly createWorkspace: (repoRoot: string, name?: string) => Promise<WorkspaceInfo>
+  readonly createPr: (cwd: string) => Promise<string>
+  readonly getExtensions: () => Promise<ExtensionsInventory>
+  readonly shareMcp: (name: string, to: Provider) => Promise<void>
+  /** Remove one presence: an agent's user-scope entry, or a claude project entry */
+  readonly removeMcp: (name: string, agent: Provider, projectPath?: string) => Promise<void>
+  /** Probe the server (spawn stdio / hit URL) and report whether it answers */
+  readonly checkMcp: (name: string) => Promise<McpProbeResult>
+  /** Run the agent CLI's own OAuth login for the server; resolves with its output */
+  readonly loginMcp: (name: string, agent: Provider, projectPath?: string) => Promise<string>
+  readonly shareSkill: (name: string, from: Provider, to: Provider) => Promise<void>
+  readonly getInstructions: (repoRoot: string | null) => Promise<InstructionsState>
+  readonly saveInstructionsBaseline: (
+    repoRoot: string | null,
+    baseline: string
+  ) => Promise<InstructionsState>
   /** Fan the baseline out into every target file (or just one path) */
-  applyInstructions(repoRoot: string | null, onlyPath?: string): Promise<InstructionsState>
-  saveInstructionFile(
+  readonly applyInstructions: (repoRoot: string | null, onlyPath?: string) => Promise<InstructionsState>
+  readonly saveInstructionFile: (
     repoRoot: string | null,
     path: string,
     content: string
-  ): Promise<InstructionsState>
-  getAccounts(): Promise<AccountsSnapshot>
+  ) => Promise<InstructionsState>
+  readonly getAccounts: () => Promise<AccountsSnapshot>
   /** Current subscription usage per configured provider account */
-  getUsage(): Promise<UsageSnapshot>
+  readonly getUsage: () => Promise<UsageSnapshot>
+  readonly getModelEndpoints: () => Promise<ModelEndpoint[]>
+  readonly addModelEndpoint: (ep: NewModelEndpoint) => Promise<ModelEndpoint[]>
+  readonly removeModelEndpoint: (id: string) => Promise<ModelEndpoint[]>
+  /** Ask the provider itself which models it serves (also refreshes the cached list) */
+  readonly listEndpointModels: (id: string) => Promise<string[]>
   /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
-  getZoomFactor(): number
-  setZoomFactor(factor: number): void
-  openExternal(url: string): Promise<void>
-  onIndexUpdated(cb: () => void): () => void
+  readonly getZoomFactor: () => number
+  readonly setZoomFactor: (factor: number) => void
+  readonly openExternal: (url: string) => Promise<void>
+  readonly onIndexUpdated: (cb: () => void) => () => void
 }
