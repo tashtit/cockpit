@@ -168,23 +168,21 @@ type RunningTurn = {
   readonly sessionIds: Set<string>
 }
 
+/** Optional collaborators wired by index.ts (busy board + BYOK endpoint/keychain store). */
+type ChatManagerHooks = {
+  readonly onBusyChange?: (sessions: BusySession[]) => void
+  readonly resolveEndpoint?: ResolveEndpoint
+  readonly resolveKey?: ResolveKey
+}
+
 export class ChatManager {
   private turns = new Map<string, RunningTurn>()
-  private emit: Emit
-  private onBusyChange?: (sessions: BusySession[]) => void
-  private resolveEndpoint: ResolveEndpoint
-  private resolveKey: ResolveKey
+  private readonly emit: Emit
+  private readonly hooks: ChatManagerHooks
 
-  constructor(
-    emit: Emit,
-    onBusyChange?: (sessions: BusySession[]) => void,
-    resolveEndpoint: ResolveEndpoint = () => undefined,
-    resolveKey: ResolveKey = () => undefined
-  ) {
+  constructor(emit: Emit, hooks: ChatManagerHooks = {}) {
     this.emit = emit
-    this.onBusyChange = onBusyChange
-    this.resolveEndpoint = resolveEndpoint
-    this.resolveKey = resolveKey
+    this.hooks = hooks
   }
 
   /** Sessions with a provider process currently running (earliest start wins on overlap). */
@@ -201,7 +199,7 @@ export class ChatManager {
   }
 
   private notifyBusy(): void {
-    this.onBusyChange?.(this.busySessions())
+    this.hooks.onBusyChange?.(this.busySessions())
   }
 
   send(req: ChatRequest): string {
@@ -227,9 +225,9 @@ export class ChatManager {
     // BYOK: resolve the endpoint and its key, refuse loudly rather than silently
     // falling back to the provider's own backend
     const ep = req.options?.modelEndpoint
-      ? this.resolveEndpoint(req.options.modelEndpoint)
+      ? this.hooks.resolveEndpoint?.(req.options.modelEndpoint)
       : undefined
-    const apiKey = ep ? this.resolveKey(ep) : undefined
+    const apiKey = ep ? this.hooks.resolveKey?.(ep) : undefined
     const refusal = endpointPreflight(req, ep, Boolean(apiKey))
     if (refusal) {
       queueMicrotask(() => {

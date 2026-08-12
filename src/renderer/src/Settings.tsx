@@ -221,17 +221,21 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const addEndpoint = async (): Promise<void> => {
     setEpError(null)
     try {
-      const def: NewModelEndpoint = { label: epLabel.trim(), type: epType, baseUrl: epUrl.trim() }
-      if (epKey.trim()) def.apiKey = epKey.trim()
-      if (epType === 'openai' && epWire) def.wireApi = epWire
+      let headers: Record<string, string> | undefined
       if (epHeaders.trim() && epHeaders.trim() !== '{}') {
-        let parsed: unknown
         try {
-          parsed = JSON.parse(epHeaders)
+          headers = JSON.parse(epHeaders) as Record<string, string>
         } catch {
           throw new Error('Custom headers must be a JSON object, e.g. {"anthropic-version": "2023-06-01"}.')
         }
-        def.headers = parsed as Record<string, string>
+      }
+      const def: NewModelEndpoint = {
+        label: epLabel.trim(),
+        type: epType,
+        baseUrl: epUrl.trim(),
+        apiKey: epKey.trim() || undefined,
+        wireApi: epType === 'openai' && epWire ? epWire : undefined,
+        headers
       }
       const before = endpoints
       const after = await api.addModelEndpoint(def)

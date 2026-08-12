@@ -96,26 +96,23 @@ export function listModelEndpoints(): ModelEndpoint[] {
 /** Upsert by id, in place — a models-cache refresh must not reorder the user's list. */
 export function addModelEndpoint(ep: ModelEndpoint): ModelEndpoint[] {
   const cfg = loadConfig()
-  const eps = cfg.modelEndpoints ?? []
-  const i = eps.findIndex((e) => e.id === ep.id)
-  if (i >= 0) eps[i] = ep
-  else eps.push(ep)
-  cfg.modelEndpoints = eps
-  saveConfig(cfg)
+  const existing = cfg.modelEndpoints ?? []
+  const eps = existing.some((e) => e.id === ep.id)
+    ? existing.map((e) => (e.id === ep.id ? ep : e))
+    : [...existing, ep]
+  saveConfig({ ...cfg, modelEndpoints: eps })
   return eps
 }
 
 export function removeModelEndpoint(id: string): ModelEndpoint[] {
   const cfg = loadConfig()
-  cfg.modelEndpoints = (cfg.modelEndpoints ?? []).filter((e) => e.id !== id)
+  const eps = (cfg.modelEndpoints ?? []).filter((e) => e.id !== id)
   // sessions bound to a deleted endpoint must fail loudly on resume, not dangle
-  if (cfg.sessionEndpoints) {
-    for (const [sid, eid] of Object.entries(cfg.sessionEndpoints)) {
-      if (eid === id) delete cfg.sessionEndpoints[sid]
-    }
-  }
-  saveConfig(cfg)
-  return cfg.modelEndpoints
+  const sessions = Object.fromEntries(
+    Object.entries(cfg.sessionEndpoints ?? {}).filter(([, eid]) => eid !== id)
+  )
+  saveConfig({ ...cfg, modelEndpoints: eps, sessionEndpoints: sessions })
+  return eps
 }
 
 const SESSION_ENDPOINT_CAP = 500
@@ -123,17 +120,17 @@ const SESSION_ENDPOINT_CAP = 500
 /** Remember which endpoint a session was started with so resume stays on that backend. */
 export function bindSessionEndpoint(sessionId: string, endpointId: string): void {
   const cfg = loadConfig()
-  const map = cfg.sessionEndpoints ?? {}
+  const entries = Object.entries(cfg.sessionEndpoints ?? {})
   // claude emits two session events per turn — skip the rewrite when nothing changes
-  const keys0 = Object.keys(map)
-  if (map[sessionId] === endpointId && keys0[keys0.length - 1] === sessionId) return
+  const last = entries[entries.length - 1]
+  if (last && last[0] === sessionId && last[1] === endpointId) return
   // re-insert so JSON key order doubles as recency for the cap below
-  delete map[sessionId]
-  map[sessionId] = endpointId
-  const keys = Object.keys(map)
-  for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_ENDPOINT_CAP))) delete map[k]
-  cfg.sessionEndpoints = map
-  saveConfig(cfg)
+  const kept = entries.filter(([sid]) => sid !== sessionId)
+  kept.push([sessionId, endpointId])
+  saveConfig({
+    ...cfg,
+    sessionEndpoints: Object.fromEntries(kept.slice(Math.max(0, kept.length - SESSION_ENDPOINT_CAP)))
+  })
 }
 
 export function sessionEndpointFor(sessionId: string): string | undefined {

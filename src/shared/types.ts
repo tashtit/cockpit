@@ -130,18 +130,18 @@ export type WireApi = 'completions' | 'responses'
  * once, encrypted with the OS keychain (Electron safeStorage), and kept out of config —
  * this record only carries `hasKey` so the UI can show that one is stored.
  */
-export interface ModelEndpoint {
-  id: string
-  label: string
-  type: ModelEndpointType
-  baseUrl: string
+export type ModelEndpoint = {
+  readonly id: string
+  readonly label: string
+  readonly type: ModelEndpointType
+  readonly baseUrl: string
   /** An encrypted API key is stored for this endpoint (the key itself never crosses IPC back) */
-  hasKey?: boolean
-  wireApi?: WireApi
+  readonly hasKey?: boolean
+  readonly wireApi?: WireApi
   /** Extra HTTP headers sent to the provider (e.g. anthropic-version) */
-  headers?: Record<string, string>
+  readonly headers?: Record<string, string>
   /** Models this endpoint serves — cached from the provider's own /models listing */
-  models?: string[]
+  readonly models?: string[]
 }
 
 /** Renderer-supplied endpoint definition — main assigns the id and stores the key. */

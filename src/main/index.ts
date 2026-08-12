@@ -287,9 +287,8 @@ app.whenReady().then(() => {
     if (key) {
       if (key.length > 4096 || /[\r\n\0]/.test(key)) throw new Error('Invalid API key value.')
       setEndpointKey(ep.id, key) // throws before anything is saved if the keychain is unavailable
-      ep.hasKey = true
     }
-    return addModelEndpoint(ep)
+    return addModelEndpoint(key ? { ...ep, hasKey: true } : ep)
   })
   ipcMain.handle('endpoints:remove', (_e, id: string) => {
     deleteEndpointKey(String(id))
@@ -313,9 +312,11 @@ app.whenReady().then(() => {
       if (ev.type === 'done') byokTurns.delete(ev.turnId)
       win?.webContents.send('chat-event', ev)
     },
-    (ids) => win?.webContents.send('busy-sessions', ids),
-    (id) => listModelEndpoints().find((e) => e.id === id),
-    (ep) => getEndpointKey(ep.id)
+    {
+      onBusyChange: (ids) => win?.webContents.send('busy-sessions', ids),
+      resolveEndpoint: (id) => listModelEndpoints().find((e) => e.id === id),
+      resolveKey: (ep) => getEndpointKey(ep.id)
+    }
   )
   ipcMain.handle('sessions:busy', () => chat.busySessions())
   ipcMain.handle('chat:send', (_e, req: ChatRequest) => {

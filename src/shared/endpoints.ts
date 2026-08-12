@@ -1,4 +1,4 @@
-import type { ModelEndpoint, ModelEndpointType, Provider, WireApi } from './types'
+import type { ModelEndpoint, ModelEndpointType, Mutable, Provider, WireApi } from './types'
 
 /**
  * Custom model endpoints (BYOK) — pure logic shared by main (env injection) and the
@@ -32,7 +32,7 @@ export function sanitizeEndpoint(input: unknown, id: string): ModelEndpoint | nu
   } catch {
     return null
   }
-  const ep: ModelEndpoint = { id, label, type, baseUrl }
+  const ep: Mutable<ModelEndpoint> = { id, label, type, baseUrl }
   if (o.wireApi !== undefined && o.wireApi !== '') {
     const wire = WIRE_APIS.find((w) => w === o.wireApi)
     if (!wire) return null
