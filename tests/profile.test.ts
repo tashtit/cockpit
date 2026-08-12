@@ -287,6 +287,77 @@ describe('buildProfile — deep pass', () => {
   })
 })
 
+describe('buildProfile — insights', () => {
+  it('merges one model across agents, keeping the per-agent split', async () => {
+    // the same model name served by two different agents must become ONE stat
+    const claudeFile = claudeLog('model-a.jsonl', [[]]) // one assistant msg, model claude-opus-5
+    const copilotFile = copilotLog('model-b.jsonl', [
+      { type: 'assistant.message', data: { model: 'claude-opus-5' } },
+      { type: 'assistant.message', data: { model: 'claude-opus-5' } }
+    ])
+    const p = await buildProfile(
+      [
+        meta({ provider: 'claude', sourcePath: claudeFile }),
+        meta({ provider: 'copilot', sourcePath: copilotFile })
+      ],
+      { now: NOW, login: null }
+    )
+    expect(p.models).toEqual([
+      { name: 'claude-opus-5', count: 3, byProvider: { claude: 1, copilot: 2 } }
+    ])
+  })
+
+  it('drops the <synthetic> placeholder from model stats', async () => {
+    const file = join(root, 'synthetic.jsonl')
+    writeFileSync(
+      file,
+      JSON.stringify({ type: 'assistant', message: { model: '<synthetic>', content: [] } })
+    )
+    const p = await buildProfile([meta({ provider: 'claude', sourcePath: file })], {
+      now: NOW,
+      login: null
+    })
+    expect(p.models).toEqual([])
+  })
+
+  it('attributes sessions to accounts and joins the signed-in identity', async () => {
+    const file = claudeLog('acct.jsonl', [])
+    const p = await buildProfile(
+      [
+        meta({ provider: 'claude', sourcePath: file, source: 'work' }),
+        meta({ provider: 'claude', sourcePath: file, source: 'work' }),
+        meta({ provider: 'claude', sourcePath: file, source: 'personal' })
+      ],
+      {
+        now: NOW,
+        login: null,
+        identities: [{ provider: 'claude', label: 'work', identity: 'me@work.com' }]
+      }
+    )
+    expect(p.accounts).toEqual([
+      { provider: 'claude', label: 'work', identity: 'me@work.com', sessions: 2, lastActivity: NOW },
+      { provider: 'claude', label: 'personal', identity: null, sessions: 1, lastActivity: NOW }
+    ])
+  })
+
+  it('buckets session starts into local hours and averages turns', async () => {
+    const file = claudeLog('hours.jsonl', [])
+    const at = (h: number): number => new Date(2026, 7, 10, h, 30).getTime()
+    const p = await buildProfile(
+      [
+        meta({ provider: 'claude', sourcePath: file, startedAt: at(9), messageCount: 10 }),
+        meta({ provider: 'claude', sourcePath: file, startedAt: at(9), messageCount: 20 }),
+        meta({ provider: 'claude', sourcePath: file, startedAt: at(22), messageCount: 33 })
+      ],
+      { now: NOW, login: null }
+    )
+    expect(p.hourCounts[9]).toBe(2)
+    expect(p.hourCounts[22]).toBe(1)
+    expect(p.hourCounts.reduce((a, b) => a + b, 0)).toBe(3)
+    expect(p.providers[0].avgTurns).toBe(21) // (10+20+33)/3 rounded
+  })
+})
+
 describe('buildProfile — aggregation', () => {
   it('ranks agents by sessions and repos by session count', async () => {
     const file = claudeLog('rank.jsonl', [])

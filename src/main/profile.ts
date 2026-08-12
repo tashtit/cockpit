@@ -1,17 +1,20 @@
 import { statSync } from 'node:fs'
 import { extname } from 'node:path'
 import type {
+  AccountStat,
   ActivityDay,
   LanguageStat,
+  ModelStat,
   Mutable,
   NameCount,
   ProfileStats,
   Provider,
   ProviderProfile,
   RepoStat,
-  SessionMeta
+  SessionMeta,
+  SourceDir
 } from '../shared/types'
-import { ghUser } from './accounts'
+import { claudeIdentity, codexIdentity, copilotUsers, ghUser } from './accounts'
 import { readHead } from './parsers/util'
 
 /**
@@ -342,9 +345,22 @@ export function streaks(
  * would freeze the UI and every other IPC call. It yields between files (see
  * `yieldEvery`), matching the indexer's own scan discipline.
  */
+/** Identity of one signed-in account, injectable so buildProfile stays IO-free here. */
+export type AccountIdentity = {
+  readonly provider: Provider
+  readonly label: string
+  readonly identity: string | null
+}
+
 export async function buildProfile(
   sessions: SessionMeta[],
-  opts: { now: number; login: string | null; maxDays?: number }
+  opts: {
+    now: number
+    login: string | null
+    maxDays?: number
+    /** Signed-in identities per source (provider+label), from accounts.ts */
+    identities?: AccountIdentity[]
+  }
 ): Promise<ProfileStats> {
   const { now, login } = opts
   const maxDays = opts.maxDays ?? 371 // 53 weeks — a full GitHub-style grid
@@ -363,7 +379,10 @@ export async function buildProfile(
       days: [],
       providers: [],
       languages: [],
-      repos: []
+      repos: [],
+      models: [],
+      accounts: [],
+      hourCounts: new Array(24).fill(0)
     }
   }
 
@@ -372,8 +391,10 @@ export async function buildProfile(
   // deeply readonly (that's the contract the renderer gets), which is exactly
   // what a tallying loop can't use.
   const byDay = new Map<string, MutableDay>()
-  const perProvider = new Map<Provider, { sessions: number; days: Set<string> }>()
+  const perProvider = new Map<Provider, { sessions: number; days: Set<string>; turns: number }>()
   const repos = new Map<string, MutableRepoStat>()
+  const bySource = new Map<string, Mutable<AccountStat>>()
+  const hourCounts = new Array<number>(24).fill(0)
   let since = Infinity
 
   for (const s of sessions) {
@@ -388,9 +409,23 @@ export async function buildProfile(
     day.byProvider[s.provider] = (day.byProvider[s.provider] ?? 0) + 1
 
     let p = perProvider.get(s.provider)
-    if (!p) perProvider.set(s.provider, (p = { sessions: 0, days: new Set() }))
+    if (!p) perProvider.set(s.provider, (p = { sessions: 0, days: new Set(), turns: 0 }))
     p.sessions++
     p.days.add(key)
+    p.turns += s.messageCount || 0
+
+    hourCounts[new Date(ts).getHours()]++
+
+    const srcKey = `${s.provider}:${s.source}`
+    let acct = bySource.get(srcKey)
+    if (!acct) {
+      bySource.set(
+        srcKey,
+        (acct = { provider: s.provider, label: s.source, identity: null, sessions: 0, lastActivity: 0 })
+      )
+    }
+    acct.sessions++
+    if (s.updatedAt > acct.lastActivity) acct.lastActivity = s.updatedAt
 
     const info = s.repo
     const repoKey = info?.key ?? 'general'
@@ -448,6 +483,7 @@ export async function buildProfile(
         provider,
         sessions: counts.sessions,
         activeDays: counts.days.size,
+        avgTurns: counts.sessions > 0 ? Math.round(counts.turns / counts.sessions) : 0,
         linesAdded: deep.linesAdded,
         linesRemoved: deep.linesRemoved,
         filesTouched: deep.files.size,
@@ -472,6 +508,31 @@ export async function buildProfile(
     .sort((a, b) => b.linesAdded - a.linesAdded || a.ext.localeCompare(b.ext))
     .slice(0, 8)
 
+  // Models merged across agents, keeping the per-agent split — the same model
+  // family crosses agent boundaries (Copilot serves claude-opus), and that
+  // split is what the profile's segmented bars exist to show.
+  const allModels = new Map<string, Mutable<ModelStat> & { byProvider: Partial<Record<Provider, number>> }>()
+  for (const [provider, deep] of perProviderDeep) {
+    for (const [name, count] of deep.models) {
+      if (name === '<synthetic>') continue // claude's placeholder for injected turns, not a model
+      let m = allModels.get(name)
+      if (!m) allModels.set(name, (m = { name, count: 0, byProvider: {} }))
+      m.count += count
+      m.byProvider[provider] = (m.byProvider[provider] ?? 0) + count
+    }
+  }
+  const models: ModelStat[] = [...allModels.values()]
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, 8)
+
+  // Accounts: join each source's session tally with its signed-in identity
+  const identityOf = new Map(
+    (opts.identities ?? []).map((a) => [`${a.provider}:${a.label}`, a.identity])
+  )
+  const accounts: AccountStat[] = [...bySource.entries()]
+    .map(([key, a]) => ({ ...a, identity: identityOf.get(key) ?? null }))
+    .sort((a, b) => b.sessions - a.sessions)
+
   return {
     at: now,
     login,
@@ -484,12 +545,37 @@ export async function buildProfile(
     days,
     providers,
     languages,
-    repos: [...repos.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8)
+    repos: [...repos.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8),
+    models,
+    accounts,
+    hourCounts
   }
 }
 
+/** Signed-in identity per source, read from each provider's own config files. */
+function sourceIdentities(sources: SourceDir[]): AccountIdentity[] {
+  return sources.map((s) => {
+    let identity: string | null = null
+    try {
+      if (s.provider === 'claude') identity = claudeIdentity(s.path)
+      else if (s.provider === 'codex') identity = codexIdentity(s.path)
+      else identity = copilotUsers(s.path).active
+    } catch {
+      /* unreadable config — the account still lists, just unnamed */
+    }
+    return { provider: s.provider, label: s.label, identity }
+  })
+}
+
 /** Entry point for the IPC handler: resolves the `gh` login, then aggregates. */
-export async function getProfile(sessions: SessionMeta[]): Promise<ProfileStats> {
+export async function getProfile(
+  sessions: SessionMeta[],
+  sources: SourceDir[] = []
+): Promise<ProfileStats> {
   const login = await ghUser().catch(() => null)
-  return await buildProfile(sessions, { now: Date.now(), login })
+  return await buildProfile(sessions, {
+    now: Date.now(),
+    login,
+    identities: sourceIdentities(sources)
+  })
 }

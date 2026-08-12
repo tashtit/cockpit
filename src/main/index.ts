@@ -275,7 +275,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('accounts:get', () => getAccounts(loadConfig().sources))
   ipcMain.handle('usage:get', () => getUsage(loadConfig().sources))
-  ipcMain.handle('profile:get', () => getProfile(indexer.allSessions()))
+  ipcMain.handle('profile:get', () => getProfile(indexer.allSessions(), loadConfig().sources))
 
   ipcMain.handle('endpoints:get', () => listModelEndpoints())
   ipcMain.handle('endpoints:add', (_e, input: unknown) => {

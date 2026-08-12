@@ -350,6 +350,8 @@ export type ProviderProfile = {
   readonly sessions: number
   /** Distinct local days with at least one session */
   readonly activeDays: number
+  /** Mean messages per session (index metadata, so it costs nothing) */
+  readonly avgTurns: number
   /**
    * Lines the agent wrote / removed via its edit tools. This counts edit *operations*,
    * not surviving diff: rewriting the same file twice counts twice, and nothing here
@@ -373,6 +375,29 @@ export type ProviderProfile = {
 export type NameCount = {
   readonly name: string
   readonly count: number
+}
+
+/**
+ * One model across every agent. Split by provider because the same model family
+ * crosses agent boundaries (Copilot serves claude-opus; Claude serves fable) —
+ * "which model" and "which agent" are different questions, and the split is the
+ * interesting part. Counted in assistant messages, a proxy for actual use.
+ */
+export type ModelStat = {
+  readonly name: string
+  readonly count: number
+  readonly byProvider: Partial<Record<Provider, number>>
+}
+
+/** Sessions attributed to one signed-in account (config home), for multi-account setups. */
+export type AccountStat = {
+  readonly provider: Provider
+  /** Source label (== SourceDir.label / SessionMeta.source) */
+  readonly label: string
+  /** Signed-in identity for that config home: email or GitHub login, when known */
+  readonly identity: string | null
+  readonly sessions: number
+  readonly lastActivity: number
 }
 
 /** One language, keyed by file extension (the only signal session logs carry). */
@@ -412,6 +437,12 @@ export type ProfileStats = {
   readonly providers: ProviderProfile[]
   readonly languages: LanguageStat[]
   readonly repos: RepoStat[]
+  /** Models across every agent, most-used first */
+  readonly models: ModelStat[]
+  /** Signed-in accounts with their session share, most-used first */
+  readonly accounts: AccountStat[]
+  /** Sessions started per local hour of day — 24 buckets, index 0 = midnight */
+  readonly hourCounts: number[]
 }
 
 /** One session with a live provider process, for status displays (the board, LiveDots). */

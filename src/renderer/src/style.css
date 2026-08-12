@@ -868,6 +868,35 @@ summary::-webkit-details-marker { display: none; }
 .pv-repo-name { flex: 1; min-width: 0; color: var(--fg); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 
+/* Model bars: same grammar as languages, but the fill splits into agent-tinted
+   segments — the same model family crosses agent boundaries, and that split is
+   the insight. Segment colors are inline (token rgb refs), like heatmap squares. */
+.pv-model-name { font-family: var(--mono); color: var(--fg); width: 148px; flex-shrink: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-bar-split { display: flex; height: 100%; border-radius: var(--radius-pill);
+  overflow: hidden; }
+.pv-bar-split i { display: block; height: 100%; flex-basis: 0; }
+
+.pv-accounts { list-style: none; margin: 0 0 var(--s5); padding: 0;
+  display: flex; flex-direction: column; gap: var(--s2); }
+.pv-accounts li { display: flex; align-items: center; gap: var(--s3);
+  font-size: var(--fs-sm); color: var(--fg-dim); }
+.pv-acct-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+
+/* Sessions-by-hour strip: a quiet instrument readout, not a chart with axes —
+   the tallest hour gets named in the hint line below it. */
+.pv-rhythm-wrap { margin-bottom: var(--s5); }
+.pv-rhythm { display: flex; align-items: flex-end; gap: 3px; height: 44px;
+  padding: var(--s2) var(--s3); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.pv-rhythm i { flex: 1; min-width: 0; background: rgba(var(--accent-rgb), 0.75);
+  border-radius: 1px; }
+.pv-rhythm-axis { display: flex; justify-content: space-between;
+  padding: 2px var(--s3) 0; color: var(--fg-dim); font-size: var(--fs-xs);
+  font-family: var(--mono); }
+.pv-rhythm-wrap .ns-hint { margin-top: var(--s2); }
+
 /* ---------- responsive: shed decoration before anything truncates ----------
    These live at the END of the file on purpose: they override same-specificity
    component rules above (e.g. .repo-providers { display: inline-flex }), which
