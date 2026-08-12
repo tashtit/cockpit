@@ -800,6 +800,74 @@ summary::-webkit-details-marker { display: none; }
   font-size: var(--fs-xs); line-height: 1.5; }
 .inst-edit .inst-actions { margin-bottom: 0; }
 
+/* ---------- profile: activity heatmap + per-agent totals (ProfileView) ---------- */
+/* Headline numbers. tabular-nums so the row doesn't jitter as counts tick up. */
+.pv-stats { display: flex; flex-wrap: wrap; gap: var(--s5); margin-bottom: var(--s5);
+  padding: var(--s4); background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); }
+.pv-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pv-stat strong { font-size: var(--fs-lg); font-weight: 600; color: var(--fg);
+  font-variant-numeric: tabular-nums; }
+.pv-stat span { color: var(--fg-dim); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: 0.6px; }
+
+/* 53 weeks never fits a 760px card — the grid scrolls inside its own box rather
+   than letting the page scroll sideways. */
+.pv-heat-scroll { overflow-x: auto; padding-bottom: var(--s2); }
+.pv-heat { --pv-sq: 11px; display: inline-grid; grid-template-columns: auto auto;
+  column-gap: var(--s2); row-gap: var(--s1); }
+.pv-months { grid-column: 2; grid-row: 1; display: grid; gap: var(--s1);
+  grid-template-columns: repeat(var(--pv-weeks), var(--pv-sq));
+  color: var(--fg-dim); font-size: var(--fs-xs); }
+.pv-months span { white-space: nowrap; }
+.pv-weekdays { grid-column: 1; grid-row: 2; display: grid; gap: var(--s1);
+  grid-template-rows: repeat(7, var(--pv-sq)); align-items: center;
+  color: var(--fg-dim); font-size: var(--fs-xs); }
+.pv-grid { grid-column: 2; grid-row: 2; display: grid; gap: var(--s1);
+  grid-template-rows: repeat(7, var(--pv-sq)); grid-auto-flow: column;
+  grid-auto-columns: var(--pv-sq); }
+/* Empty days keep the grid dense; the agent hue is applied inline per square. */
+.pv-sq { width: var(--pv-sq, 11px); height: var(--pv-sq, 11px); border-radius: 2px;
+  background: var(--surface); border: 1px solid var(--border); box-sizing: border-box; }
+.pv-sq-pad { background: none; border-color: transparent; }
+.pv-legend { display: flex; justify-content: space-between; align-items: center;
+  gap: var(--s4); flex-wrap: wrap; color: var(--fg-dim); font-size: var(--fs-xs);
+  margin-bottom: var(--s5); }
+.pv-scale { display: inline-flex; align-items: center; gap: var(--s1); }
+.pv-scale .pv-sq { display: inline-block; }
+
+.pv-agents, .pv-langs, .pv-repos { list-style: none; margin: 0 0 var(--s5); padding: 0;
+  display: flex; flex-direction: column; gap: var(--s2); }
+.pv-agent { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.pv-agent-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.pv-agent-head { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  font-size: var(--fs-base); }
+.pv-agent-days, .pv-agent-meta { color: var(--fg-dim); font-size: var(--fs-xs); }
+.pv-agent-meta { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  font-variant-numeric: tabular-nums; }
+.pv-diff { display: inline-flex; gap: var(--s2); font-family: var(--mono); font-style: normal; }
+.pv-add { color: var(--ok); font-style: normal; }
+.pv-del { color: var(--danger); font-style: normal; }
+/* "no measurable edits" is a fact about the agent's tooling, not a warning */
+.pv-untracked { font-style: italic; }
+.pv-tools { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; min-width: 0; }
+.pv-models { display: flex; gap: var(--s1); flex-wrap: wrap; }
+
+.pv-langs li, .pv-repos li { display: flex; align-items: center; gap: var(--s3);
+  font-size: var(--fs-sm); }
+.pv-lang-ext { font-family: var(--mono); color: var(--fg); width: 56px; flex-shrink: 0; }
+.pv-bar { flex: 1; min-width: 0; height: 6px; background: var(--surface);
+  border-radius: var(--radius-pill); overflow: hidden; }
+.pv-bar i { display: block; height: 100%; background: var(--accent);
+  border-radius: var(--radius-pill); }
+.pv-lang-n { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0;
+  font-variant-numeric: tabular-nums; }
+.pv-repos li { color: var(--fg-dim); }
+.pv-repo-name { flex: 1; min-width: 0; color: var(--fg); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+
 /* ---------- responsive: shed decoration before anything truncates ----------
    These live at the END of the file on purpose: they override same-specificity
    component rules above (e.g. .repo-providers { display: inline-flex }), which

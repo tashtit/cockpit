@@ -13,6 +13,7 @@ import { TreeSidebar } from './TreeSidebar'
 import { ChatView } from './ChatView'
 import { NewSession } from './NewSession'
 import { Settings } from './Settings'
+import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
 import { initBusySessions } from './busy'
@@ -42,6 +43,7 @@ type View =
   | { kind: 'new'; repo: RepoGroup; draft?: string }
   | { kind: 'settings' }
   | { kind: 'extensions' }
+  | { kind: 'profile' }
 
 export function App(): JSX.Element {
   const [repos, setRepos] = useState<RepoGroup[]>([])
@@ -369,9 +371,12 @@ export function App(): JSX.Element {
         onGoHome={() => setView({ kind: 'welcome' })}
         onOpenSettings={() => setView({ kind: 'settings' })}
         onOpenExtensions={() => setView({ kind: 'extensions' })}
+        onOpenProfile={() => setView({ kind: 'profile' })}
         onOpenUrl={openUrl}
       />
-      {view.kind === 'settings' ? (
+      {view.kind === 'profile' ? (
+        <ProfileView onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
+      ) : view.kind === 'settings' ? (
         <Settings onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
       ) : view.kind === 'extensions' ? (
         <AiSetup

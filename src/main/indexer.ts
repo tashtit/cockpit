@@ -639,6 +639,22 @@ export class SessionIndexer {
     }
   }
 
+  /**
+   * Every session the user still owns, for aggregate stats (see profile.ts).
+   * Deliberately ignores `historyDays` and `hiddenRepos` — those are display
+   * filters for the tree, while a profile is the long view over all history.
+   * Provider-archived and user-archived sessions stay excluded: those were
+   * explicitly thrown away.
+   */
+  allSessions(): SessionMeta[] {
+    const out: SessionMeta[] = []
+    for (const s of this.sessions.values()) {
+      if (this.providerArchived.has(s.id) || this.archived.has(s.id)) continue
+      out.push(s)
+    }
+    return out
+  }
+
   getMessages(id: string): SessionMessage[] {
     const meta = this.sessions.get(id)
     if (!meta) return []

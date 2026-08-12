@@ -41,6 +41,7 @@ import { centeredIn, readDevWindowPrefs } from './dev-window'
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
 import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
+import { getProfile } from './profile'
 import { homedir } from 'node:os'
 
 // e2e/dev isolation only — a packaged app must never honor a data-dir override
@@ -274,6 +275,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('accounts:get', () => getAccounts(loadConfig().sources))
   ipcMain.handle('usage:get', () => getUsage(loadConfig().sources))
+  ipcMain.handle('profile:get', () => getProfile(indexer.allSessions()))
 
   ipcMain.handle('endpoints:get', () => listModelEndpoints())
   ipcMain.handle('endpoints:add', (_e, input: unknown) => {

@@ -330,6 +330,90 @@ export type UsageSnapshot = {
   readonly providers: ProviderUsage[]
 }
 
+/* ---------- profile ---------- */
+
+/**
+ * One day of the activity heatmap. Days are local-time calendar days so the grid
+ * matches the user's sense of "yesterday", not UTC's.
+ */
+export type ActivityDay = {
+  /** Local calendar day, `YYYY-MM-DD` */
+  readonly day: string
+  readonly sessions: number
+  /** Sessions per provider that day — drives the square's tint */
+  readonly byProvider: Partial<Record<Provider, number>>
+}
+
+/** Per-agent totals. The comparison across these is the point of the profile. */
+export type ProviderProfile = {
+  readonly provider: Provider
+  readonly sessions: number
+  /** Distinct local days with at least one session */
+  readonly activeDays: number
+  /**
+   * Lines the agent wrote / removed via its edit tools. This counts edit *operations*,
+   * not surviving diff: rewriting the same file twice counts twice, and nothing here
+   * is reconciled against git. Label it "edited", never "shipped".
+   */
+  readonly linesAdded: number
+  readonly linesRemoved: number
+  /** Distinct absolute file paths touched by an edit/write tool */
+  readonly filesTouched: number
+  /** Tool-call counts, highest first */
+  readonly tools: NameCount[]
+  /** Models seen in this agent's logs, highest first */
+  readonly models: NameCount[]
+  /**
+   * Set when the deep pass could not read this agent's logs at all — the session
+   * counts above are still valid (they come from the index).
+   */
+  readonly deepUnavailable?: string
+}
+
+export type NameCount = {
+  readonly name: string
+  readonly count: number
+}
+
+/** One language, keyed by file extension (the only signal session logs carry). */
+export type LanguageStat = {
+  /** Lowercase extension without the dot (`ts`, `tsx`, `py`) */
+  readonly ext: string
+  readonly files: number
+  readonly linesAdded: number
+}
+
+export type RepoStat = {
+  readonly key: string
+  readonly name: string
+  readonly sessions: number
+  readonly lastActivity: number
+}
+
+/**
+ * The whole profile. Aggregate only — the sessions behind it never cross the bridge.
+ * Computed over *all* history, deliberately ignoring the `historyDays` display window:
+ * a profile's job is the long view, while that setting exists to keep the tree short.
+ */
+export type ProfileStats = {
+  readonly at: number
+  /** GitHub login when `gh` reports one */
+  readonly login: string | null
+  /** Epoch ms of the earliest session seen; null when there are none */
+  readonly since: number | null
+  readonly totalSessions: number
+  readonly activeDays: number
+  /** Consecutive active days ending today or yesterday; 0 once the chain breaks */
+  readonly currentStreak: number
+  readonly longestStreak: number
+  readonly busiestDay: ActivityDay | null
+  /** Contiguous run of days, oldest first — includes zero-session days so the grid is dense */
+  readonly days: ActivityDay[]
+  readonly providers: ProviderProfile[]
+  readonly languages: LanguageStat[]
+  readonly repos: RepoStat[]
+}
+
 /** One session with a live provider process, for status displays (the board, LiveDots). */
 export type BusySession = {
   /** Session id: `${provider}:${nativeId}` */
@@ -406,6 +490,8 @@ export type CockpitApi = {
   readonly getAccounts: () => Promise<AccountsSnapshot>
   /** Current subscription usage per configured provider account */
   readonly getUsage: () => Promise<UsageSnapshot>
+  /** Aggregate cross-agent work profile (heatmap, per-agent totals, languages) */
+  readonly getProfile: () => Promise<ProfileStats>
   readonly getModelEndpoints: () => Promise<ModelEndpoint[]>
   readonly addModelEndpoint: (ep: NewModelEndpoint) => Promise<ModelEndpoint[]>
   readonly removeModelEndpoint: (id: string) => Promise<ModelEndpoint[]>

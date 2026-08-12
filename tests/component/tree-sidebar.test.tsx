@@ -48,6 +48,7 @@ function renderSidebar(over: Partial<RepoGroup> = {}): void {
       onGoHome={vi.fn()}
       onOpenSettings={vi.fn()}
       onOpenExtensions={vi.fn()}
+      onOpenProfile={vi.fn()}
       onOpenUrl={vi.fn()}
     />
   )
