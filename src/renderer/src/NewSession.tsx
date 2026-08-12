@@ -3,10 +3,12 @@ import type {
   AccountsSnapshot,
   AgentOptions,
   CodexSandbox,
+  ModelEndpoint,
   PermissionMode,
   Provider,
   RepoGroup
 } from '../../shared/types'
+import { endpointSupports } from '../../shared/endpoints'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -99,12 +101,15 @@ export function NewSession({
   repo,
   repos,
   busy,
+  initialPrompt,
   onStart,
   onCancel
 }: {
   repo: RepoGroup
   repos: RepoGroup[]
   busy: boolean
+  /** Draft carried over from Home's quick composer — typing is never lost on "Options…" */
+  initialPrompt?: string
   onStart: (req: StartSessionRequest) => Promise<string | null>
   onCancel: () => void
 }): JSX.Element {
@@ -113,9 +118,13 @@ export function NewSession({
     () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
   )
   const [name, setName] = useState('')
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const [model, setModel] = useState('')
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  const [endpointId, setEndpointId] = useState('')
+  /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
+  const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -134,13 +143,41 @@ export function NewSession({
   useEffect(() => {
     promptRef.current?.focus()
     void api.getAccounts().then(setAccounts)
+    // optional call: a preload from before this method must not crash the form (dev HMR)
+    void api.getModelEndpoints?.().then(setEndpoints)
   }, [])
 
-  // model suggestions and accounts differ per agent — reset stale choices on switch
+  // model suggestions, accounts, and endpoints differ per agent — reset stale choices on switch
   useEffect(() => {
     setModel('')
     setAccountKey(null)
+    setEndpointId('')
   }, [provider])
+
+  const usableEndpoints = endpoints.filter((e) => endpointSupports(provider, e))
+  const endpoint = usableEndpoints.find((e) => e.id === endpointId)
+  /** Copilot never learns a custom provider's catalog on its own — it needs an explicit model. */
+  const modelMissing = provider === 'copilot' && !!endpoint && !model.trim()
+  /** Models to pick from: live listing when it arrived, else the cached list. */
+  const modelChoices = endpoint ? (endpointModels[endpoint.id] ?? endpoint.models ?? []) : []
+
+  // ask the provider itself which models it serves; the cached list covers the meantime
+  useEffect(() => {
+    if (!endpoint || endpointModels[endpoint.id]) return
+    const id = endpoint.id
+    void api
+      .listEndpointModels?.(id)
+      .then((m) => m.length > 0 && setEndpointModels((prev) => ({ ...prev, [id]: m })))
+      .catch(() => {}) // unreachable provider → free-text model entry still works
+  }, [endpoint?.id])
+
+  // a model typed as free text must not silently survive once a catalog arrives
+  // that doesn't serve it — the picker would show "choose…" while the stale value runs
+  useEffect(() => {
+    if (endpoint && modelChoices.length > 0 && model && !modelChoices.includes(model)) {
+      setModel('')
+    }
+  }, [endpoint?.id, modelChoices.length])
 
   const start = async (): Promise<void> => {
     if (busy || !prompt.trim()) return
@@ -149,7 +186,8 @@ export function NewSession({
     window.localStorage.setItem('cockpit:mode', mode)
     const options: AgentOptions = {
       model: model.trim() || undefined,
-      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined
+      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
+      modelEndpoint: endpoint?.id
     }
     if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
     const err = await onStart({
@@ -241,20 +279,55 @@ export function NewSession({
               </>
             )}
           </div>
+          {usableEndpoints.length > 0 && (
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ns-endpoint">Model provider</label>
+              <Select
+                id="ns-endpoint"
+                ariaLabel="Model provider"
+                value={endpointId}
+                options={[
+                  { value: '', label: 'default' },
+                  ...usableEndpoints.map((e) => ({ value: e.id, label: e.label, title: e.baseUrl }))
+                ]}
+                onChange={setEndpointId}
+              />
+            </div>
+          )}
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ns-model">Model</label>
-            <input
-              id="ns-model"
-              list="ns-models"
-              placeholder="default"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-            />
-            <datalist id="ns-models">
-              {MODEL_SUGGESTIONS[provider].map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
+            {endpoint && modelChoices.length > 0 ? (
+              // the provider told us what it serves — pick from its own catalog
+              <Select
+                id="ns-model"
+                ariaLabel="Model"
+                mono
+                value={modelChoices.includes(model) ? model : ''}
+                options={[
+                  {
+                    value: '',
+                    label: provider === 'copilot' ? 'choose a model…' : 'default'
+                  },
+                  ...modelChoices.map((m) => ({ value: m, label: m }))
+                ]}
+                onChange={setModel}
+              />
+            ) : (
+              <>
+                <input
+                  id="ns-model"
+                  list="ns-models"
+                  placeholder={modelMissing ? 'required' : 'default'}
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                />
+                <datalist id="ns-models">
+                  {MODEL_SUGGESTIONS[provider].map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+              </>
+            )}
           </div>
           {provider === 'codex' && (
             <div className="ns-opt">
@@ -288,6 +361,22 @@ export function NewSession({
         <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>
           {MODES.find((m) => m.v === mode)?.hint}
         </div>
+        {endpoint && (
+          <div className="ns-hint">
+            Runs on {endpoint.baseUrl}
+            {modelChoices.length === 0 &&
+              (provider === 'copilot'
+                ? ' — a model this provider serves is required.'
+                : ' — set a model this provider serves.')}
+          </div>
+        )}
+        {endpoints.length > 0 && usableEndpoints.length === 0 && (
+          <div className="ns-hint">
+            {provider === 'codex'
+              ? 'Custom model providers can’t run Codex — it has no launch-time provider override.'
+              : 'Claude can only use anthropic-type custom providers — none is configured.'}
+          </div>
+        )}
 
         <label className="ns-label" htmlFor="ns-branch">Branch</label>
         <div className="ns-branch-row">
@@ -320,7 +409,11 @@ export function NewSession({
 
         <div className="ns-actions">
           <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button className="btn-primary" onClick={() => void start()} disabled={busy || !prompt.trim()}>
+          <button
+            className="btn-primary"
+            onClick={() => void start()}
+            disabled={busy || !prompt.trim() || modelMissing}
+          >
             {busy ? 'Creating worktree…' : 'Start session'}
           </button>
         </div>

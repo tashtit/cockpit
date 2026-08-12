@@ -39,7 +39,7 @@ export type ChatBinding = {
 type View =
   | { kind: 'welcome' }
   | { kind: 'chat' }
-  | { kind: 'new'; repo: RepoGroup }
+  | { kind: 'new'; repo: RepoGroup; draft?: string }
   | { kind: 'settings' }
   | { kind: 'extensions' }
 
@@ -382,6 +382,7 @@ export function App(): JSX.Element {
           repo={view.repo}
           repos={visibleRepos}
           busy={creating}
+          initialPrompt={view.draft}
           onStart={startSession}
           onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
         />
@@ -392,6 +393,7 @@ export function App(): JSX.Element {
           busy={creating}
           onStart={startSession}
           onOpenSession={openSession}
+          onOpenFull={(repo, draft) => setView({ kind: 'new', repo, draft })}
         />
       ) : (
         <ChatView

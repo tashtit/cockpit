@@ -103,6 +103,18 @@ export const ChatIcon = ({ size = 13 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_COMMENT_DISCUSSION} size={size} />
 )
 
+/* Two server bays with an indicator LED each (hand-drawn, octicon-sized). The LED
+ * subpaths punch holes out of the bays via evenodd — keep that fill rule. */
+const ENDPOINT_PATH =
+  'M1.75 2.5h12.5c.69 0 1.25.56 1.25 1.25v1.5c0 .69-.56 1.25-1.25 1.25H1.75C1.06 6.5.5 5.94.5 5.25v-1.5C.5 3.06 1.06 2.5 1.75 2.5Zm1.5 2.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM1.75 9.5h12.5c.69 0 1.25.56 1.25 1.25v1.5c0 .69-.56 1.25-1.25 1.25H1.75c-.69 0-1.25-.56-1.25-1.25v-1.5c0-.69.56-1.25 1.25-1.25Zm1.5 2.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z'
+
+/** Custom model endpoint mark (Settings rows). Decorative — always beside a label. */
+export const EndpointIcon = ({ size = 13 }: { size?: number }): JSX.Element => (
+  <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+    <path d={ENDPOINT_PATH} fill="currentColor" fillRule="evenodd" />
+  </svg>
+)
+
 const OCTICON_LINK_EXTERNAL =
   'M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z'
 

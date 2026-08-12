@@ -117,12 +117,44 @@ export type PermissionMode = 'safe' | 'auto-edit' | 'yolo'
 
 export type CodexSandbox = 'read-only' | 'workspace-write' | 'danger-full-access'
 
+/* ---------- custom model endpoints (BYOK) ---------- */
+
+/** Provider-API class of a custom endpoint (mirrors Copilot's COPILOT_PROVIDER_TYPE). */
+export type ModelEndpointType = 'openai' | 'azure' | 'anthropic'
+
+/** Copilot wire API for openai-type endpoints ('responses' for GPT-5-series models). */
+export type WireApi = 'completions' | 'responses'
+
+/**
+ * A user-defined model provider endpoint (bring-your-own-key). The API key is entered
+ * once, encrypted with the OS keychain (Electron safeStorage), and kept out of config —
+ * this record only carries `hasKey` so the UI can show that one is stored.
+ */
+export type ModelEndpoint = {
+  readonly id: string
+  readonly label: string
+  readonly type: ModelEndpointType
+  readonly baseUrl: string
+  /** An encrypted API key is stored for this endpoint (the key itself never crosses IPC back) */
+  readonly hasKey?: boolean
+  readonly wireApi?: WireApi
+  /** Extra HTTP headers sent to the provider (e.g. anthropic-version) */
+  readonly headers?: Record<string, string>
+  /** Models this endpoint serves — cached from the provider's own /models listing */
+  readonly models?: string[]
+}
+
+/** Renderer-supplied endpoint definition — main assigns the id and stores the key. */
+export type NewModelEndpoint = Omit<ModelEndpoint, 'id' | 'hasKey'> & { apiKey?: string }
+
 /** Per-agent knobs; each maps to that CLI's own flags. */
 export type AgentOptions = {
   /** All three CLIs accept --model */
   readonly model?: string
   /** Codex only: --sandbox */
   readonly codexSandbox?: CodexSandbox
+  /** Custom model endpoint (ModelEndpoint.id) — claude/copilot run against it via env */
+  readonly modelEndpoint?: string
 }
 
 export type ChatRequest = {
@@ -374,6 +406,11 @@ export type CockpitApi = {
   readonly getAccounts: () => Promise<AccountsSnapshot>
   /** Current subscription usage per configured provider account */
   readonly getUsage: () => Promise<UsageSnapshot>
+  readonly getModelEndpoints: () => Promise<ModelEndpoint[]>
+  readonly addModelEndpoint: (ep: NewModelEndpoint) => Promise<ModelEndpoint[]>
+  readonly removeModelEndpoint: (id: string) => Promise<ModelEndpoint[]>
+  /** Ask the provider itself which models it serves (also refreshes the cached list) */
+  readonly listEndpointModels: (id: string) => Promise<string[]>
   /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
   readonly getZoomFactor: () => number
   readonly setZoomFactor: (factor: number) => void

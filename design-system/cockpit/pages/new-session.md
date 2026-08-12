@@ -3,7 +3,9 @@
 > Extends `MASTER.md`. Rules here win for this view.
 
 **Pattern:** focused form card (`.ns-card`, 600px) for starting a session in a chosen
-repo with full control — the deliberate counterpart to Home's quick composer.
+repo with full control — the deliberate counterpart to Home's quick composer. Reached
+from Home's "Options…" (which passes the typed draft as `initialPrompt`) or the sidebar
+repo-row "+".
 
 ## Form grammar
 
@@ -16,7 +18,16 @@ repo with full control — the deliberate counterpart to Home's quick composer.
   a mono `<select>`. Same `savedAccount` resolution rule as Home — saved choice, else
   first configured.
 - Model field is a free `<input>` with `<datalist>` suggestions (`MODEL_SUGGESTIONS`) —
-  suggestions only, the field accepts anything the CLI accepts. Don't harden into a select.
+  suggestions only, the field accepts anything the CLI accepts. Don't harden into a
+  select. The one exception: when a BYOK model provider is selected and its catalog is
+  known (cached or freshly listed from the provider), Model renders as a mono `Select`
+  of that catalog — picking from what the provider actually serves beats free text there.
+- Model provider: a `Select` ("default" + each configured BYOK provider the active agent
+  can use) that appears only when at least one fits — progressive disclosure, like the
+  Codex sandbox. Picking one shows an `.ns-hint` naming the base URL; Copilot + provider
+  makes Model required (Start disabled until chosen). When providers exist but none fits
+  the active agent, an `.ns-hint` says why (Codex has no provider override; Claude needs
+  anthropic-type) — the control disappearing silently reads as a bug.
 - Branch: `.ns-branch-row` shows the fixed prefix as dimmed mono with a mono input beside
   it — worktree branch naming is visible, not hidden (product rule: always worktrees + PRs).
 - Hints are `.ns-hint`; the YOLO warning uses `.ns-hint.yolo` (danger color). Permission

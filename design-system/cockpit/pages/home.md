@@ -47,6 +47,10 @@ surface, no shadow).
 - Bar order is fixed: repo icon + repo select · `.composer-identity` (agent picker +
   account select fused into one bordered control — they answer one question, "who runs
   this") · permission mode select · `.btn-primary` pushed right with `margin-left: auto`.
+- `.home-more`: a right-aligned `.link-btn` line directly under the card — "All options —
+  branch name, model, custom model provider…" — the discoverable path into the full New
+  session form; it carries the typed draft over, so clicking it never loses work. Kept
+  out of the bar on purpose: the bar is width-budgeted and must stay one line.
 - Agent picker: `.composer-agent` logo buttons, `aria-pressed` + `aria-label`; active =
   agent-tinted background + 1.5px inset ring in the agent color. Signed-out agents get the
   `.no-acct` red dot — never disable them (clicking reveals the "not signed in" chip).

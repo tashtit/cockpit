@@ -1,12 +1,19 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { ChatRequest, Provider, SessionQuery, TimeFormat } from '../shared/types'
+import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { ChatManager } from './chat'
 import {
+  addModelEndpoint,
+  bindSessionEndpoint,
+  listModelEndpoints,
   loadConfig,
+  removeModelEndpoint,
   saveConfig,
+  sessionEndpointFor,
   setHistoryDays,
   setRepoHidden,
   setSessionArchived,
@@ -31,6 +38,8 @@ import {
 } from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
 import { centeredIn, readDevWindowPrefs } from './dev-window'
+import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
+import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
 import { homedir } from 'node:os'
 
@@ -162,6 +171,10 @@ app.whenReady().then(() => {
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
   })
   ipcMain.handle('sources:add', (_e, path: string, provider: Provider, label: string) => {
+    // renderer args are untrusted — an unknown provider would crash the next scan
+    if (!(['claude', 'codex', 'copilot'] as Provider[]).includes(provider)) {
+      throw new Error(`Unknown provider: ${String(provider)}`)
+    }
     const p = resolve(String(path))
     if (!existsSync(p) || !statSync(p).isDirectory()) {
       throw new Error(`Not a directory: ${p}`)
@@ -262,17 +275,65 @@ app.whenReady().then(() => {
   ipcMain.handle('accounts:get', () => getAccounts(loadConfig().sources))
   ipcMain.handle('usage:get', () => getUsage(loadConfig().sources))
 
+  ipcMain.handle('endpoints:get', () => listModelEndpoints())
+  ipcMain.handle('endpoints:add', (_e, input: unknown) => {
+    // the key never enters the endpoint definition — strip it, encrypt it separately
+    const { apiKey, ...def } = (input ?? {}) as { apiKey?: unknown }
+    const ep = sanitizeEndpoint(def, randomUUID())
+    if (!ep) {
+      throw new Error('Invalid provider: a name, a type, an http(s) base URL, and well-formed headers are required.')
+    }
+    const key = typeof apiKey === 'string' ? apiKey.trim() : ''
+    if (key) {
+      if (key.length > 4096 || /[\r\n\0]/.test(key)) throw new Error('Invalid API key value.')
+      setEndpointKey(ep.id, key) // throws before anything is saved if the keychain is unavailable
+    }
+    return addModelEndpoint(key ? { ...ep, hasKey: true } : ep)
+  })
+  ipcMain.handle('endpoints:remove', (_e, id: string) => {
+    deleteEndpointKey(String(id))
+    return removeModelEndpoint(String(id))
+  })
+  ipcMain.handle('endpoints:models', (_e, id: string) => {
+    const ep = listModelEndpoints().find((e) => e.id === String(id))
+    if (!ep) throw new Error('Unknown model provider.')
+    return fetchEndpointModels(ep, ep.hasKey ? getEndpointKey(ep.id) : undefined)
+  })
+
+  // BYOK turns in flight: when the stream reveals the native session id, remember which
+  // endpoint the session runs on so later resumes stay on that backend
+  const byokTurns = new Map<string, { provider: Provider; endpointId: string }>()
   chat = new ChatManager(
-    (ev) => win?.webContents.send('chat-event', ev),
-    (ids) => win?.webContents.send('busy-sessions', ids)
+    (ev) => {
+      const byok = byokTurns.get(ev.turnId)
+      if (byok && ev.type === 'session') {
+        bindSessionEndpoint(`${byok.provider}:${ev.nativeSessionId}`, byok.endpointId)
+      }
+      if (ev.type === 'done') byokTurns.delete(ev.turnId)
+      win?.webContents.send('chat-event', ev)
+    },
+    {
+      onBusyChange: (ids) => win?.webContents.send('busy-sessions', ids),
+      resolveEndpoint: (id) => listModelEndpoints().find((e) => e.id === id),
+      resolveKey: (ep) => getEndpointKey(ep.id)
+    }
   )
   ipcMain.handle('sessions:busy', () => chat.busySessions())
   ipcMain.handle('chat:send', (_e, req: ChatRequest) => {
+    // a resumed BYOK session keeps the endpoint it was started with
+    if (req.resumeNativeId && !req.options?.modelEndpoint) {
+      const inherited = sessionEndpointFor(`${req.provider}:${req.resumeNativeId}`)
+      if (inherited) req = { ...req, options: { ...req.options, modelEndpoint: inherited } }
+    }
     // copilot multi-account: activate the chosen logged-in user before spawning
     if (req.provider === 'copilot' && req.copilotUser) {
       setCopilotActiveUser(req.configDir ?? join(homedir(), '.copilot'), req.copilotUser)
     }
-    return chat.send(req)
+    const turnId = chat.send(req)
+    if (req.options?.modelEndpoint) {
+      byokTurns.set(turnId, { provider: req.provider, endpointId: req.options.modelEndpoint })
+    }
+    return turnId
   })
   ipcMain.handle('chat:cancel', (_e, turnId: string) => chat.cancel(turnId))
 

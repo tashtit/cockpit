@@ -30,13 +30,16 @@ export function HomeView({
   indexVersion,
   busy,
   onStart,
-  onOpenSession
+  onOpenSession,
+  onOpenFull
 }: {
   repos: RepoGroup[]
   indexVersion: number
   busy: boolean
   onStart: (req: StartSessionRequest) => Promise<string | null>
   onOpenSession: (s: SessionMeta) => void
+  /** Open the full New session form (branch, model, custom provider), keeping the draft */
+  onOpenFull: (repo: RepoGroup, draft: string) => void
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
@@ -208,6 +211,17 @@ export function HomeView({
             </button>
           </div>
         </div>
+        {selected && (
+          <div className="home-more">
+            <button
+              className="link-btn"
+              disabled={busy}
+              onClick={() => onOpenFull(selected, prompt)}
+            >
+              All options — branch name, model, custom model provider…
+            </button>
+          </div>
+        )}
         {mode === 'yolo' && (
           <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
         )}
