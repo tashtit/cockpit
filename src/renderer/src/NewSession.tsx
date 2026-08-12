@@ -11,18 +11,30 @@ import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 
-export interface AccountChoice {
-  configDir?: string
-  copilotUser?: string
+export type AccountChoice = {
+  readonly configDir?: string
+  readonly copilotUser?: string
   /** Human-readable identity, carried onto the session binding for display */
-  display?: string
+  readonly display?: string
 }
 
-export interface AccountOption extends AccountChoice {
-  key: string
-  display: string
+export type AccountOption = AccountChoice & {
+  readonly key: string
+  readonly display: string
   /** Short unique part (email / @login) that must never truncate away */
-  identity: string
+  readonly identity: string
+}
+
+/** Everything needed to start a fresh session (worktree + first prompt). */
+export type StartSessionRequest = {
+  readonly repo: RepoGroup
+  readonly provider: Provider
+  /** Optional branch/worktree name; '' lets the workspace pick one */
+  readonly name: string
+  readonly prompt: string
+  readonly mode: PermissionMode
+  readonly options: AgentOptions
+  readonly account: AccountChoice
 }
 
 /** Flatten the accounts snapshot into selectable options per provider. */
@@ -93,15 +105,7 @@ export function NewSession({
   repo: RepoGroup
   repos: RepoGroup[]
   busy: boolean
-  onStart: (
-    repo: RepoGroup,
-    provider: Provider,
-    name: string,
-    prompt: string,
-    mode: PermissionMode,
-    options: AgentOptions,
-    account: AccountChoice
-  ) => Promise<string | null>
+  onStart: (req: StartSessionRequest) => Promise<string | null>
   onCancel: () => void
 }): JSX.Element {
   const [repoKey, setRepoKey] = useState(repo.key)
@@ -143,14 +147,23 @@ export function NewSession({
     setError(null)
     window.localStorage.setItem('cockpit:provider', provider)
     window.localStorage.setItem('cockpit:mode', mode)
-    const options: AgentOptions = {}
-    if (model.trim()) options.model = model.trim()
-    if (provider === 'codex' && codexSandbox) options.codexSandbox = codexSandbox
+    const options: AgentOptions = {
+      model: model.trim() || undefined,
+      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined
+    }
     if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
-    const err = await onStart(selected, provider, name.trim(), prompt.trim(), mode, options, {
-      configDir: account?.configDir,
-      copilotUser: account?.copilotUser,
-      display: account?.display
+    const err = await onStart({
+      repo: selected,
+      provider,
+      name: name.trim(),
+      prompt: prompt.trim(),
+      mode,
+      options,
+      account: {
+        configDir: account?.configDir,
+        copilotUser: account?.copilotUser,
+        display: account?.display
+      }
     })
     if (err) setError(err)
   }

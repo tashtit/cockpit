@@ -54,10 +54,18 @@ describe('HomeView composer', () => {
     await waitFor(() => expect(start).toBeEnabled())
     await userEvent.click(start)
 
-    expect(onStart).toHaveBeenCalledWith(repo, 'claude', '', 'add dark mode', 'auto-edit', {}, {
-      configDir: undefined,
-      copilotUser: undefined,
-      display: 'dev@example.com'
+    expect(onStart).toHaveBeenCalledWith({
+      repo,
+      provider: 'claude',
+      name: '',
+      prompt: 'add dark mode',
+      mode: 'auto-edit',
+      options: {},
+      account: {
+        configDir: undefined,
+        copilotUser: undefined,
+        display: 'dev@example.com'
+      }
     })
   })
 

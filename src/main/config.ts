@@ -4,22 +4,22 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { SourceDir, TimeFormat } from '../shared/types'
 
-interface AppConfig {
-  sources: SourceDir[]
+type AppConfig = {
+  readonly sources: SourceDir[]
   /** Session ids the user archived in Cockpit (provider logs have no such flag) */
-  archived?: string[]
+  readonly archived?: string[]
   /** Shared AI instruction baselines — fanned out into each agent's own file */
-  sharedInstructions?: {
-    global?: string
+  readonly sharedInstructions?: {
+    readonly global?: string
     /** Keyed by repo root path */
-    repos?: Record<string, string>
+    readonly repos?: Record<string, string>
   }
   /** Repo keys the user chose not to display (everything is visible by default) */
-  hiddenRepos?: string[]
+  readonly hiddenRepos?: string[]
   /** Days of history to display — sessions idle longer are hidden; 0/absent = all */
-  historyDays?: number
+  readonly historyDays?: number
   /** Clock format for session times in the UI; absent = 24h */
-  timeFormat?: TimeFormat
+  readonly timeFormat?: TimeFormat
 }
 
 function configPath(): string {
@@ -55,9 +55,9 @@ export function setSessionArchived(sessionId: string, archived: boolean): string
   const set = new Set(cfg.archived ?? [])
   if (archived) set.add(sessionId)
   else set.delete(sessionId)
-  cfg.archived = [...set]
-  saveConfig(cfg)
-  return cfg.archived
+  const ids = [...set]
+  saveConfig({ ...cfg, archived: ids })
+  return ids
 }
 
 export function setRepoHidden(repoKey: string, hidden: boolean): string[] {
@@ -65,16 +65,15 @@ export function setRepoHidden(repoKey: string, hidden: boolean): string[] {
   const set = new Set(cfg.hiddenRepos ?? [])
   if (hidden) set.add(repoKey)
   else set.delete(repoKey)
-  cfg.hiddenRepos = [...set]
-  saveConfig(cfg)
-  return cfg.hiddenRepos
+  const keys = [...set]
+  saveConfig({ ...cfg, hiddenRepos: keys })
+  return keys
 }
 
 export function setHistoryDays(days: number): number {
   const cfg = loadConfig()
   const d = Number.isFinite(days) && days > 0 ? Math.floor(days) : 0
-  cfg.historyDays = d
-  saveConfig(cfg)
+  saveConfig({ ...cfg, historyDays: d })
   return d
 }
 
@@ -82,8 +81,7 @@ export function setTimeFormat(format: TimeFormat): TimeFormat {
   const cfg = loadConfig()
   // renderer input is untrusted — anything but the one alternate value means default
   const f: TimeFormat = format === '12h' ? '12h' : '24h'
-  cfg.timeFormat = f
-  saveConfig(cfg)
+  saveConfig({ ...cfg, timeFormat: f })
   return f
 }
 

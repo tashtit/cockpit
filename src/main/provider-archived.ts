@@ -93,9 +93,9 @@ async function claudeArchivedIds(
   }
 }
 
-interface CopilotRow {
-  id: string
-  archived: boolean
+type CopilotRow = {
+  readonly id: string
+  readonly archived: boolean
 }
 
 /** null = the read failed; [] = it worked and the table is empty. */

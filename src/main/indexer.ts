@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSyn
 import { writeFile, rename } from 'node:fs/promises'
 import { dirname, join, sep } from 'node:path'
 import type {
+  Mutable,
   Provider,
   RepoGroup,
   SessionMeta,
@@ -71,12 +72,12 @@ const CACHE_SAVE_INTERVAL_MS = 30_000
 /** How often to re-check watch roots that didn't exist when sources were set. */
 const WATCH_RETRY_INTERVAL_MS = 30_000
 
-interface CacheEntry {
-  mtimeMs: number
-  size: number
+type CacheEntry = {
+  readonly mtimeMs: number
+  readonly size: number
   /** mtime of the out-of-band name source (codex session_index / copilot workspace.yaml) */
-  aux?: number
-  meta: SessionMeta | null
+  readonly aux?: number
+  readonly meta: SessionMeta | null
 }
 
 /**
@@ -110,10 +111,10 @@ function watchIgnored(p: string): boolean {
 }
 
 /** A watch we want installed; kept pending while its directory doesn't exist yet. */
-interface WatchSpec {
-  dir: string
-  recursive?: boolean
-  handler: (event: string, filename: string | Buffer | null) => void
+type WatchSpec = {
+  readonly dir: string
+  readonly recursive?: boolean
+  readonly handler: (event: string, filename: string | Buffer | null) => void
 }
 
 export class SessionIndexer {
@@ -560,7 +561,8 @@ export class SessionIndexer {
 
   listRepos(): RepoGroup[] {
     const cutoff = this.historyCutoff()
-    const groups = new Map<string, RepoGroup>()
+    // per-repo aggregation accumulators, mutated while summing — hence Mutable
+    const groups = new Map<string, Mutable<RepoGroup>>()
     for (const s of this.sessions.values()) {
       if (this.providerArchived.has(s.id)) continue
       if (s.updatedAt < cutoff) continue

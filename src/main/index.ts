@@ -167,19 +167,18 @@ app.whenReady().then(() => {
       throw new Error(`Not a directory: ${p}`)
     }
     const cfg = loadConfig()
-    if (!cfg.sources.some((s) => s.path === p)) {
-      cfg.sources.push({ path: p, provider, label })
-      saveConfig(cfg)
-      void indexer.setSources(cfg.sources)
-    }
-    return cfg.sources
+    if (cfg.sources.some((s) => s.path === p)) return cfg.sources
+    const sources = [...cfg.sources, { path: p, provider, label }]
+    saveConfig({ ...cfg, sources })
+    void indexer.setSources(sources)
+    return sources
   })
   ipcMain.handle('sources:remove', (_e, path: string) => {
     const cfg = loadConfig()
-    cfg.sources = cfg.sources.filter((s) => s.path !== path)
-    saveConfig(cfg)
-    void indexer.setSources(cfg.sources)
-    return cfg.sources
+    const sources = cfg.sources.filter((s) => s.path !== path)
+    saveConfig({ ...cfg, sources })
+    void indexer.setSources(sources)
+    return sources
   })
   ipcMain.handle('repos:list', () => indexer.listRepos())
   ipcMain.handle('sessions:page', (_e, query: SessionQuery) => indexer.page(query))
@@ -234,7 +233,7 @@ app.whenReady().then(() => {
       provider === 'claude' && projectPath
         ? assertClaudeProjectServer(String(name), String(projectPath))
         : undefined
-    return loginMcp(String(name), provider, cwd)
+    return loginMcp(String(name), provider, { cwd })
   })
 
   // instruction scopes come from the renderer — null = global, else a repo the

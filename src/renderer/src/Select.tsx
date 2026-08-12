@@ -1,13 +1,13 @@
 import { useEffect, useId, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
-export interface SelectOption {
-  value: string
-  label: string
+export type SelectOption = {
+  readonly value: string
+  readonly label: string
   /** Right-aligned dim annotation (e.g. a count or state) */
-  hint?: string
+  readonly hint?: string
   /** Tooltip for the option row */
-  title?: string
+  readonly title?: string
 }
 
 /**

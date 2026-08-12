@@ -134,9 +134,9 @@ export function probeMcp(cfg: McpConfig, timeoutMs = PROBE_TIMEOUT_MS): Promise<
 export function loginMcp(
   name: string,
   agent: Provider,
-  cwd?: string,
-  timeoutMs = LOGIN_TIMEOUT_MS
+  opts: { readonly cwd?: string; readonly timeoutMs?: number } = {}
 ): Promise<string> {
+  const { cwd, timeoutMs = LOGIN_TIMEOUT_MS } = opts
   assertCliSafeName(name)
   if (agent === 'copilot') {
     throw new Error('Copilot has no MCP login command — authenticate inside the Copilot CLI (/mcp)')

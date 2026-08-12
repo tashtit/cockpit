@@ -14,14 +14,12 @@ function getBaseline(repoRoot: string | null): string {
 
 function setBaseline(repoRoot: string | null, baseline: string): void {
   const cfg = loadConfig()
-  cfg.sharedInstructions = cfg.sharedInstructions ?? {}
-  if (repoRoot === null) {
-    cfg.sharedInstructions.global = baseline
-  } else {
-    cfg.sharedInstructions.repos = cfg.sharedInstructions.repos ?? {}
-    cfg.sharedInstructions.repos[repoRoot] = baseline
-  }
-  saveConfig(cfg)
+  const shared = cfg.sharedInstructions ?? {}
+  const sharedInstructions =
+    repoRoot === null
+      ? { ...shared, global: baseline }
+      : { ...shared, repos: { ...shared.repos, [repoRoot]: baseline } }
+  saveConfig({ ...cfg, sharedInstructions })
 }
 
 const MAX_INSTRUCTION_BYTES = 1024 * 1024

@@ -4,10 +4,10 @@ import { cliEnv } from './env'
 
 const TTL_MS = 60_000
 
-interface CacheEntry {
-  at: number
-  data: PrStatus[]
-  inflight: Promise<PrStatus[]> | null
+type CacheEntry = {
+  readonly at: number
+  readonly data: PrStatus[]
+  readonly inflight: Promise<PrStatus[]> | null
 }
 
 const cache = new Map<string, CacheEntry>()

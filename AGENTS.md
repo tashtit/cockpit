@@ -88,3 +88,17 @@ Project skills (Agent Skills standard, `SKILL.md` format) live in **`.agents/ski
 - Tests are named after the module under test, kebab-cased (`home-view.test.tsx` for `HomeView.tsx`); `.test.ts(x)` for vitest tiers, `.spec.ts` for Playwright e2e.
 - Entry points are `index.ts` / `main.tsx`; directories are single lowercase words.
 - CSS class names are kebab-case; symbols follow standard TS style (camelCase values, PascalCase types/components, SCREAMING_SNAKE module-level constants).
+
+### Code style
+
+- **`type`, not `interface`.** Declare object shapes as type aliases; compose with intersections
+  (`type B = A & {…}`) instead of `extends`. The one exception is declaration merging that
+  TypeScript only allows through interfaces (e.g. the `declare global { interface Window }`
+  augmentation in `src/renderer/src/api.ts`).
+- **`readonly` properties by default.** Every property of a shared or exported type is `readonly`
+  unless in-place mutation is the point (e.g. a main-process cache/accumulator) — leave a comment
+  on the property when you opt out. To derive a mutable working shape from a readonly type, map it
+  (`{ -readonly [K in keyof T]: T[K] }`) rather than duplicating the shape.
+- **Max 3 function parameters.** A signature that wants a 4th parameter gets restructured instead:
+  keep the 1–2 primary arguments positional and gather the rest into a single (usually optional)
+  options object. Never grow trailing boolean/optional parameter lists.

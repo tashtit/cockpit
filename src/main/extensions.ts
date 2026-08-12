@@ -7,6 +7,7 @@ import type {
   McpConfig,
   McpPresence,
   McpServerInfo,
+  Mutable,
   PluginInfo,
   Provider,
   SkillInfo
@@ -37,9 +38,9 @@ function readJsonFile(path: string): any | null {
 /** Scope without the agent — the agent is attached when inventories merge. */
 type FoundScope = Omit<McpPresence, 'agent'>
 
-interface FoundServer {
-  config: McpConfig
-  scopes: FoundScope[]
+type FoundServer = {
+  readonly config: McpConfig
+  readonly scopes: FoundScope[]
 }
 
 function normalizeMcp(cfg: any): McpConfig {
@@ -52,7 +53,12 @@ function normalizeMcp(cfg: any): McpConfig {
   }
 }
 
-function addFound(out: Map<string, FoundServer>, name: string, cfg: any, scope: FoundScope): void {
+function addFound(
+  out: Map<string, FoundServer>,
+  name: string,
+  found: { readonly cfg: any; readonly scope: FoundScope }
+): void {
+  const { cfg, scope } = found
   const existing = out.get(name)
   if (existing) {
     if (!existing.scopes.some((s) => s.scope === scope.scope && s.projectPath === scope.projectPath)) {
@@ -72,7 +78,9 @@ function readClaudeMcp(): Map<string, FoundServer> {
   const j = readJsonFile(claudeJsonPath())
   const servers = j?.mcpServers
   if (servers && typeof servers === 'object') {
-    for (const [name, cfg] of Object.entries<any>(servers)) addFound(out, name, cfg, { scope: 'user' })
+    for (const [name, cfg] of Object.entries<any>(servers)) {
+      addFound(out, name, { cfg, scope: { scope: 'user' } })
+    }
   }
   const projects = j?.projects
   if (projects && typeof projects === 'object') {
@@ -80,7 +88,7 @@ function readClaudeMcp(): Map<string, FoundServer> {
       const ps = proj?.mcpServers
       if (!ps || typeof ps !== 'object') continue
       for (const [name, cfg] of Object.entries<any>(ps)) {
-        addFound(out, name, cfg, { scope: 'project', projectPath: projPath })
+        addFound(out, name, { cfg, scope: { scope: 'project', projectPath: projPath } })
       }
     }
   }
@@ -89,7 +97,8 @@ function readClaudeMcp(): Map<string, FoundServer> {
 
 /** Minimal TOML reader for the [mcp_servers.*] sections codex writes. */
 export function parseCodexMcpToml(raw: string): Map<string, McpConfig> {
-  const out = new Map<string, McpConfig>()
+  // entries are assembled across multiple TOML sections, so they stay mutable here
+  const out = new Map<string, Mutable<McpConfig>>()
   const sections = raw.split(/^\[/m)
   for (const section of sections) {
     const header = section.match(/^mcp_servers\.([A-Za-z0-9_-]+)(\.env)?\]/)
@@ -99,10 +108,11 @@ export function parseCodexMcpToml(raw: string): Map<string, McpConfig> {
     const entry = out.get(name) ?? {}
     if (header[2]) {
       // env subtable
-      entry.env = entry.env ?? {}
+      const env: Record<string, string> = { ...entry.env }
       for (const m of body.matchAll(/^([A-Za-z0-9_]+)\s*=\s*"((?:[^"\\]|\\.)*)"/gm)) {
-        entry.env[m[1]] = m[2]
+        env[m[1]] = m[2]
       }
+      entry.env = env
     } else {
       const str = (key: string): string | undefined =>
         body.match(new RegExp(`^${key}\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"`, 'm'))?.[1]
