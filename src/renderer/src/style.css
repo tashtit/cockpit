@@ -67,6 +67,11 @@ button, input, select, textarea, details { transition: background var(--dur) var
   color var(--dur) var(--ease); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: -1px;
   border-radius: var(--radius-sm); }
+/* filled buttons are the exception: an inset ring lands on the button's own fill, where
+   --accent only reaches 1.7–1.9:1 (WCAG 1.4.11 wants 3:1). Pushed outside it sits on the
+   dark surface at 6:1. The offset fits inside every container's padding — keep it that way. */
+.btn-primary:focus-visible, .btn-pr:focus-visible,
+.btn-danger:focus-visible { outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
@@ -147,13 +152,14 @@ summary::-webkit-details-marker { display: none; }
 /* visible whenever the window is not at 100% — no more mystery zoom states */
 .zoom-chip { font-size: var(--fs-xs); font-family: var(--mono); color: var(--warn);
   border: 1px solid rgba(var(--warn-rgb), 0.4); border-radius: var(--radius-pill); padding: 0 var(--s2);
-  flex-shrink: 0; }
+  flex-shrink: 0; min-height: 24px; }
 .zoom-chip:hover { background: var(--bg3); }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--fg-dim); }
 .icon-btn:hover { background: var(--bg3); color: var(--fg); }
-/* row hover actions: 22px is the floor for a comfortable pointer target */
-.icon-btn.small { width: 22px; height: 22px; font-size: var(--fs-sm); line-height: 1; }
+/* row hover actions: 24px is the floor — WCAG 2.5.8 minimum target, and these sit
+   adjacent to each other in .row-actions so the spacing exception doesn't apply */
+.icon-btn.small { width: 24px; height: 24px; font-size: var(--fs-sm); line-height: 1; }
 /* projects-to-display chooser (eye popover) */
 .repo-filter-wrap { position: relative; display: inline-flex; }
 .icon-btn.filter-active { color: var(--accent); }
@@ -255,12 +261,12 @@ summary::-webkit-details-marker { display: none; }
 
 .archived-toggle { display: flex; align-items: center; gap: var(--s2);
   padding: 2px var(--s2) 2px var(--s1); color: var(--fg-dim); font-size: var(--fs-xs);
-  width: 100%; min-height: 22px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  width: 100%; min-height: 24px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .archived-toggle:hover { background: var(--bg3); }
 .tree-empty { padding: 3px var(--s2) 3px var(--s3); color: var(--fg-dim);
   font-size: var(--fs-xs); font-style: italic; }
 .tree-more { display: block; padding: 2px var(--s2) 2px var(--s3); color: var(--accent);
-  font-size: var(--fs-xs); width: 100%; text-align: left;
+  font-size: var(--fs-xs); width: 100%; text-align: left; min-height: 24px;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .tree-more:hover { text-decoration: underline; }
 .search-group { padding: var(--s3) var(--s2) 2px; color: var(--fg-dim); font-size: var(--fs-xs);
@@ -285,9 +291,11 @@ summary::-webkit-details-marker { display: none; }
 .gh-missing { color: var(--danger); opacity: 0.8; }
 
 /* ---------- PR badges ---------- */
+/* min-height 24px: the badge is a button (opens the PR), so it carries the same
+   target-size floor as .icon-btn.small — the pill's type stays at --fs-xs */
 .pr-badge { display: inline-flex; align-items: center; gap: 3px; border-radius: var(--radius-pill);
   font-size: var(--fs-xs); font-weight: 600; padding: 0 6px; border: 1px solid;
-  white-space: nowrap; flex-shrink: 0; background: var(--surface); }
+  white-space: nowrap; flex-shrink: 0; background: var(--surface); min-height: 24px; }
 .pr-badge.compact { padding: 0 4px; font-family: var(--mono); }
 .pr-open { color: var(--pr-open); border-color: var(--pr-open); }
 .pr-merged { color: var(--pr-merged); border-color: var(--pr-merged); }
@@ -313,7 +321,7 @@ summary::-webkit-details-marker { display: none; }
 .btn-ghost:hover { color: var(--fg); background: var(--bg3); border-color: var(--border-strong); }
 .btn-ghost.danger:hover { color: var(--danger); border-color: var(--danger); }
 .btn-ghost.small { padding: 2px var(--s3); font-size: var(--fs-xs);
-  border-radius: var(--radius-sm); }
+  border-radius: var(--radius-sm); min-height: 24px; }
 .btn-pr { color: var(--white); border-radius: var(--radius);
   /* top-lit like btn-primary, but on the darker --ok-btn so white text keeps 4.5:1 */
   background: linear-gradient(180deg, color-mix(in srgb, var(--ok-btn) 82%, var(--white)) 0%,
@@ -438,7 +446,7 @@ summary::-webkit-details-marker { display: none; }
 .codeblock { position: relative; }
 .code-copy { position: absolute; top: 6px; right: 6px; font-size: var(--fs-xs);
   padding: 2px var(--s3); border-radius: var(--radius-sm); background: var(--bg3);
-  border: 1px solid var(--border); color: var(--fg-dim); opacity: 0; }
+  border: 1px solid var(--border); color: var(--fg-dim); opacity: 0; min-height: 24px; }
 .codeblock:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
 .code-copy:hover { color: var(--fg); }
 /* copy acknowledgment: brief OK tint, no layout shift */
@@ -746,7 +754,7 @@ summary::-webkit-details-marker { display: none; }
 .mcp-scope { display: inline-flex; align-items: center; gap: var(--s1);
   font-size: var(--fs-xs); font-family: var(--mono); color: var(--fg-dim);
   border: 1px solid var(--border); border-radius: var(--radius-pill);
-  padding: 0 var(--s1) 0 var(--s2); line-height: 18px; }
+  padding: 0 var(--s1) 0 var(--s2); line-height: 18px; min-height: 26px; }
 .mcp-scope.claude { border-color: rgba(var(--claude-rgb), 0.45);
   background: rgba(var(--claude-rgb), 0.10); }
 .mcp-scope.codex { border-color: rgba(var(--codex-rgb), 0.45);
@@ -755,8 +763,10 @@ summary::-webkit-details-marker { display: none; }
   background: rgba(var(--copilot-rgb), 0.10); }
 .mcp-scope-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
-.mcp-remove { color: var(--fg-dim); line-height: 1; padding: 0 var(--s1);
-  border-radius: var(--radius-pill); font-size: var(--fs-sm); }
+/* 24px square keeps the × at the target-size floor; the chip grows to 26px to hold it */
+.mcp-remove { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; min-height: 24px; color: var(--fg-dim); line-height: 1;
+  padding: 0 var(--s1); border-radius: var(--radius-pill); font-size: var(--fs-sm); }
 .mcp-remove:hover { color: var(--danger); }
 .mcp-remove.armed { color: var(--danger); font-size: var(--fs-xs); font-weight: 600; }
 

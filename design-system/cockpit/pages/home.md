@@ -35,7 +35,8 @@ surface, no shadow).
 - Ordering: flying first (longest airborne on top), then idle by recency. Rows come from
   the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
   list; don't grow this.
-- `.board-eyebrow` (h3): "**N flying** · M on the ground" (M from the page total), or
+- `.board-eyebrow` (h2 — the board renders above the hero's h2, so an h3 here would read
+  as a skipped level): "**N flying** · M on the ground" (M from the page total), or
   "all on the ground" when idle. It is a polite `aria-live` region — turn starts and
   completions announce the new counts.
 - ≤780px the row sheds `.board-repo` first — the branch chip carries more identity.

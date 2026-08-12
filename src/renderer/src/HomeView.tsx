@@ -253,8 +253,10 @@ function Board({
   return (
     <section className="board" aria-label="Session board">
       <div className="board-head">
-        {/* polite live region: turn starts/completions announce the new counts */}
-        <h3 className="board-eyebrow" aria-live="polite">
+        {/* h2, not h3: the board renders above the hero's h2, and a heading that
+            outranks nothing above it would read as a skipped level.
+            Polite live region — turn starts/completions announce the new counts */}
+        <h2 className="board-eyebrow" aria-live="polite">
           {flying.length > 0 ? (
             <>
               <b>{flying.length} flying</b> · {groundTotal} on the ground
@@ -262,7 +264,7 @@ function Board({
           ) : (
             <>all on the ground</>
           )}
-        </h3>
+        </h2>
       </div>
       <ul className="board-list">
         {[...flying, ...ground].map((s) => (

@@ -116,11 +116,11 @@ test('sidebar indexes the fixtures into a repo tree with a flat Chats section', 
 test('home composer wires repo, agent, and permission controls', async () => {
   await expect(homeHeading()).toBeVisible()
   await expect(win.getByLabel('Task description')).toBeVisible()
-  // the repo select resolves to the indexed GitHub repo (exact: 'Repository' is
-  // also a substring of the "…no repository" session title in recent activity)
-  await expect(win.getByRole('button', { name: 'Repository', exact: true })).toContainText(
-    'acme/rocket'
-  )
+  // the repo select resolves to the indexed GitHub repo. A Select trigger's accessible
+  // name is "<label> <current value>", so anchoring the regex at the label both scopes
+  // the query (plain 'Repository' also matches the "…no repository" session title on the
+  // board) and asserts the selected option is actually announced.
+  await expect(win.getByRole('button', { name: /^Repository acme\/rocket$/ })).toBeVisible()
   const agents = win.getByRole('group', { name: 'Agent' })
   await expect(agents.getByRole('button', { name: 'Claude' })).toHaveAttribute('aria-pressed', 'true')
   await expect(agents.getByRole('button', { name: 'Codex' })).toHaveAttribute('aria-pressed', 'false')
@@ -184,10 +184,9 @@ test('new session form offers project, agent, branch, and task controls', async 
   await win.getByRole('treeitem', { name: /acme\/\s*rocket/ }).focus()
   await win.getByRole('button', { name: 'New session in rocket' }).click()
   await expect(win.getByRole('heading', { name: 'New session' })).toBeVisible()
-  // exact: 'Project' is also a substring of the sidebar's "Choose projects…"
-  await expect(win.getByRole('button', { name: 'Project', exact: true })).toContainText(
-    'acme/rocket'
-  )
+  // anchored: bare 'Project' also matches the sidebar's "Choose projects…" button, and
+  // the trailing value asserts the Select announces its selection, not just its label
+  await expect(win.getByRole('button', { name: /^Project acme\/rocket$/ })).toBeVisible()
   const agents = win.getByRole('group', { name: 'Agent' })
   await expect(agents.getByRole('button', { name: /Claude/ })).toHaveAttribute('aria-pressed', 'true')
   await expect(win.getByLabel('Model')).toBeVisible()

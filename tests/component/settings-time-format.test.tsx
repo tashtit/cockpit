@@ -55,14 +55,16 @@ describe('Settings time format', () => {
   it('persists a change and reflects it in the select', async () => {
     render(<Settings onClose={vi.fn()} />)
 
-    const trigger = await screen.findByRole('button', { name: 'Time format' })
+    // the trigger's accessible name is label + current value — a bare aria-label would
+    // replace the contents and never announce which option is selected
+    const trigger = await screen.findByRole('button', { name: /^Time format 24-hour/ })
     expect(trigger).toHaveTextContent('24-hour')
 
     await userEvent.click(trigger)
     await userEvent.click(await screen.findByRole('option', { name: /12-hour/ }))
 
     expect(window.cockpit.setTimeFormat).toHaveBeenCalledWith('12h')
-    expect(screen.getByRole('button', { name: 'Time format' })).toHaveTextContent('12-hour')
+    expect(screen.getByRole('button', { name: /^Time format 12-hour/ })).toHaveTextContent('12-hour')
     expect(screen.getByRole('status')).toHaveTextContent('12-hour format')
   })
 
@@ -71,7 +73,9 @@ describe('Settings time format', () => {
     await act(() => initTimeFormat())
 
     render(<Settings onClose={vi.fn()} />)
-    expect(await screen.findByRole('button', { name: 'Time format' })).toHaveTextContent('12-hour')
+    expect(await screen.findByRole('button', { name: /^Time format 12-hour/ })).toHaveTextContent(
+      '12-hour'
+    )
   })
 })
 

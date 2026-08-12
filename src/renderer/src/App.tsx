@@ -79,11 +79,13 @@ export function App(): JSX.Element {
     return api.onIndexUpdated(load)
   }, [])
 
-  // menu zoom (⌘+/-) has no renderer event — poll, clamp to limits, surface the level
+  // menu zoom (⌘+/-) has no renderer event — poll, clamp to limits, surface the level.
+  // Bounds mirror ZOOM_MIN/ZOOM_MAX in preload (which does the actual clamping); the
+  // ceiling is 2.0 so text can reach 200% per WCAG 1.4.4.
   useEffect(() => {
     const t = setInterval(() => {
       const z = api.getZoomFactor()
-      if (z > 1.5 || z < 0.7) api.setZoomFactor(z)
+      if (z > 2 || z < 0.7) api.setZoomFactor(z)
       setZoom(Math.round(api.getZoomFactor() * 100) / 100)
     }, 1200)
     return () => clearInterval(t)

@@ -101,7 +101,9 @@ function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow })
           {(w.requestsBilled ?? 0) > 0 && ` · ${fmtCount(w.requestsBilled!)} billed beyond plan`}
         </span>
       )}
-      {w.resetsAt && <time>{fmtResetIn(w.resetsAt)}</time>}
+      {w.resetsAt && (
+        <time dateTime={new Date(w.resetsAt).toISOString()}>{fmtResetIn(w.resetsAt)}</time>
+      )}
     </div>
   )
 }
@@ -257,7 +259,11 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
                 ) : (
                   <>
                     <span className="repo-count">{s.count}</span>
-                    {s.lastUpdatedAt && <time>active {fmtAgo(s.lastUpdatedAt)}</time>}
+                    {s.lastUpdatedAt && (
+                      <time dateTime={new Date(s.lastUpdatedAt).toISOString()}>
+                        active {fmtAgo(s.lastUpdatedAt)}
+                      </time>
+                    )}
                   </>
                 )}
               </div>

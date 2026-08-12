@@ -119,8 +119,11 @@ Nothing renders with stock Chromium chrome:
 
 ## Interaction Rules
 
-- Focus: global `:focus-visible` 2px accent outline; inputs get accent border + 3px glow ring. Never remove.
-- Every icon-only button needs `aria-label` or `title`; decorative SVGs get `aria-hidden`.
+- Focus: global `:focus-visible` 2px accent outline at `outline-offset: -1px`; **filled buttons** (`.btn-primary`, `.btn-pr`, `.btn-danger`) flip to `+2px` — inset, the accent ring sits on the button's own fill at 1.7–1.9:1 and fails 1.4.11. Inputs get accent border + 3px glow ring. Never remove.
+- Every icon-only button needs `aria-label` or `title`; decorative SVGs **and glyphs** (`▸`, `⚙︎`) get `aria-hidden`.
+- **Target size:** every control is ≥24×24 CSS px (WCAG 2.5.8) — that's the floor for `.icon-btn.small`, `.pr-badge`, `.btn-ghost.small`, `.mcp-remove`, `.tree-more`, `.archived-toggle`. Small type is fine; small hit areas are not.
+- **Never let color alone carry state.** Strikethrough-only (archived rows) and border-color-only (compact `.pr-badge`) both need the state word in an `sr-only` span or `aria-label`.
+- `Select` names its trigger from label + value via `aria-labelledby` — an `aria-label` there would replace the contents and silence the chosen option.
 - Loading: show feedback for anything >300ms (`.pulse` + "X is working…", `loading…` rows). Status changes announce via the `sr-only` `aria-live` region in ChatView.
 - Long transcripts render only the last `RENDER_LAST` messages with an explicit "showing the last N of M" note; `Message` is memoized. Keep both when touching ChatView.
 - Window drag regions: `.tree-top` and `.chat-header` are `-webkit-app-region: drag`; every interactive child must opt out with `no-drag`. Copyable text (paths, branches) must be `user-select: text` + `no-drag`.
