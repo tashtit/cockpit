@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSync, watch, type FSWatcher } from 'node:fs'
-import { writeFile, rename } from 'node:fs/promises'
+import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSync, rmSync, watch, type FSWatcher } from 'node:fs'
+import { writeFile, rename, rm } from 'node:fs/promises'
 import { dirname, join, sep } from 'node:path'
 import type {
   Mutable,
@@ -72,6 +72,17 @@ const CACHE_SAVE_INTERVAL_MS = 30_000
 /** How often to re-check watch roots that didn't exist when sources were set. */
 const WATCH_RETRY_INTERVAL_MS = 30_000
 
+let cacheSaveSeq = 0
+/**
+ * A fixed tmp name races when saves overlap (slow disk, quit flush during an
+ * in-flight async save, or two app instances sharing userData): the first
+ * rename consumes the tmp file and the second fails with ENOENT. The pid keeps
+ * instances apart; the counter keeps saves within a process apart.
+ */
+function nextCacheTmp(cacheFile: string): string {
+  return `${cacheFile}.${process.pid}.${++cacheSaveSeq}.tmp`
+}
+
 type CacheEntry = {
   readonly mtimeMs: number
   readonly size: number
@@ -140,6 +151,8 @@ export class SessionIndexer {
   private updateTimer: NodeJS.Timeout | null = null
   private saveTimer: NodeJS.Timeout | null = null
   private cacheDirty = false
+  /** In-flight cache save — later saves chain onto it (see saveCacheAsync) */
+  private savingCache: Promise<void> = Promise.resolve()
   private scanning = false
   private scanQueued = false
   private sources: SourceDir[] = []
@@ -716,29 +729,41 @@ export class SessionIndexer {
     })
   }
 
-  private async saveCacheAsync(): Promise<void> {
+  private saveCacheAsync(): Promise<void> {
+    // Chain onto any in-flight save so write/rename pairs never interleave.
+    this.savingCache = this.savingCache.then(() => this.writeCacheFile())
+    return this.savingCache
+  }
+
+  private async writeCacheFile(): Promise<void> {
     if (!this.cacheFile || !this.cacheDirty) return
     this.cacheDirty = false
+    const tmp = nextCacheTmp(this.cacheFile)
     try {
       mkdirSync(dirname(this.cacheFile), { recursive: true })
-      const tmp = `${this.cacheFile}.tmp`
       await writeFile(tmp, this.serializeCache())
       await rename(tmp, this.cacheFile)
     } catch (err) {
       console.error('[indexer] cache save failed:', err)
+      await rm(tmp, { force: true }).catch(() => {})
     }
   }
 
   /** Synchronous flush for app quit. */
   saveCache(): void {
     if (!this.cacheFile) return
+    const tmp = nextCacheTmp(this.cacheFile)
     try {
       mkdirSync(dirname(this.cacheFile), { recursive: true })
-      const tmp = `${this.cacheFile}.tmp`
       writeFileSync(tmp, this.serializeCache())
       renameSync(tmp, this.cacheFile)
     } catch (err) {
       console.error('[indexer] cache save failed:', err)
+      try {
+        rmSync(tmp, { force: true })
+      } catch {
+        /* best-effort cleanup */
+      }
     }
   }
 

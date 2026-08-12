@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, utimesSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -417,6 +417,84 @@ describe.skipIf(!hasSqlite3())('provider-archived persistence across launches', 
     const ids = second.page({}).items.map((s) => s.nativeId)
     expect(ids).toContain('p1')
     expect(ids).not.toContain('p2')
+  })
+})
+
+describe('cache save overlap (unique tmp file per save)', () => {
+  const raceHome = join(root, 'claude-race')
+  const cacheDir = join(root, 'cache-race')
+  const cacheFile = join(cacheDir, 'index-cache.json')
+
+  beforeAll(() => {
+    const dir = join(raceHome, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'race1.jsonl'),
+      jsonl([
+        {
+          type: 'user',
+          message: { role: 'user', content: 'racing saves' },
+          timestamp: '2026-08-05T10:00:00Z',
+          sessionId: 'race1',
+          cwd: '/nowhere/race',
+          gitBranch: 'main'
+        },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: '2026-08-05T10:00:01Z' }
+      ])
+    )
+  })
+
+  async function indexerWithCache(): Promise<SessionIndexer> {
+    const idx = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    await idx.setSources([{ path: raceHome, provider: 'claude', label: 'race' }])
+    idx.stopWatchers()
+    return idx
+  }
+
+  function saveFailures(spy: { mock: { calls: unknown[][] } }): unknown[][] {
+    return spy.mock.calls.filter((c) => String(c[0]).includes('cache save failed'))
+  }
+
+  it('overlapping async flushes and a quit flush all land without ENOENT', async () => {
+    const errors = vi.spyOn(console, 'error')
+    try {
+      const idx = await indexerWithCache()
+      const anyIdx = idx as any
+      // two debounced flushes overlapping plus the synchronous quit flush —
+      // with a fixed tmp name the first rename consumed the shared tmp file
+      // and the later renames failed with ENOENT
+      anyIdx.cacheDirty = true
+      const first = anyIdx.saveCacheAsync()
+      anyIdx.cacheDirty = true
+      const second = anyIdx.saveCacheAsync()
+      idx.saveCache()
+      await Promise.all([first, second])
+
+      expect(saveFailures(errors)).toEqual([])
+      const raw = JSON.parse(readFileSync(cacheFile, 'utf8'))
+      expect(raw.entries.length).toBeGreaterThan(0)
+      expect(readdirSync(cacheDir).filter((f) => f.endsWith('.tmp'))).toEqual([])
+    } finally {
+      errors.mockRestore()
+    }
+  })
+
+  it('two indexers sharing one cache file save concurrently (two app instances)', async () => {
+    const errors = vi.spyOn(console, 'error')
+    try {
+      const a = await indexerWithCache()
+      const b = await indexerWithCache()
+      ;(a as any).cacheDirty = true
+      ;(b as any).cacheDirty = true
+      await Promise.all([(a as any).saveCacheAsync(), (b as any).saveCacheAsync()])
+
+      expect(saveFailures(errors)).toEqual([])
+      const raw = JSON.parse(readFileSync(cacheFile, 'utf8'))
+      expect(raw.entries.length).toBeGreaterThan(0)
+      expect(readdirSync(cacheDir).filter((f) => f.endsWith('.tmp'))).toEqual([])
+    } finally {
+      errors.mockRestore()
+    }
   })
 })
 
