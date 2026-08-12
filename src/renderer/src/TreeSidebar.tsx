@@ -46,6 +46,7 @@ export function TreeSidebar({
   onGoHome,
   onOpenSettings,
   onOpenExtensions,
+  onOpenProfile,
   onOpenUrl
 }: {
   repos: RepoGroup[]
@@ -59,6 +60,7 @@ export function TreeSidebar({
   onGoHome: () => void
   onOpenSettings: () => void
   onOpenExtensions: () => void
+  onOpenProfile: () => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [search, setSearch] = useState('')
@@ -120,6 +122,17 @@ export function TreeSidebar({
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M6.5 1.75V4H4a2 2 0 0 0-2 2v2.5h2.25a1.75 1.75 0 1 1 0 3.5H2V14a2 2 0 0 0 2 2h2.5v-2.25a1.75 1.75 0 1 1 3.5 0V16H12a2 2 0 0 0 2-2v-2.5h1.25a1.75 1.75 0 1 0 0-3.5H14V6a2 2 0 0 0-2-2H9.5V1.75a1.75 1.75 0 1 0-3 0Z" opacity="0.9" />
+          </svg>
+        </button>
+        <button
+          className="icon-btn"
+          title="Profile — your work across every agent"
+          onClick={onOpenProfile}
+          aria-label="Profile"
+        >
+          {/* GitHub's graph glyph: this is an activity view, not an account page */}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M1.5 1.75a.75.75 0 0 0-1.5 0v12.5c0 .414.336.75.75.75h14.5a.75.75 0 0 0 0-1.5H1.5V1.75Zm14.28 2.53a.75.75 0 0 0-1.06-1.06L10 7.94 7.53 5.47a.75.75 0 0 0-1.06 0L3.22 8.72a.75.75 0 0 0 1.06 1.06L7 7.06l2.47 2.47a.75.75 0 0 0 1.06 0l5.25-5.25Z" />
           </svg>
         </button>
         <button className="icon-btn" title="Settings" onClick={onOpenSettings} aria-label="Settings">

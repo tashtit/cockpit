@@ -161,6 +161,22 @@ test('settings lists the seeded source with its session count', async () => {
   await expect(homeHeading()).toBeVisible()
 })
 
+test('profile aggregates the fixture sessions into a heatmap', async () => {
+  await win.getByRole('button', { name: 'Profile', exact: true }).click()
+  await expect(win.getByRole('heading', { name: 'Profile' })).toBeVisible()
+  // the three seeded claude sessions are counted across every agent
+  const stats = win.locator('.pv-stats')
+  await expect(stats).toContainText('sessions')
+  await expect(stats).toContainText('active days')
+  // the heatmap renders as one labelled graphic with a dense grid of days
+  await expect(win.getByRole('img', { name: /activity over the last \d+ days/i })).toBeVisible()
+  expect(await win.locator('.pv-grid .pv-sq').count()).toBeGreaterThan(0)
+  // the per-agent breakdown is the view's reason to exist
+  await expect(win.locator('.pv-agent')).not.toHaveCount(0)
+  await win.getByRole('button', { name: 'Close' }).click()
+  await expect(homeHeading()).toBeVisible()
+})
+
 test('ai setup shows its five tabs and switches panels', async () => {
   await win.getByRole('button', { name: 'AI Setup' }).click()
   await expect(win.getByRole('heading', { name: 'AI Setup' })).toBeVisible()
