@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
@@ -107,5 +107,25 @@ describe('sidebar row controls stay reachable', () => {
     expect(await screen.findByRole('button', { name: 'Archive session' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'New session in rocket' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Open acme/rocket on GitHub' })).toBeVisible()
+  })
+})
+
+describe('dev branch chip', () => {
+  afterEach(() => {
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('shows the source branch when the dev URL carries devBranch', () => {
+    window.history.replaceState({}, '', '/?devBranch=titan%2Ffix-thing')
+    renderSidebar()
+
+    const chip = screen.getByTitle('dev build running from branch titan/fix-thing')
+    // namespace prefix recedes; the distinguishing suffix is the visible signal
+    expect(chip).toHaveTextContent('titan/fix-thing')
+  })
+
+  it('stays absent without the param (packaged app never carries it)', () => {
+    renderSidebar()
+    expect(screen.queryByTitle(/dev build running from branch/)).toBeNull()
   })
 })

@@ -13,6 +13,9 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 
 - `.tree-top` (drag region, 40px top padding clears macOS traffic lights): app title
   button (→ home) · zoom chip (only when zoom ≠ 100%, warn-colored, click resets) ·
+  `.dev-chip` (dev builds only: branch-blue mono pill naming the source branch this
+  instance runs from, so parallel worktree dev windows are tellable apart; receded
+  namespace prefix, full name in tooltip, selectable + `no-drag`) ·
   Extensions and Settings `.icon-btn`s with octicon-style SVGs.
 - `.search` input with ⌘K hint, 250ms debounce. Non-empty search swaps the whole tree for
   `SearchResults` grouped by repo name.

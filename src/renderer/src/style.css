@@ -154,6 +154,14 @@ summary::-webkit-details-marker { display: none; }
   border: 1px solid rgba(var(--warn-rgb), 0.4); border-radius: var(--radius-pill); padding: 0 var(--s2);
   flex-shrink: 0; min-height: 24px; }
 .zoom-chip:hover { background: var(--bg3); }
+/* dev-only worktree identity: branch of the checkout this instance runs from.
+   Non-interactive but copyable — hence selectable text + drag opt-out. */
+.dev-chip { display: inline-flex; align-items: center; min-height: 24px;
+  font-size: var(--fs-xs); font-family: var(--mono); color: var(--branch);
+  border: 1px solid rgba(var(--branch-rgb), 0.4); border-radius: var(--radius-pill);
+  padding: 0 var(--s2); min-width: 0; flex-shrink: 1; overflow: hidden;
+  user-select: text; -webkit-app-region: no-drag; }
+.dev-chip .chip-pre { flex-shrink: 0; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--fg-dim); }
 .icon-btn:hover { background: var(--bg3); color: var(--fg); }
