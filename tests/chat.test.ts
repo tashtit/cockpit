@@ -153,6 +153,20 @@ describe('parseClaudeStreamLine', () => {
     const ev = parseClaudeStreamLine('t', { type: 'result', session_id: 's1', total_cost_usd: 0.12 })
     expect(ev.find((e) => e.type === 'done')).toMatchObject({ costUsd: 0.12 })
   })
+  it('an error result surfaces an error event before done, not a silent success', () => {
+    const ev = parseClaudeStreamLine('t', {
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
+      result: 'API key invalid'
+    })
+    expect(ev.map((e) => e.type)).toEqual(['error', 'done'])
+    expect(ev[0]).toMatchObject({ message: expect.stringContaining('API key invalid') })
+  })
+  it('an error result without text falls back to the subtype', () => {
+    const ev = parseClaudeStreamLine('t', { type: 'result', subtype: 'error_max_turns', is_error: true })
+    expect(ev[0]).toMatchObject({ type: 'error', message: expect.stringContaining('error_max_turns') })
+  })
 })
 
 describe('parseCodexStreamLine', () => {

@@ -2,7 +2,14 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { capText, readHead, readJsonlTail, TRANSCRIPT_TAIL_BYTES } from '../src/main/parsers/util'
+import {
+  capText,
+  parseJsonc,
+  readHead,
+  readJsonlTail,
+  truncate,
+  TRANSCRIPT_TAIL_BYTES
+} from '../src/main/parsers/util'
 import { isValidNativeId } from '../src/main/chat'
 
 const root = join(tmpdir(), 'cockpit-util-fixtures')
@@ -52,6 +59,39 @@ describe('capText', () => {
     const capped = capText('x'.repeat(30_000))
     expect(capped.length).toBeLessThan(21_000)
     expect(capped).toContain('more chars')
+  })
+  it('never cuts an emoji in half', () => {
+    // '🎉' is two UTF-16 units — a naive slice at max would leave a lone surrogate
+    const capped = capText('x'.repeat(19_999) + '🎉' + 'y'.repeat(100), 20_000)
+    expect(capped).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
+    expect(capped.startsWith('x'.repeat(19_999))).toBe(true)
+  })
+})
+
+describe('parseJsonc', () => {
+  // agent configs are hand-editable and copilot's ships with a // banner — a strict
+  // parse here reads as "no config", which silently empties an inventory
+  it('parses JSON with leading // comment lines', () => {
+    expect(parseJsonc('// banner\n// more\n{"a":1}')).toEqual({ a: 1 })
+    expect(parseJsonc('  // indented\n{"a":1}')).toEqual({ a: 1 })
+  })
+  it('returns null for genuinely broken input', () => {
+    expect(parseJsonc('{ nope')).toBeNull()
+  })
+  it('leaves // inside string values alone', () => {
+    expect(parseJsonc('{"url":"https://example.com"}')).toEqual({ url: 'https://example.com' })
+  })
+})
+
+describe('truncate', () => {
+  it('collapses whitespace and adds an ellipsis past the limit', () => {
+    expect(truncate('a   b\nc')).toBe('a b c')
+    expect(truncate('x'.repeat(100))).toBe('x'.repeat(79) + '…')
+  })
+  it('never cuts an emoji in half', () => {
+    const out = truncate('x'.repeat(78) + '🎉tail', 80)
+    expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
+    expect(out.endsWith('…')).toBe(true)
   })
 })
 

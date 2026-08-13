@@ -9,9 +9,52 @@ import type { ModelEndpoint, ModelEndpointType, Mutable, Provider, WireApi } fro
 export const ENDPOINT_TYPES: readonly ModelEndpointType[] = ['openai', 'azure', 'anthropic']
 export const WIRE_APIS: readonly WireApi[] = ['completions', 'responses']
 
-/** Same shape chat.ts accepts for --model — endpoint model suggestions feed that flag. */
-const MODEL_NAME = /^[A-Za-z0-9._:\/-]{1,64}$/
+/**
+ * Model names reach a CLI as the `--model` argv value, so they must be argv-safe and
+ * never flag-shaped. Single definition on purpose: when this and the spawn-side check
+ * drift, a name the picker offers is one the spawn refuses (or worse, accepts).
+ */
+export function isValidModel(model: string): boolean {
+  return /^[A-Za-z0-9._:\/-]{1,64}$/.test(model) && !model.startsWith('-')
+}
+
 const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/
+
+/**
+ * Hosts a BYOK endpoint may never point at.
+ *
+ * Local gateways (Ollama, LM Studio, LiteLLM on localhost or the LAN) are a
+ * first-class use case, so loopback and private ranges stay allowed. Link-local
+ * is not: it carries the cloud instance-metadata services, which no model gateway
+ * uses and which hand out credentials to whatever asks. Main fetches these URLs
+ * outside the renderer's CSP, so an endpoint the renderer can define is a request
+ * the renderer can make. Covers the literal forms, not every numeric encoding.
+ */
+/**
+ * `::ffff:169.254.169.254` is the same address in an IPv6 suit, and the URL parser
+ * normalizes it to `::ffff:a9fe:a9fe` — decode it back so one set of rules covers
+ * both spellings. Returns the dotted-quad, or null when this isn't a mapped IPv4.
+ */
+function mappedIpv4(host: string): string | null {
+  const m = host.match(/^::ffff:(.+)$/)
+  if (!m) return null
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(m[1])) return m[1]
+  const hex = m[1].match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (!hex) return null
+  const n = ((parseInt(hex[1], 16) << 16) >>> 0) + parseInt(hex[2], 16)
+  return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.')
+}
+
+export function isBlockedEndpointHost(hostname: string): boolean {
+  const raw = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  // decode first so a mapped address is judged by the IPv4 rules — which also
+  // keeps ::ffff:127.0.0.1 allowed, since local gateways are the point
+  const h = mappedIpv4(raw) ?? raw
+  if (h === 'metadata.google.internal') return true
+  if (/^169\.254\./.test(h)) return true // IPv4 link-local
+  if (/^fe[89ab][0-9a-f]:/.test(h)) return true // IPv6 fe80::/10
+  return false
+}
 
 /**
  * Renderer input is untrusted — normalize and validate every field. The API key is NOT
@@ -29,6 +72,7 @@ export function sanitizeEndpoint(input: unknown, id: string): ModelEndpoint | nu
   try {
     const u = new URL(baseUrl)
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    if (isBlockedEndpointHost(u.hostname)) return null
   } catch {
     return null
   }
@@ -58,8 +102,7 @@ export function sanitizeEndpoint(input: unknown, id: string): ModelEndpoint | nu
     const models = o.models
       .filter((m): m is string => typeof m === 'string')
       .map((m) => m.trim())
-      // same rule as chat.ts isValidModel: argv-safe and never flag-shaped
-      .filter((m) => MODEL_NAME.test(m) && !m.startsWith('-'))
+      .filter(isValidModel)
       .slice(0, 20)
     if (models.length > 0) ep.models = models
   }
@@ -145,6 +188,6 @@ export function parseModelsResponse(json: unknown): string[] {
     .map((m) => (m as { id?: unknown })?.id)
     .filter((id): id is string => typeof id === 'string')
     .map((id) => id.trim())
-    .filter((id) => MODEL_NAME.test(id) && !id.startsWith('-'))
+    .filter(isValidModel)
     .slice(0, 200)
 }

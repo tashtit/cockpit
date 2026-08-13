@@ -2,7 +2,12 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import type { BusySession, ChatEvent, ChatRequest, ModelEndpoint, Provider } from '../shared/types'
-import { endpointEnv, endpointSupports } from '../shared/endpoints'
+import {
+  endpointEnv,
+  endpointSupports,
+  isBlockedEndpointHost,
+  isValidModel
+} from '../shared/endpoints'
 import { contentToText, toolPreview, truncate } from './parsers/util'
 import { cliEnv } from './env'
 
@@ -19,10 +24,7 @@ export function isValidNativeId(id: string): boolean {
   return /^[A-Za-z0-9._-]{1,128}$/.test(id) && !id.startsWith('-')
 }
 
-/** Model names are renderer-supplied free text — keep them argv-safe. */
-export function isValidModel(model: string): boolean {
-  return /^[A-Za-z0-9._:\/-]{1,64}$/.test(model) && !model.startsWith('-')
-}
+export { isValidModel } from '../shared/endpoints'
 
 const CODEX_SANDBOXES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 
@@ -108,6 +110,15 @@ export function parseClaudeStreamLine(turnId: string, line: any): ChatEvent[] {
     }
   } else if (line?.type === 'result') {
     if (line.session_id) out.push({ turnId, type: 'session', nativeSessionId: String(line.session_id) })
+    // error results (is_error / subtype error_*) still end the turn, but silently
+    // swallowing them would make a failed turn look like a successful empty one
+    if (line.is_error) {
+      const detail =
+        typeof line.result === 'string' && line.result.trim()
+          ? line.result.trim()
+          : String(line.subtype ?? 'unknown error')
+      out.push({ turnId, type: 'error', message: `claude reported an error: ${truncate(detail, 500)}` })
+    }
     out.push({ turnId, type: 'done', costUsd: typeof line.total_cost_usd === 'number' ? line.total_cost_usd : undefined })
   }
   return out
@@ -144,6 +155,15 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
   return out
 }
 
+/** Hostname of a stored base URL; '' when it no longer parses (then nothing matches). */
+function hostOf(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).hostname
+  } catch {
+    return ''
+  }
+}
+
 /**
  * Validate a BYOK turn before spawning. Returns a human-readable refusal, or null when
  * the turn may proceed. `keyResolved` says whether the endpoint's stored key decrypted
@@ -155,7 +175,12 @@ export function endpointPreflight(
   keyResolved: boolean
 ): string | null {
   if (!req.options?.modelEndpoint) return null
-  if (!ep) return 'Custom model provider is no longer configured — pick another in Settings.'
+  if (!ep) return 'Custom model provider is no longer configured — re-add it in Settings.'
+  // an endpoint stored before the host guard existed (or hand-edited into config)
+  // must not be spawned against either — the CLI would carry the key there
+  if (isBlockedEndpointHost(hostOf(ep.baseUrl))) {
+    return `Provider "${ep.label}" points at a link-local address — remove it in Settings.`
+  }
   if (!endpointSupports(req.provider, ep)) {
     return `Provider "${ep.label}" (${ep.type}) can't be used with ${req.provider}.`
   }
@@ -394,7 +419,9 @@ export class ChatManager {
     }
     signal('SIGTERM')
     const hardKill = setTimeout(() => {
-      if (t.child.exitCode === null && !t.child.killed) signal('SIGKILL')
+      // `killed` only records that a signal was SENT (the fallback path above sets
+      // it) — a SIGTERM-trapping CLI must still be escalated, so check liveness
+      if (t.child.exitCode === null && t.child.signalCode === null) signal('SIGKILL')
     }, 3000)
     t.child.once('close', () => clearTimeout(hardKill))
   }

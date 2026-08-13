@@ -95,11 +95,45 @@ export function parseOriginFullName(configPath: string): string | null {
   return fullNameFromUrl(url)
 }
 
-export function fullNameFromUrl(url: string): string | null {
-  // git@github.com:owner/repo.git | https://github.com/owner/repo.git | ssh://git@github.com/owner/repo
-  const m =
-    url.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/) ??
-    url.match(/[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/)
+/** Split a git remote into host + trailing owner/repo, for both URL and scp-like forms. */
+function parseRemoteUrl(url: string): { host: string; fullName: string } | null {
+  const trimmed = url.trim()
+  // scheme://[user@]host[:port]/path — tried first, since the scp pattern below
+  // would otherwise read "https" as the host
+  const withScheme = trimmed.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/)
+  // [user@]host:path
+  const scp = trimmed.match(/^(?:[^@/]+@)?([^/:]+):(.+)$/)
+  const m = withScheme ?? scp
   if (!m) return null
-  return `${m[1]}/${m[2]}`
+  const parts = m[2]
+    .replace(/\/+$/, '') // trailing slash first, so a ".git/" suffix still strips
+    .replace(/\.git$/, '')
+    .split('/')
+    .filter(Boolean)
+  if (parts.length < 2) return null
+  return { host: m[1].toLowerCase(), fullName: `${parts.at(-2)}/${parts.at(-1)}` }
+}
+
+/**
+ * The GitHub `owner/repo` identity, or null for anything else.
+ *
+ * Only github.com qualifies: the `gh:owner/repo` group key asserts "the same
+ * GitHub repository", and `gh` operations are keyed off it. Accepting any host
+ * meant a GitLab (or bare local-path) remote was branded with a GitHub identity
+ * and merged into the group of a real GitHub repo with the same owner/repo.
+ * Everything else groups by local root instead.
+ */
+/**
+ * github.com, plus the `Host github.com-work` style aliases people define in
+ * ~/.ssh/config to juggle several GitHub accounts — those resolve to github.com,
+ * so the repos behind them are the same repos. The alias suffix deliberately
+ * excludes dots, so a real domain like `github.com-evil.com` is not swept in.
+ */
+function isGitHubHost(host: string): boolean {
+  return /^(www\.)?github\.com(-[a-z0-9_-]+)?$/.test(host)
+}
+
+export function fullNameFromUrl(url: string): string | null {
+  const parsed = parseRemoteUrl(url)
+  return parsed && isGitHubHost(parsed.host) ? parsed.fullName : null
 }

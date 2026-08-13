@@ -39,6 +39,16 @@ describe('upsertSharedBlock', () => {
     const out = upsertSharedBlock('', `\n${BASE}\n\n`)
     expect(extractSharedBlock(out)).toBe(BASE)
   })
+
+  it('repairs an orphaned START in place instead of appending a second block', () => {
+    // a hand-edited file that lost its END marker: applying twice must not eat
+    // the user's own notes between the orphan and the block
+    const raw = `${START}\nmy own notes\n`
+    const once = upsertSharedBlock(raw, BASE)
+    expect(once).toContain('my own notes')
+    expect(extractSharedBlock(once)).toBe(BASE)
+    expect(upsertSharedBlock(once, BASE)).toBe(once)
+  })
 })
 
 describe('extractSharedBlock', () => {

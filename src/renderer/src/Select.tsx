@@ -132,7 +132,9 @@ export function Select({
       e.preventDefault()
       pick(active)
     } else if (e.key === 'Tab') {
-      close(false)
+      // return focus to the trigger so the browser continues tab order from
+      // there, rather than letting focus fall to <body> and restart at the top
+      close(true)
     } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
       const now = Date.now()
       const t = typeahead.current

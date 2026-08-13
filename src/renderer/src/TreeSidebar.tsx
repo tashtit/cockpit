@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { AccountsSnapshot, PrStatus, RepoGroup, SessionMeta } from '../../shared/types'
+import type {
+  AccountsSnapshot,
+  PrStatus,
+  Provider,
+  RepoGroup,
+  SessionMeta
+} from '../../shared/types'
 import { api } from './api'
 import { useSessionBusy } from './busy'
 import { fmtTime, useTimeFormat } from './time'
@@ -332,7 +338,10 @@ function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
               <input
                 type="checkbox"
                 checked={!r.hidden}
-                onChange={() => void api.setRepoHidden(r.key, !r.hidden)}
+                // drive from the checkbox's own post-click state, not from the
+                // prop: the prop only catches up after the IPC round-trip, so a
+                // quick second click would otherwise re-send the first value
+                onChange={(e) => void api.setRepoHidden(r.key, !e.currentTarget.checked)}
               />
               <span className="repo-icon">
                 <RepoIcon size={12} />
@@ -391,13 +400,7 @@ function RepoNode({
         tabIndex={-1}
         title={repo.root ?? repo.fullName ?? repo.name}
         onClick={onToggle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onToggle()
-          } else if (e.key === 'ArrowRight' && !open) onToggle()
-          else if (e.key === 'ArrowLeft' && open) onToggle()
-        }}
+        onKeyDown={expandKeys(open, onToggle)}
       >
         <span className={`chev ${open ? 'open' : ''}`} aria-hidden="true">▸</span>
         <span className="repo-icon">
@@ -413,13 +416,7 @@ function RepoNode({
             repo.name
           )}
         </span>
-        <span className="repo-providers">
-          {repo.providers.map((p) => (
-            <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
-              <ProviderLogo p={p} size={10} />
-            </span>
-          ))}
-        </span>
+        <ProviderStrip providers={repo.providers} />
         <span className="row-actions">
           {repo.fullName && (
             <button
@@ -451,43 +448,105 @@ function RepoNode({
         <span className="repo-count">{repo.sessionCount}</span>
       </div>
       {open && (
-        <div className="repo-children" role="group">
-          <SessionList
-            repoKey={repo.key}
-            archived={false}
-            prs={prs}
-            indexVersion={indexVersion}
-            accounts={accounts}
-            selectedId={selectedId}
-            onSelect={onSelect}
-            onOpenUrl={onOpenUrl}
-          />
-          {repo.archivedCount > 0 && (
-            <>
-              <button
-                className="archived-toggle"
-                aria-expanded={showArchived}
-                tabIndex={-1}
-                onClick={() => setShowArchived((v) => !v)}
-              >
-                <span className={`chev ${showArchived ? 'open' : ''}`} aria-hidden="true">▸</span>
-                Archived ({repo.archivedCount})
-              </button>
-              {showArchived && (
-                <SessionList
-                  repoKey={repo.key}
-                  archived
-                  prs={prs}
-                  indexVersion={indexVersion}
-                  accounts={accounts}
-                  selectedId={selectedId}
-                  onSelect={onSelect}
-                  onOpenUrl={onOpenUrl}
-                />
-              )}
-            </>
-          )}
-        </div>
+        <GroupChildren
+          repo={repo}
+          prs={prs}
+          indexVersion={indexVersion}
+          accounts={accounts}
+          selectedId={selectedId}
+          showArchived={showArchived}
+          onToggleArchived={() => setShowArchived((v) => !v)}
+          onSelect={onSelect}
+          onOpenUrl={onOpenUrl}
+        />
+      )}
+    </div>
+  )
+}
+
+/** Stable identities: new [] / () => {} each render would re-trigger memoized children. */
+const NO_PRS: PrStatus[] = []
+const noop = (): void => {}
+
+/** Enter/Space toggles; ArrowRight/ArrowLeft expand and collapse (WAI-ARIA tree pattern). */
+function expandKeys(open: boolean, onToggle: () => void) {
+  return (e: React.KeyboardEvent): void => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onToggle()
+    } else if (e.key === 'ArrowRight' && !open) onToggle()
+    else if (e.key === 'ArrowLeft' && open) onToggle()
+  }
+}
+
+function ProviderStrip({ providers }: { providers: readonly Provider[] }): JSX.Element {
+  return (
+    <span className="repo-providers">
+      {providers.map((p) => (
+        <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
+          <ProviderLogo p={p} size={10} />
+        </span>
+      ))}
+    </span>
+  )
+}
+
+type GroupChildrenProps = {
+  readonly repo: RepoGroup
+  readonly prs: PrStatus[]
+  readonly indexVersion: number
+  readonly accounts: AccountsSnapshot | null
+  readonly selectedId: string | null
+  readonly showArchived: boolean
+  readonly onToggleArchived: () => void
+  readonly onSelect: (s: SessionMeta) => void
+  readonly onOpenUrl: (url: string) => void
+}
+
+/**
+ * The expanded body of a tree group: its sessions, plus an archived sub-list behind
+ * a toggle. Shared by both group kinds on purpose — when this was written twice, an
+ * a11y or paging fix could land in one copy and silently skip the other.
+ */
+function GroupChildren({
+  repo,
+  prs,
+  indexVersion,
+  accounts,
+  selectedId,
+  showArchived,
+  onToggleArchived,
+  onSelect,
+  onOpenUrl
+}: GroupChildrenProps): JSX.Element {
+  const list = (archived: boolean): JSX.Element => (
+    <SessionList
+      repoKey={repo.key}
+      archived={archived}
+      prs={prs}
+      indexVersion={indexVersion}
+      accounts={accounts}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      onOpenUrl={onOpenUrl}
+    />
+  )
+  return (
+    <div className="repo-children" role="group">
+      {list(false)}
+      {repo.archivedCount > 0 && (
+        <>
+          <button
+            className="archived-toggle"
+            aria-expanded={showArchived}
+            tabIndex={-1}
+            onClick={onToggleArchived}
+          >
+            <span className={`chev ${showArchived ? 'open' : ''}`} aria-hidden="true">▸</span>
+            Archived ({repo.archivedCount})
+          </button>
+          {showArchived && list(true)}
+        </>
       )}
     </div>
   )
@@ -523,66 +582,29 @@ function ChatsSection({
         tabIndex={-1}
         title="Chats without a repository"
         onClick={onToggle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onToggle()
-          } else if (e.key === 'ArrowRight' && !open) onToggle()
-          else if (e.key === 'ArrowLeft' && open) onToggle()
-        }}
+        onKeyDown={expandKeys(open, onToggle)}
       >
         <span className={`chev ${open ? 'open' : ''}`} aria-hidden="true">▸</span>
         <span className="section-icon">
           <ChatIcon size={12} />
         </span>
         <span className="section-name">Chats</span>
-        <span className="repo-providers">
-          {repo.providers.map((p) => (
-            <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
-              <ProviderLogo p={p} size={10} />
-            </span>
-          ))}
-        </span>
+        <ProviderStrip providers={repo.providers} />
         <span className="repo-count">{repo.sessionCount}</span>
       </div>
       {open && (
-        <div className="repo-children" role="group">
-          <SessionList
-            repoKey={repo.key}
-            archived={false}
-            prs={[]}
-            indexVersion={indexVersion}
-            accounts={accounts}
-            selectedId={selectedId}
-            onSelect={onSelect}
-            onOpenUrl={() => {}}
-          />
-          {repo.archivedCount > 0 && (
-            <>
-              <button
-                className="archived-toggle"
-                aria-expanded={showArchived}
-                tabIndex={-1}
-                onClick={() => setShowArchived((v) => !v)}
-              >
-                <span className={`chev ${showArchived ? 'open' : ''}`} aria-hidden="true">▸</span>
-                Archived ({repo.archivedCount})
-              </button>
-              {showArchived && (
-                <SessionList
-                  repoKey={repo.key}
-                  archived
-                  prs={[]}
-                  indexVersion={indexVersion}
-                  accounts={accounts}
-                  selectedId={selectedId}
-                  onSelect={onSelect}
-                  onOpenUrl={() => {}}
-                />
-              )}
-            </>
-          )}
-        </div>
+        // no repo means no PRs and nothing to open on GitHub
+        <GroupChildren
+          repo={repo}
+          prs={NO_PRS}
+          indexVersion={indexVersion}
+          accounts={accounts}
+          selectedId={selectedId}
+          showArchived={showArchived}
+          onToggleArchived={() => setShowArchived((v) => !v)}
+          onSelect={onSelect}
+          onOpenUrl={noop}
+        />
       )}
     </div>
   )

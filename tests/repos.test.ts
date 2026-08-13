@@ -67,5 +67,27 @@ describe('fullNameFromUrl', () => {
     expect(fullNameFromUrl('git@github.com:acme/myrepo.git')).toBe('acme/myrepo')
     expect(fullNameFromUrl('https://github.com/acme/myrepo')).toBe('acme/myrepo')
     expect(fullNameFromUrl('ssh://git@github.com/acme/myrepo.git')).toBe('acme/myrepo')
+    expect(fullNameFromUrl('https://github.com/acme/myrepo.git/')).toBe('acme/myrepo')
+  })
+
+  // a gh:owner/repo identity asserts "the same GitHub repo" — other hosts must not
+  // claim it, or an unrelated gitlab team/proj merges into the GitHub group
+  it('claims no GitHub identity for other hosts or local paths', () => {
+    expect(fullNameFromUrl('git@gitlab.com:team/proj.git')).toBeNull()
+    expect(fullNameFromUrl('https://bitbucket.org/team/proj.git')).toBeNull()
+    expect(fullNameFromUrl('/Users/me/backups/myrepo.git')).toBeNull()
+    expect(fullNameFromUrl('file:///Users/me/backups/myrepo.git')).toBeNull()
+    // substring lookalikes must not pass for github.com either
+    expect(fullNameFromUrl('https://mygithub.com/acme/myrepo')).toBeNull()
+    expect(fullNameFromUrl('git@github.example.com:acme/myrepo.git')).toBeNull()
+  })
+
+  // per-account ssh aliases (Host github.com-work in ~/.ssh/config) resolve to
+  // github.com, so those really are the same repos
+  it('accepts ssh host aliases but not lookalike domains', () => {
+    expect(fullNameFromUrl('git@github.com-work:acme/myrepo.git')).toBe('acme/myrepo')
+    expect(fullNameFromUrl('git@github.com-personal:acme/myrepo.git')).toBe('acme/myrepo')
+    // a hyphen suffix containing a dot is a registrable domain, not an alias
+    expect(fullNameFromUrl('https://github.com-evil.com/acme/myrepo')).toBeNull()
   })
 })

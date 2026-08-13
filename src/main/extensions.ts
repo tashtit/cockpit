@@ -12,6 +12,7 @@ import type {
   Provider,
   SkillInfo
 } from '../shared/types'
+import { readJsoncFile } from './parsers/util'
 
 /*
  * Each agent stores MCP servers in its own format:
@@ -25,13 +26,12 @@ const claudeJsonPath = (): string => join(homedir(), '.claude.json')
 const codexTomlPath = (): string => join(homedir(), '.codex', 'config.toml')
 const copilotJsonPath = (): string => join(homedir(), '.copilot', 'mcp-config.json')
 
-function readJsonFile(path: string): any | null {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    return null
-  }
-}
+/**
+ * These are the same hand-editable configs accounts.ts reads, so they get the same
+ * JSONC tolerance — parsing ~/.claude.json strictly here meant one `//` comment
+ * showed the account fine but silently emptied the MCP inventory.
+ */
+const readJsonFile = readJsoncFile
 
 /* ---------- readers ---------- */
 
@@ -95,18 +95,34 @@ function readClaudeMcp(): Map<string, FoundServer> {
   return out
 }
 
+/** A TOML key can only be bare if it matches this — anything else must be quoted. */
+const BARE_TOML_KEY = /^[A-Za-z0-9_-]+$/
+
+/**
+ * Server name out of an `mcp_servers.<key>` section header (brackets stripped).
+ * Names with dots must be quoted, or TOML reads `a.b` as a nested table — which
+ * both renames the server for codex and hides it from this parser.
+ */
+function mcpSectionName(header: string): { name: string; isEnv: boolean } | null {
+  const m = header.match(/^mcp_servers\.(?:([A-Za-z0-9_-]+)|"((?:[^"\\]|\\.)*)")(\.env)?$/)
+  if (!m) return null
+  return { name: m[1] ?? m[2].replace(/\\(.)/g, '$1'), isEnv: Boolean(m[3]) }
+}
+
 /** Minimal TOML reader for the [mcp_servers.*] sections codex writes. */
 export function parseCodexMcpToml(raw: string): Map<string, McpConfig> {
   // entries are assembled across multiple TOML sections, so they stay mutable here
   const out = new Map<string, Mutable<McpConfig>>()
   const sections = raw.split(/^\[/m)
   for (const section of sections) {
-    const header = section.match(/^mcp_servers\.([A-Za-z0-9_-]+)(\.env)?\]/)
+    const close = section.indexOf(']')
+    if (close === -1) continue
+    const header = mcpSectionName(section.slice(0, close).trim())
     if (!header) continue
-    const name = header[1]
-    const body = section.slice(section.indexOf(']') + 1)
+    const name = header.name
+    const body = section.slice(close + 1)
     const entry = out.get(name) ?? {}
-    if (header[2]) {
+    if (header.isEnv) {
       // env subtable
       const env: Record<string, string> = { ...entry.env }
       for (const m of body.matchAll(/^([A-Za-z0-9_]+)\s*=\s*"((?:[^"\\]|\\.)*)"/gm)) {
@@ -282,7 +298,9 @@ export function assertClaudeProjectServer(name: string, projectPath: string): st
   return projectPath
 }
 
-const NAME_RE = /^[A-Za-z0-9_.-]{1,64}$/
+// names become path segments (shareSkill) — dots-only names ("." / "..") would
+// escape the skills dir and copy a whole config home, credentials included
+const NAME_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/
 
 export function shareMcp(name: string, to: Provider): void {
   if (!NAME_RE.test(name)) throw new Error('invalid server name')
@@ -306,11 +324,16 @@ function tomlString(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
+/** Quote a server name unless it is a valid bare TOML key (dotted names must be quoted). */
+function tomlKey(name: string): string {
+  return BARE_TOML_KEY.test(name) ? name : tomlString(name)
+}
+
 function shareToCodex(name: string, cfg: McpConfig): void {
   const path = codexTomlPath()
   const raw = existsSync(path) ? readFileSync(path, 'utf8') : ''
   if (parseCodexMcpToml(raw).has(name)) throw new Error(`codex already has "${name}"`)
-  let block = `\n[mcp_servers.${name}]\n`
+  let block = `\n[mcp_servers.${tomlKey(name)}]\n`
   if (cfg.url) {
     block += `url = ${tomlString(cfg.url)}\n`
   } else if (cfg.command) {
@@ -320,7 +343,7 @@ function shareToCodex(name: string, cfg: McpConfig): void {
     throw new Error('server has neither command nor url')
   }
   if (cfg.env && Object.keys(cfg.env).length > 0) {
-    block += `\n[mcp_servers.${name}.env]\n`
+    block += `\n[mcp_servers.${tomlKey(name)}.env]\n`
     for (const [k, v] of Object.entries(cfg.env)) {
       if (/^[A-Za-z0-9_]+$/.test(k)) block += `${k} = ${tomlString(v)}\n`
     }
@@ -381,6 +404,18 @@ export function removeMcpFromJson(j: any, name: string, projectPath?: string): v
 }
 
 /**
+ * Is this section header the server's own table or one of its subtables? Covers
+ * both key spellings (bare and quoted) and every subtable, not just `.env` —
+ * leaving `[mcp_servers.x.headers]` behind would hand codex a half-server.
+ */
+function sectionBelongsTo(section: string, name: string): boolean {
+  return [name, tomlString(name)].some((key) => {
+    const own = `mcp_servers.${key}`
+    return section === own || section.startsWith(own + '.')
+  })
+}
+
+/**
  * IO-free core of codex removal: drop [mcp_servers.<name>] and its subtables
  * (e.g. .env) from the TOML, leaving every other section byte-identical.
  */
@@ -390,11 +425,11 @@ export function removeCodexMcpToml(raw: string, name: string): string {
   const out: string[] = []
   let dropping = false
   for (const line of lines) {
+    // capture up to the first ] and ignore anything after it: a header can carry a
+    // trailing inline comment, and a regex anchored at end-of-line would fail to
+    // match it, leaving `dropping` stuck and eating the next unrelated section
     const header = line.match(/^\s*\[([^\]]+)\]/)
-    if (header) {
-      const section = header[1]
-      dropping = section === `mcp_servers.${name}` || section.startsWith(`mcp_servers.${name}.`)
-    }
+    if (header) dropping = sectionBelongsTo(header[1].trim(), name)
     if (!dropping) out.push(line)
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n')

@@ -463,6 +463,9 @@ function InstructionsTab({
   const [busy, setBusy] = useState(false)
   const repoRoot = scope === 'global' ? null : scope
   const gitRepos = repos.filter((r) => r.root !== null)
+  /** Read inside async callbacks — the closure's `repoRoot` is the value at call time. */
+  const repoRootRef = useRef(repoRoot)
+  repoRootRef.current = repoRoot
 
   useEffect(() => {
     let dead = false
@@ -482,12 +485,17 @@ function InstructionsTab({
   const run = async (op: () => Promise<InstructionsState>, okText: string): Promise<void> => {
     setNotice(null)
     setBusy(true)
+    const startedOn = repoRoot
     try {
       const s = await op()
+      // a slow apply resolving after the user switched scope must not write the
+      // old scope's baseline into the newly loaded one
+      if (startedOn !== repoRootRef.current) return
       setInst(s)
       setDraft(s.baseline)
       setNotice({ text: okText, kind: 'ok' })
     } catch (err) {
+      if (startedOn !== repoRootRef.current) return
       setNotice({ text: err instanceof Error ? err.message : String(err), kind: 'error' })
     } finally {
       setBusy(false)

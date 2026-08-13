@@ -241,7 +241,9 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
     }
   }, [])
 
-  const busiest = profile?.busiestDay?.sessions ?? 0
+  // scale the grid by the busiest day *in the grid*: busiestDay is all-time and
+  // can sit outside the rendered window, which would flatten every square to L1
+  const busiest = Math.max(0, ...(profile?.days ?? []).map((d) => d.sessions))
   const totalLines = (profile?.providers ?? []).reduce((n, p) => n + p.linesAdded, 0)
   const maxLang = Math.max(1, ...(profile?.languages ?? []).map((l) => l.linesAdded))
 

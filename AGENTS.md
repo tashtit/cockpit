@@ -55,7 +55,7 @@ Performance invariants — all deliberate, keep them:
 - `accounts.ts` — who each agent CLI is signed in as, per config home (Claude `.claude.json` OAuth, Codex `auth.json` JWT, Copilot's multi-account `config.json`), plus the `gh` user for repo operations.
 - `usage.ts` — subscription usage per provider without touching credentials: Claude measured locally from session JSONLs, Codex from the rate-limit snapshots its CLI persists, Copilot via the GitHub billing API (fails soft).
 - `provider-archived.ts` — reads each provider's own archived/deleted state (Copilot `data.db`, Codex `archived_sessions/`, the Claude desktop app's session store) so those sessions never appear in Cockpit.
-- `env.ts` — `cliEnv()`: GUI apps on macOS get a minimal PATH; use it for every spawned CLI.
+- `env.ts` — `cliEnv()`: GUI apps on macOS get a minimal PATH; use it for every spawned CLI. `execText(cmd, args, opts)` is the one way to run a CLI and read its output — it never rejects, so each caller decides what failure means (throw, fall back, log); don't hand-roll another `execFile` wrapper.
 
 ### Tests
 

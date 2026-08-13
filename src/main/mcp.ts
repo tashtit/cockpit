@@ -116,6 +116,11 @@ function probeStdio(cfg: McpConfig, timeoutMs: number): Promise<McpProbeResult> 
         }
       }
     })
+    // a server that dies before reading makes this write emit EPIPE — unhandled,
+    // a stream 'error' event would take the whole main process down
+    child.stdin?.on('error', () => {
+      /* the exit/error handlers above already finish the probe */
+    })
     child.stdin?.write(initializeRequest + '\n')
   })
 }

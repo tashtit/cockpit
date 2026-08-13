@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AccountInfo, AccountsSnapshot, Provider, SourceDir } from '../shared/types'
-import { cliEnv } from './env'
+import { execText } from './env'
+import { parseJsonc, readJsoncFile } from './parsers/util'
 
 /**
  * Who is each agent CLI signed in as?
@@ -14,27 +14,29 @@ import { cliEnv } from './env'
  */
 
 /** copilot's config.json starts with // comment lines — strip before parsing. */
-export function readJsonc(raw: string): any | null {
-  try {
-    return JSON.parse(raw.replace(/^\s*\/\/.*$/gm, ''))
-  } catch {
-    return null
-  }
-}
+export const readJsonc = parseJsonc
 
-function readJsonFile(path: string): any | null {
-  try {
-    return readJsonc(readFileSync(path, 'utf8'))
-  } catch {
-    return null
-  }
-}
+const readJsonFile = readJsoncFile
+
+/** ~/.claude.json is often multi-MB (per-project history) and accounts:get runs on
+ *  every index update — cache the parsed identity on (mtime,size) like the indexer. */
+const claudeIdCache = new Map<string, { mtime: number; size: number; value: string | null }>()
 
 export function claudeIdentity(configDir: string): string | null {
   const isDefault = configDir === join(homedir(), '.claude')
   const statePath = isDefault ? join(homedir(), '.claude.json') : join(configDir, '.claude.json')
+  let st
+  try {
+    st = statSync(statePath)
+  } catch {
+    return null
+  }
+  const hit = claudeIdCache.get(statePath)
+  if (hit && hit.mtime === st.mtimeMs && hit.size === st.size) return hit.value
   const j = readJsonFile(statePath)
-  return typeof j?.oauthAccount?.emailAddress === 'string' ? j.oauthAccount.emailAddress : null
+  const value = typeof j?.oauthAccount?.emailAddress === 'string' ? j.oauthAccount.emailAddress : null
+  claudeIdCache.set(statePath, { mtime: st.mtimeMs, size: st.size, value })
+  return value
 }
 
 /** Decode a JWT payload without verification — display only. */
@@ -87,17 +89,12 @@ export function setCopilotActiveUser(configDir: string, login: string): void {
 
 let ghUserCache: { at: number; login: string | null } | null = null
 
-export function ghUser(): Promise<string | null> {
-  if (ghUserCache && Date.now() - ghUserCache.at < 300_000) {
-    return Promise.resolve(ghUserCache.login)
-  }
-  return new Promise((res) => {
-    execFile('gh', ['api', 'user', '-q', '.login'], { env: cliEnv(), timeout: 10_000 }, (err, out) => {
-      const login = err ? null : out.trim() || null
-      ghUserCache = { at: Date.now(), login }
-      res(login)
-    })
-  })
+export async function ghUser(): Promise<string | null> {
+  if (ghUserCache && Date.now() - ghUserCache.at < 300_000) return ghUserCache.login
+  const r = await execText('gh', ['api', 'user', '-q', '.login'], { timeoutMs: 10_000 })
+  const login = r.ok ? r.stdout.trim() || null : null
+  ghUserCache = { at: Date.now(), login }
+  return login
 }
 
 export async function getAccounts(sources: SourceDir[]): Promise<AccountsSnapshot> {

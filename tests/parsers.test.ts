@@ -176,6 +176,46 @@ beforeAll(() => {
       }
     ])
   )
+  // codex-rs persists a turn twice: as a ResponseItem AND as its event_msg echo
+  writeFileSync(
+    join(codexDir, 'rollout-2026-08-01-dddd.jsonl'),
+    jsonl([
+      {
+        timestamp: '2026-08-01T13:00:00Z',
+        type: 'session_meta',
+        payload: { id: 'dddd-4444', cwd: '/Users/titan/dev/echo', originator: 'codex_cli_rs' }
+      },
+      {
+        timestamp: '2026-08-01T13:00:01Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'ship it' }] }
+      },
+      {
+        timestamp: '2026-08-01T13:00:01Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'ship it' }
+      },
+      {
+        timestamp: '2026-08-01T13:00:09Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Shipped.' }] }
+      },
+      {
+        timestamp: '2026-08-01T13:00:09Z',
+        type: 'event_msg',
+        payload: { type: 'agent_message', message: 'Shipped.' }
+      }
+    ])
+  )
+  // Pre-envelope rollouts wrote bare ResponseItems with no {type,payload} wrapper
+  writeFileSync(
+    join(codexDir, 'rollout-2026-08-01-9999.jsonl'),
+    jsonl([
+      { id: '9999-0000', timestamp: '2026-08-01T14:00:00Z', originator: 'codex_cli_rs', cwd: '/Users/titan/dev/old' },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'legacy prompt' }] },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'legacy reply' }] }
+    ])
+  )
   // Out-of-band thread names, keyed by session_meta's session_id
   writeFileSync(
     join(root, 'codex', 'session_index.jsonl'),
@@ -337,7 +377,7 @@ describe('toolPreview', () => {
 describe('codex parser', () => {
   it('lists sessions using session_meta id', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')
-    expect(s).toHaveLength(2)
+    expect(s).toHaveLength(4)
     expect(s.find((x) => x.nativeId === 'bbbb-2222')).toMatchObject({
       provider: 'codex',
       title: 'add unit tests',
@@ -358,6 +398,21 @@ describe('codex parser', () => {
     const msgs = parseCodexMessages(s.find((x) => x.nativeId === 'bbbb-2222')!.sourcePath)
     expect(msgs.map((m) => m.kind)).toEqual(['text', 'text', 'tool_call'])
     expect(msgs[0].role).toBe('user')
+  })
+  it('counts a doubly-persisted turn once, not once per envelope', () => {
+    const s = listCodexSessions(join(root, 'codex'), 'codex-test')
+    const echoed = s.find((x) => x.nativeId === 'dddd-4444')
+    expect(echoed?.messageCount).toBe(2)
+    expect(parseCodexMessages(echoed!.sourcePath).map((m) => m.text)).toEqual(['ship it', 'Shipped.'])
+  })
+  it('reads pre-envelope rollouts (bare ResponseItem lines)', () => {
+    const s = listCodexSessions(join(root, 'codex'), 'codex-test')
+    const legacy = s.find((x) => x.nativeId === '9999-0000')
+    expect(legacy).toMatchObject({ title: 'legacy prompt', messageCount: 2 })
+    expect(parseCodexMessages(legacy!.sourcePath).map((m) => m.text)).toEqual([
+      'legacy prompt',
+      'legacy reply'
+    ])
   })
 })
 

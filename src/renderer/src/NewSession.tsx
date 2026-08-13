@@ -179,12 +179,15 @@ export function NewSession({
   }, [endpoint?.id])
 
   // a model typed as free text must not silently survive once a catalog arrives
-  // that doesn't serve it — the picker would show "choose…" while the stale value runs
+  // that doesn't serve it — the picker would show "choose…" while the stale value runs.
+  // Keyed on the catalog's contents: a live listing with the same count but different
+  // names must also clear the choice.
+  const modelChoicesKey = modelChoices.join('\n')
   useEffect(() => {
     if (endpoint && modelChoices.length > 0 && model && !modelChoices.includes(model)) {
       setModel('')
     }
-  }, [endpoint?.id, modelChoices.length])
+  }, [endpoint?.id, modelChoicesKey])
 
   const start = async (): Promise<void> => {
     if (busy || (!prompt.trim() && atts.attachments.length === 0)) return

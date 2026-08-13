@@ -80,6 +80,30 @@ export function listCodexSessions(sourceDir: string, sourceLabel: string): Sessi
   return out
 }
 
+/**
+ * Which envelope a rollout line uses. Modern codex-rs wraps every item as
+ * `{timestamp, type, payload}`; older rollouts wrote bare ResponseItems with no
+ * envelope, which `payload ?? line` unwrapping already anticipated.
+ */
+function lineKind(l: any): 'response_item' | 'event_msg' | 'session_meta' {
+  if (l?.type === 'event_msg' || l?.type === 'session_meta') return l.type
+  return 'response_item'
+}
+
+/** Is this a canonical (ResponseItem) message line, as opposed to its event_msg echo? */
+function isItemMessage(l: any): boolean {
+  return lineKind(l) === 'response_item' && (l?.payload ?? l)?.type === 'message'
+}
+
+/**
+ * A turn can be persisted twice — once as a ResponseItem and once as its
+ * event_msg echo. Counting or rendering both duplicates every message, so the
+ * echoes are only used for rollouts that carry no ResponseItem messages at all.
+ */
+function usesEventEchoes(lines: readonly any[]): boolean {
+  return !lines.some(isItemMessage)
+}
+
 export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta | null {
   const head = readHead(file, META_HEAD_BYTES)
   if (!head.text) return null
@@ -94,6 +118,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
   let firstTs: number | null = null
   let lastTs: number | null = null
   let messageCount = 0
+  const countEchoes = usesEventEchoes(lines)
 
   for (const l of lines) {
     const ts = toMs(l.timestamp)
@@ -102,7 +127,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       lastTs = ts
     }
     const p = l.payload ?? l
-    if (l.type === 'session_meta' || p?.originator) {
+    if (lineKind(l) === 'session_meta' || p?.originator) {
       // subagent rollouts (guardian etc.) live in the same sessions/ dirs but are
       // parts of a thread, never sessions — and archiving the parent thread moves
       // only the parent's rollout, so these would surface as phantom sessions
@@ -114,8 +139,10 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       if (p.git?.branch) gitBranch = p.git.branch
     }
     const isMessage =
-      (l.type === 'response_item' && p?.type === 'message') ||
-      (l.type === 'event_msg' && (p?.type === 'user_message' || p?.type === 'agent_message'))
+      isItemMessage(l) ||
+      (countEchoes &&
+        lineKind(l) === 'event_msg' &&
+        (p?.type === 'user_message' || p?.type === 'agent_message'))
     if (isMessage) {
       messageCount++
       const role = p.role ?? (p.type === 'user_message' ? 'user' : 'assistant')
@@ -157,10 +184,11 @@ export function parseCodexMessages(file: string): SessionMessage[] {
   if (truncated) {
     out.push({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
   }
+  const renderEchoes = usesEventEchoes(lines)
   for (const l of lines) {
     const ts = toMs(l.timestamp) ?? undefined
     const p = l.payload ?? l
-    if (l.type === 'response_item') {
+    if (lineKind(l) === 'response_item') {
       switch (p?.type) {
         case 'message': {
           const text = contentToText(p.content)
@@ -191,11 +219,11 @@ export function parseCodexMessages(file: string): SessionMessage[] {
           break
         }
       }
-    } else if (l.type === 'event_msg') {
+    } else if (lineKind(l) === 'event_msg' && renderEchoes) {
       if (p?.type === 'user_message' && p.message)
-        out.push({ role: 'user', kind: 'text', text: String(p.message), ts })
+        out.push({ role: 'user', kind: 'text', text: capText(String(p.message)), ts })
       if (p?.type === 'agent_message' && p.message)
-        out.push({ role: 'assistant', kind: 'text', text: String(p.message), ts })
+        out.push({ role: 'assistant', kind: 'text', text: capText(String(p.message)), ts })
     }
   }
   return out

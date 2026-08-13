@@ -50,7 +50,9 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
   const head = readHead(file, META_HEAD_BYTES)
   if (!head.text) return null
   const lines = parseJsonlText(head.text, head.truncated)
-  if (lines.length === 0) return null
+  // a truncated head can legitimately yield nothing (one preamble line larger than
+  // the window) — the tail pass below still gets a chance to identify the session
+  if (lines.length === 0 && !head.truncated) return null
   const nativeId = basename(file, '.jsonl')
 
   let cwd: string | null = null
@@ -76,7 +78,7 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
   // only the first flag decides — a true after a false is an inline, not a file.
   let sidechain: boolean | null = null
 
-  for (const l of lines) {
+  const scan = (l: any): void => {
     if (sidechain === null && typeof l.isSidechain === 'boolean') sidechain = l.isSidechain
     if (l.cwd && !cwd) cwd = l.cwd
     if (l.gitBranch && !gitBranch) gitBranch = l.gitBranch
@@ -94,16 +96,34 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
       }
     }
   }
-  if (sidechain || messageCount === 0) return null
+
+  for (const l of lines) scan(l)
+
   if (head.truncated) {
-    messageCount = Math.max(messageCount, Math.round((messageCount * head.size) / META_HEAD_BYTES))
-    // The current title may have been re-appended past the head window — check the tail.
     const tail = readTail(file, TITLE_TAIL_BYTES)
-    if (tail.text) {
-      const text = tail.truncated ? tail.text.slice(tail.text.indexOf('\n') + 1) : tail.text
-      for (const l of parseJsonlText(text, false)) scanTitles(l)
-    }
+    const tailLines = tail.text
+      ? parseJsonlText(tail.truncated ? tail.text.slice(tail.text.indexOf('\n') + 1) : tail.text, false)
+      : []
+    // Messages can sit entirely past the head window when the file opens with a
+    // large preamble (summary / file-history-snapshot entries). The tail is then
+    // the only evidence this is a session at all, so count and extrapolate there.
+    const fromTail = messageCount === 0
+    // the tail is the wrong place to learn when a session STARTED — a head made
+    // only of summary/snapshot lines carries no timestamps, so adopting the
+    // tail's would collapse startedAt onto updatedAt. Keep the head's verdict.
+    const headFirstTs = firstTs
+    if (fromTail) for (const l of tailLines) scan(l)
+    // otherwise just the titles: the current one may have been re-appended late
+    else for (const l of tailLines) scanTitles(l)
+    firstTs = headFirstTs
+    // scale by the window the count actually came from, over the region that
+    // window represents — the head covers the file from byte 0, while the tail
+    // only speaks for the part the head already proved holds no messages
+    const window = fromTail ? TITLE_TAIL_BYTES : META_HEAD_BYTES
+    const span = fromTail ? Math.max(0, head.size - META_HEAD_BYTES) : head.size
+    messageCount = Math.max(messageCount, Math.round((messageCount * span) / window))
   }
+  if (sidechain || messageCount === 0) return null
   const title = truncate(customTitle || aiTitle || summary || firstPrompt)
 
   const ft = fileTimes(file)

@@ -144,6 +144,16 @@ export function App(): JSX.Element {
     }
   }, [binding?.repoRoot, indexVersion])
 
+  /** Drop buffered stream text and its timer — switching sessions or cancelling a
+   *  turn must not let a pending 40ms flush write into the next view of the log. */
+  const clearPendingText = useCallback(() => {
+    textBufRef.current = ''
+    if (textFlushRef.current) {
+      clearTimeout(textFlushRef.current)
+      textFlushRef.current = null
+    }
+  }, [])
+
   const flushText = useCallback(() => {
     textFlushRef.current = null
     const chunk = textBufRef.current
@@ -188,7 +198,13 @@ export function App(): JSX.Element {
       } else if (ev.type === 'done') {
         flushText()
         setActiveTurn(null)
-        setLog((l) => (l.some((m) => m.streaming) ? l.map((m) => ({ ...m, streaming: false })) : l))
+        // only touch rows that were streaming: replacing every row's identity here
+        // would re-render (and re-markdown) the whole memoized transcript at once
+        setLog((l) =>
+          l.some((m) => m.streaming)
+            ? l.map((m) => (m.streaming ? { ...m, streaming: false } : m))
+            : l
+        )
       }
     },
     [flushText]
@@ -224,6 +240,7 @@ export function App(): JSX.Element {
   const openSession = useCallback(
     async (s: SessionMeta) => {
       const seq = ++openSeqRef.current
+      clearPendingText()
       setActiveTurn(null)
       setSelectedSessionId(s.id)
       // restore the account this session's source dir belongs to — otherwise a
@@ -249,7 +266,7 @@ export function App(): JSX.Element {
       // a slower load for a previously clicked session must not clobber this one
       if (seq === openSeqRef.current) setLog(messages)
     },
-    [accounts]
+    [accounts, clearPendingText]
   )
 
   const send = useCallback(
@@ -257,18 +274,31 @@ export function App(): JSX.Element {
       if (!binding || activeTurn) return
       // the transcript shows attachments as one marker line per image
       setLog((l) => [...l, { role: 'user', kind: 'text', text: withImageMarks(prompt, images) }])
-      const turnId = await api.sendChat({
-        provider: binding.provider,
-        cwd: binding.cwd,
-        prompt,
-        resumeNativeId: binding.nativeSessionId ?? undefined,
-        permissionMode,
-        options: binding.options,
-        configDir: binding.configDir,
-        copilotUser: binding.copilotUser,
-        images
-      })
-      beginTurn(turnId)
+      try {
+        const turnId = await api.sendChat({
+          provider: binding.provider,
+          cwd: binding.cwd,
+          prompt,
+          resumeNativeId: binding.nativeSessionId ?? undefined,
+          permissionMode,
+          options: binding.options,
+          configDir: binding.configDir,
+          copilotUser: binding.copilotUser,
+          images
+        })
+        beginTurn(turnId)
+      } catch (err) {
+        // a rejected invoke (e.g. copilot account no longer logged in) must not
+        // leave the prompt looking sent with no reply and no error
+        setLog((l) => [
+          ...l,
+          {
+            role: 'system',
+            kind: 'system',
+            text: `Send failed: ${err instanceof Error ? err.message : String(err)}`
+          }
+        ])
+      }
     },
     [binding, activeTurn, beginTurn]
   )
@@ -327,9 +357,17 @@ export function App(): JSX.Element {
   const cancel = useCallback(() => {
     if (activeTurn) {
       void api.cancelChat(activeTurn)
+      // the killed turn's terminal `done` no longer matches activeTurnRef, so do
+      // its cleanup locally: stop the shimmer and drop any not-yet-flushed text
       setActiveTurn(null)
+      clearPendingText()
+      setLog((l) =>
+        l.some((m) => m.streaming)
+          ? l.map((m) => (m.streaming ? { ...m, streaming: false } : m))
+          : l
+      )
     }
-  }, [activeTurn])
+  }, [activeTurn, clearPendingText])
 
   const createPr = useCallback(async () => {
     // in-flight guard: a double-click must not race two `gh pr create` runs
