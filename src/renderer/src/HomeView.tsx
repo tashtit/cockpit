@@ -87,7 +87,15 @@ export function HomeView({
   }, [indexVersion])
 
   const start = async (): Promise<void> => {
-    if (busy || (!prompt.trim() && atts.attachments.length === 0) || !selected) return
+    // same guard the Start button enforces — ⌘Enter must not start a session
+    // under no account once the accounts snapshot says there is none
+    if (
+      busy ||
+      (!prompt.trim() && atts.attachments.length === 0) ||
+      !selected ||
+      (accounts !== null && !account)
+    )
+      return
     setError(null)
     window.localStorage.setItem('cockpit:provider', provider)
     window.localStorage.setItem('cockpit:mode', mode)

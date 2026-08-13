@@ -1,6 +1,5 @@
-import { execFile } from 'node:child_process'
 import type { PrStatus } from '../shared/types'
-import { cliEnv } from './env'
+import { execText } from './env'
 
 const TTL_MS = 60_000
 
@@ -30,26 +29,18 @@ export function getPrs(repoRoot: string): Promise<PrStatus[]> {
   return inflight
 }
 
-function fetchPrs(repoRoot: string): Promise<PrStatus[]> {
-  return new Promise((res) => {
-    execFile(
-      'gh',
-      [
-        'pr', 'list',
-        '--state', 'all',
-        '--limit', '100',
-        '--json', 'number,title,state,isDraft,headRefName,url'
-      ],
-      { cwd: repoRoot, env: cliEnv(), timeout: 15_000 },
-      (err, stdout) => {
-        if (err) return res([])
-        try {
-          const arr = JSON.parse(stdout)
-          res(Array.isArray(arr) ? arr : [])
-        } catch {
-          res([])
-        }
-      }
-    )
-  })
+async function fetchPrs(repoRoot: string): Promise<PrStatus[]> {
+  // fails soft: no gh, no auth, or not a GitHub remote just means no PR chips
+  const r = await execText(
+    'gh',
+    ['pr', 'list', '--state', 'all', '--limit', '100', '--json', 'number,title,state,isDraft,headRefName,url'],
+    { cwd: repoRoot }
+  )
+  if (!r.ok) return []
+  try {
+    const arr = JSON.parse(r.stdout)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
 }

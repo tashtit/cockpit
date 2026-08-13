@@ -82,8 +82,9 @@ function addDays(key: string, n: number): string {
 
 /* ---------- deep pass ---------- */
 
-/** What one transcript contributed; cached so unchanged files are never re-read. */
-interface DeepStats {
+/** What one transcript contributed; cached so unchanged files are never re-read.
+ *  Mutable on purpose — this is the per-file accumulator the deep pass fills in. */
+type DeepStats = {
   linesAdded: number
   linesRemoved: number
   files: Set<string>

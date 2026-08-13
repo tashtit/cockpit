@@ -33,6 +33,21 @@ describe('parseCodexMcpToml', () => {
     expect(parseCodexMcpToml('').size).toBe(0)
     expect(parseCodexMcpToml('not toml at all').size).toBe(0)
   })
+
+  // a dotted name must be a quoted key, or TOML nests it as a subtable and both
+  // codex and this parser see a different server than the one that was shared
+  it('reads a quoted dotted server name as one server', () => {
+    const toml = [
+      '[mcp_servers."my.server"]',
+      'command = "/usr/bin/mine"',
+      '',
+      '[mcp_servers."my.server".env]',
+      'TOKEN = "abc"'
+    ].join('\n')
+    const m = parseCodexMcpToml(toml)
+    expect([...m.keys()]).toEqual(['my.server'])
+    expect(m.get('my.server')).toMatchObject({ command: '/usr/bin/mine', env: { TOKEN: 'abc' } })
+  })
 })
 
 describe('removeCodexMcpToml', () => {
@@ -69,6 +84,63 @@ describe('removeCodexMcpToml', () => {
   it('throws when the server is not configured', () => {
     expect(() => removeCodexMcpToml(toml, 'nope')).toThrow(/not found/)
     expect(() => removeCodexMcpToml('', 'idea')).toThrow(/not found/)
+  })
+
+  // config.toml also holds the user's projects/model_providers/profiles — a header
+  // the line matcher fails to recognise would leave the dropper stuck and eat them
+  it('keeps unrelated sections whose header carries an inline comment', () => {
+    const withComments = [
+      '[mcp_servers.foo]',
+      'command = "foo"',
+      '',
+      '[projects."/Users/me/dev"] # main',
+      'trust_level = "trusted"',
+      '',
+      '[mcp_servers.bar]',
+      'command = "bar"'
+    ].join('\n')
+    const out = removeCodexMcpToml(withComments, 'foo')
+    expect(out).toContain('[projects."/Users/me/dev"]')
+    expect(out).toContain('trust_level = "trusted"')
+    expect([...parseCodexMcpToml(out).keys()]).toEqual(['bar'])
+  })
+
+  it('removes a server whose own header carries an inline comment', () => {
+    const commented = ['[mcp_servers.foo] # disabled', 'command = "foo"'].join('\n')
+    expect(removeCodexMcpToml(commented, 'foo')).not.toContain('mcp_servers.foo')
+  })
+
+  it('drops every subtable, not just .env', () => {
+    const withHeaders = [
+      '[mcp_servers.foo]',
+      'url = "https://x.test"',
+      '',
+      '[mcp_servers.foo.headers]',
+      'Authorization = "Bearer x"',
+      '',
+      '[mcp_servers.other]',
+      'command = "other"'
+    ].join('\n')
+    const out = removeCodexMcpToml(withHeaders, 'foo')
+    expect(out).not.toContain('mcp_servers.foo')
+    expect(out).not.toContain('Authorization')
+    expect([...parseCodexMcpToml(out).keys()]).toEqual(['other'])
+  })
+
+  it('removes a quoted dotted server instead of reporting it missing', () => {
+    const dotted = [
+      '[mcp_servers.idea]',
+      'url = "http://127.0.0.1:64342/stream"',
+      '',
+      '[mcp_servers."my.server"]',
+      'command = "/usr/bin/mine"',
+      '',
+      '[mcp_servers."my.server".env]',
+      'TOKEN = "abc"'
+    ].join('\n')
+    const out = removeCodexMcpToml(dotted, 'my.server')
+    expect([...parseCodexMcpToml(out).keys()]).toEqual(['idea'])
+    expect(out).not.toContain('my.server')
   })
 })
 

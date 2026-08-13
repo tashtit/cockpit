@@ -24,18 +24,25 @@ function setBaseline(repoRoot: string | null, baseline: string): void {
 
 const MAX_INSTRUCTION_BYTES = 1024 * 1024
 
+/** Full contents, or null when unreadable. Never truncates — callers write this back. */
 function readTarget(path: string): string | null {
   try {
-    return readFileSync(path, 'utf8').slice(0, MAX_INSTRUCTION_BYTES)
+    return readFileSync(path, 'utf8')
   } catch {
     return null
   }
 }
 
+/** Display copy for the renderer: bounded, since the UI never writes it back whole. */
+function readTargetForDisplay(path: string): string | null {
+  const raw = readTarget(path)
+  return raw === null ? null : raw.slice(0, MAX_INSTRUCTION_BYTES)
+}
+
 export function getInstructions(repoRoot: string | null): InstructionsState {
   const baseline = getBaseline(repoRoot)
   const files: InstructionFile[] = instructionTargets(repoRoot).map(({ agents, path }) => {
-    const raw = readTarget(path)
+    const raw = readTargetForDisplay(path)
     return {
       agents,
       path,

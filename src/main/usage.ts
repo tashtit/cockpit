@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -11,7 +10,7 @@ import type {
   UsageWindow
 } from '../shared/types'
 import { claudeIdentity, codexIdentity, ghUser } from './accounts'
-import { cliEnv } from './env'
+import { execText } from './env'
 import { readTail, toMs, walkFiles } from './parsers/util'
 
 /**
@@ -274,18 +273,10 @@ export function parsePremiumRequests(
   return { requests, requestsBilled: Math.round(requestsBilled) }
 }
 
-function ghApi(path: string): Promise<{ out: string | null; err: string | null }> {
-  return new Promise((res) => {
-    execFile(
-      'gh',
-      ['api', path],
-      { env: cliEnv(), timeout: 15_000, maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) return res({ out: null, err: String(stderr || err.message || 'gh failed') })
-        res({ out: stdout, err: null })
-      }
-    )
-  })
+async function ghApi(path: string): Promise<{ out: string | null; err: string | null }> {
+  const r = await execText('gh', ['api', path])
+  if (!r.ok) return { out: null, err: r.stderr.trim() || r.error || 'gh failed' }
+  return { out: r.stdout, err: null }
 }
 
 async function copilotUsage(login: string): Promise<ProviderUsage> {

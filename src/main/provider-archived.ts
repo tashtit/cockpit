@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SourceDir } from '../shared/types'
+import { execText } from './env'
 
 /**
  * Sessions archived — or deleted — inside the provider's own app must never show up in
@@ -99,31 +99,25 @@ type CopilotRow = {
 }
 
 /** null = the read failed; [] = it worked and the table is empty. */
-function copilotSessionRows(db: string): Promise<CopilotRow[] | null> {
-  if (!existsSync(db)) return Promise.resolve([])
-  return new Promise((resolve) => {
-    execFile(
-      'sqlite3',
-      ['-readonly', db, 'SELECT id, archived_at IS NOT NULL FROM sessions'],
-      { timeout: 5000 },
-      (err, stdout) => {
-        if (err) {
-          console.error(`[indexer] copilot session read failed for ${db}:`, err.message)
-          return resolve(null)
-        }
-        resolve(
-          stdout
-            .split('\n')
-            .map((l) => l.trim())
-            .filter((l) => l.includes('|'))
-            .map((l) => {
-              const sep = l.lastIndexOf('|')
-              return { id: l.slice(0, sep), archived: l.slice(sep + 1) === '1' }
-            })
-        )
-      }
-    )
-  })
+async function copilotSessionRows(db: string): Promise<CopilotRow[] | null> {
+  if (!existsSync(db)) return []
+  const r = await execText(
+    'sqlite3',
+    ['-readonly', db, 'SELECT id, archived_at IS NOT NULL FROM sessions'],
+    { timeoutMs: 5000 }
+  )
+  if (!r.ok) {
+    console.error(`[indexer] copilot session read failed for ${db}:`, r.stderr.trim() || r.error)
+    return null
+  }
+  return r.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.includes('|'))
+    .map((l) => {
+      const sep = l.lastIndexOf('|')
+      return { id: l.slice(0, sep), archived: l.slice(sep + 1) === '1' }
+    })
 }
 
 /**

@@ -3,6 +3,7 @@ import {
   endpointAgents,
   endpointEnv,
   endpointSupports,
+  isBlockedEndpointHost,
   modelsRequest,
   parseModelsResponse,
   sanitizeEndpoint
@@ -59,6 +60,36 @@ describe('sanitizeEndpoint', () => {
     expect(sanitizeEndpoint({ label: 'x', type: 'openai', baseUrl: 'not a url' }, 'i')).toBeNull()
     expect(sanitizeEndpoint({ label: 'x', type: 'openai', baseUrl: 'ftp://a.example' }, 'i')).toBeNull()
     expect(sanitizeEndpoint({ label: 'x', type: 'openai', baseUrl: 'file:///etc' }, 'i')).toBeNull()
+  })
+
+  it('rejects link-local hosts but keeps local gateways usable', () => {
+    const base = { label: 'x', type: 'openai' }
+    // main fetches these URLs outside the renderer's CSP — cloud metadata is off limits
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://169.254.169.254/latest' }, 'i')).toBeNull()
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://metadata.google.internal/x' }, 'i')).toBeNull()
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://[fe80::1]/v1' }, 'i')).toBeNull()
+    // running Ollama/LM Studio locally or on the LAN stays a first-class setup
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://localhost:11434/v1' }, 'i')).not.toBeNull()
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://192.168.1.20:4000' }, 'i')).not.toBeNull()
+  })
+
+  // the URL parser rewrites a mapped address to ::ffff:a9fe:a9fe, which matches
+  // neither the IPv4 nor the IPv6 rule unless it is decoded first
+  it('sees through IPv4-mapped IPv6 spellings of a blocked address', () => {
+    const base = { label: 'x', type: 'openai' }
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://[::ffff:169.254.169.254]/v1' }, 'i')).toBeNull()
+    expect(isBlockedEndpointHost('[::ffff:a9fe:a9fe]')).toBe(true)
+    expect(isBlockedEndpointHost('::ffff:169.254.169.254')).toBe(true)
+    // a mapped loopback is still just loopback — local gateways keep working
+    expect(isBlockedEndpointHost('::ffff:7f00:1')).toBe(false)
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://[::ffff:127.0.0.1]:11434' }, 'i')).not.toBeNull()
+  })
+
+  it('normalizes numeric IPv4 encodings of a blocked address', () => {
+    const base = { label: 'x', type: 'openai' }
+    // WHATWG parses these back to 169.254.169.254 before the guard sees them
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://2852039166/latest' }, 'i')).toBeNull()
+    expect(sanitizeEndpoint({ ...base, baseUrl: 'http://0251.0376.0251.0376/' }, 'i')).toBeNull()
   })
 
   it('rejects malformed headers and wire APIs', () => {

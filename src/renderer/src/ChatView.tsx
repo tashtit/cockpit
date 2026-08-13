@@ -321,13 +321,20 @@ const Message = memo(function Message({
         <ProviderLogo p={provider} size={14} />
       </span>
       <div className="assistant-body markdown">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
-          components={{ pre: CodeBlock }}
-        >
-          {m.text}
-        </ReactMarkdown>
+        {m.streaming ? (
+          // the in-flight message grows on every ~40ms flush — re-running the full
+          // markdown+highlight pipeline over it each time is O(n²) per reply, so
+          // stream as plain text and markdownify once when the turn completes
+          <p className="streaming-plain">{m.text}</p>
+        ) : (
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeHighlight]}
+            components={{ pre: CodeBlock }}
+          >
+            {m.text}
+          </ReactMarkdown>
+        )}
       </div>
     </div>
   )

@@ -38,6 +38,12 @@ export function upsertSharedBlock(raw: string, baseline: string): string {
   if (s !== -1 && e !== -1) {
     return raw.slice(0, s) + block + raw.slice(e + END.length)
   }
+  if (s !== -1) {
+    // orphaned START (hand-edited or truncated file): repair it in place rather
+    // than appending a second block — a later upsert would otherwise treat the
+    // span from this START to the appended END as managed and eat what's between
+    return raw.slice(0, s) + block + raw.slice(s + START.length)
+  }
   if (raw.trim() === '') return block + '\n'
   return raw.replace(/\n*$/, '\n\n') + block + '\n'
 }

@@ -83,9 +83,20 @@ export function readJsonlTail(file: string): { lines: any[]; truncated: boolean 
   return { lines: parseJsonlText(text, false), truncated: tail.truncated }
 }
 
+/**
+ * Slice without splitting a surrogate pair — `.slice()` counts UTF-16 code units,
+ * so cutting mid-emoji leaves a lone surrogate that renders as U+FFFD.
+ */
+function sliceCodePoints(s: string, end: number): string {
+  const cut = end > 0 && end < s.length && /[\uD800-\uDBFF]/.test(s[end - 1]) ? end - 1 : end
+  return s.slice(0, cut)
+}
+
 /** Cap a single message's text so one giant tool dump can't blow up the IPC payload. */
 export function capText(s: string, max = 20_000): string {
-  return s.length > max ? s.slice(0, max) + `\n… (${s.length - max} more chars)` : s
+  if (s.length <= max) return s
+  const kept = sliceCodePoints(s, max)
+  return kept + `\n… (${s.length - kept.length} more chars)`
 }
 
 /** Recursively list files under dir (depth-limited), tolerant of missing dirs. */
@@ -138,6 +149,28 @@ export function readJson(file: string): any | null {
   }
 }
 
+/**
+ * Agent config files are hand-editable and some (copilot's config.json) ship with
+ * leading `//` comment lines. Parse those tolerantly — a strict parse turns one
+ * comment into "no config at all", which reads as a wiped inventory.
+ */
+export function parseJsonc(raw: string): any | null {
+  try {
+    return JSON.parse(raw.replace(/^\s*\/\/.*$/gm, ''))
+  } catch {
+    return null
+  }
+}
+
+/** readJson for hand-editable agent configs; tolerates `//` comment lines. */
+export function readJsoncFile(file: string): any | null {
+  try {
+    return parseJsonc(readFileSync(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
 export function fileTimes(file: string): { start: number; end: number } {
   try {
     const s = statSync(file)
@@ -176,7 +209,7 @@ export function contentToText(content: unknown): string {
 
 export function truncate(s: string, n = 80): string {
   const one = s.replace(/\s+/g, ' ').trim()
-  return one.length > n ? one.slice(0, n - 1) + '…' : one
+  return one.length > n ? sliceCodePoints(one, n - 1) + '…' : one
 }
 
 /**

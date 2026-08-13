@@ -1,17 +1,13 @@
 import { app } from 'electron'
-import { execFile } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { WorkspaceInfo } from '../shared/types'
-import { cliEnv } from './env'
+import { execText } from './env'
 
-function run(cmd: string, args: string[], cwd: string): Promise<string> {
-  return new Promise((res, rej) => {
-    execFile(cmd, args, { cwd, env: cliEnv(), timeout: 120_000 }, (err, stdout, stderr) => {
-      if (err) rej(new Error(stderr.trim() || stdout.trim() || String(err)))
-      else res(stdout.trim())
-    })
-  })
+async function run(cmd: string, args: string[], cwd: string): Promise<string> {
+  const r = await execText(cmd, args, { cwd, timeoutMs: 120_000 })
+  if (!r.ok) throw new Error(r.stderr.trim() || r.stdout.trim() || r.error || `${cmd} failed`)
+  return r.stdout.trim()
 }
 
 function slugify(name: string): string {

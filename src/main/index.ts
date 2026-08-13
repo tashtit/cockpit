@@ -55,6 +55,15 @@ let indexer: SessionIndexer
 let chat: ChatManager
 
 /**
+ * Push an event to the renderer. Streams and scans outlive the window on macOS
+ * (window-all-closed doesn't quit) — sending to a destroyed webContents would
+ * throw inside a stream handler and take the whole main process down.
+ */
+function sendToWin(channel: string, payload?: unknown): void {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+/**
  * Dev-only: resolve COCKPIT_DEV_DISPLAY to concrete window bounds, and print
  * the display table so the developer can see which index is which screen.
  */
@@ -163,6 +172,10 @@ function createWindow(): void {
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  win.on('closed', () => {
+    win = null
+  })
 }
 
 /** IPC path args come from the renderer — only act on roots the indexer itself derived. */
@@ -182,9 +195,38 @@ function chatImagesDir(): string {
   return join(app.getPath('userData'), 'chat-images')
 }
 
+/**
+ * A chat turn spawns an autonomous CLI agent in `cwd` — the renderer must only be
+ * able to point it at directories the app itself derived: the app's worktrees, a
+ * known repo root (or below), or the recorded cwd of an indexed session.
+ */
+function assertKnownCwd(cwd: unknown): string {
+  if (typeof cwd !== 'string') throw new Error('invalid working directory')
+  const c = resolve(cwd)
+  if (c === worktreesDir() || c.startsWith(worktreesDir() + '/')) return c
+  if ([...indexer.knownRepoRoots()].some((r) => c === r || c.startsWith(r + '/'))) return c
+  if (indexer.knownSessionCwds().has(c)) return c
+  throw new Error(`unknown working directory: ${c}`)
+}
+
+/** Config homes are main-derived too: only a configured source (or the provider default). */
+function assertKnownConfigDir(configDir: unknown, provider: Provider): string {
+  if (typeof configDir !== 'string') throw new Error('invalid config home')
+  // `provider` is renderer input with a compile-time-only type — it is about to be
+  // interpolated into a path, so re-check it here rather than trusting the caller
+  if (!(['claude', 'codex', 'copilot'] as Provider[]).includes(provider)) {
+    throw new Error('unknown agent')
+  }
+  const c = resolve(configDir)
+  if (c === join(homedir(), `.${provider}`)) return c
+  const known = loadConfig().sources.some((s) => s.provider === provider && resolve(s.path) === c)
+  if (!known) throw new Error(`unknown ${provider} config home: ${c}`)
+  return c
+}
+
 app.whenReady().then(() => {
   const cfg = loadConfig()
-  indexer = new SessionIndexer(() => win?.webContents.send('index-updated'), {
+  indexer = new SessionIndexer(() => sendToWin('index-updated'), {
     cacheFile: join(app.getPath('userData'), 'index-cache.json')
   })
   indexer.setArchived(cfg.archived ?? [])
@@ -341,13 +383,18 @@ app.whenReady().then(() => {
     (ev) => {
       const byok = byokTurns.get(ev.turnId)
       if (byok && ev.type === 'session') {
-        bindSessionEndpoint(`${byok.provider}:${ev.nativeSessionId}`, byok.endpointId)
+        try {
+          bindSessionEndpoint(`${byok.provider}:${ev.nativeSessionId}`, byok.endpointId)
+        } catch (err) {
+          // a config-write failure must not blow up inside the stream handler
+          console.error('[chat] failed to persist session endpoint binding:', err)
+        }
       }
       if (ev.type === 'done') byokTurns.delete(ev.turnId)
-      win?.webContents.send('chat-event', ev)
+      sendToWin('chat-event', ev)
     },
     {
-      onBusyChange: (ids) => win?.webContents.send('busy-sessions', ids),
+      onBusyChange: (ids) => sendToWin('busy-sessions', ids),
       resolveEndpoint: (id) => listModelEndpoints().find((e) => e.id === id),
       resolveKey: (ep) => getEndpointKey(ep.id)
     }
@@ -362,6 +409,14 @@ app.whenReady().then(() => {
       const { images: rawImages, ...rest } = req
       const images = assertChatImages(chatImagesDir(), rawImages)
       req = images ? { ...rest, images } : rest
+    }
+    // the working directory and config home are renderer input too — both must
+    // come from app-derived state before a provider CLI is spawned against them
+    req = {
+      ...req,
+      cwd: assertKnownCwd(req.cwd),
+      configDir:
+        req.configDir === undefined ? undefined : assertKnownConfigDir(req.configDir, req.provider)
     }
     // a resumed BYOK session keeps the endpoint it was started with
     if (req.resumeNativeId && !req.options?.modelEndpoint) {

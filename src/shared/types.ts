@@ -145,7 +145,7 @@ export type ModelEndpoint = {
 }
 
 /** Renderer-supplied endpoint definition — main assigns the id and stores the key. */
-export type NewModelEndpoint = Omit<ModelEndpoint, 'id' | 'hasKey'> & { apiKey?: string }
+export type NewModelEndpoint = Omit<ModelEndpoint, 'id' | 'hasKey'> & { readonly apiKey?: string }
 
 /** Per-agent knobs; each maps to that CLI's own flags. */
 export type AgentOptions = {

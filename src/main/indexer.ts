@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSync, rmSync, watch, type FSWatcher } from 'node:fs'
 import { writeFile, rename, rm } from 'node:fs/promises'
-import { dirname, join, sep } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import type {
   Mutable,
   Provider,
@@ -71,6 +71,8 @@ const UPDATE_THROTTLE_MS = 800
 const CACHE_SAVE_INTERVAL_MS = 30_000
 /** How often to re-check watch roots that didn't exist when sources were set. */
 const WATCH_RETRY_INTERVAL_MS = 30_000
+/** Floor for re-judging a not-a-session verdict (see knownNonSessions). */
+const PROBE_REGROW_BYTES = 4096
 
 let cacheSaveSeq = 0
 /**
@@ -146,8 +148,12 @@ export class SessionIndexer {
    * which live in the same sessions/YYYY/MM/DD dirs as real rollouts). They stream
    * appends for minutes — without this verdict cache every append would debounce
    * into a full rescan. Cleared on rescan so the truth is re-derived.
+   *
+   * Keyed to the size at verdict time: a file can also parse as null merely because
+   * it had no messages *yet*, so the verdict is re-derived once the file grows
+   * substantially (see PROBE_REGROW_FACTOR) rather than being final.
    */
-  private knownNonSessions = new Set<string>()
+  private knownNonSessions = new Map<string, number>()
   private updateTimer: NodeJS.Timeout | null = null
   private saveTimer: NodeJS.Timeout | null = null
   private cacheDirty = false
@@ -349,8 +355,12 @@ export class SessionIndexer {
     }
     if (event === 'change') {
       // A file already judged not-a-session (codex subagent rollout) streaming appends —
-      // ignore until the next full rescan re-derives the verdict.
-      if (this.knownNonSessions.has(path)) return
+      // ignore until it grows enough to be worth re-judging, or the next full rescan.
+      const verdictSize = this.knownNonSessions.get(path)
+      if (verdictSize !== undefined) {
+        if (!this.outgrewVerdict(path, verdictSize)) return
+        this.knownNonSessions.delete(path)
+      }
       // 'change' on a known session file → cheap single-file refresh
       if (this.fileSource.has(path)) {
         if (this.rescanTimer) return // a pending full rescan already covers it
@@ -377,7 +387,13 @@ export class SessionIndexer {
             this.emitUpdate()
             this.scheduleSaveCache()
           } else {
-            this.knownNonSessions.add(path)
+            let size = 0
+            try {
+              size = statSync(path).size
+            } catch {
+              /* vanished mid-probe — record 0 so any later content re-probes */
+            }
+            this.knownNonSessions.set(path, size)
           }
           return
         }
@@ -386,6 +402,20 @@ export class SessionIndexer {
     // 'rename' (created/deleted) or unknown file → structure changed, re-enumerate.
     // Only session-shaped files matter; other churn was already filtered by watchIgnored.
     if (/\.(jsonl|json)$/.test(path) || event === 'rename') this.scheduleRescan()
+  }
+
+  /**
+   * Has a not-a-session file grown enough to be worth re-parsing? Doubling (with a
+   * small floor) means a rollout that was merely empty when first probed is picked
+   * up within a few appends, while a genuine non-session that streams for minutes
+   * is only re-parsed O(log n) times instead of on every append.
+   */
+  private outgrewVerdict(path: string, verdictSize: number): boolean {
+    try {
+      return statSync(path).size >= Math.max(verdictSize * 2, verdictSize + PROBE_REGROW_BYTES)
+    } catch {
+      return false
+    }
   }
 
   /** The source whose session roots contain this path — watcher events carry no source. */
@@ -485,6 +515,10 @@ export class SessionIndexer {
       this.fileSource = nextSource
       this.emitUpdate()
       this.scheduleSaveCache()
+    } catch (err) {
+      // every caller fires rescan without awaiting — an escaped throw would be an
+      // unhandled rejection that silently leaves a half-published index behind
+      console.error('[indexer] rescan failed:', err)
     } finally {
       this.scanning = false
       if (this.scanQueued) {
@@ -509,6 +543,11 @@ export class SessionIndexer {
       cached.size === st.size &&
       (cached.aux ?? 0) === aux
     ) {
+      // the session file is unchanged, but its repo identity may not be (a renamed
+      // origin remote) — re-resolve, which is what clearRepoCache() each rescan is
+      // for. resolveRepo caches per cwd, so the real cost is one ancestor walk +
+      // git-config read per distinct cwd per scan, not per session.
+      if (cached.meta) this.annotateRepo(cached.meta)
       return cached.meta
     }
     let meta: SessionMeta | null = null
@@ -614,6 +653,17 @@ export class SessionIndexer {
     const roots = new Set<string>()
     for (const g of this.listRepos()) if (g.root) roots.add(g.root)
     return roots
+  }
+
+  /**
+   * Working directories the app has seen a session run in — chat:send validates
+   * against this. Archived sessions are included on purpose: the sidebar can
+   * still open them, and resuming one must not be refused as an unknown path.
+   */
+  knownSessionCwds(): Set<string> {
+    const cwds = new Set<string>()
+    for (const s of this.sessions.values()) if (s.cwd) cwds.add(resolve(s.cwd))
+    return cwds
   }
 
   page(query: SessionQuery): SessionPage {

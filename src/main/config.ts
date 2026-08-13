@@ -1,6 +1,6 @@
 import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
 
@@ -24,10 +24,27 @@ type AppConfig = {
   readonly modelEndpoints?: ModelEndpoint[]
   /** ModelEndpoint.id each BYOK session runs on, keyed by `${provider}:${nativeId}` */
   readonly sessionEndpoints?: Record<string, string>
+  /**
+   * Labels of removed endpoints that sessions are still bound to, keyed by the old
+   * id. Ids are fresh UUIDs, so without this a re-added provider could never
+   * reclaim its sessions and their bindings would refuse forever.
+   */
+  readonly removedEndpoints?: Record<string, string>
+}
+
+/**
+ * Dev/test override (index.ts applies the same var to app.setPath, so in dev both
+ * agree); packaged builds always use the real userData dir. `app` has no runtime
+ * under vitest, which is what makes this module unit-testable.
+ */
+export function userDataDir(): string {
+  const override = process.env['COCKPIT_USER_DATA']
+  if (override && app?.isPackaged !== true) return resolve(override)
+  return app.getPath('userData')
 }
 
 function configPath(): string {
-  return join(app.getPath('userData'), 'cockpit-config.json')
+  return join(userDataDir(), 'cockpit-config.json')
 }
 
 /** First run: auto-detect default provider homes. */
@@ -42,15 +59,36 @@ function detectDefaults(): SourceDir[] {
 }
 
 export function loadConfig(): AppConfig {
+  let raw: string | null = null
+  // Only a genuinely absent file is a first run. Any other read failure (EACCES
+  // after a permissions mishap, EISDIR, a transient EMFILE while the indexer holds
+  // thousands of descriptors) must not be mistaken for "no config yet" — that is
+  // what used to overwrite the real one with defaults.
+  let missing = false
   try {
-    const raw = readFileSync(configPath(), 'utf8')
-    const cfg = JSON.parse(raw) as AppConfig
-    if (Array.isArray(cfg.sources)) return cfg
-  } catch {
-    /* first run or corrupt config */
+    raw = readFileSync(configPath(), 'utf8')
+  } catch (err) {
+    missing = (err as NodeJS.ErrnoException).code === 'ENOENT'
+    if (!missing) console.error(`[config] cannot read ${configPath()}:`, err)
+  }
+  if (raw !== null) {
+    try {
+      const cfg = JSON.parse(raw) as AppConfig
+      if (Array.isArray(cfg.sources)) return cfg
+      throw new Error('config has no sources[]')
+    } catch (err) {
+      // an existing-but-unreadable config must never be clobbered: keep the raw
+      // bytes recoverable, run on in-memory defaults, and don't persist them
+      try {
+        writeFileSync(configPath() + '.corrupt', raw)
+      } catch {
+        /* backup is best-effort */
+      }
+      console.error(`[config] unreadable ${configPath()} (backed up to .corrupt):`, err)
+    }
   }
   const cfg = { sources: detectDefaults(), archived: [] }
-  saveConfig(cfg)
+  if (missing) saveConfig(cfg)
   return cfg
 }
 
@@ -100,18 +138,53 @@ export function addModelEndpoint(ep: ModelEndpoint): ModelEndpoint[] {
   const eps = existing.some((e) => e.id === ep.id)
     ? existing.map((e) => (e.id === ep.id ? ep : e))
     : [...existing, ep]
-  saveConfig({ ...cfg, modelEndpoints: eps })
+  // re-adding a provider under the label it was removed with adopts the sessions
+  // that were bound to it, so "refuses until it is re-added" is actually true
+  const reclaimed = Object.entries(cfg.removedEndpoints ?? {})
+    .filter(([, label]) => label === ep.label)
+    .map(([oldId]) => oldId)
+  const tombstones = Object.fromEntries(
+    Object.entries(cfg.removedEndpoints ?? {}).filter(([oldId]) => !reclaimed.includes(oldId))
+  )
+  const sessions = Object.fromEntries(
+    Object.entries(cfg.sessionEndpoints ?? {}).map(([sid, eid]) => [
+      sid,
+      reclaimed.includes(eid) ? ep.id : eid
+    ])
+  )
+  saveConfig({
+    ...cfg,
+    modelEndpoints: eps,
+    sessionEndpoints: sessions,
+    removedEndpoints: tombstones
+  })
   return eps
+}
+
+/**
+ * Update an existing endpoint in place; a no-op when it was removed meanwhile —
+ * a models-cache refresh finishing after removal must not resurrect the endpoint.
+ */
+export function updateModelEndpoint(ep: ModelEndpoint): void {
+  const cfg = loadConfig()
+  const existing = cfg.modelEndpoints ?? []
+  if (!existing.some((e) => e.id === ep.id)) return
+  saveConfig({ ...cfg, modelEndpoints: existing.map((e) => (e.id === ep.id ? ep : e)) })
 }
 
 export function removeModelEndpoint(id: string): ModelEndpoint[] {
   const cfg = loadConfig()
+  const removed = (cfg.modelEndpoints ?? []).find((e) => e.id === id)
   const eps = (cfg.modelEndpoints ?? []).filter((e) => e.id !== id)
-  // sessions bound to a deleted endpoint must fail loudly on resume, not dangle
-  const sessions = Object.fromEntries(
-    Object.entries(cfg.sessionEndpoints ?? {}).filter(([, eid]) => eid !== id)
-  )
-  saveConfig({ ...cfg, modelEndpoints: eps, sessionEndpoints: sessions })
+  // sessionEndpoints bindings are kept on purpose: the dangling binding is what
+  // makes a resume refuse loudly (endpointPreflight's "no longer configured")
+  // instead of silently falling back to the first-party backend. Remember the
+  // label so re-adding the provider can adopt those sessions again.
+  const stillBound =
+    removed && Object.values(cfg.sessionEndpoints ?? {}).includes(id)
+      ? { ...cfg.removedEndpoints, [id]: removed.label }
+      : cfg.removedEndpoints
+  saveConfig({ ...cfg, modelEndpoints: eps, removedEndpoints: stillBound })
   return eps
 }
 
@@ -138,6 +211,9 @@ export function sessionEndpointFor(sessionId: string): string | undefined {
 }
 
 export function saveConfig(cfg: AppConfig): void {
-  mkdirSync(app.getPath('userData'), { recursive: true })
-  writeFileSync(configPath(), JSON.stringify(cfg, null, 2))
+  mkdirSync(userDataDir(), { recursive: true })
+  // write-then-rename: a crash mid-write must never leave a truncated config
+  const tmp = configPath() + '.tmp'
+  writeFileSync(tmp, JSON.stringify(cfg, null, 2))
+  renameSync(tmp, configPath())
 }

@@ -437,6 +437,8 @@ summary::-webkit-details-marker { display: none; }
 .assistant-body { min-width: 0; max-width: min(85%, 76ch); }
 .msg-assistant.streaming .assistant-body { border-left: 2px solid var(--accent);
   padding-left: var(--s3); margin-left: -10px; }
+/* in-flight text renders unmarkdowned (see Message) — keep the author's line breaks */
+.streaming-plain { white-space: pre-wrap; word-break: break-word; }
 
 /* markdown — transcript prose reads at --fs-prose/1.6; UI chrome stays at --fs-base */
 .markdown { font-size: var(--fs-prose); line-height: 1.6; }
