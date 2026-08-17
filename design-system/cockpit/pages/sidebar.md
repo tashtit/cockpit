@@ -17,9 +17,13 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 - `.tree-top` (drag region, 40px top padding clears macOS traffic lights — the pad
   drops to `--s3` when the dev `.dev-banner` row already provides that clearance):
   app title button (→ home; the wordmark speaks the mono placard voice) · zoom chip
-  (only when zoom ≠ 100%, warn-colored, click resets) · eye project filter · Agents,
-  Profile, and Settings `.icon-btn`s (shared icons from `logos.tsx` — the same marks
-  the ⌘K palette renders, so nav and palette can't drift).
+  (only when zoom ≠ 100%, warn-colored, click resets) · eye project filter ·
+  `.nav-sep` hairline · Agents, Profile, and Settings `.nav-btn`s (shared icons from
+  `logos.tsx` — the same marks the ⌘K palette renders, so nav and palette can't
+  drift). The separator is semantic: the eye is a *tree control*, the trio is
+  *navigation*. The open view's icon stays lit (`.active` accent tint + inset
+  underline, `aria-current="page"`), and re-clicking it backs out (toggle); the
+  footer and empty-state Settings entries stay open-only.
 - `.search-row` — the search input plus `.new-task-btn`, an icon-only `.btn-primary`
   square (`aria-label="New task"`, ⌘N in the tooltip): the one always-visible way to
   start work (→ home composer, focused). Icon-only on purpose — the accent fill alone

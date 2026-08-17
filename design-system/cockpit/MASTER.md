@@ -21,8 +21,9 @@
 ## Design Language
 
 Instrument-HUD dark (the 2026-08 bolder pass): a near-black base (`--bg` → `--bg-deep`)
-under a static night-flight atmosphere — a whisper-faint instrument grid (`--grid-line`),
-a strong indigo aurora above, a faint horizon glow below. The window reads as two
+under a static night-flight atmosphere — the aurora doubles as a radar source, with
+faint concentric range rings (`--grid-line`) radiating across the glass, and a faint
+horizon glow below. Rings, not graph paper: the texture is Cockpit's own. The window reads as two
 materials: the **rail** (sidebar — darker glass, `color-mix` of `--bg-deep`) and the
 **deck** (content panes on `--pane`). Elevated translucent surfaces, hairline rgba
 borders, one indigo accent, and **per-agent identity colors** used consistently
@@ -42,7 +43,7 @@ GitHub PR-state colors match github.com exactly.
 |------|-------|-------|
 | Background (gradient top) | `#0b0d16` | `--bg` |
 | Background (gradient bottom) | `#020308` | `--bg-deep` |
-| Instrument grid line (decorative) | `rgba(167,178,255,0.025)` | `--grid-line` |
+| Range-ring line (decorative) | `rgba(167,178,255,0.035)` | `--grid-line` |
 | Elevated surface 1 / 2 | `#121521` / `#1b2031` | `--bg2` / `--bg3` |
 | Translucent surface | `rgba(167,178,255,0.05)` | `--surface` |
 | Border / strong border | `rgba(167,178,255,0.11)` / `0.19` | `--border` / `--border-strong` |
@@ -95,8 +96,8 @@ rather than a pale rinse of the button fill.
 - **Spacing:** `--s1` 4 / `--s2` 6 / `--s3` 8 / `--s4` 12 / `--s5` 16 / `--s6` 24. Tree indent tokens: `--indent-1` 14 / `--indent-15` 22 / `--indent-2` 30.
 - **Radii:** `--radius-sm` 6 / `--radius` 8 / `--radius-lg` 14 / `--radius-pill` 999. Nothing off-scale (the one exception is the 5px scrollbar thumb, which is half its own 10px track — geometry, not a design radius).
 - **Control heights — two steps only:** compact controls that share a row are **28px** (Select triggers, `.ns-opt`/`.source-add`/`.ns-branch-row` inputs, `.ns-account-single`, `.composer-identity`, `.btn-pr`, the composer bar's `.btn-primary`); standalone form buttons are **32px** (`.btn-primary`, `.btn-ghost`, `.btn-danger` in `.ns-actions`/composer footer). Never mix the two heights in one row — ragged bottom edges read as broken.
-- **Shadows:** three tokens, no ad-hoc values — `--shadow-card` (floating cards), `--shadow-pop` (popovers/listboxes), `--shadow-fill` (contact shadow under a filled button). The only glow is `--accent-glow` on primary buttons and focus rings. Modal backdrops use `--scrim` (`--bg-deep`'s channels at 0.6) — the ⌘K palette is currently the only modal; a second one reuses the same scrim.
-- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) and filled buttons (`.btn-primary`, `.btn-pr`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` (or a `color-mix` of the fill with `--white`) plus a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (chat header, composer, composer bar) are all `--pane`; the sidebar rail alone is darker glass (`color-mix` of `--bg-deep`). Reuse these; never invent new fill colors.
+- **Shadows:** three tokens, no ad-hoc values — `--shadow-card` (floating cards), `--shadow-pop` (popovers/listboxes), `--shadow-fill` (contact shadow under a filled button). The only glow is `--accent-glow` on focus rings — filled buttons are flat (see Depth). Modal backdrops use `--scrim` (`--bg-deep`'s channels at 0.6) — the ⌘K palette is currently the only modal; a second one reuses the same scrim.
+- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` — and filled buttons (`.btn-primary`, `.btn-pr`, `.btn-danger`) are **flat solid fills** (instrument keys, no gradients, no ambient glow), both finished with a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (chat header, composer, composer bar) are all `--pane`; the sidebar rail alone is darker glass (`color-mix` of `--bg-deep`). Reuse these; never invent new fill colors.
 - **HUD corner brackets** (`::after`, 8 corner-leg gradients at `rgba(--accent-rgb, 0.55)`): reserved for the two command surfaces — `.composer-card` and `.palette`. Don't spread them; one motif stays a signature, four become wallpaper.
 
 ## Motion

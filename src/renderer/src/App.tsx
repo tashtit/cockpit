@@ -400,6 +400,13 @@ export function App(): JSX.Element {
 
   const openUrl = useCallback((url: string) => void api.openExternal(url), [])
 
+  /** Nav icons are stateful: opening the view you're already on backs out of it. */
+  const toggleView = useCallback((kind: 'settings' | 'extensions' | 'profile') => {
+    setView((v) =>
+      v.kind === kind ? (bindingRef.current ? { kind: 'chat' } : { kind: 'welcome' }) : { kind }
+    )
+  }, [])
+
   // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
 
@@ -430,10 +437,10 @@ export function App(): JSX.Element {
           )
         }}
         onGoHome={() => setView({ kind: 'welcome' })}
+        onNav={toggleView}
         onOpenSettings={() => setView({ kind: 'settings' })}
-        onOpenExtensions={() => setView({ kind: 'extensions' })}
-        onOpenProfile={() => setView({ kind: 'profile' })}
         onOpenUrl={openUrl}
+        activeView={view.kind}
       />
       {view.kind === 'profile' ? (
         <ProfileView onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />

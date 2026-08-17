@@ -8,8 +8,8 @@
   /* instrument-HUD pass: the base drops nearer true black so panes and cards read
      as lit glass; --bg2/--bg3 stay put, which widens every elevation step */
   --bg-deep: #020308; --bg: #0b0d16; --bg2: #121521; --bg3: #1b2031;
-  /* the whisper-faint instrument grid behind everything — decorative, never load-bearing */
-  --grid-line: rgba(167, 178, 255, 0.025);
+  /* the whisper-faint range rings behind everything — decorative, never load-bearing */
+  --grid-line: rgba(167, 178, 255, 0.035);
   --surface: rgba(167, 178, 255, 0.05);
   --border: rgba(167, 178, 255, 0.11);
   --border-strong: rgba(167, 178, 255, 0.19);
@@ -59,11 +59,12 @@
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 body { background:
-    /* the night-flight atmosphere, top to bottom: an instrument grid etched into
-       the glass, a strong accent aurora above, a faint horizon glow below, all
-       over the near-black base. Static on purpose — atmosphere, not animation. */
-    repeating-linear-gradient(0deg, var(--grid-line) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(90deg, var(--grid-line) 0 1px, transparent 1px 28px),
+    /* the night-flight atmosphere: the aurora is a radar source — faint concentric
+       range rings radiate from it across the glass — over a horizon glow below and
+       the near-black base. Rings, not graph paper: this texture is Cockpit's own.
+       Static on purpose — atmosphere, not animation. */
+    repeating-radial-gradient(circle at 50% -12%,
+      transparent 0 79px, var(--grid-line) 79px 80.5px),
     radial-gradient(110% 55% at 50% -12%, rgba(var(--accent-rgb), 0.14), transparent 62%),
     radial-gradient(90% 42% at 50% 114%, rgba(var(--accent-rgb), 0.06), transparent 60%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
@@ -188,6 +189,14 @@ summary::-webkit-details-marker { display: none; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--fg-dim); }
 .icon-btn:hover { background: var(--bg3); color: var(--fg); }
+/* the open view's nav icon stays lit — accent tint + inset underline, plus
+   aria-current="page" for the accessibility tree */
+.icon-btn.nav-btn.active { color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.14);
+  box-shadow: inset 0 -2px 0 var(--accent); }
+/* hairline between the eye (a tree control) and the navigation trio */
+.nav-sep { width: 1px; align-self: stretch; margin: var(--s1) var(--s1);
+  background: var(--border); flex-shrink: 0; }
 /* row hover actions: 24px is the floor — WCAG 2.5.8 minimum target, and these sit
    adjacent to each other in .row-actions so the spacing exception doesn't apply */
 .icon-btn.small { width: 24px; height: 24px; font-size: var(--fs-sm); line-height: 1; }
@@ -348,13 +357,12 @@ summary::-webkit-details-marker { display: none; }
 .pr-badge:hover { background: var(--bg3); }
 
 /* ---------- buttons ---------- */
+/* flat, decisive fills — instrument keys, not glowing gems. The 1px inset
+   top-light is the only lighting; ambient glow belongs to focus rings alone. */
 .btn-primary { color: var(--white); border-radius: var(--radius);
-  /* top-lit fill: mixes existing tokens, no new colors */
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-btn) 80%, var(--white)) 0%,
-    var(--accent-btn) 62%);
+  background: var(--accent-btn);
   padding: 7px var(--s5); font-weight: 600; font-size: var(--fs-sm);
-  box-shadow: inset 0 1px 0 var(--highlight-fill), var(--shadow-fill),
-    0 0 16px var(--accent-glow); }
+  box-shadow: inset 0 1px 0 var(--highlight-fill), var(--shadow-fill); }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-primary:disabled { opacity: 0.5; cursor: default;
   box-shadow: inset 0 1px 0 var(--highlight-fill-off); }
@@ -367,9 +375,8 @@ summary::-webkit-details-marker { display: none; }
 .btn-ghost.small { padding: 2px var(--s3); font-size: var(--fs-xs);
   border-radius: var(--radius-sm); min-height: 24px; }
 .btn-pr { color: var(--white); border-radius: var(--radius);
-  /* top-lit like btn-primary, but on the darker --ok-btn so white text keeps 4.5:1 */
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ok-btn) 82%, var(--white)) 0%,
-    var(--ok-btn) 62%);
+  /* flat like btn-primary, on the darker --ok-btn so white text keeps 4.5:1 */
+  background: var(--ok-btn);
   box-shadow: inset 0 1px 0 var(--highlight-fill), var(--shadow-fill);
   /* 5px vertical = 28px total — matches the Select trigger it sits beside */
   padding: 5px var(--s4); font-weight: 600; font-size: var(--fs-sm); flex-shrink: 0; }

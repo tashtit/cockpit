@@ -46,10 +46,10 @@ function renderSidebar(over: Partial<RepoGroup> = {}) {
     onNewSession: vi.fn(),
     onNewTask: vi.fn(),
     onGoHome: vi.fn(),
+    onNav: vi.fn(),
     onOpenSettings: vi.fn(),
-    onOpenExtensions: vi.fn(),
-    onOpenProfile: vi.fn(),
-    onOpenUrl: vi.fn()
+    onOpenUrl: vi.fn(),
+    activeView: 'welcome'
   }
   render(<TreeSidebar {...props} />)
   return props

@@ -146,8 +146,11 @@ test('sidebar search filters sessions and clearing restores the tree', async () 
 })
 
 test('settings lists the seeded source with its session count', async () => {
-  await win.getByRole('button', { name: 'Settings', exact: true }).click()
+  const gear = win.getByRole('button', { name: 'Settings', exact: true })
+  await gear.click()
   await expect(win.getByRole('heading', { name: 'Settings' })).toBeVisible()
+  // the open view's nav icon is marked current; re-clicking it toggles back out
+  await expect(gear).toHaveAttribute('aria-current', 'page')
   // the usage section reuses .source-row markup for the same label — the sources
   // row is the one that shows the indexed directory path
   const source = win.locator('.source-row', { hasText: claudeSrc })
@@ -159,8 +162,9 @@ test('settings lists the seeded source with its session count', async () => {
   // display preferences are present with live controls
   await expect(win.getByRole('button', { name: 'Show sessions from' })).toBeVisible()
   await expect(win.getByRole('button', { name: 'Time format' })).toBeVisible()
-  await win.getByRole('button', { name: 'Close' }).click()
+  await gear.click()
   await expect(homeHeading()).toBeVisible()
+  await expect(gear).not.toHaveAttribute('aria-current', 'page')
 })
 
 test('profile aggregates the fixture sessions into a heatmap', async () => {

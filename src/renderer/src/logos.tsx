@@ -122,11 +122,22 @@ const OCTICON_GEAR =
 const OCTICON_GRAPH =
   'M1.5 1.75a.75.75 0 0 0-1.5 0v12.5c0 .414.336.75.75.75h14.5a.75.75 0 0 0 0-1.5H1.5V1.75Zm14.28 2.53a.75.75 0 0 0-1.06-1.06L10 7.94 7.53 5.47a.75.75 0 0 0-1.06 0L3.22 8.72a.75.75 0 0 0 1.06 1.06L7 7.06l2.47 2.47a.75.75 0 0 0 1.06 0l5.25-5.25Z'
 
-const OCTICON_PLUS =
-  'M7.75 2a.75.75 0 0 1 .75.75V7h4.25a.75.75 0 0 1 0 1.5H8.5v4.25a.75.75 0 0 1-1.5 0V8.5H2.75a.75.75 0 0 1 0-1.5H7V2.75A.75.75 0 0 1 7.75 2Z'
-
-export const PlusIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
-  <Octicon d={OCTICON_PLUS} size={size} />
+/** Compose mark (new note + pencil, hand-drawn): the "start something new" icon.
+ *  Stroked note body (the Select chevron set the stroke precedent) + filled pencil. */
+export const ComposeIcon = ({ size = 14 }: { size?: number }): JSX.Element => (
+  <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+    <path
+      d="M13.5 8.5V12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4.5a2 2 0 0 1 2-2h3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+    <path
+      d="M13.28 1.66a1.55 1.55 0 0 1 2.19 2.19L9.3 10.02l-2.85.66.66-2.85 6.17-6.17Z"
+      fill="currentColor"
+    />
+  </svg>
 )
 export const GearIcon = ({ size = 16 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_GEAR} size={size} />

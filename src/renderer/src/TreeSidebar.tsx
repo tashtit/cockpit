@@ -13,12 +13,12 @@ import {
   AgentIcon,
   ChatIcon,
   CockpitLogo,
+  ComposeIcon,
   GearIcon,
   GraphIcon,
   LinkExternalIcon,
   LiveDot,
   OrgIcon,
-  PlusIcon,
   PrBadge,
   ProviderLogo,
   PROVIDER_LABEL,
@@ -55,10 +55,10 @@ export function TreeSidebar({
   onNewSession,
   onNewTask,
   onGoHome,
+  onNav,
   onOpenSettings,
-  onOpenExtensions,
-  onOpenProfile,
-  onOpenUrl
+  onOpenUrl,
+  activeView
 }: {
   repos: RepoGroup[]
   indexVersion: number
@@ -71,10 +71,13 @@ export function TreeSidebar({
   /** The always-visible entry point: home composer, focused (same as ⌘N) */
   onNewTask: () => void
   onGoHome: () => void
+  /** Nav trio (toggles: re-clicking the active view backs out of it) */
+  onNav: (view: 'settings' | 'extensions' | 'profile') => void
+  /** Open-only Settings (empty-state button, footer) — never toggles closed */
   onOpenSettings: () => void
-  onOpenExtensions: () => void
-  onOpenProfile: () => void
   onOpenUrl: (url: string) => void
+  /** App's current view kind — lights the matching nav icon (aria-current) */
+  activeView: string
 }): JSX.Element {
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -128,24 +131,34 @@ export function TreeSidebar({
         )}
 
         <ProjectFilter repos={repos} />
+        {/* the eye is a tree control; the trio after the rule is navigation */}
+        <span className="nav-sep" aria-hidden="true" />
         <button
-          className="icon-btn"
+          className={`icon-btn nav-btn ${activeView === 'extensions' ? 'active' : ''}`}
           title="Agents — shared instructions, MCP servers, skills, plugins"
-          onClick={onOpenExtensions}
+          onClick={() => onNav('extensions')}
           aria-label="Agents"
+          aria-current={activeView === 'extensions' ? 'page' : undefined}
         >
           <AgentIcon size={16} />
         </button>
         <button
-          className="icon-btn"
+          className={`icon-btn nav-btn ${activeView === 'profile' ? 'active' : ''}`}
           title="Profile — your work across every agent"
-          onClick={onOpenProfile}
+          onClick={() => onNav('profile')}
           aria-label="Profile"
+          aria-current={activeView === 'profile' ? 'page' : undefined}
         >
           {/* GitHub's graph glyph: this is an activity view, not an account page */}
           <GraphIcon size={16} />
         </button>
-        <button className="icon-btn" title="Settings" onClick={onOpenSettings} aria-label="Settings">
+        <button
+          className={`icon-btn nav-btn ${activeView === 'settings' ? 'active' : ''}`}
+          title="Settings"
+          onClick={() => onNav('settings')}
+          aria-label="Settings"
+          aria-current={activeView === 'settings' ? 'page' : undefined}
+        >
           <GearIcon size={16} />
         </button>
       </div>
@@ -165,7 +178,7 @@ export function TreeSidebar({
           aria-label="New task"
           onClick={onNewTask}
         >
-          <PlusIcon size={14} />
+          <ComposeIcon size={14} />
         </button>
       </div>
       <div
