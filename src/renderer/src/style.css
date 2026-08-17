@@ -130,6 +130,13 @@ button, input, select, textarea, details { transition: background var(--dur) var
   border: 2.5px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover);
   border: 2.5px solid transparent; background-clip: content-box; }
+/* styling custom scrollbars makes Chromium paint the meeting corner WHITE by
+   default — and the same white square backs resizable textareas' grip */
+::-webkit-scrollbar-corner { background: transparent; }
+/* the resizer grip, redrawn in tokens: two quiet diagonal strokes */
+::-webkit-resizer { background:
+    linear-gradient(135deg, transparent 0 50%, var(--border-strong) 50% 57%,
+      transparent 57% 71%, var(--border-strong) 71% 78%, transparent 78%); }
 ::selection { background: rgba(var(--accent-rgb), 0.4); }
 
 /* stable pressed feedback: brightness, never layout-shifting transforms */
@@ -455,7 +462,9 @@ summary::-webkit-details-marker { display: none; }
 .badge-copilot { background: var(--copilot); }
 
 .messages { flex: 1; overflow-y: auto; padding: var(--s5) var(--s6); display: flex;
-  flex-direction: column; gap: var(--s4); }
+  flex-direction: column; gap: var(--s4);
+  /* the transcript must not shift sideways the moment it grows enough to scroll */
+  scrollbar-gutter: stable; }
 /* rows must never shrink to fit the viewport — overflow scrolls instead; without this,
    tool-rows (overflow:hidden → tiny min-content) compress to slivers in long transcripts */
 .messages > * { flex-shrink: 0; }
@@ -589,7 +598,7 @@ summary::-webkit-details-marker { display: none; }
 .empty-chat.small { flex: none; padding: var(--s6); align-self: center; }
 
 /* ---------- mission-control home ---------- */
-.home-view { overflow-y: auto; }
+.home-view { overflow-y: auto; scrollbar-gutter: stable both-edges; }
 .home-inner { width: min(700px, 94%); margin: 0 auto; padding: var(--s6) 0;
   display: flex; flex-direction: column; gap: var(--s5); min-height: 100%;
   /* `safe` falls back to flex-start when content overflows — an unqualified center
@@ -721,7 +730,11 @@ summary::-webkit-details-marker { display: none; }
 .palette-view-icon { display: inline-flex; color: var(--fg-dim); flex-shrink: 0; }
 
 /* ---------- cards (new session / settings / agents / profile) ---------- */
-.new-session-view, .settings-view { overflow-y: auto; align-items: center; }
+/* stable both-edge gutters: the app's scrollbars are classic (not overlay), so
+   without a reserved gutter a view that scrolls shifts its centered card ~5px
+   against one that doesn't — the "dialog jumps between pages" bug */
+.new-session-view, .settings-view { overflow-y: auto; align-items: center;
+  scrollbar-gutter: stable both-edges; }
 /* ONE width for every card view — navigating between them must never make the
    dialog jump sizes */
 .ns-card { width: min(760px, 94%); margin: var(--s6) auto;
