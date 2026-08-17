@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import type { ChatBinding } from './App'
 import { AttachRow, useImageAttachments } from './attachments'
+import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
 import { BranchChip, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -71,6 +72,7 @@ export function ChatView({
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
     [prs, binding?.branch]
   )
+  const chatWidth = useChatWidth()
 
   const sliced = log.length > RENDER_LAST ? log.slice(-RENDER_LAST) : log
   const base = log.length - sliced.length
@@ -111,7 +113,8 @@ export function ChatView({
   }
 
   return (
-    <main className="chat">
+    // the conversation column tracks the user's width preference live
+    <main className="chat" style={{ '--chat-col': CHAT_WIDTH_CSS[chatWidth] } as React.CSSProperties}>
       <header className="chat-header">
         <span className={`badge badge-${binding.provider}`}>
           <ProviderLogo p={binding.provider} size={11} /> {PROVIDER_LABEL[binding.provider]}

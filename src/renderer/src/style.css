@@ -57,6 +57,10 @@
   /* --fs-prose: transcript/composer reading size — chrome stays at --fs-base */
   --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-prose: 14px; --fs-md: 15px;
   --fs-lg: 16px; --fs-xl: 26px;
+  /* conversation column ceiling — ChatView overrides it from the user's Display
+     preference; on big windows the exchange centers instead of stranding user
+     bubbles a screen away from the replies */
+  --chat-col: 860px;
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -462,8 +466,11 @@ summary::-webkit-details-marker { display: none; }
 .badge-codex svg { color: var(--white); }
 .badge-copilot { background: var(--copilot); }
 
-.messages { flex: 1; overflow-y: auto; padding: var(--s5) var(--s6); display: flex;
-  flex-direction: column; gap: var(--s4);
+.messages { flex: 1; overflow-y: auto; display: flex;
+  flex-direction: column; gap: var(--s4); padding-block: var(--s5);
+  /* the conversation column: symmetric padding centers the exchange at the
+     user's preferred width — user bubbles stay right, but near the replies */
+  padding-inline: max(var(--s6), calc((100% - var(--chat-col)) / 2));
   /* the transcript must not shift sideways the moment it grows enough to scroll */
   scrollbar-gutter: stable; }
 /* rows must never shrink to fit the viewport — overflow scrolls instead; without this,
@@ -562,7 +569,10 @@ summary::-webkit-details-marker { display: none; }
 .pulse-copilot { background: var(--copilot); }
 .session-row .pulse, .recent-row .pulse { flex-shrink: 0; }
 
-.composer { display: flex; flex-wrap: wrap; gap: var(--s3); padding: var(--s4) var(--s5);
+.composer { display: flex; flex-wrap: wrap; gap: var(--s3);
+  padding-block: var(--s4);
+  /* the composer types inside the same column the transcript reads in */
+  padding-inline: max(var(--s5), calc((100% - var(--chat-col)) / 2));
   border-top: 1px solid var(--border); background: var(--pane);
   /* the action button rides the textarea's vertical center at every height */
   align-items: center; }

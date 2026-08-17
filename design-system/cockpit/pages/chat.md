@@ -21,6 +21,18 @@ grab target.
   cwd/branch subtitle is selectable text.
 - Mode select persists to `cockpit:mode`; hints live in `title`, labels stay one word.
 
+## The conversation column
+
+- The exchange reads in a centered column: `.messages` and `.composer` share
+  symmetric `padding-inline: max(floor, calc((100% - var(--chat-col)) / 2))`, so on
+  large displays user bubbles stay right-aligned *within the column*, next to the
+  replies — never stranded at the window edge.
+- `--chat-col` comes from the user's **Chat width** preference (Settings → Display:
+  narrow 680 / comfortable 860 (default) / wide 1120 / full). It lives in
+  `chat-width.ts` — a localStorage-backed `useSyncExternalStore` store, so an open
+  chat re-columns live when Settings changes it. The header stays full-width on
+  purpose (it is chrome, not reading material).
+
 ## Transcript (`.messages`)
 
 - Row vocabulary — do not invent new message shapes:
