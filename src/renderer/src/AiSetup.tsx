@@ -11,6 +11,7 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { Markdown } from './Markdown'
 import { Select } from './Select'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
@@ -476,6 +477,7 @@ function InstructionsTab({
   const [inst, setInst] = useState<InstructionsState | null>(null)
   const [scope, setScope] = useState<string>('global')
   const [draft, setDraft] = useState('')
+  const [mdView, setMdView] = useState<'write' | 'preview'>('write')
   const [busy, setBusy] = useState(false)
   const repoRoot = scope === 'global' ? null : scope
   const gitRepos = repos.filter((r) => r.root !== null)
@@ -564,18 +566,45 @@ function InstructionsTab({
 
       {inst && (
         <>
-          <textarea
-            className="inst-baseline"
-            aria-label="Shared instructions"
-            rows={8}
-            placeholder={
-              repoRoot
-                ? '# Conventions for this repo that every agent should follow…'
-                : '# General instructions every agent should follow, everywhere…\n\nE.g. commit style, language, review rules, what never to touch.'
-            }
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
+          {/* GitHub-comment grammar: the baseline is markdown, so edit it like markdown */}
+          <div className="md-tabs" role="group" aria-label="Editor mode">
+            <button
+              className={`md-tab ${mdView === 'write' ? 'active' : ''}`}
+              aria-pressed={mdView === 'write'}
+              onClick={() => setMdView('write')}
+            >
+              Write
+            </button>
+            <button
+              className={`md-tab ${mdView === 'preview' ? 'active' : ''}`}
+              aria-pressed={mdView === 'preview'}
+              onClick={() => setMdView('preview')}
+            >
+              Preview
+            </button>
+          </div>
+          {mdView === 'write' ? (
+            <textarea
+              className="inst-baseline"
+              aria-label="Shared instructions"
+              rows={8}
+              placeholder={
+                repoRoot
+                  ? '# Conventions for this repo that every agent should follow…'
+                  : '# General instructions every agent should follow, everywhere…\n\nE.g. commit style, language, review rules, what never to touch.'
+              }
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          ) : (
+            <div className="inst-preview markdown" aria-label="Shared instructions preview">
+              {draft.trim() ? (
+                <Markdown text={draft} />
+              ) : (
+                <p className="inst-preview-empty">nothing to preview yet — write some markdown first</p>
+              )}
+            </div>
+          )}
           <div className="inst-actions">
             {dirty && <span className="inst-dirty">unsaved changes</span>}
             <button className="btn-ghost" disabled={busy || !dirty} onClick={() => void saveBaseline()}>

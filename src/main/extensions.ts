@@ -202,6 +202,24 @@ function readSkills(): SkillInfo[] {
   return out
 }
 
+/**
+ * Plugin/marketplace fields drift across Claude releases: a value that used to be a
+ * plain string can arrive as an object (`{source: 'github', repo}` /
+ * `{source: 'git', url}` / `{source: 'directory', path}`). Reduce anything to a
+ * human string — an object must never reach the UI as "[object Object]".
+ */
+function sourceLabel(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (typeof v === 'number') return String(v)
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    for (const k of ['repo', 'url', 'path']) {
+      if (typeof o[k] === 'string') return o[k] as string
+    }
+  }
+  return ''
+}
+
 function readPlugins(): PluginInfo[] {
   const out: PluginInfo[] = []
   const installed = readJsonFile(join(homedir(), '.claude', 'plugins', 'installed_plugins.json'))
@@ -210,7 +228,9 @@ function readPlugins(): PluginInfo[] {
     for (const [name, v] of Object.entries<any>(plugins)) {
       const detail =
         typeof v === 'object' && v
-          ? String(v.version ?? v.marketplace ?? (Array.isArray(v) ? `${v.length} versions` : ''))
+          ? Array.isArray(v)
+            ? `${v.length} versions`
+            : sourceLabel(v.version) || sourceLabel(v.marketplace)
           : ''
       out.push({ name, agent: 'claude', detail })
     }
@@ -234,8 +254,7 @@ function readMarketplaces(): MarketplaceInfo[] {
   const entries = known?.marketplaces ?? known
   if (entries && typeof entries === 'object') {
     for (const [name, v] of Object.entries<any>(entries)) {
-      const source =
-        typeof v === 'string' ? v : String(v?.source?.repo ?? v?.source ?? v?.url ?? '')
+      const source = typeof v === 'string' ? v : sourceLabel(v?.source) || sourceLabel(v?.url)
       out.push({ name, agent: 'claude', source })
     }
   }

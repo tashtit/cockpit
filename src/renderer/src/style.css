@@ -545,7 +545,8 @@ summary::-webkit-details-marker { display: none; }
 
 .composer { display: flex; flex-wrap: wrap; gap: var(--s3); padding: var(--s4) var(--s5);
   border-top: 1px solid var(--border); background: var(--pane);
-  align-items: flex-end; }
+  /* the action button rides the textarea's vertical center at every height */
+  align-items: center; }
 .composer textarea { flex: 1; resize: none; background: var(--bg2); color: var(--fg);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   padding: var(--s3) var(--s4); font: inherit; font-size: var(--fs-prose);
@@ -879,8 +880,21 @@ summary::-webkit-details-marker { display: none; }
 .inst-scope label { font-size: var(--fs-xs); color: var(--fg-dim); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.9px; }
 .inst-scope .select-wrap { flex: 1; min-width: 0; }
+/* the baseline is markdown — edit it with GitHub-comment grammar: Write/Preview
+   tabs over an editor surface (the code-block paper, --bg-deep) */
+.md-tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--border); }
+.md-tab { padding: var(--s1) var(--s4); font-size: var(--fs-sm); color: var(--fg-dim);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; min-height: 26px; }
+.md-tab:hover { color: var(--fg); }
+.md-tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
 .inst-baseline { width: 100%; font-family: var(--mono); font-size: var(--fs-sm);
-  line-height: 1.5; }
+  line-height: 1.6; background: var(--bg-deep); border-radius: var(--radius);
+  padding: var(--s4); min-height: 220px; }
+/* preview shares the editor's exact frame so toggling never shifts the card */
+.inst-preview { min-height: 220px; max-height: 420px; overflow-y: auto;
+  background: var(--bg-deep); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); padding: var(--s4); }
+.inst-preview-empty { color: var(--fg-dim); font-style: italic; font-size: var(--fs-sm); }
 .inst-actions { display: flex; align-items: center; justify-content: flex-end;
   gap: var(--s2); margin: var(--s2) 0 var(--s3); }
 .inst-dirty { color: var(--warn); font-size: var(--fs-xs); margin-right: auto; }
@@ -898,7 +912,8 @@ summary::-webkit-details-marker { display: none; }
 .inst-edit summary { color: var(--fg-dim); font-size: var(--fs-xs); cursor: pointer; }
 .inst-edit summary:hover { color: var(--fg); }
 .inst-edit textarea { width: 100%; margin-top: var(--s2); font-family: var(--mono);
-  font-size: var(--fs-xs); line-height: 1.5; }
+  font-size: var(--fs-xs); line-height: 1.6; background: var(--bg-deep);
+  border-radius: var(--radius); padding: var(--s3); }
 .inst-edit .inst-actions { margin-bottom: 0; }
 
 /* ---------- profile: activity heatmap + per-agent totals (ProfileView) ---------- */
@@ -912,18 +927,24 @@ summary::-webkit-details-marker { display: none; }
 .pv-stat span { color: var(--fg-dim); font-size: var(--fs-xs); font-weight: 600;
   letter-spacing: 0.6px; }
 
-/* 53 weeks never fits a 760px card — the grid scrolls inside its own box rather
-   than letting the page scroll sideways. */
-.pv-heat-scroll { overflow-x: auto; padding-bottom: var(--s2); }
-.pv-heat { --pv-sq: 11px; display: inline-grid; grid-template-columns: auto auto;
+/* The year of squares sizes itself to the card: a container query scales --pv-sq
+   so all weeks fit the available width (28px weekday column + 6px gap + per-week
+   4px gaps are the constants in the formula). No inner scrollbars in normal use —
+   overflow-x stays as a floor-fallback for tiny windows, and overflow-y is pinned
+   shut so a horizontal bar can never breed the redundant vertical one. */
+.pv-heat-scroll { container-type: inline-size; overflow-x: auto; overflow-y: hidden;
+  padding-bottom: var(--s2); }
+.pv-heat { --pv-sq: clamp(5px, calc((100cqi - 30px) / var(--pv-weeks, 53) - 4px), 11px);
+  display: inline-grid; grid-template-columns: auto auto;
   column-gap: var(--s2); row-gap: var(--s1); }
 .pv-months { grid-column: 2; grid-row: 1; display: grid; gap: var(--s1);
   grid-template-columns: repeat(var(--pv-weeks), var(--pv-sq));
   color: var(--fg-dim); font-size: var(--fs-xs); }
 .pv-months span { white-space: nowrap; }
+/* fixed width: the container-query formula above treats this column as a constant */
 .pv-weekdays { grid-column: 1; grid-row: 2; display: grid; gap: var(--s1);
   grid-template-rows: repeat(7, var(--pv-sq)); align-items: center;
-  color: var(--fg-dim); font-size: var(--fs-xs); }
+  color: var(--fg-dim); font-size: var(--fs-xs); width: 28px; }
 .pv-grid { grid-column: 2; grid-row: 2; display: grid; gap: var(--s1);
   grid-template-rows: repeat(7, var(--pv-sq)); grid-auto-flow: column;
   grid-auto-columns: var(--pv-sq); }

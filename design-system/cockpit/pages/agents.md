@@ -19,9 +19,15 @@ its historical `AiSetup.tsx` name, like the `'extensions'` view kind before it.
   `~/.copilot/copilot-instructions.md`); repo scope targets `<root>/CLAUDE.md` +
   `<root>/AGENTS.md` — one AGENTS.md row carries both the Codex *and* Copilot logos
   because both read it natively. Never render a third copilot-specific file in repo scope.
-- **Baseline editor** (`.inst-baseline`): mono textarea. Two actions, right-aligned:
-  ghost "Save" (baseline only, enabled when dirty) and primary "Save & apply to all".
-  Dirty state = `.inst-dirty` warn-colored "unsaved changes" pinned left of the buttons.
+- **Baseline editor**: the baseline is markdown, so it edits like markdown —
+  GitHub-comment grammar. `.md-tabs` (Write | Preview, `aria-pressed` toggles) over a
+  shared frame: Write = `.inst-baseline` mono textarea on the code-block paper
+  (`--bg-deep`, 220px min); Preview = `.inst-preview.markdown` rendering the draft
+  through the shared `Markdown` component (`Markdown.tsx` — the same pipeline as chat
+  transcripts, so the two surfaces can't drift). Both states share the exact frame —
+  toggling never shifts the card. Two actions, right-aligned: ghost "Save" (baseline
+  only, enabled when dirty) and primary "Save & apply to all". Dirty state =
+  `.inst-dirty` warn-colored "unsaved changes" pinned left of the buttons.
 - **File rows** reuse `.ext-row`: agent logo(s) left, `~`-abbreviated mono path
   (`user-select: text`), then an `.inst-status` pill:
   - `in sync` (ok green) — managed block matches baseline; no action button.
