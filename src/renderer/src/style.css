@@ -5,20 +5,22 @@
   /* refined dark: deep gradient base, elevated surfaces, hairline rgba borders.
      neutrals carry a deliberate indigo cast so the whole app harmonizes with the accent;
      borders/surfaces are tinted rgba, not pure white, for the same reason. */
-  /* instrument-HUD pass: the base drops nearer true black so panes and cards read
-     as lit glass; --bg2/--bg3 stay put, which widens every elevation step */
-  --bg-deep: #020308; --bg: #0b0d16; --bg2: #121521; --bg3: #1b2031;
+  /* steel-blue dark theme: near-black bases with a cool steel cast (not indigo,
+     not neutral gray) — panes and cards read as lit instrument glass, and the
+     accent family is steel blue so primaries connect with the UI instead of
+     shouting over it. --bg2/--bg3 keep wide elevation steps. */
+  --bg-deep: #03070c; --bg: #0c1219; --bg2: #131a23; --bg3: #1d2733;
   /* the whisper-faint range rings behind everything — decorative, never load-bearing */
-  --grid-line: rgba(167, 178, 255, 0.035);
-  --surface: rgba(167, 178, 255, 0.05);
-  --border: rgba(167, 178, 255, 0.11);
-  --border-strong: rgba(167, 178, 255, 0.19);
-  --fg: #eceef8; --fg-dim: #9aa3bf;
-  --accent: #8b95ff;            /* text/icon accent on dark */
-  --accent-btn: #545ee0;        /* button fill — white text passes 4.5:1 (5.2:1) */
+  --grid-line: rgba(156, 178, 198, 0.035);
+  --surface: rgba(156, 178, 198, 0.05);
+  --border: rgba(156, 178, 198, 0.11);
+  --border-strong: rgba(156, 178, 198, 0.19);
+  --fg: #e8edf2; --fg-dim: #96a5b4;
+  --accent: #7fa9cf;            /* steel text/icon accent — ≥5.9:1 on every surface */
+  --accent-btn: #3d6a94;        /* steel button fill — white text passes 4.5:1 (5.6:1) */
   /* the wash hue, deliberately deeper than both accents: glows, selection washes and
-     user bubbles read as shadow-side accent, not as a pale rinse of the button fill */
-  --accent-rgb: 94, 106, 210;
+     user bubbles read as shadow-side steel, not as a pale rinse of the button fill */
+  --accent-rgb: 72, 110, 148;
   --accent-glow: rgba(var(--accent-rgb), 0.22);
   --claude: #d97757; --codex: #10a37f; --copilot: #9a7bff;
   --claude-rgb: 217, 119, 87; --codex-rgb: 16, 163, 127; --copilot-rgb: 154, 123, 255;
@@ -718,14 +720,15 @@ summary::-webkit-details-marker { display: none; }
   font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .palette-view-icon { display: inline-flex; color: var(--fg-dim); flex-shrink: 0; }
 
-/* ---------- cards (new session / settings / extensions) ---------- */
+/* ---------- cards (new session / settings / agents / profile) ---------- */
 .new-session-view, .settings-view { overflow-y: auto; align-items: center; }
-.ns-card { width: min(600px, 94%); margin: var(--s6) auto;
+/* ONE width for every card view — navigating between them must never make the
+   dialog jump sizes */
+.ns-card { width: min(760px, 94%); margin: var(--s6) auto;
   background: linear-gradient(180deg, var(--bg3), var(--bg2) 120px);
   border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--s6);
   display: flex; flex-direction: column; gap: var(--s3);
   box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-card); }
-.ns-card.wide { width: min(760px, 94%); }
 .ns-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
 .ns-head h2 { font-size: var(--fs-lg); }
 .ns-repo { color: var(--fg-dim); font-size: var(--fs-sm); }

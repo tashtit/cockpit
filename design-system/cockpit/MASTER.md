@@ -26,11 +26,12 @@ faint concentric range rings (`--grid-line`) radiating across the glass, and a f
 horizon glow below. Rings, not graph paper: the texture is Cockpit's own. The window reads as two
 materials: the **rail** (sidebar — darker glass, `color-mix` of `--bg-deep`) and the
 **deck** (content panes on `--pane`). Elevated translucent surfaces, hairline rgba
-borders, one indigo accent, and **per-agent identity colors** used consistently
+borders, one steel-blue accent, and **per-agent identity colors** used consistently
 everywhere an agent appears. Micro-labels and the hero speak the mono *placard* voice;
 the two command surfaces (home composer, ⌘K palette) carry HUD corner brackets — the
-system's one decorative motif. Neutrals, surfaces, and borders all carry a subtle indigo
-cast (tinted rgba, not pure white/grey) so the whole app harmonizes with the accent.
+system's one decorative motif. Neutrals, surfaces, and borders all carry a subtle steel
+cast (tinted rgba, not pure white/grey) so the whole app harmonizes with the accent —
+primaries connect with the UI rather than shouting over it.
 GitHub PR-state colors match github.com exactly.
 
 - Dark mode only. Never add a light theme without a full contrast re-audit.
@@ -41,16 +42,16 @@ GitHub PR-state colors match github.com exactly.
 
 | Role | Value | Token |
 |------|-------|-------|
-| Background (gradient top) | `#0b0d16` | `--bg` |
-| Background (gradient bottom) | `#020308` | `--bg-deep` |
-| Range-ring line (decorative) | `rgba(167,178,255,0.035)` | `--grid-line` |
-| Elevated surface 1 / 2 | `#121521` / `#1b2031` | `--bg2` / `--bg3` |
-| Translucent surface | `rgba(167,178,255,0.05)` | `--surface` |
-| Border / strong border | `rgba(167,178,255,0.11)` / `0.19` | `--border` / `--border-strong` |
-| Foreground / dim | `#eceef8` / `#9aa3bf` | `--fg` / `--fg-dim` |
-| Accent (text/icon on dark) | `#8b95ff` | `--accent` |
-| Accent (button fill, white text ≥4.5:1) | `#545ee0` | `--accent-btn` |
-| Accent glow ring | `rgba(94,106,210,0.22)` | `--accent-glow` |
+| Background (gradient top) | `#0c1219` | `--bg` |
+| Background (gradient bottom) | `#03070c` | `--bg-deep` |
+| Range-ring line (decorative) | `rgba(156,178,198,0.035)` | `--grid-line` |
+| Elevated surface 1 / 2 | `#131a23` / `#1d2733` | `--bg2` / `--bg3` |
+| Translucent surface | `rgba(156,178,198,0.05)` | `--surface` |
+| Border / strong border | `rgba(156,178,198,0.11)` / `0.19` | `--border` / `--border-strong` |
+| Foreground / dim | `#e8edf2` / `#96a5b4` | `--fg` / `--fg-dim` |
+| Accent, steel blue (text/icon on dark) | `#7fa9cf` | `--accent` |
+| Accent (button fill, white text ≥4.5:1 at 5.6) | `#3d6a94` | `--accent-btn` |
+| Accent glow ring | `rgba(72,110,148,0.22)` | `--accent-glow` |
 | Claude / Codex / Copilot | `#d97757` / `#10a37f` / `#9a7bff` | `--claude` / `--codex` / `--copilot` |
 | Branch blue | `#79b8ff` | `--branch` |
 | PR open / merged / closed / draft | `#3fb950` / `#a371f7` / `#f85149` / `#8b949e` | `--pr-*` |
@@ -121,7 +122,7 @@ Reuse these; don't invent parallel variants:
 - **`.badge-{claude,codex,copilot}`** — solid agent badge (chat header).
 - **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`. `.new-task-btn` is an icon-only `.btn-primary` square docked to the search row — the one always-visible entry point (mirrors ⌘N; `aria-label="New task"`); it is the rail's only filled control, keep it that way.
 - **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.
-- **Cards:** `.ns-card` (600px, `.wide` 760px) for forms; `.composer-card` for the home prompt.
+- **Cards:** `.ns-card` — ONE width (`min(760px, 94%)`) shared by every card view (Settings, Agents, Profile, New session); navigating between them must never make the dialog jump sizes. `.composer-card` for the home prompt.
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.
 - **Semantic count pills:** bordered pill = "session count on a repo"; org counts are plain text.
 - **`Select`** — the one dropdown (see Native Controls); never a raw `<select>`.
@@ -159,7 +160,7 @@ Nothing renders with stock Chromium chrome:
 - ❌ Emojis as icons — SVG only (see `logos.tsx`); if a unicode glyph is unavoidable, force text presentation with U+FE0E
 - ❌ Layout-shifting hover/pressed transforms (translate/scale on rows or buttons)
 - ❌ Removing focus rings or the reduced-motion block
-- ❌ New accent colors — agent colors + one indigo accent + GitHub semantic colors is the whole palette
+- ❌ New accent colors — agent colors + one steel-blue accent + GitHub semantic colors is the whole palette
 - ❌ Spinner-less async operations
 - ❌ Array-index keys for reorderable lists (append-only log offsets are the sanctioned exception in ChatView)
 

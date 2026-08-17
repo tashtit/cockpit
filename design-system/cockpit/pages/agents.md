@@ -2,7 +2,7 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** wide card (`.ns-card.wide`, 760px) with five tabs — **Instructions**, MCP
+**Pattern:** the standard card (`.ns-card`, the one shared width) with five tabs — **Instructions**, MCP
 Servers, Skills, Plugins, Marketplace — one place to manage the *shared setup every
 agent carries*. Instructions is first: it's the reason the view exists.
 The user-facing label is **Agents** (nav icon: `AgentIcon`); the component file keeps

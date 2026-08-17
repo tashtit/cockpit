@@ -249,7 +249,7 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
 
   return (
     <main className="chat settings-view">
-      <div className="ns-card wide">
+      <div className="ns-card">
         <div className="ns-head">
           <h2 ref={headingRef} tabIndex={-1}>
             Profile
