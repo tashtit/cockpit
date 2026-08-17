@@ -177,10 +177,10 @@ test('profile aggregates the fixture sessions into a heatmap', async () => {
   await expect(homeHeading()).toBeVisible()
 })
 
-test('ai setup shows its five tabs and switches panels', async () => {
-  await win.getByRole('button', { name: 'AI Setup' }).click()
-  await expect(win.getByRole('heading', { name: 'AI Setup' })).toBeVisible()
-  const tabs = win.getByRole('tablist', { name: 'AI Setup sections' })
+test('agents view shows its five tabs and switches panels', async () => {
+  await win.getByRole('button', { name: 'Agents' }).click()
+  await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  const tabs = win.getByRole('tablist', { name: 'Agents sections' })
   for (const label of ['Instructions', 'MCP Servers', 'Skills', 'Plugins', 'Marketplace']) {
     await expect(tabs.getByRole('tab', { name: label })).toBeVisible()
   }
@@ -218,6 +218,34 @@ test('new session form offers project, agent, branch, and task controls', async 
   await win.getByLabel('Task', { exact: true }).fill('')
   await win.getByRole('button', { name: 'Cancel' }).click()
   await expect(homeHeading()).toBeVisible()
+})
+
+// placed late on purpose: activating a session binds a chat, and the earlier
+// close/cancel tests assert an Escape/Close with no binding returns home
+test('⌘K palette jumps to sessions, repos, and views', async () => {
+  await win.keyboard.press('ControlOrMeta+k')
+  const palette = win.getByRole('dialog', { name: 'Jump to' })
+  await expect(palette).toBeVisible()
+  const input = palette.getByRole('combobox')
+  await expect(input).toBeFocused()
+  // empty query = the board in miniature (recent fixtures) + navigation
+  await expect(palette.getByRole('option', { name: /fix the login flake/ })).toBeVisible()
+  await expect(palette.getByRole('option', { name: 'Settings' })).toBeVisible()
+  // Escape closes without navigating anywhere
+  await win.keyboard.press('Escape')
+  await expect(palette).toBeHidden()
+  await expect(homeHeading()).toBeVisible()
+  // query mode: repos offer a launch, views match on keywords, Enter takes the top hit
+  await win.keyboard.press('ControlOrMeta+k')
+  await input.fill('rocket')
+  await expect(palette.getByRole('option', { name: 'New session in acme/rocket' })).toBeVisible()
+  await input.fill('skills')
+  await expect(palette.getByRole('option', { name: 'Agents' })).toBeVisible()
+  await input.fill('login')
+  await expect(palette.getByRole('option', { name: /fix the login flake/ })).toBeVisible()
+  await win.keyboard.press('Enter')
+  await expect(palette).toBeHidden()
+  await expect(win.locator('.chat-title')).toHaveText('fix the login flake')
 })
 
 test('opening a session lands in chat with its parsed transcript', async () => {

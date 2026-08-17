@@ -8,7 +8,7 @@ description: Build or change Cockpit UI — React components, views, styling, la
 Cockpit's design system is documented in-repo; read it before writing renderer code:
 
 1. **`design-system/cockpit/MASTER.md`** — always read this first: tokens, typography, spacing, motion, component vocabulary, anti-patterns, and the pre-delivery checklist.
-2. **`design-system/cockpit/pages/<view>.md`** — if the view you're touching has a page file (`sidebar`, `chat`, `home`, `new-session`, `ai-setup`, `settings`), its rules override MASTER.
+2. **`design-system/cockpit/pages/<view>.md`** — if the view you're touching has a page file (`sidebar`, `chat`, `home`, `new-session`, `agents`, `settings`, `profile`, `palette`), its rules override MASTER.
 3. Canonical token values live in the `:root` block of `src/renderer/src/style.css`. If docs and CSS disagree, CSS wins — then fix the doc.
 
 ## Hard rules (the ones agents break most)

@@ -373,7 +373,10 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
             </li>
           ))}
           {usage !== null && usage.providers.length === 0 && (
-            <li className="tree-empty">no provider accounts configured</li>
+            <li className="tree-empty">
+              no provider accounts detected — sign in to an agent CLI, then add its config
+              home under Add source below
+            </li>
           )}
         </ul>
 

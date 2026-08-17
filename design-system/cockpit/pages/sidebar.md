@@ -14,9 +14,12 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 - `.tree-top` (drag region, 40px top padding clears macOS traffic lights — the pad
   drops to `--s3` when the dev `.dev-banner` row already provides that clearance):
   app title button (→ home) · zoom chip (only when zoom ≠ 100%, warn-colored, click
-  resets) · Extensions and Settings `.icon-btn`s with octicon-style SVGs.
-- `.search` input with ⌘K hint, 250ms debounce. Non-empty search swaps the whole tree for
-  `SearchResults` grouped by repo name.
+  resets) · eye project filter · Agents, Profile, and Settings `.icon-btn`s (shared
+  icons from `logos.tsx` — the same marks the ⌘K palette renders, so nav and palette
+  can't drift).
+- `.search` input, 250ms debounce (⌘K belongs to the palette, not this field —
+  the search filters the tree in place; the palette jumps). Non-empty search swaps the
+  whole tree for `SearchResults` grouped by repo name.
 - Tree rows, in visual grammar:
   - `.section-row` — sticky (`top: 0`, solid `--bg2` so scrolling rows pass under it),
     lowercase micro-caps, plain-text session count (the Chats header).

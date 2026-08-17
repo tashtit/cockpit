@@ -1,10 +1,12 @@
-# AI Setup (`AiSetup.tsx`)
+# Agents (`AiSetup.tsx`)
 
 > Extends `MASTER.md`. Rules here win for this view.
 
 **Pattern:** wide card (`.ns-card.wide`, 760px) with five tabs — **Instructions**, MCP
-Servers, Skills, Plugins, Marketplace — one place to manage the *shared AI experience*
-across all three agents. Instructions is first: it's the reason the view exists.
+Servers, Skills, Plugins, Marketplace — one place to manage the *shared setup every
+agent carries*. Instructions is first: it's the reason the view exists.
+The user-facing label is **Agents** (nav icon: `AgentIcon`); the component file keeps
+its historical `AiSetup.tsx` name, like the `'extensions'` view kind before it.
 
 ## Instructions tab
 

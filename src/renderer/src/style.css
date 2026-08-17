@@ -42,6 +42,7 @@
   --shadow-card: 0 8px 40px rgba(0, 0, 0, 0.4);     /* floating cards */
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);     /* popovers/listboxes */
   --shadow-fill: 0 1px 2px rgba(0, 0, 0, 0.45);     /* contact shadow under a filled button */
+  --scrim: rgba(5, 6, 11, 0.6);                     /* modal backdrop: --bg-deep's channels */
   --mono: ui-monospace, 'SF Mono', 'Fira Code', monospace;
   --radius-sm: 6px; --radius: 8px; --radius-lg: 14px; --radius-pill: 999px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1); --dur: 160ms;
@@ -281,6 +282,8 @@ summary::-webkit-details-marker { display: none; }
 .archived-toggle:hover { background: var(--bg3); }
 .tree-empty { padding: 3px var(--s2) 3px var(--s3); color: var(--fg-dim);
   font-size: var(--fs-xs); font-style: italic; }
+/* empty-state lines may name a real path/command — same treatment as .ns-hint code */
+.tree-empty code { color: var(--fg); font-family: var(--mono); font-style: normal; }
 .tree-more { display: block; padding: 2px var(--s2) 2px var(--s3); color: var(--accent);
   font-size: var(--fs-xs); width: 100%; text-align: left; min-height: 24px;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
@@ -646,6 +649,42 @@ summary::-webkit-details-marker { display: none; }
 .board-meta { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
   font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
+/* ---------- ⌘K palette: the keyboard door to the whole fleet ----------
+   Modal combobox over sessions / repos / views. The frame borrows the composer
+   card's focused recipe (a modal input is permanently the focused surface); the
+   list reuses the sidebar's group-header and empty-line grammar. Sits above every
+   popover (Select pops at 60). */
+.palette-scrim { position: fixed; inset: 0; z-index: 70; background: var(--scrim);
+  /* beats the 22px window drag strip, so a backdrop click near the top edge
+     closes the palette instead of starting a window drag */
+  -webkit-app-region: no-drag; }
+.palette { position: fixed; top: clamp(48px, 14vh, 120px); left: 0; right: 0;
+  margin: 0 auto; width: min(600px, 92vw);
+  background: linear-gradient(180deg, var(--bg3), var(--bg2) 55%);
+  border: 1px solid var(--accent); border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 0 var(--highlight), 0 0 0 3px var(--accent-glow), var(--shadow-pop);
+  overflow: hidden; display: flex; flex-direction: column; }
+.palette-input { border: none; background: transparent; color: var(--fg);
+  font: inherit; padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
+.palette-input:focus { outline: none; }
+.palette-list { max-height: min(420px, 56vh); overflow-y: auto; padding: var(--s2); }
+/* rows follow the session-row scale; keyboard and mouse share one .active state,
+   so there is no separate :hover to fight the arrow-key cursor */
+.palette-opt { display: flex; align-items: center; gap: var(--s2);
+  padding: 4px var(--s3); border-radius: var(--radius-sm); min-height: 30px;
+  font-size: var(--fs-base); cursor: pointer; }
+/* the sidebar's selected-row recipe in neutral accent — a bg3 wash would vanish
+   against the card's own bg3-topped gradient */
+.palette-opt.active { background: linear-gradient(90deg, var(--accent-glow), transparent 70%);
+  box-shadow: inset 2px 0 0 var(--accent); }
+.palette-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.palette-opt .branch-chip { max-width: 150px; }
+.palette-hint { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0; }
+.palette-meta { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono);
+  font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.palette-view-icon { display: inline-flex; color: var(--fg-dim); flex-shrink: 0; }
+
 /* ---------- cards (new session / settings / extensions) ---------- */
 .new-session-view, .settings-view { overflow-y: auto; align-items: center; }
 .ns-card { width: min(600px, 94%); margin: var(--s6) auto;
@@ -778,7 +817,7 @@ summary::-webkit-details-marker { display: none; }
 .ext-agents { display: flex; gap: var(--s2); flex-shrink: 0; }
 .ext-actions { display: flex; gap: var(--s1); flex-shrink: 0; }
 
-/* ---------- AI Setup: MCP management ---------- */
+/* ---------- Agents view: MCP management ---------- */
 .mcp-tools { display: flex; justify-content: flex-end; }
 .mcp-row { align-items: flex-start; }
 .mcp-row .ext-actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -810,7 +849,7 @@ summary::-webkit-details-marker { display: none; }
 .mcp-remove:hover { color: var(--danger); }
 .mcp-remove.armed { color: var(--danger); font-size: var(--fs-xs); font-weight: 600; }
 
-/* ---------- AI Setup: shared instructions ---------- */
+/* ---------- Agents view: shared instructions ---------- */
 .inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
 .inst-scope label { font-size: var(--fs-xs); color: var(--fg-dim); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.9px; }
