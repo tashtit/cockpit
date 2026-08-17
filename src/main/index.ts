@@ -122,11 +122,13 @@ function createWindow(): void {
     ...(devBounds ? { x: devBounds.x, y: devBounds.y } : {}),
     width: devBounds?.width ?? 1100,
     height: devBounds?.height ?? 760,
+    // the supported floor — the e2e minimum-size gate audits the layout at
+    // exactly these numbers; change them together or the gate fails
     minWidth: 560,
     minHeight: 420,
     title: devBranch ? `Cockpit — ${devBranch}` : 'Cockpit',
     // matches --bg in style.css so pre-paint and resize flashes stay on-theme
-    backgroundColor: '#0b0d16',
+    backgroundColor: '#0c1219',
     // frameless-with-inset-traffic-lights: the app draws its own chrome (macOS)
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } }

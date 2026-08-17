@@ -27,9 +27,7 @@ horizon glow below. Rings, not graph paper: the texture is Cockpit's own. The wi
 materials: the **rail** (sidebar — darker glass, `color-mix` of `--bg-deep`) and the
 **deck** (content panes on `--pane`). Elevated translucent surfaces, hairline rgba
 borders, one steel-blue accent, and **per-agent identity colors** used consistently
-everywhere an agent appears. Micro-labels and the hero speak the mono *placard* voice;
-the two command surfaces (home composer, ⌘K palette) carry HUD corner brackets — the
-system's one decorative motif. Neutrals, surfaces, and borders all carry a subtle steel
+everywhere an agent appears. Micro-labels and the hero speak the mono *placard* voice. Neutrals, surfaces, and borders all carry a subtle steel
 cast (tinted rgba, not pure white/grey) so the whole app harmonizes with the accent —
 primaries connect with the UI rather than shouting over it.
 GitHub PR-state colors match github.com exactly.
@@ -99,7 +97,6 @@ rather than a pale rinse of the button fill.
 - **Control heights — two steps only:** compact controls that share a row are **28px** (Select triggers, `.ns-opt`/`.source-add`/`.ns-branch-row` inputs, `.ns-account-single`, `.composer-identity`, `.btn-pr`, the composer bar's `.btn-primary`); standalone form buttons are **32px** (`.btn-primary`, `.btn-ghost`, `.btn-danger` in `.ns-actions`/composer footer). Never mix the two heights in one row — ragged bottom edges read as broken.
 - **Shadows:** three tokens, no ad-hoc values — `--shadow-card` (floating cards), `--shadow-pop` (popovers/listboxes), `--shadow-fill` (contact shadow under a filled button). The only glow is `--accent-glow` on focus rings — filled buttons are flat (see Depth). Modal backdrops use `--scrim` (`--bg-deep`'s channels at 0.6) — the ⌘K palette is currently the only modal; a second one reuses the same scrim.
 - **Depth without new colors:** cards (`.composer-card`, `.ns-card`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` — and filled buttons (`.btn-primary`, `.btn-pr`, `.btn-danger`) are **flat solid fills** (instrument keys, no gradients, no ambient glow), both finished with a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (chat header, composer, composer bar) are all `--pane`; the sidebar rail alone is darker glass (`color-mix` of `--bg-deep`). Reuse these; never invent new fill colors.
-- **HUD corner brackets** (`::after`, 8 corner-leg gradients at `rgba(--accent-rgb, 0.55)`): reserved for the two command surfaces — `.composer-card` and `.palette`. Don't spread them; one motif stays a signature, four become wallpaper.
 
 ## Motion
 
@@ -150,7 +147,8 @@ Nothing renders with stock Chromium chrome:
 - Window drag regions: `.tree-top` and `.chat-header` are `-webkit-app-region: drag`; every interactive child must opt out with `no-drag`. Copyable text (paths, branches) must be `user-select: text` + `no-drag`.
 - `.tree-top` top padding (40px) clears macOS traffic lights (hiddenInset) — don't shrink it.
 - `.app > * { min-width: 0 }` is load-bearing: grid items default to `min-width: auto`, and without the guard the chat pane's fixed header children push the 1fr column wider than the window. Any new fixed-width header content must still fit a 560px window.
-- Narrow windows (≤780px) shed decorative chips before anything truncates; short windows (≤600px) drop the home hero. Follow this "shed decoration first" pattern for new responsive cases. The shed media queries live at the **end** of style.css on purpose — earlier in the file they'd lose the cascade to same-specificity component rules; keep new shed rules there.
+- **Supported minimum window: 560×420** — enforced by the BrowserWindow min sizes in `src/main/index.ts` and gated by the e2e minimum-size audit (no horizontal overflow, chrome rows contained, key controls visible at exactly that size). Anything new must hold there; change the floor and the gate together.
+- Narrow windows (≤780px) shed decorative chips before anything truncates; ≤700px the sidebar wordmark text sheds (the mark stays); short windows (≤600px) drop the home hero. Follow this "shed decoration first" pattern for new responsive cases. The shed media queries live at the **end** of style.css on purpose — earlier in the file they'd lose the cascade to same-specificity component rules; keep new shed rules there.
 - Window drag: `.tree-top` and `.chat-header` are drag regions; every other view gets the fixed 22px `.drag-strip` along the top edge (rendered by App for non-chat views). Keep interactive content below 22px from the window top.
 - Dev builds only: a 28px `.dev-banner` row spans the top of the grid naming the source branch (parallel worktree dev instances are otherwise identical). Branch-tinted, mono, also a drag region with selectable `no-drag` text; it absorbs the traffic-light clearance, so `.tree-top` sheds its 40px pad under it. Never renders in a packaged app.
 

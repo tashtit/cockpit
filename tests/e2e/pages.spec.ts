@@ -291,3 +291,49 @@ test('keyboard routing: settings shortcut, Escape back to chat, new-task shortcu
   await win.getByRole('button', { name: 'New task' }).click()
   await expect(win.getByLabel('Task description')).toBeFocused()
 })
+
+test('the window minimum is enforced and every surface holds at exactly that size', async () => {
+  // the floor is a contract: the BrowserWindow minima in src/main/index.ts and
+  // this audit change together, or this line fails
+  const min = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize())
+  expect(min).toEqual([560, 420])
+
+  await win.setViewportSize({ width: 560, height: 420 })
+  /** Anything escaping the window or overflowing its chrome row is a regression. */
+  const audit = (): Promise<string[]> =>
+    win.evaluate(() => {
+      const bad: string[] = []
+      if (document.documentElement.scrollWidth > window.innerWidth + 1)
+        bad.push(`document scrolls horizontally (${document.documentElement.scrollWidth})`)
+      for (const el of Array.from(document.querySelectorAll('*'))) {
+        const r = el.getBoundingClientRect()
+        if (r.width > 0 && (r.right > window.innerWidth + 1.5 || r.left < -1.5))
+          bad.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} escapes the window`)
+      }
+      for (const sel of ['.tree-top', '.search-row', '.chat-header', '.composer-bar', '.sidebar-footer']) {
+        const el = document.querySelector(sel)
+        if (el && el.scrollWidth > el.clientWidth + 1) bad.push(`${sel} overflows its row`)
+      }
+      return [...new Set(bad)]
+    })
+
+  await win.keyboard.press('ControlOrMeta+n')
+  await expect(win.getByRole('button', { name: /^Start with/ })).toBeVisible()
+  expect(await audit()).toEqual([])
+
+  await win.keyboard.press('ControlOrMeta+k')
+  await expect(win.getByRole('dialog', { name: 'Jump to' })).toBeVisible()
+  expect(await audit()).toEqual([])
+  await win.keyboard.press('Escape')
+
+  // five tabs must wrap inside the narrow card, never overflow it
+  await win.getByRole('button', { name: 'Agents' }).click()
+  await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  expect(await audit()).toEqual([])
+
+  await win.getByRole('treeitem', { name: /fix the login flake/ }).click()
+  await expect(win.getByRole('button', { name: 'Send' })).toBeVisible()
+  expect(await audit()).toEqual([])
+
+  await win.setViewportSize({ width: 1100, height: 728 })
+})

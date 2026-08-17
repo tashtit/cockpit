@@ -95,6 +95,10 @@ button, input, select, textarea, details { transition: background var(--dur) var
 .app > * { min-width: 0; }
 @media (max-width: 700px) {
   .app { grid-template-columns: clamp(200px, 34vw, 240px) 1fr; }
+  /* a 200px rail can't hold the wordmark AND the nav — shed the text, keep the
+     mark (the shed-decoration-first rule; without this the nav icons overflow
+     the rail onto the content pane) */
+  .app-title-text { display: none; }
 }
 
 /* native chrome: sidebar top + chat header double as the window drag region */
@@ -198,14 +202,10 @@ summary::-webkit-details-marker { display: none; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--fg-dim); }
 .icon-btn:hover { background: var(--bg3); color: var(--fg); }
-/* the open view's nav icon stays lit — accent tint + inset underline, plus
-   aria-current="page" for the accessibility tree */
+/* the open view's nav icon stays quietly lit — a soft tint and the accent
+   color, no underline bar; aria-current="page" carries it for AT */
 .icon-btn.nav-btn.active { color: var(--accent);
-  background: rgba(var(--accent-rgb), 0.14);
-  box-shadow: inset 0 -2px 0 var(--accent); }
-/* hairline between the eye (a tree control) and the navigation trio */
-.nav-sep { width: 1px; align-self: stretch; margin: var(--s1) var(--s1);
-  background: var(--border); flex-shrink: 0; }
+  background: rgba(var(--accent-rgb), 0.10); }
 /* row hover actions: 24px is the floor — WCAG 2.5.8 minimum target, and these sit
    adjacent to each other in .row-actions so the spacing exception doesn't apply */
 .icon-btn.small { width: 24px; height: 24px; font-size: var(--fs-sm); line-height: 1; }
@@ -217,7 +217,7 @@ summary::-webkit-details-marker { display: none; }
 /* fixed so it can't overflow the window edge — the sidebar hugs the left.
    no-drag: the popover hangs off .tree-top (a drag region); without the opt-out its
    checkbox rows would start a window drag instead of receiving clicks */
-.repo-filter-pop { position: fixed; top: 76px; left: 10px; z-index: 20;
+.repo-filter-pop { position: fixed; top: 108px; left: 10px; z-index: 20;
   -webkit-app-region: no-drag;
   width: 260px; max-height: 340px; overflow-y: auto;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
@@ -232,9 +232,10 @@ summary::-webkit-details-marker { display: none; }
 .repo-filter-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 
-/* search + the rail's one filled control on a shared 32px line */
+/* eye filter + search + the rail's one filled control on a shared 32px line */
 .search-row { display: flex; align-items: stretch; gap: var(--s2);
   margin: 0 var(--s4) var(--s3); }
+.search-row .repo-filter-wrap { align-items: center; }
 /* icon-only new-task: the accent fill alone marks it as the create button.
    Stretches to the search field's height so the row keeps one clean edge.
    Compound selector on purpose — .btn-primary declares its padding later in the
@@ -749,8 +750,9 @@ summary::-webkit-details-marker { display: none; }
 .ns-label { color: var(--fg-dim); font-size: var(--fs-xs); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.9px; margin-top: var(--s4); }
 .ns-opt .ns-label { margin-top: 0; }
-.ns-providers { display: flex; gap: var(--s3); }
-.ns-provider { flex: 1; display: flex; flex-direction: column; align-items: center;
+/* tiles wrap 2+1 rather than overflowing when the card gets narrow */
+.ns-providers { display: flex; gap: var(--s3); flex-wrap: wrap; }
+.ns-provider { flex: 1 1 140px; display: flex; flex-direction: column; align-items: center;
   gap: var(--s1); padding: var(--s4) var(--s2); border-radius: var(--radius);
   background: var(--surface); border: 1px solid var(--border); color: var(--fg-dim);
   font-size: var(--fs-sm); }
@@ -844,8 +846,9 @@ summary::-webkit-details-marker { display: none; }
 .source-opt-path { flex: 2 1 220px; }
 
 /* ---------- extensions ---------- */
-.ext-tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--border);
-  margin-bottom: var(--s2); }
+/* wraps at narrow widths — five tabs must never overflow the minimum window */
+.ext-tabs { display: flex; flex-wrap: wrap; gap: var(--s1);
+  border-bottom: 1px solid var(--border); margin-bottom: var(--s2); }
 .ext-tab { padding: var(--s2) var(--s4); font-size: var(--fs-sm); color: var(--fg-dim);
   border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .ext-tab:hover { color: var(--fg); }
@@ -924,7 +927,9 @@ summary::-webkit-details-marker { display: none; }
 .inst-file { align-items: flex-start; }
 .inst-file .ext-agents { padding-top: 2px; }
 .inst-path { font-family: var(--mono); font-weight: 500; font-size: var(--fs-sm);
-  user-select: text; }
+  user-select: text;
+  /* long unbroken path segments must wrap, not push past the minimum window */
+  overflow-wrap: anywhere; }
 .inst-status { margin-left: var(--s2); font-size: var(--fs-xs); font-weight: 600;
   padding: 0 var(--s2); border-radius: var(--radius-pill); border: 1px solid var(--border);
   color: var(--fg-dim); white-space: nowrap; }
@@ -1067,25 +1072,6 @@ summary::-webkit-details-marker { display: none; }
 .avatar.plogo-claude { border-color: rgba(var(--claude-rgb), 0.45); }
 .avatar.plogo-codex { border-color: rgba(var(--codex-rgb), 0.45); }
 .avatar.plogo-copilot { border-color: rgba(var(--copilot-rgb), 0.45); }
-
-/* HUD corner brackets: the one decorative motif, reserved for the two command
-   surfaces (home composer, ⌘K palette) — the places that accept an order. */
-.composer-card { position: relative; }
-/* square box on purpose — a rounded ::after would clip its own corner legs; the
-   5px inset keeps it clear of the host card's 14px corner rounding */
-.composer-card::after, .palette::after { content: ''; position: absolute; inset: 5px;
-  pointer-events: none;
-  --hud: rgba(var(--accent-rgb), 0.55);
-  background:
-    linear-gradient(var(--hud), var(--hud)) top    left  / 12px 1.5px,
-    linear-gradient(var(--hud), var(--hud)) top    left  / 1.5px 12px,
-    linear-gradient(var(--hud), var(--hud)) top    right / 12px 1.5px,
-    linear-gradient(var(--hud), var(--hud)) top    right / 1.5px 12px,
-    linear-gradient(var(--hud), var(--hud)) bottom left  / 12px 1.5px,
-    linear-gradient(var(--hud), var(--hud)) bottom left  / 1.5px 12px,
-    linear-gradient(var(--hud), var(--hud)) bottom right / 12px 1.5px,
-    linear-gradient(var(--hud), var(--hud)) bottom right / 1.5px 12px;
-  background-repeat: no-repeat; }
 
 /* flying board rows glow in their livery — the wash extends the lit placard */
 .board-row.flying:has(.pulse-claude) {

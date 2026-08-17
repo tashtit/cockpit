@@ -118,7 +118,8 @@ export function TreeSidebar({
     <aside className="tree-sidebar">
       <div className="tree-top">
         <button className="app-title" onClick={onGoHome} title="Mission control">
-          <CockpitLogo size={18} /> Cockpit
+          {/* the wordmark text sheds at narrow widths; the mark itself stays */}
+          <CockpitLogo size={18} /> <span className="app-title-text">Cockpit</span>
         </button>
         {zoom !== 1 && (
           <button
@@ -130,9 +131,6 @@ export function TreeSidebar({
           </button>
         )}
 
-        <ProjectFilter repos={repos} />
-        {/* the eye is a tree control; the trio after the rule is navigation */}
-        <span className="nav-sep" aria-hidden="true" />
         <button
           className={`icon-btn nav-btn ${activeView === 'extensions' ? 'active' : ''}`}
           title="Agents — shared instructions, MCP servers, skills, plugins"
@@ -163,6 +161,9 @@ export function TreeSidebar({
         </button>
       </div>
       <div className="search-row">
+        {/* the eye scopes the tree, the field searches it, compose creates —
+            all three tree controls on one line, in reading order */}
+        <ProjectFilter repos={repos} />
         <input
           className="search"
           aria-label="Search sessions"
