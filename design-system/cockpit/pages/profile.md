@@ -2,6 +2,13 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
+**Heatmap sizing:** the grid fits the card — `.pv-heat-scroll` is an inline-size
+container and `--pv-sq` is a container-query `clamp()` over `--pv-weeks`, so a full
+year scales down instead of scrolling. `overflow-x: auto` remains only as a
+tiny-window floor (squares clamp at 5px), and `overflow-y` is pinned `hidden` so a
+horizontal bar can never breed a redundant vertical one. The weekday column is a
+fixed 28px — it is a constant in the sizing formula; widening it means updating both.
+
 **Pattern:** a read-only instrument panel. Cursor's public profile is the reference for the
 *shape* (heatmap + headline numbers), but the reason this view exists is the thing Cursor
 structurally cannot show: **the same work split across three agents**. When deciding what to

@@ -5,16 +5,22 @@
   /* refined dark: deep gradient base, elevated surfaces, hairline rgba borders.
      neutrals carry a deliberate indigo cast so the whole app harmonizes with the accent;
      borders/surfaces are tinted rgba, not pure white, for the same reason. */
-  --bg-deep: #05060b; --bg: #0b0d16; --bg2: #121521; --bg3: #1b2031;
-  --surface: rgba(167, 178, 255, 0.05);
-  --border: rgba(167, 178, 255, 0.11);
-  --border-strong: rgba(167, 178, 255, 0.19);
-  --fg: #eceef8; --fg-dim: #9aa3bf;
-  --accent: #8b95ff;            /* text/icon accent on dark */
-  --accent-btn: #545ee0;        /* button fill — white text passes 4.5:1 (5.2:1) */
+  /* steel-blue dark theme: near-black bases with a cool steel cast (not indigo,
+     not neutral gray) — panes and cards read as lit instrument glass, and the
+     accent family is steel blue so primaries connect with the UI instead of
+     shouting over it. --bg2/--bg3 keep wide elevation steps. */
+  --bg-deep: #03070c; --bg: #0c1219; --bg2: #131a23; --bg3: #1d2733;
+  /* the whisper-faint range rings behind everything — decorative, never load-bearing */
+  --grid-line: rgba(156, 178, 198, 0.035);
+  --surface: rgba(156, 178, 198, 0.05);
+  --border: rgba(156, 178, 198, 0.11);
+  --border-strong: rgba(156, 178, 198, 0.19);
+  --fg: #e8edf2; --fg-dim: #96a5b4;
+  --accent: #7fa9cf;            /* steel text/icon accent — ≥5.9:1 on every surface */
+  --accent-btn: #3d6a94;        /* steel button fill — white text passes 4.5:1 (5.6:1) */
   /* the wash hue, deliberately deeper than both accents: glows, selection washes and
-     user bubbles read as shadow-side accent, not as a pale rinse of the button fill */
-  --accent-rgb: 94, 106, 210;
+     user bubbles read as shadow-side steel, not as a pale rinse of the button fill */
+  --accent-rgb: 72, 110, 148;
   --accent-glow: rgba(var(--accent-rgb), 0.22);
   --claude: #d97757; --codex: #10a37f; --copilot: #9a7bff;
   --claude-rgb: 217, 119, 87; --codex-rgb: 16, 163, 127; --copilot-rgb: 154, 123, 255;
@@ -42,6 +48,7 @@
   --shadow-card: 0 8px 40px rgba(0, 0, 0, 0.4);     /* floating cards */
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);     /* popovers/listboxes */
   --shadow-fill: 0 1px 2px rgba(0, 0, 0, 0.45);     /* contact shadow under a filled button */
+  --scrim: rgba(5, 6, 11, 0.6);                     /* modal backdrop: --bg-deep's channels */
   --mono: ui-monospace, 'SF Mono', 'Fira Code', monospace;
   --radius-sm: 6px; --radius: 8px; --radius-lg: 14px; --radius-pill: 999px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1); --dur: 160ms;
@@ -50,12 +57,22 @@
   /* --fs-prose: transcript/composer reading size — chrome stays at --fs-base */
   --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-prose: 14px; --fs-md: 15px;
   --fs-lg: 16px; --fs-xl: 26px;
+  /* conversation column ceiling — ChatView overrides it from the user's Display
+     preference; on big windows the exchange centers instead of stranding user
+     bubbles a screen away from the replies */
+  --chat-col: 860px;
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 body { background:
-    /* a soft accent aurora at the top gives the flat gradient depth — keep it faint */
-    radial-gradient(110% 55% at 50% -12%, rgba(var(--accent-rgb), 0.08), transparent 60%),
+    /* the night-flight atmosphere: the aurora is a radar source — faint concentric
+       range rings radiate from it across the glass — over a horizon glow below and
+       the near-black base. Rings, not graph paper: this texture is Cockpit's own.
+       Static on purpose — atmosphere, not animation. */
+    repeating-radial-gradient(circle at 50% -12%,
+      transparent 0 79px, var(--grid-line) 79px 80.5px),
+    radial-gradient(110% 55% at 50% -12%, rgba(var(--accent-rgb), 0.14), transparent 62%),
+    radial-gradient(90% 42% at 50% 114%, rgba(var(--accent-rgb), 0.06), transparent 60%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
   color: var(--fg); font: var(--fs-base)/1.5 -apple-system, 'Inter', 'Segoe UI', sans-serif;
   overflow: hidden; -webkit-font-smoothing: antialiased; }
@@ -82,6 +99,10 @@ button, input, select, textarea, details { transition: background var(--dur) var
 .app > * { min-width: 0; }
 @media (max-width: 700px) {
   .app { grid-template-columns: clamp(200px, 34vw, 240px) 1fr; }
+  /* a 200px rail can't hold the wordmark AND the nav — shed the text, keep the
+     mark (the shed-decoration-first rule; without this the nav icons overflow
+     the rail onto the content pane) */
+  .app-title-text { display: none; }
 }
 
 /* native chrome: sidebar top + chat header double as the window drag region */
@@ -117,6 +138,13 @@ button, input, select, textarea, details { transition: background var(--dur) var
   border: 2.5px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover);
   border: 2.5px solid transparent; background-clip: content-box; }
+/* styling custom scrollbars makes Chromium paint the meeting corner WHITE by
+   default — and the same white square backs resizable textareas' grip */
+::-webkit-scrollbar-corner { background: transparent; }
+/* the resizer grip, redrawn in tokens: two quiet diagonal strokes */
+::-webkit-resizer { background:
+    linear-gradient(135deg, transparent 0 50%, var(--border-strong) 50% 57%,
+      transparent 57% 71%, var(--border-strong) 71% 78%, transparent 78%); }
 ::selection { background: rgba(var(--accent-rgb), 0.4); }
 
 /* stable pressed feedback: brightness, never layout-shifting transforms */
@@ -156,12 +184,17 @@ summary::-webkit-details-marker { display: none; }
   font-style: italic; }
 
 /* ---------- tree sidebar ---------- */
-.tree-sidebar { background: var(--pane); border-right: 1px solid var(--border);
+/* the rail: darker glass than the content panes, so the window reads as two
+   materials — instrument rail on the left, flight deck on the right */
+.tree-sidebar { background: color-mix(in srgb, var(--bg-deep) 62%, transparent);
+  border-right: 1px solid var(--border);
   display: flex; flex-direction: column; min-height: 0; backdrop-filter: blur(8px); }
 .tree-top { display: flex; align-items: center; gap: var(--s1);
   /* clears the macOS traffic lights (hiddenInset) */
   padding: 40px var(--s4) var(--s3); }
-.app-title { font-size: var(--fs-base); font-weight: 700; letter-spacing: 0.2px; display: flex;
+/* the wordmark speaks the instrument voice: mono, wide-tracked, beside the mark */
+.app-title { font-size: var(--fs-base); font-weight: 700; letter-spacing: 1.5px;
+  font-family: var(--mono); text-transform: uppercase; display: flex;
   align-items: center; gap: var(--s2); flex: 1; padding: 2px var(--s1);
   border-radius: var(--radius-sm); }
 .app-title:hover { background: var(--bg3); }
@@ -173,6 +206,10 @@ summary::-webkit-details-marker { display: none; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-sm); color: var(--fg-dim); }
 .icon-btn:hover { background: var(--bg3); color: var(--fg); }
+/* the open view's nav icon stays quietly lit — a soft tint and the accent
+   color, no underline bar; aria-current="page" carries it for AT */
+.icon-btn.nav-btn.active { color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.10); }
 /* row hover actions: 24px is the floor — WCAG 2.5.8 minimum target, and these sit
    adjacent to each other in .row-actions so the spacing exception doesn't apply */
 .icon-btn.small { width: 24px; height: 24px; font-size: var(--fs-sm); line-height: 1; }
@@ -184,7 +221,7 @@ summary::-webkit-details-marker { display: none; }
 /* fixed so it can't overflow the window edge — the sidebar hugs the left.
    no-drag: the popover hangs off .tree-top (a drag region); without the opt-out its
    checkbox rows would start a window drag instead of receiving clicks */
-.repo-filter-pop { position: fixed; top: 76px; left: 10px; z-index: 20;
+.repo-filter-pop { position: fixed; top: 108px; left: 10px; z-index: 20;
   -webkit-app-region: no-drag;
   width: 260px; max-height: 340px; overflow-y: auto;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
@@ -199,8 +236,20 @@ summary::-webkit-details-marker { display: none; }
 .repo-filter-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 
+/* eye filter + search + the rail's one filled control on a shared 32px line */
+.search-row { display: flex; align-items: stretch; gap: var(--s2);
+  margin: 0 var(--s4) var(--s3); }
+.search-row .repo-filter-wrap { align-items: center; }
+/* icon-only new-task: the accent fill alone marks it as the create button.
+   Stretches to the search field's height so the row keeps one clean edge.
+   Compound selector on purpose — .btn-primary declares its padding later in the
+   file, and this override must win regardless of section order. */
+.btn-primary.new-task-btn { display: inline-flex; align-items: center;
+  justify-content: center; padding: 0; width: 34px; flex-shrink: 0; }
+.new-task-btn svg { flex-shrink: 0; }
+
 /* form fields sit on the strong border — resting boundaries stay findable */
-.search { margin: 0 var(--s4) var(--s3); padding: 7px var(--s3);
+.search { flex: 1; min-width: 0; padding: 7px var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius); font-size: var(--fs-base); }
 .search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
@@ -281,6 +330,8 @@ summary::-webkit-details-marker { display: none; }
 .archived-toggle:hover { background: var(--bg3); }
 .tree-empty { padding: 3px var(--s2) 3px var(--s3); color: var(--fg-dim);
   font-size: var(--fs-xs); font-style: italic; }
+/* empty-state lines may name a real path/command — same treatment as .ns-hint code */
+.tree-empty code { color: var(--fg); font-family: var(--mono); font-style: normal; }
 .tree-more { display: block; padding: 2px var(--s2) 2px var(--s3); color: var(--accent);
   font-size: var(--fs-xs); width: 100%; text-align: left; min-height: 24px;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
@@ -320,13 +371,12 @@ summary::-webkit-details-marker { display: none; }
 .pr-badge:hover { background: var(--bg3); }
 
 /* ---------- buttons ---------- */
+/* flat, decisive fills — instrument keys, not glowing gems. The 1px inset
+   top-light is the only lighting; ambient glow belongs to focus rings alone. */
 .btn-primary { color: var(--white); border-radius: var(--radius);
-  /* top-lit fill: mixes existing tokens, no new colors */
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-btn) 80%, var(--white)) 0%,
-    var(--accent-btn) 62%);
+  background: var(--accent-btn);
   padding: 7px var(--s5); font-weight: 600; font-size: var(--fs-sm);
-  box-shadow: inset 0 1px 0 var(--highlight-fill), var(--shadow-fill),
-    0 0 16px var(--accent-glow); }
+  box-shadow: inset 0 1px 0 var(--highlight-fill), var(--shadow-fill); }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-primary:disabled { opacity: 0.5; cursor: default;
   box-shadow: inset 0 1px 0 var(--highlight-fill-off); }
@@ -339,9 +389,8 @@ summary::-webkit-details-marker { display: none; }
 .btn-ghost.small { padding: 2px var(--s3); font-size: var(--fs-xs);
   border-radius: var(--radius-sm); min-height: 24px; }
 .btn-pr { color: var(--white); border-radius: var(--radius);
-  /* top-lit like btn-primary, but on the darker --ok-btn so white text keeps 4.5:1 */
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ok-btn) 82%, var(--white)) 0%,
-    var(--ok-btn) 62%);
+  /* flat like btn-primary, on the darker --ok-btn so white text keeps 4.5:1 */
+  background: var(--ok-btn);
   box-shadow: inset 0 1px 0 var(--highlight-fill), var(--shadow-fill);
   /* 5px vertical = 28px total — matches the Select trigger it sits beside */
   padding: 5px var(--s4); font-weight: 600; font-size: var(--fs-sm); flex-shrink: 0; }
@@ -417,8 +466,13 @@ summary::-webkit-details-marker { display: none; }
 .badge-codex svg { color: var(--white); }
 .badge-copilot { background: var(--copilot); }
 
-.messages { flex: 1; overflow-y: auto; padding: var(--s5) var(--s6); display: flex;
-  flex-direction: column; gap: var(--s4); }
+.messages { flex: 1; overflow-y: auto; display: flex;
+  flex-direction: column; gap: var(--s4); padding-block: var(--s5);
+  /* the conversation column: symmetric padding centers the exchange at the
+     user's preferred width — user bubbles stay right, but near the replies */
+  padding-inline: max(var(--s6), calc((100% - var(--chat-col)) / 2));
+  /* the transcript must not shift sideways the moment it grows enough to scroll */
+  scrollbar-gutter: stable; }
 /* rows must never shrink to fit the viewport — overflow scrolls instead; without this,
    tool-rows (overflow:hidden → tiny min-content) compress to slivers in long transcripts */
 .messages > * { flex-shrink: 0; }
@@ -515,9 +569,13 @@ summary::-webkit-details-marker { display: none; }
 .pulse-copilot { background: var(--copilot); }
 .session-row .pulse, .recent-row .pulse { flex-shrink: 0; }
 
-.composer { display: flex; flex-wrap: wrap; gap: var(--s3); padding: var(--s4) var(--s5);
+.composer { display: flex; flex-wrap: wrap; gap: var(--s3);
+  padding-block: var(--s4);
+  /* the composer types inside the same column the transcript reads in */
+  padding-inline: max(var(--s5), calc((100% - var(--chat-col)) / 2));
   border-top: 1px solid var(--border); background: var(--pane);
-  align-items: flex-end; }
+  /* the action button rides the textarea's vertical center at every height */
+  align-items: center; }
 .composer textarea { flex: 1; resize: none; background: var(--bg2); color: var(--fg);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   padding: var(--s3) var(--s4); font: inherit; font-size: var(--fs-prose);
@@ -551,7 +609,7 @@ summary::-webkit-details-marker { display: none; }
 .empty-chat.small { flex: none; padding: var(--s6); align-self: center; }
 
 /* ---------- mission-control home ---------- */
-.home-view { overflow-y: auto; }
+.home-view { overflow-y: auto; scrollbar-gutter: stable both-edges; }
 .home-inner { width: min(700px, 94%); margin: 0 auto; padding: var(--s6) 0;
   display: flex; flex-direction: column; gap: var(--s5); min-height: 100%;
   /* `safe` falls back to flex-start when content overflows — an unqualified center
@@ -646,14 +704,55 @@ summary::-webkit-details-marker { display: none; }
 .board-meta { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
   font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
-/* ---------- cards (new session / settings / extensions) ---------- */
-.new-session-view, .settings-view { overflow-y: auto; align-items: center; }
-.ns-card { width: min(600px, 94%); margin: var(--s6) auto;
+/* ---------- ⌘K palette: the keyboard door to the whole fleet ----------
+   Modal combobox over sessions / repos / views. The frame borrows the composer
+   card's focused recipe (a modal input is permanently the focused surface); the
+   list reuses the sidebar's group-header and empty-line grammar. Sits above every
+   popover (Select pops at 60). */
+.palette-scrim { position: fixed; inset: 0; z-index: 70; background: var(--scrim);
+  /* beats the 22px window drag strip, so a backdrop click near the top edge
+     closes the palette instead of starting a window drag */
+  -webkit-app-region: no-drag; }
+.palette { position: fixed; top: clamp(48px, 14vh, 120px); left: 0; right: 0;
+  margin: 0 auto; width: min(600px, 92vw);
+  background: linear-gradient(180deg, var(--bg3), var(--bg2) 55%);
+  border: 1px solid var(--accent); border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 0 var(--highlight), 0 0 0 3px var(--accent-glow), var(--shadow-pop);
+  overflow: hidden; display: flex; flex-direction: column; }
+.palette-input { border: none; background: transparent; color: var(--fg);
+  font: inherit; padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
+.palette-input:focus { outline: none; }
+.palette-list { max-height: min(420px, 56vh); overflow-y: auto; padding: var(--s2); }
+/* rows follow the session-row scale; keyboard and mouse share one .active state,
+   so there is no separate :hover to fight the arrow-key cursor */
+.palette-opt { display: flex; align-items: center; gap: var(--s2);
+  padding: 4px var(--s3); border-radius: var(--radius-sm); min-height: 30px;
+  font-size: var(--fs-base); cursor: pointer; }
+/* the sidebar's selected-row recipe in neutral accent — a bg3 wash would vanish
+   against the card's own bg3-topped gradient */
+.palette-opt.active { background: linear-gradient(90deg, var(--accent-glow), transparent 70%);
+  box-shadow: inset 2px 0 0 var(--accent); }
+.palette-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.palette-opt .branch-chip { max-width: 150px; }
+.palette-hint { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0; }
+.palette-meta { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono);
+  font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.palette-view-icon { display: inline-flex; color: var(--fg-dim); flex-shrink: 0; }
+
+/* ---------- cards (new session / settings / agents / profile) ---------- */
+/* stable both-edge gutters: the app's scrollbars are classic (not overlay), so
+   without a reserved gutter a view that scrolls shifts its centered card ~5px
+   against one that doesn't — the "dialog jumps between pages" bug */
+.new-session-view, .settings-view { overflow-y: auto; align-items: center;
+  scrollbar-gutter: stable both-edges; }
+/* ONE width for every card view — navigating between them must never make the
+   dialog jump sizes */
+.ns-card { width: min(760px, 94%); margin: var(--s6) auto;
   background: linear-gradient(180deg, var(--bg3), var(--bg2) 120px);
   border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--s6);
   display: flex; flex-direction: column; gap: var(--s3);
   box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-card); }
-.ns-card.wide { width: min(760px, 94%); }
 .ns-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
 .ns-head h2 { font-size: var(--fs-lg); }
 .ns-repo { color: var(--fg-dim); font-size: var(--fs-sm); }
@@ -661,8 +760,9 @@ summary::-webkit-details-marker { display: none; }
 .ns-label { color: var(--fg-dim); font-size: var(--fs-xs); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.9px; margin-top: var(--s4); }
 .ns-opt .ns-label { margin-top: 0; }
-.ns-providers { display: flex; gap: var(--s3); }
-.ns-provider { flex: 1; display: flex; flex-direction: column; align-items: center;
+/* tiles wrap 2+1 rather than overflowing when the card gets narrow */
+.ns-providers { display: flex; gap: var(--s3); flex-wrap: wrap; }
+.ns-provider { flex: 1 1 140px; display: flex; flex-direction: column; align-items: center;
   gap: var(--s1); padding: var(--s4) var(--s2); border-radius: var(--radius);
   background: var(--surface); border: 1px solid var(--border); color: var(--fg-dim);
   font-size: var(--fs-sm); }
@@ -756,8 +856,9 @@ summary::-webkit-details-marker { display: none; }
 .source-opt-path { flex: 2 1 220px; }
 
 /* ---------- extensions ---------- */
-.ext-tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--border);
-  margin-bottom: var(--s2); }
+/* wraps at narrow widths — five tabs must never overflow the minimum window */
+.ext-tabs { display: flex; flex-wrap: wrap; gap: var(--s1);
+  border-bottom: 1px solid var(--border); margin-bottom: var(--s2); }
 .ext-tab { padding: var(--s2) var(--s4); font-size: var(--fs-sm); color: var(--fg-dim);
   border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .ext-tab:hover { color: var(--fg); }
@@ -778,7 +879,7 @@ summary::-webkit-details-marker { display: none; }
 .ext-agents { display: flex; gap: var(--s2); flex-shrink: 0; }
 .ext-actions { display: flex; gap: var(--s1); flex-shrink: 0; }
 
-/* ---------- AI Setup: MCP management ---------- */
+/* ---------- Agents view: MCP management ---------- */
 .mcp-tools { display: flex; justify-content: flex-end; }
 .mcp-row { align-items: flex-start; }
 .mcp-row .ext-actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -810,20 +911,35 @@ summary::-webkit-details-marker { display: none; }
 .mcp-remove:hover { color: var(--danger); }
 .mcp-remove.armed { color: var(--danger); font-size: var(--fs-xs); font-weight: 600; }
 
-/* ---------- AI Setup: shared instructions ---------- */
+/* ---------- Agents view: shared instructions ---------- */
 .inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
 .inst-scope label { font-size: var(--fs-xs); color: var(--fg-dim); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.9px; }
 .inst-scope .select-wrap { flex: 1; min-width: 0; }
+/* the baseline is markdown — edit it with GitHub-comment grammar: Write/Preview
+   tabs over an editor surface (the code-block paper, --bg-deep) */
+.md-tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--border); }
+.md-tab { padding: var(--s1) var(--s4); font-size: var(--fs-sm); color: var(--fg-dim);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; min-height: 26px; }
+.md-tab:hover { color: var(--fg); }
+.md-tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
 .inst-baseline { width: 100%; font-family: var(--mono); font-size: var(--fs-sm);
-  line-height: 1.5; }
+  line-height: 1.6; background: var(--bg-deep); border-radius: var(--radius);
+  padding: var(--s4); min-height: 220px; }
+/* preview shares the editor's exact frame so toggling never shifts the card */
+.inst-preview { min-height: 220px; max-height: 420px; overflow-y: auto;
+  background: var(--bg-deep); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); padding: var(--s4); }
+.inst-preview-empty { color: var(--fg-dim); font-style: italic; font-size: var(--fs-sm); }
 .inst-actions { display: flex; align-items: center; justify-content: flex-end;
   gap: var(--s2); margin: var(--s2) 0 var(--s3); }
 .inst-dirty { color: var(--warn); font-size: var(--fs-xs); margin-right: auto; }
 .inst-file { align-items: flex-start; }
 .inst-file .ext-agents { padding-top: 2px; }
 .inst-path { font-family: var(--mono); font-weight: 500; font-size: var(--fs-sm);
-  user-select: text; }
+  user-select: text;
+  /* long unbroken path segments must wrap, not push past the minimum window */
+  overflow-wrap: anywhere; }
 .inst-status { margin-left: var(--s2); font-size: var(--fs-xs); font-weight: 600;
   padding: 0 var(--s2); border-radius: var(--radius-pill); border: 1px solid var(--border);
   color: var(--fg-dim); white-space: nowrap; }
@@ -834,7 +950,8 @@ summary::-webkit-details-marker { display: none; }
 .inst-edit summary { color: var(--fg-dim); font-size: var(--fs-xs); cursor: pointer; }
 .inst-edit summary:hover { color: var(--fg); }
 .inst-edit textarea { width: 100%; margin-top: var(--s2); font-family: var(--mono);
-  font-size: var(--fs-xs); line-height: 1.5; }
+  font-size: var(--fs-xs); line-height: 1.6; background: var(--bg-deep);
+  border-radius: var(--radius); padding: var(--s3); }
 .inst-edit .inst-actions { margin-bottom: 0; }
 
 /* ---------- profile: activity heatmap + per-agent totals (ProfileView) ---------- */
@@ -848,18 +965,24 @@ summary::-webkit-details-marker { display: none; }
 .pv-stat span { color: var(--fg-dim); font-size: var(--fs-xs); font-weight: 600;
   letter-spacing: 0.6px; }
 
-/* 53 weeks never fits a 760px card — the grid scrolls inside its own box rather
-   than letting the page scroll sideways. */
-.pv-heat-scroll { overflow-x: auto; padding-bottom: var(--s2); }
-.pv-heat { --pv-sq: 11px; display: inline-grid; grid-template-columns: auto auto;
+/* The year of squares sizes itself to the card: a container query scales --pv-sq
+   so all weeks fit the available width (28px weekday column + 6px gap + per-week
+   4px gaps are the constants in the formula). No inner scrollbars in normal use —
+   overflow-x stays as a floor-fallback for tiny windows, and overflow-y is pinned
+   shut so a horizontal bar can never breed the redundant vertical one. */
+.pv-heat-scroll { container-type: inline-size; overflow-x: auto; overflow-y: hidden;
+  padding-bottom: var(--s2); }
+.pv-heat { --pv-sq: clamp(5px, calc((100cqi - 30px) / var(--pv-weeks, 53) - 4px), 11px);
+  display: inline-grid; grid-template-columns: auto auto;
   column-gap: var(--s2); row-gap: var(--s1); }
 .pv-months { grid-column: 2; grid-row: 1; display: grid; gap: var(--s1);
   grid-template-columns: repeat(var(--pv-weeks), var(--pv-sq));
   color: var(--fg-dim); font-size: var(--fs-xs); }
 .pv-months span { white-space: nowrap; }
+/* fixed width: the container-query formula above treats this column as a constant */
 .pv-weekdays { grid-column: 1; grid-row: 2; display: grid; gap: var(--s1);
   grid-template-rows: repeat(7, var(--pv-sq)); align-items: center;
-  color: var(--fg-dim); font-size: var(--fs-xs); }
+  color: var(--fg-dim); font-size: var(--fs-xs); width: 28px; }
 .pv-grid { grid-column: 2; grid-row: 2; display: grid; gap: var(--s1);
   grid-template-rows: repeat(7, var(--pv-sq)); grid-auto-flow: column;
   grid-auto-columns: var(--pv-sq); }
@@ -933,6 +1056,42 @@ summary::-webkit-details-marker { display: none; }
   padding: 2px var(--s3) 0; color: var(--fg-dim); font-size: var(--fs-xs);
   font-family: var(--mono); }
 .pv-rhythm-wrap .ns-hint { margin-top: var(--s2); }
+
+/* ---------- instrument voice & HUD (the bolder-pass identity layer) ----------
+   Lives late in the file on purpose: these re-voice rules declared earlier and
+   must win the same-specificity cascade.
+
+   Mono carries two registers in Cockpit: machine identifiers (normal case, as
+   before) and the *placard* register — the uppercase/lowercase micro-labels that
+   name instruments. Both hero headline and placards speak mono; body rows and
+   prose stay sans for legibility. */
+.home-hero h2 { font-family: var(--mono); letter-spacing: -1px; }
+.ns-label, .inst-scope label, .board-eyebrow, .board-agent,
+.section-row, .search-group, .repo-filter-head { font-family: var(--mono);
+  letter-spacing: 0.7px; }
+/* view names are placards too: SETTINGS / AGENTS / NEW SESSION / PROFILE.
+   Session titles and prose are user content — they stay sans. */
+.ns-head h2, .empty-chat h2 { font-family: var(--mono); text-transform: uppercase;
+  letter-spacing: 1.2px; font-size: var(--fs-md); }
+.ext-tab { font-family: var(--mono); letter-spacing: 0.5px; }
+.pv-stat span { font-family: var(--mono); letter-spacing: 0.7px; }
+/* the busy line reads as an instrument annunciator — "CLAUDE IS WORKING…" */
+.thinking { font-family: var(--mono); font-size: var(--fs-xs);
+  text-transform: uppercase; letter-spacing: 0.7px; }
+/* assistant avatars wear a quiet livery ring — who wrote this, at a glance */
+.avatar.plogo-claude { border-color: rgba(var(--claude-rgb), 0.45); }
+.avatar.plogo-codex { border-color: rgba(var(--codex-rgb), 0.45); }
+.avatar.plogo-copilot { border-color: rgba(var(--copilot-rgb), 0.45); }
+
+/* flying board rows glow in their livery — the wash extends the lit placard */
+.board-row.flying:has(.pulse-claude) {
+  background: linear-gradient(90deg, rgba(var(--claude-rgb), 0.09), transparent 55%); }
+.board-row.flying:has(.pulse-codex) {
+  background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.08), transparent 55%); }
+.board-row.flying:has(.pulse-copilot) {
+  background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.09), transparent 55%); }
+/* :has beats .board-row:hover on specificity, so restate hover feedback */
+.board-row.flying:hover { filter: brightness(1.18); }
 
 /* ---------- responsive: shed decoration before anything truncates ----------
    These live at the END of the file on purpose: they override same-specificity

@@ -103,6 +103,8 @@ test.afterAll(async () => {
 const homeHeading = (): Locator => win.getByRole('heading', { name: /What should we ship/ })
 
 test('sidebar indexes the fixtures into a repo tree with a flat Chats section', async () => {
+  // the rail's always-visible entry point
+  await expect(win.getByRole('button', { name: 'New task' })).toBeVisible()
   await expect(win.getByRole('treeitem', { name: /acme\/\s*rocket/ })).toBeVisible()
   // the first repo starts expanded, so its sessions are already rows in the tree
   await expect(win.getByRole('treeitem', { name: /fix the login flake/ })).toBeVisible()
@@ -144,8 +146,11 @@ test('sidebar search filters sessions and clearing restores the tree', async () 
 })
 
 test('settings lists the seeded source with its session count', async () => {
-  await win.getByRole('button', { name: 'Settings', exact: true }).click()
+  const gear = win.getByRole('button', { name: 'Settings', exact: true })
+  await gear.click()
   await expect(win.getByRole('heading', { name: 'Settings' })).toBeVisible()
+  // the open view's nav icon is marked current; re-clicking it toggles back out
+  await expect(gear).toHaveAttribute('aria-current', 'page')
   // the usage section reuses .source-row markup for the same label — the sources
   // row is the one that shows the indexed directory path
   const source = win.locator('.source-row', { hasText: claudeSrc })
@@ -157,8 +162,9 @@ test('settings lists the seeded source with its session count', async () => {
   // display preferences are present with live controls
   await expect(win.getByRole('button', { name: 'Show sessions from' })).toBeVisible()
   await expect(win.getByRole('button', { name: 'Time format' })).toBeVisible()
-  await win.getByRole('button', { name: 'Close' }).click()
+  await gear.click()
   await expect(homeHeading()).toBeVisible()
+  await expect(gear).not.toHaveAttribute('aria-current', 'page')
 })
 
 test('profile aggregates the fixture sessions into a heatmap', async () => {
@@ -177,10 +183,10 @@ test('profile aggregates the fixture sessions into a heatmap', async () => {
   await expect(homeHeading()).toBeVisible()
 })
 
-test('ai setup shows its five tabs and switches panels', async () => {
-  await win.getByRole('button', { name: 'AI Setup' }).click()
-  await expect(win.getByRole('heading', { name: 'AI Setup' })).toBeVisible()
-  const tabs = win.getByRole('tablist', { name: 'AI Setup sections' })
+test('agents view shows its five tabs and switches panels', async () => {
+  await win.getByRole('button', { name: 'Agents' }).click()
+  await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  const tabs = win.getByRole('tablist', { name: 'Agents sections' })
   for (const label of ['Instructions', 'MCP Servers', 'Skills', 'Plugins', 'Marketplace']) {
     await expect(tabs.getByRole('tab', { name: label })).toBeVisible()
   }
@@ -220,6 +226,34 @@ test('new session form offers project, agent, branch, and task controls', async 
   await expect(homeHeading()).toBeVisible()
 })
 
+// placed late on purpose: activating a session binds a chat, and the earlier
+// close/cancel tests assert an Escape/Close with no binding returns home
+test('⌘K palette jumps to sessions, repos, and views', async () => {
+  await win.keyboard.press('ControlOrMeta+k')
+  const palette = win.getByRole('dialog', { name: 'Jump to' })
+  await expect(palette).toBeVisible()
+  const input = palette.getByRole('combobox')
+  await expect(input).toBeFocused()
+  // empty query = the board in miniature (recent fixtures) + navigation
+  await expect(palette.getByRole('option', { name: /fix the login flake/ })).toBeVisible()
+  await expect(palette.getByRole('option', { name: 'Settings' })).toBeVisible()
+  // Escape closes without navigating anywhere
+  await win.keyboard.press('Escape')
+  await expect(palette).toBeHidden()
+  await expect(homeHeading()).toBeVisible()
+  // query mode: repos offer a launch, views match on keywords, Enter takes the top hit
+  await win.keyboard.press('ControlOrMeta+k')
+  await input.fill('rocket')
+  await expect(palette.getByRole('option', { name: 'New session in acme/rocket' })).toBeVisible()
+  await input.fill('skills')
+  await expect(palette.getByRole('option', { name: 'Agents' })).toBeVisible()
+  await input.fill('login')
+  await expect(palette.getByRole('option', { name: /fix the login flake/ })).toBeVisible()
+  await win.keyboard.press('Enter')
+  await expect(palette).toBeHidden()
+  await expect(win.locator('.chat-title')).toHaveText('fix the login flake')
+})
+
 test('opening a session lands in chat with its parsed transcript', async () => {
   const row = win.getByRole('treeitem', { name: /fix the login flake/ })
   await row.click()
@@ -253,4 +287,53 @@ test('keyboard routing: settings shortcut, Escape back to chat, new-task shortcu
   await expect(win.locator('.chat-title')).toHaveText('fix the login flake')
   await win.keyboard.press('ControlOrMeta+n')
   await expect(homeHeading()).toBeVisible()
+  // New task while already home exercises the explicit refocus path (no remount)
+  await win.getByRole('button', { name: 'New task' }).click()
+  await expect(win.getByLabel('Task description')).toBeFocused()
+})
+
+test('the window minimum is enforced and every surface holds at exactly that size', async () => {
+  // the floor is a contract: the BrowserWindow minima in src/main/index.ts and
+  // this audit change together, or this line fails
+  const min = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize())
+  expect(min).toEqual([560, 420])
+
+  await win.setViewportSize({ width: 560, height: 420 })
+  /** Anything escaping the window or overflowing its chrome row is a regression. */
+  const audit = (): Promise<string[]> =>
+    win.evaluate(() => {
+      const bad: string[] = []
+      if (document.documentElement.scrollWidth > window.innerWidth + 1)
+        bad.push(`document scrolls horizontally (${document.documentElement.scrollWidth})`)
+      for (const el of Array.from(document.querySelectorAll('*'))) {
+        const r = el.getBoundingClientRect()
+        if (r.width > 0 && (r.right > window.innerWidth + 1.5 || r.left < -1.5))
+          bad.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} escapes the window`)
+      }
+      for (const sel of ['.tree-top', '.search-row', '.chat-header', '.composer-bar', '.sidebar-footer']) {
+        const el = document.querySelector(sel)
+        if (el && el.scrollWidth > el.clientWidth + 1) bad.push(`${sel} overflows its row`)
+      }
+      return [...new Set(bad)]
+    })
+
+  await win.keyboard.press('ControlOrMeta+n')
+  await expect(win.getByRole('button', { name: /^Start with/ })).toBeVisible()
+  expect(await audit()).toEqual([])
+
+  await win.keyboard.press('ControlOrMeta+k')
+  await expect(win.getByRole('dialog', { name: 'Jump to' })).toBeVisible()
+  expect(await audit()).toEqual([])
+  await win.keyboard.press('Escape')
+
+  // five tabs must wrap inside the narrow card, never overflow it
+  await win.getByRole('button', { name: 'Agents' }).click()
+  await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  expect(await audit()).toEqual([])
+
+  await win.getByRole('treeitem', { name: /fix the login flake/ }).click()
+  await expect(win.getByRole('button', { name: 'Send' })).toBeVisible()
+  expect(await audit()).toEqual([])
+
+  await win.setViewportSize({ width: 1100, height: 728 })
 })

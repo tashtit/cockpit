@@ -134,7 +134,7 @@ export function HomeView({
           </h2>
           <p className="home-sub">
             Assign a task to an agent — it runs in an isolated worktree and lands as a PR.
-            <span className="home-kbd">⌘N new task · ⌘K search</span>
+            <span className="home-kbd">⌘N new task · ⌘K jump anywhere</span>
           </p>
         </div>
 

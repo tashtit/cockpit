@@ -32,10 +32,12 @@ GitHub · Model providers · Add source).
 - History section: one labeled `Select` ("Show sessions from" — preset day windows plus
   "All history"). The `.ns-hint` must keep saying that older sessions are only hidden,
   never touched on disk — this is a view filter, not a destructive setting.
-- Display section: one labeled `Select` ("Time format" — 24-hour default vs 12-hour,
-  each option shows a concrete example like `14:30`). Applies live to session times in
-  the sidebar and home view via the shared `time.ts` store; changes announce through
-  the card's `role="status"` region like every other setting.
+- Display section: two labeled `Select`s. "Time format" (24-hour default vs 12-hour,
+  each option shows a concrete example like `14:30`) applies live to session times in
+  the sidebar and home view via the shared `time.ts` store. "Chat width" (narrow /
+  comfortable / wide / full, px hints on the options) bounds the conversation column
+  via the `chat-width.ts` store — localStorage, applies live to an open chat.
+  Changes announce through the card's `role="status"` region like every other setting.
 - Subscription usage section: one `.source-row.tint-<provider>` per provider account —
   logo · label · `.acct-chip` identity · dim plan / "as of Xm ago" `.source-origin`
   (staleness only shown past 15min). Body is `.usage-windows` rows: window label ·

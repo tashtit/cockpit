@@ -20,12 +20,17 @@
 
 ## Design Language
 
-Refined OLED dark: deep gradient base (`--bg` → `--bg-deep`) with a faint accent aurora at
-the top of the window, elevated translucent surfaces, hairline rgba borders, one indigo
-accent, and **per-agent identity colors** used consistently everywhere an agent appears.
-Neutrals, surfaces, and borders all carry a subtle indigo cast (tinted rgba, not pure
-white/grey) so the whole app harmonizes with the accent. GitHub PR-state colors match
-github.com exactly.
+Instrument-HUD dark (the 2026-08 bolder pass): a near-black base (`--bg` → `--bg-deep`)
+under a static night-flight atmosphere — the aurora doubles as a radar source, with
+faint concentric range rings (`--grid-line`) radiating across the glass, and a faint
+horizon glow below. Rings, not graph paper: the texture is Cockpit's own. The window reads as two
+materials: the **rail** (sidebar — darker glass, `color-mix` of `--bg-deep`) and the
+**deck** (content panes on `--pane`). Elevated translucent surfaces, hairline rgba
+borders, one steel-blue accent, and **per-agent identity colors** used consistently
+everywhere an agent appears. Micro-labels and the hero speak the mono *placard* voice. Neutrals, surfaces, and borders all carry a subtle steel
+cast (tinted rgba, not pure white/grey) so the whole app harmonizes with the accent —
+primaries connect with the UI rather than shouting over it.
+GitHub PR-state colors match github.com exactly.
 
 - Dark mode only. Never add a light theme without a full contrast re-audit.
 - Density is intentionally high (11–13px UI chrome, 28–30px rows). This is a pro desktop tool, not a marketing site. The one deliberate exception: transcript prose and composer text read at `--fs-prose` (14px/1.6) — chrome is scanned, prose is read.
@@ -35,15 +40,16 @@ github.com exactly.
 
 | Role | Value | Token |
 |------|-------|-------|
-| Background (gradient top) | `#0b0d16` | `--bg` |
-| Background (gradient bottom) | `#05060b` | `--bg-deep` |
-| Elevated surface 1 / 2 | `#121521` / `#1b2031` | `--bg2` / `--bg3` |
-| Translucent surface | `rgba(167,178,255,0.05)` | `--surface` |
-| Border / strong border | `rgba(167,178,255,0.11)` / `0.19` | `--border` / `--border-strong` |
-| Foreground / dim | `#eceef8` / `#9aa3bf` | `--fg` / `--fg-dim` |
-| Accent (text/icon on dark) | `#8b95ff` | `--accent` |
-| Accent (button fill, white text ≥4.5:1) | `#545ee0` | `--accent-btn` |
-| Accent glow ring | `rgba(94,106,210,0.22)` | `--accent-glow` |
+| Background (gradient top) | `#0c1219` | `--bg` |
+| Background (gradient bottom) | `#03070c` | `--bg-deep` |
+| Range-ring line (decorative) | `rgba(156,178,198,0.035)` | `--grid-line` |
+| Elevated surface 1 / 2 | `#131a23` / `#1d2733` | `--bg2` / `--bg3` |
+| Translucent surface | `rgba(156,178,198,0.05)` | `--surface` |
+| Border / strong border | `rgba(156,178,198,0.11)` / `0.19` | `--border` / `--border-strong` |
+| Foreground / dim | `#e8edf2` / `#96a5b4` | `--fg` / `--fg-dim` |
+| Accent, steel blue (text/icon on dark) | `#7fa9cf` | `--accent` |
+| Accent (button fill, white text ≥4.5:1 at 5.6) | `#3d6a94` | `--accent-btn` |
+| Accent glow ring | `rgba(72,110,148,0.22)` | `--accent-glow` |
 | Claude / Codex / Copilot | `#d97757` / `#10a37f` / `#9a7bff` | `--claude` / `--codex` / `--copilot` |
 | Branch blue | `#79b8ff` | `--branch` |
 | PR open / merged / closed / draft | `#3fb950` / `#a371f7` / `#f85149` / `#8b949e` | `--pr-*` |
@@ -69,7 +75,16 @@ rather than a pale rinse of the button fill.
 ## Typography
 
 - **UI font:** system stack (`-apple-system, 'Inter', 'Segoe UI'`) — no webfont import; this is a desktop app, load nothing over the network.
-- **Mono:** `--mono` (`ui-monospace, 'SF Mono', 'Fira Code'`) — used for account IDs, branches, paths, code. Mono = "machine identifier" is a semantic signal, keep it.
+- **Mono:** `--mono` (`ui-monospace, 'SF Mono', 'Fira Code'`) carries two registers, keep them distinct:
+  - *machine identifiers* (normal case): account IDs, branches, paths, code — as always.
+  - *placards* (the instrument voice): the hero h2, the `COCKPIT` wordmark, view
+    headings (`.ns-head h2`, `.empty-chat h2` — uppercase), tabs (`.ext-tab`), the
+    `.thinking` annunciator line, and every micro-label (`.ns-label`,
+    `.board-eyebrow`, `.board-agent`, `.section-row`, `.search-group`,
+    `.repo-filter-head`, `.inst-scope label`, `.pv-stat span`) — re-voiced in the
+    identity layer at the end of style.css. Session titles, body rows, buttons, and
+    prose are user content and stay sans; mono display outside these two registers
+    is a bug.
 - **Scale:** `--fs-xs` 11 / `--fs-sm` 12 / `--fs-base` 13 / `--fs-prose` 14 / `--fs-md` 15 / `--fs-lg` 16 / `--fs-xl` 26. Body text never below `--fs-base`; `--fs-xs` is for metadata (chips, timestamps, counts) only; `--fs-prose` (with 1.6 line-height) is for transcript prose and composer textareas only.
 - **Icon scale** (keep to these four steps, don't invent in-between sizes): 10px minis (per-provider dots on repo/section rows), 12px footer/metadata glyphs, 13–14px row icons (session logos, repo icons, avatars), 16px toolbar glyphs inside 28px `.icon-btn`s.
 - **Micro-labels:** uppercase labels (`.ns-label`, `.inst-scope label`) are 600 weight with 0.9px tracking; lowercase section headers (`.section-row`, `.search-group`, `.repo-filter-head`) use 0.6px. Wide tracking at tiny sizes is the refinement signal — keep it consistent.
@@ -80,8 +95,8 @@ rather than a pale rinse of the button fill.
 - **Spacing:** `--s1` 4 / `--s2` 6 / `--s3` 8 / `--s4` 12 / `--s5` 16 / `--s6` 24. Tree indent tokens: `--indent-1` 14 / `--indent-15` 22 / `--indent-2` 30.
 - **Radii:** `--radius-sm` 6 / `--radius` 8 / `--radius-lg` 14 / `--radius-pill` 999. Nothing off-scale (the one exception is the 5px scrollbar thumb, which is half its own 10px track — geometry, not a design radius).
 - **Control heights — two steps only:** compact controls that share a row are **28px** (Select triggers, `.ns-opt`/`.source-add`/`.ns-branch-row` inputs, `.ns-account-single`, `.composer-identity`, `.btn-pr`, the composer bar's `.btn-primary`); standalone form buttons are **32px** (`.btn-primary`, `.btn-ghost`, `.btn-danger` in `.ns-actions`/composer footer). Never mix the two heights in one row — ragged bottom edges read as broken.
-- **Shadows:** three tokens, no ad-hoc values — `--shadow-card` (floating cards), `--shadow-pop` (popovers/listboxes), `--shadow-fill` (contact shadow under a filled button). The only glow is `--accent-glow` on primary buttons and focus rings.
-- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) and filled buttons (`.btn-primary`, `.btn-pr`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` (or a `color-mix` of the fill with `--white`) plus a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (sidebar, chat header, composer, composer bar) are all `--pane`. Reuse these; never invent new fill colors.
+- **Shadows:** three tokens, no ad-hoc values — `--shadow-card` (floating cards), `--shadow-pop` (popovers/listboxes), `--shadow-fill` (contact shadow under a filled button). The only glow is `--accent-glow` on focus rings — filled buttons are flat (see Depth). Modal backdrops use `--scrim` (`--bg-deep`'s channels at 0.6) — the ⌘K palette is currently the only modal; a second one reuses the same scrim.
+- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` — and filled buttons (`.btn-primary`, `.btn-pr`, `.btn-danger`) are **flat solid fills** (instrument keys, no gradients, no ambient glow), both finished with a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (chat header, composer, composer bar) are all `--pane`; the sidebar rail alone is darker glass (`color-mix` of `--bg-deep`). Reuse these; never invent new fill colors.
 
 ## Motion
 
@@ -100,10 +115,11 @@ Reuse these; don't invent parallel variants:
 - **`LiveDot`** (`.pulse.pulse-{agent}`) — 7px agent-colored pulse: "this session's agent is running right now". Occupies the row's exclusive meta slot (running beats PR badge beats timestamp) in sidebar session rows and board rows.
 - **`.board`** — the app's signature element (home only): departure-board of sessions, flying first — livery-lit placard labels, branch chips, ticking elapsed time. Quiet `--surface` instrument panel; never give it the composer card's floating shadow. See `pages/home.md`.
 - **`.pv-heat`** — activity heatmap (profile only): GitHub's week-column grid, but squares carry the **agent's** identity color (the agent that led that day) rather than the accent, so the grid doubles as an agent mix. The one sanctioned place agent tints exceed the 0.10–0.16 range — 11px squares hold no text. See `pages/profile.md`.
+- **`.palette`** — the ⌘K jump surface (the app's one modal): combobox over sessions/repos/views on a `--scrim` backdrop, z 70 above every popover. Composer-card focus recipe for the frame; sidebar group/empty grammar for the list; empty query opens as the board in miniature (flying first). A jump surface, not an action executor. See `pages/palette.md`.
 - **`.badge-{claude,codex,copilot}`** — solid agent badge (chat header).
-- **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`.
+- **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`. `.new-task-btn` is an icon-only `.btn-primary` square docked to the search row — the one always-visible entry point (mirrors ⌘N; `aria-label="New task"`); it is the rail's only filled control, keep it that way.
 - **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.
-- **Cards:** `.ns-card` (600px, `.wide` 760px) for forms; `.composer-card` for the home prompt.
+- **Cards:** `.ns-card` — ONE width (`min(760px, 94%)`) shared by every card view (Settings, Agents, Profile, New session); navigating between them must never make the dialog jump sizes. `.composer-card` for the home prompt.
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.
 - **Semantic count pills:** bordered pill = "session count on a repo"; org counts are plain text.
 - **`Select`** — the one dropdown (see Native Controls); never a raw `<select>`.
@@ -115,6 +131,7 @@ Nothing renders with stock Chromium chrome:
 
 - **Dropdowns are never native `<select>`** — OS popups can't be styled. Use the `Select` component (`Select.tsx`): trigger button + portaled fixed-position listbox (portal is load-bearing: `backdrop-filter` ancestors trap fixed positioning, `overflow: hidden` cards clip it). It carries the full keyboard contract (arrows/Home/End, Enter/Space, Escape-returns-focus, type-ahead) and ARIA listbox semantics — don't reimplement dropdowns. Variants: `mono` (machine identifiers), `quiet` (borderless, inside an already-bordered control). A read-only value next to Selects uses `.ns-account-single` (trigger-shaped, inert).
 - `:root { color-scheme: dark }` keeps remaining native surfaces (autofill, fallback scrollbars) dark — never remove it.
+- Custom scrollbars are **classic, not overlay** — two consequences, both handled globally and load-bearing: scrolling containers that center content reserve their gutters (`scrollbar-gutter: stable both-edges` on card views + home, `stable` on the transcript) so a scrollbar's arrival never shifts layout; and `::-webkit-scrollbar-corner` / `::-webkit-resizer` are repainted (Chromium defaults them to white squares once scrollbars are styled). A new scrolling view that centers content must reserve its gutter the same way.
 - Checkboxes/radios use `accent-color: var(--accent)`; text inputs get `caret-color: var(--accent)`; placeholders are `--fg-dim`.
 - Every `<summary>` draws its own ▸ indicator (UA markers are globally suppressed) — a new `<details>` must add one, or it will look inert.
 
@@ -130,7 +147,8 @@ Nothing renders with stock Chromium chrome:
 - Window drag regions: `.tree-top` and `.chat-header` are `-webkit-app-region: drag`; every interactive child must opt out with `no-drag`. Copyable text (paths, branches) must be `user-select: text` + `no-drag`.
 - `.tree-top` top padding (40px) clears macOS traffic lights (hiddenInset) — don't shrink it.
 - `.app > * { min-width: 0 }` is load-bearing: grid items default to `min-width: auto`, and without the guard the chat pane's fixed header children push the 1fr column wider than the window. Any new fixed-width header content must still fit a 560px window.
-- Narrow windows (≤780px) shed decorative chips before anything truncates; short windows (≤600px) drop the home hero. Follow this "shed decoration first" pattern for new responsive cases. The shed media queries live at the **end** of style.css on purpose — earlier in the file they'd lose the cascade to same-specificity component rules; keep new shed rules there.
+- **Supported minimum window: 560×420** — enforced by the BrowserWindow min sizes in `src/main/index.ts` and gated by the e2e minimum-size audit (no horizontal overflow, chrome rows contained, key controls visible at exactly that size). Anything new must hold there; change the floor and the gate together.
+- Narrow windows (≤780px) shed decorative chips before anything truncates; ≤700px the sidebar wordmark text sheds (the mark stays); short windows (≤600px) drop the home hero. Follow this "shed decoration first" pattern for new responsive cases. The shed media queries live at the **end** of style.css on purpose — earlier in the file they'd lose the cascade to same-specificity component rules; keep new shed rules there.
 - Window drag: `.tree-top` and `.chat-header` are drag regions; every other view gets the fixed 22px `.drag-strip` along the top edge (rendered by App for non-chat views). Keep interactive content below 22px from the window top.
 - Dev builds only: a 28px `.dev-banner` row spans the top of the grid naming the source branch (parallel worktree dev instances are otherwise identical). Branch-tinted, mono, also a drag region with selectable `no-drag` text; it absorbs the traffic-light clearance, so `.tree-top` sheds its 40px pad under it. Never renders in a packaged app.
 
@@ -141,7 +159,7 @@ Nothing renders with stock Chromium chrome:
 - ❌ Emojis as icons — SVG only (see `logos.tsx`); if a unicode glyph is unavoidable, force text presentation with U+FE0E
 - ❌ Layout-shifting hover/pressed transforms (translate/scale on rows or buttons)
 - ❌ Removing focus rings or the reduced-motion block
-- ❌ New accent colors — agent colors + one indigo accent + GitHub semantic colors is the whole palette
+- ❌ New accent colors — agent colors + one steel-blue accent + GitHub semantic colors is the whole palette
 - ❌ Spinner-less async operations
 - ❌ Array-index keys for reorderable lists (append-only log offsets are the sanctioned exception in ChatView)
 

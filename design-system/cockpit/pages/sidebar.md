@@ -11,12 +11,28 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 
 ## Structure
 
+- The sidebar is the **rail**: darker glass than the content panes (`color-mix` of
+  `--bg-deep`), so the window reads as two materials. Its only filled control is the
+  `.new-task-btn`.
 - `.tree-top` (drag region, 40px top padding clears macOS traffic lights — the pad
   drops to `--s3` when the dev `.dev-banner` row already provides that clearance):
-  app title button (→ home) · zoom chip (only when zoom ≠ 100%, warn-colored, click
-  resets) · Extensions and Settings `.icon-btn`s with octicon-style SVGs.
-- `.search` input with ⌘K hint, 250ms debounce. Non-empty search swaps the whole tree for
-  `SearchResults` grouped by repo name.
+  app title button (→ home; the wordmark speaks the mono placard voice — its text
+  sheds ≤700px, the mark stays) · zoom chip (only when zoom ≠ 100%, warn-colored,
+  click resets) · Agents, Profile, and Settings `.nav-btn`s (shared icons from
+  `logos.tsx` — the same marks the ⌘K palette renders, so nav and palette can't
+  drift). The top row is wordmark + navigation only. The open view's icon stays
+  quietly lit (`.active` soft accent tint, no underline, `aria-current="page"`),
+  and re-clicking it backs out (toggle); the footer and empty-state Settings
+  entries stay open-only.
+- `.search-row` — the tree's three controls on one line, in reading order: the eye
+  project filter (scopes the tree), the search input (searches it), and
+  `.new-task-btn`, an icon-only `.btn-primary` square (`aria-label="New task"`,
+  ⌘N in the tooltip — creates). Icon-only on purpose — the accent fill alone says
+  "this one creates"; keep it off the app-name row, which stays purely the
+  wordmark. Everything else that starts a session is hover-revealed or keyboard.
+- `.search` input, 250ms debounce (⌘K belongs to the palette, not this field —
+  the search filters the tree in place; the palette jumps). Non-empty search swaps the
+  whole tree for `SearchResults` grouped by repo name.
 - Tree rows, in visual grammar:
   - `.section-row` — sticky (`top: 0`, solid `--bg2` so scrolling rows pass under it),
     lowercase micro-caps, plain-text session count (the Chats header).

@@ -10,6 +10,7 @@ import type {
   UsageWindow
 } from '../../shared/types'
 import { api } from './api'
+import { CHAT_WIDTH_OPTIONS, setChatWidth, useChatWidth, type ChatWidth } from './chat-width'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ModelProviders } from './ModelProviders'
 import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -122,6 +123,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   /** null until loaded — the Select only renders with a real value */
   const [historyDays, setHistoryDays] = useState<number | null>(null)
   const timeFormat = useTimeFormat()
+  const chatWidth = useChatWidth()
   const [lastRemoved, setLastRemoved] = useState<SourceDir | null>(null)
   /** Removal failures get their own slot — `error` belongs to the add form below */
   const [removeError, setRemoveError] = useState<string | null>(null)
@@ -319,7 +321,9 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
         <h3 className="ns-label">Display</h3>
         <p className="ns-hint">
           How a session&apos;s last-activity time is shown in the sidebar and on the home view.
-          Sessions last active before today show a date instead.
+          Sessions last active before today show a date instead. Chat width bounds the
+          conversation column on large displays, so your messages stay next to the
+          agent&apos;s replies.
         </p>
         <div className="ns-options">
           <div className="ns-opt">
@@ -330,6 +334,16 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
               value={timeFormat}
               options={TIME_FORMAT_OPTIONS}
               onChange={(v) => changeTimeFormat(v as TimeFormat)}
+            />
+          </div>
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="chat-width">Chat width</label>
+            <Select
+              id="chat-width"
+              ariaLabel="Chat width"
+              value={chatWidth}
+              options={CHAT_WIDTH_OPTIONS.map((o) => ({ value: o.value, label: o.label, hint: o.hint }))}
+              onChange={(v) => setChatWidth(v as ChatWidth)}
             />
           </div>
         </div>
@@ -373,7 +387,10 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
             </li>
           ))}
           {usage !== null && usage.providers.length === 0 && (
-            <li className="tree-empty">no provider accounts configured</li>
+            <li className="tree-empty">
+              no provider accounts detected — sign in to an agent CLI, then add its config
+              home under Add source below
+            </li>
           )}
         </ul>
 

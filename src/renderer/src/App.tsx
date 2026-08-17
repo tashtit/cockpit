@@ -12,6 +12,7 @@ import { api } from './api'
 import { withImageMarks, type ImageAttachment } from './attachments'
 import { TreeSidebar } from './TreeSidebar'
 import { ChatView } from './ChatView'
+import { CommandPalette, type PaletteViewKey } from './CommandPalette'
 import { NewSession } from './NewSession'
 import { Settings } from './Settings'
 import { ProfileView } from './ProfileView'
@@ -60,6 +61,7 @@ export function App(): JSX.Element {
   const [activeTurn, setActiveTurn] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [creatingPr, setCreatingPr] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const activeTurnRef = useRef<string | null>(null)
   activeTurnRef.current = activeTurn
   /** Events can beat the sendChat() reply for fast-failing spawns — hold them briefly. */
@@ -95,16 +97,23 @@ export function App(): JSX.Element {
     return () => clearInterval(t)
   }, [])
 
-  // global shortcuts: ⌘K search, ⌘N new task, ⌘, settings, Esc backs out of secondary views
+  // global shortcuts: ⌘K palette, ⌘N new task, ⌘, settings, Esc backs out of secondary views
   const bindingRef = useRef<ChatBinding | null>(null)
   bindingRef.current = binding
+  const paletteOpenRef = useRef(false)
+  paletteOpenRef.current = paletteOpen
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key === 'k') {
         e.preventDefault()
-        document.querySelector<HTMLInputElement>('.search')?.focus()
-      } else if (mod && e.key === 'n') {
+        setPaletteOpen((v) => !v)
+        return
+      }
+      // while the palette is open it owns the keyboard (its own listener closes
+      // on Escape) — the view-level shortcuts below must not also fire
+      if (paletteOpenRef.current) return
+      if (mod && e.key === 'n') {
         e.preventDefault()
         setView({ kind: 'welcome' })
       } else if (mod && e.key === ',') {
@@ -391,6 +400,13 @@ export function App(): JSX.Element {
 
   const openUrl = useCallback((url: string) => void api.openExternal(url), [])
 
+  /** Nav icons are stateful: opening the view you're already on backs out of it. */
+  const toggleView = useCallback((kind: 'settings' | 'extensions' | 'profile') => {
+    setView((v) =>
+      v.kind === kind ? (bindingRef.current ? { kind: 'chat' } : { kind: 'welcome' }) : { kind }
+    )
+  }, [])
+
   // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
 
@@ -412,11 +428,19 @@ export function App(): JSX.Element {
         selectedId={selectedSessionId}
         onSelect={openSession}
         onNewSession={(repo) => setView({ kind: 'new', repo })}
+        onNewTask={() => {
+          setView({ kind: 'welcome' })
+          // when already home, the view object changes but HomeView isn't remounted,
+          // so its mount-autofocus doesn't re-run — land focus in the composer here
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLTextAreaElement>('.composer-card textarea')?.focus()
+          )
+        }}
         onGoHome={() => setView({ kind: 'welcome' })}
+        onNav={toggleView}
         onOpenSettings={() => setView({ kind: 'settings' })}
-        onOpenExtensions={() => setView({ kind: 'extensions' })}
-        onOpenProfile={() => setView({ kind: 'profile' })}
         onOpenUrl={openUrl}
+        activeView={view.kind}
       />
       {view.kind === 'profile' ? (
         <ProfileView onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
@@ -458,6 +482,15 @@ export function App(): JSX.Element {
           onCancel={cancel}
           onCreatePr={createPr}
           onOpenUrl={openUrl}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          repos={visibleRepos}
+          onOpenSession={(s) => void openSession(s)}
+          onNewSession={(repo) => setView({ kind: 'new', repo })}
+          onGoto={(v: PaletteViewKey) => setView({ kind: v })}
+          onClose={() => setPaletteOpen(false)}
         />
       )}
     </div>

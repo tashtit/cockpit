@@ -21,6 +21,18 @@ grab target.
   cwd/branch subtitle is selectable text.
 - Mode select persists to `cockpit:mode`; hints live in `title`, labels stay one word.
 
+## The conversation column
+
+- The exchange reads in a centered column: `.messages` and `.composer` share
+  symmetric `padding-inline: max(floor, calc((100% - var(--chat-col)) / 2))`, so on
+  large displays user bubbles stay right-aligned *within the column*, next to the
+  replies — never stranded at the window edge.
+- `--chat-col` comes from the user's **Chat width** preference (Settings → Display:
+  narrow 680 / comfortable 860 (default) / wide 1120 / full). It lives in
+  `chat-width.ts` — a localStorage-backed `useSyncExternalStore` store, so an open
+  chat re-columns live when Settings changes it. The header stays full-width on
+  purpose (it is chrome, not reading material).
+
 ## Transcript (`.messages`)
 
 - Row vocabulary — do not invent new message shapes:
@@ -40,7 +52,11 @@ grab target.
 - `Message` is memoized; keys are absolute log offsets (`log.length - visible.length + i`),
   stable because the log is append-only. Don't "fix" this to item ids or bare indexes.
 - Auto-scroll pins to bottom on new messages/busy; busy shows `.pulse` +
-  "<Agent> is working…".
+  "<Agent> is working…" — the `.thinking` line renders in the placard register
+  (mono uppercase annunciator; the transform is CSS, the DOM text stays sentence
+  case for screen readers).
+- Assistant avatars carry a quiet livery ring (`.avatar.plogo-*` border tint) — the
+  authoring agent reads at a glance without leaving the rest-intensity tint range.
 - `.messages > * { flex-shrink: 0 }` is load-bearing: without it, flex children shrink
   toward min-content before the container scrolls, and tool-rows (`overflow: hidden`)
   compress to unreadable slivers in long transcripts. Any new scrollable column flex

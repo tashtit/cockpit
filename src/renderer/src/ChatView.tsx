@@ -1,47 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import type { ChatBinding } from './App'
 import { AttachRow, useImageAttachments } from './attachments'
+import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
+import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
 import { BranchChip, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
-
-function nodeText(node: ReactNode): string {
-  if (typeof node === 'string' || typeof node === 'number') return String(node)
-  if (Array.isArray(node)) return node.map(nodeText).join('')
-  if (node && typeof node === 'object' && 'props' in node) {
-    return nodeText((node as { props: { children?: ReactNode } }).props.children)
-  }
-  return ''
-}
-
-function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
-  // copy must acknowledge — a click with no visible result reads as broken
-  const [copied, setCopied] = useState(false)
-  useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(false), 1200)
-    return () => clearTimeout(t)
-  }, [copied])
-  return (
-    <div className="codeblock">
-      <button
-        className={`code-copy ${copied ? 'copied' : ''}`}
-        aria-label="Copy code"
-        onClick={() => {
-          void navigator.clipboard.writeText(nodeText(children))
-          setCopied(true)
-        }}
-      >
-        {copied ? 'Copied' : 'Copy'}
-      </button>
-      <pre>{children}</pre>
-    </div>
-  )
-}
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too. */
 const RENDER_LAST = 400
@@ -107,6 +72,7 @@ export function ChatView({
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
     [prs, binding?.branch]
   )
+  const chatWidth = useChatWidth()
 
   const sliced = log.length > RENDER_LAST ? log.slice(-RENDER_LAST) : log
   const base = log.length - sliced.length
@@ -147,7 +113,8 @@ export function ChatView({
   }
 
   return (
-    <main className="chat">
+    // the conversation column tracks the user's width preference live
+    <main className="chat" style={{ '--chat-col': CHAT_WIDTH_CSS[chatWidth] } as React.CSSProperties}>
       <header className="chat-header">
         <span className={`badge badge-${binding.provider}`}>
           <ProviderLogo p={binding.provider} size={11} /> {PROVIDER_LABEL[binding.provider]}
@@ -327,13 +294,7 @@ const Message = memo(function Message({
           // stream as plain text and markdownify once when the turn completes
           <p className="streaming-plain">{m.text}</p>
         ) : (
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
-            components={{ pre: CodeBlock }}
-          >
-            {m.text}
-          </ReactMarkdown>
+          <Markdown text={m.text} />
         )}
       </div>
     </div>

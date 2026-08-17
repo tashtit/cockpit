@@ -11,6 +11,7 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { Markdown } from './Markdown'
 import { Select } from './Select'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
@@ -75,16 +76,16 @@ export function AiSetup({
 
   return (
     <main className="chat settings-view">
-      <div className="ns-card wide">
+      <div className="ns-card">
         <div className="ns-head">
-          <h2 ref={headingRef} tabIndex={-1}>AI Setup</h2>
+          <h2 ref={headingRef} tabIndex={-1}>Agents</h2>
           <button className="btn-ghost" onClick={onClose}>Close</button>
         </div>
 
         <div
           className="ext-tabs"
           role="tablist"
-          aria-label="AI Setup sections"
+          aria-label="Agents sections"
           // full tabs pattern: one tab stop (roving tabindex), arrows move + select
           onKeyDown={(e) => {
             const order = TABS.map(([t]) => t)
@@ -166,7 +167,11 @@ export function AiSetup({
                 )
               })}
               {inv.skills.length === 0 && (
-                <li className="tree-empty">no personal skills found — plugin skills are managed by their plugins</li>
+                <li className="tree-empty">
+                  no personal skills yet — add one under <code>~/.claude/skills</code> or{' '}
+                  <code>~/.copilot/skills</code> and it appears here (plugin skills stay with
+                  their plugins)
+                </li>
               )}
             </ul>
           </>
@@ -185,7 +190,14 @@ export function AiSetup({
                 </div>
               </li>
             ))}
-            {inv.plugins.length === 0 && <li className="tree-empty">no plugins installed</li>}
+            {inv.plugins.length === 0 && (
+              <li className="tree-empty">
+                no plugins installed — install from a{' '}
+                <button className="link-btn" onClick={() => setTab('marketplace')}>
+                  marketplace
+                </button>
+              </li>
+            )}
           </ul>
         )}
 
@@ -211,7 +223,9 @@ export function AiSetup({
                   )}
                 </li>
               ))}
-              {inv.marketplaces.length === 0 && <li className="tree-empty">no marketplaces registered</li>}
+              {inv.marketplaces.length === 0 && (
+                <li className="tree-empty">no marketplaces registered — the command below adds your first</li>
+              )}
             </ul>
             <p className="ns-hint">
               Browse more: install marketplaces with <code>claude plugin marketplace add &lt;repo&gt;</code>,
@@ -441,7 +455,10 @@ function McpTab({
           )
         })}
         {inv.mcp.length === 0 && (
-          <li className="tree-empty">no MCP servers configured in any agent</li>
+          <li className="tree-empty">
+            no MCP servers configured in any agent — add one (e.g.{' '}
+            <code>claude mcp add</code>) and share it across agents here
+          </li>
         )}
       </ul>
     </>
@@ -460,6 +477,7 @@ function InstructionsTab({
   const [inst, setInst] = useState<InstructionsState | null>(null)
   const [scope, setScope] = useState<string>('global')
   const [draft, setDraft] = useState('')
+  const [mdView, setMdView] = useState<'write' | 'preview'>('write')
   const [busy, setBusy] = useState(false)
   const repoRoot = scope === 'global' ? null : scope
   const gitRepos = repos.filter((r) => r.root !== null)
@@ -548,18 +566,45 @@ function InstructionsTab({
 
       {inst && (
         <>
-          <textarea
-            className="inst-baseline"
-            aria-label="Shared instructions"
-            rows={8}
-            placeholder={
-              repoRoot
-                ? '# Conventions for this repo that every agent should follow…'
-                : '# General instructions every agent should follow, everywhere…\n\nE.g. commit style, language, review rules, what never to touch.'
-            }
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
+          {/* GitHub-comment grammar: the baseline is markdown, so edit it like markdown */}
+          <div className="md-tabs" role="group" aria-label="Editor mode">
+            <button
+              className={`md-tab ${mdView === 'write' ? 'active' : ''}`}
+              aria-pressed={mdView === 'write'}
+              onClick={() => setMdView('write')}
+            >
+              Write
+            </button>
+            <button
+              className={`md-tab ${mdView === 'preview' ? 'active' : ''}`}
+              aria-pressed={mdView === 'preview'}
+              onClick={() => setMdView('preview')}
+            >
+              Preview
+            </button>
+          </div>
+          {mdView === 'write' ? (
+            <textarea
+              className="inst-baseline"
+              aria-label="Shared instructions"
+              rows={8}
+              placeholder={
+                repoRoot
+                  ? '# Conventions for this repo that every agent should follow…'
+                  : '# General instructions every agent should follow, everywhere…\n\nE.g. commit style, language, review rules, what never to touch.'
+              }
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          ) : (
+            <div className="inst-preview markdown" aria-label="Shared instructions preview">
+              {draft.trim() ? (
+                <Markdown text={draft} />
+              ) : (
+                <p className="inst-preview-empty">nothing to preview yet — write some markdown first</p>
+              )}
+            </div>
+          )}
           <div className="inst-actions">
             {dirty && <span className="inst-dirty">unsaved changes</span>}
             <button className="btn-ghost" disabled={busy || !dirty} onClick={() => void saveBaseline()}>
