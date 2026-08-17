@@ -5,7 +5,11 @@
   /* refined dark: deep gradient base, elevated surfaces, hairline rgba borders.
      neutrals carry a deliberate indigo cast so the whole app harmonizes with the accent;
      borders/surfaces are tinted rgba, not pure white, for the same reason. */
-  --bg-deep: #05060b; --bg: #0b0d16; --bg2: #121521; --bg3: #1b2031;
+  /* instrument-HUD pass: the base drops nearer true black so panes and cards read
+     as lit glass; --bg2/--bg3 stay put, which widens every elevation step */
+  --bg-deep: #020308; --bg: #0b0d16; --bg2: #121521; --bg3: #1b2031;
+  /* the whisper-faint instrument grid behind everything — decorative, never load-bearing */
+  --grid-line: rgba(167, 178, 255, 0.025);
   --surface: rgba(167, 178, 255, 0.05);
   --border: rgba(167, 178, 255, 0.11);
   --border-strong: rgba(167, 178, 255, 0.19);
@@ -55,8 +59,13 @@
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 body { background:
-    /* a soft accent aurora at the top gives the flat gradient depth — keep it faint */
-    radial-gradient(110% 55% at 50% -12%, rgba(var(--accent-rgb), 0.08), transparent 60%),
+    /* the night-flight atmosphere, top to bottom: an instrument grid etched into
+       the glass, a strong accent aurora above, a faint horizon glow below, all
+       over the near-black base. Static on purpose — atmosphere, not animation. */
+    repeating-linear-gradient(0deg, var(--grid-line) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(90deg, var(--grid-line) 0 1px, transparent 1px 28px),
+    radial-gradient(110% 55% at 50% -12%, rgba(var(--accent-rgb), 0.14), transparent 62%),
+    radial-gradient(90% 42% at 50% 114%, rgba(var(--accent-rgb), 0.06), transparent 60%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
   color: var(--fg); font: var(--fs-base)/1.5 -apple-system, 'Inter', 'Segoe UI', sans-serif;
   overflow: hidden; -webkit-font-smoothing: antialiased; }
@@ -157,12 +166,17 @@ summary::-webkit-details-marker { display: none; }
   font-style: italic; }
 
 /* ---------- tree sidebar ---------- */
-.tree-sidebar { background: var(--pane); border-right: 1px solid var(--border);
+/* the rail: darker glass than the content panes, so the window reads as two
+   materials — instrument rail on the left, flight deck on the right */
+.tree-sidebar { background: color-mix(in srgb, var(--bg-deep) 62%, transparent);
+  border-right: 1px solid var(--border);
   display: flex; flex-direction: column; min-height: 0; backdrop-filter: blur(8px); }
 .tree-top { display: flex; align-items: center; gap: var(--s1);
   /* clears the macOS traffic lights (hiddenInset) */
   padding: 40px var(--s4) var(--s3); }
-.app-title { font-size: var(--fs-base); font-weight: 700; letter-spacing: 0.2px; display: flex;
+/* the wordmark speaks the instrument voice: mono, wide-tracked, beside the mark */
+.app-title { font-size: var(--fs-base); font-weight: 700; letter-spacing: 1.5px;
+  font-family: var(--mono); text-transform: uppercase; display: flex;
   align-items: center; gap: var(--s2); flex: 1; padding: 2px var(--s1);
   border-radius: var(--radius-sm); }
 .app-title:hover { background: var(--bg3); }
@@ -199,6 +213,12 @@ summary::-webkit-details-marker { display: none; }
 .repo-filter-row input { accent-color: var(--accent); flex-shrink: 0; }
 .repo-filter-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
+
+/* the rail's one filled control: the always-visible way to start work.
+   28px compact height; the button's own glow is the rail's only glow. */
+.new-task-btn { display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  margin: 0 var(--s4) var(--s3); padding: 4px var(--s4); min-height: 28px; }
+.new-task-btn svg { flex-shrink: 0; }
 
 /* form fields sit on the strong border — resting boundaries stay findable */
 .search { margin: 0 var(--s4) var(--s3); padding: 7px var(--s3);
@@ -972,6 +992,48 @@ summary::-webkit-details-marker { display: none; }
   padding: 2px var(--s3) 0; color: var(--fg-dim); font-size: var(--fs-xs);
   font-family: var(--mono); }
 .pv-rhythm-wrap .ns-hint { margin-top: var(--s2); }
+
+/* ---------- instrument voice & HUD (the bolder-pass identity layer) ----------
+   Lives late in the file on purpose: these re-voice rules declared earlier and
+   must win the same-specificity cascade.
+
+   Mono carries two registers in Cockpit: machine identifiers (normal case, as
+   before) and the *placard* register — the uppercase/lowercase micro-labels that
+   name instruments. Both hero headline and placards speak mono; body rows and
+   prose stay sans for legibility. */
+.home-hero h2 { font-family: var(--mono); letter-spacing: -1px; }
+.ns-label, .inst-scope label, .board-eyebrow, .board-agent,
+.section-row, .search-group, .repo-filter-head { font-family: var(--mono);
+  letter-spacing: 0.7px; }
+
+/* HUD corner brackets: the one decorative motif, reserved for the two command
+   surfaces (home composer, ⌘K palette) — the places that accept an order. */
+.composer-card { position: relative; }
+/* square box on purpose — a rounded ::after would clip its own corner legs; the
+   5px inset keeps it clear of the host card's 14px corner rounding */
+.composer-card::after, .palette::after { content: ''; position: absolute; inset: 5px;
+  pointer-events: none;
+  --hud: rgba(var(--accent-rgb), 0.55);
+  background:
+    linear-gradient(var(--hud), var(--hud)) top    left  / 12px 1.5px,
+    linear-gradient(var(--hud), var(--hud)) top    left  / 1.5px 12px,
+    linear-gradient(var(--hud), var(--hud)) top    right / 12px 1.5px,
+    linear-gradient(var(--hud), var(--hud)) top    right / 1.5px 12px,
+    linear-gradient(var(--hud), var(--hud)) bottom left  / 12px 1.5px,
+    linear-gradient(var(--hud), var(--hud)) bottom left  / 1.5px 12px,
+    linear-gradient(var(--hud), var(--hud)) bottom right / 12px 1.5px,
+    linear-gradient(var(--hud), var(--hud)) bottom right / 1.5px 12px;
+  background-repeat: no-repeat; }
+
+/* flying board rows glow in their livery — the wash extends the lit placard */
+.board-row.flying:has(.pulse-claude) {
+  background: linear-gradient(90deg, rgba(var(--claude-rgb), 0.09), transparent 55%); }
+.board-row.flying:has(.pulse-codex) {
+  background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.08), transparent 55%); }
+.board-row.flying:has(.pulse-copilot) {
+  background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.09), transparent 55%); }
+/* :has beats .board-row:hover on specificity, so restate hover feedback */
+.board-row.flying:hover { filter: brightness(1.18); }
 
 /* ---------- responsive: shed decoration before anything truncates ----------
    These live at the END of the file on purpose: they override same-specificity

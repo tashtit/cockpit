@@ -18,6 +18,7 @@ import {
   LinkExternalIcon,
   LiveDot,
   OrgIcon,
+  PlusIcon,
   PrBadge,
   ProviderLogo,
   PROVIDER_LABEL,
@@ -52,6 +53,7 @@ export function TreeSidebar({
   selectedId,
   onSelect,
   onNewSession,
+  onNewTask,
   onGoHome,
   onOpenSettings,
   onOpenExtensions,
@@ -66,6 +68,8 @@ export function TreeSidebar({
   selectedId: string | null
   onSelect: (s: SessionMeta) => void
   onNewSession: (repo: RepoGroup) => void
+  /** The always-visible entry point: home composer, focused (same as ⌘N) */
+  onNewTask: () => void
   onGoHome: () => void
   onOpenSettings: () => void
   onOpenExtensions: () => void
@@ -145,6 +149,10 @@ export function TreeSidebar({
           <GearIcon size={16} />
         </button>
       </div>
+      {/* the one always-visible way to start work — everything else is hover or ⌘N */}
+      <button className="btn-primary new-task-btn" title="New task (⌘N)" onClick={onNewTask}>
+        <PlusIcon size={12} /> New task
+      </button>
       <input
         className="search"
         aria-label="Search sessions"

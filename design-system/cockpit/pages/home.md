@@ -17,9 +17,12 @@ surface, no shadow).
   composer card collapse to a sliver on short windows.
 - Order: `.board` (only when sessions exist) → hero (h2 + sub + kbd hints; no logo — the
   sidebar carries the mark) → `.composer-card` → error line.
-- The hero h2 is flat `--fg` (no gradient-clip decoration); when `gh` reports a user the
-  headline personalizes — "What should we ship`, Titan?`" — the login's first
+- The hero h2 is flat `--fg` (no gradient-clip decoration), set in the mono placard
+  voice (the identity layer re-voices it; see MASTER Typography); when `gh` reports a
+  user the headline personalizes — "What should we ship`, Titan?`" — the login's first
   hyphen/dot/underscore segment, capitalized (`firstName()`), in dim `.hero-name`.
+- The composer card carries the HUD corner brackets (shared with the palette — the
+  system's one decorative motif; see MASTER).
 - Short windows (≤600px height): hero is dropped, content top-aligns — the board and
   composer are the priority, never the branding.
 

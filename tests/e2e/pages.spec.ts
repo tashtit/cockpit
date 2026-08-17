@@ -103,6 +103,8 @@ test.afterAll(async () => {
 const homeHeading = (): Locator => win.getByRole('heading', { name: /What should we ship/ })
 
 test('sidebar indexes the fixtures into a repo tree with a flat Chats section', async () => {
+  // the rail's always-visible entry point
+  await expect(win.getByRole('button', { name: 'New task' })).toBeVisible()
   await expect(win.getByRole('treeitem', { name: /acme\/\s*rocket/ })).toBeVisible()
   // the first repo starts expanded, so its sessions are already rows in the tree
   await expect(win.getByRole('treeitem', { name: /fix the login flake/ })).toBeVisible()
@@ -281,4 +283,7 @@ test('keyboard routing: settings shortcut, Escape back to chat, new-task shortcu
   await expect(win.locator('.chat-title')).toHaveText('fix the login flake')
   await win.keyboard.press('ControlOrMeta+n')
   await expect(homeHeading()).toBeVisible()
+  // New task while already home exercises the explicit refocus path (no remount)
+  await win.getByRole('button', { name: 'New task' }).click()
+  await expect(win.getByLabel('Task description')).toBeFocused()
 })

@@ -421,6 +421,14 @@ export function App(): JSX.Element {
         selectedId={selectedSessionId}
         onSelect={openSession}
         onNewSession={(repo) => setView({ kind: 'new', repo })}
+        onNewTask={() => {
+          setView({ kind: 'welcome' })
+          // when already home, the view object changes but HomeView isn't remounted,
+          // so its mount-autofocus doesn't re-run — land focus in the composer here
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLTextAreaElement>('.composer-card textarea')?.focus()
+          )
+        }}
         onGoHome={() => setView({ kind: 'welcome' })}
         onOpenSettings={() => setView({ kind: 'settings' })}
         onOpenExtensions={() => setView({ kind: 'extensions' })}

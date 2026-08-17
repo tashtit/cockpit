@@ -34,24 +34,25 @@ function session(over: Partial<SessionMeta> = {}): SessionMeta {
   }
 }
 
-function renderSidebar(over: Partial<RepoGroup> = {}): void {
-  render(
-    <TreeSidebar
-      repos={[{ ...repo, ...over }]}
-      indexVersion={0}
-      accounts={null}
-      zoom={1}
-      onResetZoom={vi.fn()}
-      selectedId={null}
-      onSelect={vi.fn()}
-      onNewSession={vi.fn()}
-      onGoHome={vi.fn()}
-      onOpenSettings={vi.fn()}
-      onOpenExtensions={vi.fn()}
-      onOpenProfile={vi.fn()}
-      onOpenUrl={vi.fn()}
-    />
-  )
+function renderSidebar(over: Partial<RepoGroup> = {}) {
+  const props = {
+    repos: [{ ...repo, ...over }],
+    indexVersion: 0,
+    accounts: null,
+    zoom: 1,
+    onResetZoom: vi.fn(),
+    selectedId: null,
+    onSelect: vi.fn(),
+    onNewSession: vi.fn(),
+    onNewTask: vi.fn(),
+    onGoHome: vi.fn(),
+    onOpenSettings: vi.fn(),
+    onOpenExtensions: vi.fn(),
+    onOpenProfile: vi.fn(),
+    onOpenUrl: vi.fn()
+  }
+  render(<TreeSidebar {...props} />)
+  return props
 }
 
 /**
@@ -107,5 +108,15 @@ describe('sidebar row controls stay reachable', () => {
     expect(await screen.findByRole('button', { name: 'Archive session' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'New session in rocket' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Open acme/rocket on GitHub' })).toBeVisible()
+  })
+
+  it('keeps one always-visible New task button that fires without any hover', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session()] })
+    const { onNewTask } = renderSidebar()
+
+    const btn = screen.getByRole('button', { name: 'New task' })
+    expect(btn).toBeVisible()
+    await userEvent.click(btn)
+    expect(onNewTask).toHaveBeenCalled()
   })
 })

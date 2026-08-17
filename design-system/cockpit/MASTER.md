@@ -20,12 +20,17 @@
 
 ## Design Language
 
-Refined OLED dark: deep gradient base (`--bg` → `--bg-deep`) with a faint accent aurora at
-the top of the window, elevated translucent surfaces, hairline rgba borders, one indigo
-accent, and **per-agent identity colors** used consistently everywhere an agent appears.
-Neutrals, surfaces, and borders all carry a subtle indigo cast (tinted rgba, not pure
-white/grey) so the whole app harmonizes with the accent. GitHub PR-state colors match
-github.com exactly.
+Instrument-HUD dark (the 2026-08 bolder pass): a near-black base (`--bg` → `--bg-deep`)
+under a static night-flight atmosphere — a whisper-faint instrument grid (`--grid-line`),
+a strong indigo aurora above, a faint horizon glow below. The window reads as two
+materials: the **rail** (sidebar — darker glass, `color-mix` of `--bg-deep`) and the
+**deck** (content panes on `--pane`). Elevated translucent surfaces, hairline rgba
+borders, one indigo accent, and **per-agent identity colors** used consistently
+everywhere an agent appears. Micro-labels and the hero speak the mono *placard* voice;
+the two command surfaces (home composer, ⌘K palette) carry HUD corner brackets — the
+system's one decorative motif. Neutrals, surfaces, and borders all carry a subtle indigo
+cast (tinted rgba, not pure white/grey) so the whole app harmonizes with the accent.
+GitHub PR-state colors match github.com exactly.
 
 - Dark mode only. Never add a light theme without a full contrast re-audit.
 - Density is intentionally high (11–13px UI chrome, 28–30px rows). This is a pro desktop tool, not a marketing site. The one deliberate exception: transcript prose and composer text read at `--fs-prose` (14px/1.6) — chrome is scanned, prose is read.
@@ -36,7 +41,8 @@ github.com exactly.
 | Role | Value | Token |
 |------|-------|-------|
 | Background (gradient top) | `#0b0d16` | `--bg` |
-| Background (gradient bottom) | `#05060b` | `--bg-deep` |
+| Background (gradient bottom) | `#020308` | `--bg-deep` |
+| Instrument grid line (decorative) | `rgba(167,178,255,0.025)` | `--grid-line` |
 | Elevated surface 1 / 2 | `#121521` / `#1b2031` | `--bg2` / `--bg3` |
 | Translucent surface | `rgba(167,178,255,0.05)` | `--surface` |
 | Border / strong border | `rgba(167,178,255,0.11)` / `0.19` | `--border` / `--border-strong` |
@@ -69,7 +75,13 @@ rather than a pale rinse of the button fill.
 ## Typography
 
 - **UI font:** system stack (`-apple-system, 'Inter', 'Segoe UI'`) — no webfont import; this is a desktop app, load nothing over the network.
-- **Mono:** `--mono` (`ui-monospace, 'SF Mono', 'Fira Code'`) — used for account IDs, branches, paths, code. Mono = "machine identifier" is a semantic signal, keep it.
+- **Mono:** `--mono` (`ui-monospace, 'SF Mono', 'Fira Code'`) carries two registers, keep them distinct:
+  - *machine identifiers* (normal case): account IDs, branches, paths, code — as always.
+  - *placards* (the instrument voice): the hero h2, the `COCKPIT` wordmark, and every
+    micro-label (`.ns-label`, `.board-eyebrow`, `.board-agent`, `.section-row`,
+    `.search-group`, `.repo-filter-head`, `.inst-scope label`) — re-voiced in the
+    identity layer at the end of style.css. Body rows, buttons, and prose stay sans;
+    mono display outside these two registers is a bug.
 - **Scale:** `--fs-xs` 11 / `--fs-sm` 12 / `--fs-base` 13 / `--fs-prose` 14 / `--fs-md` 15 / `--fs-lg` 16 / `--fs-xl` 26. Body text never below `--fs-base`; `--fs-xs` is for metadata (chips, timestamps, counts) only; `--fs-prose` (with 1.6 line-height) is for transcript prose and composer textareas only.
 - **Icon scale** (keep to these four steps, don't invent in-between sizes): 10px minis (per-provider dots on repo/section rows), 12px footer/metadata glyphs, 13–14px row icons (session logos, repo icons, avatars), 16px toolbar glyphs inside 28px `.icon-btn`s.
 - **Micro-labels:** uppercase labels (`.ns-label`, `.inst-scope label`) are 600 weight with 0.9px tracking; lowercase section headers (`.section-row`, `.search-group`, `.repo-filter-head`) use 0.6px. Wide tracking at tiny sizes is the refinement signal — keep it consistent.
@@ -81,7 +93,8 @@ rather than a pale rinse of the button fill.
 - **Radii:** `--radius-sm` 6 / `--radius` 8 / `--radius-lg` 14 / `--radius-pill` 999. Nothing off-scale (the one exception is the 5px scrollbar thumb, which is half its own 10px track — geometry, not a design radius).
 - **Control heights — two steps only:** compact controls that share a row are **28px** (Select triggers, `.ns-opt`/`.source-add`/`.ns-branch-row` inputs, `.ns-account-single`, `.composer-identity`, `.btn-pr`, the composer bar's `.btn-primary`); standalone form buttons are **32px** (`.btn-primary`, `.btn-ghost`, `.btn-danger` in `.ns-actions`/composer footer). Never mix the two heights in one row — ragged bottom edges read as broken.
 - **Shadows:** three tokens, no ad-hoc values — `--shadow-card` (floating cards), `--shadow-pop` (popovers/listboxes), `--shadow-fill` (contact shadow under a filled button). The only glow is `--accent-glow` on primary buttons and focus rings. Modal backdrops use `--scrim` (`--bg-deep`'s channels at 0.6) — the ⌘K palette is currently the only modal; a second one reuses the same scrim.
-- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) and filled buttons (`.btn-primary`, `.btn-pr`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` (or a `color-mix` of the fill with `--white`) plus a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (sidebar, chat header, composer, composer bar) are all `--pane`. Reuse these; never invent new fill colors.
+- **Depth without new colors:** cards (`.composer-card`, `.ns-card`) and filled buttons (`.btn-primary`, `.btn-pr`) are top-lit — a `linear-gradient` from `--bg3`→`--bg2` (or a `color-mix` of the fill with `--white`) plus a 1px `inset` highlight: `--highlight` on cards/popovers, `--highlight-fill` on filled buttons, `--highlight-fill-off` when that button is disabled. Translucent chrome panes (chat header, composer, composer bar) are all `--pane`; the sidebar rail alone is darker glass (`color-mix` of `--bg-deep`). Reuse these; never invent new fill colors.
+- **HUD corner brackets** (`::after`, 8 corner-leg gradients at `rgba(--accent-rgb, 0.55)`): reserved for the two command surfaces — `.composer-card` and `.palette`. Don't spread them; one motif stays a signature, four become wallpaper.
 
 ## Motion
 
@@ -102,7 +115,7 @@ Reuse these; don't invent parallel variants:
 - **`.pv-heat`** — activity heatmap (profile only): GitHub's week-column grid, but squares carry the **agent's** identity color (the agent that led that day) rather than the accent, so the grid doubles as an agent mix. The one sanctioned place agent tints exceed the 0.10–0.16 range — 11px squares hold no text. See `pages/profile.md`.
 - **`.palette`** — the ⌘K jump surface (the app's one modal): combobox over sessions/repos/views on a `--scrim` backdrop, z 70 above every popover. Composer-card focus recipe for the frame; sidebar group/empty grammar for the list; empty query opens as the board in miniature (flying first). A jump surface, not an action executor. See `pages/palette.md`.
 - **`.badge-{claude,codex,copilot}`** — solid agent badge (chat header).
-- **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`.
+- **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`. `.new-task-btn` is `.btn-primary` at 28px in the sidebar rail — the one always-visible entry point (mirrors ⌘N); it is the rail's only filled control, keep it that way.
 - **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.
 - **Cards:** `.ns-card` (600px, `.wide` 760px) for forms; `.composer-card` for the home prompt.
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.

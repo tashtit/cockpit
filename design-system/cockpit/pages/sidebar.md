@@ -11,12 +11,18 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 
 ## Structure
 
+- The sidebar is the **rail**: darker glass than the content panes (`color-mix` of
+  `--bg-deep`), so the window reads as two materials. Its only filled control is the
+  `.new-task-btn`.
 - `.tree-top` (drag region, 40px top padding clears macOS traffic lights — the pad
   drops to `--s3` when the dev `.dev-banner` row already provides that clearance):
-  app title button (→ home) · zoom chip (only when zoom ≠ 100%, warn-colored, click
-  resets) · eye project filter · Agents, Profile, and Settings `.icon-btn`s (shared
-  icons from `logos.tsx` — the same marks the ⌘K palette renders, so nav and palette
-  can't drift).
+  app title button (→ home; the wordmark speaks the mono placard voice) · zoom chip
+  (only when zoom ≠ 100%, warn-colored, click resets) · eye project filter · Agents,
+  Profile, and Settings `.icon-btn`s (shared icons from `logos.tsx` — the same marks
+  the ⌘K palette renders, so nav and palette can't drift).
+- `.new-task-btn` — full-width 28px `.btn-primary` above the search: the one
+  always-visible way to start work (mirrors ⌘N — home composer, focused). Everything
+  else that starts a session is hover-revealed or keyboard.
 - `.search` input, 250ms debounce (⌘K belongs to the palette, not this field —
   the search filters the tree in place; the palette jumps). Non-empty search swaps the
   whole tree for `SearchResults` grouped by repo name.
