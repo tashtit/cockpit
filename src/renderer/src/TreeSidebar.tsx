@@ -149,17 +149,25 @@ export function TreeSidebar({
           <GearIcon size={16} />
         </button>
       </div>
-      {/* the one always-visible way to start work — everything else is hover or ⌘N */}
-      <button className="btn-primary new-task-btn" title="New task (⌘N)" onClick={onNewTask}>
-        <PlusIcon size={12} /> New task
-      </button>
-      <input
-        className="search"
-        aria-label="Search sessions"
-        placeholder="Search sessions…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      <div className="search-row">
+        <input
+          className="search"
+          aria-label="Search sessions"
+          placeholder="Search sessions…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {/* the one always-visible way to start work — everything else is hover or ⌘N.
+            Icon-only on purpose; the accent fill is what says "this one creates" */}
+        <button
+          className="btn-primary new-task-btn"
+          title="New task (⌘N)"
+          aria-label="New task"
+          onClick={onNewTask}
+        >
+          <PlusIcon size={14} />
+        </button>
+      </div>
       <div
         className="tree"
         role="tree"

@@ -214,14 +214,19 @@ summary::-webkit-details-marker { display: none; }
 .repo-filter-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 
-/* the rail's one filled control: the always-visible way to start work.
-   28px compact height; the button's own glow is the rail's only glow. */
-.new-task-btn { display: flex; align-items: center; justify-content: center; gap: var(--s2);
-  margin: 0 var(--s4) var(--s3); padding: 4px var(--s4); min-height: 28px; }
+/* search + the rail's one filled control on a shared 32px line */
+.search-row { display: flex; align-items: stretch; gap: var(--s2);
+  margin: 0 var(--s4) var(--s3); }
+/* icon-only new-task: the accent fill alone marks it as the create button.
+   Stretches to the search field's height so the row keeps one clean edge.
+   Compound selector on purpose — .btn-primary declares its padding later in the
+   file, and this override must win regardless of section order. */
+.btn-primary.new-task-btn { display: inline-flex; align-items: center;
+  justify-content: center; padding: 0; width: 34px; flex-shrink: 0; }
 .new-task-btn svg { flex-shrink: 0; }
 
 /* form fields sit on the strong border — resting boundaries stay findable */
-.search { margin: 0 var(--s4) var(--s3); padding: 7px var(--s3);
+.search { flex: 1; min-width: 0; padding: 7px var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
   border-radius: var(--radius); font-size: var(--fs-base); }
 .search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
@@ -1005,6 +1010,19 @@ summary::-webkit-details-marker { display: none; }
 .ns-label, .inst-scope label, .board-eyebrow, .board-agent,
 .section-row, .search-group, .repo-filter-head { font-family: var(--mono);
   letter-spacing: 0.7px; }
+/* view names are placards too: SETTINGS / AGENTS / NEW SESSION / PROFILE.
+   Session titles and prose are user content — they stay sans. */
+.ns-head h2, .empty-chat h2 { font-family: var(--mono); text-transform: uppercase;
+  letter-spacing: 1.2px; font-size: var(--fs-md); }
+.ext-tab { font-family: var(--mono); letter-spacing: 0.5px; }
+.pv-stat span { font-family: var(--mono); letter-spacing: 0.7px; }
+/* the busy line reads as an instrument annunciator — "CLAUDE IS WORKING…" */
+.thinking { font-family: var(--mono); font-size: var(--fs-xs);
+  text-transform: uppercase; letter-spacing: 0.7px; }
+/* assistant avatars wear a quiet livery ring — who wrote this, at a glance */
+.avatar.plogo-claude { border-color: rgba(var(--claude-rgb), 0.45); }
+.avatar.plogo-codex { border-color: rgba(var(--codex-rgb), 0.45); }
+.avatar.plogo-copilot { border-color: rgba(var(--copilot-rgb), 0.45); }
 
 /* HUD corner brackets: the one decorative motif, reserved for the two command
    surfaces (home composer, ⌘K palette) — the places that accept an order. */

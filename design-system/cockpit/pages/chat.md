@@ -40,7 +40,11 @@ grab target.
 - `Message` is memoized; keys are absolute log offsets (`log.length - visible.length + i`),
   stable because the log is append-only. Don't "fix" this to item ids or bare indexes.
 - Auto-scroll pins to bottom on new messages/busy; busy shows `.pulse` +
-  "<Agent> is working…".
+  "<Agent> is working…" — the `.thinking` line renders in the placard register
+  (mono uppercase annunciator; the transform is CSS, the DOM text stays sentence
+  case for screen readers).
+- Assistant avatars carry a quiet livery ring (`.avatar.plogo-*` border tint) — the
+  authoring agent reads at a glance without leaving the rest-intensity tint range.
 - `.messages > * { flex-shrink: 0 }` is load-bearing: without it, flex children shrink
   toward min-content before the container scrolls, and tool-rows (`overflow: hidden`)
   compress to unreadable slivers in long transcripts. Any new scrollable column flex

@@ -77,11 +77,14 @@ rather than a pale rinse of the button fill.
 - **UI font:** system stack (`-apple-system, 'Inter', 'Segoe UI'`) — no webfont import; this is a desktop app, load nothing over the network.
 - **Mono:** `--mono` (`ui-monospace, 'SF Mono', 'Fira Code'`) carries two registers, keep them distinct:
   - *machine identifiers* (normal case): account IDs, branches, paths, code — as always.
-  - *placards* (the instrument voice): the hero h2, the `COCKPIT` wordmark, and every
-    micro-label (`.ns-label`, `.board-eyebrow`, `.board-agent`, `.section-row`,
-    `.search-group`, `.repo-filter-head`, `.inst-scope label`) — re-voiced in the
-    identity layer at the end of style.css. Body rows, buttons, and prose stay sans;
-    mono display outside these two registers is a bug.
+  - *placards* (the instrument voice): the hero h2, the `COCKPIT` wordmark, view
+    headings (`.ns-head h2`, `.empty-chat h2` — uppercase), tabs (`.ext-tab`), the
+    `.thinking` annunciator line, and every micro-label (`.ns-label`,
+    `.board-eyebrow`, `.board-agent`, `.section-row`, `.search-group`,
+    `.repo-filter-head`, `.inst-scope label`, `.pv-stat span`) — re-voiced in the
+    identity layer at the end of style.css. Session titles, body rows, buttons, and
+    prose are user content and stay sans; mono display outside these two registers
+    is a bug.
 - **Scale:** `--fs-xs` 11 / `--fs-sm` 12 / `--fs-base` 13 / `--fs-prose` 14 / `--fs-md` 15 / `--fs-lg` 16 / `--fs-xl` 26. Body text never below `--fs-base`; `--fs-xs` is for metadata (chips, timestamps, counts) only; `--fs-prose` (with 1.6 line-height) is for transcript prose and composer textareas only.
 - **Icon scale** (keep to these four steps, don't invent in-between sizes): 10px minis (per-provider dots on repo/section rows), 12px footer/metadata glyphs, 13–14px row icons (session logos, repo icons, avatars), 16px toolbar glyphs inside 28px `.icon-btn`s.
 - **Micro-labels:** uppercase labels (`.ns-label`, `.inst-scope label`) are 600 weight with 0.9px tracking; lowercase section headers (`.section-row`, `.search-group`, `.repo-filter-head`) use 0.6px. Wide tracking at tiny sizes is the refinement signal — keep it consistent.
@@ -115,7 +118,7 @@ Reuse these; don't invent parallel variants:
 - **`.pv-heat`** — activity heatmap (profile only): GitHub's week-column grid, but squares carry the **agent's** identity color (the agent that led that day) rather than the accent, so the grid doubles as an agent mix. The one sanctioned place agent tints exceed the 0.10–0.16 range — 11px squares hold no text. See `pages/profile.md`.
 - **`.palette`** — the ⌘K jump surface (the app's one modal): combobox over sessions/repos/views on a `--scrim` backdrop, z 70 above every popover. Composer-card focus recipe for the frame; sidebar group/empty grammar for the list; empty query opens as the board in miniature (flying first). A jump surface, not an action executor. See `pages/palette.md`.
 - **`.badge-{claude,codex,copilot}`** — solid agent badge (chat header).
-- **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`. `.new-task-btn` is `.btn-primary` at 28px in the sidebar rail — the one always-visible entry point (mirrors ⌘N); it is the rail's only filled control, keep it that way.
+- **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`. `.new-task-btn` is an icon-only `.btn-primary` square docked to the search row — the one always-visible entry point (mirrors ⌘N; `aria-label="New task"`); it is the rail's only filled control, keep it that way.
 - **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.
 - **Cards:** `.ns-card` (600px, `.wide` 760px) for forms; `.composer-card` for the home prompt.
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.
