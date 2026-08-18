@@ -44,14 +44,14 @@ Common causes:
 
 ### Keeping the dev window out of your way
 
-`electron-vite dev` relaunches the app on every main-process change, and by default each relaunch fronts and focuses the window. Two env vars (honored only in dev, never in a packaged app) tame that:
+`electron-vite dev` relaunches the app on every main-process change, so a relaunch that fronts and focuses the window pulls you out of whatever you were typing in. Dev builds therefore open the window **without taking focus** — it appears, your editor keeps the keyboard. Two env vars (honored only in dev, never in a packaged app) tune this:
 
 | | |
 | --- | --- |
-| `npm run dev:bg` | open the window **without stealing focus** (`COCKPIT_DEV_BACKGROUND=1`) |
+| `npm run dev:fg` | opt back in to a fronted, focused window (`COCKPIT_DEV_BACKGROUND=0`) |
 | `COCKPIT_DEV_DISPLAY=1 npm run dev` | open centered on a specific display (0-based index into the OS display list) |
 
-They compose: `COCKPIT_DEV_DISPLAY=1 npm run dev:bg` parks the app on your second screen and leaves your editor focused.
+They compose: `COCKPIT_DEV_DISPLAY=1 npm run dev` parks the app on your second screen and leaves your editor focused.
 
 Display order is OS-assigned and won't necessarily match your mental "first/second screen" — when `COCKPIT_DEV_DISPLAY` is set, the dev console prints the table so you can pick:
 
