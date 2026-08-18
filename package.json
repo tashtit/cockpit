@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "electron-vite dev",
-    "dev:bg": "COCKPIT_DEV_BACKGROUND=1 electron-vite dev",
+    "dev:fg": "COCKPIT_DEV_BACKGROUND=0 electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",

@@ -7,15 +7,15 @@ import {
 } from '../src/main/dev-window'
 
 describe('readDevWindowPrefs', () => {
-  it('defaults to foreground on the OS-chosen display', () => {
-    expect(readDevWindowPrefs({})).toEqual({ background: false, displayIndex: null })
+  it('defaults to a background window on the OS-chosen display', () => {
+    expect(readDevWindowPrefs({})).toEqual({ background: true, displayIndex: null })
   })
 
-  it('treats any non-empty COCKPIT_DEV_BACKGROUND except "0" as on', () => {
+  it('fronts the window only when COCKPIT_DEV_BACKGROUND opts out', () => {
     expect(readDevWindowPrefs({ COCKPIT_DEV_BACKGROUND: '1' }).background).toBe(true)
-    expect(readDevWindowPrefs({ COCKPIT_DEV_BACKGROUND: 'true' }).background).toBe(true)
+    expect(readDevWindowPrefs({ COCKPIT_DEV_BACKGROUND: '' }).background).toBe(true)
     expect(readDevWindowPrefs({ COCKPIT_DEV_BACKGROUND: '0' }).background).toBe(false)
-    expect(readDevWindowPrefs({ COCKPIT_DEV_BACKGROUND: '' }).background).toBe(false)
+    expect(readDevWindowPrefs({ COCKPIT_DEV_BACKGROUND: 'false' }).background).toBe(false)
   })
 
   it('parses COCKPIT_DEV_DISPLAY as a 0-based index', () => {

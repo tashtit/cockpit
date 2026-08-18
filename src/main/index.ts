@@ -106,8 +106,9 @@ function readDevBranch(): string | null {
 }
 
 function createWindow(): void {
-  // dev-only: keep `npm run dev` relaunches from stealing focus, and let the
-  // window open on a chosen display — a packaged app ignores these env vars
+  // dev-only: `npm run dev` relaunches never steal focus (COCKPIT_DEV_BACKGROUND=0
+  // opts out), and the window can open on a chosen display — a packaged app
+  // always fronts itself and ignores these env vars
   const devPrefs = app.isPackaged
     ? { background: false, displayIndex: null }
     : readDevWindowPrefs(process.env)

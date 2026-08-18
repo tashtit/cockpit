@@ -1,11 +1,12 @@
 /**
  * Dev-only window placement (IO-free — tests target this module directly).
  *
- * `npm run dev` relaunches Electron on every main-process change, and each
- * launch fronts + focuses the window, yanking the developer out of whatever
- * they were typing in. Two env vars, honored only in dev, fix that:
+ * `npm run dev` relaunches Electron on every main-process change, and a launch
+ * that fronts + focuses the window yanks the developer out of whatever they
+ * were typing in. Dev builds therefore show the window *without* activating it
+ * by default; two env vars, honored only in dev, tune that:
  *
- *  - COCKPIT_DEV_BACKGROUND=1  — show the window without stealing focus
+ *  - COCKPIT_DEV_BACKGROUND=0  — opt back in to a fronted, focused window
  *  - COCKPIT_DEV_DISPLAY=<n>   — open centered on display <n> (0-based,
  *    index into screen.getAllDisplays())
  *
@@ -15,7 +16,7 @@
  */
 
 export type DevWindowPrefs = {
-  /** show the window without activating/focusing it */
+  /** show the window without activating/focusing it (the dev default) */
   readonly background: boolean
   /** 0-based display index to open on, or null for the OS default */
   readonly displayIndex: number | null
@@ -25,7 +26,8 @@ export function readDevWindowPrefs(env: Record<string, string | undefined>): Dev
   const bg = env['COCKPIT_DEV_BACKGROUND']
   const disp = env['COCKPIT_DEV_DISPLAY']
   return {
-    background: bg !== undefined && bg !== '' && bg !== '0',
+    // background is the dev default — only an explicit off switch fronts the window
+    background: bg !== '0' && bg !== 'false',
     displayIndex: disp !== undefined && /^\d+$/.test(disp) ? Number(disp) : null
   }
 }
