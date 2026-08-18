@@ -48,6 +48,38 @@ type View =
   | { kind: 'extensions' }
   | { kind: 'profile' }
 
+/** One place in the ⌘[/⌘] navigation history. Chat entries snapshot the binding
+ *  so a previous conversation can be re-materialized; other views restore by kind. */
+type NavEntry =
+  | { readonly kind: 'view'; readonly view: Exclude<View, { kind: 'chat' }> }
+  | { readonly kind: 'chat'; readonly binding: ChatBinding; readonly sessionId: string | null }
+
+const NAV_MAX = 50
+
+/** Same place = landing there again reuses the current entry instead of growing
+ *  history. Chats compare by session id (id-less brand-new chats by binding
+ *  identity), the new-session form by target repo + draft. */
+const sameNavEntry = (a: NavEntry, b: NavEntry): boolean => {
+  if (a.kind === 'chat' || b.kind === 'chat')
+    return (
+      a.kind === 'chat' &&
+      b.kind === 'chat' &&
+      a.sessionId === b.sessionId &&
+      (a.sessionId !== null || a.binding === b.binding)
+    )
+  const av = a.view
+  const bv = b.view
+  if (av.kind === 'new' || bv.kind === 'new')
+    return (
+      av.kind === 'new' &&
+      bv.kind === 'new' &&
+      av.repo.key === bv.repo.key &&
+      av.draft === bv.draft &&
+      av.draftImages === bv.draftImages
+    )
+  return av.kind === bv.kind
+}
+
 export function App(): JSX.Element {
   const [repos, setRepos] = useState<RepoGroup[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
@@ -62,6 +94,14 @@ export function App(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [creatingPr, setCreatingPr] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [nav, setNav] = useState<{ readonly stack: readonly NavEntry[]; readonly index: number }>({
+    stack: [{ kind: 'view', view: { kind: 'welcome' } }],
+    index: 0
+  })
+  const navRef = useRef(nav)
+  navRef.current = nav
+  const selectedSessionIdRef = useRef<string | null>(null)
+  selectedSessionIdRef.current = selectedSessionId
   const activeTurnRef = useRef<string | null>(null)
   activeTurnRef.current = activeTurn
   /** Events can beat the sendChat() reply for fast-failing spawns — hold them briefly. */
@@ -97,47 +137,29 @@ export function App(): JSX.Element {
     return () => clearInterval(t)
   }, [])
 
-  // global shortcuts: ⌘K palette, ⌘N new task, ⌘, settings, Esc backs out of secondary views
   const bindingRef = useRef<ChatBinding | null>(null)
   bindingRef.current = binding
   const paletteOpenRef = useRef(false)
   paletteOpenRef.current = paletteOpen
+
+  // every arrival lands in the nav history: a push truncates the forward entries,
+  // and re-landing on the current entry (a ⌘[/⌘] restore, or a session-id mint
+  // that applyEvent already patched in place) dedupes instead of growing the stack
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const mod = e.metaKey || e.ctrlKey
-      if (mod && e.key === 'k') {
-        e.preventDefault()
-        setPaletteOpen((v) => !v)
-        return
-      }
-      // while the palette is open it owns the keyboard (its own listener closes
-      // on Escape) — the view-level shortcuts below must not also fire
-      if (paletteOpenRef.current) return
-      if (mod && e.key === 'n') {
-        e.preventDefault()
-        setView({ kind: 'welcome' })
-      } else if (mod && e.key === ',') {
-        e.preventDefault()
-        setView({ kind: 'settings' })
-      } else if (e.key === 'Escape') {
-        // a habitual Escape must not discard a half-typed field: first blur, then close
-        const t = e.target as HTMLElement | null
-        if (t && t.closest('input, textarea, select')) {
-          t.blur()
-          return
-        }
-        setView((v) =>
-          v.kind === 'settings' || v.kind === 'extensions' || v.kind === 'new'
-            ? bindingRef.current
-              ? { kind: 'chat' }
-              : { kind: 'welcome' }
-            : v
-        )
-      }
+    let entry: NavEntry
+    if (view.kind === 'chat') {
+      if (!binding) return
+      entry = { kind: 'chat', binding, sessionId: selectedSessionId }
+    } else {
+      entry = { kind: 'view', view }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+    setNav(({ stack, index }) => {
+      const cur = stack[index]
+      if (cur && sameNavEntry(cur, entry)) return { stack, index }
+      const next = [...stack.slice(0, index + 1), entry].slice(-NAV_MAX)
+      return { stack: next, index: next.length - 1 }
+    })
+  }, [view, binding, selectedSessionId])
 
   // PR statuses for the repo behind the open chat
   useEffect(() => {
@@ -184,7 +206,27 @@ export function App(): JSX.Element {
         // `${provider}:${nativeId}`, and providers can mint a new session id on
         // resume (claude forks one per turn) or on first turn of a new session
         const provider = bindingRef.current?.provider
-        if (provider) setSelectedSessionId(`${provider}:${ev.nativeSessionId}`)
+        if (provider) {
+          const newId = `${provider}:${ev.nativeSessionId}`
+          const oldId = selectedSessionIdRef.current
+          setSelectedSessionId(newId)
+          // history entries for this conversation follow the mint — restoring
+          // one later must resume the new id, not fork a pre-turn snapshot
+          setNav(({ stack, index }) => {
+            let changed = false
+            const next = stack.map((e) => {
+              if (e.kind !== 'chat' || e.sessionId !== oldId) return e
+              if (oldId === null && e.binding !== bindingRef.current) return e
+              changed = true
+              return {
+                ...e,
+                sessionId: newId,
+                binding: { ...e.binding, nativeSessionId: ev.nativeSessionId }
+              }
+            })
+            return changed ? { stack: next, index } : { stack, index }
+          })
+        }
         setBinding((b) => (b ? { ...b, nativeSessionId: ev.nativeSessionId } : b))
       } else if (ev.type === 'text') {
         textBufRef.current += ev.text
@@ -277,6 +319,102 @@ export function App(): JSX.Element {
     },
     [accounts, clearPendingText]
   )
+
+  /** Land on a history entry. A chat entry that is still the bound conversation
+   *  just flips the view back — the live log, streaming included, is untouched.
+   *  Any other conversation is re-materialized from the entry's snapshot, the
+   *  way openSession does it from a sidebar row. */
+  const restoreNav = useCallback(
+    (entry: NavEntry) => {
+      if (entry.kind !== 'chat') {
+        setView(entry.view)
+        return
+      }
+      const sameChat =
+        entry.sessionId === selectedSessionIdRef.current &&
+        (entry.sessionId !== null || entry.binding === bindingRef.current)
+      if (!sameChat) {
+        const seq = ++openSeqRef.current
+        clearPendingText()
+        setActiveTurn(null)
+        setSelectedSessionId(entry.sessionId)
+        setBinding(entry.binding)
+        setLog([])
+        if (entry.sessionId) {
+          void api
+            .getSessionMessages(entry.sessionId)
+            .then((messages) => {
+              if (seq === openSeqRef.current) setLog(messages)
+            })
+            // the transcript may be gone from disk — an empty log, not a crash
+            .catch(() => {})
+        }
+      }
+      setView({ kind: 'chat' })
+    },
+    [clearPendingText]
+  )
+
+  const goBack = useCallback(() => {
+    const { stack, index } = navRef.current
+    const entry = stack[index - 1]
+    if (!entry) return
+    setNav({ stack, index: index - 1 })
+    restoreNav(entry)
+  }, [restoreNav])
+
+  const goForward = useCallback(() => {
+    const { stack, index } = navRef.current
+    const entry = stack[index + 1]
+    if (!entry) return
+    setNav({ stack, index: index + 1 })
+    restoreNav(entry)
+  }, [restoreNav])
+
+  // global shortcuts: ⌘K palette, ⌘N new task, ⌘, settings, ⌘[/⌘] back/forward,
+  // Esc backs out of secondary views
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+        return
+      }
+      // while the palette is open it owns the keyboard (its own listener closes
+      // on Escape) — the view-level shortcuts below must not also fire
+      if (paletteOpenRef.current) return
+      if (mod && e.key === '[') {
+        e.preventDefault()
+        goBack()
+      } else if (mod && e.key === ']') {
+        e.preventDefault()
+        goForward()
+      } else if (mod && e.key === 'n') {
+        e.preventDefault()
+        setView({ kind: 'welcome' })
+      } else if (mod && e.key === ',') {
+        e.preventDefault()
+        setView({ kind: 'settings' })
+      } else if (e.key === 'Escape') {
+        // a habitual Escape must not discard a half-typed field: first blur, then close
+        const t = e.target as HTMLElement | null
+        if (t && t.closest('input, textarea, select')) {
+          t.blur()
+          return
+        }
+        setView((v) =>
+          v.kind === 'settings' || v.kind === 'extensions' || v.kind === 'new'
+            ? bindingRef.current
+              ? { kind: 'chat' }
+              : { kind: 'welcome' }
+            : v
+        )
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [goBack, goForward])
 
   const send = useCallback(
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
