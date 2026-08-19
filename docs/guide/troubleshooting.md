@@ -36,16 +36,16 @@ nvm use
 npm ci
 ```
 
-## The dev window keeps stealing focus
+## Placing the dev window
 
-`electron-vite dev` relaunches the app on every main-process change, and each relaunch fronts the window. Two env vars (dev-only) tame it:
+`electron-vite dev` relaunches the app on every main-process change, so a relaunch that fronts and focuses the window pulls you out of whatever you were typing. Dev builds therefore open the window **without taking focus** — it appears, your editor keeps the keyboard. Two env vars (dev-only, never in a packaged app) tune that:
 
 | | |
 | --- | --- |
-| `npm run dev:bg` | open the window without stealing focus (`COCKPIT_DEV_BACKGROUND=1`) |
+| `npm run dev:fg` | opt back in to a fronted, focused window (`COCKPIT_DEV_BACKGROUND=0`) |
 | `COCKPIT_DEV_DISPLAY=1 npm run dev` | open centered on a specific display (0-based OS index) |
 
-They compose: `COCKPIT_DEV_DISPLAY=1 npm run dev:bg` parks the app on your second screen and leaves your editor focused. Display order is OS-assigned; when `COCKPIT_DEV_DISPLAY` is set, the dev console prints the display table so you can pick the right index.
+Display order is OS-assigned and won't necessarily match your mental "first/second screen" — when `COCKPIT_DEV_DISPLAY` is set, the dev console prints the display table so you can pick the right index.
 
 ## PR features don't work
 

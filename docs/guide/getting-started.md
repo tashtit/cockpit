@@ -36,8 +36,8 @@ If a provider directory doesn't exist yet, Cockpit simply shows an empty state f
 
 | Command | What |
 | --- | --- |
-| `npm run dev` | Electron app with HMR |
-| `npm run dev:bg` | same, but relaunches never steal focus |
+| `npm run dev` | Electron app with HMR — relaunches never steal focus |
+| `npm run dev:fg` | same, but each relaunch fronts and focuses the window |
 | `npm run typecheck` | `tsc --noEmit` — the static gate (there is no linter) |
 | `npm test` | vitest: unit + component tiers |
 | `npm run test:e2e` | Playwright against the built app — run `npm run build` first |

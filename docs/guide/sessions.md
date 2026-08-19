@@ -19,6 +19,18 @@ One row per repository, ordered by last activity, with that repo's sessions unde
 
 Click a session to read its parsed transcript — messages, tool calls, and results. Type below the transcript to continue the conversation with the same provider; see [Chat](/guide/chat).
 
+### Keyboard
+
+| | |
+| --- | --- |
+| <kbd>⌘K</kbd> | command palette |
+| <kbd>⌘N</kbd> | new task |
+| <kbd>⌘[</kbd> / <kbd>⌘]</kbd> | back and forward through views you've visited |
+| <kbd>⌘,</kbd> | settings |
+| <kbd>Esc</kbd> | back out of a secondary view |
+
+Backing into the conversation that's currently running just flips the view — the live log keeps streaming, untouched.
+
 ## Archiving
 
 Two kinds of "gone", handled differently:
