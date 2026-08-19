@@ -119,7 +119,10 @@ export class RoundtableManager {
     for (const f of files) {
       try {
         const rt = sanitizeRoundtable(JSON.parse(readFileSync(join(this.dir, f), 'utf8')))
-        if (rt) this.tables.set(rt.id, structuredClone(rt) as Table)
+        if (rt) {
+          this.tables.set(rt.id, structuredClone(rt) as Table)
+          this.cwdIndex = null
+        }
       } catch {
         /* skip unreadable file */
       }
@@ -172,12 +175,25 @@ export class RoundtableManager {
     }
   }
 
+  /**
+   * Resolved cwd → table id. The indexer asks this for every session in every page()
+   * and listRepos() call, so the table side is resolved once and cached; tables change
+   * only on create/load, which clear it.
+   */
+  private cwdIndex: Map<string, string> | null = null
+
+  private roomIndex(): Map<string, string> {
+    this.ensureLoaded()
+    if (!this.cwdIndex) {
+      this.cwdIndex = new Map()
+      for (const t of this.tables.values()) this.cwdIndex.set(resolve(t.cwd), t.id)
+    }
+    return this.cwdIndex
+  }
+
   /** The table whose room/worktree this cwd is, if any — the indexer's seat-session filter. */
   tableIdForCwd(cwd: string): string | null {
-    this.ensureLoaded()
-    const target = resolve(cwd)
-    for (const t of this.tables.values()) if (resolve(t.cwd) === target) return t.id
-    return null
+    return this.roomIndex().get(resolve(cwd)) ?? null
   }
 
   /** Create the table and run the opening round on the topic. */
@@ -212,6 +228,7 @@ export class RoundtableManager {
       entries: []
     }
     this.tables.set(id, t)
+    this.cwdIndex = null
     this.appendEntry(t, { speaker: 'user', text: input.topic, at: now })
     this.save(t)
     this.startRound(t, true)
@@ -299,12 +316,14 @@ export class RoundtableManager {
    * panel is assembled by the renderer from the seats' own stance lines.
    */
   private roundComplete(t: Table, round: Round): void {
-    t.roundsRun++
+    // a round the user stopped never finished — it must not spend one of the cap
     if (round.cancelled || t.mode !== 'consensus') {
+      if (!round.cancelled) t.roundsRun++
       this.save(t)
       this.endRound(t.id)
       return
     }
+    t.roundsRun++
     // everyone must have been heard this round (errors are not agreement) and agree
     const stances = new Map<number, RoundtableEntry['stance']>()
     for (const e of t.entries.slice(round.entriesAtStart)) {

@@ -188,6 +188,12 @@ describe('consensus protocol', () => {
       text: 'Point.'
     })
     expect(parseStance('> consensus: Agree')).toMatchObject({ stance: 'agree' })
+    // "agreed" is the same answer as "agree" — a near-miss must not read as dissent
+    expect(parseStance('Body.\nCONSENSUS: agreed — ship it behind a flag')).toEqual({
+      stance: 'agree',
+      note: 'ship it behind a flag',
+      text: 'Body.'
+    })
     // absence of agreement is never agreement
     expect(parseStance('CONSENSUS: maybe?')).toMatchObject({ stance: 'continue' })
     expect(parseStance('no marker at all')).toEqual({ text: 'no marker at all' })

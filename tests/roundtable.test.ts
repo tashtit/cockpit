@@ -397,6 +397,19 @@ describe('RoundtableManager', () => {
     expect(h.manager.get(snap.id).running).toBe(false)
     expect(h.manager.get(snap.id).concluded).toBe(false)
     expect(h.sent).toHaveLength(2) // no auto round, no synthesis
+    // a round the user stopped never finished — it must not spend one of the cap
+    expect(h.manager.get(snap.id).roundsRun).toBe(0)
+  })
+
+  it('maps a room cwd back to its table even as tables are added', () => {
+    const h = makeManager(newDir())
+    const first = h.manager.create(TWO_SEATS, null)
+    // the cwd→table index is cached; a table created after the first lookup must still resolve
+    expect(h.manager.tableIdForCwd(first.cwd)).toBe(first.id)
+    const second = h.manager.create({ ...TWO_SEATS, topic: 'another' }, null)
+    expect(h.manager.tableIdForCwd(second.cwd)).toBe(second.id)
+    expect(h.manager.tableIdForCwd(first.cwd)).toBe(first.id)
+    expect(h.manager.tableIdForCwd('/somewhere/else')).toBeNull()
   })
 
   it('skips corrupt files on load instead of failing the scan', () => {

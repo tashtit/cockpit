@@ -191,6 +191,30 @@ describe('RoundtableView', () => {
     expect(within(tableEl).getByText('not yet')).toBeInTheDocument()
   })
 
+  it('a seat that never spoke reads as "no reply", never as dissent', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({
+        mode: 'consensus',
+        roundsRun: 1,
+        concluded: true,
+        entries: [
+          { speaker: 'user', text: 'adopt biome?', at: 1 },
+          { speaker: 'claude', text: 'Yes.', at: 2, stance: 'agree', stanceNote: 'adopt it', seat: 0 },
+          // codex's CLI failed — silence is not a position
+          { speaker: 'codex', text: 'codex exited with code 1', at: 3, error: true, seat: 1 }
+        ]
+      })
+    )
+    render(<RoundtableView id="rt-1" />)
+
+    const outcome = await screen.findByRole('region', { name: 'Roundtable outcome' })
+    expect(within(outcome).getByText('no reply')).toBeInTheDocument()
+    expect(within(outcome).queryByText('not yet')).not.toBeInTheDocument()
+    expect(within(outcome).getByText('(no reply this cycle)')).toBeInTheDocument()
+    // a table nobody agreed on is still not a shared understanding
+    expect(within(outcome).getByText('No full agreement')).toBeInTheDocument()
+  })
+
   it('failed turns render as annotations, not contributions', async () => {
     vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
       fixture({

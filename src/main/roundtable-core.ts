@@ -138,10 +138,11 @@ export function parseStance(text: string): {
     .match(/^[>\s*_`~-]*consensus[\s*_`~]*[:—-][\s*_`~]*(.*)$/i)
   if (!m) return { text }
   const raw = m[1].replace(/^[*_`~\s]+/, '').replace(/[*_`~\s]+$/, '')
-  const stance = /^agree\b/i.test(raw) ? 'agree' : 'continue'
+  // "agreed" is the same answer as "agree" — anything else still fails closed
+  const stance = /^agreed?\b/i.test(raw) ? 'agree' : 'continue'
   // "agree — one tool, fewer configs" / "not yet — benchmarks" → the part after the dash
   const note = raw
-    .replace(/^(agree|not\s+yet)\b[\s*_`~]*[—:,-]*\s*/i, '')
+    .replace(/^(agreed?|not\s+yet)\b[\s*_`~]*[—:,-]*\s*/i, '')
     .trim()
   return {
     stance,

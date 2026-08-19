@@ -539,8 +539,10 @@ function ConsensusOutcome({
             <ProviderLogo p={s.provider} size={13} />
           </span>
           <span className={`rt-speaker rt-speaker-${s.provider}`}>{s.name}</span>
+          {/* a seat that never spoke stated no position — saying "not yet" would
+              invent a dissent (a failed turn is silence, not disagreement) */}
           <span className={`rt-stance${s.stance === 'agree' ? ' agree' : ''}`}>
-            {s.stance === 'agree' ? 'agrees' : 'not yet'}
+            {s.stance === 'agree' ? 'agrees' : s.stance === 'continue' ? 'not yet' : 'no reply'}
           </span>
           <span className="rt-outcome-line">{s.line}</span>
         </div>
