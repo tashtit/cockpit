@@ -16,6 +16,8 @@ import { CommandPalette, type PaletteViewKey } from './CommandPalette'
 import { NewSession } from './NewSession'
 import { HandoffView } from './HandoffView'
 import type { HandoffSourceRef, StartHandoffRequest } from './HandoffView'
+import { NewRoundtable } from './NewRoundtable'
+import { RoundtableView } from './RoundtableView'
 import { PROVIDER_LABEL } from './logos'
 import { Settings } from './Settings'
 import { ProfileView } from './ProfileView'
@@ -43,6 +45,8 @@ export type ChatBinding = {
   readonly accountLabel?: string
   /** Lineage chip: the session this one was handed off from */
   readonly continuedFrom?: { readonly id: string; readonly provider: Provider }
+  /** Roundtable seat-session: view only, no composer (main refuses sends there too) */
+  readonly readOnly?: boolean
 }
 
 /** `provider:nativeId` → the chip's {id, provider}; null for anything malformed
@@ -59,6 +63,8 @@ type View =
   | { kind: 'chat' }
   | { kind: 'new'; repo: RepoGroup; draft?: string; draftImages?: readonly ImageAttachment[] }
   | { kind: 'handoff'; source: HandoffSourceRef }
+  | { kind: 'new-roundtable' }
+  | { kind: 'roundtable'; id: string }
   | { kind: 'settings' }
   | { kind: 'extensions' }
   | { kind: 'profile' }
@@ -94,6 +100,9 @@ const sameNavEntry = (a: NavEntry, b: NavEntry): boolean => {
     )
   if (av.kind === 'handoff' || bv.kind === 'handoff')
     return av.kind === 'handoff' && bv.kind === 'handoff' && av.source.id === bv.source.id
+  // two different tables are different places — compare by id, not by kind
+  if (av.kind === 'roundtable' || bv.kind === 'roundtable')
+    return av.kind === 'roundtable' && bv.kind === 'roundtable' && av.id === bv.id
   return av.kind === bv.kind
 }
 
@@ -327,7 +336,8 @@ export function App(): JSX.Element {
         repoRoot: s.repo?.root ?? null,
         configDir: acct && !acct.isDefault ? acct.path : undefined,
         accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
-        continuedFrom: lineageRef(s.continuedFrom)
+        continuedFrom: lineageRef(s.continuedFrom),
+        readOnly: s.roundtableId ? true : undefined
       })
       setView({ kind: 'chat' })
       setLog([])
@@ -422,7 +432,11 @@ export function App(): JSX.Element {
           return
         }
         setView((v) =>
-          v.kind === 'settings' || v.kind === 'extensions' || v.kind === 'new' || v.kind === 'handoff'
+          v.kind === 'settings' ||
+          v.kind === 'extensions' ||
+          v.kind === 'new' ||
+          v.kind === 'handoff' ||
+          v.kind === 'new-roundtable'
             ? bindingRef.current
               ? { kind: 'chat' }
               : { kind: 'welcome' }
@@ -436,7 +450,7 @@ export function App(): JSX.Element {
 
   const send = useCallback(
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
-      if (!binding || activeTurn) return
+      if (!binding || activeTurn || binding.readOnly) return
       // the transcript shows attachments as one marker line per image
       setLog((l) => [...l, { role: 'user', kind: 'text', text: withImageMarks(prompt, images) }])
       try {
@@ -602,6 +616,11 @@ export function App(): JSX.Element {
     [openSession]
   )
 
+  const openRoundtable = useCallback((id: string) => {
+    setSelectedSessionId(null)
+    setView({ kind: 'roundtable', id })
+  }, [])
+
   const cancel = useCallback(() => {
     if (activeTurn) {
       void api.cancelChat(activeTurn)
@@ -667,6 +686,8 @@ export function App(): JSX.Element {
         selectedId={selectedSessionId}
         onSelect={openSession}
         onNewSession={(repo) => setView({ kind: 'new', repo })}
+        selectedRoundtableId={view.kind === 'roundtable' ? view.id : null}
+        onOpenRoundtable={openRoundtable}
         onNewTask={() => {
           setView({ kind: 'welcome' })
           // when already home, the view object changes but HomeView isn't remounted,
@@ -708,6 +729,14 @@ export function App(): JSX.Element {
           onStart={startHandoff}
           onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
         />
+      ) : view.kind === 'new-roundtable' ? (
+        <NewRoundtable
+          repos={visibleRepos}
+          onCreated={openRoundtable}
+          onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
+        />
+      ) : view.kind === 'roundtable' ? (
+        <RoundtableView id={view.id} />
       ) : view.kind === 'welcome' ? (
         <HomeView
           repos={visibleRepos}
@@ -716,6 +745,8 @@ export function App(): JSX.Element {
           onStart={startSession}
           onOpenSession={openSession}
           onOpenFull={(repo, draft, draftImages) => setView({ kind: 'new', repo, draft, draftImages })}
+          onNewRoundtable={() => setView({ kind: 'new-roundtable' })}
+          onOpenRoundtable={openRoundtable}
         />
       ) : (
         <ChatView

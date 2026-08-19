@@ -12,7 +12,9 @@ import type {
   ChatRequest,
   CockpitApi,
   NewModelEndpoint,
+  NewRoundtableRequest,
   Provider,
+  RoundtableEvent,
   SessionQuery,
   TimeFormat
 } from '../shared/types'
@@ -79,6 +81,18 @@ const api: CockpitApi = {
   addModelEndpoint: (ep: NewModelEndpoint) => ipcRenderer.invoke('endpoints:add', ep),
   removeModelEndpoint: (id: string) => ipcRenderer.invoke('endpoints:remove', id),
   listEndpointModels: (id: string) => ipcRenderer.invoke('endpoints:models', id),
+  listRoundtables: () => ipcRenderer.invoke('roundtable:list'),
+  getRoundtable: (id: string) => ipcRenderer.invoke('roundtable:get', id),
+  createRoundtable: (req: NewRoundtableRequest) => ipcRenderer.invoke('roundtable:create', req),
+  sendRoundtableMessage: (id: string, text: string) =>
+    ipcRenderer.invoke('roundtable:send', id, text),
+  continueRoundtable: (id: string) => ipcRenderer.invoke('roundtable:continue', id),
+  stopRoundtable: (id: string) => ipcRenderer.invoke('roundtable:stop', id),
+  onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => {
+    const handler = (_e: unknown, ev: RoundtableEvent): void => cb(ev)
+    ipcRenderer.on('roundtable-event', handler)
+    return () => ipcRenderer.removeListener('roundtable-event', handler)
+  },
   getProfile: () => ipcRenderer.invoke('profile:get'),
   getZoomFactor: () => webFrame.getZoomFactor(),
   setZoomFactor: (factor: number) =>

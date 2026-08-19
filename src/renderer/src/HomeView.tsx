@@ -4,6 +4,7 @@ import type {
   PermissionMode,
   Provider,
   RepoGroup,
+  RoundtableMeta,
   SessionMeta
 } from '../../shared/types'
 import { api } from './api'
@@ -32,7 +33,9 @@ export function HomeView({
   busy,
   onStart,
   onOpenSession,
-  onOpenFull
+  onOpenFull,
+  onNewRoundtable,
+  onOpenRoundtable
 }: {
   repos: RepoGroup[]
   indexVersion: number
@@ -41,6 +44,8 @@ export function HomeView({
   onOpenSession: (s: SessionMeta) => void
   /** Open the full New session form (branch, model, custom provider), keeping the draft */
   onOpenFull: (repo: RepoGroup, draft: string, images?: readonly ImageAttachment[]) => void
+  onNewRoundtable: () => void
+  onOpenRoundtable: (id: string) => void
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
@@ -55,6 +60,7 @@ export function HomeView({
   const [error, setError] = useState<string | null>(null)
   const [recent, setRecent] = useState<SessionMeta[]>([])
   const [recentTotal, setRecentTotal] = useState(0)
+  const [tables, setTables] = useState<RoundtableMeta[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [accountKey, setAccountKey] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
@@ -83,6 +89,22 @@ export function HomeView({
     })
     return () => {
       dead = true
+    }
+  }, [indexVersion])
+
+  // roundtable strip: reload on mount and whenever a round starts/ends elsewhere
+  useEffect(() => {
+    let dead = false
+    const load = (): void => {
+      void api.listRoundtables?.().then((r) => !dead && setTables(r))
+    }
+    load()
+    const unsub = api.onRoundtableEvent?.((ev) => {
+      if (ev.type === 'round') load()
+    })
+    return () => {
+      dead = true
+      unsub?.()
     }
   }, [indexVersion])
 
@@ -123,6 +145,7 @@ export function HomeView({
         {recent.length > 0 && (
           <Board sessions={recent} total={recentTotal} onOpen={onOpenSession} />
         )}
+        {tables.length > 0 && <RoundtableStrip tables={tables} onOpen={onOpenRoundtable} />}
         <div className="home-hero">
           <h2>
             What should we ship
@@ -229,8 +252,11 @@ export function HomeView({
             </button>
           </div>
         </div>
-        {selected && (
-          <div className="home-more">
+        <div className="home-more">
+          <button className="link-btn" disabled={busy} onClick={onNewRoundtable}>
+            Start a roundtable — several agents, one discussion
+          </button>
+          {selected && (
             <button
               className="link-btn"
               disabled={busy}
@@ -238,8 +264,8 @@ export function HomeView({
             >
               All options — branch name, model, custom model provider…
             </button>
-          </div>
-        )}
+          )}
+        </div>
         {mode === 'yolo' && (
           <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
         )}
@@ -301,6 +327,56 @@ function Board({
       <ul className="board-list">
         {[...flying, ...ground].map((s) => (
           <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} now={now} onOpen={onOpen} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/**
+ * Ongoing roundtables, in the board's visual grammar: identity dots, title, time.
+ * A running round pulses accent — no single agent owns a multi-agent table.
+ */
+function RoundtableStrip({
+  tables,
+  onOpen
+}: {
+  tables: RoundtableMeta[]
+  onOpen: (id: string) => void
+}): JSX.Element {
+  const timeFormat = useTimeFormat()
+  return (
+    <section className="board" aria-label="Roundtables">
+      <div className="board-head">
+        <h2 className="board-eyebrow">roundtables</h2>
+      </div>
+      <ul className="board-list">
+        {tables.map((t) => (
+          <li key={t.id}>
+            <button
+              className={`board-row ${t.running ? 'flying' : ''}`}
+              title={`${t.providers.map((p) => PROVIDER_LABEL[p]).join(' + ')} — ${t.title}`}
+              onClick={() => onOpen(t.id)}
+            >
+              {t.running ? (
+                <span className="pulse" role="img" aria-label="round in progress" />
+              ) : (
+                <span className="board-dot-idle" aria-hidden="true" />
+              )}
+              <span className="rt-seats">
+                {t.providers.map((p) => (
+                  <span key={p} className={`rt-seat plogo-${p}`}>
+                    <ProviderLogo p={p} size={12} />
+                  </span>
+                ))}
+              </span>
+              {t.branch && <BranchChip branch={t.branch} />}
+              <span className="board-task">{t.title}</span>
+              <time className="board-meta" dateTime={new Date(t.updatedAt).toISOString()}>
+                {fmtTime(t.updatedAt, timeFormat)}
+              </time>
+            </button>
+          </li>
         ))}
       </ul>
     </section>

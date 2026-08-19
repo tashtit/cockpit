@@ -180,8 +180,10 @@ export function ChatView({
           )
         )}
         {/* progressive disclosure: only a started session can be handed off; a
-            running turn merely disables it */}
-        {binding.nativeSessionId && (
+            running turn merely disables it. A roundtable seat session is the
+            table's internal, not a conversation to continue — main refuses it
+            as a handoff source, so the affordance must not be offered either. */}
+        {binding.nativeSessionId && !binding.readOnly && (
           <button
             className="btn-handoff"
             disabled={busy}
@@ -191,16 +193,19 @@ export function ChatView({
             Continue in…
           </button>
         )}
-        <Select
-          className="mode-select-wrap"
-          value={mode}
-          ariaLabel="Permission mode"
-          options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-          onChange={(v) => {
-            setMode(v as PermissionMode)
-            window.localStorage.setItem('cockpit:mode', v)
-          }}
-        />
+        {/* a read-only seat session takes no input — a permission picker would lie */}
+        {!binding.readOnly && (
+          <Select
+            className="mode-select-wrap"
+            value={mode}
+            ariaLabel="Permission mode"
+            options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+            onChange={(v) => {
+              setMode(v as PermissionMode)
+              window.localStorage.setItem('cockpit:mode', v)
+            }}
+          />
+        )}
       </header>
 
       <div
@@ -238,33 +243,42 @@ export function ChatView({
       </div>
 
       <footer className="composer">
-        <AttachRow atts={atts} />
-        <textarea
-          ref={composerRef}
-          aria-label={`Message ${PROVIDER_LABEL[binding.provider]}`}
-          placeholder={`Message ${PROVIDER_LABEL[binding.provider]}…  (Enter to send, Shift+Enter for newline)`}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onPaste={atts.onPaste}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              submit()
-            }
-          }}
-        />
-        {busy ? (
-          <button className="btn-danger" onClick={onCancel}>
-            Stop
-          </button>
+        {binding.readOnly ? (
+          // roundtable seat-session: the table's round loop owns this conversation
+          <div className="composer-readonly">
+            Seat session of a roundtable — read-only. Talk to it at the table.
+          </div>
         ) : (
-          <button
-            className="btn-primary"
-            disabled={!draft.trim() && atts.attachments.length === 0}
-            onClick={submit}
-          >
-            Send
-          </button>
+          <>
+            <AttachRow atts={atts} />
+            <textarea
+              ref={composerRef}
+              aria-label={`Message ${PROVIDER_LABEL[binding.provider]}`}
+              placeholder={`Message ${PROVIDER_LABEL[binding.provider]}…  (Enter to send, Shift+Enter for newline)`}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onPaste={atts.onPaste}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  submit()
+                }
+              }}
+            />
+            {busy ? (
+              <button className="btn-danger" onClick={onCancel}>
+                Stop
+              </button>
+            ) : (
+              <button
+                className="btn-primary"
+                disabled={!draft.trim() && atts.attachments.length === 0}
+                onClick={submit}
+              >
+                Send
+              </button>
+            )}
+          </>
         )}
       </footer>
     </main>
@@ -272,7 +286,7 @@ export function ChatView({
 }
 
 /** Memoized: during streaming only the last row's props change. */
-const Message = memo(function Message({
+export const Message = memo(function Message({
   m,
   provider,
   resultOf

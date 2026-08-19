@@ -626,6 +626,9 @@ export class SessionIndexer {
     for (const s of this.sessions.values()) {
       if (this.providerArchived.has(s.id)) continue
       if (s.updatedAt < cutoff) continue
+      // roundtable seat-sessions never count as a group's work — they page (and are
+      // counted) only under their table
+      if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
       const info = s.repo ?? GENERAL_REPO
       let g = groups.get(info.key)
       if (!g) {
@@ -674,11 +677,26 @@ export class SessionIndexer {
     return cwds
   }
 
+  /** Wired by index.ts to the roundtable manager: cwd → owning table id, if any. */
+  private roundtableForCwd: (cwd: string) => string | null = () => null
+
+  setRoundtableResolver(fn: (cwd: string) => string | null): void {
+    this.roundtableForCwd = fn
+  }
+
   page(query: SessionQuery): SessionPage {
     const cutoff = this.historyCutoff()
     let all = [...this.sessions.values()]
     all = all.filter((s) => !this.providerArchived.has(s.id) && s.updatedAt >= cutoff)
     all = all.filter((s) => this.archived.has(s.id) === !!query.archived)
+    // roundtable seat-sessions are not independent work: they page only under their
+    // own table (query.roundtableId) and stay out of the tree/board/search entirely
+    if (query.roundtableId) {
+      const id = query.roundtableId
+      all = all.filter((s) => s.cwd !== null && this.roundtableForCwd(s.cwd) === id)
+    } else {
+      all = all.filter((s) => s.cwd === null || this.roundtableForCwd(s.cwd) === null)
+    }
     if (query.repoKey) {
       all = all.filter((s) => (s.repo?.key ?? 'general') === query.repoKey)
     } else {
@@ -708,7 +726,9 @@ export class SessionIndexer {
       items: all.slice(offset, offset + limit).map((s) => ({
         ...s,
         archived: this.archived.has(s.id),
-        continuedFrom: this.lineage.get(s.id)
+        continuedFrom: this.lineage.get(s.id),
+        // stamped so the renderer knows to open these read-only
+        ...(query.roundtableId ? { roundtableId: query.roundtableId } : {})
       }))
     }
   }
@@ -780,7 +800,15 @@ export class SessionIndexer {
   getSession(id: string): SessionMeta | null {
     const s = this.sessions.get(id)
     if (!s) return null
-    return { ...s, archived: this.archived.has(s.id), continuedFrom: this.lineage.get(s.id) }
+    // a seat-session must read as one however it was reached (lineage chip, palette),
+    // not only when paged under its table — the renderer keys read-only off this
+    const roundtableId = s.cwd === null ? null : this.roundtableForCwd(s.cwd)
+    return {
+      ...s,
+      archived: this.archived.has(s.id),
+      continuedFrom: this.lineage.get(s.id),
+      ...(roundtableId ? { roundtableId } : {})
+    }
   }
 
   getMessages(id: string): SessionMessage[] {

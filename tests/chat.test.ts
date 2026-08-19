@@ -51,6 +51,22 @@ describe('buildCommand', () => {
     expect(args).not.toContain('--full-auto')
     expect(args[args.indexOf('--sandbox') + 1]).toBe('workspace-write')
   })
+  it('codex skip-git-repo-check rides both exec forms, only when asked', () => {
+    for (const resumeNativeId of [undefined, 'sid']) {
+      const { args } = buildCommand({
+        provider: 'codex',
+        cwd: '/scratch/room',
+        prompt: 'talk',
+        resumeNativeId,
+        permissionMode: 'safe',
+        options: { codexSkipGitCheck: true }
+      })
+      expect(args).toContain('--skip-git-repo-check')
+      expect(args[args.length - 1]).toBe('talk')
+    }
+    const { args } = buildCommand({ provider: 'codex', cwd: '/x', prompt: 'p', permissionMode: 'safe' })
+    expect(args).not.toContain('--skip-git-repo-check')
+  })
   it('copilot yolo', () => {
     const { args } = buildCommand({
       provider: 'copilot',
