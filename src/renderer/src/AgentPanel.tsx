@@ -40,6 +40,12 @@ function cellKey(row: PanelRow, agent: Provider): string {
   return `${row.id}|${agent}`
 }
 
+/** "Claude and Codex", "Claude, Codex and Copilot" — never "A and B and C". */
+function listOf(names: readonly string[]): string {
+  if (names.length < 3) return names.join(' and ')
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
 export function AgentPanel({
   repoRoot,
   onOpenInstructions,
@@ -232,8 +238,7 @@ export function AgentPanel({
           'Something here disagrees — with its switch, or with the other agents. Open a row to settle it.'
         ) : (
           <>
-            {current ? KIND_BLURB[current] : ''} The switch is what you asked for; the lamp under
-            it is what the agent has.
+            {current ? KIND_BLURB[current] : ''} Each switch says where it’s applied.
           </>
         )}
       </p>
@@ -255,7 +260,7 @@ export function AgentPanel({
         // header grid and the lane gradient can never disagree
         <div className={`pnl-bank ${rows.some((r) => r.drift.length > 0) ? '' : 'quiet'}`}>
           <div className="pnl-row pnl-head" aria-hidden="true">
-            <span>Cockpit</span>
+            <span />
             {PROVIDERS.map((p) => (
               <span key={p} className="pnl-col">
                 <span className={`plogo plogo-${p}`}>
@@ -518,8 +523,8 @@ function Detail({
       {row.disagree && (
         <div className="pnl-fix">
           <span className="pnl-fix-what">
-            {row.holders.map((p) => PROVIDER_LABEL[p]).join(' and ')} don’t run the same{' '}
-            {row.name}. Which one is right?
+            {listOf(row.holders.map((p) => PROVIDER_LABEL[p]))} don’t run the same {row.name}.
+            Which one is right?
           </span>
           <div className="pnl-fix-actions">
             {row.holders.map((p) => (
