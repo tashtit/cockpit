@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import {
   KIND_BLURB,
   KIND_LABEL,
+  KIND_ORDER,
   PROVIDERS,
   agentHasIt,
   isDrift,
@@ -54,6 +55,9 @@ export function AgentPanel({
   setNotice: (n: Notice) => void
 }): JSX.Element {
   const [report, setReport] = useState<PanelReport | null>(null)
+  /** which section is showing — 'attention' is the cross-kind pile of disagreements */
+  const [section, setSection] = useState<PanelKind | 'attention' | null>(null)
+  const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   /** cell key currently being written — its switch shows the write in flight */
   const [busy, setBusy] = useState<string | null>(null)
@@ -70,6 +74,8 @@ export function AgentPanel({
 
   useEffect(() => {
     setReport(null)
+    setSection(null)
+    setQuery('')
     load()
   }, [load])
 
@@ -141,43 +147,80 @@ export function AgentPanel({
 
   if (!report) return <div className="tree-empty">reading every agent’s config…</div>
 
-  const kinds = [...new Set(report.rows.map((r) => r.kind))]
+  const kinds = KIND_ORDER.filter((k) => report.rows.some((r) => r.kind === k))
+  const driftRows = report.rows.filter((r) => r.drift.length > 0)
+  // land on the work when there is any, otherwise on the first section
+  const current = section ?? (driftRows.length > 0 ? 'attention' : (kinds[0] ?? null))
+  const q = query.trim().toLowerCase()
+  // a search looks everywhere: you rarely know which section a server ended up in
+  const rows = q
+    ? report.rows.filter((r) =>
+        `${r.name} ${r.cockpit.detail} ${KIND_LABEL[r.kind]}`.toLowerCase().includes(q)
+      )
+    : current === 'attention'
+      ? driftRows
+      : report.rows.filter((r) => r.kind === current)
 
   return (
     <>
       <div className="pnl-bar">
-        <span className="pnl-counts">
-          <strong>{report.on}</strong> switched on
-          {report.drift > 0 && <em className="pnl-drift">{report.drift} need attention</em>}
-        </span>
+        <input
+          type="search"
+          className="pnl-search"
+          placeholder="Search everything…"
+          aria-label="Search this scope"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         <button className="btn-ghost small" title="Re-read every agent’s config" onClick={load}>
           Refresh
         </button>
       </div>
 
-      <p className="ns-hint">
-        The switch is what you asked for; the lamp under it is what the agent actually has.
-        Switching an agent off takes the entry out of that agent — Cockpit keeps it, so you can
-        put it back.
-      </p>
+      {/* one section at a time: the whole setup in one scroll was a wall */}
+      <div className={`pnl-tabs ${q ? 'searching' : ''}`} role="tablist" aria-label="Sections">
+        {driftRows.length > 0 && (
+          <button
+            role="tab"
+            aria-selected={current === 'attention'}
+            className={`pnl-pill attention ${current === 'attention' ? 'active' : ''}`}
+            onClick={() => setSection('attention')}
+          >
+            Needs you
+            <span className="pnl-pill-n">{driftRows.length}</span>
+          </button>
+        )}
+        {kinds.map((kind) => {
+          const all = report.rows.filter((r) => r.kind === kind)
+          const drift = all.filter((r) => r.drift.length > 0).length
+          return (
+            <button
+              key={kind}
+              role="tab"
+              aria-selected={current === kind}
+              className={`pnl-pill ${current === kind ? 'active' : ''}`}
+              onClick={() => setSection(kind)}
+            >
+              {KIND_LABEL[kind]}
+              <span className="pnl-pill-n">{all.length}</span>
+              {drift > 0 && <i className="pnl-pill-dot" aria-label={`${drift} need attention`} />}
+            </button>
+          )
+        })}
+      </div>
 
-      {report.rows.length > 0 && (
-        // one header for the whole panel: every section shares the grid, and each
-        // agent's switch carries its own identity color, so repeating it per
-        // section would be five rows of the same thing
-        <div className="pnl-row pnl-head" aria-hidden="true">
-          <span>Cockpit</span>
-          {PROVIDERS.map((p) => (
-            <span key={p} className="pnl-col">
-              <span className={`plogo plogo-${p}`} aria-hidden="true">
-                <ProviderLogo p={p} size={13} />
-              </span>
-              {PROVIDER_LABEL[p]}
-            </span>
-          ))}
-          <span />
-        </div>
-      )}
+      <p className="pnl-blurb">
+        {q ? (
+          `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
+        ) : current === 'attention' ? (
+          'Cockpit and these agents disagree. Open a row to settle it.'
+        ) : (
+          <>
+            {current ? KIND_BLURB[current] : ''} The switch is what you asked for; the lamp under
+            it is what the agent has.
+          </>
+        )}
+      </p>
 
       {report.rows.length === 0 && (
         <div className="tree-empty">
@@ -187,46 +230,56 @@ export function AgentPanel({
         </div>
       )}
 
-      {kinds.map((kind) => {
-        const rows = report.rows.filter((r) => r.kind === kind)
-        return (
-          <section key={kind} className="pnl-group" aria-label={KIND_LABEL[kind]}>
-            <div className="pnl-group-head">
-              <h3 className="ns-label">{KIND_LABEL[kind]}</h3>
-              <span className="pnl-blurb">{KIND_BLURB[kind]}</span>
-            </div>
-            {kind === 'skill' && repoRoot !== null && (
-              <p className="pnl-note">
-                Codex and Copilot both read <code>.agents/skills</code> in this repo, so their
-                switches move together.
-              </p>
-            )}
-            <div className="pnl-table">
-              {rows.map((row) => (
-                <Row
-                  key={row.id}
-                  row={row}
-                  armed={armed}
-                  busy={busy}
-                  open={expanded === row.id}
-                  onToggle={() => setExpanded(expanded === row.id ? null : row.id)}
-                  onFlip={flip}
-                  onFix={fix}
-                  onForget={forget}
-                  onArm={arm}
-                  onOpenInstructions={onOpenInstructions}
-                />
-              ))}
-            </div>
-          </section>
-        )
-      })}
+      {report.rows.length > 0 && rows.length === 0 && (
+        <div className="tree-empty">nothing here matches “{query.trim()}”</div>
+      )}
+
+      {rows.length > 0 && (
+        <>
+          <div className="pnl-row pnl-head" aria-hidden="true">
+            <span>Cockpit</span>
+            {PROVIDERS.map((p) => (
+              <span key={p} className="pnl-col">
+                <span className={`plogo plogo-${p}`}>
+                  <ProviderLogo p={p} size={13} />
+                </span>
+                {PROVIDER_LABEL[p]}
+              </span>
+            ))}
+            <span />
+          </div>
+          <div className="pnl-table">
+            {rows.map((row) => (
+              <Row
+                key={row.id}
+                row={row}
+                showKind={q !== '' || current === 'attention'}
+                armed={armed}
+                busy={busy}
+                open={expanded === row.id}
+                onToggle={() => setExpanded(expanded === row.id ? null : row.id)}
+                onFlip={flip}
+                onFix={fix}
+                onForget={forget}
+                onArm={arm}
+                onOpenInstructions={onOpenInstructions}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {current === 'skill' && repoRoot !== null && (
+        <p className="pnl-note">
+          Codex and Copilot both read <code>.agents/skills</code> in this repo, so their switches
+          move together.
+        </p>
+      )}
 
       {report.globalOnly.length > 0 && (
         <p className="pnl-note">
           {report.globalOnly.map((k) => KIND_LABEL[k]).join(' and ')} are installed per machine, so
-          a repo can’t change them. They live in{' '}
-          <strong>Global</strong>.
+          a repo can’t change them. They live in <strong>Global</strong>.
         </p>
       )}
     </>
@@ -235,6 +288,7 @@ export function AgentPanel({
 
 function Row({
   row,
+  showKind,
   open,
   armed,
   busy,
@@ -246,6 +300,8 @@ function Row({
   onOpenInstructions
 }: {
   row: PanelRow
+  /** the attention pile mixes kinds, so each row says which one it is */
+  showKind: boolean
   open: boolean
   armed: string | null
   busy: string | null
@@ -266,6 +322,7 @@ function Row({
               ▸
             </span>
             <span className="pnl-title">{row.name}</span>
+            {showKind && <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>}
             <span className="pnl-def" title={row.cockpit.detail}>
               {row.cockpit.detail}
             </span>

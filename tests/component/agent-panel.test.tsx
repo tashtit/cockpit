@@ -61,13 +61,21 @@ async function openPanel(): Promise<void> {
 const sw = (name: string, agent: string): HTMLElement =>
   screen.getByRole('switch', { name: `${name} in ${agent}` })
 
+/** The panel opens on what needs attention, so most rows live one click away. */
+const section = async (label: string): Promise<void> => {
+  await userEvent.click(screen.getByRole('tab', { name: new RegExp(`^${label}`) }))
+}
+
+const search = async (text: string): Promise<void> => {
+  await userEvent.type(screen.getByRole('searchbox', { name: 'Search this scope' }), text)
+}
+
 describe('Agents › Panel', () => {
   it('shows each agent’s switch set to what Cockpit asked for', async () => {
     await openPanel()
     expect(sw('github', 'Claude')).toHaveAttribute('aria-checked', 'true')
+    await section('MCP servers')
     expect(sw('linear', 'Codex')).toHaveAttribute('aria-checked', 'false')
-    // github ×3 switches on (one of them drifted) + linear on claude + the plugin
-    expect(document.querySelector('.pnl-counts')).toHaveTextContent('4 switched on')
   })
 
   it('lights a lamp on the agent that disagrees with its switch', async () => {
@@ -75,11 +83,11 @@ describe('Agents › Panel', () => {
     // claude and codex agree with Cockpit; only copilot's lamp is lit
     expect(screen.getAllByText('differs')).toHaveLength(1)
     expect(sw('github', 'Copilot')).toHaveClass('drift')
-    expect(screen.getByText('1 need attention')).toBeInTheDocument()
   })
 
   it('switches an agent on with one click', async () => {
     await openPanel()
+    await section('MCP servers')
     await userEvent.click(sw('linear', 'Codex'))
     expect(window.cockpit.setPanelSwitch).toHaveBeenCalledWith(
       { repoRoot: null, kind: 'mcp', name: 'linear' },
@@ -90,6 +98,7 @@ describe('Agents › Panel', () => {
 
   it('switches an agent off with one click, keeping the entry', async () => {
     await openPanel()
+    await section('MCP servers')
     await userEvent.click(sw('linear', 'Claude'))
     expect(window.cockpit.setPanelSwitch).toHaveBeenCalledWith(
       { repoRoot: null, kind: 'mcp', name: 'linear' },
@@ -101,6 +110,7 @@ describe('Agents › Panel', () => {
   // turning a plugin off uninstalls it, which is not something one stray click should do
   it('asks before switching a plugin off', async () => {
     await openPanel()
+    await section('Plugins')
     await userEvent.click(sw('evalkit@tashtit', 'Claude'))
     expect(window.cockpit.setPanelSwitch).not.toHaveBeenCalled()
     expect(screen.getByText('remove?')).toBeInTheDocument()
@@ -138,6 +148,7 @@ describe('Agents › Panel', () => {
 
   it('needs a second click to remove something everywhere', async () => {
     await openPanel()
+    await section('MCP servers')
     await userEvent.click(screen.getByRole('button', { name: /linear/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Remove linear everywhere' }))
     expect(window.cockpit.forgetPanelEntry).not.toHaveBeenCalled()
@@ -151,9 +162,53 @@ describe('Agents › Panel', () => {
 
   it('reports a failed write instead of showing the switch as moved', async () => {
     await openPanel()
+    await section('MCP servers')
     vi.mocked(window.cockpit.setPanelSwitch).mockRejectedValueOnce(new Error('codex config is read-only'))
     await userEvent.click(sw('linear', 'Codex'))
     expect(await screen.findByRole('alert')).toHaveTextContent('codex config is read-only')
+  })
+})
+
+describe('Agents › finding things', () => {
+  // the whole setup in one scroll was a wall — the panel shows one section at a time
+  it('opens on what needs attention, not on everything', async () => {
+    await openPanel()
+    expect(screen.getByRole('tab', { name: /^Needs you/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('github')).toBeInTheDocument()
+    // the rows that are fine are one click away, not in your face
+    expect(screen.queryByText('linear')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /^MCP servers/ })).toHaveTextContent('2')
+  })
+
+  it('opens on the first section when nothing needs attention', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(
+      buildReport(null, [mcpRow('quiet', { claude: true }, { claude: present(COCKPIT_GH) })])
+    )
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    expect(await screen.findByText('quiet')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /^Needs you/ })).not.toBeInTheDocument()
+  })
+
+  it('searches across every section, not just the one showing', async () => {
+    await openPanel()
+    await search('evalkit')
+    // the plugin lives in a section the panel wasn't showing
+    expect(screen.getByText('evalkit@tashtit')).toBeInTheDocument()
+    expect(screen.queryByText('github')).not.toBeInTheDocument()
+    expect(screen.getByText(/1 match for/)).toBeInTheDocument()
+  })
+
+  it('labels which section a search result came from', async () => {
+    await openPanel()
+    await search('evalkit')
+    // the section pill also says "Plugins" — this is the tag on the row itself
+    expect(document.querySelector('.pnl-kind')).toHaveTextContent('Plugins')
+  })
+
+  it('says so when a search finds nothing', async () => {
+    await openPanel()
+    await search('nothing-by-this-name')
+    expect(screen.getByText(/nothing here matches/)).toBeInTheDocument()
   })
 })
 

@@ -1030,14 +1030,36 @@ button.scope-half:hover { color: var(--fg); }
 /* An overhead panel: one row per managed thing, one switch per agent. The switch
    is the commanded state (Cockpit's config); the lamp under it is what the agent
    actually has. They usually agree and the lamp stays dark. */
-.pnl-bar { display: flex; align-items: center; gap: var(--s4); }
-.pnl-counts { display: flex; align-items: center; gap: var(--s3); margin-right: auto;
-  font-size: var(--fs-xs); color: var(--fg-dim); }
-.pnl-counts strong { color: var(--fg); font-size: var(--fs-sm); }
-.pnl-drift { font-style: normal; color: var(--warn); }
-.pnl-group { display: flex; flex-direction: column; gap: var(--s2); }
-.pnl-group-head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
-.pnl-group-head .ns-label { margin: 0; }
+.pnl-bar { display: flex; align-items: center; gap: var(--s3); }
+/* the rail's search recipe, at the 28px compact control height */
+.pnl-search { flex: 1; min-width: 0; height: 28px; padding: 0 var(--s3);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); font-size: var(--fs-sm); }
+.pnl-search::placeholder { color: var(--fg-dim); }
+.pnl-search:focus { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow); }
+/* the platform's own search affordances would break the dark surface */
+.pnl-search::-webkit-search-decoration, .pnl-search::-webkit-search-cancel-button {
+  -webkit-appearance: none; }
+/* one section at a time — the pills carry the counts so nothing is hidden by it */
+.pnl-tabs { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.pnl-tabs.searching { opacity: 0.45; }
+.pnl-pill { display: inline-flex; align-items: center; gap: var(--s2); min-height: 26px;
+  padding: 0 var(--s3); border-radius: var(--radius-pill); border: 1px solid var(--border);
+  font-size: var(--fs-xs); color: var(--fg-dim); background: var(--surface);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+  border-color var(--dur) var(--ease); }
+.pnl-pill:hover { color: var(--fg); }
+.pnl-pill.active { color: var(--fg); background: var(--bg3); border-color: var(--border-strong); }
+.pnl-pill.attention { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.45); }
+.pnl-pill.attention.active { background: rgba(var(--warn-rgb), 0.14); }
+.pnl-pill-n { font-family: var(--mono); font-size: var(--fs-xs); opacity: 0.75;
+  font-variant-numeric: tabular-nums; }
+.pnl-pill-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--warn); }
+/* in the cross-kind views (search, needs-you) a row says which section it came from */
+.pnl-kind { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
+  border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 0 var(--s2);
+  white-space: nowrap; }
 .pnl-blurb { font-size: var(--fs-xs); color: var(--fg-dim); }
 .pnl-note { font-size: var(--fs-xs); color: var(--fg-dim); }
 .pnl-note code { font-family: var(--mono); }

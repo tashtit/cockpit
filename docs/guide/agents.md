@@ -19,6 +19,11 @@ wouldn't work.
 
 ## The panel
 
+The panel shows **one section at a time** — instructions, MCP servers, skills, plugins,
+marketplaces — with the count on each tab. When anything has drifted it opens on **Needs
+you**: every disagreement across every section, in one short list. **Search looks
+everywhere**, whichever section you're in, and tags each result with where it lives.
+
 Cockpit keeps a config of its own, and every agent gets a switch:
 
 **The switch is what you asked for. The lamp under it is what the agent actually has.**

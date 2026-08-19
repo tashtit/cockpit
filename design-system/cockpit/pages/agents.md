@@ -28,10 +28,19 @@ The view's signature element, and its mental model in one object: **the switch i
 you commanded, the lamp under it is what the agent actually has.** Cockpit owns a config
 of its own (`config.library`); each row is one entry, each agent column a switch.
 
-- **One row per managed thing**, grouped by kind (`KIND_ORDER`: instructions → MCP →
-  skills → plugins → marketplaces), each group headed by `.ns-label` + a `.pnl-blurb`
-  saying what that kind *is* in one line. The row carries the name plus Cockpit's own
-  definition in mono (`.pnl-def`) — that is what the switches write.
+- **One section at a time.** The whole setup in one scroll was a wall, so kinds are
+  `.pnl-pill` tabs carrying their own counts (and an amber `.pnl-pill-dot` when that kind
+  has a disagreement). The panel lands on **Needs you** — every drifted row across all
+  kinds — whenever there is one, and on the first section otherwise. A `.pnl-blurb` under
+  the pills says what the current view is.
+- **Search (`.pnl-search`) looks everywhere**, not just the section showing: you rarely
+  know which section a server ended up in. It matches name, Cockpit's definition and the
+  kind. While searching, the pills dim (`.pnl-tabs.searching`) — they aren't filtering
+  any more, and pretending otherwise would be a lie.
+- In any view that mixes kinds (search, Needs you) each row carries a `.pnl-kind` tag.
+  Single-section views never do — the pill above already said it.
+- **One row per managed thing**: the name plus Cockpit's own definition in mono
+  (`.pnl-def`) — that is what the switches write.
 - **One column header for the whole panel**, not per group: every section shares the
   `.pnl-row` grid, and each switch carries its agent's identity color, so repeating the
   header five times would be five rows of the same thing. The grid is *not* a table in
