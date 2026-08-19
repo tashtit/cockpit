@@ -25,6 +25,8 @@ function renderChat() {
       onCancel={vi.fn()}
       onCreatePr={vi.fn()}
       onOpenUrl={vi.fn()}
+      onOpenHandoff={vi.fn()}
+      onOpenLineage={vi.fn()}
     />
   )
 }

@@ -30,6 +30,8 @@ type AppConfig = {
    * reclaim its sessions and their bindings would refuse forever.
    */
   readonly removedEndpoints?: Record<string, string>
+  /** Handoff lineage: source session each session continues, keyed by `${provider}:${nativeId}` */
+  readonly continuedFrom?: Record<string, string>
 }
 
 /**
@@ -208,6 +210,40 @@ export function bindSessionEndpoint(sessionId: string, endpointId: string): void
 
 export function sessionEndpointFor(sessionId: string): string | undefined {
   return loadConfig().sessionEndpoints?.[sessionId]
+}
+
+const SESSION_LINEAGE_CAP = 500
+
+/**
+ * Remember which session a handed-off session continues. Returns the whole updated
+ * map so the caller can hand it straight to the indexer (the setSessionArchived
+ * pattern). Same mechanics as bindSessionEndpoint: key order doubles as recency.
+ */
+export function bindSessionLineage(
+  newSessionId: string,
+  sourceSessionId: string
+): Record<string, string> {
+  const cfg = loadConfig()
+  const current = cfg.continuedFrom ?? {}
+  // a session can never continue itself
+  if (newSessionId === sourceSessionId) return current
+  const entries = Object.entries(current)
+  // claude emits two session events per turn — skip the rewrite when nothing changes
+  const last = entries[entries.length - 1]
+  if (last && last[0] === newSessionId && last[1] === sourceSessionId) return current
+  const kept = entries.filter(([sid]) => sid !== newSessionId)
+  kept.push([newSessionId, sourceSessionId])
+  const next = Object.fromEntries(kept.slice(Math.max(0, kept.length - SESSION_LINEAGE_CAP)))
+  saveConfig({ ...cfg, continuedFrom: next })
+  return next
+}
+
+export function sessionLineageFor(sessionId: string): string | undefined {
+  return loadConfig().continuedFrom?.[sessionId]
+}
+
+export function sessionLineage(): Record<string, string> {
+  return loadConfig().continuedFrom ?? {}
 }
 
 export function saveConfig(cfg: AppConfig): void {

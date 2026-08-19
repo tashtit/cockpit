@@ -10,16 +10,19 @@ import { assertChatImages, saveChatImage } from './chat-images'
 import {
   addModelEndpoint,
   bindSessionEndpoint,
+  bindSessionLineage,
   listModelEndpoints,
   loadConfig,
   removeModelEndpoint,
   saveConfig,
   sessionEndpointFor,
+  sessionLineageFor,
   setHistoryDays,
   setRepoHidden,
   setSessionArchived,
   setTimeFormat
 } from './config'
+import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
 import {
@@ -61,6 +64,50 @@ let chat: ChatManager
  */
 function sendToWin(channel: string, payload?: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+/**
+ * Handoffs into copilot: `copilot -p` never announces its session id on stdout, so
+ * the lineage is resolved against the index instead — the next new copilot session
+ * in the same cwd claims the pending entry. Best-effort by design (entries expire);
+ * the renderer's in-memory chip covers the live session either way.
+ */
+type PendingCopilotHandoff = { cwd: string; sourceId: string; spawnedAt: number }
+const pendingCopilot: PendingCopilotHandoff[] = []
+const COPILOT_LINEAGE_TTL_MS = 10 * 60_000
+const COPILOT_LINEAGE_MAX = 20
+
+function resolveCopilotHandoffs(): void {
+  // emitUpdate is debounced, so the setLineage below cannot re-enter synchronously;
+  // the follow-up update finds this list empty and stops the cycle
+  if (pendingCopilot.length === 0) return
+  const now = Date.now()
+  for (let i = pendingCopilot.length - 1; i >= 0; i--) {
+    if (now - pendingCopilot[i].spawnedAt > COPILOT_LINEAGE_TTL_MS) pendingCopilot.splice(i, 1)
+  }
+  const candidates = indexer.allSessions().filter((s) => s.provider === 'copilot' && s.cwd)
+  for (let i = 0; i < pendingCopilot.length; i++) {
+    const p = pendingCopilot[i]
+    const match = candidates
+      .filter(
+        (s) =>
+          resolve(s.cwd as string) === resolve(p.cwd) &&
+          // fs birthtime can precede the spawn timestamp slightly
+          s.startedAt >= p.spawnedAt - 60_000 &&
+          // never re-claim a session that already has lineage
+          sessionLineageFor(s.id) === undefined
+      )
+      .sort((a, b) => a.startedAt - b.startedAt)[0]
+    if (match) {
+      try {
+        indexer.setLineage(bindSessionLineage(match.id, p.sourceId))
+      } catch (err) {
+        console.error('[handoff] failed to persist copilot lineage:', err)
+      }
+      pendingCopilot.splice(i, 1)
+      i--
+    }
+  }
 }
 
 /**
@@ -229,12 +276,17 @@ function assertKnownConfigDir(configDir: unknown, provider: Provider): string {
 
 app.whenReady().then(() => {
   const cfg = loadConfig()
-  indexer = new SessionIndexer(() => sendToWin('index-updated'), {
-    cacheFile: join(app.getPath('userData'), 'index-cache.json')
-  })
+  indexer = new SessionIndexer(
+    () => {
+      resolveCopilotHandoffs()
+      sendToWin('index-updated')
+    },
+    { cacheFile: join(app.getPath('userData'), 'index-cache.json') }
+  )
   indexer.setArchived(cfg.archived ?? [])
   indexer.setHiddenRepos(cfg.hiddenRepos ?? [])
   indexer.setHistoryDays(cfg.historyDays ?? 0)
+  indexer.setLineage(cfg.continuedFrom ?? {})
   void indexer.setSources(cfg.sources)
 
   ipcMain.handle('sources:get', () => loadConfig().sources)
@@ -273,7 +325,10 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('repos:list', () => indexer.listRepos())
   ipcMain.handle('sessions:page', (_e, query: SessionQuery) => indexer.page(query))
+  ipcMain.handle('sessions:get', (_e, id: string) => indexer.getSession(String(id)))
   ipcMain.handle('sessions:messages', (_e, id: string) => indexer.getMessages(id))
+  ipcMain.handle('handoff:briefing', (_e, id: string) => getHandoffBriefing(indexer, String(id)))
+  ipcMain.handle('handoff:improve', (_e, id: string) => improveHandoffBriefing(indexer, String(id)))
   ipcMain.handle('sessions:archive', (_e, id: string, archived: boolean) => {
     indexer.setArchived(setSessionArchived(id, archived))
   })
@@ -382,6 +437,8 @@ app.whenReady().then(() => {
   // BYOK turns in flight: when the stream reveals the native session id, remember which
   // endpoint the session runs on so later resumes stay on that backend
   const byokTurns = new Map<string, { provider: Provider; endpointId: string }>()
+  // Handoff turns in flight: same lifecycle, persisting continuedFrom lineage instead
+  const handoffTurns = new Map<string, { provider: Provider; sourceId: string }>()
   chat = new ChatManager(
     (ev) => {
       const byok = byokTurns.get(ev.turnId)
@@ -393,7 +450,20 @@ app.whenReady().then(() => {
           console.error('[chat] failed to persist session endpoint binding:', err)
         }
       }
-      if (ev.type === 'done') byokTurns.delete(ev.turnId)
+      const handoff = handoffTurns.get(ev.turnId)
+      if (handoff && ev.type === 'session') {
+        try {
+          indexer.setLineage(
+            bindSessionLineage(`${handoff.provider}:${ev.nativeSessionId}`, handoff.sourceId)
+          )
+        } catch (err) {
+          console.error('[chat] failed to persist handoff lineage:', err)
+        }
+      }
+      if (ev.type === 'done') {
+        byokTurns.delete(ev.turnId)
+        handoffTurns.delete(ev.turnId)
+      }
       sendToWin('chat-event', ev)
     },
     {
@@ -426,6 +496,14 @@ app.whenReady().then(() => {
       const inherited = sessionEndpointFor(`${req.provider}:${req.resumeNativeId}`)
       if (inherited) req = { ...req, options: { ...req.options, modelEndpoint: inherited } }
     }
+    // the handoff source is renderer input — only accept sessions the index knows
+    if (req.handoffFrom !== undefined) {
+      const src = String(req.handoffFrom)
+      if (src.length > 256 || !indexer.getSession(src)) {
+        throw new Error(`unknown handoff source: ${src.slice(0, 80)}`)
+      }
+      req = { ...req, handoffFrom: src }
+    }
     // copilot multi-account: activate the chosen logged-in user before spawning
     if (req.provider === 'copilot' && req.copilotUser) {
       setCopilotActiveUser(req.configDir ?? join(homedir(), '.copilot'), req.copilotUser)
@@ -433,6 +511,19 @@ app.whenReady().then(() => {
     const turnId = chat.send(req)
     if (req.options?.modelEndpoint) {
       byokTurns.set(turnId, { provider: req.provider, endpointId: req.options.modelEndpoint })
+    }
+    if (req.handoffFrom) {
+      if (req.provider === 'copilot') {
+        pendingCopilot.push({ cwd: req.cwd, sourceId: req.handoffFrom, spawnedAt: Date.now() })
+        if (pendingCopilot.length > COPILOT_LINEAGE_MAX) pendingCopilot.shift()
+      } else {
+        handoffTurns.set(turnId, { provider: req.provider, sourceId: req.handoffFrom })
+      }
+    } else if (req.resumeNativeId && req.provider !== 'copilot') {
+      // claude mints a fresh native id per resumed turn — the new id must keep the
+      // lineage of the id it resumed (the sessionEndpointFor pattern above)
+      const lineage = sessionLineageFor(`${req.provider}:${req.resumeNativeId}`)
+      if (lineage) handoffTurns.set(turnId, { provider: req.provider, sourceId: lineage })
     }
     return turnId
   })

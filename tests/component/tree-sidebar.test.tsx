@@ -98,6 +98,42 @@ describe('session rows state that is not colour-coded', () => {
   })
 })
 
+describe('handoff threads', () => {
+  it('marks a chain ancestor with the elbow and announces the relationship', async () => {
+    // the indexer emits chains contiguously: continuation first, then its source
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 2,
+      items: [
+        session({ id: 'codex:new', provider: 'codex', title: 'continue the fix', continuedFrom: 'claude:abc' }),
+        session({ title: 'fix the login flake' })
+      ]
+    })
+    renderSidebar()
+
+    const ancestor = await screen.findByRole('treeitem', {
+      name: /fix the login flake\s*\(continued by the session above\)/
+    })
+    expect(ancestor.className).toContain('chained')
+    // the continuation row itself is not marked
+    const head = screen.getByRole('treeitem', { name: /continue the fix/ })
+    expect(head.className).not.toContain('chained')
+  })
+
+  it('does not thread rows that merely sit next to each other', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 2,
+      items: [
+        session({ id: 'codex:new', provider: 'codex', title: 'unrelated work' }),
+        session({ title: 'fix the login flake' })
+      ]
+    })
+    renderSidebar()
+
+    const row = await screen.findByRole('treeitem', { name: /fix the login flake/ })
+    expect(row.className).not.toContain('chained')
+  })
+})
+
 describe('sidebar row controls stay reachable', () => {
   it('gives every hover action an accessible name, not just an icon', async () => {
     vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session()] })

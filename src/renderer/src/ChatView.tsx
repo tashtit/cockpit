@@ -20,7 +20,9 @@ export function ChatView({
   onSend,
   onCancel,
   onCreatePr,
-  onOpenUrl
+  onOpenUrl,
+  onOpenHandoff,
+  onOpenLineage
 }: {
   binding: ChatBinding | null
   prs: PrStatus[]
@@ -31,6 +33,8 @@ export function ChatView({
   onCancel: () => void
   onCreatePr: () => void
   onOpenUrl: (url: string) => void
+  onOpenHandoff: () => void
+  onOpenLineage: (sourceId: string) => void
 }): JSX.Element {
   const [draft, setDraft] = useState('')
   const atts = useImageAttachments()
@@ -130,6 +134,17 @@ export function ChatView({
         <div className="chat-header-text">
           <div className="chat-title">{binding.title}</div>
           <div className="chat-sub">
+            {binding.continuedFrom && (
+              <button
+                className={`acct-chip acct-${binding.continuedFrom.provider} lineage-chip`}
+                aria-label={`Continued from a ${PROVIDER_LABEL[binding.continuedFrom.provider]} session — open it`}
+                title={`Continued from a ${PROVIDER_LABEL[binding.continuedFrom.provider]} session — click to open it`}
+                onClick={() => binding.continuedFrom && onOpenLineage(binding.continuedFrom.id)}
+              >
+                <ProviderLogo p={binding.continuedFrom.provider} size={10} /> from{' '}
+                {PROVIDER_LABEL[binding.continuedFrom.provider]}
+              </button>
+            )}
             {binding.branch && <BranchChip branch={binding.branch} />}
             <button
               className={`chat-cwd ${cwdCopied ? 'copied' : ''}`}
@@ -163,6 +178,18 @@ export function ChatView({
               {prBusy ? 'Creating PR…' : 'Create PR'}
             </button>
           )
+        )}
+        {/* progressive disclosure: only a started session can be handed off; a
+            running turn merely disables it */}
+        {binding.nativeSessionId && (
+          <button
+            className="btn-handoff"
+            disabled={busy}
+            onClick={onOpenHandoff}
+            title="Continue this session with another agent — new session, same worktree"
+          >
+            Continue in…
+          </button>
         )}
         <Select
           className="mode-select-wrap"

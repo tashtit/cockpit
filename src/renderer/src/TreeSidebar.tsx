@@ -680,13 +680,16 @@ function SessionList({
 
   return (
     <>
-      {items.map((s) => (
+      {items.map((s, i) => (
         <SessionRow
           key={s.id}
           s={s}
           pr={s.gitBranch ? prs.find((p) => p.headRefName === s.gitBranch) : undefined}
           accounts={accounts}
           selected={selectedId === s.id}
+          // the indexer emits handoff chains contiguously, newest first: a row whose
+          // id is the previous row's `continuedFrom` renders as that row's ancestor
+          chained={items[i - 1]?.continuedFrom === s.id}
           onSelect={onSelect}
           onOpenUrl={onOpenUrl}
         />
@@ -709,6 +712,7 @@ function SessionRow({
   accounts,
   selected,
   level = 2,
+  chained = false,
   onSelect,
   onOpenUrl
 }: {
@@ -718,6 +722,8 @@ function SessionRow({
   selected: boolean
   /** 2 under a repo/section row, 1 in flat search results */
   level?: number
+  /** This session was continued by the row above it (handoff thread ancestor) */
+  chained?: boolean
   onSelect: (s: SessionMeta) => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
@@ -729,7 +735,7 @@ function SessionRow({
     (accounts?.accounts.filter((a) => a.provider === s.provider).length ?? 0) > 1
   return (
     <div
-      className={`session-row ${selected ? 'selected' : ''} ${s.archived ? 'archived' : ''}`}
+      className={`session-row ${selected ? 'selected' : ''} ${s.archived ? 'archived' : ''} ${chained ? 'chained' : ''}`}
       role="treeitem"
       aria-selected={selected}
       aria-level={level}
@@ -743,6 +749,13 @@ function SessionRow({
         }
       }}
     >
+      {chained && (
+        <span className="chain-elbow" aria-hidden="true">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M3 0v4a3 3 0 0 0 3 3h4" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+        </span>
+      )}
       <span className={`plogo plogo-${s.provider}`} title={PROVIDER_LABEL[s.provider]}>
         <ProviderLogo p={s.provider} size={13} />
       </span>
@@ -750,6 +763,8 @@ function SessionRow({
       {/* archived reads as strikethrough + dim visually — say it out loud too.
           sr-only is position:absolute, so it costs no row width or gap */}
       {s.archived && <span className="sr-only">(archived)</span>}
+      {/* the elbow is the only visual signal, so it can't be the only signal */}
+      {chained && <span className="sr-only">(continued by the session above)</span>}
       {multiAccount && acct && <span className="acct-chip">{acct.label}</span>}
       <span className="row-actions">
         <button

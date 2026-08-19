@@ -35,7 +35,10 @@ const api: CockpitApi = {
   removeSource: (path: string) => ipcRenderer.invoke('sources:remove', path),
   listRepos: () => ipcRenderer.invoke('repos:list'),
   pageSessions: (query: SessionQuery) => ipcRenderer.invoke('sessions:page', query),
+  getSession: (sessionId: string) => ipcRenderer.invoke('sessions:get', sessionId),
   getSessionMessages: (id: string) => ipcRenderer.invoke('sessions:messages', id),
+  getHandoffBriefing: (sessionId: string) => ipcRenderer.invoke('handoff:briefing', sessionId),
+  improveHandoffBriefing: (sessionId: string) => ipcRenderer.invoke('handoff:improve', sessionId),
   getBusySessions: () => ipcRenderer.invoke('sessions:busy'),
   onBusySessions: (cb: (sessions: BusySession[]) => void) => {
     const handler = (_e: unknown, sessions: BusySession[]): void => cb(sessions)
