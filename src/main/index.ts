@@ -7,7 +7,6 @@ import type {
   NewRoundtableRequest,
   PermissionMode,
   Provider,
-  DriftFix,
   PanelKind,
   PanelTarget,
   SessionQuery,
@@ -16,7 +15,13 @@ import type {
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { ChatManager } from './chat'
-import { fixPanelDrift, forgetPanelEntry, getPanel, setPanelSwitch } from './library'
+import {
+  getPanel,
+  matchPanelEntry,
+  removePanelEntry,
+  restorePanelEntry,
+  setPanelSwitch
+} from './library'
 import { assertChatImages, saveChatImage } from './chat-images'
 import {
   addModelEndpoint,
@@ -401,10 +406,11 @@ app.whenReady().then(() => {
   ipcMain.handle('panel:set-switch', (_e, target: PanelTarget, agent: Provider, on: boolean) =>
     setPanelSwitch(asTarget(target), asProvider(agent), Boolean(on))
   )
-  ipcMain.handle('panel:fix-drift', (_e, target: PanelTarget, agent: Provider, how: DriftFix) =>
-    fixPanelDrift(asTarget(target), asProvider(agent), how === 'adopt' ? 'adopt' : 'apply')
+  ipcMain.handle('panel:match', (_e, target: PanelTarget, source: Provider) =>
+    matchPanelEntry(asTarget(target), asProvider(source))
   )
-  ipcMain.handle('panel:forget', (_e, target: PanelTarget) => forgetPanelEntry(asTarget(target)))
+  ipcMain.handle('panel:remove', (_e, target: PanelTarget) => removePanelEntry(asTarget(target)))
+  ipcMain.handle('panel:restore', (_e, target: PanelTarget) => restorePanelEntry(asTarget(target)))
   ipcMain.handle('extensions:check-mcp', (_e, name: string) => probeMcp(getMcpConfig(String(name))))
   ipcMain.handle('extensions:login-mcp', (_e, name: string, agent: Provider, projectPath?: string) => {
     const provider = asProvider(agent)

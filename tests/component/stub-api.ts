@@ -6,6 +6,7 @@ import type { CockpitApi, RoundtableSnapshot } from '../../src/shared/types'
 const emptyPanel: PanelReport = {
   repoRoot: null,
   rows: [],
+  removed: [],
   on: 0,
   drift: 0,
   globalOnly: []
@@ -71,8 +72,9 @@ export function freshApi(): CockpitApi {
     loginMcp: vi.fn(async () => 'logged in'),
     getPanel: vi.fn(async () => emptyPanel),
     setPanelSwitch: vi.fn(async () => emptyPanel),
-    fixPanelDrift: vi.fn(async () => emptyPanel),
-    forgetPanelEntry: vi.fn(async () => emptyPanel),
+    matchPanelEntry: vi.fn(async () => emptyPanel),
+    removePanelEntry: vi.fn(async () => emptyPanel),
+    restorePanelEntry: vi.fn(async () => emptyPanel),
     getInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     saveInstructionsBaseline: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     applyInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),

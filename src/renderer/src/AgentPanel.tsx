@@ -10,7 +10,7 @@ import {
   type PanelReport,
   type PanelRow
 } from '../../shared/library'
-import type { DriftFix, PanelKind, Provider } from '../../shared/types'
+import type { PanelKind, Provider } from '../../shared/types'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 
@@ -29,11 +29,6 @@ const LAMP: Partial<Record<AgentState, string>> = {
   pending: 'not applied',
   changed: 'differs',
   extra: 'added outside'
-}
-
-const FIX_LABEL: Record<DriftFix, string> = {
-  apply: 'Write Cockpit’s version',
-  adopt: 'Take this agent’s version'
 }
 
 /** Turning these off runs an uninstall, so they ask first. */
@@ -56,7 +51,7 @@ export function AgentPanel({
 }): JSX.Element {
   const [report, setReport] = useState<PanelReport | null>(null)
   /** which section is showing — 'attention' is the cross-kind pile of disagreements */
-  const [section, setSection] = useState<PanelKind | 'attention' | null>(null)
+  const [section, setSection] = useState<PanelKind | 'attention' | 'removed' | null>(null)
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   /** cell key currently being written — its switch shows the write in flight */
@@ -129,20 +124,26 @@ export function AgentPanel({
     )
   }
 
-  const fix = (row: PanelRow, agent: Provider, how: DriftFix): void =>
+  /** Make the agents agree by copying one of theirs — Cockpit picks no winner. */
+  const match = (row: PanelRow, source: Provider): void =>
     void run(
-      cellKey(row, agent),
-      () => api.fixPanelDrift(target(row), agent, how),
-      how === 'apply'
-        ? `Wrote Cockpit’s ${row.name} into ${PROVIDER_LABEL[agent]}.`
-        : `Cockpit now keeps ${PROVIDER_LABEL[agent]}’s ${row.name}.`
+      cellKey(row, source),
+      () => api.matchPanelEntry(target(row), source),
+      `Every agent now runs ${PROVIDER_LABEL[source]}’s ${row.name}.`
     )
 
-  const forget = (row: PanelRow): void =>
+  const remove = (row: PanelRow): void =>
     void run(
       row.id,
-      () => api.forgetPanelEntry(target(row)),
-      `Removed ${row.name} from every agent, and Cockpit stopped tracking it.`
+      () => api.removePanelEntry(target(row)),
+      `Removed ${row.name} from every agent. It’s under Removed if you want it back.`
+    )
+
+  const restore = (row: PanelRow): void =>
+    void run(
+      row.id,
+      () => api.restorePanelEntry(target(row)),
+      `Put ${row.name} back.`
     )
 
   if (!report) return <div className="tree-empty">reading every agent’s config…</div>
@@ -155,11 +156,13 @@ export function AgentPanel({
   // a search looks everywhere: you rarely know which section a server ended up in
   const rows = q
     ? report.rows.filter((r) =>
-        `${r.name} ${r.cockpit.detail} ${KIND_LABEL[r.kind]}`.toLowerCase().includes(q)
+        `${r.name} ${r.saved.detail} ${KIND_LABEL[r.kind]}`.toLowerCase().includes(q)
       )
     : current === 'attention'
       ? driftRows
-      : report.rows.filter((r) => r.kind === current)
+      : current === 'removed'
+        ? []
+        : report.rows.filter((r) => r.kind === current)
 
   return (
     <>
@@ -190,6 +193,17 @@ export function AgentPanel({
             <span className="pnl-pill-n">{driftRows.length}</span>
           </button>
         )}
+        {report.removed.length > 0 && (
+          <button
+            role="tab"
+            aria-selected={current === 'removed'}
+            className={`pnl-pill ${current === 'removed' ? 'active' : ''}`}
+            onClick={() => setSection('removed')}
+          >
+            Removed
+            <span className="pnl-pill-n">{report.removed.length}</span>
+          </button>
+        )}
         {kinds.map((kind) => {
           const all = report.rows.filter((r) => r.kind === kind)
           const drift = all.filter((r) => r.drift.length > 0).length
@@ -212,8 +226,10 @@ export function AgentPanel({
       <p className="pnl-blurb">
         {q ? (
           `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
+        ) : current === 'removed' ? (
+          'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
         ) : current === 'attention' ? (
-          'Cockpit and these agents disagree. Open a row to settle it.'
+          'Something here disagrees — with its switch, or with the other agents. Open a row to settle it.'
         ) : (
           <>
             {current ? KIND_BLURB[current] : ''} The switch is what you asked for; the lamp under
@@ -230,7 +246,7 @@ export function AgentPanel({
         </div>
       )}
 
-      {report.rows.length > 0 && rows.length === 0 && (
+      {q !== '' && rows.length === 0 && (
         <div className="tree-empty">nothing here matches “{query.trim()}”</div>
       )}
 
@@ -261,13 +277,33 @@ export function AgentPanel({
                 open={expanded === row.id}
                 onToggle={() => setExpanded(expanded === row.id ? null : row.id)}
                 onFlip={flip}
-                onFix={fix}
-                onForget={forget}
+                onMatch={match}
+                onRemove={remove}
+                onRestore={restore}
                 onArm={arm}
                 onOpenInstructions={onOpenInstructions}
               />
             ))}
           </div>
+        </div>
+      )}
+
+      {current === 'removed' && (
+        <div className="pnl-removed">
+          {report.removed.map((row) => (
+            <div key={row.id} className="pnl-removed-row">
+              <span className="pnl-title">{row.name}</span>
+              <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>
+              <span className="pnl-def">{row.saved.detail}</span>
+              <button
+                className="btn-ghost small"
+                disabled={busy !== null}
+                onClick={() => restore(row)}
+              >
+                {busy === row.id ? 'putting back…' : 'Put it back'}
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -296,8 +332,9 @@ function Row({
   busy,
   onToggle,
   onFlip,
-  onFix,
-  onForget,
+  onMatch,
+  onRemove,
+  onRestore,
   onArm,
   onOpenInstructions
 }: {
@@ -309,8 +346,9 @@ function Row({
   busy: string | null
   onToggle: () => void
   onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
-  onFix: (row: PanelRow, agent: Provider, how: DriftFix) => void
-  onForget: (row: PanelRow) => void
+  onMatch: (row: PanelRow, source: Provider) => void
+  onRemove: (row: PanelRow) => void
+  onRestore: (row: PanelRow) => void
   onArm: (key: string | null) => void
   onOpenInstructions: () => void
 }): JSX.Element {
@@ -326,8 +364,8 @@ function Row({
             </span>
             <span className="pnl-title">{row.name}</span>
             {showKind && <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>}
-            <span className="pnl-def" title={row.cockpit.detail}>
-              {row.cockpit.detail}
+            <span className="pnl-def" title={row.saved.detail}>
+              {row.saved.detail}
             </span>
           </button>
         </span>
@@ -393,8 +431,9 @@ function Row({
             row={row}
             armed={armed}
             busy={busy}
-            onFix={onFix}
-            onForget={onForget}
+            onFlip={onFlip}
+            onMatch={onMatch}
+            onRemove={onRemove}
             onArm={onArm}
             onOpenInstructions={onOpenInstructions}
           />
@@ -413,31 +452,30 @@ function Detail({
   row,
   armed,
   busy,
-  onFix,
-  onForget,
+  onFlip,
+  onMatch,
+  onRemove,
   onArm,
   onOpenInstructions
 }: {
   row: PanelRow
   armed: string | null
   busy: string | null
-  onFix: (row: PanelRow, agent: Provider, how: DriftFix) => void
-  onForget: (row: PanelRow) => void
+  onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
+  onMatch: (row: PanelRow, source: Provider) => void
+  onRemove: (row: PanelRow) => void
   onArm: (key: string | null) => void
   onOpenInstructions: () => void
 }): JSX.Element {
   const holders = PROVIDERS.filter((p) => agentHasIt(row.cells[p].state))
-  const forgetArmed = armed === row.id
+  const removeArmed = armed === row.id
   return (
     <div className="pnl-detail-body">
-      {row.fields.length > 0 && (
-        <table className="pnl-diff" aria-label={`${row.name} — Cockpit and each agent`}>
+      {row.fields.length > 0 && holders.length > 0 && (
+        <table className="pnl-diff" aria-label={`${row.name} — what each agent runs`}>
           <thead>
             <tr>
               <th scope="col">field</th>
-              <th scope="col" className="pnl-src">
-                Cockpit
-              </th>
               {holders.map((p) => (
                 <th key={p} scope="col" className={`tint-${p}`}>
                   {PROVIDER_LABEL[p]}
@@ -448,21 +486,17 @@ function Detail({
           <tbody>
             {row.fields
               // a field nobody fills in is not a comparison, it's an empty line
-              .filter(
-                (field) =>
-                  (row.cockpit.fields[field] ?? '') !== '' ||
-                  holders.some((p) => (row.cells[p].fields[field] ?? '') !== '')
-              )
+              .filter((field) => holders.some((p) => (row.cells[p].fields[field] ?? '') !== ''))
               .map((field) => {
-                const mine = row.cockpit.fields[field] ?? ''
-                // a field the agent doesn't record at all is unknown, not different
-                const off = holders.filter(
-                  (p) => field in row.cells[p].fields && row.cells[p].fields[field] !== mine
-                )
+                // the agents are compared with each other; a field one of them simply
+                // doesn't record is unknown, not a difference
+                const values = holders
+                  .filter((p) => field in row.cells[p].fields)
+                  .map((p) => row.cells[p].fields[field])
+                const differs = values.some((v) => v !== values[0])
                 return (
-                  <tr key={field} className={off.length > 0 ? 'differs' : ''}>
+                  <tr key={field} className={differs ? 'differs' : ''}>
                     <th scope="row">{field}</th>
-                    <td className="pnl-src">{mine || <span className="pnl-none">—</span>}</td>
                     {holders.map((p) => (
                       <td key={p} title={row.cells[p].fields[field]}>
                         {row.cells[p].fields[field] || (
@@ -479,33 +513,58 @@ function Detail({
         </table>
       )}
 
-      {row.drift.map((p) => (
-        <div key={p} className="pnl-fix">
+      {/* a disagreement between agents has no "right" side for Cockpit to pick,
+          so the user names the agent whose setup the others should follow */}
+      {row.disagree && (
+        <div className="pnl-fix">
           <span className="pnl-fix-what">
-            {row.cells[p].state === 'pending' &&
-              `${PROVIDER_LABEL[p]} doesn’t have ${row.name}, but its switch is on.`}
-            {row.cells[p].state === 'changed' &&
-              `${PROVIDER_LABEL[p]} is running a different ${row.name} than Cockpit has.`}
-            {row.cells[p].state === 'extra' &&
-              `${PROVIDER_LABEL[p]} has ${row.name} even though its switch is off.`}
+            {row.holders.map((p) => PROVIDER_LABEL[p]).join(' and ')} don’t run the same{' '}
+            {row.name}. Which one is right?
           </span>
           <div className="pnl-fix-actions">
-            {(['apply', 'adopt'] as const)
-              // there is nothing to adopt from an agent that doesn't have it
-              .filter((how) => how === 'apply' || agentHasIt(row.cells[p].state))
-              .map((how) => (
-                <button
-                  key={how}
-                  className="btn-ghost small"
-                  disabled={busy !== null}
-                  onClick={() => onFix(row, p, how)}
-                >
-                  {FIX_LABEL[how]}
-                </button>
-              ))}
+            {row.holders.map((p) => (
+              <button
+                key={p}
+                className="btn-ghost small"
+                disabled={busy !== null}
+                onClick={() => onMatch(row, p)}
+              >
+                Use {PROVIDER_LABEL[p]}’s
+              </button>
+            ))}
           </div>
         </div>
-      ))}
+      )}
+
+      {row.drift
+        .filter((p) => row.cells[p].state !== 'changed')
+        .map((p) => (
+          <div key={p} className="pnl-fix">
+            <span className="pnl-fix-what">
+              {row.cells[p].state === 'pending'
+                ? `${PROVIDER_LABEL[p]} doesn’t have ${row.name}, but its switch is on.`
+                : `${PROVIDER_LABEL[p]} has ${row.name} even though its switch is off.`}
+            </span>
+            <div className="pnl-fix-actions">
+              <button
+                className="btn-ghost small"
+                disabled={busy !== null}
+                onClick={() => onFlip(row, p, row.cells[p].state === 'pending')}
+              >
+                {row.cells[p].state === 'pending' ? 'Write it now' : 'Switch it on'}
+              </button>
+              {row.cells[p].state === 'extra' && (
+                <button
+                  className="btn-ghost small"
+                  disabled={busy !== null}
+                  onClick={() => onFlip(row, p, false)}
+                >
+                  Take it out
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
 
       <div className="pnl-detail-actions">
         {row.kind === 'instructions' ? (
@@ -514,18 +573,18 @@ function Detail({
           </button>
         ) : (
           <button
-            className={`btn-ghost small ${forgetArmed ? 'armed' : ''}`}
+            className={`btn-ghost small ${removeArmed ? 'armed' : ''}`}
             disabled={busy !== null}
             aria-label={
-              forgetArmed ? `Confirm removing ${row.name} everywhere` : `Remove ${row.name} everywhere`
+              removeArmed ? `Confirm removing ${row.name} everywhere` : `Remove ${row.name} everywhere`
             }
-            title="Take it out of every agent and stop tracking it in Cockpit"
+            title="Take it out of every agent. Cockpit keeps a copy, so you can put it back."
             onBlur={() => {
-              if (forgetArmed) onArm(null)
+              if (removeArmed) onArm(null)
             }}
-            onClick={() => (forgetArmed ? onForget(row) : onArm(row.id))}
+            onClick={() => (removeArmed ? onRemove(row) : onArm(row.id))}
           >
-            {forgetArmed ? 'remove everywhere?' : 'Remove everywhere'}
+            {removeArmed ? 'remove everywhere?' : 'Remove everywhere'}
           </button>
         )}
       </div>

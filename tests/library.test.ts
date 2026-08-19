@@ -53,10 +53,33 @@ describe('the switch against what the agent has', () => {
     expect(row({ codex: true }, CFG, { codex: missing }).cells.codex.state).toBe('pending')
   })
 
-  it('reports an agent running a different definition', () => {
+  // one agent has nobody to disagree with, and Cockpit is not a second opinion
+  it('leaves a lone agent alone whatever it runs', () => {
     const r = row({ codex: true }, CFG, { codex: has({ command: 'npx', args: ['-y', 'gh-mcp'] }) })
-    expect(r.cells.codex.state).toBe('changed')
-    expect(r.drift).toEqual(['codex'])
+    expect(r.cells.codex.state).toBe('on')
+    expect(r.drift).toEqual([])
+  })
+
+  it('flags the odd one out when two agents agree and a third doesn’t', () => {
+    const r = row({ claude: true, codex: true, copilot: true }, CFG, {
+      claude: has(CFG),
+      codex: has(CFG),
+      copilot: has({ command: 'npx', args: ['-y', 'gh-mcp'] })
+    })
+    expect(r.cells.claude.state).toBe('on')
+    expect(r.cells.copilot.state).toBe('changed')
+    expect(r.disagree).toBe(true)
+  })
+
+  // two agents, two answers, no majority — Cockpit has no version to break the tie,
+  // so it flags both and asks rather than picking a winner
+  it('flags both when two agents disagree and neither is the majority', () => {
+    const r = row({ claude: true, copilot: true }, CFG, {
+      claude: has(CFG),
+      copilot: has({ command: 'npx' })
+    })
+    expect(r.cells.claude.state).toBe('changed')
+    expect(r.cells.copilot.state).toBe('changed')
   })
 
   it('reports something added behind Cockpit’s back', () => {
@@ -79,11 +102,14 @@ describe('the switch against what the agent has', () => {
     expect(JSON.stringify(r)).not.toContain('"a"')
   })
 
-  it('notices an agent that dropped the env vars entirely', () => {
-    const r = row({ claude: true }, { command: 'x', env: { TOKEN: 'a' } }, {
-      claude: has({ command: 'x' })
+  it('notices when one agent dropped the env vars the others have', () => {
+    const withEnv = { command: 'x', env: { TOKEN: 'a' } }
+    const r = row({ claude: true, codex: true, copilot: true }, withEnv, {
+      claude: has(withEnv),
+      codex: has(withEnv),
+      copilot: has({ command: 'x' })
     })
-    expect(r.cells.claude.state).toBe('changed')
+    expect(r.cells.copilot.state).toBe('changed')
   })
 })
 

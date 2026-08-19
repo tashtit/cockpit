@@ -23,13 +23,13 @@ import type {
  */
 
 export type AgentState =
-  /** switch on, and the agent holds exactly what Cockpit holds */
+  /** switch on, and the agent has it */
   | 'on'
   /** switch off, and the agent doesn't have it */
   | 'off'
   /** switch on, but the agent doesn't have it — never applied, or removed elsewhere */
   | 'pending'
-  /** switch on, and the agent has it, but not the definition Cockpit holds */
+  /** the agent has it, but runs a different definition from the other agents */
   | 'changed'
   /** switch off, yet the agent has it anyway — added outside Cockpit */
   | 'extra'
@@ -64,19 +64,31 @@ export type PanelRow = {
   /** `${kind}:${name}` — stable across reloads */
   readonly id: string
   readonly name: string
-  /** Cockpit's own definition, the column every agent is compared against */
-  readonly cockpit: { readonly detail: string; readonly fields: Readonly<Record<string, string>> }
+  /**
+   * The copy Cockpit keeps, so switching an agent back on — or putting the whole
+   * entry back after a remove — has something to write. It is a backup, refreshed
+   * from whatever the agents run; it is never an authority they are judged against.
+   */
+  readonly saved: { readonly detail: string; readonly fields: Readonly<Record<string, string>> }
   readonly cells: Readonly<Record<Provider, PanelCell>>
-  /** field names in Cockpit's order, then anything only an agent has */
+  /** field names, in the order the agents that have it record them */
   readonly fields: readonly string[]
-  /** agents whose reality disagrees with their switch */
+  /** agents whose reality disagrees with their switch, or with the other agents */
   readonly drift: readonly Provider[]
+  /** the agents that have it, grouped: more than one group means they disagree */
+  readonly holders: readonly Provider[]
+  /** true when the agents that have it don't all run the same definition */
+  readonly disagree: boolean
+  /** taken out of every agent; kept so it can be put back */
+  readonly removed?: boolean
 }
 
 export type PanelReport = {
   /** null = global (agent home configs); otherwise a repo root */
   readonly repoRoot: string | null
   readonly rows: readonly PanelRow[]
+  /** taken out of every agent, kept so they can be put back */
+  readonly removed: readonly PanelRow[]
   /** switches on, across every row and agent */
   readonly on: number
   readonly drift: number
@@ -165,6 +177,13 @@ export type Actual = {
   readonly fields: Readonly<Record<string, string>>
   /** set when the agent can't hold this at all */
   readonly reason?: string
+  /**
+   * This agent is definitively out of step, whatever the others are doing. Only the
+   * shared instructions can say this: the baseline is written *in* Cockpit, so it is
+   * the one thing Cockpit really does own a version of. Everything else is compared
+   * agent-to-agent, because Cockpit keeps a backup rather than an opinion.
+   */
+  readonly mismatch?: boolean
 }
 
 export const ABSENT: Actual = { present: false, detail: '', fields: {} }
@@ -175,52 +194,95 @@ export type Desired = {
   readonly fields: Readonly<Record<string, string>>
 }
 
-function cellFor(entry: LibraryEntry, agent: Provider, actual: Actual, desired: Desired): PanelCell {
-  const on = entry.enabled[agent] === true
-  if (actual.reason) {
-    return { state: 'na', desired: on, detail: '', fields: {}, reason: actual.reason }
+/**
+ * Which agents run the same thing. Grouped pairwise rather than by a hashed
+ * signature, so a field one agent simply doesn't record stays "unknown" instead of
+ * splitting it off into a group of its own.
+ */
+function agreementGroups(
+  holders: readonly Provider[],
+  actual: Readonly<Partial<Record<Provider, Actual>>>
+): Provider[][] {
+  const groups: Provider[][] = []
+  for (const p of holders) {
+    const fields = actual[p]?.fields ?? {}
+    const found = groups.find((g) => sameFields(actual[g[0]]?.fields ?? {}, fields))
+    if (found) found.push(p)
+    else groups.push([p])
   }
-  const base = { desired: on, detail: actual.detail, fields: actual.fields }
-  if (on && !actual.present) return { ...base, state: 'pending' }
-  if (!on && actual.present) return { ...base, state: 'extra' }
-  if (!on) return { ...base, state: 'off' }
-  // fields are only comparable when both sides describe the same shape of thing;
-  // an entry Cockpit tracks by name alone (a plugin id) has nothing to diff
-  const comparable = Object.keys(desired.fields).length > 0 || Object.keys(actual.fields).length > 0
-  return { ...base, state: comparable && !sameFields(desired.fields, actual.fields) ? 'changed' : 'on' }
+  return groups
 }
 
-/** Field names in Cockpit's order first — its definition leads the diff. */
-function unionFields(desired: Desired, cells: Readonly<Record<Provider, PanelCell>>): string[] {
-  const out = Object.keys(desired.fields)
-  for (const p of PROVIDERS) {
-    for (const k of Object.keys(cells[p].fields)) if (!out.includes(k)) out.push(k)
-  }
-  return out
+/**
+ * The agents that are the odd ones out. When one definition is more common than any
+ * other, the agents running it are fine and the rest are flagged. When there is no
+ * such definition — two agents, two answers — nobody is right, so both are flagged.
+ * Cockpit does not break the tie: it has no version of its own to break it with.
+ */
+function oddOnesOut(groups: readonly Provider[][]): Provider[] {
+  if (groups.length <= 1) return []
+  const max = Math.max(...groups.map((g) => g.length))
+  const biggest = groups.filter((g) => g.length === max)
+  return biggest.length === 1
+    ? groups.filter((g) => g !== biggest[0]).flat()
+    : groups.flat()
 }
 
 export function buildRow(
   entry: LibraryEntry,
-  desired: Desired,
+  saved: Desired,
   actual: Readonly<Partial<Record<Provider, Actual>>>
 ): PanelRow {
+  const holders = PROVIDERS.filter((p) => (actual[p] ?? ABSENT).present)
+  // an authoritative reader supersedes peer comparison: when one exists it already
+  // knows who is out of step, and the agents' own fields (a per-agent file path, say)
+  // would only split them into groups that mean nothing
+  const authoritative = holders.some((p) => actual[p]?.mismatch !== undefined)
+  const groups = authoritative ? [holders] : agreementGroups(holders, actual)
+  const odd = authoritative ? [] : oddOnesOut(groups)
+
   const cells = {} as { -readonly [K in Provider]: PanelCell }
-  for (const p of PROVIDERS) cells[p] = cellFor(entry, p, actual[p] ?? ABSENT, desired)
+  for (const p of PROVIDERS) {
+    const a = actual[p] ?? ABSENT
+    const on = entry.enabled[p] === true
+    if (a.reason) {
+      cells[p] = { state: 'na', desired: on, detail: '', fields: {}, reason: a.reason }
+      continue
+    }
+    const base = { desired: on, detail: a.detail, fields: a.fields }
+    if (on && !a.present) cells[p] = { ...base, state: 'pending' }
+    else if (!on && a.present) cells[p] = { ...base, state: 'extra' }
+    else if (!on) cells[p] = { ...base, state: 'off' }
+    else cells[p] = { ...base, state: a.mismatch || odd.includes(p) ? 'changed' : 'on' }
+  }
+
+  // the diff reads in the order the agents record their fields; the saved copy only
+  // fills in names none of them happened to have
+  const fields: string[] = []
+  for (const p of [...holders, ...PROVIDERS]) {
+    for (const k of Object.keys(cells[p].fields)) if (!fields.includes(k)) fields.push(k)
+  }
+  for (const k of Object.keys(saved.fields)) if (!fields.includes(k)) fields.push(k)
+
   return {
     kind: entry.kind,
     id: `${entry.kind}:${entry.name}`,
     name: entry.name,
-    cockpit: desired,
+    saved,
     cells,
-    fields: unionFields(desired, cells),
-    drift: PROVIDERS.filter((p) => isDrift(cells[p].state))
+    fields,
+    drift: PROVIDERS.filter((p) => isDrift(cells[p].state)),
+    holders,
+    disagree: !authoritative && groups.length > 1,
+    ...(entry.removed ? { removed: true } : {})
   }
 }
 
 export function buildReport(repoRoot: string | null, rows: readonly PanelRow[]): PanelReport {
   const kinds = kindsForScope(repoRoot)
+  const live = rows.filter((r) => !r.removed)
   const ordered = kinds.flatMap((kind) =>
-    rows.filter((r) => r.kind === kind).sort((a, b) => a.name.localeCompare(b.name))
+    live.filter((r) => r.kind === kind).sort((a, b) => a.name.localeCompare(b.name))
   )
   let on = 0
   let drift = 0
@@ -233,6 +295,7 @@ export function buildReport(repoRoot: string | null, rows: readonly PanelRow[]):
   return {
     repoRoot,
     rows: ordered,
+    removed: rows.filter((r) => r.removed).sort((a, b) => a.name.localeCompare(b.name)),
     on,
     drift,
     globalOnly: repoRoot === null ? [] : GLOBAL_ONLY_KINDS
@@ -313,12 +376,15 @@ export function instructionRow(state: InstructionsState, entry: LibraryEntry): P
       actual[agent] = {
         present: file.status === 'synced' || file.status === 'drifted',
         detail: `${shortPath(file.path)} — ${INSTRUCTION_DETAIL[file.status]}`,
-        fields: { file: shortPath(file.path), block: file.status === 'synced' ? 'current' : INSTRUCTION_DETAIL[file.status] }
+        mismatch: file.status === 'drifted',
+        // every file holds the same baseline, so they never differ from each other —
+        // only from the baseline itself, which `mismatch` carries
+        fields: { file: shortPath(file.path) }
       }
     }
   }
   // the entry's own first line is far more use here than restating the row's name
   const firstLine = state.baseline.trim().split('\n')[0].replace(/^#+\s*/, '')
   const detail = firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine
-  return buildRow(entry, { detail, fields: { block: 'current' } }, actual)
+  return buildRow(entry, { detail, fields: {} }, actual)
 }

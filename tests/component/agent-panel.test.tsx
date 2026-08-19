@@ -52,8 +52,9 @@ const repo: RepoGroup = {
 async function openPanel(): Promise<void> {
   vi.mocked(window.cockpit.getPanel).mockResolvedValue(report)
   vi.mocked(window.cockpit.setPanelSwitch).mockResolvedValue(report)
-  vi.mocked(window.cockpit.fixPanelDrift).mockResolvedValue(report)
-  vi.mocked(window.cockpit.forgetPanelEntry).mockResolvedValue(report)
+  vi.mocked(window.cockpit.matchPanelEntry).mockResolvedValue(report)
+  vi.mocked(window.cockpit.removePanelEntry).mockResolvedValue(report)
+  vi.mocked(window.cockpit.restorePanelEntry).mockResolvedValue(report)
   render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
   await screen.findByText('github')
 }
@@ -123,27 +124,29 @@ describe('Agents › Panel', () => {
     )
   })
 
-  it('opens a row onto Cockpit’s definition beside each agent’s', async () => {
+  it('opens a row onto what each agent actually runs', async () => {
     await openPanel()
     await userEvent.click(screen.getByRole('button', { name: /github/ }))
-    const diff = screen.getByRole('table', { name: 'github — Cockpit and each agent' })
+    const diff = screen.getByRole('table', { name: 'github — what each agent runs' })
     // Cockpit leads the table — it is the source of truth, not one opinion among four
+    // the agents are compared with each other; Cockpit isn't a column, because it
+    // holds a backup rather than a version anyone should be judged against
     const headers = within(diff).getAllByRole('columnheader').map((h) => h.textContent)
-    expect(headers).toEqual(['field', 'Cockpit', 'Claude', 'Codex', 'Copilot'])
+    expect(headers).toEqual(['field', 'Claude', 'Codex', 'Copilot'])
     expect(within(diff).getByRole('rowheader', { name: 'command' }).closest('tr')).toHaveClass(
       'differs'
     )
   })
 
-  it('offers both honest answers to a disagreement', async () => {
+  // Cockpit has no version of its own, so it can't pick a winner — the user does
+  it('asks which agent is right when they disagree', async () => {
     await openPanel()
     await userEvent.click(screen.getByRole('button', { name: /github/ }))
-    expect(screen.getByText(/Copilot is running a different github/)).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Take this agent’s version' }))
-    expect(window.cockpit.fixPanelDrift).toHaveBeenCalledWith(
+    expect(screen.getByText(/don’t run the same github/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Use Claude’s' }))
+    expect(window.cockpit.matchPanelEntry).toHaveBeenCalledWith(
       { repoRoot: null, kind: 'mcp', name: 'github' },
-      'copilot',
-      'adopt'
+      'claude'
     )
   })
 
@@ -152,9 +155,29 @@ describe('Agents › Panel', () => {
     await section('MCP servers')
     await userEvent.click(screen.getByRole('button', { name: /linear/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Remove linear everywhere' }))
-    expect(window.cockpit.forgetPanelEntry).not.toHaveBeenCalled()
+    expect(window.cockpit.removePanelEntry).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole('button', { name: 'Confirm removing linear everywhere' }))
-    expect(window.cockpit.forgetPanelEntry).toHaveBeenCalledWith({
+    expect(window.cockpit.removePanelEntry).toHaveBeenCalledWith({
+      repoRoot: null,
+      kind: 'mcp',
+      name: 'linear'
+    })
+  })
+
+  // removing everywhere is the one action that would otherwise be unrecoverable —
+  // keeping a copy is the entire reason Cockpit has a config of its own
+  it('keeps a removed entry so it can be put back', async () => {
+    const gone = mcpRow('linear', {}, {})
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue({
+      ...buildReport(null, []),
+      removed: [{ ...gone, removed: true }]
+    })
+    vi.mocked(window.cockpit.restorePanelEntry).mockResolvedValue(buildReport(null, []))
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('tab', { name: /^Removed/ }))
+    expect(screen.getByText('linear')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Put it back' }))
+    expect(window.cockpit.restorePanelEntry).toHaveBeenCalledWith({
       repoRoot: null,
       kind: 'mcp',
       name: 'linear'

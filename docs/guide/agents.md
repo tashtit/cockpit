@@ -24,34 +24,40 @@ marketplaces — with the count on each tab. When anything has drifted it opens 
 you**: every disagreement across every section, in one short list. **Search looks
 everywhere**, whichever section you're in, and tags each result with where it lives.
 
-Cockpit keeps a config of its own, and every agent gets a switch:
+Every agent gets a switch, and the switch says **where a thing is applied**. On writes it
+into that agent's own config; off takes it back out.
 
-**The switch is what you asked for. The lamp under it is what the agent actually has.**
+Cockpit keeps a copy of each thing — but it's a **backup, not a version**. It's refreshed
+from whatever your agents actually run, and it exists for one reason: so switching an
+agent back on, or putting something back after you removed it, has something to write.
+Cockpit never sets itself up as the correct answer your agents are judged against.
 
-Switching an agent on writes the entry into that agent's own config. Switching it off
-takes it back out — and Cockpit keeps the entry, so you can put it back later. That is the
-difference between *off* and *removed*: off is a setting, removing is forgetting.
+A row raises a flag when something disagrees:
 
-Most of the time the switch and the lamp agree and the lamp stays dark. When they don't,
-it lights amber and says which way:
-
-| Lamp | What happened |
+| Flag | What happened |
 | --- | --- |
 | `not applied` | The switch is on, but the agent doesn't have it |
-| `differs` | The agent has it, but not the definition Cockpit holds |
+| `differs` | This agent runs something different from the other agents |
 | `added outside` | The switch is off, yet the agent has it anyway |
 
-Open the row and you get Cockpit's definition beside each agent's, field by field, with
-the differing lines marked — and the only two honest answers: **write Cockpit's version**
-into the agent, or **take this agent's version** into Cockpit. Env var *values* are never
-shown or compared, only their names, so a row never claims a difference you can't see.
+Open the row and you get **what each agent actually runs**, side by side, with the
+differing lines marked. When they disagree there's no "right" side for Cockpit to pick, so
+it asks: *Claude and Copilot don't run the same github. Which one is right?* — and copies
+the one you choose to the others. Env var *values* are never shown or compared, only their
+names, so a row never claims a difference you can't see.
 
-### Removing
+The shared instructions are the exception: you write that baseline in Cockpit, so a file
+that's out of step with it is simply out of date, whatever the other agents are doing.
 
-- **Switch it off** for one agent — reversible, and Cockpit remembers the entry.
-- **Remove everywhere**, in the row's detail, takes it out of every agent and stops
-  tracking it. Both that and switching a plugin or marketplace off ask for a second click
-  first, because they run a real uninstall.
+### Removing, and getting it back
+
+- **Switch it off** for one agent — it leaves that agent, nothing else changes.
+- **Remove everywhere**, in the row's detail, takes it out of every agent at once. It then
+  appears under **Removed**, with *Put it back* — which restores it to the same agents it
+  was on. This is what the kept copy is for: removing everywhere would otherwise be the
+  one action in the panel you couldn't undo.
+- Removing everywhere, and switching a plugin or marketplace off, each ask for a second
+  click first, because they run a real uninstall.
 
 ### How each kind is applied
 

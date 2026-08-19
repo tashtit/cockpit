@@ -1169,6 +1169,15 @@ button.pnl-flag:hover { text-decoration: underline; }
 .pnl-flag-who { color: var(--fg-dim); }
 .pnl-flag.danger { color: var(--danger); }
 
+/* removed entries: kept on purpose, so the way back is a list you can act on */
+.pnl-removed { display: flex; flex-direction: column; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.pnl-removed-row { display: flex; align-items: baseline; gap: var(--s3);
+  padding: var(--s2) var(--s3); min-height: 32px; }
+.pnl-removed-row + .pnl-removed-row { border-top: 1px solid var(--border); }
+.pnl-removed-row .pnl-def { flex: 1; }
+.pnl-removed-row button { align-self: center; }
+
 /* the row opened up, inset into the bank: Cockpit's column first, it is the source */
 .pnl-detail { background: var(--bg-deep); box-shadow: inset 0 1px 0 var(--border); }
 .pnl-detail-body { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3); }

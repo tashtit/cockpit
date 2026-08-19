@@ -15,7 +15,6 @@ import type {
   NewRoundtableRequest,
   Provider,
   RoundtableEvent,
-  DriftFix,
   PanelTarget,
   SessionQuery,
   TimeFormat
@@ -68,9 +67,10 @@ const api: CockpitApi = {
   getPanel: (repoRoot: string | null) => ipcRenderer.invoke('panel:get', repoRoot),
   setPanelSwitch: (target: PanelTarget, agent: Provider, on: boolean) =>
     ipcRenderer.invoke('panel:set-switch', target, agent, on),
-  fixPanelDrift: (target: PanelTarget, agent: Provider, how: DriftFix) =>
-    ipcRenderer.invoke('panel:fix-drift', target, agent, how),
-  forgetPanelEntry: (target: PanelTarget) => ipcRenderer.invoke('panel:forget', target),
+  matchPanelEntry: (target: PanelTarget, source: Provider) =>
+    ipcRenderer.invoke('panel:match', target, source),
+  removePanelEntry: (target: PanelTarget) => ipcRenderer.invoke('panel:remove', target),
+  restorePanelEntry: (target: PanelTarget) => ipcRenderer.invoke('panel:restore', target),
   getInstructions: (repoRoot: string | null) => ipcRenderer.invoke('instructions:get', repoRoot),
   saveInstructionsBaseline: (repoRoot: string | null, baseline: string) =>
     ipcRenderer.invoke('instructions:save-baseline', repoRoot, baseline),

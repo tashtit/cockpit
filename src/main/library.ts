@@ -15,7 +15,6 @@ import {
   type PanelRow
 } from '../shared/library'
 import type {
-  DriftFix,
   ExtensionsInventory,
   LibraryEntry,
   McpConfig,
@@ -134,8 +133,8 @@ function skillFields(fingerprint: string, description: string): Record<string, s
   return { description, contents: fingerprint.slice(0, 8) }
 }
 
-/** Cockpit's side of the comparison. */
-function desiredOf(entry: LibraryEntry, repoRoot: string | null): Desired {
+/** The copy Cockpit keeps — what a switch writes when no agent has it to copy from. */
+function savedOf(entry: LibraryEntry, repoRoot: string | null): Desired {
   switch (entry.kind) {
     case 'mcp':
       return {
@@ -154,7 +153,7 @@ function desiredOf(entry: LibraryEntry, repoRoot: string | null): Desired {
     case 'marketplace':
       return { detail: entry.source ?? '', fields: entry.source ? { source: entry.source } : {} }
     default:
-      return { detail: getInstructions(repoRoot).baseline.trim().split('\n')[0], fields: { block: 'current' } }
+      return { detail: getInstructions(repoRoot).baseline.trim().split('\n')[0], fields: {} }
   }
 }
 
@@ -249,8 +248,20 @@ function ensureScope(repoRoot: string | null): {
     const source = inv.skills.find((sk) => sk.name === entry.name)
     if (source) adoptSkillInto(source.path, libSkillDir(entry.name, repoRoot))
   }
-  if (JSON.stringify(adopted) !== JSON.stringify(before)) saveEntries(repoRoot, adopted)
-  return { entries: adopted, inv }
+  const refreshed = adopted.map((entry) => refreshSaved(entry, inv))
+  if (JSON.stringify(refreshed) !== JSON.stringify(before)) saveEntries(repoRoot, refreshed)
+  return { entries: refreshed, inv }
+}
+
+/**
+ * Keep Cockpit's copy current with what the agents run. The copy exists so a switch
+ * has something to write and a removed entry can come back — it is a backup, so it
+ * follows the agents rather than the other way round.
+ */
+function refreshSaved(entry: LibraryEntry, inv: ExtensionsInventory): LibraryEntry {
+  if (entry.kind !== 'mcp') return entry
+  const config = inv.mcp.find((srv) => srv.name === entry.name)?.presences[0]?.config
+  return config ? { ...entry, config } : entry
 }
 
 export function getPanel(repoRoot: string | null): PanelReport {
@@ -261,7 +272,7 @@ export function getPanel(repoRoot: string | null): PanelReport {
   const instructions = getInstructions(repoRoot)
   const rows: PanelRow[] = entries
     .filter((e) => e.kind !== 'instructions')
-    .map((entry) => buildRow(entry, desiredOf(entry, repoRoot), actualOf(entry, inv, repoRoot)))
+    .map((entry) => buildRow(entry, savedOf(entry, repoRoot), actualOf(entry, inv, repoRoot)))
 
   if (instructions.baseline.trim() !== '') {
     const entry =
@@ -319,6 +330,8 @@ async function writeSwitch(
   switch (entry.kind) {
     case 'mcp': {
       if (!entry.config) throw new Error(`no definition recorded for "${entry.name}"`)
+      // entry.config is kept refreshed from the agents on every read, so writing it
+      // spreads what your agents actually run rather than something Cockpit invented
       if (repoRoot !== null) {
         if (agent !== 'claude') throw new Error('only Claude Code scopes MCP servers to a project')
         if (on) return writeClaudeProjectMcp(repoRoot, entry.name, entry.config)
@@ -406,29 +419,23 @@ function adoptSkillIntoLibrary(name: string, repoRoot: string | null): void {
 }
 
 /**
- * Settle a disagreement: `apply` writes Cockpit's definition into the agent,
- * `adopt` takes the agent's definition into Cockpit (and leaves it switched on).
+ * Make the agents agree: copy `source`'s definition to every other agent that has
+ * this switched on. Cockpit picks no winner — it has no version of its own to pick
+ * with — so the user names the agent whose setup is the right one.
  */
-export async function fixPanelDrift(
-  target: PanelTarget,
-  agent: Provider,
-  how: DriftFix
-): Promise<PanelReport> {
+export async function matchPanelEntry(target: PanelTarget, source: Provider): Promise<PanelReport> {
   assertTarget(target)
   const { entries, inv } = ensureScope(target.repoRoot)
   const entry = findEntry(entries, target)
-  if (how === 'apply') {
-    const on = entry.enabled[agent] === true
-    await writeSwitch(entry, agent, on, target.repoRoot)
-    return getPanel(target.repoRoot)
-  }
-  const next = adoptFrom(entry, agent, inv, target.repoRoot)
-  saveEntries(target.repoRoot, replaceEntry(entries, { ...next, enabled: { ...entry.enabled, [agent]: true } }))
+  const taken = takeFrom(entry, source, inv, target.repoRoot)
+  const others = PROVIDERS.filter((p) => p !== source && taken.enabled[p] === true)
+  saveEntries(target.repoRoot, replaceEntry(entries, taken))
+  for (const agent of others) await writeSwitch(taken, agent, true, target.repoRoot)
   return getPanel(target.repoRoot)
 }
 
-/** Pull one agent's real definition into the library entry. */
-function adoptFrom(
+/** Read one agent's real definition into the kept copy. */
+function takeFrom(
   entry: LibraryEntry,
   agent: Provider,
   inv: ExtensionsInventory,
@@ -437,44 +444,43 @@ function adoptFrom(
   switch (entry.kind) {
     case 'mcp': {
       const config = inv.mcp
-        .find((s) => s.name === entry.name)
+        .find((srv) => srv.name === entry.name)
         ?.presences.find((p) => p.agent === agent)?.config
-      if (!config) throw new Error(`${agent} has no "${entry.name}" to take`)
+      if (!config) throw new Error(`${agent} has no "${entry.name}" to copy`)
       return { ...entry, config }
     }
     case 'skill': {
-      const found = inv.skills.find((s) => s.name === entry.name && s.agent === agent)
-      if (!found) throw new Error(`${agent} has no skill "${entry.name}" to take`)
+      const found = inv.skills.find((sk) => sk.name === entry.name && sk.agent === agent)
+      if (!found) throw new Error(`${agent} has no skill "${entry.name}" to copy`)
       adoptSkillInto(found.path, libSkillDir(entry.name, repoRoot))
       return entry
     }
-    case 'plugin':
-    case 'marketplace': {
+    default: {
       const source =
         entry.kind === 'plugin'
           ? inv.plugins.find((x) => x.name === entry.name && x.agent === agent)?.marketplace
           : inv.marketplaces.find((x) => x.name === entry.name && x.agent === agent)?.source
-      if (source === undefined) throw new Error(`${agent} has no "${entry.name}" to take`)
-      return { ...entry, source }
-    }
-    default: {
-      // the baseline is edited in the Instructions tab, never adopted from a file
-      void repoRoot
-      throw new Error('edit the shared baseline in the Instructions tab')
+      return source ? { ...entry, source } : entry
     }
   }
 }
 
-/** Take it out of every agent that has it, then stop tracking it. */
-export async function forgetPanelEntry(target: PanelTarget): Promise<PanelReport> {
+/**
+ * Take it out of every agent, and keep the entry. This is what Cockpit's own copy is
+ * *for*: removing everywhere would otherwise be the one action in the panel you
+ * couldn't undo, and nothing on disk would remember the thing had ever existed.
+ * `enabled` is left exactly as it was, so putting it back restores the same agents.
+ */
+export async function removePanelEntry(target: PanelTarget): Promise<PanelReport> {
   assertTarget(target)
-  if (target.kind === 'instructions') throw new Error('the shared baseline is cleared in the Instructions tab')
+  if (target.kind === 'instructions') {
+    throw new Error('the shared baseline is cleared in the Instructions tab')
+  }
   const { entries, inv } = ensureScope(target.repoRoot)
   const entry = findEntry(entries, target)
   const failed: string[] = []
-  for (const agent of PROVIDERS) {
-    const row = buildRow(entry, desiredOf(entry, target.repoRoot), actualOf(entry, inv, target.repoRoot))
-    if (!row.cells[agent].detail && !row.cells[agent].desired) continue
+  const row = buildRow(entry, savedOf(entry, target.repoRoot), actualOf(entry, inv, target.repoRoot))
+  for (const agent of row.holders) {
     try {
       await writeSwitch(entry, agent, false, target.repoRoot)
     } catch (err) {
@@ -482,10 +488,25 @@ export async function forgetPanelEntry(target: PanelTarget): Promise<PanelReport
     }
   }
   if (failed.length > 0) throw new Error(`couldn't remove it everywhere — ${failed.join(' · ')}`)
-  rmSync(libSkillDir(entry.name, target.repoRoot), { recursive: true, force: true })
-  saveEntries(
-    target.repoRoot,
-    entries.filter((e) => !(e.kind === entry.kind && e.name === entry.name))
-  )
+  saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, removed: true }))
+  return getPanel(target.repoRoot)
+}
+
+/** Put a removed entry back on the agents it was on when it went. */
+export async function restorePanelEntry(target: PanelTarget): Promise<PanelReport> {
+  assertTarget(target)
+  const { entries } = ensureScope(target.repoRoot)
+  const entry = findEntry(entries, target)
+  const back: LibraryEntry = { ...entry, removed: false }
+  const failed: string[] = []
+  for (const agent of PROVIDERS.filter((p) => back.enabled[p] === true)) {
+    try {
+      await writeSwitch(back, agent, true, target.repoRoot)
+    } catch (err) {
+      failed.push(`${agent}: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+  saveEntries(target.repoRoot, replaceEntry(entries, back))
+  if (failed.length > 0) throw new Error(`put back, but not everywhere — ${failed.join(' · ')}`)
   return getPanel(target.repoRoot)
 }

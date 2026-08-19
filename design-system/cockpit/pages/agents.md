@@ -24,9 +24,15 @@ component file keeps its historical `AiSetup.tsx` name.
 
 ## Panel tab (`AgentPanel.tsx`)
 
-The view's signature element, and its mental model in one object: **the switch is what
-you commanded, the lamp under it is what the agent actually has.** Cockpit owns a config
-of its own (`config.library`); each row is one entry, each agent column a switch.
+The view's signature element. Each row is one entry in Cockpit's own config
+(`config.library`); each agent column is a switch saying **where that thing is applied**.
+
+**Cockpit keeps a backup, not a version.** The copy it stores is refreshed from whatever
+the agents run, and exists so a switch has something to write and a removed entry can come
+back. It is never rendered as a column to compare against, and it never breaks a tie —
+the agents are compared *with each other*. The one exception is the shared instructions,
+whose baseline really is authored in Cockpit: an `Actual.mismatch` flag lets that reader
+say outright who is out of step, and it supersedes peer comparison for that row.
 
 - **One section at a time.** The whole setup in one scroll was a wall, so kinds are
   `.pnl-pill` tabs carrying their own counts (and an amber `.pnl-pill-dot` when that kind
@@ -66,6 +72,14 @@ first version read as a spreadsheet.
 - **Hover and open light the entry, never the lanes** — same reason.
 - **Rows keep one height** (32px) no matter how many disagreements are lit. A bank of
   switches that jogs as states change is unreadable.
+- **Disagreement has no house answer.** When the agents split, the detail asks which one
+  is right and offers one button per holder ("Use Claude's"). With a clear majority the
+  odd ones out are flagged; with two agents and two answers *both* are flagged, because
+  there is nothing to break the tie with. Never add a "use Cockpit's version" button.
+- **Remove everywhere is recoverable.** It takes the entry out of every agent and keeps
+  it, under a `Removed` section with *Put it back*, which restores the same agents. This
+  is the entire justification for Cockpit holding a copy — if removal were permanent, the
+  library would be bookkeeping with no purpose.
 - **Two signals for drift, not four**: an amber ring on the switch (which lane) and a
   placard in the right-hand slot (what happened). No row stripe, no badge box, no filled
   chip. `.pnl-flag` is **printed text, not a badge** — the agent name in `--fg-dim`, the

@@ -2,7 +2,13 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fixPanelDrift, forgetPanelEntry, getPanel, setPanelSwitch } from '../src/main/library'
+import {
+  getPanel,
+  matchPanelEntry,
+  removePanelEntry,
+  restorePanelEntry,
+  setPanelSwitch
+} from '../src/main/library'
 import { saveBaseline } from '../src/main/instructions'
 
 /*
@@ -115,55 +121,79 @@ describe('flipping a switch', () => {
   })
 })
 
-describe('when an agent disagrees with its switch', () => {
-  it('reports an agent that was changed behind Cockpit’s back', () => {
+describe('when the agents disagree with each other', () => {
+  /** claude runs one thing, copilot another. */
+  async function split(): Promise<void> {
     seedClaudeMcp('gh', { command: 'gh-mcp', args: ['--stdio'] })
     getPanel(null)
-    // someone edits ~/.claude.json by hand
-    seedClaudeMcp('gh', { command: 'npx', args: ['-y', 'gh-mcp'] })
-    expect(cell(getPanel(null), 'gh', 'claude').state).toBe('changed')
+    await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'gh' }, 'copilot', true)
+    write(
+      join(home, '.copilot', 'mcp-config.json'),
+      JSON.stringify({ mcpServers: { gh: { command: 'npx', args: ['-y', 'gh-mcp'] } } })
+    )
+  }
+
+  it('flags both agents when two of them disagree and neither is the majority', async () => {
+    await split()
+    const report = getPanel(null)
+    expect(cell(report, 'gh', 'claude').state).toBe('changed')
+    expect(cell(report, 'gh', 'copilot').state).toBe('changed')
   })
 
-  it('writes Cockpit’s version back over the agent’s', async () => {
-    seedClaudeMcp('gh', { command: 'gh-mcp', args: ['--stdio'] })
-    getPanel(null)
-    seedClaudeMcp('gh', { command: 'npx', args: ['-y', 'gh-mcp'] })
-    const report = await fixPanelDrift({ repoRoot: null, kind: 'mcp', name: 'gh' }, 'claude', 'apply')
-    expect(claudeJson().mcpServers.gh.command).toBe('gh-mcp')
+  it('leaves the majority alone and flags only the odd one out', async () => {
+    await split()
+    await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'gh' }, 'codex', true)
+    // codex was written from the kept copy, which follows claude — 2 against 1
+    const report = getPanel(null)
     expect(cell(report, 'gh', 'claude').state).toBe('on')
+    expect(cell(report, 'gh', 'codex').state).toBe('on')
+    expect(cell(report, 'gh', 'copilot').state).toBe('changed')
   })
 
-  it('takes the agent’s version into Cockpit instead, when that’s the one you want', async () => {
-    seedClaudeMcp('gh', { command: 'gh-mcp', args: ['--stdio'] })
-    getPanel(null)
-    seedClaudeMcp('gh', { command: 'npx', args: ['-y', 'gh-mcp'] })
-    const report = await fixPanelDrift({ repoRoot: null, kind: 'mcp', name: 'gh' }, 'claude', 'adopt')
-    expect(cell(report, 'gh', 'claude').state).toBe('on')
-    // Cockpit's definition is now the agent's, so every other agent gets that one
-    const row = report.rows.find((r) => r.name === 'gh')
-    expect(row?.cockpit.fields.command).toBe('npx')
+  it('copies the agent you pick to the others', async () => {
+    await split()
+    const report = await matchPanelEntry({ repoRoot: null, kind: 'mcp', name: 'gh' }, 'copilot')
+    expect(claudeJson().mcpServers.gh.command).toBe('npx')
+    expect(report.rows.find((r) => r.name === 'gh')?.disagree).toBe(false)
   })
 })
 
-describe('removing for good', () => {
-  it('takes it out of every agent and stops tracking it', async () => {
+describe('removing everywhere', () => {
+  it('takes it out of every agent but keeps the entry', async () => {
     seedClaudeMcp('linear', { type: 'sse', url: 'https://mcp.linear.app/sse' })
     getPanel(null)
     await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'linear' }, 'copilot', true)
-    const report = await forgetPanelEntry({ repoRoot: null, kind: 'mcp', name: 'linear' })
-    expect(report.rows.find((r) => r.name === 'linear')).toBeUndefined()
+    const report = await removePanelEntry({ repoRoot: null, kind: 'mcp', name: 'linear' })
     expect(claudeJson().mcpServers.linear).toBeUndefined()
     const copilot = JSON.parse(readFileSync(join(home, '.copilot', 'mcp-config.json'), 'utf8'))
     expect(copilot.mcpServers.linear).toBeUndefined()
+    // gone from the panel, but not gone: this is what the kept copy is for
+    expect(report.rows.find((r) => r.name === 'linear')).toBeUndefined()
+    expect(report.removed.map((r) => r.name)).toEqual(['linear'])
   })
 
-  it('drops Cockpit’s own copy of a skill too, so it isn’t re-adopted', async () => {
+  it('puts it back on the agents it was on', async () => {
+    seedClaudeMcp('linear', { type: 'sse', url: 'https://mcp.linear.app/sse' })
+    getPanel(null)
+    await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'linear' }, 'copilot', true)
+    await removePanelEntry({ repoRoot: null, kind: 'mcp', name: 'linear' })
+    const report = await restorePanelEntry({ repoRoot: null, kind: 'mcp', name: 'linear' })
+    expect(report.removed).toHaveLength(0)
+    expect(cell(report, 'linear', 'claude').state).toBe('on')
+    expect(cell(report, 'linear', 'copilot').state).toBe('on')
+    expect(claudeJson().mcpServers.linear.url).toBe('https://mcp.linear.app/sse')
+  })
+
+  it('keeps its copy of a removed skill, so putting it back has something to write', async () => {
     seedSkill('.claude', 'review', 'review a diff')
     getPanel(null)
-    await forgetPanelEntry({ repoRoot: null, kind: 'skill', name: 'review' })
+    await removePanelEntry({ repoRoot: null, kind: 'skill', name: 'review' })
     expect(existsSync(join(home, '.claude', 'skills', 'review'))).toBe(false)
-    expect(existsSync(join(userData, 'library', 'global', 'skills', 'review'))).toBe(false)
-    expect(getPanel(null).rows).toHaveLength(0)
+    expect(existsSync(join(userData, 'library', 'global', 'skills', 'review'))).toBe(true)
+    await restorePanelEntry({ repoRoot: null, kind: 'skill', name: 'review' })
+    expect(readFileSync(join(home, '.claude', 'skills', 'review', 'SKILL.md'), 'utf8')).toContain(
+      'review a diff'
+    )
   })
 })
 

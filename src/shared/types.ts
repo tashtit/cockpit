@@ -291,19 +291,27 @@ export type SyncKind = 'mcp' | 'skill' | 'plugin' | 'marketplace'
 export type PanelKind = SyncKind | 'instructions'
 
 /**
- * One thing Cockpit manages, and where it should be applied. This is Cockpit's own
- * config: the entry survives being switched off everywhere, which is what makes a
- * switch reversible rather than a delete.
+ * One thing Cockpit manages, and where it is applied.
+ *
+ * Cockpit keeps a copy of the definition, but it is a *backup*, not a version: it is
+ * refreshed from whatever the agents run, and it exists so that switching an agent
+ * back on — or putting the whole entry back after removing it everywhere — has
+ * something to write. The agents are compared with each other, never with this.
  */
 export type LibraryEntry = {
   readonly kind: PanelKind
   readonly name: string
-  /** Desired state per agent — true = apply it, absent or false = keep it out */
+  /** Where it is applied — true = on for that agent, absent or false = off */
   readonly enabled: Partial<Record<Provider, boolean>>
-  /** mcp: the definition Cockpit writes into each agent it is switched on for */
+  /** mcp: the definition to write, kept in step with what the agents run */
   readonly config?: McpConfig
   /** marketplace: where to clone it from · plugin: the marketplace it comes from */
   readonly source?: string
+  /**
+   * Taken out of every agent, but kept: this is the whole reason Cockpit stores a
+   * copy at all. `enabled` still records which agents to put it back on.
+   */
+  readonly removed?: boolean
 }
 
 /** One entry in one scope — every panel action names its target this way. */
@@ -313,13 +321,6 @@ export type PanelTarget = {
   readonly kind: PanelKind
   readonly name: string
 }
-
-/** Which side wins when an agent's real config disagrees with its switch. */
-export type DriftFix =
-  /** write Cockpit's definition into the agent */
-  | 'apply'
-  /** take the agent's definition into Cockpit */
-  | 'adopt'
 
 export type ExtensionsInventory = {
   readonly mcp: McpServerInfo[]
@@ -745,14 +746,12 @@ export type CockpitApi = {
     agent: Provider,
     on: boolean
   ) => Promise<PanelReport>
-  /** Settle a disagreement between a switch and what the agent actually has */
-  readonly fixPanelDrift: (
-    target: PanelTarget,
-    agent: Provider,
-    how: DriftFix
-  ) => Promise<PanelReport>
-  /** Take it out of every agent and stop tracking it */
-  readonly forgetPanelEntry: (target: PanelTarget) => Promise<PanelReport>
+  /** Copy one agent's definition to every other agent that has it switched on */
+  readonly matchPanelEntry: (target: PanelTarget, source: Provider) => Promise<PanelReport>
+  /** Take it out of every agent. Cockpit keeps its copy, so it can be put back. */
+  readonly removePanelEntry: (target: PanelTarget) => Promise<PanelReport>
+  /** Put a removed entry back on the agents it was on */
+  readonly restorePanelEntry: (target: PanelTarget) => Promise<PanelReport>
   readonly getInstructions: (repoRoot: string | null) => Promise<InstructionsState>
   readonly saveInstructionsBaseline: (
     repoRoot: string | null,
