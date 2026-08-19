@@ -6,7 +6,7 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "electron-vite dev --watch",
     "dev:fg": "COCKPIT_DEV_BACKGROUND=0 electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",

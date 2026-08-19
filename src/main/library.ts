@@ -134,6 +134,17 @@ function skillFields(fingerprint: string, description: string): Record<string, s
 }
 
 /** The copy Cockpit keeps — what a switch writes when no agent has it to copy from. */
+/**
+ * Copy a skill into Cockpit's store — but only when the agents are about to stop
+ * holding one. Copying every skill on sight cost a folder copy per skill on the
+ * first read of a scope, for a backup almost none of them would ever need.
+ */
+function keepBackup(entry: LibraryEntry, inv: ExtensionsInventory, repoRoot: string | null): void {
+  if (entry.kind !== 'skill') return
+  const source = inv.skills.find((sk) => sk.name === entry.name)
+  if (source) adoptSkillInto(source.path, libSkillDir(entry.name, repoRoot))
+}
+
 function savedOf(entry: LibraryEntry, repoRoot: string | null): Desired {
   switch (entry.kind) {
     case 'mcp':
@@ -141,13 +152,9 @@ function savedOf(entry: LibraryEntry, repoRoot: string | null): Desired {
         detail: entry.config ? mcpSummary(entry.config) : 'no definition yet',
         fields: mcpFields(entry.config ?? {})
       }
-    case 'skill': {
-      const own = readSkillFingerprint(libSkillDir(entry.name, repoRoot))
-      return {
-        detail: own.description || 'Cockpit’s copy',
-        fields: skillFields(own.fingerprint, own.description)
-      }
-    }
+    case 'skill':
+      // nothing to compare against: the agents' copies are compared with each other
+      return { detail: '', fields: {} }
     case 'plugin':
       return { detail: entry.source ? `from ${entry.source}` : '', fields: entry.source ? { marketplace: entry.source } : {} }
     case 'marketplace':
@@ -241,13 +248,6 @@ function ensureScope(repoRoot: string | null): {
   const inv = scopedInventory(repoRoot)
   const before = loadEntries(repoRoot)
   const adopted = adoptInventory(before, inv)
-  // an adopted skill is only Cockpit's once Cockpit holds the folder: without its
-  // own copy every skill would compare against nothing and read as "differs"
-  for (const entry of adopted) {
-    if (entry.kind !== 'skill' || existsSync(libSkillDir(entry.name, repoRoot))) continue
-    const source = inv.skills.find((sk) => sk.name === entry.name)
-    if (source) adoptSkillInto(source.path, libSkillDir(entry.name, repoRoot))
-  }
   const refreshed = adopted.map((entry) => refreshSaved(entry, inv))
   if (JSON.stringify(refreshed) !== JSON.stringify(before)) saveEntries(repoRoot, refreshed)
   return { entries: refreshed, inv }
@@ -398,24 +398,22 @@ export async function setPanelSwitch(
   on: boolean
 ): Promise<PanelReport> {
   assertTarget(target)
-  const { entries } = ensureScope(target.repoRoot)
+  const { entries, inv } = ensureScope(target.repoRoot)
   const entry = findEntry(entries, target)
-  // a skill can only be written out of a copy Cockpit holds — take one now if the
-  // library was populated from an agent that has since been switched off
-  if (entry.kind === 'skill' && on && !existsSync(libSkillDir(entry.name, target.repoRoot))) {
-    adoptSkillIntoLibrary(entry.name, target.repoRoot)
+  // turning the last copy off would leave nothing to switch back on, so take the
+  // backup first; turning one on needs a source, which is the backup or a peer
+  if (entry.kind === 'skill') {
+    if (!on) keepBackup(entry, inv, target.repoRoot)
+    else if (!existsSync(libSkillDir(entry.name, target.repoRoot))) {
+      keepBackup(entry, inv, target.repoRoot)
+      if (!existsSync(libSkillDir(entry.name, target.repoRoot))) {
+        throw new Error(`no copy of skill "${entry.name}" left to write — reinstall it in an agent first`)
+      }
+    }
   }
   await writeSwitch(entry, agent, on, target.repoRoot)
   saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, enabled: { ...entry.enabled, [agent]: on } }))
   return getPanel(target.repoRoot)
-}
-
-/** Copy whichever agent still has the skill into Cockpit's own store. */
-function adoptSkillIntoLibrary(name: string, repoRoot: string | null): void {
-  const inv = scopedInventory(repoRoot)
-  const source = inv.skills.find((s) => s.name === name)
-  if (!source) throw new Error(`no copy of skill "${name}" left to take — reinstall it in an agent first`)
-  adoptSkillInto(source.path, libSkillDir(name, repoRoot))
 }
 
 /**
@@ -478,6 +476,8 @@ export async function removePanelEntry(target: PanelTarget): Promise<PanelReport
   }
   const { entries, inv } = ensureScope(target.repoRoot)
   const entry = findEntry(entries, target)
+  // this is the moment the backup exists for: after this, no agent holds a copy
+  keepBackup(entry, inv, target.repoRoot)
   const failed: string[] = []
   const row = buildRow(entry, savedOf(entry, target.repoRoot), actualOf(entry, inv, target.repoRoot))
   for (const agent of row.holders) {

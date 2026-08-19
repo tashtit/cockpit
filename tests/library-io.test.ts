@@ -72,12 +72,26 @@ describe('first read of a scope', () => {
     expect(cell(report, 'linear', 'codex').state).toBe('off')
   })
 
-  it('takes its own copy of an adopted skill, so it isn’t reported as different', () => {
+  // copying every skill folder on sight cost a full copy per skill on first read,
+  // for a backup almost none of them would ever need
+  it('does not copy a skill just for reading the scope', () => {
     seedSkill('.claude', 'review', 'review a diff')
-    const report = getPanel(null)
-    expect(cell(report, 'review', 'claude').state).toBe('on')
-    // Cockpit's own store is per scope, so a repo's `review` can't overwrite the global one
+    expect(cell(getPanel(null), 'review', 'claude').state).toBe('on')
+    expect(existsSync(join(userData, 'library', 'global', 'skills', 'review'))).toBe(false)
+  })
+
+  it('takes the backup when the last agent copy is about to go', async () => {
+    seedSkill('.claude', 'review', 'review a diff')
+    getPanel(null)
+    await setPanelSwitch({ repoRoot: null, kind: 'skill', name: 'review' }, 'claude', false)
+    // Cockpit's store is per scope, so a repo's `review` can't overwrite the global one
     expect(existsSync(join(userData, 'library', 'global', 'skills', 'review', 'SKILL.md'))).toBe(true)
+    // and it can be switched straight back on from that copy
+    const back = await setPanelSwitch({ repoRoot: null, kind: 'skill', name: 'review' }, 'claude', true)
+    expect(cell(back, 'review', 'claude').state).toBe('on')
+    expect(readFileSync(join(home, '.claude', 'skills', 'review', 'SKILL.md'), 'utf8')).toContain(
+      'review a diff'
+    )
   })
 })
 

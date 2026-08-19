@@ -76,6 +76,9 @@ first version read as a spreadsheet.
   is right and offers one button per holder ("Use Claude's"). With a clear majority the
   odd ones out are flagged; with two agents and two answers *both* are flagged, because
   there is nothing to break the tie with. Never add a "use Cockpit's version" button.
+- **Cockpit's copy is taken lazily**, at the only two moments it is needed: the last
+  agent copy of a skill going away, and removing everywhere. Copying every skill folder
+  on first read cost a folder copy per skill for a backup almost none of them would use.
 - **Remove everywhere is recoverable.** It takes the entry out of every agent and keeps
   it, under a `Removed` section with *Put it back*, which restores the same agents. This
   is the entire justification for Cockpit holding a copy — if removal were permanent, the
