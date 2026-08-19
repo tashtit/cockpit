@@ -29,7 +29,8 @@ export default defineConfig({
         items: [
           { text: 'Sessions & the index', link: '/guide/sessions' },
           { text: 'Worktrees & PRs', link: '/guide/worktrees-and-prs' },
-          { text: 'Chat', link: '/guide/chat' }
+          { text: 'Chat', link: '/guide/chat' },
+          { text: 'Roundtables', link: '/guide/roundtables' }
         ]
       },
       {
