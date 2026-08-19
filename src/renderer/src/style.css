@@ -168,7 +168,7 @@ summary::-webkit-details-marker { display: none; }
 .logo-codex, .plogo-codex { color: var(--codex-mark); }
 .logo-copilot, .plogo-copilot { color: var(--copilot); }
 .plogo { display: inline-flex; flex-shrink: 0; }
-.logo-cockpit { border-radius: 4px; -webkit-user-drag: none; user-select: none; }
+.logo-cockpit { -webkit-user-drag: none; user-select: none; }
 
 /* the one account-identity component, used everywhere identity appears.
    inline-block (not flex): text-overflow only ellipsizes non-flex containers */

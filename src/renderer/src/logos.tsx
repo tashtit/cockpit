@@ -54,7 +54,10 @@ export function ProviderLogo({ p, size = 14 }: { p: Provider; size?: number }): 
 
 import cockpitLogoUrl from './assets/cockpit-logo.webp'
 
-/** The user-supplied Cockpit mark, used exactly as provided (no redrawing).
+/** The user-supplied Cockpit mark — not redrawn, just lifted off the packaged
+ *  icon's rounded tile so it renders at full size on our own dark surfaces
+ *  (the tile ate a third of every box, and read as a card at 13-18px).
+ *  Its connector spokes are transparent, so whatever is behind shows through.
  *  Decorative: it always appears beside the "Cockpit" wordmark or a heading. */
 export function CockpitLogo({ size = 18 }: { size?: number }): JSX.Element {
   return (
