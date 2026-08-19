@@ -113,7 +113,8 @@ describe('Agents › Panel', () => {
     await section('Plugins')
     await userEvent.click(sw('evalkit@tashtit', 'Claude'))
     expect(window.cockpit.setPanelSwitch).not.toHaveBeenCalled()
-    expect(screen.getByText('remove?')).toBeInTheDocument()
+    // the armed state reads as a placard in the row's flag slot, like every other warning
+    expect(screen.getByText('click again to remove')).toBeInTheDocument()
     await userEvent.click(sw('evalkit@tashtit', 'Claude'))
     expect(window.cockpit.setPanelSwitch).toHaveBeenCalledWith(
       { repoRoot: null, kind: 'plugin', name: 'evalkit@tashtit' },

@@ -1027,9 +1027,14 @@ button.scope-half:hover { color: var(--fg); }
 .scope-blurb code { font-family: var(--mono); }
 
 /* ---------- Agents view: the panel ---------- */
-/* An overhead panel: one row per managed thing, one switch per agent. The switch
-   is the commanded state (Cockpit's config); the lamp under it is what the agent
-   actually has. They usually agree and the lamp stays dark. */
+/*
+ * An instrument panel, not a settings list. Four lanes run the full height of the
+ * bank: the entry (what Cockpit holds) and one per agent, each washed in its own
+ * identity color so the eye tracks a column without re-finding it every row. The
+ * switch is the commanded state; a lit placard in the row's right slot is the
+ * annunciator. Rows keep one height however many placards light, because a bank
+ * of switches that jogs as states change is unreadable.
+ */
 .pnl-bar { display: flex; align-items: center; gap: var(--s3); }
 /* the rail's search recipe, at the 28px compact control height */
 .pnl-search { flex: 1; min-width: 0; height: 28px; padding: 0 var(--s3);
@@ -1041,108 +1046,129 @@ button.scope-half:hover { color: var(--fg); }
 /* the platform's own search affordances would break the dark surface */
 .pnl-search::-webkit-search-decoration, .pnl-search::-webkit-search-cancel-button {
   -webkit-appearance: none; }
-/* one section at a time — the pills carry the counts so nothing is hidden by it */
+
+/* section selector: placard voice, like every other micro-label in the app */
 .pnl-tabs { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
-.pnl-tabs.searching { opacity: 0.45; }
-.pnl-pill { display: inline-flex; align-items: center; gap: var(--s2); min-height: 26px;
-  padding: 0 var(--s3); border-radius: var(--radius-pill); border: 1px solid var(--border);
-  font-size: var(--fs-xs); color: var(--fg-dim); background: var(--surface);
+.pnl-tabs.searching { opacity: 0.4; }
+.pnl-pill { display: inline-flex; align-items: center; gap: var(--s2); min-height: 24px;
+  padding: 0 var(--s3); border-radius: var(--radius-sm); border: 1px solid transparent;
+  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
   border-color var(--dur) var(--ease); }
-.pnl-pill:hover { color: var(--fg); }
-.pnl-pill.active { color: var(--fg); background: var(--bg3); border-color: var(--border-strong); }
-.pnl-pill.attention { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.45); }
-.pnl-pill.attention.active { background: rgba(var(--warn-rgb), 0.14); }
-.pnl-pill-n { font-family: var(--mono); font-size: var(--fs-xs); opacity: 0.75;
-  font-variant-numeric: tabular-nums; }
-.pnl-pill-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--warn); }
-/* in the cross-kind views (search, needs-you) a row says which section it came from */
-.pnl-kind { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
-  border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 0 var(--s2);
-  white-space: nowrap; }
+.pnl-pill:hover { color: var(--fg); background: var(--surface); }
+.pnl-pill.active { color: var(--fg); background: var(--bg3); border-color: var(--border); }
+.pnl-pill.attention { color: var(--warn); }
+.pnl-pill.attention.active { background: rgba(var(--warn-rgb), 0.13);
+  border-color: rgba(var(--warn-rgb), 0.4); }
+.pnl-pill-n { font-variant-numeric: tabular-nums; opacity: 0.7; letter-spacing: 0; }
+.pnl-pill-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--warn); }
 .pnl-blurb { font-size: var(--fs-xs); color: var(--fg-dim); }
 .pnl-note { font-size: var(--fs-xs); color: var(--fg-dim); }
 .pnl-note code { font-family: var(--mono); }
-.pnl-table { display: flex; flex-direction: column; gap: 1px; }
-.pnl-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 84px) 28px;
-  align-items: center; gap: var(--s2); padding: var(--s1) var(--s3); min-height: 34px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); transition: border-color var(--dur) var(--ease); }
-.pnl-row.drifted { border-color: rgba(var(--warn-rgb), 0.45); }
-.pnl-row.open { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
-.pnl-row.pnl-head { background: none; border-color: transparent; min-height: 20px;
-  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.9px; color: var(--fg-dim); }
-.pnl-col { display: flex; align-items: center; justify-content: center; gap: var(--s1); }
-.pnl-name-cell { min-width: 0; display: flex; }
-.pnl-name { display: flex; align-items: baseline; gap: var(--s2); min-width: 0;
-  text-align: left; color: var(--fg); }
+
+/* the bank: one surface, hairline-separated, so the lanes read as continuous */
+.pnl-table { display: flex; flex-direction: column; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.pnl-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 76px) 132px;
+  align-items: stretch; min-height: 32px; }
+.pnl-table > .pnl-row + .pnl-row, .pnl-table > * + .pnl-detail { border-top: 1px solid var(--border); }
+.pnl-row:hover { background: rgba(var(--accent-rgb), 0.05); }
+/* a placarded switch: the warning is a stripe on the panel edge, not a shouting box */
+.pnl-row.drifted { box-shadow: inset 2px 0 0 var(--warn); }
+.pnl-row.open { background: rgba(var(--accent-rgb), 0.06); }
+/* lane caps: the header is the top of each lane, not a label floating above it */
+.pnl-head { min-height: 24px; font-family: var(--mono); font-size: var(--fs-xs);
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.9px; color: var(--fg-dim);
+  background: var(--bg-deep); border-bottom: 1px solid var(--border-strong); }
+.pnl-head > span { display: flex; align-items: center; padding: 0 var(--s3); }
+.pnl-head .pnl-col { justify-content: center; gap: var(--s1); padding: 0; }
+
+.pnl-name-cell { min-width: 0; display: flex; align-items: center; padding-left: var(--s3); }
+.pnl-name { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; width: 100%;
+  text-align: left; color: var(--fg); padding: var(--s1) 0; }
 .pnl-name:hover .pnl-title { color: var(--accent); }
 .pnl-title { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
-/* Cockpit's own definition, right under the name: this is what the switches write */
+/* Cockpit's own definition, right beside the name: this is what the switches write */
 .pnl-def { flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--fs-xs);
   color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pnl-caret { color: var(--fg-dim); font-size: var(--fs-xs);
+.pnl-caret { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0;
   transition: transform var(--dur) var(--ease); }
 .pnl-caret.open { transform: rotate(90deg); }
-.pnl-cell { display: flex; flex-direction: column; align-items: center; gap: 1px; }
-.pnl-cell.na { color: var(--fg-dim); opacity: 0.5; font-size: var(--fs-sm); }
+.pnl-kind { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 var(--s1);
+  white-space: nowrap; flex-shrink: 0; }
+
+/* the three lanes, washed in their agent's identity color and hairline-divided */
+.pnl-cell { display: flex; align-items: center; justify-content: center; position: relative;
+  border-left: 1px solid var(--border); }
+.pnl-row .pnl-cell:nth-of-type(2) { background: rgba(var(--claude-rgb), 0.05); }
+.pnl-row .pnl-cell:nth-of-type(3) { background: rgba(var(--codex-rgb), 0.05); }
+.pnl-row .pnl-cell:nth-of-type(4) { background: rgba(var(--copilot-rgb), 0.05); }
+.pnl-head .pnl-col:nth-of-type(2) { background: rgba(var(--claude-rgb), 0.09); }
+.pnl-head .pnl-col:nth-of-type(3) { background: rgba(var(--codex-rgb), 0.09); }
+.pnl-head .pnl-col:nth-of-type(4) { background: rgba(var(--copilot-rgb), 0.09); }
+.pnl-head .pnl-col { border-left: 1px solid var(--border); }
+.pnl-head-state { border-left: 1px solid var(--border); justify-content: flex-end; }
+.pnl-cell.na { color: var(--fg-dim); opacity: 0.45; font-size: var(--fs-sm); }
 
 /* the switch. A cockpit rocker snaps — the nub is deliberately not animated
-   (and transforms are not on this system's transition list anyway); only the
-   track's color travels. */
-.sw { position: relative; width: 32px; height: 18px; border-radius: var(--radius-pill);
-  background: var(--bg-deep); border: 1px solid var(--border); flex-shrink: 0;
+   (transforms aren't on this system's transition list); only the track travels. */
+.sw { position: relative; width: 30px; height: 17px; border-radius: var(--radius-pill);
+  background: var(--bg-deep); border: 1px solid var(--border-strong); flex-shrink: 0;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
   box-shadow var(--dur) var(--ease); }
-.sw i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+.sw i { position: absolute; top: 2px; left: 2px; width: 11px; height: 11px;
   border-radius: 50%; background: var(--fg-dim); }
 .sw.on i { left: auto; right: 2px; }
-.sw:disabled { opacity: 0.5; }
-.sw.on.sw-claude { background: rgba(var(--claude-rgb), 0.30); border-color: var(--claude); }
+.sw:disabled { opacity: 0.45; }
+.sw:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+.sw.on.sw-claude { background: rgba(var(--claude-rgb), 0.32); border-color: var(--claude); }
 .sw.on.sw-claude i { background: var(--claude); }
-.sw.on.sw-codex { background: rgba(var(--codex-rgb), 0.30); border-color: var(--codex); }
+.sw.on.sw-codex { background: rgba(var(--codex-rgb), 0.32); border-color: var(--codex); }
 .sw.on.sw-codex i { background: var(--codex); }
-.sw.on.sw-copilot { background: rgba(var(--copilot-rgb), 0.30); border-color: var(--copilot); }
+.sw.on.sw-copilot { background: rgba(var(--copilot-rgb), 0.32); border-color: var(--copilot); }
 .sw.on.sw-copilot i { background: var(--copilot); }
-.sw.drift { box-shadow: 0 0 0 1px rgba(var(--warn-rgb), 0.55); border-color: var(--warn); }
-.sw.armed { box-shadow: 0 0 0 1px rgba(var(--danger-rgb), 0.6); border-color: var(--danger); }
-/* the annunciator: dark unless the agent disagrees with its switch */
-.pnl-lamp { font-family: var(--mono); font-size: var(--fs-xs); color: var(--warn);
-  white-space: nowrap; line-height: 1.2; }
-.pnl-lamp.working { color: var(--fg-dim); font-style: italic; }
-.pnl-lamp.danger { color: var(--danger); }
-.pnl-cell-actions { display: flex; justify-content: flex-end; }
-.pnl-alert { width: 20px; height: 20px; border-radius: 50%; color: var(--warn);
-  border: 1px solid rgba(var(--warn-rgb), 0.5); font-size: var(--fs-xs); font-weight: 700;
-  line-height: 1; }
-.pnl-alert:hover { background: rgba(var(--warn-rgb), 0.16); }
+.sw.drift { border-color: var(--warn); box-shadow: 0 0 0 2px rgba(var(--warn-rgb), 0.22); }
+.sw.armed { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.28); }
+/* a write in flight: the lane's own lamp, not a layout-shifting caption */
+.pnl-lamp { position: absolute; top: 4px; right: 6px; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 
-/* the row opened up: Cockpit's column first, because it is the source of truth */
-.pnl-detail { border: 1px solid var(--border); border-top: none;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--bg-deep); }
+/* the annunciator placards: every lit one for a row sits in the same slot */
+.pnl-flags { display: flex; align-items: center; justify-content: flex-end; gap: var(--s1);
+  flex-wrap: wrap; padding: 0 var(--s2); border-left: 1px solid var(--border); }
+.pnl-flag { display: inline-flex; align-items: center; gap: var(--s1); min-height: 18px;
+  padding: 0 var(--s2); border-radius: var(--radius-sm); font-family: var(--mono);
+  font-size: var(--fs-xs); color: var(--warn); background: rgba(var(--warn-rgb), 0.13);
+  border: 1px solid rgba(var(--warn-rgb), 0.35); white-space: nowrap; }
+button.pnl-flag:hover { background: rgba(var(--warn-rgb), 0.22); }
+.pnl-flag-who { opacity: 0.75; }
+.pnl-flag.danger { color: var(--danger); background: rgba(var(--danger-rgb), 0.14);
+  border-color: rgba(var(--danger-rgb), 0.4); }
+
+/* the row opened up, inset into the bank: Cockpit's column first, it is the source */
+.pnl-detail { background: var(--bg-deep); box-shadow: inset 0 1px 0 var(--border); }
 .pnl-detail-body { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3); }
 .pnl-diff { width: 100%; border-collapse: collapse; font-size: var(--fs-xs);
   font-family: var(--mono); }
 .pnl-diff th, .pnl-diff td { text-align: left; padding: var(--s1) var(--s2);
   vertical-align: top; max-width: 220px; overflow-wrap: anywhere; }
-.pnl-diff thead th { color: var(--fg-dim); font-weight: 600;
-  border-bottom: 1px solid var(--border); }
+.pnl-diff thead th { color: var(--fg-dim); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.6px; border-bottom: 1px solid var(--border); }
 .pnl-diff tbody th { color: var(--fg-dim); font-weight: 500; white-space: nowrap; }
 .pnl-diff .pnl-src { color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
-.pnl-diff thead th.pnl-src { color: var(--accent); }
-.pnl-diff tr.differs { background: rgba(var(--warn-rgb), 0.10); }
+.pnl-diff tr.differs { background: rgba(var(--warn-rgb), 0.09); }
 .pnl-diff tr.differs th { color: var(--warn); }
 .pnl-none { color: var(--fg-dim); opacity: 0.6; }
 /* one block per disagreement, each with the two honest answers */
 .pnl-fix { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
-  padding: var(--s2) var(--s3); background: rgba(var(--warn-rgb), 0.08);
-  border: 1px solid rgba(var(--warn-rgb), 0.3); border-radius: var(--radius-sm); }
+  padding: var(--s2) var(--s3); background: rgba(var(--warn-rgb), 0.07);
+  border: 1px solid rgba(var(--warn-rgb), 0.28); border-radius: var(--radius-sm); }
 .pnl-fix-what { flex: 1; min-width: 200px; font-size: var(--fs-xs); color: var(--fg); }
 .pnl-fix-actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
 .pnl-detail-actions { display: flex; justify-content: flex-end; gap: var(--s2); }
-.pnl-detail-actions .armed, .pnl-diff-actions .armed { color: var(--danger);
-  border-color: rgba(var(--danger-rgb), 0.5); }
+.pnl-detail-actions .armed { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
 
 /* ---------- Agents view: MCP management ---------- */
 .mcp-tools { display: flex; justify-content: flex-end; }

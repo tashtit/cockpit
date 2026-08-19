@@ -246,7 +246,7 @@ export function AgentPanel({
                 {PROVIDER_LABEL[p]}
               </span>
             ))}
-            <span />
+            <span className="pnl-head-state">State</span>
           </div>
           <div className="pnl-table">
             {rows.map((row) => (
@@ -313,6 +313,7 @@ function Row({
   onOpenInstructions: () => void
 }): JSX.Element {
   const drifted = row.drift.length > 0
+  const armedHere = armed !== null && armed.startsWith(`${row.id}|`)
   return (
     <>
       <div className={`pnl-row ${drifted ? 'drifted' : ''} ${open ? 'open' : ''}`}>
@@ -362,26 +363,26 @@ function Row({
               >
                 <i aria-hidden="true" />
               </button>
-              {writing ? (
-                <span className="pnl-lamp working">working…</span>
-              ) : isArmed ? (
-                <span className="pnl-lamp danger">remove?</span>
-              ) : (
-                LAMP[cell.state] && <span className="pnl-lamp">{LAMP[cell.state]}</span>
-              )}
+              {writing && <span className="pnl-lamp working" aria-hidden="true" />}
             </span>
           )
         })}
-        <span className="pnl-cell-actions">
-          {drifted && (
-            <button
-              className="pnl-alert"
-              title="Cockpit and this agent disagree — open the row to settle it"
-              onClick={onToggle}
-            >
-              !
-            </button>
-          )}
+        {/* every disagreement reads in one place, so the lanes stay a clean switch
+            bank and rows keep one height however many lamps are lit */}
+        <span className="pnl-flags">
+          {armedHere && <span className="pnl-flag danger">click again to remove</span>}
+          {!armedHere &&
+            row.drift.map((p) => (
+              <button
+                key={p}
+                className="pnl-flag"
+                title="Cockpit and this agent disagree — open the row to settle it"
+                onClick={onToggle}
+              >
+                <span className="pnl-flag-who">{PROVIDER_LABEL[p]}</span>
+                <span className="pnl-flag-state">{LAMP[row.cells[p].state]}</span>
+              </button>
+            ))}
         </span>
       </div>
       {open && (

@@ -41,6 +41,33 @@ of its own (`config.library`); each row is one entry, each agent column a switch
   Single-section views never do — the pill above already said it.
 - **One row per managed thing**: the name plus Cockpit's own definition in mono
   (`.pnl-def`) — that is what the switches write.
+
+### The bank
+
+The panel is drawn as an instrument bank, not a list of cards. This is the one place
+in the app that renders a **lane**, and the pattern only earns its keep because the
+data really is columnar — one entry, three agents, read top to bottom.
+
+- **One surface, hairline-separated.** `.pnl-table` is a single `--surface` panel with
+  a border and `overflow: hidden`; rows are divided by a 1px `--border` rule. Never go
+  back to per-row bordered pills with gaps — the gaps break the lanes, which is the
+  whole point.
+- **Three lanes**, one per agent, washed at `rgba(var(--*-rgb), 0.05)` and divided by a
+  hairline, running the full height of the bank. The header row is their **cap**, not a
+  label floating above them: `--bg-deep`, `--border-strong` bottom rule, and the same
+  lane washes at 0.09. The far-right lane is capped `State`.
+- **Rows keep one height** (32px) no matter how many disagreements are lit. A bank of
+  switches that jogs as states change is unreadable, which is why the drift caption
+  left the lane.
+- **Drift reads in one slot.** `.pnl-flag` placards sit in the row's right-hand lane —
+  agent name at 0.75 opacity plus the state word — and the row takes a 2px amber
+  `inset` stripe on its left edge. A placarded switch, not a shouting box: never put a
+  full warn border on the row.
+- The switch keeps a warn ring so you can still tell *which* lane; a write in flight is
+  a small pulsing accent lamp in the corner of its lane (`.pnl-lamp`), never a caption
+  that would shift the row.
+- **The opened row insets into the bank** (`--bg-deep` with an inset top rule) rather
+  than floating below it as a separate card.
 - **One column header for the whole panel**, not per group: every section shares the
   `.pnl-row` grid, and each switch carries its agent's identity color, so repeating the
   header five times would be five rows of the same thing. The grid is *not* a table in

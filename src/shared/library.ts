@@ -317,5 +317,8 @@ export function instructionRow(state: InstructionsState, entry: LibraryEntry): P
       }
     }
   }
-  return buildRow(entry, { detail: 'the shared baseline', fields: { block: 'current' } }, actual)
+  // the entry's own first line is far more use here than restating the row's name
+  const firstLine = state.baseline.trim().split('\n')[0].replace(/^#+\s*/, '')
+  const detail = firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine
+  return buildRow(entry, { detail, fields: { block: 'current' } }, actual)
 }

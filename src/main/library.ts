@@ -154,7 +154,7 @@ function desiredOf(entry: LibraryEntry, repoRoot: string | null): Desired {
     case 'marketplace':
       return { detail: entry.source ?? '', fields: entry.source ? { source: entry.source } : {} }
     default:
-      return { detail: 'the shared baseline', fields: { block: 'current' } }
+      return { detail: getInstructions(repoRoot).baseline.trim().split('\n')[0], fields: { block: 'current' } }
   }
 }
 
