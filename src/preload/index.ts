@@ -15,9 +15,9 @@ import type {
   NewRoundtableRequest,
   Provider,
   RoundtableEvent,
+  DriftFix,
+  PanelTarget,
   SessionQuery,
-  SyncKind,
-  SyncRequest,
   TimeFormat
 } from '../shared/types'
 
@@ -62,16 +62,15 @@ const api: CockpitApi = {
     ipcRenderer.invoke('workspace:create', repoRoot, name),
   createPr: (cwd: string) => ipcRenderer.invoke('workspace:pr', cwd),
   getExtensions: () => ipcRenderer.invoke('extensions:get'),
-  shareMcp: (name: string, to: Provider) => ipcRenderer.invoke('extensions:share-mcp', name, to),
-  removeMcp: (name: string, agent: Provider, projectPath?: string) =>
-    ipcRenderer.invoke('extensions:remove-mcp', name, agent, projectPath),
   checkMcp: (name: string) => ipcRenderer.invoke('extensions:check-mcp', name),
   loginMcp: (name: string, agent: Provider, projectPath?: string) =>
     ipcRenderer.invoke('extensions:login-mcp', name, agent, projectPath),
-  shareSkill: (name: string, from: Provider, to: Provider) =>
-    ipcRenderer.invoke('extensions:share-skill', name, from, to),
-  syncExtension: (kind: SyncKind, name: string, req: SyncRequest) =>
-    ipcRenderer.invoke('extensions:sync', kind, name, req),
+  getPanel: (repoRoot: string | null) => ipcRenderer.invoke('panel:get', repoRoot),
+  setPanelSwitch: (target: PanelTarget, agent: Provider, on: boolean) =>
+    ipcRenderer.invoke('panel:set-switch', target, agent, on),
+  fixPanelDrift: (target: PanelTarget, agent: Provider, how: DriftFix) =>
+    ipcRenderer.invoke('panel:fix-drift', target, agent, how),
+  forgetPanelEntry: (target: PanelTarget) => ipcRenderer.invoke('panel:forget', target),
   getInstructions: (repoRoot: string | null) => ipcRenderer.invoke('instructions:get', repoRoot),
   saveInstructionsBaseline: (repoRoot: string | null, baseline: string) =>
     ipcRenderer.invoke('instructions:save-baseline', repoRoot, baseline),

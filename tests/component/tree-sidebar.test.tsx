@@ -44,6 +44,7 @@ function renderSidebar(over: Partial<RepoGroup> = {}) {
     selectedId: null,
     onSelect: vi.fn(),
     onNewSession: vi.fn(),
+    onRepoSetup: vi.fn(),
     selectedRoundtableId: null,
     onOpenRoundtable: vi.fn(),
     onNewTask: vi.fn(),

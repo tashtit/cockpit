@@ -11,11 +11,8 @@ import type {
   Mutable,
   PluginInfo,
   Provider,
-  SkillInfo,
-  SyncKind,
-  SyncRequest
+  SkillInfo
 } from '../shared/types'
-import { cliEnv, execText } from './env'
 import { readJsoncFile } from './parsers/util'
 
 /*
@@ -42,8 +39,16 @@ const copilotJsonPath = (): string => join(homedir(), '.copilot', 'mcp-config.js
  * Plugin ids are `<name>@<marketplace>` everywhere, so the three inventories line up.
  */
 /** Resolved per call, like every other path here, so a test can point HOME elsewhere. */
-const skillDir = (agent: Provider): string =>
+export const skillDir = (agent: Provider): string =>
   join(homedir(), agent === 'claude' ? '.claude' : agent === 'codex' ? '.codex' : '.copilot', 'skills')
+
+/**
+ * Where a *repo* keeps its skills. Claude Code reads `.claude/skills`; Codex and
+ * Copilot both read `.agents/skills` natively — the same folder, which is why their
+ * switches move together in a project scope.
+ */
+export const projectSkillDir = (repoRoot: string, agent: Provider): string =>
+  agent === 'claude' ? join(repoRoot, '.claude', 'skills') : join(repoRoot, '.agents', 'skills')
 
 const copilotPluginsDir = (): string => join(homedir(), '.copilot', 'installed-plugins')
 
@@ -197,6 +202,31 @@ function readCopilotMcp(): Map<string, McpConfig> {
 /** Bounded read: SKILL.md is prose, and only its first KBs decide the fingerprint. */
 const MAX_SKILL_BYTES = 64 * 1024
 
+/**
+ * A skill folder's identity: its description, and a hash of SKILL.md so two agents'
+ * copies can be told apart. Unreadable is not fatal — it lists with no fingerprint,
+ * which compares as unknown rather than as a difference.
+ */
+export function readSkillFingerprint(dir: string): { description: string; fingerprint: string } {
+  try {
+    const raw = readFileSync(join(dir, 'SKILL.md'), 'utf8').slice(0, MAX_SKILL_BYTES)
+    return {
+      description: raw.match(/^description:\s*(.+)$/m)?.[1]?.slice(0, 200) ?? '',
+      fingerprint: createHash('sha256').update(raw).digest('hex').slice(0, 16)
+    }
+  } catch {
+    return { description: '', fingerprint: '' }
+  }
+}
+
+/** Copy a skill folder somewhere, replacing whatever was there. */
+export function adoptSkillInto(src: string, dst: string): void {
+  if (!existsSync(src)) throw new Error(`skill not found: ${src}`)
+  rmSync(dst, { recursive: true, force: true })
+  mkdirSync(join(dst, '..'), { recursive: true })
+  cpSync(src, dst, { recursive: true })
+}
+
 function readSkills(): SkillInfo[] {
   const out: SkillInfo[] = []
   for (const agent of ['claude', 'codex', 'copilot'] as Provider[]) {
@@ -211,16 +241,7 @@ function readSkills(): SkillInfo[] {
     for (const name of entries) {
       const skillMd = join(dir, name, 'SKILL.md')
       if (!existsSync(skillMd)) continue
-      let description = ''
-      let fingerprint = ''
-      try {
-        const raw = readFileSync(skillMd, 'utf8').slice(0, MAX_SKILL_BYTES)
-        description = raw.match(/^description:\s*(.+)$/m)?.[1]?.slice(0, 200) ?? ''
-        fingerprint = createHash('sha256').update(raw).digest('hex').slice(0, 16)
-      } catch {
-        /* unreadable — list it anyway, with no fingerprint to compare on */
-      }
-      out.push({ name, description, agent, path: join(dir, name), fingerprint })
+      out.push({ name, agent, path: join(dir, name), ...readSkillFingerprint(join(dir, name)) })
     }
   }
   return out
@@ -388,10 +409,48 @@ export function getExtensions(): ExtensionsInventory {
   }
 }
 
+/**
+ * A repo's own MCP servers. Only Claude Code scopes servers to a project (under
+ * projects[<root>] in ~/.claude.json) — the panel says as much for the other two
+ * rather than pretending a repo can carry them.
+ */
+export function claudeProjectMcp(repoRoot: string): McpServerInfo[] {
+  const table = readJsonFile(claudeJsonPath())?.projects?.[repoRoot]?.mcpServers
+  if (!table || typeof table !== 'object') return []
+  return Object.entries<any>(table)
+    .map(([name, cfg]) => {
+      const config = normalizeMcp(cfg)
+      return {
+        name,
+        config,
+        agents: ['claude' as Provider],
+        presences: [{ agent: 'claude' as Provider, scope: 'project' as const, projectPath: repoRoot, config }]
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export function writeClaudeProjectMcp(repoRoot: string, name: string, cfg: McpConfig): void {
+  const path = claudeJsonPath()
+  const j = readJsonFile(path) ?? {}
+  j.projects = j.projects ?? {}
+  j.projects[repoRoot] = j.projects[repoRoot] ?? {}
+  j.projects[repoRoot].mcpServers = j.projects[repoRoot].mcpServers ?? {}
+  j.projects[repoRoot].mcpServers[name] = mcpForClaude(cfg)
+  writeJsonFile(path, j)
+}
+
 /* ---------- sharing ---------- */
 
 /** Where a sync copies from, and whether it may replace what the target has. */
-export type SyncOptions = Omit<SyncRequest, 'to'>
+export type SyncOptions = {
+  /** Agent to copy from — defaults to whichever already has it */
+  readonly from?: Provider
+  /** Replace the target's existing definition instead of refusing */
+  readonly overwrite?: boolean
+  /** Write this definition rather than looking one up (the library's own copy) */
+  readonly config?: McpConfig
+}
 
 
 function findMcp(name: string, from?: Provider): McpConfig {
@@ -433,21 +492,32 @@ const NAME_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/
  */
 export function shareMcp(name: string, to: Provider, opts: SyncOptions = {}): void {
   if (!NAME_RE.test(name)) throw new Error('invalid server name')
-  const cfg = findMcp(name, opts.from)
+  const cfg = opts.config ?? findMcp(name, opts.from)
   if (opts.from === to) throw new Error('source and target are the same agent')
   if (to === 'claude') return shareToClaude(name, cfg)
   if (to === 'codex') return shareToCodex(name, cfg, opts.overwrite)
   return shareToCopilot(name, cfg)
 }
 
+/** The shape claude stores a server in — the same at user and project scope. */
+function mcpForClaude(cfg: McpConfig): Record<string, unknown> {
+  return cfg.url
+    ? { type: cfg.type === 'sse' ? 'sse' : 'http', url: cfg.url }
+    : { command: cfg.command, args: cfg.args ?? [], ...(cfg.env ? { env: cfg.env } : {}) }
+}
+
+/** Write a config file, creating the agent's config home if this is its first one. */
+function writeJsonFile(path: string, value: unknown): void {
+  mkdirSync(join(path, '..'), { recursive: true })
+  writeFileSync(path, JSON.stringify(value, null, 2))
+}
+
 function shareToClaude(name: string, cfg: McpConfig): void {
   const path = claudeJsonPath()
   const j = readJsonFile(path) ?? {}
   j.mcpServers = j.mcpServers ?? {}
-  j.mcpServers[name] = cfg.url
-    ? { type: cfg.type === 'sse' ? 'sse' : 'http', url: cfg.url }
-    : { command: cfg.command, args: cfg.args ?? [], ...(cfg.env ? { env: cfg.env } : {}) }
-  writeFileSync(path, JSON.stringify(j, null, 2))
+  j.mcpServers[name] = mcpForClaude(cfg)
+  writeJsonFile(path, j)
 }
 
 function tomlString(s: string): string {
@@ -461,6 +531,7 @@ function tomlKey(name: string): string {
 
 function shareToCodex(name: string, cfg: McpConfig, overwrite = false): void {
   const path = codexTomlPath()
+  mkdirSync(join(path, '..'), { recursive: true })
   let raw = existsSync(path) ? readFileSync(path, 'utf8') : ''
   if (parseCodexMcpToml(raw).has(name)) {
     if (!overwrite) throw new Error(`codex already has "${name}"`)
@@ -516,7 +587,7 @@ function shareToCopilot(name: string, cfg: McpConfig): void {
         tools: ['*'],
         ...(cfg.env ? { env: cfg.env } : {})
       }
-  writeFileSync(path, JSON.stringify(j, null, 2))
+  writeJsonFile(path, j)
 }
 
 /* ---------- removal ---------- */
@@ -582,104 +653,9 @@ export function removeMcp(name: string, agent: Provider, projectPath?: string): 
   writeFileSync(path, JSON.stringify(j, null, 2))
 }
 
-/* ---------- cross-agent sync ---------- */
-
-/** An agent that already has the skill — sync needs a source, not just a target. */
+/** An agent that already has the skill — a copy needs a source, not just a target. */
 function findSkillSource(name: string, to: Provider): Provider {
   const from = readSkills().find((sk) => sk.name === name && sk.agent !== to)?.agent
   if (!from) throw new Error(`no agent has a skill named "${name}"`)
   return from
-}
-
-/**
- * Plugins and marketplaces are not config entries Cockpit can write: registering one
- * means cloning a repo, resolving a version and updating the agent's own bookkeeping.
- * So Cockpit runs the agent's own CLI, which does all of that correctly.
- */
-const PLUGIN_INSTALL: Record<Provider, readonly string[]> = {
-  claude: ['plugin', 'install'],
-  // codex spells install "add"; every other subcommand matches the other two
-  codex: ['plugin', 'add'],
-  copilot: ['plugin', 'install']
-}
-
-const MARKETPLACE_ADD: readonly string[] = ['plugin', 'marketplace', 'add']
-
-/** Marketplace clones and plugin installs hit the network — give them room. */
-const CLI_TIMEOUT_MS = 120_000
-
-async function runAgentCli(agent: Provider, args: readonly string[]): Promise<string> {
-  const res = await execText(agent, args, { timeoutMs: CLI_TIMEOUT_MS, env: cliEnv() })
-  if (!res.ok) {
-    const detail = (res.stderr || res.stdout || res.error || '').trim().split('\n').slice(-3).join(' ')
-    throw new Error(`${agent} ${args.join(' ')} failed — ${detail || 'no output'}`)
-  }
-  return res.stdout.trim()
-}
-
-/** Where an agent clones a marketplace from — only some agents record it. */
-function marketplaceSource(name: string, exclude: Provider): string {
-  const source = readMarketplaces().find(
-    (m) => m.name === name && m.agent !== exclude && m.source && !m.source.startsWith('/')
-  )?.source
-  if (!source) {
-    throw new Error(
-      `no shareable source recorded for marketplace "${name}" — add it in ${PROVIDER_CLI[exclude]} with its repo or URL`
-    )
-  }
-  return source
-}
-
-const PROVIDER_CLI: Record<Provider, string> = { claude: 'claude', codex: 'codex', copilot: 'copilot' }
-
-async function syncMarketplace(name: string, to: Provider): Promise<string> {
-  if (!NAME_RE.test(name)) throw new Error('invalid marketplace name')
-  const source = marketplaceSource(name, to)
-  await runAgentCli(to, [...MARKETPLACE_ADD, source])
-  return `Added marketplace "${name}" to ${to} from ${source}.`
-}
-
-async function syncPlugin(id: string, to: Provider): Promise<string> {
-  const at = id.lastIndexOf('@')
-  const marketplace = at > 0 ? id.slice(at + 1) : ''
-  if (at <= 0 || !NAME_RE.test(id.slice(0, at)) || !NAME_RE.test(marketplace)) {
-    throw new Error(`plugin id must be <name>@<marketplace>: ${id}`)
-  }
-  const steps: string[] = []
-  // the CLI can only install from a marketplace it already knows; registering it
-  // first is part of the same "make this agent match" action the user asked for
-  if (!readMarketplaces().some((m) => m.name === marketplace && m.agent === to)) {
-    steps.push(await syncMarketplace(marketplace, to))
-  }
-  await runAgentCli(to, [...PLUGIN_INSTALL[to], id])
-  steps.push(`Installed "${id}" in ${to}.`)
-  return steps.join(' ')
-}
-
-/**
- * One entry point for the Compare view: make `to` match the agent that already has
- * the thing. MCP servers and skills are written directly; plugins and marketplaces
- * go through the target agent's CLI. Resolves with a line to show the user.
- */
-export async function syncExtension(
-  kind: SyncKind,
-  name: string,
-  req: SyncRequest
-): Promise<string> {
-  const { to, ...opts } = req
-  if (!PROVIDER_CLI[to]) throw new Error(`unknown agent: ${to}`)
-  switch (kind) {
-    case 'mcp':
-      shareMcp(name, to, opts)
-      return `Wrote "${name}" into ${to}'s config — restart that CLI to pick it up.`
-    case 'skill':
-      shareSkill(name, to, opts)
-      return `Copied skill "${name}" to ${to}.`
-    case 'marketplace':
-      return syncMarketplace(name, to)
-    case 'plugin':
-      return syncPlugin(name, to)
-    default:
-      throw new Error(`cannot sync ${kind}`)
-  }
 }

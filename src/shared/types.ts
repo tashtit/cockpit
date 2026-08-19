@@ -1,3 +1,4 @@
+import type { PanelReport } from './library'
 export type Provider = 'claude' | 'codex' | 'copilot'
 
 /** Strip readonly for a local builder/accumulator — never for shared state. */
@@ -283,20 +284,42 @@ export type MarketplaceInfo = {
   readonly source?: string
 }
 
-/** Shared things Cockpit can write into another agent's own config for you. */
+/** Things Cockpit writes into an agent's own config for you. */
 export type SyncKind = 'mcp' | 'skill' | 'plugin' | 'marketplace'
 
-/** Everything the Compare view lines up across agents (see shared/parity.ts). */
-export type ParityKind = SyncKind | 'instructions'
+/** Everything the panel manages, per agent (see shared/library.ts). */
+export type PanelKind = SyncKind | 'instructions'
 
-/** One sync: copy `name` from `from` into `to`, replacing what's there when asked. */
-export type SyncRequest = {
-  readonly to: Provider
-  /** Agent to copy from — defaults to whichever already has it */
-  readonly from?: Provider
-  /** Replace the target's existing definition instead of refusing */
-  readonly overwrite?: boolean
+/**
+ * One thing Cockpit manages, and where it should be applied. This is Cockpit's own
+ * config: the entry survives being switched off everywhere, which is what makes a
+ * switch reversible rather than a delete.
+ */
+export type LibraryEntry = {
+  readonly kind: PanelKind
+  readonly name: string
+  /** Desired state per agent — true = apply it, absent or false = keep it out */
+  readonly enabled: Partial<Record<Provider, boolean>>
+  /** mcp: the definition Cockpit writes into each agent it is switched on for */
+  readonly config?: McpConfig
+  /** marketplace: where to clone it from · plugin: the marketplace it comes from */
+  readonly source?: string
 }
+
+/** One entry in one scope — every panel action names its target this way. */
+export type PanelTarget = {
+  /** null = global (agent home configs); otherwise a repo root */
+  readonly repoRoot: string | null
+  readonly kind: PanelKind
+  readonly name: string
+}
+
+/** Which side wins when an agent's real config disagrees with its switch. */
+export type DriftFix =
+  /** write Cockpit's definition into the agent */
+  | 'apply'
+  /** take the agent's definition into Cockpit */
+  | 'adopt'
 
 export type ExtensionsInventory = {
   readonly mcp: McpServerInfo[]
@@ -710,20 +733,26 @@ export type CockpitApi = {
   readonly createWorkspace: (repoRoot: string, name?: string) => Promise<WorkspaceInfo>
   readonly createPr: (cwd: string) => Promise<string>
   readonly getExtensions: () => Promise<ExtensionsInventory>
-  readonly shareMcp: (name: string, to: Provider) => Promise<void>
-  /** Remove one presence: an agent's user-scope entry, or a claude project entry */
-  readonly removeMcp: (name: string, agent: Provider, projectPath?: string) => Promise<void>
   /** Probe the server (spawn stdio / hit URL) and report whether it answers */
   readonly checkMcp: (name: string) => Promise<McpProbeResult>
   /** Run the agent CLI's own OAuth login for the server; resolves with its output */
   readonly loginMcp: (name: string, agent: Provider, projectPath?: string) => Promise<string>
-  readonly shareSkill: (name: string, from: Provider, to: Provider) => Promise<void>
-  /**
-   * Cross-agent sync for the Compare view: writes MCP/skill definitions directly,
-   * and installs plugins/marketplaces by running the target agent's own CLI (only
-   * it can clone and register them properly). Resolves with what to tell the user.
-   */
-  readonly syncExtension: (kind: SyncKind, name: string, req: SyncRequest) => Promise<string>
+  /* the panel: Cockpit's own config for a scope, reconciled against each agent */
+  readonly getPanel: (repoRoot: string | null) => Promise<PanelReport>
+  /** Flip one agent's switch — writes the entry into that agent, or takes it out */
+  readonly setPanelSwitch: (
+    target: PanelTarget,
+    agent: Provider,
+    on: boolean
+  ) => Promise<PanelReport>
+  /** Settle a disagreement between a switch and what the agent actually has */
+  readonly fixPanelDrift: (
+    target: PanelTarget,
+    agent: Provider,
+    how: DriftFix
+  ) => Promise<PanelReport>
+  /** Take it out of every agent and stop tracking it */
+  readonly forgetPanelEntry: (target: PanelTarget) => Promise<PanelReport>
   readonly getInstructions: (repoRoot: string | null) => Promise<InstructionsState>
   readonly saveInstructionsBaseline: (
     repoRoot: string | null,

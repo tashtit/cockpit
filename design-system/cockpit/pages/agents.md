@@ -2,53 +2,75 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** the standard card (`.ns-card`, the one shared width) with six tabs —
-**Compare**, Instructions, MCP Servers, Skills, Plugins, Marketplace — one place to manage
-the *shared setup every agent carries*. Compare is first and is the view's front door:
-the per-kind tabs manage one thing at a time, Compare answers "are my agents the same?".
-The user-facing label is **Agents** (nav icon: `AgentIcon`); the component file keeps
-its historical `AiSetup.tsx` name, like the `'extensions'` view kind before it.
+**Pattern:** the standard card (`.ns-card`, the one shared width) under a **scope
+switch**, with three tabs — **Panel**, Instructions, MCP health. The scope switch is the
+first thing on the card because "which of these applies where?" was the question this
+view kept failing to answer; everything below it means something different depending on
+which half is lit. The user-facing label is **Agents** (nav icon: `AgentIcon`); the
+component file keeps its historical `AiSetup.tsx` name.
 
-## Compare tab (`CompareAgents.tsx`)
+## Scope switch (`.scope-switch`)
 
-- **Pattern: a matrix, not a list.** Rows are shared things (grouped by kind, in
-  `KIND_ORDER`: instructions → MCP → skills → plugins → marketplaces), columns are the
-  three agents. Fixed 84px agent columns (`.cmp-row` grid) so every state lines up
-  vertically down the whole card — that alignment is what makes a gap readable at a
-  glance, and it's why this view does **not** reuse `.ext-row`.
-- **Four cell states**, one glyph each, color-coded, always with a `title`/`aria-label`
-  carrying the detail: `✓` present (ok), `≠` differs (warn), `+` missing, `·` not
-  supported (dim). `+` is the only affordance in the grid — a dashed accent
-  `.cmp-add` button, the one place a dashed border is used, reading as "empty slot".
-- **Parity is computed, never fetched**: `shared/parity.ts` derives the whole report
-  from the inventory + instructions the view already holds. New kinds get a reader
-  there, not a new IPC channel.
-- **Row expands into the diff** (`.cmp-diff`): a field × agent table with the reference
-  agent marked, and any row the agents disagree on tinted warn. The matrix says *that*
-  something differs; this says *what*. Env var **values are never shown or compared** —
-  only names.
-- **Two safety lines, deliberately different:**
-  - *additive* actions are one click — a cell's `+`, the row's "Sync all" (missing
-    cells only), and the group's "Fill N gaps".
-  - *destructive* actions (replacing an agent's own definition) live inside the
-    expanded diff and use the Settings-style armed confirm (`Replace X's` → danger
-    `replace?`, 4s / blur disarm) — never `window.confirm`.
-- **Filter**: `.cmp-toggle` "Only differences", **on by default** — the view opens on
-  the work, not the inventory. The all-aligned state gets its own `.tree-empty` line.
-- Counts strip (`.cmp-counts`) reads `N shared · N aligned · N differ · N incomplete`,
-  colored ok/warn/dim. Notices reuse `.ext-notice` and name the consequence.
-- Long-running syncs (plugins/marketplaces shell out to the agent's CLI) disable every
-  action while in flight and swap the label to `syncing…` / `filling…`.
+- **Two halves, not a dropdown.** `GLOBAL / every session` and `PROJECT` + a repo
+  `Select`. Equal-weight halves on a 1px `--border` seam; the active half lifts to
+  `--bg3` with an `inset 0 2px 0 var(--accent)` top rule. Mono placard for the two names
+  (`.scope-name`), sans for the sub-labels. Never render this as one control with a
+  "global" option in the list — the point is that these are two places, not two values.
+- A `.scope-blurb` under it always states the consequence in plain words: what Global
+  covers, or which repo a project scope covers *and* that global still applies on top.
+- Reachable three ways: the rail's Agents icon (Global), a `SlidersIcon` button in each
+  repo row's `.row-actions` (that repo), and ⌘K's "agent setup for" group.
+- A repo that leaves the index falls back to Global rather than showing an empty scope.
+
+## Panel tab (`AgentPanel.tsx`)
+
+The view's signature element, and its mental model in one object: **the switch is what
+you commanded, the lamp under it is what the agent actually has.** Cockpit owns a config
+of its own (`config.library`); each row is one entry, each agent column a switch.
+
+- **One row per managed thing**, grouped by kind (`KIND_ORDER`: instructions → MCP →
+  skills → plugins → marketplaces), each group headed by `.ns-label` + a `.pnl-blurb`
+  saying what that kind *is* in one line. The row carries the name plus Cockpit's own
+  definition in mono (`.pnl-def`) — that is what the switches write.
+- **One column header for the whole panel**, not per group: every section shares the
+  `.pnl-row` grid, and each switch carries its agent's identity color, so repeating the
+  header five times would be five rows of the same thing. The grid is *not* a table in
+  the a11y tree — the header sits outside it, and each switch's `aria-label`
+  ("`<name>` in `<Agent>`") is the real label. Only the diff is a real `<table>`.
+- **The switch (`.sw`)** is a 32×18 rocker: off = `--bg-deep` track, grey nub left; on =
+  the agent's own tint with a solid agent-colored nub right. **The nub does not
+  animate** — a cockpit rocker snaps, and transforms aren't on this system's transition
+  list anyway; only the track's color travels.
+- **The lamp (`.pnl-lamp`)** is dark unless the agent disagrees with its switch, then
+  amber and specific: `not applied` (on, but the agent hasn't got it), `differs` (on,
+  but the agent has another definition), `added outside` (off, yet the agent has it).
+  The switch takes a warn ring, the row a warn border, and a `.pnl-alert` `!` opens it.
+  Never show a lamp for an agent that *can't* hold the entry — that's `na`, a dim `—`
+  with the reason in its title.
+- **Two safety lines.** Flipping a switch is one click, because it is reversible: off
+  takes the entry out of that agent and Cockpit keeps it. The two that aren't cheap ask
+  first, with the armed-confirm grammar (→ danger `remove?`, 4s / blur disarm): turning
+  a **plugin or marketplace** off (it runs an uninstall), and **Remove everywhere**
+  inside the row detail (it takes the entry out of every agent and forgets it).
+- **The row detail** leads with a **Cockpit** column (`.pnl-src`, accent, accent inset
+  rule), then one column per agent that has it. Cockpit is the source of truth, not one
+  opinion among four. Rows nobody fills in are dropped; a field an agent doesn't record
+  reads `not recorded`, never as a difference. Env var **values are never shown or
+  compared** — only names.
+- **Every disagreement gets its own `.pnl-fix` block**: a plain sentence naming what
+  happened, and the only two honest answers — "Write Cockpit's version" (push) or "Take
+  this agent's version" (pull). Adopt is hidden when the agent has nothing to take.
+- Actions never guess: each one resolves with the freshly reconciled scope, and a
+  failure restores the real state and says what went wrong.
 
 ## Instructions tab
 
 - **Mental model shown to the user:** one shared baseline, fanned out into each agent's
   *native* file inside `<!-- cockpit:shared:start/end -->` markers. Content outside the
   markers belongs to the agent and is never touched. The hint states this explicitly.
-- **Scope switcher** (`.inst-scope`): "Global — every session, all repos" + one option
-  per indexed git repo (GitHub `owner/repo` name when known). Global targets the agent
-  home files (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`,
-  `~/.copilot/copilot-instructions.md`); repo scope targets `<root>/CLAUDE.md` +
+- **Scope comes from the card**, never from a second selector inside the tab. Global
+  targets the agent home files (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`,
+  `~/.copilot/copilot-instructions.md`); a project scope targets `<root>/CLAUDE.md` +
   `<root>/AGENTS.md` — one AGENTS.md row carries both the Codex *and* Copilot logos
   because both read it natively. Never render a third copilot-specific file in repo scope.
 - **Baseline editor**: the baseline is markdown, so it edits like markdown —
@@ -74,32 +96,20 @@ its historical `AiSetup.tsx` name, like the `'extensions'` view kind before it.
 - Notices reuse `.ext-notice` and always state the consequence ("running sessions pick
   it up on their next start").
 
-## Other tabs
+## MCP health tab
 
-- Every list is `.ext-list` of `.ext-row`s: leading agent logo(s), `.ext-body`
-  (bold name + dimmed mono detail), actions right. New tabs must keep this shape.
-- **MCP**: each row shows one `.mcp-scope` chip per *presence* — every (agent, scope) the
-  server is defined in: agent-tinted pill (10px logo + mono scope label: `global` or the
-  project dirname, full path in the title) with its own remove `×`. Removal uses the
-  Settings-style armed confirm (× → danger `remove?`, 4s / blur disarm) — never
-  `window.confirm`. Share buttons stay ghost-small `+ <Agent>` for agents that *don't*
-  have the server; absence is the affordance.
-  Per-row **Reload** probes the server (spawns the stdio command / hits the URL with an
-  MCP initialize) and reports via an `.mcp-status` pill next to the name: `connected`
-  (ok), `needs login` (warn), `unreachable` (danger, detail in title), italic
-  `checking…` while in flight. When a URL server reports `needs login`, ghost-small
-  `Log in · <Agent>` buttons appear for agents with an `mcp login` CLI (Claude, Codex —
-  never Copilot); the notice tells the user to finish the OAuth flow in the browser.
-  A right-aligned ghost-small "Refresh list" above the list re-reads configs from disk.
-- **Skills**: all three agents read `<home>/skills/<name>/SKILL.md`, so a skill copies
-  to either of the other two via the same `+ <Agent>` affordance, hidden when that agent
-  already has a same-named skill.
-- **Marketplace / Plugins**: read from all three agents (claude JSON, codex
-  `config.toml` sections, copilot's `installed-plugins/<marketplace>/<plugin>` tree) and
-  keyed by the `<name>@<marketplace>` id every agent uses, so the same plugin lines up
-  across columns in Compare. External links via `onOpenUrl` with trailing `↗`,
-  `owner/repo` regex-validated before offering Open. Installing is never a file copy —
-  Compare runs the target agent's own CLI.
+- Only what a switch can't tell you: whether the server *answers*. Per-row **Check**
+  probes it and reports through an `.mcp-status` pill — `connected` (ok), `needs login`
+  (warn), `unreachable` (danger, detail in title), italic `checking…` in flight. When a
+  URL server reports `needs login`, ghost-small `Log in · <Agent>` buttons appear for
+  agents with an `mcp login` CLI (Claude, Codex — never Copilot).
+- `.mcp-scope` chips stay, read-only: they say *where* a server is defined. Turning it
+  on and off belongs to the Panel, and this tab must never grow a second way to do it.
+
+## Shared list vocabulary
+
+- Lists here are `.ext-list` of `.ext-row`s: leading agent logo(s), `.ext-body`
+  (bold name + dimmed mono detail), actions right. New lists must keep this shape.
 - Hints name real config paths in `<code>` — this view's job is demystifying where
   things live.
 - Loading: `.tree-empty` "loading…"; every tab keeps a specific empty-state line

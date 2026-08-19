@@ -2,36 +2,65 @@
 
 The **Agents** view is one place to manage the AI experience you share across Claude Code, Codex, and Copilot: instructions, MCP servers, skills, plugins, and marketplaces — with Cockpit translating between each agent's own format so you don't have to.
 
-## Compare
+## Global or project
 
-The **Compare** tab is the front door: every shared thing as a row, every agent as a column.
+The first thing on the view is a scope switch, because the same setting means something
+different depending on where it lives:
 
-| | Claude Code | Codex | Copilot CLI |
-| --- | --- | --- | --- |
-| `linear` | ✓ | + | + |
-| `github` | ✓ | ✓ | ≠ |
+- **Global** — every session, in every repo. Written into each agent's own config in your
+  home folder.
+- **Project** — one repository only. Global settings still apply on top.
 
-- **✓** — the agent has it, and its definition matches the others.
-- **≠** — the agent has it, but configured differently.
-- **+** — the agent is missing it. Click to copy it over.
-- **·** — the agent can't hold this kind of thing.
+Reach a project's setup from the sliders button on its row in the sidebar, from ⌘K, or by
+picking the repo in the switch. A repo can carry its own instructions, its own Claude Code
+MCP servers, and its own skills. Plugins and marketplaces are installed per machine, so a
+repo can't change them — the project view says so rather than showing you controls that
+wouldn't work.
 
-Open a row to see the field-by-field diff — which command, which arguments, which version — with the agent the others are compared against marked as the reference. Env var *values* are never compared or shown; only their names, so a row never claims a difference you can't see.
+## The panel
 
-**Filling gaps is one click; overwriting isn't.** A cell's `+`, a row's "Sync all" and a group's "Fill N gaps" only ever *add* what's missing — nothing already configured is touched. Replacing an agent's own definition lives inside the expanded diff and takes a second, confirming click.
+Cockpit keeps a config of its own, and every agent gets a switch:
 
-::: tip Only differences
-The filter is on by default, so the tab opens on the work rather than the full inventory. Untick it to see everything your agents already agree on.
-:::
+**The switch is what you asked for. The lamp under it is what the agent actually has.**
 
-How each kind syncs:
+Switching an agent on writes the entry into that agent's own config. Switching it off
+takes it back out — and Cockpit keeps the entry, so you can put it back later. That is the
+difference between *off* and *removed*: off is a setting, removing is forgetting.
 
-| Kind | How Cockpit syncs it |
+Most of the time the switch and the lamp agree and the lamp stays dark. When they don't,
+it lights amber and says which way:
+
+| Lamp | What happened |
 | --- | --- |
-| Instructions | Applies the shared baseline to each agent's own file |
+| `not applied` | The switch is on, but the agent doesn't have it |
+| `differs` | The agent has it, but not the definition Cockpit holds |
+| `added outside` | The switch is off, yet the agent has it anyway |
+
+Open the row and you get Cockpit's definition beside each agent's, field by field, with
+the differing lines marked — and the only two honest answers: **write Cockpit's version**
+into the agent, or **take this agent's version** into Cockpit. Env var *values* are never
+shown or compared, only their names, so a row never claims a difference you can't see.
+
+### Removing
+
+- **Switch it off** for one agent — reversible, and Cockpit remembers the entry.
+- **Remove everywhere**, in the row's detail, takes it out of every agent and stops
+  tracking it. Both that and switching a plugin or marketplace off ask for a second click
+  first, because they run a real uninstall.
+
+### How each kind is applied
+
+| Kind | Switching it on |
+| --- | --- |
+| Instructions | Writes the shared baseline into that agent's own file |
 | MCP servers | Writes the definition into the agent's config, translated to its format |
-| Skills | Copies the skill directory into the agent's `skills/` |
-| Plugins, marketplaces | Runs the target agent's own CLI (`plugin install`, `plugin marketplace add`) — only it can clone and register them properly |
+| Skills | Copies Cockpit's copy of the skill folder into the agent |
+| Plugins, marketplaces | Runs the agent's own CLI (`plugin install`, `plugin marketplace add`) — only it can clone and register them properly |
+
+::: tip Nothing to set up
+The first time you open a scope, everything your agents already have is picked up
+automatically and switched on. Cockpit starts by agreeing with reality.
+:::
 
 ## Shared instructions
 
@@ -52,17 +81,17 @@ Each target shows a drift state:
 
 You can also edit any of the full files inline, right in the view.
 
-## MCP sharing
+## MCP servers
 
-The Agents view inventories every MCP server each agent knows about — including Claude's per-project servers (under `projects.*` in `~/.claude.json`), labeled with their project.
-
-One-click **sharing translates a server definition into each agent's own config format**:
+A server's switch translates one definition into each agent's own config format:
 
 - Claude Code — `~/.claude.json`
 - Codex — `~/.codex/config.toml`
 - Copilot CLI — `~/.copilot/mcp-config.json`
 
-Define a server once, run it everywhere.
+Define a server once, run it everywhere. The **MCP health** tab covers the one thing a
+switch can't tell you: whether the server actually answers. Check probes it, and when it
+reports *needs login* you can run the agent's own OAuth flow from there.
 
 ## Skills, plugins, marketplaces
 
