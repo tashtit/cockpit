@@ -235,7 +235,9 @@ export function AgentPanel({
       )}
 
       {rows.length > 0 && (
-        <>
+        // the cap belongs to the bank: same element owns the lane widths, so the
+        // header grid and the lane gradient can never disagree
+        <div className={`pnl-bank ${rows.some((r) => r.drift.length > 0) ? '' : 'quiet'}`}>
           <div className="pnl-row pnl-head" aria-hidden="true">
             <span>Cockpit</span>
             {PROVIDERS.map((p) => (
@@ -246,7 +248,7 @@ export function AgentPanel({
                 {PROVIDER_LABEL[p]}
               </span>
             ))}
-            <span className="pnl-head-state">State</span>
+            <span />
           </div>
           <div className="pnl-table">
             {rows.map((row) => (
@@ -266,7 +268,7 @@ export function AgentPanel({
               />
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {current === 'skill' && repoRoot !== null && (

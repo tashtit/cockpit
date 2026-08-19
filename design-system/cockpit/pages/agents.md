@@ -44,6 +44,56 @@ of its own (`config.library`); each row is one entry, each agent column a switch
 
 ### The bank
 
+The panel is drawn as an instrument bank. This is the one place in the app that renders
+a **lane**, and it earns it because the data really is columnar — one entry, three
+agents, read top to bottom. The lanes are the design; everything else is kept quiet on
+purpose, because four competing rule weights and amber in four places is what made the
+first version read as a spreadsheet.
+
+- **Lanes are painted on the bank, not on cells.** `.pnl-bank` carries a right-anchored
+  `linear-gradient` whose stops are the grid's own column widths, so the channels are
+  continuous by construction and no horizontal rule ever crosses them. The widths live
+  in `--pnl-lane` / `--pnl-state` on `.pnl-bank` and are read by *both* the gradient and
+  `grid-template-columns` — they can never fall out of step. Never put a lane color back
+  on a cell, and never give a cell its own background: a fill there punches a hole in
+  the channel.
+- **The header is inside the bank**, as its cap: the same gradient at 0.13, on
+  `--bg-deep`, closed with a `--border-strong` rule. It is the only rule that crosses
+  the lanes, which is what makes it read as a cap.
+- **One horizontal rule, and it stops at the first lane.** Row separators are an
+  `inset 0 1px 0` on `.pnl-name-cell` only. The entries are a list; the lanes are an
+  instrument; a line across both would make it a table.
+- **Hover and open light the entry, never the lanes** — same reason.
+- **Rows keep one height** (32px) no matter how many disagreements are lit. A bank of
+  switches that jogs as states change is unreadable.
+- **Two signals for drift, not four**: an amber ring on the switch (which lane) and a
+  placard in the right-hand slot (what happened). No row stripe, no badge box, no filled
+  chip. `.pnl-flag` is **printed text, not a badge** — the agent name in `--fg-dim`, the
+  state word in `--warn`. Amber is the only mustard in the panel, so the word alone is
+  unmistakable and a box would only add weight.
+- **The placard lane collapses when nothing is lit** (`.pnl-bank.quiet` drops
+  `--pnl-state` to 24px). A healthy section shouldn't reserve a void for warnings it
+  doesn't have.
+- **Two mono registers in the row**, exactly as `MASTER.md` has it: the definition is a
+  machine identifier (normal case, `.pnl-def`), the section tag is a placard (uppercase,
+  tracked, `.pnl-kind`). The entry name is the row's only sans. Three type treatments in
+  one row is one too many.
+- A write in flight is a small pulsing accent lamp in the corner of its lane
+  (`.pnl-lamp`), never a caption that would shift the row.
+- **The opened row is a drawer over the panel face** (`--bg-deep`): it interrupts the
+  lanes, which is what a drawer physically does, and they resume below it.
+
+- **Search (`.pnl-search`) looks everywhere**, not just the section showing: you rarely
+  know which section a server ended up in. It matches name, Cockpit's definition and the
+  kind. While searching, the pills dim (`.pnl-tabs.searching`) — they aren't filtering
+  any more, and pretending otherwise would be a lie.
+- In any view that mixes kinds (search, Needs you) each row carries a `.pnl-kind` tag.
+  Single-section views never do — the pill above already said it.
+- **One row per managed thing**: the name plus Cockpit's own definition in mono
+  (`.pnl-def`) — that is what the switches write.
+
+### The bank
+
 The panel is drawn as an instrument bank, not a list of cards. This is the one place
 in the app that renders a **lane**, and the pattern only earns its keep because the
 data really is columnar — one entry, three agents, read top to bottom.

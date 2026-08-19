@@ -1067,49 +1067,72 @@ button.scope-half:hover { color: var(--fg); }
 .pnl-note { font-size: var(--fs-xs); color: var(--fg-dim); }
 .pnl-note code { font-family: var(--mono); }
 
-/* the bank: one surface, hairline-separated, so the lanes read as continuous */
-.pnl-table { display: flex; flex-direction: column; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.pnl-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 76px) 132px;
+/*
+ * The bank. The lanes are painted on the panel itself, not on cells — a
+ * right-anchored gradient whose stops are the grid's own column widths — so they
+ * are continuous by construction and no horizontal rule ever crosses them. That
+ * continuity is the whole design; everything else is kept quiet to protect it.
+ *
+ * Column widths live in one place (--pnl-lane / --pnl-state) because the grid and
+ * the gradient must agree to the pixel.
+ */
+.pnl-bank { --pnl-lane: 76px; --pnl-state: 116px;
+  background-color: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+  background-image: linear-gradient(to left,
+    transparent 0 var(--pnl-state),
+    rgba(var(--copilot-rgb), 0.06) var(--pnl-state) calc(var(--pnl-state) + var(--pnl-lane)),
+    rgba(var(--codex-rgb), 0.06) calc(var(--pnl-state) + var(--pnl-lane)) calc(var(--pnl-state) + var(--pnl-lane) * 2),
+    rgba(var(--claude-rgb), 0.06) calc(var(--pnl-state) + var(--pnl-lane) * 2) calc(var(--pnl-state) + var(--pnl-lane) * 3),
+    transparent calc(var(--pnl-state) + var(--pnl-lane) * 3)); }
+/* nothing lit anywhere in view: the placard lane has no work to do, so it gets out
+   of the way. Both the grid and the gradient read the same variable, so they cannot
+   fall out of step. */
+.pnl-bank.quiet { --pnl-state: 24px; }
+.pnl-table { display: flex; flex-direction: column; }
+.pnl-row { display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, var(--pnl-lane)) var(--pnl-state);
   align-items: stretch; min-height: 32px; }
-.pnl-table > .pnl-row + .pnl-row, .pnl-table > * + .pnl-detail { border-top: 1px solid var(--border); }
-.pnl-row:hover { background: rgba(var(--accent-rgb), 0.05); }
-/* a placarded switch: the warning is a stripe on the panel edge, not a shouting box */
-.pnl-row.drifted { box-shadow: inset 2px 0 0 var(--warn); }
-.pnl-row.open { background: rgba(var(--accent-rgb), 0.06); }
-/* lane caps: the header is the top of each lane, not a label floating above it */
+/* the only horizontal rule, and it stops at the first lane: the entries are a list,
+   the lanes are an instrument, and a line across both would make it a spreadsheet */
+.pnl-row + .pnl-row > .pnl-name-cell { box-shadow: inset 0 1px 0 var(--border); }
+/* hover and open light the entry, never the lanes — a fill there would break them */
+.pnl-row:hover > .pnl-name-cell { background: rgba(var(--accent-rgb), 0.07); }
+.pnl-row.open > .pnl-name-cell { background: rgba(var(--accent-rgb), 0.10); }
+/* the header is the cap of the lanes: same gradient, brighter, over the deep paper */
 .pnl-head { min-height: 24px; font-family: var(--mono); font-size: var(--fs-xs);
   font-weight: 600; text-transform: uppercase; letter-spacing: 0.9px; color: var(--fg-dim);
-  background: var(--bg-deep); border-bottom: 1px solid var(--border-strong); }
+  background-color: var(--bg-deep);
+  background-image: linear-gradient(to left,
+    transparent 0 var(--pnl-state),
+    rgba(var(--copilot-rgb), 0.13) var(--pnl-state) calc(var(--pnl-state) + var(--pnl-lane)),
+    rgba(var(--codex-rgb), 0.13) calc(var(--pnl-state) + var(--pnl-lane)) calc(var(--pnl-state) + var(--pnl-lane) * 2),
+    rgba(var(--claude-rgb), 0.13) calc(var(--pnl-state) + var(--pnl-lane) * 2) calc(var(--pnl-state) + var(--pnl-lane) * 3),
+    transparent calc(var(--pnl-state) + var(--pnl-lane) * 3));
+  border-bottom: 1px solid var(--border-strong); }
 .pnl-head > span { display: flex; align-items: center; padding: 0 var(--s3); }
+/* each cap aligns with what it caps: the entry left, the switches centred */
 .pnl-head .pnl-col { justify-content: center; gap: var(--s1); padding: 0; }
 
-.pnl-name-cell { min-width: 0; display: flex; align-items: center; padding-left: var(--s3); }
+.pnl-name-cell { min-width: 0; display: flex; align-items: center; padding-left: var(--s3);
+  transition: background var(--dur) var(--ease); }
 .pnl-name { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; width: 100%;
-  text-align: left; color: var(--fg); padding: var(--s1) 0; }
+  text-align: left; color: var(--fg); padding: var(--s2) 0; }
 .pnl-name:hover .pnl-title { color: var(--accent); }
 .pnl-title { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
-/* Cockpit's own definition, right beside the name: this is what the switches write */
+/* two mono registers, exactly as the type rules have it elsewhere: the definition is
+   a machine identifier (normal case), the section is a placard (uppercase) */
 .pnl-def { flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--fs-xs);
   color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pnl-kind { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim); opacity: 0.65;
+  white-space: nowrap; flex-shrink: 0; }
 .pnl-caret { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0;
   transition: transform var(--dur) var(--ease); }
 .pnl-caret.open { transform: rotate(90deg); }
-.pnl-kind { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 var(--s1);
-  white-space: nowrap; flex-shrink: 0; }
 
-/* the three lanes, washed in their agent's identity color and hairline-divided */
-.pnl-cell { display: flex; align-items: center; justify-content: center; position: relative;
-  border-left: 1px solid var(--border); }
-.pnl-row .pnl-cell:nth-of-type(2) { background: rgba(var(--claude-rgb), 0.05); }
-.pnl-row .pnl-cell:nth-of-type(3) { background: rgba(var(--codex-rgb), 0.05); }
-.pnl-row .pnl-cell:nth-of-type(4) { background: rgba(var(--copilot-rgb), 0.05); }
-.pnl-head .pnl-col:nth-of-type(2) { background: rgba(var(--claude-rgb), 0.09); }
-.pnl-head .pnl-col:nth-of-type(3) { background: rgba(var(--codex-rgb), 0.09); }
-.pnl-head .pnl-col:nth-of-type(4) { background: rgba(var(--copilot-rgb), 0.09); }
-.pnl-head .pnl-col { border-left: 1px solid var(--border); }
-.pnl-head-state { border-left: 1px solid var(--border); justify-content: flex-end; }
+/* the lanes carry no borders and no fills of their own — the bank already painted them */
+.pnl-cell { display: flex; align-items: center; justify-content: center; position: relative; }
 .pnl-cell.na { color: var(--fg-dim); opacity: 0.45; font-size: var(--fs-sm); }
 
 /* the switch. A cockpit rocker snaps — the nub is deliberately not animated
@@ -1129,23 +1152,22 @@ button.scope-half:hover { color: var(--fg); }
 .sw.on.sw-codex i { background: var(--codex); }
 .sw.on.sw-copilot { background: rgba(var(--copilot-rgb), 0.32); border-color: var(--copilot); }
 .sw.on.sw-copilot i { background: var(--copilot); }
-.sw.drift { border-color: var(--warn); box-shadow: 0 0 0 2px rgba(var(--warn-rgb), 0.22); }
+/* one amber ring says which lane; the placard says what happened. Two signals, not four. */
+.sw.drift { border-color: var(--warn); }
 .sw.armed { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.28); }
 /* a write in flight: the lane's own lamp, not a layout-shifting caption */
-.pnl-lamp { position: absolute; top: 4px; right: 6px; width: 5px; height: 5px;
+.pnl-lamp { position: absolute; top: 5px; right: 8px; width: 5px; height: 5px;
   border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 
-/* the annunciator placards: every lit one for a row sits in the same slot */
-.pnl-flags { display: flex; align-items: center; justify-content: flex-end; gap: var(--s1);
-  flex-wrap: wrap; padding: 0 var(--s2); border-left: 1px solid var(--border); }
-.pnl-flag { display: inline-flex; align-items: center; gap: var(--s1); min-height: 18px;
-  padding: 0 var(--s2); border-radius: var(--radius-sm); font-family: var(--mono);
-  font-size: var(--fs-xs); color: var(--warn); background: rgba(var(--warn-rgb), 0.13);
-  border: 1px solid rgba(var(--warn-rgb), 0.35); white-space: nowrap; }
-button.pnl-flag:hover { background: rgba(var(--warn-rgb), 0.22); }
-.pnl-flag-who { opacity: 0.75; }
-.pnl-flag.danger { color: var(--danger); background: rgba(var(--danger-rgb), 0.14);
-  border-color: rgba(var(--danger-rgb), 0.4); }
+/* the annunciator: printed text, not a badge. Amber is the only mustard in the
+   panel, so the word alone is unmistakable and a box would only add weight. */
+.pnl-flags { display: flex; flex-direction: column; align-items: flex-end;
+  justify-content: center; gap: 0; padding: 0 var(--s3); min-width: 0; }
+.pnl-flag { display: flex; align-items: baseline; gap: var(--s1); font-family: var(--mono);
+  font-size: var(--fs-xs); color: var(--warn); white-space: nowrap; max-width: 100%; }
+button.pnl-flag:hover { text-decoration: underline; }
+.pnl-flag-who { color: var(--fg-dim); }
+.pnl-flag.danger { color: var(--danger); }
 
 /* the row opened up, inset into the bank: Cockpit's column first, it is the source */
 .pnl-detail { background: var(--bg-deep); box-shadow: inset 0 1px 0 var(--border); }
@@ -1154,8 +1176,8 @@ button.pnl-flag:hover { background: rgba(var(--warn-rgb), 0.22); }
   font-family: var(--mono); }
 .pnl-diff th, .pnl-diff td { text-align: left; padding: var(--s1) var(--s2);
   vertical-align: top; max-width: 220px; overflow-wrap: anywhere; }
-.pnl-diff thead th { color: var(--fg-dim); font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.6px; border-bottom: 1px solid var(--border); }
+.pnl-diff thead th { color: var(--fg-dim); font-weight: 500;
+  border-bottom: 1px solid var(--border); }
 .pnl-diff tbody th { color: var(--fg-dim); font-weight: 500; white-space: nowrap; }
 .pnl-diff .pnl-src { color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
 .pnl-diff tr.differs { background: rgba(var(--warn-rgb), 0.09); }
