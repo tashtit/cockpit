@@ -88,7 +88,7 @@ export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = 
 ]
 
 /** Suggestions only — the field accepts any model the CLI accepts. */
-const MODEL_SUGGESTIONS: Record<Provider, string[]> = {
+export const MODEL_SUGGESTIONS: Record<Provider, string[]> = {
   claude: ['sonnet', 'opus', 'haiku'],
   codex: ['gpt-5-codex', 'o4-mini'],
   copilot: ['claude-sonnet-4.5', 'gpt-5']

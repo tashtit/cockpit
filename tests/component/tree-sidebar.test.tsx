@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
-import type { PrStatus, RepoGroup, SessionMeta } from '../../src/shared/types'
+import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
 
 const repo: RepoGroup = {
   key: '/home/dev/rocket',
@@ -44,6 +44,8 @@ function renderSidebar(over: Partial<RepoGroup> = {}) {
     selectedId: null,
     onSelect: vi.fn(),
     onNewSession: vi.fn(),
+    selectedRoundtableId: null,
+    onOpenRoundtable: vi.fn(),
     onNewTask: vi.fn(),
     onGoHome: vi.fn(),
     onNav: vi.fn(),
@@ -154,5 +156,60 @@ describe('sidebar row controls stay reachable', () => {
     expect(btn).toBeVisible()
     await userEvent.click(btn)
     expect(onNewTask).toHaveBeenCalled()
+  })
+})
+
+describe('roundtables as tree items', () => {
+  const grounded: RoundtableMeta = {
+    id: 'rt-g',
+    title: 'adopt biome?',
+    updatedAt: 1700000000000,
+    providers: ['claude', 'codex'],
+    entryCount: 3,
+    running: false,
+    branch: 'cockpit/table-biome',
+    repoRoot: repo.root
+  }
+  const floating: RoundtableMeta = {
+    ...grounded,
+    id: 'rt-f',
+    title: 'tabs or spaces',
+    branch: null,
+    repoRoot: null
+  }
+
+  it('groups tables under their project or Chats, and expands their seat sessions', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockImplementation(async (q) =>
+      q?.roundtableId === 'rt-g'
+        ? {
+            total: 1,
+            items: [session({ id: 'claude:seat1', title: 'wave turn', roundtableId: 'rt-g' })]
+          }
+        : { total: 0, items: [] }
+    )
+    vi.mocked(window.cockpit.listRoundtables).mockResolvedValue([grounded, floating])
+    const props = renderSidebar()
+
+    // the grounded table sits inside its repo's children; the repo-less one gets a
+    // Chats section even though no plain chat sessions exist
+    const groundedRow = await screen.findByRole('treeitem', { name: /adopt biome\?/ })
+    expect(await screen.findByRole('treeitem', { name: /tabs or spaces/ })).toBeVisible()
+    expect(screen.getByRole('treeitem', { name: /Chats/ })).toBeVisible()
+
+    await userEvent.click(groundedRow)
+    expect(props.onOpenRoundtable).toHaveBeenCalledWith('rt-g')
+
+    // the chevron reveals the seat-sessions the table spawned — hidden everywhere else
+    await userEvent.click(within(groundedRow).getByRole('button', { name: 'Show seat sessions' }))
+    await waitFor(() =>
+      expect(window.cockpit.pageSessions).toHaveBeenCalledWith(
+        expect.objectContaining({ roundtableId: 'rt-g' })
+      )
+    )
+    const seat = await screen.findByRole('treeitem', { name: /wave turn/ })
+    await userEvent.click(seat)
+    expect(props.onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'claude:seat1', roundtableId: 'rt-g' })
+    )
   })
 })

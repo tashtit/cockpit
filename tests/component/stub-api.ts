@@ -1,5 +1,28 @@
 import { vi } from 'vitest'
-import type { CockpitApi } from '../../src/shared/types'
+import type { CockpitApi, RoundtableSnapshot } from '../../src/shared/types'
+
+/** A minimal idle roundtable snapshot; tests override getRoundtable for real fixtures. */
+export function emptyRoundtable(): RoundtableSnapshot {
+  return {
+    id: 'rt-1',
+    title: 'Roundtable',
+    topic: '',
+    createdAt: 0,
+    updatedAt: 0,
+    cwd: '/tmp/rt',
+    repoRoot: null,
+    branch: null,
+    permissionMode: 'safe',
+    mode: 'open',
+    maxRounds: 3,
+    roundsRun: 0,
+    concluded: false,
+    participants: [],
+    entries: [],
+    running: false,
+    speaking: []
+  }
+}
 
 /**
  * A complete CockpitApi double with empty-state defaults. Tests override
@@ -49,6 +72,13 @@ export function freshApi(): CockpitApi {
     addModelEndpoint: vi.fn(async () => []),
     removeModelEndpoint: vi.fn(async () => []),
     listEndpointModels: vi.fn(async () => []),
+    listRoundtables: vi.fn(async () => []),
+    getRoundtable: vi.fn(async () => emptyRoundtable()),
+    createRoundtable: vi.fn(async () => emptyRoundtable()),
+    sendRoundtableMessage: vi.fn(async () => {}),
+    continueRoundtable: vi.fn(async () => {}),
+    stopRoundtable: vi.fn(async () => {}),
+    onRoundtableEvent: vi.fn(() => () => {}),
     getProfile: vi.fn(async () => ({
       at: 0,
       login: null,

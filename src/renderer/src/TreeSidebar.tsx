@@ -4,6 +4,7 @@ import type {
   PrStatus,
   Provider,
   RepoGroup,
+  RoundtableMeta,
   SessionMeta
 } from '../../shared/types'
 import { api } from './api'
@@ -53,6 +54,8 @@ export function TreeSidebar({
   selectedId,
   onSelect,
   onNewSession,
+  selectedRoundtableId,
+  onOpenRoundtable,
   onNewTask,
   onGoHome,
   onNav,
@@ -68,6 +71,9 @@ export function TreeSidebar({
   selectedId: string | null
   onSelect: (s: SessionMeta) => void
   onNewSession: (repo: RepoGroup) => void
+  /** Roundtable currently open in the main pane, for the section's selection state */
+  selectedRoundtableId: string | null
+  onOpenRoundtable: (id: string) => void
   /** The always-visible entry point: home composer, focused (same as ⌘N) */
   onNewTask: () => void
   onGoHome: () => void
@@ -85,13 +91,46 @@ export function TreeSidebar({
   const autoExpanded = useRef(false)
 
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
-  // non-repo sessions get their own flat Chats section instead of a faux repo row
-  const general = useMemo(
-    () => visibleRepos.find((r) => r.key === 'general') ?? null,
-    [visibleRepos]
-  )
   const repoList = useMemo(() => visibleRepos.filter((r) => r.key !== 'general'), [visibleRepos])
   const [chatsOpen, setChatsOpen] = useState(true)
+
+  // roundtables are tree items like sessions: grounded ones sit under their project,
+  // repo-less ones under Chats — never a category of their own
+  const [tables, setTables] = useState<RoundtableMeta[]>([])
+  useEffect(() => {
+    let dead = false
+    const load = (): void => {
+      void api.listRoundtables?.().then((r) => !dead && setTables(r))
+    }
+    load()
+    const unsub = api.onRoundtableEvent?.((ev) => {
+      if (ev.type === 'round') load()
+    })
+    return () => {
+      dead = true
+      unsub?.()
+    }
+  }, [indexVersion])
+  const chatTables = useMemo(() => tables.filter((t) => t.repoRoot === null), [tables])
+
+  // non-repo sessions get their own flat Chats section instead of a faux repo row;
+  // a repo-less roundtable needs that section even when no plain chats exist yet
+  const general = useMemo((): RepoGroup | null => {
+    const real = visibleRepos.find((r) => r.key === 'general')
+    if (real) return real
+    if (chatTables.length === 0) return null
+    return {
+      key: 'general',
+      name: 'general',
+      fullName: null,
+      root: null,
+      sessionCount: 0,
+      archivedCount: 0,
+      lastActivity: 0,
+      providers: [],
+      hidden: false
+    }
+  }, [visibleRepos, chatTables])
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 250)
@@ -228,6 +267,9 @@ export function TreeSidebar({
               indexVersion={indexVersion}
               accounts={accounts}
               selectedId={selectedId}
+              tables={tables.filter((t) => t.repoRoot !== null && t.repoRoot === r.root)}
+              selectedRoundtableId={selectedRoundtableId}
+              onOpenRoundtable={onOpenRoundtable}
               onToggle={() => toggle(r.key)}
               onSelect={onSelect}
               onNewSession={onNewSession}
@@ -242,6 +284,9 @@ export function TreeSidebar({
             indexVersion={indexVersion}
             accounts={accounts}
             selectedId={selectedId}
+            tables={chatTables}
+            selectedRoundtableId={selectedRoundtableId}
+            onOpenRoundtable={onOpenRoundtable}
             onToggle={() => setChatsOpen((v) => !v)}
             onSelect={onSelect}
           />
@@ -390,6 +435,9 @@ function RepoNode({
   indexVersion,
   accounts,
   selectedId,
+  tables,
+  selectedRoundtableId,
+  onOpenRoundtable,
   onToggle,
   onSelect,
   onNewSession,
@@ -400,6 +448,9 @@ function RepoNode({
   indexVersion: number
   accounts: AccountsSnapshot | null
   selectedId: string | null
+  tables: RoundtableMeta[]
+  selectedRoundtableId: string | null
+  onOpenRoundtable: (id: string) => void
   onToggle: () => void
   onSelect: (s: SessionMeta) => void
   onNewSession: (repo: RepoGroup) => void
@@ -481,6 +532,9 @@ function RepoNode({
           indexVersion={indexVersion}
           accounts={accounts}
           selectedId={selectedId}
+          tables={tables}
+          selectedRoundtableId={selectedRoundtableId}
+          onOpenRoundtable={onOpenRoundtable}
           showArchived={showArchived}
           onToggleArchived={() => setShowArchived((v) => !v)}
           onSelect={onSelect}
@@ -524,6 +578,10 @@ type GroupChildrenProps = {
   readonly indexVersion: number
   readonly accounts: AccountsSnapshot | null
   readonly selectedId: string | null
+  /** Roundtables that belong to this group — rendered as items above the sessions */
+  readonly tables: RoundtableMeta[]
+  readonly selectedRoundtableId: string | null
+  readonly onOpenRoundtable: (id: string) => void
   readonly showArchived: boolean
   readonly onToggleArchived: () => void
   readonly onSelect: (s: SessionMeta) => void
@@ -541,6 +599,9 @@ function GroupChildren({
   indexVersion,
   accounts,
   selectedId,
+  tables,
+  selectedRoundtableId,
+  onOpenRoundtable,
   showArchived,
   onToggleArchived,
   onSelect,
@@ -560,7 +621,18 @@ function GroupChildren({
   )
   return (
     <div className="repo-children" role="group">
-      {list(false)}
+      {tables.map((t) => (
+        <RoundtableNode
+          key={t.id}
+          t={t}
+          selected={selectedRoundtableId === t.id}
+          selectedId={selectedId}
+          indexVersion={indexVersion}
+          onOpen={onOpenRoundtable}
+          onSelect={onSelect}
+        />
+      ))}
+      {(repo.sessionCount > 0 || tables.length === 0) && list(false)}
       {repo.archivedCount > 0 && (
         <>
           <button
@@ -579,6 +651,134 @@ function GroupChildren({
   )
 }
 
+/**
+ * A roundtable as a tree item — it sits inside its project (or Chats) like any
+ * session. The row opens the shared view; the chevron expands the seat-sessions the
+ * table spawned. Those never appear as independent sessions anywhere else, and open
+ * read-only (a debugging view).
+ */
+function RoundtableNode({
+  t,
+  selected,
+  selectedId,
+  indexVersion,
+  onOpen,
+  onSelect
+}: {
+  t: RoundtableMeta
+  selected: boolean
+  selectedId: string | null
+  indexVersion: number
+  onOpen: (id: string) => void
+  onSelect: (s: SessionMeta) => void
+}): JSX.Element {
+  const timeFormat = useTimeFormat()
+  const [seatsOpen, setSeatsOpen] = useState(false)
+  const onToggleSeats = (): void => setSeatsOpen((v) => !v)
+  return (
+    <>
+      <div
+        className={`session-row rt-row ${selected ? 'selected' : ''}`}
+        role="treeitem"
+        aria-selected={selected}
+        aria-expanded={seatsOpen}
+        aria-level={2}
+        tabIndex={-1}
+        title={`${t.providers.map((p) => PROVIDER_LABEL[p]).join(' + ')}\n${t.title}${
+          t.branch ? `\n⎇ ${t.branch}` : ''
+        }\nchevron: seat sessions (debug)`}
+        onClick={() => onOpen(t.id)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen(t.id)
+          } else if (e.key === 'ArrowRight' && !seatsOpen) onToggleSeats()
+          else if (e.key === 'ArrowLeft' && seatsOpen) onToggleSeats()
+        }}
+      >
+        {/* the chevron is the seat-session (debug) toggle; the row itself opens the table */}
+        <span
+          className={`chev ${seatsOpen ? 'open' : ''}`}
+          role="button"
+          aria-label={seatsOpen ? 'Hide seat sessions' : 'Show seat sessions'}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleSeats()
+          }}
+        >
+          ▸
+        </span>
+        <span className="rt-seats">
+          {t.providers.map((p) => (
+            <span key={p} className={`rt-seat plogo-${p}`}>
+              <ProviderLogo p={p} size={10} />
+            </span>
+          ))}
+        </span>
+        <span className="session-title">{t.title}</span>
+        {t.running ? (
+          <span className="pulse" role="img" aria-label="round in progress" />
+        ) : (
+          <time dateTime={new Date(t.updatedAt).toISOString()}>
+            {fmtTime(t.updatedAt, timeFormat)}
+          </time>
+        )}
+      </div>
+      {seatsOpen && (
+        <SeatSessionList
+          tableId={t.id}
+          indexVersion={indexVersion}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
+      )}
+    </>
+  )
+}
+
+/** The provider sessions a table spawned, shown only here — they open read-only. */
+function SeatSessionList({
+  tableId,
+  indexVersion,
+  selectedId,
+  onSelect
+}: {
+  tableId: string
+  indexVersion: number
+  selectedId: string | null
+  onSelect: (s: SessionMeta) => void
+}): JSX.Element {
+  const [items, setItems] = useState<SessionMeta[] | null>(null)
+
+  useEffect(() => {
+    let dead = false
+    void api.pageSessions({ roundtableId: tableId, limit: PAGE }).then((p) => {
+      if (dead) return
+      setItems((prev) => (prev && sameList(prev, p.items) ? prev : p.items))
+    })
+    return () => {
+      dead = true
+    }
+  }, [tableId, indexVersion])
+
+  if (items === null) return <div className="tree-empty">loading…</div>
+  if (items.length === 0) return <div className="tree-empty">no seat sessions yet</div>
+  return (
+    <>
+      {items.map((s) => (
+        <SessionRow
+          key={s.id}
+          s={s}
+          selected={selectedId === s.id}
+          level={3}
+          onSelect={onSelect}
+          onOpenUrl={noop}
+        />
+      ))}
+    </>
+  )
+}
+
 /** Sessions with no repo: one flat section — a Chats header with the sessions right under it. */
 function ChatsSection({
   repo,
@@ -586,6 +786,9 @@ function ChatsSection({
   indexVersion,
   accounts,
   selectedId,
+  tables,
+  selectedRoundtableId,
+  onOpenRoundtable,
   onToggle,
   onSelect
 }: {
@@ -594,6 +797,9 @@ function ChatsSection({
   indexVersion: number
   accounts: AccountsSnapshot | null
   selectedId: string | null
+  tables: RoundtableMeta[]
+  selectedRoundtableId: string | null
+  onOpenRoundtable: (id: string) => void
   onToggle: () => void
   onSelect: (s: SessionMeta) => void
 }): JSX.Element {
@@ -627,6 +833,9 @@ function ChatsSection({
           indexVersion={indexVersion}
           accounts={accounts}
           selectedId={selectedId}
+          tables={tables}
+          selectedRoundtableId={selectedRoundtableId}
+          onOpenRoundtable={onOpenRoundtable}
           showArchived={showArchived}
           onToggleArchived={() => setShowArchived((v) => !v)}
           onSelect={onSelect}

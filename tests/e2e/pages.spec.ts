@@ -184,7 +184,7 @@ test('profile aggregates the fixture sessions into a heatmap', async () => {
 })
 
 test('agents view shows its five tabs and switches panels', async () => {
-  await win.getByRole('button', { name: 'Agents' }).click()
+  await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
   const tabs = win.getByRole('tablist', { name: 'Agents sections' })
   for (const label of ['Instructions', 'MCP Servers', 'Skills', 'Plugins', 'Marketplace']) {
@@ -327,7 +327,7 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   await win.keyboard.press('Escape')
 
   // five tabs must wrap inside the narrow card, never overflow it
-  await win.getByRole('button', { name: 'Agents' }).click()
+  await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
   expect(await audit()).toEqual([])
 

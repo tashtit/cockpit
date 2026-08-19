@@ -57,6 +57,8 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
     case 'codex': {
       const resume = req.resumeNativeId
       const args = resume ? ['exec', 'resume', resume, '--json'] : ['exec', '--json']
+      // both `exec` and `exec resume` take this flag (verified against codex --help)
+      if (req.options?.codexSkipGitCheck) args.push('--skip-git-repo-check')
       if (model) args.push('--model', model)
       const requested = req.options?.codexSandbox
       // --full-auto was removed from `codex exec`; auto-edit maps to its old meaning

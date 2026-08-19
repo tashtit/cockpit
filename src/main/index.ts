@@ -2,7 +2,14 @@ import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import type { ChatRequest, Provider, SessionQuery, TimeFormat } from '../shared/types'
+import type {
+  ChatRequest,
+  NewRoundtableRequest,
+  PermissionMode,
+  Provider,
+  SessionQuery,
+  TimeFormat
+} from '../shared/types'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { ChatManager } from './chat'
@@ -25,6 +32,8 @@ import {
 import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
+import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
+import { clampRounds } from './roundtable-core'
 import {
   assertClaudeProjectServer,
   getExtensions,
@@ -56,6 +65,7 @@ if (!app.isPackaged && process.env['COCKPIT_USER_DATA']) {
 let win: BrowserWindow | null = null
 let indexer: SessionIndexer
 let chat: ChatManager
+let roundtables: RoundtableManager | null = null
 
 /**
  * Push an event to the renderer. Streams and scans outlive the window on macOS
@@ -441,6 +451,8 @@ app.whenReady().then(() => {
   const handoffTurns = new Map<string, { provider: Provider; sourceId: string }>()
   chat = new ChatManager(
     (ev) => {
+      // roundtable turns stream on their own channel — never as plain chat events
+      if (roundtables?.handleChatEvent(ev)) return
       const byok = byokTurns.get(ev.turnId)
       if (byok && ev.type === 'session') {
         try {
@@ -499,10 +511,19 @@ app.whenReady().then(() => {
     // the handoff source is renderer input — only accept sessions the index knows
     if (req.handoffFrom !== undefined) {
       const src = String(req.handoffFrom)
-      if (src.length > 256 || !indexer.getSession(src)) {
-        throw new Error(`unknown handoff source: ${src.slice(0, 80)}`)
+      const source = src.length > 256 ? null : indexer.getSession(src)
+      if (!source) throw new Error(`unknown handoff source: ${src.slice(0, 80)}`)
+      // a seat-session is a table's internal, not a conversation of the user's —
+      // handing off from one would seed a writable session with relay scaffolding
+      if (source.cwd && roundtables?.tableIdForCwd(source.cwd)) {
+        throw new Error('Roundtable seat sessions cannot be handed off — start from the table.')
       }
       req = { ...req, handoffFrom: src }
+    }
+    // roundtable rooms are driven only by their table's round loop — a seat-session
+    // opened from the debug list is read-only for now
+    if (roundtables?.tableIdForCwd(req.cwd)) {
+      throw new Error('This session belongs to a roundtable — talk to it at the table instead.')
     }
     // copilot multi-account: activate the chosen logged-in user before spawning
     if (req.provider === 'copilot' && req.copilotUser) {
@@ -528,6 +549,59 @@ app.whenReady().then(() => {
     return turnId
   })
   ipcMain.handle('chat:cancel', (_e, turnId: string) => chat.cancel(turnId))
+
+  // roundtables: several agents, one shared discussion, driven through the same
+  // ChatManager (its emit hands their stream events to the manager above)
+  const tables = new RoundtableManager(join(app.getPath('userData'), 'roundtables'), {
+    sendTurn: (req) => chat.send(req),
+    cancelTurn: (turnId) => chat.cancel(turnId),
+    emit: (ev) => sendToWin('roundtable-event', ev)
+  })
+  roundtables = tables
+  // seat-sessions (anything whose cwd is a table's room/worktree) leave the normal
+  // session listings and page only under their table
+  indexer.setRoundtableResolver((cwd) => tables.tableIdForCwd(cwd))
+  ipcMain.handle('roundtable:list', () => tables.list())
+  ipcMain.handle('roundtable:get', (_e, id: string) => tables.get(String(id)))
+  ipcMain.handle('roundtable:create', async (_e, req: NewRoundtableRequest) => {
+    const topic = String(req?.topic ?? '').trim()
+    if (!topic) throw new Error('A topic is required.')
+    if (topic.length > 20_000) throw new Error('Topic is too long.')
+    // seats are renderer input: known providers only (a provider may repeat with a
+    // different model), and any config home re-validated against main-derived
+    // sources before a CLI runs on it. Discussion-only — no permission mode exists.
+    const seats: SeatInit[] = []
+    for (const raw of Array.isArray(req?.seats) ? req.seats : []) {
+      const provider = asProvider(raw?.provider)
+      const model = typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : undefined
+      seats.push({
+        provider,
+        configDir:
+          raw.configDir === undefined ? undefined : assertKnownConfigDir(raw.configDir, provider),
+        copilotUser: raw.copilotUser === undefined ? undefined : String(raw.copilotUser),
+        accountLabel:
+          raw.accountLabel === undefined ? undefined : String(raw.accountLabel).slice(0, 200),
+        options: model ? { model } : undefined
+      })
+    }
+    if (seats.length < 2) throw new Error('Pick at least two seats for a roundtable.')
+    if (seats.length > 4) throw new Error('A table seats at most four.')
+    // consensus knobs are renderer input: whitelist the mode, clamp the round cap
+    const tableMode = req?.mode === 'consensus' ? 'consensus' : 'open'
+    const maxRounds = clampRounds(req?.maxRounds)
+    let place: TablePlace | null = null
+    if (req.repoRoot !== null && req.repoRoot !== undefined) {
+      const root = assertKnownRepoRoot(req.repoRoot)
+      const ws = await createWorkspace(root, `table ${topic.slice(0, 30)}`)
+      place = { cwd: ws.cwd, branch: ws.branch, repoRoot: root }
+    }
+    return tables.create({ topic, seats, mode: tableMode, maxRounds }, place)
+  })
+  ipcMain.handle('roundtable:send', (_e, id: string, text: string) =>
+    tables.sendMessage(String(id), String(text))
+  )
+  ipcMain.handle('roundtable:continue', (_e, id: string) => tables.continueRound(String(id)))
+  ipcMain.handle('roundtable:stop', (_e, id: string) => tables.stop(String(id)))
 
   // Cockpit mark in the dock (packaged builds get it via the bundle icon instead)
   if (process.platform === 'darwin') {

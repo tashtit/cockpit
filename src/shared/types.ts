@@ -51,6 +51,9 @@ export type SessionMeta = {
   archived?: boolean
   /** Session id this one was handed off from (cockpit config, not provider logs) — set by the indexer */
   continuedFrom?: string
+  /** Set when this is a roundtable seat-session (cwd is a table's room/worktree) —
+   *  such sessions page only under their table and open read-only */
+  roundtableId?: string
 }
 
 export type MessageKind = 'text' | 'tool_call' | 'tool_result' | 'reasoning' | 'system' | 'unknown'
@@ -88,6 +91,8 @@ export type SessionQuery = {
   readonly repoKey?: string
   readonly providers?: Provider[]
   readonly search?: string
+  /** Page only this roundtable's seat-sessions (normal queries exclude them all) */
+  readonly roundtableId?: string
   /** false/undefined = active sessions; true = archived ones */
   readonly archived?: boolean
   readonly offset?: number
@@ -155,6 +160,9 @@ export type AgentOptions = {
   readonly model?: string
   /** Codex only: --sandbox */
   readonly codexSandbox?: CodexSandbox
+  /** Codex only: --skip-git-repo-check — codex refuses cwds outside a git repo
+   *  (roundtable scratch rooms are exactly that) */
+  readonly codexSkipGitCheck?: boolean
   /** Custom model endpoint (ModelEndpoint.id) — claude/copilot run against it via env */
   readonly modelEndpoint?: string
 }
@@ -480,6 +488,159 @@ export type ChatEvent =
   | { readonly turnId: string; readonly type: 'done'; readonly costUsd?: number }
   | { readonly turnId: string; readonly type: 'error'; readonly message: string }
 
+/* ---------- roundtable (multi-agent shared discussion) ---------- */
+
+/** Who wrote a roundtable entry: the moderating user, or one of the agent seats. */
+export type RoundtableSpeaker = 'user' | Provider
+
+/** One message in a roundtable's shared transcript. */
+export type RoundtableEntry = {
+  readonly speaker: RoundtableSpeaker
+  readonly text: string
+  readonly at: number
+  /** The turn failed — text carries the error, not a contribution */
+  readonly error?: boolean
+  /** Consensus mode: the stance this seat declared at the end of its reply */
+  readonly stance?: 'agree' | 'continue'
+  /** Consensus mode: the seat's own one-line position (agree) or open point (not yet) —
+   *  the outcome panel is assembled from these lines by the app, never by another AI */
+  readonly stanceNote?: string
+  /** Participant index that spoke — several seats may share a provider (old files
+   *  lack it; resolvers fall back to the provider's first seat) */
+  readonly seat?: number
+}
+
+/** How a table runs its rounds: user-driven, or auto-rounds until the seats agree. */
+export type RoundtableMode = 'open' | 'consensus'
+
+/** One agent seat at the table. */
+export type RoundtableParticipant = {
+  readonly provider: Provider
+  /** Config home of the account this seat runs as (undefined = provider default) */
+  readonly configDir?: string
+  /** Copilot: which logged-in GitHub user this seat runs as */
+  readonly copilotUser?: string
+  /** Human-readable identity, display only */
+  readonly accountLabel?: string
+  /** Per-seat agent knobs chosen at creation (model) */
+  readonly options?: AgentOptions
+  /** Latest provider-native session id — null until the CLI announces one (copilot never does) */
+  readonly nativeSessionId: string | null
+  /** Transcript length this seat has been shown — its next delta prompt starts here */
+  readonly seenUpTo: number
+}
+
+/**
+ * A multi-agent discussion: several agent CLIs share one transcript and one working
+ * directory. A user message opens a parallel wave (every seat answers at once);
+ * discussion rounds relay sequentially so seats respond to each other. Cockpit owns
+ * this record (userData) — each seat's provider session only sees its side of the relay.
+ */
+export type Roundtable = {
+  readonly id: string
+  readonly title: string
+  /** The opening subject (also the first user entry) */
+  readonly topic: string
+  readonly createdAt: number
+  readonly updatedAt: number
+  /** Shared working directory every seat runs in */
+  readonly cwd: string
+  /** Repo the shared worktree was cut from; null = free-standing discussion */
+  readonly repoRoot: string | null
+  readonly branch: string | null
+  /** Always 'safe': roundtables are discussions — seats read the code, never change it */
+  readonly permissionMode: PermissionMode
+  /** 'consensus' = auto-rounds until every seat agrees, then a joint synthesis */
+  readonly mode: RoundtableMode
+  /** Consensus mode: max auto discussion rounds per user message (the wave is round 1) */
+  readonly maxRounds: number
+  /** Rounds completed since the last user message — mutable cycle state */
+  roundsRun: number
+  /** Consensus mode: the current cycle ended with a synthesis; a new message reopens */
+  concluded: boolean
+  readonly participants: RoundtableParticipant[]
+  readonly entries: RoundtableEntry[]
+}
+
+/** A roundtable plus its live state (never persisted). */
+export type RoundtableSnapshot = Roundtable & {
+  readonly running: boolean
+  /** Participant indexes with a turn in flight — several at once during a wave */
+  readonly speaking: readonly number[]
+}
+
+/** List-row projection — transcripts stay out so the list is always light. */
+export type RoundtableMeta = {
+  readonly id: string
+  readonly title: string
+  readonly updatedAt: number
+  readonly providers: Provider[]
+  readonly entryCount: number
+  readonly running: boolean
+  readonly branch: string | null
+  /** Groups the table under its project in the tree; null = a Chats item */
+  readonly repoRoot: string | null
+}
+
+/** Renderer-supplied seat definition (main re-validates every field). */
+export type NewRoundtableSeat = {
+  readonly provider: Provider
+  readonly configDir?: string
+  readonly copilotUser?: string
+  readonly accountLabel?: string
+  readonly model?: string
+}
+
+/** Renderer request to open a roundtable. */
+export type NewRoundtableRequest = {
+  readonly topic: string
+  /** null = no repo: the table runs in a scratch dir instead of a worktree */
+  readonly repoRoot: string | null
+  /** Seats may repeat a provider (different models); main caps the count */
+  readonly seats: NewRoundtableSeat[]
+  readonly mode?: RoundtableMode
+  /** Consensus mode: auto discussion-round cap (main clamps to a sane range) */
+  readonly maxRounds?: number
+}
+
+/** Push events for a live roundtable (renderer filters by id). */
+export type RoundtableEvent =
+  | {
+      readonly id: string
+      readonly type: 'round'
+      readonly running: boolean
+      /** Rounds completed this cycle — drives the consensus progress line */
+      readonly roundsRun?: number
+      /** The cycle just closed with a synthesis (consensus mode) */
+      readonly concluded?: boolean
+    }
+  | { readonly id: string; readonly type: 'turn'; readonly speaker: Provider; readonly seat: number }
+  /** The seat's turn is over — fires even when no entry was produced (silent stop) */
+  | { readonly id: string; readonly type: 'turn-end'; readonly speaker: Provider; readonly seat: number }
+  | {
+      readonly id: string
+      readonly type: 'delta'
+      readonly speaker: Provider
+      readonly seat: number
+      readonly text: string
+    }
+  | {
+      readonly id: string
+      readonly type: 'tool'
+      readonly speaker: Provider
+      readonly seat: number
+      readonly toolName: string
+      readonly detail: string
+      readonly preview?: string
+    }
+  | {
+      readonly id: string
+      readonly type: 'entry'
+      /** Absolute transcript index — lets the renderer dedupe against its snapshot */
+      readonly index: number
+      readonly entry: RoundtableEntry
+    }
+
 /** Clock format for session timestamps shown in the UI */
 export type TimeFormat = '12h' | '24h'
 
@@ -550,6 +711,17 @@ export type CockpitApi = {
   readonly removeModelEndpoint: (id: string) => Promise<ModelEndpoint[]>
   /** Ask the provider itself which models it serves (also refreshes the cached list) */
   readonly listEndpointModels: (id: string) => Promise<string[]>
+  /* roundtables: several agents, one shared discussion */
+  readonly listRoundtables: () => Promise<RoundtableMeta[]>
+  readonly getRoundtable: (id: string) => Promise<RoundtableSnapshot>
+  /** Creates the table (a shared worktree when a repo is chosen) and runs the opening round */
+  readonly createRoundtable: (req: NewRoundtableRequest) => Promise<RoundtableSnapshot>
+  /** Append a user message and run one full round of replies */
+  readonly sendRoundtableMessage: (id: string, text: string) => Promise<void>
+  /** One more round with no new user message — the seats keep talking */
+  readonly continueRoundtable: (id: string) => Promise<void>
+  readonly stopRoundtable: (id: string) => Promise<void>
+  readonly onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => () => void
   /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
   readonly getZoomFactor: () => number
   readonly setZoomFactor: (factor: number) => void

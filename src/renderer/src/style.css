@@ -415,9 +415,9 @@ summary::-webkit-details-marker { display: none; }
 .lineage-chip.acct-copilot:hover { background: rgba(var(--copilot-rgb), 0.12); }
 .link-btn { color: var(--accent); font-size: inherit; padding: 0; }
 .link-btn:hover { text-decoration: underline; }
-/* the discoverable path from Home's quick composer to the full New session form */
-.home-more { display: flex; justify-content: flex-end; font-size: var(--fs-sm);
-  margin-top: calc(-1 * var(--s3)); }
+/* the discoverable paths out of Home's quick composer (roundtable / full form) */
+.home-more { display: flex; justify-content: flex-end; gap: var(--s5); flex-wrap: wrap;
+  font-size: var(--fs-sm); margin-top: calc(-1 * var(--s3)); }
 .new-error { color: var(--danger); font-size: var(--fs-sm); white-space: pre-wrap; }
 
 /* ---------- chat ---------- */
@@ -482,6 +482,105 @@ summary::-webkit-details-marker { display: none; }
 .badge-codex { background: var(--codex); }
 .badge-codex svg { color: var(--white); }
 .badge-copilot { background: var(--copilot); }
+
+/* ---------- roundtable: several agents, one discussion ---------- */
+/* outline badge: the multi-agent view belongs to the app accent — solid fills stay per-agent */
+.badge-roundtable { background: rgba(var(--accent-rgb), 0.14); color: var(--accent);
+  border: 1px solid rgba(var(--accent-rgb), 0.45); }
+.badge-roundtable svg { color: inherit; }
+/* seat cluster: one small tile per agent at the table */
+.rt-seats { display: inline-flex; align-items: center; gap: var(--s1); flex-shrink: 0; }
+.rt-seat { display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--radius-sm); background: var(--surface);
+  border: 1px solid var(--border); }
+.board-row .rt-seat { width: 20px; height: 20px; }
+/* speaker attribution above each contribution — the agent's identity color */
+.rt-speaker { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.3px;
+  margin-bottom: var(--s1); }
+.rt-speaker-claude { color: var(--claude); }
+.rt-speaker-codex { color: var(--codex); }
+.rt-speaker-copilot { color: var(--copilot); }
+/* a wave: each streaming seat is its own live block, joining the transcript flow */
+.rt-live { display: contents; }
+/* tree item: the chevron toggles seat-sessions (debug); the row opens the table.
+   Multi-seat rows select in accent — no single agent owns them (overrides the
+   per-agent :has tints above, hence the specificity) */
+.session-row.rt-row.selected {
+  background: linear-gradient(90deg, var(--accent-glow), transparent 70%);
+  box-shadow: inset 2px 0 0 var(--accent); }
+.rt-row .rt-seat { width: 18px; height: 18px; }
+.session-row[aria-level='3'] { padding-left: calc(var(--s3) + 14px); opacity: 0.9; }
+/* seat-session (read-only) notice replaces the composer controls */
+.composer-readonly { flex: 1; text-align: center; color: var(--fg-dim);
+  font-size: var(--fs-sm); padding: var(--s3) 0; }
+/* ---------- the table itself: seats around an arc, live states on each ---------- */
+/* The view's one signature element. The arc is the tabletop edge; seats sit on it.
+   Everything on it is derived state — it never invents anything the transcript
+   doesn't know. The glow breathes only while a round runs. */
+.rt-table { position: relative; height: 96px; flex-shrink: 0;
+  margin: 0 var(--s6); border-bottom: 1px solid var(--border); }
+.rt-table-arc { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rt-table-edge { fill: none; stroke: var(--border); stroke-width: 1.5;
+  vector-effect: non-scaling-stroke; }
+/* a whisper of accent keeps the tabletop legible at rest; a round makes it breathe */
+.rt-table-glow { fill: none; stroke: var(--accent); stroke-width: 1.5;
+  vector-effect: non-scaling-stroke; opacity: 0.09; }
+.rt-table.running .rt-table-glow { animation: rt-breathe 2.6s ease-in-out infinite alternate; }
+@keyframes rt-breathe { from { opacity: 0.12; } to { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .rt-table.running .rt-table-glow { animation: none; opacity: 0.3; }
+}
+.rt-table-seat { position: absolute; transform: translate(-50%, -40%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  max-width: 132px; text-align: center; }
+.rt-table-seat .rt-seat { position: relative; width: 26px; height: 26px;
+  background: var(--bg2); }
+.rt-seat-pulse { position: absolute; top: -2px; right: -2px; width: 7px; height: 7px; }
+.rt-table-name { font-size: var(--fs-xs); font-weight: 600; color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 132px; }
+/* status captions speak the board-eyebrow language: mono, uppercase, quiet */
+.rt-table-status { font-family: var(--mono); font-size: 9px; letter-spacing: 0.4px;
+  text-transform: uppercase; color: var(--fg-dim); }
+.rt-table-seat.status-agree .rt-table-status { color: var(--ok); }
+.rt-table-seat.thinking .rt-table-status { color: var(--accent); }
+/* narrow windows: the arc yields, seats fall into a flat row — same data, no drama */
+@media (max-width: 640px) {
+  .rt-table { height: auto; display: flex; flex-wrap: wrap; gap: var(--s4);
+    justify-content: center; padding: var(--s3) 0; }
+  .rt-table-arc { display: none; }
+  .rt-table-seat { position: static; transform: none; }
+}
+
+/* per-seat setup in the creation form: one row per chosen seat — account + model */
+.rt-seat-config { display: flex; flex-direction: column; gap: var(--s2); }
+.rt-seat-cfg-row { display: flex; align-items: center; gap: var(--s3); }
+.rt-seat-cfg-name { width: 60px; flex-shrink: 0; font-size: var(--fs-sm); }
+.rt-seat-cfg-row .select-wrap { flex: 1; min-width: 0; }
+.rt-seat-cfg-row input { flex: 1; min-width: 0; font-family: var(--mono); }
+.rt-seat-cfg-acct { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--fg-dim); font-family: var(--mono);
+  font-size: var(--fs-sm); }
+
+/* consensus mode: stance chip beside the speaker, progress note in the thinking line */
+.rt-stance { margin-left: var(--s2); font-weight: 600; color: var(--fg-dim); }
+.rt-stance.agree { color: var(--ok); }
+.rt-progress { color: var(--fg-dim); }
+/* the cycle's outcome: app-assembled from the seats' own closing lines — no AI writes
+   this card, so it reads as a ledger of positions, not another contribution */
+.rt-outcome { border: 1px solid rgba(var(--accent-rgb), 0.45); border-radius: var(--radius);
+  background: rgba(var(--accent-rgb), 0.07); padding: var(--s4) var(--s5);
+  max-width: min(85%, 76ch); display: flex; flex-direction: column; gap: var(--s3); }
+.rt-outcome-head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap;
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.4px;
+  text-transform: uppercase; color: var(--accent); }
+.rt-outcome-sub { font-weight: 500; letter-spacing: 0.2px; text-transform: none;
+  color: var(--fg-dim); }
+.rt-outcome-row { display: flex; align-items: baseline; gap: var(--s3);
+  font-size: var(--fs-base); }
+.rt-outcome-row .avatar { width: 20px; height: 20px; align-self: center; }
+.rt-outcome-row .rt-speaker { margin-bottom: 0; flex-shrink: 0; }
+.rt-outcome-row .rt-stance { margin-left: 0; flex-shrink: 0; font-size: var(--fs-xs); }
+.rt-outcome-line { min-width: 0; }
 
 .messages { flex: 1; overflow-y: auto; display: flex;
   flex-direction: column; gap: var(--s4); padding-block: var(--s5);

@@ -115,6 +115,8 @@ describe('session rows follow the time format live', () => {
         onStart={vi.fn().mockResolvedValue(null)}
         onOpenSession={vi.fn()}
         onOpenFull={vi.fn()}
+        onNewRoundtable={vi.fn()}
+        onOpenRoundtable={vi.fn()}
       />
     )
 
