@@ -14,6 +14,9 @@ import { TreeSidebar } from './TreeSidebar'
 import { ChatView } from './ChatView'
 import { CommandPalette, type PaletteViewKey } from './CommandPalette'
 import { NewSession } from './NewSession'
+import { HandoffView } from './HandoffView'
+import type { HandoffSourceRef, StartHandoffRequest } from './HandoffView'
+import { PROVIDER_LABEL } from './logos'
 import { Settings } from './Settings'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
@@ -38,12 +41,24 @@ export type ChatBinding = {
   readonly copilotUser?: string
   /** Human-readable identity shown in the chat header */
   readonly accountLabel?: string
+  /** Lineage chip: the session this one was handed off from */
+  readonly continuedFrom?: { readonly id: string; readonly provider: Provider }
+}
+
+/** `provider:nativeId` → the chip's {id, provider}; null for anything malformed
+ *  (the lineage map lives in a hand-editable config file). */
+function lineageRef(id: string | undefined): ChatBinding['continuedFrom'] | undefined {
+  if (!id) return undefined
+  const provider = id.split(':', 1)[0] as Provider
+  if (provider !== 'claude' && provider !== 'codex' && provider !== 'copilot') return undefined
+  return { id, provider }
 }
 
 type View =
   | { kind: 'welcome' }
   | { kind: 'chat' }
   | { kind: 'new'; repo: RepoGroup; draft?: string; draftImages?: readonly ImageAttachment[] }
+  | { kind: 'handoff'; source: HandoffSourceRef }
   | { kind: 'settings' }
   | { kind: 'extensions' }
   | { kind: 'profile' }
@@ -77,6 +92,8 @@ const sameNavEntry = (a: NavEntry, b: NavEntry): boolean => {
       av.draft === bv.draft &&
       av.draftImages === bv.draftImages
     )
+  if (av.kind === 'handoff' || bv.kind === 'handoff')
+    return av.kind === 'handoff' && bv.kind === 'handoff' && av.source.id === bv.source.id
   return av.kind === bv.kind
 }
 
@@ -309,7 +326,8 @@ export function App(): JSX.Element {
         branch: s.gitBranch,
         repoRoot: s.repo?.root ?? null,
         configDir: acct && !acct.isDefault ? acct.path : undefined,
-        accountLabel: acct ? (acct.identity ?? acct.label) : undefined
+        accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
+        continuedFrom: lineageRef(s.continuedFrom)
       })
       setView({ kind: 'chat' })
       setLog([])
@@ -404,7 +422,7 @@ export function App(): JSX.Element {
           return
         }
         setView((v) =>
-          v.kind === 'settings' || v.kind === 'extensions' || v.kind === 'new'
+          v.kind === 'settings' || v.kind === 'extensions' || v.kind === 'new' || v.kind === 'handoff'
             ? bindingRef.current
               ? { kind: 'chat' }
               : { kind: 'welcome' }
@@ -499,6 +517,89 @@ export function App(): JSX.Element {
       }
     },
     [beginTurn]
+  )
+
+  /** Open the handoff form for the current session (needs a started, idle session). */
+  const openHandoff = useCallback(() => {
+    const b = bindingRef.current
+    if (!b || !b.nativeSessionId || activeTurnRef.current) return
+    setView({
+      kind: 'handoff',
+      source: {
+        id: `${b.provider}:${b.nativeSessionId}`,
+        provider: b.provider,
+        title: b.title,
+        cwd: b.cwd,
+        branch: b.branch,
+        repoRoot: b.repoRoot
+      }
+    })
+  }, [])
+
+  /** Handoff flow: same shape as startSession minus the worktree — the source
+   *  session's directory IS the workspace, and the briefing is the first prompt. */
+  const startHandoff = useCallback(
+    async (req: StartHandoffRequest): Promise<string | null> => {
+      const { source, provider, briefing, mode, options, account } = req
+      setCreating(true)
+      try {
+        setSelectedSessionId(null)
+        setBinding({
+          provider,
+          cwd: source.cwd,
+          nativeSessionId: null,
+          title: source.title,
+          branch: source.branch,
+          repoRoot: source.repoRoot,
+          options,
+          configDir: account.configDir,
+          copilotUser: account.copilotUser,
+          accountLabel: account.display,
+          continuedFrom: { id: source.id, provider: source.provider }
+        })
+        setView({ kind: 'chat' })
+        setLog([
+          {
+            role: 'system',
+            kind: 'system',
+            text: `Continuing from ${PROVIDER_LABEL[source.provider]} in ${source.cwd} — same worktree, same branch.`
+          },
+          { role: 'user', kind: 'text', text: briefing }
+        ])
+        const turnId = await api.sendChat({
+          provider,
+          cwd: source.cwd,
+          prompt: briefing,
+          permissionMode: mode,
+          options,
+          configDir: account.configDir,
+          copilotUser: account.copilotUser,
+          handoffFrom: source.id
+        })
+        beginTurn(turnId)
+        return null
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err)
+      } finally {
+        setCreating(false)
+      }
+    },
+    [beginTurn]
+  )
+
+  /** Lineage chip navigation: resolve the source session and open it. */
+  const openLineage = useCallback(
+    async (sourceId: string) => {
+      const meta = await api.getSession(sourceId)
+      if (meta) void openSession(meta)
+      else {
+        setLog((l) => [
+          ...l,
+          { role: 'system', kind: 'system', text: 'The session this one continued is no longer in Cockpit’s index.' }
+        ])
+      }
+    },
+    [openSession]
   )
 
   const cancel = useCallback(() => {
@@ -600,6 +701,13 @@ export function App(): JSX.Element {
           onStart={startSession}
           onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
         />
+      ) : view.kind === 'handoff' ? (
+        <HandoffView
+          source={view.source}
+          busy={creating}
+          onStart={startHandoff}
+          onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
+        />
       ) : view.kind === 'welcome' ? (
         <HomeView
           repos={visibleRepos}
@@ -620,6 +728,8 @@ export function App(): JSX.Element {
           onCancel={cancel}
           onCreatePr={createPr}
           onOpenUrl={openUrl}
+          onOpenHandoff={openHandoff}
+          onOpenLineage={(id) => void openLineage(id)}
         />
       )}
       {paletteOpen && (

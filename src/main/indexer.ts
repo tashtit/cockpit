@@ -163,6 +163,8 @@ export class SessionIndexer {
   private scanQueued = false
   private sources: SourceDir[] = []
   private archived = new Set<string>()
+  /** Handoff lineage (session id → source session id) from cockpit config */
+  private lineage = new Map<string, string>()
   /** Archived or deleted in the provider's own app — excluded everywhere (see provider-archived.ts) */
   private providerArchived = new Set<string>()
   private providerArchivedTimer: NodeJS.Timeout | null = null
@@ -189,6 +191,12 @@ export class SessionIndexer {
   /** Applied at query time so toggling archive never re-parses anything. */
   setArchived(ids: string[]): void {
     this.archived = new Set(ids)
+    this.emitUpdate()
+  }
+
+  /** Applied at query time like archived — lineage lives in cockpit config, not provider logs. */
+  setLineage(map: Record<string, string>): void {
+    this.lineage = new Map(Object.entries(map))
     this.emitUpdate()
   }
 
@@ -692,14 +700,64 @@ export class SessionIndexer {
       )
     }
     all.sort((a, b) => b.updatedAt - a.updatedAt)
+    all = this.groupChains(all)
     const offset = Math.max(0, query.offset ?? 0)
     const limit = Math.max(1, Math.min(1000, query.limit ?? DEFAULT_PAGE_SIZE))
     return {
       total: all.length,
-      items: all
-        .slice(offset, offset + limit)
-        .map((s) => ({ ...s, archived: this.archived.has(s.id) }))
+      items: all.slice(offset, offset + limit).map((s) => ({
+        ...s,
+        archived: this.archived.has(s.id),
+        continuedFrom: this.lineage.get(s.id)
+      }))
     }
+  }
+
+  /**
+   * Handoff chains render as one thread: members are pulled together under the
+   * chain's newest session, which keeps the sorted position it already had.
+   * Must happen here — the renderer only ever sees pages, never the full list.
+   * Lineage edges only count when both ends survived the query's filters.
+   */
+  private groupChains(sorted: SessionMeta[]): SessionMeta[] {
+    if (this.lineage.size === 0) return sorted
+    const present = new Set(sorted.map((s) => s.id))
+    // config is hand-editable: cap the walk and track visits so a cycle can't hang
+    const rootOf = (id: string): string => {
+      let cur = id
+      const seen = new Set([cur])
+      for (let i = 0; i < 32; i++) {
+        const parent = this.lineage.get(cur)
+        if (!parent || !present.has(parent) || seen.has(parent)) return cur
+        seen.add(parent)
+        cur = parent
+      }
+      return cur
+    }
+    const roots = new Map<string, string>()
+    for (const s of sorted) roots.set(s.id, rootOf(s.id))
+    const groups = new Map<string, SessionMeta[]>()
+    let chained = false
+    for (const s of sorted) {
+      const root = roots.get(s.id) as string
+      const g = groups.get(root)
+      if (g) {
+        g.push(s)
+        chained = true
+      } else groups.set(root, [s])
+    }
+    if (!chained) return sorted
+    // walking in recency order and emitting each group at its first (= newest)
+    // member keeps chains sorted by head recency, ancestors directly underneath
+    const out: SessionMeta[] = []
+    const emitted = new Set<string>()
+    for (const s of sorted) {
+      const root = roots.get(s.id) as string
+      if (emitted.has(root)) continue
+      emitted.add(root)
+      out.push(...(groups.get(root) as SessionMeta[]))
+    }
+    return out
   }
 
   /**
@@ -716,6 +774,13 @@ export class SessionIndexer {
       out.push(s)
     }
     return out
+  }
+
+  /** One session by id, stamped like a page row; null when unknown. */
+  getSession(id: string): SessionMeta | null {
+    const s = this.sessions.get(id)
+    if (!s) return null
+    return { ...s, archived: this.archived.has(s.id), continuedFrom: this.lineage.get(s.id) }
   }
 
   getMessages(id: string): SessionMessage[] {
@@ -769,7 +834,16 @@ export class SessionIndexer {
     const entries = [...this.fileCache.entries()].map(([path, e]) => [
       path,
       e.meta
-        ? { ...e, meta: { ...e.meta, repo: undefined, isWorktree: undefined, archived: undefined } }
+        ? {
+            ...e,
+            meta: {
+              ...e.meta,
+              repo: undefined,
+              isWorktree: undefined,
+              archived: undefined,
+              continuedFrom: undefined
+            }
+          }
         : e
     ])
     return JSON.stringify({

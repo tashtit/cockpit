@@ -14,25 +14,70 @@ const binding: ChatBinding = {
   repoRoot: '/tmp/repo'
 }
 
-function renderChat(onSend = vi.fn()): { onSend: ReturnType<typeof vi.fn> } {
+function renderChat(
+  onSend = vi.fn(),
+  over: { binding?: ChatBinding; busy?: boolean } = {}
+): { onSend: ReturnType<typeof vi.fn>; onOpenHandoff: ReturnType<typeof vi.fn>; onOpenLineage: ReturnType<typeof vi.fn> } {
+  const onOpenHandoff = vi.fn()
+  const onOpenLineage = vi.fn()
   render(
     <ChatView
-      binding={binding}
+      binding={over.binding ?? binding}
       prs={[]}
       log={[]}
-      busy={false}
+      busy={over.busy ?? false}
       prBusy={false}
       onSend={onSend}
       onCancel={() => {}}
       onCreatePr={() => {}}
       onOpenUrl={() => {}}
+      onOpenHandoff={onOpenHandoff}
+      onOpenLineage={onOpenLineage}
     />
   )
-  return { onSend }
+  return { onSend, onOpenHandoff, onOpenLineage }
 }
 
 beforeEach(() => {
   stubObjectUrls()
+})
+
+describe('ChatView handoff affordances', () => {
+  const started: ChatBinding = { ...binding, nativeSessionId: 'abc-123' }
+
+  it('shows Continue in… only once the session has a native id', () => {
+    renderChat()
+    expect(screen.queryByRole('button', { name: /Continue in/ })).not.toBeInTheDocument()
+  })
+
+  it('fires onOpenHandoff from the header button when idle', async () => {
+    const { onOpenHandoff } = renderChat(vi.fn(), { binding: started })
+    await userEvent.click(screen.getByRole('button', { name: /Continue in/ }))
+    expect(onOpenHandoff).toHaveBeenCalledOnce()
+  })
+
+  it('disables the handoff button while a turn is streaming', () => {
+    renderChat(vi.fn(), { binding: started, busy: true })
+    expect(screen.getByRole('button', { name: /Continue in/ })).toBeDisabled()
+  })
+
+  it('renders the lineage chip and navigates to the source session', async () => {
+    const withLineage: ChatBinding = {
+      ...started,
+      continuedFrom: { id: 'claude:src-1', provider: 'claude' }
+    }
+    const { onOpenLineage } = renderChat(vi.fn(), { binding: withLineage })
+    const chip = screen.getByRole('button', { name: /Continued from a Claude session/ })
+    await userEvent.click(chip)
+    expect(onOpenLineage).toHaveBeenCalledWith('claude:src-1')
+  })
+
+  it('shows no lineage chip on ordinary sessions', () => {
+    renderChat(vi.fn(), { binding: started })
+    expect(
+      screen.queryByRole('button', { name: /Continued from/ })
+    ).not.toBeInTheDocument()
+  })
 })
 
 describe('ChatView image paste', () => {

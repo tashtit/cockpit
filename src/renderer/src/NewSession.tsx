@@ -94,10 +94,252 @@ const MODEL_SUGGESTIONS: Record<Provider, string[]> = {
   copilot: ['claude-sonnet-4.5', 'gpt-5']
 }
 
-const AGENT_BLURB: Record<Provider, string> = {
+export const AGENT_BLURB: Record<Provider, string> = {
   claude: 'Deep multi-step coding, hooks & skills',
   codex: 'Fast sandboxed execution',
   copilot: 'GitHub-native, PR-focused'
+}
+
+/** Per-agent option state (model / BYOK endpoint / codex sandbox) shared by the
+ *  New-session and Handoff forms, so the option plumbing can never drift apart. */
+export type AgentOptionsState = {
+  readonly model: string
+  readonly setModel: (m: string) => void
+  readonly codexSandbox: CodexSandbox | ''
+  readonly setCodexSandbox: (s: CodexSandbox | '') => void
+  readonly endpointId: string
+  readonly setEndpointId: (id: string) => void
+  readonly endpoints: ModelEndpoint[]
+  readonly usableEndpoints: ModelEndpoint[]
+  readonly endpoint: ModelEndpoint | undefined
+  /** Models to pick from: live listing when it arrived, else the cached list. */
+  readonly modelChoices: string[]
+  /** Copilot never learns a custom provider's catalog on its own — it needs an explicit model. */
+  readonly modelMissing: boolean
+  /** The composed per-agent options for ChatRequest */
+  readonly options: AgentOptions
+}
+
+export function useAgentOptions(provider: Provider): AgentOptionsState {
+  const [model, setModel] = useState('')
+  const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  const [endpointId, setEndpointId] = useState('')
+  /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
+  const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
+
+  useEffect(() => {
+    // optional call: a preload from before this method must not crash the form (dev HMR)
+    void api.getModelEndpoints?.().then(setEndpoints)
+  }, [])
+
+  // model suggestions and endpoints differ per agent — reset stale choices on switch
+  useEffect(() => {
+    setModel('')
+    setEndpointId('')
+  }, [provider])
+
+  const usableEndpoints = endpoints.filter((e) => endpointSupports(provider, e))
+  const endpoint = usableEndpoints.find((e) => e.id === endpointId)
+  const modelMissing = provider === 'copilot' && !!endpoint && !model.trim()
+  const modelChoices = endpoint ? (endpointModels[endpoint.id] ?? endpoint.models ?? []) : []
+
+  // ask the provider itself which models it serves; the cached list covers the meantime
+  useEffect(() => {
+    if (!endpoint || endpointModels[endpoint.id]) return
+    const id = endpoint.id
+    void api
+      .listEndpointModels?.(id)
+      .then((m) => m.length > 0 && setEndpointModels((prev) => ({ ...prev, [id]: m })))
+      .catch(() => {}) // unreachable provider → free-text model entry still works
+  }, [endpoint?.id])
+
+  // a model typed as free text must not silently survive once a catalog arrives
+  // that doesn't serve it — the picker would show "choose…" while the stale value runs.
+  // Keyed on the catalog's contents: a live listing with the same count but different
+  // names must also clear the choice.
+  const modelChoicesKey = modelChoices.join('\n')
+  useEffect(() => {
+    if (endpoint && modelChoices.length > 0 && model && !modelChoices.includes(model)) {
+      setModel('')
+    }
+  }, [endpoint?.id, modelChoicesKey])
+
+  return {
+    model,
+    setModel,
+    codexSandbox,
+    setCodexSandbox,
+    endpointId,
+    setEndpointId,
+    endpoints,
+    usableEndpoints,
+    endpoint,
+    modelChoices,
+    modelMissing,
+    options: {
+      model: model.trim() || undefined,
+      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
+      modelEndpoint: endpoint?.id
+    }
+  }
+}
+
+/** The account `.ns-opt` cell: a mono Select when several accounts exist, static text otherwise. */
+export function AccountField({
+  opts,
+  account,
+  loading,
+  onChange
+}: {
+  opts: AccountOption[]
+  account: AccountOption | undefined
+  /** while accounts are still loading, absence is unknown — not "signed out" */
+  loading: boolean
+  onChange: (key: string) => void
+}): JSX.Element {
+  return (
+    <div className="ns-opt">
+      {opts.length > 1 ? (
+        <>
+          {/* the Select trigger is a button — labelable, so label-for works */}
+          <label className="ns-label" htmlFor="ns-account">Account</label>
+          <Select
+            id="ns-account"
+            ariaLabel="Account"
+            mono
+            value={account?.key ?? ''}
+            options={opts.map((o) => ({ value: o.key, label: o.display }))}
+            onChange={onChange}
+          />
+        </>
+      ) : (
+        // static text, not a form control — label-for can't associate with a div
+        <>
+          <span className="ns-label" id="ns-account-label">Account</span>
+          <div
+            className="ns-account-single"
+            aria-labelledby="ns-account-label"
+            title={account?.display}
+          >
+            {account?.display ?? (loading ? '…' : 'not signed in')}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** The agent-option `.ns-opt` cells (model provider / model / codex sandbox). */
+export function AgentOptionsFields({
+  provider,
+  o
+}: {
+  provider: Provider
+  o: AgentOptionsState
+}): JSX.Element {
+  return (
+    <>
+      {o.usableEndpoints.length > 0 && (
+        <div className="ns-opt">
+          <label className="ns-label" htmlFor="ns-endpoint">Model provider</label>
+          <Select
+            id="ns-endpoint"
+            ariaLabel="Model provider"
+            value={o.endpointId}
+            options={[
+              { value: '', label: 'default' },
+              ...o.usableEndpoints.map((e) => ({ value: e.id, label: e.label, title: e.baseUrl }))
+            ]}
+            onChange={o.setEndpointId}
+          />
+        </div>
+      )}
+      <div className="ns-opt">
+        <label className="ns-label" htmlFor="ns-model">Model</label>
+        {o.endpoint && o.modelChoices.length > 0 ? (
+          // the provider told us what it serves — pick from its own catalog
+          <Select
+            id="ns-model"
+            ariaLabel="Model"
+            mono
+            value={o.modelChoices.includes(o.model) ? o.model : ''}
+            options={[
+              {
+                value: '',
+                label: provider === 'copilot' ? 'choose a model…' : 'default'
+              },
+              ...o.modelChoices.map((m) => ({ value: m, label: m }))
+            ]}
+            onChange={o.setModel}
+          />
+        ) : (
+          <>
+            <input
+              id="ns-model"
+              list="ns-models"
+              placeholder={o.modelMissing ? 'required' : 'default'}
+              value={o.model}
+              onChange={(e) => o.setModel(e.target.value)}
+            />
+            <datalist id="ns-models">
+              {MODEL_SUGGESTIONS[provider].map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </>
+        )}
+      </div>
+      {provider === 'codex' && (
+        <div className="ns-opt">
+          <label className="ns-label" htmlFor="ns-sandbox">Sandbox</label>
+          <Select
+            id="ns-sandbox"
+            ariaLabel="Sandbox"
+            mono
+            value={o.codexSandbox}
+            options={[
+              { value: '', label: 'default' },
+              { value: 'read-only', label: 'read-only' },
+              { value: 'workspace-write', label: 'workspace-write' },
+              { value: 'danger-full-access', label: 'danger-full-access' }
+            ]}
+            onChange={(v) => o.setCodexSandbox(v as CodexSandbox | '')}
+          />
+        </div>
+      )}
+    </>
+  )
+}
+
+/** Endpoint hints shown under the option grid — why a provider is (un)available. */
+export function AgentOptionsHints({
+  provider,
+  o
+}: {
+  provider: Provider
+  o: AgentOptionsState
+}): JSX.Element | null {
+  return (
+    <>
+      {o.endpoint && (
+        <div className="ns-hint">
+          Runs on {o.endpoint.baseUrl}
+          {o.modelChoices.length === 0 &&
+            (provider === 'copilot'
+              ? ' — a model this provider serves is required.'
+              : ' — set a model this provider serves.')}
+        </div>
+      )}
+      {o.endpoints.length > 0 && o.usableEndpoints.length === 0 && (
+        <div className="ns-hint">
+          {provider === 'codex'
+            ? 'Custom model providers can’t run Codex — it has no launch-time provider override.'
+            : 'Claude can only use anthropic-type custom providers — none is configured.'}
+        </div>
+      )}
+    </>
+  )
 }
 
 export function NewSession({
@@ -126,12 +368,7 @@ export function NewSession({
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const atts = useImageAttachments(initialImages)
-  const [model, setModel] = useState('')
-  const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
-  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
-  const [endpointId, setEndpointId] = useState('')
-  /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
-  const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
+  const agent = useAgentOptions(provider)
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -150,55 +387,18 @@ export function NewSession({
   useEffect(() => {
     promptRef.current?.focus()
     void api.getAccounts().then(setAccounts)
-    // optional call: a preload from before this method must not crash the form (dev HMR)
-    void api.getModelEndpoints?.().then(setEndpoints)
   }, [])
 
-  // model suggestions, accounts, and endpoints differ per agent — reset stale choices on switch
+  // accounts differ per agent — reset a stale choice on switch (model/endpoint reset in the hook)
   useEffect(() => {
-    setModel('')
     setAccountKey(null)
-    setEndpointId('')
   }, [provider])
-
-  const usableEndpoints = endpoints.filter((e) => endpointSupports(provider, e))
-  const endpoint = usableEndpoints.find((e) => e.id === endpointId)
-  /** Copilot never learns a custom provider's catalog on its own — it needs an explicit model. */
-  const modelMissing = provider === 'copilot' && !!endpoint && !model.trim()
-  /** Models to pick from: live listing when it arrived, else the cached list. */
-  const modelChoices = endpoint ? (endpointModels[endpoint.id] ?? endpoint.models ?? []) : []
-
-  // ask the provider itself which models it serves; the cached list covers the meantime
-  useEffect(() => {
-    if (!endpoint || endpointModels[endpoint.id]) return
-    const id = endpoint.id
-    void api
-      .listEndpointModels?.(id)
-      .then((m) => m.length > 0 && setEndpointModels((prev) => ({ ...prev, [id]: m })))
-      .catch(() => {}) // unreachable provider → free-text model entry still works
-  }, [endpoint?.id])
-
-  // a model typed as free text must not silently survive once a catalog arrives
-  // that doesn't serve it — the picker would show "choose…" while the stale value runs.
-  // Keyed on the catalog's contents: a live listing with the same count but different
-  // names must also clear the choice.
-  const modelChoicesKey = modelChoices.join('\n')
-  useEffect(() => {
-    if (endpoint && modelChoices.length > 0 && model && !modelChoices.includes(model)) {
-      setModel('')
-    }
-  }, [endpoint?.id, modelChoicesKey])
 
   const start = async (): Promise<void> => {
     if (busy || (!prompt.trim() && atts.attachments.length === 0)) return
     setError(null)
     window.localStorage.setItem('cockpit:provider', provider)
     window.localStorage.setItem('cockpit:mode', mode)
-    const options: AgentOptions = {
-      model: model.trim() || undefined,
-      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
-      modelEndpoint: endpoint?.id
-    }
     if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
     const err = await onStart({
       repo: selected,
@@ -206,7 +406,7 @@ export function NewSession({
       name: name.trim(),
       prompt: prompt.trim(),
       mode,
-      options,
+      options: agent.options,
       account: {
         configDir: account?.configDir,
         copilotUser: account?.copilotUser,
@@ -262,102 +462,13 @@ export function NewSession({
         </div>
 
         <div className="ns-options">
-          <div className="ns-opt">
-            {opts.length > 1 ? (
-              <>
-                {/* the Select trigger is a button — labelable, so label-for works */}
-                <label className="ns-label" htmlFor="ns-account">Account</label>
-                <Select
-                  id="ns-account"
-                  ariaLabel="Account"
-                  mono
-                  value={account?.key ?? ''}
-                  options={opts.map((o) => ({ value: o.key, label: o.display }))}
-                  onChange={setAccountKey}
-                />
-              </>
-            ) : (
-              // static text, not a form control — label-for can't associate with a div
-              <>
-                <span className="ns-label" id="ns-account-label">Account</span>
-                <div
-                  className="ns-account-single"
-                  aria-labelledby="ns-account-label"
-                  title={account?.display}
-                >
-                  {account?.display ?? (accounts === null ? '…' : 'not signed in')}
-                </div>
-              </>
-            )}
-          </div>
-          {usableEndpoints.length > 0 && (
-            <div className="ns-opt">
-              <label className="ns-label" htmlFor="ns-endpoint">Model provider</label>
-              <Select
-                id="ns-endpoint"
-                ariaLabel="Model provider"
-                value={endpointId}
-                options={[
-                  { value: '', label: 'default' },
-                  ...usableEndpoints.map((e) => ({ value: e.id, label: e.label, title: e.baseUrl }))
-                ]}
-                onChange={setEndpointId}
-              />
-            </div>
-          )}
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="ns-model">Model</label>
-            {endpoint && modelChoices.length > 0 ? (
-              // the provider told us what it serves — pick from its own catalog
-              <Select
-                id="ns-model"
-                ariaLabel="Model"
-                mono
-                value={modelChoices.includes(model) ? model : ''}
-                options={[
-                  {
-                    value: '',
-                    label: provider === 'copilot' ? 'choose a model…' : 'default'
-                  },
-                  ...modelChoices.map((m) => ({ value: m, label: m }))
-                ]}
-                onChange={setModel}
-              />
-            ) : (
-              <>
-                <input
-                  id="ns-model"
-                  list="ns-models"
-                  placeholder={modelMissing ? 'required' : 'default'}
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                />
-                <datalist id="ns-models">
-                  {MODEL_SUGGESTIONS[provider].map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
-              </>
-            )}
-          </div>
-          {provider === 'codex' && (
-            <div className="ns-opt">
-              <label className="ns-label" htmlFor="ns-sandbox">Sandbox</label>
-              <Select
-                id="ns-sandbox"
-                ariaLabel="Sandbox"
-                mono
-                value={codexSandbox}
-                options={[
-                  { value: '', label: 'default' },
-                  { value: 'read-only', label: 'read-only' },
-                  { value: 'workspace-write', label: 'workspace-write' },
-                  { value: 'danger-full-access', label: 'danger-full-access' }
-                ]}
-                onChange={(v) => setCodexSandbox(v as CodexSandbox | '')}
-              />
-            </div>
-          )}
+          <AccountField
+            opts={opts}
+            account={account}
+            loading={accounts === null}
+            onChange={setAccountKey}
+          />
+          <AgentOptionsFields provider={provider} o={agent} />
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ns-mode">Permissions</label>
             <Select
@@ -372,22 +483,7 @@ export function NewSession({
         <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>
           {MODES.find((m) => m.v === mode)?.hint}
         </div>
-        {endpoint && (
-          <div className="ns-hint">
-            Runs on {endpoint.baseUrl}
-            {modelChoices.length === 0 &&
-              (provider === 'copilot'
-                ? ' — a model this provider serves is required.'
-                : ' — set a model this provider serves.')}
-          </div>
-        )}
-        {endpoints.length > 0 && usableEndpoints.length === 0 && (
-          <div className="ns-hint">
-            {provider === 'codex'
-              ? 'Custom model providers can’t run Codex — it has no launch-time provider override.'
-              : 'Claude can only use anthropic-type custom providers — none is configured.'}
-          </div>
-        )}
+        <AgentOptionsHints provider={provider} o={agent} />
 
         <label className="ns-label" htmlFor="ns-branch">Branch</label>
         <div className="ns-branch-row">
@@ -425,7 +521,7 @@ export function NewSession({
           <button
             className="btn-primary"
             onClick={() => void start()}
-            disabled={busy || (!prompt.trim() && atts.attachments.length === 0) || modelMissing}
+            disabled={busy || (!prompt.trim() && atts.attachments.length === 0) || agent.modelMissing}
           >
             {busy ? 'Creating worktree…' : 'Start session'}
           </button>

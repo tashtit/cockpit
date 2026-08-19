@@ -49,6 +49,8 @@ export type SessionMeta = {
   isWorktree?: boolean
   /** App-level flag (stored in cockpit config, not provider logs) — set by the indexer */
   archived?: boolean
+  /** Session id this one was handed off from (cockpit config, not provider logs) — set by the indexer */
+  continuedFrom?: string
 }
 
 export type MessageKind = 'text' | 'tool_call' | 'tool_result' | 'reasoning' | 'system' | 'unknown'
@@ -171,6 +173,16 @@ export type ChatRequest = {
   readonly copilotUser?: string
   /** Pasted-image paths returned by saveChatImage — main re-validates them against its own image dir */
   readonly images?: readonly string[]
+  /** Session id (`provider:nativeId`) this new session continues from — main validates it against the index */
+  readonly handoffFrom?: string
+}
+
+/** Context briefing for handing a session to another agent, built main-side. */
+export type HandoffBriefing = {
+  readonly briefing: string
+  /** The source session's working directory still exists — handoff must be blocked when false */
+  readonly cwdExists: boolean
+  readonly warnings?: string[]
 }
 
 /* ---------- accounts ---------- */
@@ -485,7 +497,13 @@ export type CockpitApi = {
   readonly removeSource: (path: string) => Promise<SourceDir[]>
   readonly listRepos: () => Promise<RepoGroup[]>
   readonly pageSessions: (query: SessionQuery) => Promise<SessionPage>
+  /** One indexed session by id (lineage navigation); null when unknown */
+  readonly getSession: (sessionId: string) => Promise<SessionMeta | null>
   readonly getSessionMessages: (id: string) => Promise<SessionMessage[]>
+  /** Deterministic context briefing for handing this session to another agent */
+  readonly getHandoffBriefing: (sessionId: string) => Promise<HandoffBriefing>
+  /** Ask the source session's own CLI to rewrite the briefing (resumes it read-only) */
+  readonly improveHandoffBriefing: (sessionId: string) => Promise<string>
   /** Sessions with a provider process currently running */
   readonly getBusySessions: () => Promise<BusySession[]>
   /** Push: fires with the full busy set whenever a turn starts, ends, or gains a session id */

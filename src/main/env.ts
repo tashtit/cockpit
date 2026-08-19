@@ -31,6 +31,8 @@ export type ExecOptions = {
   readonly cwd?: string
   readonly timeoutMs?: number
   readonly maxBuffer?: number
+  /** Extra variables layered over cliEnv() (config homes, BYOK endpoints) */
+  readonly env?: NodeJS.ProcessEnv
 }
 
 /**
@@ -50,7 +52,7 @@ export function execText(
       [...args],
       {
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-        env: cliEnv(),
+        env: options.env === undefined ? cliEnv() : { ...cliEnv(), ...options.env },
         timeout: options.timeoutMs ?? 15_000,
         maxBuffer: options.maxBuffer ?? 4 * 1024 * 1024
       },

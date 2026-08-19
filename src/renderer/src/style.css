@@ -323,6 +323,9 @@ summary::-webkit-details-marker { display: none; }
   text-overflow: ellipsis; }
 .session-row time { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0; }
 .session-row .acct-chip { font-size: var(--fs-xs); padding: 0 4px; max-width: 72px; }
+/* handoff thread: ancestor rows sit under their continuation with an elbow guide */
+.session-row .chain-elbow { display: inline-flex; flex-shrink: 0;
+  color: var(--border-strong); margin-left: var(--s1); }
 
 .archived-toggle { display: flex; align-items: center; gap: var(--s2);
   padding: 2px var(--s2) 2px var(--s1); color: var(--fg-dim); font-size: var(--fs-xs);
@@ -396,6 +399,20 @@ summary::-webkit-details-marker { display: none; }
   padding: 5px var(--s4); font-weight: 600; font-size: var(--fs-sm); flex-shrink: 0; }
 .btn-pr:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-pr:disabled { opacity: 0.5; cursor: default; }
+/* neutral header action beside .btn-pr — same 28px geometry, quiet bordered look */
+.btn-handoff { color: var(--fg-dim); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 5px var(--s4); font-size: var(--fs-sm); flex-shrink: 0;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease); }
+.btn-handoff:hover:not(:disabled) { color: var(--fg); border-color: var(--border-strong); }
+.btn-handoff:disabled { opacity: 0.5; cursor: default; }
+/* lineage chip: acct-chip vocabulary made clickable, provider tint on hover */
+.lineage-chip { display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
+  transition: background var(--dur) var(--ease); }
+.lineage-chip.acct-claude:hover { background: rgba(var(--claude-rgb), 0.12); }
+.lineage-chip.acct-codex:hover { background: rgba(var(--codex-rgb), 0.12); }
+.lineage-chip.acct-copilot:hover { background: rgba(var(--copilot-rgb), 0.12); }
 .link-btn { color: var(--accent); font-size: inherit; padding: 0; }
 .link-btn:hover { text-decoration: underline; }
 /* the discoverable path from Home's quick composer to the full New session form */
@@ -797,6 +814,16 @@ summary::-webkit-details-marker { display: none; }
 .ns-hint { color: var(--fg-dim); font-size: var(--fs-xs); }
 .ns-hint.yolo { color: var(--danger); }
 .ns-hint code { color: var(--fg); font-family: var(--mono); }
+/* handoff form: source summary row + briefing header with its AI controls */
+.handoff-source { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.handoff-source-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; font-size: var(--fs-base); }
+.handoff-cwd { font-family: var(--mono); color: var(--fg); user-select: text; }
+.handoff-brief-head { display: flex; align-items: baseline; gap: var(--s3);
+  margin-top: var(--s4); }
+.handoff-brief-head .ns-label { flex: 1; margin-top: 0; }
+.handoff-brief-head .link-btn { font-size: var(--fs-xs); }
+.ns-card textarea.handoff-brief { font-size: var(--fs-sm); line-height: 1.5; }
 .ns-card textarea { resize: vertical; background: var(--surface); color: var(--fg);
   border: 1px solid var(--border-strong); border-radius: var(--radius); padding: var(--s3);
   font: inherit; }

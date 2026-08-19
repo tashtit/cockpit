@@ -5,10 +5,13 @@ import { join } from 'node:path'
 import {
   addModelEndpoint,
   bindSessionEndpoint,
+  bindSessionLineage,
   loadConfig,
   removeModelEndpoint,
   saveConfig,
   sessionEndpointFor,
+  sessionLineage,
+  sessionLineageFor,
   updateModelEndpoint
 } from '../src/main/config'
 import type { ModelEndpoint } from '../src/shared/types'
@@ -123,5 +126,49 @@ describe('model endpoints', () => {
     addModelEndpoint(ep('e1'))
     updateModelEndpoint({ ...ep('e1'), models: ['m-1'] })
     expect(loadConfig().modelEndpoints?.[0]?.models).toEqual(['m-1'])
+  })
+})
+
+describe('session lineage', () => {
+  it('binds and reads back, returning the updated map', () => {
+    saveConfig({ sources: [] })
+    const map = bindSessionLineage('codex:new', 'claude:old')
+    expect(map).toEqual({ 'codex:new': 'claude:old' })
+    expect(sessionLineageFor('codex:new')).toBe('claude:old')
+    expect(sessionLineage()).toEqual({ 'codex:new': 'claude:old' })
+  })
+
+  it('rebinding moves the entry to the recency end', () => {
+    saveConfig({ sources: [] })
+    bindSessionLineage('a:1', 'src:0')
+    bindSessionLineage('b:2', 'src:0')
+    bindSessionLineage('a:1', 'src:9')
+    expect(Object.keys(sessionLineage())).toEqual(['b:2', 'a:1'])
+    expect(sessionLineageFor('a:1')).toBe('src:9')
+  })
+
+  it('caps at 500 entries, evicting the oldest', () => {
+    saveConfig({ sources: [] })
+    for (let i = 0; i < 501; i++) bindSessionLineage(`claude:s${i}`, 'claude:src')
+    const map = sessionLineage()
+    expect(Object.keys(map)).toHaveLength(500)
+    expect(map['claude:s0']).toBeUndefined()
+    expect(map['claude:s500']).toBe('claude:src')
+  })
+
+  it('skips the rewrite when the last entry already matches (duplicate session events)', () => {
+    saveConfig({ sources: [] })
+    bindSessionLineage('codex:new', 'claude:old')
+    // whitespace sentinel: JSON.parse tolerates it, any resave would destroy it
+    writeFileSync(cfgPath(), readFileSync(cfgPath(), 'utf8') + '\n   \n')
+    bindSessionLineage('codex:new', 'claude:old')
+    expect(readFileSync(cfgPath(), 'utf8').endsWith('\n   \n')).toBe(true)
+  })
+
+  it('refuses a self-link', () => {
+    saveConfig({ sources: [] })
+    const map = bindSessionLineage('claude:same', 'claude:same')
+    expect(map).toEqual({})
+    expect(sessionLineageFor('claude:same')).toBeUndefined()
   })
 })

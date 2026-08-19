@@ -603,3 +603,83 @@ describe.skipIf(!hasSqlite3())('copilot data.db with an empty sessions table', (
     expect(idx.page({}).items.map((s) => s.nativeId).sort()).toEqual(['e1', 'e2'])
   })
 })
+
+describe('handoff lineage (stamping + chain grouping)', () => {
+  const home = join(root, 'claude-lineage')
+  const cacheFile = join(root, 'cache-lineage', 'index-cache.json')
+  let idx: SessionIndexer
+
+  function writeSession(name: string, ts: string): void {
+    const dir = join(home, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, `${name}.jsonl`),
+      jsonl([
+        {
+          type: 'user',
+          message: { role: 'user', content: `task ${name}` },
+          timestamp: ts,
+          sessionId: name,
+          cwd: '/nowhere/lineage',
+          gitBranch: 'main'
+        },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: ts }
+      ])
+    )
+  }
+
+  beforeAll(async () => {
+    writeSession('ln-old', '2026-08-01T10:00:00Z')
+    writeSession('ln-mid', '2026-08-03T10:00:00Z')
+    writeSession('ln-new', '2026-08-04T10:00:00Z')
+    idx = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    await idx.setSources([{ path: home, provider: 'claude', label: 'lineage' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('pulls a chain together under its newest member', () => {
+    idx.setLineage({ 'claude:ln-new': 'claude:ln-old' })
+    // pure recency would give [new, mid, old] — the chained ancestor moves up
+    expect(idx.page({}).items.map((s) => s.nativeId)).toEqual(['ln-new', 'ln-old', 'ln-mid'])
+  })
+
+  it('stamps continuedFrom on page rows and getSession, never on unrelated rows', () => {
+    idx.setLineage({ 'claude:ln-new': 'claude:ln-old' })
+    const items = idx.page({}).items
+    expect(items.find((s) => s.nativeId === 'ln-new')?.continuedFrom).toBe('claude:ln-old')
+    expect(items.find((s) => s.nativeId === 'ln-mid')?.continuedFrom).toBeUndefined()
+    expect(idx.getSession('claude:ln-new')?.continuedFrom).toBe('claude:ln-old')
+    expect(idx.getSession('claude:missing')).toBeNull()
+  })
+
+  it('a chain split across page boundaries stays contiguous over the concatenation', () => {
+    idx.setLineage({ 'claude:ln-new': 'claude:ln-old' })
+    const first = idx.page({ limit: 2 }).items.map((s) => s.nativeId)
+    const second = idx.page({ offset: 2, limit: 2 }).items.map((s) => s.nativeId)
+    expect([...first, ...second]).toEqual(['ln-new', 'ln-old', 'ln-mid'])
+  })
+
+  it('lineage pointing at an unindexed session keeps the chip but not the grouping', () => {
+    idx.setLineage({ 'claude:ln-new': 'claude:gone' })
+    const items = idx.page({}).items
+    expect(items.map((s) => s.nativeId)).toEqual(['ln-new', 'ln-mid', 'ln-old'])
+    expect(items[0].continuedFrom).toBe('claude:gone')
+  })
+
+  it('a hand-edited lineage cycle neither hangs nor drops sessions', () => {
+    idx.setLineage({ 'claude:ln-new': 'claude:ln-old', 'claude:ln-old': 'claude:ln-new' })
+    const ids = idx.page({}).items.map((s) => s.nativeId)
+    expect([...ids].sort()).toEqual(['ln-mid', 'ln-new', 'ln-old'])
+  })
+
+  it('never persists the stamp into the stat cache', () => {
+    idx.setLineage({ 'claude:ln-new': 'claude:ln-old' })
+    idx.page({})
+    ;(idx as unknown as { cacheDirty: boolean }).cacheDirty = true
+    idx.saveCache()
+    const raw = readFileSync(cacheFile, 'utf8')
+    expect(raw).not.toContain('continuedFrom')
+  })
+})
