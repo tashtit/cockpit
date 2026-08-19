@@ -8,6 +8,8 @@ import type {
   PermissionMode,
   Provider,
   SessionQuery,
+  SyncKind,
+  SyncRequest,
   TimeFormat
 } from '../shared/types'
 import { sanitizeEndpoint } from '../shared/endpoints'
@@ -40,7 +42,8 @@ import {
   getMcpConfig,
   removeMcp,
   shareMcp,
-  shareSkill
+  shareSkill,
+  syncExtension
 } from './extensions'
 import { loginMcp, probeMcp } from './mcp'
 import {
@@ -369,7 +372,7 @@ app.whenReady().then(() => {
   ipcMain.handle('extensions:get', () => getExtensions())
   ipcMain.handle('extensions:share-mcp', (_e, name: string, to: Provider) => shareMcp(name, to))
   ipcMain.handle('extensions:share-skill', (_e, name: string, from: Provider, to: Provider) =>
-    shareSkill(name, from, to)
+    shareSkill(name, to, { from })
   )
   // agent comes from the renderer and (for login) becomes a spawned command —
   // only ever accept the three known providers
@@ -377,6 +380,9 @@ app.whenReady().then(() => {
     if (agent === 'claude' || agent === 'codex' || agent === 'copilot') return agent
     throw new Error('unknown agent')
   }
+  ipcMain.handle('extensions:sync', (_e, kind: SyncKind, name: string, req: SyncRequest) =>
+    syncExtension(kind, String(name), req)
+  )
   ipcMain.handle('extensions:remove-mcp', (_e, name: string, agent: Provider, projectPath?: string) =>
     removeMcp(String(name), asProvider(agent), projectPath ? String(projectPath) : undefined)
   )

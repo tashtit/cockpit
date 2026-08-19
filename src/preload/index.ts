@@ -16,6 +16,8 @@ import type {
   Provider,
   RoundtableEvent,
   SessionQuery,
+  SyncKind,
+  SyncRequest,
   TimeFormat
 } from '../shared/types'
 
@@ -68,6 +70,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke('extensions:login-mcp', name, agent, projectPath),
   shareSkill: (name: string, from: Provider, to: Provider) =>
     ipcRenderer.invoke('extensions:share-skill', name, from, to),
+  syncExtension: (kind: SyncKind, name: string, req: SyncRequest) =>
+    ipcRenderer.invoke('extensions:sync', kind, name, req),
   getInstructions: (repoRoot: string | null) => ipcRenderer.invoke('instructions:get', repoRoot),
   saveInstructionsBaseline: (repoRoot: string | null, baseline: string) =>
     ipcRenderer.invoke('instructions:save-baseline', repoRoot, baseline),

@@ -2,11 +2,43 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** the standard card (`.ns-card`, the one shared width) with five tabs — **Instructions**, MCP
-Servers, Skills, Plugins, Marketplace — one place to manage the *shared setup every
-agent carries*. Instructions is first: it's the reason the view exists.
+**Pattern:** the standard card (`.ns-card`, the one shared width) with six tabs —
+**Compare**, Instructions, MCP Servers, Skills, Plugins, Marketplace — one place to manage
+the *shared setup every agent carries*. Compare is first and is the view's front door:
+the per-kind tabs manage one thing at a time, Compare answers "are my agents the same?".
 The user-facing label is **Agents** (nav icon: `AgentIcon`); the component file keeps
 its historical `AiSetup.tsx` name, like the `'extensions'` view kind before it.
+
+## Compare tab (`CompareAgents.tsx`)
+
+- **Pattern: a matrix, not a list.** Rows are shared things (grouped by kind, in
+  `KIND_ORDER`: instructions → MCP → skills → plugins → marketplaces), columns are the
+  three agents. Fixed 84px agent columns (`.cmp-row` grid) so every state lines up
+  vertically down the whole card — that alignment is what makes a gap readable at a
+  glance, and it's why this view does **not** reuse `.ext-row`.
+- **Four cell states**, one glyph each, color-coded, always with a `title`/`aria-label`
+  carrying the detail: `✓` present (ok), `≠` differs (warn), `+` missing, `·` not
+  supported (dim). `+` is the only affordance in the grid — a dashed accent
+  `.cmp-add` button, the one place a dashed border is used, reading as "empty slot".
+- **Parity is computed, never fetched**: `shared/parity.ts` derives the whole report
+  from the inventory + instructions the view already holds. New kinds get a reader
+  there, not a new IPC channel.
+- **Row expands into the diff** (`.cmp-diff`): a field × agent table with the reference
+  agent marked, and any row the agents disagree on tinted warn. The matrix says *that*
+  something differs; this says *what*. Env var **values are never shown or compared** —
+  only names.
+- **Two safety lines, deliberately different:**
+  - *additive* actions are one click — a cell's `+`, the row's "Sync all" (missing
+    cells only), and the group's "Fill N gaps".
+  - *destructive* actions (replacing an agent's own definition) live inside the
+    expanded diff and use the Settings-style armed confirm (`Replace X's` → danger
+    `replace?`, 4s / blur disarm) — never `window.confirm`.
+- **Filter**: `.cmp-toggle` "Only differences", **on by default** — the view opens on
+  the work, not the inventory. The all-aligned state gets its own `.tree-empty` line.
+- Counts strip (`.cmp-counts`) reads `N shared · N aligned · N differ · N incomplete`,
+  colored ok/warn/dim. Notices reuse `.ext-notice` and name the consequence.
+- Long-running syncs (plugins/marketplaces shell out to the agent's CLI) disable every
+  action while in flight and swap the label to `syncing…` / `filling…`.
 
 ## Instructions tab
 
@@ -59,10 +91,15 @@ its historical `AiSetup.tsx` name, like the `'extensions'` view kind before it.
   `Log in · <Agent>` buttons appear for agents with an `mcp login` CLI (Claude, Codex —
   never Copilot); the notice tells the user to finish the OAuth flow in the browser.
   A right-aligned ghost-small "Refresh list" above the list re-reads configs from disk.
-- **Skills**: claude ↔ copilot copy via the same `+ <Agent>` affordance, hidden when the
-  other agent already has a same-named skill. Codex never gets a skills button.
-- **Marketplace / Plugins**: unchanged from the old Extensions rules — external links via
-  `onOpenUrl` with trailing `↗`, `owner/repo` regex-validated before offering Open.
+- **Skills**: all three agents read `<home>/skills/<name>/SKILL.md`, so a skill copies
+  to either of the other two via the same `+ <Agent>` affordance, hidden when that agent
+  already has a same-named skill.
+- **Marketplace / Plugins**: read from all three agents (claude JSON, codex
+  `config.toml` sections, copilot's `installed-plugins/<marketplace>/<plugin>` tree) and
+  keyed by the `<name>@<marketplace>` id every agent uses, so the same plugin lines up
+  across columns in Compare. External links via `onOpenUrl` with trailing `↗`,
+  `owner/repo` regex-validated before offering Open. Installing is never a file copy —
+  Compare runs the target agent's own CLI.
 - Hints name real config paths in `<code>` — this view's job is demystifying where
   things live.
 - Loading: `.tree-empty` "loading…"; every tab keeps a specific empty-state line

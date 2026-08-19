@@ -4,16 +4,18 @@ import userEvent from '@testing-library/user-event'
 import { AiSetup } from '../../src/renderer/src/AiSetup'
 import type { ExtensionsInventory } from '../../src/shared/types'
 
+const sseConfig = { url: 'https://mcp.linear.app/sse', type: 'sse' }
+
 const inventory: ExtensionsInventory = {
   mcp: [
     {
       name: 'linear',
-      config: { url: 'https://mcp.linear.app/sse', type: 'sse' },
+      config: sseConfig,
       agents: ['claude', 'codex'],
       presences: [
-        { agent: 'claude', scope: 'user' },
-        { agent: 'claude', scope: 'project', projectPath: '/home/dev/cachely' },
-        { agent: 'codex', scope: 'user' }
+        { agent: 'claude', scope: 'user', config: sseConfig },
+        { agent: 'claude', scope: 'project', projectPath: '/home/dev/cachely', config: sseConfig },
+        { agent: 'codex', scope: 'user', config: sseConfig }
       ]
     }
   ],

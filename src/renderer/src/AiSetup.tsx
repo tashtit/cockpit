@@ -10,14 +10,16 @@ import type {
   RepoGroup
 } from '../../shared/types'
 import { api } from './api'
+import { CompareAgents } from './CompareAgents'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
 import { Select } from './Select'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
-type Tab = 'instructions' | 'mcp' | 'skills' | 'plugins' | 'marketplace'
+type Tab = 'compare' | 'instructions' | 'mcp' | 'skills' | 'plugins' | 'marketplace'
 
 const TABS: Array<[Tab, string]> = [
+  ['compare', 'Compare'],
   ['instructions', 'Instructions'],
   ['mcp', 'MCP Servers'],
   ['skills', 'Skills'],
@@ -50,7 +52,7 @@ export function AiSetup({
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [inv, setInv] = useState<ExtensionsInventory | null>(null)
-  const [tab, setTab] = useState<Tab>('instructions')
+  const [tab, setTab] = useState<Tab>('compare')
   const [notice, setNotice] = useState<Notice>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
 
@@ -129,6 +131,10 @@ export function AiSetup({
         <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="tab-panel">
         {tab === 'instructions' && <InstructionsTab repos={repos} setNotice={setNotice} />}
 
+        {inv && tab === 'compare' && (
+          <CompareAgents inv={inv} reload={reload} setNotice={setNotice} onOpenTab={setTab} />
+        )}
+
         {tab !== 'instructions' && !inv && <div className="tree-empty">loading…</div>}
 
         {inv && tab === 'mcp' && <McpTab inv={inv} reload={reload} setNotice={setNotice} />}
@@ -136,14 +142,16 @@ export function AiSetup({
         {inv && tab === 'skills' && (
           <>
             <p className="ns-hint">
-              Personal skills from <code>~/.claude/skills</code> and <code>~/.copilot/skills</code>.
-              Copying duplicates the skill directory into the other agent (Codex has no skills).
+              Personal skills from <code>~/.claude/skills</code>, <code>~/.codex/skills</code> and{' '}
+              <code>~/.copilot/skills</code> — all three agents read the same{' '}
+              <code>SKILL.md</code> format, so copying duplicates the skill directory as-is.
               Plugin-provided skills live inside their plugin.
             </p>
             <ul className="ext-list">
               {inv.skills.map((s) => {
-                const other: Provider = s.agent === 'claude' ? 'copilot' : 'claude'
-                const otherHas = inv.skills.some((x) => x.agent === other && x.name === s.name)
+                const missing = PROVIDERS.filter(
+                  (p) => p !== s.agent && !inv.skills.some((x) => x.agent === p && x.name === s.name)
+                )
                 return (
                   <li key={`${s.agent}:${s.name}`} className="ext-row">
                     <span className={`plogo plogo-${s.agent}`} title={PROVIDER_LABEL[s.agent]}>
@@ -153,14 +161,17 @@ export function AiSetup({
                       <div className="ext-name">{s.name}</div>
                       <div className="ext-detail">{s.description || s.path}</div>
                     </div>
-                    {!otherHas && (
+                    {missing.length > 0 && (
                       <div className="ext-actions">
-                        <button
-                          className="btn-ghost small"
-                          onClick={() => void shareSkill(s.name, s.agent, other)}
-                        >
-                          + {PROVIDER_LABEL[other]}
-                        </button>
+                        {missing.map((p) => (
+                          <button
+                            key={p}
+                            className="btn-ghost small"
+                            onClick={() => void shareSkill(s.name, s.agent, p)}
+                          >
+                            + {PROVIDER_LABEL[p]}
+                          </button>
+                        ))}
                       </div>
                     )}
                   </li>
@@ -168,9 +179,9 @@ export function AiSetup({
               })}
               {inv.skills.length === 0 && (
                 <li className="tree-empty">
-                  no personal skills yet — add one under <code>~/.claude/skills</code> or{' '}
-                  <code>~/.copilot/skills</code> and it appears here (plugin skills stay with
-                  their plugins)
+                  no personal skills yet — add one under <code>~/.claude/skills</code>,{' '}
+                  <code>~/.codex/skills</code> or <code>~/.copilot/skills</code> and it appears here
+                  (plugin skills stay with their plugins)
                 </li>
               )}
             </ul>

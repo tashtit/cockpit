@@ -62,6 +62,7 @@ export function freshApi(): CockpitApi {
     checkMcp: vi.fn(async () => ({ status: 'ok' as const })),
     loginMcp: vi.fn(async () => 'logged in'),
     shareSkill: vi.fn(async () => {}),
+    syncExtension: vi.fn(async () => 'synced'),
     getInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     saveInstructionsBaseline: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     applyInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),

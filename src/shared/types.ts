@@ -233,10 +233,17 @@ export type McpPresence = {
   readonly scope: 'user' | 'project'
   /** Absolute project path — set only when scope === 'project' */
   readonly projectPath?: string
+  /**
+   * The definition as *this* agent holds it. Two agents can configure the same
+   * server name differently; the merged `McpServerInfo.config` hides that, so
+   * comparison reads the per-presence config instead.
+   */
+  readonly config: McpConfig
 }
 
 export type McpServerInfo = {
   readonly name: string
+  /** Representative definition (first agent found) — for per-agent detail read `presences` */
   readonly config: McpConfig
   /** Which agents have this server configured (any scope) */
   readonly agents: Provider[]
@@ -255,18 +262,40 @@ export type SkillInfo = {
   readonly description: string
   readonly agent: Provider
   readonly path: string
+  /** Hash of SKILL.md — two agents' same-named skills are equal iff these match */
+  readonly fingerprint: string
 }
 
 export type PluginInfo = {
+  /** Plugin id as every agent spells it: `<name>@<marketplace>` */
   readonly name: string
   readonly agent: Provider
   readonly detail?: string
+  /** Marketplace the plugin came from — the half after `@`, when known */
+  readonly marketplace?: string
+  readonly version?: string
 }
 
 export type MarketplaceInfo = {
   readonly name: string
   readonly agent: Provider
+  /** Where the agent clones it from — a git URL, `owner/repo`, or a local path */
   readonly source?: string
+}
+
+/** Shared things Cockpit can write into another agent's own config for you. */
+export type SyncKind = 'mcp' | 'skill' | 'plugin' | 'marketplace'
+
+/** Everything the Compare view lines up across agents (see shared/parity.ts). */
+export type ParityKind = SyncKind | 'instructions'
+
+/** One sync: copy `name` from `from` into `to`, replacing what's there when asked. */
+export type SyncRequest = {
+  readonly to: Provider
+  /** Agent to copy from — defaults to whichever already has it */
+  readonly from?: Provider
+  /** Replace the target's existing definition instead of refusing */
+  readonly overwrite?: boolean
 }
 
 export type ExtensionsInventory = {
@@ -689,6 +718,12 @@ export type CockpitApi = {
   /** Run the agent CLI's own OAuth login for the server; resolves with its output */
   readonly loginMcp: (name: string, agent: Provider, projectPath?: string) => Promise<string>
   readonly shareSkill: (name: string, from: Provider, to: Provider) => Promise<void>
+  /**
+   * Cross-agent sync for the Compare view: writes MCP/skill definitions directly,
+   * and installs plugins/marketplaces by running the target agent's own CLI (only
+   * it can clone and register them properly). Resolves with what to tell the user.
+   */
+  readonly syncExtension: (kind: SyncKind, name: string, req: SyncRequest) => Promise<string>
   readonly getInstructions: (repoRoot: string | null) => Promise<InstructionsState>
   readonly saveInstructionsBaseline: (
     repoRoot: string | null,

@@ -1,4 +1,5 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -10,8 +11,11 @@ import type {
   Mutable,
   PluginInfo,
   Provider,
-  SkillInfo
+  SkillInfo,
+  SyncKind,
+  SyncRequest
 } from '../shared/types'
+import { cliEnv, execText } from './env'
 import { readJsoncFile } from './parsers/util'
 
 /*
@@ -26,6 +30,23 @@ const claudeJsonPath = (): string => join(homedir(), '.claude.json')
 const codexTomlPath = (): string => join(homedir(), '.codex', 'config.toml')
 const copilotJsonPath = (): string => join(homedir(), '.copilot', 'mcp-config.json')
 
+/*
+ * Skills, plugins and marketplaces each live somewhere different again:
+ *   skills        <home>/skills/<name>/SKILL.md            (all three agents)
+ *   plugins       claude  ~/.claude/plugins/installed_plugins.json  keyed <name>@<marketplace>
+ *                 codex   ~/.codex/config.toml             [plugins."<name>@<marketplace>"]
+ *                 copilot ~/.copilot/installed-plugins/<marketplace>/<name>/
+ *   marketplaces  claude  ~/.claude/plugins/known_marketplaces.json
+ *                 codex   ~/.codex/config.toml             [marketplaces.<name>]
+ *                 copilot the top level of ~/.copilot/installed-plugins/
+ * Plugin ids are `<name>@<marketplace>` everywhere, so the three inventories line up.
+ */
+/** Resolved per call, like every other path here, so a test can point HOME elsewhere. */
+const skillDir = (agent: Provider): string =>
+  join(homedir(), agent === 'claude' ? '.claude' : agent === 'codex' ? '.codex' : '.copilot', 'skills')
+
+const copilotPluginsDir = (): string => join(homedir(), '.copilot', 'installed-plugins')
+
 /**
  * These are the same hand-editable configs accounts.ts reads, so they get the same
  * JSONC tolerance — parsing ~/.claude.json strictly here meant one `//` comment
@@ -39,7 +60,7 @@ const readJsonFile = readJsoncFile
 type FoundScope = Omit<McpPresence, 'agent'>
 
 type FoundServer = {
-  readonly config: McpConfig
+  /** every place this agent defines the server, each with its own definition */
   readonly scopes: FoundScope[]
 }
 
@@ -56,16 +77,17 @@ function normalizeMcp(cfg: any): McpConfig {
 function addFound(
   out: Map<string, FoundServer>,
   name: string,
-  found: { readonly cfg: any; readonly scope: FoundScope }
+  found: { readonly cfg: any; readonly scope: Omit<FoundScope, 'config'> }
 ): void {
   const { cfg, scope } = found
+  const entry: FoundScope = { ...scope, config: normalizeMcp(cfg) }
   const existing = out.get(name)
-  if (existing) {
-    if (!existing.scopes.some((s) => s.scope === scope.scope && s.projectPath === scope.projectPath)) {
-      existing.scopes.push(scope)
-    }
-  } else {
-    out.set(name, { config: normalizeMcp(cfg), scopes: [scope] })
+  if (!existing) {
+    out.set(name, { scopes: [entry] })
+    return
+  }
+  if (!existing.scopes.some((s) => s.scope === scope.scope && s.projectPath === scope.projectPath)) {
+    existing.scopes.push(entry)
   }
 }
 
@@ -172,13 +194,13 @@ function readCopilotMcp(): Map<string, McpConfig> {
 
 /* ---------- skills / plugins / marketplaces ---------- */
 
+/** Bounded read: SKILL.md is prose, and only its first KBs decide the fingerprint. */
+const MAX_SKILL_BYTES = 64 * 1024
+
 function readSkills(): SkillInfo[] {
   const out: SkillInfo[] = []
-  const dirs: Array<{ agent: Provider; dir: string }> = [
-    { agent: 'claude', dir: join(homedir(), '.claude', 'skills') },
-    { agent: 'copilot', dir: join(homedir(), '.copilot', 'skills') }
-  ]
-  for (const { agent, dir } of dirs) {
+  for (const agent of ['claude', 'codex', 'copilot'] as Provider[]) {
+    const dir = skillDir(agent)
     if (!existsSync(dir)) continue
     let entries: string[] = []
     try {
@@ -190,13 +212,15 @@ function readSkills(): SkillInfo[] {
       const skillMd = join(dir, name, 'SKILL.md')
       if (!existsSync(skillMd)) continue
       let description = ''
+      let fingerprint = ''
       try {
-        description =
-          readFileSync(skillMd, 'utf8').match(/^description:\s*(.+)$/m)?.[1]?.slice(0, 200) ?? ''
+        const raw = readFileSync(skillMd, 'utf8').slice(0, MAX_SKILL_BYTES)
+        description = raw.match(/^description:\s*(.+)$/m)?.[1]?.slice(0, 200) ?? ''
+        fingerprint = createHash('sha256').update(raw).digest('hex').slice(0, 16)
       } catch {
-        /* unreadable — list it anyway */
+        /* unreadable — list it anyway, with no fingerprint to compare on */
       }
-      out.push({ name, description, agent, path: join(dir, name) })
+      out.push({ name, description, agent, path: join(dir, name), fingerprint })
     }
   }
   return out
@@ -213,11 +237,62 @@ function sourceLabel(v: unknown): string {
   if (typeof v === 'number') return String(v)
   if (v && typeof v === 'object') {
     const o = v as Record<string, unknown>
-    for (const k of ['repo', 'url', 'path']) {
-      if (typeof o[k] === 'string') return o[k] as string
+    for (const k of ['repo', 'url', 'path', 'source']) {
+      const inner = o[k]
+      if (typeof inner === 'string') return inner
+      if (k === 'source' && inner && typeof inner === 'object') return sourceLabel(inner)
     }
   }
   return ''
+}
+
+/** `name@marketplace` split — the id every agent uses for a plugin. */
+function splitPluginId(id: string): { name: string; marketplace?: string } {
+  const at = id.lastIndexOf('@')
+  return at > 0 ? { name: id.slice(0, at), marketplace: id.slice(at + 1) } : { name: id }
+}
+
+/**
+ * Top-level `[plugins."<id>"]` / `[marketplaces.<name>]` sections of codex's config.
+ * Values are read per section; a nested `[marketplaces.x.y]` is not a marketplace.
+ */
+export function parseCodexSections(raw: string, table: string): Map<string, Record<string, string>> {
+  const out = new Map<string, Record<string, string>>()
+  const header = new RegExp(`^${table}\\.(?:([A-Za-z0-9_-]+)|"((?:[^"\\\\]|\\\\.)*)")$`)
+  for (const section of raw.split(/^\[/m)) {
+    const close = section.indexOf(']')
+    if (close === -1) continue
+    const m = section.slice(0, close).trim().match(header)
+    if (!m) continue
+    const name = m[1] ?? m[2].replace(/\\(.)/g, '$1')
+    // the split above already ended this section at the next header
+    const body = section.slice(close + 1)
+    const fields: Record<string, string> = {}
+    for (const kv of body.matchAll(/^([A-Za-z0-9_]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|(\S+))/gm)) {
+      fields[kv[1]] = kv[2] ?? kv[3]
+    }
+    out.set(name, fields)
+  }
+  return out
+}
+
+function readCodexToml(): string {
+  try {
+    return readFileSync(codexTomlPath(), 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+function readDirNames(dir: string): string[] {
+  if (!existsSync(dir)) return []
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .map((e) => e.name)
+  } catch {
+    return []
+  }
 }
 
 function readPlugins(): PluginInfo[] {
@@ -225,24 +300,38 @@ function readPlugins(): PluginInfo[] {
   const installed = readJsonFile(join(homedir(), '.claude', 'plugins', 'installed_plugins.json'))
   const plugins = installed?.plugins ?? installed
   if (plugins && typeof plugins === 'object') {
-    for (const [name, v] of Object.entries<any>(plugins)) {
-      const detail =
-        typeof v === 'object' && v
-          ? Array.isArray(v)
-            ? `${v.length} versions`
-            : sourceLabel(v.version) || sourceLabel(v.marketplace)
-          : ''
-      out.push({ name, agent: 'claude', detail })
+    for (const [id, v] of Object.entries<any>(plugins)) {
+      // an id's value can be the record itself or an array of installed versions
+      const record = Array.isArray(v) ? v[v.length - 1] : v
+      const version = record && typeof record === 'object' ? sourceLabel(record.version) : ''
+      const { name, marketplace } = splitPluginId(id)
+      out.push({
+        name: id,
+        agent: 'claude',
+        detail: [name, version && `v${version}`].filter(Boolean).join(' '),
+        marketplace,
+        version: version || undefined
+      })
     }
   }
-  const copilotDir = join(homedir(), '.copilot', 'installed-plugins')
-  if (existsSync(copilotDir)) {
-    try {
-      for (const name of readdirSync(copilotDir)) {
-        if (!name.startsWith('.')) out.push({ name, agent: 'copilot', detail: '' })
-      }
-    } catch {
-      /* ignore */
+  for (const [id, fields] of parseCodexSections(readCodexToml(), 'plugins')) {
+    // codex records no version, only whether the plugin is switched on
+    if (fields.enabled === 'false') continue
+    const { name, marketplace } = splitPluginId(id)
+    out.push({ name: id, agent: 'codex', detail: name, marketplace })
+  }
+  const copilotDir = copilotPluginsDir()
+  for (const marketplace of readDirNames(copilotDir)) {
+    for (const name of readDirNames(join(copilotDir, marketplace))) {
+      const manifest = readJsonFile(join(copilotDir, marketplace, name, '.claude-plugin', 'plugin.json'))
+      const version = typeof manifest?.version === 'string' ? manifest.version : undefined
+      out.push({
+        name: `${name}@${marketplace}`,
+        agent: 'copilot',
+        detail: [name, version && `v${version}`].filter(Boolean).join(' '),
+        marketplace,
+        version
+      })
     }
   }
   return out
@@ -258,6 +347,13 @@ function readMarketplaces(): MarketplaceInfo[] {
       out.push({ name, agent: 'claude', source })
     }
   }
+  for (const [name, fields] of parseCodexSections(readCodexToml(), 'marketplaces')) {
+    out.push({ name, agent: 'codex', source: fields.source })
+  }
+  // copilot keeps no registry file: each marketplace is a directory of its plugins
+  for (const name of readDirNames(copilotPluginsDir())) {
+    out.push({ name, agent: 'copilot' })
+  }
   return out
 }
 
@@ -265,7 +361,7 @@ function readMarketplaces(): MarketplaceInfo[] {
 
 export function getExtensions(): ExtensionsInventory {
   const asFound = (servers: Map<string, McpConfig>): Map<string, FoundServer> =>
-    new Map([...servers].map(([n, config]) => [n, { config, scopes: [{ scope: 'user' }] }]))
+    new Map([...servers].map(([n, config]) => [n, { scopes: [{ scope: 'user' as const, config }] }]))
   const byAgent: Array<{ agent: Provider; servers: Map<string, FoundServer> }> = [
     { agent: 'claude', servers: readClaudeMcp() },
     { agent: 'codex', servers: asFound(readCodexMcp()) },
@@ -280,7 +376,7 @@ export function getExtensions(): ExtensionsInventory {
         existing.agents.push(agent)
         existing.presences.push(...presences)
       } else {
-        merged.set(name, { name, config: found.config, agents: [agent], presences })
+        merged.set(name, { name, config: presences[0].config, agents: [agent], presences })
       }
     }
   }
@@ -294,11 +390,20 @@ export function getExtensions(): ExtensionsInventory {
 
 /* ---------- sharing ---------- */
 
-function findMcp(name: string): McpConfig {
+/** Where a sync copies from, and whether it may replace what the target has. */
+export type SyncOptions = Omit<SyncRequest, 'to'>
+
+
+function findMcp(name: string, from?: Provider): McpConfig {
   const inv = getExtensions()
   const server = inv.mcp.find((s) => s.name === name)
   if (!server) throw new Error(`MCP server not found: ${name}`)
-  return server.config
+  if (!from) return server.config
+  // prefer the source agent's global definition; a project entry is still its answer
+  const own = server.presences.filter((p) => p.agent === from)
+  const picked = own.find((p) => p.scope === 'user') ?? own[0]
+  if (!picked) throw new Error(`${from} has no "${name}" to copy`)
+  return picked.config
 }
 
 /** Config for a named server, for probing — throws when unknown. */
@@ -321,11 +426,17 @@ export function assertClaudeProjectServer(name: string, projectPath: string): st
 // escape the skills dir and copy a whole config home, credentials included
 const NAME_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/
 
-export function shareMcp(name: string, to: Provider): void {
+/**
+ * Copy a server definition into another agent's config, translated into its format.
+ * `from` picks which agent's definition wins when they disagree; `overwrite` replaces
+ * what the target already has instead of refusing.
+ */
+export function shareMcp(name: string, to: Provider, opts: SyncOptions = {}): void {
   if (!NAME_RE.test(name)) throw new Error('invalid server name')
-  const cfg = findMcp(name)
+  const cfg = findMcp(name, opts.from)
+  if (opts.from === to) throw new Error('source and target are the same agent')
   if (to === 'claude') return shareToClaude(name, cfg)
-  if (to === 'codex') return shareToCodex(name, cfg)
+  if (to === 'codex') return shareToCodex(name, cfg, opts.overwrite)
   return shareToCopilot(name, cfg)
 }
 
@@ -348,10 +459,15 @@ function tomlKey(name: string): string {
   return BARE_TOML_KEY.test(name) ? name : tomlString(name)
 }
 
-function shareToCodex(name: string, cfg: McpConfig): void {
+function shareToCodex(name: string, cfg: McpConfig, overwrite = false): void {
   const path = codexTomlPath()
-  const raw = existsSync(path) ? readFileSync(path, 'utf8') : ''
-  if (parseCodexMcpToml(raw).has(name)) throw new Error(`codex already has "${name}"`)
+  let raw = existsSync(path) ? readFileSync(path, 'utf8') : ''
+  if (parseCodexMcpToml(raw).has(name)) {
+    if (!overwrite) throw new Error(`codex already has "${name}"`)
+    // claude/copilot rewrite their JSON key in place; codex appends, so the old
+    // section (and its subtables) has to go first or the file would define it twice
+    raw = removeCodexMcpToml(raw, name)
+  }
   let block = `\n[mcp_servers.${tomlKey(name)}]\n`
   if (cfg.url) {
     block += `url = ${tomlString(cfg.url)}\n`
@@ -372,22 +488,19 @@ function shareToCodex(name: string, cfg: McpConfig): void {
 
 /* ---------- skill sharing ---------- */
 
-const SKILL_DIRS: Partial<Record<Provider, string>> = {
-  claude: join(homedir(), '.claude', 'skills'),
-  copilot: join(homedir(), '.copilot', 'skills')
-}
-
-/** Copy a personal skill directory between agents (claude ↔ copilot). */
-export function shareSkill(name: string, from: Provider, to: Provider): void {
+/** Copy a personal skill directory into another agent's skills dir. */
+export function shareSkill(name: string, to: Provider, opts: SyncOptions = {}): void {
   if (!NAME_RE.test(name)) throw new Error('invalid skill name')
-  const fromDir = SKILL_DIRS[from]
-  const toDir = SKILL_DIRS[to]
-  if (!fromDir || !toDir) throw new Error('skills are only supported for Claude and Copilot')
-  const src = join(fromDir, name)
-  const dst = join(toDir, name)
+  const from = opts.from ?? findSkillSource(name, to)
+  if (from === to) throw new Error('source and target are the same agent')
+  const src = join(skillDir(from), name)
+  const dst = join(skillDir(to), name)
   if (!existsSync(src)) throw new Error(`skill not found: ${src}`)
-  if (existsSync(dst)) throw new Error(`${to} already has "${name}"`)
-  mkdirSync(toDir, { recursive: true })
+  if (existsSync(dst)) {
+    if (!opts.overwrite) throw new Error(`${to} already has "${name}"`)
+    rmSync(dst, { recursive: true, force: true })
+  }
+  mkdirSync(skillDir(to), { recursive: true })
   cpSync(src, dst, { recursive: true })
 }
 
@@ -467,4 +580,106 @@ export function removeMcp(name: string, agent: Provider, projectPath?: string): 
   if (!j) throw new Error(`cannot read ${path}`)
   removeMcpFromJson(j, name, agent === 'claude' ? projectPath : undefined)
   writeFileSync(path, JSON.stringify(j, null, 2))
+}
+
+/* ---------- cross-agent sync ---------- */
+
+/** An agent that already has the skill — sync needs a source, not just a target. */
+function findSkillSource(name: string, to: Provider): Provider {
+  const from = readSkills().find((sk) => sk.name === name && sk.agent !== to)?.agent
+  if (!from) throw new Error(`no agent has a skill named "${name}"`)
+  return from
+}
+
+/**
+ * Plugins and marketplaces are not config entries Cockpit can write: registering one
+ * means cloning a repo, resolving a version and updating the agent's own bookkeeping.
+ * So Cockpit runs the agent's own CLI, which does all of that correctly.
+ */
+const PLUGIN_INSTALL: Record<Provider, readonly string[]> = {
+  claude: ['plugin', 'install'],
+  // codex spells install "add"; every other subcommand matches the other two
+  codex: ['plugin', 'add'],
+  copilot: ['plugin', 'install']
+}
+
+const MARKETPLACE_ADD: readonly string[] = ['plugin', 'marketplace', 'add']
+
+/** Marketplace clones and plugin installs hit the network — give them room. */
+const CLI_TIMEOUT_MS = 120_000
+
+async function runAgentCli(agent: Provider, args: readonly string[]): Promise<string> {
+  const res = await execText(agent, args, { timeoutMs: CLI_TIMEOUT_MS, env: cliEnv() })
+  if (!res.ok) {
+    const detail = (res.stderr || res.stdout || res.error || '').trim().split('\n').slice(-3).join(' ')
+    throw new Error(`${agent} ${args.join(' ')} failed — ${detail || 'no output'}`)
+  }
+  return res.stdout.trim()
+}
+
+/** Where an agent clones a marketplace from — only some agents record it. */
+function marketplaceSource(name: string, exclude: Provider): string {
+  const source = readMarketplaces().find(
+    (m) => m.name === name && m.agent !== exclude && m.source && !m.source.startsWith('/')
+  )?.source
+  if (!source) {
+    throw new Error(
+      `no shareable source recorded for marketplace "${name}" — add it in ${PROVIDER_CLI[exclude]} with its repo or URL`
+    )
+  }
+  return source
+}
+
+const PROVIDER_CLI: Record<Provider, string> = { claude: 'claude', codex: 'codex', copilot: 'copilot' }
+
+async function syncMarketplace(name: string, to: Provider): Promise<string> {
+  if (!NAME_RE.test(name)) throw new Error('invalid marketplace name')
+  const source = marketplaceSource(name, to)
+  await runAgentCli(to, [...MARKETPLACE_ADD, source])
+  return `Added marketplace "${name}" to ${to} from ${source}.`
+}
+
+async function syncPlugin(id: string, to: Provider): Promise<string> {
+  const at = id.lastIndexOf('@')
+  const marketplace = at > 0 ? id.slice(at + 1) : ''
+  if (at <= 0 || !NAME_RE.test(id.slice(0, at)) || !NAME_RE.test(marketplace)) {
+    throw new Error(`plugin id must be <name>@<marketplace>: ${id}`)
+  }
+  const steps: string[] = []
+  // the CLI can only install from a marketplace it already knows; registering it
+  // first is part of the same "make this agent match" action the user asked for
+  if (!readMarketplaces().some((m) => m.name === marketplace && m.agent === to)) {
+    steps.push(await syncMarketplace(marketplace, to))
+  }
+  await runAgentCli(to, [...PLUGIN_INSTALL[to], id])
+  steps.push(`Installed "${id}" in ${to}.`)
+  return steps.join(' ')
+}
+
+/**
+ * One entry point for the Compare view: make `to` match the agent that already has
+ * the thing. MCP servers and skills are written directly; plugins and marketplaces
+ * go through the target agent's CLI. Resolves with a line to show the user.
+ */
+export async function syncExtension(
+  kind: SyncKind,
+  name: string,
+  req: SyncRequest
+): Promise<string> {
+  const { to, ...opts } = req
+  if (!PROVIDER_CLI[to]) throw new Error(`unknown agent: ${to}`)
+  switch (kind) {
+    case 'mcp':
+      shareMcp(name, to, opts)
+      return `Wrote "${name}" into ${to}'s config — restart that CLI to pick it up.`
+    case 'skill':
+      shareSkill(name, to, opts)
+      return `Copied skill "${name}" to ${to}.`
+    case 'marketplace':
+      return syncMarketplace(name, to)
+    case 'plugin':
+      return syncPlugin(name, to)
+    default:
+      throw new Error(`cannot sync ${kind}`)
+  }
 }

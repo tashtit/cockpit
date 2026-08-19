@@ -1005,6 +1005,70 @@ summary::-webkit-details-marker { display: none; }
 .ext-agents { display: flex; gap: var(--s2); flex-shrink: 0; }
 .ext-actions { display: flex; gap: var(--s1); flex-shrink: 0; }
 
+/* ---------- Agents view: cross-agent Compare ---------- */
+/* the matrix: one row per shared thing, one column per agent. Fixed agent columns
+   keep the three states vertically aligned down the whole card — that alignment is
+   what makes a gap readable at a glance. */
+.cmp-bar { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; }
+.cmp-counts { display: flex; align-items: center; gap: var(--s3); font-size: var(--fs-xs);
+  color: var(--fg-dim); margin-right: auto; }
+.cmp-counts strong { color: var(--fg); font-size: var(--fs-sm); }
+.cmp-counts em { font-style: normal; }
+.cmp-ok { color: var(--ok); }
+.cmp-warn { color: var(--warn); }
+.cmp-dim { color: var(--fg-dim); }
+.cmp-toggle { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-xs);
+  color: var(--fg-dim); cursor: pointer; }
+.cmp-group { display: flex; flex-direction: column; gap: var(--s2); }
+.cmp-group-head { display: flex; align-items: center; gap: var(--s3); }
+.cmp-group-head .ns-label { margin: 0; }
+.cmp-group-head button { margin-left: auto; }
+.cmp-table { display: flex; flex-direction: column; gap: 1px; }
+.cmp-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 84px) 92px;
+  align-items: center; gap: var(--s2); padding: var(--s1) var(--s3); min-height: 28px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.cmp-row.diverged { border-color: rgba(var(--warn-rgb), 0.4); }
+/* the header shares the row grid so labels sit exactly over their column */
+.cmp-row.cmp-head { background: none; border-color: transparent; min-height: 22px;
+  font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.9px;
+  color: var(--fg-dim); font-family: var(--mono); }
+.cmp-col { display: flex; align-items: center; justify-content: center; gap: var(--s1); }
+.cmp-name-cell { min-width: 0; display: flex; }
+.cmp-name { display: flex; align-items: center; gap: var(--s1); min-width: 0; text-align: left;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--fg); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.cmp-name:hover { color: var(--accent); }
+.cmp-caret { display: inline-block; color: var(--fg-dim); font-size: var(--fs-xs);
+  transition: transform var(--dur) var(--ease); }
+.cmp-caret.open { transform: rotate(90deg); }
+.cmp-cell { display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-sm); font-weight: 700; }
+.cmp-cell.present { color: var(--ok); }
+.cmp-cell.differs { color: var(--warn); }
+.cmp-cell.na { color: var(--fg-dim); opacity: 0.5; }
+/* a gap is the affordance: the only filled-looking control in the matrix */
+.cmp-add { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; min-height: 24px; border-radius: var(--radius-sm); line-height: 1;
+  color: var(--accent); border: 1px dashed rgba(var(--accent-rgb), 0.5); }
+.cmp-add:hover:not(:disabled) { background: rgba(var(--accent-rgb), 0.16); }
+.cmp-cell-actions { display: flex; justify-content: flex-end; }
+/* the expanded diff sits in the flow under its row, not inside the grid */
+.cmp-diff { border: 1px solid var(--border); border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--bg-deep); }
+.cmp-diff-body { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3); }
+.cmp-diff-table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs);
+  font-family: var(--mono); }
+.cmp-diff-table th, .cmp-diff-table td { text-align: left; padding: var(--s1) var(--s2);
+  vertical-align: top; max-width: 240px; overflow-wrap: anywhere; }
+.cmp-diff-table thead th { color: var(--fg-dim); font-weight: 600; border-bottom: 1px solid var(--border); }
+.cmp-diff-table tbody th { color: var(--fg-dim); font-weight: 500; white-space: nowrap; }
+.cmp-diff-table tr.differs { background: rgba(var(--warn-rgb), 0.10); }
+.cmp-diff-table tr.differs th { color: var(--warn); }
+.cmp-ref { color: var(--accent); font-weight: 500; text-transform: none; letter-spacing: 0; }
+.cmp-none { color: var(--fg-dim); opacity: 0.6; }
+.cmp-diff-actions { display: flex; gap: var(--s2); justify-content: flex-end; flex-wrap: wrap; }
+.cmp-diff-actions .armed { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
+
 /* ---------- Agents view: MCP management ---------- */
 .mcp-tools { display: flex; justify-content: flex-end; }
 .mcp-row { align-items: flex-start; }
