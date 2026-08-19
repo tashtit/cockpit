@@ -17,7 +17,10 @@
     "test:coverage:component": "vitest run --project component --coverage --coverage.reportsDirectory=coverage/component --coverage.include='src/renderer/**'",
     "test:unit": "vitest run --project unit",
     "test:component": "vitest run --project component",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
     "react-markdown": "^10.1.0",
@@ -42,6 +45,7 @@
     "react-dom": "^19.2.8",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
+    "vitepress": "^1.6.4",
     "vitest": "^4.1.10"
   },
   "optionalDependencies": {

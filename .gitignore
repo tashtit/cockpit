@@ -9,6 +9,9 @@ test-results/
 playwright-report/
 coverage/
 
+# VitePress (build output is covered by dist/)
+docs/.vitepress/cache/
+
 # Editor / local tooling
 .idea/
 .vscode/
