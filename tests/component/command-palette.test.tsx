@@ -39,6 +39,7 @@ function renderPalette(over: Partial<Parameters<typeof CommandPalette>[0]> = {})
     repos: [repo],
     onOpenSession: vi.fn(),
     onNewSession: vi.fn(),
+    onRepoSetup: vi.fn(),
     onGoto: vi.fn(),
     onClose: vi.fn(),
     ...over

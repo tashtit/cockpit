@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { InstructionFile, InstructionsState } from '../shared/types'
-import { fileStatus, instructionTargets, upsertSharedBlock } from './instructions-core'
+import { fileStatus, instructionTargets, removeSharedBlock, upsertSharedBlock } from './instructions-core'
 import { loadConfig, saveConfig } from './config'
 
 /* IO around instructions-core: baseline storage (cockpit config) + file fan-out. */
@@ -73,6 +73,15 @@ export function applyInstructions(repoRoot: string | null, onlyPath?: string): I
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, upsertSharedBlock(raw, baseline))
   }
+  return getInstructions(repoRoot)
+}
+
+/** Take the shared block out of one agent's file, leaving the rest untouched. */
+export function unapplyInstructions(repoRoot: string | null, path: string): InstructionsState {
+  const target = instructionTargets(repoRoot).find((t) => t.path === path)
+  if (!target) throw new Error(`not an instruction file for this scope: ${path}`)
+  const raw = readTarget(path)
+  if (raw !== null) writeFileSync(path, removeSharedBlock(raw))
   return getInstructions(repoRoot)
 }
 

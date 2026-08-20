@@ -1,3 +1,4 @@
+import type { PanelReport } from './library'
 export type Provider = 'claude' | 'codex' | 'copilot'
 
 /** Strip readonly for a local builder/accumulator — never for shared state. */
@@ -233,10 +234,17 @@ export type McpPresence = {
   readonly scope: 'user' | 'project'
   /** Absolute project path — set only when scope === 'project' */
   readonly projectPath?: string
+  /**
+   * The definition as *this* agent holds it. Two agents can configure the same
+   * server name differently; the merged `McpServerInfo.config` hides that, so
+   * comparison reads the per-presence config instead.
+   */
+  readonly config: McpConfig
 }
 
 export type McpServerInfo = {
   readonly name: string
+  /** Representative definition (first agent found) — for per-agent detail read `presences` */
   readonly config: McpConfig
   /** Which agents have this server configured (any scope) */
   readonly agents: Provider[]
@@ -255,18 +263,63 @@ export type SkillInfo = {
   readonly description: string
   readonly agent: Provider
   readonly path: string
+  /** Hash of SKILL.md — two agents' same-named skills are equal iff these match */
+  readonly fingerprint: string
 }
 
 export type PluginInfo = {
+  /** Plugin id as every agent spells it: `<name>@<marketplace>` */
   readonly name: string
   readonly agent: Provider
   readonly detail?: string
+  /** Marketplace the plugin came from — the half after `@`, when known */
+  readonly marketplace?: string
+  readonly version?: string
 }
 
 export type MarketplaceInfo = {
   readonly name: string
   readonly agent: Provider
+  /** Where the agent clones it from — a git URL, `owner/repo`, or a local path */
   readonly source?: string
+}
+
+/** Things Cockpit writes into an agent's own config for you. */
+export type SyncKind = 'mcp' | 'skill' | 'plugin' | 'marketplace'
+
+/** Everything the panel manages, per agent (see shared/library.ts). */
+export type PanelKind = SyncKind | 'instructions'
+
+/**
+ * One thing Cockpit manages, and where it is applied.
+ *
+ * Cockpit keeps a copy of the definition, but it is a *backup*, not a version: it is
+ * refreshed from whatever the agents run, and it exists so that switching an agent
+ * back on — or putting the whole entry back after removing it everywhere — has
+ * something to write. The agents are compared with each other, never with this.
+ */
+export type LibraryEntry = {
+  readonly kind: PanelKind
+  readonly name: string
+  /** Where it is applied — true = on for that agent, absent or false = off */
+  readonly enabled: Partial<Record<Provider, boolean>>
+  /** mcp: the definition to write, kept in step with what the agents run */
+  readonly config?: McpConfig
+  /** marketplace: where to clone it from · plugin: the marketplace it comes from */
+  readonly source?: string
+  /**
+   * Taken out of every agent, but kept: this is the whole reason Cockpit stores a
+   * copy at all. `enabled` still records which agents to put it back on.
+   */
+  readonly removed?: boolean
+}
+
+/** One entry in one scope — every panel action names its target this way. */
+export type PanelTarget = {
+  /** null = global (agent home configs); otherwise a repo root */
+  readonly repoRoot: string | null
+  readonly kind: PanelKind
+  readonly name: string
 }
 
 export type ExtensionsInventory = {
@@ -681,14 +734,24 @@ export type CockpitApi = {
   readonly createWorkspace: (repoRoot: string, name?: string) => Promise<WorkspaceInfo>
   readonly createPr: (cwd: string) => Promise<string>
   readonly getExtensions: () => Promise<ExtensionsInventory>
-  readonly shareMcp: (name: string, to: Provider) => Promise<void>
-  /** Remove one presence: an agent's user-scope entry, or a claude project entry */
-  readonly removeMcp: (name: string, agent: Provider, projectPath?: string) => Promise<void>
   /** Probe the server (spawn stdio / hit URL) and report whether it answers */
   readonly checkMcp: (name: string) => Promise<McpProbeResult>
   /** Run the agent CLI's own OAuth login for the server; resolves with its output */
   readonly loginMcp: (name: string, agent: Provider, projectPath?: string) => Promise<string>
-  readonly shareSkill: (name: string, from: Provider, to: Provider) => Promise<void>
+  /* the panel: Cockpit's own config for a scope, reconciled against each agent */
+  readonly getPanel: (repoRoot: string | null) => Promise<PanelReport>
+  /** Flip one agent's switch — writes the entry into that agent, or takes it out */
+  readonly setPanelSwitch: (
+    target: PanelTarget,
+    agent: Provider,
+    on: boolean
+  ) => Promise<PanelReport>
+  /** Copy one agent's definition to every other agent that has it switched on */
+  readonly matchPanelEntry: (target: PanelTarget, source: Provider) => Promise<PanelReport>
+  /** Take it out of every agent. Cockpit keeps its copy, so it can be put back. */
+  readonly removePanelEntry: (target: PanelTarget) => Promise<PanelReport>
+  /** Put a removed entry back on the agents it was on */
+  readonly restorePanelEntry: (target: PanelTarget) => Promise<PanelReport>
   readonly getInstructions: (repoRoot: string | null) => Promise<InstructionsState>
   readonly saveInstructionsBaseline: (
     repoRoot: string | null,

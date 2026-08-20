@@ -168,6 +168,14 @@ export const AgentIcon = ({ size = 16 }: { size?: number }): JSX.Element => (
 const OCTICON_LINK_EXTERNAL =
   'M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z'
 
+/** Sliders: a panel of per-agent switches — the repo's own agent setup. */
+const OCTICON_SLIDERS =
+  'M15 2.75a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1 0-1.5h4.5a.75.75 0 0 1 .75.75Zm0 5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5a.75.75 0 0 1 .75.75Zm0 5a.75.75 0 0 1-.75.75H8a.75.75 0 0 1 0-1.5h6.25a.75.75 0 0 1 .75.75ZM6.5 2.75a.75.75 0 0 1-.75.75h-4a.75.75 0 0 1 0-1.5h4a.75.75 0 0 1 .75.75Zm4 5a.75.75 0 0 1-.75.75h-8a.75.75 0 0 1 0-1.5h8a.75.75 0 0 1 .75.75Zm-6 5a.75.75 0 0 1-.75.75h-2a.75.75 0 0 1 0-1.5h2a.75.75 0 0 1 .75.75ZM7.75 0a.75.75 0 0 1 .75.75v4a.75.75 0 0 1-1.5 0v-4A.75.75 0 0 1 7.75 0Zm4 5a.75.75 0 0 1 .75.75v4a.75.75 0 0 1-1.5 0v-4a.75.75 0 0 1 .75-.75Zm-6 5a.75.75 0 0 1 .75.75v4a.75.75 0 0 1-1.5 0v-4a.75.75 0 0 1 .75-.75Z'
+
+export const SlidersIcon = ({ size = 11 }: { size?: number }): JSX.Element => (
+  <Octicon d={OCTICON_SLIDERS} size={size} />
+)
+
 export const LinkExternalIcon = ({ size = 11 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_LINK_EXTERNAL} size={size} />
 )

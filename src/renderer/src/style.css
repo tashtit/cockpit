@@ -982,13 +982,6 @@ summary::-webkit-details-marker { display: none; }
 .source-opt-path { flex: 2 1 220px; }
 
 /* ---------- extensions ---------- */
-/* wraps at narrow widths — five tabs must never overflow the minimum window */
-.ext-tabs { display: flex; flex-wrap: wrap; gap: var(--s1);
-  border-bottom: 1px solid var(--border); margin-bottom: var(--s2); }
-.ext-tab { padding: var(--s2) var(--s4); font-size: var(--fs-sm); color: var(--fg-dim);
-  border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.ext-tab:hover { color: var(--fg); }
-.ext-tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
 /* the tabpanel wrapper keeps the card's vertical rhythm for its children */
 .tab-panel { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
 .ext-notice { background: var(--surface); border: 1px solid var(--border);
@@ -1000,48 +993,157 @@ summary::-webkit-details-marker { display: none; }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .ext-body { flex: 1; min-width: 0; }
 .ext-name { font-size: var(--fs-sm); font-weight: 600; }
-.ext-detail { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ext-agents { display: flex; gap: var(--s2); flex-shrink: 0; }
 .ext-actions { display: flex; gap: var(--s1); flex-shrink: 0; }
 
-/* ---------- Agents view: MCP management ---------- */
-.mcp-tools { display: flex; justify-content: flex-end; }
-.mcp-row { align-items: flex-start; }
-.mcp-row .ext-actions { flex-wrap: wrap; justify-content: flex-end; }
-.mcp-status { margin-left: var(--s2); font-size: var(--fs-xs); font-weight: 600;
-  padding: 0 var(--s2); border-radius: var(--radius-pill); border: 1px solid var(--border);
+/* ---------- Agents view: scope ---------- */
+/* one line above the panel, because scope is the only thing that changes what
+   every row underneath means. Everything else lives on the row it belongs to. */
+.scope-line { display: flex; align-items: center; gap: var(--s3); }
+.scope-seg { display: flex; align-items: stretch; border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; }
+.scope-opt { padding: 0 var(--s4); min-height: 28px; font-family: var(--mono);
+  font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.9px; color: var(--fg-dim); background: var(--bg2);
+  border-right: 1px solid var(--border);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.scope-opt:hover { color: var(--fg); }
+.scope-opt.active { color: var(--fg); background: var(--bg3);
+  box-shadow: inset 0 2px 0 var(--accent); }
+.scope-seg .select-wrap { min-width: 190px; }
+.scope-seg .select-trigger { border: none; border-radius: 0; background: var(--bg2);
+  min-height: 28px; }
+.scope-select.active .select-trigger { background: var(--bg3); color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--accent); }
+.scope-blurb { font-size: var(--fs-xs); color: var(--fg-dim); }
+.scope-blurb code { font-family: var(--mono); }
+/* the rail's search recipe, at the 28px compact control height */
+.pnl-search { flex: 1; min-width: 0; height: 28px; padding: 0 var(--s3);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); font-size: var(--fs-sm); }
+.pnl-search::placeholder { color: var(--fg-dim); }
+.pnl-search:focus { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow); }
+.pnl-search::-webkit-search-decoration, .pnl-search::-webkit-search-cancel-button {
+  -webkit-appearance: none; }
+
+/* ---------- Agents view: the panel ---------- */
+/*
+ * One row per thing, and everything about that thing lives in its row. The agents
+ * are chips that say their own names, so there is no column header to align to and
+ * no lane to track down — "who runs this" reads as three brand-coloured tokens,
+ * which is the vocabulary the rest of the app already uses for an agent.
+ */
+.pnl-tabs { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.pnl-pill { display: inline-flex; align-items: center; gap: var(--s2); min-height: 24px;
+  padding: 0 var(--s3); border-radius: var(--radius-sm); border: 1px solid transparent;
+  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+  border-color var(--dur) var(--ease); }
+.pnl-pill:hover { color: var(--fg); background: var(--surface); }
+.pnl-pill.active { color: var(--fg); background: var(--bg3); border-color: var(--border); }
+.pnl-pill.attention { color: var(--warn); }
+.pnl-pill.attention.active { background: rgba(var(--warn-rgb), 0.13);
+  border-color: rgba(var(--warn-rgb), 0.4); }
+.pnl-pill-n { font-variant-numeric: tabular-nums; opacity: 0.7; letter-spacing: 0; }
+.pnl-pill-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--warn); }
+.pnl-blurb { font-size: var(--fs-xs); color: var(--fg-dim); }
+.pnl-note { font-size: var(--fs-xs); color: var(--fg-dim); }
+.pnl-note code { font-family: var(--mono); }
+
+/* the list: one surface, hairline-separated, no grid and no column rules */
+.pnl-list { display: flex; flex-direction: column; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.pnl-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3);
+  min-height: 38px; transition: background var(--dur) var(--ease); }
+.pnl-row + .pnl-row, .pnl-detail + .pnl-row { border-top: 1px solid var(--border); }
+.pnl-row:hover { background: rgba(var(--accent-rgb), 0.05); }
+.pnl-row.open { background: rgba(var(--accent-rgb), 0.09); }
+.pnl-entry { display: flex; align-items: baseline; gap: var(--s2); flex: 1; min-width: 0;
+  text-align: left; color: var(--fg); }
+.pnl-entry:hover .pnl-title { color: var(--accent); }
+.pnl-title { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
+/* two mono registers, as the type rules have it: the definition is a machine
+   identifier (normal case), the section tag is a placard (uppercase) */
+.pnl-def { flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--fs-xs);
+  color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pnl-kind { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim); opacity: 0.6;
+  white-space: nowrap; flex-shrink: 0; }
+.pnl-caret { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0;
+  transition: transform var(--dur) var(--ease); }
+.pnl-caret.open { transform: rotate(90deg); }
+
+/* the agent chip: the app's identity colours doing the labelling, so the control
+   names itself and the row needs no header above it */
+.pnl-chips { display: flex; align-items: center; gap: var(--s1); flex-shrink: 0; }
+.ag-chip { display: inline-flex; align-items: center; gap: var(--s2); min-height: 24px;
+  padding: 0 var(--s3); border-radius: var(--radius-pill); border: 1px solid var(--border);
+  background: var(--bg-deep); color: var(--fg-dim); font-size: var(--fs-xs);
+  white-space: nowrap; transition: background var(--dur) var(--ease),
+  border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+.ag-chip svg { opacity: 0.45; transition: opacity var(--dur) var(--ease); }
+.ag-chip.on svg { opacity: 1; }
+button.ag-chip:hover { border-color: var(--border-strong); color: var(--fg); }
+.ag-chip.on { color: var(--fg); }
+.ag-chip.on.ag-claude { background: rgba(var(--claude-rgb), 0.16); border-color: var(--claude); }
+.ag-chip.on.ag-codex { background: rgba(var(--codex-rgb), 0.16); border-color: var(--codex); }
+.ag-chip.on.ag-copilot { background: rgba(var(--copilot-rgb), 0.16); border-color: var(--copilot); }
+/* these must out-specify the agent colours above (.ag-chip.on.ag-* is 0,3,0), or an
+   agent's own border silently wins and the warning never shows */
+.ag-chip.on.drift, .ag-chip.off.drift { border-color: var(--warn);
+  box-shadow: 0 0 0 2px rgba(var(--warn-rgb), 0.16); }
+.ag-chip.on.armed, .ag-chip.off.armed { border-color: var(--danger); color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.2); }
+.ag-chip.na { opacity: 0.35; }
+.ag-chip:disabled { opacity: 0.5; }
+.ag-chip.working { animation: pulse 1.2s ease-in-out infinite; }
+.ag-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+
+/* one word per row: the amber chip already says which agent */
+.pnl-state { display: flex; justify-content: flex-end; min-width: 88px; flex-shrink: 0; }
+.pnl-flag { font-family: var(--mono); font-size: var(--fs-xs); color: var(--warn);
+  font-style: normal; white-space: nowrap; }
+button.pnl-flag:hover { text-decoration: underline; }
+.pnl-flag.danger { color: var(--danger); }
+
+/* the row opened up, inset into the list */
+.pnl-detail { background: var(--bg-deep); box-shadow: inset 0 1px 0 var(--border); }
+.pnl-detail-body { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3); }
+.pnl-diff { width: 100%; border-collapse: collapse; font-size: var(--fs-xs);
+  font-family: var(--mono); }
+.pnl-diff th, .pnl-diff td { text-align: left; padding: var(--s1) var(--s2);
+  vertical-align: top; max-width: 220px; overflow-wrap: anywhere; }
+.pnl-diff thead th { color: var(--fg-dim); font-weight: 500;
+  border-bottom: 1px solid var(--border); }
+.pnl-diff tbody th { color: var(--fg-dim); font-weight: 500; white-space: nowrap; }
+.pnl-diff tr.differs { background: rgba(var(--warn-rgb), 0.09); }
+.pnl-diff tr.differs th { color: var(--warn); }
+.pnl-none { color: var(--fg-dim); opacity: 0.6; }
+/* whether the server answers: a fact about this server, on this server's row */
+.pnl-health { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  font-size: var(--fs-xs); color: var(--fg-dim); }
+.pnl-health-what { flex: 1; min-width: 180px; }
+.pnl-health .pnl-fix-actions { margin-left: auto; }
+/* one block per disagreement, each with the honest answers */
+.pnl-fix { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); background: rgba(var(--warn-rgb), 0.07);
+  border: 1px solid rgba(var(--warn-rgb), 0.28); border-radius: var(--radius-sm); }
+.pnl-fix-what { flex: 1; min-width: 200px; font-size: var(--fs-xs); color: var(--fg); }
+.pnl-fix-actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.pnl-detail-actions { display: flex; justify-content: flex-end; gap: var(--s2); }
+.pnl-detail-actions .armed { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
+
+/* whether a server answers — the pill lives in the row's own detail now */
+.mcp-status { font-size: var(--fs-xs); font-weight: 600; padding: 0 var(--s2);
+  border-radius: var(--radius-pill); border: 1px solid var(--border);
   color: var(--fg-dim); white-space: nowrap; }
 .mcp-status.ok { color: var(--ok); border-color: rgba(var(--ok-rgb), 0.5); }
 .mcp-status.needs-auth { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
 .mcp-status.error { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
-.mcp-status.checking { font-style: italic; }
-/* one chip per place a server is defined: agent tint + scope + its own remove × */
-.mcp-presences { display: flex; flex-wrap: wrap; gap: var(--s1); margin-top: var(--s1); }
-.mcp-scope { display: inline-flex; align-items: center; gap: var(--s1);
-  font-size: var(--fs-xs); font-family: var(--mono); color: var(--fg-dim);
-  border: 1px solid var(--border); border-radius: var(--radius-pill);
-  padding: 0 var(--s1) 0 var(--s2); line-height: 18px; min-height: 26px; }
-.mcp-scope.claude { border-color: rgba(var(--claude-rgb), 0.45);
-  background: rgba(var(--claude-rgb), 0.10); }
-.mcp-scope.codex { border-color: rgba(var(--codex-rgb), 0.45);
-  background: rgba(var(--codex-rgb), 0.10); }
-.mcp-scope.copilot { border-color: rgba(var(--copilot-rgb), 0.45);
-  background: rgba(var(--copilot-rgb), 0.10); }
-.mcp-scope-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; }
-/* 24px square keeps the × at the target-size floor; the chip grows to 26px to hold it */
-.mcp-remove { display: inline-flex; align-items: center; justify-content: center;
-  min-width: 24px; min-height: 24px; color: var(--fg-dim); line-height: 1;
-  padding: 0 var(--s1); border-radius: var(--radius-pill); font-size: var(--fs-sm); }
-.mcp-remove:hover { color: var(--danger); }
-.mcp-remove.armed { color: var(--danger); font-size: var(--fs-xs); font-weight: 600; }
 
 /* ---------- Agents view: shared instructions ---------- */
-.inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
-.inst-scope label { font-size: var(--fs-xs); color: var(--fg-dim); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.9px; }
-.inst-scope .select-wrap { flex: 1; min-width: 0; }
 /* the baseline is markdown — edit it with GitHub-comment grammar: Write/Preview
    tabs over an editor surface (the code-block paper, --bg-deep) */
 .md-tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--border); }

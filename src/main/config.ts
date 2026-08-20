@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import type { ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
+import type { LibraryEntry, ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
 
 type AppConfig = {
   readonly sources: SourceDir[]
@@ -13,6 +13,16 @@ type AppConfig = {
     readonly global?: string
     /** Keyed by repo root path */
     readonly repos?: Record<string, string>
+  }
+  /**
+   * Cockpit's own config: what it manages and which agents it is switched on for.
+   * Separate from the agents' configs on purpose — an entry survives being switched
+   * off everywhere, which is what makes a switch reversible rather than a delete.
+   */
+  readonly library?: {
+    readonly global?: LibraryEntry[]
+    /** Keyed by repo root path, like sharedInstructions */
+    readonly repos?: Record<string, LibraryEntry[]>
   }
   /** Repo keys the user chose not to display (everything is visible by default) */
   readonly hiddenRepos?: string[]

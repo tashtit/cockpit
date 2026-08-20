@@ -1,5 +1,16 @@
 import { vi } from 'vitest'
+import type { PanelReport } from '../../src/shared/library'
 import type { CockpitApi, RoundtableSnapshot } from '../../src/shared/types'
+
+/** An empty scope; panel tests override getPanel with real rows. */
+const emptyPanel: PanelReport = {
+  repoRoot: null,
+  rows: [],
+  removed: [],
+  on: 0,
+  drift: 0,
+  globalOnly: []
+}
 
 /** A minimal idle roundtable snapshot; tests override getRoundtable for real fixtures. */
 export function emptyRoundtable(): RoundtableSnapshot {
@@ -57,11 +68,13 @@ export function freshApi(): CockpitApi {
     createWorkspace: vi.fn(async () => ({ cwd: '/tmp/wt', branch: 'main' })),
     createPr: vi.fn(async () => 'https://github.com/o/r/pull/1'),
     getExtensions: vi.fn(async () => ({ mcp: [], skills: [], plugins: [], marketplaces: [] })),
-    shareMcp: vi.fn(async () => {}),
-    removeMcp: vi.fn(async () => {}),
     checkMcp: vi.fn(async () => ({ status: 'ok' as const })),
     loginMcp: vi.fn(async () => 'logged in'),
-    shareSkill: vi.fn(async () => {}),
+    getPanel: vi.fn(async () => emptyPanel),
+    setPanelSwitch: vi.fn(async () => emptyPanel),
+    matchPanelEntry: vi.fn(async () => emptyPanel),
+    removePanelEntry: vi.fn(async () => emptyPanel),
+    restorePanelEntry: vi.fn(async () => emptyPanel),
     getInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     saveInstructionsBaseline: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     applyInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),

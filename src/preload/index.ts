@@ -15,6 +15,7 @@ import type {
   NewRoundtableRequest,
   Provider,
   RoundtableEvent,
+  PanelTarget,
   SessionQuery,
   TimeFormat
 } from '../shared/types'
@@ -60,14 +61,16 @@ const api: CockpitApi = {
     ipcRenderer.invoke('workspace:create', repoRoot, name),
   createPr: (cwd: string) => ipcRenderer.invoke('workspace:pr', cwd),
   getExtensions: () => ipcRenderer.invoke('extensions:get'),
-  shareMcp: (name: string, to: Provider) => ipcRenderer.invoke('extensions:share-mcp', name, to),
-  removeMcp: (name: string, agent: Provider, projectPath?: string) =>
-    ipcRenderer.invoke('extensions:remove-mcp', name, agent, projectPath),
   checkMcp: (name: string) => ipcRenderer.invoke('extensions:check-mcp', name),
   loginMcp: (name: string, agent: Provider, projectPath?: string) =>
     ipcRenderer.invoke('extensions:login-mcp', name, agent, projectPath),
-  shareSkill: (name: string, from: Provider, to: Provider) =>
-    ipcRenderer.invoke('extensions:share-skill', name, from, to),
+  getPanel: (repoRoot: string | null) => ipcRenderer.invoke('panel:get', repoRoot),
+  setPanelSwitch: (target: PanelTarget, agent: Provider, on: boolean) =>
+    ipcRenderer.invoke('panel:set-switch', target, agent, on),
+  matchPanelEntry: (target: PanelTarget, source: Provider) =>
+    ipcRenderer.invoke('panel:match', target, source),
+  removePanelEntry: (target: PanelTarget) => ipcRenderer.invoke('panel:remove', target),
+  restorePanelEntry: (target: PanelTarget) => ipcRenderer.invoke('panel:restore', target),
   getInstructions: (repoRoot: string | null) => ipcRenderer.invoke('instructions:get', repoRoot),
   saveInstructionsBaseline: (repoRoot: string | null, baseline: string) =>
     ipcRenderer.invoke('instructions:save-baseline', repoRoot, baseline),

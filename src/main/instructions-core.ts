@@ -48,6 +48,18 @@ export function upsertSharedBlock(raw: string, baseline: string): string {
   return raw.replace(/\n*$/, '\n\n') + block + '\n'
 }
 
+/**
+ * Take the managed block back out, leaving the agent's own content exactly as it
+ * was. Switching an agent off must not touch a line the user wrote themselves.
+ */
+export function removeSharedBlock(raw: string): string {
+  const s = raw.indexOf(START)
+  if (s === -1) return raw
+  const e = raw.indexOf(END, s + START.length)
+  const rest = e === -1 ? raw.slice(s + START.length) : raw.slice(e + END.length)
+  return (raw.slice(0, s) + rest).replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '')
+}
+
 export function fileStatus(raw: string | null, baseline: string): InstructionStatus {
   if (raw === null) return 'missing'
   const block = extractSharedBlock(raw)

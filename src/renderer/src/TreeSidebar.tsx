@@ -23,7 +23,8 @@ import {
   PrBadge,
   ProviderLogo,
   PROVIDER_LABEL,
-  RepoIcon
+  RepoIcon,
+  SlidersIcon
 } from './logos'
 
 const PAGE = 20
@@ -54,6 +55,7 @@ export function TreeSidebar({
   selectedId,
   onSelect,
   onNewSession,
+  onRepoSetup,
   selectedRoundtableId,
   onOpenRoundtable,
   onNewTask,
@@ -71,6 +73,7 @@ export function TreeSidebar({
   selectedId: string | null
   onSelect: (s: SessionMeta) => void
   onNewSession: (repo: RepoGroup) => void
+  onRepoSetup: (repoRoot: string) => void
   /** Roundtable currently open in the main pane, for the section's selection state */
   selectedRoundtableId: string | null
   onOpenRoundtable: (id: string) => void
@@ -273,6 +276,7 @@ export function TreeSidebar({
               onToggle={() => toggle(r.key)}
               onSelect={onSelect}
               onNewSession={onNewSession}
+              onRepoSetup={onRepoSetup}
               onOpenUrl={onOpenUrl}
             />
           ))
@@ -441,6 +445,7 @@ function RepoNode({
   onToggle,
   onSelect,
   onNewSession,
+  onRepoSetup,
   onOpenUrl
 }: {
   repo: RepoGroup
@@ -454,6 +459,7 @@ function RepoNode({
   onToggle: () => void
   onSelect: (s: SessionMeta) => void
   onNewSession: (repo: RepoGroup) => void
+  onRepoSetup: (repoRoot: string) => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [prs, setPrs] = useState<PrStatus[]>([])
@@ -507,6 +513,19 @@ function RepoNode({
               }}
             >
               <LinkExternalIcon size={10} />
+            </button>
+          )}
+          {repo.root && (
+            <button
+              className="icon-btn small"
+              title={`Agent setup for ${repo.name}`}
+              aria-label={`Agent setup for ${repo.name}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onRepoSetup(repo.root as string)
+              }}
+            >
+              <SlidersIcon size={11} />
             </button>
           )}
           {repo.root && (

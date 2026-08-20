@@ -7,12 +7,21 @@ import type {
   NewRoundtableRequest,
   PermissionMode,
   Provider,
+  PanelKind,
+  PanelTarget,
   SessionQuery,
   TimeFormat
 } from '../shared/types'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { ChatManager } from './chat'
+import {
+  getPanel,
+  matchPanelEntry,
+  removePanelEntry,
+  restorePanelEntry,
+  setPanelSwitch
+} from './library'
 import { assertChatImages, saveChatImage } from './chat-images'
 import {
   addModelEndpoint,
@@ -239,6 +248,14 @@ function createWindow(): void {
 }
 
 /** IPC path args come from the renderer — only act on roots the indexer itself derived. */
+const PANEL_KINDS: readonly PanelKind[] = ['mcp', 'skill', 'plugin', 'marketplace', 'instructions']
+
+function asPanelKind(kind: unknown): PanelKind {
+  const found = PANEL_KINDS.find((k) => k === kind)
+  if (!found) throw new Error('unknown panel kind')
+  return found
+}
+
 function assertKnownRepoRoot(repoRoot: unknown): string {
   if (typeof repoRoot !== 'string') throw new Error('invalid repo root')
   const r = resolve(repoRoot)
@@ -367,19 +384,33 @@ app.whenReady().then(() => {
     return createPr(c)
   })
   ipcMain.handle('extensions:get', () => getExtensions())
-  ipcMain.handle('extensions:share-mcp', (_e, name: string, to: Provider) => shareMcp(name, to))
-  ipcMain.handle('extensions:share-skill', (_e, name: string, from: Provider, to: Provider) =>
-    shareSkill(name, from, to)
-  )
   // agent comes from the renderer and (for login) becomes a spawned command —
   // only ever accept the three known providers
   const asProvider = (agent: unknown): Provider => {
     if (agent === 'claude' || agent === 'codex' || agent === 'copilot') return agent
     throw new Error('unknown agent')
   }
-  ipcMain.handle('extensions:remove-mcp', (_e, name: string, agent: Provider, projectPath?: string) =>
-    removeMcp(String(name), asProvider(agent), projectPath ? String(projectPath) : undefined)
+  /*
+   * The panel: Cockpit's own config for one scope. A scope is either global or a
+   * repo root the indexer itself derived — never an arbitrary renderer path, since
+   * these handlers write config files and run agent CLIs inside it.
+   */
+  const asScope = (repoRoot: unknown): string | null =>
+    repoRoot === null || repoRoot === undefined ? null : assertKnownRepoRoot(repoRoot)
+  const asTarget = (t: PanelTarget): PanelTarget => ({
+    repoRoot: asScope(t?.repoRoot),
+    kind: asPanelKind(t?.kind),
+    name: String(t?.name ?? '')
+  })
+  ipcMain.handle('panel:get', (_e, repoRoot: string | null) => getPanel(asScope(repoRoot)))
+  ipcMain.handle('panel:set-switch', (_e, target: PanelTarget, agent: Provider, on: boolean) =>
+    setPanelSwitch(asTarget(target), asProvider(agent), Boolean(on))
   )
+  ipcMain.handle('panel:match', (_e, target: PanelTarget, source: Provider) =>
+    matchPanelEntry(asTarget(target), asProvider(source))
+  )
+  ipcMain.handle('panel:remove', (_e, target: PanelTarget) => removePanelEntry(asTarget(target)))
+  ipcMain.handle('panel:restore', (_e, target: PanelTarget) => restorePanelEntry(asTarget(target)))
   ipcMain.handle('extensions:check-mcp', (_e, name: string) => probeMcp(getMcpConfig(String(name))))
   ipcMain.handle('extensions:login-mcp', (_e, name: string, agent: Provider, projectPath?: string) => {
     const provider = asProvider(agent)

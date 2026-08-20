@@ -66,7 +66,8 @@ type View =
   | { kind: 'new-roundtable' }
   | { kind: 'roundtable'; id: string }
   | { kind: 'settings' }
-  | { kind: 'extensions' }
+  /** repoRoot null = the global agent setup; otherwise one repo's own */
+  | { kind: 'extensions'; repoRoot: string | null }
   | { kind: 'profile' }
 
 /** One place in the ⌘[/⌘] navigation history. Chat entries snapshot the binding
@@ -660,9 +661,15 @@ export function App(): JSX.Element {
 
   /** Nav icons are stateful: opening the view you're already on backs out of it. */
   const toggleView = useCallback((kind: 'settings' | 'extensions' | 'profile') => {
-    setView((v) =>
-      v.kind === kind ? (bindingRef.current ? { kind: 'chat' } : { kind: 'welcome' }) : { kind }
-    )
+    setView((v) => {
+      if (v.kind === kind) return bindingRef.current ? { kind: 'chat' } : { kind: 'welcome' }
+      return kind === 'extensions' ? { kind, repoRoot: null } : { kind }
+    })
+  }, [])
+
+  /** The rail's per-repo entry point: the same view, scoped to that repo. */
+  const openRepoSetup = useCallback((repoRoot: string) => {
+    setView({ kind: 'extensions', repoRoot })
   }, [])
 
   // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
@@ -686,6 +693,7 @@ export function App(): JSX.Element {
         selectedId={selectedSessionId}
         onSelect={openSession}
         onNewSession={(repo) => setView({ kind: 'new', repo })}
+        onRepoSetup={openRepoSetup}
         selectedRoundtableId={view.kind === 'roundtable' ? view.id : null}
         onOpenRoundtable={openRoundtable}
         onNewTask={() => {
@@ -709,8 +717,9 @@ export function App(): JSX.Element {
       ) : view.kind === 'extensions' ? (
         <AiSetup
           repos={repos}
+          repoRoot={view.repoRoot}
+          onScope={(repoRoot) => setView({ kind: 'extensions', repoRoot })}
           onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
-          onOpenUrl={openUrl}
         />
       ) : view.kind === 'new' ? (
         <NewSession
@@ -768,7 +777,10 @@ export function App(): JSX.Element {
           repos={visibleRepos}
           onOpenSession={(s) => void openSession(s)}
           onNewSession={(repo) => setView({ kind: 'new', repo })}
-          onGoto={(v: PaletteViewKey) => setView({ kind: v })}
+          onGoto={(v: PaletteViewKey) =>
+            setView(v === 'extensions' ? { kind: v, repoRoot: null } : { kind: v })
+          }
+          onRepoSetup={openRepoSetup}
           onClose={() => setPaletteOpen(false)}
         />
       )}

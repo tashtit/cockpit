@@ -11,7 +11,8 @@ import {
   LiveDot,
   ProviderLogo,
   PROVIDER_LABEL,
-  RepoIcon
+  RepoIcon,
+  SlidersIcon
 } from './logos'
 import { fmtTime, useTimeFormat } from './time'
 
@@ -60,12 +61,19 @@ const VIEWS: readonly ViewTarget[] = [
 type Item =
   | { readonly kind: 'session'; readonly s: SessionMeta }
   | { readonly kind: 'repo'; readonly r: RepoGroup }
+  | { readonly kind: 'repo-setup'; readonly r: RepoGroup }
   | { readonly kind: 'view'; readonly v: ViewTarget }
 
 type Group = { readonly label: string; readonly items: readonly Item[] }
 
 const itemKey = (it: Item): string =>
-  it.kind === 'session' ? it.s.id : it.kind === 'repo' ? `repo:${it.r.key}` : `view:${it.v.key}`
+  it.kind === 'session'
+    ? it.s.id
+    : it.kind === 'repo'
+      ? `repo:${it.r.key}`
+      : it.kind === 'repo-setup'
+        ? `setup:${it.r.key}`
+        : `view:${it.v.key}`
 
 /** Result caps — the palette is a jump surface, the sidebar stays the exhaustive list. */
 const SESSION_LIMIT_QUERY = 6
@@ -82,12 +90,14 @@ export function CommandPalette({
   repos,
   onOpenSession,
   onNewSession,
+  onRepoSetup,
   onGoto,
   onClose
 }: {
   repos: RepoGroup[]
   onOpenSession: (s: SessionMeta) => void
   onNewSession: (repo: RepoGroup) => void
+  onRepoSetup: (repoRoot: string) => void
   onGoto: (view: PaletteViewKey) => void
   onClose: () => void
 }): JSX.Element {
@@ -161,8 +171,14 @@ export function CommandPalette({
       const repoHits = repos
         .filter((r) => r.root && (r.fullName ?? r.name).toLowerCase().includes(q))
         .slice(0, REPO_LIMIT)
-      if (repoHits.length > 0)
+      if (repoHits.length > 0) {
         out.push({ label: 'start a session in', items: repoHits.map((r) => ({ kind: 'repo', r })) })
+        // a repo's own agent setup is otherwise only reachable from its sidebar row
+        out.push({
+          label: 'agent setup for',
+          items: repoHits.map((r) => ({ kind: 'repo-setup', r }))
+        })
+      }
       const viewHits = VIEWS.filter((v) =>
         [v.label, ...v.keywords].some((k) => k.toLowerCase().includes(q))
       )
@@ -197,6 +213,7 @@ export function CommandPalette({
     onClose()
     if (it.kind === 'session') onOpenSession(it.s)
     else if (it.kind === 'repo') onNewSession(it.r)
+    else if (it.kind === 'repo-setup') onRepoSetup(it.r.root as string)
     else onGoto(it.v.key)
   }
 
@@ -319,7 +336,9 @@ function PaletteOption({
       ? `${PROVIDER_LABEL[it.s.provider]} session: ${it.s.title}`
       : it.kind === 'repo'
         ? `New session in ${it.r.fullName ?? it.r.name}`
-        : it.v.label
+        : it.kind === 'repo-setup'
+          ? `Agent setup for ${it.r.fullName ?? it.r.name}`
+          : it.v.label
   return (
     <div
       id={id}
@@ -367,6 +386,24 @@ function PaletteOption({
             )}
           </span>
           <span className="palette-hint">new session</span>
+        </>
+      )}
+      {it.kind === 'repo-setup' && (
+        <>
+          <span className="palette-view-icon">
+            <SlidersIcon size={13} />
+          </span>
+          <span className="palette-title">
+            {it.r.fullName ? (
+              <>
+                <span className="repo-owner">{it.r.fullName.split('/')[0]}/</span>
+                {it.r.fullName.split('/')[1]}
+              </>
+            ) : (
+              it.r.name
+            )}
+          </span>
+          <span className="palette-hint">agent setup</span>
         </>
       )}
       {it.kind === 'view' && (
