@@ -10,29 +10,51 @@ import {
   type PanelReport,
   type PanelRow
 } from '../../shared/library'
-import type { PanelKind, Provider } from '../../shared/types'
+import type { McpProbeResult, PanelKind, Provider } from '../../shared/types'
 import { api } from './api'
+import { InstructionsEditor } from './InstructionsEditor'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 
 /**
- * The panel: Cockpit's own config for one scope, one row per managed thing.
+ * The panel: everything the agents share, one row per thing.
  *
- * The switch is what you commanded; the lamp under it is what the agent actually
- * has. They usually agree and the lamp stays dark. When they don't — something was
- * added behind Cockpit's back, or hand-edited — the lamp comes on amber and names
- * the disagreement, and the row offers the only two honest answers: write Cockpit's
- * definition into the agent, or take the agent's into Cockpit.
+ * A row is an object, and everything about that object lives in it — where it runs,
+ * what each agent is actually running, whether the server answers, how to remove it.
+ * There is one navigation layer (the sections) rather than a scope switch over tabs
+ * over section pills: three stacked ways to say "where am I" is none.
+ *
+ * Each agent is a chip that says its own name, so a row needs no column header and no
+ * lane to track down. You read "who runs this" as three brand-coloured tokens, which
+ * is the vocabulary the rest of the app already uses for an agent.
  */
 
-/** What the lamp says when the agent disagrees with its switch. */
-const LAMP: Partial<Record<AgentState, string>> = {
+/** What the row says when an agent disagrees — with its switch, or with its peers. */
+const STATE_WORD: Partial<Record<AgentState, string>> = {
   pending: 'not applied',
   changed: 'differs',
   extra: 'added outside'
 }
 
+const MCP_STATUS_LABEL: Record<McpProbeResult['status'], string> = {
+  ok: 'answers',
+  'needs-auth': 'needs login',
+  error: 'unreachable'
+}
+
+/** The pill says the state; this says what actually happened. Never both the same. */
+const MCP_STATUS_SAID: Record<McpProbeResult['status'], string> = {
+  ok: 'It answered a handshake.',
+  'needs-auth': 'It answered, but wants you to sign in first.',
+  error: 'It didn’t answer.'
+}
+
+/** Agents whose CLI has an `mcp login` command */
+const LOGIN_AGENTS: readonly Provider[] = ['claude', 'codex']
+
 /** Turning these off runs an uninstall, so they ask first. */
 const CONFIRM_OFF: readonly PanelKind[] = ['plugin', 'marketplace']
+
+type Section = PanelKind | 'attention' | 'removed'
 
 type Notice = { text: string; kind: 'ok' | 'error' } | null
 
@@ -48,21 +70,20 @@ function listOf(names: readonly string[]): string {
 
 export function AgentPanel({
   repoRoot,
-  onOpenInstructions,
+  query,
   setNotice
 }: {
   repoRoot: string | null
-  onOpenInstructions: () => void
+  /** search text, owned by the card so it can share the scope line */
+  query: string
   setNotice: (n: Notice) => void
 }): JSX.Element {
   const [report, setReport] = useState<PanelReport | null>(null)
-  /** which section is showing — 'attention' is the cross-kind pile of disagreements */
-  const [section, setSection] = useState<PanelKind | 'attention' | 'removed' | null>(null)
-  const [query, setQuery] = useState('')
-  const [expanded, setExpanded] = useState<string | null>(null)
-  /** cell key currently being written — its switch shows the write in flight */
+  const [section, setSection] = useState<Section | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
+  /** cell key or row id currently being written */
   const [busy, setBusy] = useState<string | null>(null)
-  /** cell key or row id whose destructive action is in its armed step */
+  /** key whose destructive action is in its armed step */
   const [armed, setArmed] = useState<string | null>(null)
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -76,7 +97,6 @@ export function AgentPanel({
   useEffect(() => {
     setReport(null)
     setSection(null)
-    setQuery('')
     load()
   }, [load])
 
@@ -93,7 +113,6 @@ export function AgentPanel({
     if (key !== null) armTimer.current = setTimeout(() => setArmed(null), 4000)
   }
 
-  /** Every action returns the freshly reconciled scope, so the panel never guesses. */
   const run = async (key: string, op: () => Promise<PanelReport>, ok: string): Promise<void> => {
     setNotice(null)
     setArmed(null)
@@ -126,11 +145,10 @@ export function AgentPanel({
       () => api.setPanelSwitch(target(row), agent, on),
       on
         ? `${row.name} is on for ${PROVIDER_LABEL[agent]} — restart that CLI to pick it up.`
-        : `${row.name} is off for ${PROVIDER_LABEL[agent]}. Cockpit still has it, so you can put it back.`
+        : `${row.name} is off for ${PROVIDER_LABEL[agent]}. Cockpit kept a copy, so you can put it back.`
     )
   }
 
-  /** Make the agents agree by copying one of theirs — Cockpit picks no winner. */
   const match = (row: PanelRow, source: Provider): void =>
     void run(
       cellKey(row, source),
@@ -146,20 +164,20 @@ export function AgentPanel({
     )
 
   const restore = (row: PanelRow): void =>
-    void run(
-      row.id,
-      () => api.restorePanelEntry(target(row)),
-      `Put ${row.name} back.`
-    )
+    void run(row.id, () => api.restorePanelEntry(target(row)), `Put ${row.name} back.`)
 
   if (!report) return <div className="tree-empty">reading every agent’s config…</div>
 
-  const kinds = KIND_ORDER.filter((k) => report.rows.some((r) => r.kind === k))
+  // instructions always has a section, even before a baseline exists: writing one is
+  // the point, and an empty screen should be an invitation rather than an absence
+  const kinds = KIND_ORDER.filter(
+    (k) => k === 'instructions' || report.rows.some((r) => r.kind === k)
+  )
   const driftRows = report.rows.filter((r) => r.drift.length > 0)
-  // land on the work when there is any, otherwise on the first section
-  const current = section ?? (driftRows.length > 0 ? 'attention' : (kinds[0] ?? null))
   const q = query.trim().toLowerCase()
-  // a search looks everywhere: you rarely know which section a server ended up in
+  const current: Section | null =
+    section ?? (driftRows.length > 0 ? 'attention' : (kinds[0] ?? null))
+  // a search looks everywhere: you rarely know which section a thing ended up in
   const rows = q
     ? report.rows.filter((r) =>
         `${r.name} ${r.saved.detail} ${KIND_LABEL[r.kind]}`.toLowerCase().includes(q)
@@ -172,134 +190,65 @@ export function AgentPanel({
 
   return (
     <>
-      <div className="pnl-bar">
-        <input
-          type="search"
-          className="pnl-search"
-          placeholder="Search everything…"
-          aria-label="Search this scope"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <button className="btn-ghost small" title="Re-read every agent’s config" onClick={load}>
-          Refresh
-        </button>
-      </div>
-
-      {/* one section at a time: the whole setup in one scroll was a wall */}
-      <div className={`pnl-tabs ${q ? 'searching' : ''}`} role="tablist" aria-label="Sections">
+      <div className="pnl-tabs" role="tablist" aria-label="Sections">
         {driftRows.length > 0 && (
-          <button
-            role="tab"
-            aria-selected={current === 'attention'}
-            className={`pnl-pill attention ${current === 'attention' ? 'active' : ''}`}
+          <Pill
+            label="Needs you"
+            count={driftRows.length}
+            tone="warn"
+            active={current === 'attention'}
             onClick={() => setSection('attention')}
-          >
-            Needs you
-            <span className="pnl-pill-n">{driftRows.length}</span>
-          </button>
+          />
         )}
+        {kinds.map((kind) => (
+          <Pill
+            key={kind}
+            label={KIND_LABEL[kind]}
+            count={report.rows.filter((r) => r.kind === kind).length}
+            dot={report.rows.some((r) => r.kind === kind && r.drift.length > 0)}
+            active={current === kind}
+            onClick={() => setSection(kind)}
+          />
+        ))}
         {report.removed.length > 0 && (
-          <button
-            role="tab"
-            aria-selected={current === 'removed'}
-            className={`pnl-pill ${current === 'removed' ? 'active' : ''}`}
+          <Pill
+            label="Removed"
+            count={report.removed.length}
+            active={current === 'removed'}
             onClick={() => setSection('removed')}
-          >
-            Removed
-            <span className="pnl-pill-n">{report.removed.length}</span>
-          </button>
+          />
         )}
-        {kinds.map((kind) => {
-          const all = report.rows.filter((r) => r.kind === kind)
-          const drift = all.filter((r) => r.drift.length > 0).length
-          return (
-            <button
-              key={kind}
-              role="tab"
-              aria-selected={current === kind}
-              className={`pnl-pill ${current === kind ? 'active' : ''}`}
-              onClick={() => setSection(kind)}
-            >
-              {KIND_LABEL[kind]}
-              <span className="pnl-pill-n">{all.length}</span>
-              {drift > 0 && <i className="pnl-pill-dot" aria-label={`${drift} need attention`} />}
-            </button>
-          )
-        })}
       </div>
 
+      {/* the instructions editor opens with its own explanation — a section blurb
+          above it would say the same thing twice */}
+      {(q !== '' || current !== 'instructions') && (
       <p className="pnl-blurb">
-        {q ? (
-          `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
-        ) : current === 'removed' ? (
-          'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
-        ) : current === 'attention' ? (
-          'Something here disagrees — with its switch, or with the other agents. Open a row to settle it.'
-        ) : (
-          <>
-            {current ? KIND_BLURB[current] : ''} Each switch says where it’s applied.
-          </>
-        )}
+        {q
+          ? `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
+          : current === 'removed'
+            ? 'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
+            : current === 'attention'
+              ? 'Something here disagrees — with where it’s switched on, or with the other agents.'
+              : current
+                ? KIND_BLURB[current]
+                : ''}
       </p>
-
-      {report.rows.length === 0 && (
-        <div className="tree-empty">
-          {repoRoot === null
-            ? 'nothing here yet — anything your agents already have is picked up automatically'
-            : 'nothing set for this repo yet — a repo can carry its own instructions, Claude Code MCP servers, and skills'}
-        </div>
       )}
 
-      {q !== '' && rows.length === 0 && (
-        <div className="tree-empty">nothing here matches “{query.trim()}”</div>
+      {!q && current === 'instructions' && (
+        <InstructionsEditor repoRoot={repoRoot} setNotice={setNotice} onSaved={load} />
       )}
 
-      {rows.length > 0 && (
-        // the cap belongs to the bank: same element owns the lane widths, so the
-        // header grid and the lane gradient can never disagree
-        <div className={`pnl-bank ${rows.some((r) => r.drift.length > 0) ? '' : 'quiet'}`}>
-          <div className="pnl-row pnl-head" aria-hidden="true">
-            <span />
-            {PROVIDERS.map((p) => (
-              <span key={p} className="pnl-col">
-                <span className={`plogo plogo-${p}`}>
-                  <ProviderLogo p={p} size={13} />
-                </span>
-                {PROVIDER_LABEL[p]}
-              </span>
-            ))}
-            <span />
-          </div>
-          <div className="pnl-table">
-            {rows.map((row) => (
-              <Row
-                key={row.id}
-                row={row}
-                showKind={q !== '' || current === 'attention'}
-                armed={armed}
-                busy={busy}
-                open={expanded === row.id}
-                onToggle={() => setExpanded(expanded === row.id ? null : row.id)}
-                onFlip={flip}
-                onMatch={match}
-                onRemove={remove}
-                onRestore={restore}
-                onArm={arm}
-                onOpenInstructions={onOpenInstructions}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {current === 'removed' && (
-        <div className="pnl-removed">
+      {!q && current === 'removed' && (
+        <div className="pnl-list">
           {report.removed.map((row) => (
-            <div key={row.id} className="pnl-removed-row">
-              <span className="pnl-title">{row.name}</span>
-              <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>
-              <span className="pnl-def">{row.saved.detail}</span>
+            <div key={row.id} className="pnl-row">
+              <span className="pnl-entry">
+                <span className="pnl-title">{row.name}</span>
+                <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>
+                <span className="pnl-def">{row.saved.detail}</span>
+              </span>
               <button
                 className="btn-ghost small"
                 disabled={busy !== null}
@@ -308,6 +257,32 @@ export function AgentPanel({
                 {busy === row.id ? 'putting back…' : 'Put it back'}
               </button>
             </div>
+          ))}
+        </div>
+      )}
+
+      {q && rows.length === 0 && (
+        <div className="tree-empty">nothing here matches “{query.trim()}”</div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="pnl-list">
+          {rows.map((row) => (
+            <Row
+              key={row.id}
+              row={row}
+              repoRoot={repoRoot}
+              showKind={q !== '' || current === 'attention'}
+              armed={armed}
+              busy={busy}
+              open={open === row.id}
+              onToggle={() => setOpen(open === row.id ? null : row.id)}
+              onFlip={flip}
+              onMatch={match}
+              onRemove={remove}
+              onArm={arm}
+              setNotice={setNotice}
+            />
           ))}
         </div>
       )}
@@ -321,16 +296,45 @@ export function AgentPanel({
 
       {report.globalOnly.length > 0 && (
         <p className="pnl-note">
-          {report.globalOnly.map((k) => KIND_LABEL[k]).join(' and ')} are installed per machine, so
-          a repo can’t change them. They live in <strong>Global</strong>.
+          {listOf(report.globalOnly.map((k) => KIND_LABEL[k]))} are installed per machine, so a repo
+          can’t change them. They live in <strong>Global</strong>.
         </p>
       )}
     </>
   )
 }
 
+function Pill({
+  label,
+  count,
+  active,
+  onClick,
+  ...marks
+}: {
+  label: string
+  count: number
+  active: boolean
+  onClick: () => void
+  tone?: 'warn'
+  dot?: boolean
+}): JSX.Element {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      className={`pnl-pill ${marks.tone === 'warn' ? 'attention' : ''} ${active ? 'active' : ''}`}
+      onClick={onClick}
+    >
+      {label}
+      <span className="pnl-pill-n">{count}</span>
+      {marks.dot && <i className="pnl-pill-dot" aria-label="needs attention" />}
+    </button>
+  )
+}
+
 function Row({
   row,
+  repoRoot,
   showKind,
   open,
   armed,
@@ -339,12 +343,12 @@ function Row({
   onFlip,
   onMatch,
   onRemove,
-  onRestore,
   onArm,
-  onOpenInstructions
+  setNotice
 }: {
   row: PanelRow
-  /** the attention pile mixes kinds, so each row says which one it is */
+  repoRoot: string | null
+  /** the cross-kind views mix sections, so each row says which one it is */
   showKind: boolean
   open: boolean
   armed: string | null
@@ -353,94 +357,88 @@ function Row({
   onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
   onMatch: (row: PanelRow, source: Provider) => void
   onRemove: (row: PanelRow) => void
-  onRestore: (row: PanelRow) => void
   onArm: (key: string | null) => void
-  onOpenInstructions: () => void
+  setNotice: (n: Notice) => void
 }): JSX.Element {
-  const drifted = row.drift.length > 0
+  // one word for the whole row: the amber chip already says which agent
+  const flag = row.drift.length > 0 ? STATE_WORD[row.cells[row.drift[0]].state] : null
   const armedHere = armed !== null && armed.startsWith(`${row.id}|`)
   return (
     <>
-      <div className={`pnl-row ${drifted ? 'drifted' : ''} ${open ? 'open' : ''}`}>
-        <span className="pnl-name-cell">
-          <button className="pnl-name" aria-expanded={open} onClick={onToggle}>
-            <span className={`pnl-caret ${open ? 'open' : ''}`} aria-hidden="true">
-              ▸
-            </span>
-            <span className="pnl-title">{row.name}</span>
-            {showKind && <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>}
-            <span className="pnl-def" title={row.saved.detail}>
-              {row.saved.detail}
-            </span>
-          </button>
-        </span>
-        {PROVIDERS.map((p) => {
-          const cell = row.cells[p]
-          const key = cellKey(row, p)
-          const writing = busy === key
-          const isArmed = armed === key
-          if (cell.state === 'na') {
+      <div className={`pnl-row ${open ? 'open' : ''}`}>
+        <button className="pnl-entry" aria-expanded={open} onClick={onToggle}>
+          <span className={`pnl-caret ${open ? 'open' : ''}`} aria-hidden="true">
+            ▸
+          </span>
+          <span className="pnl-title">{row.name}</span>
+          {showKind && <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>}
+          <span className="pnl-def" title={row.saved.detail}>
+            {row.saved.detail}
+          </span>
+        </button>
+        <span className="pnl-chips">
+          {PROVIDERS.map((p) => {
+            const cell = row.cells[p]
+            const key = cellKey(row, p)
+            if (cell.state === 'na') {
+              return (
+                <span key={p} className="ag-chip na" title={cell.reason}>
+                  <ProviderLogo p={p} size={11} />
+                  {PROVIDER_LABEL[p]}
+                </span>
+              )
+            }
+            const isArmed = armed === key
             return (
-              <span key={p} className="pnl-cell na" title={cell.reason}>
-                —
-              </span>
-            )
-          }
-          return (
-            <span key={p} className="pnl-cell">
               <button
+                key={p}
                 role="switch"
                 aria-checked={cell.desired}
                 aria-label={`${row.name} in ${PROVIDER_LABEL[p]}`}
                 title={
                   isArmed
                     ? 'Click again to remove it from this agent'
-                    : cell.detail || (cell.desired ? 'switched on' : 'switched off')
+                    : cell.detail || (cell.desired ? 'on' : 'off')
                 }
                 disabled={busy !== null}
-                className={`sw sw-${p} ${cell.desired ? 'on' : 'off'} ${
+                className={`ag-chip ag-${p} ${cell.desired ? 'on' : 'off'} ${
                   isDrift(cell.state) ? 'drift' : ''
-                } ${isArmed ? 'armed' : ''}`}
+                } ${isArmed ? 'armed' : ''} ${busy === key ? 'working' : ''}`}
                 onBlur={() => {
                   if (isArmed) onArm(null)
                 }}
                 onClick={() => onFlip(row, p, !cell.desired)}
               >
-                <i aria-hidden="true" />
+                <ProviderLogo p={p} size={11} />
+                {PROVIDER_LABEL[p]}
               </button>
-              {writing && <span className="pnl-lamp working" aria-hidden="true" />}
-            </span>
-          )
-        })}
-        {/* every disagreement reads in one place, so the lanes stay a clean switch
-            bank and rows keep one height however many lamps are lit */}
-        <span className="pnl-flags">
-          {armedHere && <span className="pnl-flag danger">click again to remove</span>}
-          {!armedHere &&
-            row.drift.map((p) => (
-              <button
-                key={p}
-                className="pnl-flag"
-                title="Cockpit and this agent disagree — open the row to settle it"
-                onClick={onToggle}
-              >
-                <span className="pnl-flag-who">{PROVIDER_LABEL[p]}</span>
-                <span className="pnl-flag-state">{LAMP[row.cells[p].state]}</span>
+            )
+          })}
+        </span>
+        <span className="pnl-state">
+          {armedHere ? (
+            <em className="pnl-flag danger">click again to remove</em>
+          ) : (
+            flag && (
+              <button className="pnl-flag" onClick={onToggle} title="Open the row to settle it">
+                {flag}
               </button>
-            ))}
+            )
+          )}
         </span>
       </div>
       {open && (
         <div className="pnl-detail">
           <Detail
             row={row}
+            repoRoot={repoRoot}
             armed={armed}
             busy={busy}
             onFlip={onFlip}
             onMatch={onMatch}
             onRemove={onRemove}
             onArm={onArm}
-            onOpenInstructions={onOpenInstructions}
+            setNotice={setNotice}
           />
         </div>
       )}
@@ -449,33 +447,37 @@ function Row({
 }
 
 /**
- * The row opened up: Cockpit's definition first, then each agent's, field by field.
- * Cockpit leads the table because it is the source of truth — the agents are the
- * copies, and any row where they disagree is what the lamp was pointing at.
+ * The row opened up: what each agent actually runs, what to do about a
+ * disagreement, and — for a server — whether it answers at all. Everything about the
+ * object is here, because the object is the row.
  */
 function Detail({
   row,
+  repoRoot,
   armed,
   busy,
   onFlip,
   onMatch,
   onRemove,
   onArm,
-  onOpenInstructions
+  setNotice
 }: {
   row: PanelRow
+  repoRoot: string | null
   armed: string | null
   busy: string | null
   onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
   onMatch: (row: PanelRow, source: Provider) => void
   onRemove: (row: PanelRow) => void
   onArm: (key: string | null) => void
-  onOpenInstructions: () => void
+  setNotice: (n: Notice) => void
 }): JSX.Element {
   const holders = PROVIDERS.filter((p) => agentHasIt(row.cells[p].state))
   const removeArmed = armed === row.id
   return (
     <div className="pnl-detail-body">
+      {row.kind === 'mcp' && <McpHealth row={row} repoRoot={repoRoot} setNotice={setNotice} />}
+
       {row.fields.length > 0 && holders.length > 0 && (
         <table className="pnl-diff" aria-label={`${row.name} — what each agent runs`}>
           <thead>
@@ -490,17 +492,14 @@ function Detail({
           </thead>
           <tbody>
             {row.fields
-              // a field nobody fills in is not a comparison, it's an empty line
               .filter((field) => holders.some((p) => (row.cells[p].fields[field] ?? '') !== ''))
               .map((field) => {
-                // the agents are compared with each other; a field one of them simply
-                // doesn't record is unknown, not a difference
+                // a field one agent simply doesn't record is unknown, not a difference
                 const values = holders
                   .filter((p) => field in row.cells[p].fields)
                   .map((p) => row.cells[p].fields[field])
-                const differs = values.some((v) => v !== values[0])
                 return (
-                  <tr key={field} className={differs ? 'differs' : ''}>
+                  <tr key={field} className={values.some((v) => v !== values[0]) ? 'differs' : ''}>
                     <th scope="row">{field}</th>
                     {holders.map((p) => (
                       <td key={p} title={row.cells[p].fields[field]}>
@@ -518,13 +517,11 @@ function Detail({
         </table>
       )}
 
-      {/* a disagreement between agents has no "right" side for Cockpit to pick,
-          so the user names the agent whose setup the others should follow */}
       {row.disagree && (
         <div className="pnl-fix">
           <span className="pnl-fix-what">
-            {listOf(row.holders.map((p) => PROVIDER_LABEL[p]))} don’t run the same {row.name}.
-            Which one is right?
+            {listOf(row.holders.map((p) => PROVIDER_LABEL[p]))} don’t run the same {row.name}. Which
+            one is right?
           </span>
           <div className="pnl-fix-actions">
             {row.holders.map((p) => (
@@ -547,8 +544,8 @@ function Detail({
           <div key={p} className="pnl-fix">
             <span className="pnl-fix-what">
               {row.cells[p].state === 'pending'
-                ? `${PROVIDER_LABEL[p]} doesn’t have ${row.name}, but its switch is on.`
-                : `${PROVIDER_LABEL[p]} has ${row.name} even though its switch is off.`}
+                ? `${PROVIDER_LABEL[p]} doesn’t have ${row.name}, but it’s switched on.`
+                : `${PROVIDER_LABEL[p]} has ${row.name} even though it’s switched off.`}
             </span>
             <div className="pnl-fix-actions">
               <button
@@ -571,17 +568,15 @@ function Detail({
           </div>
         ))}
 
-      <div className="pnl-detail-actions">
-        {row.kind === 'instructions' ? (
-          <button className="btn-ghost small" onClick={onOpenInstructions}>
-            Edit the baseline
-          </button>
-        ) : (
+      {row.kind !== 'instructions' && (
+        <div className="pnl-detail-actions">
           <button
             className={`btn-ghost small ${removeArmed ? 'armed' : ''}`}
             disabled={busy !== null}
             aria-label={
-              removeArmed ? `Confirm removing ${row.name} everywhere` : `Remove ${row.name} everywhere`
+              removeArmed
+                ? `Confirm removing ${row.name} everywhere`
+                : `Remove ${row.name} everywhere`
             }
             title="Take it out of every agent. Cockpit keeps a copy, so you can put it back."
             onBlur={() => {
@@ -591,7 +586,90 @@ function Detail({
           >
             {removeArmed ? 'remove everywhere?' : 'Remove everywhere'}
           </button>
-        )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Whether the server answers — the one thing no switch can tell you. It lives on the
+ * server's own row rather than in a tab of its own, because it is a fact about this
+ * server and nothing else.
+ */
+function McpHealth({
+  row,
+  repoRoot,
+  setNotice
+}: {
+  row: PanelRow
+  repoRoot: string | null
+  setNotice: (n: Notice) => void
+}): JSX.Element {
+  const [status, setStatus] = useState<McpProbeResult | 'checking' | null>(null)
+  const [loginBusy, setLoginBusy] = useState<Provider | null>(null)
+
+  const check = async (): Promise<void> => {
+    setStatus('checking')
+    try {
+      setStatus(await api.checkMcp(row.name))
+    } catch (err) {
+      setStatus({ status: 'error', detail: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  const login = async (agent: Provider): Promise<void> => {
+    setNotice({
+      text: `Logging in to “${row.name}” with ${PROVIDER_LABEL[agent]} — finish the flow in your browser.`,
+      kind: 'ok'
+    })
+    setLoginBusy(agent)
+    try {
+      setNotice({ text: await api.loginMcp(row.name, agent, repoRoot ?? undefined), kind: 'ok' })
+      void check()
+    } catch (err) {
+      setNotice({ text: `Login failed: ${err instanceof Error ? err.message : err}`, kind: 'error' })
+    } finally {
+      setLoginBusy(null)
+    }
+  }
+
+  const result = status === 'checking' || status === null ? null : status
+  return (
+    <div className="pnl-health">
+      <span className="pnl-health-what">
+        {status === null
+          ? 'Cockpit hasn’t asked this server anything yet.'
+          : status === 'checking'
+            ? 'Asking the server…'
+            : (result!.detail ?? MCP_STATUS_SAID[result!.status])}
+      </span>
+      {result && (
+        <span className={`mcp-status ${result.status}`}>{MCP_STATUS_LABEL[result.status]}</span>
+      )}
+      <div className="pnl-fix-actions">
+        {result?.status === 'needs-auth' &&
+          row.holders
+            .filter((a) => LOGIN_AGENTS.includes(a))
+            .map((a) => (
+              <button
+                key={a}
+                className="btn-ghost small"
+                disabled={loginBusy !== null}
+                title={`Run “${a} mcp login ${row.name}” — opens your browser`}
+                onClick={() => void login(a)}
+              >
+                {loginBusy === a ? 'waiting…' : `Log in · ${PROVIDER_LABEL[a]}`}
+              </button>
+            ))}
+        <button
+          className="btn-ghost small"
+          disabled={status === 'checking'}
+          title="Run the configured command, or hit the URL"
+          onClick={() => void check()}
+        >
+          {status === 'checking' ? 'checking…' : 'Check'}
+        </button>
       </div>
     </div>
   )

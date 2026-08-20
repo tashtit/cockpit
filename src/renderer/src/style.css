@@ -982,13 +982,6 @@ summary::-webkit-details-marker { display: none; }
 .source-opt-path { flex: 2 1 220px; }
 
 /* ---------- extensions ---------- */
-/* wraps at narrow widths — five tabs must never overflow the minimum window */
-.ext-tabs { display: flex; flex-wrap: wrap; gap: var(--s1);
-  border-bottom: 1px solid var(--border); margin-bottom: var(--s2); }
-.ext-tab { padding: var(--s2) var(--s4); font-size: var(--fs-sm); color: var(--fg-dim);
-  border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.ext-tab:hover { color: var(--fg); }
-.ext-tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
 /* the tabpanel wrapper keeps the card's vertical rhythm for its children */
 .tab-panel { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
 .ext-notice { background: var(--surface); border: 1px solid var(--border);
@@ -1000,42 +993,30 @@ summary::-webkit-details-marker { display: none; }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .ext-body { flex: 1; min-width: 0; }
 .ext-name { font-size: var(--fs-sm); font-weight: 600; }
-.ext-detail { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ext-agents { display: flex; gap: var(--s2); flex-shrink: 0; }
 .ext-actions { display: flex; gap: var(--s1); flex-shrink: 0; }
 
 /* ---------- Agents view: scope ---------- */
-/* the scope switch leads the card — everything under it means something different
-   depending on which half is lit, so it reads as a mode, not a filter */
-.scope-switch { display: grid; grid-template-columns: 1fr 1.4fr; gap: 1px;
-  background: var(--border); border: 1px solid var(--border);
+/* one line above the panel, because scope is the only thing that changes what
+   every row underneath means. Everything else lives on the row it belongs to. */
+.scope-line { display: flex; align-items: center; gap: var(--s3); }
+.scope-seg { display: flex; align-items: stretch; border: 1px solid var(--border);
   border-radius: var(--radius); overflow: hidden; }
-.scope-half { display: flex; align-items: center; gap: var(--s2); text-align: left;
-  padding: var(--s2) var(--s4); min-height: 40px; background: var(--bg2);
-  color: var(--fg-dim); transition: background var(--dur) var(--ease),
-  color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
-button.scope-half:hover { color: var(--fg); }
-.scope-half.active { background: var(--bg3); color: var(--fg);
+.scope-opt { padding: 0 var(--s4); min-height: 28px; font-family: var(--mono);
+  font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.9px; color: var(--fg-dim); background: var(--bg2);
+  border-right: 1px solid var(--border);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.scope-opt:hover { color: var(--fg); }
+.scope-opt.active { color: var(--fg); background: var(--bg3);
   box-shadow: inset 0 2px 0 var(--accent); }
-.scope-name { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.9px; }
-.scope-sub { font-size: var(--fs-xs); color: var(--fg-dim); }
-.scope-project { gap: var(--s3); }
-.scope-project .select-wrap { flex: 1; min-width: 0; }
+.scope-seg .select-wrap { min-width: 190px; }
+.scope-seg .select-trigger { border: none; border-radius: 0; background: var(--bg2);
+  min-height: 28px; }
+.scope-select.active .select-trigger { background: var(--bg3); color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--accent); }
 .scope-blurb { font-size: var(--fs-xs); color: var(--fg-dim); }
 .scope-blurb code { font-family: var(--mono); }
-
-/* ---------- Agents view: the panel ---------- */
-/*
- * An instrument panel, not a settings list. Four lanes run the full height of the
- * bank: the entry (what Cockpit holds) and one per agent, each washed in its own
- * identity color so the eye tracks a column without re-finding it every row. The
- * switch is the commanded state; a lit placard in the row's right slot is the
- * annunciator. Rows keep one height however many placards light, because a bank
- * of switches that jogs as states change is unreadable.
- */
-.pnl-bar { display: flex; align-items: center; gap: var(--s3); }
 /* the rail's search recipe, at the 28px compact control height */
 .pnl-search { flex: 1; min-width: 0; height: 28px; padding: 0 var(--s3);
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
@@ -1043,13 +1024,17 @@ button.scope-half:hover { color: var(--fg); }
 .pnl-search::placeholder { color: var(--fg-dim); }
 .pnl-search:focus { outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow); }
-/* the platform's own search affordances would break the dark surface */
 .pnl-search::-webkit-search-decoration, .pnl-search::-webkit-search-cancel-button {
   -webkit-appearance: none; }
 
-/* section selector: placard voice, like every other micro-label in the app */
+/* ---------- Agents view: the panel ---------- */
+/*
+ * One row per thing, and everything about that thing lives in its row. The agents
+ * are chips that say their own names, so there is no column header to align to and
+ * no lane to track down — "who runs this" reads as three brand-coloured tokens,
+ * which is the vocabulary the rest of the app already uses for an agent.
+ */
 .pnl-tabs { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
-.pnl-tabs.searching { opacity: 0.4; }
 .pnl-pill { display: inline-flex; align-items: center; gap: var(--s2); min-height: 24px;
   padding: 0 var(--s3); border-radius: var(--radius-sm); border: 1px solid transparent;
   font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
@@ -1067,118 +1052,63 @@ button.scope-half:hover { color: var(--fg); }
 .pnl-note { font-size: var(--fs-xs); color: var(--fg-dim); }
 .pnl-note code { font-family: var(--mono); }
 
-/*
- * The bank. The lanes are painted on the panel itself, not on cells — a
- * right-anchored gradient whose stops are the grid's own column widths — so they
- * are continuous by construction and no horizontal rule ever crosses them. That
- * continuity is the whole design; everything else is kept quiet to protect it.
- *
- * Column widths live in one place (--pnl-lane / --pnl-state) because the grid and
- * the gradient must agree to the pixel.
- */
-.pnl-bank { --pnl-lane: 76px; --pnl-state: 116px;
-  background-color: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
-  background-image: linear-gradient(to left,
-    transparent 0 var(--pnl-state),
-    rgba(var(--copilot-rgb), 0.06) var(--pnl-state) calc(var(--pnl-state) + var(--pnl-lane)),
-    rgba(var(--codex-rgb), 0.06) calc(var(--pnl-state) + var(--pnl-lane)) calc(var(--pnl-state) + var(--pnl-lane) * 2),
-    rgba(var(--claude-rgb), 0.06) calc(var(--pnl-state) + var(--pnl-lane) * 2) calc(var(--pnl-state) + var(--pnl-lane) * 3),
-    transparent calc(var(--pnl-state) + var(--pnl-lane) * 3)); }
-/* nothing lit anywhere in view: the placard lane has no work to do, so it gets out
-   of the way. Both the grid and the gradient read the same variable, so they cannot
-   fall out of step. */
-.pnl-bank.quiet { --pnl-state: 24px; }
-.pnl-table { display: flex; flex-direction: column; }
-.pnl-row { display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(3, var(--pnl-lane)) var(--pnl-state);
-  align-items: stretch; min-height: 32px; }
-/* the only horizontal rule, and it stops at the first lane: the entries are a list,
-   the lanes are an instrument, and a line across both would make it a spreadsheet */
-.pnl-row + .pnl-row > .pnl-name-cell { box-shadow: inset 0 1px 0 var(--border); }
-/* hover and open light the entry, never the lanes — a fill there would break them */
-.pnl-row:hover > .pnl-name-cell { background: rgba(var(--accent-rgb), 0.07); }
-.pnl-row.open > .pnl-name-cell { background: rgba(var(--accent-rgb), 0.10); }
-/* the header is the cap of the lanes: same gradient, brighter, over the deep paper */
-.pnl-head { min-height: 24px; font-family: var(--mono); font-size: var(--fs-xs);
-  font-weight: 600; text-transform: uppercase; letter-spacing: 0.9px; color: var(--fg-dim);
-  background-color: var(--bg-deep);
-  background-image: linear-gradient(to left,
-    transparent 0 var(--pnl-state),
-    rgba(var(--copilot-rgb), 0.13) var(--pnl-state) calc(var(--pnl-state) + var(--pnl-lane)),
-    rgba(var(--codex-rgb), 0.13) calc(var(--pnl-state) + var(--pnl-lane)) calc(var(--pnl-state) + var(--pnl-lane) * 2),
-    rgba(var(--claude-rgb), 0.13) calc(var(--pnl-state) + var(--pnl-lane) * 2) calc(var(--pnl-state) + var(--pnl-lane) * 3),
-    transparent calc(var(--pnl-state) + var(--pnl-lane) * 3));
-  border-bottom: 1px solid var(--border-strong); }
-.pnl-head > span { display: flex; align-items: center; padding: 0 var(--s3); }
-/* each cap aligns with what it caps: the entry left, the switches centred */
-.pnl-head .pnl-col { justify-content: center; gap: var(--s1); padding: 0; }
-
-.pnl-name-cell { min-width: 0; display: flex; align-items: center; padding-left: var(--s3);
-  transition: background var(--dur) var(--ease); }
-.pnl-name { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; width: 100%;
-  text-align: left; color: var(--fg); padding: var(--s2) 0; }
-.pnl-name:hover .pnl-title { color: var(--accent); }
+/* the list: one surface, hairline-separated, no grid and no column rules */
+.pnl-list { display: flex; flex-direction: column; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.pnl-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3);
+  min-height: 38px; transition: background var(--dur) var(--ease); }
+.pnl-row + .pnl-row, .pnl-detail + .pnl-row { border-top: 1px solid var(--border); }
+.pnl-row:hover { background: rgba(var(--accent-rgb), 0.05); }
+.pnl-row.open { background: rgba(var(--accent-rgb), 0.09); }
+.pnl-entry { display: flex; align-items: baseline; gap: var(--s2); flex: 1; min-width: 0;
+  text-align: left; color: var(--fg); }
+.pnl-entry:hover .pnl-title { color: var(--accent); }
 .pnl-title { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
-/* two mono registers, exactly as the type rules have it elsewhere: the definition is
-   a machine identifier (normal case), the section is a placard (uppercase) */
+/* two mono registers, as the type rules have it: the definition is a machine
+   identifier (normal case), the section tag is a placard (uppercase) */
 .pnl-def { flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--fs-xs);
   color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pnl-kind { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim); opacity: 0.65;
+  text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim); opacity: 0.6;
   white-space: nowrap; flex-shrink: 0; }
 .pnl-caret { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0;
   transition: transform var(--dur) var(--ease); }
 .pnl-caret.open { transform: rotate(90deg); }
 
-/* the lanes carry no borders and no fills of their own — the bank already painted them */
-.pnl-cell { display: flex; align-items: center; justify-content: center; position: relative; }
-.pnl-cell.na { color: var(--fg-dim); opacity: 0.45; font-size: var(--fs-sm); }
+/* the agent chip: the app's identity colours doing the labelling, so the control
+   names itself and the row needs no header above it */
+.pnl-chips { display: flex; align-items: center; gap: var(--s1); flex-shrink: 0; }
+.ag-chip { display: inline-flex; align-items: center; gap: var(--s2); min-height: 24px;
+  padding: 0 var(--s3); border-radius: var(--radius-pill); border: 1px solid var(--border);
+  background: var(--bg-deep); color: var(--fg-dim); font-size: var(--fs-xs);
+  white-space: nowrap; transition: background var(--dur) var(--ease),
+  border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+.ag-chip svg { opacity: 0.45; transition: opacity var(--dur) var(--ease); }
+.ag-chip.on svg { opacity: 1; }
+button.ag-chip:hover { border-color: var(--border-strong); color: var(--fg); }
+.ag-chip.on { color: var(--fg); }
+.ag-chip.on.ag-claude { background: rgba(var(--claude-rgb), 0.16); border-color: var(--claude); }
+.ag-chip.on.ag-codex { background: rgba(var(--codex-rgb), 0.16); border-color: var(--codex); }
+.ag-chip.on.ag-copilot { background: rgba(var(--copilot-rgb), 0.16); border-color: var(--copilot); }
+/* these must out-specify the agent colours above (.ag-chip.on.ag-* is 0,3,0), or an
+   agent's own border silently wins and the warning never shows */
+.ag-chip.on.drift, .ag-chip.off.drift { border-color: var(--warn);
+  box-shadow: 0 0 0 2px rgba(var(--warn-rgb), 0.16); }
+.ag-chip.on.armed, .ag-chip.off.armed { border-color: var(--danger); color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.2); }
+.ag-chip.na { opacity: 0.35; }
+.ag-chip:disabled { opacity: 0.5; }
+.ag-chip.working { animation: pulse 1.2s ease-in-out infinite; }
+.ag-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
 
-/* the switch. A cockpit rocker snaps — the nub is deliberately not animated
-   (transforms aren't on this system's transition list); only the track travels. */
-.sw { position: relative; width: 30px; height: 17px; border-radius: var(--radius-pill);
-  background: var(--bg-deep); border: 1px solid var(--border-strong); flex-shrink: 0;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
-  box-shadow var(--dur) var(--ease); }
-.sw i { position: absolute; top: 2px; left: 2px; width: 11px; height: 11px;
-  border-radius: 50%; background: var(--fg-dim); }
-.sw.on i { left: auto; right: 2px; }
-.sw:disabled { opacity: 0.45; }
-.sw:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
-.sw.on.sw-claude { background: rgba(var(--claude-rgb), 0.32); border-color: var(--claude); }
-.sw.on.sw-claude i { background: var(--claude); }
-.sw.on.sw-codex { background: rgba(var(--codex-rgb), 0.32); border-color: var(--codex); }
-.sw.on.sw-codex i { background: var(--codex); }
-.sw.on.sw-copilot { background: rgba(var(--copilot-rgb), 0.32); border-color: var(--copilot); }
-.sw.on.sw-copilot i { background: var(--copilot); }
-/* one amber ring says which lane; the placard says what happened. Two signals, not four. */
-.sw.drift { border-color: var(--warn); }
-.sw.armed { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.28); }
-/* a write in flight: the lane's own lamp, not a layout-shifting caption */
-.pnl-lamp { position: absolute; top: 5px; right: 8px; width: 5px; height: 5px;
-  border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-
-/* the annunciator: printed text, not a badge. Amber is the only mustard in the
-   panel, so the word alone is unmistakable and a box would only add weight. */
-.pnl-flags { display: flex; flex-direction: column; align-items: flex-end;
-  justify-content: center; gap: 0; padding: 0 var(--s3); min-width: 0; }
-.pnl-flag { display: flex; align-items: baseline; gap: var(--s1); font-family: var(--mono);
-  font-size: var(--fs-xs); color: var(--warn); white-space: nowrap; max-width: 100%; }
+/* one word per row: the amber chip already says which agent */
+.pnl-state { display: flex; justify-content: flex-end; min-width: 88px; flex-shrink: 0; }
+.pnl-flag { font-family: var(--mono); font-size: var(--fs-xs); color: var(--warn);
+  font-style: normal; white-space: nowrap; }
 button.pnl-flag:hover { text-decoration: underline; }
-.pnl-flag-who { color: var(--fg-dim); }
 .pnl-flag.danger { color: var(--danger); }
 
-/* removed entries: kept on purpose, so the way back is a list you can act on */
-.pnl-removed { display: flex; flex-direction: column; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.pnl-removed-row { display: flex; align-items: baseline; gap: var(--s3);
-  padding: var(--s2) var(--s3); min-height: 32px; }
-.pnl-removed-row + .pnl-removed-row { border-top: 1px solid var(--border); }
-.pnl-removed-row .pnl-def { flex: 1; }
-.pnl-removed-row button { align-self: center; }
-
-/* the row opened up, inset into the bank: Cockpit's column first, it is the source */
+/* the row opened up, inset into the list */
 .pnl-detail { background: var(--bg-deep); box-shadow: inset 0 1px 0 var(--border); }
 .pnl-detail-body { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3); }
 .pnl-diff { width: 100%; border-collapse: collapse; font-size: var(--fs-xs);
@@ -1188,11 +1118,15 @@ button.pnl-flag:hover { text-decoration: underline; }
 .pnl-diff thead th { color: var(--fg-dim); font-weight: 500;
   border-bottom: 1px solid var(--border); }
 .pnl-diff tbody th { color: var(--fg-dim); font-weight: 500; white-space: nowrap; }
-.pnl-diff .pnl-src { color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
 .pnl-diff tr.differs { background: rgba(var(--warn-rgb), 0.09); }
 .pnl-diff tr.differs th { color: var(--warn); }
 .pnl-none { color: var(--fg-dim); opacity: 0.6; }
-/* one block per disagreement, each with the two honest answers */
+/* whether the server answers: a fact about this server, on this server's row */
+.pnl-health { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  font-size: var(--fs-xs); color: var(--fg-dim); }
+.pnl-health-what { flex: 1; min-width: 180px; }
+.pnl-health .pnl-fix-actions { margin-left: auto; }
+/* one block per disagreement, each with the honest answers */
 .pnl-fix { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
   padding: var(--s2) var(--s3); background: rgba(var(--warn-rgb), 0.07);
   border: 1px solid rgba(var(--warn-rgb), 0.28); border-radius: var(--radius-sm); }
@@ -1201,43 +1135,15 @@ button.pnl-flag:hover { text-decoration: underline; }
 .pnl-detail-actions { display: flex; justify-content: flex-end; gap: var(--s2); }
 .pnl-detail-actions .armed { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
 
-/* ---------- Agents view: MCP management ---------- */
-.mcp-tools { display: flex; justify-content: flex-end; }
-.mcp-row { align-items: flex-start; }
-.mcp-row .ext-actions { flex-wrap: wrap; justify-content: flex-end; }
-.mcp-status { margin-left: var(--s2); font-size: var(--fs-xs); font-weight: 600;
-  padding: 0 var(--s2); border-radius: var(--radius-pill); border: 1px solid var(--border);
+/* whether a server answers — the pill lives in the row's own detail now */
+.mcp-status { font-size: var(--fs-xs); font-weight: 600; padding: 0 var(--s2);
+  border-radius: var(--radius-pill); border: 1px solid var(--border);
   color: var(--fg-dim); white-space: nowrap; }
 .mcp-status.ok { color: var(--ok); border-color: rgba(var(--ok-rgb), 0.5); }
 .mcp-status.needs-auth { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
 .mcp-status.error { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
-.mcp-status.checking { font-style: italic; }
-/* one chip per place a server is defined: agent tint + scope + its own remove × */
-.mcp-presences { display: flex; flex-wrap: wrap; gap: var(--s1); margin-top: var(--s1); }
-.mcp-scope { display: inline-flex; align-items: center; gap: var(--s1);
-  font-size: var(--fs-xs); font-family: var(--mono); color: var(--fg-dim);
-  border: 1px solid var(--border); border-radius: var(--radius-pill);
-  padding: 0 var(--s1) 0 var(--s2); line-height: 18px; min-height: 26px; }
-.mcp-scope.claude { border-color: rgba(var(--claude-rgb), 0.45);
-  background: rgba(var(--claude-rgb), 0.10); }
-.mcp-scope.codex { border-color: rgba(var(--codex-rgb), 0.45);
-  background: rgba(var(--codex-rgb), 0.10); }
-.mcp-scope.copilot { border-color: rgba(var(--copilot-rgb), 0.45);
-  background: rgba(var(--copilot-rgb), 0.10); }
-.mcp-scope-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; }
-/* 24px square keeps the × at the target-size floor; the chip grows to 26px to hold it */
-.mcp-remove { display: inline-flex; align-items: center; justify-content: center;
-  min-width: 24px; min-height: 24px; color: var(--fg-dim); line-height: 1;
-  padding: 0 var(--s1); border-radius: var(--radius-pill); font-size: var(--fs-sm); }
-.mcp-remove:hover { color: var(--danger); }
-.mcp-remove.armed { color: var(--danger); font-size: var(--fs-xs); font-weight: 600; }
 
 /* ---------- Agents view: shared instructions ---------- */
-.inst-scope { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
-.inst-scope label { font-size: var(--fs-xs); color: var(--fg-dim); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.9px; }
-.inst-scope .select-wrap { flex: 1; min-width: 0; }
 /* the baseline is markdown — edit it with GitHub-comment grammar: Write/Preview
    tabs over an editor surface (the code-block paper, --bg-deep) */
 .md-tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--border); }

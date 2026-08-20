@@ -20,9 +20,14 @@ wouldn't work.
 ## The panel
 
 The panel shows **one section at a time** — instructions, MCP servers, skills, plugins,
-marketplaces — with the count on each tab. When anything has drifted it opens on **Needs
+marketplaces — with the count on each. When anything has drifted it opens on **Needs
 you**: every disagreement across every section, in one short list. **Search looks
 everywhere**, whichever section you're in, and tags each result with where it lives.
+
+Every row is one thing, and everything about that thing is in its row: open it to see what
+each agent runs, check whether a server actually answers, or take it out. Each agent is a
+chip you click to turn it on or off for that agent — the chip carries the agent's own
+colour, so a glance down the list tells you who runs what.
 
 Every agent gets a switch, and the switch says **where a thing is applied**. On writes it
 into that agent's own config; off takes it back out.

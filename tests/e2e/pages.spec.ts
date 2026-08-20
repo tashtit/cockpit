@@ -183,17 +183,15 @@ test('profile aggregates the fixture sessions into a heatmap', async () => {
   await expect(homeHeading()).toBeVisible()
 })
 
-test('agents view opens on the panel and switches sections', async () => {
+test('agents view opens on the panel, with sections as its only navigation', async () => {
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
-  const tabs = win.getByRole('tablist', { name: 'Agents sections' })
-  for (const label of ['Panel', 'Instructions', 'MCP health']) {
-    await expect(tabs.getByRole('tab', { name: label })).toBeVisible()
-  }
-  await expect(tabs.getByRole('tab', { name: 'Panel' })).toHaveAttribute('aria-selected', 'true')
-  await tabs.getByRole('tab', { name: 'MCP health' }).click()
-  await expect(tabs.getByRole('tab', { name: 'MCP health' })).toHaveAttribute('aria-selected', 'true')
-  await expect(win.getByRole('tabpanel')).toBeVisible()
+  // the panel reads the fixture agent homes — it must render, not sit on its
+  // loading line or throw (the sections only appear once a scope has loaded)
+  const sections = win.getByRole('tablist', { name: 'Sections' })
+  await expect(sections.getByRole('tab', { name: /^Instructions/ })).toBeVisible()
+  // scope is the one control above the panel; there is no second tab bar
+  await expect(win.getByRole('tablist', { name: 'Agents sections' })).toHaveCount(0)
   // Escape backs out of secondary views — no chat is open yet, so back home
   await win.keyboard.press('Escape')
   await expect(homeHeading()).toBeVisible()
@@ -202,10 +200,7 @@ test('agents view opens on the panel and switches sections', async () => {
 test('agents view scopes to a project, and says what a repo cannot carry', async () => {
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByText(/every session, in every repo/)).toBeVisible()
-  // the panel reads the fixture agent homes — it must render, not sit on its
-  // loading line or throw (the search box only appears once a scope has loaded)
-  await expect(win.getByRole('searchbox', { name: 'Search this scope' })).toBeVisible()
-  await win.getByText('Pick a repo…').click()
+  await win.getByText('A project…').click()
   await win.getByRole('option', { name: /rocket/ }).click()
   await expect(win.getByText(/Applies to sessions in/)).toBeVisible()
   await expect(win.getByText(/installed per machine/)).toBeVisible()

@@ -145,7 +145,7 @@ function keepBackup(entry: LibraryEntry, inv: ExtensionsInventory, repoRoot: str
   if (source) adoptSkillInto(source.path, libSkillDir(entry.name, repoRoot))
 }
 
-function savedOf(entry: LibraryEntry, repoRoot: string | null): Desired {
+function savedOf(entry: LibraryEntry, repoRoot: string | null, inv: ExtensionsInventory): Desired {
   switch (entry.kind) {
     case 'mcp':
       return {
@@ -153,8 +153,12 @@ function savedOf(entry: LibraryEntry, repoRoot: string | null): Desired {
         fields: mcpFields(entry.config ?? {})
       }
     case 'skill':
-      // nothing to compare against: the agents' copies are compared with each other
-      return { detail: '', fields: {} }
+      // nothing to compare against — the agents' copies are compared with each other —
+      // but the row still needs to say what the skill *is*
+      return {
+        detail: inv.skills.find((sk) => sk.name === entry.name)?.description ?? '',
+        fields: {}
+      }
     case 'plugin':
       return { detail: entry.source ? `from ${entry.source}` : '', fields: entry.source ? { marketplace: entry.source } : {} }
     case 'marketplace':
@@ -272,7 +276,7 @@ export function getPanel(repoRoot: string | null): PanelReport {
   const instructions = getInstructions(repoRoot)
   const rows: PanelRow[] = entries
     .filter((e) => e.kind !== 'instructions')
-    .map((entry) => buildRow(entry, savedOf(entry, repoRoot), actualOf(entry, inv, repoRoot)))
+    .map((entry) => buildRow(entry, savedOf(entry, repoRoot, inv), actualOf(entry, inv, repoRoot)))
 
   if (instructions.baseline.trim() !== '') {
     const entry =
@@ -479,7 +483,7 @@ export async function removePanelEntry(target: PanelTarget): Promise<PanelReport
   // this is the moment the backup exists for: after this, no agent holds a copy
   keepBackup(entry, inv, target.repoRoot)
   const failed: string[] = []
-  const row = buildRow(entry, savedOf(entry, target.repoRoot), actualOf(entry, inv, target.repoRoot))
+  const row = buildRow(entry, savedOf(entry, target.repoRoot, inv), actualOf(entry, inv, target.repoRoot))
   for (const agent of row.holders) {
     try {
       await writeSwitch(entry, agent, false, target.repoRoot)

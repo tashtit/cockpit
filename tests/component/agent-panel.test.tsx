@@ -71,6 +71,11 @@ const search = async (text: string): Promise<void> => {
   await userEvent.type(screen.getByRole('searchbox', { name: 'Search this scope' }), text)
 }
 
+/** The card is three bands deep now — no tab bar between the scope and the panel. */
+const noTabBar = (): void => {
+  expect(screen.queryByRole('tablist', { name: 'Agents sections' })).not.toBeInTheDocument()
+}
+
 describe('Agents › Panel', () => {
   it('shows each agent’s switch set to what Cockpit asked for', async () => {
     await openPanel()
@@ -193,6 +198,43 @@ describe('Agents › Panel', () => {
   })
 })
 
+describe('Agents › whether a server answers', () => {
+  // it is a fact about one server, so it lives on that server's row rather than in
+  // a tab of its own that lists every server again
+  it('checks the server from its own row', async () => {
+    await openPanel()
+    await section('MCP servers')
+    await userEvent.click(screen.getByRole('button', { name: /linear/ }))
+    vi.mocked(window.cockpit.checkMcp).mockResolvedValue({ status: 'ok' })
+    await userEvent.click(screen.getByRole('button', { name: 'Check' }))
+    expect(window.cockpit.checkMcp).toHaveBeenCalledWith('linear')
+    expect(await screen.findByText('answers')).toBeInTheDocument()
+  })
+
+  it('offers the CLI login only for agents that have one', async () => {
+    await openPanel()
+    await section('MCP servers')
+    await userEvent.click(screen.getByRole('button', { name: /github/ }))
+    vi.mocked(window.cockpit.checkMcp).mockResolvedValue({ status: 'needs-auth', detail: 'HTTP 401' })
+    await userEvent.click(screen.getByRole('button', { name: 'Check' }))
+    expect(await screen.findByRole('button', { name: 'Log in · Claude' })).toBeInTheDocument()
+    // copilot has no `mcp login`, so it is never offered one
+    expect(screen.queryByRole('button', { name: 'Log in · Copilot' })).not.toBeInTheDocument()
+  })
+
+  it('logs in against the scope the panel is showing', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(report)
+    render(<AiSetup repos={[repo]} repoRoot="/dev/rocket" onScope={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByText('github')
+    await section('MCP servers')
+    await userEvent.click(screen.getByRole('button', { name: /github/ }))
+    vi.mocked(window.cockpit.checkMcp).mockResolvedValue({ status: 'needs-auth' })
+    await userEvent.click(screen.getByRole('button', { name: 'Check' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Log in · Claude' }))
+    expect(window.cockpit.loginMcp).toHaveBeenCalledWith('github', 'claude', '/dev/rocket')
+  })
+})
+
 describe('Agents › finding things', () => {
   // the whole setup in one scroll was a wall — the panel shows one section at a time
   it('opens on what needs attention, not on everything', async () => {
@@ -209,8 +251,14 @@ describe('Agents › finding things', () => {
       buildReport(null, [mcpRow('quiet', { claude: true }, { claude: present(COCKPIT_GH) })])
     )
     render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
-    expect(await screen.findByText('quiet')).toBeInTheDocument()
+    // instructions always has a section — writing a baseline is the point of it
+    expect(await screen.findByRole('tab', { name: /^Instructions/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
     expect(screen.queryByRole('tab', { name: /^Needs you/ })).not.toBeInTheDocument()
+    await section('MCP servers')
+    expect(screen.getByText('quiet')).toBeInTheDocument()
   })
 
   it('searches across every section, not just the one showing', async () => {
@@ -237,9 +285,10 @@ describe('Agents › finding things', () => {
 })
 
 describe('Agents › scope', () => {
-  it('opens on Global and says what that means', async () => {
+  it('opens on Global and says what that means, with nothing stacked in between', async () => {
     await openPanel()
     expect(screen.getByText(/every session, in every repo/)).toBeInTheDocument()
+    noTabBar()
   })
 
   it('reads a project scope, and says which kinds a repo can’t carry', async () => {
