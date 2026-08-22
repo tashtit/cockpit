@@ -55,6 +55,17 @@ that section holds a disagreement.
 - **Remove everywhere is recoverable**, under a `Removed` section with *Put it back*.
 - Rows are a plain hairline-separated list on one surface (`.pnl-list`). No grid, no
   column rules, no lanes: with self-labelling controls there is nothing left to align to.
+- **Narrow windows (≤780px) reflow the row, they don't shrink it.** Three self-labelling
+  chips plus a name plus a flag stop fitting one line right about there. The dimmed
+  provenance tags shed first — `.pnl-def`, then `.pnl-kind` (both are `nowrap` and
+  unshrinkable, so left in they paint straight over `.pnl-flag`; the section pill above
+  already says what a cross-section row is). Then `.pnl-chips` drops to a second line
+  beneath the title — `flex-basis: 100%` forces the break, `order: 1` keeps `.pnl-flag`
+  up on the title's line instead of wrapping to a third. Only once both tags are gone
+  does an unusually long `.pnl-title` ellipsise: shed decoration first, truncate last.
+  Never solve this by squeezing `.pnl-entry` — at the 560px floor it collapses to the
+  caret and the title spills over the chips. Rules live with the other shed media
+  queries at the end of `style.css`.
 
 ## Instructions tab
 
