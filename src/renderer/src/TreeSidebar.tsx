@@ -24,7 +24,8 @@ import {
   ProviderLogo,
   PROVIDER_LABEL,
   RepoIcon,
-  SlidersIcon
+  SlidersIcon,
+  TrashIcon
 } from './logos'
 
 const PAGE = 20
@@ -81,7 +82,7 @@ export function TreeSidebar({
   onNewTask: () => void
   onGoHome: () => void
   /** Nav trio (toggles: re-clicking the active view backs out of it) */
-  onNav: (view: 'settings' | 'extensions' | 'profile') => void
+  onNav: (view: 'settings' | 'extensions' | 'profile' | 'cleanup') => void
   /** Open-only Settings (empty-state button, footer) — never toggles closed */
   onOpenSettings: () => void
   onOpenUrl: (url: string) => void
@@ -191,6 +192,15 @@ export function TreeSidebar({
         >
           {/* GitHub's graph glyph: this is an activity view, not an account page */}
           <GraphIcon size={16} />
+        </button>
+        <button
+          className={`icon-btn nav-btn ${activeView === 'cleanup' ? 'active' : ''}`}
+          title="Cleanup — stale sessions and abandoned worktrees"
+          onClick={() => onNav('cleanup')}
+          aria-label="Cleanup"
+          aria-current={activeView === 'cleanup' ? 'page' : undefined}
+        >
+          <TrashIcon size={16} />
         </button>
         <button
           className={`icon-btn nav-btn ${activeView === 'settings' ? 'active' : ''}`}

@@ -56,6 +56,13 @@ const api: CockpitApi = {
   setHistoryDays: (days: number) => ipcRenderer.invoke('history:set', days),
   getTimeFormat: () => ipcRenderer.invoke('time-format:get'),
   setTimeFormat: (format: TimeFormat) => ipcRenderer.invoke('time-format:set', format),
+  getStaleDays: () => ipcRenderer.invoke('cleanup:stale-days'),
+  setStaleDays: (days: number) => ipcRenderer.invoke('cleanup:set-stale-days', days),
+  scanCleanup: () => ipcRenderer.invoke('cleanup:scan'),
+  archiveSessions: (ids: readonly string[]) => ipcRenderer.invoke('cleanup:archive-sessions', ids),
+  deleteSessions: (ids: readonly string[]) => ipcRenderer.invoke('cleanup:delete-sessions', ids),
+  removeWorktrees: (paths: readonly string[]) =>
+    ipcRenderer.invoke('cleanup:remove-worktrees', paths),
   getPrs: (repoRoot: string) => ipcRenderer.invoke('github:prs', repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>
     ipcRenderer.invoke('workspace:create', repoRoot, name),

@@ -36,8 +36,12 @@ import {
   setHistoryDays,
   setRepoHidden,
   setSessionArchived,
+  setSessionsArchived,
+  setStaleDays,
   setTimeFormat
 } from './config'
+import { deleteSessions, removeWorktrees, scanCleanup, type CleanupDeps } from './cleanup'
+import { DEFAULT_STALE_DAYS } from './cleanup-core'
 import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
@@ -633,6 +637,52 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('roundtable:continue', (_e, id: string) => tables.continueRound(String(id)))
   ipcMain.handle('roundtable:stop', (_e, id: string) => tables.stop(String(id)))
+
+  /*
+   * Cleanup: the cross-agent, cross-repo view of what has gone stale. Every input
+   * it acts on is main-derived — session ids are re-looked-up in the index and
+   * their files re-checked against the configured sources, and worktree paths are
+   * re-derived from git before a single one is removed (see cleanup.ts).
+   */
+  const cleanupDeps = (): CleanupDeps => ({
+    sessions: () => indexer.cleanupSessions(),
+    repoRoots: () => [...indexer.knownRepoRoots()],
+    cockpitWorktreeRoot: worktreesDir(),
+    busyIds: () => new Set(chat.busySessions().map((b) => b.id)),
+    tableForCwd: (cwd) => roundtables?.tableIdForCwd(cwd) ?? null,
+    sourceDirs: () => loadConfig().sources.map((s) => s.path)
+  })
+  /** Renderer id lists are untrusted and unbounded — cap and stringify them here. */
+  const asIdList = (raw: unknown): string[] =>
+    (Array.isArray(raw) ? raw : []).slice(0, 5000).map((v) => String(v))
+  ipcMain.handle('cleanup:stale-days', () => loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
+  ipcMain.handle('cleanup:set-stale-days', (_e, days: number) => {
+    setStaleDays(Number(days))
+  })
+  ipcMain.handle('cleanup:scan', () =>
+    scanCleanup(cleanupDeps(), loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
+  )
+  ipcMain.handle('cleanup:archive-sessions', (_e, ids: string[]) => {
+    // the reversible tier: config only, nothing on disk is touched
+    const known = new Set(indexer.cleanupSessions().map((s) => s.id))
+    const wanted = asIdList(ids).filter((id) => known.has(id))
+    indexer.setArchived(setSessionsArchived(wanted, true))
+    return { cleaned: wanted.length, freedBytes: 0, failed: [] }
+  })
+  ipcMain.handle('cleanup:delete-sessions', async (_e, ids: string[]) => {
+    const wanted = asIdList(ids)
+    const result = deleteSessions(cleanupDeps(), wanted)
+    // an archived id whose file is gone is dead config — drop it, then re-index so
+    // the tree stops offering sessions that no longer exist
+    indexer.setArchived(setSessionsArchived(wanted, false))
+    await indexer.rescan()
+    return result
+  })
+  ipcMain.handle('cleanup:remove-worktrees', async (_e, paths: string[]) => {
+    const result = await removeWorktrees(cleanupDeps(), asIdList(paths))
+    await indexer.rescan()
+    return result
+  })
 
   // Cockpit mark in the dock (packaged builds get it via the bundle icon instead)
   if (process.platform === 'darwin') {

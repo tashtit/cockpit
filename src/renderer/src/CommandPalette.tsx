@@ -12,12 +12,13 @@ import {
   ProviderLogo,
   PROVIDER_LABEL,
   RepoIcon,
-  SlidersIcon
+  SlidersIcon,
+  TrashIcon
 } from './logos'
 import { fmtTime, useTimeFormat } from './time'
 
 /** Views the palette can navigate to — App's View kinds, minus chat/new (those need a target). */
-export type PaletteViewKey = 'welcome' | 'extensions' | 'profile' | 'settings'
+export type PaletteViewKey = 'welcome' | 'extensions' | 'profile' | 'cleanup' | 'settings'
 
 type ViewTarget = {
   readonly key: PaletteViewKey
@@ -42,6 +43,12 @@ const VIEWS: readonly ViewTarget[] = [
     label: 'Agents',
     keywords: ['agents', 'instructions', 'mcp', 'skills', 'plugins', 'marketplace', 'extensions'],
     icon: <AgentIcon size={13} />
+  },
+  {
+    key: 'cleanup',
+    label: 'Cleanup',
+    keywords: ['cleanup', 'clean', 'stale', 'worktrees', 'prune', 'disk', 'delete', 'archive'],
+    icon: <TrashIcon size={13} />
   },
   {
     key: 'profile',

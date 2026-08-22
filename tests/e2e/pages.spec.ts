@@ -183,6 +183,20 @@ test('profile aggregates the fixture sessions into a heatmap', async () => {
   await expect(homeHeading()).toBeVisible()
 })
 
+test('cleanup opens on a completed scan of sessions and worktrees', async () => {
+  await win.getByRole('button', { name: 'Cleanup', exact: true }).click()
+  await expect(win.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
+  // the scan must finish, not sit on its loading line: the summary replaces it
+  await expect(win.getByText(/of \d+ sessions/)).toBeVisible()
+  await expect(win.getByText(/of \d+ worktrees/)).toBeVisible()
+  // the threshold is the view's one setting, and both groups are always present
+  await expect(win.getByRole('button', { name: /^Idle threshold/ })).toBeVisible()
+  await expect(win.getByRole('heading', { name: 'Stale sessions' })).toBeVisible()
+  await expect(win.getByRole('heading', { name: 'Stale worktrees' })).toBeVisible()
+  await win.keyboard.press('Escape')
+  await expect(homeHeading()).toBeVisible()
+})
+
 test('agents view opens on the panel, with sections as its only navigation', async () => {
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
@@ -339,6 +353,12 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
   expect(await audit()).toEqual([])
+
+  // cleanup's rows carry a path, a size and a reason — the widest content in the app
+  await win.getByRole('button', { name: 'Cleanup', exact: true }).click()
+  await expect(win.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
+  expect(await audit()).toEqual([])
+  await win.keyboard.press('Escape')
 
   await win.getByRole('treeitem', { name: /fix the login flake/ }).click()
   await expect(win.getByRole('button', { name: 'Send' })).toBeVisible()
