@@ -1332,6 +1332,18 @@ button.pnl-flag:hover { text-decoration: underline; }
   .messages { padding: var(--s4); }
   .tool-row, .thinking, .sys-row { margin-left: 0; }
   .ns-card { padding: var(--s5); margin: var(--s4) auto; }
+  /* panel rows: three self-labelling chips plus a title plus a flag stop fitting
+     one line right about here. The dimmed provenance tags shed first — the mono
+     detail, then the section tag (both nowrap and unshrinkable, so left in they
+     paint straight over the flag). Then the chip strip drops to its own line:
+     `flex-basis: 100%` forces the break and `order: 1` keeps the flag up on the
+     title's line rather than wrapping to a third. Only once both have gone does
+     an unusually long title ellipsise — shed decoration first, truncate last. */
+  .pnl-row { flex-wrap: wrap; }
+  .pnl-def, .pnl-kind { display: none; }
+  .pnl-chips { order: 1; flex-basis: 100%; flex-wrap: wrap; }
+  .pnl-state { min-width: 0; }
+  .pnl-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 }
 @media (max-height: 600px) {
   .home-hero { display: none; }
