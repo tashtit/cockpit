@@ -192,7 +192,7 @@ test('cleanup opens on a completed scan of sessions and worktrees', async () => 
   // the threshold is the view's one setting, and both groups are always present
   await expect(win.getByRole('button', { name: /^Idle threshold/ })).toBeVisible()
   await expect(win.getByRole('heading', { name: 'Stale sessions' })).toBeVisible()
-  await expect(win.getByRole('heading', { name: 'Stale worktrees' })).toBeVisible()
+  await expect(win.getByRole('heading', { name: 'Worktrees with no session' })).toBeVisible()
   await win.keyboard.press('Escape')
   await expect(homeHeading()).toBeVisible()
 })

@@ -715,6 +715,19 @@ export type CleanupBlock =
   /** A roundtable's shared room: it belongs to the table, not to one session */
   | 'roundtable'
 
+/**
+ * The worktree a session ran in, carried on the session itself: deleting the
+ * session takes this with it. Only ever set when the worktree is removable —
+ * the repo's own checkout and anything blocked is never attached to a session.
+ */
+export type SessionWorktree = {
+  readonly path: string
+  readonly branch: string | null
+  readonly bytes: number | null
+  /** Sessions indexed in it — it only goes when every one of them goes */
+  readonly sessionCount: number
+}
+
 export type StaleSession = {
   /** Session id: `${provider}:${nativeId}` */
   readonly id: string
@@ -727,6 +740,8 @@ export type StaleSession = {
   readonly bytes: number
   /** Already archived in Cockpit — still listed, because deleting is the next tier */
   readonly archived: boolean
+  /** The worktree deleting this session would also remove; null when it has none */
+  readonly worktree: SessionWorktree | null
   readonly blocks: CleanupBlock[]
 }
 
@@ -761,6 +776,11 @@ export type CleanupReport = {
   /** Stale sessions before the row cap, and what they occupy in total */
   readonly staleSessionCount: number
   readonly staleSessionBytes: number
+  /**
+   * Stale worktrees no listed session claims — the leftovers. A worktree that a
+   * stale session runs in rides on that session instead, so every worktree
+   * appears exactly once across the report.
+   */
   readonly worktrees: StaleWorktree[]
   readonly staleWorktreeCount: number
   /** Denominators behind "47 of 312" — everything known, stale or not */

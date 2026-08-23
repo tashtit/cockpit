@@ -983,23 +983,36 @@ summary::-webkit-details-marker { display: none; }
 
 /* ---------- cleanup ---------- */
 /* rows reuse the settings source-row shell (.source-list gives the stack); what is
-   new here is the leading picker, the origin/block vocabulary, and a right-hand
-   meta column that stays legible when a path runs long */
+   new here is the leading picker, the group head that carries selection + actions,
+   and a right-hand meta column that stays legible when a path runs long */
 .cl-list { margin-top: var(--s1); }
 .cl-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  min-height: 42px; }
-/* 24px floor (WCAG 2.5.8) — the checkbox is the row's primary control */
+  min-height: 42px; transition: background var(--dur) var(--ease),
+  border-color var(--dur) var(--ease); }
+.cl-row:hover { border-color: var(--border-strong); }
+/* selected: accent border + wash. Agent-tinted rows keep their inset identity bar,
+   so selection speaks through the border, never by replacing that bar */
+.cl-row.picked { border-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent-glow), var(--surface) 60%); }
+/* 24px floor (WCAG 2.5.8) via the margin — the checkbox is the row's main control */
 .cl-pick { accent-color: var(--accent); flex-shrink: 0; width: 14px; height: 14px;
   margin: 5px; cursor: pointer; }
 .cl-pick:disabled { cursor: default; opacity: 0.4; }
 .cl-body { flex: 1; min-width: 0; }
 .cl-title { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
   font-size: var(--fs-sm); font-weight: 600; min-width: 0; }
-.cl-sub { color: var(--fg-dim); font-size: var(--fs-xs); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; }
+.cl-sub { display: flex; align-items: center; gap: var(--s1); color: var(--fg-dim);
+  font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* paths are machine identifiers, and the user copies them out of here */
-.cl-path { font-family: var(--mono); user-select: text; }
+.cl-path { font-family: var(--mono); user-select: text; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; }
+/* what this row takes with it: the worktree rides on its session, so the row has to
+   say so before the delete, not after */
+.cl-carry { display: inline-flex; align-items: center; gap: 3px; color: var(--branch);
+  flex-shrink: 0; }
+.cl-carry svg { flex-shrink: 0; }
+.cl-shared { color: var(--warn); }
 .cl-meta { display: flex; align-items: center; gap: var(--s2); flex-shrink: 0;
   color: var(--fg-dim); font-size: var(--fs-xs); }
 .cl-size { font-variant-numeric: tabular-nums; }
@@ -1016,6 +1029,108 @@ summary::-webkit-details-marker { display: none; }
 .cl-unpushed { color: var(--branch); white-space: nowrap; }
 /* the rescan button sits level with the threshold Select, not under a label */
 .cl-rescan { flex: 0 0 auto; justify-content: flex-end; }
+
+/* ---------- filter bar ---------- */
+/* one row of dimension pills: the pill IS the active-filter chip, so there is never
+   a second row of tokens to keep in sync. Free text sits leftmost, divided off —
+   it narrows the same list but is not a dimension. */
+.fb-bar { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap;
+  margin-top: var(--s2); padding: var(--s2); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.fb-query { flex: 1 1 180px; min-width: 0; padding: 3px var(--s3); background: var(--bg2);
+  color: var(--fg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  font-size: var(--fs-xs); min-height: 26px; }
+.fb-query:focus { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow); }
+.fb-divider { width: 1px; height: 18px; flex-shrink: 0; margin: 0 var(--s1);
+  background: var(--border-strong); }
+.fb-pill-wrap { position: relative; display: inline-flex; min-width: 0; }
+/* resting pill is quiet; a pill carrying a value lights accent so the bar reads as
+   "these three dimensions are shaping the list" at a glance */
+.fb-pill { display: inline-flex; align-items: center; gap: var(--s1); max-width: 220px;
+  min-height: 26px; padding: 2px var(--s2); font-size: var(--fs-xs);
+  color: var(--fg-dim); background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); }
+.fb-pill:hover { color: var(--fg); border-color: var(--border-strong); }
+.fb-pill.on { color: var(--fg); border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.14); }
+.fb-pill-label { flex-shrink: 0; color: var(--fg-dim); }
+.fb-pill-value { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--fg); }
+.fb-pill .select-chev { flex-shrink: 0; }
+/* dashed = "nothing here yet, add one" — the one dashed affordance in the app */
+.fb-add { display: inline-flex; align-items: center; gap: var(--s1); min-height: 26px;
+  padding: 2px var(--s3); font-size: var(--fs-xs); color: var(--fg-dim);
+  background: none; border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-pill); }
+.fb-add:hover { color: var(--fg); border-color: var(--accent); }
+.fb-clear { min-height: 26px; padding: 2px var(--s2); font-size: var(--fs-xs);
+  color: var(--fg-dim); border-radius: var(--radius-sm); }
+.fb-clear:hover { color: var(--fg); background: var(--bg3); }
+.fb-right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+
+/* the popover: same material as .select-pop (fixed + portaled, so a card with
+   overflow:hidden can never clip it) */
+.fb-panel { position: fixed; z-index: 60; display: flex; flex-direction: column;
+  gap: var(--s1); padding: var(--s1); background: var(--bg2);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-pop); }
+.fb-search { padding: 3px var(--s2); background: var(--surface); color: var(--fg);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  font-size: var(--fs-xs); min-height: 26px; }
+.fb-search:focus { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow); }
+.fb-options { display: flex; flex-direction: column; gap: 1px; max-height: 280px;
+  overflow-y: auto; }
+/* include is the whole row; exclude is a second, quieter control on its right */
+.fb-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  gap: 2px; }
+.fb-option-in { display: flex; align-items: center; gap: var(--s2); min-height: 28px;
+  min-width: 0; padding: 2px var(--s2); font-size: var(--fs-xs); color: var(--fg);
+  border-radius: var(--radius-sm); text-align: left; }
+.fb-option-in:hover { background: var(--bg3); }
+.fb-option-in.on { color: var(--accent); background: rgba(var(--accent-rgb), 0.16); }
+/* excluded reads as struck through, never by color alone */
+.fb-option-in.out { color: var(--fg-dim); text-decoration: line-through; }
+.fb-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+/* 24px target floor even though the glyph is 11px */
+.fb-option-ex { display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; color: var(--fg-dim); border-radius: var(--radius-sm);
+  opacity: 0; transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease); }
+.fb-option:hover .fb-option-ex, .fb-option:focus-within .fb-option-ex,
+.fb-option-ex.on { opacity: 1; }
+.fb-option-ex:hover { color: var(--danger); background: var(--bg3); }
+.fb-option-ex.on { color: var(--danger); }
+.fb-none { padding: var(--s2); color: var(--fg-dim); font-size: var(--fs-xs);
+  text-align: center; }
+.fb-panel-foot { display: flex; justify-content: space-between; gap: var(--s2);
+  padding: var(--s1) var(--s2); border-top: 1px solid var(--border);
+  font-size: var(--fs-xs); }
+.fb-panel-foot .link-btn:disabled { color: var(--fg-dim); opacity: 0.6;
+  text-decoration: none; cursor: default; }
+/* which dimensions sit on the bar */
+.fb-switch { display: flex; align-items: center; gap: var(--s2); min-height: 28px;
+  padding: 2px var(--s2); font-size: var(--fs-xs); color: var(--fg);
+  border-radius: var(--radius-sm); text-align: left; }
+.fb-switch:hover:not(:disabled) { background: var(--bg3); }
+.fb-switch:disabled { color: var(--fg-dim); opacity: 0.5; cursor: default; }
+.fb-switch-box { width: 12px; height: 12px; flex-shrink: 0; border-radius: 3px;
+  border: 1px solid var(--border-strong); }
+.fb-switch-box.on { background: var(--accent-btn); border-color: var(--accent-btn); }
+.fb-switch-hint { margin-left: auto; color: var(--fg-dim); }
+
+/* group head: master toggle/* group head: master toggle, what is selected and what it frees, and the actions.
+   Sticky so a long list never scrolls its own controls away. */
+.cl-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center;
+  gap: var(--s3); flex-wrap: wrap; margin-top: var(--s2); padding: var(--s2) var(--s3);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }
+.cl-head-summary { flex: 1; min-width: 120px; color: var(--fg-dim); font-size: var(--fs-xs); }
+.cl-head-summary strong { color: var(--fg); font-variant-numeric: tabular-nums; }
+/* selections the current filter hides — disclosed, never silently acted on */
+.cl-hidden { color: var(--warn); }
+.cl-head-actions { display: flex; align-items: center; gap: var(--s2); flex-shrink: 0; }
+.cl-empty { padding: var(--s3) 0; }
 
 /* ---------- extensions ---------- */
 /* the tabpanel wrapper keeps the card's vertical rhythm for its children */

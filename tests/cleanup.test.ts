@@ -157,13 +157,36 @@ describe('scanCleanup — worktrees', () => {
     expect(report.staleWorktreeCount).toBe(0)
   })
 
-  it('counts sessions running in a worktree', async () => {
+  it('rides a worktree on the sessions inside it instead of listing it twice', async () => {
     sessions = [
       session({ id: 'claude:a', sourcePath: join(sourceDir, 'a.jsonl'), cwd: cockpitTree }),
       session({ id: 'claude:b', sourcePath: join(sourceDir, 'b.jsonl'), cwd: join(cockpitTree, 'src') })
     ]
     const report = await scanCleanup(deps, 30)
-    expect(report.worktrees.find((w) => w.path === cockpitTree)?.sessionCount).toBe(2)
+    // both rows carry it, and it says how many sessions have to go for it to go
+    for (const row of report.sessions) {
+      expect(row.worktree?.path).toBe(cockpitTree)
+      expect(row.worktree?.sessionCount).toBe(2)
+    }
+    // and it is not also standing on its own in the leftovers
+    expect(report.worktrees.some((w) => w.path === cockpitTree)).toBe(false)
+    sessions = []
+  })
+
+  it('leaves a worktree unattached when it is the repo’s own checkout', async () => {
+    sessions = [session({ id: 'claude:main', sourcePath: join(sourceDir, 'm.jsonl'), cwd: mainRepo })]
+    const report = await scanCleanup(deps, 30)
+    // deleting a session must never be able to take the user's working copy
+    expect(report.sessions[0].worktree).toBeNull()
+    sessions = []
+  })
+
+  it('leaves a worktree unattached when it has uncommitted work', async () => {
+    sessions = [session({ id: 'claude:d', sourcePath: join(sourceDir, 'd.jsonl'), cwd: dirtyTree })]
+    const report = await scanCleanup(deps, 30)
+    expect(report.sessions[0].worktree).toBeNull()
+    // it stays visible as a leftover, with its reason
+    expect(report.worktrees.find((w) => w.path === dirtyTree)?.blocks).toEqual(['dirty'])
     sessions = []
   })
 })
@@ -201,18 +224,18 @@ describe('scanCleanup — sessions', () => {
 })
 
 describe('deleteSessions', () => {
-  it('deletes the provider’s own log file and reports what it freed', () => {
+  it('deletes the provider’s own log file and reports what it freed', async () => {
     const file = join(sourceDir, 'delete-me.jsonl')
     writeFileSync(file, 'q'.repeat(64))
     sessions = [session({ id: 'claude:del', sourcePath: file })]
-    const res = deleteSessions(deps, ['claude:del'])
+    const res = await deleteSessions(deps, ['claude:del'], 30)
     expect(res.cleaned).toBe(1)
     expect(res.freedBytes).toBe(64)
     expect(existsSync(file)).toBe(false)
     sessions = []
   })
 
-  it('removes a copilot session’s whole directory', () => {
+  it('removes a copilot session’s whole directory', async () => {
     const dir = join(sourceDir, 'session-state', 'gone')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'events.jsonl'), 'e')
@@ -220,35 +243,35 @@ describe('deleteSessions', () => {
     sessions = [
       session({ id: 'copilot:gone', provider: 'copilot', sourcePath: join(dir, 'events.jsonl') })
     ]
-    expect(deleteSessions(deps, ['copilot:gone']).cleaned).toBe(1)
+    expect((await deleteSessions(deps, ['copilot:gone'], 30)).cleaned).toBe(1)
     expect(existsSync(dir)).toBe(false)
     sessions = []
   })
 
-  it('refuses a file outside every configured source', () => {
+  it('refuses a file outside every configured source', async () => {
     const outside = join(root, 'not-a-source.jsonl')
     writeFileSync(outside, 'important')
     sessions = [session({ id: 'claude:outside', sourcePath: outside })]
-    const res = deleteSessions(deps, ['claude:outside'])
+    const res = await deleteSessions(deps, ['claude:outside'], 30)
     expect(res.cleaned).toBe(0)
     expect(res.failed[0].reason).toMatch(/outside every configured source/)
     expect(existsSync(outside)).toBe(true)
     sessions = []
   })
 
-  it('refuses an id the indexer does not know', () => {
+  it('refuses an id the indexer does not know', async () => {
     sessions = []
-    const res = deleteSessions(deps, ['claude:../../etc/passwd'])
+    const res = await deleteSessions(deps, ['claude:../../etc/passwd'], 30)
     expect(res.cleaned).toBe(0)
     expect(res.failed[0].reason).toMatch(/no longer indexed/)
   })
 
-  it('refuses a session an agent is running in', () => {
+  it('refuses a session an agent is running in', async () => {
     const file = join(sourceDir, 'busy.jsonl')
     writeFileSync(file, 'b')
     sessions = [session({ id: 'claude:busy', sourcePath: file })]
     busy = new Set(['claude:busy'])
-    const res = deleteSessions(deps, ['claude:busy'])
+    const res = await deleteSessions(deps, ['claude:busy'], 30)
     expect(res.cleaned).toBe(0)
     expect(existsSync(file)).toBe(true)
     busy = new Set()
@@ -319,5 +342,105 @@ describe('scan sizing', () => {
     const sized = report.worktrees.find((w) => w.path === tree)
     expect(sized?.bytes).toBeGreaterThan(0)
     expect(statSync(tree).isDirectory()).toBe(true)
+  })
+})
+
+describe('deleteSessions — the worktree cascade', () => {
+  /** A fresh, backdated worktree of its own so the tests above can't interfere. */
+  function cutWorktree(name: string, branch: string): string {
+    const path = join(cockpitWorktrees, 'app', name)
+    git(mainRepo, ['worktree', 'add', '-q', '-b', branch, path])
+    backdate(path)
+    return path
+  }
+
+  it('takes the worktree and its merged branch with the session', async () => {
+    const tree = cutWorktree('cascade-solo', 'cockpit/cascade-solo')
+    const file = join(sourceDir, 'cascade-solo.jsonl')
+    writeFileSync(file, 'log'.repeat(10))
+    sessions = [session({ id: 'claude:solo', sourcePath: file, cwd: tree })]
+
+    const res = await deleteSessions(deps, ['claude:solo'], 30)
+    expect(res.cleaned).toBe(1)
+    expect(existsSync(file)).toBe(false)
+    // the checkout is what actually held the disk space — it goes too
+    expect(existsSync(tree)).toBe(false)
+    expect(res.branchesDeleted).toContain('cockpit/cascade-solo')
+    sessions = []
+  })
+
+  it('keeps a shared worktree when one of its sessions is staying', async () => {
+    const tree = cutWorktree('cascade-shared', 'cockpit/cascade-shared')
+    const goes = join(sourceDir, 'shared-a.jsonl')
+    const stays = join(sourceDir, 'shared-b.jsonl')
+    writeFileSync(goes, 'a')
+    writeFileSync(stays, 'b')
+    sessions = [
+      session({ id: 'claude:goes', sourcePath: goes, cwd: tree }),
+      session({ id: 'claude:stays', sourcePath: stays, cwd: tree })
+    ]
+
+    const res = await deleteSessions(deps, ['claude:goes'], 30)
+    expect(res.cleaned).toBe(1)
+    expect(existsSync(goes)).toBe(false)
+    // one survivor is reason enough to keep the checkout
+    expect(existsSync(stays)).toBe(true)
+    expect(existsSync(tree)).toBe(true)
+    sessions = []
+  })
+
+  it('takes a shared worktree once every session in it is going', async () => {
+    const tree = cutWorktree('cascade-both', 'cockpit/cascade-both')
+    const a = join(sourceDir, 'both-a.jsonl')
+    const b = join(sourceDir, 'both-b.jsonl')
+    writeFileSync(a, 'a')
+    writeFileSync(b, 'b')
+    sessions = [
+      session({ id: 'claude:both-a', sourcePath: a, cwd: tree }),
+      session({ id: 'claude:both-b', sourcePath: b, cwd: join(tree, 'src') })
+    ]
+
+    const res = await deleteSessions(deps, ['claude:both-a', 'claude:both-b'], 30)
+    expect(res.cleaned).toBe(2)
+    expect(existsSync(tree)).toBe(false)
+    sessions = []
+  })
+
+  it('never takes the repository’s own checkout', async () => {
+    const file = join(sourceDir, 'in-main.jsonl')
+    writeFileSync(file, 'log')
+    sessions = [session({ id: 'claude:in-main', sourcePath: file, cwd: mainRepo })]
+
+    const res = await deleteSessions(deps, ['claude:in-main'], 30)
+    expect(res.cleaned).toBe(1)
+    expect(existsSync(join(mainRepo, 'README.md'))).toBe(true)
+    sessions = []
+  })
+
+  it('never takes a worktree with uncommitted work', async () => {
+    const tree = cutWorktree('cascade-dirty', 'cockpit/cascade-dirty')
+    writeFileSync(join(tree, 'scratch.txt'), 'unsaved\n')
+    const file = join(sourceDir, 'cascade-dirty.jsonl')
+    writeFileSync(file, 'log')
+    sessions = [session({ id: 'claude:dirty', sourcePath: file, cwd: tree })]
+
+    const res = await deleteSessions(deps, ['claude:dirty'], 30)
+    expect(res.cleaned).toBe(1)
+    expect(existsSync(file)).toBe(false)
+    // the transcript goes, the unsaved work does not
+    expect(existsSync(join(tree, 'scratch.txt'))).toBe(true)
+    sessions = []
+  })
+
+  it('leaves a worktree alone when no session of its own was deleted', async () => {
+    const tree = cutWorktree('cascade-orphan', 'cockpit/cascade-orphan')
+    const elsewhere = join(sourceDir, 'elsewhere.jsonl')
+    writeFileSync(elsewhere, 'log')
+    sessions = [session({ id: 'claude:elsewhere', sourcePath: elsewhere, cwd: mainRepo })]
+
+    await deleteSessions(deps, ['claude:elsewhere'], 30)
+    // orphans are the worktree list's business, never a session delete's
+    expect(existsSync(tree)).toBe(true)
+    sessions = []
   })
 })

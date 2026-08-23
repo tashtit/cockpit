@@ -671,7 +671,13 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('cleanup:delete-sessions', async (_e, ids: string[]) => {
     const wanted = asIdList(ids)
-    const result = deleteSessions(cleanupDeps(), wanted)
+    // the same threshold the scan used, so the cascade can only take worktrees the
+    // user was actually shown as going with these sessions
+    const result = await deleteSessions(
+      cleanupDeps(),
+      wanted,
+      loadConfig().staleDays ?? DEFAULT_STALE_DAYS
+    )
     // an archived id whose file is gone is dead config — drop it, then re-index so
     // the tree stops offering sessions that no longer exist
     indexer.setArchived(setSessionsArchived(wanted, false))

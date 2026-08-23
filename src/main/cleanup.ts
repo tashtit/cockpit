@@ -240,12 +240,48 @@ async function judgeWorktrees(deps: CleanupDeps): Promise<JudgedWorktree[]> {
 
 /* ---------- the scan ---------- */
 
+/**
+ * The removable worktree a session ran in. A session and its worktree are one
+ * piece of work, so the worktree rides on the session rather than being listed
+ * twice — and only ever when it is itself stale and unblocked, so deleting can
+ * never take a checkout the scan didn't show as disposable.
+ */
+function worktreeForCwd(
+  trees: readonly JudgedWorktree[],
+  cwd: string | null,
+  cutoff: number
+): JudgedWorktree | null {
+  if (!cwd) return null
+  const here = realish(cwd)
+  for (const w of trees) {
+    if (w.blocks.length > 0 || w.missing) continue
+    if (!isStale(w.lastActivity, cutoff)) continue
+    if (isUnder(here, w.path)) return w
+  }
+  return null
+}
+
 export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise<CleanupReport> {
   const days = clampStaleDays(staleDays)
   const scannedAt = Date.now()
   const cutoff = staleCutoff(days, scannedAt)
   const all = deps.sessions()
   const busy = deps.busyIds()
+
+  const judged = await judgeWorktrees(deps)
+  const linked = judged.filter((w) => !w.blocks.includes('main'))
+  const staleTrees = linked
+    .filter((w) => isStale(w.lastActivity, cutoff))
+    .sort((a, b) => a.lastActivity - b.lastActivity)
+  // only stale worktrees are sized: walking every checkout in every repo would
+  // cost far more than the answer is worth
+  const sizes = new Map<string, number | null>(
+    await Promise.all(
+      staleTrees.map(
+        async (w) => [w.path, w.missing ? 0 : await measureDir(w.path)] as [string, number | null]
+      )
+    )
+  )
 
   const staleMetas = all
     .filter((s) => isStale(s.updatedAt, cutoff))
@@ -254,6 +290,7 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
   let n = 0
   for (const s of staleMetas) {
     if (++n % YIELD_EVERY === 0) await yieldToLoop()
+    const w = worktreeForCwd(staleTrees, s.cwd, cutoff)
     sessions.push({
       id: s.id,
       provider: s.provider,
@@ -263,33 +300,35 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
       updatedAt: s.updatedAt,
       bytes: sessionBytes(s.sourcePath),
       archived: s.archived === true,
+      worktree: w
+        ? {
+            path: w.path,
+            branch: w.branch,
+            bytes: sizes.get(w.path) ?? null,
+            sessionCount: w.sessionCount
+          }
+        : null,
       blocks: busy.has(s.id) ? ['busy'] : []
     })
   }
 
-  const judged = await judgeWorktrees(deps)
-  const staleTrees = judged
-    .filter((w) => !w.blocks.includes('main') && isStale(w.lastActivity, cutoff))
-    .sort((a, b) => a.lastActivity - b.lastActivity)
+  const rows = sessions.slice(0, CLEANUP_ROW_CAP)
+  // a worktree a listed session will take with it is not also listed on its own —
+  // every worktree appears exactly once across the report
+  const claimed = new Set(rows.map((r) => r.worktree?.path).filter((p): p is string => !!p))
+  const orphans: StaleWorktree[] = staleTrees
+    .filter((w) => !claimed.has(w.path))
     .slice(0, CLEANUP_ROW_CAP)
-  // only stale worktrees are sized: walking every checkout in every repo would
-  // cost far more than the answer is worth
-  const worktrees: StaleWorktree[] = await Promise.all(
-    staleTrees.map(async ({ repoRootForGit: _drop, ...w }) => ({
-      ...w,
-      bytes: w.missing ? 0 : await measureDir(w.path)
-    }))
-  )
+    .map(({ repoRootForGit: _drop, ...w }) => ({ ...w, bytes: sizes.get(w.path) ?? null }))
 
-  const linked = judged.filter((w) => !w.blocks.includes('main'))
   return {
     staleDays: days,
     scannedAt,
-    sessions: sessions.slice(0, CLEANUP_ROW_CAP),
+    sessions: rows,
     staleSessionCount: sessions.length,
     staleSessionBytes: sessions.reduce((n, s) => n + s.bytes, 0),
-    worktrees,
-    staleWorktreeCount: linked.filter((w) => isStale(w.lastActivity, cutoff)).length,
+    worktrees: orphans,
+    staleWorktreeCount: staleTrees.length,
     totalSessions: all.length,
     totalWorktrees: linked.length
   }
@@ -298,18 +337,36 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
 /* ---------- cleaning ---------- */
 
 /**
- * Delete the provider's own log files for these sessions. Two independent gates
- * before anything is unlinked: the id must be one the indexer knows, and the
- * file it names must sit inside a configured source directory. A renderer that
- * asks for anything else gets a refusal in `failed`, not an unlink.
+ * Delete the provider's own log files for these sessions, and the worktrees they
+ * ran in. A session and its checkout are one piece of work — cleaning the log but
+ * leaving a 400MB abandoned worktree behind is not a cleanup.
+ *
+ * Two independent gates before a log file is unlinked: the id must be one the
+ * indexer knows, and the file it names must sit inside a configured source
+ * directory. A renderer that asks for anything else gets a refusal in `failed`,
+ * not an unlink.
+ *
+ * The worktree cascade is deliberately conservative. A worktree goes only when
+ * *every* session indexed inside it is in this deletion — worktrees routinely host
+ * several, and one survivor is reason enough to keep the checkout — and only when
+ * it is stale and unblocked, which is exactly the set the scan showed attached to
+ * these rows. The listing is re-derived here rather than trusted from the scan.
  */
-export function deleteSessions(deps: CleanupDeps, ids: readonly string[]): CleanupResult {
-  const byId = new Map(deps.sessions().map((s) => [s.id, s]))
+export async function deleteSessions(
+  deps: CleanupDeps,
+  ids: readonly string[],
+  staleDays: number
+): Promise<CleanupResult> {
+  const all = deps.sessions()
+  const byId = new Map(all.map((s) => [s.id, s]))
   const roots = deps.sourceDirs().map((d) => resolve(d))
   const busy = deps.busyIds()
   const failed: { target: string; reason: string }[] = []
+  const branchesDeleted: string[] = []
+  const deleted = new Set<string>()
   let cleaned = 0
   let freedBytes = 0
+
   for (const raw of ids) {
     const id = String(raw)
     const meta = byId.get(id)
@@ -330,6 +387,7 @@ export function deleteSessions(deps: CleanupDeps, ids: readonly string[]): Clean
     try {
       rmSync(target, { recursive: true, force: false })
       cleaned++
+      deleted.add(id)
       freedBytes += bytes
     } catch (err) {
       failed.push({
@@ -338,7 +396,39 @@ export function deleteSessions(deps: CleanupDeps, ids: readonly string[]): Clean
       })
     }
   }
-  return { cleaned, freedBytes, failed }
+
+  if (deleted.size > 0) {
+    const cutoff = staleCutoff(staleDays, Date.now())
+    for (const w of await judgeWorktrees(deps)) {
+      if (w.blocks.length > 0 || w.missing) continue
+      if (!isStale(w.lastActivity, cutoff)) continue
+      const inside = all.filter((s) => s.cwd && isUnder(realish(s.cwd), w.path))
+      // no session of its own is not this action's business — that is an orphan,
+      // and orphans are cleaned from the worktrees list, deliberately by hand
+      if (inside.length === 0) continue
+      if (!inside.every((s) => deleted.has(s.id))) continue
+      const bytes = (await measureDir(w.path)) ?? 0
+      const removed = await execText(
+        'git',
+        ['-C', w.repoRootForGit, 'worktree', 'remove', w.path],
+        { timeoutMs: 60_000 }
+      )
+      if (!removed.ok) {
+        failed.push({
+          target: w.path,
+          reason: removed.stderr.trim() || 'git refused to remove the worktree'
+        })
+        continue
+      }
+      freedBytes += bytes
+      if (w.branch) {
+        const gone = await execText('git', ['-C', w.repoRootForGit, 'branch', '-d', w.branch])
+        if (gone.ok) branchesDeleted.push(w.branch)
+      }
+    }
+  }
+
+  return { cleaned, freedBytes, failed, branchesDeleted }
 }
 
 /**

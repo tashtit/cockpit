@@ -165,15 +165,25 @@ test('lists only what is idle past the threshold, and says how it counted', asyn
   await expect(win.locator('.cl-row', { hasText: 'directory gone' })).toBeVisible()
 })
 
-test('marks the worktrees Cockpit cut apart from the ones it did not', async () => {
+test('rides a worktree on the session that ran in it, rather than listing it twice', async () => {
   await openCleanup()
+  // the session in Cockpit's own worktree says what deleting it would take
+  const row = win.locator('.cl-row', { hasText: 'Investigate the flaky indexer test' })
+  await expect(row.locator('.cl-carry')).toContainText('takes its worktree')
+  // and that worktree is not also standing on its own in the leftovers
+  await expect(win.locator('.cl-row', { hasText: 'c/fix-login' })).toHaveCount(0)
+})
+
+test('leaves only the worktrees no session claims, marked by origin', async () => {
+  await openCleanup()
+  // the dirty one has no session of its own, and Claude Code cut it — external
   await expect(
-    win.locator('.cl-row', { hasText: 'c/fix-login' }).locator('.cl-origin')
-  ).toHaveText('cockpit')
-  // Claude Code cuts its own worktrees inside the repo — found here, and cleanable
-  await expect(
-    win.locator('.cl-row', { hasText: 'titan/back-navigation' }).locator('.cl-origin')
+    win.locator('.cl-row', { hasText: 'spike/edge-cache' }).locator('.cl-origin')
   ).toHaveText('external')
+  // the registration whose directory is gone is Cockpit's own
+  await expect(
+    win.locator('.cl-row', { hasText: 'directory gone' }).locator('.cl-origin')
+  ).toHaveText('cockpit')
 })
 
 test('a worktree with uncommitted work is shown, explained, and never selectable', async () => {
@@ -191,15 +201,45 @@ test('archiving a session takes it off the list', async () => {
   await expect(win.getByText(/Archived 1/)).toBeVisible()
 })
 
-test('removing a clean worktree really removes it', async () => {
+test('deleting a session takes its worktree and merged branch off the disk', async () => {
   await openCleanup()
-  const row = win.locator('.cl-row', { hasText: 'c/fix-login' })
+  await win.getByLabel('Select session Investigate the flaky indexer test').check()
+  await win.getByRole('button', { name: 'Delete 1…' }).click()
+  await win.getByRole('button', { name: 'Delete 1 for good?' }).click()
+  await expect(win.getByText(/Deleted 1/)).toBeVisible()
+  // the transcript AND the checkout it ran in — leaving the worktree would not be a cleanup
+  expect(existsSync(mine)).toBe(false)
+  expect(execFileSync('git', ['branch', '--list'], { cwd: repoDir, encoding: 'utf8' })).not.toMatch(
+    /cockpit\/fix-login/
+  )
+})
+
+test('removing an orphan whose directory is already gone clears the registration', async () => {
+  await openCleanup()
+  const row = win.locator('.cl-row', { hasText: 'directory gone' })
   await expect(row).toBeVisible()
   await row.locator('.cl-pick').check()
   await win.getByRole('button', { name: 'Remove 1…' }).click()
-  await win.getByRole('button', { name: /Remove 1 worktree\?/ }).click()
+  await win.getByRole('button', { name: 'Remove 1 worktree?' }).click()
   await expect(win.getByText(/Removed 1/)).toBeVisible()
-  // gone from the view, and gone from git — the scan re-derives the listing
-  await expect(win.locator('.cl-row', { hasText: 'c/fix-login' })).toHaveCount(0)
-  expect(existsSync(mine)).toBe(false)
+  expect(execFileSync('git', ['worktree', 'list'], { cwd: repoDir, encoding: 'utf8' })).not.toMatch(
+    /ghost-run/
+  )
+})
+
+test('the filter bar narrows by dimension, and select-all follows it', async () => {
+  await openCleanup()
+  const bar = win.locator('.fb-bar').first()
+  await bar.getByRole('button', { name: /^Agent/ }).click()
+  await win.getByRole('button', { name: 'Claude', exact: true }).click()
+  await win.keyboard.press('Escape')
+  // every fixture session is Claude's, so the pill names it outright
+  await expect(bar.getByRole('button', { name: /^Agent Claude/ })).toBeVisible()
+  await bar.getByRole('button', { name: /^Project/ }).click()
+  await win.getByRole('button', { name: 'Exclude rocket' }).click()
+  await win.keyboard.press('Escape')
+  // excluding the only project empties the list
+  await expect(win.getByText('No sessions match this filter.')).toBeVisible()
+  await win.getByRole('button', { name: 'Clear all' }).first().click()
+  await expect(win.locator('.cl-row', { hasText: 'Add billing API fallback' })).toBeVisible()
 })
