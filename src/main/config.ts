@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from '
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { LibraryEntry, ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
+import { clampStaleDays } from './cleanup-core'
 
 type AppConfig = {
   readonly sources: SourceDir[]
@@ -28,6 +29,8 @@ type AppConfig = {
   readonly hiddenRepos?: string[]
   /** Days of history to display — sessions idle longer are hidden; 0/absent = all */
   readonly historyDays?: number
+  /** Idle threshold the cleanup view calls stale, in days; absent = 30 */
+  readonly staleDays?: number
   /** Clock format for session times in the UI; absent = 24h */
   readonly timeFormat?: TimeFormat
   /** User-defined BYOK model providers (API keys live keychain-encrypted in secrets.ts, never here) */
@@ -114,6 +117,19 @@ export function setSessionArchived(sessionId: string, archived: boolean): string
   return ids
 }
 
+/** Batch counterpart of setSessionArchived — cleanup archives hundreds at once. */
+export function setSessionsArchived(ids: readonly string[], archived: boolean): string[] {
+  const cfg = loadConfig()
+  const set = new Set(cfg.archived ?? [])
+  for (const id of ids) {
+    if (archived) set.add(String(id))
+    else set.delete(String(id))
+  }
+  const next = [...set]
+  saveConfig({ ...cfg, archived: next })
+  return next
+}
+
 export function setRepoHidden(repoKey: string, hidden: boolean): string[] {
   const cfg = loadConfig()
   const set = new Set(cfg.hiddenRepos ?? [])
@@ -128,6 +144,13 @@ export function setHistoryDays(days: number): number {
   const cfg = loadConfig()
   const d = Number.isFinite(days) && days > 0 ? Math.floor(days) : 0
   saveConfig({ ...cfg, historyDays: d })
+  return d
+}
+
+export function setStaleDays(days: number): number {
+  const cfg = loadConfig()
+  const d = clampStaleDays(days)
+  saveConfig({ ...cfg, staleDays: d })
   return d
 }
 

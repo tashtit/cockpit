@@ -796,6 +796,23 @@ export class SessionIndexer {
     return out
   }
 
+  /**
+   * Cleanup candidates: everything still on disk that Cockpit owns. Archived
+   * sessions are included on purpose — archiving is cleanup's reversible first
+   * tier, so deleting the files is the tier that has to be able to see them.
+   * Roundtable seats stay out: they belong to their table, not to the user's own
+   * work, and removing one would strand the table's transcript.
+   */
+  cleanupSessions(): SessionMeta[] {
+    const out: SessionMeta[] = []
+    for (const s of this.sessions.values()) {
+      if (this.providerArchived.has(s.id)) continue
+      if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
+      out.push({ ...s, archived: this.archived.has(s.id) })
+    }
+    return out
+  }
+
   /** One session by id, stamped like a page row; null when unknown. */
   getSession(id: string): SessionMeta | null {
     const s = this.sessions.get(id)

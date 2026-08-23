@@ -30,7 +30,8 @@ export default defineConfig({
           { text: 'Sessions & the index', link: '/guide/sessions' },
           { text: 'Worktrees & PRs', link: '/guide/worktrees-and-prs' },
           { text: 'Chat', link: '/guide/chat' },
-          { text: 'Roundtables', link: '/guide/roundtables' }
+          { text: 'Roundtables', link: '/guide/roundtables' },
+          { text: 'Cleanup', link: '/guide/cleanup' }
         ]
       },
       {

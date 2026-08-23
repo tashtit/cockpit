@@ -12,6 +12,7 @@ import { api } from './api'
 import { withImageMarks, type ImageAttachment } from './attachments'
 import { TreeSidebar } from './TreeSidebar'
 import { ChatView } from './ChatView'
+import { CleanupView } from './CleanupView'
 import { CommandPalette, type PaletteViewKey } from './CommandPalette'
 import { NewSession } from './NewSession'
 import { HandoffView } from './HandoffView'
@@ -66,6 +67,7 @@ type View =
   | { kind: 'new-roundtable' }
   | { kind: 'roundtable'; id: string }
   | { kind: 'settings' }
+  | { kind: 'cleanup' }
   /** repoRoot null = the global agent setup; otherwise one repo's own */
   | { kind: 'extensions'; repoRoot: string | null }
   | { kind: 'profile' }
@@ -435,6 +437,7 @@ export function App(): JSX.Element {
         setView((v) =>
           v.kind === 'settings' ||
           v.kind === 'extensions' ||
+          v.kind === 'cleanup' ||
           v.kind === 'new' ||
           v.kind === 'handoff' ||
           v.kind === 'new-roundtable'
@@ -660,7 +663,7 @@ export function App(): JSX.Element {
   const openUrl = useCallback((url: string) => void api.openExternal(url), [])
 
   /** Nav icons are stateful: opening the view you're already on backs out of it. */
-  const toggleView = useCallback((kind: 'settings' | 'extensions' | 'profile') => {
+  const toggleView = useCallback((kind: 'settings' | 'extensions' | 'profile' | 'cleanup') => {
     setView((v) => {
       if (v.kind === kind) return bindingRef.current ? { kind: 'chat' } : { kind: 'welcome' }
       return kind === 'extensions' ? { kind, repoRoot: null } : { kind }
@@ -710,7 +713,9 @@ export function App(): JSX.Element {
         onOpenUrl={openUrl}
         activeView={view.kind}
       />
-      {view.kind === 'profile' ? (
+      {view.kind === 'cleanup' ? (
+        <CleanupView onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
+      ) : view.kind === 'profile' ? (
         <ProfileView onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
       ) : view.kind === 'settings' ? (
         <Settings onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />

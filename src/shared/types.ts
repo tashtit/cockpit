@@ -694,6 +694,110 @@ export type RoundtableEvent =
       readonly entry: RoundtableEntry
     }
 
+/* ---------- cleanup: stale sessions and worktrees ---------- */
+
+/** Where a worktree came from — Cockpit's own userData tree, or anywhere else. */
+export type WorktreeOrigin = 'cockpit' | 'external'
+
+/**
+ * Why a stale row refuses to be cleaned. Every block is a thing that would lose
+ * work or break something live, so the UI shows them rather than offering a force.
+ */
+export type CleanupBlock =
+  /** Uncommitted changes in the worktree */
+  | 'dirty'
+  /** An agent turn is running in it right now */
+  | 'busy'
+  /** The repository's primary checkout — never Cockpit's to remove */
+  | 'main'
+  /** `git worktree lock` was used on it */
+  | 'locked'
+  /** A roundtable's shared room: it belongs to the table, not to one session */
+  | 'roundtable'
+
+/**
+ * The worktree a session ran in, carried on the session itself: deleting the
+ * session takes this with it. Only ever set when the worktree is removable —
+ * the repo's own checkout and anything blocked is never attached to a session.
+ */
+export type SessionWorktree = {
+  readonly path: string
+  readonly branch: string | null
+  readonly bytes: number | null
+  /** Sessions indexed in it — it only goes when every one of them goes */
+  readonly sessionCount: number
+}
+
+export type StaleSession = {
+  /** Session id: `${provider}:${nativeId}` */
+  readonly id: string
+  readonly provider: Provider
+  readonly title: string
+  readonly repoName: string | null
+  readonly cwd: string | null
+  readonly updatedAt: number
+  /** Size of the provider's own log file(s) for this session */
+  readonly bytes: number
+  /** Already archived in Cockpit — still listed, because deleting is the next tier */
+  readonly archived: boolean
+  /** The worktree deleting this session would also remove; null when it has none */
+  readonly worktree: SessionWorktree | null
+  readonly blocks: CleanupBlock[]
+}
+
+export type StaleWorktree = {
+  readonly path: string
+  /** Main repo root the worktree is linked to */
+  readonly repoRoot: string
+  readonly repoName: string
+  readonly branch: string | null
+  readonly origin: WorktreeOrigin
+  /** Newest of: branch-tip commit, session activity in this cwd, directory mtime */
+  readonly lastActivity: number
+  /** Sessions Cockpit has indexed running in this directory */
+  readonly sessionCount: number
+  /** Registered in .git/worktrees but gone from disk — prune territory */
+  readonly missing: boolean
+  /** Commits on HEAD that no remote has. Informational: removing a worktree keeps
+   *  its branch, so this only decides whether the branch can go too. */
+  readonly unpushed: number
+  /** Bytes on disk; null when the directory couldn't be measured */
+  readonly bytes: number | null
+  readonly blocks: CleanupBlock[]
+}
+
+export type CleanupReport = {
+  /** Idle threshold the scan applied, in days */
+  readonly staleDays: number
+  /** The instant the scan called "now" — rows age against it, not against render time */
+  readonly scannedAt: number
+  /** Oldest-first, capped (CLEANUP_ROW_CAP) — the full index never crosses IPC */
+  readonly sessions: StaleSession[]
+  /** Stale sessions before the row cap, and what they occupy in total */
+  readonly staleSessionCount: number
+  readonly staleSessionBytes: number
+  /**
+   * Stale worktrees no listed session claims — the leftovers. A worktree that a
+   * stale session runs in rides on that session instead, so every worktree
+   * appears exactly once across the report.
+   */
+  readonly worktrees: StaleWorktree[]
+  readonly staleWorktreeCount: number
+  /** Denominators behind "47 of 312" — everything known, stale or not */
+  readonly totalSessions: number
+  readonly totalWorktrees: number
+}
+
+/** What one clean actually did. Failures are per-target and never throw the batch. */
+export type CleanupResult = {
+  readonly cleaned: number
+  readonly freedBytes: number
+  /** Targets that were refused, each with the reason to show */
+  readonly failed: { readonly target: string; readonly reason: string }[]
+  /** Branches deleted alongside their worktrees (only fully-merged ones ever are) */
+  readonly branchesDeleted?: string[]
+}
+
 /** Clock format for session timestamps shown in the UI */
 export type TimeFormat = '12h' | '24h'
 
@@ -730,6 +834,18 @@ export type CockpitApi = {
   /** Clock format for session times (sidebar, home); default 24h */
   readonly getTimeFormat: () => Promise<TimeFormat>
   readonly setTimeFormat: (format: TimeFormat) => Promise<void>
+  /* cleanup: one place for stale sessions and worktrees across every agent and repo */
+  /** Idle threshold the cleanup view applies, in days (default 30) */
+  readonly getStaleDays: () => Promise<number>
+  readonly setStaleDays: (days: number) => Promise<void>
+  /** Walk every source and every known repo for things idle past the threshold */
+  readonly scanCleanup: () => Promise<CleanupReport>
+  /** Reversible tier: hide them in Cockpit, touch nothing on disk */
+  readonly archiveSessions: (ids: readonly string[]) => Promise<CleanupResult>
+  /** Destructive tier: delete the provider's own log files */
+  readonly deleteSessions: (ids: readonly string[]) => Promise<CleanupResult>
+  /** `git worktree remove` each path, then drop any branch git says is fully merged */
+  readonly removeWorktrees: (paths: readonly string[]) => Promise<CleanupResult>
   readonly getPrs: (repoRoot: string) => Promise<PrStatus[]>
   readonly createWorkspace: (repoRoot: string, name?: string) => Promise<WorkspaceInfo>
   readonly createPr: (cwd: string) => Promise<string>
