@@ -30,6 +30,12 @@ updates:
     commit-message:
       prefix: ci
 
+  # Dependabot regenerates package-lock.json with the npm named in package.json's
+  # "packageManager" (its default is npm 11 for lockfileVersion 3). That pin tracks
+  # the npm bundled with the Node in .nvmrc — the one CI's `npm ci` runs — because
+  # npm 11 omits optional peer entries that npm 10 requires, and a lock written by
+  # one major fails `npm ci` under the other. CI asserts the majors agree on every
+  # pull request; when .nvmrc moves, move the pin with it.
   - package-ecosystem: npm
     directory: /
     schedule:

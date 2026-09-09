@@ -34,6 +34,20 @@ jobs:
         uses: actions/setup-node@v7.0.0
         with: { node-version-file: '.nvmrc', cache: 'npm' }
 
+      # Dependabot regenerates package-lock.json with the npm named in package.json's
+      # "packageManager" (npm 11 when unset). `npm ci` below has to run the same major:
+      # npm 11 omits optional peer entries that npm 10 requires, so a lock written by
+      # one fails `npm ci` under the other and every Dependabot PR dies at Install.
+      # .nvmrc decides which npm setup-node ships, so the two pins move together.
+      - name: 🔒 npm matches the packageManager pin
+        run: |
+          pinned="$(node -p "require('./package.json').packageManager.replace(/^npm@/, '').split('.')[0]")"
+          actual="$(npm --version | cut -d. -f1)"
+          if [ "$pinned" != "$actual" ]; then
+            echo "::error::npm $(npm --version) from .nvmrc's Node, but package.json pins npm@${pinned}.x; bump .nvmrc and packageManager together"
+            exit 1
+          fi
+
       - name: Cache Electron binary
         uses: actions/cache@v6.1.0
         with:

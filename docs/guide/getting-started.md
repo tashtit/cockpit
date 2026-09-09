@@ -6,7 +6,7 @@ Cockpit currently runs from source. It's an Electron app: clone, install, run.
 
 - **macOS** — the primary target. Linux works for development and CI.
 - **Node 22** — pinned in `.nvmrc`; run `nvm use` (or your version manager's equivalent) before installing.
-- **npm** — the repo ships a `package-lock.json`; install with `npm ci` to match CI exactly.
+- **npm 10** — the one Node 22 bundles, pinned as `packageManager` in `package.json` so Dependabot, CI and your machine all write the same lockfile shape. The repo ships a `package-lock.json`; install with `npm ci` to match CI exactly.
 - **git**, and the **GitHub CLI (`gh`)** if you want the PR features to work at runtime (not needed to build).
 - Optional: the `claude` / `codex` / `copilot` CLIs. Without them Cockpit runs with an empty session index.
 

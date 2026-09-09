@@ -4,7 +4,7 @@ Unified desktop hub for **Claude Code**, **Codex**, and **GitHub Copilot CLI**: 
 
 ## Run
 
-Requires Node 22 (`.nvmrc`) and npm.
+Requires Node 22 (`.nvmrc`) and the npm 10 it bundles (pinned as `packageManager`).
 
 ```bash
 npm ci
