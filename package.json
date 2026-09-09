@@ -5,6 +5,7 @@
   "main": "./out/main/index.js",
   "private": true,
   "license": "Apache-2.0",
+  "packageManager": "npm@10.9.8",
   "scripts": {
     "dev": "electron-vite dev --watch",
     "dev:fg": "COCKPIT_DEV_BACKGROUND=0 electron-vite dev",
