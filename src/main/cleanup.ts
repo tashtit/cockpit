@@ -337,6 +337,14 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
 /* ---------- cleaning ---------- */
 
 /**
+ * The audit trail for everything this module removes: one line per deletion or
+ * refusal on the main-process console, so "what did cleanup take?" has an answer.
+ */
+function audit(line: string): void {
+  console.info(`[cleanup] ${line}`)
+}
+
+/**
  * Delete the provider's own log files for these sessions, and the worktrees they
  * ran in. A session and its checkout are one piece of work — cleaning the log but
  * leaving a 400MB abandoned worktree behind is not a cleanup.
@@ -380,6 +388,7 @@ export async function deleteSessions(
     }
     const target = resolve(deleteTarget(meta.sourcePath))
     if (!roots.some((r) => isUnder(target, r))) {
+      audit(`refused session ${id}: ${target} is outside every configured source`)
       failed.push({ target: meta.title || id, reason: 'outside every configured source' })
       continue
     }
@@ -389,6 +398,7 @@ export async function deleteSessions(
       cleaned++
       deleted.add(id)
       freedBytes += bytes
+      audit(`removed session ${id}: ${target} (${bytes} bytes)`)
     } catch (err) {
       failed.push({
         target: meta.title || id,
@@ -421,9 +431,13 @@ export async function deleteSessions(
         continue
       }
       freedBytes += bytes
+      audit(`removed worktree ${w.path} (${bytes} bytes)`)
       if (w.branch) {
         const gone = await execText('git', ['-C', w.repoRootForGit, 'branch', '-d', w.branch])
-        if (gone.ok) branchesDeleted.push(w.branch)
+        if (gone.ok) {
+          branchesDeleted.push(w.branch)
+          audit(`deleted branch ${w.branch} in ${w.repoRootForGit}`)
+        }
       }
     }
   }
@@ -463,6 +477,7 @@ export async function removeWorktrees(
         await git(w.repoRootForGit, ['worktree', 'prune'])
         pruned.add(w.repoRootForGit)
       }
+      audit(`pruned missing worktree ${path} from ${w.repoRootForGit}`)
       cleaned++
       continue
     }
@@ -476,11 +491,15 @@ export async function removeWorktrees(
     }
     cleaned++
     freedBytes += bytes
+    audit(`removed worktree ${path} (${bytes} bytes)`)
     // -d, never -D: git's own merged check is the safety net for the commits that
     // worktree removal deliberately left behind
     if (w.branch) {
       const gone = await execText('git', ['-C', w.repoRootForGit, 'branch', '-d', w.branch])
-      if (gone.ok) branchesDeleted.push(w.branch)
+      if (gone.ok) {
+        branchesDeleted.push(w.branch)
+        audit(`deleted branch ${w.branch} in ${w.repoRootForGit}`)
+      }
     }
   }
   return { cleaned, freedBytes, failed, branchesDeleted }
