@@ -4,6 +4,7 @@ import {
   diffStat,
   foldUnchanged,
   splitLines,
+  splitRows,
   type DiffLine
 } from '../src/shared/line-diff'
 
@@ -130,6 +131,39 @@ describe('foldUnchanged', () => {
     const rows = foldUnchanged(same(5, 'q'))
     expect(rows).toHaveLength(1)
     expect(rows[0].op).toBe('fold')
+  })
+})
+
+describe('splitRows', () => {
+  const L = (op: DiffLine['op'], text: string): DiffLine => ({ op, text })
+
+  it('sets the n-th removed line across from the n-th added one', () => {
+    const rows = splitRows([L('same', 'a'), L('del', 'b'), L('del', 'c'), L('add', 'x'), L('same', 'd')])
+    expect(rows).toEqual([
+      { op: 'pair', left: L('same', 'a'), right: L('same', 'a') },
+      { op: 'pair', left: L('del', 'b'), right: L('add', 'x') },
+      { op: 'pair', left: L('del', 'c'), right: null },
+      { op: 'pair', left: L('same', 'd'), right: L('same', 'd') }
+    ])
+  })
+
+  it('leaves the left blank for a pure insertion, and lets folds span both sides', () => {
+    const fold = { op: 'fold' as const, lines: [L('same', 'q1'), L('same', 'q2'), L('same', 'q3')] }
+    const rows = splitRows([fold, L('add', 'new'), L('add', 'newer')])
+    expect(rows).toEqual([
+      fold,
+      { op: 'pair', left: null, right: L('add', 'new') },
+      { op: 'pair', left: null, right: L('add', 'newer') }
+    ])
+  })
+
+  it('does not pair across a context line — two stretches stay two', () => {
+    const rows = splitRows([L('del', 'a'), L('same', 'k'), L('add', 'b')])
+    expect(rows.map((r) => (r.op === 'pair' ? [r.left?.text ?? null, r.right?.text ?? null] : 'fold'))).toEqual([
+      ['a', null],
+      ['k', 'k'],
+      [null, 'b']
+    ])
   })
 })
 

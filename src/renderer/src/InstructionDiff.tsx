@@ -1,9 +1,22 @@
-import { useEffect, useState, type JSX, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import type { FileChange } from '../../shared/instruction-changes'
 import { END, START } from '../../shared/instruction-markers'
 import { shortPath } from '../../shared/library'
-import { foldUnchanged, type DiffLine, type DiffRow } from '../../shared/line-diff'
+import {
+  foldUnchanged,
+  splitRows,
+  type DiffFold,
+  type DiffLine,
+  type DiffRow
+} from '../../shared/line-diff'
 import type { InstructionFile, InstructionStatus } from '../../shared/types'
+import {
+  DIFF_LAYOUTS,
+  DIFF_LAYOUT_LABEL,
+  setDiffLayout,
+  useDiffLayout,
+  type DiffLayout
+} from './diff-layout'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 
 /**
@@ -48,14 +61,38 @@ export function DiffStat({ added, removed }: { added: number; removed: number })
   )
 }
 
+/**
+ * Unified or side by side — one switch for every diff in the app, remembered. A
+ * segmented pair in the placard voice, the scope switch's grammar at row size.
+ */
+export function DiffLayoutToggle(): JSX.Element {
+  const layout = useDiffLayout()
+  return (
+    <span className="idiff-layout" role="group" aria-label="Diff layout">
+      {DIFF_LAYOUTS.map((l) => (
+        <button
+          key={l}
+          className={layout === l ? 'active' : ''}
+          aria-pressed={layout === l}
+          onClick={() => setDiffLayout(l)}
+        >
+          {DIFF_LAYOUT_LABEL[l]}
+        </button>
+      ))}
+    </span>
+  )
+}
+
 export function InstructionDiff({
   file,
   change,
+  layout,
   action,
   headRef
 }: {
   file: InstructionFile
   change: FileChange
+  layout: DiffLayout
   /** the row's own action (an apply button), right-aligned in the head */
   action?: ReactNode
   /** the head is the jump target for "see changes" — focusable, never in tab order */
@@ -83,7 +120,7 @@ export function InstructionDiff({
         <div className="idiff-body">
           {file.own.above > 0 && <Band n={file.own.above} />}
           <div className="idiff-rail">{START}</div>
-          <Lines lines={change.lines} />
+          <Lines lines={change.lines} layout={layout} />
           <div className="idiff-rail">{END}</div>
           {file.own.below > 0 && <Band n={file.own.below} />}
         </div>
@@ -101,28 +138,62 @@ function Band({ n }: { n: number }): JSX.Element {
   )
 }
 
-function Lines({ lines }: { lines: readonly DiffLine[] }): JSX.Element {
-  const rows = foldUnchanged(lines)
+function Lines({ lines, layout }: { lines: readonly DiffLine[]; layout: DiffLayout }): JSX.Element {
+  const rows = useMemo(() => foldUnchanged(lines), [lines])
   // fold rows are addressed by position: the rows are rebuilt whole whenever the
   // text changes, so an expansion only ever means "this row, in this diff"
   const [opened, setOpened] = useState<ReadonlySet<number>>(new Set())
   useEffect(() => setOpened(new Set()), [lines])
+
+  // what is on screen: opened folds become their lines, closed ones keep their
+  // position so the button knows which fold it opens
+  const foldAt = new Map<DiffFold, number>()
+  const shown: DiffRow[] = []
+  rows.forEach((row, i) => {
+    if (row.op !== 'fold') shown.push(row)
+    else if (opened.has(i)) shown.push(...row.lines)
+    else {
+      foldAt.set(row, i)
+      shown.push(row)
+    }
+  })
+  const open = (fold: DiffFold): void => setOpened(new Set([...opened, foldAt.get(fold) ?? -1]))
+
+  if (layout === 'split') {
+    return (
+      <>
+        {splitRows(shown).map((row, k) =>
+          row.op === 'fold' ? (
+            <FoldRow key={k} row={row} onOpen={() => open(row)} />
+          ) : (
+            <div key={k} className="idiff-pair">
+              <Cell line={row.left} />
+              <Cell line={row.right} />
+            </div>
+          )
+        )}
+      </>
+    )
+  }
   return (
     <>
-      {rows.map((row, i) =>
-        row.op === 'fold' && !opened.has(i) ? (
-          <FoldRow key={i} row={row} onOpen={() => setOpened(new Set([...opened, i]))} />
-        ) : row.op === 'fold' ? (
-          row.lines.map((line, k) => <Line key={`${i}.${k}`} line={line} />)
+      {shown.map((row, k) =>
+        row.op === 'fold' ? (
+          <FoldRow key={k} row={row} onOpen={() => open(row)} />
         ) : (
-          <Line key={i} line={row} />
+          <Line key={k} line={row} />
         )
       )}
     </>
   )
 }
 
-function FoldRow({ row, onOpen }: { row: Extract<DiffRow, { op: 'fold' }>; onOpen: () => void }): JSX.Element {
+/** One side of a pair: the line, or the blank the other side's change leaves. */
+function Cell({ line }: { line: DiffLine | null }): JSX.Element {
+  return line ? <Line line={line} /> : <div className="idiff-line empty" aria-hidden="true" />
+}
+
+function FoldRow({ row, onOpen }: { row: DiffFold; onOpen: () => void }): JSX.Element {
   return (
     <button className="idiff-fold" aria-expanded={false} onClick={onOpen}>
       <span aria-hidden="true">⋯</span>

@@ -1350,7 +1350,8 @@ button.pnl-flag:hover { text-decoration: underline; }
   padding: var(--s2) var(--s4); font-size: var(--fs-xs); color: var(--fg-dim);
   border-bottom: 1px solid var(--border); }
 .inst-changes-sum strong { color: var(--fg); font-weight: 600; }
-.inst-changes-sum .inst-dirty { margin-right: 0; margin-left: auto; }
+.inst-changes-sum .inst-dirty { margin: 0; }
+.inst-changes-right { display: flex; align-items: center; gap: var(--s3); margin-left: auto; }
 .inst-changes .inst-preview-empty { padding: var(--s4); }
 /* in the panel's row detail the blocks stand on their own — give them the frame */
 .idiff-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -1389,6 +1390,23 @@ button.pnl-flag:hover { text-decoration: underline; }
   color: var(--accent); font-size: var(--fs-xs); background: rgba(var(--accent-rgb), 0.08); }
 .idiff-fold:hover { background: rgba(var(--accent-rgb), 0.14); }
 .idiff-fold:active { filter: brightness(0.88); }
+/* side by side: the n-th line out across from the n-th line in; a change with no
+   counterpart leaves a blank cell on the other side rather than sliding the column */
+.idiff-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.idiff-pair .idiff-line + .idiff-line { border-left: 1px solid var(--border); }
+.idiff-line.empty { background: var(--surface); }
+/* unified | split — the scope switch's segmented grammar at row size, one choice
+   for every diff in the app */
+.idiff-layout { display: inline-flex; align-items: stretch; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); overflow: hidden; }
+.idiff-layout button { min-height: 24px; padding: 0 var(--s3); font-family: var(--mono);
+  font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--fg-dim); background: var(--bg2); }
+.idiff-layout button + button { border-left: 1px solid var(--border); }
+.idiff-layout button:hover { color: var(--fg); }
+.idiff-layout button.active { color: var(--fg); background: var(--bg3);
+  box-shadow: inset 0 2px 0 var(--accent); }
+.idiff-tools { display: flex; justify-content: flex-end; }
 
 /* ---------- profile: activity heatmap + per-agent totals (ProfileView) ---------- */
 /* Headline numbers. tabular-nums so the row doesn't jitter as counts tick up. */

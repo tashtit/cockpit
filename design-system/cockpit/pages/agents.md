@@ -112,6 +112,15 @@ that section holds a disagreement.
   `sr-only` "added:"/"removed:" so colour and glyph never carry the state alone.
   Line text wraps (`pre-wrap` + `overflow-wrap: anywhere`): the review never scrolls
   sideways, at any width.
+  - **Unified | Split** (`DiffLayoutToggle`, `.idiff-layout`): one segmented pair in the
+    scope switch's grammar at 24px, one choice for every diff in the app, remembered in
+    localStorage (`diff-layout.ts`, `cockpit:diff-layout`). Split lays the n-th removed
+    line across from the n-th added one (`.idiff-pair`, two `minmax(0,1fr)` columns with a
+    hairline between); a change with no counterpart leaves a `--surface` blank cell rather
+    than sliding the column; context, folds, bands and rails span both sides. The toggle
+    sits at the right of `.inst-changes-sum` (with the dirty note, in
+    `.inst-changes-right`) and above the panel's `.idiff-list` (`.idiff-tools`), and is
+    absent when nothing would be written.
 - **The panel's instructions row** opens to the same blocks (`.idiff-list`, framed)
   against the *saved* baseline, each non-synced file with its own ghost-small apply
   button — the field table the other kinds get would only list file paths here.

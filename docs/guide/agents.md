@@ -100,7 +100,8 @@ Each target shows a drift state:
 The editor's **Changes** tab shows what applying would write, file by file, before you
 write it: the shared block as a line diff — what comes out, what goes in — between the two
 markers, with the lines outside them counted and left exactly where they are. It compares
-against the text in the editor, so an unsaved draft is reviewed as the draft. Every
+against the text in the editor, so an unsaved draft is reviewed as the draft. Read it as one
+column or side by side with the **Unified / Split** switch; Cockpit remembers which. Every
 out-of-date row has a *see changes* link that jumps straight to its block, and the same
 diff opens from the row in **Needs you**, with the re-apply button beside it.
 

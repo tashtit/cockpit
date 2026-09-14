@@ -13,7 +13,8 @@ import {
 import { fileChange } from '../../shared/instruction-changes'
 import type { InstructionsState, McpProbeResult, PanelKind, Provider } from '../../shared/types'
 import { api } from './api'
-import { APPLY_LABEL, InstructionDiff } from './InstructionDiff'
+import { useDiffLayout } from './diff-layout'
+import { APPLY_LABEL, DiffLayoutToggle, InstructionDiff } from './InstructionDiff'
 import { InstructionsEditor } from './InstructionsEditor'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 
@@ -625,6 +626,7 @@ function InstructionsCompare({
 }): JSX.Element {
   const [state, setState] = useState<InstructionsState | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const layout = useDiffLayout()
 
   useEffect(() => {
     let dead = false
@@ -658,15 +660,22 @@ function InstructionsCompare({
       </p>
     )
   }
+  const changes = state.files.map((file) => ({ file, change: fileChange(file, state.baseline) }))
   return (
+    <>
+      {changes.some((c) => c.change.status !== 'synced') && (
+        <div className="idiff-tools">
+          <DiffLayoutToggle />
+        </div>
+      )}
     <div className="idiff-list">
-      {state.files.map((file) => {
-        const change = fileChange(file, state.baseline)
+      {changes.map(({ file, change }) => {
         return (
           <InstructionDiff
             key={file.path}
             file={file}
             change={change}
+            layout={layout}
             action={
               change.status !== 'synced' && (
                 <button
@@ -682,6 +691,7 @@ function InstructionsCompare({
         )
       })}
     </div>
+    </>
   )
 }
 

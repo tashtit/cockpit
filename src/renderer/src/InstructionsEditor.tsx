@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { fileChange, type FileChange } from '../../shared/instruction-changes'
 import type { InstructionFile, InstructionsState } from '../../shared/types'
 import { api } from './api'
-import { APPLY_LABEL, DiffStat, InstructionDiff } from './InstructionDiff'
+import { useDiffLayout } from './diff-layout'
+import { APPLY_LABEL, DiffLayoutToggle, DiffStat, InstructionDiff } from './InstructionDiff'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
 
@@ -249,6 +250,7 @@ function Changes({
   empty: boolean
   headRef: (path: string, el: HTMLDivElement | null) => void
 }): JSX.Element {
+  const layout = useDiffLayout()
   const added = changes.reduce((n, c) => n + c.change.added, 0)
   const removed = changes.reduce((n, c) => n + c.change.removed, 0)
   return (
@@ -272,13 +274,17 @@ function Changes({
                 <DiffStat added={added} removed={removed} />
               </>
             )}
-            {dirty && <span className="inst-dirty">comparing with your unsaved draft</span>}
+            <span className="inst-changes-right">
+              {dirty && <span className="inst-dirty">comparing with your unsaved draft</span>}
+              {writes > 0 && <DiffLayoutToggle />}
+            </span>
           </p>
           {changes.map(({ file, change }) => (
             <InstructionDiff
               key={file.path}
               file={file}
               change={change}
+              layout={layout}
               headRef={(el) => headRef(file.path, el)}
             />
           ))}

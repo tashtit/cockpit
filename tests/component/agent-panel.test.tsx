@@ -366,6 +366,8 @@ describe('Agents › the instructions row', () => {
     expect(codex.querySelector('.idiff-line.del .idiff-text')).toHaveTextContent('Use branches.')
     expect(codex.querySelector('.idiff-line.add .idiff-text')).toHaveTextContent('Use worktrees.')
     expect(document.querySelector('.pnl-diff')).toBeNull()
+    // the same layout switch every diff in the app carries
+    expect(screen.getByRole('group', { name: 'Diff layout' })).toBeInTheDocument()
 
     await userEvent.click(within(codex).getByRole('button', { name: 'Re-apply' }))
     expect(window.cockpit.applyInstructions).toHaveBeenCalledWith(null, '/Users/me/.codex/AGENTS.md')

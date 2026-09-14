@@ -130,6 +130,43 @@ export function foldUnchanged(lines: readonly DiffLine[], context = 2): DiffRow[
   return rows
 }
 
+/** One row of a side-by-side diff: what was there on the left, what will be on the right. */
+export type DiffPair = {
+  readonly op: 'pair'
+  readonly left: DiffLine | null
+  readonly right: DiffLine | null
+}
+
+export type SplitRow = DiffPair | DiffFold
+
+/**
+ * Unified rows → side-by-side rows. Within a changed stretch the n-th removed line
+ * sits across from the n-th added one, and whichever side runs out leaves a blank
+ * cell; context and folds span both sides.
+ */
+export function splitRows(rows: readonly DiffRow[]): SplitRow[] {
+  const out: SplitRow[] = []
+  let dels: DiffLine[] = []
+  let adds: DiffLine[] = []
+  const flush = (): void => {
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
+      out.push({ op: 'pair', left: dels[i] ?? null, right: adds[i] ?? null })
+    }
+    dels = []
+    adds = []
+  }
+  for (const row of rows) {
+    if (row.op === 'del') dels.push(row)
+    else if (row.op === 'add') adds.push(row)
+    else {
+      flush()
+      out.push(row.op === 'fold' ? row : { op: 'pair', left: row, right: row })
+    }
+  }
+  flush()
+  return out
+}
+
 export function diffStat(lines: readonly DiffLine[]): { readonly added: number; readonly removed: number } {
   let added = 0
   let removed = 0

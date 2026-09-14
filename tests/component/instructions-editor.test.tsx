@@ -1,8 +1,13 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { reloadDiffLayout } from '../../src/renderer/src/diff-layout'
 import { InstructionsEditor } from '../../src/renderer/src/InstructionsEditor'
 import type { InstructionFile, InstructionsState } from '../../src/shared/types'
+
+// the layout store caches its value at module load; the shared setup clears
+// localStorage between tests, so re-read it or one test's Split leaks into the next
+beforeEach(() => reloadDiffLayout())
 
 const BASE = '# Rules\n\nUse worktrees.\nNever push.'
 
@@ -137,6 +142,39 @@ describe('Instructions › the Changes tab', () => {
     await userEvent.click(fold)
     expect(within(claude).getByText('rule 0')).toBeInTheDocument()
     expect(within(claude).queryByRole('button', { name: /unchanged lines/ })).not.toBeInTheDocument()
+  })
+
+  it('lays the diff side by side on request, and remembers the choice', async () => {
+    await open()
+    await userEvent.click(changesTab())
+    const toggle = screen.getByRole('group', { name: 'Diff layout' })
+    expect(within(toggle).getByRole('button', { name: 'Unified' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(within(toggle).getByRole('button', { name: 'Split' }))
+
+    // the removed line sits across from the line that replaces it
+    const codex = block('~/.codex/AGENTS.md')
+    const pair = [...codex.querySelectorAll('.idiff-pair')].find((p) => p.querySelector('.del'))
+    expect(pair?.children[0]).toHaveTextContent('Use branches.')
+    expect(pair?.children[0]).toHaveClass('del')
+    expect(pair?.children[1]).toHaveTextContent('Use worktrees.')
+    expect(pair?.children[1]).toHaveClass('add')
+    // a created file has nothing on the left: blank cells, not a slid column
+    const copilot = block('~/.copilot/copilot-instructions.md')
+    expect(copilot.querySelectorAll('.idiff-pair .idiff-line.empty')).toHaveLength(4)
+
+    expect(window.localStorage.getItem('cockpit:diff-layout')).toBe('split')
+    await userEvent.click(within(toggle).getByRole('button', { name: 'Unified' }))
+    expect(codex.querySelector('.idiff-pair')).toBeNull()
+    expect(diffLines(codex, 'del')).toEqual(['Use branches.'])
+  })
+
+  it('opens the review in the layout it was left in', async () => {
+    window.localStorage.setItem('cockpit:diff-layout', 'split')
+    reloadDiffLayout()
+    await open()
+    await userEvent.click(changesTab())
+    expect(screen.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-pressed', 'true')
+    expect(block('~/.codex/AGENTS.md').querySelector('.idiff-pair')).not.toBeNull()
   })
 
   it('has nothing to compare while the draft is empty', async () => {
