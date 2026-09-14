@@ -347,6 +347,13 @@ export type InstructionFile = {
   readonly path: string
   readonly exists: boolean
   readonly content: string
+  /** What currently sits inside the managed markers; null when the file has no block */
+  readonly block: string | null
+  /**
+   * Lines of the agent's own content outside the markers — above and below the
+   * block. A file with no block is all "above": applying appends the block after it.
+   */
+  readonly own: { readonly above: number; readonly below: number }
   readonly status: InstructionStatus
 }
 

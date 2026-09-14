@@ -5,6 +5,8 @@ import {
   extractSharedBlock,
   fileStatus,
   instructionTargets,
+  lineCount,
+  splitSharedBlock,
   upsertSharedBlock
 } from '../src/main/instructions-core'
 
@@ -55,6 +57,28 @@ describe('extractSharedBlock', () => {
   it('returns null when there is no block or a half block', () => {
     expect(extractSharedBlock('just text')).toBeNull()
     expect(extractSharedBlock(`${START}\nunclosed`)).toBeNull()
+  })
+})
+
+describe('splitSharedBlock', () => {
+  it('reads the file as own lines, block, own lines', () => {
+    const raw = `# mine\n\n${START}\n${BASE}\n${END}\n\nafter\n`
+    expect(splitSharedBlock(raw)).toEqual({ above: '# mine\n\n', block: BASE, below: '\n\nafter\n' })
+  })
+
+  it('a file with no block is all own content — the block would go after it', () => {
+    expect(splitSharedBlock('# only mine\n')).toEqual({ above: '# only mine\n', block: null, below: '' })
+    // an orphaned START is no block either: nothing between it and a missing END is managed
+    expect(splitSharedBlock(`${START}\nunclosed`)).toEqual({ above: `${START}\nunclosed`, block: null, below: '' })
+  })
+})
+
+describe('lineCount', () => {
+  it('counts lines without the blank padding around them', () => {
+    expect(lineCount('')).toBe(0)
+    expect(lineCount('\n\n')).toBe(0)
+    expect(lineCount('# mine\n\n')).toBe(1)
+    expect(lineCount('a\n\nb\n')).toBe(3)
   })
 })
 

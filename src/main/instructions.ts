@@ -1,7 +1,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { InstructionFile, InstructionsState } from '../shared/types'
-import { fileStatus, instructionTargets, removeSharedBlock, upsertSharedBlock } from './instructions-core'
+import {
+  fileStatus,
+  instructionTargets,
+  lineCount,
+  removeSharedBlock,
+  splitSharedBlock,
+  upsertSharedBlock
+} from './instructions-core'
 import { loadConfig, saveConfig } from './config'
 
 /* IO around instructions-core: baseline storage (cockpit config) + file fan-out. */
@@ -43,11 +50,16 @@ export function getInstructions(repoRoot: string | null): InstructionsState {
   const baseline = getBaseline(repoRoot)
   const files: InstructionFile[] = instructionTargets(repoRoot).map(({ agents, path }) => {
     const raw = readTargetForDisplay(path)
+    // the block and the counts around it come from the same read as the status,
+    // so the diff the renderer draws can never disagree with the pill beside it
+    const split = splitSharedBlock(raw ?? '')
     return {
       agents,
       path,
       exists: raw !== null,
       content: raw ?? '',
+      block: split.block,
+      own: { above: lineCount(split.above), below: lineCount(split.below) },
       status: fileStatus(raw, baseline)
     }
   })

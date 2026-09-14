@@ -1332,6 +1332,63 @@ button.pnl-flag:hover { text-decoration: underline; }
   font-size: var(--fs-xs); line-height: 1.6; background: var(--bg-deep);
   border-radius: var(--radius); padding: var(--s3); }
 .inst-edit .inst-actions { margin-bottom: 0; }
+.inst-see { font-size: var(--fs-xs); margin-left: var(--s2); }
+.inst-see:disabled { color: var(--fg-dim); text-decoration: none; cursor: default; }
+/* the Changes tab counts the files an apply would write — the tab's own diffstat */
+.md-tab-n { margin-left: var(--s2); font-family: var(--mono); font-size: var(--fs-xs);
+  font-weight: 500; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.md-tab.active .md-tab-n { color: var(--accent); }
+
+/* the pre-apply review: one block per agent file, drawn the way the contract reads —
+   the agent's own lines folded into counted bands outside two marker rails, and the
+   shared block diffed between them. GitHub's line grammar inside the rails (green
+   in, red out, a +/− gutter) because that is the diff every user here already reads;
+   the rails and the bands are Cockpit's own — they show that nothing outside the
+   markers moves. Shares the editor's frame edge to edge: rows, not a padded page. */
+.inst-preview.inst-changes { padding: 0; }
+.inst-changes-sum { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s4); font-size: var(--fs-xs); color: var(--fg-dim);
+  border-bottom: 1px solid var(--border); }
+.inst-changes-sum strong { color: var(--fg); font-weight: 600; }
+.inst-changes-sum .inst-dirty { margin-right: 0; margin-left: auto; }
+.inst-changes .inst-preview-empty { padding: var(--s4); }
+/* in the panel's row detail the blocks stand on their own — give them the frame */
+.idiff-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.idiff + .idiff { border-top: 1px solid var(--border); }
+.idiff-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); }
+.idiff-head.plain { background: var(--surface); }
+.idiff-path { flex: 1; min-width: 120px; font-family: var(--mono); font-size: var(--fs-sm);
+  font-weight: 500; user-select: text; overflow-wrap: anywhere; }
+.idiff-head .inst-status { margin-left: 0; }
+.idiff-stat { display: inline-flex; gap: var(--s2); font-family: var(--mono);
+  font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums;
+  white-space: nowrap; }
+.idiff-stat .add { color: var(--ok); }
+.idiff-stat .del { color: var(--danger); }
+.idiff-body { padding: var(--s2) 0; font-family: var(--mono); font-size: var(--fs-sm);
+  line-height: 1.6; background: var(--bg-deep); }
+/* the two placards of the review: what stays, and where the block begins and ends */
+.idiff-band { display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s4);
+  color: var(--fg-dim); font-size: var(--fs-xs); letter-spacing: 0.6px; }
+.idiff-rail { display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s4);
+  color: var(--fg-dim); font-size: var(--fs-xs); white-space: nowrap; }
+.idiff-rail::after { content: ''; flex: 1; border-top: 1px dashed var(--border-strong); }
+.idiff-line { display: flex; padding: 0 var(--s4) 0 var(--s2); white-space: pre-wrap;
+  overflow-wrap: anywhere; }
+.idiff-line.same { color: var(--fg-dim); }
+.idiff-gut { flex: 0 0 18px; text-align: center; color: var(--fg-dim); user-select: none; }
+.idiff-text { flex: 1; min-width: 0; }
+.idiff-line.add { background: rgba(var(--ok-rgb), 0.12); }
+.idiff-line.add .idiff-gut { color: var(--ok); }
+.idiff-line.del { background: rgba(var(--danger-rgb), 0.12); }
+.idiff-line.del .idiff-gut { color: var(--danger); }
+/* a folded quiet stretch is a control, not a gap: accent-tinted, full width, 24px */
+.idiff-fold { display: flex; align-items: center; gap: var(--s2); width: 100%;
+  min-height: 24px; padding: 0 var(--s4) 0 var(--s2); text-align: left;
+  color: var(--accent); font-size: var(--fs-xs); background: rgba(var(--accent-rgb), 0.08); }
+.idiff-fold:hover { background: rgba(var(--accent-rgb), 0.14); }
+.idiff-fold:active { filter: brightness(0.88); }
 
 /* ---------- profile: activity heatmap + per-agent totals (ProfileView) ---------- */
 /* Headline numbers. tabular-nums so the row doesn't jitter as counts tick up. */

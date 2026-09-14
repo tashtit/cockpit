@@ -1,5 +1,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { END, START } from '../shared/instruction-markers'
 import type { InstructionFile, InstructionStatus } from '../shared/types'
 
 /*
@@ -18,16 +19,42 @@ import type { InstructionFile, InstructionStatus } from '../shared/types'
  * is never touched.
  */
 
-export const START = '<!-- cockpit:shared:start -->'
-export const END = '<!-- cockpit:shared:end -->'
+export { END, START }
+
+export type SharedSplit = {
+  /** the agent's own content before the block (the whole file when there is none) */
+  readonly above: string
+  /** content between the markers, or null when the file has no (complete) block */
+  readonly block: string | null
+  /** the agent's own content after the block ('' when there is none) */
+  readonly below: string
+}
+
+/**
+ * The file as the contract reads it: the agent's own lines, the managed block, the
+ * agent's own lines. A file with no complete block is all "above" — that is where an
+ * apply would append the block.
+ */
+export function splitSharedBlock(raw: string): SharedSplit {
+  const s = raw.indexOf(START)
+  const e = s === -1 ? -1 : raw.indexOf(END, s + START.length)
+  if (s === -1 || e === -1) return { above: raw, block: null, below: '' }
+  return {
+    above: raw.slice(0, s),
+    block: raw.slice(s + START.length, e).replace(/^\n/, '').replace(/\n[ \t]*$/, ''),
+    below: raw.slice(e + END.length)
+  }
+}
 
 /** Content between the managed markers, or null when the file has no block. */
 export function extractSharedBlock(raw: string): string | null {
-  const s = raw.indexOf(START)
-  if (s === -1) return null
-  const e = raw.indexOf(END, s + START.length)
-  if (e === -1) return null
-  return raw.slice(s + START.length, e).replace(/^\n/, '').replace(/\n[ \t]*$/, '')
+  return splitSharedBlock(raw).block
+}
+
+/** Lines in a piece of text, ignoring the blank padding around it. */
+export function lineCount(text: string): number {
+  const t = text.trim()
+  return t === '' ? 0 : t.split('\n').length
 }
 
 /** Replace the managed block in-place, or append one at the end of the file. */
