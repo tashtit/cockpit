@@ -86,6 +86,44 @@ that section holds a disagreement.
   toggling never shifts the card. Two actions, right-aligned: ghost "Save" (baseline
   only, enabled when dirty) and primary "Save & apply to all". Dirty state =
   `.inst-dirty` warn-colored "unsaved changes" pinned left of the buttons.
+- **Changes tab** (`.inst-changes`) — the PR's own third tab, and the review before
+  the write. Same frame as Write/Preview (edge to edge, `padding: 0`), a one-line
+  total (`.inst-changes-sum`: "Writes 2 of 3 files", a `DiffStat`, and the
+  warn-coloured "comparing with your unsaved draft" when the editor is dirty), then
+  one `InstructionDiff` block per agent file. The tab's own count (`.md-tab-n`, mono)
+  is the number of files an apply would write; an empty draft shows the Preview's
+  empty-state line instead. The comparison is always against the **draft** — the text
+  about to be written — never the stored status, so a file "in sync" with the saved
+  baseline reads "rewrites block" the moment the draft differs.
+- **`InstructionDiff`** (`.idiff`) — the review's unit, drawn the way the contract
+  reads: the agent's own lines folded into counted **bands** (`.idiff-band`,
+  "12 lines outside the markers stay as they are"), two **marker rails**
+  (`.idiff-rail`, the real `<!-- cockpit:shared:start/end -->` text with a dashed
+  hairline), and the shared block diffed between them. Inside the rails it is
+  GitHub's line grammar — `+`/`−` gutter, `rgba(--ok-rgb, 0.12)` / `rgba(--danger-rgb,
+  0.12)` washes, context lines in `--fg-dim` — because that is the diff every user
+  here already reads; the rails and bands are the part that is Cockpit's. Quiet
+  stretches of three lines or more fold into an accent-tinted `.idiff-fold` button
+  ("⋯ 8 unchanged lines", 24px, `aria-expanded`); two lines of context stay around
+  every change. The head reuses the file-row vocabulary — logos, `.idiff-path`,
+  `DiffStat`, an `.inst-status` pill re-worded as the verb of the write (`no changes` /
+  `rewrites block` / `adds block` / `creates file`) — and carries the agent tint
+  (`.tint-*`; `.plain` for the two-agent AGENTS.md). Added/removed lines carry an
+  `sr-only` "added:"/"removed:" so colour and glyph never carry the state alone.
+  Line text wraps (`pre-wrap` + `overflow-wrap: anywhere`): the review never scrolls
+  sideways, at any width.
+  - **Unified | Split** (`DiffLayoutToggle`, `.idiff-layout`): one segmented pair in the
+    scope switch's grammar at 24px, one choice for every diff in the app, remembered in
+    localStorage (`diff-layout.ts`, `cockpit:diff-layout`). Split lays the n-th removed
+    line across from the n-th added one (`.idiff-pair`, two `minmax(0,1fr)` columns with a
+    hairline between); a change with no counterpart leaves a `--surface` blank cell rather
+    than sliding the column; context, folds, bands and rails span both sides. The toggle
+    sits at the right of `.inst-changes-sum` (with the dirty note, in
+    `.inst-changes-right`) and above the panel's `.idiff-list` (`.idiff-tools`), and is
+    absent when nothing would be written.
+- **The panel's instructions row** opens to the same blocks (`.idiff-list`, framed)
+  against the *saved* baseline, each non-synced file with its own ghost-small apply
+  button — the field table the other kinds get would only list file paths here.
 - **File rows** reuse `.ext-row`: agent logo(s) left, `~`-abbreviated mono path
   (`user-select: text`), then an `.inst-status` pill:
   - `in sync` (ok green) — managed block matches baseline; no action button.
@@ -93,7 +131,9 @@ that section holds a disagreement.
   - `not applied` (dim) — file exists, no block → "Apply".
   - `no file yet` (dim italic) — → "Create & apply". Applying creates parent dirs.
   Apply buttons are ghost-small and disabled (with a title explaining why) while the
-  saved baseline is empty.
+  saved baseline is empty; while the draft is dirty their title says they write the
+  *saved* baseline. Every non-synced row also carries a `see changes` link-button
+  (`.inst-see`) that switches to the Changes tab and focuses that file's block.
 - **Inline file editor**: each existing file row gets a `.inst-edit` `<details>`
   ("view / edit file") with a mono textarea + "Save file" (disabled until changed).
   Whole-file editing is deliberate — per-agent private content is edited here too.

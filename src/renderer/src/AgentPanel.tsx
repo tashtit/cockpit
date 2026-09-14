@@ -10,8 +10,11 @@ import {
   type PanelReport,
   type PanelRow
 } from '../../shared/library'
-import type { McpProbeResult, PanelKind, Provider } from '../../shared/types'
+import { fileChange } from '../../shared/instruction-changes'
+import type { InstructionsState, McpProbeResult, PanelKind, Provider } from '../../shared/types'
 import { api } from './api'
+import { useDiffLayout } from './diff-layout'
+import { APPLY_LABEL, DiffLayoutToggle, InstructionDiff } from './InstructionDiff'
 import { InstructionsEditor } from './InstructionsEditor'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 
@@ -281,6 +284,7 @@ export function AgentPanel({
               onMatch={match}
               onRemove={remove}
               onArm={arm}
+              onReload={load}
               setNotice={setNotice}
             />
           ))}
@@ -344,6 +348,7 @@ function Row({
   onMatch,
   onRemove,
   onArm,
+  onReload,
   setNotice
 }: {
   row: PanelRow
@@ -358,6 +363,8 @@ function Row({
   onMatch: (row: PanelRow, source: Provider) => void
   onRemove: (row: PanelRow) => void
   onArm: (key: string | null) => void
+  /** something outside the panel's own ops changed an agent — re-read every config */
+  onReload: () => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
   // one word for the whole row: the amber chip already says which agent
@@ -438,6 +445,7 @@ function Row({
             onMatch={onMatch}
             onRemove={onRemove}
             onArm={onArm}
+            onReload={onReload}
             setNotice={setNotice}
           />
         </div>
@@ -460,6 +468,7 @@ function Detail({
   onMatch,
   onRemove,
   onArm,
+  onReload,
   setNotice
 }: {
   row: PanelRow
@@ -470,6 +479,7 @@ function Detail({
   onMatch: (row: PanelRow, source: Provider) => void
   onRemove: (row: PanelRow) => void
   onArm: (key: string | null) => void
+  onReload: () => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
   const holders = PROVIDERS.filter((p) => agentHasIt(row.cells[p].state))
@@ -478,7 +488,13 @@ function Detail({
     <div className="pnl-detail-body">
       {row.kind === 'mcp' && <McpHealth row={row} repoRoot={repoRoot} setNotice={setNotice} />}
 
-      {row.fields.length > 0 && holders.length > 0 && (
+      {/* the field table would only list file paths here — the honest comparison for
+          instructions is each file against the baseline, line by line */}
+      {row.kind === 'instructions' && (
+        <InstructionsCompare repoRoot={repoRoot} setNotice={setNotice} onChanged={onReload} />
+      )}
+
+      {row.kind !== 'instructions' && row.fields.length > 0 && holders.length > 0 && (
         <table className="pnl-diff" aria-label={`${row.name} — what each agent runs`}>
           <thead>
             <tr>
@@ -539,7 +555,7 @@ function Detail({
       )}
 
       {row.drift
-        .filter((p) => row.cells[p].state !== 'changed')
+        .filter((p) => row.cells[p].state !== 'changed' && row.kind !== 'instructions')
         .map((p) => (
           <div key={p} className="pnl-fix">
             <span className="pnl-fix-what">
@@ -589,6 +605,93 @@ function Detail({
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * The instructions row opened up: what each agent's file holds against the saved
+ * baseline, line by line, with the one action that settles it on each. The baseline
+ * is the one thing Cockpit really owns a version of, so unlike every other kind the
+ * comparison here has a right side — and the fix is always "write it".
+ */
+function InstructionsCompare({
+  repoRoot,
+  setNotice,
+  onChanged
+}: {
+  repoRoot: string | null
+  setNotice: (n: Notice) => void
+  /** an apply rewrote an agent's file — the panel's own row is now stale */
+  onChanged: () => void
+}): JSX.Element {
+  const [state, setState] = useState<InstructionsState | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const layout = useDiffLayout()
+
+  useEffect(() => {
+    let dead = false
+    void api.getInstructions(repoRoot).then((s) => {
+      if (!dead) setState(s)
+    })
+    return () => {
+      dead = true
+    }
+  }, [repoRoot])
+
+  const apply = async (path: string): Promise<void> => {
+    setNotice(null)
+    setBusy(path)
+    try {
+      setState(await api.applyInstructions(repoRoot, path))
+      setNotice({ text: 'Applied — restart that agent to pick it up.', kind: 'ok' })
+      onChanged()
+    } catch (err) {
+      setNotice({ text: err instanceof Error ? err.message : String(err), kind: 'error' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (!state) return <div className="tree-empty">reading each agent’s file…</div>
+  if (state.baseline.trim() === '') {
+    return (
+      <p className="pnl-note">
+        No shared baseline written yet — the <strong>Instructions</strong> section is where it goes.
+      </p>
+    )
+  }
+  const changes = state.files.map((file) => ({ file, change: fileChange(file, state.baseline) }))
+  return (
+    <>
+      {changes.some((c) => c.change.status !== 'synced') && (
+        <div className="idiff-tools">
+          <DiffLayoutToggle />
+        </div>
+      )}
+    <div className="idiff-list">
+      {changes.map(({ file, change }) => {
+        return (
+          <InstructionDiff
+            key={file.path}
+            file={file}
+            change={change}
+            layout={layout}
+            action={
+              change.status !== 'synced' && (
+                <button
+                  className="btn-ghost small"
+                  disabled={busy !== null}
+                  onClick={() => void apply(file.path)}
+                >
+                  {busy === file.path ? 'applying…' : APPLY_LABEL[change.status]}
+                </button>
+              )
+            }
+          />
+        )
+      })}
+    </div>
+    </>
   )
 }
 

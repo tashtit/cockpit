@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AiSetup } from '../../src/renderer/src/AiSetup'
-import { buildReport, buildRow, mcpFields, type PanelReport } from '../../src/shared/library'
-import type { LibraryEntry, McpConfig, Provider, RepoGroup } from '../../src/shared/types'
+import { buildReport, buildRow, instructionRow, mcpFields, type PanelReport } from '../../src/shared/library'
+import type { InstructionsState, LibraryEntry, McpConfig, Provider, RepoGroup } from '../../src/shared/types'
 
 const COCKPIT_GH: McpConfig = { command: 'gh-mcp', args: ['--stdio'] }
 const OTHER_GH: McpConfig = { command: 'npx', args: ['-y', 'gh-mcp'] }
@@ -303,5 +303,76 @@ describe('Agents › scope', () => {
     vi.mocked(window.cockpit.getPanel).mockResolvedValue(buildReport(null, []))
     render(<AiSetup repos={[]} repoRoot="/dev/gone" onScope={onScope} onClose={vi.fn()} />)
     expect(onScope).toHaveBeenCalledWith(null)
+  })
+})
+
+describe('Agents › the instructions row', () => {
+  const BASE = '# Rules\n\nUse worktrees.'
+  const inst: InstructionsState = {
+    repoRoot: null,
+    baseline: BASE,
+    files: [
+      {
+        agents: ['claude'],
+        path: '/Users/me/.claude/CLAUDE.md',
+        exists: true,
+        content: '',
+        block: BASE,
+        own: { above: 2, below: 0 },
+        status: 'synced'
+      },
+      {
+        agents: ['codex'],
+        path: '/Users/me/.codex/AGENTS.md',
+        exists: true,
+        content: '',
+        block: '# Rules\n\nUse branches.',
+        own: { above: 0, below: 0 },
+        status: 'drifted'
+      },
+      {
+        agents: ['copilot'],
+        path: '/Users/me/.copilot/copilot-instructions.md',
+        exists: true,
+        content: '',
+        block: BASE,
+        own: { above: 0, below: 0 },
+        status: 'synced'
+      }
+    ]
+  }
+  const entry: LibraryEntry = {
+    kind: 'instructions',
+    name: 'Shared baseline',
+    enabled: { claude: true, codex: true, copilot: true }
+  }
+
+  // "differs" on an instructions row used to open onto a table of file paths — the
+  // one comparison Cockpit can actually make is each file against the baseline
+  it('opens onto each file’s diff against the baseline, with the fix beside it', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(
+      buildReport(null, [instructionRow(inst, entry)])
+    )
+    vi.mocked(window.cockpit.getInstructions).mockResolvedValue(inst)
+    vi.mocked(window.cockpit.applyInstructions).mockResolvedValue({
+      ...inst,
+      files: inst.files.map((f) => ({ ...f, block: BASE, status: 'synced' }))
+    })
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: /Shared baseline/ }))
+
+    const codex = await screen.findByRole('region', { name: 'Changes to ~/.codex/AGENTS.md' })
+    expect(within(codex).getByText('rewrites block')).toBeInTheDocument()
+    expect(codex.querySelector('.idiff-line.del .idiff-text')).toHaveTextContent('Use branches.')
+    expect(codex.querySelector('.idiff-line.add .idiff-text')).toHaveTextContent('Use worktrees.')
+    expect(document.querySelector('.pnl-diff')).toBeNull()
+    // the same layout switch every diff in the app carries
+    expect(screen.getByRole('group', { name: 'Diff layout' })).toBeInTheDocument()
+
+    await userEvent.click(within(codex).getByRole('button', { name: 'Re-apply' }))
+    expect(window.cockpit.applyInstructions).toHaveBeenCalledWith(null, '/Users/me/.codex/AGENTS.md')
+    // the panel re-reads every agent once a file has been rewritten
+    expect(window.cockpit.getPanel).toHaveBeenCalledTimes(2)
+    expect(await within(codex).findByText('no changes')).toBeInTheDocument()
   })
 })
