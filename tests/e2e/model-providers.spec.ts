@@ -1,4 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
@@ -15,11 +17,38 @@ const root = mkdtempSync(join(tmpdir(), 'cockpit-e2e-byok-'))
 const userData = join(root, 'user-data')
 const claudeSrc = join(root, 'claude-home')
 const repoDir = join(root, 'rocket')
+const ghConfig = join(root, 'gh-config')
+
+// The seeded providers point at this stub gateway, never at a real host: main fetches a
+// provider's live catalog the moment it is picked, and a dev machine running Ollama on
+// its default port (11434) answered with its own models in place of the seeded ones.
+// One server covers both catalog shapes main knows — anthropic (`<base>/v1/models`)
+// and openai (`<base>/models`) — under distinct path prefixes.
+const ANTHROPIC_MODELS = ['claude-fable-5', 'claude-haiku-4-5']
+const OLLAMA_MODELS = ['llama3.3', 'mistral-small']
+const catalogs: Record<string, readonly string[]> = {
+  '/anthropic/v1/models': ANTHROPIC_MODELS,
+  '/ollama/v1/models': OLLAMA_MODELS
+}
+const gateway = createServer((req, res) => {
+  const models = catalogs[new URL(req.url ?? '/', 'http://localhost').pathname]
+  if (!models) {
+    res.writeHead(404).end()
+    return
+  }
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ object: 'list', data: models.map((id) => ({ id })) }))
+})
+let gatewayUrl = ''
 
 let app: ElectronApplication
 let win: Page
 
 test.beforeAll(async () => {
+  // a port the OS hands out, on loopback only — no fixed port can collide with a real service
+  await new Promise<void>((ready) => gateway.listen(0, '127.0.0.1', ready))
+  gatewayUrl = `http://127.0.0.1:${(gateway.address() as AddressInfo).port}`
+
   mkdirSync(join(repoDir, '.git'), { recursive: true })
   writeFileSync(
     join(repoDir, '.git', 'config'),
@@ -54,25 +83,31 @@ test.beforeAll(async () => {
           id: 'ep-anthropic',
           label: 'anthropic-gw',
           type: 'anthropic',
-          baseUrl: 'https://gw.example.com',
-          models: ['claude-fable-5', 'claude-haiku-4-5']
+          baseUrl: `${gatewayUrl}/anthropic`,
+          models: ANTHROPIC_MODELS
         },
         {
           id: 'ep-ollama',
           label: 'ollama-local',
           type: 'openai',
-          baseUrl: 'http://localhost:11434/v1',
+          baseUrl: `${gatewayUrl}/ollama/v1`,
+          // cached catalog deliberately behind the live one: the picker offering
+          // mistral-small proves the listing came from the gateway, not this seed
           models: ['llama3.3']
         }
       ]
     })
   )
 
+  // an empty gh config home: the GitHub identity the sidebar shows must not be this
+  // machine's real `gh` login (and `gh api user` then fails fast, without a network call)
+  mkdirSync(ghConfig, { recursive: true })
   app = await electron.launch({
     args: [mainEntry],
     env: {
       ...process.env,
       COCKPIT_USER_DATA: userData,
+      GH_CONFIG_DIR: ghConfig,
       ...(process.env.CI ? { ELECTRON_DISABLE_SANDBOX: '1' } : {})
     }
   })
@@ -83,6 +118,8 @@ test.afterAll(async () => {
   const kill = setTimeout(() => app.process().kill('SIGKILL'), 15_000)
   await app.close().catch(() => {})
   clearTimeout(kill)
+  gateway.closeAllConnections()
+  await new Promise<void>((done) => gateway.close(() => done()))
 })
 
 test('settings lists seeded providers with agent applicability, and adds/removes one live', async () => {
@@ -91,7 +128,7 @@ test('settings lists seeded providers with agent applicability, and adds/removes
 
   // seeded rows: type chip, per-type agent applicability, cached model count
   const anthropicRow = win.locator('.source-row', { hasText: 'anthropic-gw' })
-  await expect(anthropicRow).toContainText('https://gw.example.com')
+  await expect(anthropicRow).toContainText(`${gatewayUrl}/anthropic`)
   await expect(anthropicRow.getByRole('img', { name: 'works with Claude and Copilot' })).toBeVisible()
   await expect(anthropicRow).toContainText('no key · 2 models')
   const ollamaRow = win.locator('.source-row', { hasText: 'ollama-local' })
@@ -134,7 +171,7 @@ test('new session gates providers per agent and offers the model catalog', async
   await expect(win.getByRole('option', { name: 'anthropic-gw' })).toBeVisible()
   await expect(win.getByRole('option', { name: 'ollama-local' })).toHaveCount(0)
   await win.getByRole('option', { name: 'anthropic-gw' }).click()
-  await expect(win.getByText(/Runs on https:\/\/gw\.example\.com/)).toBeVisible()
+  await expect(win.getByText(`Runs on ${gatewayUrl}/anthropic`)).toBeVisible()
   // the model control is a picker of the provider's cached catalog
   await win.getByLabel('Model', { exact: true }).click()
   await expect(win.getByRole('option', { name: 'claude-fable-5' })).toBeVisible()
@@ -154,6 +191,8 @@ test('new session gates providers per agent and offers the model catalog', async
   const start = win.getByRole('button', { name: 'Start session' })
   await expect(start).toBeDisabled()
   await win.getByLabel('Model', { exact: true }).click()
+  // the live listing replaced the cached one: only the gateway serves mistral-small
+  await expect(win.getByRole('option', { name: 'mistral-small' })).toBeVisible()
   await win.getByRole('option', { name: 'llama3.3' }).click()
   await expect(start).toBeEnabled()
   await win.getByRole('button', { name: 'Cancel' }).click()
