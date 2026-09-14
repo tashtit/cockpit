@@ -67,3 +67,15 @@ Display order is OS-assigned and won't necessarily match your mental "first/seco
 - **Conventional Commits** (`feat(indexer): …`, `fix(parser): …`, `docs: …`), matching existing history.
 - **UI work**: read `design-system/cockpit/MASTER.md` first. Components use the design tokens from the `:root` block of `src/renderer/src/style.css` — never raw hex. Dark mode only.
 - Session log parsers must stay failure-tolerant and bounded (≤256 KB per file read) — provider formats drift between releases; skip what you can't read rather than fail the scan.
+
+## Runtime dependencies
+
+Cockpit ships three runtime packages; everything else in `package.json` is dev tooling. Each one is here because the platform does not cover it, and this table is what a reviewer checks when one of them is bumped or replaced.
+
+| Package | Purpose | License | Why not the platform |
+| --- | --- | --- | --- |
+| `react-markdown` | Renders Markdown content in `src/renderer/src/Markdown.tsx` as a React element tree, without `dangerouslySetInnerHTML` | MIT | A safe CommonMark renderer is a parser, not a few lines of app code |
+| `remark-gfm` | Tables, task lists and strikethrough in that Markdown | MIT | GitHub-flavored extensions on the same parser |
+| `rehype-highlight` | Syntax highlighting for fenced code blocks | MIT | Language grammars are a maintained corpus, not app code |
+
+Adding a runtime dependency means adding a row here in the same pull request, with the license read from the package's own `package.json`.
