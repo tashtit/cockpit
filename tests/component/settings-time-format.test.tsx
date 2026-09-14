@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings } from '../../src/renderer/src/Settings'
 import { HomeView } from '../../src/renderer/src/HomeView'
@@ -121,9 +121,16 @@ describe('session rows follow the time format live', () => {
     )
 
     const row = await screen.findByRole('button', { name: /Fix the flaky indexer test/ })
-    expect(row.querySelector('time')?.textContent).toContain('14')
+    const time = (): string => row.querySelector('time')?.textContent ?? ''
+    expect(time()).toContain('14')
 
+    // the row subscribes to the store in a passive effect that React flushes in a
+    // later scheduler task, not in the commit findByRole saw — so the change can land
+    // a tick after this act() call; wait for the DOM instead of reading it synchronously
     act(() => setTimeFormat('12h'))
-    expect(row.querySelector('time')?.textContent).not.toContain('14')
+    await waitFor(() => {
+      expect(time()).toContain('05')
+      expect(time()).not.toContain('14')
+    })
   })
 })
