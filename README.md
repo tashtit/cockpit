@@ -52,7 +52,7 @@ src/main/workspace.ts     worktree/branch creation + push/`gh pr create`
 src/main/chat.ts          ChatManager: spawn provider CLIs, parse stream events
 src/main/accounts.ts      who each agent CLI is signed in as, per config home + `gh` user
 src/main/usage.ts         subscription usage per provider (local measurement / CLI snapshots / GitHub billing API)
-src/main/providerArchived.ts  sessions archived/deleted in the provider's own app → hidden
+src/main/provider-archived.ts  sessions archived/deleted in the provider's own app → hidden
 src/main/env.ts           PATH fix for GUI-launched CLI spawns (macOS)
 src/main/config.ts        source-dir registry + history window
 src/main/index.ts         electron bootstrap + IPC
