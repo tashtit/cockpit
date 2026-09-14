@@ -30,12 +30,13 @@ updates:
     commit-message:
       prefix: ci
 
-  # Dependabot regenerates package-lock.json with the npm named in package.json's
-  # "packageManager" (its default is npm 11 for lockfileVersion 3). That pin tracks
-  # the npm bundled with the Node in .nvmrc — the one CI's `npm ci` runs — because
-  # npm 11 omits optional peer entries that npm 10 requires, and a lock written by
-  # one major fails `npm ci` under the other. CI asserts the majors agree on every
-  # pull request; when .nvmrc moves, move the pin with it.
+  # Dependabot regenerates package-lock.json with npm 11: it reads package.json's
+  # "packageManager" but installs the pinned version with `corepack --cache-only`,
+  # which silently falls back to the image's npm 11 when that version is not cached
+  # (job logs for #73/#74, opened right after #72 pinned npm 10). npm 11 omits
+  # optional peer entries that npm 10 requires, and a lock written by 11 fails
+  # `npm ci` under 10, so .nvmrc (24) and the pin track npm 11 — the major Dependabot
+  # actually uses. CI asserts the majors agree on every pull request.
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -59,7 +60,7 @@ updates:
       - dependency-name: '@vitejs/plugin-react'
         update-types: ['version-update:semver-major']
       # @types/node tracks the Node major we actually run, not the newest published.
-      # .nvmrc pins 22 and Electron 43 embeds Node 22, so types from a later major
+      # .nvmrc pins 24 and Electron 44 embeds Node 24, so types from a later major
       # would typecheck against APIs absent at runtime. Raise this with .nvmrc.
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
