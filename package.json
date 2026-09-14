@@ -5,7 +5,7 @@
   "main": "./out/main/index.js",
   "private": true,
   "license": "Apache-2.0",
-  "packageManager": "npm@10.9.8",
+  "packageManager": "npm@11.17.0",
   "scripts": {
     "dev": "electron-vite dev --watch",
     "dev:fg": "COCKPIT_DEV_BACKGROUND=0 electron-vite dev",
@@ -34,7 +34,7 @@
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.6",
-    "@types/node": "^22.10.0",
+    "@types/node": "^24.13.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^5.2.0",
@@ -51,5 +51,9 @@
   },
   "optionalDependencies": {
     "fsevents": "^2.3.3"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "fsevents": true
   }
 }
