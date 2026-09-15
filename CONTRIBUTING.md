@@ -108,7 +108,7 @@ Releases are cut by [semantic-release](https://semantic-release.gitbook.io/) fro
 
 What the job does, in order: decide the version from the commits; `npm version` it into `package.json` (working tree only); `npm run package`; `npm run test:packaged` against that exact bundle; push the tag; create the GitHub Release with the disk images, zips, blockmaps and `latest-mac.yml`; attest build provenance for the shipped files (`gh attestation verify Cockpit-1.2.3-arm64.dmg --owner tashtit`). A re-run on an already-released commit is a no-op, and `workflow_dispatch` on `main` runs the same job by hand.
 
-The first release semantic-release ever makes is `1.0.0` when no tag exists. To keep the app in `0.x`, push a `v0.1.0` tag on `main` before the first release run (`git tag v0.1.0 <sha> && git push origin v0.1.0`); the next release then becomes `0.2.0` or `0.1.1`.
+Versions start at `0.1.0`: semantic-release only ever bumps from an existing tag (with none it would begin at `1.0.0`), so the root commit carries a `v0.0.0` baseline tag and the first release is the minor bump from there, with the whole history in its notes. Breaking changes bump the major even below `1.0.0` — a `feat!` takes the app to `1.0.0`.
 
 ### Signing and notarization
 
