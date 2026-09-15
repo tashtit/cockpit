@@ -5,6 +5,7 @@ import {
   fileStatus,
   instructionTargets,
   lineCount,
+  normalizeBaseline,
   removeSharedBlock,
   splitSharedBlock,
   upsertSharedBlock
@@ -15,8 +16,12 @@ import { loadConfig, saveConfig } from './config'
 
 function getBaseline(repoRoot: string | null): string {
   const cfg = loadConfig()
-  if (repoRoot === null) return cfg.sharedInstructions?.global ?? ''
-  return cfg.sharedInstructions?.repos?.[repoRoot] ?? ''
+  const stored =
+    repoRoot === null ? cfg.sharedInstructions?.global : cfg.sharedInstructions?.repos?.[repoRoot]
+  // a baseline saved before normalization existed may still carry its markers;
+  // every reader gets the clean form so the status, the review and what apply
+  // writes can never disagree
+  return normalizeBaseline(stored ?? '')
 }
 
 function setBaseline(repoRoot: string | null, baseline: string): void {
@@ -67,7 +72,8 @@ export function getInstructions(repoRoot: string | null): InstructionsState {
 }
 
 export function saveBaseline(repoRoot: string | null, baseline: string): InstructionsState {
-  setBaseline(repoRoot, baseline)
+  // the editor's text verbatim would keep the markers of a pasted whole file
+  setBaseline(repoRoot, normalizeBaseline(baseline))
   return getInstructions(repoRoot)
 }
 

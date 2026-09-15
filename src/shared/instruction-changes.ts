@@ -1,4 +1,5 @@
 import type { InstructionFile, InstructionStatus } from './types'
+import { normalizeBaseline } from './instruction-markers'
 import { diffLines, diffStat, splitLines, type DiffLine } from './line-diff'
 
 /*
@@ -20,7 +21,10 @@ export type FileChange = {
 }
 
 export function fileChange(file: InstructionFile, incoming: string): FileChange {
-  const lines = diffLines(file.block === null ? [] : splitLines(file.block), splitLines(incoming))
+  // the writer strips marker lines from the baseline, so the review must too — or a
+  // pasted whole file would show two lines per target that apply never writes
+  const next = normalizeBaseline(incoming)
+  const lines = diffLines(file.block === null ? [] : splitLines(file.block), splitLines(next))
   const { added, removed } = diffStat(lines)
   const status: InstructionStatus = !file.exists
     ? 'missing'
