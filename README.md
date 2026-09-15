@@ -4,15 +4,23 @@ Unified desktop hub for **Claude Code**, **Codex**, and **GitHub Copilot CLI**: 
 
 ## Install
 
-Download the disk image for your Mac from the [latest release](https://github.com/tashtit/cockpit/releases/latest) — `Cockpit-<version>-arm64.dmg` on Apple silicon, `Cockpit-<version>-x64.dmg` on Intel — open it and drag Cockpit into Applications. Each release page carries the notes for that version.
+Cockpit is early access: pre-1.0, and its releases are not yet signed with an Apple Developer ID ([CONTRIBUTING.md › Releases](CONTRIBUTING.md#releases)), so macOS blocks the first launch. Installing takes four steps, once:
 
-Until the release pipeline has an Apple Developer ID certificate ([CONTRIBUTING.md › Releases](CONTRIBUTING.md#releases)), builds are unsigned and macOS refuses to open them at first ("damaged" / "unidentified developer"). Clear the quarantine flag once and it opens normally:
+1. **Download** the disk image for your Mac from the [latest release](https://github.com/tashtit/cockpit/releases/latest) — `Cockpit-<version>-arm64.dmg` on Apple silicon, `Cockpit-<version>-x64.dmg` on Intel (About This Mac says which). Open it and drag Cockpit into Applications. Each release page carries the notes for that version.
+2. **First launch** — open Cockpit from Applications. macOS refuses: "Apple could not verify Cockpit.app is free of malware" on macOS 15 and later, "damaged" or "unidentified developer" before. Click **Done**, not Move to Trash — the download is fine; the quarantine flag the browser put on it is what Gatekeeper objects to.
+3. **Allow it** — open System Settings › Privacy & Security, scroll to the notice that Cockpit was blocked, click **Open Anyway** and confirm with your password or Touch ID. Or clear the flag from Terminal and open it again:
+
+   ```bash
+   xattr -d com.apple.quarantine /Applications/Cockpit.app
+   ```
+
+4. **Updates** — an installed Cockpit checks GitHub Releases on launch and every few hours; **Settings › About** shows the installed version and offers a newer build as a download. Nothing is fetched until you choose to. macOS only swaps in a signed bundle, so while releases are unsigned the install step ends in an error — download the new disk image and replace the app in Applications; your settings in `~/Library/Application Support/Cockpit` survive.
+
+Every release asset carries a build-provenance attestation, so you can confirm a download is the file the release workflow produced before opening it:
 
 ```bash
-xattr -d com.apple.quarantine /Applications/Cockpit.app
+gh attestation verify ~/Downloads/Cockpit-<version>-arm64.dmg --owner tashtit
 ```
-
-**Updates.** An installed Cockpit checks GitHub Releases on launch and every few hours; **Settings › About** shows the installed version, offers a newer build as a download, and installs it on the next quit. Nothing is fetched until you choose to. macOS only swaps in a signed bundle, so while releases are unsigned an update ends in an error at the install step — install the new disk image by hand instead.
 
 ## Run from source
 

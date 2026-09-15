@@ -2,21 +2,31 @@
 
 ## Install the app
 
-Download the disk image for your Mac from the [latest release](https://github.com/tashtit/cockpit/releases/latest) — `Cockpit-<version>-arm64.dmg` on Apple silicon, `Cockpit-<version>-x64.dmg` on Intel — open it and drag Cockpit into Applications.
+::: warning Early access
+Cockpit is pre-1.0, and its releases are not yet signed with an Apple Developer ID, so macOS blocks the first launch. The steps below get past that once; nothing about the download is wrong.
+:::
 
-::: warning Unsigned builds
-Until the release pipeline carries an Apple Developer ID certificate, macOS reports the app as damaged or from an unidentified developer on first launch. Clear the quarantine flag once:
+1. **Download** the disk image for your Mac from the [latest release](https://github.com/tashtit/cockpit/releases/latest) — `Cockpit-<version>-arm64.dmg` on Apple silicon, `Cockpit-<version>-x64.dmg` on Intel (About This Mac says which). Open it and drag Cockpit into Applications.
+2. **First launch** — open Cockpit from Applications. macOS refuses: "Apple could not verify Cockpit.app is free of malware" on macOS 15 and later, "damaged" or "unidentified developer" before. Click **Done**, not Move to Trash — the quarantine flag the browser put on the download is what Gatekeeper objects to.
+3. **Allow it** — open System Settings › Privacy & Security, scroll to the notice that Cockpit was blocked, click **Open Anyway** and confirm with your password or Touch ID. Or clear the flag from Terminal and open it again:
+
+   ```bash
+   xattr -d com.apple.quarantine /Applications/Cockpit.app
+   ```
+
+Still blocked? See [Troubleshooting](/guide/troubleshooting#cockpit-is-damaged-and-can-t-be-opened).
+
+::: tip Checking a download
+Every release asset carries a build-provenance attestation. To confirm a disk image is the file the release workflow produced, before opening it:
 
 ```bash
-xattr -d com.apple.quarantine /Applications/Cockpit.app
+gh attestation verify ~/Downloads/Cockpit-<version>-arm64.dmg --owner tashtit
 ```
-
-See [Troubleshooting](/guide/troubleshooting#cockpit-is-damaged-and-can-t-be-opened).
 :::
 
 ## Updating
 
-Cockpit checks GitHub Releases on launch and every few hours. **Settings › About** shows the installed version and, when a newer one exists, a download button; the update installs on the next quit or with **Restart to install**. Nothing downloads until you ask. While releases are unsigned the install step fails — download the new disk image instead and replace the app; your settings in `~/Library/Application Support/Cockpit` survive.
+Cockpit checks GitHub Releases on launch and every few hours. **Settings › About** shows the installed version and, when a newer one exists, a download button. Nothing downloads until you ask. While releases are unsigned the install step fails (macOS only swaps in a signed bundle) — download the new disk image instead and replace the app in Applications; your settings in `~/Library/Application Support/Cockpit` survive.
 
 ## Run from source
 

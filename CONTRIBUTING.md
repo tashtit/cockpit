@@ -112,17 +112,34 @@ Versions start at `0.1.0`: semantic-release only ever bumps from an existing tag
 
 ### Signing and notarization
 
-The release job reads its Apple credentials from the `release` [environment](https://github.com/tashtit/cockpit/settings/environments). Without them the build is unsigned and the README tells users how to open it; with them electron-builder signs with the hardened runtime (`build/entitlements.mac.plist`) and notarizes, and the in-app updater can complete installs.
+The release job reads its Apple credentials from the `release` [environment](https://github.com/tashtit/cockpit/settings/environments). Without them the build is ad-hoc signed and the README tells users how to open it; with them electron-builder signs with the hardened runtime (`build/entitlements.mac.plist`), notarizes and staples, Gatekeeper opens the app without a prompt, and the in-app updater can complete installs.
 
 | Secret | What |
 | --- | --- |
 | `CSC_LINK` | Developer ID Application certificate — the `.p12`, base64-encoded |
-| `CSC_KEY_PASSWORD` | its password |
+| `CSC_KEY_PASSWORD` | the password that `.p12` was exported with |
 | `APPLE_ID` | the Apple account notarization runs as |
 | `APPLE_APP_SPECIFIC_PASSWORD` | an [app-specific password](https://support.apple.com/102654) for that account |
-| `APPLE_TEAM_ID` | the developer team |
+| `APPLE_TEAM_ID` | the ten-character developer team id |
 
-Signing needs the first two, notarization all five; `electron-builder.config.js` switches each on by presence, so a missing set degrades to an unsigned build rather than a failed job.
+All five or none: `electron-builder.config.js` refuses a partial set at load, because Gatekeeper refuses a signed-but-unnotarized bundle exactly like an unsigned one. With the set present, signing is mandatory (`forceCodeSigning`) and `npm run package` ends with `scripts/verify-signing.mts`, which checks every bundle under `dist/` for a Developer ID Application signature from `APPLE_TEAM_ID`, the hardened runtime, a stapled notarization ticket and a passing `spctl` assessment — a release whose credentials failed to sign stops there instead of shipping unsigned. Without the set the same script checks that the bundles stayed ad-hoc: nothing that happens to sit in a keychain may sign a build.
+
+#### Getting the five
+
+Everything comes from an [Apple Developer Program](https://developer.apple.com/programs/) membership (individual or organization; the team id is on the membership page of the developer account). Once, per certificate:
+
+1. **Certificate request** — Keychain Access › Certificate Assistant › *Request a Certificate From a Certificate Authority*, with your email, *Saved to disk*. This creates the private key in your login keychain and a `.certSigningRequest` file.
+2. **Certificate** — under [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/certificates/add) create a certificate of type *Developer ID Application* from that request, download the `.cer` and double-click it so it joins its private key in the login keychain.
+3. **Export** — in Keychain Access › My Certificates, select the *Developer ID Application* certificate (expand it to confirm the private key is attached), right-click › *Export*, format `.p12`, and give it a password. Base64 the file and the two secrets exist:
+
+   ```bash
+   base64 -i cockpit-developer-id.p12 | gh secret set CSC_LINK --env release --repo tashtit/cockpit
+   gh secret set CSC_KEY_PASSWORD --env release --repo tashtit/cockpit   # paste the export password
+   ```
+
+4. **Notarization login** — `APPLE_ID` is the account's email and `APPLE_TEAM_ID` the team id; `APPLE_APP_SPECIFIC_PASSWORD` is generated for that account under *Sign-In and Security › App-Specific Passwords* on the Apple account page (never the account password). Set all three the same way, as secrets of the `release` environment — not repository secrets, so only the release job runs with them.
+
+Dry-run locally before trusting a release to it: with the same five variables exported, `npm run package` signs, notarizes (a few minutes per architecture) and verifies exactly as the job does. Developer ID Application certificates are valid for five years; rotate by exporting the new one and replacing `CSC_LINK` and `CSC_KEY_PASSWORD`.
 
 ### How updates reach users
 

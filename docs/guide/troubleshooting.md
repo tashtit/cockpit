@@ -15,11 +15,13 @@ Common causes:
 
 ## "Cockpit" is damaged and can't be opened
 
-macOS says this (or "from an unidentified developer") about an unsigned build — every release until the pipeline has an Apple Developer ID certificate. The download is fine; the quarantine flag Safari or Finder put on it is what Gatekeeper objects to. Clear it once:
+macOS says this — or "from an unidentified developer", or on macOS 15 and later "Apple could not verify Cockpit.app is free of malware" with a **Move to Trash** button — about an unsigned build: every release until the pipeline has an Apple Developer ID certificate. The download is fine; the quarantine flag the browser put on it is what Gatekeeper objects to. Click **Done**, then either open System Settings › Privacy & Security, find the notice that Cockpit was blocked and choose **Open Anyway**, or clear the flag once:
 
 ```bash
 xattr -d com.apple.quarantine /Applications/Cockpit.app
 ```
+
+Signed and notarized releases open without any of this.
 
 ## An update fails at "Restart to install"
 
