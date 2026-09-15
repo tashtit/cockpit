@@ -40,7 +40,9 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     local repos show just the name), tiny per-provider logos (10px), bordered
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
-    logo, title, optional `.acct-chip` (only when that provider has multiple accounts),
+    logo, title, optional `.acct-chip` (only on a **non-default** account's rows when that
+    provider has several — the exception is what gets marked; the provider prefix is
+    dropped, so `claude-work` reads `work`),
     then the exclusive meta slot: agent-colored `LiveDot` while the session's provider
     process runs, else compact `PrBadge`, else timestamp. Archived = strikethrough + dimmed,
     plus an `sr-only` "(archived)" — the strikethrough is the only visual signal, so it

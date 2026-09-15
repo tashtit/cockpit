@@ -245,6 +245,15 @@ export function toolPreview(name: string, input: unknown): string | null {
       return str(i.description) ?? str(i.prompt)
     case 'Skill':
       return str(i.skill)
+    // Copilot CLI's own tool names (lowercase, `path` rather than `file_path`)
+    case 'bash':
+      return str(i.command) ?? str(i.cmd)
+    case 'view':
+    case 'create':
+    case 'edit':
+    case 'str_replace':
+    case 'str_replace_editor':
+      return str(i.path)
     default:
       return null
   }
