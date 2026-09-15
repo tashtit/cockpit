@@ -122,6 +122,7 @@ Reuse these; don't invent parallel variants:
 - **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.
 - **Cards:** `.ns-card` — ONE width (`min(760px, 94%)`) shared by every card view (Settings, Agents, Profile, New session); navigating between them must never make the dialog jump sizes. `.composer-card` for the home prompt.
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.
+- **`.review`** — the worktree's changes in the transcript's place (chat only, `.btn-review` / ⌘D): the instructions review's `.idiff-*` line grammar with line numbers, a scope switch, and line notes that go back to the agent through the composer. See `pages/chat.md`.
 - **Semantic count pills:** bordered pill = "session count on a repo"; org counts are plain text.
 - **`Select`** — the one dropdown (see Native Controls); never a raw `<select>`.
 - **`.tint-{claude,codex,copilot}`** — rest-intensity agent identity for bordered rows (2px inset bar + faint gradient); used by settings source rows and ai-setup instruction files.

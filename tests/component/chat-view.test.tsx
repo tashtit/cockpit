@@ -142,3 +142,71 @@ describe('ChatView image paste', () => {
     expect(window.cockpit.saveChatImage).not.toHaveBeenCalled()
   })
 })
+
+describe('ChatView review', () => {
+  it('swaps the transcript for the changes and back, by button and by ⌘D', async () => {
+    renderChat()
+    expect(screen.queryByRole('region', { name: 'Changes to review' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Changes' }))
+    expect(screen.getByRole('region', { name: 'Changes to review' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Changes' })).toHaveAttribute('aria-pressed', 'true')
+    expect(window.cockpit.getWorkspaceDiff).toHaveBeenCalledWith('/tmp/wt', 'branch')
+    // the composer stays: notes go to the agent through it
+    expect(screen.getByRole('textbox', { name: 'Message Claude' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'd', metaKey: true })
+    expect(screen.queryByRole('region', { name: 'Changes to review' })).not.toBeInTheDocument()
+  })
+
+  it('has nothing to review outside a repository or on a seat session', () => {
+    renderChat(vi.fn(), { binding: { ...binding, repoRoot: null } })
+    expect(screen.queryByRole('button', { name: 'Changes' })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'd', metaKey: true })
+    expect(screen.queryByRole('region', { name: 'Changes to review' })).not.toBeInTheDocument()
+  })
+
+  it('drops review notes into the composer, appended to what was typed', async () => {
+    vi.mocked(window.cockpit.getWorkspaceDiff).mockResolvedValue({
+      cwd: '/tmp/wt',
+      scope: 'branch',
+      branch: 'cockpit/test',
+      base: 'origin/main',
+      ahead: 1,
+      behind: 0,
+      dirty: false,
+      added: 1,
+      removed: 0,
+      droppedFiles: 0,
+      files: [
+        {
+          path: 'a.ts',
+          oldPath: null,
+          status: 'modified',
+          untracked: false,
+          binary: false,
+          added: 1,
+          removed: 0,
+          truncated: false,
+          hunks: [
+            { header: '', oldStart: 1, oldCount: 0, newStart: 1, newCount: 1, lines: [{ op: 'add', text: 'x', oldNo: null, newNo: 1 }] }
+          ]
+        }
+      ]
+    })
+    const { onSend } = renderChat()
+    const composer = screen.getByRole('textbox', { name: 'Message Claude' })
+    await userEvent.type(composer, 'also:')
+    await userEvent.click(screen.getByRole('button', { name: 'Changes' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Note on a.ts line 1' }))
+    await userEvent.type(screen.getByRole('textbox', { name: /Note for the agent/ }), 'use y{Enter}')
+    await userEvent.click(screen.getByRole('button', { name: 'Send 1 note to Claude' }))
+    expect(composer).toHaveFocus()
+    const value = (composer as HTMLTextAreaElement).value
+    expect(value.startsWith('also:\n\nReview notes on the changes in this worktree on cockpit/test (vs origin/main):')).toBe(true)
+    expect(value).toContain('1. a.ts:1')
+    // and the review stays open for the next round; Enter sends as usual
+    expect(screen.getByRole('region', { name: 'Changes to review' })).toBeInTheDocument()
+    await userEvent.type(composer, '{Enter}')
+    expect(onSend).toHaveBeenCalledOnce()
+    expect(onSend.mock.calls[0][0]).toContain('use y')
+  })
+})

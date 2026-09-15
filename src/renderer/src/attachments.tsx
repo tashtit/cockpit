@@ -22,7 +22,7 @@ export type AttachmentsState = {
 }
 
 /** IPC rejections arrive wrapped ("Error invoking remote method '…': Error: …") — unwrap. */
-function ipcErrorText(err: unknown): string {
+export function ipcErrorText(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   return msg.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
 }

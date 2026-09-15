@@ -419,13 +419,18 @@ summary::-webkit-details-marker { display: none; }
 .btn-pr:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-pr:disabled { opacity: 0.5; cursor: default; }
 /* neutral header action beside .btn-pr — same 28px geometry, quiet bordered look */
-.btn-handoff { color: var(--fg-dim); background: var(--surface);
+.btn-handoff, .btn-review { color: var(--fg-dim); background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 5px var(--s4); font-size: var(--fs-sm); flex-shrink: 0;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
     border-color var(--dur) var(--ease); }
 .btn-handoff:hover:not(:disabled) { color: var(--fg); border-color: var(--border-strong); }
 .btn-handoff:disabled { opacity: 0.5; cursor: default; }
+/* the review toggle: an icon+word key that stays lit while the panel is open */
+.btn-review { display: inline-flex; align-items: center; gap: var(--s2); }
+.btn-review:hover { color: var(--fg); border-color: var(--border-strong); }
+.btn-review[aria-pressed='true'] { color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.14); border-color: rgba(var(--accent-rgb), 0.5); }
 /* lineage chip: acct-chip vocabulary made clickable, provider tint on hover */
 .lineage-chip { display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
   transition: background var(--dur) var(--ease); }
@@ -736,6 +741,74 @@ summary::-webkit-details-marker { display: none; }
    the textarea's padding) and the New-session form (breathing room before the field) */
 .composer-card .composer-attach { padding: var(--s4) var(--s5) 0; }
 .ns-card .composer-attach { margin-bottom: var(--s2); }
+
+/* ---------- review: the worktree's changes, read before they ship ----------
+   Takes the transcript's place under the header (the composer stays: notes go to
+   the agent through it). Same column as the conversation; the diff grammar is the
+   instructions review's (.idiff-*), plus line numbers and a note affordance. */
+.review { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s4);
+  padding-block: var(--s4);
+  padding-inline: max(var(--s6), calc((100% - var(--chat-col)) / 2));
+  scrollbar-gutter: stable; }
+.review > * { flex-shrink: 0; }
+.review-bar { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  min-height: 24px; }
+.review-sum { display: inline-flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono);
+  font-variant-numeric: tabular-nums; min-width: 0;
+  /* the readout gives way first: it wraps inside itself before the controls leave the row */
+  flex: 1 1 200px; }
+.review-sum .idiff-stat { font-size: inherit; }
+.review-right { margin-left: auto; display: inline-flex; align-items: center; gap: var(--s2); }
+.review-loading { display: inline-flex; align-items: center; gap: var(--s2); }
+.review-dirty { color: var(--warn); }
+.review-error { color: var(--danger); font-size: var(--fs-sm); white-space: pre-wrap;
+  word-break: break-word; }
+/* file blocks are <details>: the head is the summary, with its own indicator */
+.review-file > summary { cursor: pointer; list-style: none; }
+.review-file > summary::-webkit-details-marker { display: none; }
+.review-file > summary::before { content: '▸'; width: 10px; flex-shrink: 0; font-size: 10px;
+  color: var(--fg-dim); transition: transform var(--dur) var(--ease); }
+.review-file[open] > summary::before { transform: rotate(90deg); }
+.review-file > summary:hover { background: var(--bg3); }
+/* what happened to the file — the instructions status pill's grammar */
+.review-kind { font-size: var(--fs-xs); font-weight: 600; padding: 0 var(--s2);
+  border-radius: var(--radius-pill); border: 1px solid var(--border); color: var(--fg-dim);
+  white-space: nowrap; }
+.review-kind.added { color: var(--ok); border-color: rgba(var(--ok-rgb), 0.5); }
+.review-kind.deleted { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
+.review-kind.untracked { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
+.review-hunk { padding-block: var(--s1); font-family: var(--mono); }
+/* lines carry both numbers; rows are 24px so the note key is a real target */
+.review .idiff-line { min-height: 24px; padding-block: 2px; padding-left: 0;
+  align-items: flex-start; }
+.idiff-no { flex: 0 0 36px; text-align: right; padding-right: var(--s2); color: var(--fg-dim);
+  opacity: 0.7; font-size: var(--fs-xs); line-height: 1.75; user-select: none; }
+.review-note-btn { flex: 0 0 24px; height: 24px; margin-block: -2px; display: inline-flex;
+  align-items: center; justify-content: center; border-radius: var(--radius-sm);
+  color: var(--accent); font-size: var(--fs-base); line-height: 1; opacity: 0;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease); }
+.idiff-line:hover .review-note-btn, .review-note-btn:focus-visible,
+.review-note-btn[aria-expanded='true'], .idiff-line.noted .review-note-btn { opacity: 1; }
+.review-note-btn:hover { background: rgba(var(--accent-rgb), 0.14); }
+/* the split pair is two cells; each keeps its own key and number */
+.review .idiff-pair .idiff-line { padding-left: 0; }
+/* a note: the reviewer's words, under the line they are about, in prose (sans) */
+.review-note { display: flex; align-items: flex-start; gap: var(--s2);
+  margin: var(--s1) var(--s4) var(--s2) calc(24px + 36px);
+  padding: var(--s2) var(--s3); background: rgba(var(--accent-rgb), 0.10);
+  border: 1px solid rgba(var(--accent-rgb), 0.35); border-radius: var(--radius-sm);
+  font-family: -apple-system, 'Inter', 'Segoe UI', sans-serif; font-size: var(--fs-sm);
+  line-height: 1.5; }
+.review-note textarea { flex: 1; min-width: 0; resize: none; background: var(--bg2);
+  color: var(--fg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: var(--s1) var(--s2); font: inherit; field-sizing: content; min-height: 2lh;
+  max-height: 8lh; }
+.review-note textarea:focus { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow); }
+.review-note-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word;
+  color: var(--fg); }
+.review-note-actions { display: inline-flex; gap: var(--s1); flex-shrink: 0; }
 
 .empty-chat { flex: 1; display: flex; flex-direction: column; align-items: center;
   justify-content: center; color: var(--fg-dim); gap: var(--s3); padding: var(--s5);
@@ -1573,8 +1646,13 @@ button.pnl-flag:hover { text-decoration: underline; }
 @media (max-width: 780px) {
   /* board rows shed the repo pill first — the branch chip carries more identity */
   .repo-providers, .session-row .acct-chip, .board-repo,
-  .chat-header .acct-chip { display: none; }
-  .messages { padding: var(--s4); }
+  .chat-header .acct-chip, .btn-review .lbl { display: none; }
+  /* the review key folds to a 28px square (an icon-btn's footprint) so the
+     header's row still holds at the 560px floor */
+  .btn-review { width: 28px; height: 28px; padding: 0; justify-content: center; }
+  .messages, .review { padding: var(--s4); }
+  /* the readout takes its own line under the controls */
+  .review-sum { flex-basis: 100%; order: 1; }
   .tool-row, .thinking, .sys-row { margin-left: 0; }
   .ns-card { padding: var(--s5); margin: var(--s4) auto; }
   /* panel rows: three self-labelling chips plus a title plus a flag stop fitting

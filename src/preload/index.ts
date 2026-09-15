@@ -11,6 +11,7 @@ import type {
   ChatEvent,
   ChatRequest,
   CockpitApi,
+  DiffScope,
   NewModelEndpoint,
   NewRoundtableRequest,
   Provider,
@@ -68,6 +69,7 @@ const api: CockpitApi = {
   createWorkspace: (repoRoot: string, name?: string) =>
     ipcRenderer.invoke('workspace:create', repoRoot, name),
   createPr: (cwd: string) => ipcRenderer.invoke('workspace:pr', cwd),
+  getWorkspaceDiff: (cwd: string, scope: DiffScope) => ipcRenderer.invoke('workspace:diff', cwd, scope),
   getExtensions: () => ipcRenderer.invoke('extensions:get'),
   checkMcp: (name: string) => ipcRenderer.invoke('extensions:check-mcp', name),
   loginMcp: (name: string, agent: Provider, projectPath?: string) =>

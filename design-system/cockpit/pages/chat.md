@@ -64,6 +64,47 @@ grab target.
 - Code blocks get a hover/focus Copy button; highlight.js tokens map to app palette
   variables — no imported highlight theme.
 
+## Review (`ReviewPanel.tsx`, `.review`)
+
+The **Changes** key in the header (`.btn-review`, ⌘D) swaps the transcript for the
+worktree's changes — the review before the PR. The composer stays: notes go to the
+agent through it. Offered only when the session has a repository and takes input;
+a seat session's tree belongs to its table. The key is `aria-pressed` while the
+review is open and sheds its word (`.lbl`) ≤780px, keeping the diff glyph
+(`DiffIcon`, the octicon +/−).
+
+- `.review` sits in the transcript's column (same `padding-inline` recipe as
+  `.messages`, `scrollbar-gutter: stable`, `flex-shrink: 0` children).
+- `.review-bar`: the scope switch (`.idiff-layout` grammar — **Branch** = everything
+  since the base branch, what a PR would carry; **Staged**; **Unstaged** = working-tree
+  edits plus untracked files) · `.review-sum` in the mono readout voice (`DiffStat`,
+  file count, `N ahead, M behind origin/main`, a warn `uncommitted changes` when
+  Create PR would refuse) · right: **Send N notes to <Agent>** (`.btn-ghost.small`,
+  only once a note exists), refresh (`.icon-btn.small`), `DiffLayoutToggle`. Every
+  control in the row is 24px.
+- Files are `<details class="idiff review-file">` blocks in an `.idiff-list`, open by
+  default (binaries closed), each summary drawing its own ▸: `.idiff-path`
+  (`old → new` for renames) · `.review-kind` pill only when the file is not a plain
+  modification (`added` ok / `deleted` danger / `untracked` warn / `renamed`,
+  `binary` dim — the instructions status pill's grammar) · `DiffStat`.
+- Inside: the instructions review's line grammar (`.idiff-line` add/del washes,
+  context in `--fg-dim`, `+`/`−` gutter, `sr-only` "added:"/"removed:") plus two
+  `.idiff-no` line-number columns (old, new; one per side in split) and a hunk rail
+  (`.idiff-rail.review-hunk`, git's `@@` range and context). Rows are 24px so the
+  note key is a real target. Unified | Split follows the app-wide diff preference.
+  A capped file ends in an `.idiff-band` naming the real total; a capped listing ends
+  in one naming the files not shown.
+- **Notes** (`.review-note-btn`, the `+` that appears on hover/focus at the row's
+  left edge; removed lines are addressed on the old side, everything else on the
+  new): opens a `.review-note` editor under the line (sans — the reviewer's prose,
+  not code; Enter keeps, Esc discards), kept notes stay as accent-tinted rows with
+  Edit / Remove. **Send** formats them as one message (`formatNotes`: path:line,
+  the quoted line, the note) into the composer, appended to any draft, and focuses
+  it — the reviewer gets the last word before it goes.
+- Reloads on scope change, on refresh, and whenever a running turn settles (never
+  mid-turn — the tree is changing under the reader). Errors from main render as a
+  `.review-error` alert, unwrapped.
+
 ## Composer
 
 - Textarea: Enter sends, Shift+Enter newlines (stated in the placeholder),
