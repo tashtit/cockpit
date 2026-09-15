@@ -1,4 +1,8 @@
 * { margin: 0; box-sizing: border-box; }
+/* lists are layout, not prose: the UA's 40px inline-start pad silently indented every
+   row list (sources, instruction files, the board) off its own section's left edge.
+   Transcript markdown restores its own indent (.markdown ul/ol). */
+ul, ol { padding: 0; }
 :root {
   /* native widgets (select popups, scrollbars, autofill) render dark, not stock white */
   color-scheme: dark;
@@ -429,7 +433,8 @@ summary::-webkit-details-marker { display: none; }
 .btn-pr:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-pr:disabled { opacity: 0.5; cursor: default; }
 /* neutral header action beside .btn-pr — same 28px geometry, quiet bordered look */
-.btn-handoff, .btn-review { color: var(--fg-dim); background: var(--surface);
+.btn-handoff, .btn-review { display: inline-flex; align-items: center; gap: var(--s1);
+  color: var(--fg-dim); background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 5px var(--s4); font-size: var(--fs-sm); flex-shrink: 0;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
@@ -700,6 +705,13 @@ summary::-webkit-details-marker { display: none; }
 .tool-full { padding: var(--s3); border-top: 1px solid var(--border);
   font-family: var(--mono); font-size: var(--fs-xs); white-space: pre-wrap;
   word-break: break-word; max-height: 260px; overflow-y: auto; color: var(--fg-dim); }
+/* the folded result: its first line rides the right of the summary as the verdict,
+   and the full output sits under the input on the code-block paper */
+.tool-peek { color: var(--fg-dim); font-family: var(--mono); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; max-width: 40%;
+  padding-left: var(--s2); border-left: 1px solid var(--border); }
+.tool-out { background: var(--bg-deep); color: var(--fg); }
+.tool-out-label { color: var(--fg-dim); }
 
 /* system notes are annotations, not dividers: left-aligned with the assistant column */
 .sys-row { align-self: flex-start; margin-left: 32px; color: var(--fg-dim);
@@ -903,8 +915,13 @@ summary::-webkit-details-marker { display: none; }
   text-align: left; padding: var(--s2) var(--s4); min-height: 32px;
   font-size: var(--fs-base); }
 .board-row:hover { background: var(--bg3); }
-/* placard column: fixed width keeps branches/tasks on a shared grid line */
-.board-agent { flex: 0 0 60px; font-size: var(--fs-xs); font-weight: 700;
+/* the lead column (placard, or a table's seat cluster) and the branch slot are both
+   fixed-width, so every task title starts on one grid line — a ragged title edge
+   made the list read as a pile instead of a board */
+.board-lead { flex: 0 0 68px; }
+.board-branch { flex: 0 0 150px; min-width: 0; display: flex; }
+.board-branch .branch-chip { max-width: 100%; }
+.board-agent { font-size: var(--fs-xs); font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.9px; color: var(--fg-dim); }
 /* the livery lights up only while flying — state reads from color + dot */
 .board-row.flying .board-agent-claude { color: var(--claude); }
@@ -913,7 +930,6 @@ summary::-webkit-details-marker { display: none; }
 .board-dot-idle { width: 7px; height: 7px; border-radius: 50%;
   background: var(--fg-dim); opacity: 0.35; flex-shrink: 0; }
 .board-row .pulse { flex-shrink: 0; }
-.board-row .branch-chip { max-width: 150px; }
 .board-task { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 .board-repo { color: var(--fg-dim); font-size: var(--fs-xs); background: var(--surface);
@@ -998,9 +1014,13 @@ summary::-webkit-details-marker { display: none; }
 .ns-provider.active .acct-chip { color: inherit; }
 .ns-options { display: flex; gap: var(--s4); flex-wrap: wrap; }
 .ns-opt { display: flex; flex-direction: column; gap: var(--s1); flex: 1; min-width: 130px; }
-/* 4px vertical = 28px with the border — level with Selects and .ns-account-single */
-.ns-opt input { padding: 4px var(--s3); background: var(--surface); color: var(--fg);
-  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
+/* the one text-input recipe, level with Selects and .ns-account-single. Height is
+   explicit: inputs don't inherit the body's 1.5 line-height, so padding alone left
+   them at ~24px — ragged beside a 28px Select in the same row */
+.ns-opt input, .ns-branch-row input, .source-add input, .rt-seat-cfg-row input {
+  height: 28px; padding: 0 var(--s3); background: var(--surface); color: var(--fg);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  font-size: var(--fs-sm); }
 /* single-account read-only field — trigger-shaped, but inert */
 .ns-account-single { font-family: var(--mono); color: var(--fg); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; background: var(--bg3);
@@ -1009,9 +1029,7 @@ summary::-webkit-details-marker { display: none; }
   display: flex; align-items: center; }
 .ns-branch-row { display: flex; align-items: center; gap: var(--s2); }
 .ns-branch-prefix { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-sm); }
-.ns-branch-row input { flex: 1; min-width: 0; padding: 4px var(--s3);
-  background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm); font-size: var(--fs-sm); font-family: var(--mono); }
+.ns-branch-row input { flex: 1; min-width: 0; font-family: var(--mono); }
 .ns-hint { color: var(--fg-dim); font-size: var(--fs-xs); }
 .ns-hint.yolo { color: var(--danger); }
 .ns-hint code { color: var(--fg); font-family: var(--mono); }
@@ -1075,9 +1093,7 @@ summary::-webkit-details-marker { display: none; }
 .usage-num { color: var(--fg); font-variant-numeric: tabular-nums; }
 
 .source-add { display: flex; flex-direction: column; gap: var(--s2); }
-.source-add input { min-width: 0; padding: 4px var(--s3);
-  background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm); font-size: var(--fs-sm); }
+.source-add input { min-width: 0; }
 /* the path is a machine identifier — mono, like .ns-branch-row input */
 .source-browse-row { display: flex; gap: var(--s2); }
 .source-browse-row input { flex: 1; font-family: var(--mono); }
@@ -1656,15 +1672,26 @@ button.pnl-flag:hover { text-decoration: underline; }
 @media (max-width: 780px) {
   /* board rows shed the repo pill first — the branch chip carries more identity */
   .repo-providers, .session-row .acct-chip, .board-repo,
-  .chat-header .acct-chip, .btn-review .lbl { display: none; }
-  /* the review key folds to a 28px square (an icon-btn's footprint) so the
-     header's row still holds at the 560px floor */
-  .btn-review { width: 28px; height: 28px; padding: 0; justify-content: center; }
+  .chat-header .acct-chip, .btn-review .lbl, .btn-handoff .lbl { display: none; }
+  /* the review and handoff keys fold to 28px squares (an icon-btn's footprint) so
+     the header's row still holds at the 560px floor — both keep an aria-label */
+  .btn-review, .btn-handoff { width: 28px; height: 28px; padding: 0; justify-content: center; }
   .messages, .review { padding: var(--s4); }
   /* the readout takes its own line under the controls */
   .review-sum { flex-basis: 100%; order: 1; }
   .tool-row, .thinking, .sys-row { margin-left: 0; }
   .ns-card { padding: var(--s5); margin: var(--s4) auto; }
+  /* source rows (settings sources, usage, providers, about): the health readout and
+     the row's action drop to their own line, right-aligned, instead of squeezing the
+     label until the identity chip paints over the session count */
+  .source-row { flex-wrap: wrap; }
+  .source-body { flex: 1 1 calc(100% - 40px); }
+  .source-health { margin-left: auto; }
+  /* usage windows: the fixed 130px label + 120px meter columns alone outgrew a
+     narrow card — the label wraps onto its own line and the meter flexes */
+  .usage-window { flex-wrap: wrap; }
+  .usage-win-label { flex-basis: 100%; }
+  .usage-meter { flex: 1 1 60px; }
   /* panel rows: three self-labelling chips plus a title plus a flag stop fitting
      one line right about here. The dimmed provenance tags shed first — the mono
      detail, then the section tag (both nowrap and unshrinkable, so left in they
@@ -1677,6 +1704,16 @@ button.pnl-flag:hover { text-decoration: underline; }
   .pnl-chips { order: 1; flex-basis: 100%; flex-wrap: wrap; }
   .pnl-state { min-width: 0; }
   .pnl-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 700px) {
+  /* on a ~360px pane the task title is the row's content — the branch slot goes next,
+     after the repo pill (≤780px) */
+  .board-branch { display: none; }
+  /* a ~360px chat pane can't spend 70px on the agent's name: the badge sheds to its
+     mark (titled), so the session's name — the one thing the header exists to say —
+     never collapses to nothing */
+  .chat-header .badge-text { display: none; }
+  .chat-header .badge { min-height: 20px; padding-inline: var(--s2); }
 }
 @media (max-height: 600px) {
   .home-hero { display: none; }

@@ -27,8 +27,11 @@ surface, no shadow).
 ## The board (`.board`)
 
 - Grammar per row (`.board-row`, a button that opens the session): status dot ·
-  `.board-agent` placard (fixed 60px column, uppercase micro-caps) · `BranchChip` ·
-  title (truncates) · `.board-repo` pill · `.board-meta` (mono, `tabular-nums`).
+  `.board-agent` placard (`.board-lead`, fixed 68px column, uppercase micro-caps) ·
+  `.board-branch` slot (fixed 150px, holding the `BranchChip`) · title (truncates) ·
+  `.board-repo` pill · `.board-meta` (mono, `tabular-nums`). The branch slot renders
+  **even when empty**, so every title starts on one grid line; roundtable rows put their
+  seat cluster in the same `.board-lead` column.
 - **Flying** (session's provider process running, from the `useBusyMap()` store): `LiveDot`
   pulse + placard lit in the agent's livery color + elapsed time (`fmtElapsed`, ticks at
   1s only while ≥1 session is flying). **On the ground:** dim static dot, dim placard,
@@ -40,7 +43,9 @@ surface, no shadow).
   as a skipped level): "**N flying** · M on the ground" (M from the page total), or
   "all on the ground" when idle. It is a polite `aria-live` region — turn starts and
   completions announce the new counts.
-- ≤780px the row sheds `.board-repo` first — the branch chip carries more identity.
+- ≤780px the row sheds `.board-repo` first — the branch chip carries more identity;
+  ≤700px the `.board-branch` slot goes too, because on a ~360px pane the task title is
+  the row's content.
 
 ## Composer card
 

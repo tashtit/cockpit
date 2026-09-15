@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { ActivityDay, ModelStat, ProfileStats, Provider } from '../../shared/types'
 import { api } from './api'
-import { ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import { ChatIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals.
@@ -439,8 +439,8 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
                 <ul className="pv-repos">
                   {profile.repos.map((r) => (
                     <li key={r.key}>
-                      <RepoIcon size={13} />
-                      <span className="pv-repo-name">{r.name}</span>
+                      {r.key === 'general' ? <ChatIcon size={13} /> : <RepoIcon size={13} />}
+                      <span className="pv-repo-name">{r.key === 'general' ? 'Chats' : r.name}</span>
                       <span className="repo-count">{fmtNum(r.sessions)}</span>
                     </li>
                   ))}

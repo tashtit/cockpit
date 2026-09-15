@@ -11,15 +11,24 @@ turns are compact right-aligned bubbles.
 Identity + situation in one row, left to right:
 solid agent `.badge` · `.acct-chip` ("running as" — shows the identity's local part,
 full identity in the tooltip; shed entirely ≤780px) · title + sub (branch chip, clickable
-cwd that copies its path, "· not started" when no native session yet) · PR affordance ·
-permission mode select. Header min-height is 52px — it's the drag region, keep it a real
-grab target.
+cwd that copies its path — displayed `~`-abbreviated via `shortPath`, the full path in the
+tooltip — and "· not started" when no native session yet) · PR affordance · `Changes` ·
+`Continue in…`.
+Header min-height is 52px — it's the drag region, keep it a real grab target.
+
+- **The header is identity, never settings.** The permission mode lives in the composer
+  (see below); a header that also carried it lost the session title entirely at the
+  560px floor.
+- **Labels shed to their marks before the title truncates** — ≤780px the `Changes` and
+  `Continue in…` keys fold to 28px squares (`.lbl` hidden; `DiffIcon`/`HandoffIcon`
+  stay, each with an `aria-label`); ≤700px the badge drops `.badge-text` to its titled
+  agent mark. The title is the one thing the header exists to say; it must survive
+  the minimum window.
 
 - The PR slot is exclusive: a `PrBadge` when the branch has a PR, else green `.btn-pr`
   "Create PR" (GitHub merge-button semantics), else nothing. Never both.
 - Header is a window drag region; every interactive child opts out (`no-drag`), and the
   cwd/branch subtitle is selectable text.
-- Mode select persists to `cockpit:mode`; hints live in `title`, labels stay one word.
 
 ## The conversation column
 
@@ -39,10 +48,16 @@ grab target.
   - user → `.bubble-user` right-aligned, accent tint, `max-width: min(74%, 60ch)`
   - assistant → avatar + `.markdown` body, `max-width: min(85%, 76ch)`; `.streaming`
     shows the accent left border; `.reasoning` dims + italicizes
-  - tool call/result → `.tool-row` collapsed `<details>`: gear/return-arrow chip + mono
-    120-char preview — the humanized headline (`SessionMessage.preview`: Bash command,
-    Edit/Read/Write path, from `toolPreview()` in main) when available, else the raw
-    input; expands to `.tool-full` (260px max, scrolls) which always keeps the raw input
+  - tool call → `.tool-row` collapsed `<details>`: gear chip + mono 120-char preview —
+    the humanized headline (`SessionMessage.preview`: Bash command, Edit/Read/Write path,
+    Copilot's `bash`/`edit`/`create` too, from `toolPreview()` in main) when available,
+    else the raw input. **The result that answers a call folds into the call's row**: its
+    first line rides the right of the summary as the verdict (`.tool-peek`, "20 passed"),
+    and expanding shows the raw input over the full output (`.tool-full` then
+    `.tool-full.tool-out`, 260px max each). A call and its result are one event — two
+    rows per tool call doubled the noise. Only an orphan result gets its own `↳` row.
+  - paths under the session's cwd render relative to it (`Message`'s `cwd` prop) — the
+    header already names the directory
   - system → `.sys-row` dotted-left-border annotation, aligned with the assistant column
 - Tool/system glyphs are text-presentation unicode (`⚙︎` with U+FE0E, `↳`) — if these
   ever grow, switch to SVGs from `logos.tsx`; never bare emoji-presentation glyphs.
@@ -110,6 +125,14 @@ review is open and sheds its word (`.lbl`) ≤780px, keeping the diff glyph
 - Textarea: Enter sends, Shift+Enter newlines (stated in the placeholder),
   `field-sizing: content` between 2.4lh and 12lh. Focus lands here whenever a session
   opens or starts.
+- The permission mode `Select` sits between the textarea and the action button — it
+  governs the *next* turn, so it lives beside the button that sends it (Home's composer
+  bar grammar). Persists to `cockpit:mode`; hints in `title`, labels one word. A
+  read-only seat session renders neither.
+- A session started from a typed task shows that task as its title (`taskTitle`) until
+  the index catches up, and its worktree branch is cut from it (`branchHint` in
+  `task-names.ts`: first meaningful words → `cockpit/add-changelog-entry-retry-fix`,
+  never an opaque `cockpit/ws-…` unless the task has no words).
 - The action button swaps in place: `.btn-primary` Send ↔ `.btn-danger` Stop while busy —
   same slot, no layout shift.
 - Pasting an image attaches it: a full-width `.composer-attach` chip row appears above

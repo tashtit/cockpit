@@ -7,6 +7,7 @@ import {
   parseJsonc,
   readHead,
   readJsonlTail,
+  toolPreview,
   truncate,
   TRANSCRIPT_TAIL_BYTES
 } from '../src/main/parsers/util'
@@ -107,5 +108,24 @@ describe('isValidNativeId (argv injection guard)', () => {
     expect(isValidNativeId('a;rm -rf /')).toBe(false)
     expect(isValidNativeId('')).toBe(false)
     expect(isValidNativeId('x'.repeat(200))).toBe(false)
+  })
+})
+
+describe('toolPreview', () => {
+  it('headlines Claude tools by their command or path', () => {
+    expect(toolPreview('Bash', { command: 'npm test' })).toBe('npm test')
+    expect(toolPreview('Edit', { file_path: '/r/src/a.ts', old_string: 'x' })).toBe('/r/src/a.ts')
+  })
+
+  it('headlines Copilot CLI tools, which are lowercase and take `path`', () => {
+    expect(toolPreview('bash', { command: 'npm run lint' })).toBe('npm run lint')
+    expect(toolPreview('edit', { path: '/r/src/usage.tsx', old_str: 'a', new_str: 'b' })).toBe(
+      '/r/src/usage.tsx'
+    )
+    expect(toolPreview('create', { path: '/r/src/new.css', file_text: '' })).toBe('/r/src/new.css')
+  })
+
+  it('has no headline for unknown tools, so the raw input shows instead', () => {
+    expect(toolPreview('mcp__linear__search', { q: 'bug' })).toBeNull()
   })
 })

@@ -18,6 +18,8 @@ The structured event stream (where the provider has one) is parsed into messages
 
 Open any session from the sidebar and type: Cockpit resumes that conversation with the same provider, in the same working directory. There's no separate "import" — the index *is* the chat history.
 
+The permission mode sits beside **Send** and applies to the next turn you send. Tool activity reads one row per call: the command or file it touched, and its result's first line on the right — expand the row for the full input and output.
+
 ## Provider quirks
 
 Cockpit smooths over the differences it can, and is honest about the ones it can't:

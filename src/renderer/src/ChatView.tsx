@@ -5,7 +5,8 @@ import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
-import { BranchChip, CockpitLogo, DiffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { shortPath } from '../../shared/library'
+import { BranchChip, CockpitLogo, DiffIcon, HandoffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
 
@@ -111,10 +112,17 @@ export function ChatView({
   // providers repeat identical system notices; consecutive duplicates add nothing.
   // each row keeps its absolute log offset as the key — stable because the log is
   // append-only, even when the dedup filter drops rows in the middle.
-  const visible: Array<{ m: SessionMessage; key: number }> = []
+  // a tool call and the result that answers it are one event: the result folds into
+  // the call's row (its key stays the call's offset) instead of a second ↳ row
+  const visible: Array<{ m: SessionMessage; key: number; result?: SessionMessage }> = []
   sliced.forEach((m, i) => {
     if (m.kind === 'system' && sliced[i - 1]?.kind === 'system' && sliced[i - 1].text === m.text)
       return
+    const prev = visible[visible.length - 1]
+    if (m.kind === 'tool_result' && prev?.m.kind === 'tool_call' && !prev.result) {
+      prev.result = m
+      return
+    }
     visible.push({ m, key: base + i })
   })
   const hidden = log.length - sliced.length
@@ -148,8 +156,10 @@ export function ChatView({
     // the conversation column tracks the user's width preference live
     <main className="chat" style={{ '--chat-col': CHAT_WIDTH_CSS[chatWidth] } as React.CSSProperties}>
       <header className="chat-header">
-        <span className={`badge badge-${binding.provider}`}>
-          <ProviderLogo p={binding.provider} size={11} /> {PROVIDER_LABEL[binding.provider]}
+        {/* the name sheds on narrow windows before the title does; the mark stays */}
+        <span className={`badge badge-${binding.provider}`} title={PROVIDER_LABEL[binding.provider]}>
+          <ProviderLogo p={binding.provider} size={11} />
+          <span className="badge-text">{PROVIDER_LABEL[binding.provider]}</span>
         </span>
         {/* compact: the local part identifies the account at a glance; the full
             identity lives in the tooltip (same pattern as the sidebar footer) */}
@@ -182,7 +192,7 @@ export function ChatView({
                 setCwdCopied(true)
               }}
             >
-              {binding.cwd}
+              {shortPath(binding.cwd)}
             </button>
             {cwdCopied && (
               <span className="copy-flash" role="status">
@@ -235,23 +245,12 @@ export function ChatView({
             className="btn-handoff"
             disabled={busy}
             onClick={onOpenHandoff}
+            aria-label="Continue in another agent…"
             title="Continue this session with another agent — new session, same worktree"
           >
-            Continue in…
+            <HandoffIcon size={12} />
+            <span className="lbl">Continue in…</span>
           </button>
-        )}
-        {/* a read-only seat session takes no input — a permission picker would lie */}
-        {!binding.readOnly && (
-          <Select
-            className="mode-select-wrap"
-            value={mode}
-            ariaLabel="Permission mode"
-            options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-            onChange={(v) => {
-              setMode(v as PermissionMode)
-              window.localStorage.setItem('cockpit:mode', v)
-            }}
-          />
         )}
       </header>
 
@@ -267,17 +266,8 @@ export function ChatView({
           }}
         >
           {hidden > 0 && <div className="sys-row">(showing the last {RENDER_LAST} of {log.length} messages)</div>}
-          {visible.map(({ m, key }, i) => (
-            <Message
-              key={key}
-              m={m}
-              provider={binding.provider}
-              resultOf={
-                m.kind === 'tool_result' && visible[i - 1]?.m.kind === 'tool_call'
-                  ? visible[i - 1].m.toolName
-                  : undefined
-              }
-            />
+          {visible.map(({ m, key, result }) => (
+            <Message key={key} m={m} provider={binding.provider} result={result} cwd={binding.cwd} />
           ))}
           {busy && (
             <div className="thinking">
@@ -316,6 +306,18 @@ export function ChatView({
                 }
               }}
             />
+            {/* the mode governs the next turn, so it sits beside the button that sends
+                it — the same grammar as Home's composer bar, and the header stays identity */}
+            <Select
+              className="mode-select-wrap"
+              value={mode}
+              ariaLabel="Permission mode"
+              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+              onChange={(v) => {
+                setMode(v as PermissionMode)
+                window.localStorage.setItem('cockpit:mode', v)
+              }}
+            />
             {busy ? (
               <button className="btn-danger" onClick={onCancel}>
                 Stop
@@ -336,29 +338,58 @@ export function ChatView({
   )
 }
 
+/** Paths inside the session's own directory read relative to it — the header already
+ *  names the directory, so repeating it in every tool row only pushes the file off-screen. */
+function relative(text: string, cwd: string | undefined): string {
+  return cwd ? text.split(`${cwd}/`).join('') : text
+}
+
+/** The first non-empty line of a tool's output: its verdict ("20 passed"), at a glance. */
+function firstLine(text: string): string {
+  return text.split('\n').find((l) => l.trim())?.trim() ?? ''
+}
+
 /** Memoized: during streaming only the last row's props change. */
 export const Message = memo(function Message({
   m,
   provider,
-  resultOf
+  result,
+  cwd
 }: {
   m: SessionMessage
   provider: Provider
-  resultOf?: string
+  /** The tool_result answering this tool_call, folded into the same row */
+  result?: SessionMessage
+  /** The session's directory — paths under it render relative */
+  cwd?: string
 }): JSX.Element {
   if (m.kind === 'tool_call' || m.kind === 'tool_result') {
+    const call = m.kind === 'tool_call'
+    const peek = result ? firstLine(result.text) : ''
     return (
       <details className="tool-row">
         <summary>
           <span className="tool-chip">
             {/* ︎ forces text presentation — the bare gear renders as color emoji on some
                 platforms; aria-hidden keeps screen readers from reading the glyph aloud */}
-            <span aria-hidden="true">{m.kind === 'tool_call' ? '⚙︎ ' : '↳ '}</span>
-            {m.kind === 'tool_call' ? (m.toolName ?? 'tool') : (resultOf ?? 'result')}
+            <span aria-hidden="true">{call ? '⚙︎ ' : '↳ '}</span>
+            {call ? (m.toolName ?? 'tool') : 'result'}
           </span>
-          <code className="tool-preview">{(m.preview ?? m.text).slice(0, 120)}</code>
+          <code className="tool-preview">{relative(m.preview ?? m.text, cwd).slice(0, 120)}</code>
+          {peek && (
+            <span className="tool-peek">
+              <span className="sr-only">result: </span>
+              {peek.slice(0, 60)}
+            </span>
+          )}
         </summary>
-        <pre className="tool-full">{m.text}</pre>
+        <pre className="tool-full">{relative(m.text, cwd)}</pre>
+        {result && (
+          <pre className="tool-full tool-out">
+            <span className="tool-out-label" aria-hidden="true">↳ </span>
+            {relative(result.text, cwd)}
+          </pre>
+        )}
       </details>
     )
   }

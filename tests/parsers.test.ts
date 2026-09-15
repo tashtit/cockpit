@@ -445,6 +445,8 @@ describe('copilot parser', () => {
     const msgs = parseCopilotMessages(current.sourcePath)
     expect(msgs.map((m) => m.kind)).toEqual(['text', 'tool_call', 'text'])
     expect(msgs[1].toolName).toBe('bash')
+    // humanized like Claude's rows — the command, not the raw JSON arguments
+    expect(msgs[1].preview).toBe('ls')
   })
   it('parses legacy timeline messages and tools', () => {
     const s = listCopilotSessions(join(root, 'copilot'), 'copilot-test')
