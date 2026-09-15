@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  AppInfo,
   Provider,
   SourceDir,
   SourceStats,
   TimeFormat,
+  UpdateState,
   UsageSnapshot,
   UsageTokens,
   UsageWindow
@@ -13,7 +15,7 @@ import { api } from './api'
 import { CHAT_WIDTH_OPTIONS, setChatWidth, useChatWidth, type ChatWidth } from './chat-width'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ModelProviders } from './ModelProviders'
-import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { CockpitLogo, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { setTimeFormat, useTimeFormat } from './time'
 
@@ -63,6 +65,45 @@ function tokensTitle(t: UsageTokens): string {
   return `input ${fmtCount(t.input)} · output ${fmtCount(t.output)} · cache write ${fmtCount(
     t.cacheCreate
   )} · cache read ${fmtCount(t.cacheRead)}`
+}
+
+/** The About row's one-line readout of where the updater stands. */
+function updateLine(u: UpdateState | null): string {
+  if (!u) return 'loading…'
+  switch (u.status) {
+    case 'unsupported':
+      return u.message ?? 'Updates are not available in this build.'
+    case 'idle':
+      return 'Not checked yet.'
+    case 'checking':
+      return 'Checking for updates…'
+    case 'up-to-date':
+      return `Up to date${u.checkedAt ? ` — checked ${fmtAgo(u.checkedAt)}` : ''}`
+    case 'available':
+      return `Version ${u.version} is available.`
+    case 'downloading':
+      return `Downloading ${u.version} · ${u.percent ?? 0}%`
+    case 'ready':
+      return `Version ${u.version} is downloaded — restart to install.`
+    case 'error':
+      return u.version ? `Could not install ${u.version}: ${u.message}` : `Update check failed: ${u.message}`
+  }
+}
+
+/** What the sr-only status region says on a transition — progress ticks stay silent. */
+function updateAnnouncement(u: UpdateState): string | null {
+  switch (u.status) {
+    case 'available':
+      return `Version ${u.version} is available`
+    case 'ready':
+      return `Version ${u.version} downloaded — restart to install`
+    case 'up-to-date':
+      return 'Cockpit is up to date'
+    case 'error':
+      return `Update failed: ${u.message}`
+    default:
+      return null
+  }
 }
 
 function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow }): JSX.Element {
@@ -116,6 +157,8 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const [stats, setStats] = useState<SourceStats[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [usage, setUsage] = useState<UsageSnapshot | null>(null)
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [update, setUpdate] = useState<UpdateState | null>(null)
   const [path, setPath] = useState('')
   const [provider, setProvider] = useState<Provider>('claude')
   const [label, setLabel] = useState('')
@@ -143,6 +186,16 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
     headingRef.current?.focus()
     // counts stay live while the indexer works
     return api.onIndexUpdated(refresh)
+  }, [])
+  useEffect(() => {
+    void api.getAppInfo().then(setAppInfo)
+    void api.getUpdateState().then(setUpdate)
+    // main pushes every transition (timer checks included) — announce the ones that matter
+    return api.onUpdateState((s) => {
+      setUpdate(s)
+      const said = updateAnnouncement(s)
+      if (said) setStatus(said)
+    })
   }, [])
 
   const identityOf = (p: string): string | null =>
@@ -210,6 +263,54 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   const changeTimeFormat = (f: TimeFormat): void => {
     setTimeFormat(f)
     setStatus(`Session times shown in ${f === '24h' ? '24-hour' : '12-hour'} format`)
+  }
+
+  const checkUpdates = async (): Promise<void> => {
+    setUpdate({ status: 'checking' })
+    setUpdate(await api.checkForUpdates())
+  }
+  const downloadUpdate = async (): Promise<void> => {
+    setUpdate(await api.downloadUpdate())
+  }
+
+  /** The About row's single action — one control at a time, so heights never mix. */
+  const updateAction = (u: UpdateState): JSX.Element | null => {
+    switch (u.status) {
+      case 'idle':
+      case 'up-to-date':
+      case 'error':
+        return (
+          <button className="btn-ghost small" onClick={() => void checkUpdates()}>
+            Check for updates
+          </button>
+        )
+      case 'checking':
+        return (
+          <button className="btn-ghost small" disabled>
+            Checking…
+          </button>
+        )
+      case 'available':
+        return (
+          <button className="btn-ghost small" onClick={() => void downloadUpdate()}>
+            Download {u.version}
+          </button>
+        )
+      case 'downloading':
+        return (
+          <button className="btn-ghost small" disabled>
+            Downloading…
+          </button>
+        )
+      case 'ready':
+        return (
+          <button className="btn-ghost small" onClick={() => void api.installUpdate()}>
+            Restart to install
+          </button>
+        )
+      case 'unsupported':
+        return null
+    }
   }
 
   // a hand-edited config value outside the presets still renders as itself
@@ -480,6 +581,42 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
             </button>
           </div>
         </form>
+        <h3 className="ns-label">About</h3>
+        <ul className="source-list">
+          <li className="source-row">
+            <span className="plogo" aria-hidden="true">
+              <CockpitLogo size={13} />
+            </span>
+            <div className="source-body">
+              <div className="source-label">
+                Cockpit
+                {appInfo && <span className="acct-chip">v{appInfo.version}</span>}
+                {appInfo && (
+                  <span className="source-origin">
+                    {appInfo.packaged ? `installed · ${appInfo.arch}` : 'development run'}
+                  </span>
+                )}
+              </div>
+              <div className="source-note">{updateLine(update)}</div>
+            </div>
+            <div className="source-health">{update && updateAction(update)}</div>
+          </li>
+        </ul>
+        <p className="ns-hint">
+          Installed builds check GitHub Releases on launch and every few hours. Nothing downloads
+          until you choose to; a downloaded update installs on the next quit.
+          {appInfo && (
+            <>
+              {' '}
+              <button
+                className="link-btn"
+                onClick={() => void api.openExternal(appInfo.releasesUrl)}
+              >
+                Release notes
+              </button>
+            </>
+          )}
+        </p>
         <div className="sr-only" role="status" aria-live="polite">{status}</div>
       </div>
     </main>

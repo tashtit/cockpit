@@ -19,7 +19,7 @@ Identity chips appear throughout the app, so it's always visible which account a
 
 A **source** is a provider config home Cockpit indexes. The defaults are `~/.claude`, `~/.codex`, and `~/.copilot`; you can add more in **Settings → Agent accounts & sources** — typically an isolated config home for a second account (e.g. work vs. personal).
 
-Each source shows its own identity and health, and extra sources are stored in the app config (`~/Library/Application Support/cockpit/cockpit-config.json`) as `{path, provider, label}`.
+Each source shows its own identity and health, and extra sources are stored in the app config (`~/Library/Application Support/Cockpit/cockpit-config.json`) as `{path, provider, label}`.
 
 ## Subscription usage
 

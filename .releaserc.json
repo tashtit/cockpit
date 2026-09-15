@@ -1,0 +1,54 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "type": "build", "release": "patch" },
+          { "type": "perf", "release": "patch" },
+          { "type": "revert", "release": "patch" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "Features" },
+            { "type": "fix", "section": "Bug fixes" },
+            { "type": "perf", "section": "Performance" },
+            { "type": "revert", "section": "Reverts" },
+            { "type": "build", "section": "Build & dependencies" }
+          ]
+        }
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "npm version ${nextRelease.version} --no-git-tag-version --allow-same-version && npm run package && COCKPIT_EXPECTED_VERSION=${nextRelease.version} npm run test:packaged",
+        "successCmd": "[ -z \"$GITHUB_OUTPUT\" ] || echo \"version=${nextRelease.version}\" >> \"$GITHUB_OUTPUT\""
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "dist/*.dmg" },
+          { "path": "dist/*.zip" },
+          { "path": "dist/*.blockmap" },
+          { "path": "dist/latest-mac.yml" }
+        ],
+        "successComment": false,
+        "failComment": false,
+        "failTitle": false,
+        "releasedLabels": false
+      }
+    ]
+  ]
+}

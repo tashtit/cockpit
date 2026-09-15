@@ -17,7 +17,8 @@ import type {
   RoundtableEvent,
   PanelTarget,
   SessionQuery,
-  TimeFormat
+  TimeFormat,
+  UpdateState
 } from '../shared/types'
 
 const api: CockpitApi = {
@@ -112,6 +113,16 @@ const api: CockpitApi = {
     const handler = (): void => cb()
     ipcRenderer.on('index-updated', handler)
     return () => ipcRenderer.removeListener('index-updated', handler)
+  },
+  getAppInfo: () => ipcRenderer.invoke('app:info'),
+  getUpdateState: () => ipcRenderer.invoke('updates:get'),
+  checkForUpdates: () => ipcRenderer.invoke('updates:check'),
+  downloadUpdate: () => ipcRenderer.invoke('updates:download'),
+  installUpdate: () => ipcRenderer.invoke('updates:install'),
+  onUpdateState: (cb: (state: UpdateState) => void) => {
+    const handler = (_e: unknown, state: UpdateState): void => cb(state)
+    ipcRenderer.on('update-state', handler)
+    return () => ipcRenderer.removeListener('update-state', handler)
   }
 }
 

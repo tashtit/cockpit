@@ -7,7 +7,7 @@ it answers "what is Cockpit watching, as whom, how much of each subscription is 
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
 sections, in order: Agent accounts & sources · History · Display · Subscription usage ·
-GitHub · Model providers · Add source).
+GitHub · Model providers · Add source · About).
 
 ## Rules
 
@@ -70,5 +70,16 @@ GitHub · Model providers · Add source).
 - Errors: `.new-error` with `role="alert"`, linked to the path input via
   `aria-describedby`/`aria-invalid`, cleared the moment the user edits. The main-process
   message is shown verbatim — those errors are already human-readable.
+- About section (last): one `.source-row` — `CockpitLogo` (decorative) · "Cockpit" · the
+  version as an `.acct-chip` (a machine identifier, mono) · dim `.source-origin`
+  "installed · arm64" or "development run" · `.source-note` readout of the updater (not
+  checked yet / checking… / up to date — checked Xm ago / version X is available /
+  downloading X · 42% / downloaded — restart to install / the error verbatim) · **one**
+  `.btn-ghost.small` action at a time in `.source-health` (Check for updates → Download X
+  → Restart to install; a disabled "Checking…"/"Downloading…" while busy), so the row never
+  mixes control heights. Transitions announce through the `role="status"` region; progress
+  ticks stay silent. The `.ns-hint` states that nothing downloads until asked and links the
+  GitHub release notes through a `link-btn` (`openExternal`) — notes are not rendered
+  in-app. A development run shows the `unsupported` reason as prose and no control at all.
 - App-level: the global Escape handler blurs a focused field first and only closes the
   view on a second press — a habitual Escape must never discard a half-typed path.

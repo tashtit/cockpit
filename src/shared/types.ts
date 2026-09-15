@@ -808,6 +808,40 @@ export type CleanupResult = {
 /** Clock format for session timestamps shown in the UI */
 export type TimeFormat = '12h' | '24h'
 
+/* app updates: an installed build checks GitHub Releases; anything else reports unsupported */
+export type UpdateStatus =
+  | 'unsupported'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'ready'
+  | 'error'
+
+export type UpdateState = {
+  readonly status: UpdateStatus
+  /** The build on offer — set from `available` onward */
+  readonly version?: string
+  /** Download progress, 0–100, while `downloading` */
+  readonly percent?: number
+  /** The reason for `unsupported`, the failure for `error` */
+  readonly message?: string
+  /** When the last check against GitHub Releases completed */
+  readonly checkedAt?: number
+}
+
+export type AppInfo = {
+  readonly version: string
+  /** false under `npm run dev` and the e2e runs against out/ — the About row says so */
+  readonly packaged: boolean
+  readonly platform: string
+  readonly arch: string
+  readonly electron: string
+  /** The GitHub Releases page — release notes live there, not in the app */
+  readonly releasesUrl: string
+}
+
 export type CockpitApi = {
   readonly sendChat: (req: ChatRequest) => Promise<string>
   readonly cancelChat: (turnId: string) => Promise<void>
@@ -913,4 +947,15 @@ export type CockpitApi = {
   readonly setZoomFactor: (factor: number) => void
   readonly openExternal: (url: string) => Promise<void>
   readonly onIndexUpdated: (cb: () => void) => () => void
+  /* app updates (Settings › About) */
+  readonly getAppInfo: () => Promise<AppInfo>
+  readonly getUpdateState: () => Promise<UpdateState>
+  /** Ask GitHub Releases for a newer build now (installed builds also check on a timer) */
+  readonly checkForUpdates: () => Promise<UpdateState>
+  /** Fetch the offered build; state streams through `downloading` into `ready` */
+  readonly downloadUpdate: () => Promise<UpdateState>
+  /** Quit and hand over to the installer — only meaningful in the `ready` state */
+  readonly installUpdate: () => Promise<void>
+  /** Push: every transition of the update state */
+  readonly onUpdateState: (cb: (state: UpdateState) => void) => () => void
 }

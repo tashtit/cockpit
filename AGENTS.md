@@ -14,6 +14,8 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 - `npx vitest run tests/indexer.test.ts` — one test file
 - `npx vitest run -t "pattern"` — tests matching a name
 - `npm run build` — production build into `out/`
+- `npm run package` — macOS disk images + zips into `dist/` via electron-builder (unsigned without Apple credentials; version `0.0.0` outside a release)
+- `npm run test:packaged` — Playwright smoke test against the `.app` from `npm run package` (`tests/e2e/packaged.spec.ts`; opt-in, uses the real userData dir)
 
 Both `npm run typecheck` and `npm test` must pass before delivering.
 
@@ -57,6 +59,7 @@ Performance invariants — all deliberate, keep them:
 - `accounts.ts` — who each agent CLI is signed in as, per config home (Claude `.claude.json` OAuth, Codex `auth.json` JWT, Copilot's multi-account `config.json`), plus the `gh` user for repo operations.
 - `usage.ts` — subscription usage per provider without touching credentials: Claude measured locally from session JSONLs, Codex from the rate-limit snapshots its CLI persists, Copilot via the GitHub billing API (fails soft).
 - `provider-archived.ts` — reads each provider's own archived/deleted state (Copilot `data.db`, Codex `archived_sessions/`, the Claude desktop app's session store) so those sessions never appear in Cockpit.
+- `updates.ts` — `UpdateManager`: app updates from GitHub Releases through `electron-updater`. Only an installed macOS build is live (dev runs and Linux report `unsupported` and never touch the network); checks on launch and every four hours, never downloads unprompted (`autoDownload` off), installs on the next quit once downloaded. State is pushed as `update-state`; Settings › About renders it. macOS refuses to install an unsigned bundle, so unsigned releases end in `error` at install time.
 - `env.ts` — `cliEnv()`: GUI apps on macOS get a minimal PATH; use it for every spawned CLI. `execText(cmd, args, opts)` is the one way to run a CLI and read its output — it never rejects, so each caller decides what failure means (throw, fall back, log); don't hand-roll another `execFile` wrapper.
 
 ### Tests
@@ -65,7 +68,13 @@ Three tiers; CI (`.github/workflows/ci.yml`) runs all of them:
 
 - **unit** (`tests/*.test.ts`, node env) — real tmpdir fixtures: tests write fake session logs and fake `.git/config` files to disk and run the real indexer/parsers over them. No mocking framework; follow that pattern for new tests.
 - **component** (`tests/component/`, jsdom) — renderer components against the stubbed `window.cockpit` in `tests/component/stub-api.ts`.
-- **e2e** (`tests/e2e/`, Playwright) — drives the built Electron app; requires `npm run build` first.
+- **e2e** (`tests/e2e/`, Playwright) — drives the built Electron app; requires `npm run build` first. `packaged.spec.ts` is the exception: opt-in via `npm run test:packaged`, it launches the `.app` from `npm run package` and is skipped otherwise.
+
+## Packaging & releases
+
+- `electron-builder.config.js` packages macOS only: dmg + zip per arch (arm64, x64), asar with `out/**` and `package.json` and nothing from `node_modules` (main and preload are single bundled files), fuses flipped (`runAsNode` off, `NODE_OPTIONS` off, asar integrity on; `--inspect` stays on because Playwright attaches to the packaged bundle through it in the smoke test). Production `dependencies` ship in the asar — electron-vite leaves them external for main (`require('electron-updater')` at load) — so a dependency dropped from the asar throws at startup as a modal with no window. Signing/notarization turn on by the presence of `CSC_LINK`/`CSC_KEY_PASSWORD`/`APPLE_*` and are skipped otherwise — never make an unsigned build fail.
+- `package.json` `version` is `0.0.0` on purpose: semantic-release (`.releaserc.json`) derives the version from the commits since the last tag and stamps it at release time; the tag is the version and nothing is committed back. Commit types decide the bump (`feat` minor; `fix`/`perf`/`revert`/`build` patch; `!` major) — a misnamed commit is a wrong version.
+- Releases run as the `release` job in `.github/workflows/ci.yml` on push to `main` after `ci` passes: package → `test:packaged` → tag → GitHub Release with the assets and `latest-mac.yml` → provenance attestation. The `package` job builds and smoke-tests the dmg on every PR instead (macOS runner, kept off main pushes for cost).
 
 ## UI work
 

@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+# Superseded PR runs are cancelled; pushes to main queue instead, so a release is never
+# cut short. GitHub keeps at most one run pending per group — a main push whose run is
+# skipped that way loses nothing: the next release covers every commit since the last tag.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -21,6 +24,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with: { persist-credentials: false }
 
       # Blocks PRs that introduce dependencies with known vulnerabilities;
       # diffs base..head, so it only applies to pull requests.
@@ -97,6 +101,134 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # The disk image on every pull request: proves the bundle still packages and boots
+  # before the change reaches main, and leaves the .dmg on the run for reviewers to try.
+  # macOS minutes cost ten times Linux ones, so this runs per PR (and on demand), not per
+  # push to main — the release job below packages main itself and smoke-tests that build.
+  package:
+    if: ${{ github.event_name != 'push' }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: 'read' # for actions/checkout
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with: { persist-credentials: false }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
+        with: { node-version-file: '.nvmrc', cache: 'npm' }
+
+      # both architectures' Electron zips — electron-builder fetches the one the runner is not
+      - name: Cache Electron binaries
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install
+        run: npm ci
+
+      - name: 📦 Package (dmg + zip, arm64 + x64)
+        run: npm run package
+
+      - name: 🚀 Smoke test the packaged app
+        run: npm run test:packaged
+
+      - name: Upload disk images
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: cockpit-mac-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Playwright traces
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: playwright-report-packaged
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # semantic-release on main: reads the commits since the last tag, decides whether a
+  # release is due and which version (feat → minor; fix, perf, build → patch; a `!` or a
+  # BREAKING CHANGE footer → major), stamps package.json, packages, smoke-tests the
+  # packaged app, then pushes the tag and creates the GitHub Release with the disk images
+  # and the updater manifest. Nothing is committed back — the tag is the version — and a
+  # re-run on an already-released commit is a no-op. Details: CONTRIBUTING.md, "Releases".
+  release:
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: [ci]
+    runs-on: macos-latest
+    timeout-minutes: 40
+    # signing and notarization secrets are scoped to this environment, never to the repo
+    environment: release
+    permissions:
+      contents: 'write' # semantic-release pushes the tag and creates the release + assets
+      id-token: 'write' # for actions/attest-build-provenance
+      attestations: 'write' # for actions/attest-build-provenance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0 # semantic-release walks the tags and the history since
+          # the tag is pushed with GITHUB_TOKEN from the env below, not the checkout credential
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
+        with: { node-version-file: '.nvmrc', cache: 'npm' }
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install
+        run: npm ci
+
+      - name: 🏷️ Release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Apple credentials are optional: absent, the build ships unsigned (the README
+          # says how to open it); present, electron-builder signs, hardens and notarizes.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # never sign with whatever identity happens to sit in the runner's keychain
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx semantic-release
+
+      # Signed statement of which workflow run produced each shipped file, verifiable with
+      # `gh attestation verify <file> --owner tashtit`. Only when a release was actually cut.
+      - name: 🔏 Attest build provenance
+        if: ${{ steps.release.outputs.version != '' }}
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: |
+            dist/*.dmg
+            dist/*.zip
+
+      - name: Upload Playwright traces
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: playwright-report-release
           path: |
             playwright-report/
             test-results/

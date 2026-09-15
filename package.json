@@ -1,9 +1,16 @@
 {
   "name": "cockpit",
-  "version": "0.1.0",
+  "productName": "Cockpit",
+  "version": "0.0.0",
   "description": "Unified desktop hub for Claude Code, Codex, and GitHub Copilot sessions",
+  "author": "tashtit",
   "main": "./out/main/index.js",
   "private": true,
+  "homepage": "https://github.com/tashtit/cockpit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tashtit/cockpit.git"
+  },
   "license": "Apache-2.0",
   "packageManager": "npm@11.17.0",
   "scripts": {
@@ -12,6 +19,7 @@
     "predev:fg": "node scripts/brand-dev-electron.mjs",
     "dev:fg": "COCKPIT_DEV_BACKGROUND=0 electron-vite dev",
     "build": "electron-vite build",
+    "package": "npm run build && electron-builder --config electron-builder.config.js --mac --publish never",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
@@ -21,17 +29,21 @@
     "test:unit": "vitest run --project unit",
     "test:component": "vitest run --project component",
     "test:e2e": "playwright test",
+    "test:packaged": "node scripts/test-packaged.mts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "release": "semantic-release"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@semantic-release/exec": "^7.1.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -41,11 +53,14 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^5.0.0",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
     "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "jsdom": "^30.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "semantic-release": "^25.0.9",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitepress": "^1.6.4",
@@ -56,6 +71,7 @@
   },
   "allowScripts": {
     "esbuild": true,
-    "fsevents": true
+    "fsevents": true,
+    "electron-winstaller": false
   }
 }
