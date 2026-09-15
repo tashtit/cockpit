@@ -128,6 +128,22 @@ export function freshApi(): CockpitApi {
     getZoomFactor: vi.fn(() => 1),
     setZoomFactor: vi.fn(),
     openExternal: vi.fn(async () => {}),
-    onIndexUpdated: vi.fn(() => () => {})
+    onIndexUpdated: vi.fn(() => () => {}),
+    getAppInfo: vi.fn(async () => ({
+      version: '0.0.0',
+      packaged: false,
+      platform: 'darwin',
+      arch: 'arm64',
+      electron: '44.0.0',
+      releasesUrl: 'https://github.com/tashtit/cockpit/releases'
+    })),
+    getUpdateState: vi.fn(async () => ({
+      status: 'unsupported' as const,
+      message: 'Updates apply to installed builds only — this is a development run.'
+    })),
+    checkForUpdates: vi.fn(async () => ({ status: 'up-to-date' as const, checkedAt: 0 })),
+    downloadUpdate: vi.fn(async () => ({ status: 'ready' as const, version: '0.0.0' })),
+    installUpdate: vi.fn(async () => {}),
+    onUpdateState: vi.fn(() => () => {})
   }
 }

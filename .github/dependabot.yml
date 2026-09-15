@@ -64,6 +64,12 @@ updates:
       # would typecheck against APIs absent at runtime. Raise this with .nvmrc.
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
+      # The conventionalcommits preset must match the conventional-changelog-writer that
+      # semantic-release's commit-analyzer and release-notes-generator bundle (8.x today):
+      # preset 10 needs writer 9 and fails generateNotes with "Missing helper". Bump the
+      # preset major only together with a semantic-release major that moves the writer.
+      - dependency-name: conventional-changelog-conventionalcommits
+        update-types: ['version-update:semver-major']
 
     groups:
       dev:

@@ -13,6 +13,18 @@ Common causes:
 - **Proxy or firewall** blocking the fetch from GitHub releases — set `ELECTRON_MIRROR` to a mirror you can reach, then re-run `npx install-electron`.
 - **Corrupt cached download** — `rm -rf ~/Library/Caches/electron` and retry.
 
+## "Cockpit" is damaged and can't be opened
+
+macOS says this (or "from an unidentified developer") about an unsigned build — every release until the pipeline has an Apple Developer ID certificate. The download is fine; the quarantine flag Safari or Finder put on it is what Gatekeeper objects to. Clear it once:
+
+```bash
+xattr -d com.apple.quarantine /Applications/Cockpit.app
+```
+
+## An update fails at "Restart to install"
+
+The About row in Settings shows `Could not install <version>: …` with a code-signature error. macOS only swaps in a signed bundle, so an unsigned release can be checked and downloaded but not installed in place. Download the new disk image from the [releases page](https://github.com/tashtit/cockpit/releases) and replace the app in Applications; your settings live in `~/Library/Application Support/Cockpit` and survive.
+
 ## Sessions missing from the sidebar
 
 Work through these in order:

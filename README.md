@@ -2,7 +2,19 @@
 
 Unified desktop hub for **Claude Code**, **Codex**, and **GitHub Copilot CLI**: browse every session across providers, continue any conversation, start new agent runs in isolated worktrees, and manage the shared AI setup — from one window.
 
-## Run
+## Install
+
+Download the disk image for your Mac from the [latest release](https://github.com/tashtit/cockpit/releases/latest) — `Cockpit-<version>-arm64.dmg` on Apple silicon, `Cockpit-<version>-x64.dmg` on Intel — open it and drag Cockpit into Applications. Each release page carries the notes for that version.
+
+Until the release pipeline has an Apple Developer ID certificate ([CONTRIBUTING.md › Releases](CONTRIBUTING.md#releases)), builds are unsigned and macOS refuses to open them at first ("damaged" / "unidentified developer"). Clear the quarantine flag once and it opens normally:
+
+```bash
+xattr -d com.apple.quarantine /Applications/Cockpit.app
+```
+
+**Updates.** An installed Cockpit checks GitHub Releases on launch and every few hours; **Settings › About** shows the installed version, offers a newer build as a download, and installs it on the next quit. Nothing is fetched until you choose to. macOS only swaps in a signed bundle, so while releases are unsigned an update ends in an error at the install step — install the new disk image by hand instead.
+
+## Run from source
 
 Requires Node 24 (`.nvmrc`) and the npm 11 it bundles (pinned as `packageManager`).
 
@@ -12,9 +24,10 @@ npm run dev        # dev mode with HMR — first run downloads the Electron bina
 npm run typecheck  # tsc (the static gate — there is no linter)
 npm test           # vitest: unit + component tiers
 npm run test:e2e   # Playwright against the built app (npm run build first)
+npm run package    # macOS disk images into dist/ (unsigned without Apple credentials)
 ```
 
-CI (`.github/workflows/ci.yml`) runs typecheck plus all three test tiers. Setup details and troubleshooting (including "Electron failed to install correctly") are in [CONTRIBUTING.md](CONTRIBUTING.md).
+CI (`.github/workflows/ci.yml`) runs typecheck plus all three test tiers, packages the app on every pull request, and cuts a [semantic release](CONTRIBUTING.md#releases) from `main`. Setup details and troubleshooting (including "Electron failed to install correctly") are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What it does (GitHub-first)
 
@@ -35,7 +48,7 @@ CI (`.github/workflows/ci.yml`) runs typecheck plus all three test tiers. Setup 
 - **Always worktrees, always PRs**: "+ New session" creates a `cockpit/<name>` branch in an isolated git worktree (under the app's userData, outside your checkout) and runs the agent there. "Create PR" pushes the branch and runs `gh pr create`. PR state badges (open/draft/merged/closed, GitHub colors) come from `gh pr list`, cached 60s per repo.
 - **Working chat**: pick a provider + repo path → chat spawns the CLI headless (`claude -p --output-format stream-json`, `codex exec --json`, `copilot -p`) and streams replies, tool activity, and errors into the window. Multi-turn works via each provider's resume (`--resume` / `exec resume`). Opening an indexed session and typing continues that conversation.
 - Permission modes per chat: **Safe** (provider defaults; tools may be blocked in headless mode), **Auto-edit** (`--permission-mode acceptEdits` / `--full-auto`), **YOLO** (bypass approvals — trusted repos only).
-- Extra source dirs (isolated per-account config homes) are stored in the app config (`~/Library/Application Support/cockpit/cockpit-config.json`) as `{path, provider, label}`.
+- Extra source dirs (isolated per-account config homes) are stored in the app config (`~/Library/Application Support/Cockpit/cockpit-config.json`) as `{path, provider, label}`.
 
 ## Layout
 
@@ -54,6 +67,7 @@ src/main/accounts.ts      who each agent CLI is signed in as, per config home + 
 src/main/usage.ts         subscription usage per provider (local measurement / CLI snapshots / GitHub billing API)
 src/main/provider-archived.ts  sessions archived/deleted in the provider's own app → hidden
 src/main/env.ts           PATH fix for GUI-launched CLI spawns (macOS)
+src/main/updates.ts       app updates from GitHub Releases (electron-updater; installed builds only)
 src/main/config.ts        source-dir registry + history window
 src/main/index.ts         electron bootstrap + IPC
 src/preload/index.ts      contextBridge → window.cockpit

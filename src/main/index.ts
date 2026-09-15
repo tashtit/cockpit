@@ -68,6 +68,7 @@ import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
 import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
 import { getProfile } from './profile'
+import { appInfo, UpdateManager } from './updates'
 import { homedir } from 'node:os'
 
 // e2e/dev isolation only — a packaged app must never honor a data-dir override
@@ -454,6 +455,20 @@ app.whenReady().then(() => {
   ipcMain.handle('usage:get', () => getUsage(loadConfig().sources))
   ipcMain.handle('profile:get', () => getProfile(indexer.allSessions(), loadConfig().sources))
 
+  // app updates from GitHub Releases — the manager refuses everything but an installed
+  // macOS build, so dev runs and e2e never reach the network
+  const updates = new UpdateManager((state) => sendToWin('update-state', state))
+  ipcMain.handle('app:info', () => appInfo())
+  ipcMain.handle('updates:get', () => updates.current)
+  ipcMain.handle('updates:check', () => updates.check())
+  ipcMain.handle('updates:download', () => updates.download())
+  ipcMain.handle('updates:install', () => {
+    // the installer quits the app — persist the index first, as window-all-closed does
+    if (updates.current.status !== 'ready') return
+    indexer.saveCache()
+    updates.install()
+  })
+
   ipcMain.handle('endpoints:get', () => listModelEndpoints())
   ipcMain.handle('endpoints:add', (_e, input: unknown) => {
     // the key never enters the endpoint definition — strip it, encrypt it separately
@@ -690,8 +705,9 @@ app.whenReady().then(() => {
     return result
   })
 
-  // Cockpit mark in the dock (packaged builds get it via the bundle icon instead)
-  if (process.platform === 'darwin') {
+  // Cockpit mark in the dock — dev only: a packaged build carries it as the bundle icon,
+  // and resources/ is not in the asar
+  if (process.platform === 'darwin' && !app.isPackaged) {
     try {
       app.dock?.setIcon(join(app.getAppPath(), 'resources', 'icon.png'))
     } catch {
