@@ -345,15 +345,34 @@ summary::-webkit-details-marker { display: none; }
   font-size: var(--fs-sm); display: flex; flex-direction: column; align-items: center;
   gap: var(--s3); }
 
-/* identity bar: agent logos + GitHub login in one quiet row; details in the
-   tooltip, full management one click away in Settings */
-.sidebar-footer { display: flex; align-items: stretch;
+/* footer: two quiet bar controls, each 26px min — usage meters (only while a
+   subscription reports numbers) over the identity bar (agent logos + GitHub login).
+   Details live in the tooltips, full management one click away in Settings */
+.sidebar-footer { display: flex; flex-direction: column; align-items: stretch; gap: 2px;
   padding: var(--s2) var(--s3); border-top: 1px solid var(--border); font-size: var(--fs-xs); }
-.footer-ids { display: flex; align-items: center; gap: var(--s2); flex: 1; min-width: 0;
+.footer-ids, .footer-usage { display: flex; align-items: center; gap: var(--s2); min-width: 0;
   min-height: 26px; padding: 2px var(--s2); border-radius: var(--radius-sm);
   color: var(--fg-dim); }
-.footer-ids:hover { background: var(--bg3); color: var(--fg); }
-.footer-ids .plogo { opacity: 0.8; }
+.footer-ids:hover, .footer-usage:hover { background: var(--bg3); color: var(--fg); }
+.footer-ids .plogo, .footer-usage .plogo { opacity: 0.8; }
+/* one cell per provider, sharing the row evenly; the bar is the first thing to give
+   (it can shrink to a sliver) — the number is the reading, the bar the decoration */
+.usage-cell { display: inline-flex; align-items: center; gap: var(--s1); flex: 1 1 0;
+  min-width: 0; }
+.usage-mini { flex: 1 1 16px; min-width: 12px; max-width: 48px; height: var(--s2);
+  border-radius: var(--radius-pill); background: var(--surface); border: 1px solid var(--border);
+  overflow: hidden; }
+.usage-mini-fill { display: block; height: 100%; border-radius: var(--radius-pill); }
+/* no text sits on these fills — solid livery color, like Settings' .usage-fill */
+.usage-cell-claude .usage-mini-fill { background: var(--claude); }
+.usage-cell-codex .usage-mini-fill { background: var(--codex); }
+.usage-cell-copilot .usage-mini-fill { background: var(--copilot); }
+.usage-cell-num { color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-warn { flex-shrink: 0; }
+/* the warning state is a glyph AND the warn color — the glyph carries it alone when
+   color can't (the button's name says "warning" for screen readers) */
+.usage-cell.warn .usage-cell-num, .usage-cell.warn .usage-warn { color: var(--warn); }
+.usage-cell.warn .usage-mini-fill { background: var(--warn); }
 .footer-gh { display: inline-flex; align-items: center; gap: var(--s1);
   font-family: var(--mono); margin-left: auto; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -1575,4 +1594,9 @@ button.pnl-flag:hover { text-decoration: underline; }
   .home-hero { display: none; }
   .home-inner { justify-content: flex-start; padding-top: var(--s4); }
   .ns-card { margin: var(--s3) auto; }
+}
+@media (max-width: 700px) {
+  /* the 200px rail can't hold three meter bars next to their numbers — the bars
+     shed, the percentages (the actual reading) stay */
+  .usage-mini { display: none; }
 }

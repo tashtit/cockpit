@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
 import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
+import { usageFixture } from './stub-api'
 
 const repo: RepoGroup = {
   key: '/home/dev/rocket',
@@ -212,5 +213,27 @@ describe('roundtables as tree items', () => {
     expect(props.onSelect).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'claude:seat1', roundtableId: 'rt-g' })
     )
+  })
+})
+
+/**
+ * The footer is a glance: the usage row opens Settings at its own section, the
+ * identity bar opens Settings plain — same affordance, different landing.
+ */
+describe('sidebar footer', () => {
+  it('opens Settings at the usage section from the meters, plain from the identity bar', async () => {
+    vi.mocked(window.cockpit.getUsage).mockResolvedValue(usageFixture())
+    const props = renderSidebar()
+    await userEvent.click(await screen.findByRole('button', { name: /^Subscription usage/ }))
+    expect(props.onOpenSettings).toHaveBeenLastCalledWith('usage')
+    await userEvent.click(screen.getByRole('button', { name: 'Accounts — open settings' }))
+    expect(props.onOpenSettings).toHaveBeenLastCalledWith()
+  })
+
+  it('shows no usage row when nothing is measured', async () => {
+    renderSidebar()
+    await waitFor(() => expect(window.cockpit.getUsage).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /^Subscription usage/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Accounts — open settings' })).toBeInTheDocument()
   })
 })

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeUsage, codexUsage, parsePremiumRequests } from '../src/main/usage'
+import { claudeUsage, codexUsage, getUsage, parsePremiumRequests, throttled } from '../src/main/usage'
 
 const root = join(tmpdir(), 'cockpit-usage-fixtures')
 const claudeHome = join(root, 'claude')
@@ -168,5 +168,63 @@ describe('parsePremiumRequests', () => {
     expect(parsePremiumRequests({})).toBeNull()
     expect(parsePremiumRequests(null)).toBeNull()
     expect(parsePremiumRequests('nope')).toBeNull()
+  })
+})
+
+describe('throttled', () => {
+  it('remembers a result for the TTL and coalesces concurrent calls into one run', async () => {
+    let now = 1_000
+    let runs = 0
+    const get = throttled(
+      60_000,
+      async () => {
+        runs++
+        return { runs }
+      },
+      () => now
+    )
+    const [a, b] = await Promise.all([get(), get()])
+    expect(runs).toBe(1)
+    expect(a).toBe(b)
+    now += 59_999
+    expect(await get()).toBe(a)
+    expect(runs).toBe(1)
+    now += 1
+    const c = await get()
+    expect(runs).toBe(2)
+    expect(c).not.toBe(a)
+  })
+
+  it('does not remember a failed run — the next call tries again', async () => {
+    let fail = true
+    let runs = 0
+    const get = throttled(60_000, async () => {
+      runs++
+      if (fail) throw new Error('gh failed')
+      return 'ok'
+    })
+    await expect(get()).rejects.toThrow('gh failed')
+    fail = false
+    expect(await get()).toBe('ok')
+    expect(await get()).toBe('ok')
+    expect(runs).toBe(2)
+  })
+})
+
+describe('getUsage', () => {
+  it('measures the local homes and hands bursts of calls the same snapshot', async () => {
+    const sources = [
+      { provider: 'claude' as const, path: claudeHome, label: 'claude' },
+      { provider: 'codex' as const, path: codexHome, label: 'codex' },
+      // never walked: the copilot path has nothing local to measure, and without a
+      // copilot source the snapshot never reaches for gh at all
+      { provider: 'copilot' as const, path: join(root, 'missing-copilot'), label: 'copilot' }
+    ]
+    const first = await getUsage(sources)
+    expect(first.providers.map((p) => p.provider)).toEqual(['claude', 'codex'])
+    expect(first.providers[0].windows.map((w) => w.label)).toEqual(['current 5h block', 'last 7 days'])
+    expect(first.providers[1].windows.map((w) => w.label).sort()).toEqual(['5h window', 'weekly window'])
+    // the sidebar re-asks on every busy-set change — those land on the cached snapshot
+    expect(await getUsage(sources)).toBe(first)
   })
 })
