@@ -95,6 +95,8 @@ Adding a runtime dependency means adding a row here in the same pull request, wi
 
 The bundle ships with Electron fuses flipped (`electronFuses` in the config): no `ELECTRON_RUN_AS_NODE`, no `NODE_OPTIONS`, asar integrity validation, app code only from the asar. Node's `--inspect` flags stay enabled because Playwright attaches to the packaged bundle through them in the smoke test.
 
+The app icon is committed, not built: `resources/icon-original.webp` is the artwork, and `npm run icon` (`scripts/build-app-icon.swift`, macOS only) renders it into the macOS icon template as `resources/icon.png` — the dev Dock icon — and packs `build/icon.icns` with `iconutil`. electron-builder could render the `.icns` from a PNG itself, but its converter writes the 16/32/64px entries in chunk types Finder decodes as raw pixels, so those sizes come out as noise; `tests/app-icon.test.ts` pins the committed file to `iconutil`'s layout. Rerun the script after changing the artwork and commit both outputs.
+
 ## Releases
 
 Releases are cut by [semantic-release](https://semantic-release.gitbook.io/) from `main` — the `release` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml), after the `ci` job passes on that push. There is no release branch, no version-bump commit and no changelog file: **the git tag is the version**, and the release notes live on the GitHub Release. `.releaserc.json` holds the rules.

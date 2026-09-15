@@ -20,6 +20,7 @@
     "dev:fg": "COCKPIT_DEV_BACKGROUND=0 electron-vite dev",
     "build": "electron-vite build",
     "package": "npm run build && electron-builder --config electron-builder.config.js --mac --publish never && node scripts/verify-signing.mts",
+    "icon": "swift scripts/build-app-icon.swift",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
