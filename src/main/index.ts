@@ -46,6 +46,7 @@ import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
 import { asDiffScope, getWorkspaceDiff } from './diff'
+import { asPrNumber, getPrFeedback, getPrFixBriefing } from './pr-feedback'
 import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
 import { clampRounds } from './roundtable-core'
 import {
@@ -394,6 +395,14 @@ app.whenReady().then(() => {
   // selects git arguments
   ipcMain.handle('workspace:diff', (_e, cwd: string, scope: unknown) =>
     getWorkspaceDiff(assertKnownCwd(cwd), asDiffScope(scope))
+  )
+  // an open PR's feedback and its fix prompt: the root is one the indexer derived,
+  // and the number is renderer input that only ever reaches gh as a positive integer
+  ipcMain.handle('github:pr-feedback', (_e, repoRoot: string, n: unknown) =>
+    getPrFeedback(assertKnownRepoRoot(repoRoot), asPrNumber(n))
+  )
+  ipcMain.handle('github:pr-fix', (_e, repoRoot: string, n: unknown) =>
+    getPrFixBriefing(assertKnownRepoRoot(repoRoot), asPrNumber(n))
   )
   ipcMain.handle('extensions:get', () => getExtensions())
   // agent comes from the renderer and (for login) becomes a spawned command —

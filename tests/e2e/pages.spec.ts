@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -24,6 +24,37 @@ const claudeSrc = join(root, 'claude-home')
 const codexSrc = join(root, 'codex-home')
 const repoDir = join(root, 'rocket')
 const noRepoCwd = join(root, 'no-repo')
+const fakeBin = join(root, 'bin')
+
+/**
+ * A stand-in `gh`, first on the app's PATH: the fixtures' branch carries an open
+ * PR whose checks fail and whose review asks for changes — the widest a PR badge
+ * ever gets. Everything else exits non-zero, which is what a machine without gh
+ * looks like. Without this the run would ask this machine's real gh (or none at
+ * all), and the minimum-window audit below would never see a badge.
+ */
+const FAKE_PR = JSON.stringify([
+  {
+    number: 42,
+    title: 'Fix the login flake',
+    state: 'OPEN',
+    isDraft: false,
+    headRefName: 'main',
+    url: 'https://github.com/acme/rocket/pull/42',
+    reviewDecision: 'CHANGES_REQUESTED',
+    statusCheckRollup: [
+      { __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'FAILURE' },
+      { __typename: 'CheckRun', status: 'IN_PROGRESS', conclusion: null }
+    ]
+  }
+])
+
+function writeFakeGh(): void {
+  mkdirSync(fakeBin, { recursive: true })
+  const gh = join(fakeBin, 'gh')
+  writeFileSync(gh, `#!/bin/sh\ncase "$1 $2" in\n  "pr list") cat <<'JSON'\n${FAKE_PR}\nJSON\n  ;;\n  *) exit 1 ;;\nesac\n`)
+  chmodSync(gh, 0o755)
+}
 
 function jsonl(objs: unknown[]): string {
   return objs.map((o) => JSON.stringify(o)).join('\n') + '\n'
@@ -98,6 +129,7 @@ test.beforeAll(async () => {
     ])
   )
 
+  writeFakeGh()
   mkdirSync(userData, { recursive: true })
   writeFileSync(
     join(userData, 'cockpit-config.json'),
@@ -114,6 +146,7 @@ test.beforeAll(async () => {
     args: [mainEntry],
     env: {
       ...process.env,
+      PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
       COCKPIT_USER_DATA: userData,
       // CI linux runners restrict unprivileged user namespaces; no SUID helper either
       ...(process.env.CI ? { ELECTRON_DISABLE_SANDBOX: '1' } : {})
@@ -399,7 +432,15 @@ test('the window minimum is enforced and every surface holds at exactly that siz
 
   await win.getByRole('treeitem', { name: /fix the login flake/ }).click()
   await expect(win.getByRole('button', { name: 'Send' })).toBeVisible()
+  // the chat header at its widest: an open PR's badge (state, checks glyph and
+  // the changes-requested mark) beside the review key and the mode picker
+  await expect(win.locator('.chat-header .pr-badge')).toBeVisible()
   expect(await audit()).toEqual([])
+  // and the review, whose PR strip and diff controls wrap into the same width
+  await win.getByRole('button', { name: 'Changes', exact: true }).click()
+  await expect(win.getByRole('region', { name: 'Changes to review' })).toBeVisible()
+  expect(await audit()).toEqual([])
+  await win.getByRole('button', { name: 'Changes', exact: true }).click()
 
   await win.setViewportSize({ width: 1100, height: 728 })
 })

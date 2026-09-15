@@ -21,9 +21,11 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   560px floor.
 - **Labels shed to their marks before the title truncates** — ≤780px the `Changes` and
   `Continue in…` keys fold to 28px squares (`.lbl` hidden; `DiffIcon`/`HandoffIcon`
-  stay, each with an `aria-label`); ≤700px the badge drops `.badge-text` to its titled
-  agent mark. The title is the one thing the header exists to say; it must survive
-  the minimum window.
+  stay, each with an `aria-label`), and an open PR's badge drops its state word
+  (`.pr-word`) to keep the number beside its checks glyph and review mark — the state
+  stays in the badge's `aria-label` and tooltip; ≤700px the agent badge drops
+  `.badge-text` to its titled mark. The title is the one thing the header exists to
+  say; it must survive the minimum window.
 
 - The PR slot is exclusive: a `PrBadge` when the branch has a PR, else green `.btn-pr`
   "Create PR" (GitHub merge-button semantics), else nothing. Never both.
@@ -119,6 +121,40 @@ review is open and sheds its word (`.lbl`) ≤780px, keeping the diff glyph
 - Reloads on scope change, on refresh, and whenever a running turn settles (never
   mid-turn — the tree is changing under the reader). Errors from main render as a
   `.review-error` alert, unwrapped.
+
+### The open PR (`PrStrip.tsx`, `.review-pr`)
+
+When the branch has an **open** PR (merged/closed: nothing — the header badge already
+says so), the review leads with it, framed like the file list below:
+
+- `.review-pr-head`: `PrBadge` · `.review-sum` readout, each word in its tone
+  (`2 of 7 checks failing` danger / `3 of 7 checks running` warn / `7 checks passed`
+  ok / `no checks` dim · `changes requested` danger · `N unresolved threads` warn ·
+  `conflicts with main` danger — separated by silent middle dots) · **Fix with <Agent>** (`.btn-ghost.small`, only when
+  something is actionable — `needsFix` in `src/shared/pr-feedback.ts`, the same verdict
+  main's prompt uses; disabled mid-turn; "Gathering what failed…" with a pulse while main
+  reads the logs).
+- `.review-pr-list`: one 28px row per failing check (`.review-kind.tone-danger` state
+  word — failed / timed out / cancelled — · mono name · dim workflow), per change request
+  (`changes` · @author · one-line excerpt) and per unresolved thread (`thread` warn /
+  `outdated` dim · `path:line` · @author · excerpt), each ending in a 24px
+  external-link key; five per kind, then "N more on GitHub". ≤780px the excerpts and
+  authors shed first.
+- **Fix** puts one prompt in the composer (never sends it): conflicts, failing checks
+  with their failed step's output, change requests, threads — built in main
+  (`pr-feedback-core.ts`), capped per section. What it couldn't include (an unreadable
+  log) shows as a warn `.review-pr-notice`.
+- Read on demand (panel open, refresh, a turn settling) — never polled.
+
+### Reviewers' threads (`.review-thread`)
+
+In the **Branch** scope only (the index's line numbers are not the PR's), each
+unresolved thread renders under the line GitHub anchored it to — LEFT side under the
+removed line, RIGHT under the added or context line: every comment as `@author` (mono,
+dim) + body (sans, pre-wrap), "N more replies", Open on GitHub. Quiet `--bg2` surface
+with a 2px warn inset bar (still open); read-only — the reviewer's words, not the
+user's. The file head counts the threads it shows (`.review-kind.tone-warn`); outdated
+threads have no line and live in the strip's list only.
 
 ## Composer
 

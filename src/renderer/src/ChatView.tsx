@@ -95,8 +95,8 @@ export function ChatView({
     return () => window.removeEventListener('keydown', onKey)
   }, [reviewable])
 
-  /** Review notes land in the composer, ready to send — the reviewer gets the last word. */
-  const takeNotes = (text: string): void => {
+  /** Review notes and fix prompts land in the composer, ready to send — the reviewer gets the last word. */
+  const compose = (text: string): void => {
     setDraft((d) => (d.trim() ? `${d.trimEnd()}\n\n${text}` : text))
     composerRef.current?.focus()
   }
@@ -255,7 +255,15 @@ export function ChatView({
       </header>
 
       {review && reviewable ? (
-        <ReviewPanel cwd={binding.cwd} provider={binding.provider} busy={busy} onNotes={takeNotes} />
+        <ReviewPanel
+          cwd={binding.cwd}
+          provider={binding.provider}
+          busy={busy}
+          onCompose={compose}
+          pr={branchPr}
+          repoRoot={binding.repoRoot}
+          onOpenUrl={onOpenUrl}
+        />
       ) : (
         <div
           className="messages"
