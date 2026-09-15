@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import type { PrStatus, Provider } from '../../shared/types'
+import type { PrChecks, PrReview, PrStatus, Provider } from '../../shared/types'
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude',
@@ -227,6 +227,30 @@ export function BranchChip({ branch }: { branch: string }): JSX.Element {
   )
 }
 
+/* Checks verdict glyphs — GitHub's own: check, x, and the filled dot it uses for
+ * "still running". Three shapes, so the verdict never rides on color alone. */
+const OCTICON_CHECK =
+  'M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z'
+const OCTICON_X =
+  'M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z'
+const OCTICON_DOT_FILL = 'M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z'
+
+const CHECKS_GLYPH: Record<Exclude<PrChecks, 'none'>, string> = {
+  passing: OCTICON_CHECK,
+  failing: OCTICON_X,
+  pending: OCTICON_DOT_FILL
+}
+const CHECKS_LABEL: Record<Exclude<PrChecks, 'none'>, string> = {
+  passing: 'checks passing',
+  failing: 'checks failing',
+  pending: 'checks pending'
+}
+const REVIEW_LABEL: Record<Exclude<PrReview, 'none'>, string> = {
+  approved: 'approved',
+  changes_requested: 'changes requested',
+  review_required: 'review required'
+}
+
 export function PrBadge({
   pr,
   onOpen,
@@ -239,13 +263,21 @@ export function PrBadge({
   const cls = pr.state === 'OPEN' ? (pr.isDraft ? 'draft' : 'open') : pr.state.toLowerCase()
   const label =
     pr.state === 'MERGED' ? 'Merged' : pr.state === 'CLOSED' ? 'Closed' : pr.isDraft ? 'Draft' : 'Open'
+  // checks and review only matter while the PR is open — on a merged or closed
+  // one they are history, and a red x next to "Merged" would read as a contradiction
+  const checks = pr.state === 'OPEN' && pr.checks !== 'none' ? pr.checks : null
+  const review = pr.state === 'OPEN' && pr.review !== 'none' ? pr.review : null
+  const detail = [checks && CHECKS_LABEL[checks], review && REVIEW_LABEL[review]].filter(
+    (s): s is string => s !== null
+  )
   return (
     <button
       className={`pr-badge pr-${cls} ${compact ? 'compact' : ''}`}
       // the compact badge renders only "#42" — state lives in the border color alone,
-      // so it has to be in the name too (WCAG 1.4.1)
-      aria-label={`${label} pull request #${pr.number}: ${pr.title}`}
-      title={`${label} — #${pr.number} ${pr.title}`}
+      // so it has to be in the name too (WCAG 1.4.1); same for the checks glyph and
+      // the changes-requested mark, which are shapes without words
+      aria-label={`${label} pull request #${pr.number}: ${pr.title}${detail.map((s) => `, ${s}`).join('')}`}
+      title={`${label} — #${pr.number} ${pr.title}${detail.map((s) => `\n${s}`).join('')}`}
       onClick={(e) => {
         e.stopPropagation()
         onOpen(pr.url)
@@ -253,6 +285,14 @@ export function PrBadge({
     >
       <Octicon d={pr.state === 'MERGED' ? OCTICON_MERGE : OCTICON_PR} size={compact ? 10 : 11} />
       {compact ? `#${pr.number}` : `${label} #${pr.number}`}
+      {checks && (
+        <span className={`pr-checks ${checks}`}>
+          <Octicon d={CHECKS_GLYPH[checks]} size={compact ? 10 : 11} />
+        </span>
+      )}
+      {/* the one review outcome that needs the author back gets a visible mark;
+          approved / review required stay in the tooltip */}
+      {review === 'changes_requested' && <span className="pr-review-mark" aria-hidden="true" />}
     </button>
   )
 }

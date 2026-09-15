@@ -110,7 +110,7 @@ rather than a pale rinse of the button fill.
 Reuse these; don't invent parallel variants:
 
 - **`.acct-chip`** — the one account-identity component (mono pill, agent-tinted border; `.missing` = warn/italic).
-- **`.pr-badge`** — PR state pill, GitHub colors, outline style.
+- **`.pr-badge`** — PR state pill, GitHub colors, outline style. On an open PR it carries the checks verdict as a second glyph (`.pr-checks` — check / x / dot in `--ok` / `--danger` / `--warn`, so the shape carries the state) and a 5px `.pr-review-mark` when changes were requested; both, plus approved / review required, are spelled out in the tooltip and `aria-label`. Merged and closed PRs show neither.
 - **`.branch-chip`** — branch-blue mono pill (render via `BranchChip`: the constant `cockpit/` worktree prefix abbreviates to a dimmed `c/` so the distinguishing suffix wins truncation; full name in the tooltip).
 - **`LiveDot`** (`.pulse.pulse-{agent}`) — 7px agent-colored pulse: "this session's agent is running right now". Occupies the row's exclusive meta slot (running beats PR badge beats timestamp) in sidebar session rows and board rows.
 - **`.board`** — the app's signature element (home only): departure-board of sessions, flying first — livery-lit placard labels, branch chips, ticking elapsed time. Quiet `--surface` instrument panel; never give it the composer card's floating shadow. See `pages/home.md`.

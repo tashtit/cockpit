@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
 import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
-import { usageFixture } from './stub-api'
+import { openPr, usageFixture } from './stub-api'
 
 const repo: RepoGroup = {
   key: '/home/dev/rocket',
@@ -83,14 +83,7 @@ describe('session rows state that is not colour-coded', () => {
   })
 
   it('names a compact PR badge with its state, which is otherwise only a border colour', async () => {
-    const pr: PrStatus = {
-      number: 42,
-      title: 'Fix the login flake',
-      state: 'OPEN',
-      isDraft: true,
-      headRefName: 'cockpit/login-flake',
-      url: 'https://github.com/acme/rocket/pull/42'
-    }
+    const pr = openPr({ isDraft: true, checks: 'none' })
     vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session()] })
     vi.mocked(window.cockpit.getPrs).mockResolvedValue([pr])
     renderSidebar()
@@ -99,6 +92,70 @@ describe('session rows state that is not colour-coded', () => {
     const badge = await screen.findByRole('button', { name: /^Draft pull request #42/ })
     expect(badge).toHaveTextContent('#42')
     expect(badge).not.toHaveTextContent('Draft')
+  })
+})
+
+/**
+ * The checks verdict and the review outcome are glyphs on the badge — a check, an
+ * x, a dot, a red mark — so, like the state colour, they have to be said in the
+ * accessible name and the tooltip too.
+ */
+describe('PR badge checks and review', () => {
+  async function renderWithPr(pr: PrStatus): Promise<HTMLElement> {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session()] })
+    vi.mocked(window.cockpit.getPrs).mockResolvedValue([pr])
+    renderSidebar()
+    return screen.findByRole('button', { name: /pull request #42/ })
+  }
+
+  it('shows failing checks and requested changes as marks, and says both in the name', async () => {
+    const badge = await renderWithPr(openPr({ checks: 'failing', review: 'changes_requested' }))
+    expect(badge).toHaveAccessibleName(
+      'Open pull request #42: Fix the login flake, checks failing, changes requested'
+    )
+    expect(badge).toHaveAttribute('title', 'Open — #42 Fix the login flake\nchecks failing\nchanges requested')
+    expect(badge.querySelector('.pr-checks.failing')).not.toBeNull()
+    expect(badge.querySelector('.pr-review-mark')).not.toBeNull()
+    // the compact badge still only spends its width on the number
+    expect(badge).toHaveTextContent(/^#42$/)
+  })
+
+  it('gives passing, failing and pending checks three different shapes', async () => {
+    const shapes = new Map<string, string | null>()
+    for (const checks of ['passing', 'failing', 'pending'] as const) {
+      const badge = await renderWithPr(openPr({ checks }))
+      expect(badge).toHaveAccessibleName(new RegExp(`, checks ${checks}$`))
+      const glyph = badge.querySelector(`.pr-checks.${checks} path`)
+      expect(glyph, checks).not.toBeNull()
+      shapes.set(checks, glyph?.getAttribute('d') ?? null)
+      cleanup()
+    }
+    expect(new Set(shapes.values()).size).toBe(3)
+  })
+
+  it('keeps the tooltip-only review outcomes off the badge', async () => {
+    for (const review of ['approved', 'review_required'] as const) {
+      const badge = await renderWithPr(openPr({ review }))
+      expect(badge).toHaveAccessibleName(new RegExp(`, ${review.replace('_', ' ')}$`))
+      expect(badge.querySelector('.pr-review-mark'), review).toBeNull()
+      cleanup()
+    }
+  })
+
+  it('says nothing about checks while none have reported', async () => {
+    const badge = await renderWithPr(openPr({ checks: 'none' }))
+    expect(badge).toHaveAccessibleName('Open pull request #42: Fix the login flake')
+    expect(badge.querySelector('.pr-checks')).toBeNull()
+  })
+
+  it('lets a merged PR rest: its old verdicts are history, not a contradiction', async () => {
+    const badge = await renderWithPr(
+      openPr({ state: 'MERGED', checks: 'failing', review: 'changes_requested' })
+    )
+    expect(badge).toHaveAccessibleName('Merged pull request #42: Fix the login flake')
+    expect(badge).toHaveAttribute('title', 'Merged — #42 Fix the login flake')
+    expect(badge.querySelector('.pr-checks')).toBeNull()
+    expect(badge.querySelector('.pr-review-mark')).toBeNull()
   })
 })
 

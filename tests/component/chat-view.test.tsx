@@ -3,7 +3,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import type { ChatBinding } from '../../src/renderer/src/App'
+import type { PrStatus } from '../../src/shared/types'
 import { pasteImage, stubObjectUrls } from './paste'
+import { openPr } from './stub-api'
 
 const binding: ChatBinding = {
   provider: 'claude',
@@ -16,14 +18,14 @@ const binding: ChatBinding = {
 
 function renderChat(
   onSend = vi.fn(),
-  over: { binding?: ChatBinding; busy?: boolean } = {}
+  over: { binding?: ChatBinding; busy?: boolean; prs?: PrStatus[] } = {}
 ): { onSend: ReturnType<typeof vi.fn>; onOpenHandoff: ReturnType<typeof vi.fn>; onOpenLineage: ReturnType<typeof vi.fn> } {
   const onOpenHandoff = vi.fn()
   const onOpenLineage = vi.fn()
   render(
     <ChatView
       binding={over.binding ?? binding}
-      prs={[]}
+      prs={over.prs ?? []}
       log={[]}
       busy={over.busy ?? false}
       prBusy={false}
@@ -208,5 +210,22 @@ describe('ChatView review', () => {
     await userEvent.type(composer, '{Enter}')
     expect(onSend).toHaveBeenCalledOnce()
     expect(onSend.mock.calls[0][0]).toContain('use y')
+  })
+})
+
+describe('ChatView header PR badge', () => {
+  it('shows the branch PR in full, with its checks verdict and review outcome', () => {
+    renderChat(vi.fn(), {
+      prs: [openPr({ headRefName: binding.branch ?? '', checks: 'pending', review: 'approved' })]
+    })
+    const badge = screen.getByRole('button', { name: /pull request #42/ })
+    // the full badge spells the state out; checks and review still ride the name
+    expect(badge).toHaveTextContent(/^Open #42$/)
+    expect(badge).toHaveAccessibleName(
+      'Open pull request #42: Fix the login flake, checks pending, approved'
+    )
+    expect(badge.querySelector('.pr-checks.pending')).not.toBeNull()
+    expect(badge.querySelector('.pr-review-mark')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Create PR/ })).not.toBeInTheDocument()
   })
 })
