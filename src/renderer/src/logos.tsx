@@ -187,6 +187,12 @@ export const TrashIcon = ({ size = 16 }: { size?: number }): JSX.Element => (
 export const LinkExternalIcon = ({ size = 11 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_LINK_EXTERNAL} size={size} />
 )
+/* Octicon diff (the +/− glyph): the chat header's "Changes" review toggle */
+const OCTICON_DIFF =
+  'M8.75 1.75V5H12a.75.75 0 0 1 0 1.5H8.75v3.25a.75.75 0 0 1-1.5 0V6.5H4A.75.75 0 0 1 4 5h3.25V1.75a.75.75 0 0 1 1.5 0ZM4 13h8a.75.75 0 0 1 0 1.5H4A.75.75 0 0 1 4 13Z'
+export const DiffIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
+  <Octicon d={OCTICON_DIFF} size={size} />
+)
 export const BranchIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_BRANCH} size={size} />
 )

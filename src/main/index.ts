@@ -45,6 +45,7 @@ import { DEFAULT_STALE_DAYS } from './cleanup-core'
 import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
 import { getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
+import { asDiffScope, getWorkspaceDiff } from './diff'
 import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
 import { clampRounds } from './roundtable-core'
 import {
@@ -388,6 +389,12 @@ app.whenReady().then(() => {
     if (!underWorktrees && !underKnownRoot) throw new Error(`unknown workspace: ${c}`)
     return createPr(c)
   })
+  // review before landing: the diff is read-only, so any dir a chat may run in is
+  // fair to inspect; the scope is renderer input and is re-checked before it
+  // selects git arguments
+  ipcMain.handle('workspace:diff', (_e, cwd: string, scope: unknown) =>
+    getWorkspaceDiff(assertKnownCwd(cwd), asDiffScope(scope))
+  )
   ipcMain.handle('extensions:get', () => getExtensions())
   // agent comes from the renderer and (for login) becomes a spawned command —
   // only ever accept the three known providers

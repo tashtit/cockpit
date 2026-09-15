@@ -14,6 +14,15 @@ Cockpit then:
 
 Your working copy stays untouched no matter what the agent does. Uncommitted work in your checkout can't be clobbered, and parallel tasks on the same repo can't collide with each other.
 
+## Reviewing before you ship
+
+**Changes** in the chat header (⌘D) swaps the transcript for the worktree's diff, so you read what the agent did before it becomes a pull request:
+
+- **Branch** — everything since the base branch (commits plus the working tree): what the PR would carry. The summary says how many commits the branch is ahead of and behind `origin/main`, and flags uncommitted changes, which Create PR refuses.
+- **Staged** / **Unstaged** — the two sides of the index. Untracked files the agent created appear under Unstaged and Branch, marked *untracked*.
+
+Files read the way GitHub shows them — unified or side by side, both line numbers, renames and binaries called out. Hover a line and press **+** to pin a note to it; **Send notes to <Agent>** drops them into the composer as one message (path, line, the line itself, your note), so the agent's next turn answers your review. The view reloads by itself once the turn finishes.
+
 ## Shipping
 
 When a task is done, **Create PR** pushes the branch and runs `gh pr create`. From then on the session carries a PR state badge — open, draft, merged, or closed, in GitHub's colors — sourced from `gh pr list` and cached for 60 seconds per repository.

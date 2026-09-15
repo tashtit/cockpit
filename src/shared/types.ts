@@ -121,6 +121,67 @@ export type WorkspaceInfo = {
   readonly branch: string
 }
 
+/**
+ * What a worktree review compares: everything since the base branch (commits
+ * plus the working tree — what a PR would carry), or just what is staged / not.
+ */
+export type DiffScope = 'branch' | 'staged' | 'unstaged'
+
+export type DiffFileStatus = 'added' | 'modified' | 'deleted' | 'renamed'
+
+export type DiffHunkLine = {
+  readonly op: 'same' | 'add' | 'del'
+  readonly text: string
+  /** Line number on the old side; null for an added line */
+  readonly oldNo: number | null
+  /** Line number on the new side; null for a removed line */
+  readonly newNo: number | null
+}
+
+export type DiffHunk = {
+  /** The function/context git prints after the `@@` range, often empty */
+  readonly header: string
+  readonly oldStart: number
+  readonly oldCount: number
+  readonly newStart: number
+  readonly newCount: number
+  readonly lines: readonly DiffHunkLine[]
+}
+
+export type DiffFile = {
+  /** The path the change lands on (the old path for a deletion) */
+  readonly path: string
+  /** Set for renames only: where the file came from */
+  readonly oldPath: string | null
+  readonly status: DiffFileStatus
+  /** Not in git's index yet — an addition git diff itself would not show */
+  readonly untracked: boolean
+  readonly binary: boolean
+  readonly added: number
+  readonly removed: number
+  readonly hunks: readonly DiffHunk[]
+  /** Hunks were cut at the size cap; the counts above are still the real totals */
+  readonly truncated: boolean
+}
+
+export type WorkspaceDiff = {
+  readonly cwd: string
+  readonly scope: DiffScope
+  readonly branch: string | null
+  /** The branch the work is measured against (`origin/main`); null when none was found */
+  readonly base: string | null
+  /** Commits on this branch the base doesn't have, and vice versa */
+  readonly ahead: number
+  readonly behind: number
+  /** Uncommitted changes exist — Create PR would refuse until the agent commits */
+  readonly dirty: boolean
+  readonly files: readonly DiffFile[]
+  readonly added: number
+  readonly removed: number
+  /** Files beyond the listing cap, not shipped */
+  readonly droppedFiles: number
+}
+
 export type PermissionMode = 'safe' | 'auto-edit' | 'yolo'
 
 export type CodexSandbox = 'read-only' | 'workspace-write' | 'danger-full-access'
@@ -890,6 +951,8 @@ export type CockpitApi = {
   readonly getPrs: (repoRoot: string) => Promise<PrStatus[]>
   readonly createWorkspace: (repoRoot: string, name?: string) => Promise<WorkspaceInfo>
   readonly createPr: (cwd: string) => Promise<string>
+  /** The worktree's changes for review before they ship; `cwd` must be a known session/worktree dir */
+  readonly getWorkspaceDiff: (cwd: string, scope: DiffScope) => Promise<WorkspaceDiff>
   readonly getExtensions: () => Promise<ExtensionsInventory>
   /** Probe the server (spawn stdio / hit URL) and report whether it answers */
   readonly checkMcp: (name: string) => Promise<McpProbeResult>

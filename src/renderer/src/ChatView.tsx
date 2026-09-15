@@ -5,7 +5,8 @@ import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
-import { BranchChip, CockpitLogo, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { BranchChip, CockpitLogo, DiffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too. */
@@ -42,6 +43,8 @@ export function ChatView({
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
   const [cwdCopied, setCwdCopied] = useState(false)
+  /** Review mode: the worktree's changes take the transcript's place */
+  const [review, setReview] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
@@ -71,6 +74,31 @@ export function ChatView({
   useEffect(() => {
     atts.clear()
   }, [binding?.provider, binding?.cwd])
+
+  // review is a way of looking at one worktree — a different session opens on its transcript
+  const reviewable = !!binding?.repoRoot && !binding.readOnly
+  useEffect(() => {
+    setReview(false)
+  }, [binding?.cwd])
+
+  // ⌘D flips between the conversation and its changes (the palette owns the
+  // keyboard while it is open — a dialog on screen means leave it alone)
+  useEffect(() => {
+    if (!reviewable) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== 'd' || document.querySelector('[role="dialog"]')) return
+      e.preventDefault()
+      setReview((v) => !v)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [reviewable])
+
+  /** Review notes land in the composer, ready to send — the reviewer gets the last word. */
+  const takeNotes = (text: string): void => {
+    setDraft((d) => (d.trim() ? `${d.trimEnd()}\n\n${text}` : text))
+    composerRef.current?.focus()
+  }
 
   const branchPr = useMemo(
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
@@ -179,6 +207,25 @@ export function ChatView({
             </button>
           )
         )}
+        {/* review before landing: the worktree's changes, in the transcript's place.
+            A session outside a repository has nothing to diff; a seat session's
+            tree belongs to its table. */}
+        {reviewable && (
+          <button
+            className="btn-review"
+            aria-label="Changes"
+            aria-pressed={review}
+            title={
+              review
+                ? 'Back to the conversation (⌘D)'
+                : "Review the worktree's changes before they ship (⌘D)"
+            }
+            onClick={() => setReview((v) => !v)}
+          >
+            <DiffIcon />
+            <span className="lbl">Changes</span>
+          </button>
+        )}
         {/* progressive disclosure: only a started session can be handed off; a
             running turn merely disables it. A roundtable seat session is the
             table's internal, not a conversation to continue — main refuses it
@@ -208,36 +255,40 @@ export function ChatView({
         )}
       </header>
 
-      <div
-        className="messages"
-        ref={scrollRef}
-        onScroll={(e) => {
-          const el = e.currentTarget
-          atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-        }}
-      >
-        {hidden > 0 && <div className="sys-row">(showing the last {RENDER_LAST} of {log.length} messages)</div>}
-        {visible.map(({ m, key }, i) => (
-          <Message
-            key={key}
-            m={m}
-            provider={binding.provider}
-            resultOf={
-              m.kind === 'tool_result' && visible[i - 1]?.m.kind === 'tool_call'
-                ? visible[i - 1].m.toolName
-                : undefined
-            }
-          />
-        ))}
-        {busy && (
-          <div className="thinking">
-            <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working…
-          </div>
-        )}
-        {log.length === 0 && !busy && (
-          <div className="empty-chat small">Send a prompt to start this session.</div>
-        )}
-      </div>
+      {review && reviewable ? (
+        <ReviewPanel cwd={binding.cwd} provider={binding.provider} busy={busy} onNotes={takeNotes} />
+      ) : (
+        <div
+          className="messages"
+          ref={scrollRef}
+          onScroll={(e) => {
+            const el = e.currentTarget
+            atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+          }}
+        >
+          {hidden > 0 && <div className="sys-row">(showing the last {RENDER_LAST} of {log.length} messages)</div>}
+          {visible.map(({ m, key }, i) => (
+            <Message
+              key={key}
+              m={m}
+              provider={binding.provider}
+              resultOf={
+                m.kind === 'tool_result' && visible[i - 1]?.m.kind === 'tool_call'
+                  ? visible[i - 1].m.toolName
+                  : undefined
+              }
+            />
+          ))}
+          {busy && (
+            <div className="thinking">
+              <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working…
+            </div>
+          )}
+          {log.length === 0 && !busy && (
+            <div className="empty-chat small">Send a prompt to start this session.</div>
+          )}
+        </div>
+      )}
       <div className="sr-only" role="status" aria-live="polite">
         {status}
       </div>
