@@ -62,6 +62,10 @@ Display order is OS-assigned and won't necessarily match your mental "first/seco
 [dev] window shown at {"x":-1414,"y":291,"width":1100,"height":760}
 ```
 
+### Why macOS calls the dev app "Cockpit"
+
+There is no packaged build: `npm run dev` launches the stock `Electron.app` out of `node_modules`, and macOS names a running app after that bundle's `Info.plist`, never after the window title — the app menu, the Dock and Mission Control's full-screen spaces would all say "Electron". No runtime API changes that, so `predev` runs [`scripts/brand-dev-electron.mjs`](scripts/brand-dev-electron.mjs), which rewrites `CFBundleName` / `CFBundleDisplayName` in that bundle to `Cockpit` before every dev launch (the bundle is ad-hoc, linker-signed with the plist unbound, so its signature stays valid). It is idempotent, re-brands after an Electron upgrade or `npm ci` re-downloads the binary, and never blocks the launch — on failure it warns and the app keeps its stock name.
+
 ## Conventions
 
 - **Conventional Commits** (`feat(indexer): …`, `fix(parser): …`, `docs: …`), matching existing history.
