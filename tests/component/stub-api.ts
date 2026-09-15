@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import type { PanelReport } from '../../src/shared/library'
-import type { CockpitApi, RoundtableSnapshot, UsageSnapshot } from '../../src/shared/types'
+import type { CockpitApi, PrStatus, RoundtableSnapshot, UsageSnapshot } from '../../src/shared/types'
 
 /** An empty scope; panel tests override getPanel with real rows. */
 const emptyPanel: PanelReport = {
@@ -32,6 +32,21 @@ export function emptyRoundtable(): RoundtableSnapshot {
     entries: [],
     running: false,
     speaking: []
+  }
+}
+
+/** An open PR with green checks and no review yet; tests override what they exercise. */
+export function openPr(over: Partial<PrStatus> = {}): PrStatus {
+  return {
+    number: 42,
+    title: 'Fix the login flake',
+    state: 'OPEN',
+    isDraft: false,
+    headRefName: 'cockpit/login-flake',
+    url: 'https://github.com/acme/rocket/pull/42',
+    checks: 'passing',
+    review: 'none',
+    ...over
   }
 }
 

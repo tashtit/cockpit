@@ -107,6 +107,16 @@ export type SessionPage = {
 
 export type PrState = 'OPEN' | 'MERGED' | 'CLOSED'
 
+/**
+ * A PR's checks folded into one word (main-side, from gh's statusCheckRollup):
+ * any failed check wins, then any still running, else all passed; `none` when
+ * nothing has reported.
+ */
+export type PrChecks = 'passing' | 'failing' | 'pending' | 'none'
+
+/** GitHub's reviewDecision; `none` when the repo requires no review. */
+export type PrReview = 'approved' | 'changes_requested' | 'review_required' | 'none'
+
 export type PrStatus = {
   readonly number: number
   readonly title: string
@@ -114,6 +124,8 @@ export type PrStatus = {
   readonly isDraft: boolean
   readonly headRefName: string
   readonly url: string
+  readonly checks: PrChecks
+  readonly review: PrReview
 }
 
 export type WorkspaceInfo = {

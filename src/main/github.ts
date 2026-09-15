@@ -1,5 +1,6 @@
 import type { PrStatus } from '../shared/types'
 import { execText } from './env'
+import { PR_LIST_FIELDS, parsePrList } from './github-core'
 
 const TTL_MS = 60_000
 
@@ -30,17 +31,14 @@ export function getPrs(repoRoot: string): Promise<PrStatus[]> {
 }
 
 async function fetchPrs(repoRoot: string): Promise<PrStatus[]> {
-  // fails soft: no gh, no auth, or not a GitHub remote just means no PR chips
+  // fails soft: no gh, no auth, or not a GitHub remote just means no PR chips.
+  // The rollup and review decision ride the same query, so a checks badge costs
+  // no extra round trip — github-core folds them into one word each.
   const r = await execText(
     'gh',
-    ['pr', 'list', '--state', 'all', '--limit', '100', '--json', 'number,title,state,isDraft,headRefName,url'],
+    ['pr', 'list', '--state', 'all', '--limit', '100', '--json', PR_LIST_FIELDS],
     { cwd: repoRoot }
   )
   if (!r.ok) return []
-  try {
-    const arr = JSON.parse(r.stdout)
-    return Array.isArray(arr) ? arr : []
-  } catch {
-    return []
-  }
+  return parsePrList(r.stdout)
 }
