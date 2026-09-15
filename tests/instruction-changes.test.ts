@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { fileChange } from '../src/shared/instruction-changes'
+import { END, START } from '../src/shared/instruction-markers'
 import type { InstructionFile } from '../src/shared/types'
 
 const BASE = '# Rules\n\nUse worktrees.\nNever push.'
@@ -52,5 +53,16 @@ describe('fileChange', () => {
     const d = fileChange(file({ status: 'synced' }), `${BASE}\nOne more rule.`)
     expect(d.status).toBe('drifted')
     expect(d).toMatchObject({ added: 1, removed: 0 })
+  })
+
+  // the writer drops the markers of a pasted whole file; the review compares what
+  // would actually be written, so it must not show them as two new lines per file
+  it('a pasted block with its markers reviews as nothing to write', () => {
+    const c = fileChange(file({}), `${START}\n${BASE}\n${END}\n`)
+    expect(c.status).toBe('synced')
+    expect(c.added + c.removed).toBe(0)
+    const d = fileChange(file({ block: null }), `${START}\n${BASE}\n${END}\n`)
+    expect(d.status).toBe('unmanaged')
+    expect(d).toMatchObject({ added: 4, removed: 0 })
   })
 })

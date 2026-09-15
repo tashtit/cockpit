@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { END, START } from '../shared/instruction-markers'
+import { END, START, normalizeBaseline } from '../shared/instruction-markers'
 import type { InstructionFile, InstructionStatus } from '../shared/types'
 
 /*
@@ -19,7 +19,7 @@ import type { InstructionFile, InstructionStatus } from '../shared/types'
  * is never touched.
  */
 
-export { END, START }
+export { END, START, normalizeBaseline }
 
 export type SharedSplit = {
   /** the agent's own content before the block (the whole file when there is none) */
@@ -57,9 +57,13 @@ export function lineCount(text: string): number {
   return t === '' ? 0 : t.split('\n').length
 }
 
-/** Replace the managed block in-place, or append one at the end of the file. */
+/**
+ * Replace the managed block in-place, or append one at the end of the file. The
+ * baseline is normalized here as well as where it is saved, so one stored with
+ * its markers still applies as a single block.
+ */
 export function upsertSharedBlock(raw: string, baseline: string): string {
-  const block = `${START}\n${baseline.trim()}\n${END}`
+  const block = `${START}\n${normalizeBaseline(baseline)}\n${END}`
   const s = raw.indexOf(START)
   const e = s === -1 ? -1 : raw.indexOf(END, s + START.length)
   if (s !== -1 && e !== -1) {
@@ -91,7 +95,9 @@ export function fileStatus(raw: string | null, baseline: string): InstructionSta
   if (raw === null) return 'missing'
   const block = extractSharedBlock(raw)
   if (block === null) return 'unmanaged'
-  return block.trim() === baseline.trim() ? 'synced' : 'drifted'
+  // normalized on this side too: a baseline stored with its markers must not read
+  // every file as drifted until it happens to be saved again
+  return block.trim() === normalizeBaseline(baseline) ? 'synced' : 'drifted'
 }
 
 export type InstructionTarget = {
