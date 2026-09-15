@@ -203,15 +203,17 @@ jobs:
         id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Apple credentials are optional: absent, the build ships unsigned (the README
-          # says how to open it); present, electron-builder signs, hardens and notarizes.
+          # Apple credentials, all five or none (electron-builder.config.js refuses a partial
+          # set): absent, the build ships ad-hoc signed and the README says how to open it;
+          # present, electron-builder signs with the hardened runtime, notarizes and staples,
+          # and `npm run package` ends by verifying every bundle — a failed signature fails
+          # the release instead of shipping unsigned. The config pins identity discovery to
+          # the imported certificate, never to whatever sits in the runner's keychain.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # never sign with whatever identity happens to sit in the runner's keychain
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx semantic-release
 
       # Signed statement of which workflow run produced each shipped file, verifiable with

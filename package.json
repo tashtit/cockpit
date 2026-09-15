@@ -19,7 +19,7 @@
     "predev:fg": "node scripts/brand-dev-electron.mjs",
     "dev:fg": "COCKPIT_DEV_BACKGROUND=0 electron-vite dev",
     "build": "electron-vite build",
-    "package": "npm run build && electron-builder --config electron-builder.config.js --mac --publish never",
+    "package": "npm run build && electron-builder --config electron-builder.config.js --mac --publish never && node scripts/verify-signing.mts",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",

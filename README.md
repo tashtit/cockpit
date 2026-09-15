@@ -6,7 +6,7 @@ Unified desktop hub for **Claude Code**, **Codex**, and **GitHub Copilot CLI**: 
 
 Download the disk image for your Mac from the [latest release](https://github.com/tashtit/cockpit/releases/latest) — `Cockpit-<version>-arm64.dmg` on Apple silicon, `Cockpit-<version>-x64.dmg` on Intel — open it and drag Cockpit into Applications. Each release page carries the notes for that version.
 
-Until the release pipeline has an Apple Developer ID certificate ([CONTRIBUTING.md › Releases](CONTRIBUTING.md#releases)), builds are unsigned and macOS refuses to open them at first ("damaged" / "unidentified developer"). Clear the quarantine flag once and it opens normally:
+Until the release pipeline has an Apple Developer ID certificate ([CONTRIBUTING.md › Releases](CONTRIBUTING.md#releases)), builds are unsigned and macOS blocks the first launch — "Apple could not verify Cockpit.app is free of malware" on macOS 15 and later, "damaged" or "unidentified developer" before. The download is fine. Either choose **Open Anyway** under System Settings › Privacy & Security right after the refusal, or clear the quarantine flag once and it opens normally:
 
 ```bash
 xattr -d com.apple.quarantine /Applications/Cockpit.app

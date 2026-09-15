@@ -5,7 +5,7 @@
 Download the disk image for your Mac from the [latest release](https://github.com/tashtit/cockpit/releases/latest) — `Cockpit-<version>-arm64.dmg` on Apple silicon, `Cockpit-<version>-x64.dmg` on Intel — open it and drag Cockpit into Applications.
 
 ::: warning Unsigned builds
-Until the release pipeline carries an Apple Developer ID certificate, macOS reports the app as damaged or from an unidentified developer on first launch. Clear the quarantine flag once:
+Until the release pipeline carries an Apple Developer ID certificate, macOS blocks the first launch — "Apple could not verify Cockpit.app is free of malware" on macOS 15 and later, "damaged" or "unidentified developer" before. Click **Done** (not Move to Trash), then either choose **Open Anyway** under System Settings › Privacy & Security, or clear the quarantine flag once:
 
 ```bash
 xattr -d com.apple.quarantine /Applications/Cockpit.app
