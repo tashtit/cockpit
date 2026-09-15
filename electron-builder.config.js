@@ -62,8 +62,10 @@ module.exports = {
   forceCodeSigning: signing,
   mac: {
     category: 'public.app-category.developer-tools',
-    // a 1254px PNG; electron-builder renders the .icns set from it
-    icon: 'resources/icon.png',
+    // Packed by `npm run icon` (scripts/build-app-icon.swift) and committed, never rendered
+    // here from a PNG: electron-builder's converter writes the 16/32/64px entries in chunk
+    // types Finder decodes as raw pixels, so those sizes come out as noise.
+    icon: 'build/icon.icns',
     target: [
       { target: 'dmg', arch: ['arm64', 'x64'] },
       // the zip is what electron-updater actually downloads; the dmg is for people
