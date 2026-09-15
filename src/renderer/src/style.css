@@ -1681,6 +1681,17 @@ button.pnl-flag:hover { text-decoration: underline; }
   .review-sum { flex-basis: 100%; order: 1; }
   .tool-row, .thinking, .sys-row { margin-left: 0; }
   .ns-card { padding: var(--s5); margin: var(--s4) auto; }
+  /* source rows (settings sources, usage, providers, about): the health readout and
+     the row's action drop to their own line, right-aligned, instead of squeezing the
+     label until the identity chip paints over the session count */
+  .source-row { flex-wrap: wrap; }
+  .source-body { flex: 1 1 calc(100% - 40px); }
+  .source-health { margin-left: auto; }
+  /* usage windows: the fixed 130px label + 120px meter columns alone outgrew a
+     narrow card — the label wraps onto its own line and the meter flexes */
+  .usage-window { flex-wrap: wrap; }
+  .usage-win-label { flex-basis: 100%; }
+  .usage-meter { flex: 1 1 60px; }
   /* panel rows: three self-labelling chips plus a title plus a flag stop fitting
      one line right about here. The dimmed provenance tags shed first — the mono
      detail, then the section tag (both nowrap and unshrinkable, so left in they
