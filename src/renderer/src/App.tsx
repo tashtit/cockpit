@@ -20,7 +20,7 @@ import type { HandoffSourceRef, StartHandoffRequest } from './HandoffView'
 import { NewRoundtable } from './NewRoundtable'
 import { RoundtableView } from './RoundtableView'
 import { PROVIDER_LABEL } from './logos'
-import { Settings } from './Settings'
+import { Settings, type SettingsSection } from './Settings'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -66,7 +66,7 @@ type View =
   | { kind: 'handoff'; source: HandoffSourceRef }
   | { kind: 'new-roundtable' }
   | { kind: 'roundtable'; id: string }
-  | { kind: 'settings' }
+  | { kind: 'settings'; section?: SettingsSection }
   | { kind: 'cleanup' }
   /** repoRoot null = the global agent setup; otherwise one repo's own */
   | { kind: 'extensions'; repoRoot: string | null }
@@ -709,7 +709,7 @@ export function App(): JSX.Element {
         }}
         onGoHome={() => setView({ kind: 'welcome' })}
         onNav={toggleView}
-        onOpenSettings={() => setView({ kind: 'settings' })}
+        onOpenSettings={(section) => setView({ kind: 'settings', section })}
         onOpenUrl={openUrl}
         activeView={view.kind}
       />
@@ -718,7 +718,10 @@ export function App(): JSX.Element {
       ) : view.kind === 'profile' ? (
         <ProfileView onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
       ) : view.kind === 'settings' ? (
-        <Settings onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
+        <Settings
+          section={view.section}
+          onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
+        />
       ) : view.kind === 'extensions' ? (
         <AiSetup
           repos={repos}

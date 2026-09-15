@@ -52,9 +52,18 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     pagination and archived toggle as a repo.
 - Hover/focus-within actions (`+` new session, archive) float in `.row-actions` over the
   row's right edge — nothing reflows.
-- `.sidebar-footer`: one compact `.footer-ids` identity bar — agent logos, then the
-  GitHub login (`@login`, or red "gh: not signed in") right-aligned in mono. Per-account
-  detail lives in the tooltip; clicking the bar opens Settings. Don't grow this back into
+- `.sidebar-footer`: two quiet bar controls, 26px each, never taller. `.footer-usage`
+  (`UsageMeters.tsx`) rides on top only while a subscription reports numbers: one
+  `.usage-cell` per provider in livery order — 12px logo, a `.usage-mini` fill bar in
+  the agent color when the provider reports a percentage, the reading (`42%`, or a
+  compact count like `1.2M` tokens / `310` requests when no limit is known). The
+  tightest window wins the cell; every window and its reset time sit in the cell's
+  tooltip. Warning (≥80%, or copilot requests billed beyond the plan) = warn color
+  **and** a triangle glyph, with "(warning)" in the button's name — never color alone.
+  The bars shed at ≤700px (200px rail); the numbers stay. Clicking the row opens
+  Settings at the usage section. Below it the `.footer-ids` identity bar — agent logos,
+  then the GitHub login (`@login`, or red "gh: not signed in") right-aligned in mono;
+  per-account detail in the tooltip, click opens Settings. Don't grow either back into
   per-account rows — the footer is a glance, Settings is the manager.
 
 ## Pagination (product rule: always paginate)

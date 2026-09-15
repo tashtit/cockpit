@@ -316,24 +316,70 @@ async function copilotUsage(login: string): Promise<ProviderUsage> {
   return base
 }
 
-/* ---------- snapshot assembly (60s TTL, like github.ts) ---------- */
+/* ---------- throttling ---------- */
 
-const TTL_MS = 60_000
-let cache: { at: number; data: UsageSnapshot } | null = null
-let inflight: Promise<UsageSnapshot> | null = null
+/**
+ * Remember `compute`'s last result for `ttlMs` and coalesce concurrent calls into one
+ * run. A rejected run is never remembered — the next call simply tries again. `now`
+ * is injectable for tests.
+ */
+export function throttled<T>(
+  ttlMs: number,
+  compute: () => Promise<T>,
+  now: () => number = Date.now
+): () => Promise<T> {
+  let last: { at: number; value: T } | null = null
+  let inflight: Promise<T> | null = null
+  return () => {
+    if (last && now() - last.at < ttlMs) return Promise.resolve(last.value)
+    if (inflight) return inflight
+    inflight = compute()
+      .then((value) => {
+        last = { at: now(), value }
+        return value
+      })
+      .finally(() => {
+        inflight = null
+      })
+    return inflight
+  }
+}
+
+/**
+ * Copilot usage goes over the network (`gh api`), so it is fetched at most once per
+ * interval no matter how often the renderer asks. The fail-soft "unavailable" answers
+ * are values too: a 403 is not retried until the interval passes either.
+ */
+const COPILOT_TTL_MS = 60_000
+const copilotSnapshot = throttled(COPILOT_TTL_MS, async (): Promise<ProviderUsage> => {
+  // copilot usage is per GitHub billing identity (the gh user), not per config home
+  const login = await ghUser()
+  return login
+    ? copilotUsage(login)
+    : {
+        provider: 'copilot',
+        path: '',
+        label: 'GitHub Copilot',
+        source: 'provider',
+        windows: [],
+        unavailable: 'gh CLI is not signed in'
+      }
+})
+
+/* ---------- snapshot assembly ---------- */
+
+/**
+ * Local measurements are cheap (per-file caches) but not free: the sidebar asks on a
+ * timer and again whenever a session starts or finishes, Settings asks on open. A
+ * short TTL absorbs those bursts without hiding a just-finished turn for long.
+ */
+const SNAPSHOT_TTL_MS = 5_000
+let latestSources: SourceDir[] = []
+const snapshot = throttled(SNAPSHOT_TTL_MS, () => buildSnapshot(latestSources))
 
 export function getUsage(sources: SourceDir[]): Promise<UsageSnapshot> {
-  if (cache && Date.now() - cache.at < TTL_MS) return Promise.resolve(cache.data)
-  if (inflight) return inflight
-  inflight = buildSnapshot(sources)
-    .then((data) => {
-      cache = { at: Date.now(), data }
-      return data
-    })
-    .finally(() => {
-      inflight = null
-    })
-  return inflight
+  latestSources = sources
+  return snapshot()
 }
 
 async function buildSnapshot(sources: SourceDir[]): Promise<UsageSnapshot> {
@@ -374,21 +420,6 @@ async function buildSnapshot(sources: SourceDir[]): Promise<UsageSnapshot> {
       sawCopilot = true
     }
   }
-  // copilot usage is per GitHub billing identity (the gh user), not per config home
-  if (sawCopilot) {
-    const login = await ghUser()
-    providers.push(
-      login
-        ? await copilotUsage(login)
-        : {
-            provider: 'copilot',
-            path: '',
-            label: 'GitHub Copilot',
-            source: 'provider',
-            windows: [],
-            unavailable: 'gh CLI is not signed in'
-          }
-    )
-  }
+  if (sawCopilot) providers.push(await copilotSnapshot())
   return { at: Date.now(), providers }
 }

@@ -14,6 +14,7 @@ import type {
 import { api } from './api'
 import { CHAT_WIDTH_OPTIONS, setChatWidth, useChatWidth, type ChatWidth } from './chat-width'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
+import { fmtCount, fmtResetIn } from './format'
 import { ModelProviders } from './ModelProviders'
 import { CockpitLogo, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -44,21 +45,6 @@ function fmtAgo(ms: number): string {
   const h = Math.round(mins / 60)
   if (h < 24) return `${h}h ago`
   return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-
-function fmtCount(n: number): string {
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`
-  return String(n)
-}
-
-/** "resets in 2h 15m" / "resets in 3d 4h" */
-function fmtResetIn(at: number): string {
-  const mins = Math.max(0, Math.round((at - Date.now()) / 60000))
-  if (mins < 60) return `resets in ${mins}m`
-  const h = Math.floor(mins / 60)
-  if (h < 24) return `resets in ${h}h ${mins % 60}m`
-  return `resets in ${Math.floor(h / 24)}d ${h % 24}h`
 }
 
 function tokensTitle(t: UsageTokens): string {
@@ -153,7 +139,17 @@ function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow })
 }
 
 
-export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
+/** Sections the app can open Settings at (the sidebar's usage meters land on usage). */
+export type SettingsSection = 'usage'
+
+export function Settings({
+  onClose,
+  section
+}: {
+  onClose: () => void
+  /** Land on this section instead of the title — scrolls it into view and focuses it */
+  section?: SettingsSection
+}): JSX.Element {
   const [stats, setStats] = useState<SourceStats[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [usage, setUsage] = useState<UsageSnapshot | null>(null)
@@ -173,6 +169,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
   /** sr-only announcements (same pattern as ChatView's status region) */
   const [status, setStatus] = useState('')
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const usageRef = useRef<HTMLHeadingElement>(null)
   const confirm = useArmedConfirm()
 
   const refresh = (): void => {
@@ -187,6 +184,13 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
     // counts stay live while the indexer works
     return api.onIndexUpdated(refresh)
   }, [])
+  // declared after the mount effect on purpose: both focus something on first
+  // render, and the later one wins
+  useEffect(() => {
+    if (section !== 'usage') return
+    usageRef.current?.scrollIntoView({ block: 'start' })
+    usageRef.current?.focus()
+  }, [section])
   useEffect(() => {
     void api.getAppInfo().then(setAppInfo)
     void api.getUpdateState().then(setUpdate)
@@ -449,7 +453,7 @@ export function Settings({ onClose }: { onClose: () => void }): JSX.Element {
           </div>
         </div>
 
-        <h3 className="ns-label">Subscription usage</h3>
+        <h3 className="ns-label" ref={usageRef} tabIndex={-1}>Subscription usage</h3>
         <p className="ns-hint">
           Current usage per subscription — Claude measured locally from session logs, Codex from
           its own rate-limit snapshots, Copilot premium requests from the GitHub billing API.

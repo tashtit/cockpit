@@ -9,7 +9,9 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { useSessionBusy } from './busy'
+import type { SettingsSection } from './Settings'
 import { fmtTime, useTimeFormat } from './time'
+import { UsageMeters } from './UsageMeters'
 import {
   AgentIcon,
   ChatIcon,
@@ -83,8 +85,9 @@ export function TreeSidebar({
   onGoHome: () => void
   /** Nav trio (toggles: re-clicking the active view backs out of it) */
   onNav: (view: 'settings' | 'extensions' | 'profile' | 'cleanup') => void
-  /** Open-only Settings (empty-state button, footer) — never toggles closed */
-  onOpenSettings: () => void
+  /** Open-only Settings (empty-state button, footer) — never toggles closed;
+   *  the footer's usage meters ask for the usage section */
+  onOpenSettings: (section?: SettingsSection) => void
   onOpenUrl: (url: string) => void
   /** App's current view kind — lights the matching nav icon (aria-current) */
   activeView: string
@@ -308,7 +311,7 @@ export function TreeSidebar({
         {repos.length === 0 && (
           <div className="empty-item">
             <p>No sessions indexed yet — Cockpit reads Claude Code, Codex, and Copilot logs.</p>
-            <button className="btn-ghost small" onClick={onOpenSettings}>
+            <button className="btn-ghost small" onClick={() => onOpenSettings()}>
               Add source directories
             </button>
           </div>
@@ -320,11 +323,14 @@ export function TreeSidebar({
         )}
       </div>
       <footer className="sidebar-footer">
+        {/* subscription meters ride above the identity bar — one cell per provider
+            that reports numbers; the row opens Settings at the usage section */}
+        <UsageMeters onOpen={() => onOpenSettings('usage')} />
         {/* one compact identity bar: agent logos (accounts in the tooltip), GitHub
             login on the right; the whole row opens Settings for the full detail */}
         <button
           className="footer-ids"
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings()}
           aria-label="Accounts — open settings"
           title={
             accounts === null

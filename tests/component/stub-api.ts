@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import type { PanelReport } from '../../src/shared/library'
-import type { CockpitApi, RoundtableSnapshot } from '../../src/shared/types'
+import type { CockpitApi, RoundtableSnapshot, UsageSnapshot } from '../../src/shared/types'
 
 /** An empty scope; panel tests override getPanel with real rows. */
 const emptyPanel: PanelReport = {
@@ -32,6 +32,63 @@ export function emptyRoundtable(): RoundtableSnapshot {
     entries: [],
     running: false,
     speaking: []
+  }
+}
+
+/**
+ * A three-subscription usage snapshot as main would measure it: claude counted from
+ * logs (no limit known), codex reporting percentages for two windows, copilot a
+ * premium-request count. Tests opt in via mockResolvedValue(usageFixture()).
+ */
+export function usageFixture(now = Date.now()): UsageSnapshot {
+  const hour = 3_600_000
+  return {
+    at: now,
+    providers: [
+      {
+        provider: 'claude',
+        path: '/home/dev/.claude',
+        label: 'claude',
+        identity: 'dev@example.com',
+        source: 'local-logs',
+        measuredAt: now,
+        windows: [
+          {
+            label: 'current 5h block',
+            tokens: { input: 900_000, output: 300_000, cacheRead: 40_000, cacheCreate: 8_000 },
+            requests: 42,
+            resetsAt: now + 2 * hour
+          },
+          {
+            label: 'last 7 days',
+            tokens: { input: 14_000_000, output: 4_400_000, cacheRead: 0, cacheCreate: 0 },
+            requests: 610
+          }
+        ]
+      },
+      {
+        provider: 'codex',
+        path: '/home/dev/.codex',
+        label: 'codex',
+        identity: 'dev@example.com',
+        plan: 'plus',
+        source: 'provider',
+        measuredAt: now,
+        windows: [
+          { label: '5h window', usedPercent: 42, resetsAt: now + 3 * hour },
+          { label: 'weekly window', usedPercent: 12, resetsAt: now + 4 * 24 * hour }
+        ]
+      },
+      {
+        provider: 'copilot',
+        path: '',
+        label: 'GitHub Copilot',
+        identity: 'octocat',
+        source: 'provider',
+        measuredAt: now,
+        windows: [{ label: 'premium requests this month', requests: 310, requestsBilled: 0 }]
+      }
+    ]
   }
 }
 
