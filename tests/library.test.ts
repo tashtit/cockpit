@@ -222,9 +222,9 @@ describe('the instructions row', () => {
         repoRoot: null,
         baseline: 'be careful',
         files: [
-          { agents: ['claude'], path: '/h/.claude/CLAUDE.md', exists: true, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, status: 'synced' },
-          { agents: ['codex'], path: '/h/.codex/AGENTS.md', exists: true, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, status: 'drifted' },
-          { agents: ['copilot'], path: '/h/.copilot/i.md', exists: false, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, status: 'missing' }
+          { agents: ['claude'], path: '/h/.claude/CLAUDE.md', exists: true, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, readBy: [], status: 'synced' },
+          { agents: ['codex'], path: '/h/.codex/AGENTS.md', exists: true, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, readBy: [], status: 'drifted' },
+          { agents: ['copilot'], path: '/h/.copilot/i.md', exists: false, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, readBy: [], status: 'missing' }
         ]
       },
       entry
@@ -241,8 +241,8 @@ describe('the instructions row', () => {
         repoRoot: '/repo',
         baseline: 'x',
         files: [
-          { agents: ['claude'], path: '/repo/CLAUDE.md', exists: true, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, status: 'synced' },
-          { agents: ['codex', 'copilot'], path: '/repo/AGENTS.md', exists: true, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, status: 'synced' }
+          { agents: ['claude'], path: '/repo/CLAUDE.md', exists: true, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, readBy: [], status: 'synced' },
+          { agents: ['codex', 'copilot'], path: '/repo/AGENTS.md', exists: true, content: '', block: null, own: { above: 0, below: 0 }, duplicates: 0, readBy: [], status: 'synced' }
         ]
       },
       entry

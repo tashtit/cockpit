@@ -82,6 +82,11 @@ that section holds a disagreement.
   `~/.copilot/copilot-instructions.md`); a project scope targets `<root>/CLAUDE.md` +
   `<root>/AGENTS.md` — one AGENTS.md row carries both the Codex *and* Copilot logos
   because both read it natively. Never render a third copilot-specific file in repo scope.
+  A `CLAUDE.md` that is a symlink to `AGENTS.md`, or imports it with `@AGENTS.md` and has
+  no block of its own, gets no row: Claude's logo joins the AGENTS.md row and an
+  `.inst-via` note after the status pill says why ("CLAUDE.md imports this file" /
+  "CLAUDE.md links here"), in the row and in its `InstructionDiff` head alike. Writing
+  that file too would have Claude load the text twice.
 - **Baseline editor**: the baseline is markdown, so it edits like markdown —
   GitHub-comment grammar. `.md-tabs` (Write | Preview, `aria-pressed` toggles) over a
   shared frame: Write = `.inst-baseline` mono textarea on the code-block paper

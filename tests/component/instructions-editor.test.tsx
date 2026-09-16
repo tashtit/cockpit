@@ -19,6 +19,7 @@ const file = (over: Partial<InstructionFile>): InstructionFile => ({
   block: BASE,
   own: { above: 12, below: 0 },
   duplicates: 0,
+  readBy: [],
   status: 'synced',
   ...over
 })
@@ -94,6 +95,25 @@ describe('Instructions › the Changes tab', () => {
     expect(within(codex).getByText(/1 line outside the markers stays as it is/)).toBeInTheDocument()
     // colour and glyph never carry the state alone
     expect(within(codex).getByText('removed:')).toHaveClass('sr-only')
+  })
+
+  it('names the file that reads this one on Claude’s behalf', async () => {
+    // a repo CLAUDE.md that imports AGENTS.md has no row: Claude's logo joins the
+    // AGENTS.md row, and the row says why
+    await open({
+      repoRoot: '/repo',
+      baseline: BASE,
+      files: [
+        file({
+          agents: ['claude', 'codex', 'copilot'],
+          path: '/repo/AGENTS.md',
+          readBy: [{ path: '/repo/CLAUDE.md', how: 'import' }]
+        })
+      ]
+    })
+    expect(screen.getByText('CLAUDE.md imports this file')).toBeInTheDocument()
+    expect(screen.getByLabelText('Read by Claude and Codex and Copilot')).toBeInTheDocument()
+    expect(screen.queryByText(/CLAUDE\.md$/)).toBeNull()
   })
 
   it('says when the write drops a second copy of the block', async () => {

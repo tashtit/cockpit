@@ -1610,6 +1610,8 @@ button.pnl-flag:hover { text-decoration: underline; }
 .inst-status.synced { color: var(--ok); border-color: rgba(var(--ok-rgb), 0.5); }
 .inst-status.drifted { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
 .inst-status.missing { font-style: italic; }
+/* who else reads the file on Claude's behalf — the importing or linking CLAUDE.md */
+.inst-via { margin-left: var(--s2); font-size: var(--fs-xs); color: var(--fg-dim); }
 .inst-edit { margin-top: var(--s1); }
 .inst-edit summary { color: var(--fg-dim); font-size: var(--fs-xs); cursor: pointer; }
 .inst-edit summary:hover { color: var(--fg); }

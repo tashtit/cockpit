@@ -3,7 +3,7 @@ import { fileChange, type FileChange } from '../../shared/instruction-changes'
 import type { InstructionFile, InstructionsState } from '../../shared/types'
 import { api } from './api'
 import { useDiffLayout } from './diff-layout'
-import { APPLY_LABEL, DiffLayoutToggle, DiffStat, InstructionDiff } from './InstructionDiff'
+import { APPLY_LABEL, DiffLayoutToggle, DiffStat, InstructionDiff, ReadByNote } from './InstructionDiff'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
 
@@ -397,6 +397,7 @@ function InstructionFileRow({
         <div className="ext-name">
           <span className="inst-path">{file.path.replace(/^\/Users\/[^/]+/, '~')}</span>
           <span className={`inst-status ${file.status}`}>{STATUS_LABEL[file.status]}</span>
+          <ReadByNote file={file} />
           {file.status !== 'synced' && (
             <button
               className="link-btn inst-see"

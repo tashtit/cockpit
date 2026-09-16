@@ -105,6 +105,13 @@ describe('writeShareFiles', () => {
     expect(writeShareFiles(root, '# house rules')).toEqual([])
   })
 
+  it('leaves a CLAUDE.md that imports AGENTS.md alone — Claude reads the block there', () => {
+    writeFileSync(join(root, 'CLAUDE.md'), '# Repo\n\n@AGENTS.md\n')
+    expect(writeShareFiles(root, '# house rules')).toEqual([join(root, 'AGENTS.md')])
+    expect(readFileSync(join(root, 'CLAUDE.md'), 'utf8')).toBe('# Repo\n\n@AGENTS.md\n')
+    expect(extractSharedBlock(readFileSync(join(root, 'AGENTS.md'), 'utf8'))).toBe('# house rules')
+  })
+
   it('renames the older markers as it writes, leaving the repo’s own text alone', () => {
     writeFileSync(join(root, 'AGENTS.md'), `# AGENTS\n\n${LEGACY_START}\n# house rules\n${LEGACY_END}\n`)
     const changed = writeShareFiles(root, '# house rules, revised')

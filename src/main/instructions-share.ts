@@ -3,7 +3,7 @@ import { join, relative, sep } from 'node:path'
 import type { ShareResult } from '../shared/types'
 import { execText } from './env'
 import { getInstructions } from './instructions'
-import { fileStatus, instructionTargets, upsertSharedBlock } from './instructions-core'
+import { fileStatus, foldTargets, instructionTargets, upsertSharedBlock } from './instructions-core'
 import { resolveRepo } from './repos'
 import { createPr, createWorkspace, removeWorkspace } from './workspace'
 
@@ -44,11 +44,11 @@ async function defaultBranch(repoRoot: string): Promise<string> {
   return `origin/${name}`
 }
 
-/** One file of a scope, as the base branch has it (absent reads as empty). */
-async function fileAtBase(repoRoot: string, base: string, path: string): Promise<string> {
+/** One file of a scope, as the base branch has it (null when absent there). */
+async function fileAtBase(repoRoot: string, base: string, path: string): Promise<string | null> {
   const rel = relative(repoRoot, path)
   const r = await execText('git', ['show', `${base}:${rel}`], { cwd: repoRoot })
-  return r.ok ? r.stdout : ''
+  return r.ok ? r.stdout : null
 }
 
 /** An open instructions PR to update, rather than a second one alongside it. */
@@ -74,24 +74,24 @@ async function openShareBranch(repoRoot: string): Promise<{ branch: string; url:
  *
  * Symlinks are resolved and checked: this very repo ships `CLAUDE.md` as a link
  * to `AGENTS.md`, so the two targets can be one file (write it once), and a link
- * pointing outside the worktree is refused rather than followed.
+ * pointing outside the worktree is refused rather than followed. A `CLAUDE.md`
+ * that imports `@AGENTS.md` is one file's worth of reading too, and is left alone.
  */
 export function writeShareFiles(cwd: string, baseline: string): string[] {
-  const changed: string[] = []
-  const seen = new Set<string>()
   // resolve the worktree itself too: on macOS it lives under /var/folders, which is
   // a symlink to /private/var, so comparing a resolved file with an unresolved root
   // would read every file in it as pointing somewhere else
   const base = existsSync(cwd) ? realpathSync(cwd) : cwd
-  for (const { path } of instructionTargets(cwd)) {
-    const real = existsSync(path) ? realpathSync(path) : join(base, relative(cwd, path))
+  const reads = instructionTargets(cwd).map((target) => {
+    const real = existsSync(target.path) ? realpathSync(target.path) : join(base, relative(cwd, target.path))
     if (real !== base && !real.startsWith(base + sep)) {
-      throw new Error(`${path} points outside the worktree — refusing to write through it`)
+      throw new Error(`${target.path} points outside the worktree — refusing to write through it`)
     }
-    if (seen.has(real)) continue
-    seen.add(real)
-    const raw = existsSync(real) ? readFileSync(real, 'utf8') : ''
-    const next = upsertSharedBlock(raw, baseline)
+    return { target, raw: existsSync(real) ? readFileSync(real, 'utf8') : null, real }
+  })
+  const changed: string[] = []
+  for (const { raw, real } of foldTargets(reads)) {
+    const next = upsertSharedBlock(raw ?? '', baseline)
     if (next === raw) continue
     writeFileSync(real, next)
     changed.push(real)
@@ -132,9 +132,16 @@ export async function shareInstructions(repoRoot: string): Promise<ShareResult> 
   // *says* is what counts: a file still on the older markers with this very text
   // is not worth a pull request that only renames them (a real change carries the
   // rename along), while a file holding the block twice is a fix worth opening
-  const targets = instructionTargets(repoRoot)
-  const bases = await Promise.all(targets.map((t) => fileAtBase(repoRoot, base, t.path)))
-  if (bases.every((raw) => fileStatus(raw, baseline) === 'synced')) {
+  const bases = await Promise.all(
+    instructionTargets(repoRoot).map(async (target) => ({
+      target,
+      raw: await fileAtBase(repoRoot, base, target.path),
+      // git shows a symlink as its link text, so only imports fold here; a linked
+      // CLAUDE.md reads as unmanaged and the worktree write below sorts it out
+      real: target.path
+    }))
+  )
+  if (foldTargets(bases).every(({ raw }) => fileStatus(raw, baseline) === 'synced')) {
     return existing ? { status: 'unchanged', url: existing.url } : { status: 'unchanged' }
   }
 
