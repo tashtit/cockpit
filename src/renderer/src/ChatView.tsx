@@ -127,6 +127,11 @@ export function ChatView({
   })
   const hidden = log.length - sliced.length
 
+  // a long stretch of tool calls is one piece of work, not twenty rows of it: four or
+  // more in a row fold into a work-log block that says what happened. The run a turn
+  // is still producing never folds — watching it is the point while it runs.
+  const blocks = foldToolRuns(visible, busy)
+
   // screen-reader announcement on turn completion/failure — not per streamed token
   const lastSys = [...log].reverse().find((m) => m.kind === 'system')
   const status = busy ? 'Assistant is working' : (lastSys?.text ?? (log.length ? 'Ready' : ''))
@@ -274,9 +279,19 @@ export function ChatView({
           }}
         >
           {hidden > 0 && <div className="sys-row">(showing the last {RENDER_LAST} of {log.length} messages)</div>}
-          {visible.map(({ m, key, result }) => (
-            <Message key={key} m={m} provider={binding.provider} result={result} cwd={binding.cwd} />
-          ))}
+          {blocks.map((b) =>
+            b.kind === 'run' ? (
+              <ToolRun key={b.rows[0].key} rows={b.rows} provider={binding.provider} cwd={binding.cwd} />
+            ) : (
+              <Message
+                key={b.row.key}
+                m={b.row.m}
+                provider={binding.provider}
+                result={b.row.result}
+                cwd={binding.cwd}
+              />
+            )
+          )}
           {busy && (
             <div className="thinking">
               <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working…
@@ -343,6 +358,80 @@ export function ChatView({
         )}
       </footer>
     </main>
+  )
+}
+
+
+/** A transcript row, or a folded run of consecutive tool rows. */
+type Row = { m: SessionMessage; key: number; result?: SessionMessage }
+type Block = { kind: 'row'; row: Row } | { kind: 'run'; rows: Row[] }
+
+/** Four is where a run stops reading as "a couple of steps" and starts as a wall. */
+const FOLD_AT = 4
+
+export function foldToolRuns(rows: readonly Row[], busy: boolean): Block[] {
+  const out: Block[] = []
+  let run: Row[] = []
+  const flush = (last: boolean): void => {
+    // the tail run of a live turn stays open: that is the work you are watching
+    if (run.length >= FOLD_AT && !(busy && last)) out.push({ kind: 'run', rows: run })
+    else for (const row of run) out.push({ kind: 'row', row })
+    run = []
+  }
+  for (const row of rows) {
+    if (row.m.kind === 'tool_call' || row.m.kind === 'tool_result') run.push(row)
+    else {
+      flush(false)
+      out.push({ kind: 'row', row })
+    }
+  }
+  flush(true)
+  return out
+}
+
+/** "6 steps · Bash ×3 · Edit ×2 · Read" — what the run did, in the order it did it. */
+export function runSummary(rows: readonly Row[]): string {
+  const counts = new Map<string, number>()
+  for (const r of rows) {
+    const name = r.m.kind === 'tool_call' ? (r.m.toolName ?? 'tool') : 'result'
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  const tools = [...counts]
+    .map(([name, n]) => (n > 1 ? `${name} ×${n}` : name))
+    .slice(0, 4)
+    .join(' · ')
+  return `${rows.length} steps · ${tools}`
+}
+
+/**
+ * A folded run of tool calls: one line that says what the agent did, opening to the
+ * rows themselves. Collapsed by default — a twelve-step run between two paragraphs
+ * of prose buried the prose.
+ */
+function ToolRun({
+  rows,
+  provider,
+  cwd
+}: {
+  rows: Row[]
+  provider: Provider
+  cwd: string
+}): JSX.Element {
+  return (
+    <details className="tool-run">
+      <summary>
+        <span className="tool-chip">
+          <span aria-hidden="true">⚙︎ </span>
+          work
+        </span>
+        <span className="tool-run-sum">{runSummary(rows)}</span>
+      </summary>
+      <div className="tool-run-rows">
+        {rows.map((r) => (
+          <Message key={r.key} m={r.m} provider={provider} result={r.result} cwd={cwd} />
+        ))}
+      </div>
+    </details>
   )
 }
 

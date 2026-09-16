@@ -60,6 +60,12 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     rows per tool call doubled the noise. Only an orphan result gets its own `↳` row.
   - paths under the session's cwd render relative to it (`Message`'s `cwd` prop) — the
     header already names the directory
+  - **four or more tool rows in a row fold into one `.tool-run`** — `⚙︎ work · 5 steps ·
+    Bash ×2 · Read · Grep · Edit`, opening to the rows themselves (`foldToolRuns`,
+    `runSummary`). A twelve-step run between two paragraphs buried the paragraphs. The
+    fold breaks wherever the agent speaks, so prose is never swallowed, and the **tail
+    run of a live turn never folds** — watching the steps arrive is the point while a
+    turn runs. Earlier runs in that same turn still fold.
   - system → `.sys-row` dotted-left-border annotation, aligned with the assistant column
 - Tool/system glyphs are text-presentation unicode (`⚙︎` with U+FE0E, `↳`) — if these
   ever grow, switch to SVGs from `logos.tsx`; never bare emoji-presentation glyphs.
