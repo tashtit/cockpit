@@ -111,8 +111,10 @@ jobs:
   # before the change reaches main, and leaves the .dmg on the run for reviewers to try.
   # macOS minutes cost ten times Linux ones, so this runs per PR (and on demand), not per
   # push to main — the release job below packages main itself and smoke-tests that build.
+  # It waits on ci, so a PR that fails the Linux checks never spends macOS minutes.
   package:
     if: ${{ github.event_name != 'push' }}
+    needs: [ci]
     runs-on: macos-latest
     timeout-minutes: 30
     permissions:
