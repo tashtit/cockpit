@@ -9,6 +9,7 @@ import {
   type Locator,
   type Page
 } from '@playwright/test'
+import { closeApp } from './close-app'
 
 const mainEntry = resolve('out/main/index.js')
 if (!existsSync(mainEntry)) {
@@ -156,11 +157,7 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  // graceful close occasionally hangs under xvfb on linux CI — bound it with a
-  // hard kill so teardown can never eat the 60s hook timeout and fail the run
-  const kill = setTimeout(() => app.process().kill('SIGKILL'), 15_000)
-  await app.close().catch(() => {})
-  clearTimeout(kill)
+  await closeApp(app)
 })
 
 // the heading may carry the gh login ("What should we ship, dev?") — match the stem

@@ -9,6 +9,7 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
+import { closeApp } from './close-app'
 
 /**
  * Cleanup against a REAL git repository, unlike the rest of the e2e fixtures: this
@@ -133,9 +134,7 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  const kill = setTimeout(() => app.process().kill('SIGKILL'), 15_000)
-  await app.close().catch(() => {})
-  clearTimeout(kill)
+  await closeApp(app)
   rmSync(root, { recursive: true, force: true })
 })
 

@@ -74,7 +74,7 @@ Three tiers; CI (`.github/workflows/ci.yml`) runs all of them:
 
 - **unit** (`tests/*.test.ts`, node env) — real tmpdir fixtures: tests write fake session logs and fake `.git/config` files to disk and run the real indexer/parsers over them. No mocking framework; follow that pattern for new tests.
 - **component** (`tests/component/`, jsdom) — renderer components against the stubbed `window.cockpit` in `tests/component/stub-api.ts`.
-- **e2e** (`tests/e2e/`, Playwright) — drives the built Electron app; requires `npm run build` first. `packaged.spec.ts` is the exception: opt-in via `npm run test:packaged`, it launches the `.app` from `npm run package` and is skipped otherwise.
+- **e2e** (`tests/e2e/`, Playwright) — drives the built Electron app; requires `npm run build` first. `packaged.spec.ts` is the exception: opt-in via `npm run test:packaged`, it launches the `.app` from `npm run package` and is skipped otherwise. Every spec tears its app down with `closeApp` (`tests/e2e/close-app.ts`), never a bare `app.close()` or a SIGKILL of `app.process()`: Playwright's close waits until every stdio pipe shuts, and Chromium's helper processes hold those pipes past the main process, so only a process-group kill bounds teardown.
 
 Not a tier, but the check for anything a person *sees*: `npm run ui:tour` (above). Tests assert behaviour; the tour shows what renders. Its world (`scripts/ui-tour/world.mts`) is fake `HOME` + `COCKPIT_USER_DATA` + stub `claude`/`codex`/`copilot`/`gh` first on `PATH` — main resolves every agent path through `os.homedir()`, so that is all hermeticity takes. `tests/ui-tour-world.test.ts` parses the world with the real parsers, so log-format drift fails a test instead of quietly emptying the screenshots.
 

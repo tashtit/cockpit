@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { closeApp } from './close-app'
 
 const mainEntry = resolve('out/main/index.js')
 if (!existsSync(mainEntry)) {
@@ -115,9 +116,7 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  const kill = setTimeout(() => app.process().kill('SIGKILL'), 15_000)
-  await app.close().catch(() => {})
-  clearTimeout(kill)
+  await closeApp(app)
   gateway.closeAllConnections()
   await new Promise<void>((done) => gateway.close(() => done()))
 })

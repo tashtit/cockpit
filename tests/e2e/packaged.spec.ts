@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
+import { closeApp } from './close-app'
 
 /**
  * Smoke test against the PACKAGED app — the .app electron-builder produced, not
@@ -27,12 +28,7 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  if (!app) return
-  // a graceful close that hangs must never eat the hook timeout — bound it with a hard kill
-  const running = app
-  const kill = setTimeout(() => running.process().kill('SIGKILL'), 15_000)
-  await running.close().catch(() => {})
-  clearTimeout(kill)
+  if (app) await closeApp(app)
 })
 
 test('the bundle boots as an installed Cockpit', async () => {
