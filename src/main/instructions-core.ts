@@ -371,3 +371,19 @@ export function foldTargets(reads: readonly TargetRead[], home = homedir()): Fol
     return { ...r, target: { ...r.target, agents: PROVIDER_ORDER.filter((p) => joined.has(p)) }, readBy: by }
   })
 }
+
+/**
+ * Whether every file an apply would write already carries this baseline — the
+ * share's "the repo already says this", decided from what the base branch holds
+ * before any branch or worktree exists. What the repo *says* is what counts: a
+ * file still on the older markers with this very text is not worth a pull request
+ * that only renames them, a `CLAUDE.md` that imports `AGENTS.md` is covered by it,
+ * and a file holding the block twice is a fix worth opening.
+ */
+export function allCarryBaseline(
+  reads: readonly TargetRead[],
+  baseline: string,
+  home = homedir()
+): boolean {
+  return foldTargets(reads, home).every(({ raw }) => fileStatus(raw, baseline) === 'synced')
+}

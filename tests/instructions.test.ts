@@ -8,6 +8,7 @@ import {
   LEGACY_START,
   START,
   adoptableBlock,
+  allCarryBaseline,
   claudeImports,
   extractSharedBlock,
   fileStatus,
@@ -379,6 +380,22 @@ describe('foldTargets', () => {
     const back = foldTargets([read(0, shared), read(1, shared, '/repo/CLAUDE.md')])
     expect(back.map((t) => t.target.path)).toEqual(['/repo/CLAUDE.md'])
     expect(back[0].readBy).toEqual([{ path: '/repo/AGENTS.md', how: 'link' }])
+  })
+
+  /*
+   * The share's "the repo already says this", read off the base branch: no pull
+   * request for a rename, an import, or nothing — one for a missing file, a
+   * different text, or a doubled block.
+   */
+  it('says whether the base branch already carries the baseline', () => {
+    const block = upsertSharedBlock('', BASE)
+    expect(allCarryBaseline([read(0, block), read(1, block)], BASE)).toBe(true)
+    expect(allCarryBaseline([read(0, `${LEGACY_START}\n${BASE}\n${LEGACY_END}\n`), read(1, block)], BASE)).toBe(true)
+    expect(allCarryBaseline([read(0, '# Repo\n\n@AGENTS.md\n'), read(1, block)], BASE)).toBe(true)
+    expect(allCarryBaseline([read(0, null), read(1, block)], BASE)).toBe(false)
+    expect(allCarryBaseline([read(0, block), read(1, upsertSharedBlock('', 'older text'))], BASE)).toBe(false)
+    expect(allCarryBaseline([read(0, block), read(1, `${block}\n${block}`)], BASE)).toBe(false)
+    expect(allCarryBaseline([read(0, '# just prose\n'), read(1, block)], BASE)).toBe(false)
   })
 
   it('global: ~/.claude/CLAUDE.md importing the codex file joins its row', () => {

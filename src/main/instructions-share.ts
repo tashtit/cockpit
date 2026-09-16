@@ -3,7 +3,7 @@ import { join, relative, sep } from 'node:path'
 import type { ShareResult } from '../shared/types'
 import { execText } from './env'
 import { getInstructions } from './instructions'
-import { fileStatus, foldTargets, instructionTargets, upsertSharedBlock } from './instructions-core'
+import { allCarryBaseline, foldTargets, instructionTargets, upsertSharedBlock } from './instructions-core'
 import { resolveRepo } from './repos'
 import { createPr, createWorkspace, removeWorkspace } from './workspace'
 
@@ -128,10 +128,7 @@ export async function shareInstructions(repoRoot: string): Promise<ShareResult> 
   const base = existing ? `origin/${existing.branch}` : await defaultBranch(repoRoot)
 
   // decide "nothing to share" before creating a branch or a worktree, so an
-  // already-shared baseline leaves nothing behind to clean up. What the repo
-  // *says* is what counts: a file still on the older markers with this very text
-  // is not worth a pull request that only renames them (a real change carries the
-  // rename along), while a file holding the block twice is a fix worth opening
+  // already-shared baseline leaves nothing behind to clean up
   const bases = await Promise.all(
     instructionTargets(repoRoot).map(async (target) => ({
       target,
@@ -141,7 +138,7 @@ export async function shareInstructions(repoRoot: string): Promise<ShareResult> 
       real: target.path
     }))
   )
-  if (foldTargets(bases).every(({ raw }) => fileStatus(raw, baseline) === 'synced')) {
+  if (allCarryBaseline(bases, baseline)) {
     return existing ? { status: 'unchanged', url: existing.url } : { status: 'unchanged' }
   }
 
