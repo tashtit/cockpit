@@ -761,19 +761,22 @@ describe('handoff lineage (stamping + chain grouping)', () => {
 describe('live status from logs', () => {
   const liveDir = join(root, 'live-claude')
   const projDir = join(liveDir, 'projects', 'p')
-  const T0 = '2026-09-16T10:00:00.000Z'
+  // a turn that opened a moment ago: the log's own timestamps must be fresh too, since
+  // the tracker trusts them over the mtime of a file that was merely just written
+  const secondsAgo = (n: number): string => new Date(Date.now() - n * 1000).toISOString()
+  const T0 = secondsAgo(20)
   const midTurn = (id: string): unknown[] => [
     { type: 'user', message: { role: 'user', content: 'fix it' }, timestamp: T0, sessionId: id, cwd: repoA },
     {
       type: 'assistant',
       message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Bash', input: {} }] },
-      timestamp: '2026-09-16T10:00:05.000Z'
+      timestamp: secondsAgo(15)
     }
   ]
   const finalAnswer = {
     type: 'assistant',
     message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }] },
-    timestamp: '2026-09-16T10:00:09.000Z'
+    timestamp: secondsAgo(10)
   }
   let idx: SessionIndexer
   const pushes: BusySession[][] = []
@@ -785,13 +788,20 @@ describe('live status from logs', () => {
     const stale = join(projDir, 'stale.jsonl')
     writeFileSync(stale, jsonl(midTurn('stale')))
     utimesSync(stale, new Date('2026-09-01T00:00:00Z'), new Date('2026-09-01T00:00:00Z'))
+    // and one just written whose records are hours old: a restore, not a turn
+    const restored = join(projDir, 'restored.jsonl')
+    const hoursOld = new Date(Date.now() - 5 * 3_600_000).toISOString()
+    writeFileSync(
+      restored,
+      jsonl([{ type: 'user', message: { role: 'user', content: 'old prompt' }, timestamp: hoursOld, sessionId: 'restored', cwd: repoA }])
+    )
     idx = new SessionIndexer(() => {}, { claudeStoreDir: null, onLiveChange: (s) => pushes.push(s) })
     await idx.setSources([{ path: liveDir, provider: 'claude', label: 'live' }])
   })
   afterAll(() => idx?.stopWatchers())
 
-  it('a fresh mid-turn log is busy after the scan, from its prompt; a stale one is not', () => {
-    expect(idx.page({}).total).toBe(2)
+  it('a fresh mid-turn log is busy after the scan, from its prompt; stale and restored ones are not', () => {
+    expect(idx.page({}).total).toBe(3)
     expect(idx.liveSessions()).toEqual([
       { id: 'claude:running', startedAt: Date.parse(T0), source: 'observed' }
     ])
@@ -808,7 +818,7 @@ describe('live status from logs', () => {
 
   it('a new prompt makes it busy again, and a subagent write is its heartbeat', async () => {
     const file = join(projDir, 'running.jsonl')
-    const T2 = '2026-09-16T10:10:00.000Z'
+    const T2 = secondsAgo(5)
     appendFileSync(file, jsonl([{ type: 'user', message: { role: 'user', content: 'now delegate' }, timestamp: T2 }]))
     ;(idx as any).markDirty('change', file)
     await vi.waitFor(() => expect(idx.liveSessions().map((s) => s.id)).toEqual(['claude:running']), {
@@ -821,7 +831,7 @@ describe('live status from logs', () => {
     ;(idx as any).sessionRootEvent(join(liveDir, 'projects'), 'change', 'p/running/subagents/agent-1.jsonl')
     expect(idx.liveSessions().map((s) => s.id)).toEqual(['claude:running'])
     expect(pushes.length).toBe(before)
-    expect(idx.page({}).total).toBe(2)
+    expect(idx.page({}).total).toBe(3)
   })
 
   it('stopping the watchers clears the observed set', () => {

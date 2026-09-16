@@ -79,10 +79,15 @@ export class LivenessTracker {
   /**
    * The indexer re-parsed a session's log because it changed: judge its tail. The
    * freshness gate comes first so a cold scan over thousands of old logs reads no
-   * tails at all — only a file written inside the window can be live.
+   * tails at all — only a file written inside the window can be live. "Written" is
+   * the file's mtime capped by the log's own last timestamp (`meta.updatedAt`, which
+   * the parsers derive and which falls back to the mtime for a log too big to read
+   * through): a file restored from a backup or synced in from another machine has a
+   * fresh mtime and old content, and must not surface as a phantom turn.
    */
   observe(file: string, meta: SessionMeta, mtimeMs: number): void {
-    if (this.now() - mtimeMs > this.windowMs) {
+    const written = Math.min(mtimeMs, meta.updatedAt)
+    if (this.now() - written > this.windowMs) {
       this.drop(meta.id)
       return
     }
@@ -91,7 +96,7 @@ export class LivenessTracker {
     if (verdict === null) {
       // the tail is silent (a run of huge records): a turn that was running still is —
       // its end always writes a small decisive record — and one that wasn't is not invented
-      if (prev) prev.lastWriteAt = Math.max(prev.lastWriteAt, mtimeMs)
+      if (prev) prev.lastWriteAt = Math.max(prev.lastWriteAt, written)
       return
     }
     if (!verdict.live) {
@@ -100,13 +105,13 @@ export class LivenessTracker {
     }
     // the opening record is in the tail on a turn's first write, so the exact start is
     // learnt then and kept; when it has scrolled out, the last write is the lower bound
-    const startedAt = verdict.startedAt ?? prev?.startedAt ?? mtimeMs
+    const startedAt = verdict.startedAt ?? prev?.startedAt ?? written
     if (prev) {
-      prev.lastWriteAt = Math.max(prev.lastWriteAt, mtimeMs)
+      prev.lastWriteAt = Math.max(prev.lastWriteAt, written)
       if (prev.startedAt === startedAt) return
       prev.startedAt = startedAt
     } else {
-      this.entries.set(meta.id, { id: meta.id, file, startedAt, lastWriteAt: mtimeMs })
+      this.entries.set(meta.id, { id: meta.id, file, startedAt, lastWriteAt: written })
       this.ensureSweep()
     }
     this.emit()

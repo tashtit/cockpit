@@ -11,7 +11,8 @@ function jsonl(objs: unknown[]): string {
   return objs.map((o) => JSON.stringify(o)).join('\n') + '\n'
 }
 
-function meta(provider: Provider, nativeId: string, file: string): SessionMeta {
+/** What the parsers would say about a log active right now (updatedAt is its last timestamp). */
+function meta(provider: Provider, nativeId: string, file: string, updatedAt = Date.now()): SessionMeta {
   return {
     id: `${provider}:${nativeId}`,
     provider,
@@ -21,7 +22,7 @@ function meta(provider: Provider, nativeId: string, file: string): SessionMeta {
     cwd: '/x',
     logBranch: null,
     startedAt: 0,
-    updatedAt: 0,
+    updatedAt,
     messageCount: 1,
     sourcePath: file
   }
@@ -210,6 +211,16 @@ describe('LivenessTracker', () => {
     })
   }
 
+  it('a log whose own timestamps are old is not live, however fresh the file', () => {
+    const pushes: BusySession[][] = []
+    const t = tracker((s) => pushes.push(s))
+    const file = writeFixture('claude', FIXTURES.claude.midTurn)
+    // just written (a restore, a sync), but the log says its last activity was long ago
+    t.observe(file, meta('claude', 'c1', file, Date.now() - 10 * 60_000), mtime(file))
+    expect(t.sessions()).toEqual([])
+    expect(pushes).toEqual([])
+  })
+
   it('going stale drops a live session on the sweep and pushes the change', async () => {
     const pushes: BusySession[][] = []
     const t = tracker((s) => pushes.push(s), { windowMs: 300, sweepMs: 50 })
@@ -241,10 +252,10 @@ describe('LivenessTracker', () => {
     const [prompt, toolUse] = fx.midTurn
     const file = writeFixture('claude', [prompt, ...padding(LIVE_TAIL_STEPS[0] * 2), toolUse])
     const first = mtime(file)
-    t.observe(file, meta('claude', 'c1', file), first)
+    t.observe(file, meta('claude', 'c1', file, first), first)
     expect(t.sessions()).toEqual([{ id: 'claude:c1', startedAt: first, source: 'observed' }])
     appendFileSync(file, jsonl([{ type: 'attachment' }]))
-    t.observe(file, meta('claude', 'c1', file), first + 5000)
+    t.observe(file, meta('claude', 'c1', file, first + 5000), first + 5000)
     expect(t.sessions()[0].startedAt).toBe(first)
   })
 
