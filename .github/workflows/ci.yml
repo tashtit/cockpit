@@ -107,75 +107,24 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # The disk image on every pull request: proves the bundle still packages and boots
-  # before the change reaches main, and leaves the .dmg on the run for reviewers to try.
-  # macOS minutes cost ten times Linux ones, so this runs per PR (and on demand), not per
-  # push to main — the release job below packages main itself and smoke-tests that build.
-  # It waits on ci, so a PR that fails the Linux checks never spends macOS minutes.
-  package:
-    if: ${{ github.event_name != 'push' }}
-    needs: [ci]
-    runs-on: macos-latest
-    timeout-minutes: 30
-    permissions:
-      contents: 'read' # for actions/checkout
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-        with: { persist-credentials: false }
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7.0.0
-        with: { node-version-file: '.nvmrc', cache: 'npm' }
-
-      # both architectures' Electron zips — electron-builder fetches the one the runner is not
-      - name: Cache Electron binaries
-        uses: actions/cache@v6.1.0
-        with:
-          path: ~/Library/Caches/electron
-          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
-      - name: Install
-        run: npm ci
-
-      - name: 📦 Package (dmg + zip, arm64 + x64)
-        run: npm run package
-
-      - name: 🚀 Smoke test the packaged app
-        run: npm run test:packaged
-
-      - name: Upload disk images
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: cockpit-mac-dmg
-          path: dist/*.dmg
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload Playwright traces
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: playwright-report-packaged
-          path: |
-            playwright-report/
-            test-results/
-          if-no-files-found: ignore
-          retention-days: 14
-
-  # semantic-release on main: reads the commits since the last tag, decides whether a
+  # Packages the macOS app and smoke-tests the bundle after ci passes, on every event.
+  # Pull requests (and manual runs off main) stop there: the disk images are left on the
+  # run for reviewers to try, and nothing is tagged or published. On main, semantic-release
+  # does the packaging instead: it reads the commits since the last tag, decides whether a
   # release is due and which version (feat → minor; fix, perf, build → patch; a `!` or a
   # BREAKING CHANGE footer → major), stamps package.json, packages, smoke-tests the
   # packaged app, then pushes the tag and creates the GitHub Release with the disk images
   # and the updater manifest. Nothing is committed back — the tag is the version — and a
   # re-run on an already-released commit is a no-op. Details: CONTRIBUTING.md, "Releases".
   release:
-    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     needs: [ci]
     runs-on: macos-latest
     timeout-minutes: 40
-    # signing and notarization secrets are scoped to this environment, never to the repo
-    environment: release
+    env:
+      RELEASE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    # signing and notarization secrets are scoped to this environment, never to the repo,
+    # and only a release on main enters it — pull request code never runs with them
+    environment: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'release' || '' }}
     permissions:
       contents: 'write' # semantic-release pushes the tag and creates the release + assets
       id-token: 'write' # for actions/attest-build-provenance
@@ -192,6 +141,7 @@ jobs:
         uses: actions/setup-node@v7.0.0
         with: { node-version-file: '.nvmrc', cache: 'npm' }
 
+      # both architectures' Electron zips — electron-builder fetches the one the runner is not
       - name: Cache Electron binaries
         uses: actions/cache@v6.1.0
         with:
@@ -201,8 +151,26 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: 📦 Package (dmg + zip, arm64 + x64)
+        if: ${{ env.RELEASE != 'true' }}
+        run: npm run package
+
+      - name: 🚀 Smoke test the packaged app
+        if: ${{ env.RELEASE != 'true' }}
+        run: npm run test:packaged
+
+      - name: Upload disk images
+        if: ${{ env.RELEASE != 'true' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: cockpit-mac-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
       - name: 🏷️ Release
         id: release
+        if: ${{ env.RELEASE == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Apple credentials, all five or none (electron-builder.config.js refuses a partial
