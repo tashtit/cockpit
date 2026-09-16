@@ -7,6 +7,9 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   copilot: 'Copilot'
 }
 
+/* Octicons (MIT) and Simple Icons (CC0 1.0) path data in this file are credited in
+ * THIRD-PARTY-NOTICES.md. */
+
 /* Official brand marks:
  *  - Claude: Anthropic starburst (Simple Icons path data)
  *  - Codex: OpenAI blossom (one petal from the official geometry, rotated ×6)

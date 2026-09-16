@@ -96,4 +96,4 @@ src/renderer/             React UI (HomeView, TreeSidebar, ChatView, NewSession,
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](LICENSE). Icon artwork from GitHub Octicons and Simple Icons is credited in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
