@@ -35,6 +35,8 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
   /** The one row currently being given a key, and what has been typed into it */
   const [keying, setKeying] = useState<{ id: string; value: string } | null>(null)
   const [keyError, setKeyError] = useState<string | null>(null)
+  /** Folded until asked for — the list is the readout, adding one is a task */
+  const [addOpen, setAddOpen] = useState(false)
   const confirm = useArmedConfirm()
 
   useEffect(() => {
@@ -70,6 +72,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
       const before = endpoints
       const after = await api.addModelEndpoint(def)
       setEndpoints(after)
+      setAddOpen(false)
       setEpLabel('')
       setEpUrl('')
       setEpKey('')
@@ -237,6 +240,17 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
       </ul>
       {removeError && <div role="alert" className="new-error">{removeError}</div>}
       {keyError && <div role="alert" className="new-error">{keyError}</div>}
+      {/* the outcome of an add outlives the form it was typed into: adding folds the
+          form away, and "12 models found" / "couldn't list models" is the answer */}
+      {epNotice && !epError && <p className="ns-hint">{epNotice}</p>}
+      {!addOpen && (
+        <div className="source-add-open">
+          <button className="btn-ghost small" onClick={() => setAddOpen(true)}>
+            Add a model provider…
+          </button>
+        </div>
+      )}
+      {addOpen && (
       <form
         className="source-add"
         onSubmit={(e) => {
@@ -249,6 +263,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
             <label className="ns-label" htmlFor="ep-label">Display name</label>
             <input
               id="ep-label"
+              autoFocus
               placeholder="Anthropic"
               value={epLabel}
               onChange={(e) => setEpLabel(e.target.value)}
@@ -324,13 +339,23 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
           </div>
         </div>
         {epError && <div id="endpoint-add-error" role="alert" className="new-error">{epError}</div>}
-        {epNotice && !epError && <p className="ns-hint">{epNotice}</p>}
         <div className="ns-actions">
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => {
+              setAddOpen(false)
+              setEpError(null)
+            }}
+          >
+            Cancel
+          </button>
           <button type="submit" className="btn-primary" disabled={!epLabel.trim() || !epUrl.trim()}>
             Add provider
           </button>
         </div>
       </form>
+      )}
     </>
   )
 }

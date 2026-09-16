@@ -57,6 +57,23 @@ surface, no shadow).
   ≤700px the `.board-branch` slot goes too, because on a ~360px pane the task title is
   the row's content.
 
+## First run (`Setup`, `.setup-card`)
+
+- When Cockpit cannot start anything — no agent signed in, or no repository indexed —
+  the composer card is **replaced** by the same card shape holding the three things it
+  needs: sign in to an agent · point Cockpit at your work · connect GitHub for PRs.
+  A disabled Start button that says nothing is an accurate screen that helps nobody.
+- Steps already satisfied stay on screen, ticked (`CheckIcon` in `--ok`, the title
+  quieted, an `sr-only` "— done"): the card is a progress readout, not a gate that
+  empties as you go. Only an unsatisfied step carries its note and its action.
+- The gate is `accounts.accounts.length > 0 && selectable.length > 0`; while
+  `accounts === null` (still loading) the composer renders — never flash setup at
+  someone who is set up. GitHub missing alone does **not** show the card: sessions run
+  fine without `gh`, only PRs need it.
+- Per-agent absence keeps its old, quieter signal: with one agent signed in, the
+  composer's `.no-acct` dot and "not signed in" chip say the rest.
+- The hero's sub line swaps to what this screen is waiting for.
+
 ## Composer card
 
 - `.composer-card` = borderless textarea on top, `.composer-bar` control strip below a

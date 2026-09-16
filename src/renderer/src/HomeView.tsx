@@ -12,7 +12,7 @@ import { AttachRow, useImageAttachments, type ImageAttachment } from './attachme
 import { useBusyMap } from './busy'
 import { useLandedMap } from './landed'
 import { accountOptions, MODES, savedAccount, type StartSessionRequest } from './NewSession'
-import { BranchChip, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import { BranchChip, CheckIcon, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
@@ -36,7 +36,8 @@ export function HomeView({
   onOpenSession,
   onOpenFull,
   onNewRoundtable,
-  onOpenRoundtable
+  onOpenRoundtable,
+  onOpenSettings
 }: {
   repos: RepoGroup[]
   indexVersion: number
@@ -47,6 +48,8 @@ export function HomeView({
   onOpenFull: (repo: RepoGroup, draft: string, images?: readonly ImageAttachment[]) => void
   onNewRoundtable: () => void
   onOpenRoundtable: (id: string) => void
+  /** First run sends people to Settings for the step that is missing */
+  onOpenSettings: () => void
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
@@ -140,6 +143,10 @@ export function HomeView({
     if (err) setError(err)
   }
 
+  // nothing to run a task with yet: no agent signed in, or no repository indexed.
+  // `accounts === null` is still loading — never flash setup at someone set up.
+  const canStart = accounts === null || ((accounts.accounts.length ?? 0) > 0 && selectable.length > 0)
+
   // the board and the roundtable strip are one thing — the fleet — and they move together
   const busyMap = useBusyMap()
   const landedMap = useLandedMap()
@@ -172,11 +179,23 @@ export function HomeView({
             )}
           </h2>
           <p className="home-sub">
-            Assign a task to an agent — it runs in an isolated worktree and lands as a PR.
+            {canStart ? (
+              <>Assign a task to an agent — it runs in an isolated worktree and lands as a PR.</>
+            ) : (
+              <>Cockpit reads the sessions your agent CLIs already write. Three things and you fly.</>
+            )}
             <span className="home-kbd">⌘N new task · ⌘K jump anywhere</span>
           </p>
         </div>
 
+        {!canStart ? (
+          <Setup
+            signedIn={(accounts?.accounts.length ?? 0) > 0}
+            indexed={selectable.length > 0}
+            githubUser={accounts?.githubUser ?? null}
+            onOpenSettings={onOpenSettings}
+          />
+        ) : (
         <div className="composer-card">
           <AttachRow atts={atts} />
           <textarea
@@ -268,6 +287,7 @@ export function HomeView({
             </button>
           </div>
         </div>
+        )}
         <div className="home-more">
           <button className="link-btn" disabled={busy} onClick={onNewRoundtable}>
             Start a roundtable — several agents, one discussion
@@ -289,6 +309,94 @@ export function HomeView({
         {!fleetLeads && fleet}
       </div>
     </main>
+  )
+}
+
+/**
+ * First run: an empty tree, "no repositories indexed yet" and a Start button that
+ * is disabled without saying why is an accurate screen that helps nobody. This is
+ * the same card shape, holding the three things Cockpit needs — and what to do
+ * about each. Steps already satisfied stay, ticked: progress is the point.
+ */
+function Setup({
+  signedIn,
+  indexed,
+  githubUser,
+  onOpenSettings
+}: {
+  signedIn: boolean
+  indexed: boolean
+  githubUser: string | null
+  onOpenSettings: () => void
+}): JSX.Element {
+  const steps = [
+    {
+      done: signedIn,
+      title: 'Sign in to an agent',
+      note: (
+        <>
+          Run <code>claude</code>, <code>codex</code> or <code>copilot</code> once in a terminal and
+          sign in. Cockpit never asks for credentials — it reads each CLI&apos;s own config home.
+        </>
+      ),
+      action: null
+    },
+    {
+      done: indexed,
+      title: 'Point Cockpit at your work',
+      note: signedIn ? (
+        <>
+          Nothing indexed in <code>~/.claude</code>, <code>~/.codex</code> or{' '}
+          <code>~/.copilot</code> yet. Start a session in any git repository, or add the config home
+          yours lives in.
+        </>
+      ) : (
+        <>
+          Cockpit watches <code>~/.claude</code>, <code>~/.codex</code> and <code>~/.copilot</code>{' '}
+          by default; add another config home if yours lives elsewhere.
+        </>
+      ),
+      action: { label: 'Add a config home', onClick: onOpenSettings }
+    },
+    {
+      done: !!githubUser,
+      title: githubUser ? `Pull requests as @${githubUser}` : 'Connect GitHub for pull requests',
+      note: githubUser ? (
+        <>Branches push and PRs open as this user.</>
+      ) : (
+        <>
+          Run <code>gh auth login</code> so finished work can ship as a PR. Sessions run fine
+          without it.
+        </>
+      ),
+      action: null
+    }
+  ]
+
+  return (
+    <section className="composer-card setup-card" aria-label="Set up Cockpit">
+      <ol className="setup-steps">
+        {steps.map((s) => (
+          <li key={s.title} className={`setup-step ${s.done ? 'done' : ''}`}>
+            <span className={`setup-mark ${s.done ? 'done' : ''}`} aria-hidden="true">
+              {s.done ? <CheckIcon size={12} /> : <span className="setup-dot" />}
+            </span>
+            <div className="setup-body">
+              <div className="setup-title">
+                {s.title}
+                {s.done && <span className="sr-only"> — done</span>}
+              </div>
+              {!s.done && <div className="setup-note">{s.note}</div>}
+            </div>
+            {!s.done && s.action && (
+              <button className="btn-ghost small" onClick={s.action.onClick}>
+                {s.action.label}
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   )
 }
 

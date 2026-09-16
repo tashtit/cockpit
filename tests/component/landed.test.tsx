@@ -55,6 +55,7 @@ function renderHome(): void {
       onOpenFull={vi.fn()}
       onNewRoundtable={vi.fn()}
       onOpenRoundtable={vi.fn()}
+      onOpenSettings={vi.fn()}
     />
   )
 }
