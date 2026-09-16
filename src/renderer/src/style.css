@@ -1859,6 +1859,15 @@ button.pnl-flag:hover { text-decoration: underline; }
      never collapses to nothing */
   .chat-header .badge-text { display: none; }
   .chat-header .badge { min-height: 20px; padding-inline: var(--s2); }
+  /* composers (chat and roundtable): beside a mode select and Send, a ~360px pane left
+     the textarea ~180px wide and its placeholder wrapped to five lines — a third of the
+     window spent on a hint. The textarea takes the whole row; controls follow, right. */
+  .composer textarea { flex-basis: 100%; }
+  .composer { justify-content: flex-end; }
+  /* Agents: Global + a project picker left the search box a 16px sliver beside them.
+     Search takes its own line under the scope switch instead */
+  .scope-line { flex-wrap: wrap; }
+  .scope-line .pnl-search { flex-basis: 100%; }
 }
 @media (max-height: 600px) {
   .home-hero { display: none; }

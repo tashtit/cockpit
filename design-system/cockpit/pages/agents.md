@@ -16,6 +16,8 @@ historical `AiSetup.tsx` name.
   search box filling the rest of the line. The active half lifts to `--bg3` under an
   `inset 0 2px 0 var(--accent)` rule. Never render this as a dropdown with "global" as an
   option — Global and a project are two places, not two values.
+- ≤700px the search box drops to its own full-width line under the scope switch — beside
+  Global and a project picker it was a 16px sliver at the window floor.
 - A `.scope-blurb` under it always states the consequence in plain words: what Global
   covers, or which repo a project covers *and* that global still applies on top.
 - Reachable three ways: the rail's Agents icon (Global), a `SlidersIcon` in each repo

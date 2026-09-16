@@ -419,6 +419,9 @@ describe('codex parser', () => {
     const msgs = parseCodexMessages(s.find((x) => x.nativeId === 'bbbb-2222')!.sourcePath)
     expect(msgs.map((m) => m.kind)).toEqual(['text', 'text', 'tool_call'])
     expect(msgs[0].role).toBe('user')
+    // the row's headline is the command it ran, not its JSON arguments
+    expect(msgs[2].preview).toBe('pytest')
+    expect(msgs[2].text).toBe('{"cmd":"pytest"}')
   })
   it('counts a doubly-persisted turn once, not once per envelope', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')

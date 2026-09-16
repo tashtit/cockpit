@@ -10,6 +10,7 @@ import {
   readJsonl,
   readJsonlTail,
   toMs,
+  toolPreview,
   truncate,
   walkFiles
 } from './util'
@@ -198,15 +199,20 @@ export function parseCodexMessages(file: string): SessionMessage[] {
             out.push({ role: p.role === 'user' ? 'user' : 'assistant', kind: 'text', text: capText(text), ts })
           break
         }
-        case 'function_call':
+        case 'function_call': {
+          // the headline is the command or the patched files; the raw arguments stay in
+          // the detail, as they do for every other agent's rows
+          const preview = toolPreview(p.name ?? 'tool', parseArguments(p.arguments))
           out.push({
             role: 'assistant',
             kind: 'tool_call',
             toolName: p.name ?? 'tool',
             text: truncate(String(p.arguments ?? ''), 400),
+            ...(preview ? { preview: truncate(preview, 200) } : {}),
             ts
           })
           break
+        }
         case 'function_call_output':
           out.push({
             role: 'tool',
@@ -229,4 +235,16 @@ export function parseCodexMessages(file: string): SessionMessage[] {
     }
   }
   return out
+}
+
+/** Codex serialises a call's arguments as a JSON string; a malformed one has no headline. */
+function parseArguments(raw: unknown): Record<string, unknown> | null {
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>
+  if (typeof raw !== 'string') return null
+  try {
+    const v: unknown = JSON.parse(raw)
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
 }

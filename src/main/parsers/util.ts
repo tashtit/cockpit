@@ -256,6 +256,13 @@ export function toolPreview(name: string, input: unknown): string | null {
       return str(i.description) ?? str(i.prompt)
     case 'Skill':
       return str(i.skill)
+    // Codex: the command array (or string) it hands a shell, and apply_patch bodies
+    case 'shell':
+    case 'exec_command':
+    case 'local_shell':
+      return shellPreview(i.command ?? i.cmd)
+    case 'apply_patch':
+      return patchPreview(String(i.input ?? i.patch ?? ''))
     // Copilot CLI's own tool names (lowercase, `path` rather than `file_path`)
     case 'bash':
       return str(i.command) ?? str(i.cmd)
@@ -268,4 +275,37 @@ export function toolPreview(name: string, input: unknown): string | null {
     default:
       return null
   }
+}
+
+/**
+ * What a shell call actually ran. Codex wraps every command in its shell — as an array
+ * (`["bash", "-lc", "npm test"]`) in its logs and as a string (`bash -lc "npm test"`) in its
+ * event stream — so the headline is the script inside, and an apply_patch script is named
+ * by the files it touches rather than printed as a heredoc.
+ */
+export function shellPreview(command: unknown): string | null {
+  let script: string
+  if (Array.isArray(command)) {
+    const parts = command.map(String)
+    const shell = parts[0]?.split('/').pop() ?? ''
+    script =
+      parts.length >= 3 && /^(ba|z|da)?sh$/.test(shell) && /^-l?c$/.test(parts[1] ?? '')
+        ? parts.slice(2).join(' ')
+        : parts.join(' ')
+  } else if (typeof command === 'string') {
+    const wrapped = command.match(/^(?:\S*\/)?(?:ba|z|da)?sh\s+-l?c\s+(['"])([\s\S]*)\1\s*$/)
+    script = wrapped ? (wrapped[2] ?? '') : command
+  } else {
+    return null
+  }
+  const patch = patchPreview(script)
+  if (patch) return patch
+  const first = script.trim().split('\n', 1)[0]?.trim()
+  return first || null
+}
+
+/** `apply_patch src/a.ts, src/b.ts` — the paths a patch body adds, updates or deletes. */
+export function patchPreview(text: string): string | null {
+  const paths = [...text.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((m) => m[1]!.trim())
+  return paths.length > 0 ? `apply_patch ${paths.join(', ')}` : null
 }

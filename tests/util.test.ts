@@ -6,7 +6,9 @@ import {
   capText,
   parseJsonc,
   readHead,
+  patchPreview,
   readJsonlTail,
+  shellPreview,
   toolPreview,
   truncate,
   TRANSCRIPT_TAIL_BYTES
@@ -129,3 +131,33 @@ describe('toolPreview', () => {
     expect(toolPreview('mcp__linear__search', { q: 'bug' })).toBeNull()
   })
 })
+
+describe('Codex shell and patch previews', () => {
+  it('unwraps the shell Codex puts around every command, array or string', () => {
+    expect(shellPreview(['bash', '-lc', 'rg -n premium_request src'])).toBe('rg -n premium_request src')
+    expect(shellPreview(['/bin/zsh', '-c', 'npm test'])).toBe('npm test')
+    expect(shellPreview('bash -lc "npm run lint"')).toBe('npm run lint')
+    // not wrapped: shown as it ran
+    expect(shellPreview(['git', 'status'])).toBe('git status')
+  })
+
+  it('names an apply_patch by the files it touches instead of printing the heredoc', () => {
+    const script = "apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: src/main/usage.ts\n@@\n-a\n+b\n*** Add File: tests/usage.test.ts\n+x\n*** End Patch\nEOF"
+    expect(shellPreview(['bash', '-lc', script])).toBe('apply_patch src/main/usage.ts, tests/usage.test.ts')
+    expect(patchPreview('no patch here')).toBeNull()
+  })
+
+  it('reads the tool names Codex logs use', () => {
+    expect(toolPreview('shell', { command: ['bash', '-lc', 'cargo test'] })).toBe('cargo test')
+    expect(toolPreview('exec_command', { cmd: 'ls -la' })).toBe('ls -la')
+    expect(toolPreview('apply_patch', { input: '*** Begin Patch\n*** Delete File: old.ts\n*** End Patch' })).toBe(
+      'apply_patch old.ts'
+    )
+  })
+
+  it('has no headline for a command it cannot read', () => {
+    expect(shellPreview(undefined)).toBeNull()
+    expect(shellPreview(['bash', '-lc', '   '])).toBeNull()
+  })
+})
+

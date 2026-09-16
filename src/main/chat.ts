@@ -8,7 +8,7 @@ import {
   isBlockedEndpointHost,
   isValidModel
 } from '../shared/endpoints'
-import { contentToText, toolPreview, truncate } from './parsers/util'
+import { contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
 import { cliEnv } from './env'
 
 type Emit = (ev: ChatEvent) => void
@@ -136,10 +136,29 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
     const it = line.item
     if ((it.type === 'agent_message' || it.item_type === 'assistant_message') && (it.text || it.message))
       out.push({ turnId, type: 'text', text: String(it.text ?? it.message) })
-    if (it.type === 'command_execution')
-      out.push({ turnId, type: 'tool', toolName: 'shell', detail: truncate(String(it.command ?? ''), 200) })
-    if (it.type === 'file_change')
-      out.push({ turnId, type: 'tool', toolName: 'edit', detail: truncate(JSON.stringify(it.changes ?? ''), 200) })
+    if (it.type === 'command_execution') {
+      const preview = shellPreview(it.command)
+      out.push({
+        turnId,
+        type: 'tool',
+        toolName: 'shell',
+        detail: truncate(String(it.command ?? ''), 200),
+        ...(preview ? { preview: truncate(preview, 200) } : {})
+      })
+    }
+    if (it.type === 'file_change') {
+      // the files a change touched, not its JSON — the raw list stays in the detail
+      const paths = Array.isArray(it.changes)
+        ? it.changes.map((c: { path?: unknown }) => c?.path).filter((p: unknown): p is string => typeof p === 'string')
+        : []
+      out.push({
+        turnId,
+        type: 'tool',
+        toolName: 'edit',
+        detail: truncate(JSON.stringify(it.changes ?? ''), 200),
+        ...(paths.length > 0 ? { preview: truncate(paths.join(', '), 200) } : {})
+      })
+    }
   } else if (line?.type === 'turn.completed') {
     out.push({ turnId, type: 'done' })
   }
@@ -150,8 +169,16 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
       out.push({ turnId, type: 'session', nativeSessionId: String(m.session_id) })
     if (m.type === 'agent_message' && m.message)
       out.push({ turnId, type: 'text', text: String(m.message) })
-    if (m.type === 'exec_command_begin' && m.command)
-      out.push({ turnId, type: 'tool', toolName: 'shell', detail: truncate(Array.isArray(m.command) ? m.command.join(' ') : String(m.command), 200) })
+    if (m.type === 'exec_command_begin' && m.command) {
+      const preview = shellPreview(m.command)
+      out.push({
+        turnId,
+        type: 'tool',
+        toolName: 'shell',
+        detail: truncate(Array.isArray(m.command) ? m.command.join(' ') : String(m.command), 200),
+        ...(preview ? { preview: truncate(preview, 200) } : {})
+      })
+    }
     if (m.type === 'task_complete') out.push({ turnId, type: 'done' })
   }
   return out
