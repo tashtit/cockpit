@@ -172,6 +172,9 @@ export class SessionIndexer {
   /** In-flight cache save — later saves chain onto it (see saveCacheAsync) */
   private savingCache: Promise<void> = Promise.resolve()
   private scanning = false
+  /** Settles when the first full scan finishes (or fails) — see whenScanned */
+  private readonly firstScan: Promise<void>
+  private markScanned: () => void = () => {}
   private scanQueued = false
   private sources: SourceDir[] = []
   private archived = new Set<string>()
@@ -213,7 +216,17 @@ export class SessionIndexer {
     this.liveness = new LivenessTracker(opts?.onLiveChange ?? (() => {}), {
       windowMs: opts?.liveWindowMs
     })
+    this.firstScan = new Promise((resolve) => (this.markScanned = resolve))
     this.loadCache()
+  }
+
+  /**
+   * Resolves once a full scan has finished. Until then an empty repo list means
+   * "not read yet", not "nothing there" — the first-run setup card waits on this so
+   * it never flashes at someone whose sessions are still being read.
+   */
+  whenScanned(): Promise<void> {
+    return this.firstScan
   }
 
   /** Sessions whose logs show a turn in progress right now — the observed half of the busy set. */
@@ -577,6 +590,8 @@ export class SessionIndexer {
       console.error('[indexer] rescan failed:', err)
     } finally {
       this.scanning = false
+      // a failed scan settles it too: the setup card may show, it must never hang
+      this.markScanned()
       if (this.scanQueued) {
         this.scanQueued = false
         void this.rescan()

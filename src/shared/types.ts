@@ -1184,6 +1184,8 @@ export type CockpitApi = {
   readonly addSource: (path: string, provider: Provider, label: string) => Promise<SourceDir[]>
   readonly removeSource: (path: string) => Promise<SourceDir[]>
   readonly listRepos: () => Promise<RepoGroup[]>
+  /** Resolves once the index has finished its first full scan — until then no repos means "not read yet" */
+  readonly whenIndexed: () => Promise<void>
   readonly pageSessions: (query: SessionQuery) => Promise<SessionPage>
   /** One indexed session by id (lineage navigation); null when unknown */
   readonly getSession: (sessionId: string) => Promise<SessionMeta | null>

@@ -55,6 +55,7 @@ function renderHome(): void {
   render(
     <HomeView
       repos={[repo]}
+      indexed
       indexVersion={0}
       busy={false}
       onStart={vi.fn().mockResolvedValue(null)}

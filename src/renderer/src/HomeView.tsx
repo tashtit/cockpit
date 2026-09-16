@@ -30,6 +30,7 @@ function firstName(login: string): string {
  */
 export function HomeView({
   repos,
+  indexed,
   indexVersion,
   busy,
   onStart,
@@ -40,6 +41,8 @@ export function HomeView({
   onOpenSettings
 }: {
   repos: RepoGroup[]
+  /** The index has finished its first scan, so an empty `repos` means none */
+  indexed: boolean
   indexVersion: number
   busy: boolean
   onStart: (req: StartSessionRequest) => Promise<string | null>
@@ -80,7 +83,6 @@ export function HomeView({
     selectable.find((r) => r.key === repoKey) ?? (selectable.length > 0 ? selectable[0] : null)
 
   useEffect(() => {
-    promptRef.current?.focus()
     void api.getAccounts().then(setAccounts)
   }, [])
 
@@ -143,9 +145,21 @@ export function HomeView({
     if (err) setError(err)
   }
 
-  // nothing to run a task with yet: no agent signed in, or no repository indexed.
-  // `accounts === null` is still loading — never flash setup at someone set up.
-  const canStart = accounts === null || ((accounts.accounts.length ?? 0) > 0 && selectable.length > 0)
+  // Three states, and the first two only on evidence. The composer shows the moment
+  // there is an account and a repo to run in; setup only once accounts have loaded and
+  // the first scan has finished and one of them is still missing. Until either is
+  // known the slot stays empty — a composer swapped for setup (a first run) or setup
+  // swapped for a composer (a cold index) is a flash either way.
+  const canStart = (accounts?.accounts.length ?? 0) > 0 && selectable.length > 0
+  const needsSetup = !canStart && accounts !== null && indexed
+
+  // focus lands in the composer when it first appears, not when the view mounts
+  const focusedRef = useRef(false)
+  useEffect(() => {
+    if (!canStart || focusedRef.current) return
+    focusedRef.current = true
+    promptRef.current?.focus()
+  }, [canStart])
 
   // the fleet: sessions and roundtables on one board, placed by what is happening
   const busyMap = useBusyMap()
@@ -182,21 +196,21 @@ export function HomeView({
           <p className="home-sub">
             {canStart ? (
               <>Assign a task to an agent — it runs in an isolated worktree and lands as a PR.</>
-            ) : (
+            ) : needsSetup ? (
               <>Cockpit reads the sessions your agent CLIs already write. Three things and you fly.</>
-            )}
+            ) : null}
             <span className="home-kbd">⌘N new task · ⌘K jump anywhere</span>
           </p>
         </div>
 
-        {!canStart ? (
+        {needsSetup ? (
           <Setup
             signedIn={(accounts?.accounts.length ?? 0) > 0}
             indexed={selectable.length > 0}
             githubUser={accounts?.githubUser ?? null}
             onOpenSettings={onOpenSettings}
           />
-        ) : (
+        ) : canStart ? (
         <div className="composer-card">
           <AttachRow atts={atts} />
           <textarea
@@ -288,7 +302,7 @@ export function HomeView({
             </button>
           </div>
         </div>
-        )}
+        ) : null}
         <div className="home-more">
           <button className="link-btn" disabled={busy} onClick={onNewRoundtable}>
             Start a roundtable — several agents, one discussion

@@ -119,6 +119,8 @@ export function App(): JSX.Element {
   const [zoom, setZoom] = useState(1)
   const [view, setView] = useState<View>({ kind: 'welcome' })
   const [indexVersion, setIndexVersion] = useState(0)
+  /** The first full scan has finished — an empty repo list is real, not unread */
+  const [indexed, setIndexed] = useState(false)
   const [prs, setPrs] = useState<PrStatus[]>([])
   const [binding, setBinding] = useState<ChatBinding | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -156,6 +158,14 @@ export function App(): JSX.Element {
       setIndexVersion((v) => v + 1)
     }
     load()
+    // repos and the flag land in one render, so the home never sees "scanned" beside a
+    // list from before the scan
+    void api.whenIndexed().then(() =>
+      api.listRepos().then((r) => {
+        setRepos(r)
+        setIndexed(true)
+      })
+    )
     return api.onIndexUpdated(load)
   }, [])
 
@@ -817,6 +827,7 @@ export function App(): JSX.Element {
       ) : view.kind === 'welcome' ? (
         <HomeView
           repos={visibleRepos}
+          indexed={indexed}
           indexVersion={indexVersion}
           busy={creating}
           onStart={startSession}

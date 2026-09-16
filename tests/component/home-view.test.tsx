@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HomeView } from '../../src/renderer/src/HomeView'
 import type { AccountsSnapshot, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
@@ -33,6 +33,7 @@ const claudeSnapshot: AccountsSnapshot = {
 function renderHome(over: Partial<Parameters<typeof HomeView>[0]> = {}) {
   const props = {
     repos: [repo],
+    indexed: true,
     indexVersion: 0,
     busy: false,
     onStart: vi.fn().mockResolvedValue(null),
@@ -177,12 +178,31 @@ describe('HomeView first run', () => {
     expect(onOpenSettings).toHaveBeenCalledOnce()
   })
 
-  it('never flashes setup at someone who is set up', async () => {
-    // accounts are still loading (null): show the composer, not a false empty state
+  it('shows neither the composer nor setup while accounts are still loading', async () => {
+    // either guess would be swapped for the other a moment later — a flash both ways
     vi.mocked(window.cockpit.getAccounts).mockReturnValue(new Promise(() => {}))
     renderHome()
-    expect(await screen.findByRole('textbox', { name: 'Task description' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /What should we ship/ })).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Task description' })).not.toBeInTheDocument()
     expect(screen.queryByText('Sign in to an agent')).not.toBeInTheDocument()
+  })
+
+  it('never flashes setup at someone whose sessions are still being read', async () => {
+    // signed in, but the first scan has not finished: no repos yet proves nothing
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    renderHome({ repos: [], indexed: false })
+    await waitFor(() => expect(window.cockpit.getAccounts).toHaveBeenCalled())
+    await act(async () => {})
+    expect(screen.queryByText('Sign in to an agent')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Task description' })).not.toBeInTheDocument()
+  })
+
+  it('shows the composer, focused, as soon as there is an account and a repo', async () => {
+    // no need to wait for the scan to finish: a repo already read is proof enough
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    renderHome({ indexed: false })
+    const prompt = await screen.findByRole('textbox', { name: 'Task description' })
+    expect(prompt).toHaveFocus()
   })
 })
 

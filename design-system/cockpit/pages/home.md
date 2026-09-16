@@ -74,10 +74,15 @@ surface, no shadow).
 - Steps already satisfied stay on screen, ticked (`CheckIcon` in `--ok`, the title
   quieted, an `sr-only` "— done"): the card is a progress readout, not a gate that
   empties as you go. Only an unsatisfied step carries its note and its action.
-- The gate is `accounts.accounts.length > 0 && selectable.length > 0`; while
-  `accounts === null` (still loading) the composer renders — never flash setup at
-  someone who is set up. GitHub missing alone does **not** show the card: sessions run
-  fine without `gh`, only PRs need it.
+- Three states, each shown only on evidence. **Composer** the moment
+  `accounts.accounts.length > 0 && selectable.length > 0`. **Setup** only once accounts
+  have loaded *and* the index has finished its first scan (`indexed`, from
+  `api.whenIndexed()`) and one of those is still missing — before the scan, no repos
+  means "not read yet". **Neither** until then: the slot and the sub-line stay empty
+  for the moment it takes. Guessing either way is a flash — a composer swapped for setup
+  on a first run, or setup swapped for a composer on a cold index. GitHub missing alone
+  does **not** show the card: sessions run fine without `gh`, only PRs need it.
+- The composer takes focus when it first appears, not when the view mounts.
 - Per-agent absence keeps its old, quieter signal: with one agent signed in, the
   composer's `.no-acct` dot and "not signed in" chip say the rest.
 - The hero's sub line swaps to what this screen is waiting for.

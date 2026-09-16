@@ -105,6 +105,30 @@ describe('SessionIndexer', () => {
     expect(page2.items[0].title).toBe('fix the login bug')
   })
 
+  it('settles whenScanned only after the first full scan has published', async () => {
+    const fresh = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    let settled = false
+    void fresh.whenScanned().then(() => (settled = true))
+    await new Promise((r) => setImmediate(r))
+    // no scan has run: an empty repo list here means "not read yet"
+    expect(settled).toBe(false)
+    expect(fresh.listRepos()).toEqual([])
+
+    const scan = fresh.setSources([{ path: claudeDir, provider: 'claude', label: 'test' }])
+    await fresh.whenScanned()
+    expect(fresh.listRepos().map((r) => r.key)).toContain('gh:acme/repo-a')
+    await scan
+    fresh.stopWatchers()
+  })
+
+  it('settles whenScanned even when there is nothing to scan', async () => {
+    const empty = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await empty.setSources([{ path: join(root, 'missing'), provider: 'codex', label: 'none' }])
+    await expect(empty.whenScanned()).resolves.toBeUndefined()
+    expect(empty.listRepos()).toEqual([])
+    empty.stopWatchers()
+  })
+
   it('filters by search and provider', () => {
     expect(indexer.page({ search: 'login' }).total).toBe(1)
     expect(indexer.page({ providers: ['codex'] }).total).toBe(0)
