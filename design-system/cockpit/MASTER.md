@@ -85,7 +85,7 @@ rather than a pale rinse of the button fill.
     identity layer at the end of style.css. Session titles, body rows, buttons, and
     prose are user content and stay sans; mono display outside these two registers
     is a bug.
-- **Scale:** `--fs-xs` 11 / `--fs-sm` 12 / `--fs-base` 13 / `--fs-prose` 14 / `--fs-md` 15 / `--fs-lg` 16 / `--fs-xl` 26. Body text never below `--fs-base`; `--fs-xs` is for metadata (chips, timestamps, counts) only; `--fs-prose` (with 1.6 line-height) is for transcript prose and composer textareas only.
+- **Scale:** `--fs-xs` 11 / `--fs-sm` 12 / `--fs-base` 13 / `--fs-prose` 14 / `--fs-md` 15 / `--fs-lg` 16 / `--fs-xl` 26. Body text never below `--fs-base` — a section's explanation (`.ns-prose`, `.scope-blurb`, `.pnl-blurb`, `.pnl-note`) is body text at `--fs-base`/1.5, one or two sentences, never a paragraph of mechanism; a row's second line (`.source-note`) is chrome at `--fs-sm`; `--fs-xs` is for metadata (chips, timestamps, counts, inline field notes such as `.ns-hint` under an input) only; `--fs-prose` (with 1.6 line-height) is for transcript prose and composer textareas only.
 - **Icon scale** (keep to these four steps, don't invent in-between sizes): 10px minis (per-provider dots on repo/section rows), 12px footer/metadata glyphs, 13–14px row icons (session logos, repo icons, avatars), 16px toolbar glyphs inside 28px `.icon-btn`s.
 - **Micro-labels:** uppercase labels (`.ns-label`, `.inst-scope label`) are 600 weight with 0.9px tracking; lowercase section headers (`.section-row`, `.search-group`, `.repo-filter-head`) use 0.6px. Wide tracking at tiny sizes is the refinement signal — keep it consistent.
 - `tabular-nums` on `time` and counts.

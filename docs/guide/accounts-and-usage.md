@@ -17,13 +17,13 @@ Identity chips appear throughout the app, so it's always visible which account a
 
 ## Sources: multiple config homes
 
-A **source** is a provider config home Cockpit indexes. The defaults are `~/.claude`, `~/.codex`, and `~/.copilot`; you can add more in **Settings → Agent accounts & sources** — typically an isolated config home for a second account (e.g. work vs. personal).
+A **source** is a provider config home Cockpit indexes. The defaults are `~/.claude`, `~/.codex`, and `~/.copilot`; you can add more in **Settings → Agent accounts & usage** — typically an isolated config home for a second account (e.g. work vs. personal).
 
 Each source shows its own identity and health, and extra sources are stored in the app config (`~/Library/Application Support/Cockpit/cockpit-config.json`) as `{path, provider, label}`.
 
 ## Subscription usage
 
-**Settings → Usage** shows what each subscription is consuming, measured without credentials:
+The same rows in **Settings → Agent accounts & usage** show what each subscription is consuming, measured without credentials:
 
 - **Claude Code** — measured locally from the session JSONLs: the current 5-hour block plus the trailing 7 days.
 - **Codex** — read from the rate-limit snapshots the CLI itself persists.

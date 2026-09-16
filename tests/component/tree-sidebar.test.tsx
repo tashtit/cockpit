@@ -331,7 +331,7 @@ describe('sidebar footer', () => {
     vi.mocked(window.cockpit.getUsage).mockResolvedValue(usageFixture())
     const props = renderSidebar()
     await userEvent.click(await screen.findByRole('button', { name: /^Subscription usage/ }))
-    expect(props.onOpenSettings).toHaveBeenLastCalledWith('usage')
+    expect(props.onOpenSettings).toHaveBeenLastCalledWith('accounts')
     await userEvent.click(screen.getByRole('button', { name: 'Accounts — open settings' }))
     expect(props.onOpenSettings).toHaveBeenLastCalledWith()
   })

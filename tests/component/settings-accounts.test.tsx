@@ -79,6 +79,40 @@ describe('Settings account rows', () => {
     ).toBeInTheDocument()
   })
 
+  it('carries the unit on the session count, so the pill is a readout and not a mystery number', async () => {
+    render(<Settings onClose={vi.fn()} />)
+    const claudeRow = (await screen.findByText('claude-default')).closest('li')!
+    expect(within(claudeRow).getByText('12')).toHaveClass('repo-count')
+    expect(within(claudeRow).getByText('sessions')).toBeInTheDocument()
+    const codexRow = screen.getByText('codex-default').closest('li')!
+    expect(within(codexRow).getByText('sessions')).toBeInTheDocument()
+  })
+
+  it('shows main’s own words when an add is refused, not Electron’s wrapper around them', async () => {
+    vi.mocked(window.cockpit.addSource).mockRejectedValue(
+      new Error("Error invoking remote method 'sources:add': Error: Not a directory: /home/dev/.nope")
+    )
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByText('claude-default')
+    await userEvent.click(screen.getByRole('button', { name: 'Add a config home…' }))
+    // paste, not type: a keystroke per character re-renders the whole card each time
+    await userEvent.click(screen.getByLabelText('Config home'))
+    await userEvent.paste('/home/dev/.nope')
+    await userEvent.click(screen.getByRole('button', { name: 'Add config home' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^Not a directory: \/home\/dev\/.nope$/)
+  })
+
+  it('says a path is already watched instead of announcing an add that changed nothing', async () => {
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByText('claude-default')
+    await userEvent.click(screen.getByRole('button', { name: 'Add a config home…' }))
+    await userEvent.click(screen.getByLabelText('Config home'))
+    await userEvent.paste('/home/dev/.claude')
+    await userEvent.click(screen.getByRole('button', { name: 'Add config home' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cockpit already watches /home/dev/.claude.')
+    expect(window.cockpit.addSource).not.toHaveBeenCalled()
+  })
+
   it('keeps the add form folded until it is asked for', async () => {
     render(<Settings onClose={vi.fn()} />)
     await screen.findByText('claude-default')
@@ -90,5 +124,26 @@ describe('Settings account rows', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByLabelText('Config home')).not.toBeInTheDocument()
+  })
+})
+
+describe('Settings › the card’s map', () => {
+  it('lists every section under the title and lands focus on the one picked', async () => {
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByText('claude-default')
+    const map = screen.getByRole('navigation', { name: 'Sections' })
+    expect(within(map).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Accounts', 'GitHub', 'History', 'Display', 'Notifications', 'Providers', 'Backup', 'About'
+    ])
+    await userEvent.click(within(map).getByRole('button', { name: 'Backup' }))
+    expect(screen.getByRole('heading', { name: 'Backup' })).toHaveFocus()
+  })
+
+  it('keeps GitHub with the other accounts, ahead of the preferences', async () => {
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByText('claude-default')
+    const github = screen.getByRole('heading', { name: 'GitHub' })
+    const history = screen.getByRole('heading', { name: 'History' })
+    expect(github.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

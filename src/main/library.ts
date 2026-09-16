@@ -130,7 +130,8 @@ function scopedInventory(repoRoot: string | null): ExtensionsInventory {
 /* ---------- an entry's two sides ---------- */
 
 function skillFields(fingerprint: string, description: string): Record<string, string> {
-  return { description, contents: fingerprint.slice(0, 8) }
+  // a fingerprint of the folder's files: two agents with the same hash run the same skill
+  return { description, 'folder hash': fingerprint.slice(0, 8) }
 }
 
 /** The copy Cockpit keeps — what a switch writes when no agent has it to copy from. */

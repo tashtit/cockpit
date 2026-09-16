@@ -15,6 +15,7 @@ import type {
 import { api } from './api'
 import { CHAT_WIDTH_OPTIONS, setChatWidth, useChatWidth, type ChatWidth } from './chat-width'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
+import { ipcErrorText } from './ipc-error'
 import { BackupSection } from './BackupSection'
 import { fmtCount, fmtResetIn } from './format'
 import { ModelProviders } from './ModelProviders'
@@ -106,7 +107,7 @@ function UsageBody({ u, loading }: { u: ProviderUsage | undefined; loading: bool
   if (!u) return loading ? <div className="source-note">measuring usage…</div> : null
   if (u.unavailable) return <div className="source-note">{u.unavailable}</div>
   return (
-    <div className="usage-windows">
+    <div className="usage-windows" title={USAGE_SOURCE[u.provider]}>
       {u.windows.map((w) => (
         <UsageWindowRow key={w.label} provider={u.provider} w={w} />
       ))}
@@ -161,8 +162,28 @@ function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow })
 }
 
 
-/** Sections the app can open Settings at (the sidebar's usage meters land on usage). */
-export type SettingsSection = 'usage'
+/**
+ * The card's sections, in order. The jump row under the title lists them, and a deep
+ * link (the sidebar's usage meters land on `accounts`) names one to land on.
+ */
+export const SETTINGS_SECTIONS = [
+  { id: 'accounts', label: 'Accounts' },
+  { id: 'github', label: 'GitHub' },
+  { id: 'history', label: 'History' },
+  { id: 'display', label: 'Display' },
+  { id: 'notifications', label: 'Notifications' },
+  { id: 'providers', label: 'Providers' },
+  { id: 'backup', label: 'Backup' },
+  { id: 'about', label: 'About' }
+] as const
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]['id']
+
+/** Where a row's usage numbers come from — the tooltip on its usage readout. */
+const USAGE_SOURCE: Record<Provider, string> = {
+  claude: 'Measured locally from this home’s session logs',
+  codex: 'From the rate-limit snapshots the Codex CLI writes',
+  copilot: 'Premium requests from the GitHub billing API'
+}
 
 export function Settings({
   onClose,
@@ -193,7 +214,20 @@ export function Settings({
   /** sr-only announcements (same pattern as ChatView's status region) */
   const [status, setStatus] = useState('')
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const usageRef = useRef<HTMLHeadingElement>(null)
+  /** one heading per section — the jump row and deep links land on them */
+  const headings = useRef(new Map<SettingsSection, HTMLHeadingElement>())
+  const heading =
+    (id: SettingsSection) =>
+    (el: HTMLHeadingElement | null): void => {
+      if (el) headings.current.set(id, el)
+      else headings.current.delete(id)
+    }
+  const jump = (id: SettingsSection): void => {
+    const h = headings.current.get(id)
+    if (!h) return
+    h.scrollIntoView({ block: 'start' })
+    h.focus()
+  }
   const confirm = useArmedConfirm()
 
   const refresh = (): void => {
@@ -211,9 +245,7 @@ export function Settings({
   // declared after the mount effect on purpose: both focus something on first
   // render, and the later one wins
   useEffect(() => {
-    if (section !== 'usage') return
-    usageRef.current?.scrollIntoView({ block: 'start' })
-    usageRef.current?.focus()
+    if (section) jump(section)
   }, [section])
   useEffect(() => {
     void api.getAppInfo().then(setAppInfo)
@@ -245,6 +277,12 @@ export function Settings({
     const p = path.trim()
     if (!p) return
     setError(null)
+    // main quietly keeps a path it already watches (restores lean on that); typed in
+    // here it is a slip, so say so instead of announcing an add that changed nothing
+    if (stats.some((s) => s.path === p)) {
+      setError(`Cockpit already watches ${p}.`)
+      return
+    }
     try {
       await api.addSource(p, provider, label.trim() || `${provider}-extra`)
       setPath('')
@@ -253,7 +291,7 @@ export function Settings({
       setStatus(`Added ${label.trim() || p} — indexing started`)
       refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(ipcErrorText(err))
     }
   }
 
@@ -273,7 +311,7 @@ export function Settings({
     } catch (err) {
       // its own state, not the add form's: `error` is aria-wired to the Add-source
       // field, so reusing it would announce an untouched input as invalid
-      setRemoveError(`Could not remove ${s.label}: ${err instanceof Error ? err.message : err}`)
+      setRemoveError(`Could not remove ${s.label}: ${ipcErrorText(err)}`)
       return
     }
     setLastRemoved({ path: s.path, provider: s.provider, label: s.label })
@@ -289,7 +327,7 @@ export function Settings({
       setLastRemoved(null)
       refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(ipcErrorText(err))
     }
   }
 
@@ -367,17 +405,24 @@ export function Settings({
           <h2 ref={headingRef} tabIndex={-1}>Settings</h2>
           <button className="btn-ghost" onClick={onClose}>Close</button>
         </div>
+        {/* the card's map: what Settings holds, readable before any of it is scrolled
+            to. A jump row, not tabs — every section stays on the one page */}
+        <nav className="pnl-tabs ns-jumps" aria-label="Sections">
+          {SETTINGS_SECTIONS.map((s) => (
+            <button key={s.id} className="pnl-pill" onClick={() => jump(s.id)}>
+              {s.label}
+            </button>
+          ))}
+        </nav>
 
-        <h3 className="ns-label" ref={usageRef} tabIndex={-1}>Agent accounts &amp; usage</h3>
-        <p className="ns-hint">
-          One row per config home Cockpit indexes and watches
+        <h3 className="ns-label" ref={heading('accounts')} tabIndex={-1}>Agent accounts &amp; usage</h3>
+        <p className="ns-hint ns-prose">
+          One row per config home Cockpit watches: who it&apos;s signed in as, what that
+          subscription has spent, and whether it&apos;s healthy. Usage comes from each agent&apos;s
+          own records; nothing here reads credentials.
           {stats.length > 0 && (
-            <> — currently {stats.length} config home{stats.length === 1 ? '' : 's'} · {totalSessions} sessions</>
+            <> Currently {stats.length} config home{stats.length === 1 ? '' : 's'} · {totalSessions} sessions.</>
           )}
-          , with how much of that subscription is used: Claude measured locally from session logs,
-          Codex from its own rate-limit snapshots, Copilot premium requests from the GitHub billing
-          API. Nothing here reads credentials. Defaults are auto-detected on first run; add another
-          home below (e.g. a second account&apos;s <code>CLAUDE_CONFIG_DIR</code>).
         </p>
         <ul className="source-list">
           {stats.map((s) => (
@@ -413,9 +458,10 @@ export function Settings({
                 ) : (
                   <>
                     <span className="repo-count">{s.count}</span>
+                    <span>{s.count === 1 ? 'session' : 'sessions'}</span>
                     {s.lastUpdatedAt && (
                       <time dateTime={new Date(s.lastUpdatedAt).toISOString()}>
-                        active {fmtAgo(s.lastUpdatedAt)}
+                        · active {fmtAgo(s.lastUpdatedAt)}
                       </time>
                     )}
                   </>
@@ -525,6 +571,10 @@ export function Settings({
               />
             </div>
           </div>
+          <p className="ns-hint">
+            Usually a second account&apos;s home — the directory its <code>CLAUDE_CONFIG_DIR</code>{' '}
+            points at. The defaults were found on first run.
+          </p>
           {error && (
             <div id="source-add-error" role="alert" className="new-error">{error}</div>
           )}
@@ -545,63 +595,9 @@ export function Settings({
           </div>
         </form>
         )}
-        <h3 className="ns-label">History</h3>
-        <p className="ns-hint">
-          How far back sessions appear in the sidebar, search, and counts. Older sessions are
-          only hidden from view — nothing on disk is touched, and switching back to all history
-          restores them.
-        </p>
-        <div className="ns-options">
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="history-days">Show sessions from</label>
-            {historyDays === null ? (
-              <span className="ns-hint">loading…</span>
-            ) : (
-              <Select
-                id="history-days"
-                ariaLabel="Show sessions from"
-                value={String(historyDays)}
-                options={historyOptions}
-                onChange={(v) => void changeHistory(Number(v))}
-              />
-            )}
-          </div>
-        </div>
 
-        <h3 className="ns-label">Display</h3>
-        <p className="ns-hint">
-          How a session&apos;s last-activity time is shown in the sidebar and on the home view.
-          Sessions last active before today show a date instead. Chat width bounds the
-          conversation column on large displays, so your messages stay next to the
-          agent&apos;s replies.
-        </p>
-        <div className="ns-options">
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="time-format">Time format</label>
-            <Select
-              id="time-format"
-              ariaLabel="Time format"
-              value={timeFormat}
-              options={TIME_FORMAT_OPTIONS}
-              onChange={(v) => changeTimeFormat(v as TimeFormat)}
-            />
-          </div>
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="chat-width">Chat width</label>
-            <Select
-              id="chat-width"
-              ariaLabel="Chat width"
-              value={chatWidth}
-              options={CHAT_WIDTH_OPTIONS.map((o) => ({ value: o.value, label: o.label, hint: o.hint }))}
-              onChange={(v) => setChatWidth(v as ChatWidth)}
-            />
-          </div>
-        </div>
-
-        <h3 className="ns-label">Notifications</h3>
-        <NotificationsSection packaged={appInfo?.packaged ?? null} onStatus={setStatus} />
-
-        <h3 className="ns-label">GitHub</h3>
+        {/* GitHub is an account too — it sits with the others, not after the preferences */}
+        <h3 className="ns-label" ref={heading('github')} tabIndex={-1}>GitHub</h3>
         <ul className="source-list">
           <li className="source-row">
             <span className="plogo" aria-hidden="true">
@@ -627,10 +623,63 @@ export function Settings({
           </li>
         </ul>
 
-        <h3 className="ns-label">Model providers</h3>
+        <h3 className="ns-label" ref={heading('history')} tabIndex={-1}>History</h3>
+        <p className="ns-hint ns-prose">
+          How far back sessions appear in the sidebar, search and counts. Older sessions are only
+          hidden from view — nothing on disk is touched, and all history brings them back.
+        </p>
+        <div className="ns-options">
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="history-days">Sessions to show</label>
+            {historyDays === null ? (
+              <span className="ns-hint">loading…</span>
+            ) : (
+              <Select
+                id="history-days"
+                ariaLabel="Sessions to show"
+                value={String(historyDays)}
+                options={historyOptions}
+                onChange={(v) => void changeHistory(Number(v))}
+              />
+            )}
+          </div>
+        </div>
+
+        <h3 className="ns-label" ref={heading('display')} tabIndex={-1}>Display</h3>
+        <p className="ns-hint ns-prose">
+          How session times read in the sidebar and on the home view (a date, once a session is
+          older than today), and how wide a conversation runs on a large display.
+        </p>
+        <div className="ns-options">
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="time-format">Time format</label>
+            <Select
+              id="time-format"
+              ariaLabel="Time format"
+              value={timeFormat}
+              options={TIME_FORMAT_OPTIONS}
+              onChange={(v) => changeTimeFormat(v as TimeFormat)}
+            />
+          </div>
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="chat-width">Chat width</label>
+            <Select
+              id="chat-width"
+              ariaLabel="Chat width"
+              value={chatWidth}
+              options={CHAT_WIDTH_OPTIONS.map((o) => ({ value: o.value, label: o.label, hint: o.hint }))}
+              onChange={(v) => setChatWidth(v as ChatWidth)}
+            />
+          </div>
+        </div>
+
+        <h3 className="ns-label" ref={heading('notifications')} tabIndex={-1}>Notifications</h3>
+        <NotificationsSection packaged={appInfo?.packaged ?? null} onStatus={setStatus} />
+
+        <h3 className="ns-label" ref={heading('providers')} tabIndex={-1}>Model providers</h3>
         <ModelProviders onStatus={setStatus} />
 
-        <h3 className="ns-label">Backup</h3>
+        <h3 className="ns-label" ref={heading('backup')} tabIndex={-1}>Backup</h3>
         <BackupSection
           onStatus={setStatus}
           onRestored={() => {
@@ -641,7 +690,7 @@ export function Settings({
           }}
         />
 
-        <h3 className="ns-label">About</h3>
+        <h3 className="ns-label" ref={heading('about')} tabIndex={-1}>About</h3>
         <ul className="source-list">
           <li className="source-row">
             <span className="plogo" aria-hidden="true">
@@ -662,7 +711,7 @@ export function Settings({
             <div className="source-health">{update && updateAction(update)}</div>
           </li>
         </ul>
-        <p className="ns-hint">
+        <p className="ns-hint ns-prose">
           Installed builds check GitHub Releases on launch and every few hours. Nothing downloads
           until you choose to; a downloaded update installs on the next quit.
           {appInfo && (

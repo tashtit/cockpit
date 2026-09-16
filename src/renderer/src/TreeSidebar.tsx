@@ -389,7 +389,7 @@ export function TreeSidebar({
       <footer className="sidebar-footer">
         {/* subscription meters ride above the identity bar — one cell per provider
             that reports numbers; the row opens Settings at the usage section */}
-        <UsageMeters onOpen={() => onOpenSettings('usage')} />
+        <UsageMeters onOpen={() => onOpenSettings('accounts')} />
         {/* one compact identity bar: agent logos (accounts in the tooltip), GitHub
             login on the right; the whole row opens Settings for the full detail */}
         <button

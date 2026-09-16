@@ -1192,6 +1192,12 @@ summary::-webkit-details-marker { display: none; }
 .ns-branch-prefix { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-sm); }
 .ns-branch-row input { flex: 1; min-width: 0; font-family: var(--mono); }
 .ns-hint { color: var(--fg-dim); font-size: var(--fs-xs); }
+/* a section's explanation is prose, read once: body size and a reading line-height.
+   Inline field notes ("the two passphrases don't match yet") stay .ns-hint metadata */
+.ns-prose, .scope-blurb, .pnl-blurb, .pnl-note { font-size: var(--fs-base); line-height: 1.5; }
+/* the card's map (.ns-jumps) — one pill per section, a jump row, never tabs: every
+   section stays on the one page. Reuses the Agents pills so the two views read as one
+   family; the card's own gap spaces it, no rule of its own */
 .ns-hint.yolo { color: var(--danger); }
 .ns-hint code { color: var(--fg); font-family: var(--mono); }
 /* handoff form: source summary row + briefing header with its AI controls */
@@ -1234,8 +1240,9 @@ summary::-webkit-details-marker { display: none; }
 .source-health { display: flex; align-items: center; gap: var(--s2); flex-shrink: 0;
   color: var(--fg-dim); font-size: var(--fs-xs); }
 .source-warn { color: var(--warn); font-style: italic; }
-/* prose under a row label — NOT mono (mono is for machine identifiers) */
-.source-note { color: var(--fg-dim); font-size: var(--fs-xs); }
+/* prose under a row label — NOT mono (mono is for machine identifiers). A row's
+   second line is chrome, scanned in a list, so it sits one step under body size */
+.source-note { color: var(--fg-dim); font-size: var(--fs-sm); }
 .source-note code { font-family: var(--mono); color: var(--fg); }
 /* notification switches: the whole row labels its checkbox, so the row is the hit
    area; the 14px box keeps its own 24px target through the margin (WCAG 2.5.8) */
@@ -1454,7 +1461,7 @@ summary::-webkit-details-marker { display: none; }
   min-height: 28px; }
 .scope-select.active .select-trigger { background: var(--bg3); color: var(--fg);
   box-shadow: inset 0 2px 0 var(--accent); }
-.scope-blurb { font-size: var(--fs-xs); color: var(--fg-dim); }
+.scope-blurb { color: var(--fg-dim); }
 .scope-blurb code { font-family: var(--mono); }
 /* the rail's search recipe, at the 28px compact control height */
 .pnl-search { flex: 1; min-width: 0; height: 28px; padding: 0 var(--s3);
@@ -1485,10 +1492,10 @@ summary::-webkit-details-marker { display: none; }
 .pnl-pill.attention { color: var(--warn); }
 .pnl-pill.attention.active { background: rgba(var(--warn-rgb), 0.13);
   border-color: rgba(var(--warn-rgb), 0.4); }
-.pnl-pill-n { font-variant-numeric: tabular-nums; opacity: 0.7; letter-spacing: 0; }
+.pnl-pill-n { font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .pnl-pill-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--warn); }
-.pnl-blurb { font-size: var(--fs-xs); color: var(--fg-dim); }
-.pnl-note { font-size: var(--fs-xs); color: var(--fg-dim); }
+.pnl-blurb { color: var(--fg-dim); }
+.pnl-note { color: var(--fg-dim); }
 .pnl-note code { font-family: var(--mono); }
 
 /* the list: one surface, hairline-separated, no grid and no column rules */
@@ -1508,7 +1515,7 @@ summary::-webkit-details-marker { display: none; }
 .pnl-def { flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--fs-xs);
   color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pnl-kind { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim); opacity: 0.6;
+  text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim);
   white-space: nowrap; flex-shrink: 0; }
 .pnl-caret { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0;
   transition: transform var(--dur) var(--ease); }
@@ -1541,7 +1548,8 @@ button.ag-chip:hover { border-color: var(--border-strong); color: var(--fg); }
   box-shadow: 0 0 0 2px rgba(var(--warn-rgb), 0.16); }
 .ag-chip.on.armed, .ag-chip.off.armed { border-color: var(--danger); color: var(--danger);
   box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.2); }
-.ag-chip.na { opacity: 0.35; }
+.ag-chip.na { border-style: dashed; color: var(--fg-dim); }
+.ag-chip.na svg { opacity: 0.3; }
 .ag-chip:disabled { opacity: 0.5; }
 .ag-chip.working { animation: pulse 1.2s ease-in-out infinite; }
 .ag-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }

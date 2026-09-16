@@ -1,3 +1,4 @@
+import { ipcErrorText } from './ipc-error'
 import { useRef, useState, type ClipboardEvent, type JSX } from 'react'
 import { api } from './api'
 
@@ -19,12 +20,6 @@ export type AttachmentsState = {
   readonly clear: () => void
   /** Hand the attachments to another view, previews intact (Home → full form) */
   readonly release: () => readonly ImageAttachment[]
-}
-
-/** IPC rejections arrive wrapped ("Error invoking remote method '…': Error: …") — unwrap. */
-export function ipcErrorText(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err)
-  return msg.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
 }
 
 /**

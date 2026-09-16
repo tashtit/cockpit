@@ -8,6 +8,7 @@ import type {
 import { endpointAgents } from '../../shared/endpoints'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
+import { ipcErrorText } from './ipc-error'
 import { EndpointIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 
@@ -91,13 +92,11 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
               : `Added ${def.label} — it did not list any models; type one when starting a session`
           )
         } catch (err) {
-          notice(
-            `Added ${def.label} — couldn't list models (${err instanceof Error ? err.message : err})`
-          )
+          notice(`Added ${def.label} — couldn't list models (${ipcErrorText(err)})`)
         }
       }
     } catch (err) {
-      setEpError(err instanceof Error ? err.message : String(err))
+      setEpError(ipcErrorText(err))
     }
   }
 
@@ -110,7 +109,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
       setKeying(null)
       onStatus(`Key saved for ${ep.label}`)
     } catch (err) {
-      setKeyError(`Could not save the key for ${ep.label}: ${err instanceof Error ? err.message : err}`)
+      setKeyError(`Could not save the key for ${ep.label}: ${ipcErrorText(err)}`)
     }
   }
 
@@ -122,7 +121,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
     } catch (err) {
       // its own state, not the add form's: `epError` is aria-wired to the Base URL
       // field, so reusing it would announce an untouched input as invalid
-      setRemoveError(`Could not remove ${ep.label}: ${err instanceof Error ? err.message : err}`)
+      setRemoveError(`Could not remove ${ep.label}: ${ipcErrorText(err)}`)
       return
     }
     setEpNotice(null)
@@ -141,12 +140,10 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
 
   return (
     <>
-      <p className="ns-hint">
-        Access models from other providers with your own API keys. Which agents a provider can run
-        depends on its type — Copilot speaks all three (OpenAI-compatible, Azure, Anthropic), Claude
-        only anthropic-type, and Codex none — each row shows the agents it works with. Pick a
-        provider when starting a session. Keys stay private: encrypted with your OS keychain, never
-        written to config, and sent only to the provider itself.
+      <p className="ns-hint ns-prose">
+        Models you bring your own key for — a gateway, a local server, or a vendor&apos;s API — to
+        pick when starting a session. Each row says which agents can use it. Keys are encrypted with
+        your OS keychain, never written to config, and sent only to that provider.
       </p>
       <ul className="source-list">
         {endpoints.map((ep) => {
@@ -165,18 +162,14 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                     {ep.type}
                     {ep.wireApi ? ` · ${ep.wireApi}` : ''}
                   </span>
-                  <span
-                    className="repo-providers"
-                    role="img"
-                    aria-label={`works with ${agents}`}
-                    title={`Works with ${agents}`}
-                  >
+                  <span className="repo-providers" aria-hidden="true">
                     {endpointAgents(ep).map((p) => (
                       <span key={p} className={`plogo plogo-${p}`}>
-                        <ProviderLogo p={p} size={10} />
+                        <ProviderLogo p={p} size={12} />
                       </span>
                     ))}
                   </span>
+                  <span className="source-origin">works with {agents}</span>
                 </div>
                 <div className="source-path" title={ep.baseUrl}>{ep.baseUrl}</div>
               </div>
@@ -193,12 +186,22 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                       type="password"
                       autoComplete="off"
                       aria-label={`API key for ${ep.label}`}
+                      placeholder="paste the API key"
                       autoFocus
                       value={keying.value}
                       onChange={(e) => setKeying({ id: ep.id, value: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.stopPropagation()
+                          setKeying(null)
+                        }
+                      }}
                     />
                     <button type="submit" className="btn-ghost small" disabled={!keying.value.trim()}>
                       Save key
+                    </button>
+                    <button type="button" className="btn-ghost small" onClick={() => setKeying(null)}>
+                      Cancel
                     </button>
                   </form>
                 ) : (
@@ -301,6 +304,8 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
               }}
             />
           </div>
+        </div>
+        <div className="ns-options">
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ep-key">API key · optional</label>
             <input
@@ -329,7 +334,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
             </div>
           )}
           <div className="ns-opt">
-            <label className="ns-label" htmlFor="ep-headers">Custom headers (JSON) · optional</label>
+            <label className="ns-label" htmlFor="ep-headers">Custom headers · optional</label>
             <input
               id="ep-headers"
               placeholder='{"anthropic-version": "2023-06-01"}'
