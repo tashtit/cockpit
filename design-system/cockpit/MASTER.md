@@ -74,8 +74,8 @@ rather than a pale rinse of the button fill.
 
 ## Typography
 
-- **UI font:** system stack (`-apple-system, 'Inter', 'Segoe UI'`) — no webfont import; this is a desktop app, load nothing over the network.
-- **Mono:** `--mono` (`ui-monospace, 'SF Mono', 'Fira Code'`) carries two registers, keep them distinct:
+- **UI font:** `--sans` — **IBM Plex Sans**, bundled with the app (`src/renderer/src/assets/fonts/`, SIL OFL 1.1, license file beside it), falling back to the system stack. It is loaded from disk, never fetched: the rule is *nothing over the network*, and a desktop tool that borrows the OS UI face wears the OS's identity instead of its own. Plex was drawn for engineering documentation — a mechanical grotesque with humanist joints — which is the register this app speaks in. Only the weights the app sets ship (400/500/600/700 + one 400 italic), latin subset, ~160KB total. `body` carries `letter-spacing: -0.06px`: Plex sits a touch wide at 11–13px chrome sizes, and the hair of negative tracking keeps a dense row reading as one line.
+- **Mono:** `--mono` — **IBM Plex Mono** (same bundle, falling back to `ui-monospace`/`SF Mono`) carries two registers, keep them distinct:
   - *machine identifiers* (normal case): account IDs, branches, paths, code — as always.
   - *placards* (the instrument voice): the hero h2, the `COCKPIT` wordmark, view
     headings (`.ns-head h2`, `.empty-chat h2` — uppercase), tabs (`.ext-tab`), the
@@ -158,7 +158,7 @@ Nothing renders with stock Chromium chrome:
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Light-mode defaults, webfont imports, or network-loaded assets
+- ❌ Light-mode defaults or network-loaded assets — fonts ship *inside* the app (see Typography); nothing is ever fetched at runtime
 - ❌ Raw hex in components (tokens only)
 - ❌ Emojis as icons — SVG only (see `logos.tsx`); if a unicode glyph is unavoidable, force text presentation with U+FE0E
 - ❌ Layout-shifting hover/pressed transforms (translate/scale on rows or buttons)
