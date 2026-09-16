@@ -313,7 +313,7 @@ export function TreeSidebar({
           <div className="empty-item">
             <p>No sessions indexed yet — Cockpit reads Claude Code, Codex, and Copilot logs.</p>
             <button className="btn-ghost small" onClick={() => onOpenSettings()}>
-              Add source directories
+              Add a config home
             </button>
           </div>
         )}

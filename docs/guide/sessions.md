@@ -4,7 +4,7 @@ Everything in Cockpit starts from the session index: a live, repo-grouped view o
 
 ## Where sessions come from
 
-Cockpit watches each provider's session root — `~/.claude`, `~/.codex`, `~/.copilot`, plus any extra source directories you add in Settings. Sessions you run in a plain terminal appear and update live; there's no import step and no daemon.
+Cockpit watches each provider's session root — `~/.claude`, `~/.codex`, `~/.copilot`, plus any extra config homes you add in Settings. Sessions you run in a plain terminal appear and update live; there's no import step and no daemon.
 
 Each session's working directory is resolved to its **git repository**, worktree-aware: a session run in a linked worktree groups under the main repository, and the sidebar row is named `owner/repo` from the origin remote. Sessions with no repository land in a flat **Chats** section at the bottom.
 

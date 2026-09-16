@@ -79,4 +79,4 @@ Click a pill to open it, then click values to include them. Every option also ca
 
 ## Safety
 
-Nothing in this view acts on a path the renderer supplied. Session ids are re-looked-up in the index and their files re-checked against your configured source directories before anything is unlinked; worktree paths are re-derived from git immediately before removal, and a worktree that picked up uncommitted changes since the scan is refused rather than forced.
+Nothing in this view acts on a path the renderer supplied. Session ids are re-looked-up in the index and their files re-checked against your configured config homes before anything is unlinked; worktree paths are re-derived from git immediately before removal, and a worktree that picked up uncommitted changes since the scan is refused rather than forced.

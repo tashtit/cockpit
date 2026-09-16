@@ -60,7 +60,7 @@ That message means the first-run binary download failed — usually a proxy, fir
 
 On first launch Cockpit auto-detects `~/.claude`, `~/.codex`, and `~/.copilot` and indexes every session it finds there, grouped by git repository. There's nothing to configure: if you've used any of the three CLIs before, your history appears immediately, and the index updates live as you keep working in any terminal.
 
-If a provider directory doesn't exist yet, Cockpit simply shows an empty state for it. You can add further source directories — for example an isolated config home for a second account — in **Settings**; see [Accounts & usage](/guide/accounts-and-usage).
+If a provider directory doesn't exist yet, Cockpit simply shows an empty state for it. You can add further config homes — for example an isolated one for a second account — in **Settings**; see [Accounts & usage](/guide/accounts-and-usage).
 
 ### Everyday commands
 

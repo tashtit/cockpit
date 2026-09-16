@@ -423,7 +423,7 @@ export function Settings({
               <ConfirmRemove
                 id={s.path}
                 armed={confirm.armed}
-                label={`Remove source ${s.label} — ${s.path}`}
+                label={`Remove config home ${s.label} — ${s.path}`}
                 confirmLabel={`Confirm removing ${s.label} — it won't be re-detected automatically`}
                 confirmTitle="Stops indexing this directory. Defaults are only auto-detected on first run — you'd re-add it by hand. Files on disk are untouched."
                 onArm={confirm.arm}
@@ -539,7 +539,7 @@ export function Settings({
               Cancel
             </button>
             <button type="submit" className="btn-primary" disabled={!path.trim()}>
-              Add source
+              Add config home
             </button>
           </div>
         </form>
