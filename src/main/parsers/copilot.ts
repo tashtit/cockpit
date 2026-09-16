@@ -10,6 +10,7 @@ import {
   fileTimes,
   toMs,
   contentToText,
+  toolPreview,
   truncate,
   walkFiles
 } from './util'
@@ -245,11 +246,16 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
         if (text)
           out.push({ role: ev.type === 'user.message' ? 'user' : 'assistant', kind: 'text', text: capText(text), ts })
       } else if (ev.type === 'tool.execution_start') {
+        const toolName = String(ev.data?.toolName ?? ev.data?.name ?? 'tool')
+        const args = ev.data?.arguments ?? ev.data?.input ?? ''
+        // the same humanized headline Claude and Codex rows get — raw JSON stays in the detail
+        const preview = toolPreview(toolName, args)
         out.push({
           role: 'assistant',
           kind: 'tool_call',
-          toolName: String(ev.data?.toolName ?? ev.data?.name ?? 'tool'),
-          text: truncate(JSON.stringify(ev.data?.arguments ?? ev.data?.input ?? ''), 400),
+          toolName,
+          text: truncate(JSON.stringify(args), 400),
+          ...(preview ? { preview: truncate(preview, 200) } : {}),
           ts
         })
       } else if (ev.type === 'system.message') {

@@ -435,10 +435,13 @@ function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
                 // quick second click would otherwise re-send the first value
                 onChange={(e) => void api.setRepoHidden(r.key, !e.currentTarget.checked)}
               />
+              {/* repo-less sessions are "Chats" everywhere the rail names them */}
               <span className="repo-icon">
-                <RepoIcon size={12} />
+                {r.key === 'general' ? <ChatIcon size={12} /> : <RepoIcon size={12} />}
               </span>
-              <span className="repo-filter-name">{r.fullName ?? r.name}</span>
+              <span className="repo-filter-name">
+                {r.key === 'general' ? 'Chats' : (r.fullName ?? r.name)}
+              </span>
               <span className="repo-count">{r.sessionCount + r.archivedCount}</span>
             </label>
           ))}
@@ -1009,7 +1012,13 @@ function SessionRow({
       {s.archived && <span className="sr-only">(archived)</span>}
       {/* the elbow is the only visual signal, so it can't be the only signal */}
       {chained && <span className="sr-only">(continued by the session above)</span>}
-      {multiAccount && acct && <span className="acct-chip">{acct.label}</span>}
+      {/* only the exception is marked: with two Claude homes, every default-account row
+          wearing "claude-d…" spent a third of the title's width saying nothing */}
+      {multiAccount && acct && !acct.isDefault && (
+        <span className="acct-chip">
+          {acct.label.startsWith(`${s.provider}-`) ? acct.label.slice(s.provider.length + 1) : acct.label}
+        </span>
+      )}
       <span className="row-actions">
         <button
           className="icon-btn small"

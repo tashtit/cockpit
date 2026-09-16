@@ -363,14 +363,14 @@ function RoundtableStrip({
               ) : (
                 <span className="board-dot-idle" aria-hidden="true" />
               )}
-              <span className="rt-seats">
+              <span className="rt-seats board-lead">
                 {t.providers.map((p) => (
                   <span key={p} className={`rt-seat plogo-${p}`}>
                     <ProviderLogo p={p} size={12} />
                   </span>
                 ))}
               </span>
-              {t.branch && <BranchChip branch={t.branch} />}
+              <span className="board-branch">{t.branch && <BranchChip branch={t.branch} />}</span>
               <span className="board-task">{t.title}</span>
               <time className="board-meta" dateTime={new Date(t.updatedAt).toISOString()}>
                 {fmtTime(t.updatedAt, timeFormat)}
@@ -409,10 +409,11 @@ function BoardRow({
         ) : (
           <span className="board-dot-idle" aria-hidden="true" />
         )}
-        <span className={`board-agent board-agent-${s.provider}`}>
+        <span className={`board-agent board-lead board-agent-${s.provider}`}>
           {PROVIDER_LABEL[s.provider]}
         </span>
-        {s.gitBranch && <BranchChip branch={s.gitBranch} />}
+        {/* the slot renders even without a branch, so every task starts on one grid line */}
+        <span className="board-branch">{s.gitBranch && <BranchChip branch={s.gitBranch} />}</span>
         <span className="board-task">{s.title}</span>
         {s.repo && <span className="board-repo">{s.repo.name}</span>}
         {flying ? (

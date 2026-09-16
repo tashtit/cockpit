@@ -400,6 +400,64 @@ export function Settings({
           </p>
         )}
 
+        {/* adding a config home belongs with the list it extends, not five sections below it */}
+        <h3 className="ns-label">Add source</h3>
+        <form
+          className="source-add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void add()
+          }}
+        >
+          <div className="ns-options">
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="src-provider">Agent</label>
+              <Select
+                id="src-provider"
+                ariaLabel="Agent"
+                value={provider}
+                options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
+                onChange={(v) => setProvider(v as Provider)}
+              />
+            </div>
+            <div className="ns-opt source-opt-path">
+              <label className="ns-label" htmlFor="src-path">Config home</label>
+              <div className="source-browse-row">
+                <input
+                  id="src-path"
+                  placeholder="/Users/you/.claude-work"
+                  value={path}
+                  aria-invalid={!!error}
+                  aria-describedby={error ? 'source-add-error' : undefined}
+                  onChange={(e) => {
+                    setPath(e.target.value)
+                    setError(null)
+                  }}
+                />
+                <button type="button" className="btn-ghost" onClick={() => void browse()}>
+                  Browse…
+                </button>
+              </div>
+            </div>
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="src-label">Label · optional</label>
+              <input
+                id="src-label"
+                placeholder="work-account"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+              />
+            </div>
+          </div>
+          {error && (
+            <div id="source-add-error" role="alert" className="new-error">{error}</div>
+          )}
+          <div className="ns-actions">
+            <button type="submit" className="btn-primary" disabled={!path.trim()}>
+              Add source
+            </button>
+          </div>
+        </form>
         <h3 className="ns-label">History</h3>
         <p className="ns-hint">
           How far back sessions appear in the sidebar, search, and counts. Older sessions are
@@ -528,63 +586,6 @@ export function Settings({
         <h3 className="ns-label">Model providers</h3>
         <ModelProviders onStatus={setStatus} />
 
-        <h3 className="ns-label">Add source</h3>
-        <form
-          className="source-add"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void add()
-          }}
-        >
-          <div className="ns-options">
-            <div className="ns-opt">
-              <label className="ns-label" htmlFor="src-provider">Agent</label>
-              <Select
-                id="src-provider"
-                ariaLabel="Agent"
-                value={provider}
-                options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
-                onChange={(v) => setProvider(v as Provider)}
-              />
-            </div>
-            <div className="ns-opt source-opt-path">
-              <label className="ns-label" htmlFor="src-path">Config home</label>
-              <div className="source-browse-row">
-                <input
-                  id="src-path"
-                  placeholder="/Users/you/.claude-work"
-                  value={path}
-                  aria-invalid={!!error}
-                  aria-describedby={error ? 'source-add-error' : undefined}
-                  onChange={(e) => {
-                    setPath(e.target.value)
-                    setError(null)
-                  }}
-                />
-                <button type="button" className="btn-ghost" onClick={() => void browse()}>
-                  Browse…
-                </button>
-              </div>
-            </div>
-            <div className="ns-opt">
-              <label className="ns-label" htmlFor="src-label">Label · optional</label>
-              <input
-                id="src-label"
-                placeholder="work-account"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-              />
-            </div>
-          </div>
-          {error && (
-            <div id="source-add-error" role="alert" className="new-error">{error}</div>
-          )}
-          <div className="ns-actions">
-            <button type="submit" className="btn-primary" disabled={!path.trim()}>
-              Add source
-            </button>
-          </div>
-        </form>
         <h3 className="ns-label">About</h3>
         <ul className="source-list">
           <li className="source-row">

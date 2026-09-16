@@ -6,8 +6,9 @@
 it answers "what is Cockpit watching, as whom, how much of each subscription is used,
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
-sections, in order: Agent accounts & sources · History · Display · Subscription usage ·
-GitHub · Model providers · Add source · About).
+sections, in order: Agent accounts & sources · Add source · History · Display ·
+Subscription usage · GitHub · Model providers · About — adding a config home sits directly
+under the list it extends).
 
 ## Rules
 

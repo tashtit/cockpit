@@ -8,7 +8,7 @@ Hit **New task** (⌘N) or use the composer on the Home view: pick a repository,
 
 Cockpit then:
 
-1. creates a `cockpit/<name>` branch,
+1. creates a `cockpit/<name>` branch — named from the first words of your task (`cockpit/add-changelog-entry-retry-fix`) unless you set one in the full New session form,
 2. checks it out in an **isolated git worktree** under the app's own data directory — outside your checkout,
 3. runs the agent there.
 

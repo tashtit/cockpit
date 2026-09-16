@@ -21,6 +21,7 @@ import { NewRoundtable } from './NewRoundtable'
 import { RoundtableView } from './RoundtableView'
 import { PROVIDER_LABEL } from './logos'
 import { Settings, type SettingsSection } from './Settings'
+import { branchHint, taskTitle } from './task-names'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -493,13 +494,14 @@ export function App(): JSX.Element {
       if (!repo.root) return 'This group has no git repository.'
       setCreating(true)
       try {
-        const ws = await api.createWorkspace(repo.root, name || undefined)
+        const ws = await api.createWorkspace(repo.root, name || branchHint(prompt))
         setSelectedSessionId(null)
         setBinding({
           provider,
           cwd: ws.cwd,
           nativeSessionId: null,
-          title: ws.branch,
+          // the task is what the user will look for — the branch already has its own chip
+          title: taskTitle(prompt) || ws.branch,
           branch: ws.branch,
           repoRoot: repo.root,
           options,

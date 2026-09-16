@@ -15,12 +15,13 @@ if (!existsSync(mainEntry)) {
   throw new Error('out/main/index.js missing — run `npm run build` before `npm run test:e2e`')
 }
 
-// Hermetic fixture world: a fake git repo, a fake Claude source dir whose session
+// Hermetic fixture world: a fake git repo, fake Claude and Codex source dirs whose session
 // logs point at it, and a pre-seeded cockpit-config.json so the indexer walks only
 // these fixtures — never this machine's real ~/.claude.
 const root = mkdtempSync(join(tmpdir(), 'cockpit-e2e-pages-'))
 const userData = join(root, 'user-data')
 const claudeSrc = join(root, 'claude-home')
+const codexSrc = join(root, 'codex-home')
 const repoDir = join(root, 'rocket')
 const noRepoCwd = join(root, 'no-repo')
 
@@ -69,12 +70,42 @@ test.beforeAll(async () => {
   writeClaudeSession('e2e-login', repoDir, 'fix the login flake', 'Patched the retry loop.', hoursAgo(2))
   writeClaudeSession('e2e-paging', repoDir, 'add pagination to the sessions list', 'Paged it.', hoursAgo(1))
   writeClaudeSession('e2e-scratch', noRepoCwd, 'scratch ideas with no repository', 'Noted.', hoursAgo(3))
+  // one Codex rollout carrying a rate-limit snapshot, so Settings renders usage meters
+  // (their fixed-width columns are what outgrew the card at the window floor)
+  const rollout = join(codexSrc, 'sessions', '2026', '01', '01', 'rollout-e2e-codex.jsonl')
+  mkdirSync(join(rollout, '..'), { recursive: true })
+  const resetsAt = Math.floor(Date.now() / 1000) + 3600
+  writeFileSync(
+    rollout,
+    jsonl([
+      { timestamp: hoursAgo(4), type: 'session_meta', payload: { id: 'e2e-codex', cwd: repoDir } },
+      {
+        timestamp: hoursAgo(4),
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'tidy the build script' }] }
+      },
+      {
+        timestamp: hoursAgo(4),
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 63, window_minutes: 300, resets_at: resetsAt },
+            secondary: { used_percent: 31, window_minutes: 10080, resets_at: resetsAt + 86_400 }
+          }
+        }
+      }
+    ])
+  )
 
   mkdirSync(userData, { recursive: true })
   writeFileSync(
     join(userData, 'cockpit-config.json'),
     JSON.stringify({
-      sources: [{ path: claudeSrc, provider: 'claude', label: 'e2e-claude' }],
+      sources: [
+        { path: claudeSrc, provider: 'claude', label: 'e2e-claude' },
+        { path: codexSrc, provider: 'codex', label: 'e2e-codex' }
+      ],
       archived: []
     })
   )
@@ -352,6 +383,12 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   // five tabs must wrap inside the narrow card, never overflow it
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  expect(await audit()).toEqual([])
+
+  // settings' rows carry an identity chip, a path, a count and an action, and its
+  // usage windows fixed-width meters — both outgrew the card here once, unaudited
+  await win.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(win.getByRole('heading', { name: 'Settings' })).toBeVisible()
   expect(await audit()).toEqual([])
 
   // cleanup's rows carry a path, a size and a reason — the widest content in the app
