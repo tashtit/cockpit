@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HomeView } from '../../src/renderer/src/HomeView'
-import type { AccountsSnapshot, RepoGroup, SessionMeta } from '../../src/shared/types'
+import type { AccountsSnapshot, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
 import { pasteImage, stubObjectUrls } from './paste'
 
 const repo: RepoGroup = {
@@ -208,5 +208,34 @@ describe('HomeView recent activity', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /Fix the flaky indexer test/ }))
     expect(onOpenSession).toHaveBeenCalledWith(session)
+  })
+})
+
+describe('HomeView board with roundtables', () => {
+  const table = (id: string, over: Partial<RoundtableMeta> = {}): RoundtableMeta => ({
+    id,
+    title: `table ${id}`,
+    updatedAt: 1700000000000,
+    providers: ['claude', 'codex'],
+    entryCount: 4,
+    running: false,
+    branch: null,
+    repoRoot: null,
+    ...over
+  })
+
+  it('puts tables on the one board, not a second panel', async () => {
+    vi.mocked(window.cockpit.listRoundtables).mockResolvedValue([table('a'), table('b')])
+    renderHome()
+    expect(await screen.findByText('table a')).toBeInTheDocument()
+    expect(document.querySelectorAll('section.board')).toHaveLength(1)
+    expect(screen.queryByRole('heading', { name: 'roundtables' })).not.toBeInTheDocument()
+  })
+
+  it('counts a table mid-round as flying and leads with it', async () => {
+    vi.mocked(window.cockpit.listRoundtables).mockResolvedValue([table('live', { running: true })])
+    renderHome()
+    expect(await screen.findByText(/1 flying/)).toBeInTheDocument()
+    expect(screen.getByText('in round')).toBeInTheDocument()
   })
 })

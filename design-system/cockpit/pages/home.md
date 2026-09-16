@@ -18,8 +18,8 @@ surface, no shadow).
   unqualified centering clips the top out of scroll reach, and shrinkable children let the
   composer card collapse to a sliver on short windows.
 - Order: hero (h2 + sub + kbd hints; no logo — the sidebar carries the mark) →
-  `.composer-card` → error line, with **the fleet** (`.board` + the roundtable strip, which
-  always travel together) placed either above the hero or below the composer. It leads when
+  `.composer-card` → error line, with **the fleet** (`.board`, which carries sessions and
+  roundtables alike) placed either above the hero or below the composer. It leads when
   `useBusyMap()` or `useLandedMap()` holds one of the board's rows, or a table is running —
   otherwise it follows. Nothing is hidden either way; only the order changes.
 - The hero h2 is flat `--fg` (no gradient-clip decoration), set in the mono placard
@@ -44,8 +44,16 @@ surface, no shadow).
   flying's wash, and `landed <time>` in the meta slot — the word carries the state, so colour
   never carries it alone. **On the ground:** dim static dot, dim placard, last-activity
   `fmtTime`.
-- Ordering: flying first (longest airborne on top), then landed (most recent landing first),
-  then idle by recency — three states, one list. Rows come from
+- Ordering: flying first (longest airborne on top, then any roundtable mid-round), then
+  landed (most recent landing first), then the ground — sessions and roundtables
+  interleaved by recency. Three states, one list.
+- **Roundtables are rows, not a second panel** (`TableRow`, `.board-row-table`): the seat
+  cluster sits in the `.board-lead` column where a session has its placard; a running round
+  pulses accent (no single agent owns a table), counts as flying, and holds the meta slot
+  with "in round". A table is work in flight like a session — two panels in the same
+  grammar made the eye compare them instead of reading one board.
+- **Row budget:** flying and landed rows always show; the ground fills what is left of ten
+  rows (`BOARD_ROWS`). The sidebar stays the exhaustive list. Rows come from
   the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
   list; don't grow this.
 - `.board-eyebrow` (h2 — the board renders above the hero's h2, so an h3 here would read

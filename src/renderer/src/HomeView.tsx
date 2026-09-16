@@ -147,19 +147,20 @@ export function HomeView({
   // `accounts === null` is still loading — never flash setup at someone set up.
   const canStart = accounts === null || ((accounts.accounts.length ?? 0) > 0 && selectable.length > 0)
 
-  // the board and the roundtable strip are one thing — the fleet — and they move together
+  // the fleet: sessions and roundtables on one board, placed by what is happening
   const busyMap = useBusyMap()
   const landedMap = useLandedMap()
   const active =
     recent.some((s) => busyMap.has(s.id) || landedMap.has(s.id)) || tables.some((t) => t.running)
   const fleetLeads = active && recent.length + tables.length > 0
-  const fleet = (
-    <>
-      {recent.length > 0 && (
-        <Board sessions={recent} total={recentTotal} onOpen={onOpenSession} />
-      )}
-      {tables.length > 0 && <RoundtableStrip tables={tables} onOpen={onOpenRoundtable} />}
-    </>
+  const fleet = recent.length + tables.length > 0 && (
+    <Board
+      sessions={recent}
+      total={recentTotal}
+      tables={tables}
+      onOpen={onOpenSession}
+      onOpenRoundtable={onOpenRoundtable}
+    />
   )
 
   return (
@@ -410,11 +411,16 @@ function Setup({
 function Board({
   sessions,
   total,
-  onOpen
+  tables,
+  onOpen,
+  onOpenRoundtable
 }: {
   sessions: SessionMeta[]
   total: number
+  /** Roundtables are rows on the same board — a table is work in flight like a session */
+  tables: RoundtableMeta[]
   onOpen: (s: SessionMeta) => void
+  onOpenRoundtable: (id: string) => void
 }): JSX.Element {
   const busy = useBusyMap()
   const landed = useLandedMap()
@@ -426,16 +432,27 @@ function Board({
     return () => clearInterval(t)
   }, [busy.size])
 
-  // flying first (longest airborne on top), then what landed while you were away
-  // (most recent landing first), then idle by recency — three states, one list
-  const flying = sessions
+  // one list, three states: flying (longest airborne first, then any table mid-round),
+  // landed (newest landing first), then the ground — sessions and tables by recency
+  const flyingSessions = sessions
     .filter((s) => busy.has(s.id))
     .sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
+  const flyingTables = tables.filter((t) => t.running).sort((a, b) => b.updatedAt - a.updatedAt)
   const arrived = sessions
     .filter((s) => !busy.has(s.id) && landed.has(s.id))
     .sort((a, b) => (landed.get(b.id) ?? 0) - (landed.get(a.id) ?? 0))
-  const ground = sessions.filter((s) => !busy.has(s.id) && !landed.has(s.id))
-  const groundTotal = Math.max(total - flying.length - arrived.length, ground.length)
+  const ground: Array<{ kind: 'session'; s: SessionMeta } | { kind: 'table'; t: RoundtableMeta }> = [
+    ...sessions.filter((s) => !busy.has(s.id) && !landed.has(s.id)).map((s) => ({ kind: 'session' as const, s })),
+    ...tables.filter((t) => !t.running).map((t) => ({ kind: 'table' as const, t }))
+  ].sort((a, b) => (b.kind === 'session' ? b.s.updatedAt : b.t.updatedAt) - (a.kind === 'session' ? a.s.updatedAt : a.t.updatedAt))
+  const flyingCount = flyingSessions.length + flyingTables.length
+  // the board is a taste, not the list: what is happening always shows, the ground fills
+  // what is left of ten rows (the sidebar stays the exhaustive one)
+  const shownGround = ground.slice(0, Math.max(0, BOARD_ROWS - flyingCount - arrived.length))
+  const groundTotal = Math.max(
+    total - flyingSessions.length - arrived.length + (tables.length - flyingTables.length),
+    ground.length
+  )
 
   return (
     <section className="board" aria-label="Session board">
@@ -444,12 +461,12 @@ function Board({
             outranks nothing above it would read as a skipped level.
             Polite live region — turn starts/completions announce the new counts */}
         <h2 className="board-eyebrow" aria-live="polite">
-          {flying.length === 0 && arrived.length === 0 ? (
+          {flyingCount === 0 && arrived.length === 0 ? (
             <>all on the ground</>
           ) : (
             <>
-              {flying.length > 0 && <b>{flying.length} flying</b>}
-              {flying.length > 0 && arrived.length > 0 && ' · '}
+              {flyingCount > 0 && <b>{flyingCount} flying</b>}
+              {flyingCount > 0 && arrived.length > 0 && ' · '}
               {arrived.length > 0 && <b>{arrived.length} landed</b>}
               {' · '}
               {groundTotal} on the ground
@@ -458,68 +475,67 @@ function Board({
         </h2>
       </div>
       <ul className="board-list">
-        {[...flying, ...arrived, ...ground].map((s) => (
-          <BoardRow
-            key={s.id}
-            s={s}
-            startedAt={busy.get(s.id)}
-            landedAt={busy.has(s.id) ? undefined : landed.get(s.id)}
-            now={now}
-            onOpen={onOpen}
-          />
+        {flyingSessions.map((s) => (
+          <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} landedAt={undefined} now={now} onOpen={onOpen} />
         ))}
+        {flyingTables.map((t) => (
+          <TableRow key={t.id} t={t} onOpen={onOpenRoundtable} />
+        ))}
+        {arrived.map((s) => (
+          <BoardRow key={s.id} s={s} startedAt={undefined} landedAt={landed.get(s.id)} now={now} onOpen={onOpen} />
+        ))}
+        {shownGround.map((g) =>
+          g.kind === 'session' ? (
+            <BoardRow key={g.s.id} s={g.s} startedAt={undefined} landedAt={undefined} now={now} onOpen={onOpen} />
+          ) : (
+            <TableRow key={g.t.id} t={g.t} onOpen={onOpenRoundtable} />
+          )
+        )}
       </ul>
     </section>
   )
 }
 
+/** Rows the board shows when nothing is happening — the page fetch's own size. */
+const BOARD_ROWS = 10
+
 /**
- * Ongoing roundtables, in the board's visual grammar: identity dots, title, time.
- * A running round pulses accent — no single agent owns a multi-agent table.
+ * A roundtable on the board: the seat cluster in the lead column, where a session has
+ * its agent's placard. A running round pulses accent — no single agent owns a
+ * multi-agent table — and "in round" holds the meta slot the way elapsed time does.
  */
-function RoundtableStrip({
-  tables,
-  onOpen
-}: {
-  tables: RoundtableMeta[]
-  onOpen: (id: string) => void
-}): JSX.Element {
+function TableRow({ t, onOpen }: { t: RoundtableMeta; onOpen: (id: string) => void }): JSX.Element {
   const timeFormat = useTimeFormat()
   return (
-    <section className="board" aria-label="Roundtables">
-      <div className="board-head">
-        <h2 className="board-eyebrow">roundtables</h2>
-      </div>
-      <ul className="board-list">
-        {tables.map((t) => (
-          <li key={t.id}>
-            <button
-              className={`board-row ${t.running ? 'flying' : ''}`}
-              title={`${t.providers.map((p) => PROVIDER_LABEL[p]).join(' + ')} — ${t.title}`}
-              onClick={() => onOpen(t.id)}
-            >
-              {t.running ? (
-                <span className="pulse" role="img" aria-label="round in progress" />
-              ) : (
-                <span className="board-dot-idle" aria-hidden="true" />
-              )}
-              <span className="rt-seats board-lead">
-                {t.providers.map((p) => (
-                  <span key={p} className={`rt-seat plogo-${p}`}>
-                    <ProviderLogo p={p} size={12} />
-                  </span>
-                ))}
-              </span>
-              <span className="board-branch">{t.branch && <BranchChip branch={t.branch} />}</span>
-              <span className="board-task">{t.title}</span>
-              <time className="board-meta" dateTime={new Date(t.updatedAt).toISOString()}>
-                {fmtTime(t.updatedAt, timeFormat)}
-              </time>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <li>
+      <button
+        className={`board-row board-row-table ${t.running ? 'flying' : ''}`}
+        title={`Roundtable · ${t.providers.map((p) => PROVIDER_LABEL[p]).join(' + ')} — ${t.title}`}
+        onClick={() => onOpen(t.id)}
+      >
+        {t.running ? (
+          <span className="pulse" role="img" aria-label="round in progress" />
+        ) : (
+          <span className="board-dot-idle" aria-hidden="true" />
+        )}
+        <span className="rt-seats board-lead" role="img" aria-label={`Roundtable: ${t.providers.map((p) => PROVIDER_LABEL[p]).join(', ')}`}>
+          {t.providers.map((p, i) => (
+            <span key={`${p}-${i}`} className={`rt-seat plogo-${p}`}>
+              <ProviderLogo p={p} size={12} />
+            </span>
+          ))}
+        </span>
+        <span className="board-branch">{t.branch && <BranchChip branch={t.branch} />}</span>
+        <span className="board-task">{t.title}</span>
+        {t.running ? (
+          <span className="board-meta">in round</span>
+        ) : (
+          <time className="board-meta" dateTime={new Date(t.updatedAt).toISOString()}>
+            {fmtTime(t.updatedAt, timeFormat)}
+          </time>
+        )}
+      </button>
+    </li>
   )
 }
 
