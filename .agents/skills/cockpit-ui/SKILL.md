@@ -25,3 +25,5 @@ Cockpit's design system is documented in-repo; read it before writing renderer c
 ## Verify
 
 Run through MASTER.md's pre-delivery checklist, then `npm run typecheck && npm test`. Layout-affecting changes must also pass the minimum-window audit: `npm run build && npm run test:e2e`.
+
+Then look at it: `npm run ui:tour` (add `-- --only <view>` while iterating) and open `test-results/ui-tour/index.html`. It shows every view at desktop size and at the 560×420 floor, with sessions really running, landed, and a first launch — states no single dev window has at once. Compare against the previous run before calling a visual change done.

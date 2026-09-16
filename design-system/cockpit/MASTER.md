@@ -179,3 +179,4 @@ Nothing renders with stock Chromium chrome:
 - [ ] Drag-region children marked `no-drag`; selectable text opted out
 - [ ] Narrow/short window behavior: shed decoration, never horizontal-scroll
 - [ ] `npm run typecheck` and `npm test` pass
+- [ ] Looked at, not just tested: `npm run ui:tour`, and the affected views in `test-results/ui-tour/index.html` at both sizes
