@@ -1204,6 +1204,13 @@ summary::-webkit-details-marker { display: none; }
 /* prose under a row label — NOT mono (mono is for machine identifiers) */
 .source-note { color: var(--fg-dim); font-size: var(--fs-xs); }
 .source-note code { font-family: var(--mono); color: var(--fg); }
+/* notification switches: the whole row labels its checkbox, so the row is the hit
+   area; the 14px box keeps its own 24px target through the margin (WCAG 2.5.8) */
+.attn-switch { cursor: pointer; transition: border-color var(--dur) var(--ease); }
+.attn-switch:hover { border-color: var(--border-strong); }
+.attn-switch input { width: 14px; height: 14px; margin: 5px; flex-shrink: 0; cursor: pointer; }
+.attn-switch input:disabled { cursor: default; opacity: 0.4; }
+.attn-switch .source-note { display: block; }
 /* ---------- settings subscription usage ---------- */
 .usage-windows { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s1); }
 .usage-window { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-xs);

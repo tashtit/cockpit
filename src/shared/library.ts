@@ -366,6 +366,26 @@ export function shortPath(path: string): string {
 }
 
 /**
+ * How a session's cwd reads in a header. A worktree's path is mostly where the tool
+ * keeps its worktrees (`~/Library/Application Support/cockpit/worktrees/<repo>/<slug>`),
+ * so it reads as `worktree · <slug>` — or just `worktree` when the slug is the branch's
+ * own name, which the branch chip beside it already shows. A checkout or a plain
+ * directory keeps `shortPath`. A cwd outside its repo's main root can only be a linked
+ * worktree; inside the root, only an agent's own dot-directory `worktrees/<name>` is one
+ * (`.claude/worktrees/…`) — a plain subdirectory, even one named `worktrees`, is not.
+ */
+export function cwdLabel(cwd: string, repoRoot: string | null, branch?: string | null): string {
+  const dir = cwd.replace(/\/+$/, '')
+  const root = repoRoot?.replace(/\/+$/, '')
+  if (!root || dir === root) return shortPath(cwd)
+  const name = dir.startsWith(`${root}/`)
+    ? dir.slice(root.length).match(/^\/\.[^/]+\/worktrees\/([^/]+)$/)?.[1]
+    : dir.split('/').pop()
+  if (!name) return shortPath(cwd)
+  return name === branch?.split('/').pop() ? 'worktree' : `worktree · ${name}`
+}
+
+/**
  * The shared baseline as one row. Its switch means "keep this agent's file in sync";
  * a repo-scope AGENTS.md is read by two agents, so one file fills two cells.
  */

@@ -31,24 +31,38 @@ test.afterAll(async () => {
   clearTimeout(kill)
 })
 
-test('boots to the home shell with a live composer', async () => {
+test('boots to the home shell', async () => {
   const win = await app.firstWindow()
   await expect(win).toHaveTitle('Cockpit')
   // the heading may carry the gh login ("What should we ship, dev?") — match the stem
   await expect(win.getByRole('heading', { name: /What should we ship/ })).toBeVisible()
 
-  // composer wiring is alive: renderer state reacts through the preload bridge
-  const prompt = win.getByRole('textbox', { name: 'Task description' })
-  await expect(prompt).toBeVisible()
-  const start = win.getByRole('button', { name: /^Start with / })
-  await expect(start).toBeDisabled()
+  // this run uses the machine's real agent homes, so the home settles on the composer
+  // or — on a runner with no agent signed in — the setup card. The composer shows while
+  // accounts load, so asserting it alone races that swap; the composer itself is covered
+  // against a seeded world in pages.spec.ts.
+  const composer = win.getByRole('textbox', { name: 'Task description' })
+  const setup = win.getByRole('region', { name: 'Set up Cockpit' })
+  await expect(composer.or(setup)).toBeVisible()
 })
 
 test('preload bridge is wired through context isolation', async () => {
   const win = await app.firstWindow()
   expect(await win.evaluate(() => typeof window.cockpit?.pageSessions)).toBe('function')
 
-  const prompt = win.getByRole('textbox', { name: 'Task description' })
-  await prompt.fill('smoke test task')
-  await expect(prompt).toHaveValue('smoke test task')
+  // renderer state reacts to input — the sidebar search is there whatever the home shows
+  const search = win.getByRole('textbox', { name: 'Search sessions' })
+  await search.fill('smoke test')
+  await expect(search).toHaveValue('smoke test')
+})
+
+test('notifications, sound and the Dock badge start off outside an installed app', async () => {
+  // what keeps e2e, the UI tour and `npm run dev` from ever posting, playing or badging
+  const win = await app.firstWindow()
+  await win.keyboard.press('ControlOrMeta+,')
+  await expect(win.getByRole('heading', { name: 'Notifications' })).toBeVisible()
+  for (const name of ['Desktop notifications', 'Sound', 'Dock badge']) {
+    await expect(win.getByRole('checkbox', { name })).not.toBeChecked()
+  }
+  expect(await app.evaluate(({ app }) => app.getBadgeCount())).toBe(0)
 })

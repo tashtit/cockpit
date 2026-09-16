@@ -7,6 +7,9 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron'
 const ZOOM_MIN = 0.7
 const ZOOM_MAX = 2
 import type {
+  AttentionFocus,
+  AttentionPrefs,
+  AttentionTarget,
   BusySession,
   ChatEvent,
   ChatRequest,
@@ -16,6 +19,7 @@ import type {
   NewRoundtableRequest,
   Provider,
   RoundtableEvent,
+  Landing,
   PanelTarget,
   SessionQuery,
   TimeFormat,
@@ -50,6 +54,22 @@ const api: CockpitApi = {
     ipcRenderer.on('busy-sessions', handler)
     return () => ipcRenderer.removeListener('busy-sessions', handler)
   },
+  getAttentionPrefs: () => ipcRenderer.invoke('attention:prefs'),
+  setAttentionPrefs: (prefs: AttentionPrefs) => ipcRenderer.invoke('attention:set-prefs', prefs),
+  testNotification: () => ipcRenderer.invoke('attention:test'),
+  setAttentionFocus: (focus: AttentionFocus) => ipcRenderer.invoke('attention:focus', focus),
+  getLandings: () => ipcRenderer.invoke('attention:landings'),
+  onLandings: (cb: (landings: Landing[]) => void) => {
+    const handler = (_e: unknown, landings: Landing[]): void => cb(landings)
+    ipcRenderer.on('landings', handler)
+    return () => ipcRenderer.removeListener('landings', handler)
+  },
+  onAttentionOpen: (cb: (target: AttentionTarget) => void) => {
+    const handler = (_e: unknown, target: AttentionTarget): void => cb(target)
+    ipcRenderer.on('attention-open', handler)
+    return () => ipcRenderer.removeListener('attention-open', handler)
+  },
+  takeAttentionOpen: () => ipcRenderer.invoke('attention:take-open'),
   setArchived: (sessionId: string, archived: boolean) =>
     ipcRenderer.invoke('sessions:archive', sessionId, archived),
   setRepoHidden: (repoKey: string, hidden: boolean) =>

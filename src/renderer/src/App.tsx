@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
+  AttentionFocus,
+  AttentionTarget,
   ChatEvent,
   PermissionMode,
   Provider,
@@ -22,7 +24,7 @@ import { RoundtableView } from './RoundtableView'
 import { PROVIDER_LABEL } from './logos'
 import { Settings, type SettingsSection } from './Settings'
 import { branchHint, taskTitle } from './task-names'
-import { markSeen, setViewing } from './landed'
+import { initLanded } from './landed'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -144,6 +146,7 @@ export function App(): JSX.Element {
   const textFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => initBusySessions(), [])
+  useEffect(() => initLanded(), [])
 
   useEffect(() => {
     void initTimeFormat()
@@ -240,9 +243,6 @@ export function App(): JSX.Element {
         if (provider) {
           const newId = `${provider}:${ev.nativeSessionId}`
           const oldId = selectedSessionIdRef.current
-          // claude forks an id per resumed turn: the id we were watching is about
-          // to leave the busy set, and its landing would be news about nothing
-          markSeen(oldId)
           setSelectedSessionId(newId)
           // history entries for this conversation follow the mint — restoring
           // one later must resume the new id, not fork a pre-turn snapshot
@@ -681,11 +681,51 @@ export function App(): JSX.Element {
     setView({ kind: 'extensions', repoRoot })
   }, [])
 
-  // what the chat pane is showing: a session watched live can never be "landed,
-  // unseen", and opening one clears its landing (landed.ts)
+  // what the window shows, for main: a session watched live never lands or notifies,
+  // and opening one clears its landing, its Dock count and its banner (landed.ts)
+  const roundtableOnScreen = view.kind === 'roundtable' ? view.id : null
+  const chatOnScreen = view.kind === 'chat' ? binding : null
   useEffect(() => {
-    setViewing(view.kind === 'chat' ? selectedSessionId : null)
-  }, [view.kind, selectedSessionId])
+    const focus: AttentionFocus = roundtableOnScreen
+      ? { kind: 'roundtable', id: roundtableOnScreen }
+      : chatOnScreen
+        ? {
+            kind: 'session',
+            id: selectedSessionId,
+            provider: chatOnScreen.provider,
+            cwd: chatOnScreen.cwd
+          }
+        : { kind: 'none' }
+    void api.setAttentionFocus(focus)
+  }, [roundtableOnScreen, chatOnScreen?.provider, chatOnScreen?.cwd, selectedSessionId])
+
+  // a clicked notification: main has already brought the window forward
+  const openTargetRef = useRef<(target: AttentionTarget) => void>(() => {})
+  openTargetRef.current = (target) => {
+    if (target.kind === 'roundtable') {
+      openRoundtable(target.id)
+    } else if (target.kind === 'session') {
+      // the conversation already on screen keeps its live log
+      if (target.id === selectedSessionIdRef.current && bindingRef.current) {
+        setView({ kind: 'chat' })
+        return
+      }
+      void api
+        .getSession(target.id)
+        .then((meta) => (meta ? openSession(meta) : setView({ kind: 'welcome' })))
+        .catch(() => setView({ kind: 'welcome' }))
+    } else {
+      // several landed at once — the board is where they all are
+      setView({ kind: 'welcome' })
+    }
+  }
+  useEffect(() => {
+    const open = (target: AttentionTarget): void => openTargetRef.current(target)
+    const off = api.onAttentionOpen(open)
+    // clicked while this window didn't exist yet (closed on macOS)
+    void api.takeAttentionOpen().then((target) => target && open(target))
+    return off
+  }, [])
 
   // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])

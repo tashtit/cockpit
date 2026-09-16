@@ -1,55 +1,28 @@
 import { useSyncExternalStore } from 'react'
+import type { Landing } from '../../shared/types'
+import { api } from './api'
 
 /**
- * Landed sessions: a turn Cockpit ran has ended, and the user hasn't looked at it
+ * Landed sessions: a turn Cockpit ran has ended, and the user hasn't opened it
  * since. Flying was always visible; landing was not — a finished session rejoined
  * twenty idle rows and the only signal was a timestamp that had moved.
  *
- * The state lives here rather than in main because it is about *this user's
- * attention*, not about the session: main knows a process exited, only the
- * renderer knows whether anyone was watching. `busy.ts` reports the transitions,
- * App reports what is on screen, and the board and tree read the map.
+ * Main owns the state (`attention-core.ts`): it sees every turn end, including
+ * those of sessions no view has open, and the same set drives the Dock badge and
+ * the notifications. What it can't see is the screen, so App reports what the
+ * window shows (`setAttentionFocus`) and main keeps a watched session from ever
+ * landing. This store mirrors main's set for the rows that carry the dot.
  */
 
-const KEY = 'cockpit:landed'
-/** Landings older than this are noise, not news. */
-const TTL_MS = 7 * 24 * 60 * 60 * 1000
-/** Bound the map: a long session of many turns must not grow localStorage forever. */
-const MAX = 60
-
 /** id → epoch ms the turn ended */
-let landed: ReadonlyMap<string, number> = load()
-/** The session the user is looking at right now — it can never be "unseen". */
-let viewing: string | null = null
+let landed: ReadonlyMap<string, number> = new Map()
 const listeners = new Set<() => void>()
 
-function load(): ReadonlyMap<string, number> {
-  try {
-    const raw = window.localStorage.getItem(KEY)
-    if (!raw) return new Map()
-    const cutoff = Date.now() - TTL_MS
-    const entries = Object.entries(JSON.parse(raw) as Record<string, unknown>)
-      .filter((e): e is [string, number] => typeof e[1] === 'number' && e[1] > cutoff)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, MAX)
-    return new Map(entries)
-  } catch {
-    // a hand-edited or quota-blocked store must never take the window down
-    return new Map()
-  }
-}
+/** Where the renderer kept landings before main took them over. */
+const LEGACY_KEY = 'cockpit:landed'
 
-function commit(next: Map<string, number>): void {
-  const trimmed =
-    next.size <= MAX
-      ? next
-      : new Map([...next].sort((a, b) => b[1] - a[1]).slice(0, MAX))
-  landed = trimmed
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(trimmed)))
-  } catch {
-    // private windows and full quotas: the in-memory map still works this session
-  }
+function set(list: readonly Landing[]): void {
+  landed = new Map(list.map((l) => [l.id, l.at]))
   listeners.forEach((l) => l())
 }
 
@@ -60,36 +33,28 @@ function subscribe(cb: () => void): () => void {
   }
 }
 
-/**
- * Turns that just ended. Called by `busy.ts` with the ids that left the busy set;
- * the session on screen lands "already seen", because the user watched it happen.
- */
-export function noteTurnsEnded(ids: readonly string[], at = Date.now()): void {
-  const fresh = ids.filter((id) => id !== viewing)
-  if (fresh.length === 0) return
-  const next = new Map(landed)
-  for (const id of fresh) next.set(id, at)
-  commit(next)
+/** Seed from main and follow its pushes; returns the unsubscribe (App's mount effect). */
+export function initLanded(): () => void {
+  try {
+    window.localStorage.removeItem(LEGACY_KEY)
+  } catch {
+    // private windows and blocked storage: nothing to tidy
+  }
+  // a push that beats the seed is newer than it — the seed must not overwrite it
+  let pushed = false
+  void api.getLandings().then((list) => {
+    if (!pushed) set(list)
+  })
+  const off = api.onLandings((list) => {
+    pushed = true
+    set(list)
+  })
+  return off
 }
 
-/** The user opened it (or is in it): the landing is no longer news. */
-export function markSeen(id: string | null): void {
-  if (!id || !landed.has(id)) return
-  const next = new Map(landed)
-  next.delete(id)
-  commit(next)
-}
-
-/** What the chat pane is showing, or null — App keeps this in step with selection. */
-export function setViewing(id: string | null): void {
-  viewing = id
-  markSeen(id)
-}
-
-/** Test seam: drop everything, in memory and on disk. */
+/** Test seam: forget everything this window was told. */
 export function clearLanded(): void {
-  viewing = null
-  commit(new Map())
+  set([])
 }
 
 /** id → when the turn ended, for the rows that carry the state. */

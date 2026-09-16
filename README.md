@@ -54,6 +54,7 @@ CI (`.github/workflows/ci.yml`) runs typecheck plus all three test tiers, packag
 - Watches source dirs — sessions you run in any terminal appear/update live.
 - Click a session → parsed transcript (messages, tool calls, results).
 - **Always worktrees, always PRs**: "+ New session" creates a `cockpit/<name>` branch in an isolated git worktree (under the app's userData, outside your checkout) and runs the agent there. "Create PR" pushes the branch and runs `gh pr create`. PR state badges (open/draft/merged/closed, GitHub colors) come from `gh pr list`, cached 60s per repo.
+- **Notifications when an agent needs you**: a desktop notification (agent, session, a one-line outcome — click to open it), a macOS system sound, and a Dock badge counting sessions that landed and haven't been opened, when a turn finishes or fails or a roundtable concludes. Never for the session in front of a focused window; endings that arrive together share one notification. On in installed builds, off in dev and test runs (Settings › Notifications). macOS refuses notifications from unsigned builds — the sound plays and the Dock icon bounces instead.
 - **Review before landing**: "Changes" (⌘D) in a session swaps the transcript for the worktree's diff — branch vs base (with ahead/behind), staged, or unstaged incl. untracked files — unified or split, with line numbers. Pin notes to lines and send them to the agent as one message.
 - **Fix what the PR is waiting on**: with an open PR, the review leads with its failing checks, requested changes, unresolved threads (shown under their lines too) and conflicts; "Fix with <agent>" turns them into one prompt — failed-step logs included — ready in the composer.
 - **Working chat**: pick a provider + repo path → chat spawns the CLI headless (`claude -p --output-format stream-json`, `codex exec --json`, `copilot -p`) and streams replies, tool activity, and errors into the window. Multi-turn works via each provider's resume (`--resume` / `exec resume`). Opening an indexed session and typing continues that conversation.
@@ -73,6 +74,8 @@ src/main/instructions.ts  shared-instructions IO (baseline storage + fan-out)
 src/main/github.ts        PR status per repo via `gh pr list` (cached)
 src/main/workspace.ts     worktree/branch creation + push/`gh pr create`
 src/main/chat.ts          ChatManager: spawn provider CLIs, parse stream events
+src/main/attention-core.ts  which turn endings are news: landings, Dock badge count, notification bursts (IO-free)
+src/main/attention.ts     notifications, system sounds, Dock badge + bounce (Electron), landings persisted to userData
 src/main/accounts.ts      who each agent CLI is signed in as, per config home + `gh` user
 src/main/usage.ts         subscription usage per provider (local measurement / CLI snapshots / GitHub billing API)
 src/main/provider-archived.ts  sessions archived/deleted in the provider's own app → hidden
