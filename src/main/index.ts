@@ -61,11 +61,13 @@ import {
 } from './extensions'
 import { loginMcp, probeMcp } from './mcp'
 import {
+  adoptInstructionsFrom,
   applyInstructions,
   getInstructions,
   saveBaseline,
   saveInstructionFile
 } from './instructions'
+import { shareInstructions } from './instructions-share'
 import { getAccounts, setCopilotActiveUser } from './accounts'
 import { branchFromHead, centeredIn, parseGitdirPointer, readDevWindowPrefs } from './dev-window'
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
@@ -473,6 +475,12 @@ app.whenReady().then(() => {
     'instructions:save-file',
     (_e, repoRoot: string | null, path: string, content: string) =>
       saveInstructionFile(instructionScope(repoRoot), String(path), String(content))
+  )
+  ipcMain.handle('instructions:adopt-file', (_e, repoRoot: string | null, path: string) =>
+    adoptInstructionsFrom(instructionScope(repoRoot), String(path))
+  )
+  ipcMain.handle('instructions:share', (_e, repoRoot: string) =>
+    shareInstructions(assertKnownRepoRoot(repoRoot))
   )
   ipcMain.handle('shell:open', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)

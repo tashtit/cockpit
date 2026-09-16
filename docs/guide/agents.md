@@ -107,6 +107,29 @@ diff opens from the row in **Needs you**, with the re-apply button beside it.
 
 You can also edit any of the full files inline, right in the view.
 
+### Sharing a repo's instructions
+
+A repository's instructions belong to everyone working in it, so Cockpit shares them
+through the repository itself. **Save & open PR** writes the baseline into that repo's
+`CLAUDE.md` and `AGENTS.md` and opens a pull request with the change — in a fresh worktree
+off the default branch, never in your own checkout, and using your own git identity and
+hooks. Merge it and your teammates get the instructions the next time they pull.
+
+If an instructions pull request is already open, the next share adds a commit to it rather
+than opening a second one. If the repo already says exactly what your baseline says, nothing
+is opened at all.
+
+Coming the other way: when a teammate's change lands and you pull it, the repo's file now
+carries a block that differs from your baseline, so the row reads **out of date**. Apply
+yours over it, or take theirs with **use this file's version**. And a repo you have just
+cloned, whose files already carry a shared block, is adopted on first view — the block is
+the baseline, with nothing to apply.
+
+::: tip Global instructions stay yours
+Only per-repository instructions are shareable. A global baseline has no repository to go
+to, and nobody to share it with.
+:::
+
 ## MCP servers
 
 A server's switch translates one definition into each agent's own config format:

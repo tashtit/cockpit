@@ -1,8 +1,8 @@
-import { app } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { WorkspaceInfo } from '../shared/types'
 import { execText } from './env'
+import { userDataDir } from './config'
 
 async function run(cmd: string, args: string[], cwd: string): Promise<string> {
   const r = await execText(cmd, args, { cwd, timeoutMs: 120_000 })
@@ -22,9 +22,13 @@ function slugify(name: string): string {
  * Every new session gets its own linked worktree + branch (cockpit/<slug>), kept
  * outside the repo (under userData) so checkouts stay clean and nothing needs ignoring.
  */
-export async function createWorkspace(repoRoot: string, name?: string): Promise<WorkspaceInfo> {
+export async function createWorkspace(
+  repoRoot: string,
+  name?: string,
+  opts: { readonly base?: string } = {}
+): Promise<WorkspaceInfo> {
   const baseSlug = (name && slugify(name)) || `ws-${Date.now().toString(36)}`
-  const parent = join(app.getPath('userData'), 'worktrees', slugify(basename(repoRoot)) || 'repo')
+  const parent = join(userDataDir(), 'worktrees', slugify(basename(repoRoot)) || 'repo')
   mkdirSync(parent, { recursive: true })
   // clear stale registrations from manually deleted worktree dirs
   await run('git', ['worktree', 'prune'], repoRoot).catch(() => '')
@@ -33,7 +37,10 @@ export async function createWorkspace(repoRoot: string, name?: string): Promise<
     const branch = `cockpit/${slug}`
     const dest = join(parent, slug)
     try {
-      await run('git', ['worktree', 'add', '-b', branch, dest], repoRoot)
+      // --no-track: branching off origin/<default> would otherwise adopt it as the
+      // upstream, and a later `git push` would aim at the wrong ref
+      const from = opts.base ? ['--no-track', dest, opts.base] : [dest]
+      await run('git', ['worktree', 'add', '-b', branch, ...from], repoRoot)
       return { cwd: dest, branch }
     } catch (err) {
       lastErr = err instanceof Error ? err : new Error(String(err))
@@ -41,6 +48,16 @@ export async function createWorkspace(repoRoot: string, name?: string): Promise<
     }
   }
   throw lastErr ?? new Error('worktree creation failed')
+}
+
+/**
+ * Drop a worktree Cockpit made for one short-lived job. Best-effort and forced:
+ * this is a directory created seconds ago holding only what Cockpit wrote, and
+ * the alternative to forcing is litter under userData that the cleanup view then
+ * has to explain. (Cleanup's own removals stay unforced — those are the user's.)
+ */
+export async function removeWorkspace(repoRoot: string, cwd: string): Promise<void> {
+  await run('git', ['worktree', 'remove', '--force', cwd], repoRoot).catch(() => '')
 }
 
 /** Push the workspace branch and open a PR; returns the PR URL. */

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { RepoGroup } from '../../shared/types'
 import { AgentPanel } from './AgentPanel'
+import { api } from './api'
 import { Select } from './Select'
 
 /**
@@ -14,7 +15,12 @@ import { Select } from './Select'
  * that changes what every row underneath means.
  */
 
-type Notice = { text: string; kind: 'ok' | 'error' } | null
+/** `link` is for an outcome that lives somewhere else — a PR the share just opened. */
+type Notice = {
+  text: string
+  kind: 'ok' | 'error'
+  link?: { href: string; label: string }
+} | null
 
 export function AiSetup({
   repos,
@@ -109,6 +115,14 @@ export function AiSetup({
             role={notice.kind === 'error' ? 'alert' : 'status'}
           >
             {notice.text}
+            {notice.link && (
+              <>
+                {' '}
+                <button className="link-btn" onClick={() => void api.openExternal(notice.link!.href)}>
+                  {notice.link.label}
+                </button>
+              </>
+            )}
           </div>
         )}
 
