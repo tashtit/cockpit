@@ -327,7 +327,10 @@ summary::-webkit-details-marker { display: none; }
 .section-row { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2);
   cursor: pointer; font-size: var(--fs-xs); font-weight: 700; text-transform: lowercase;
   letter-spacing: 0.6px; color: var(--fg-dim); border-radius: var(--radius-sm);
-  min-height: 26px; position: sticky; top: 0; z-index: 2; background: var(--bg2); }
+  min-height: 26px; position: sticky; top: 0; z-index: 2;
+  /* opaque so rows scroll under it, but in the rail's own near-black — a --bg2 fill on the
+     dark rail read as a selected row, so the header looked like the thing you were in */
+  background: var(--bg-deep); }
 .section-row:hover { background: var(--bg3); color: var(--fg); }
 /* section count is contextual plain text — the bordered pill means "session count on a repo" */
 .section-row .repo-count { background: none; border: none; padding: 0; }
@@ -1470,6 +1473,12 @@ summary::-webkit-details-marker { display: none; }
 /* the agent chip: the app's identity colours doing the labelling, so the control
    names itself and the row needs no header above it */
 .pnl-chips { display: flex; align-items: center; gap: var(--s1); flex-shrink: 0; }
+/* the Instructions section's one line of switches: whose file takes part in the
+   baseline. The editor above is the row itself, opened — so no title, flag or diff */
+.pnl-sync { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) 0; }
+.pnl-sync-label { font-size: var(--fs-sm); color: var(--fg-dim); }
+.pnl-sync .pnl-chips { flex-wrap: wrap; }
 .ag-chip { display: inline-flex; align-items: center; gap: var(--s2); min-height: 24px;
   padding: 0 var(--s3); border-radius: var(--radius-pill); border: 1px solid var(--border);
   background: var(--bg-deep); color: var(--fg-dim); font-size: var(--fs-xs);

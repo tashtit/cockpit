@@ -67,7 +67,7 @@ providers · Backup · About).
   sources; also deletes the stored key). The Type select's options carry the agents they
   serve as `hint` annotations.
   The hint must keep saying keys are encrypted with the OS keychain, never written to
-  config, and sent only to the provider. Add form mirrors Add source: labeled `.ns-opt`s
+  config, and sent only to the provider. Add form mirrors the config-home form: labeled `.ns-opt`s
   — Display name · Type · Base URL · API key (`type="password"`, `autoComplete="off"`) ·
   Wire API only for openai type (progressive disclosure) · Custom headers (JSON object,
   validated inline). Primary disabled until name + URL are non-empty. After add, the
@@ -77,7 +77,7 @@ providers · Backup · About).
   `.ns-opt`s — Agent select · Config home (mono input, autofocused + ghost "Browse…"
   calling `pickDirectory()`, a main-process `dialog.showOpenDialog` with
   `showHiddenFiles` — config homes are dotdirs) · optional Label · ghost Cancel. Placeholders are concrete examples (`/Users/you/.claude-work`), never
-  templates. Primary "Add source" sits in `.ns-actions`, disabled until path is
+  templates. Primary "Add config home" sits in `.ns-actions`, disabled until path is
   non-empty.
 - Errors: `.new-error` with `role="alert"`, linked to the path input via
   `aria-describedby`/`aria-invalid`, cleared the moment the user edits. The main-process

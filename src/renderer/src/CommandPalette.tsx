@@ -61,7 +61,7 @@ const VIEWS: readonly ViewTarget[] = [
     key: 'settings',
     label: 'Settings',
     hint: '⌘,',
-    keywords: ['settings', 'sources', 'usage', 'accounts', 'model providers', 'preferences'],
+    keywords: ['settings', 'config homes', 'sources', 'usage', 'accounts', 'model providers', 'preferences'],
     icon: <GearIcon size={13} />
   }
 ]

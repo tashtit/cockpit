@@ -13,6 +13,7 @@ import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { branchHint } from './task-names'
 
 export type AccountChoice = {
   readonly configDir?: string
@@ -424,6 +425,23 @@ export function NewSession({
           <h2>New session</h2>
         </div>
 
+        {/* the task first, like Home's composer: what you want done is the reason the
+            form is open — where it runs and who runs it are its settings */}
+        <label className="ns-label" htmlFor="ns-prompt">Task</label>
+        <AttachRow atts={atts} />
+        <textarea
+          id="ns-prompt"
+          ref={promptRef}
+          rows={5}
+          placeholder="What should the agent do?"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onPaste={atts.onPaste}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
+          }}
+        />
+
         <label className="ns-label" htmlFor="ns-repo">Project</label>
         <Select
           id="ns-repo"
@@ -490,7 +508,8 @@ export function NewSession({
           <span className="ns-branch-prefix">cockpit/</span>
           <input
             id="ns-branch"
-            placeholder="auto-generated"
+            // the name the task will actually produce, not a promise that one exists
+            placeholder={branchHint(prompt) ?? 'auto-generated'}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -498,21 +517,6 @@ export function NewSession({
         <div className="ns-hint">
           Runs in an isolated git worktree on its own branch — ship it as a PR when done.
         </div>
-
-        <label className="ns-label" htmlFor="ns-prompt">Task</label>
-        <AttachRow atts={atts} />
-        <textarea
-          id="ns-prompt"
-          ref={promptRef}
-          rows={5}
-          placeholder="What should the agent do?"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onPaste={atts.onPaste}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
-          }}
-        />
 
         {error && <div className="new-error" role="alert">{error}</div>}
 

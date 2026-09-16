@@ -222,7 +222,7 @@ test('settings lists the seeded source with its session count', async () => {
   await expect(source).toContainText('e2e-claude')
   // all three fixture sessions counted for this source
   await expect(source.locator('.repo-count')).toHaveText('3')
-  await expect(source.getByRole('button', { name: /^Remove source e2e-claude/ })).toBeVisible()
+  await expect(source.getByRole('button', { name: /^Remove config home e2e-claude/ })).toBeVisible()
   // display preferences are present with live controls
   await expect(win.getByRole('button', { name: 'Show sessions from' })).toBeVisible()
   await expect(win.getByRole('button', { name: 'Time format' })).toBeVisible()

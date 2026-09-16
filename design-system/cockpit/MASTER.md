@@ -139,6 +139,10 @@ Nothing renders with stock Chromium chrome:
 - Checkboxes/radios use `accent-color: var(--accent)`; text inputs get `caret-color: var(--accent)`; placeholders are `--fg-dim`.
 - Every `<summary>` draws its own ▸ indicator (UA markers are globally suppressed) — a new `<details>` must add one, or it will look inert.
 
+## Vocabulary
+
+- **One name per thing.** A directory an agent CLI keeps its sessions and sign-in in is a **config home** — in buttons, hints, empty states, aria labels, backups and the docs. ("Source" is the code's word, `SourceDir`, and stays in code.) A second word for the same object in the UI makes people wonder whether it is a second object.
+
 ## Interaction Rules
 
 - Focus: global `:focus-visible` 2px accent outline at `outline-offset: -1px`; **filled buttons** (`.btn-primary`, `.btn-pr`, `.btn-danger`) flip to `+2px` — inset, the accent ring sits on the button's own fill at 1.7–1.9:1 and fails 1.4.11. Inputs get accent border + 3px glow ring. Never remove.

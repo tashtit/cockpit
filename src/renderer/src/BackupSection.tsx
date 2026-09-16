@@ -106,7 +106,7 @@ export function BackupSection({
   return (
     <>
       <p className="ns-hint">
-        A backup holds your sources, shared instructions, library and its skills, model providers
+        A backup holds your config homes, shared instructions, library and its skills, model providers
         and view settings — never session transcripts, which stay where each agent keeps them.
         Without a passphrase, API keys and MCP credentials are left out and what is missing is
         listed after a restore; MCP commands, arguments and URLs are written as they are. With one,
@@ -248,7 +248,7 @@ function restoreLine(s: RestoreSummary): string {
     s.added.entries > 0 ? `${s.added.entries} library entries` : '',
     s.added.skills > 0 ? `${s.added.skills} skills` : '',
     s.added.endpoints > 0 ? `${s.added.endpoints} providers` : '',
-    s.added.sources > 0 ? `${s.added.sources} sources` : '',
+    s.added.sources > 0 ? `${s.added.sources} config homes` : '',
     s.added.instructions > 0 ? `${s.added.instructions} instruction baselines` : ''
   ].filter(Boolean)
   return parts.length === 0
