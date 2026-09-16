@@ -198,6 +198,17 @@ export function freshApi(): CockpitApi {
     getModelEndpoints: vi.fn(async () => []),
     addModelEndpoint: vi.fn(async () => []),
     removeModelEndpoint: vi.fn(async () => []),
+    setEndpointKey: vi.fn(async () => []),
+    exportBackup: vi.fn(async () => null),
+    openBackup: vi.fn(async () => null),
+    restoreBackup: vi.fn(async () => ({
+      added: { entries: 0, skills: 0, endpoints: 0, sources: 0, instructions: 0 },
+      kept: [],
+      skipped: [],
+      needsValues: [],
+      undoId: null
+    })),
+    undoRestore: vi.fn(async () => {}),
     listEndpointModels: vi.fn(async () => []),
     listRoundtables: vi.fn(async () => []),
     getRoundtable: vi.fn(async () => emptyRoundtable()),

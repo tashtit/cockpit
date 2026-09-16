@@ -149,14 +149,21 @@ function savedOf(entry: LibraryEntry, repoRoot: string | null, inv: ExtensionsIn
   switch (entry.kind) {
     case 'mcp':
       return {
-        detail: entry.config ? mcpSummary(entry.config) : 'no definition yet',
+        detail: entry.withheld?.length
+          ? `needs values: ${entry.withheld.join(', ')}`
+          : entry.config
+            ? mcpSummary(entry.config)
+            : 'no definition yet',
         fields: mcpFields(entry.config ?? {})
       }
     case 'skill':
       // nothing to compare against — the agents' copies are compared with each other —
-      // but the row still needs to say what the skill *is*
+      // but the row still needs to say what the skill *is*. A restored skill no agent
+      // has yet is only in Cockpit's own copy, so read the description from there.
       return {
-        detail: inv.skills.find((sk) => sk.name === entry.name)?.description ?? '',
+        detail:
+          inv.skills.find((sk) => sk.name === entry.name)?.description ||
+          readSkillFingerprint(libSkillDir(entry.name, repoRoot)).description,
         fields: {}
       }
     case 'plugin':
@@ -265,7 +272,19 @@ function ensureScope(repoRoot: string | null): {
 function refreshSaved(entry: LibraryEntry, inv: ExtensionsInventory): LibraryEntry {
   if (entry.kind !== 'mcp') return entry
   const config = inv.mcp.find((srv) => srv.name === entry.name)?.presences[0]?.config
-  return config ? { ...entry, config } : entry
+  // an agent's own definition carries the values a passphrase-less restore left
+  // out, so adopting it is exactly what clears the "needs values" state
+  return config ? withoutWithheld({ ...entry, config }) : entry
+}
+
+/**
+ * Drop the marker rather than blank it: `ensureScope` compares entries with
+ * JSON.stringify, and a lingering `withheld: []` would rewrite the config forever.
+ */
+function withoutWithheld(entry: LibraryEntry): LibraryEntry {
+  if (entry.withheld === undefined) return entry
+  const { withheld, ...rest } = entry
+  return rest
 }
 
 export function getPanel(repoRoot: string | null): PanelReport {
@@ -334,6 +353,13 @@ async function writeSwitch(
   switch (entry.kind) {
     case 'mcp': {
       if (!entry.config) throw new Error(`no definition recorded for "${entry.name}"`)
+      // a restore without a passphrase brought the definition but not its secrets;
+      // writing it would hand the agent a server with blank credentials
+      if (on && entry.withheld && entry.withheld.length > 0) {
+        throw new Error(
+          `"${entry.name}" was restored without ${entry.withheld.join(', ')} — set it up in an agent first, or restore from a backup with a passphrase`
+        )
+      }
       // entry.config is kept refreshed from the agents on every read, so writing it
       // spreads what your agents actually run rather than something Cockpit invented
       if (repoRoot !== null) {
@@ -449,7 +475,7 @@ function takeFrom(
         .find((srv) => srv.name === entry.name)
         ?.presences.find((p) => p.agent === agent)?.config
       if (!config) throw new Error(`${agent} has no "${entry.name}" to copy`)
-      return { ...entry, config }
+      return withoutWithheld({ ...entry, config })
     }
     case 'skill': {
       const found = inv.skills.find((sk) => sk.name === entry.name && sk.agent === agent)
@@ -494,6 +520,41 @@ export async function removePanelEntry(target: PanelTarget): Promise<PanelReport
   if (failed.length > 0) throw new Error(`couldn't remove it everywhere — ${failed.join(' · ')}`)
   saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, removed: true }))
   return getPanel(target.repoRoot)
+}
+
+/* ---------- what a backup needs ---------- */
+
+/**
+ * Adopt whatever the agents already have in a scope, without building a report.
+ * Restore calls this first: merging against a library that was never opened would
+ * "add" entries this machine already runs, and then override them with the
+ * backup's switches.
+ */
+export function adoptScope(repoRoot: string | null): void {
+  ensureScope(repoRoot)
+}
+
+/**
+ * Where to read a skill's content for a backup: an agent's live copy first, since
+ * Cockpit's own is only refreshed when a switch goes off, and is otherwise as old
+ * as the last time this skill was taken out of an agent.
+ */
+export function skillSource(name: string, repoRoot: string | null): string | null {
+  const inv = scopedInventory(repoRoot)
+  const found = inv.skills.find((sk) => sk.name === name)
+  if (found) return found.path
+  const kept = libSkillDir(name, repoRoot)
+  return existsSync(kept) ? kept : null
+}
+
+/** True when this machine can already write that skill — restore then leaves it alone. */
+export function hasSkillCopy(name: string, repoRoot: string | null): boolean {
+  return skillSource(name, repoRoot) !== null
+}
+
+/** Cockpit's own copy of a restored skill; a switch writes it into the agents from here. */
+export function skillCopyDir(name: string, repoRoot: string | null): string {
+  return libSkillDir(name, repoRoot)
 }
 
 /** Put a removed entry back on the agents it was on when it went. */

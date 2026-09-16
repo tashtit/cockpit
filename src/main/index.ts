@@ -8,6 +8,7 @@ import type {
   PermissionMode,
   Provider,
   PanelKind,
+  SourceDir,
   PanelTarget,
   SessionQuery,
   TimeFormat
@@ -32,6 +33,7 @@ import {
   removeModelEndpoint,
   saveConfig,
   sessionEndpointFor,
+  updateModelEndpoint,
   sessionLineageFor,
   setHistoryDays,
   setRepoHidden,
@@ -67,6 +69,16 @@ import {
 import { getAccounts, setCopilotActiveUser } from './accounts'
 import { branchFromHead, centeredIn, parseGitdirPointer, readDevWindowPrefs } from './dev-window'
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
+import {
+  previewOf,
+  readBackup,
+  restoreBackup,
+  undoRestore,
+  writeBackup,
+  type KeyStore
+} from './backup'
+import type { Bundle } from './backup-core'
+import { resolveRepo } from './repos'
 import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
 import { getProfile } from './profile'
@@ -504,10 +516,115 @@ app.whenReady().then(() => {
     deleteEndpointKey(String(id))
     return removeModelEndpoint(String(id))
   })
+  ipcMain.handle('endpoints:set-key', (_e, id: string, apiKey: string) => {
+    const ep = listModelEndpoints().find((e) => e.id === String(id))
+    if (!ep) throw new Error('Unknown model provider.')
+    const key = String(apiKey).trim()
+    if (!key || key.length > 4096 || /[\r\n\0]/.test(key)) throw new Error('Invalid API key value.')
+    setEndpointKey(ep.id, key) // throws before anything is saved if the keychain is unavailable
+    updateModelEndpoint({ ...ep, hasKey: true })
+    return listModelEndpoints()
+  })
   ipcMain.handle('endpoints:models', (_e, id: string) => {
     const ep = listModelEndpoints().find((e) => e.id === String(id))
     if (!ep) throw new Error('Unknown model provider.')
     return fetchEndpointModels(ep, ep.hasKey ? getEndpointKey(ep.id) : undefined)
+  })
+
+  /* backup: a file the user keeps, restorable here or on another Mac */
+
+  const keyStore: KeyStore = {
+    get: (id) => getEndpointKey(id),
+    set: (id, key) => setEndpointKey(id, key),
+    remove: (id) => deleteEndpointKey(id)
+  }
+  /** The indexer's own repo key is the portable one — `gh:owner/repo`, else the root. */
+  const refFor = (repoRoot: string): string => {
+    const fullName = resolveRepo(repoRoot)?.repo.fullName
+    return fullName ? `gh:${fullName.toLowerCase()}` : repoRoot
+  }
+  /**
+   * Every repo the index has ever seen, not just the ones the history window shows:
+   * a machine set up from a backup has old sessions, and a repo hidden behind the
+   * window would otherwise look like it isn't here at all.
+   */
+  const knownRepos = (): ReadonlyMap<string, string> => {
+    const map = new Map<string, string>()
+    for (const s of indexer.allSessions()) {
+      if (s.repo?.root && !map.has(s.repo.key)) map.set(s.repo.key, s.repo.root)
+    }
+    return map
+  }
+  const restoreDeps = {
+    keys: keyStore,
+    knownRepos,
+    syncSources: (sources: readonly SourceDir[]) => indexer.setSources([...sources])
+  }
+  /** A restored config only reaches the tree once the indexer is told about it. */
+  const republishConfig = (): void => {
+    const cfg = loadConfig()
+    indexer.setArchived(cfg.archived ?? [])
+    indexer.setHiddenRepos(cfg.hiddenRepos ?? [])
+    indexer.setHistoryDays(cfg.historyDays ?? 0)
+    indexer.setLineage(cfg.continuedFrom ?? {})
+    void indexer.setSources(cfg.sources)
+    sendToWin('index-updated')
+  }
+  /** Parsed files waiting for a confirmed restore — one slot, and it goes stale. */
+  const pendingBackups = new Map<string, { bundle: Bundle; at: number }>()
+  const BACKUP_TOKEN_TTL_MS = 10 * 60 * 1000
+  const takePending = (token: string): Bundle => {
+    const found = pendingBackups.get(String(token))
+    if (!found || Date.now() - found.at > BACKUP_TOKEN_TTL_MS) {
+      pendingBackups.delete(String(token))
+      throw new Error('that backup is no longer open — choose the file again')
+    }
+    return found.bundle
+  }
+
+  ipcMain.handle('backup:export', async (_e, passphrase?: string) => {
+    // main-process dialog: the renderer never supplies a path, it receives one
+    const res = await dialog.showSaveDialog(win!, {
+      title: 'Export Cockpit backup',
+      defaultPath: join(app.getPath('downloads'), `cockpit-backup-${new Date().toISOString().slice(0, 10)}.json`),
+      filters: [{ name: 'Cockpit backup', extensions: ['json'] }]
+    })
+    if (res.canceled || !res.filePath) return null
+    return writeBackup(res.filePath, {
+      keys: keyStore,
+      refFor,
+      appVersion: app.getVersion()
+    }, passphrase === undefined ? undefined : String(passphrase))
+  })
+  ipcMain.handle('backup:open', async () => {
+    const res = await dialog.showOpenDialog(win!, {
+      title: 'Restore from a Cockpit backup',
+      defaultPath: app.getPath('downloads'),
+      filters: [{ name: 'Cockpit backup', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    const bundle = readBackup(res.filePaths[0])
+    const token = randomUUID()
+    pendingBackups.clear()
+    pendingBackups.set(token, { bundle, at: Date.now() })
+    return previewOf(bundle, token, knownRepos())
+  })
+  ipcMain.handle('backup:restore', async (_e, token: string, passphrase?: string) => {
+    const bundle = takePending(token)
+    const summary = await restoreBackup(
+      bundle,
+      restoreDeps,
+      passphrase === undefined ? undefined : String(passphrase)
+    )
+    // a wrong passphrase throws before this line, so the file stays open to retry
+    pendingBackups.delete(String(token))
+    republishConfig()
+    return summary
+  })
+  ipcMain.handle('backup:undo-restore', (_e, undoId: string) => {
+    undoRestore(String(undoId), keyStore)
+    republishConfig()
   })
 
   // BYOK turns in flight: when the stream reveals the native session id, remember which

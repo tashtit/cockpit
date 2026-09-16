@@ -99,8 +99,18 @@ export function capText(s: string, max = 20_000): string {
   return kept + `\n… (${s.length - kept.length} more chars)`
 }
 
-/** Recursively list files under dir (depth-limited), tolerant of missing dirs. */
-export function walkFiles(dir: string, maxDepth = 6): string[] {
+/**
+ * Recursively list files under dir (depth-limited), tolerant of missing dirs.
+ * Symlinks are never followed — `isFile()` is false for them, which is what keeps
+ * a link inside a walked directory from pulling in whatever it points at.
+ * `skip` names directories to leave out entirely (`.git`, `node_modules`).
+ */
+export function walkFiles(
+  dir: string,
+  maxDepth = 6,
+  opts: { readonly skip?: readonly string[] } = {}
+): string[] {
+  const skip = new Set(opts.skip ?? [])
   const out: string[] = []
   const stack: Array<{ d: string; depth: number }> = [{ d: dir, depth: 0 }]
   while (stack.length) {
@@ -112,6 +122,7 @@ export function walkFiles(dir: string, maxDepth = 6): string[] {
       continue
     }
     for (const e of entries) {
+      if (skip.has(e.name)) continue
       const p = join(d, e.name)
       if (e.isDirectory() && depth < maxDepth) stack.push({ d: p, depth: depth + 1 })
       else if (e.isFile()) out.push(p)
