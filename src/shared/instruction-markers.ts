@@ -2,14 +2,26 @@
  * The managed-block markers, shared by the main process (which writes them) and the
  * renderer (which draws them as rails in the pre-apply review). One definition, so
  * the review can never show a marker the writer doesn't use.
+ *
+ * The pair Cockpit writes is the one the `agent-parity` plugin (the org's shared
+ * agent toolkit) calls canonical: both manage the same files, and one block under
+ * one name is the only way they can share a file rather than fight over it. The
+ * pair Cockpit wrote before that is read as the same block and renamed on the next
+ * apply — the plugin reads both too, so a file is never wrong for either.
  */
-export const START = '<!-- cockpit:shared:start -->'
-export const END = '<!-- cockpit:shared:end -->'
+export const START = '<!-- agent-parity:shared:start -->'
+export const END = '<!-- agent-parity:shared:end -->'
+export const LEGACY_START = '<!-- cockpit:shared:start -->'
+export const LEGACY_END = '<!-- cockpit:shared:end -->'
+
+/** Every spelling that opens or closes a block — canonical first. */
+export const START_MARKERS: readonly string[] = [START, LEGACY_START]
+export const END_MARKERS: readonly string[] = [END, LEGACY_END]
 
 /** A line that is nothing but a marker — blanks around it and a CR are tolerated. */
 function isMarkerLine(line: string): boolean {
   const t = line.trim()
-  return t === START || t === END
+  return START_MARKERS.includes(t) || END_MARKERS.includes(t)
 }
 
 /**

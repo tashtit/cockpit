@@ -12,6 +12,7 @@ const file = (over: Partial<InstructionFile>): InstructionFile => ({
   content: '',
   block: BASE,
   own: { above: 0, below: 0 },
+  duplicates: 0,
   status: 'synced',
   ...over
 })
@@ -43,6 +44,14 @@ describe('fileChange', () => {
     const c = fileChange(file({ exists: false, block: null, content: '' }), BASE)
     expect(c.status).toBe('missing')
     expect(c.lines.every((l) => l.op === 'add')).toBe(true)
+  })
+
+  // a file holding the block twice (one copy per marker spelling) is written even
+  // when the first copy already says the text: the apply folds them into one
+  it('a second copy of the block is a write with no lines to show', () => {
+    const c = fileChange(file({ duplicates: 1 }), BASE)
+    expect(c.status).toBe('drifted')
+    expect(c.added + c.removed).toBe(0)
   })
 
   // the status the indexer stored is against the *saved* baseline; the review

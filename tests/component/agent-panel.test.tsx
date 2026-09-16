@@ -319,6 +319,7 @@ describe('Agents › the instructions row', () => {
         content: '',
         block: BASE,
         own: { above: 2, below: 0 },
+        duplicates: 0,
         status: 'synced'
       },
       {
@@ -328,6 +329,7 @@ describe('Agents › the instructions row', () => {
         content: '',
         block: '# Rules\n\nUse branches.',
         own: { above: 0, below: 0 },
+        duplicates: 0,
         status: 'drifted'
       },
       {
@@ -337,6 +339,7 @@ describe('Agents › the instructions row', () => {
         content: '',
         block: BASE,
         own: { above: 0, below: 0 },
+        duplicates: 0,
         status: 'synced'
       }
     ]

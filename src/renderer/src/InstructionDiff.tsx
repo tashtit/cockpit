@@ -122,6 +122,7 @@ export function InstructionDiff({
           <div className="idiff-rail">{START}</div>
           <Lines lines={change.lines} layout={layout} />
           <div className="idiff-rail">{END}</div>
+          {file.duplicates > 0 && <Dropped n={file.duplicates} />}
           {file.own.below > 0 && <Band n={file.own.below} />}
         </div>
       )}
@@ -134,6 +135,23 @@ function Band({ n }: { n: number }): JSX.Element {
     <div className="idiff-band">
       <span aria-hidden="true">⋯</span>
       {bandText(n)}
+    </div>
+  )
+}
+
+/**
+ * The file carries the block again further down — the other spelling of the
+ * markers, usually, each tool having written its own — and the apply folds that
+ * copy into the one above. Said in the band's voice: it is a fact about the write,
+ * not a line of the diff.
+ */
+function Dropped({ n }: { n: number }): JSX.Element {
+  return (
+    <div className="idiff-band">
+      <span aria-hidden="true">⋯</span>
+      {n === 1
+        ? 'a second copy of the block is dropped'
+        : `${n} further copies of the block are dropped`}
     </div>
   )
 }

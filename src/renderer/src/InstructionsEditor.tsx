@@ -169,8 +169,10 @@ export function InstructionsEditor({
     <>
       <p className="ns-hint">
         One shared baseline, written into each agent&apos;s own instructions file inside{' '}
-        <code>&lt;!-- cockpit:shared --&gt;</code> markers. Anything outside the markers belongs to
-        that agent alone and is never touched.
+        <code>&lt;!-- agent-parity:shared --&gt;</code> markers — the same block the agent-parity
+        plugin manages. Anything outside the markers belongs to that agent alone and is never
+        touched. Older <code>&lt;!-- cockpit:shared --&gt;</code> markers are read as the same
+        block and renamed on the next apply.
       </p>
 
       {!inst && <div className="tree-empty">loading…</div>}

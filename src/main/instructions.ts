@@ -85,6 +85,7 @@ export function getInstructions(repoRoot: string | null): InstructionsState {
       content: raw ?? '',
       block: split.block,
       own: { above: lineCount(split.above), below: lineCount(split.below) },
+      duplicates: split.duplicates,
       status: fileStatus(raw, baseline)
     }
   })
