@@ -9,6 +9,15 @@ images as `initialImages`) or the sidebar repo-row "+".
 
 ## Form grammar
 
+- **Task first.** The field order is Task · Project · Agent · account/model/permissions ·
+  Branch · actions — the same priority as Home's composer, where the task is the card and
+  the rest is a strip underneath. What you want done is the reason the form is open; where
+  it runs and who runs it are its settings. Focus lands in Task on mount.
+- The Branch input's placeholder previews the name the task will produce
+  (`branchHint(prompt)` → `add-changelog-entry-retry-fix`), falling back to
+  "auto-generated" while the task is empty — the field shows what will happen, not a
+  promise that something will.
+
 - `.ns-label` uppercase micro-labels set the rhythm: far from the previous group
   (`margin-top: --s4`), close to their own field. Inside `.ns-opt` the label sits flush.
 - Agent choice is the hero control: three `.ns-provider` cards (logo, name, one-line
@@ -30,6 +39,7 @@ images as `initialImages`) or the sidebar repo-row "+".
   anthropic-type) — the control disappearing silently reads as a bug.
 - Branch: `.ns-branch-row` shows the fixed prefix as dimmed mono with a mono input beside
   it — worktree branch naming is visible, not hidden (product rule: always worktrees + PRs).
+  Left empty, the task's words name it (see above).
 - Hints are `.ns-hint`; the YOLO warning uses `.ns-hint.yolo` (danger color). Permission
   mode labels/hints come from the shared `MODES` table — identical wording in ChatView.
 - Errors: `.new-error` inline under the actions. Actions right-align: ghost Cancel,
