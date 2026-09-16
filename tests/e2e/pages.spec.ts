@@ -417,6 +417,9 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
   expect(await audit()).toEqual([])
+  // fitting is not the same as usable: beside the scope switch the search box once
+  // squeezed to a 16px sliver without overflowing anything
+  expect((await win.getByPlaceholder('Search…').boundingBox())?.width ?? 0).toBeGreaterThan(200)
 
   // settings' rows carry an identity chip, a path, a count and an action, and its
   // usage windows fixed-width meters — both outgrew the card here once, unaudited
@@ -436,6 +439,9 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   // the changes-requested mark) beside the review key and the mode picker
   await expect(win.locator('.chat-header .pr-badge')).toBeVisible()
   expect(await audit()).toEqual([])
+  // the composer's textarea keeps a readable width rather than sharing its row with
+  // the controls (it was ~180px, its placeholder wrapped to five lines)
+  expect((await win.getByLabel('Message Claude').boundingBox())?.width ?? 0).toBeGreaterThan(260)
   // and the review, whose PR strip and diff controls wrap into the same width
   await win.getByRole('button', { name: 'Changes', exact: true }).click()
   await expect(win.getByRole('region', { name: 'Changes to review' })).toBeVisible()
