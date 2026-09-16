@@ -416,6 +416,14 @@ describe('planRestore', () => {
     expect(plan.config.continuedFrom).toEqual({ s1: 'mine', s2: 'theirs' })
   })
 
+  it('adopts the backup’s project order only when there is none locally', () => {
+    const theirs = bundle({ settings: { hiddenRepos: [], repoOrder: ['gh:o/b', 'gh:o/a'], sources: [] } })
+    expect(planRestore(local, theirs, ctx()).config.repoOrder).toEqual(['gh:o/b', 'gh:o/a'])
+    expect(
+      planRestore({ ...local, repoOrder: ['gh:o/a'] }, theirs, ctx()).config.repoOrder
+    ).toEqual(['gh:o/a'])
+  })
+
   it('rewrites source paths from the backup’s home, and skips ones that are not here', () => {
     const plan = planRestore(
       local,

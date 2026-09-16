@@ -4,7 +4,10 @@
 
 **Pattern:** GitHub-first navigation tree, flattened: one **`owner/repo` row per
 repository** (dimmed owner prefix, no separate org header level) with its sessions
-directly under it, ordered by last activity. Sessions with no repo don't get a faux
+directly under it, ordered by last activity. The repo rows themselves **never move on
+activity** — a busy repo jumping to the top shifts every row under the cursor: they sort
+A→Z by `owner/repo` (`src/shared/repo-order.ts`) or in the order the user dragged them
+into. Sessions with no repo don't get a faux
 repo nesting — they live in a flat **Chats** section pinned last: a section-style
 header with the sessions directly under it. The sidebar is the exhaustive session list
 (Home shows only a taste).
@@ -59,6 +62,13 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     (comment icon, per-provider logos, session count as plain text) whose
     `.repo-children` are the sessions themselves: no repo row in between, same
     pagination and archived toggle as a repo.
+- Project order: a `.repo-row` is `draggable`; the whole `.repo-node` is the drop target
+  (its upper 15px or half = before, the rest = after), marked by a 2px accent hairline
+  (`.drop-before`/`.drop-after`) while the dragged node dims. ⌥↑/⌥↓ on a focused repo row
+  is the keyboard equivalent and is announced in an `sr-only` status. A drop saves every
+  project's key (`setRepoOrder`, config `repoOrder`); projects indexed later follow A→Z.
+  The eye popover's header carries a quiet `sort A→Z` button only while the order differs
+  from A→Z — it clears the saved order.
 - Hover/focus-within actions (`+` new session, archive) float in `.row-actions` over the
   row's right edge — nothing reflows.
 - `.sidebar-footer`: two quiet bar controls, 26px each, never taller. `.footer-usage`

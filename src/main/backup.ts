@@ -202,6 +202,7 @@ export function buildBundle(
       ...(cfg.staleDays !== undefined ? { staleDays: cfg.staleDays } : {}),
       ...(cfg.timeFormat !== undefined ? { timeFormat: cfg.timeFormat } : {}),
       hiddenRepos: cfg.hiddenRepos ?? [],
+      ...(cfg.repoOrder?.length ? { repoOrder: cfg.repoOrder } : {}),
       sources: cfg.sources
     },
     scopes: split.scopes,

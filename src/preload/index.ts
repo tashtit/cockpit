@@ -78,6 +78,7 @@ const api: CockpitApi = {
     ipcRenderer.invoke('sessions:archive', sessionId, archived),
   setRepoHidden: (repoKey: string, hidden: boolean) =>
     ipcRenderer.invoke('repos:set-hidden', repoKey, hidden),
+  setRepoOrder: (repoKeys: readonly string[]) => ipcRenderer.invoke('repos:set-order', [...repoKeys]),
   getHistoryDays: () => ipcRenderer.invoke('history:get'),
   setHistoryDays: (days: number) => ipcRenderer.invoke('history:set', days),
   getTimeFormat: () => ipcRenderer.invoke('time-format:get'),

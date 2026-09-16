@@ -74,6 +74,8 @@ export type Bundle = {
     readonly staleDays?: number
     readonly timeFormat?: TimeFormat
     readonly hiddenRepos: readonly string[]
+    /** the sidebar's dragged project order; absent in files written before it existed */
+    readonly repoOrder?: readonly string[]
     readonly sources: readonly SourceDir[]
   }
   readonly scopes: readonly ScopeRecord[]
@@ -348,6 +350,7 @@ export function sanitizeBundle(input: unknown): Bundle {
         ? { timeFormat: settings['timeFormat'] as TimeFormat }
         : {}),
       hiddenRepos: strList(settings['hiddenRepos'], 2000),
+      ...(Array.isArray(settings['repoOrder']) ? { repoOrder: strList(settings['repoOrder'], 2000) } : {}),
       sources: (Array.isArray(settings['sources']) ? settings['sources'] : [])
         .slice(0, 100)
         .flatMap((s) => {
@@ -537,6 +540,10 @@ export function planRestore(local: AppConfig, bundle: Bundle, ctx: RestoreContex
     ...cfg,
     sources,
     hiddenRepos: [...new Set([...(cfg.hiddenRepos ?? []), ...bundle.settings.hiddenRepos])],
+    // an order is one arrangement, not a set — a local one is kept, a missing one adopted
+    ...((cfg.repoOrder ?? []).length === 0 && (bundle.settings.repoOrder ?? []).length > 0
+      ? { repoOrder: [...(bundle.settings.repoOrder ?? [])] }
+      : {}),
     ...(bundle.settings.historyDays !== undefined ? { historyDays: bundle.settings.historyDays } : {}),
     ...(bundle.settings.staleDays !== undefined ? { staleDays: bundle.settings.staleDays } : {}),
     ...(bundle.settings.timeFormat !== undefined ? { timeFormat: bundle.settings.timeFormat } : {})
