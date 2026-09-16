@@ -172,6 +172,10 @@ threads have no line and live in the strip's list only.
 - Textarea: Enter sends, Shift+Enter newlines (stated in the placeholder),
   `field-sizing: content` between 2.4lh and 12lh. Focus lands here whenever a session
   opens or starts.
+- **≤700px the composer stacks**: the textarea takes the whole row and the controls (mode
+  select, Send/Stop — or One more round and Send at a roundtable) follow on their own line,
+  right-aligned. Beside them a ~360px pane left the textarea ~180px wide and its
+  placeholder wrapping to five lines.
 - The permission mode `Select` sits between the textarea and the action button — it
   governs the *next* turn, so it lives beside the button that sends it (Home's composer
   bar grammar). Persists to `cockpit:mode`; hints in `title`, labels one word. A
