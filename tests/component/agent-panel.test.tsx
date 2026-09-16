@@ -375,4 +375,23 @@ describe('Agents › the instructions row', () => {
     expect(window.cockpit.getPanel).toHaveBeenCalledTimes(2)
     expect(await within(codex).findByText('no changes')).toBeInTheDocument()
   })
+
+  // in its own section the editor already is the row, opened: repeating the row under
+  // it echoed the same files, the same drift and a second diff
+  it('keeps only the agent switches in the Instructions section, not a second row', async () => {
+    const panel = buildReport(null, [instructionRow(inst, entry)])
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(panel)
+    vi.mocked(window.cockpit.setPanelSwitch).mockResolvedValue(panel)
+    vi.mocked(window.cockpit.getInstructions).mockResolvedValue(inst)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('tab', { name: /^Instructions/ }))
+
+    expect(await screen.findByText('Kept in sync for')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Shared baseline/ })).not.toBeInTheDocument()
+    const codex = screen.getByRole('switch', { name: 'Shared baseline in Codex' })
+    expect(codex).toHaveAttribute('aria-checked', 'true')
+    // the switch still does what the row's did
+    await userEvent.click(codex)
+    expect(window.cockpit.setPanelSwitch).toHaveBeenCalled()
+  })
 })

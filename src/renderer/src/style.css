@@ -1470,6 +1470,12 @@ summary::-webkit-details-marker { display: none; }
 /* the agent chip: the app's identity colours doing the labelling, so the control
    names itself and the row needs no header above it */
 .pnl-chips { display: flex; align-items: center; gap: var(--s1); flex-shrink: 0; }
+/* the Instructions section's one line of switches: whose file takes part in the
+   baseline. The editor above is the row itself, opened — so no title, flag or diff */
+.pnl-sync { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) 0; }
+.pnl-sync-label { font-size: var(--fs-sm); color: var(--fg-dim); }
+.pnl-sync .pnl-chips { flex-wrap: wrap; }
 .ag-chip { display: inline-flex; align-items: center; gap: var(--s2); min-height: 24px;
   padding: 0 var(--s3); border-radius: var(--radius-pill); border: 1px solid var(--border);
   background: var(--bg-deep); color: var(--fg-dim); font-size: var(--fs-xs);

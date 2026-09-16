@@ -134,6 +134,11 @@ that section holds a disagreement.
 - **The panel's instructions row** opens to the same blocks (`.idiff-list`, framed)
   against the *saved* baseline, each non-synced file with its own ghost-small apply
   button — the field table the other kinds get would only list file paths here.
+- **In its own section the row is not repeated.** The editor above already is that row,
+  opened — same files, same drift, same diffs — so the Instructions section keeps only
+  what the editor lacks: one `.pnl-sync` line, "Kept in sync for" and the row's
+  `AgentSwitches` (whose file takes part in the baseline). The full row still appears in
+  Needs you and in search results, where it has no editor beside it.
 - **File rows** reuse `.ext-row`: agent logo(s) left, `~`-abbreviated mono path
   (`user-select: text`), then an `.inst-status` pill:
   - `in sync` (ok green) — managed block matches baseline; no action button.

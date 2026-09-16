@@ -273,7 +273,21 @@ export function AgentPanel({
         <div className="tree-empty">nothing here matches “{query.trim()}”</div>
       )}
 
-      {rows.length > 0 && (
+      {/* in its own section the instructions row would echo the editor above it: same
+          files, same drift, a second diff. What the editor lacks is only the switches —
+          whose file takes part in the baseline — so that line is all that stays */}
+      {!q && current === 'instructions' &&
+        rows.map((row) => (
+          <div key={row.id} className="pnl-sync">
+            <span className="pnl-sync-label">Kept in sync for</span>
+            <AgentSwitches row={row} armed={armed} busy={busy} onFlip={flip} onArm={arm} />
+            {armed !== null && armed.startsWith(`${row.id}|`) && (
+              <em className="pnl-flag danger">click again to remove</em>
+            )}
+          </div>
+        ))}
+
+      {rows.length > 0 && !(!q && current === 'instructions') && (
         <div className="pnl-list">
           {rows.map((row) => (
             <Row
@@ -341,6 +355,67 @@ function Pill({
   )
 }
 
+/**
+ * The row's signature: one self-labelling switch per agent, in that agent's livery.
+ * Its own component because the Instructions section shows the switches without the
+ * row around them — the editor above already is that row, opened.
+ */
+function AgentSwitches({
+  row,
+  armed,
+  busy,
+  onFlip,
+  onArm
+}: {
+  row: PanelRow
+  armed: string | null
+  busy: string | null
+  onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
+  onArm: (key: string | null) => void
+}): JSX.Element {
+  return (
+    <span className="pnl-chips">
+      {PROVIDERS.map((p) => {
+        const cell = row.cells[p]
+        const key = cellKey(row, p)
+        if (cell.state === 'na') {
+          return (
+            <span key={p} className="ag-chip na" title={cell.reason}>
+              <ProviderLogo p={p} size={11} />
+              {PROVIDER_LABEL[p]}
+            </span>
+          )
+        }
+        const isArmed = armed === key
+        return (
+          <button
+            key={p}
+            role="switch"
+            aria-checked={cell.desired}
+            aria-label={`${row.name} in ${PROVIDER_LABEL[p]}`}
+            title={
+              isArmed
+                ? 'Click again to remove it from this agent'
+                : cell.detail || (cell.desired ? 'on' : 'off')
+            }
+            disabled={busy !== null}
+            className={`ag-chip ag-${p} ${cell.desired ? 'on' : 'off'} ${
+              isDrift(cell.state) ? 'drift' : ''
+            } ${isArmed ? 'armed' : ''} ${busy === key ? 'working' : ''}`}
+            onBlur={() => {
+              if (isArmed) onArm(null)
+            }}
+            onClick={() => onFlip(row, p, !cell.desired)}
+          >
+            <ProviderLogo p={p} size={11} />
+            {PROVIDER_LABEL[p]}
+          </button>
+        )
+      })}
+    </span>
+  )
+}
+
 function Row({
   row,
   repoRoot,
@@ -388,45 +463,7 @@ function Row({
             {row.saved.detail}
           </span>
         </button>
-        <span className="pnl-chips">
-          {PROVIDERS.map((p) => {
-            const cell = row.cells[p]
-            const key = cellKey(row, p)
-            if (cell.state === 'na') {
-              return (
-                <span key={p} className="ag-chip na" title={cell.reason}>
-                  <ProviderLogo p={p} size={11} />
-                  {PROVIDER_LABEL[p]}
-                </span>
-              )
-            }
-            const isArmed = armed === key
-            return (
-              <button
-                key={p}
-                role="switch"
-                aria-checked={cell.desired}
-                aria-label={`${row.name} in ${PROVIDER_LABEL[p]}`}
-                title={
-                  isArmed
-                    ? 'Click again to remove it from this agent'
-                    : cell.detail || (cell.desired ? 'on' : 'off')
-                }
-                disabled={busy !== null}
-                className={`ag-chip ag-${p} ${cell.desired ? 'on' : 'off'} ${
-                  isDrift(cell.state) ? 'drift' : ''
-                } ${isArmed ? 'armed' : ''} ${busy === key ? 'working' : ''}`}
-                onBlur={() => {
-                  if (isArmed) onArm(null)
-                }}
-                onClick={() => onFlip(row, p, !cell.desired)}
-              >
-                <ProviderLogo p={p} size={11} />
-                {PROVIDER_LABEL[p]}
-              </button>
-            )
-          })}
-        </span>
+        <AgentSwitches row={row} armed={armed} busy={busy} onFlip={onFlip} onArm={onArm} />
         <span className="pnl-state">
           {armedHere ? (
             <em className="pnl-flag danger">click again to remove</em>
