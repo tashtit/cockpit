@@ -34,6 +34,10 @@ function repo(): string {
   const dir = mkdtempSync(join(realpathSync(tmpdir()), 'cockpit-share-'))
   roots.push(dir)
   git(['init', '-q', '-b', 'main'], dir)
+  // commitShare commits through the app's own path, which uses whatever git
+  // identity the machine has — and a CI runner has none, so set it on the repo
+  git(['config', 'user.name', 'Test'], dir)
+  git(['config', 'user.email', 'test@example.com'], dir)
   writeFileSync(join(dir, 'README.md'), '# demo\n')
   git(['add', '-A'], dir)
   git(['commit', '-qm', 'initial'], dir)
