@@ -695,6 +695,33 @@ export class SessionIndexer {
     this.roundtableForCwd = fn
   }
 
+  /**
+   * What a transcript search may read: the sessions a plain (non-archived) page over
+   * the same scope would list, newest first, so a capped search keeps the most recent
+   * matches. The `sourcePath`s inside are the trust boundary — transcript-search.ts
+   * never takes a path from the renderer, only from here. Mirrors page()'s
+   * visibility rules: provider-archived, archived, roundtable seats and sessions past
+   * the history window stay out; hidden repos are skipped only on unscoped queries.
+   */
+  transcriptCandidates(scope: {
+    readonly repoKey?: string
+    readonly providers?: readonly Provider[]
+  }): SessionMeta[] {
+    const cutoff = this.historyCutoff()
+    const providers = scope.providers?.length ? new Set<Provider>(scope.providers) : null
+    const out: SessionMeta[] = []
+    for (const s of this.sessions.values()) {
+      if (this.providerArchived.has(s.id) || this.archived.has(s.id)) continue
+      if (s.updatedAt < cutoff) continue
+      if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
+      const key = s.repo?.key ?? 'general'
+      if (scope.repoKey ? key !== scope.repoKey : this.hiddenRepos.has(key)) continue
+      if (providers && !providers.has(s.provider)) continue
+      out.push(s)
+    }
+    return out.sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
   page(query: SessionQuery): SessionPage {
     const cutoff = this.historyCutoff()
     let all = [...this.sessions.values()]

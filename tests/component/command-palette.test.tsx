@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CommandPalette } from '../../src/renderer/src/CommandPalette'
-import type { RepoGroup, SessionMeta } from '../../src/shared/types'
+import type { RepoGroup, SessionMeta, TranscriptSearchResult } from '../../src/shared/types'
 
 const repo: RepoGroup = {
   key: '/home/dev/rocket',
@@ -38,6 +38,7 @@ function session(id: string, title: string, over: Partial<SessionMeta> = {}): Se
 function renderPalette(over: Partial<Parameters<typeof CommandPalette>[0]> = {}) {
   const props = {
     repos: [repo],
+    scopeRepo: null,
     onOpenSession: vi.fn(),
     onNewSession: vi.fn(),
     onRepoSetup: vi.fn(),
@@ -147,5 +148,157 @@ describe('CommandPalette', () => {
     unmount()
     expect(outside).toHaveFocus()
     outside.remove()
+  })
+
+  describe('in transcripts', () => {
+    const hit = (over: Partial<TranscriptSearchResult> = {}): TranscriptSearchResult => ({
+      query: 'flake',
+      hits: [
+        {
+          sessionId: 'claude:a',
+          role: 'assistant',
+          snippet: '…the login flake comes from a slow first DNS lookup…',
+          matchStart: 11,
+          matchEnd: 16,
+          timestamp: 1700000300000
+        }
+      ],
+      sessions: [session('a', 'fix the login flake')],
+      candidates: 12,
+      scanned: 12,
+      truncated: 0,
+      stoppedBy: 'complete',
+      elapsedMs: 40,
+      ...over
+    })
+
+    it('a query offers the transcript search under the session hits, scoped to the window\'s repo', async () => {
+      vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+      vi.mocked(window.cockpit.searchTranscripts).mockResolvedValue(hit())
+      const { onOpenSession, onClose } = renderPalette({ scopeRepo: repo })
+
+      const input = screen.getByRole('combobox')
+      await userEvent.type(input, 'flake')
+      const door = await screen.findByRole('option', {
+        name: 'Search transcripts for “flake” in acme/rocket'
+      })
+      // nothing was scanned just by typing — the door has to be picked
+      expect(window.cockpit.searchTranscripts).not.toHaveBeenCalled()
+      await userEvent.click(door)
+
+      await waitFor(() =>
+        expect(window.cockpit.searchTranscripts).toHaveBeenCalledWith({
+          text: 'flake',
+          repoKey: repo.key,
+          limit: 30
+        })
+      )
+      // the mode shows on the input row and the query survives the switch
+      expect(screen.getByRole('button', { name: /Searching transcripts/ })).toBeInTheDocument()
+      expect(input).toHaveValue('flake')
+      expect(input).toHaveFocus()
+      const row = await screen.findByRole('option', { name: /fix the login flake — agent:/ })
+      // the match is marked inside the snippet
+      expect(row.querySelector('mark')).toHaveTextContent('flake')
+      expect(screen.getByText(/1 hit in 1 session · searched 12 of 12 transcripts/)).toBeInTheDocument()
+      expect(onClose).not.toHaveBeenCalled()
+
+      await userEvent.click(row)
+      expect(onOpenSession).toHaveBeenCalledWith(hit().sessions[0])
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('Enter on the door row switches modes; the scope row widens to every repo', async () => {
+      vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+      vi.mocked(window.cockpit.searchTranscripts).mockResolvedValue(hit({ hits: [], sessions: [] }))
+      renderPalette({ scopeRepo: repo })
+
+      await userEvent.type(screen.getByRole('combobox'), 'flake')
+      await screen.findByRole('option', { name: /Search transcripts for/ })
+      // no session hits, so the door is the top row — Enter takes it
+      await userEvent.keyboard('{Enter}')
+      await waitFor(() =>
+        expect(window.cockpit.searchTranscripts).toHaveBeenLastCalledWith(
+          expect.objectContaining({ repoKey: repo.key })
+        )
+      )
+      await screen.findByText(/nothing in acme\/rocket transcripts mentions “flake” · try all repos/)
+
+      await userEvent.click(screen.getByRole('option', { name: 'Search all repos' }))
+      await waitFor(() =>
+        expect(window.cockpit.searchTranscripts).toHaveBeenLastCalledWith({
+          text: 'flake',
+          repoKey: undefined,
+          limit: 30
+        })
+      )
+      // and back again
+      expect(screen.getByRole('option', { name: 'Search only acme/rocket' })).toBeInTheDocument()
+    })
+
+    it('with no repo on screen the search is global and offers no scope row', async () => {
+      vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+      vi.mocked(window.cockpit.searchTranscripts).mockResolvedValue(hit())
+      renderPalette({ scopeRepo: null })
+
+      await userEvent.type(screen.getByRole('combobox'), 'flake')
+      await userEvent.click(
+        await screen.findByRole('option', { name: 'Search transcripts for “flake” in all repos' })
+      )
+      await waitFor(() =>
+        expect(window.cockpit.searchTranscripts).toHaveBeenCalledWith({
+          text: 'flake',
+          repoKey: undefined,
+          limit: 30
+        })
+      )
+      await screen.findByRole('option', { name: /fix the login flake — agent:/ })
+      expect(screen.queryByRole('option', { name: /Search all repos|Search only/ })).toBeNull()
+    })
+
+    it('says when a search stopped short, and reads on partial transcripts', async () => {
+      vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+      vi.mocked(window.cockpit.searchTranscripts).mockResolvedValue(
+        hit({ candidates: 2431, scanned: 1204, truncated: 3, stoppedBy: 'time' })
+      )
+      renderPalette({ scopeRepo: null })
+
+      await userEvent.type(screen.getByRole('combobox'), 'flake')
+      await userEvent.click(await screen.findByRole('option', { name: /Search transcripts for/ }))
+      await screen.findByText(
+        /searched 1204 of 2431 transcripts · ran out of time — narrow the query or the scope · 3 large transcripts read only in part/
+      )
+    })
+
+    it('Backspace on an empty query leaves transcripts mode and cancels the scan', async () => {
+      vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+      vi.mocked(window.cockpit.searchTranscripts).mockResolvedValue(hit())
+      renderPalette({ scopeRepo: repo })
+
+      const input = screen.getByRole('combobox')
+      await userEvent.type(input, 'flake')
+      await userEvent.click(await screen.findByRole('option', { name: /Search transcripts for/ }))
+      await screen.findByRole('option', { name: /fix the login flake — agent:/ })
+
+      await userEvent.clear(input)
+      await userEvent.keyboard('{Backspace}')
+      expect(screen.queryByRole('button', { name: /Searching transcripts/ })).toBeNull()
+      // the in-flight scan is told to stop when the mode is left
+      expect(window.cockpit.cancelTranscriptSearch).toHaveBeenCalled()
+      // jump mode again: recent sessions and the views
+      await screen.findByRole('option', { name: 'Settings' })
+      expect(input).toHaveFocus()
+    })
+
+    it('Escape still closes the whole palette from transcripts mode', async () => {
+      vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+      vi.mocked(window.cockpit.searchTranscripts).mockResolvedValue(hit())
+      const { onClose } = renderPalette({ scopeRepo: repo })
+
+      await userEvent.type(screen.getByRole('combobox'), 'flake')
+      await userEvent.click(await screen.findByRole('option', { name: /Search transcripts for/ }))
+      await userEvent.keyboard('{Escape}')
+      expect(onClose).toHaveBeenCalled()
+    })
   })
 })

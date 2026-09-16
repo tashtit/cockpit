@@ -15,10 +15,12 @@ import type {
   PanelTarget,
   SessionMeta,
   SessionQuery,
-  TimeFormat
+  TimeFormat,
+  TranscriptSearchQuery
 } from '../shared/types'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
+import { TranscriptSearcher } from './transcript-search'
 import { ChatManager } from './chat'
 import {
   getPanel,
@@ -103,6 +105,7 @@ if (!app.isPackaged && process.env['COCKPIT_USER_DATA']) {
 
 let win: BrowserWindow | null = null
 let indexer: SessionIndexer
+let transcripts: TranscriptSearcher
 let chat: ChatManager
 let roundtables: RoundtableManager | null = null
 let attention: AttentionDesk | null = null
@@ -396,6 +399,8 @@ app.whenReady().then(() => {
     },
     { cacheFile: join(app.getPath('userData'), 'index-cache.json') }
   )
+  // candidate files come only from the indexer — the renderer never names a path
+  transcripts = new TranscriptSearcher(indexer)
   indexer.setArchived(cfg.archived ?? [])
   indexer.setHiddenRepos(cfg.hiddenRepos ?? [])
   indexer.setHistoryDays(cfg.historyDays ?? 0)
@@ -440,6 +445,10 @@ app.whenReady().then(() => {
   ipcMain.handle('sessions:page', (_e, query: SessionQuery) => indexer.page(query))
   ipcMain.handle('sessions:get', (_e, id: string) => indexer.getSession(String(id)))
   ipcMain.handle('sessions:messages', (_e, id: string) => indexer.getMessages(id))
+  ipcMain.handle('transcripts:search', (_e, query: TranscriptSearchQuery) =>
+    transcripts.search(query)
+  )
+  ipcMain.handle('transcripts:cancel', () => transcripts.cancel())
   ipcMain.handle('handoff:briefing', (_e, id: string) => getHandoffBriefing(indexer, String(id)))
   ipcMain.handle('handoff:improve', (_e, id: string) => improveHandoffBriefing(indexer, String(id)))
   ipcMain.handle('sessions:archive', (_e, id: string, archived: boolean) => {

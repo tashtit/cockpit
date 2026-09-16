@@ -75,6 +75,7 @@ const STATIC: readonly Shot[] = [
   { view: 'home', name: 'home-tall', tall: 1500, go: home },
   { view: 'palette', name: 'palette-empty', go: async (w) => { await home(w); await w.keyboard.press('ControlOrMeta+k'); await pause(w, 500) } },
   { view: 'palette', name: 'palette-query', go: async (w) => { await home(w); await w.keyboard.press('ControlOrMeta+k'); await w.keyboard.type('rocket'); await pause(w, 700) } },
+  { view: 'palette', name: 'palette-transcripts', go: async (w) => { await home(w); await w.keyboard.press('ControlOrMeta+k'); await w.keyboard.type('spans'); await w.getByRole('option', { name: /Search transcripts for/ }).click(); await w.getByRole('option', { name: /agent:|you:/ }).first().waitFor(); await pause(w, 400) } },
   { view: 'sidebar', name: 'sidebar-search', go: async (w) => { await home(w); await w.getByLabel('Search sessions').fill('fix'); await pause(w, 800) } },
   { view: 'sidebar', name: 'sidebar-project-filter', go: async (w) => { await home(w); await w.getByRole('button', { name: 'Choose projects to display' }).click(); await pause(w, 300) } },
   { view: 'settings', name: 'settings', tall: 2400, go: (w) => nav(w, 'Settings') },
@@ -134,7 +135,7 @@ const STATIC: readonly Shot[] = [
 ]
 
 /** The floor gets the views whose chrome is width-budgeted, not every section again. */
-const AT_FLOOR = new Set(['home', 'palette-empty', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   {

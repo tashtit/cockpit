@@ -126,6 +126,17 @@ export function freshApi(): CockpitApi {
     pageSessions: vi.fn(async () => ({ total: 0, items: [] })),
     getSession: vi.fn(async () => null),
     getSessionMessages: vi.fn(async () => []),
+    searchTranscripts: vi.fn(async (q) => ({
+      query: q.text,
+      hits: [],
+      sessions: [],
+      candidates: 0,
+      scanned: 0,
+      truncated: 0,
+      stoppedBy: 'complete' as const,
+      elapsedMs: 0
+    })),
+    cancelTranscriptSearch: vi.fn(async () => {}),
     getHandoffBriefing: vi.fn(async () => ({ briefing: '', cwdExists: true })),
     improveHandoffBriefing: vi.fn(async () => ''),
     getBusySessions: vi.fn(async () => []),

@@ -114,6 +114,56 @@ export type SessionPage = {
   readonly items: SessionMeta[]
 }
 
+/**
+ * Full-text search over transcript *contents* — "where did I discuss X", across all
+ * three agents at once. On demand, never from a shipped index: the candidate files
+ * come from the indexer, each is streamed under a byte cap, and a newer query
+ * cancels the one in flight (see main/transcript-search.ts).
+ */
+export type TranscriptSearchQuery = {
+  readonly text: string
+  /** RepoInfo.key to scope to one repository; undefined = every visible repo */
+  readonly repoKey?: string
+  readonly providers?: Provider[]
+  /** Total hit cap (default 50, at most 200) */
+  readonly limit?: number
+  /** Hits kept per session, so one chatty transcript can't fill the list (default 3) */
+  readonly perSession?: number
+  /** Also search tool calls and results; default is user and assistant text only */
+  readonly includeTools?: boolean
+}
+
+export type TranscriptHitRole = 'user' | 'assistant' | 'tool'
+
+export type TranscriptHit = {
+  readonly sessionId: string
+  readonly role: TranscriptHitRole
+  /** A window of the matching message around its first match, whitespace collapsed */
+  readonly snippet: string
+  /** Where the match sits in `snippet` (UTF-16 units) so the UI can mark it; -1 = unknown */
+  readonly matchStart: number
+  readonly matchEnd: number
+  readonly timestamp: number | null
+}
+
+/** Why a search returned: everything read, the hit cap, the time budget, or a newer query */
+export type TranscriptSearchStop = 'complete' | 'hit-cap' | 'time' | 'cancelled'
+
+export type TranscriptSearchResult = {
+  readonly query: string
+  readonly hits: TranscriptHit[]
+  /** The sessions the hits belong to, stamped like page rows, so the UI can open them */
+  readonly sessions: SessionMeta[]
+  /** Transcripts in scope */
+  readonly candidates: number
+  /** Transcripts actually read (fewer when stopped early) */
+  readonly scanned: number
+  /** Transcripts larger than the per-file cap — only their first bytes were searched */
+  readonly truncated: number
+  readonly stoppedBy: TranscriptSearchStop
+  readonly elapsedMs: number
+}
+
 export type PrState = 'OPEN' | 'MERGED' | 'CLOSED'
 
 /**
@@ -1120,6 +1170,10 @@ export type CockpitApi = {
   /** One indexed session by id (lineage navigation); null when unknown */
   readonly getSession: (sessionId: string) => Promise<SessionMeta | null>
   readonly getSessionMessages: (id: string) => Promise<SessionMessage[]>
+  /** Full-text search over transcript contents; a newer call cancels the one in flight */
+  readonly searchTranscripts: (query: TranscriptSearchQuery) => Promise<TranscriptSearchResult>
+  /** Stop the in-flight transcript search early (the palette closed) */
+  readonly cancelTranscriptSearch: () => Promise<void>
   /** Deterministic context briefing for handing this session to another agent */
   readonly getHandoffBriefing: (sessionId: string) => Promise<HandoffBriefing>
   /** Ask the source session's own CLI to rewrite the briefing (resumes it read-only) */

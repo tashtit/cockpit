@@ -23,6 +23,7 @@ import type {
   PanelTarget,
   SessionQuery,
   TimeFormat,
+  TranscriptSearchQuery,
   UpdateState
 } from '../shared/types'
 
@@ -46,6 +47,9 @@ const api: CockpitApi = {
   pageSessions: (query: SessionQuery) => ipcRenderer.invoke('sessions:page', query),
   getSession: (sessionId: string) => ipcRenderer.invoke('sessions:get', sessionId),
   getSessionMessages: (id: string) => ipcRenderer.invoke('sessions:messages', id),
+  searchTranscripts: (query: TranscriptSearchQuery) =>
+    ipcRenderer.invoke('transcripts:search', query),
+  cancelTranscriptSearch: () => ipcRenderer.invoke('transcripts:cancel'),
   getHandoffBriefing: (sessionId: string) => ipcRenderer.invoke('handoff:briefing', sessionId),
   improveHandoffBriefing: (sessionId: string) => ipcRenderer.invoke('handoff:improve', sessionId),
   getBusySessions: () => ipcRenderer.invoke('sessions:busy'),

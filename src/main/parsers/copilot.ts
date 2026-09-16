@@ -189,6 +189,24 @@ function itemText(m: any): string {
   return ''
 }
 
+/**
+ * The conversation inside a legacy (whole-document JSON) session, role and text per
+ * timeline item — what transcript search reads from those files. Tool items are
+ * tagged so the search can leave them out.
+ */
+export function legacyTimelineTexts(
+  j: unknown
+): ReadonlyArray<{ readonly role: 'user' | 'assistant' | 'tool'; readonly text: string; readonly ts: number | null }> {
+  const out: Array<{ role: 'user' | 'assistant' | 'tool'; text: string; ts: number | null }> = []
+  for (const m of extractTimeline(j)) {
+    const text = itemText(m)
+    if (!text) continue
+    const toolName = typeof m?.toolName === 'string' ? m.toolName : typeof m?.tool === 'string' ? m.tool : null
+    out.push({ role: toolName ? 'tool' : itemRole(m), text, ts: toMs(m?.timestamp ?? m?.ts) })
+  }
+  return out
+}
+
 function parseLegacyMeta(file: string, sourceLabel: string): SessionMeta | null {
   const j = readJson(file)
   if (!j || typeof j !== 'object') return null
