@@ -118,6 +118,7 @@ const STATIC: readonly Shot[] = [
       await pause(w, 300)
     }
   },
+  { view: 'chat', name: 'chat-worktree', go: (w) => open(w, /Add pagination to the sessions list/) },
   { view: 'chat', name: 'chat-codex', go: (w) => open(w, /Add a fallback when the billing API/) },
   { view: 'chat', name: 'chat-copilot', go: (w) => open(w, /Tidy the usage panel spacing/) },
   {
