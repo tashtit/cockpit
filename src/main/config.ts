@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import type { LibraryEntry, ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
 import { clampStaleDays } from './cleanup-core'
 
-type AppConfig = {
+export type AppConfig = {
   readonly sources: SourceDir[]
   /** Session ids the user archived in Cockpit (provider logs have no such flag) */
   readonly archived?: string[]
@@ -62,6 +62,11 @@ function configPath(): string {
   return join(userDataDir(), 'cockpit-config.json')
 }
 
+/** The config file itself — backup snapshots copy the raw bytes, not a re-serialization. */
+export function configFilePath(): string {
+  return configPath()
+}
+
 /** First run: auto-detect default provider homes. */
 function detectDefaults(): SourceDir[] {
   const h = homedir()
@@ -71,6 +76,33 @@ function detectDefaults(): SourceDir[] {
     { path: join(h, '.copilot'), provider: 'copilot', label: 'copilot-default' }
   ]
   return candidates.filter((c) => existsSync(c.path))
+}
+
+/** The one parse both readers share, so "valid config" can never mean two things. */
+function parseConfig(raw: string): AppConfig {
+  const cfg = JSON.parse(raw) as AppConfig
+  if (!Array.isArray(cfg.sources)) throw new Error('config has no sources[]')
+  return cfg
+}
+
+/**
+ * Like loadConfig, but a config that exists and cannot be read is an error rather
+ * than a fresh start. Restore writes the whole config, so it must never build on
+ * in-memory defaults: that would turn one unreadable file into a lost one.
+ */
+export function readConfigStrict(): AppConfig {
+  let raw: string
+  try {
+    raw = readFileSync(configPath(), 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { sources: detectDefaults(), archived: [] }
+    throw new Error(`cannot read ${configPath()}: ${(err as Error).message}`)
+  }
+  try {
+    return parseConfig(raw)
+  } catch (err) {
+    throw new Error(`${configPath()} is unreadable (${(err as Error).message}) — fix or move it first`)
+  }
 }
 
 export function loadConfig(): AppConfig {
@@ -88,9 +120,7 @@ export function loadConfig(): AppConfig {
   }
   if (raw !== null) {
     try {
-      const cfg = JSON.parse(raw) as AppConfig
-      if (Array.isArray(cfg.sources)) return cfg
-      throw new Error('config has no sources[]')
+      return parseConfig(raw)
     } catch (err) {
       // an existing-but-unreadable config must never be clobbered: keep the raw
       // bytes recoverable, run on in-memory defaults, and don't persist them
@@ -166,17 +196,21 @@ export function listModelEndpoints(): ModelEndpoint[] {
   return loadConfig().modelEndpoints ?? []
 }
 
-/** Upsert by id, in place — a models-cache refresh must not reorder the user's list. */
-export function addModelEndpoint(ep: ModelEndpoint): ModelEndpoint[] {
-  const cfg = loadConfig()
+/**
+ * Upsert by id, in place — a models-cache refresh must not reorder the user's list.
+ * Pure, so restore can fold several endpoints into one config before writing it.
+ */
+export function withEndpoint(cfg: AppConfig, ep: ModelEndpoint): AppConfig {
   const existing = cfg.modelEndpoints ?? []
   const eps = existing.some((e) => e.id === ep.id)
     ? existing.map((e) => (e.id === ep.id ? ep : e))
     : [...existing, ep]
   // re-adding a provider under the label it was removed with adopts the sessions
-  // that were bound to it, so "refuses until it is re-added" is actually true
+  // that were bound to it, so "refuses until it is re-added" is actually true.
+  // A tombstone under this very id goes too — a restored endpoint that kept its
+  // id must not be reclaimable by the next provider that happens to share a label.
   const reclaimed = Object.entries(cfg.removedEndpoints ?? {})
-    .filter(([, label]) => label === ep.label)
+    .filter(([oldId, label]) => label === ep.label || oldId === ep.id)
     .map(([oldId]) => oldId)
   const tombstones = Object.fromEntries(
     Object.entries(cfg.removedEndpoints ?? {}).filter(([oldId]) => !reclaimed.includes(oldId))
@@ -187,13 +221,13 @@ export function addModelEndpoint(ep: ModelEndpoint): ModelEndpoint[] {
       reclaimed.includes(eid) ? ep.id : eid
     ])
   )
-  saveConfig({
-    ...cfg,
-    modelEndpoints: eps,
-    sessionEndpoints: sessions,
-    removedEndpoints: tombstones
-  })
-  return eps
+  return { ...cfg, modelEndpoints: eps, sessionEndpoints: sessions, removedEndpoints: tombstones }
+}
+
+export function addModelEndpoint(ep: ModelEndpoint): ModelEndpoint[] {
+  const next = withEndpoint(loadConfig(), ep)
+  saveConfig(next)
+  return next.modelEndpoints ?? []
 }
 
 /**
@@ -223,7 +257,7 @@ export function removeModelEndpoint(id: string): ModelEndpoint[] {
   return eps
 }
 
-const SESSION_ENDPOINT_CAP = 500
+export const SESSION_ENDPOINT_CAP = 500
 
 /** Remember which endpoint a session was started with so resume stays on that backend. */
 export function bindSessionEndpoint(sessionId: string, endpointId: string): void {
@@ -245,7 +279,7 @@ export function sessionEndpointFor(sessionId: string): string | undefined {
   return loadConfig().sessionEndpoints?.[sessionId]
 }
 
-const SESSION_LINEAGE_CAP = 500
+export const SESSION_LINEAGE_CAP = 500
 
 /**
  * Remember which session a handed-off session continues. Returns the whole updated

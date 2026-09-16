@@ -39,7 +39,8 @@ export default defineConfig({
         items: [
           { text: 'The Agents view', link: '/guide/agents' },
           { text: 'Accounts & usage', link: '/guide/accounts-and-usage' },
-          { text: 'Custom providers', link: '/guide/custom-providers' }
+          { text: 'Custom providers', link: '/guide/custom-providers' },
+          { text: 'Backup & restore', link: '/guide/backup' }
         ]
       },
       {

@@ -446,6 +446,13 @@ export type LibraryEntry = {
    * copy at all. `enabled` still records which agents to put it back on.
    */
   readonly removed?: boolean
+  /**
+   * mcp restored from a backup that carried no passphrase: the env var names whose
+   * values were left out. A switch refuses while this is set, rather than writing a
+   * server with blank credentials; it clears itself once an agent supplies the real
+   * definition.
+   */
+  readonly withheld?: readonly string[]
 }
 
 /** One entry in one scope — every panel action names its target this way. */
@@ -976,6 +983,61 @@ export type AppInfo = {
   readonly releasesUrl: string
 }
 
+/* backup: one file holding everything of Cockpit's own that is worth keeping */
+
+export type BackupCounts = {
+  readonly scopes: number
+  readonly entries: number
+  readonly skills: number
+  readonly endpoints: number
+  readonly sessions: number
+}
+
+export type BackupExportResult = {
+  readonly path: string
+  readonly counts: BackupCounts
+  /** true when a passphrase sealed the secrets into the file */
+  readonly secretsIncluded: boolean
+  /** what a passphrase-less backup had to leave behind ("github (GITHUB_TOKEN)") */
+  readonly withheld: readonly string[]
+  /** keys this machine's keychain would not decrypt — left out, never silently */
+  readonly unreadableKeys: number
+  /** skill files skipped for being over the size budget */
+  readonly skippedFiles: number
+}
+
+/** What an opened file would bring in, shown before anything is written. */
+export type BackupPreview = {
+  /** handle for the parsed file main is holding; expires after 10 minutes */
+  readonly token: string
+  readonly createdAt: string
+  readonly appVersion: string
+  /** secrets are sealed — restoring needs the passphrase */
+  readonly sealed: boolean
+  readonly counts: BackupCounts
+  /** scopes this machine has no repo for; restore the same file again later */
+  readonly unmatched: readonly string[]
+  /** every distinct MCP command the file would add — read them before restoring */
+  readonly commands: readonly string[]
+}
+
+export type RestoreSummary = {
+  readonly added: {
+    readonly entries: number
+    readonly skills: number
+    readonly endpoints: number
+    readonly sources: number
+    readonly instructions: number
+  }
+  /** local things the backup disagreed with and did not replace */
+  readonly kept: readonly string[]
+  readonly skipped: readonly string[]
+  /** restored without their secrets — what to supply, and where */
+  readonly needsValues: readonly string[]
+  /** handle for undoing this restore, while the config is still untouched since */
+  readonly undoId: string | null
+}
+
 export type CockpitApi = {
   readonly sendChat: (req: ChatRequest) => Promise<string>
   readonly cancelChat: (turnId: string) => Promise<void>
@@ -1069,8 +1131,17 @@ export type CockpitApi = {
   readonly getModelEndpoints: () => Promise<ModelEndpoint[]>
   readonly addModelEndpoint: (ep: NewModelEndpoint) => Promise<ModelEndpoint[]>
   readonly removeModelEndpoint: (id: string) => Promise<ModelEndpoint[]>
+  /** Give an existing provider its API key (a restore brings definitions, not keys) */
+  readonly setEndpointKey: (id: string, apiKey: string) => Promise<ModelEndpoint[]>
   /** Ask the provider itself which models it serves (also refreshes the cached list) */
   readonly listEndpointModels: (id: string) => Promise<string[]>
+  /* backup: export to a file the user keeps, restore it here or on another Mac */
+  /** Native save dialog, then write the file; null when the user cancels */
+  readonly exportBackup: (passphrase?: string) => Promise<BackupExportResult | null>
+  /** Native open dialog, then parse and describe the file; null when the user cancels */
+  readonly openBackup: () => Promise<BackupPreview | null>
+  readonly restoreBackup: (token: string, passphrase?: string) => Promise<RestoreSummary>
+  readonly undoRestore: (undoId: string) => Promise<void>
   /* roundtables: several agents, one shared discussion */
   readonly listRoundtables: () => Promise<RoundtableMeta[]>
   readonly getRoundtable: (id: string) => Promise<RoundtableSnapshot>

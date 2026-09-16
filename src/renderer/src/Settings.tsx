@@ -14,11 +14,12 @@ import type {
 import { api } from './api'
 import { CHAT_WIDTH_OPTIONS, setChatWidth, useChatWidth, type ChatWidth } from './chat-width'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
+import { BackupSection } from './BackupSection'
 import { fmtCount, fmtResetIn } from './format'
 import { ModelProviders } from './ModelProviders'
 import { CockpitLogo, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
-import { setTimeFormat, useTimeFormat } from './time'
+import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -585,6 +586,17 @@ export function Settings({
 
         <h3 className="ns-label">Model providers</h3>
         <ModelProviders onStatus={setStatus} />
+
+        <h3 className="ns-label">Backup</h3>
+        <BackupSection
+          onStatus={setStatus}
+          onRestored={() => {
+            // a restore rewrites the very settings this card is showing
+            refresh()
+            void api.getHistoryDays().then(setHistoryDays)
+            void initTimeFormat()
+          }}
+        />
 
         <h3 className="ns-label">About</h3>
         <ul className="source-list">

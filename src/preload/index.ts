@@ -97,7 +97,13 @@ const api: CockpitApi = {
   getModelEndpoints: () => ipcRenderer.invoke('endpoints:get'),
   addModelEndpoint: (ep: NewModelEndpoint) => ipcRenderer.invoke('endpoints:add', ep),
   removeModelEndpoint: (id: string) => ipcRenderer.invoke('endpoints:remove', id),
+  setEndpointKey: (id: string, apiKey: string) => ipcRenderer.invoke('endpoints:set-key', id, apiKey),
   listEndpointModels: (id: string) => ipcRenderer.invoke('endpoints:models', id),
+  exportBackup: (passphrase?: string) => ipcRenderer.invoke('backup:export', passphrase),
+  openBackup: () => ipcRenderer.invoke('backup:open'),
+  restoreBackup: (token: string, passphrase?: string) =>
+    ipcRenderer.invoke('backup:restore', token, passphrase),
+  undoRestore: (undoId: string) => ipcRenderer.invoke('backup:undo-restore', undoId),
   listRoundtables: () => ipcRenderer.invoke('roundtable:list'),
   getRoundtable: (id: string) => ipcRenderer.invoke('roundtable:get', id),
   createRoundtable: (req: NewRoundtableRequest) => ipcRenderer.invoke('roundtable:create', req),

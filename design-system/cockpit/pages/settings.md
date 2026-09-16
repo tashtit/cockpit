@@ -7,8 +7,8 @@ it answers "what is Cockpit watching, as whom, how much of each subscription is 
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
 sections, in order: Agent accounts & sources · Add source · History · Display ·
-Subscription usage · GitHub · Model providers · About — adding a config home sits directly
-under the list it extends).
+Subscription usage · GitHub · Model providers · Backup · About — adding a config home sits
+directly under the list it extends).
 
 ## Rules
 
@@ -71,6 +71,20 @@ under the list it extends).
 - Errors: `.new-error` with `role="alert"`, linked to the path input via
   `aria-describedby`/`aria-invalid`, cleared the moment the user edits. The main-process
   message is shown verbatim — those errors are already human-readable.
+- Backup section: export is a real `<form>` of labeled `.ns-opt`s — optional passphrase
+  plus a repeat field that only matters once the first is typed; the primary stays
+  disabled until the two match and clear 8 characters, and the mismatch/too-short lines
+  are `.ns-hint` prose, not errors (nothing is wrong yet). The hint must keep saying what
+  a backup holds, that secrets are left out without a passphrase, that MCP commands and
+  URLs are written as they are, and that a lost passphrase is unrecoverable. Restore is
+  one `.source-row` with a single `.btn-ghost.small` ("Choose backup…" → "Opening…" →
+  "Choose another…") whose `.source-note`s become the preview: date and counts, the MCP
+  commands the file would introduce, and repos this Mac doesn't have. A sealed file grows
+  a passphrase `.ns-opt`; the "Restore" primary sits in `.ns-actions` and is disabled
+  until that is filled. A failed restore keeps the file open — the message is a
+  `.new-error role="alert"`, verbatim. The summary is `.ns-hint` lines (what was added,
+  what was kept, what was skipped, what needs values) ending in an Undo `link-btn`, and
+  every outcome also goes through the card's `role="status"` region.
 - About section (last): one `.source-row` — `CockpitLogo` (decorative) · "Cockpit" · the
   version as an `.acct-chip` (a machine identifier, mono) · dim `.source-origin`
   "installed · arm64" or "development run" · `.source-note` readout of the updater (not

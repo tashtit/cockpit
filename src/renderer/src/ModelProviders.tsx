@@ -32,6 +32,9 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
   const [epNotice, setEpNotice] = useState<string | null>(null)
   /** Removal failures get their own slot — `epError` belongs to the add form below */
   const [removeError, setRemoveError] = useState<string | null>(null)
+  /** The one row currently being given a key, and what has been typed into it */
+  const [keying, setKeying] = useState<{ id: string; value: string } | null>(null)
+  const [keyError, setKeyError] = useState<string | null>(null)
   const confirm = useArmedConfirm()
 
   useEffect(() => {
@@ -92,6 +95,19 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
       }
     } catch (err) {
       setEpError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const saveKey = async (ep: ModelEndpoint): Promise<void> => {
+    const key = keying?.value.trim()
+    if (!key) return
+    setKeyError(null)
+    try {
+      setEndpoints(await api.setEndpointKey(ep.id, key))
+      setKeying(null)
+      onStatus(`Key saved for ${ep.label}`)
+    } catch (err) {
+      setKeyError(`Could not save the key for ${ep.label}: ${err instanceof Error ? err.message : err}`)
     }
   }
 
@@ -162,10 +178,47 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                 <div className="source-path" title={ep.baseUrl}>{ep.baseUrl}</div>
               </div>
               <div className="source-health">
-                <span className="source-note">
-                  {ep.hasKey ? 'key in keychain' : 'no key'}
-                  {ep.models && ep.models.length > 0 && <> · {ep.models.length} models</>}
-                </span>
+                {keying?.id === ep.id ? (
+                  <form
+                    className="source-browse-row"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      void saveKey(ep)
+                    }}
+                  >
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      aria-label={`API key for ${ep.label}`}
+                      autoFocus
+                      value={keying.value}
+                      onChange={(e) => setKeying({ id: ep.id, value: e.target.value })}
+                    />
+                    <button type="submit" className="btn-ghost small" disabled={!keying.value.trim()}>
+                      Save key
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <span className="source-note">
+                      {ep.hasKey ? 'key in keychain' : 'no key'}
+                      {ep.models && ep.models.length > 0 && <> · {ep.models.length} models</>}
+                    </span>
+                    {!ep.hasKey && (
+                      // a restore brings provider definitions, never their keys —
+                      // this is how one gets its key without being re-added
+                      <button
+                        className="btn-ghost small"
+                        onClick={() => {
+                          setKeyError(null)
+                          setKeying({ id: ep.id, value: '' })
+                        }}
+                      >
+                        Add key
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
               <ConfirmRemove
                 id={ep.id}
@@ -183,6 +236,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
         {endpoints.length === 0 && <li className="tree-empty">no custom providers</li>}
       </ul>
       {removeError && <div role="alert" className="new-error">{removeError}</div>}
+      {keyError && <div role="alert" className="new-error">{keyError}</div>}
       <form
         className="source-add"
         onSubmit={(e) => {
