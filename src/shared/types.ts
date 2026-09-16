@@ -677,12 +677,22 @@ export type ProfileStats = {
   readonly hourCounts: number[]
 }
 
-/** One session with a live provider process, for status displays (the board, LiveDots). */
+/** One session with a turn in progress, for status displays (the board, LiveDots). */
 export type BusySession = {
   /** Session id: `${provider}:${nativeId}` */
   readonly id: string
   /** Epoch ms the running turn was started — elapsed time derives from this */
   readonly startedAt: number
+  /**
+   * How Cockpit knows. `spawned`: a provider process it runs itself — the start is
+   * exact and the entry ends the moment the process does. `observed`: a session driven
+   * from a terminal or the provider's own app, judged from the tail of its log by
+   * main's liveness tracker — the start is the turn's opening record (or the log's
+   * last write when that has scrolled out), and the entry expires when the log stops
+   * growing. Same id space either way; a spawned session's log is observed too, and
+   * the spawned entry wins.
+   */
+  readonly source: 'spawned' | 'observed'
 }
 
 /* ---------- attention: notifications, sounds and the Dock badge ---------- */
@@ -1124,9 +1134,13 @@ export type CockpitApi = {
   readonly getHandoffBriefing: (sessionId: string) => Promise<HandoffBriefing>
   /** Ask the source session's own CLI to rewrite the briefing (resumes it read-only) */
   readonly improveHandoffBriefing: (sessionId: string) => Promise<string>
-  /** Sessions with a provider process currently running */
+  /** Sessions with a turn in progress — spawned by Cockpit, or observed mid-turn in their logs */
   readonly getBusySessions: () => Promise<BusySession[]>
-  /** Push: fires with the full busy set whenever a turn starts, ends, or gains a session id */
+  /**
+   * Push: fires with the full busy set whenever a turn starts, ends, or gains a session
+   * id — for spawned and observed sessions alike (an observed turn starts on its log's
+   * first write and ends on the final answer, or when the log goes quiet)
+   */
   readonly onBusySessions: (cb: (sessions: BusySession[]) => void) => () => void
   /* attention: notifications, sound and the Dock badge */
   readonly getAttentionPrefs: () => Promise<AttentionPrefs>

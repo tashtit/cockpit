@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync, utimesSync, readFileSync, readdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync, rmSync, utimesSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { SessionIndexer } from '../src/main/indexer'
+import { SessionIndexer, subagentParent } from '../src/main/indexer'
+import type { BusySession } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
 const root = join(tmpdir(), 'cockpit-indexer-fixtures')
@@ -752,5 +753,89 @@ describe('handoff lineage (stamping + chain grouping)', () => {
     idx.saveCache()
     const raw = readFileSync(cacheFile, 'utf8')
     expect(raw).not.toContain('continuedFrom')
+  })
+})
+
+// Live status from logs: the indexer feeds every fresh parse to its liveness tracker,
+// so a session mid-turn on disk is busy without any process of Cockpit's own.
+describe('live status from logs', () => {
+  const liveDir = join(root, 'live-claude')
+  const projDir = join(liveDir, 'projects', 'p')
+  const T0 = '2026-09-16T10:00:00.000Z'
+  const midTurn = (id: string): unknown[] => [
+    { type: 'user', message: { role: 'user', content: 'fix it' }, timestamp: T0, sessionId: id, cwd: repoA },
+    {
+      type: 'assistant',
+      message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Bash', input: {} }] },
+      timestamp: '2026-09-16T10:00:05.000Z'
+    }
+  ]
+  const finalAnswer = {
+    type: 'assistant',
+    message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }] },
+    timestamp: '2026-09-16T10:00:09.000Z'
+  }
+  let idx: SessionIndexer
+  const pushes: BusySession[][] = []
+
+  beforeAll(async () => {
+    mkdirSync(projDir, { recursive: true })
+    writeFileSync(join(projDir, 'running.jsonl'), jsonl(midTurn('running')))
+    // the same shape, but written long ago: a CLI killed mid-turn
+    const stale = join(projDir, 'stale.jsonl')
+    writeFileSync(stale, jsonl(midTurn('stale')))
+    utimesSync(stale, new Date('2026-09-01T00:00:00Z'), new Date('2026-09-01T00:00:00Z'))
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null, onLiveChange: (s) => pushes.push(s) })
+    await idx.setSources([{ path: liveDir, provider: 'claude', label: 'live' }])
+  })
+  afterAll(() => idx?.stopWatchers())
+
+  it('a fresh mid-turn log is busy after the scan, from its prompt; a stale one is not', () => {
+    expect(idx.page({}).total).toBe(2)
+    expect(idx.liveSessions()).toEqual([
+      { id: 'claude:running', startedAt: Date.parse(T0), source: 'observed' }
+    ])
+    expect(pushes.at(-1)).toEqual(idx.liveSessions())
+  })
+
+  it('the final answer lands through the watcher path and the session leaves the set', async () => {
+    const file = join(projDir, 'running.jsonl')
+    appendFileSync(file, jsonl([finalAnswer]))
+    ;(idx as any).markDirty('change', file)
+    await vi.waitFor(() => expect(idx.liveSessions()).toEqual([]), { timeout: 5000, interval: 50 })
+    expect(pushes.at(-1)).toEqual([])
+  })
+
+  it('a new prompt makes it busy again, and a subagent write is its heartbeat', async () => {
+    const file = join(projDir, 'running.jsonl')
+    const T2 = '2026-09-16T10:10:00.000Z'
+    appendFileSync(file, jsonl([{ type: 'user', message: { role: 'user', content: 'now delegate' }, timestamp: T2 }]))
+    ;(idx as any).markDirty('change', file)
+    await vi.waitFor(() => expect(idx.liveSessions().map((s) => s.id)).toEqual(['claude:running']), {
+      timeout: 5000,
+      interval: 50
+    })
+    expect(idx.liveSessions()[0].startedAt).toBe(Date.parse(T2))
+    // the subagent transcript is ignored by the index but routed to the tracker
+    const before = pushes.length
+    ;(idx as any).sessionRootEvent(join(liveDir, 'projects'), 'change', 'p/running/subagents/agent-1.jsonl')
+    expect(idx.liveSessions().map((s) => s.id)).toEqual(['claude:running'])
+    expect(pushes.length).toBe(before)
+    expect(idx.page({}).total).toBe(2)
+  })
+
+  it('stopping the watchers clears the observed set', () => {
+    idx.stopWatchers()
+    expect(idx.liveSessions()).toEqual([])
+    expect(pushes.at(-1)).toEqual([])
+  })
+})
+
+describe('subagentParent', () => {
+  it('names the parent session of a Claude subagent transcript, and nothing else', () => {
+    expect(subagentParent('/h/.claude/projects/-Users-x-app/abc-123/subagents/agent-9f.jsonl')).toBe('claude:abc-123')
+    expect(subagentParent('/h/.claude/projects/-Users-x-app/abc-123/subagents/agent-9f.meta.json')).toBeNull()
+    expect(subagentParent('/h/.claude/projects/-Users-x-app/abc-123.jsonl')).toBeNull()
+    expect(subagentParent('/h/.codex/sessions/2026/09/16/rollout-x.jsonl')).toBeNull()
   })
 })

@@ -266,7 +266,7 @@ export class ChatManager {
         if (prev === undefined || t.startedAt < prev) byId.set(id, t.startedAt)
       }
     }
-    return [...byId].map(([id, startedAt]) => ({ id, startedAt }))
+    return [...byId].map(([id, startedAt]) => ({ id, startedAt, source: 'spawned' as const }))
   }
 
   private notifyBusy(): void {

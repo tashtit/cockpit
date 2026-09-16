@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSyn
 import { writeFile, rename, rm } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import type {
+  BusySession,
   Mutable,
   Provider,
   RepoGroup,
@@ -13,6 +14,7 @@ import type {
   SourceStats
 } from '../shared/types'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
+import { LivenessTracker } from './liveness'
 import { defaultClaudeStoreDir, listProviderArchivedIds } from './provider-archived'
 import {
   listClaudeSessionFiles,
@@ -123,6 +125,16 @@ function watchIgnored(p: string): boolean {
   return /\.(db|db-wal|db-shm|sqlite|log|md|txt|png|jpe?g|gif|svg|zip|gz|tar|lock)$/i.test(p)
 }
 
+/**
+ * `<projects>/<proj>/<session-id>/subagents/agent-x.jsonl` → `claude:<session-id>`.
+ * Subagent transcripts are never sessions (the listers skip them), but a Claude parent
+ * log goes silent while its subagent works — a write there is the parent's heartbeat.
+ */
+export function subagentParent(path: string): string | null {
+  const m = path.match(/\/([^/]+)\/subagents\/[^/]+\.jsonl$/)
+  return m ? `claude:${m[1]}` : null
+}
+
 /** A watch we want installed; kept pending while its directory doesn't exist yet. */
 type WatchSpec = {
   readonly dir: string
@@ -176,16 +188,37 @@ export class SessionIndexer {
   private cacheFile: string | null
   /** undefined → the real desktop-app store; null → disabled (tests) */
   private claudeStoreDir: string | null
+  /**
+   * Sessions whose logs show a turn in progress (liveness.ts). Fed from the one place
+   * a changed file is re-parsed, so the watcher's debouncing and the scan's yielding
+   * are its pacing too; it reads a bounded tail of fresh files only.
+   */
+  private liveness: LivenessTracker
 
   constructor(
     onUpdate: () => void,
-    opts?: { cacheFile?: string; watchRetryMs?: number; claudeStoreDir?: string | null }
+    opts?: {
+      cacheFile?: string
+      watchRetryMs?: number
+      claudeStoreDir?: string | null
+      /** The observed busy set changed — a turn started, ended or expired in some log */
+      onLiveChange?: (sessions: BusySession[]) => void
+      liveWindowMs?: number
+    }
   ) {
     this.onUpdate = onUpdate
     this.cacheFile = opts?.cacheFile ?? null
     this.watchRetryMs = opts?.watchRetryMs ?? WATCH_RETRY_INTERVAL_MS
     this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
+    this.liveness = new LivenessTracker(opts?.onLiveChange ?? (() => {}), {
+      windowMs: opts?.liveWindowMs
+    })
     this.loadCache()
+  }
+
+  /** Sessions whose logs show a turn in progress right now — the observed half of the busy set. */
+  liveSessions(): BusySession[] {
+    return this.liveness.sessions()
   }
 
   /** Applied at query time so toggling archive never re-parses anything. */
@@ -265,12 +298,7 @@ export class SessionIndexer {
         this.ensureWatch({
           dir: root,
           recursive: true,
-          handler: (event, filename) => {
-            if (!filename) return this.scheduleRescan()
-            const full = join(root, filename.toString())
-            if (watchIgnored(full)) return
-            this.markDirty(event, full)
-          }
+          handler: (event, filename) => this.sessionRootEvent(root, event, filename)
         })
       }
       // Codex thread names live in <CODEX_HOME>/session_index.jsonl, outside the sessions
@@ -345,6 +373,26 @@ export class SessionIndexer {
       // the dir appeared with content we never enumerated — index it now
       if (appeared) this.scheduleRescan()
     }, this.watchRetryMs)
+  }
+
+  /**
+   * One event from a session root's recursive watch. Subagent transcripts are the one
+   * ignored path that still matters: never indexed, but a write there keeps the
+   * parent session's observed turn alive (see subagentParent) — no read, no rescan.
+   */
+  private sessionRootEvent(root: string, event: string, filename: string | Buffer | null): void {
+    if (!filename) {
+      this.scheduleRescan()
+      return
+    }
+    const full = join(root, filename.toString())
+    const parent = subagentParent(full)
+    if (parent) {
+      this.liveness.heartbeat(parent)
+      return
+    }
+    if (watchIgnored(full)) return
+    this.markDirty(event, full)
   }
 
   /**
@@ -568,6 +616,8 @@ export class SessionIndexer {
     if (meta) this.annotate(meta)
     this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, meta })
     this.cacheDirty = true
+    // a fresh parse means the file changed — the only time its tail can say something new
+    if (meta) this.liveness.observe(file, meta, st.mtimeMs)
     return meta
   }
 
@@ -953,6 +1003,8 @@ export class SessionIndexer {
     for (const w of this.watchers) void w.close()
     this.watchers = []
     this.pendingWatches = []
+    // no watcher, no writes: what the tracker holds would only ever go stale
+    this.liveness.stop()
     if (this.watchRetryTimer) {
       clearInterval(this.watchRetryTimer)
       this.watchRetryTimer = null

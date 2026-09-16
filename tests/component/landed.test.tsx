@@ -127,7 +127,7 @@ describe('landed sessions', () => {
     renderHome()
     await screen.findByText('fix the login flake')
 
-    pushBusy([{ id: 'claude:one', startedAt: Date.now() - 5000 }])
+    pushBusy([{ id: 'claude:one', startedAt: Date.now() - 5000, source: 'spawned' }])
     await waitFor(() => expect(screen.getByText(/1 flying/)).toBeInTheDocument())
     pushBusy([])
 
