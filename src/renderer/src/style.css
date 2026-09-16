@@ -1097,6 +1097,30 @@ summary::-webkit-details-marker { display: none; }
 .palette-meta { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono);
   font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .palette-view-icon { display: inline-flex; color: var(--fg-dim); flex-shrink: 0; }
+/* transcripts mode: the chip on the input row is the mode's only chrome — the
+   token-field convention, so Backspace on an empty query removes it */
+.palette-head { display: flex; align-items: center; gap: var(--s2);
+  padding-left: var(--s4); border-bottom: 1px solid var(--border); }
+.palette-head .palette-input { flex: 1; min-width: 0; border-bottom: none; padding-left: var(--s1); }
+/* 24px: it is a button, so it gets the target-size floor like every other control */
+.palette-mode { display: inline-flex; align-items: center; gap: var(--s1); height: 24px;
+  padding: 0 var(--s2); border-radius: var(--radius-sm); cursor: pointer;
+  font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: 0.6px;
+  color: var(--accent); background: rgba(var(--accent-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-rgb), 0.4); flex-shrink: 0; }
+.palette-mode:hover { color: var(--fg); border-color: var(--accent); }
+/* a hit is two lines: the session it came from, then the message around the match */
+.palette-hit { flex-direction: column; align-items: stretch; gap: var(--s1);
+  padding-top: var(--s2); padding-bottom: var(--s2); }
+.palette-hit-head { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.palette-snippet { color: var(--fg-dim); font-size: var(--fs-sm); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere; }
+.palette-role { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-xs);
+  letter-spacing: 0.6px; margin-right: var(--s2); }
+/* the UA paints mark yellow-on-black — re-voice it as an accent wash under body text */
+.palette-snippet mark { color: var(--fg); background: rgba(var(--accent-rgb), 0.3); }
+.palette-opt.active .palette-snippet { color: var(--fg); }
 
 /* ---------- cards (new session / settings / agents / profile) ---------- */
 /* stable both-edge gutters: the app's scrollbars are classic (not overlay), so

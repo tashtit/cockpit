@@ -106,6 +106,14 @@ export const ChatIcon = ({ size = 13 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_COMMENT_DISCUSSION} size={size} />
 )
 
+const OCTICON_SEARCH =
+  'M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z'
+
+/** Transcript search (the palette's "in transcripts" row and mode chip). */
+export const SearchIcon = ({ size = 13 }: { size?: number }): JSX.Element => (
+  <Octicon d={OCTICON_SEARCH} size={size} />
+)
+
 /* Two server bays with an indicator LED each (hand-drawn, octicon-sized). The LED
  * subpaths punch holes out of the bays via evenodd — keep that fill rule. */
 const ENDPOINT_PATH =

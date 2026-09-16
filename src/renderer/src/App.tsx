@@ -729,6 +729,14 @@ export function App(): JSX.Element {
 
   // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
+  // the repo the window is on — what a transcript search scopes to before it widens.
+  // Home and the other repo-less views have none, so there the search is global.
+  const scopeRepo = useMemo((): RepoGroup | null => {
+    if (view.kind === 'new') return view.repo
+    const root =
+      view.kind === 'chat' ? (binding?.repoRoot ?? null) : view.kind === 'extensions' ? view.repoRoot : null
+    return root === null ? null : (repos.find((r) => r.root === root) ?? null)
+  }, [view, binding, repos])
 
   return (
     <div className="app">
@@ -836,6 +844,7 @@ export function App(): JSX.Element {
       {paletteOpen && (
         <CommandPalette
           repos={visibleRepos}
+          scopeRepo={scopeRepo}
           onOpenSession={(s) => void openSession(s)}
           onNewSession={(repo) => setView({ kind: 'new', repo })}
           onGoto={(v: PaletteViewKey) =>

@@ -327,6 +327,25 @@ test('⌘K palette jumps to sessions, repos, and views', async () => {
   await expect(homeHeading()).toBeVisible()
   // query mode: repos offer a launch, views match on keywords, Enter takes the top hit
   await win.keyboard.press('ControlOrMeta+k')
+  // transcripts mode first: a phrase no session is *named* by, only said in — the door
+  // is the top row, Enter takes it, the hit carries the marked snippet. Backspace then
+  // lands on the recent list, which the 'skills' query below empties before 'login'
+  // has to be the top hit.
+  await input.fill('retry loop')
+  await expect(palette.getByRole('option', { name: /fix the login flake/ })).toHaveCount(0)
+  await expect(
+    palette.getByRole('option', { name: 'Search transcripts for “retry loop” in all repos' })
+  ).toBeVisible()
+  await win.keyboard.press('Enter')
+  await expect(palette.getByRole('button', { name: /Searching transcripts/ })).toBeVisible()
+  const hit = palette.getByRole('option', { name: /fix the login flake — agent: Patched the retry loop/ })
+  await expect(hit).toBeVisible()
+  await expect(hit.locator('mark')).toHaveText('retry loop')
+  // Backspace on an emptied query returns to jump; the palette stays open
+  await input.fill('')
+  await win.keyboard.press('Backspace')
+  await expect(palette.getByRole('button', { name: /Searching transcripts/ })).toBeHidden()
+  await expect(palette.getByRole('option', { name: 'Settings' })).toBeVisible()
   await input.fill('rocket')
   await expect(palette.getByRole('option', { name: 'New session in acme/rocket' })).toBeVisible()
   await input.fill('skills')
