@@ -27,6 +27,10 @@ Signed and notarized releases open without any of this.
 
 The About row in Settings shows `Could not install <version>: …` with a code-signature error. macOS only swaps in a signed bundle, so an unsigned release can be checked and downloaded but not installed in place. Download the new disk image from the [releases page](https://github.com/tashtit/cockpit/releases) and replace the app in Applications; your settings live in `~/Library/Application Support/Cockpit` and survive.
 
+## Notifications never appear
+
+**Settings › Notifications › Send a test notification** says what macOS did. **Refused** (`UNErrorDomain error 1`) means macOS won't let an unsigned build post notifications — true of every release until they're signed, and of `npm run dev`. The sound and a Dock bounce still tell you something landed. **Showed it** but nothing on screen: check System Settings › Notifications › Cockpit, and whether a Focus mode is on. See [Notifications](/guide/notifications#unsigned-builds).
+
 ## Sessions missing from the sidebar
 
 Work through these in order:

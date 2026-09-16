@@ -18,6 +18,7 @@ import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { BackupSection } from './BackupSection'
 import { fmtCount, fmtResetIn } from './format'
 import { ModelProviders } from './ModelProviders'
+import { NotificationsSection } from './NotificationsSection'
 import { CockpitLogo, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
@@ -596,6 +597,9 @@ export function Settings({
             />
           </div>
         </div>
+
+        <h3 className="ns-label">Notifications</h3>
+        <NotificationsSection packaged={appInfo?.packaged ?? null} onStatus={setStatus} />
 
         <h3 className="ns-label">GitHub</h3>
         <ul className="source-list">

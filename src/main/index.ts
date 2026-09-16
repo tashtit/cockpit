@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type {
+  AttentionFocus,
+  AttentionPrefs,
+  AttentionTarget,
   ChatRequest,
   NewRoundtableRequest,
   PermissionMode,
@@ -10,6 +13,7 @@ import type {
   PanelKind,
   SourceDir,
   PanelTarget,
+  SessionMeta,
   SessionQuery,
   TimeFormat
 } from '../shared/types'
@@ -26,6 +30,7 @@ import {
 import { assertChatImages, saveChatImage } from './chat-images'
 import {
   addModelEndpoint,
+  attentionPrefs,
   bindSessionEndpoint,
   bindSessionLineage,
   listModelEndpoints,
@@ -33,6 +38,7 @@ import {
   removeModelEndpoint,
   saveConfig,
   sessionEndpointFor,
+  setAttentionPrefs,
   updateModelEndpoint,
   sessionLineageFor,
   setHistoryDays,
@@ -86,6 +92,8 @@ import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
 import { getProfile } from './profile'
 import { appInfo, UpdateManager } from './updates'
+import { AttentionDesk, electronSurface } from './attention'
+import { tableOutcome } from './attention-core'
 import { homedir } from 'node:os'
 
 // e2e/dev isolation only — a packaged app must never honor a data-dir override
@@ -97,6 +105,9 @@ let win: BrowserWindow | null = null
 let indexer: SessionIndexer
 let chat: ChatManager
 let roundtables: RoundtableManager | null = null
+let attention: AttentionDesk | null = null
+/** A notification clicked while no renderer could hear it — the next one takes it. */
+let pendingOpen: AttentionTarget | null = null
 
 /**
  * Push an event to the renderer. Streams and scans outlive the window on macOS
@@ -149,6 +160,54 @@ function resolveCopilotHandoffs(): void {
       i--
     }
   }
+}
+
+/** Copilot never names its session: once the index has it, an id-less landing becomes that session. */
+function resolveAttention(): void {
+  let copilot: SessionMeta[] | null = null
+  attention?.resolve((u) => {
+    if (u.provider !== 'copilot' || !u.cwd) return null
+    const cwd = resolve(u.cwd)
+    copilot ??= indexer.allSessions().filter((s) => s.provider === 'copilot' && s.cwd)
+    const match = copilot
+      .filter((s) => resolve(s.cwd as string) === cwd && s.startedAt >= u.startedAt - 60_000)
+      .sort((a, b) => a.startedAt - b.startedAt)[0]
+    return match?.id ?? null
+  })
+}
+
+/** A notification was clicked: bring the window forward and open what it was about (if anything). */
+function openAttentionTarget(target: AttentionTarget | null): void {
+  if (!win || win.isDestroyed()) {
+    // the window was closed (macOS keeps running) — its successor asks once it listens
+    pendingOpen = target
+    createWindow()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  app.focus({ steal: true })
+  if (!target) return
+  if (win.webContents.isLoading()) pendingOpen = target
+  else sendToWin('attention-open', target)
+}
+
+/** What the window shows is renderer input: only ever compared, never a path — but still shaped. */
+function asAttentionFocus(raw: unknown): AttentionFocus {
+  const f = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  if (f['kind'] === 'roundtable' && typeof f['id'] === 'string') {
+    return { kind: 'roundtable', id: f['id'].slice(0, 512) }
+  }
+  const provider = (['claude', 'codex', 'copilot'] as const).find((p) => p === f['provider'])
+  if (f['kind'] === 'session' && provider && typeof f['cwd'] === 'string') {
+    return {
+      kind: 'session',
+      id: typeof f['id'] === 'string' ? f['id'].slice(0, 512) : null,
+      provider,
+      cwd: f['cwd'].slice(0, 4096)
+    }
+  }
+  return { kind: 'none' }
 }
 
 /**
@@ -264,8 +323,12 @@ function createWindow(): void {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
+  // a turn that ends while nobody is in front of the window is news (attention.ts)
+  win.on('focus', () => attention?.setWindowFocused(true))
+  win.on('blur', () => attention?.setWindowFocused(false))
   win.on('closed', () => {
     win = null
+    attention?.setWindowFocused(false)
   })
 }
 
@@ -328,6 +391,7 @@ app.whenReady().then(() => {
   indexer = new SessionIndexer(
     () => {
       resolveCopilotHandoffs()
+      resolveAttention()
       sendToWin('index-updated')
     },
     { cacheFile: join(app.getPath('userData'), 'index-cache.json') }
@@ -639,6 +703,35 @@ app.whenReady().then(() => {
     republishConfig()
   })
 
+  /*
+   * Attention: a notification, a sound and the Dock badge when a turn ends unseen.
+   * attention-core decides, the desk carries it out; the renderer reports what is on
+   * screen and the window's focus events say whether anyone is in front of it.
+   */
+  const desk = new AttentionDesk({
+    file: join(app.getPath('userData'), 'attention.json'),
+    surface: electronSurface(),
+    prefs: attentionPrefs(),
+    titleFor: (u) => (u.id ? (indexer.getSession(u.id)?.title ?? null) : null),
+    onLandings: (landings) => sendToWin('landings', landings),
+    onOpen: openAttentionTarget
+  })
+  attention = desk
+  ipcMain.handle('attention:prefs', () => desk.currentPrefs)
+  ipcMain.handle('attention:set-prefs', (_e, prefs: AttentionPrefs) => {
+    const saved = setAttentionPrefs(prefs)
+    desk.setPrefs(saved)
+    return saved
+  })
+  ipcMain.handle('attention:test', () => desk.test())
+  ipcMain.handle('attention:focus', (_e, focus: unknown) => desk.setFocus(asAttentionFocus(focus)))
+  ipcMain.handle('attention:landings', () => desk.landings())
+  ipcMain.handle('attention:take-open', () => {
+    const target = pendingOpen
+    pendingOpen = null
+    return target
+  })
+
   // BYOK turns in flight: when the stream reveals the native session id, remember which
   // endpoint the session runs on so later resumes stay on that backend
   const byokTurns = new Map<string, { provider: Provider; endpointId: string }>()
@@ -671,10 +764,23 @@ app.whenReady().then(() => {
         byokTurns.delete(ev.turnId)
         handoffTurns.delete(ev.turnId)
       }
+      desk.chatEvent(ev)
       sendToWin('chat-event', ev)
     },
     {
       onBusyChange: (ids) => sendToWin('busy-sessions', ids),
+      onTurnStart: (turnId, req) => {
+        // a seat's turn is its table's business — the table lands once, as a whole
+        if (roundtables?.tableIdForCwd(req.cwd)) return
+        desk.turnStarted({
+          turnId,
+          provider: req.provider,
+          cwd: req.cwd,
+          prompt: req.prompt,
+          resumeNativeId: req.resumeNativeId
+        })
+      },
+      onTurnCancel: (turnId) => desk.turnCancelled(turnId),
       resolveEndpoint: (id) => listModelEndpoints().find((e) => e.id === id),
       resolveKey: (ep) => getEndpointKey(ep.id)
     }
@@ -750,7 +856,17 @@ app.whenReady().then(() => {
   const tables = new RoundtableManager(join(app.getPath('userData'), 'roundtables'), {
     sendTurn: (req) => chat.send(req),
     cancelTurn: (turnId) => chat.cancel(turnId),
-    emit: (ev) => sendToWin('roundtable-event', ev)
+    emit: (ev) => {
+      sendToWin('roundtable-event', ev)
+      // a table's run ending is news the way a turn's is — unless the user stopped it
+      if (ev.type !== 'round' || ev.running || ev.stopped) return
+      try {
+        const t = tables.get(ev.id)
+        desk.tableEnded({ id: t.id, title: t.title, outcome: tableOutcome(t) })
+      } catch {
+        /* the table is gone */
+      }
+    }
   })
   roundtables = tables
   // seat-sessions (anything whose cwd is a table's room/worktree) leave the normal

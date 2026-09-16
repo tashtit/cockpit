@@ -31,6 +31,7 @@ export default defineConfig({
           { text: 'Worktrees & PRs', link: '/guide/worktrees-and-prs' },
           { text: 'Chat', link: '/guide/chat' },
           { text: 'Roundtables', link: '/guide/roundtables' },
+          { text: 'Notifications', link: '/guide/notifications' },
           { text: 'Cleanup', link: '/guide/cleanup' }
         ]
       },

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   addModelEndpoint,
+  attentionPrefs,
   bindSessionEndpoint,
   bindSessionLineage,
   loadConfig,
@@ -12,6 +13,7 @@ import {
   sessionEndpointFor,
   sessionLineage,
   sessionLineageFor,
+  setAttentionPrefs,
   updateModelEndpoint
 } from '../src/main/config'
 import type { ModelEndpoint } from '../src/shared/types'
@@ -170,5 +172,31 @@ describe('session lineage', () => {
     const map = bindSessionLineage('claude:same', 'claude:same')
     expect(map).toEqual({})
     expect(sessionLineageFor('claude:same')).toBeUndefined()
+  })
+})
+
+describe('attention prefs', () => {
+  it('untouched switches follow the build — off outside an installed app, so dev and test runs stay silent', () => {
+    saveConfig({ sources: [] })
+    expect(attentionPrefs()).toEqual({ notifications: false, sound: false, badge: false })
+  })
+
+  it('writes only the switch the user flipped, so the others keep following the build', () => {
+    saveConfig({ sources: [] })
+    const saved = setAttentionPrefs({ notifications: false, sound: true, badge: false })
+    expect(saved).toEqual({ notifications: false, sound: true, badge: false })
+    expect(loadConfig().attention).toEqual({ sound: true })
+
+    setAttentionPrefs({ notifications: false, sound: false, badge: false })
+    expect(loadConfig().attention).toEqual({ sound: false })
+  })
+
+  it('treats renderer input as untrusted: anything but true is off, garbage in the file is ignored', () => {
+    saveConfig({ sources: [], attention: { notifications: 'yes' as unknown as boolean, badge: true } })
+    expect(attentionPrefs()).toEqual({ notifications: false, sound: false, badge: true })
+    const saved = setAttentionPrefs({ notifications: 1, sound: 'on', badge: null } as unknown as Parameters<
+      typeof setAttentionPrefs
+    >[0])
+    expect(saved).toEqual({ notifications: false, sound: false, badge: false })
   })
 })
