@@ -6,7 +6,7 @@ import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
-import { shortPath } from '../../shared/library'
+import { cwdLabel } from '../../shared/library'
 import { BranchChip, CockpitLogo, DiffIcon, HandoffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
@@ -214,7 +214,7 @@ export function ChatView({
                 setCwdCopied(true)
               }}
             >
-              {shortPath(binding.cwd)}
+              {cwdLabel(binding.cwd, binding.repoRoot, binding.branch)}
             </button>
             {cwdCopied && (
               <span className="copy-flash" role="status">

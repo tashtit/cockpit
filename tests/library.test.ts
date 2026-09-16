@@ -3,6 +3,7 @@ import {
   adoptInventory,
   buildReport,
   buildRow,
+  cwdLabel,
   instructionRow,
   kindsForScope,
   mcpFields,
@@ -247,5 +248,37 @@ describe('the instructions row', () => {
       entry
     )
     expect(r.drift).toEqual([])
+  })
+})
+
+describe('cwdLabel', () => {
+  const root = '/Users/dev/code/rocket'
+
+  it('names a worktree kept outside the repo by its directory, not its location', () => {
+    expect(
+      cwdLabel('/Users/dev/Library/Application Support/cockpit/worktrees/rocket/fix-retry', root)
+    ).toBe('worktree · fix-retry')
+  })
+
+  it("names an agent's worktree inside the repo the same way", () => {
+    expect(cwdLabel(`${root}/.claude/worktrees/ui-review/`, root)).toBe('worktree · ui-review')
+  })
+
+  it('drops the name when the branch chip beside it already says it', () => {
+    const cwd = '/Users/dev/Library/Application Support/cockpit/worktrees/rocket/fix-retry'
+    expect(cwdLabel(cwd, root, 'cockpit/fix-retry')).toBe('worktree')
+    expect(cwdLabel(cwd, root, 'main')).toBe('worktree · fix-retry')
+  })
+
+  it('keeps the abbreviated path for the checkout itself and its subdirectories', () => {
+    expect(cwdLabel(root, root)).toBe('~/code/rocket')
+    expect(cwdLabel(`${root}/packages/api`, root)).toBe('~/code/rocket/packages/api')
+    expect(cwdLabel(`${root}/worktrees/api`, root)).toBe('~/code/rocket/worktrees/api')
+  })
+
+  it('keeps the abbreviated path when there is no repo to compare against', () => {
+    expect(cwdLabel('/Users/dev/Library/Application Support/cockpit/worktrees/rocket/x', null)).toBe(
+      '~/Library/Application Support/cockpit/worktrees/rocket/x'
+    )
   })
 })
