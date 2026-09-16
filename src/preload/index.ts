@@ -66,6 +66,7 @@ const api: CockpitApi = {
   removeWorktrees: (paths: readonly string[]) =>
     ipcRenderer.invoke('cleanup:remove-worktrees', paths),
   getPrs: (repoRoot: string) => ipcRenderer.invoke('github:prs', repoRoot),
+  getDefaultBranch: (repoRoot: string) => ipcRenderer.invoke('github:default-branch', repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>
     ipcRenderer.invoke('workspace:create', repoRoot, name),
   createPr: (cwd: string) => ipcRenderer.invoke('workspace:pr', cwd),

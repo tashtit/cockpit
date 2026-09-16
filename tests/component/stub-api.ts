@@ -153,6 +153,7 @@ export function freshApi(): CockpitApi {
     deleteSessions: vi.fn(async () => ({ cleaned: 0, freedBytes: 0, failed: [] })),
     removeWorktrees: vi.fn(async () => ({ cleaned: 0, freedBytes: 0, failed: [] })),
     getPrs: vi.fn(async () => []),
+    getDefaultBranch: vi.fn(async () => 'main'),
     createWorkspace: vi.fn(async () => ({ cwd: '/tmp/wt', branch: 'main' })),
     createPr: vi.fn(async () => 'https://github.com/o/r/pull/1'),
     getWorkspaceDiff: vi.fn(async () => ({

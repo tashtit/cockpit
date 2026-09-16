@@ -229,3 +229,27 @@ describe('ChatView header PR badge', () => {
     expect(screen.queryByRole('button', { name: /Create PR/ })).not.toBeInTheDocument()
   })
 })
+
+describe('ChatView pull-request affordance', () => {
+  const inRepo: ChatBinding = { ...binding, nativeSessionId: 'abc-123' }
+
+  it('offers Create PR on a worktree branch', async () => {
+    vi.mocked(window.cockpit.getDefaultBranch).mockResolvedValue('main')
+    renderChat(vi.fn(), { binding: inRepo })
+    expect(await screen.findByRole('button', { name: 'Create PR' })).toBeInTheDocument()
+  })
+
+  it('never offers one on the branch a PR would target — gh refuses that', async () => {
+    vi.mocked(window.cockpit.getDefaultBranch).mockResolvedValue('main')
+    renderChat(vi.fn(), { binding: { ...inRepo, branch: 'main' } })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Create PR' })).not.toBeInTheDocument()
+    )
+  })
+
+  it('offers it when git cannot say what the default is', async () => {
+    vi.mocked(window.cockpit.getDefaultBranch).mockResolvedValue(null)
+    renderChat(vi.fn(), { binding: { ...inRepo, branch: 'main' } })
+    expect(await screen.findByRole('button', { name: 'Create PR' })).toBeInTheDocument()
+  })
+})

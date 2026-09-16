@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
+import { api } from './api'
 import type { ChatBinding } from './App'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
@@ -107,6 +108,22 @@ export function ChatView({
   )
   const chatWidth = useChatWidth()
 
+  // a session sitting on the branch a PR would target (the main checkout on `main`)
+  // can't open one — gh refuses a PR from a branch onto itself. Unknown default =
+  // offer it anyway: a missing answer must never hide a working affordance.
+  const [defaultBranch, setDefaultBranch] = useState<string | null>(null)
+  useEffect(() => {
+    setDefaultBranch(null)
+    const root = binding?.repoRoot
+    if (!root) return
+    let dead = false
+    void api.getDefaultBranch(root).then((b) => !dead && setDefaultBranch(b))
+    return () => {
+      dead = true
+    }
+  }, [binding?.repoRoot])
+  const onDefaultBranch = !!binding?.branch && binding.branch === defaultBranch
+
   const sliced = log.length > RENDER_LAST ? log.slice(-RENDER_LAST) : log
   const base = log.length - sliced.length
   // providers repeat identical system notices; consecutive duplicates add nothing.
@@ -211,7 +228,8 @@ export function ChatView({
           <PrBadge pr={branchPr} onOpen={onOpenUrl} />
         ) : (
           binding.repoRoot &&
-          binding.branch && (
+          binding.branch &&
+          !onDefaultBranch && (
             <button
               className="btn-pr"
               disabled={busy || prBusy}

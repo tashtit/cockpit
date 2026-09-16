@@ -45,7 +45,7 @@ import {
 import { deleteSessions, removeWorktrees, scanCleanup, type CleanupDeps } from './cleanup'
 import { DEFAULT_STALE_DAYS } from './cleanup-core'
 import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
-import { getPrs } from './github'
+import { getDefaultBranch, getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
 import { asDiffScope, getWorkspaceDiff } from './diff'
 import { asPrNumber, getPrFeedback, getPrFixBriefing } from './pr-feedback'
@@ -390,6 +390,9 @@ app.whenReady().then(() => {
     setTimeFormat(format)
   })
   ipcMain.handle('github:prs', (_e, repoRoot: string) => getPrs(assertKnownRepoRoot(repoRoot)))
+  ipcMain.handle('github:default-branch', (_e, repoRoot: string) =>
+    getDefaultBranch(assertKnownRepoRoot(repoRoot))
+  )
   ipcMain.handle('workspace:create', (_e, repoRoot: string, name?: string) =>
     createWorkspace(assertKnownRepoRoot(repoRoot), name)
   )
