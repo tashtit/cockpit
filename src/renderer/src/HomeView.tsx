@@ -10,6 +10,7 @@ import type {
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
+import { useLandedMap } from './landed'
 import { accountOptions, MODES, savedAccount, type StartSessionRequest } from './NewSession'
 import { BranchChip, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { Select } from './Select'
@@ -139,13 +140,28 @@ export function HomeView({
     if (err) setError(err)
   }
 
+  // the board and the roundtable strip are one thing — the fleet — and they move together
+  const busyMap = useBusyMap()
+  const landedMap = useLandedMap()
+  const active =
+    recent.some((s) => busyMap.has(s.id) || landedMap.has(s.id)) || tables.some((t) => t.running)
+  const fleetLeads = active && recent.length + tables.length > 0
+  const fleet = (
+    <>
+      {recent.length > 0 && (
+        <Board sessions={recent} total={recentTotal} onOpen={onOpenSession} />
+      )}
+      {tables.length > 0 && <RoundtableStrip tables={tables} onOpen={onOpenRoundtable} />}
+    </>
+  )
+
   return (
     <main className="chat home-view">
       <div className="home-inner">
-        {recent.length > 0 && (
-          <Board sessions={recent} total={recentTotal} onOpen={onOpenSession} />
-        )}
-        {tables.length > 0 && <RoundtableStrip tables={tables} onOpen={onOpenRoundtable} />}
+        {/* mission control leads with whatever is true right now: while the fleet is
+            up (or something landed unseen) the board opens the view; when everything
+            is quiet the composer does, and the board reads as recent activity below */}
+        {fleetLeads && fleet}
         <div className="home-hero">
           <h2>
             What should we ship
@@ -270,7 +286,7 @@ export function HomeView({
           <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
         )}
         {error && <div className="new-error" role="alert">{error}</div>}
-
+        {!fleetLeads && fleet}
       </div>
     </main>
   )
@@ -293,6 +309,7 @@ function Board({
   onOpen: (s: SessionMeta) => void
 }): JSX.Element {
   const busy = useBusyMap()
+  const landed = useLandedMap()
   // the elapsed column ticks only while something is actually flying
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -301,12 +318,16 @@ function Board({
     return () => clearInterval(t)
   }, [busy.size])
 
-  // flying first (longest airborne on top); idle keep their recency order
+  // flying first (longest airborne on top), then what landed while you were away
+  // (most recent landing first), then idle by recency — three states, one list
   const flying = sessions
     .filter((s) => busy.has(s.id))
     .sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
-  const ground = sessions.filter((s) => !busy.has(s.id))
-  const groundTotal = Math.max(total - flying.length, ground.length)
+  const arrived = sessions
+    .filter((s) => !busy.has(s.id) && landed.has(s.id))
+    .sort((a, b) => (landed.get(b.id) ?? 0) - (landed.get(a.id) ?? 0))
+  const ground = sessions.filter((s) => !busy.has(s.id) && !landed.has(s.id))
+  const groundTotal = Math.max(total - flying.length - arrived.length, ground.length)
 
   return (
     <section className="board" aria-label="Session board">
@@ -315,18 +336,29 @@ function Board({
             outranks nothing above it would read as a skipped level.
             Polite live region — turn starts/completions announce the new counts */}
         <h2 className="board-eyebrow" aria-live="polite">
-          {flying.length > 0 ? (
-            <>
-              <b>{flying.length} flying</b> · {groundTotal} on the ground
-            </>
-          ) : (
+          {flying.length === 0 && arrived.length === 0 ? (
             <>all on the ground</>
+          ) : (
+            <>
+              {flying.length > 0 && <b>{flying.length} flying</b>}
+              {flying.length > 0 && arrived.length > 0 && ' · '}
+              {arrived.length > 0 && <b>{arrived.length} landed</b>}
+              {' · '}
+              {groundTotal} on the ground
+            </>
           )}
         </h2>
       </div>
       <ul className="board-list">
-        {[...flying, ...ground].map((s) => (
-          <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} now={now} onOpen={onOpen} />
+        {[...flying, ...arrived, ...ground].map((s) => (
+          <BoardRow
+            key={s.id}
+            s={s}
+            startedAt={busy.get(s.id)}
+            landedAt={busy.has(s.id) ? undefined : landed.get(s.id)}
+            now={now}
+            onOpen={onOpen}
+          />
         ))}
       </ul>
     </section>
@@ -386,26 +418,35 @@ function RoundtableStrip({
 function BoardRow({
   s,
   startedAt,
+  landedAt,
   now,
   onOpen
 }: {
   s: SessionMeta
   /** Epoch ms the running turn started; undefined = on the ground */
   startedAt: number | undefined
+  /** Epoch ms its last turn ended, while you weren't looking; undefined = seen */
+  landedAt: number | undefined
   now: number
   onOpen: (s: SessionMeta) => void
 }): JSX.Element {
   const timeFormat = useTimeFormat()
   const flying = startedAt !== undefined
+  const landed = !flying && landedAt !== undefined
   return (
     <li>
       <button
-        className={`board-row ${flying ? 'flying' : ''}`}
-        title={`${PROVIDER_LABEL[s.provider]} — ${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}`}
+        className={`board-row ${flying ? 'flying' : ''} ${landed ? 'landed' : ''}`}
+        title={`${PROVIDER_LABEL[s.provider]} — ${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${
+          landed ? '\nfinished while you were away' : ''
+        }`}
         onClick={() => onOpen(s)}
       >
         {flying ? (
           <LiveDot p={s.provider} />
+        ) : landed ? (
+          // solid, unpulsing, in the agent's livery: arrived, not working
+          <span className={`board-dot-landed plogo-${s.provider}`} aria-hidden="true" />
         ) : (
           <span className="board-dot-idle" aria-hidden="true" />
         )}
@@ -418,6 +459,11 @@ function BoardRow({
         {s.repo && <span className="board-repo">{s.repo.name}</span>}
         {flying ? (
           <span className="board-meta">{fmtElapsed(now - startedAt)}</span>
+        ) : landed ? (
+          // the word carries the state, so colour never carries it alone
+          <span className="board-meta board-meta-landed">
+            landed {fmtTime(s.updatedAt, timeFormat)}
+          </span>
         ) : (
           <time className="board-meta" dateTime={new Date(s.updatedAt).toISOString()}>
             {fmtTime(s.updatedAt, timeFormat)}

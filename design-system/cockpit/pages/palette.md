@@ -28,8 +28,9 @@ the same data path as everything else (`pageSessions`, never a shipped index).
 ## Sections
 
 - **Empty query — the board in miniature:** `flying now` (busy sessions, longest
-  airborne first, livery `LiveDot`s) · `recent` (idle by recency, 8 total from one
-  `pageSessions` call) · `go to` (all views). The palette inherits the app's signature
+  airborne first, livery `LiveDot`s) · `landed` (turns that ended unseen, newest first,
+  solid livery dot) · `recent` (idle by recency, 8 total from one `pageSessions` call) ·
+  `go to` (all views). The palette inherits the app's signature
   liveness; it adds no decoration of its own.
 - **With a query:** `sessions` (server search, capped at 6; overflow states the count —
   "N more — keep typing to narrow") · `start a session in` (name-matched repos with a

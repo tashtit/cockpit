@@ -978,6 +978,11 @@ summary::-webkit-details-marker { display: none; }
 .board-row.flying .board-agent-copilot { color: var(--copilot); }
 .board-dot-idle { width: 7px; height: 7px; border-radius: 50%;
   background: var(--fg-dim); opacity: 0.35; flex-shrink: 0; }
+/* landed: the turn ended and nobody has looked yet. Solid livery dot — arrived,
+   not working — against flying's pulse and the ground's dim grey. */
+.board-dot-landed, .landed-dot { width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor; flex-shrink: 0; }
+.board-meta-landed { color: var(--fg); }
 .board-row .pulse { flex-shrink: 0; }
 .board-task { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
@@ -1711,8 +1716,13 @@ button.pnl-flag:hover { text-decoration: underline; }
   background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.08), transparent 55%); }
 .board-row.flying:has(.pulse-copilot) {
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.09), transparent 55%); }
+/* landed rows carry the same livery, one step quieter than flying: an inset bar
+   instead of a wash, so the group reads as arrivals without shouting over them */
+.board-row.landed:has(.plogo-claude) { box-shadow: inset 2px 0 0 var(--claude); }
+.board-row.landed:has(.plogo-codex) { box-shadow: inset 2px 0 0 var(--codex); }
+.board-row.landed:has(.plogo-copilot) { box-shadow: inset 2px 0 0 var(--copilot); }
 /* :has beats .board-row:hover on specificity, so restate hover feedback */
-.board-row.flying:hover { filter: brightness(1.18); }
+.board-row.flying:hover, .board-row.landed:hover { filter: brightness(1.18); }
 
 /* ---------- responsive: shed decoration before anything truncates ----------
    These live at the END of the file on purpose: they override same-specificity

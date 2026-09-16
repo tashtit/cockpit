@@ -43,8 +43,10 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     logo, title, optional `.acct-chip` (only on a **non-default** account's rows when that
     provider has several — the exception is what gets marked; the provider prefix is
     dropped, so `claude-work` reads `work`),
-    then the exclusive meta slot: agent-colored `LiveDot` while the session's provider
-    process runs, else compact `PrBadge`, else timestamp. Archived = strikethrough + dimmed,
+    then the exclusive meta slot, in order of urgency: agent-colored `LiveDot` while the
+    session's provider process runs, else a solid `.landed-dot` in the agent's color while
+    the session has an unseen landing (`useSessionLanded`, `aria-label="finished — not
+    opened yet"`), else compact `PrBadge`, else timestamp. Archived = strikethrough + dimmed,
     plus an `sr-only` "(archived)" — the strikethrough is the only visual signal, so it
     can't be the only signal.
   - Chats section — split off the repo tree by a full-bleed hairline divider + extra gap

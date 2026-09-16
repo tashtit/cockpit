@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { BusySession } from '../../shared/types'
 import { api } from './api'
+import { noteTurnsEnded } from './landed'
 
 /**
  * Tiny shared store for live session status: rows in the sidebar tree and the
@@ -19,7 +20,12 @@ function subscribe(cb: () => void): () => void {
 }
 
 function set(sessions: BusySession[]): void {
-  busy = new Map(sessions.map((s) => [s.id, s.startedAt]))
+  const next = new Map(sessions.map((s) => [s.id, s.startedAt]))
+  // an id that leaves the busy set is a turn that just ended — the one moment
+  // Cockpit can tell "finished" from "idle since yesterday" (see landed.ts)
+  const ended = [...busy.keys()].filter((id) => !next.has(id))
+  busy = next
+  if (ended.length > 0) noteTurnsEnded(ended)
   listeners.forEach((l) => l())
 }
 
