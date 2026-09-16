@@ -294,7 +294,8 @@ describe('RoundtableManager', () => {
     expect(h.manager.get(snap.id).running).toBe(false)
     expect(h.manager.get(snap.id).entries).toHaveLength(1) // just the user topic
     expect(h.sent).toHaveLength(2) // nothing new launched
-    expect(h.events[h.events.length - 1]).toMatchObject({ type: 'round', running: false })
+    // the close says the user stopped it, so nobody is notified about a round they ended
+    expect(h.events[h.events.length - 1]).toMatchObject({ type: 'round', running: false, stopped: true })
   })
 
   it('refuses overlapping rounds and unknown tables', () => {
@@ -342,6 +343,7 @@ describe('RoundtableManager', () => {
     const closes = h.events.filter((e) => e.type === 'round' && !e.running)
     expect(closes).toHaveLength(1)
     expect(closes[0]).toMatchObject({ concluded: true })
+    expect(closes[0]).not.toHaveProperty('stopped')
   })
 
   it('consensus: keeps discussing while seats disagree, concludes honestly at the cap', () => {

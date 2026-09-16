@@ -6,8 +6,8 @@
 it answers "what is Cockpit watching, as whom, how much of each subscription is used,
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
-sections, in order: Agent accounts & usage · History · Display · GitHub · Model
-providers · Backup · About).
+sections, in order: Agent accounts & usage · History · Display · Notifications · GitHub ·
+Model providers · Backup · About).
 
 - **One account is one row.** Identity, config home, what that subscription has spent and
   its health all live in the row for that config home — the view used to list the same
@@ -56,6 +56,22 @@ providers · Backup · About).
 - Usage rows inside an account: window label · `.usage-meter` fill bar in the agent's
   identity color (`.hot` ≥90%) · `.usage-num` percentage (token detail in the `title`
   tooltip). At ≤780px the label takes its own line over a flexing meter.
+- Notifications section (`NotificationsSection.tsx`): the `.ns-hint` must keep saying
+  when Cockpit speaks (a turn finishing or failing, a roundtable concluding), that it never
+  speaks about the session in front of a focused window, and that endings arriving together
+  share one notification. Three switches, one `.source-row.attn-switch` each — the whole
+  row is a `<label>` around a native checkbox (global `accent-color`, 14px box with a margin
+  for the 24px target), a `.source-label` name and a `.source-note` saying what the switch
+  does. The checkbox is named by the label span alone (`aria-labelledby`) and described by
+  the note (`aria-describedby`) — a wrapping label would otherwise read the note as part of
+  its name. Order: Desktop notifications · Sound · Dock badge. A flip saves at once,
+  announces "<name> on/off" through the card's `role="status"` region, and reverts (with
+  the error announced) if main refuses. Last, a "Try it" `.source-row` with one
+  `.btn-ghost.small` "Send a test notification" ("Sending…", disabled, while macOS answers)
+  whose `.source-note` readout says what macOS did: shown, refused (explained as the unsigned
+  build, then a second note line `macOS said: <code>…</code>` verbatim), or no answer yet
+  (the permission prompt). Before a test it says a development run starts the switches off.
+  The test posts a sample regardless of the switch — pressing the button is the request.
 - GitHub section: one row — `OrgIcon` · "gh CLI" · `@login` acct-chip (or `.missing`)
   · `.source-note` prose (NOT mono; mono is machine identifiers only). Copy references
   real commands in `<code>` (`gh auth login`).

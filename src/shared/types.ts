@@ -685,6 +685,52 @@ export type BusySession = {
   readonly startedAt: number
 }
 
+/* ---------- attention: notifications, sounds and the Dock badge ---------- */
+
+/** Settings › Notifications — how Cockpit tells you an agent needs you. */
+export type AttentionPrefs = {
+  /** A desktop notification when a turn finishes or fails, or a roundtable concludes */
+  readonly notifications: boolean
+  /** A short macOS system sound on finish and on failure */
+  readonly sound: boolean
+  /** The number of landed, unopened sessions on the Dock icon */
+  readonly badge: boolean
+}
+
+/** What the window shows. Main never notifies about it while the window is focused. */
+export type AttentionFocus =
+  | {
+      readonly kind: 'session'
+      /** `${provider}:${nativeId}`; null for a new chat whose agent hasn't named its session yet */
+      readonly id: string | null
+      readonly provider: Provider
+      readonly cwd: string
+    }
+  | { readonly kind: 'roundtable'; readonly id: string }
+  | { readonly kind: 'none' }
+
+/** A session whose turn ended while nobody was looking at it (the board's landed rows). */
+export type Landing = {
+  /** Session id: `${provider}:${nativeId}` */
+  readonly id: string
+  /** Epoch ms the turn ended */
+  readonly at: number
+}
+
+/** Where clicking a notification takes the window. */
+export type AttentionTarget =
+  | { readonly kind: 'session'; readonly id: string }
+  | { readonly kind: 'roundtable'; readonly id: string }
+  | { readonly kind: 'home' }
+
+/** What macOS did with a notification Cockpit asked it to show. */
+export type NotificationDelivery =
+  | { readonly status: 'shown' }
+  /** macOS refused it — unsigned builds are never allowed to post notifications */
+  | { readonly status: 'refused'; readonly message: string }
+  /** No answer in time: it may be waiting on the permission prompt */
+  | { readonly status: 'unknown' }
+
 export type ChatEvent =
   | { readonly turnId: string; readonly type: 'session'; readonly nativeSessionId: string }
   | { readonly turnId: string; readonly type: 'text'; readonly text: string }
@@ -823,6 +869,8 @@ export type RoundtableEvent =
       readonly roundsRun?: number
       /** The cycle just closed with a synthesis (consensus mode) */
       readonly concluded?: boolean
+      /** The user stopped the round — nothing finished, so nobody is notified */
+      readonly stopped?: boolean
     }
   | { readonly id: string; readonly type: 'turn'; readonly speaker: Provider; readonly seat: number }
   /** The seat's turn is over — fires even when no entry was produced (silent stop) */
@@ -1080,6 +1128,21 @@ export type CockpitApi = {
   readonly getBusySessions: () => Promise<BusySession[]>
   /** Push: fires with the full busy set whenever a turn starts, ends, or gains a session id */
   readonly onBusySessions: (cb: (sessions: BusySession[]) => void) => () => void
+  /* attention: notifications, sound and the Dock badge */
+  readonly getAttentionPrefs: () => Promise<AttentionPrefs>
+  readonly setAttentionPrefs: (prefs: AttentionPrefs) => Promise<AttentionPrefs>
+  /** Post a sample notification (with the sound, when that is on) and report what macOS did */
+  readonly testNotification: () => Promise<NotificationDelivery>
+  /** Tell main what the window shows — it never notifies about that, and opening clears a landing */
+  readonly setAttentionFocus: (focus: AttentionFocus) => Promise<void>
+  /** Sessions that landed while nobody was looking, newest first */
+  readonly getLandings: () => Promise<Landing[]>
+  /** Push: the landed set changed (a turn ended unseen, or a session was opened) */
+  readonly onLandings: (cb: (landings: Landing[]) => void) => () => void
+  /** Push: a notification was clicked — the window is already focused, open the target */
+  readonly onAttentionOpen: (cb: (target: AttentionTarget) => void) => () => void
+  /** A click that came in while no window was listening; null when there is none */
+  readonly takeAttentionOpen: () => Promise<AttentionTarget | null>
   readonly setArchived: (sessionId: string, archived: boolean) => Promise<void>
   readonly setRepoHidden: (repoKey: string, hidden: boolean) => Promise<void>
   /** Days of history to display — sessions idle longer are hidden; 0 = all */

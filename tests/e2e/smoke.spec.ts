@@ -52,3 +52,14 @@ test('preload bridge is wired through context isolation', async () => {
   await prompt.fill('smoke test task')
   await expect(prompt).toHaveValue('smoke test task')
 })
+
+test('notifications, sound and the Dock badge start off outside an installed app', async () => {
+  // what keeps e2e, the UI tour and `npm run dev` from ever posting, playing or badging
+  const win = await app.firstWindow()
+  await win.keyboard.press('ControlOrMeta+,')
+  await expect(win.getByRole('heading', { name: 'Notifications' })).toBeVisible()
+  for (const name of ['Desktop notifications', 'Sound', 'Dock badge']) {
+    await expect(win.getByRole('checkbox', { name })).not.toBeChecked()
+  }
+  expect(await app.evaluate(({ app }) => app.getBadgeCount())).toBe(0)
+})

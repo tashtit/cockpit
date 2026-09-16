@@ -341,13 +341,15 @@ export class RoundtableManager {
   }
 
   private endRound(id: string): void {
+    const stopped = this.rounds.get(id)?.cancelled === true
     if (!this.rounds.delete(id)) return
     const t = this.tables.get(id)
     this.hooks.emit({
       id,
       type: 'round',
       running: false,
-      ...(t ? { roundsRun: t.roundsRun, concluded: t.concluded } : {})
+      ...(t ? { roundsRun: t.roundsRun, concluded: t.concluded } : {}),
+      ...(stopped ? { stopped: true } : {})
     })
   }
 

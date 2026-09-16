@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import type { LibraryEntry, ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
+import type { AttentionPrefs, LibraryEntry, ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
 import { clampStaleDays } from './cleanup-core'
 
 export type AppConfig = {
@@ -45,6 +45,8 @@ export type AppConfig = {
   readonly removedEndpoints?: Record<string, string>
   /** Handoff lineage: source session each session continues, keyed by `${provider}:${nativeId}` */
   readonly continuedFrom?: Record<string, string>
+  /** Notification, sound and Dock-badge switches the user flipped; an absent one follows the build */
+  readonly attention?: Partial<AttentionPrefs>
 }
 
 /**
@@ -190,6 +192,37 @@ export function setTimeFormat(format: TimeFormat): TimeFormat {
   const f: TimeFormat = format === '12h' ? '12h' : '24h'
   saveConfig({ ...cfg, timeFormat: f })
   return f
+}
+
+const ATTENTION_KEYS = ['notifications', 'sound', 'badge'] as const
+
+/**
+ * A switch the user never touched is on in an installed app and off everywhere else,
+ * so `npm run dev`, e2e and the UI tour stay silent unless someone turned them on.
+ */
+export function attentionPrefs(): AttentionPrefs {
+  const on = app?.isPackaged === true
+  const set = loadConfig().attention ?? {}
+  return {
+    notifications: typeof set.notifications === 'boolean' ? set.notifications : on,
+    sound: typeof set.sound === 'boolean' ? set.sound : on,
+    badge: typeof set.badge === 'boolean' ? set.badge : on
+  }
+}
+
+export function setAttentionPrefs(next: AttentionPrefs): AttentionPrefs {
+  const cfg = loadConfig()
+  const current = attentionPrefs()
+  // only a flipped switch is written: an untouched one keeps following the build, so
+  // turning sound off in the installed app never switches a dev run's banners on
+  const stored: { -readonly [K in keyof AttentionPrefs]?: boolean } = { ...cfg.attention }
+  for (const key of ATTENTION_KEYS) {
+    // renderer input is untrusted — anything but true is off
+    const value = next?.[key] === true
+    if (value !== current[key]) stored[key] = value
+  }
+  saveConfig({ ...cfg, attention: stored })
+  return attentionPrefs()
 }
 
 export function listModelEndpoints(): ModelEndpoint[] {

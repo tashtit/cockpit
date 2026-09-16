@@ -235,9 +235,13 @@ type RunningTurn = {
   readonly sessionIds: Set<string>
 }
 
-/** Optional collaborators wired by index.ts (busy board + BYOK endpoint/keychain store). */
+/** Optional collaborators wired by index.ts (busy board, attention, BYOK endpoint/keychain store). */
 type ChatManagerHooks = {
   readonly onBusyChange?: (sessions: BusySession[]) => void
+  /** Every turn, before any of its events — fast failures included */
+  readonly onTurnStart?: (turnId: string, req: ChatRequest) => void
+  /** cancel() was called: the error and done that follow are the kill, not a failure */
+  readonly onTurnCancel?: (turnId: string) => void
   readonly resolveEndpoint?: ResolveEndpoint
   readonly resolveKey?: ResolveKey
 }
@@ -271,6 +275,8 @@ export class ChatManager {
 
   send(req: ChatRequest): string {
     const turnId = randomUUID()
+    // synchronous, so it runs before the microtask a refused turn emits its events in
+    this.hooks.onTurnStart?.(turnId, req)
     if (req.resumeNativeId && !isValidNativeId(req.resumeNativeId)) {
       queueMicrotask(() => {
         this.emit({ turnId, type: 'error', message: 'Refusing to resume: session id in the log looks malformed.' })
@@ -434,6 +440,7 @@ export class ChatManager {
   cancel(turnId: string): void {
     const t = this.turns.get(turnId)
     if (!t) return
+    this.hooks.onTurnCancel?.(turnId)
     this.turns.delete(turnId)
     this.notifyBusy()
     const pid = t.child.pid
