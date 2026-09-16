@@ -74,8 +74,8 @@ rather than a pale rinse of the button fill.
 
 ## Typography
 
-- **UI font:** system stack (`-apple-system, 'Inter', 'Segoe UI'`) — no webfont import; this is a desktop app, load nothing over the network.
-- **Mono:** `--mono` (`ui-monospace, 'SF Mono', 'Fira Code'`) carries two registers, keep them distinct:
+- **UI font:** `--sans` — **IBM Plex Sans**, bundled with the app (`src/renderer/src/assets/fonts/`, SIL OFL 1.1, license file beside it), falling back to the system stack. It is loaded from disk, never fetched: the rule is *nothing over the network*, and a desktop tool that borrows the OS UI face wears the OS's identity instead of its own. Plex was drawn for engineering documentation — a mechanical grotesque with humanist joints — which is the register this app speaks in. Only the weights the app sets ship (400/500/600/700 + one 400 italic), latin subset, ~160KB total. `body` carries `letter-spacing: -0.06px`: Plex sits a touch wide at 11–13px chrome sizes, and the hair of negative tracking keeps a dense row reading as one line.
+- **Mono:** `--mono` — **IBM Plex Mono** (same bundle, falling back to `ui-monospace`/`SF Mono`) carries two registers, keep them distinct:
   - *machine identifiers* (normal case): account IDs, branches, paths, code — as always.
   - *placards* (the instrument voice): the hero h2, the `COCKPIT` wordmark, view
     headings (`.ns-head h2`, `.empty-chat h2` — uppercase), tabs (`.ext-tab`), the
@@ -112,7 +112,8 @@ Reuse these; don't invent parallel variants:
 - **`.acct-chip`** — the one account-identity component (mono pill, agent-tinted border; `.missing` = warn/italic).
 - **`.pr-badge`** — PR state pill, GitHub colors, outline style. On an open PR it carries the checks verdict as a second glyph (`.pr-checks` — check / x / dot in `--ok` / `--danger` / `--warn`, so the shape carries the state) and a 5px `.pr-review-mark` when changes were requested; both, plus approved / review required, are spelled out in the tooltip and `aria-label`. Merged and closed PRs show neither.
 - **`.branch-chip`** — branch-blue mono pill (render via `BranchChip`: the constant `cockpit/` worktree prefix abbreviates to a dimmed `c/` so the distinguishing suffix wins truncation; full name in the tooltip).
-- **`LiveDot`** (`.pulse.pulse-{agent}`) — 7px agent-colored pulse: "this session's agent is running right now". Occupies the row's exclusive meta slot (running beats PR badge beats timestamp) in sidebar session rows and board rows.
+- **`LiveDot`** (`.pulse.pulse-{agent}`) — 7px agent-colored pulse: "this session's agent is running right now". Occupies the row's exclusive meta slot (running beats landed beats PR badge beats timestamp) in sidebar session rows and board rows.
+- **`.landed-dot` / `.board-dot-landed`** — the same 7px in the agent's color, solid and still: "its turn ended and you haven't looked yet". The state lives in `landed.ts` (a localStorage store fed by `busy.ts`'s transitions), never in main: main knows a process exited, only the renderer knows whether anyone was watching. Always paired with a word (`landed <time>`, or an `aria-label`) — a dot alone would be colour carrying state.
 - **`.board`** — the app's signature element (home only): departure-board of sessions, flying first — livery-lit placard labels, branch chips, ticking elapsed time. Quiet `--surface` instrument panel; never give it the composer card's floating shadow. See `pages/home.md`.
 - **`.pv-heat`** — activity heatmap (profile only): GitHub's week-column grid, but squares carry the **agent's** identity color (the agent that led that day) rather than the accent, so the grid doubles as an agent mix. The one sanctioned place agent tints exceed the 0.10–0.16 range — 11px squares hold no text. See `pages/profile.md`.
 - **`FilterBar`** (`.fb-bar`) — the app's list-filtering surface: one row of dimension pills over a portaled include/exclude popover, with free text leftmost behind a hairline divider. The pill *is* the active-filter chip (it summarises its own selection: `Any` → `web` → `not docs` → `2 selected, 1 excluded`), so there is never a second row of filter tokens to keep in sync. Dimensions are pinned via a dashed `＋ Add filter`; one carrying a value is always shown whether pinned or not. OR within a dimension, AND across them. Generic over `FilterGroup` — reuse it rather than hand-rolling per-view filters. See `pages/cleanup.md`.
@@ -157,7 +158,7 @@ Nothing renders with stock Chromium chrome:
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Light-mode defaults, webfont imports, or network-loaded assets
+- ❌ Light-mode defaults or network-loaded assets — fonts ship *inside* the app (see Typography); nothing is ever fetched at runtime
 - ❌ Raw hex in components (tokens only)
 - ❌ Emojis as icons — SVG only (see `logos.tsx`); if a unicode glyph is unavoidable, force text presentation with U+FE0E
 - ❌ Layout-shifting hover/pressed transforms (translate/scale on rows or buttons)

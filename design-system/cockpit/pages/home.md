@@ -2,9 +2,11 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** mission control opens with **the board** — a departure-board of sessions,
-flying first — then the task composer. The board is the app's signature element; the
-composer is the action. This is the only view allowed hero-scale type (`--fs-xl`) and a
+**Pattern:** mission control leads with whatever is true right now. While the fleet is up —
+anything flying, or anything **landed** and not yet looked at — **the board** opens the view
+and the composer follows; when everything is quiet the composer leads and the board reads as
+recent activity underneath it. The board is the app's signature element; the composer is the
+action, and which one comes first is the view's one piece of state. This is the only view allowed hero-scale type (`--fs-xl`) and a
 floating card shadow (the composer card — the board is deliberately a quiet instrument
 surface, no shadow).
 
@@ -15,8 +17,11 @@ surface, no shadow).
   `justify-content: safe center` and children carry `flex-shrink: 0` — both load-bearing:
   unqualified centering clips the top out of scroll reach, and shrinkable children let the
   composer card collapse to a sliver on short windows.
-- Order: `.board` (only when sessions exist) → hero (h2 + sub + kbd hints; no logo — the
-  sidebar carries the mark) → `.composer-card` → error line.
+- Order: hero (h2 + sub + kbd hints; no logo — the sidebar carries the mark) →
+  `.composer-card` → error line, with **the fleet** (`.board` + the roundtable strip, which
+  always travel together) placed either above the hero or below the composer. It leads when
+  `useBusyMap()` or `useLandedMap()` holds one of the board's rows, or a table is running —
+  otherwise it follows. Nothing is hidden either way; only the order changes.
 - The hero h2 is flat `--fg` (no gradient-clip decoration), set in the mono placard
   voice (the identity layer re-voices it; see MASTER Typography); when `gh` reports a
   user the headline personalizes — "What should we ship`, Titan?`" — the login's first
@@ -34,14 +39,19 @@ surface, no shadow).
   seat cluster in the same `.board-lead` column.
 - **Flying** (session's provider process running, from the `useBusyMap()` store): `LiveDot`
   pulse + placard lit in the agent's livery color + elapsed time (`fmtElapsed`, ticks at
-  1s only while ≥1 session is flying). **On the ground:** dim static dot, dim placard,
-  last-activity `fmtTime`.
-- Ordering: flying first (longest airborne on top), then idle by recency. Rows come from
+  1s only while ≥1 session is flying). **Landed** (its turn ended and nobody has opened it
+  since, from `useLandedMap()`): a solid, unpulsing livery dot, a livery inset bar instead of
+  flying's wash, and `landed <time>` in the meta slot — the word carries the state, so colour
+  never carries it alone. **On the ground:** dim static dot, dim placard, last-activity
+  `fmtTime`.
+- Ordering: flying first (longest airborne on top), then landed (most recent landing first),
+  then idle by recency — three states, one list. Rows come from
   the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
   list; don't grow this.
 - `.board-eyebrow` (h2 — the board renders above the hero's h2, so an h3 here would read
-  as a skipped level): "**N flying** · M on the ground" (M from the page total), or
-  "all on the ground" when idle. It is a polite `aria-live` region — turn starts and
+  as a skipped level): "**N flying** · **M landed** · K on the ground" (K from the page
+  total, either count dropped when zero), or "all on the ground" when nothing is flying
+  and nothing has landed unseen. It is a polite `aria-live` region — turn starts and
   completions announce the new counts.
 - ≤780px the row sheds `.board-repo` first — the branch chip carries more identity;
   ≤700px the `.board-branch` slot goes too, because on a ~360px pane the task title is

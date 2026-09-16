@@ -22,6 +22,7 @@ import { RoundtableView } from './RoundtableView'
 import { PROVIDER_LABEL } from './logos'
 import { Settings, type SettingsSection } from './Settings'
 import { branchHint, taskTitle } from './task-names'
+import { markSeen, setViewing } from './landed'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -239,6 +240,9 @@ export function App(): JSX.Element {
         if (provider) {
           const newId = `${provider}:${ev.nativeSessionId}`
           const oldId = selectedSessionIdRef.current
+          // claude forks an id per resumed turn: the id we were watching is about
+          // to leave the busy set, and its landing would be news about nothing
+          markSeen(oldId)
           setSelectedSessionId(newId)
           // history entries for this conversation follow the mint — restoring
           // one later must resume the new id, not fork a pre-turn snapshot
@@ -676,6 +680,12 @@ export function App(): JSX.Element {
   const openRepoSetup = useCallback((repoRoot: string) => {
     setView({ kind: 'extensions', repoRoot })
   }, [])
+
+  // what the chat pane is showing: a session watched live can never be "landed,
+  // unseen", and opening one clears its landing (landed.ts)
+  useEffect(() => {
+    setViewing(view.kind === 'chat' ? selectedSessionId : null)
+  }, [view.kind, selectedSessionId])
 
   // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])

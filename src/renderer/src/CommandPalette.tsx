@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type JSX, type ReactNode }
 import type { RepoGroup, SessionMeta, TimeFormat } from '../../shared/types'
 import { api } from './api'
 import { useBusyMap } from './busy'
+import { useLandedMap } from './landed'
 import {
   AgentIcon,
   BranchChip,
@@ -116,6 +117,7 @@ export function CommandPalette({
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const busy = useBusyMap()
+  const landed = useLandedMap()
   const timeFormat = useTimeFormat()
   const baseId = useId()
   const listId = `${baseId}-list`
@@ -192,19 +194,24 @@ export function CommandPalette({
       if (viewHits.length > 0)
         out.push({ label: 'go to', items: viewHits.map((v) => ({ kind: 'view', v })) })
     } else {
-      // the board's ordering, in miniature: flying first, longest airborne on top
+      // the board's ordering, in miniature: flying, then what landed unseen, then recent
       const flying = got
         .filter((s) => busy.has(s.id))
         .sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
-      const ground = got.filter((s) => !busy.has(s.id))
+      const arrived = got
+        .filter((s) => !busy.has(s.id) && landed.has(s.id))
+        .sort((a, b) => (landed.get(b.id) ?? 0) - (landed.get(a.id) ?? 0))
+      const ground = got.filter((s) => !busy.has(s.id) && !landed.has(s.id))
       if (flying.length > 0)
         out.push({ label: 'flying now', items: flying.map((s) => ({ kind: 'session', s })) })
+      if (arrived.length > 0)
+        out.push({ label: 'landed', items: arrived.map((s) => ({ kind: 'session', s })) })
       if (ground.length > 0)
         out.push({ label: 'recent', items: ground.map((s) => ({ kind: 'session', s })) })
       out.push({ label: 'go to', items: VIEWS.map((v) => ({ kind: 'view', v })) })
     }
     return out
-  }, [sessions, debounced, repos, busy])
+  }, [sessions, debounced, repos, busy, landed])
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 
@@ -288,6 +295,7 @@ export function CommandPalette({
                       it={it}
                       active={i === active}
                       flying={it.kind === 'session' && busy.has(it.s.id)}
+                      landed={it.kind === 'session' && !busy.has(it.s.id) && landed.has(it.s.id)}
                       showRepo={debounced !== ''}
                       timeFormat={timeFormat}
                       onHover={() => setActive(i)}
@@ -323,6 +331,7 @@ function PaletteOption({
   it,
   active,
   flying,
+  landed,
   showRepo,
   timeFormat,
   onHover,
@@ -332,6 +341,8 @@ function PaletteOption({
   it: Item
   active: boolean
   flying: boolean
+  /** Its last turn ended and it hasn't been opened since (landed.ts) */
+  landed: boolean
   /** Query mode shows which repo a session belongs to; recent mode stays clean */
   showRepo: boolean
   timeFormat: TimeFormat
@@ -370,6 +381,12 @@ function PaletteOption({
           {showRepo && it.s.repo && <span className="palette-hint">{it.s.repo.name}</span>}
           {flying ? (
             <LiveDot p={it.s.provider} />
+          ) : landed ? (
+            <span
+              className={`landed-dot plogo-${it.s.provider}`}
+              role="img"
+              aria-label="finished — not opened yet"
+            />
           ) : (
             <time className="palette-meta" dateTime={new Date(it.s.updatedAt).toISOString()}>
               {fmtTime(it.s.updatedAt, timeFormat)}

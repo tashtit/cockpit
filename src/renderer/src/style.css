@@ -1,3 +1,25 @@
+/* ---------- type: bundled, never fetched ----------
+   IBM Plex (SIL OFL 1.1, LICENSE-IBM-Plex.txt beside the files) ships inside the app.
+   It is loaded from disk, not the network — the anti-pattern is a *webfont import*,
+   and a desktop tool that borrows the OS UI face has the OS's identity, not its own.
+   Plex was drawn for engineering documentation: a mechanical grotesque with humanist
+   joints, and a mono whose uppercase reads as an instrument placard at 11px. Latin
+   subset, only the weights the app actually sets (400/500/600/700, one italic). */
+@font-face { font-family: 'Plex Sans'; font-style: normal; font-weight: 400;
+  font-display: block; src: url('./assets/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Sans'; font-style: italic; font-weight: 400;
+  font-display: block; src: url('./assets/fonts/ibm-plex-sans-latin-400-italic.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Sans'; font-style: normal; font-weight: 500;
+  font-display: block; src: url('./assets/fonts/ibm-plex-sans-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Sans'; font-style: normal; font-weight: 600;
+  font-display: block; src: url('./assets/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Sans'; font-style: normal; font-weight: 700;
+  font-display: block; src: url('./assets/fonts/ibm-plex-sans-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Mono'; font-style: normal; font-weight: 400;
+  font-display: block; src: url('./assets/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Mono'; font-style: normal; font-weight: 600;
+  font-display: block; src: url('./assets/fonts/ibm-plex-mono-latin-600-normal.woff2') format('woff2'); }
+
 * { margin: 0; box-sizing: border-box; }
 /* lists are layout, not prose: the UA's 40px inline-start pad silently indented every
    row list (sources, instruction files, the board) off its own section's left edge.
@@ -53,8 +75,11 @@ ul, ol { padding: 0; }
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);     /* popovers/listboxes */
   --shadow-fill: 0 1px 2px rgba(0, 0, 0, 0.45);     /* contact shadow under a filled button */
   --scrim: rgba(5, 6, 11, 0.6);                     /* modal backdrop: --bg-deep's channels */
-  --mono: ui-monospace, 'SF Mono', 'Fira Code', monospace;
-  --sans: -apple-system, 'Inter', 'Segoe UI', sans-serif;  /* the UI face: system stack, nothing loaded */
+  /* the two registers of the app's voice — both bundled (see the @font-face block
+     above), both falling back to the OS stack if a face is ever missing, so nothing
+     depends on the bundle having loaded */
+  --sans: 'Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Plex Mono', ui-monospace, 'SF Mono', monospace;
   --radius-sm: 6px; --radius: 8px; --radius-lg: 14px; --radius-pill: 999px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1); --dur: 160ms;
   --s1: 4px; --s2: 6px; --s3: 8px; --s4: 12px; --s5: 16px; --s6: 24px;
@@ -80,6 +105,9 @@ body { background:
     radial-gradient(90% 42% at 50% 114%, rgba(var(--accent-rgb), 0.06), transparent 60%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
   color: var(--fg); font: var(--fs-base)/1.5 var(--sans);
+  /* Plex sits a touch wide at chrome sizes; a hair of negative tracking keeps the
+     dense rows reading as one line rather than a queue of words */
+  letter-spacing: -0.06px;
   overflow: hidden; -webkit-font-smoothing: antialiased; }
 button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 button, input, select, textarea, details { transition: background var(--dur) var(--ease),
@@ -978,6 +1006,11 @@ summary::-webkit-details-marker { display: none; }
 .board-row.flying .board-agent-copilot { color: var(--copilot); }
 .board-dot-idle { width: 7px; height: 7px; border-radius: 50%;
   background: var(--fg-dim); opacity: 0.35; flex-shrink: 0; }
+/* landed: the turn ended and nobody has looked yet. Solid livery dot — arrived,
+   not working — against flying's pulse and the ground's dim grey. */
+.board-dot-landed, .landed-dot { width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor; flex-shrink: 0; }
+.board-meta-landed { color: var(--fg); }
 .board-row .pulse { flex-shrink: 0; }
 .board-task { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
@@ -1711,8 +1744,13 @@ button.pnl-flag:hover { text-decoration: underline; }
   background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.08), transparent 55%); }
 .board-row.flying:has(.pulse-copilot) {
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.09), transparent 55%); }
+/* landed rows carry the same livery, one step quieter than flying: an inset bar
+   instead of a wash, so the group reads as arrivals without shouting over them */
+.board-row.landed:has(.plogo-claude) { box-shadow: inset 2px 0 0 var(--claude); }
+.board-row.landed:has(.plogo-codex) { box-shadow: inset 2px 0 0 var(--codex); }
+.board-row.landed:has(.plogo-copilot) { box-shadow: inset 2px 0 0 var(--copilot); }
 /* :has beats .board-row:hover on specificity, so restate hover feedback */
-.board-row.flying:hover { filter: brightness(1.18); }
+.board-row.flying:hover, .board-row.landed:hover { filter: brightness(1.18); }
 
 /* ---------- responsive: shed decoration before anything truncates ----------
    These live at the END of the file on purpose: they override same-specificity

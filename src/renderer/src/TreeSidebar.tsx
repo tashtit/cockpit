@@ -9,6 +9,7 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { useSessionBusy } from './busy'
+import { useSessionLanded } from './landed'
 import type { SettingsSection } from './Settings'
 import { fmtTime, useTimeFormat } from './time'
 import { UsageMeters } from './UsageMeters'
@@ -977,6 +978,7 @@ function SessionRow({
   const timeFormat = useTimeFormat()
   // the live dot takes the row's exclusive meta slot: running beats PR beats time
   const working = useSessionBusy(s.id)
+  const landed = useSessionLanded(s.id)
   const acct = accounts?.accounts.find((a) => a.provider === s.provider && a.label === s.source)
   const multiAccount =
     (accounts?.accounts.filter((a) => a.provider === s.provider).length ?? 0) > 1
@@ -1034,8 +1036,12 @@ function SessionRow({
           </svg>
         </button>
       </span>
+      {/* the row's one meta slot, in order of urgency: running, then finished-while-
+          you-were-away, then the branch's PR, then when it last moved */}
       {working ? (
         <LiveDot p={s.provider} />
+      ) : landed ? (
+        <span className={`landed-dot plogo-${s.provider}`} role="img" aria-label="finished — not opened yet" />
       ) : pr ? (
         <PrBadge pr={pr} onOpen={onOpenUrl} compact />
       ) : (
