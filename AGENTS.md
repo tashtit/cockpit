@@ -16,6 +16,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 - `npm run build` — production build into `out/`
 - `npm run package` — macOS disk images + zips into `dist/` via electron-builder (unsigned without Apple credentials; version `0.0.0` outside a release)
 - `npm run test:packaged` — Playwright smoke test against the `.app` from `npm run package` (`tests/e2e/packaged.spec.ts`; opt-in, uses the real userData dir)
+- `npm run ui:tour` — builds, then screenshots every view and state against a hermetic fixture world (`scripts/ui-tour/`): desktop and the 560×420 floor, sessions actually flying and landing (stub agent CLIs stream slowly), and a first launch. Writes `test-results/ui-tour/` with an `index.html` contact sheet; a shot it can't reach is marked missing and fails the run. `-- --only chat,settings` narrows it, `-- --no-live` skips the ~40s of live turns
 
 Both `npm run typecheck` and `npm test` must pass before delivering.
 
@@ -73,6 +74,8 @@ Three tiers; CI (`.github/workflows/ci.yml`) runs all of them:
 - **unit** (`tests/*.test.ts`, node env) — real tmpdir fixtures: tests write fake session logs and fake `.git/config` files to disk and run the real indexer/parsers over them. No mocking framework; follow that pattern for new tests.
 - **component** (`tests/component/`, jsdom) — renderer components against the stubbed `window.cockpit` in `tests/component/stub-api.ts`.
 - **e2e** (`tests/e2e/`, Playwright) — drives the built Electron app; requires `npm run build` first. `packaged.spec.ts` is the exception: opt-in via `npm run test:packaged`, it launches the `.app` from `npm run package` and is skipped otherwise.
+
+Not a tier, but the check for anything a person *sees*: `npm run ui:tour` (above). Tests assert behaviour; the tour shows what renders. Its world (`scripts/ui-tour/world.mts`) is fake `HOME` + `COCKPIT_USER_DATA` + stub `claude`/`codex`/`copilot`/`gh` first on `PATH` — main resolves every agent path through `os.homedir()`, so that is all hermeticity takes. `tests/ui-tour-world.test.ts` parses the world with the real parsers, so log-format drift fails a test instead of quietly emptying the screenshots.
 
 ## Packaging & releases
 
