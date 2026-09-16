@@ -483,6 +483,26 @@ summary::-webkit-details-marker { display: none; }
 .lineage-chip.acct-copilot:hover { background: rgba(var(--copilot-rgb), 0.12); }
 .link-btn { color: var(--accent); font-size: inherit; padding: 0; }
 .link-btn:hover { text-decoration: underline; }
+/* first run: the composer's shell holding what Cockpit still needs, one step per
+   line. Satisfied steps stay on screen, ticked — the card is a progress readout,
+   not a gate that empties as you go. */
+.setup-card { padding: var(--s5); }
+.setup-steps { display: flex; flex-direction: column; gap: var(--s4); }
+.setup-step { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: var(--s3); align-items: start; }
+.setup-mark { display: inline-flex; align-items: center; justify-content: center;
+  height: 18px; color: var(--fg-dim); }
+.setup-mark.done { color: var(--ok); }
+.setup-dot { width: 7px; height: 7px; border-radius: 50%;
+  border: 1px solid var(--border-strong); }
+.setup-body { min-width: 0; }
+.setup-title { font-weight: 600; }
+.setup-step.done .setup-title { color: var(--fg-dim); font-weight: 500; }
+.setup-note { color: var(--fg-dim); font-size: var(--fs-sm); margin-top: 2px; }
+/* unpadded, like .ns-hint code: a padded chip reads as a space before the comma */
+.setup-note code { font-family: var(--mono); color: var(--fg); }
+.setup-step .btn-ghost { flex-shrink: 0; }
+
 /* the discoverable paths out of Home's quick composer (roundtable / full form) */
 .home-more { display: flex; justify-content: flex-end; gap: var(--s5); flex-wrap: wrap;
   font-size: var(--fs-sm); margin-top: calc(-1 * var(--s3)); }
@@ -734,6 +754,25 @@ summary::-webkit-details-marker { display: none; }
 .tool-full { padding: var(--s3); border-top: 1px solid var(--border);
   font-family: var(--mono); font-size: var(--fs-xs); white-space: pre-wrap;
   word-break: break-word; max-height: 260px; overflow-y: auto; color: var(--fg-dim); }
+/* a folded run of tool calls: the same one-line grammar as a tool row, opening to the
+   rows themselves. Its own frame, so a twelve-step run reads as one piece of work. */
+.tool-run { align-self: stretch; margin-left: 32px; max-width: min(85%, 860px);
+  font-size: var(--fs-xs); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden; }
+.tool-run summary { display: flex; gap: var(--s2); align-items: baseline; cursor: pointer;
+  padding: 3px var(--s3); list-style: none; }
+.tool-run summary::-webkit-details-marker { display: none; }
+.tool-run summary::before { content: '▸'; width: 10px; flex-shrink: 0; font-size: 10px;
+  color: var(--fg-dim); transition: transform var(--dur) var(--ease); align-self: center; }
+.tool-run[open] summary::before { transform: rotate(90deg); }
+.tool-run summary:hover { background: var(--bg3); }
+.tool-run-sum { color: var(--fg-dim); font-family: var(--mono); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+/* the rows inside already carry their own frame — they only need the stack */
+.tool-run-rows { display: flex; flex-direction: column; gap: var(--s1);
+  padding: var(--s1) var(--s2) var(--s2); border-top: 1px solid var(--border); }
+.tool-run-rows .tool-row { margin-left: 0; max-width: 100%; }
+
 /* the folded result: its first line rides the right of the summary as the verdict,
    and the full output sits under the input on the code-block paper */
 .tool-peek { color: var(--fg-dim); font-family: var(--mono); white-space: nowrap;
@@ -1174,6 +1213,8 @@ summary::-webkit-details-marker { display: none; }
 .usage-fill.hot { background: var(--danger); }
 .usage-num { color: var(--fg); font-variant-numeric: tabular-nums; }
 
+/* the fold: the button that opens an add form sits under the list it extends */
+.source-add-open { display: flex; }
 .source-add { display: flex; flex-direction: column; gap: var(--s2); }
 .source-add input { min-width: 0; }
 /* the path is a machine identifier — mono, like .ns-branch-row input */

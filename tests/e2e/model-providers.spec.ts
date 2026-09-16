@@ -134,6 +134,10 @@ test('settings lists seeded providers with agent applicability, and adds/removes
   const ollamaRow = win.locator('.source-row', { hasText: 'ollama-local' })
   await expect(ollamaRow.getByRole('img', { name: 'works with Copilot' })).toBeVisible()
 
+  // the add form is folded until asked for — Settings opens as a readout
+  await expect(win.getByLabel('Display name')).toHaveCount(0)
+  await win.getByRole('button', { name: 'Add a model provider…' }).click()
+
   // a bad definition is refused by main and surfaces verbatim
   await win.getByLabel('Display name').fill('broken')
   await win.getByLabel('Base URL').fill('not a url')
@@ -141,7 +145,8 @@ test('settings lists seeded providers with agent applicability, and adds/removes
   await expect(win.getByText(/Invalid provider:/)).toBeVisible()
 
   // a real add round-trips through main into config; the model probe fails fast
-  // (nothing listens on the port) and reports as advice, not an error
+  // (nothing listens on the port) and reports as advice, not an error. The refused
+  // attempt left the form open with its values — a rejected add must not fold away
   await win.getByLabel('Base URL').fill('http://127.0.0.1:9/v1')
   await win.getByLabel('Display name').fill('local-probe')
   await win.getByRole('button', { name: 'Add provider' }).click()

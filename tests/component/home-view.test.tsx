@@ -40,6 +40,7 @@ function renderHome(over: Partial<Parameters<typeof HomeView>[0]> = {}) {
     onOpenFull: vi.fn(),
     onNewRoundtable: vi.fn(),
     onOpenRoundtable: vi.fn(),
+    onOpenSettings: vi.fn(),
     ...over
   }
   render(<HomeView {...props} />)
@@ -138,14 +139,50 @@ describe('HomeView composer', () => {
     ])
   })
 
-  it('keeps start disabled and shows "not signed in" when the agent has no account', async () => {
-    // snapshot loaded, but it holds no claude accounts
-    vi.mocked(window.cockpit.getAccounts).mockResolvedValue({ accounts: [], githubUser: null })
+  it('shows the "not signed in" chip for an agent that has no account', async () => {
+    // claude is signed in, codex is not — the composer says so per agent
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
     renderHome()
 
+    await screen.findByRole('button', { name: 'Start with Claude' })
+    await userEvent.click(screen.getByRole('button', { name: 'Codex' }))
     expect(await screen.findByText('not signed in')).toBeInTheDocument()
     await userEvent.type(screen.getByRole('textbox', { name: 'Task description' }), 'ship it')
-    expect(screen.getByRole('button', { name: 'Start with Claude' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Start with Codex' })).toBeDisabled()
+  })
+})
+
+describe('HomeView first run', () => {
+  it('replaces the composer with the steps Cockpit is waiting on', async () => {
+    // a window with no agent signed in and nothing indexed cannot start anything:
+    // a disabled button that says nothing is replaced by what to do about it
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue({ accounts: [], githubUser: null })
+    renderHome({ repos: [] })
+
+    expect(await screen.findByText('Sign in to an agent')).toBeInTheDocument()
+    expect(screen.getByText('Connect GitHub for pull requests')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Task description' })).not.toBeInTheDocument()
+  })
+
+  it('ticks the steps already satisfied and offers the one that is not', async () => {
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    const { onOpenSettings } = renderHome({ repos: [] })
+
+    const signIn = (await screen.findByText('Sign in to an agent')).closest('li')!
+    expect(signIn.className).toContain('done')
+    // gh is signed in too (claudeSnapshot), so the open step is the index
+    expect(screen.getByText(/Pull requests as @dev/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a config home' }))
+    expect(onOpenSettings).toHaveBeenCalledOnce()
+  })
+
+  it('never flashes setup at someone who is set up', async () => {
+    // accounts are still loading (null): show the composer, not a false empty state
+    vi.mocked(window.cockpit.getAccounts).mockReturnValue(new Promise(() => {}))
+    renderHome()
+    expect(await screen.findByRole('textbox', { name: 'Task description' })).toBeInTheDocument()
+    expect(screen.queryByText('Sign in to an agent')).not.toBeInTheDocument()
   })
 })
 

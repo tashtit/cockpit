@@ -1093,6 +1093,8 @@ export type CockpitApi = {
   /** `git worktree remove` each path, then drop any branch git says is fully merged */
   readonly removeWorktrees: (paths: readonly string[]) => Promise<CleanupResult>
   readonly getPrs: (repoRoot: string) => Promise<PrStatus[]>
+  /** The branch a PR from this repo would target; null when git can't say */
+  readonly getDefaultBranch: (repoRoot: string) => Promise<string | null>
   readonly createWorkspace: (repoRoot: string, name?: string) => Promise<WorkspaceInfo>
   readonly createPr: (cwd: string) => Promise<string>
   /** The worktree's changes for review before they ship; `cwd` must be a known session/worktree dir */

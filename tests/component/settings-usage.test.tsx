@@ -8,9 +8,10 @@ describe('Settings opened at the usage section', () => {
     vi.mocked(window.cockpit.getUsage).mockResolvedValue(usageFixture())
     render(<Settings onClose={vi.fn()} section="usage" />)
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Subscription usage' })).toHaveFocus()
+      expect(screen.getByRole('heading', { name: 'Agent accounts & usage' })).toHaveFocus()
     )
-    // the full readout is there — every window, not just the tightest one
+    // the full readout is there — every window, not just the tightest one, and it
+    // sits in the account's own row rather than a second list of the same accounts
     expect(await screen.findByText('weekly window')).toBeInTheDocument()
   })
 

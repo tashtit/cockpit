@@ -6,9 +6,21 @@
 it answers "what is Cockpit watching, as whom, how much of each subscription is used,
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
-sections, in order: Agent accounts & sources · Add source · History · Display ·
-Subscription usage · GitHub · Model providers · Backup · About — adding a config home sits
-directly under the list it extends).
+sections, in order: Agent accounts & usage · History · Display · GitHub · Model
+providers · Backup · About).
+
+- **One account is one row.** Identity, config home, what that subscription has spent and
+  its health all live in the row for that config home — the view used to list the same
+  four accounts twice, once for identity and once for usage, which made the card twice as
+  long while answering half as much. Usage is matched to a home by path; Copilot reports
+  no path (its quota belongs to the GitHub account, not a directory) so it matches on
+  provider. Usage measured for a home that is no longer indexed still renders, after the
+  list. `section="usage"` (the sidebar footer's deep link) lands on this heading.
+- **Add forms are folded.** `Add a config home…` and `Add a model provider…` are ghost
+  buttons under the list each extends; the form opens in place, focuses its first field,
+  and folds again once the thing is added (Cancel, too). A *refused* add keeps the form
+  open with its values. Anything the add produced that outlives the form — the model
+  probe's "N models found" / "couldn't list models" — renders outside it.
 
 ## Rules
 
@@ -18,13 +30,15 @@ directly under the list it extends).
   className="ns-label">` elements, never orphan `<label>`s.
 - The section hint carries the aggregate: "currently N config homes · M sessions"
   (live via `getSourceStats()` + `onIndexUpdated`).
-- Source list: `.source-row.source-<provider>` = rest-intensity agent tint (2px inset
+- Account list: `.source-row.source-<provider>` = rest-intensity agent tint (2px inset
   bar + faint gradient — the sidebar's selected recipe, quieter) · decorative logo
   (`aria-hidden`) · body: label row with the canonical `.acct-chip acct-<provider>`
-  identity (`.missing` "not signed in" when unauthenticated — absence is not a signal)
-  and a dim "auto-detected" `.source-origin` on defaults · selectable mono
-  `.source-path` · `.source-health` (bordered `.repo-count` pill + "active Xh ago", or
-  `--warn` "path missing" / "no sessions yet") · Remove.
+  identity (`.missing` "not signed in" when unauthenticated — absence is not a signal),
+  a dim "auto-detected" `.source-origin` on defaults, and the plan / "as of Xm ago"
+  (past 15min) when usage reports them · selectable mono `.source-path` · the usage body
+  (`.usage-windows` rows, or the human-readable reason as `.source-note` prose —
+  absence is not an error state) · `.source-health` (bordered `.repo-count` pill +
+  "active Xh ago", or `--warn` "path missing" / "no sessions yet") · Remove.
 - Remove is two-step, no modal: ghost `small` danger → armed `.btn-danger` "Remove?"
   (reverts on blur/Escape/4s; `aria-label` names the source; `title` states that
   defaults are only auto-detected on first run). After removal an `.ns-hint` Undo line
@@ -39,12 +53,9 @@ directly under the list it extends).
   comfortable / wide / full, px hints on the options) bounds the conversation column
   via the `chat-width.ts` store — localStorage, applies live to an open chat.
   Changes announce through the card's `role="status"` region like every other setting.
-- Subscription usage section: one `.source-row.tint-<provider>` per provider account —
-  logo · label · `.acct-chip` identity · dim plan / "as of Xm ago" `.source-origin`
-  (staleness only shown past 15min). Body is `.usage-windows` rows: window label ·
-  `.usage-meter` fill bar in the agent's identity color (`.hot` ≥90%) · `.usage-num`
-  percentage (token detail in the `title` tooltip). Unavailable usage shows the
-  human-readable reason as `.source-note` prose — absence is not an error state.
+- Usage rows inside an account: window label · `.usage-meter` fill bar in the agent's
+  identity color (`.hot` ≥90%) · `.usage-num` percentage (token detail in the `title`
+  tooltip). At ≤780px the label takes its own line over a flexing meter.
 - GitHub section: one row — `OrgIcon` · "gh CLI" · `@login` acct-chip (or `.missing`)
   · `.source-note` prose (NOT mono; mono is machine identifiers only). Copy references
   real commands in `<code>` (`gh auth login`).
@@ -62,10 +73,10 @@ directly under the list it extends).
   validated inline). Primary disabled until name + URL are non-empty. After add, the
   provider's `/models` catalog is probed; the visible `.ns-hint` outcome line ("N models
   found" / why not) is mirrored to the sr-only status region.
-- Add form: a real `<form>` (Enter submits) of labeled `.ns-opt`s — Agent select ·
-  Config home (mono input + ghost "Browse…" calling `pickDirectory()`, a main-process
-  `dialog.showOpenDialog` with `showHiddenFiles` — config homes are dotdirs) · optional
-  Label. Placeholders are concrete examples (`/Users/you/.claude-work`), never
+- Add form (behind `Add a config home…`): a real `<form>` (Enter submits) of labeled
+  `.ns-opt`s — Agent select · Config home (mono input, autofocused + ghost "Browse…"
+  calling `pickDirectory()`, a main-process `dialog.showOpenDialog` with
+  `showHiddenFiles` — config homes are dotdirs) · optional Label · ghost Cancel. Placeholders are concrete examples (`/Users/you/.claude-work`), never
   templates. Primary "Add source" sits in `.ns-actions`, disabled until path is
   non-empty.
 - Errors: `.new-error` with `role="alert"`, linked to the path input via

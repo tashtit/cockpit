@@ -29,6 +29,11 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
 
 - The PR slot is exclusive: a `PrBadge` when the branch has a PR, else green `.btn-pr`
   "Create PR" (GitHub merge-button semantics), else nothing. Never both.
+- **Create PR is not offered on the branch a PR would target** — a session in the main
+  checkout on `main` can only fail, because `gh` refuses a PR from a branch onto itself.
+  The default comes from `getDefaultBranch` (git's own `origin/HEAD`, else the
+  conventional name that exists on the remote); when git can't say, the button stays —
+  a missing answer must never hide a working affordance.
 - Header is a window drag region; every interactive child opts out (`no-drag`), and the
   cwd/branch subtitle is selectable text.
 
@@ -60,6 +65,12 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     rows per tool call doubled the noise. Only an orphan result gets its own `↳` row.
   - paths under the session's cwd render relative to it (`Message`'s `cwd` prop) — the
     header already names the directory
+  - **four or more tool rows in a row fold into one `.tool-run`** — `⚙︎ work · 5 steps ·
+    Bash ×2 · Read · Grep · Edit`, opening to the rows themselves (`foldToolRuns`,
+    `runSummary`). A twelve-step run between two paragraphs buried the paragraphs. The
+    fold breaks wherever the agent speaks, so prose is never swallowed, and the **tail
+    run of a live turn never folds** — watching the steps arrive is the point while a
+    turn runs. Earlier runs in that same turn still fold.
   - system → `.sys-row` dotted-left-border annotation, aligned with the assistant column
 - Tool/system glyphs are text-presentation unicode (`⚙︎` with U+FE0E, `↳`) — if these
   ever grow, switch to SVGs from `logos.tsx`; never bare emoji-presentation glyphs.

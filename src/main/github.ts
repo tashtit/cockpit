@@ -42,3 +42,37 @@ async function fetchPrs(repoRoot: string): Promise<PrStatus[]> {
   if (!r.ok) return []
   return parsePrList(r.stdout)
 }
+
+/** repoRoot → default branch (or null when git can't say). Per-process: it changes
+ *  about as often as a repository is renamed. */
+const defaultBranches = new Map<string, string | null>()
+
+/**
+ * The branch a PR would target — `origin/HEAD` when the clone recorded it, else the
+ * first of the conventional names that actually exists on the remote. Null when git
+ * answers none of that: an unknown default must never hide a working affordance.
+ */
+export async function getDefaultBranch(repoRoot: string): Promise<string | null> {
+  const cached = defaultBranches.get(repoRoot)
+  if (cached !== undefined) return cached
+  const head = await execText('git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], {
+    cwd: repoRoot,
+    timeoutMs: 5_000
+  })
+  let name: string | null = head.ok ? head.stdout.trim().replace(/^origin\//, '') || null : null
+  if (!name) {
+    for (const candidate of ['main', 'master']) {
+      const ref = await execText(
+        'git',
+        ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${candidate}`],
+        { cwd: repoRoot, timeoutMs: 5_000 }
+      )
+      if (ref.ok) {
+        name = candidate
+        break
+      }
+    }
+  }
+  defaultBranches.set(repoRoot, name)
+  return name
+}

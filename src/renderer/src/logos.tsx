@@ -241,6 +241,11 @@ const OCTICON_X =
   'M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z'
 const OCTICON_DOT_FILL = 'M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z'
 
+/** The same check, on its own: a setup step that is already satisfied. */
+export const CheckIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
+  <Octicon d={OCTICON_CHECK} size={size} />
+)
+
 const CHECKS_GLYPH: Record<Exclude<PrChecks, 'none'>, string> = {
   passing: OCTICON_CHECK,
   failing: OCTICON_X,

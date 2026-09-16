@@ -3,6 +3,7 @@ import type {
   AccountsSnapshot,
   AppInfo,
   Provider,
+  ProviderUsage,
   SourceDir,
   SourceStats,
   TimeFormat,
@@ -93,6 +94,25 @@ function updateAnnouncement(u: UpdateState): string | null {
   }
 }
 
+/** How long ago a measurement was taken — only worth saying once it is stale. */
+function measuredAgo(u: ProviderUsage | undefined): string | null {
+  if (!u || u.unavailable || u.measuredAt === undefined) return null
+  return Date.now() - u.measuredAt > 15 * 60_000 ? fmtAgo(u.measuredAt) : null
+}
+
+/** The usage half of an account row: its windows, the reason there are none, or nothing. */
+function UsageBody({ u, loading }: { u: ProviderUsage | undefined; loading: boolean }): JSX.Element | null {
+  if (!u) return loading ? <div className="source-note">measuring usage…</div> : null
+  if (u.unavailable) return <div className="source-note">{u.unavailable}</div>
+  return (
+    <div className="usage-windows">
+      {u.windows.map((w) => (
+        <UsageWindowRow key={w.label} provider={u.provider} w={w} />
+      ))}
+    </div>
+  )
+}
+
 function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow }): JSX.Element {
   const pct = typeof w.usedPercent === 'number' ? Math.round(w.usedPercent) : null
   const idle = w.tokens && w.requests === 0
@@ -157,6 +177,8 @@ export function Settings({
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [path, setPath] = useState('')
+  /** The add form is a task, not a permanent fixture: Settings opens as a readout */
+  const [addOpen, setAddOpen] = useState(false)
   const [provider, setProvider] = useState<Provider>('claude')
   const [label, setLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -203,6 +225,16 @@ export function Settings({
     })
   }, [])
 
+  /** The usage measured for this config home. Copilot reports no path (its quota is
+   *  the GitHub account's, not a directory's), so it matches on provider alone. */
+  const usageFor = (s: SourceStats): ProviderUsage | undefined =>
+    usage?.providers.find(
+      (u) => u.provider === s.provider && (u.path === s.path || u.path === '')
+    )
+  const orphanUsage = (usage?.providers ?? []).filter(
+    (u) => !stats.some((s) => usageFor(s) === u)
+  )
+
   const identityOf = (p: string): string | null =>
     accounts?.accounts.find((a) => a.path === p)?.identity ?? null
   const isDefault = (p: string): boolean =>
@@ -216,6 +248,7 @@ export function Settings({
       await api.addSource(p, provider, label.trim() || `${provider}-extra`)
       setPath('')
       setLabel('')
+      setAddOpen(false)
       setStatus(`Added ${label.trim() || p} — indexing started`)
       refresh()
     } catch (err) {
@@ -334,14 +367,16 @@ export function Settings({
           <button className="btn-ghost" onClick={onClose}>Close</button>
         </div>
 
-        <h3 className="ns-label">Agent accounts &amp; sources</h3>
+        <h3 className="ns-label" ref={usageRef} tabIndex={-1}>Agent accounts &amp; usage</h3>
         <p className="ns-hint">
-          Directories Cockpit indexes and watches
+          One row per config home Cockpit indexes and watches
           {stats.length > 0 && (
             <> — currently {stats.length} config home{stats.length === 1 ? '' : 's'} · {totalSessions} sessions</>
           )}
-          . Defaults are auto-detected on first run; add extra config homes here (e.g. a second
-          account&apos;s <code>CLAUDE_CONFIG_DIR</code>).
+          , with how much of that subscription is used: Claude measured locally from session logs,
+          Codex from its own rate-limit snapshots, Copilot premium requests from the GitHub billing
+          API. Nothing here reads credentials. Defaults are auto-detected on first run; add another
+          home below (e.g. a second account&apos;s <code>CLAUDE_CONFIG_DIR</code>).
         </p>
         <ul className="source-list">
           {stats.map((s) => (
@@ -358,8 +393,16 @@ export function Settings({
                     <span className="acct-chip missing">not signed in</span>
                   )}
                   {isDefault(s.path) && <span className="source-origin">auto-detected</span>}
+                  {usageFor(s)?.plan && (
+                    <span className="source-origin">{usageFor(s)?.plan} plan</span>
+                  )}
+                  {measuredAgo(usageFor(s)) && (
+                    <span className="source-origin">as of {measuredAgo(usageFor(s))}</span>
+                  )}
                 </div>
                 <div className="source-path" title={s.path}>{s.path}</div>
+                {/* the subscription this home spends — the identity above is whose it is */}
+                <UsageBody u={usageFor(s)} loading={usage === null} />
               </div>
               <div className="source-health">
                 {s.missing ? (
@@ -389,7 +432,29 @@ export function Settings({
               />
             </li>
           ))}
-          {stats.length === 0 && <li className="tree-empty">no sources configured</li>}
+          {stats.length === 0 && (
+            <li className="tree-empty">
+              no config homes yet — add one below, and Cockpit indexes the sessions it finds
+            </li>
+          )}
+          {/* usage Cockpit measured for a home it no longer indexes still belongs on screen */}
+          {orphanUsage.map((u) => (
+            <li key={`${u.provider}:${u.path}`} className={`source-row tint-${u.provider}`}>
+              <span className={`plogo plogo-${u.provider}`} aria-hidden="true">
+                <ProviderLogo p={u.provider} size={13} />
+              </span>
+              <div className="source-body">
+                <div className="source-label">
+                  {u.label}
+                  {u.identity && (
+                    <span className={`acct-chip acct-${u.provider}`}>{u.identity}</span>
+                  )}
+                  {u.plan && <span className="source-origin">{u.plan} plan</span>}
+                </div>
+                <UsageBody u={u} loading={false} />
+              </div>
+            </li>
+          ))}
         </ul>
         {removeError && (
           <div role="alert" className="new-error">{removeError}</div>
@@ -401,8 +466,16 @@ export function Settings({
           </p>
         )}
 
-        {/* adding a config home belongs with the list it extends, not five sections below it */}
-        <h3 className="ns-label">Add source</h3>
+        {/* adding a config home belongs with the list it extends — and stays folded
+            until asked for, so the section opens as the status readout it is */}
+        {!addOpen && (
+          <div className="source-add-open">
+            <button className="btn-ghost small" onClick={() => setAddOpen(true)}>
+              Add a config home…
+            </button>
+          </div>
+        )}
+        {addOpen && (
         <form
           className="source-add"
           onSubmit={(e) => {
@@ -426,6 +499,7 @@ export function Settings({
               <div className="source-browse-row">
                 <input
                   id="src-path"
+                  autoFocus
                   placeholder="/Users/you/.claude-work"
                   value={path}
                   aria-invalid={!!error}
@@ -454,11 +528,22 @@ export function Settings({
             <div id="source-add-error" role="alert" className="new-error">{error}</div>
           )}
           <div className="ns-actions">
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                setAddOpen(false)
+                setError(null)
+              }}
+            >
+              Cancel
+            </button>
             <button type="submit" className="btn-primary" disabled={!path.trim()}>
               Add source
             </button>
           </div>
         </form>
+        )}
         <h3 className="ns-label">History</h3>
         <p className="ns-hint">
           How far back sessions appear in the sidebar, search, and counts. Older sessions are
@@ -511,52 +596,6 @@ export function Settings({
             />
           </div>
         </div>
-
-        <h3 className="ns-label" ref={usageRef} tabIndex={-1}>Subscription usage</h3>
-        <p className="ns-hint">
-          Current usage per subscription — Claude measured locally from session logs, Codex from
-          its own rate-limit snapshots, Copilot premium requests from the GitHub billing API.
-          Nothing here reads credentials.
-        </p>
-        <ul className="source-list">
-          {usage === null && <li className="tree-empty">measuring…</li>}
-          {usage?.providers.map((u) => (
-            <li key={`${u.provider}:${u.path}`} className={`source-row tint-${u.provider}`}>
-              <span className={`plogo plogo-${u.provider}`} aria-hidden="true">
-                <ProviderLogo p={u.provider} size={13} />
-              </span>
-              <div className="source-body">
-                <div className="source-label">
-                  {u.label}
-                  {u.identity && (
-                    <span className={`acct-chip acct-${u.provider}`}>{u.identity}</span>
-                  )}
-                  {u.plan && <span className="source-origin">{u.plan} plan</span>}
-                  {!u.unavailable &&
-                    u.measuredAt !== undefined &&
-                    Date.now() - u.measuredAt > 15 * 60_000 && (
-                      <span className="source-origin">as of {fmtAgo(u.measuredAt)}</span>
-                    )}
-                </div>
-                {u.unavailable ? (
-                  <div className="source-note">{u.unavailable}</div>
-                ) : (
-                  <div className="usage-windows">
-                    {u.windows.map((w) => (
-                      <UsageWindowRow key={w.label} provider={u.provider} w={w} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </li>
-          ))}
-          {usage !== null && usage.providers.length === 0 && (
-            <li className="tree-empty">
-              no provider accounts detected — sign in to an agent CLI, then add its config
-              home under Add source below
-            </li>
-          )}
-        </ul>
 
         <h3 className="ns-label">GitHub</h3>
         <ul className="source-list">
