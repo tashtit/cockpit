@@ -1,10 +1,10 @@
-import { beforeAll, describe, expect, it } from 'vitest'
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { claudeUsage, codexUsage, getUsage, parsePremiumRequests, throttled } from '../src/main/usage'
 
-const root = join(tmpdir(), 'cockpit-usage-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-usage-fixtures-'))
 const claudeHome = join(root, 'claude')
 const codexHome = join(root, 'codex')
 
@@ -228,3 +228,5 @@ describe('getUsage', () => {
     expect(await getUsage(sources)).toBe(first)
   })
 })
+
+afterAll(() => rmSync(root, { recursive: true, force: true }))

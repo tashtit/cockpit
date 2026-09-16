@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   realpathSync,
   rmSync,
   statSync,
@@ -22,9 +23,10 @@ import type { SessionMeta } from '../src/shared/types'
  * branches go) are exercised against git's own behaviour.
  */
 
-// macOS tmpdir is a symlink (/var → /private/var) and git reports real paths —
+// a fresh dir per run: parallel checkouts on one machine share tmpdir. macOS tmpdir is
+// a symlink (/var → /private/var) and git reports real paths —
 // resolve once so fixture paths and git's output are the same strings
-const root = join(realpathSync(tmpdir()), 'cockpit-cleanup-fixtures')
+const root = mkdtempSync(join(realpathSync(tmpdir()), 'cockpit-cleanup-fixtures-'))
 const mainRepo = join(root, 'app')
 const cockpitWorktrees = join(root, 'userData', 'worktrees')
 const sourceDir = join(root, 'sources', 'claude')

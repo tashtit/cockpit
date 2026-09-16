@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
-import { appendFileSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { afterAll, describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { BusySession, Provider, SessionMeta } from '../src/shared/types'
 import { LIVE_TAIL_STEPS, LivenessTracker, readTurnState } from '../src/main/liveness'
 
-const root = join(tmpdir(), 'cockpit-liveness-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-liveness-fixtures-'))
 
 function jsonl(objs: unknown[]): string {
   return objs.map((o) => JSON.stringify(o)).join('\n') + '\n'
@@ -300,3 +300,5 @@ describe('LivenessTracker', () => {
     expect(pushes[1]).toEqual([])
   })
 })
+
+afterAll(() => rmSync(root, { recursive: true, force: true }))

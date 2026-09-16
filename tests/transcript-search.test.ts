@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { SessionIndexer } from '../src/main/indexer'
 import { clearRepoCache } from '../src/main/repos'
 import { TranscriptSearcher } from '../src/main/transcript-search'
 
-const root = join(tmpdir(), 'cockpit-transcript-search-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-transcript-search-fixtures-'))
 const claudeDir = join(root, 'claude')
 const codexDir = join(root, 'codex')
 const copilotDir = join(root, 'copilot')
@@ -117,7 +117,10 @@ beforeAll(async () => {
   searcher = new TranscriptSearcher(indexer)
 })
 
-afterAll(() => indexer?.stopWatchers())
+afterAll(() => {
+  indexer?.stopWatchers()
+  rmSync(root, { recursive: true, force: true })
+})
 
 describe('transcriptCandidates', () => {
   it('lists every visible session newest first, scoped by repo and provider', () => {

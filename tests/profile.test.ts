@@ -1,11 +1,11 @@
-import { beforeAll, describe, expect, it } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildProfile, dayKey, streaks } from '../src/main/profile'
 import type { Provider, SessionMeta } from '../src/shared/types'
 
-const root = join(tmpdir(), 'cockpit-profile-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-profile-fixtures-'))
 
 /** Fixed "now" every assertion is relative to (local noon, so day math is stable). */
 const NOW = new Date(2026, 7, 10, 12, 0, 0).getTime()
@@ -391,3 +391,5 @@ describe('buildProfile — aggregation', () => {
     ])
   })
 })
+
+afterAll(() => rmSync(root, { recursive: true, force: true }))

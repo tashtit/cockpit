@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -13,7 +13,7 @@ import { getHandoffBriefing } from '../src/main/handoff'
  * shells out to provider CLIs and stays untested, like ChatManager itself.
  */
 
-const root = join(tmpdir(), 'cockpit-handoff-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-handoff-fixtures-'))
 const home = join(root, 'claude')
 const repo = join(root, 'repo')
 const goneCwd = join(root, 'gone-away')
@@ -75,7 +75,10 @@ beforeAll(async () => {
   rmSync(goneCwd, { recursive: true, force: true })
 })
 
-afterAll(() => indexer?.stopWatchers())
+afterAll(() => {
+  indexer?.stopWatchers()
+  rmSync(root, { recursive: true, force: true })
+})
 
 describe('getHandoffBriefing', () => {
   it('builds a briefing whose git section matches the real repository', async () => {

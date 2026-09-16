@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asDiffScope, getWorkspaceDiff } from '../src/main/diff'
@@ -11,7 +11,7 @@ import { asDiffScope, getWorkspaceDiff } from '../src/main/diff'
  * work. Nothing mocked — the scopes are asserted against what git itself says.
  */
 
-const root = join(realpathSync(tmpdir()), 'cockpit-diff-fixtures')
+const root = mkdtempSync(join(realpathSync(tmpdir()), 'cockpit-diff-fixtures-'))
 const origin = join(root, 'origin.git')
 const clone = join(root, 'clone')
 const feature = join(root, 'feature')

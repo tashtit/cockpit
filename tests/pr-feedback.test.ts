@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asPrNumber, clearPrFeedbackCache, getPrFeedback, getPrFixBriefing } from '../src/main/pr-feedback'
@@ -10,7 +10,7 @@ import { asPrNumber, clearPrFeedbackCache, getPrFeedback, getPrFixBriefing } fro
  * runs the process and reads its output — only the network is replaced.
  */
 
-const root = join(realpathSync(tmpdir()), 'cockpit-pr-feedback-fixtures')
+const root = mkdtempSync(join(realpathSync(tmpdir()), 'cockpit-pr-feedback-fixtures-'))
 const bin = join(root, 'bin')
 const data = join(root, 'data')
 const repo = join(root, 'repo')

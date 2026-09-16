@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { appendFileSync, mkdirSync, writeFileSync, rmSync, utimesSync, readFileSync, readdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,7 @@ import { SessionIndexer, subagentParent } from '../src/main/indexer'
 import type { BusySession } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
-const root = join(tmpdir(), 'cockpit-indexer-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-indexer-fixtures-'))
 const claudeDir = join(root, 'claude')
 const copilotDir = join(root, 'copilot')
 const repoA = join(root, 'repo-a')
@@ -84,7 +84,10 @@ beforeAll(async () => {
   indexer.stopWatchers()
 })
 
-afterAll(() => indexer?.stopWatchers())
+afterAll(() => {
+  indexer?.stopWatchers()
+  rmSync(root, { recursive: true, force: true })
+})
 
 describe('SessionIndexer', () => {
   it('groups sessions by GitHub fullName, general bucket last', () => {

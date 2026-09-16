@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { afterAll, describe, it, expect, beforeAll } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
@@ -15,7 +15,7 @@ import {
 } from '../src/main/parsers/util'
 import { isValidNativeId } from '../src/main/chat'
 
-const root = join(tmpdir(), 'cockpit-util-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-util-fixtures-'))
 
 beforeAll(() => {
   rmSync(root, { recursive: true, force: true })
@@ -161,3 +161,4 @@ describe('Codex shell and patch previews', () => {
   })
 })
 
+afterAll(() => rmSync(root, { recursive: true, force: true }))
