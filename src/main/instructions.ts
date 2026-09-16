@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { InstructionFile, InstructionsState } from '../shared/types'
 import {
+  adoptableBlock,
+  extractSharedBlock,
   fileStatus,
   instructionTargets,
   lineCount,
@@ -14,14 +16,31 @@ import { loadConfig, saveConfig } from './config'
 
 /* IO around instructions-core: baseline storage (cockpit config) + file fan-out. */
 
-function getBaseline(repoRoot: string | null): string {
+function storedBaseline(repoRoot: string | null): string | undefined {
   const cfg = loadConfig()
-  const stored =
-    repoRoot === null ? cfg.sharedInstructions?.global : cfg.sharedInstructions?.repos?.[repoRoot]
+  return repoRoot === null ? cfg.sharedInstructions?.global : cfg.sharedInstructions?.repos?.[repoRoot]
+}
+
+function getBaseline(repoRoot: string | null): string {
   // a baseline saved before normalization existed may still carry its markers;
   // every reader gets the clean form so the status, the review and what apply
   // writes can never disagree
-  return normalizeBaseline(stored ?? '')
+  return normalizeBaseline(storedBaseline(repoRoot) ?? '')
+}
+
+/**
+ * A repo scope Cockpit has never had a baseline for, whose files already carry a
+ * managed block, adopts it — that block is how a teammate receives the repo's
+ * shared instructions, and without this it would read as somebody else's drift.
+ * Only for repos, and only when nothing is stored at all: an empty string is a
+ * baseline the user cleared, and re-adopting it would undo that on the next read.
+ * Global scopes are left alone; a stale `~/.claude/CLAUDE.md` block is not an
+ * instruction anyone shared.
+ */
+function adoptFromFiles(repoRoot: string | null): void {
+  if (repoRoot === null || storedBaseline(repoRoot) !== undefined) return
+  const block = adoptableBlock(instructionTargets(repoRoot).map((t) => readTarget(t.path)))
+  if (block !== null) setBaseline(repoRoot, block)
 }
 
 function setBaseline(repoRoot: string | null, baseline: string): void {
@@ -52,6 +71,7 @@ function readTargetForDisplay(path: string): string | null {
 }
 
 export function getInstructions(repoRoot: string | null): InstructionsState {
+  adoptFromFiles(repoRoot)
   const baseline = getBaseline(repoRoot)
   const files: InstructionFile[] = instructionTargets(repoRoot).map(({ agents, path }) => {
     const raw = readTargetForDisplay(path)
@@ -100,6 +120,22 @@ export function unapplyInstructions(repoRoot: string | null, path: string): Inst
   if (!target) throw new Error(`not an instruction file for this scope: ${path}`)
   const raw = readTarget(path)
   if (raw !== null) writeFileSync(path, removeSharedBlock(raw))
+  return getInstructions(repoRoot)
+}
+
+/**
+ * Take one file's managed block as the baseline. The other side of drift: a
+ * teammate's update arrives in the repo's own files through `git pull`, and this
+ * is how it becomes Cockpit's baseline rather than something to overwrite.
+ */
+export function adoptInstructionsFrom(repoRoot: string | null, path: string): InstructionsState {
+  const target = instructionTargets(repoRoot).find((t) => t.path === path)
+  if (!target) throw new Error(`not an instruction file for this scope: ${path}`)
+  const block = extractSharedBlock(readTarget(path) ?? '')
+  if (block === null || block.trim() === '') {
+    throw new Error(`${path} has no shared block to take`)
+  }
+  setBaseline(repoRoot, normalizeBaseline(block))
   return getInstructions(repoRoot)
 }
 

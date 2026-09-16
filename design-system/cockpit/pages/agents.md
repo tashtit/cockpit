@@ -86,6 +86,16 @@ that section holds a disagreement.
   toggling never shifts the card. Two actions, right-aligned: ghost "Save" (baseline
   only, enabled when dirty) and primary "Save & apply to all". Dirty state =
   `.inst-dirty` warn-colored "unsaved changes" pinned left of the buttons.
+- **Sharing is a PR, and only in a repo scope**: a third action, ghost "Save & open PR"
+  (disabled label "Opening PR…" while busy), sits between Save and the primary — a repo's
+  instructions belong in the repo, and a global baseline has nowhere to go, so the button
+  is absent there. Its outcome is a `Notice` with a `link` (`link-btn` → `openExternal`,
+  "Open pull request"), never a bare URL in prose; a failure shows the git or `gh` message
+  verbatim, because "permission denied" is already the whole explanation.
+- **Drift runs both ways**: a `drifted` file may hold a teammate's merged update that
+  arrived with a pull, so every drifted row carries a `link-btn` "use this file's version"
+  beside *see changes* (and beside the apply button in the panel's `.idiff-list`) whose
+  `aria-label` names the file. Never offer it on a synced row — there is nothing to take.
 - **Changes tab** (`.inst-changes`) — the PR's own third tab, and the review before
   the write. Same frame as Write/Preview (edge to edge, `padding: 0`), a one-line
   total (`.inst-changes-sum`: "Writes 2 of 3 files", a `DiffStat`, and the

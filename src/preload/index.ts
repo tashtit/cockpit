@@ -93,6 +93,9 @@ const api: CockpitApi = {
     ipcRenderer.invoke('instructions:apply', repoRoot, onlyPath),
   saveInstructionFile: (repoRoot: string | null, path: string, content: string) =>
     ipcRenderer.invoke('instructions:save-file', repoRoot, path, content),
+  adoptInstructionsFrom: (repoRoot: string | null, path: string) =>
+    ipcRenderer.invoke('instructions:adopt-file', repoRoot, path),
+  shareInstructions: (repoRoot: string) => ipcRenderer.invoke('instructions:share', repoRoot),
   getAccounts: () => ipcRenderer.invoke('accounts:get'),
   getUsage: () => ipcRenderer.invoke('usage:get'),
   getModelEndpoints: () => ipcRenderer.invoke('endpoints:get'),

@@ -20,7 +20,12 @@ const STATUS_LABEL: Record<InstructionFile['status'], string> = {
   missing: 'no file yet'
 }
 
-type Notice = { text: string; kind: 'ok' | 'error' } | null
+/** `link` is for an outcome that lives somewhere else — a PR the share just opened. */
+type Notice = {
+  text: string
+  kind: 'ok' | 'error'
+  link?: { href: string; label: string }
+} | null
 
 /** GitHub-comment grammar, plus the PR's own third tab: what the write would change. */
 type EditorTab = 'write' | 'preview' | 'changes'
@@ -114,6 +119,47 @@ export function InstructionsEditor({
   const applyOne = (path: string): Promise<void> =>
     run(() => api.applyInstructions(repoRoot, path), 'Applied — restart that agent to pick it up.')
 
+  /** The other side of drift: a teammate's update arrived in the repo's own files. */
+  const takeFile = (path: string): Promise<void> =>
+    run(() => api.adoptInstructionsFrom(repoRoot, path), "Taken as the baseline — it's yours now.")
+
+  /**
+   * Share a repo's instructions the way the repo shares everything else: a PR to
+   * it. Bypasses `run()` because the result is a PR, not an InstructionsState.
+   */
+  const shareViaPr = async (): Promise<void> => {
+    if (repoRoot === null) return
+    setNotice(null)
+    setBusy(true)
+    const startedOn = repoRoot
+    try {
+      if (dirty) setInst(await api.saveInstructionsBaseline(repoRoot, draft))
+      const res = await api.shareInstructions(repoRoot)
+      if (startedOn !== repoRootRef.current) return
+      setNotice(
+        res.status === 'unchanged'
+          ? {
+              text: 'The repo already says this — nothing to open a pull request for.',
+              kind: 'ok',
+              ...(res.url ? { link: { href: res.url, label: 'Open pull request' } } : {})
+            }
+          : {
+              text:
+                res.status === 'updated'
+                  ? 'Added to the open instructions pull request. Teammates get it once it merges and they pull.'
+                  : 'Pull request opened. Teammates get it once it merges and they pull.',
+              kind: 'ok',
+              link: { href: res.url, label: 'Open pull request' }
+            }
+      )
+    } catch (err) {
+      if (startedOn !== repoRootRef.current) return
+      setNotice({ text: err instanceof Error ? err.message : String(err), kind: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const seeChanges = (path: string): void => {
     setFocusPath(path)
     setMdView('changes')
@@ -197,6 +243,17 @@ export function InstructionsEditor({
             <button className="btn-ghost" disabled={busy || !dirty} onClick={() => void saveBaseline()}>
               Save
             </button>
+            {/* a repo's instructions belong in the repo, so sharing them is a PR to
+                it — global ones have no repo to go to, and no one to share with */}
+            {repoRoot !== null && (
+              <button
+                className="btn-ghost"
+                disabled={busy || draft.trim() === ''}
+                onClick={() => void shareViaPr()}
+              >
+                {busy ? 'Opening PR…' : 'Save & open PR'}
+              </button>
+            )}
             <button
               className="btn-primary"
               disabled={busy || draft.trim() === ''}
@@ -216,6 +273,7 @@ export function InstructionsEditor({
                 baselineEmpty={inst.baseline.trim() === ''}
                 onApply={() => void applyOne(f.path)}
                 onSeeChanges={() => seeChanges(f.path)}
+                onTakeFile={() => void takeFile(f.path)}
                 onSaveFile={(content) =>
                   void run(
                     () => api.saveInstructionFile(repoRoot, f.path, content),
@@ -301,6 +359,7 @@ function InstructionFileRow({
   baselineEmpty,
   onApply,
   onSeeChanges,
+  onTakeFile,
   onSaveFile
 }: {
   file: InstructionFile
@@ -310,6 +369,7 @@ function InstructionFileRow({
   baselineEmpty: boolean
   onApply: () => void
   onSeeChanges: () => void
+  onTakeFile: () => void
   onSaveFile: (content: string) => void
 }): JSX.Element {
   const [text, setText] = useState(file.content)
@@ -342,6 +402,18 @@ function InstructionFileRow({
               onClick={onSeeChanges}
             >
               see changes
+            </button>
+          )}
+          {/* drift runs both ways: this file may hold a teammate's update that
+              arrived with a pull, in which case the file is the newer one */}
+          {file.status === 'drifted' && (
+            <button
+              className="link-btn inst-see"
+              aria-label={`Take the shared block in ${file.path} as the baseline`}
+              disabled={busy}
+              onClick={onTakeFile}
+            >
+              use this file&apos;s version
             </button>
           )}
         </div>

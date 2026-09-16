@@ -13,7 +13,12 @@ import {
   splitSharedBlock,
   upsertSharedBlock
 } from '../src/main/instructions-core'
-import { applyInstructions, getInstructions, saveBaseline } from '../src/main/instructions'
+import {
+  adoptInstructionsFrom,
+  applyInstructions,
+  getInstructions,
+  saveBaseline
+} from '../src/main/instructions'
 
 const BASE = 'Always use worktrees.\nNever commit unless asked.'
 
@@ -247,6 +252,79 @@ describe('saveBaseline / applyInstructions (real files)', () => {
     return applyInstructions(repo)
   }
 })
+
+/*
+ * A repo's instructions live in the repo, so they can arrive before Cockpit has
+ * any baseline of its own: a fresh clone, or a teammate's merged share.
+ */
+describe('adopting what the repo already carries', () => {
+  let userData = ''
+  let repo = ''
+  const realUserData = process.env['COCKPIT_USER_DATA']
+
+  beforeEach(() => {
+    const root = mkdtempSync(join(tmpdir(), 'cockpit-adopt-'))
+    userData = join(root, 'user-data')
+    repo = join(root, 'repo')
+    mkdirSync(userData, { recursive: true })
+    mkdirSync(repo, { recursive: true })
+    process.env['COCKPIT_USER_DATA'] = userData
+    writeFileSync(join(userData, 'cockpit-config.json'), JSON.stringify({ sources: [] }))
+  })
+
+  afterEach(() => {
+    if (realUserData === undefined) delete process.env['COCKPIT_USER_DATA']
+    else process.env['COCKPIT_USER_DATA'] = realUserData
+    rmSync(join(userData, '..'), { recursive: true, force: true })
+  })
+
+  it('takes the committed block as the baseline on first read', () => {
+    writeFileSync(join(repo, 'CLAUDE.md'), upsertSharedBlock('# Repo rules\n', BASE))
+    const state = getInstructions(repo)
+    expect(state.baseline).toBe(BASE)
+    expect(state.files.find((f) => f.path.endsWith('CLAUDE.md'))?.status).toBe('synced')
+  })
+
+  it('never re-adopts over a baseline the user cleared', () => {
+    writeFileSync(join(repo, 'CLAUDE.md'), upsertSharedBlock('', BASE))
+    saveBaseline(repo, '')
+    expect(getInstructions(repo).baseline).toBe('')
+  })
+
+  it('leaves the global scope alone — a stale home file is nobody\u2019s share', () => {
+    const home = join(userData, '..', 'home')
+    mkdirSync(join(home, '.claude'), { recursive: true })
+    writeFileSync(join(home, '.claude', 'CLAUDE.md'), upsertSharedBlock('', BASE))
+    const realHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      expect(getInstructions(null).baseline).toBe('')
+    } finally {
+      process.env.HOME = realHome
+    }
+  })
+
+  it('takes one file\u2019s version on demand when the two disagree', () => {
+    saveBaseline(repo, BASE)
+    const theirs = 'Always open a PR.'
+    writeFileSync(join(repo, 'AGENTS.md'), upsertSharedBlock('', theirs))
+    expect(getInstructions(repo).files.find((f) => f.path.endsWith('AGENTS.md'))?.status).toBe(
+      'drifted'
+    )
+
+    const state = adoptInstructionsFrom(repo, join(repo, 'AGENTS.md'))
+    expect(state.baseline).toBe(theirs)
+    expect(state.files.find((f) => f.path.endsWith('AGENTS.md'))?.status).toBe('synced')
+  })
+
+  it('refuses a path that is not a target, or a file with no block', () => {
+    saveBaseline(repo, BASE)
+    expect(() => adoptInstructionsFrom(repo, join(repo, 'NOTES.md'))).toThrow(/not an instruction file/)
+    writeFileSync(join(repo, 'AGENTS.md'), '# just prose\n')
+    expect(() => adoptInstructionsFrom(repo, join(repo, 'AGENTS.md'))).toThrow(/no shared block/)
+  })
+})
+
 
 describe('instructionTargets', () => {
   it('global scope: one native file per agent', () => {

@@ -184,3 +184,110 @@ describe('Instructions › the Changes tab', () => {
     expect(screen.getByText(/nothing to compare yet/)).toBeInTheDocument()
   })
 })
+
+/*
+ * A repo's instructions belong in the repo, so the editor's third action opens a
+ * PR to it — and the same drift row that offers "apply" also offers to take the
+ * file's own version, which is how a teammate's merged update arrives.
+ */
+describe('Instructions › sharing with the repo', () => {
+  const repoState: InstructionsState = {
+    repoRoot: '/work/cockpit',
+    baseline: BASE,
+    files: [
+      file({ path: '/work/cockpit/CLAUDE.md' }),
+      file({
+        agents: ['codex', 'copilot'],
+        path: '/work/cockpit/AGENTS.md',
+        block: BASE.replace('worktrees', 'branches'),
+        status: 'drifted'
+      })
+    ]
+  }
+
+  async function openRepo(setNotice = vi.fn()): Promise<ReturnType<typeof vi.fn>> {
+    vi.mocked(window.cockpit.getInstructions).mockResolvedValue(repoState)
+    render(<InstructionsEditor repoRoot="/work/cockpit" setNotice={setNotice} onSaved={vi.fn()} />)
+    await screen.findByRole('button', { name: /^Changes/ })
+    return setNotice
+  }
+
+  it('offers the PR only for a repo, never for the global baseline', async () => {
+    await open()
+    expect(screen.queryByRole('button', { name: 'Save & open PR' })).toBeNull()
+  })
+
+  it('saves the draft, opens a PR, and links it', async () => {
+    const setNotice = await openRepo()
+    vi.mocked(window.cockpit.saveInstructionsBaseline).mockResolvedValue(repoState)
+    vi.mocked(window.cockpit.shareInstructions).mockResolvedValue({
+      status: 'opened',
+      url: 'https://github.com/tashtit/cockpit/pull/7'
+    })
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Shared instructions' }), '\nOne more.')
+    await userEvent.click(screen.getByRole('button', { name: 'Save & open PR' }))
+
+    expect(window.cockpit.saveInstructionsBaseline).toHaveBeenCalledWith(
+      '/work/cockpit',
+      `${BASE}\nOne more.`
+    )
+    expect(window.cockpit.shareInstructions).toHaveBeenCalledWith('/work/cockpit')
+    expect(setNotice).toHaveBeenLastCalledWith({
+      text: 'Pull request opened. Teammates get it once it merges and they pull.',
+      kind: 'ok',
+      link: { href: 'https://github.com/tashtit/cockpit/pull/7', label: 'Open pull request' }
+    })
+  })
+
+  it('says so when the repo already carries this text', async () => {
+    const setNotice = await openRepo()
+    vi.mocked(window.cockpit.shareInstructions).mockResolvedValue({ status: 'unchanged' })
+    await userEvent.click(screen.getByRole('button', { name: 'Save & open PR' }))
+    expect(setNotice).toHaveBeenLastCalledWith({
+      text: 'The repo already says this — nothing to open a pull request for.',
+      kind: 'ok'
+    })
+  })
+
+  it('shows the failure verbatim', async () => {
+    const setNotice = await openRepo()
+    vi.mocked(window.cockpit.shareInstructions).mockRejectedValue(
+      new Error('remote: Permission to tashtit/cockpit.git denied')
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save & open PR' }))
+    expect(setNotice).toHaveBeenLastCalledWith({
+      text: 'remote: Permission to tashtit/cockpit.git denied',
+      kind: 'error'
+    })
+  })
+
+  it('takes a drifted file’s own version when asked', async () => {
+    await openRepo()
+    vi.mocked(window.cockpit.adoptInstructionsFrom).mockResolvedValue({
+      ...repoState,
+      baseline: BASE.replace('worktrees', 'branches')
+    })
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Take the shared block in /work/cockpit/AGENTS.md as the baseline'
+      })
+    )
+    expect(window.cockpit.adoptInstructionsFrom).toHaveBeenCalledWith(
+      '/work/cockpit',
+      '/work/cockpit/AGENTS.md'
+    )
+    expect(screen.getByRole('textbox', { name: 'Shared instructions' })).toHaveValue(
+      BASE.replace('worktrees', 'branches')
+    )
+  })
+
+  it('offers it only on a drifted file — a synced one has nothing to take', async () => {
+    await openRepo()
+    expect(
+      screen.queryByRole('button', {
+        name: 'Take the shared block in /work/cockpit/CLAUDE.md as the baseline'
+      })
+    ).toBeNull()
+  })
+})

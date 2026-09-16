@@ -194,6 +194,8 @@ export function freshApi(): CockpitApi {
     saveInstructionsBaseline: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     applyInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     saveInstructionFile: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
+    adoptInstructionsFrom: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
+    shareInstructions: vi.fn(async () => ({ status: 'unchanged' as const })),
     getAccounts: vi.fn(async () => ({ accounts: [], githubUser: null })),
     getUsage: vi.fn(async () => ({ at: 0, providers: [] })),
     getModelEndpoints: vi.fn(async () => []),

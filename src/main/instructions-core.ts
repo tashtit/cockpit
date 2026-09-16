@@ -100,6 +100,23 @@ export function fileStatus(raw: string | null, baseline: string): InstructionSta
   return block.trim() === normalizeBaseline(baseline) ? 'synced' : 'drifted'
 }
 
+/**
+ * The block to adopt as a scope's baseline when Cockpit has none of its own.
+ *
+ * A repo's shared instructions live in the repo, so a teammate who clones it —
+ * or pulls a merged instructions PR — already has the text on disk before
+ * Cockpit has ever heard of it. Taking it is the same move the library makes
+ * with whatever the agents already have. First block in target order wins, so
+ * two files that disagree resolve to `CLAUDE.md` and the other reads as drifted.
+ */
+export function adoptableBlock(raws: readonly (string | null)[]): string | null {
+  for (const raw of raws) {
+    const block = raw === null ? null : extractSharedBlock(raw)
+    if (block !== null && block.trim() !== '') return normalizeBaseline(block)
+  }
+  return null
+}
+
 export type InstructionTarget = {
   readonly agents: InstructionFile['agents']
   readonly path: string

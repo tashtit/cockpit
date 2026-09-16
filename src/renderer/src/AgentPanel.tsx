@@ -59,7 +59,12 @@ const CONFIRM_OFF: readonly PanelKind[] = ['plugin', 'marketplace']
 
 type Section = PanelKind | 'attention' | 'removed'
 
-type Notice = { text: string; kind: 'ok' | 'error' } | null
+/** `link` is for an outcome that lives somewhere else — a PR the share just opened. */
+type Notice = {
+  text: string
+  kind: 'ok' | 'error'
+  link?: { href: string; label: string }
+} | null
 
 function cellKey(row: PanelRow, agent: Provider): string {
   return `${row.id}|${agent}`
@@ -638,12 +643,16 @@ function InstructionsCompare({
     }
   }, [repoRoot])
 
-  const apply = async (path: string): Promise<void> => {
+  const act = async (
+    path: string,
+    op: () => Promise<InstructionsState>,
+    ok: string
+  ): Promise<void> => {
     setNotice(null)
     setBusy(path)
     try {
-      setState(await api.applyInstructions(repoRoot, path))
-      setNotice({ text: 'Applied — restart that agent to pick it up.', kind: 'ok' })
+      setState(await op())
+      setNotice({ text: ok, kind: 'ok' })
       onChanged()
     } catch (err) {
       setNotice({ text: err instanceof Error ? err.message : String(err), kind: 'error' })
@@ -651,6 +660,13 @@ function InstructionsCompare({
       setBusy(null)
     }
   }
+
+  const apply = (path: string): Promise<void> =>
+    act(path, () => api.applyInstructions(repoRoot, path), 'Applied — restart that agent to pick it up.')
+
+  /** The file is the newer one — a teammate's update that arrived with a pull. */
+  const takeFile = (path: string): Promise<void> =>
+    act(path, () => api.adoptInstructionsFrom(repoRoot, path), "Taken as the baseline — it's yours now.")
 
   if (!state) return <div className="tree-empty">reading each agent’s file…</div>
   if (state.baseline.trim() === '') {
@@ -678,13 +694,25 @@ function InstructionsCompare({
             layout={layout}
             action={
               change.status !== 'synced' && (
-                <button
-                  className="btn-ghost small"
-                  disabled={busy !== null}
-                  onClick={() => void apply(file.path)}
-                >
-                  {busy === file.path ? 'applying…' : APPLY_LABEL[change.status]}
-                </button>
+                <>
+                  {change.status === 'drifted' && (
+                    <button
+                      className="link-btn"
+                      disabled={busy !== null}
+                      aria-label={`Take the shared block in ${file.path} as the baseline`}
+                      onClick={() => void takeFile(file.path)}
+                    >
+                      use this file&apos;s version
+                    </button>
+                  )}
+                  <button
+                    className="btn-ghost small"
+                    disabled={busy !== null}
+                    onClick={() => void apply(file.path)}
+                  >
+                    {busy === file.path ? 'applying…' : APPLY_LABEL[change.status]}
+                  </button>
+                </>
               )
             }
           />

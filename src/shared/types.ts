@@ -1047,6 +1047,14 @@ export type RestoreSummary = {
   readonly undoId: string | null
 }
 
+/**
+ * The outcome of sharing a repo's instructions: a pull request opened, the open
+ * one updated, or nothing to say that the repo doesn't already say.
+ */
+export type ShareResult =
+  | { readonly status: 'opened' | 'updated'; readonly url: string }
+  | { readonly status: 'unchanged'; readonly url?: string }
+
 export type CockpitApi = {
   readonly sendChat: (req: ChatRequest) => Promise<string>
   readonly cancelChat: (turnId: string) => Promise<void>
@@ -1134,6 +1142,10 @@ export type CockpitApi = {
     path: string,
     content: string
   ) => Promise<InstructionsState>
+  /** Take one file's managed block as the baseline (a teammate's update arrived) */
+  readonly adoptInstructionsFrom: (repoRoot: string | null, path: string) => Promise<InstructionsState>
+  /** Open a PR putting this repo's shared instructions into the repo itself */
+  readonly shareInstructions: (repoRoot: string) => Promise<ShareResult>
   readonly getAccounts: () => Promise<AccountsSnapshot>
   /** Current subscription usage per configured provider account */
   readonly getUsage: () => Promise<UsageSnapshot>
