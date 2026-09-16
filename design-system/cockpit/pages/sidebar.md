@@ -50,7 +50,8 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     the session has an unseen landing (`useSessionLanded`, `aria-label="finished — not
     opened yet"`), else compact `PrBadge` (number, then an open PR's checks glyph,
     unresolved-thread count and changes-requested mark — each spelled out in its
-    `aria-label`), else timestamp. Archived = strikethrough + dimmed,
+    `aria-label`; ≤780px the row sheds the count's digits, `.pr-threads-n`, and keeps
+    the glyph, or the badge takes half the row at the 560px floor), else timestamp. Archived = strikethrough + dimmed,
     plus an `sr-only` "(archived)" — the strikethrough is the only visual signal, so it
     can't be the only signal.
   - Chats section — split off the repo tree by a full-bleed hairline divider + extra gap

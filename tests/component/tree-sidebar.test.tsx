@@ -163,6 +163,8 @@ describe('PR badge checks and review', () => {
     )
     const threads = badge.querySelector('.pr-threads')
     expect(threads).toHaveTextContent(/^3$/)
+    // the digits are their own element: a narrow sidebar sheds them and keeps the glyph
+    expect(threads?.querySelector('.pr-threads-n')).toHaveTextContent(/^3$/)
     // a glyph beside the number, so a bare "3" never has to explain itself
     expect(threads?.querySelector('svg[aria-hidden="true"] path')).not.toBeNull()
     expect(badge.querySelector('.pr-checks.failing')).not.toBeNull()

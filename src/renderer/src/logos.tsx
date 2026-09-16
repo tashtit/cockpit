@@ -307,11 +307,12 @@ export function PrBadge({
           <Octicon d={CHECKS_GLYPH[checks]} size={compact ? 10 : 11} />
         </span>
       )}
-      {/* reviewers waiting on a reply: the discussion glyph and how many threads */}
+      {/* reviewers waiting on a reply: the discussion glyph and how many threads. The
+          number is its own element so a cramped row can shed it and keep the glyph */}
       {threads && (
         <span className="pr-threads">
           <Octicon d={OCTICON_COMMENT_DISCUSSION} size={compact ? 10 : 11} />
-          {threads}
+          <span className="pr-threads-n">{threads}</span>
         </span>
       )}
       {/* the one review outcome that needs the author back gets a visible mark;

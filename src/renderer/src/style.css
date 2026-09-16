@@ -1824,7 +1824,11 @@ button.pnl-flag:hover { text-decoration: underline; }
      (the accessible name still says it), which hands those ~34px back to the title —
      with the word in, the header fits at 560px only by squeezing the title instead */
   .chat-header .acct-chip, .btn-review .lbl, .btn-handoff .lbl,
-  .chat-header .pr-badge .pr-word { display: none; }
+  .chat-header .pr-badge .pr-word,
+  /* a sidebar row's compact badge sheds the thread count and keeps the glyph: with the
+     checks glyph, a two-digit count and the review mark it took half the row and left
+     the title four letters — "reviewers are waiting" still shows, the number is in the name */
+  .session-row .pr-threads-n { display: none; }
   /* the review and handoff keys fold to 28px squares (an icon-btn's footprint) so
      the header's row still holds at the 560px floor — both keep an aria-label */
   .btn-review, .btn-handoff { width: 28px; height: 28px; padding: 0; justify-content: center; }

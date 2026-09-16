@@ -170,7 +170,21 @@ test.beforeAll(async () => {
     }
   })
   win = await app.firstWindow()
+  // links never leave the app: a stray click on a PR badge would otherwise open this
+  // machine's browser — on a Linux runner xdg-open starts Chrome in the app's process
+  // group, which outlives the app and holds its pipes, so teardown hangs until timeout
+  await app.evaluate(({ shell }) => {
+    const g = globalThis as { openedUrls?: string[] }
+    g.openedUrls = []
+    shell.openExternal = async (url: string) => {
+      g.openedUrls?.push(url)
+    }
+  })
 })
+
+/** URLs the app asked the OS to open since launch — see the stub above. */
+const openedUrls = (): Promise<string[]> =>
+  app.evaluate(() => (globalThis as { openedUrls?: string[] }).openedUrls ?? [])
 
 test.afterAll(async () => {
   // graceful close occasionally hangs under xvfb on linux CI — bound it with a
@@ -450,7 +464,9 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   expect(await audit()).toEqual([])
   await win.keyboard.press('Escape')
 
-  await win.getByRole('treeitem', { name: /fix the login flake/ }).click()
+  // aim at the title, as a person would: at this width the row's compact PR badge takes
+  // nearly half the row, and a click that lands on it opens the PR instead
+  await win.getByRole('treeitem', { name: /fix the login flake/ }).locator('.session-title').click()
   await expect(win.getByRole('button', { name: 'Send' })).toBeVisible()
   // the chat header at its widest: an open PR's badge (state, checks glyph, a
   // two-digit thread count and the changes-requested mark) beside the review key
@@ -465,6 +481,8 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   await expect(win.getByRole('region', { name: 'Changes to review' })).toBeVisible()
   expect(await audit()).toEqual([])
   await win.getByRole('button', { name: 'Changes', exact: true }).click()
+  // every click above landed on what it aimed at — none of them opened a PR
+  expect(await openedUrls()).toEqual([])
 
   await win.setViewportSize({ width: 1100, height: 728 })
 })
