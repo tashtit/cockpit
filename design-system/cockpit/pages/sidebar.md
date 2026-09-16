@@ -34,8 +34,10 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   the search filters the tree in place; the palette jumps). Non-empty search swaps the
   whole tree for `SearchResults` grouped by repo name.
 - Tree rows, in visual grammar:
-  - `.section-row` — sticky (`top: 0`, solid `--bg2` so scrolling rows pass under it),
-    lowercase micro-caps, plain-text session count (the Chats header).
+  - `.section-row` — sticky (`top: 0`, opaque so scrolling rows pass under it), lowercase
+    micro-caps, plain-text session count (the Chats header). Its fill is `--bg-deep`, the
+    rail's own near-black, so at rest it is invisible and only the divider and the placard
+    voice mark it: a `--bg2` fill on the darker rail read exactly like a selected row.
   - `.repo-row` — chevron, repo icon, `owner/name` (owner prefix in dimmed `.repo-owner`;
     local repos show just the name), tiny per-provider logos (10px), bordered
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).

@@ -327,7 +327,10 @@ summary::-webkit-details-marker { display: none; }
 .section-row { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2);
   cursor: pointer; font-size: var(--fs-xs); font-weight: 700; text-transform: lowercase;
   letter-spacing: 0.6px; color: var(--fg-dim); border-radius: var(--radius-sm);
-  min-height: 26px; position: sticky; top: 0; z-index: 2; background: var(--bg2); }
+  min-height: 26px; position: sticky; top: 0; z-index: 2;
+  /* opaque so rows scroll under it, but in the rail's own near-black — a --bg2 fill on the
+     dark rail read as a selected row, so the header looked like the thing you were in */
+  background: var(--bg-deep); }
 .section-row:hover { background: var(--bg3); color: var(--fg); }
 /* section count is contextual plain text — the bordered pill means "session count on a repo" */
 .section-row .repo-count { background: none; border: none; padding: 0; }
