@@ -430,13 +430,17 @@ summary::-webkit-details-marker { display: none; }
 /* the checks verdict rides the badge as a second glyph in GitHub's semantic colors —
    the shape (check / x / dot) carries the state, the color only reinforces it.
    Review outcome lives in the tooltip; "changes requested" alone earns a visible
-   mark, the 5px danger dot, because it is the one that needs the author back. */
+   mark, the 5px danger dot, because it is the one that needs the author back.
+   Unresolved review threads show as the discussion glyph plus their count, in the
+   badge's own color: the glyph and the number carry it, no new hue needed. */
 .pr-checks { display: inline-flex; align-items: center; flex-shrink: 0; }
 .pr-checks.passing { color: var(--ok); }
 .pr-checks.failing { color: var(--danger); }
 .pr-checks.pending { color: var(--warn); }
 .pr-review-mark { width: 5px; height: 5px; border-radius: 50%; background: var(--danger);
   flex-shrink: 0; }
+.pr-threads { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0;
+  font-variant-numeric: tabular-nums; }
 
 /* ---------- buttons ---------- */
 /* flat, decisive fills — instrument keys, not glowing gems. The 1px inset

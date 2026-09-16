@@ -1,8 +1,10 @@
 import type { PrChecks, PrReview, PrState, PrStatus } from '../shared/types'
+import { nodes, obj } from './pr-feedback-core'
 
 /**
  * The IO-free half of github.ts: turning what `gh pr list --json` prints into
- * PrStatus rows. Pure on purpose — the unit tests feed it fixtures, never gh.
+ * PrStatus rows, and folding in the unresolved-thread counts GitHub's GraphQL
+ * API reports beside it. Pure on purpose — the unit tests feed it fixtures, never gh.
  */
 
 /** The `--json` fields the list call asks for, next to the parser that reads them. */
@@ -102,7 +104,9 @@ export function toPrStatus(row: unknown): PrStatus | null {
     headRefName: typeof r.headRefName === 'string' ? r.headRefName : '',
     url: typeof r.url === 'string' ? r.url : '',
     checks: summarizeChecks(r.statusCheckRollup),
-    review: mapReviewDecision(r.reviewDecision)
+    review: mapReviewDecision(r.reviewDecision),
+    // not a `gh pr list` field — withUnresolvedThreads fills it in for open PRs
+    unresolvedThreads: 0
   }
 }
 
@@ -115,4 +119,53 @@ export function parsePrList(stdout: string): PrStatus[] {
   } catch {
     return []
   }
+}
+
+/**
+ * `gh pr list --json` has no review-thread field, so the counts come from one
+ * GraphQL call per repo beside it. Newest first like `gh pr list`, so the open PRs
+ * it lists are the ones counted; a PR past either page reads as 0, never as a guess.
+ * Resolved threads can't be filtered server-side — they are counted after the fact.
+ */
+export const OPEN_THREADS_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: 100, orderBy: { field: CREATED_AT, direction: DESC }) {
+      nodes { number reviewThreads(first: 100) { nodes { isResolved } } }
+    }
+  }
+}`
+
+/**
+ * The GraphQL response → PR number → unresolved threads. Fails soft to an empty
+ * map: no response, an error payload or a drifted shape just means no counts.
+ * Only an explicit `isResolved: false` counts — a thread this code can't read
+ * stays uncounted, because a phantom "waiting on you" is worse than a missing one.
+ */
+export function parseUnresolvedThreads(stdout: string): Map<number, number> {
+  const counts = new Map<number, number>()
+  let json: unknown
+  try {
+    json = JSON.parse(stdout)
+  } catch {
+    return counts
+  }
+  const prs = obj(obj(obj(json)?.data)?.repository)?.pullRequests
+  for (const node of nodes(prs)) {
+    const pr = obj(node)
+    if (!pr || typeof pr.number !== 'number') continue
+    const open = nodes(pr.reviewThreads).filter((t) => obj(t)?.isResolved === false).length
+    if (open > 0) counts.set(pr.number, open)
+  }
+  return counts
+}
+
+/** Counts land on open PRs only: a merged or closed PR's leftover threads wait on nobody. */
+export function withUnresolvedThreads(
+  prs: readonly PrStatus[],
+  counts: ReadonlyMap<number, number>
+): PrStatus[] {
+  return prs.map((pr) => {
+    const n = pr.state === 'OPEN' ? (counts.get(pr.number) ?? 0) : 0
+    return n === pr.unresolvedThreads ? pr : { ...pr, unresolvedThreads: n }
+  })
 }

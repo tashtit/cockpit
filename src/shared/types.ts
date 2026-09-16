@@ -135,6 +135,9 @@ export type PrStatus = {
   readonly url: string
   readonly checks: PrChecks
   readonly review: PrReview
+  /** Review threads nobody has resolved yet — counted for open PRs only, 0 otherwise
+   *  (and 0 when GitHub couldn't be asked: the badge stays, the count just isn't shown). */
+  readonly unresolvedThreads: number
 }
 
 export type WorkspaceInfo = {

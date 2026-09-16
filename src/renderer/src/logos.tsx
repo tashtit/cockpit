@@ -278,15 +278,18 @@ export function PrBadge({
   // one they are history, and a red x next to "Merged" would read as a contradiction
   const checks = pr.state === 'OPEN' && pr.checks !== 'none' ? pr.checks : null
   const review = pr.state === 'OPEN' && pr.review !== 'none' ? pr.review : null
-  const detail = [checks && CHECKS_LABEL[checks], review && REVIEW_LABEL[review]].filter(
-    (s): s is string => s !== null
-  )
+  const threads = pr.state === 'OPEN' && pr.unresolvedThreads > 0 ? pr.unresolvedThreads : null
+  const detail = [
+    checks && CHECKS_LABEL[checks],
+    review && REVIEW_LABEL[review],
+    threads && `${threads} unresolved ${threads === 1 ? 'thread' : 'threads'}`
+  ].filter((s): s is string => s !== null)
   return (
     <button
       className={`pr-badge pr-${cls} ${compact ? 'compact' : ''}`}
       // the compact badge renders only "#42" — state lives in the border color alone,
-      // so it has to be in the name too (WCAG 1.4.1); same for the checks glyph and
-      // the changes-requested mark, which are shapes without words
+      // so it has to be in the name too (WCAG 1.4.1); same for the checks glyph, the
+      // changes-requested mark and the thread count, which are shapes without words
       aria-label={`${label} pull request #${pr.number}: ${pr.title}${detail.map((s) => `, ${s}`).join('')}`}
       title={`${label} — #${pr.number} ${pr.title}${detail.map((s) => `\n${s}`).join('')}`}
       onClick={(e) => {
@@ -302,6 +305,13 @@ export function PrBadge({
       {checks && (
         <span className={`pr-checks ${checks}`}>
           <Octicon d={CHECKS_GLYPH[checks]} size={compact ? 10 : 11} />
+        </span>
+      )}
+      {/* reviewers waiting on a reply: the discussion glyph and how many threads */}
+      {threads && (
+        <span className="pr-threads">
+          <Octicon d={OCTICON_COMMENT_DISCUSSION} size={compact ? 10 : 11} />
+          {threads}
         </span>
       )}
       {/* the one review outcome that needs the author back gets a visible mark;

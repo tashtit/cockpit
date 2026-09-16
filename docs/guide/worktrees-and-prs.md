@@ -27,6 +27,8 @@ Files read the way GitHub shows them — unified or side by side, both line numb
 
 When a task is done, **Create PR** pushes the branch and runs `gh pr create`. From then on the session carries a PR state badge — open, draft, merged, or closed, in GitHub's colors — sourced from `gh pr list` and cached for 60 seconds per repository.
 
+While the PR is open, the badge also shows what it is waiting on: a check, an x or a dot for its checks (passing, failing, still running), a speech-bubble glyph with the number of unresolved review threads when a reviewer is waiting on a reply, and a red dot when changes were requested. Hover the badge for the same in words. The thread count comes from one extra GitHub API call per repository, made only when that repository has an open PR; if it fails, the badge still shows everything else.
+
 ::: tip Prerequisite
 PR features need the [GitHub CLI](https://cli.github.com) (`gh`) installed and authenticated. Cockpit shows which `gh` user you're signed in as in Settings.
 :::

@@ -22,8 +22,9 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
 - **Labels shed to their marks before the title truncates** — ≤780px the `Changes` and
   `Continue in…` keys fold to 28px squares (`.lbl` hidden; `DiffIcon`/`HandoffIcon`
   stay, each with an `aria-label`), and an open PR's badge drops its state word
-  (`.pr-word`) to keep the number beside its checks glyph and review mark — the state
-  stays in the badge's `aria-label` and tooltip; ≤700px the agent badge drops
+  (`.pr-word`) to keep the number beside its checks glyph, unresolved-thread count
+  (`.pr-threads`) and review mark — the state stays in the badge's `aria-label` and
+  tooltip; ≤700px the agent badge drops
   `.badge-text` to its titled mark. The title is the one thing the header exists to
   say; it must survive the minimum window.
 

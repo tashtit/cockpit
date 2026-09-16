@@ -55,9 +55,9 @@ async function gh() {
   const repo = basename(cwd)
   const prs = {
     rocket: [
-      { n: 57, title: 'Fix login retry flake', state: 'OPEN', draft: false, head: 'cockpit/login-retry-flake' },
+      { n: 57, title: 'Fix login retry flake', state: 'OPEN', draft: false, head: 'cockpit/login-retry-flake', threads: [false, true, false] },
       { n: 55, title: 'Paginate the sessions list', state: 'MERGED', draft: false, head: 'cockpit/paginate-sessions-list' },
-      { n: 58, title: 'WIP dark mode tokens', state: 'OPEN', draft: true, head: 'cockpit/dark-mode-tokens' }
+      { n: 58, title: 'WIP dark mode tokens', state: 'OPEN', draft: true, head: 'cockpit/dark-mode-tokens', threads: [false] }
     ],
     atlas: [
       { n: 12, title: 'Retry billing webhooks', state: 'OPEN', draft: false, head: 'cockpit/billing-webhook-retries' },
@@ -79,6 +79,21 @@ async function gh() {
           url: `https://github.com/acme/${repo}/pull/${p.n}`
         }))
       )
+    )
+  // the PR badges' unresolved-thread counts (the review panel's single-PR query is left unhandled)
+  if (args[0] === 'api' && args[1] === 'graphql' && s.includes('pullRequests('))
+    return console.log(
+      JSON.stringify({
+        data: {
+          repository: {
+            pullRequests: {
+              nodes: (prs[repo] ?? [])
+                .filter((p) => p.state === 'OPEN')
+                .map((p) => ({ number: p.n, reviewThreads: { nodes: (p.threads ?? []).map((isResolved) => ({ isResolved })) } }))
+            }
+          }
+        }
+      })
     )
   if (args[0] === 'pr' && args[1] === 'create') return console.log(`https://github.com/acme/${repo}/pull/59`)
   // anything else behaves like gh offline: fail soft, the app already handles that
