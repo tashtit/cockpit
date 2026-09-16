@@ -209,4 +209,18 @@ describe('parseCodexStreamLine', () => {
   it('ignores unknown lines', () => {
     expect(parseCodexStreamLine('t', { type: 'whatever' })).toEqual([])
   })
+  it('headlines tool rows with what ran, keeping the raw detail', () => {
+    const [shell] = parseCodexStreamLine('t', {
+      type: 'item.completed',
+      item: { type: 'command_execution', command: 'bash -lc "rg premium_request src"' }
+    })
+    expect(shell).toMatchObject({ type: 'tool', preview: 'rg premium_request src', detail: 'bash -lc "rg premium_request src"' })
+    const [edit] = parseCodexStreamLine('t', {
+      type: 'item.completed',
+      item: { type: 'file_change', changes: [{ path: 'src/a.ts', kind: 'update' }, { path: 'src/b.ts', kind: 'add' }] }
+    })
+    expect(edit).toMatchObject({ type: 'tool', toolName: 'edit', preview: 'src/a.ts, src/b.ts' })
+    const [old] = parseCodexStreamLine('t', { msg: { type: 'exec_command_begin', command: ['bash', '-lc', 'npm test'] } })
+    expect(old).toMatchObject({ type: 'tool', preview: 'npm test' })
+  })
 })

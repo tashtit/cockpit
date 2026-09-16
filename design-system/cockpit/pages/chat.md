@@ -57,7 +57,7 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     shows the accent left border; `.reasoning` dims + italicizes
   - tool call → `.tool-row` collapsed `<details>`: gear chip + mono 120-char preview —
     the humanized headline (`SessionMessage.preview`: Bash command, Edit/Read/Write path,
-    Copilot's `bash`/`edit`/`create` too, from `toolPreview()` in main) when available,
+    Copilot's `bash`/`edit`/`create` and Codex's `shell`/`exec_command`/`apply_patch` too — the script inside Codex's `bash -lc` wrapper, a patch named by the files it touches — from `toolPreview()`/`shellPreview()` in main, for saved history and the live stream alike) when available,
     else the raw input. **The result that answers a call folds into the call's row**: its
     first line rides the right of the summary as the verdict (`.tool-peek`, "20 passed"),
     and expanding shows the raw input over the full output (`.tool-full` then
