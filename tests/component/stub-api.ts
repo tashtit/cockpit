@@ -168,6 +168,19 @@ export function freshApi(): CockpitApi {
       removed: 0,
       droppedFiles: 0
     })),
+    getPrFeedback: vi.fn(async () => ({
+      number: 42,
+      title: 'Fix the login flake',
+      url: 'https://github.com/acme/rocket/pull/42',
+      headRefName: 'cockpit/test',
+      baseRefName: 'main',
+      conflicts: false,
+      checks: [],
+      threads: [],
+      changeRequests: [],
+      warnings: []
+    })),
+    getPrFixBriefing: vi.fn(async () => ({ briefing: '', warnings: [] })),
     getExtensions: vi.fn(async () => ({ mcp: [], skills: [], plugins: [], marketplaces: [] })),
     checkMcp: vi.fn(async () => ({ status: 'ok' as const })),
     loginMcp: vi.fn(async () => 'logged in'),

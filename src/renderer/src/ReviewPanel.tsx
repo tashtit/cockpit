@@ -1,16 +1,29 @@
-import { useEffect, useState, type JSX } from 'react'
-import type { DiffFile, DiffHunk, DiffHunkLine, DiffScope, Provider, WorkspaceDiff } from '../../shared/types'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import type {
+  DiffFile,
+  DiffHunk,
+  DiffHunkLine,
+  DiffScope,
+  PrFeedback,
+  PrReviewThread,
+  PrStatus,
+  Provider,
+  WorkspaceDiff
+} from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './attachments'
 import { useDiffLayout, type DiffLayout } from './diff-layout'
 import { DiffLayoutToggle, DiffStat } from './InstructionDiff'
-import { PROVIDER_LABEL } from './logos'
+import { LinkExternalIcon, PROVIDER_LABEL } from './logos'
+import { PrStrip } from './PrStrip'
 
 /**
  * Review before landing: the worktree's changes, in the transcript's place, read
  * the way a PR reads — file by file, GitHub's line grammar, both line numbers.
  * Notes pinned to lines go back to the agent through the composer, so the
- * reviewer's words and the agent's next turn share one conversation.
+ * reviewer's words and the agent's next turn share one conversation. Once the
+ * branch has an open PR, its checks and reviewers' threads join the review, and
+ * "Fix with <agent>" turns everything it is waiting on into one prompt.
  */
 
 export const SCOPES: ReadonlyArray<{ readonly v: DiffScope; readonly label: string; readonly hint: string }> = [
@@ -40,6 +53,22 @@ export function noteKey(path: string, line: DiffHunkLine): string {
   return line.op === 'del' ? `${path}#L${line.oldNo}` : `${path}#R${line.newNo}`
 }
 
+/**
+ * Where a reviewer's thread can sit: GitHub anchors it to one side of the PR
+ * diff, so a context line — present on both sides — answers to either number.
+ */
+export function threadKeys(path: string, line: DiffHunkLine): string[] {
+  if (line.op === 'del') return [`${path}#L${line.oldNo}`]
+  if (line.op === 'add') return [`${path}#R${line.newNo}`]
+  return [`${path}#R${line.newNo}`, `${path}#L${line.oldNo}`]
+}
+
+type ThreadMap = ReadonlyMap<string, readonly PrReviewThread[]>
+
+function threadsAt(threads: ThreadMap, path: string, line: DiffHunkLine): readonly PrReviewThread[] {
+  return threadKeys(path, line).flatMap((k) => threads.get(k) ?? [])
+}
+
 /** The notes as one message: where, what is there, what the reviewer wants. */
 export function formatNotes(
   notes: readonly ReviewNote[],
@@ -61,14 +90,22 @@ export function ReviewPanel({
   cwd,
   provider,
   busy,
-  onNotes
+  onCompose,
+  pr,
+  repoRoot,
+  onOpenUrl
 }: {
   cwd: string
   provider: Provider
   /** A turn is running: the tree is changing under the reader — reload when it settles */
   busy: boolean
-  /** Hands the composed notes to the composer; absent when the session takes no input */
-  onNotes?: (text: string) => void
+  /** Hands text for the agent (notes, a fix prompt) to the composer; absent when the session takes no input */
+  onCompose?: (text: string) => void
+  /** The branch's PR, when it has one — an open one brings its checks and threads */
+  pr?: PrStatus
+  /** The repository the PR lives in (main runs gh there) */
+  repoRoot?: string | null
+  onOpenUrl?: (url: string) => void
 }): JSX.Element {
   const [scope, setScope] = useState<DiffScope>('branch')
   const [diff, setDiff] = useState<WorkspaceDiff | null>(null)
@@ -79,6 +116,24 @@ export function ReviewPanel({
   const [editing, setEditing] = useState<string | null>(null)
   const layout = useDiffLayout()
   const agent = PROVIDER_LABEL[provider]
+  const openUrl = onOpenUrl ?? ((url: string) => void api.openExternal(url))
+
+  // the open PR's side of the review — read on demand, never polled
+  const openPr = pr && pr.state === 'OPEN' && repoRoot ? pr : undefined
+  const prNumber = openPr?.number
+  const [feedback, setFeedback] = useState<PrFeedback | null>(null)
+  const [fbError, setFbError] = useState<string | null>(null)
+  const [fbLoading, setFbLoading] = useState(false)
+  const [fixing, setFixing] = useState(false)
+  const [notice, setNotice] = useState<readonly string[]>([])
+  /** A fix prompt that arrives after the panel closed must not land in another session's composer */
+  const alive = useRef(true)
+  useEffect(
+    () => () => {
+      alive.current = false
+    },
+    []
+  )
 
   useEffect(() => {
     if (busy) return
@@ -108,6 +163,63 @@ export function ReviewPanel({
     setEditing(null)
   }, [cwd])
 
+  useEffect(() => {
+    setFeedback(null)
+    setFbError(null)
+    setNotice([])
+  }, [repoRoot, prNumber])
+
+  useEffect(() => {
+    if (prNumber === undefined || !repoRoot || busy) return
+    let dead = false
+    setFbLoading(true)
+    api.getPrFeedback(repoRoot, prNumber).then(
+      (fb) => {
+        if (dead) return
+        setFeedback(fb)
+        setFbError(null)
+        setFbLoading(false)
+      },
+      (err) => {
+        if (dead) return
+        setFbError(ipcErrorText(err))
+        setFbLoading(false)
+      }
+    )
+    return () => {
+      dead = true
+    }
+  }, [repoRoot, prNumber, busy, version])
+
+  // reviewers' threads sit under the lines they are about — but only against the
+  // branch scope: the index's line numbers are not the PR's
+  const threads = useMemo((): ThreadMap => {
+    const m = new Map<string, PrReviewThread[]>()
+    if (scope !== 'branch' || !feedback) return m
+    for (const t of feedback.threads) {
+      if (t.line === null) continue
+      const key = `${t.path}#${t.side === 'LEFT' ? 'L' : 'R'}${t.line}`
+      m.set(key, [...(m.get(key) ?? []), t])
+    }
+    return m
+  }, [scope, feedback])
+
+  const fix = async (): Promise<void> => {
+    if (!onCompose || prNumber === undefined || !repoRoot || fixing) return
+    setFixing(true)
+    setNotice([])
+    try {
+      const { briefing, warnings } = await api.getPrFixBriefing(repoRoot, prNumber)
+      if (!alive.current) return
+      onCompose(briefing)
+      setNotice(warnings)
+    } catch (err) {
+      if (alive.current) setFbError(ipcErrorText(err))
+    } finally {
+      if (alive.current) setFixing(false)
+    }
+  }
+
   const keep = (note: ReviewNote): void => {
     setNotes(new Map(notes).set(noteKey(note.path, note.line), note))
     setEditing(null)
@@ -118,14 +230,28 @@ export function ReviewPanel({
     setNotes(next)
   }
   const send = (): void => {
-    if (!onNotes || !diff || notes.size === 0) return
-    onNotes(formatNotes([...notes.values()], diff))
+    if (!onCompose || !diff || notes.size === 0) return
+    onCompose(formatNotes([...notes.values()], diff))
     setNotes(new Map())
   }
 
   const scopeWord = scope === 'branch' ? 'on this branch' : scope
   return (
     <section className="review" aria-label="Changes to review">
+      {openPr && (
+        <PrStrip
+          pr={openPr}
+          feedback={feedback}
+          loading={fbLoading}
+          error={fbError}
+          notice={notice}
+          agent={agent}
+          fixing={fixing}
+          fixDisabled={busy}
+          onFix={onCompose ? () => void fix() : undefined}
+          onOpenUrl={openUrl}
+        />
+      )}
       <div className="review-bar">
         <span className="idiff-layout" role="group" aria-label="Diff scope">
           {SCOPES.map((s) => (
@@ -149,7 +275,7 @@ export function ReviewPanel({
           )}
         </span>
         <span className="review-right">
-          {onNotes && notes.size > 0 && (
+          {onCompose && notes.size > 0 && (
             <button className="btn-ghost small" onClick={send} title="Put the notes in the composer, ready to send">
               Send {notes.size} {notes.size === 1 ? 'note' : 'notes'} to {agent}
             </button>
@@ -185,9 +311,11 @@ export function ReviewPanel({
               layout={layout}
               notes={notes}
               editing={editing}
-              onEdit={onNotes ? setEditing : undefined}
+              onEdit={onCompose ? setEditing : undefined}
               onKeep={keep}
               onDrop={drop}
+              threads={threads}
+              onOpenUrl={openUrl}
             />
           ))}
         </div>
@@ -232,17 +360,32 @@ type LineProps = {
   readonly onEdit?: (key: string | null) => void
   readonly onKeep: (note: ReviewNote) => void
   readonly onDrop: (key: string) => void
+  /** Reviewers' unresolved threads by line key (branch scope only) */
+  readonly threads: ThreadMap
+  readonly onOpenUrl: (url: string) => void
+}
+
+/** Threads this file will actually show inline — the head's count must not promise more. */
+function shownThreads(file: DiffFile, threads: ThreadMap): number {
+  if (threads.size === 0) return 0
+  const seen = new Set<PrReviewThread>()
+  for (const h of file.hunks) for (const l of h.lines) for (const t of threadsAt(threads, file.path, l)) seen.add(t)
+  return seen.size
 }
 
 function FileBlock({ file, layout, ...line }: LineProps & { layout: DiffLayout }): JSX.Element {
   const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path
   const kind = file.untracked ? 'untracked' : file.status
+  const threadCount = shownThreads(file, line.threads)
   return (
     <details className="idiff review-file" open={!file.binary}>
       <summary className="idiff-head plain" aria-label={`${shown}, ${kind}`}>
         <span className="idiff-path">{shown}</span>
         {(kind !== 'modified' || file.binary) && (
           <span className={`review-kind ${kind}`}>{file.binary ? 'binary' : file.untracked ? 'untracked' : KIND_LABEL[file.status]}</span>
+        )}
+        {threadCount > 0 && (
+          <span className="review-kind tone-warn">{threadCount === 1 ? '1 thread' : `${threadCount} threads`}</span>
         )}
         {!file.binary && <DiffStat added={file.added} removed={file.removed} />}
       </summary>
@@ -324,6 +467,9 @@ function PairRow({ left, right, ...line }: LineProps & { left: DiffHunkLine | nu
         ({ l, side }) =>
           own(l, side) && l && addressed(l, line) && <NoteRow key={`n-${side}`} line={l} {...line} />
       )}
+      {[...new Set([left, right].flatMap((l) => (l ? threadsAt(line.threads, line.file.path, l) : [])))].map((t, i) => (
+        <ThreadRow key={`t-${i}`} thread={t} onOpenUrl={line.onOpenUrl} />
+      ))}
     </>
   )
 }
@@ -333,6 +479,9 @@ function LineRow({ line: l, ...line }: LineProps & { line: DiffHunkLine }): JSX.
     <>
       <Line line={l} side="both" addressable {...line} />
       {addressed(l, line) && <NoteRow line={l} {...line} />}
+      {threadsAt(line.threads, line.file.path, l).map((t, i) => (
+        <ThreadRow key={`t-${i}`} thread={t} onOpenUrl={line.onOpenUrl} />
+      ))}
     </>
   )
 }
@@ -381,6 +530,30 @@ function Line({
       {l.op !== 'same' && <span className="sr-only">{SAID[l.op]}</span>}
       <span className="idiff-text">{l.text}</span>
       {notes.has(key) && <span className="sr-only"> (has a note)</span>}
+    </div>
+  )
+}
+
+/** A reviewer's unresolved thread under its line: their words, not the user's — read-only here. */
+function ThreadRow({ thread, onOpenUrl }: { thread: PrReviewThread; onOpenUrl: (url: string) => void }): JSX.Element {
+  const [first] = thread.comments
+  const more = thread.moreComments
+  return (
+    <div className="review-thread" role="note" aria-label={`Unresolved review thread from @${first.author}`}>
+      {thread.comments.map((c, i) => (
+        <div key={i} className="review-thread-comment">
+          <span className="review-thread-who">@{c.author}</span>
+          <span className="review-thread-body">{c.body}</span>
+        </div>
+      ))}
+      <div className="review-thread-foot">
+        {more > 0 && <span>{more === 1 ? '1 more reply' : `${more} more replies`}</span>}
+        {first.url && (
+          <button className="link-btn" onClick={() => onOpenUrl(first.url)}>
+            Open on GitHub <LinkExternalIcon size={10} />
+          </button>
+        )}
+      </div>
     </div>
   )
 }

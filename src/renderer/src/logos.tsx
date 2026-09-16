@@ -290,7 +290,10 @@ export function PrBadge({
       }}
     >
       <Octicon d={pr.state === 'MERGED' ? OCTICON_MERGE : OCTICON_PR} size={compact ? 10 : 11} />
-      {compact ? `#${pr.number}` : `${label} #${pr.number}`}
+      {/* the state word is its own element so a cramped row can shed it and keep
+          the number — the accessible name above always spells the state out */}
+      {!compact && <span className="pr-word">{label} </span>}
+      {`#${pr.number}`}
       {checks && (
         <span className={`pr-checks ${checks}`}>
           <Octicon d={CHECKS_GLYPH[checks]} size={compact ? 10 : 11} />

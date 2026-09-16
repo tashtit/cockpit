@@ -194,6 +194,67 @@ export type WorkspaceDiff = {
   readonly droppedFiles: number
 }
 
+/** gh's own classification of a check run (`gh pr checks --json bucket`) */
+export type PrCheckBucket = 'pass' | 'fail' | 'pending' | 'skipping' | 'cancel'
+
+export type PrCheckRun = {
+  readonly name: string
+  /** The Actions workflow it belongs to; '' for an external status */
+  readonly workflow: string
+  readonly bucket: PrCheckBucket
+  /** GitHub's raw state (FAILURE, TIMED_OUT, IN_PROGRESS…) — the word the UI shows */
+  readonly state: string
+  readonly link: string | null
+}
+
+export type PrThreadComment = {
+  readonly author: string
+  readonly body: string
+  readonly url: string
+}
+
+/** An unresolved review thread — resolved ones need nothing from the agent. */
+export type PrReviewThread = {
+  readonly path: string
+  /** The line on the thread's side of the PR diff; null once it left the diff (outdated) */
+  readonly line: number | null
+  /** LEFT = the removed (base) side, RIGHT = the branch's side */
+  readonly side: 'LEFT' | 'RIGHT'
+  readonly outdated: boolean
+  readonly comments: readonly PrThreadComment[]
+  /** Replies beyond the ones shipped */
+  readonly moreComments: number
+}
+
+export type PrChangeRequest = {
+  readonly author: string
+  /** The review's summary; '' when the reviewer only left threads */
+  readonly body: string
+  readonly url: string
+}
+
+/** What an open PR is waiting on, read on demand for the review panel. */
+export type PrFeedback = {
+  readonly number: number
+  readonly title: string
+  readonly url: string
+  readonly headRefName: string
+  readonly baseRefName: string
+  /** GitHub reports the branch can't merge cleanly into its base */
+  readonly conflicts: boolean
+  readonly checks: readonly PrCheckRun[]
+  readonly threads: readonly PrReviewThread[]
+  readonly changeRequests: readonly PrChangeRequest[]
+  /** Parts that couldn't be read (the checks list) — the rest still stands */
+  readonly warnings: readonly string[]
+}
+
+/** The "Fix with <agent>" prompt, plus what couldn't make it in (an unreadable log). */
+export type PrFixBriefing = {
+  readonly briefing: string
+  readonly warnings: readonly string[]
+}
+
 export type PermissionMode = 'safe' | 'auto-edit' | 'yolo'
 
 export type CodexSandbox = 'read-only' | 'workspace-write' | 'danger-full-access'
@@ -965,6 +1026,10 @@ export type CockpitApi = {
   readonly createPr: (cwd: string) => Promise<string>
   /** The worktree's changes for review before they ship; `cwd` must be a known session/worktree dir */
   readonly getWorkspaceDiff: (cwd: string, scope: DiffScope) => Promise<WorkspaceDiff>
+  /** An open PR's checks, unresolved review threads and requested changes (repo root from the index) */
+  readonly getPrFeedback: (repoRoot: string, prNumber: number) => Promise<PrFeedback>
+  /** The prompt that asks the agent to fix that PR — failing checks with their failed-step logs, threads, reviews */
+  readonly getPrFixBriefing: (repoRoot: string, prNumber: number) => Promise<PrFixBriefing>
   readonly getExtensions: () => Promise<ExtensionsInventory>
   /** Probe the server (spawn stdio / hit URL) and report whether it answers */
   readonly checkMcp: (name: string) => Promise<McpProbeResult>

@@ -31,6 +31,14 @@ When a task is done, **Create PR** pushes the branch and runs `gh pr create`. Fr
 PR features need the [GitHub CLI](https://cli.github.com) (`gh`) installed and authenticated. Cockpit shows which `gh` user you're signed in as in Settings.
 :::
 
+## Fixing what the PR is waiting on
+
+Once the branch has an open PR, **Changes** (⌘D) leads with it: how many checks fail or are still running, whether a reviewer asked for changes, how many review threads are unresolved, and whether the branch conflicts with its base. Each failing check, change request and thread has a row that opens it on GitHub, and in the **Branch** view the reviewers' threads sit right under the lines they're about.
+
+**Fix with <Agent>** gathers all of it into one prompt in the composer: the merge conflict, each failing check with the output of its failed step (read with `gh run view --log-failed`, for GitHub Actions), the requested changes and every unresolved thread with its file and line. It asks the agent to fix everything, commit and push so the PR updates. Nothing is sent until you press Enter — edit the prompt first if you want to leave something out.
+
+Checks from external CI have no log `gh` can read; the prompt links to them instead. The PR is read when you open the view and again after each turn — it is never polled in the background.
+
 ## Permission modes
 
 Every chat runs under one of three permission modes, mapped to each provider's own flags:

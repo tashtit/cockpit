@@ -54,6 +54,7 @@ ul, ol { padding: 0; }
   --shadow-fill: 0 1px 2px rgba(0, 0, 0, 0.45);     /* contact shadow under a filled button */
   --scrim: rgba(5, 6, 11, 0.6);                     /* modal backdrop: --bg-deep's channels */
   --mono: ui-monospace, 'SF Mono', 'Fira Code', monospace;
+  --sans: -apple-system, 'Inter', 'Segoe UI', sans-serif;  /* the UI face: system stack, nothing loaded */
   --radius-sm: 6px; --radius: 8px; --radius-lg: 14px; --radius-pill: 999px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1); --dur: 160ms;
   --s1: 4px; --s2: 6px; --s3: 8px; --s4: 12px; --s5: 16px; --s6: 24px;
@@ -78,7 +79,7 @@ body { background:
     radial-gradient(110% 55% at 50% -12%, rgba(var(--accent-rgb), 0.14), transparent 62%),
     radial-gradient(90% 42% at 50% 114%, rgba(var(--accent-rgb), 0.06), transparent 60%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
-  color: var(--fg); font: var(--fs-base)/1.5 -apple-system, 'Inter', 'Segoe UI', sans-serif;
+  color: var(--fg); font: var(--fs-base)/1.5 var(--sans);
   overflow: hidden; -webkit-font-smoothing: antialiased; }
 button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 button, input, select, textarea, details { transition: background var(--dur) var(--ease),
@@ -820,7 +821,7 @@ summary::-webkit-details-marker { display: none; }
   margin: var(--s1) var(--s4) var(--s2) calc(24px + 36px);
   padding: var(--s2) var(--s3); background: rgba(var(--accent-rgb), 0.10);
   border: 1px solid rgba(var(--accent-rgb), 0.35); border-radius: var(--radius-sm);
-  font-family: -apple-system, 'Inter', 'Segoe UI', sans-serif; font-size: var(--fs-sm);
+  font-family: var(--sans); font-size: var(--fs-sm);
   line-height: 1.5; }
 .review-note textarea { flex: 1; min-width: 0; resize: none; background: var(--bg2);
   color: var(--fg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
@@ -831,6 +832,54 @@ summary::-webkit-details-marker { display: none; }
 .review-note-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word;
   color: var(--fg); }
 .review-note-actions { display: inline-flex; gap: var(--s1); flex-shrink: 0; }
+/* the branch's open PR, at the head of the review: what it waits on, and the key
+   that hands all of it to the agent. Framed like the file list below it. */
+.review-pr { border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden; }
+.review-pr-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); }
+.review-pr-head .review-sum { flex: 1 1 160px; column-gap: var(--s2); }
+/* readout words are separate verdicts — the app's middle dot keeps "failing" and
+   "changes requested" from reading as one phrase (alt text '' keeps it silent) */
+.review-pr-head .review-sum > [class^='tone-'] + [class^='tone-']::before {
+  content: '·' / ''; color: var(--fg-dim); margin-right: var(--s2); }
+.review-pr .tone-ok { color: var(--ok); }
+.review-pr .tone-warn { color: var(--warn); }
+.review-pr .tone-danger { color: var(--danger); }
+.review-pr .tone-dim, .review-kind.tone-dim { color: var(--fg-dim); }
+.review-kind.tone-danger { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
+.review-kind.tone-warn { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
+.review-pr-fix { display: inline-flex; align-items: center; gap: var(--s2); }
+.review-pr > .review-error, .review-pr-notice { padding: 0 var(--s3) var(--s2); }
+.review-pr-notice { color: var(--warn); font-size: var(--fs-xs); }
+.review-pr-list { list-style: none; margin: 0; padding: var(--s1) 0;
+  border-top: 1px solid var(--border); }
+.review-pr-row { display: flex; align-items: center; gap: var(--s2); min-height: 28px;
+  padding: 0 var(--s3); font-size: var(--fs-sm); }
+.review-pr-name { font-family: var(--mono); font-size: var(--fs-xs); min-width: 0;
+  max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-pr-dim { color: var(--fg-dim); font-size: var(--fs-xs); white-space: nowrap; }
+.review-pr-excerpt { flex: 1; min-width: 0; color: var(--fg-dim); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.review-pr-link { min-width: 24px; min-height: 24px; margin-left: auto; display: inline-flex;
+  align-items: center; justify-content: center; flex-shrink: 0; }
+.review-pr-more { min-height: 24px; font-size: var(--fs-xs); }
+/* a reviewer's unresolved thread, under the line it is about: their words (sans,
+   like a note) on a quiet surface, the warn bar marking it still open */
+.review-thread { display: flex; flex-direction: column; gap: var(--s1);
+  margin: var(--s1) var(--s4) var(--s2) calc(24px + 36px); padding: var(--s2) var(--s3);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: inset 2px 0 0 var(--warn); font-family: var(--sans); font-size: var(--fs-sm);
+  line-height: 1.5; }
+.review-thread-comment { display: flex; gap: var(--s2); align-items: baseline; }
+.review-thread-who { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
+  flex-shrink: 0; }
+.review-thread-body { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word;
+  color: var(--fg); }
+.review-thread-foot { display: flex; align-items: center; gap: var(--s3); color: var(--fg-dim);
+  font-size: var(--fs-xs); }
+.review-thread-foot .link-btn { min-height: 24px; display: inline-flex; align-items: center;
+  gap: 3px; }
 
 .empty-chat { flex: 1; display: flex; flex-direction: column; align-items: center;
   justify-content: center; color: var(--fg-dim); gap: var(--s3); padding: var(--s5);
@@ -1672,13 +1721,21 @@ button.pnl-flag:hover { text-decoration: underline; }
 @media (max-width: 780px) {
   /* board rows shed the repo pill first — the branch chip carries more identity */
   .repo-providers, .session-row .acct-chip, .board-repo,
-  .chat-header .acct-chip, .btn-review .lbl, .btn-handoff .lbl { display: none; }
+  /* an open PR's badge is a label too: it sheds its state word and keeps the number
+     (the accessible name still says it), which hands those ~34px back to the title —
+     with the word in, the header fits at 560px only by squeezing the title instead */
+  .chat-header .acct-chip, .btn-review .lbl, .btn-handoff .lbl,
+  .chat-header .pr-badge .pr-word { display: none; }
   /* the review and handoff keys fold to 28px squares (an icon-btn's footprint) so
      the header's row still holds at the 560px floor — both keep an aria-label */
   .btn-review, .btn-handoff { width: 28px; height: 28px; padding: 0; justify-content: center; }
   .messages, .review { padding: var(--s4); }
   /* the readout takes its own line under the controls */
   .review-sum { flex-basis: 100%; order: 1; }
+  /* a PR row keeps its verdict and name; the excerpt goes first */
+  .review-pr-excerpt, .review-pr-row .review-pr-dim { display: none; }
+  .review-pr-name { max-width: none; flex: 1; }
+  .review-thread { margin-left: var(--s4); }
   .tool-row, .thinking, .sys-row { margin-left: 0; }
   .ns-card { padding: var(--s5); margin: var(--s4) auto; }
   /* source rows (settings sources, usage, providers, about): the health readout and
