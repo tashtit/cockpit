@@ -25,6 +25,7 @@ function session(over: Partial<SessionMeta> = {}): SessionMeta {
     source: '/home/dev/.claude',
     title: 'fix the login flake',
     cwd: repo.root,
+    logBranch: 'cockpit/login-flake',
     gitBranch: 'cockpit/login-flake',
     startedAt: 1700000000000,
     updatedAt: 1700000000000,

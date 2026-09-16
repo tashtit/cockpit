@@ -23,6 +23,7 @@ function meta(over: Partial<SessionMeta> & { provider: Provider; sourcePath: str
     source: root,
     title: 't',
     cwd: null,
+    logBranch: null,
     gitBranch: null,
     startedAt: NOW,
     updatedAt: NOW,

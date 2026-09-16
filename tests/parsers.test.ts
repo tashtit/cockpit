@@ -309,6 +309,27 @@ beforeAll(() => {
       }
     ])
   )
+  // what the CLI writes after 1.0.80: context is { cwd } alone — no branch, no repository
+  const copilotBareDir = join(root, 'copilot', 'session-state', 'dddd-5555')
+  mkdirSync(copilotBareDir, { recursive: true })
+  writeFileSync(
+    join(copilotBareDir, 'events.jsonl'),
+    jsonl([
+      {
+        type: 'session.start',
+        timestamp: '2026-09-15T09:00:00Z',
+        data: {
+          sessionId: 'dddd-5555',
+          startTime: '2026-09-15T09:00:00Z',
+          copilotVersion: '0.0.0',
+          context: { cwd: '/Users/titan/.copilot/copilot-worktrees/site/feat-y' }
+        }
+      },
+      { type: 'user.message', timestamp: '2026-09-15T09:00:01Z', data: { content: 'bump nx' } },
+      { type: 'assistant.message', timestamp: '2026-09-15T09:00:09Z', data: { content: 'done' } }
+    ])
+  )
+
   writeFileSync(
     join(copilotStateDir, 'workspace.yaml'),
     [
@@ -328,7 +349,7 @@ describe('claude parser', () => {
       provider: 'claude',
       title: 'Fix login bug',
       cwd: '/Users/titan/dev/myrepo',
-      gitBranch: 'main',
+      logBranch: 'main',
       messageCount: 2
     })
   })
@@ -419,7 +440,7 @@ describe('codex parser', () => {
 describe('copilot parser', () => {
   it('lists sessions from both current and legacy layouts', () => {
     const s = listCopilotSessions(join(root, 'copilot'), 'copilot-test')
-    expect(s).toHaveLength(2)
+    expect(s).toHaveLength(3)
     const legacy = s.find((x) => x.nativeId === 'cccc-3333')
     expect(legacy).toMatchObject({
       provider: 'copilot',
@@ -434,11 +455,23 @@ describe('copilot parser', () => {
     expect(current).toMatchObject({
       title: 'Pricing page launch',
       cwd: '/Users/titan/.copilot/copilot-worktrees/site/feat-x',
-      gitBranch: 'titan/feat-x',
+      logBranch: 'titan/feat-x',
       repoFullName: 'acme/site',
       messageCount: 2
     })
   })
+  // the provider regression this fallback exists for — the indexer fills gitBranch in
+  it('reports no logged branch or repo when session.start carries only a cwd', () => {
+    const s = listCopilotSessions(join(root, 'copilot'), 'copilot-test')
+    const bare = s.find((x) => x.nativeId === 'dddd-5555')
+    expect(bare).toMatchObject({
+      cwd: '/Users/titan/.copilot/copilot-worktrees/site/feat-y',
+      logBranch: null,
+      messageCount: 2
+    })
+    expect(bare?.repoFullName).toBeNull()
+  })
+
   it('parses events.jsonl messages and tool calls', () => {
     const s = listCopilotSessions(join(root, 'copilot'), 'copilot-test')
     const current = s.find((x) => x.nativeId === 'dddd-4444')!

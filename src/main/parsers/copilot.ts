@@ -107,7 +107,7 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
 
   let nativeId = basename(dirname(file))
   let cwd: string | null = null
-  let gitBranch: string | null = null
+  let logBranch: string | null = null
   let repoFullName: string | null = null
   let title = ''
   let firstTs: number | null = null
@@ -122,7 +122,10 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
       if (ev.data.sessionId) nativeId = String(ev.data.sessionId)
       const ctx = ev.data.context ?? {}
       if (typeof ctx.cwd === 'string') cwd = ctx.cwd
-      if (typeof ctx.branch === 'string') gitBranch = ctx.branch
+      // branch/repository stopped being written after CLI 1.0.80 — current sessions
+      // carry a context of { cwd } alone. Still read here for older sessions; the
+      // indexer derives the branch from the checkout when it's absent.
+      if (typeof ctx.branch === 'string') logBranch = ctx.branch
       if (typeof ctx.repository === 'string' && ctx.repository.includes('/'))
         repoFullName = ctx.repository
       if (!firstTs) firstTs = toMs(ev.data.startTime)
@@ -153,7 +156,7 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
     source: sourceLabel,
     title: title || '(untitled)',
     cwd,
-    gitBranch,
+    logBranch,
     repoFullName,
     startedAt: firstTs ?? ft.start,
     updatedAt: ft.end,
@@ -223,7 +226,7 @@ function parseLegacyMeta(file: string, sourceLabel: string): SessionMeta | null 
     source: sourceLabel,
     title: title || '(untitled)',
     cwd: typeof j.cwd === 'string' ? j.cwd : typeof j.workingDirectory === 'string' ? j.workingDirectory : null,
-    gitBranch: typeof j.branch === 'string' ? j.branch : null,
+    logBranch: typeof j.branch === 'string' ? j.branch : null,
     startedAt: toMs(j.startTime ?? j.createdAt) ?? ft.start,
     updatedAt: toMs(j.updatedAt ?? j.endTime) ?? ft.end,
     messageCount,

@@ -7,6 +7,9 @@ export const GENERAL_REPO: RepoInfo = { key: 'general', name: 'General', fullNam
 export type ResolvedRepo = {
   readonly repo: RepoInfo
   readonly isWorktree: boolean
+  /** The checkout's own gitdir — where *this* working tree's HEAD lives. For a
+   *  linked worktree that is `<main>/.git/worktrees/<name>`, not the main `.git`. */
+  readonly gitDir: string
 }
 
 /** cwd → resolution cache. Session cwds repeat heavily; resolution is pure fs reads. */
@@ -50,19 +53,68 @@ function resolveUncached(cwd: string): ResolvedRepo | null {
 function fromGitPath(workRoot: string, gitPath: string): ResolvedRepo | null {
   try {
     if (statSync(gitPath).isDirectory()) {
-      return { repo: repoInfoFor(workRoot, join(gitPath, 'config')), isWorktree: false }
+      return {
+        repo: repoInfoFor(workRoot, join(gitPath, 'config')),
+        isWorktree: false,
+        gitDir: gitPath
+      }
     }
     // .git file: "gitdir: /path/to/main/.git/worktrees/<name>"
-    const m = readFileSync(gitPath, 'utf8').match(/^gitdir:\s*(.+)\s*$/m)
-    if (!m) return null
-    const gitdir = resolve(dirname(gitPath), m[1].trim())
+    const pointer = parseGitdirPointer(readFileSync(gitPath, 'utf8'))
+    if (!pointer) return null
+    const gitdir = resolve(dirname(gitPath), pointer)
     const wt = gitdir.match(/^(.*)\/\.git\/worktrees\/[^/]+$/)
     if (wt) {
       const mainRoot = wt[1]
-      return { repo: repoInfoFor(mainRoot, join(mainRoot, '.git', 'config')), isWorktree: true }
+      // config (and so the repo identity) is the main checkout's; HEAD is this
+      // worktree's own, which is what makes the branch per-session
+      return {
+        repo: repoInfoFor(mainRoot, join(mainRoot, '.git', 'config')),
+        isWorktree: true,
+        gitDir: gitdir
+      }
     }
     // submodule or detached gitdir — treat this checkout as its own repo
-    return { repo: repoInfoFor(workRoot, join(gitdir, 'config')), isWorktree: false }
+    return { repo: repoInfoFor(workRoot, join(gitdir, 'config')), isWorktree: false, gitDir: gitdir }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The gitdir a worktree's `.git` *file* points at (linked worktrees have a
+ * pointer file where the main checkout has a directory). Null if the content
+ * isn't a pointer — possibly relative; the caller resolves it.
+ */
+export function parseGitdirPointer(dotGitContents: string): string | null {
+  const m = /^gitdir:[ \t]*(.+)$/m.exec(dotGitContents.trim())
+  return m?.[1]?.trim() ?? null
+}
+
+/**
+ * Branch name from a gitdir's HEAD contents (`ref: refs/heads/<branch>`), or
+ * the abbreviated commit hash when detached. Null for anything unrecognized.
+ */
+export function branchFromHead(headContents: string): string | null {
+  const head = headContents.trim()
+  const ref = /^ref:[ \t]*refs\/heads\/(.+)$/.exec(head)
+  if (ref?.[1]) return ref[1]
+  return /^[0-9a-f]{40}$/.test(head) ? head.slice(0, 7) : null
+}
+
+/**
+ * The branch a session's working directory is checked out on, straight from its
+ * own HEAD. This is the only branch source for the providers whose logs don't
+ * record one (see `SessionMeta.logBranch`), and it is read fresh rather than
+ * cached: the gitdir a cwd resolves to is stable, the ref inside it is not.
+ * One small file read per distinct cwd per scan, on top of the ancestor walk
+ * `resolveRepo` already caches.
+ */
+export function branchForCwd(cwd: string | null): string | null {
+  const res = resolveRepo(cwd)
+  if (!res) return null
+  try {
+    return branchFromHead(readFileSync(join(res.gitDir, 'HEAD'), 'utf8'))
   } catch {
     return null
   }

@@ -67,7 +67,8 @@ import {
   saveInstructionFile
 } from './instructions'
 import { getAccounts, setCopilotActiveUser } from './accounts'
-import { branchFromHead, centeredIn, parseGitdirPointer, readDevWindowPrefs } from './dev-window'
+import { centeredIn, readDevWindowPrefs } from './dev-window'
+import { branchFromHead, parseGitdirPointer } from './repos'
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
 import {
   previewOf,

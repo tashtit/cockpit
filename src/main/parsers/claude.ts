@@ -56,7 +56,7 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
   const nativeId = basename(file, '.jsonl')
 
   let cwd: string | null = null
-  let gitBranch: string | null = null
+  let logBranch: string | null = null
   // Generated names: custom-title (user-set) beats ai-title beats legacy summary
   // beats first-prompt fallback. Later lines supersede earlier ones.
   let customTitle = ''
@@ -81,7 +81,7 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
   const scan = (l: any): void => {
     if (sidechain === null && typeof l.isSidechain === 'boolean') sidechain = l.isSidechain
     if (l.cwd && !cwd) cwd = l.cwd
-    if (l.gitBranch && !gitBranch) gitBranch = l.gitBranch
+    if (l.gitBranch && !logBranch) logBranch = l.gitBranch
     const ts = toMs(l.timestamp)
     if (ts) {
       if (!firstTs) firstTs = ts
@@ -134,7 +134,7 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
     source: sourceLabel,
     title: title || '(untitled)',
     cwd,
-    gitBranch,
+    logBranch,
     startedAt: firstTs ?? ft.start,
     // truncated head can't see the last line's timestamp — mtime is the truth anyway
     updatedAt: head.truncated ? ft.end : (lastTs ?? ft.end),
