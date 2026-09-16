@@ -16,7 +16,10 @@ test.beforeAll(async () => {
     args: [mainEntry],
     env: {
       ...process.env,
-      // hermetic run: config, index cache, and worktrees land in a throwaway dir
+      // hermetic run: config, index cache, and worktrees land in a throwaway dir, and
+      // agent homes resolve under an empty HOME — no agent signed in, nothing to index —
+      // so the home settles on the same screen on a laptop as on a CI runner
+      HOME: mkdtempSync(join(tmpdir(), 'cockpit-e2e-home-')),
       COCKPIT_USER_DATA: mkdtempSync(join(tmpdir(), 'cockpit-e2e-')),
       // CI linux runners restrict unprivileged user namespaces; no SUID helper either
       ...(process.env.CI ? { ELECTRON_DISABLE_SANDBOX: '1' } : {})
@@ -34,13 +37,11 @@ test('boots to the home shell', async () => {
   // the heading may carry the gh login ("What should we ship, dev?") — match the stem
   await expect(win.getByRole('heading', { name: /What should we ship/ })).toBeVisible()
 
-  // this run uses the machine's real agent homes, so the home settles on the composer
-  // or — on a runner with no agent signed in — the setup card. The composer shows while
-  // accounts load, so asserting it alone races that swap; the composer itself is covered
-  // against a seeded world in pages.spec.ts.
-  const composer = win.getByRole('textbox', { name: 'Task description' })
-  const setup = win.getByRole('region', { name: 'Set up Cockpit' })
-  await expect(composer.or(setup)).toBeVisible()
+  // with no agent signed in the home settles on the setup card. The composer stands in
+  // until the accounts snapshot lands, and that waits on `gh api user` (bounded at 10s
+  // in main), so wait out the swap rather than assert either side of it. The composer
+  // itself is covered against a seeded world in pages.spec.ts.
+  await expect(win.getByRole('region', { name: 'Set up Cockpit' })).toBeVisible({ timeout: 15_000 })
 })
 
 test('preload bridge is wired through context isolation', async () => {
