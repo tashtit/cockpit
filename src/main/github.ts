@@ -1,6 +1,12 @@
 import type { PrStatus } from '../shared/types'
 import { execText } from './env'
-import { PR_LIST_FIELDS, parsePrList } from './github-core'
+import {
+  OPEN_THREADS_QUERY,
+  PR_LIST_FIELDS,
+  parsePrList,
+  parseUnresolvedThreads,
+  withUnresolvedThreads
+} from './github-core'
 
 const TTL_MS = 60_000
 
@@ -40,7 +46,18 @@ async function fetchPrs(repoRoot: string): Promise<PrStatus[]> {
     { cwd: repoRoot }
   )
   if (!r.ok) return []
-  return parsePrList(r.stdout)
+  const prs = parsePrList(r.stdout)
+  // unresolved review threads aren't a `gh pr list` field: one GraphQL call beside it,
+  // skipped when nothing is open (and when the list failed — gh wouldn't answer this
+  // either). {owner}/{repo} are gh's placeholders, resolved from the checkout exactly
+  // as `gh pr list` resolves it. Fails soft: without it every count reads 0.
+  if (!prs.some((p) => p.state === 'OPEN')) return prs
+  const t = await execText(
+    'gh',
+    ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-f', `query=${OPEN_THREADS_QUERY}`],
+    { cwd: repoRoot, timeoutMs: 20_000 }
+  )
+  return withUnresolvedThreads(prs, parseUnresolvedThreads(t.stdout))
 }
 
 /** repoRoot → default branch (or null when git can't say). Per-process: it changes

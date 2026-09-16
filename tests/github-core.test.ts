@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
+  OPEN_THREADS_QUERY,
   PR_LIST_FIELDS,
   mapReviewDecision,
   parsePrList,
+  parseUnresolvedThreads,
   summarizeChecks,
-  toPrStatus
+  toPrStatus,
+  withUnresolvedThreads
 } from '../src/main/github-core'
 
 /** A Checks-API run as gh prints it (Actions jobs, CodeQL, …). */
@@ -107,7 +110,8 @@ describe('toPrStatus', () => {
       headRefName: 'cockpit/login-flake',
       url: 'https://github.com/acme/rocket/pull/42',
       checks: 'failing',
-      review: 'changes_requested'
+      review: 'changes_requested',
+      unresolvedThreads: 0
     })
   })
 
@@ -132,7 +136,8 @@ describe('toPrStatus', () => {
       headRefName: '',
       url: '',
       checks: 'none',
-      review: 'none'
+      review: 'none',
+      unresolvedThreads: 0
     })
   })
 })
@@ -163,5 +168,124 @@ describe('parsePrList', () => {
     expect(fields).toContain('statusCheckRollup')
     expect(fields).toContain('reviewDecision')
     expect(new Set(fields).size).toBe(fields.length)
+  })
+})
+
+/** A review thread as the counts query asks for it: nothing but whether it was resolved. */
+const thread = (isResolved: unknown) => ({ isResolved })
+/** `gh api graphql` stdout for OPEN_THREADS_QUERY, in the shape GitHub returns it. */
+const threadsResponse = (prs: unknown[]) =>
+  JSON.stringify({ data: { repository: { pullRequests: { nodes: prs } } } })
+
+describe('parseUnresolvedThreads', () => {
+  it('counts the unresolved threads of each open PR', () => {
+    const counts = parseUnresolvedThreads(
+      threadsResponse([
+        { number: 57, reviewThreads: { nodes: [thread(false), thread(true), thread(false)] } },
+        { number: 58, reviewThreads: { nodes: [thread(false)] } }
+      ])
+    )
+    expect([...counts]).toEqual([
+      [57, 2],
+      [58, 1]
+    ])
+  })
+
+  it('leaves out PRs with nothing waiting — every thread resolved, or none at all', () => {
+    // captured from a repository whose open PRs carry no review threads
+    const counts = parseUnresolvedThreads(
+      threadsResponse([
+        { number: 104, reviewThreads: { nodes: [] } },
+        { number: 102, reviewThreads: { nodes: [thread(true), thread(true)] } }
+      ])
+    )
+    expect(counts.size).toBe(0)
+    expect(parseUnresolvedThreads('{"data":{"repository":{"pullRequests":{"nodes":[]}}}}').size).toBe(0)
+  })
+
+  it('counts only an explicit isResolved: false — an unreadable thread is not a waiting reviewer', () => {
+    const counts = parseUnresolvedThreads(
+      threadsResponse([
+        {
+          number: 7,
+          reviewThreads: { nodes: [thread(false), thread(null), thread('false'), {}, null, 'junk', thread(false)] }
+        }
+      ])
+    )
+    expect(counts.get(7)).toBe(2)
+  })
+
+  it('skips PR nodes it cannot read without losing the readable ones', () => {
+    const counts = parseUnresolvedThreads(
+      threadsResponse([
+        null,
+        { number: '9', reviewThreads: { nodes: [thread(false)] } },
+        { reviewThreads: { nodes: [thread(false)] } },
+        { number: 10, reviewThreads: null },
+        { number: 11, reviewThreads: { nodes: 'nope' } },
+        { number: 12, reviewThreads: { nodes: [thread(false)] } }
+      ])
+    )
+    expect([...counts]).toEqual([[12, 1]])
+  })
+
+  it('fails soft to no counts on anything that is not a readable response', () => {
+    expect(parseUnresolvedThreads('').size).toBe(0)
+    expect(parseUnresolvedThreads('gh: To get started with GitHub CLI, please run: gh auth login').size).toBe(0)
+    expect(parseUnresolvedThreads('[]').size).toBe(0)
+    expect(parseUnresolvedThreads('{"data":null}').size).toBe(0)
+    // what gh prints when the checkout's remote isn't a repository it can see
+    const notFound = JSON.stringify({
+      data: { repository: null },
+      errors: [{ type: 'NOT_FOUND', path: ['repository'], message: "Could not resolve to a Repository with the name 'acme/gone'." }]
+    })
+    expect(parseUnresolvedThreads(notFound).size).toBe(0)
+  })
+})
+
+describe('withUnresolvedThreads', () => {
+  const pr = (number: number, state: string) =>
+    toPrStatus({ number, state, title: `PR ${number}` }) as NonNullable<ReturnType<typeof toPrStatus>>
+
+  it('puts each count on its open PR and zero on the rest', () => {
+    const prs = [pr(1, 'OPEN'), pr(2, 'OPEN'), pr(3, 'OPEN')]
+    const out = withUnresolvedThreads(prs, new Map([[1, 3], [3, 1]]))
+    expect(out.map((p) => [p.number, p.unresolvedThreads])).toEqual([
+      [1, 3],
+      [2, 0],
+      [3, 1]
+    ])
+    // untouched rows are passed through, not copied
+    expect(out[1]).toBe(prs[1])
+  })
+
+  it('never counts on a merged or closed PR, whatever the map says', () => {
+    const out = withUnresolvedThreads([pr(4, 'MERGED'), pr(5, 'CLOSED')], new Map([[4, 2], [5, 6]]))
+    expect(out.map((p) => p.unresolvedThreads)).toEqual([0, 0])
+  })
+
+  it('leaves the list as it was when the counts call failed', () => {
+    const prs = parsePrList(
+      JSON.stringify([
+        { number: 1, state: 'OPEN', statusCheckRollup: [run('FAILURE')], reviewDecision: 'CHANGES_REQUESTED' },
+        { number: 2, state: 'MERGED' }
+      ])
+    )
+    const out = withUnresolvedThreads(prs, parseUnresolvedThreads(''))
+    expect(out).toEqual(prs)
+    // the badge still has everything else it shows
+    expect(out[0]).toMatchObject({ checks: 'failing', review: 'changes_requested', unresolvedThreads: 0 })
+  })
+})
+
+describe('OPEN_THREADS_QUERY', () => {
+  it('asks for open PRs newest first, as gh pr list orders them, with each thread\'s resolution', () => {
+    const q = OPEN_THREADS_QUERY.replace(/\s+/g, ' ')
+    expect(q).toContain('pullRequests(states: OPEN')
+    expect(q).toContain('orderBy: { field: CREATED_AT, direction: DESC }')
+    expect(q).toMatch(/reviewThreads\(first: \d+\) \{ nodes \{ isResolved \} \}/)
+    // gh fills these from the checkout: -F owner={owner} -F name={repo}
+    expect(q).toContain('$owner: String!')
+    expect(q).toContain('$name: String!')
   })
 })

@@ -226,7 +226,34 @@ describe('ChatView header PR badge', () => {
     )
     expect(badge.querySelector('.pr-checks.pending')).not.toBeNull()
     expect(badge.querySelector('.pr-review-mark')).toBeNull()
+    expect(badge.querySelector('.pr-threads')).toBeNull()
     expect(screen.queryByRole('button', { name: /Create PR/ })).not.toBeInTheDocument()
+  })
+
+  it('shows how many review threads are waiting on a reply, after the state word', () => {
+    renderChat(vi.fn(), {
+      prs: [
+        openPr({ headRefName: binding.branch ?? '', checks: 'failing', review: 'changes_requested', unresolvedThreads: 12 })
+      ]
+    })
+    const badge = screen.getByRole('button', { name: /pull request #42/ })
+    expect(badge).toHaveTextContent(/^Open #4212$/)
+    // state, number, then the marks: checks verdict, threads, the changes-requested dot
+    expect(Array.from(badge.children, (el) => el.getAttribute('class')?.split(' ')[0] ?? el.tagName)).toEqual([
+      'svg',
+      'pr-word',
+      'pr-checks',
+      'pr-threads',
+      'pr-review-mark'
+    ])
+    expect(badge).toHaveAccessibleName(
+      'Open pull request #42: Fix the login flake, checks failing, changes requested, 12 unresolved threads'
+    )
+    expect(badge).toHaveAttribute(
+      'title',
+      'Open — #42 Fix the login flake\nchecks failing\nchanges requested\n12 unresolved threads'
+    )
+    expect(badge.querySelector('.pr-threads')).toHaveTextContent(/^12$/)
   })
 })
 

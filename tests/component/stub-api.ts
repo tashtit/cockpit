@@ -35,7 +35,7 @@ export function emptyRoundtable(): RoundtableSnapshot {
   }
 }
 
-/** An open PR with green checks and no review yet; tests override what they exercise. */
+/** An open PR with green checks, no review yet and no threads waiting; tests override what they exercise. */
 export function openPr(over: Partial<PrStatus> = {}): PrStatus {
   return {
     number: 42,
@@ -46,6 +46,7 @@ export function openPr(over: Partial<PrStatus> = {}): PrStatus {
     url: 'https://github.com/acme/rocket/pull/42',
     checks: 'passing',
     review: 'none',
+    unresolvedThreads: 0,
     ...over
   }
 }

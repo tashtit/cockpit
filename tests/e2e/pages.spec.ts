@@ -29,10 +29,11 @@ const fakeBin = join(root, 'bin')
 
 /**
  * A stand-in `gh`, first on the app's PATH: the fixtures' branch carries an open
- * PR whose checks fail and whose review asks for changes — the widest a PR badge
- * ever gets. Everything else exits non-zero, which is what a machine without gh
- * looks like. Without this the run would ask this machine's real gh (or none at
- * all), and the minimum-window audit below would never see a badge.
+ * PR whose checks fail, whose review asks for changes and whose unresolved threads
+ * run to two digits — the widest a PR badge ever gets. `pr list` and the
+ * thread-count `api graphql` answer; everything else exits non-zero, which is what
+ * a machine without gh looks like. Without this the run would ask this machine's
+ * real gh (or none at all), and the minimum-window audit below would never see a badge.
  */
 const FAKE_PR = JSON.stringify([
   {
@@ -49,11 +50,27 @@ const FAKE_PR = JSON.stringify([
     ]
   }
 ])
+const FAKE_THREADS = JSON.stringify({
+  data: {
+    repository: {
+      pullRequests: {
+        nodes: [{ number: 42, reviewThreads: { nodes: Array.from({ length: 12 }, () => ({ isResolved: false })) } }]
+      }
+    }
+  }
+})
 
 function writeFakeGh(): void {
   mkdirSync(fakeBin, { recursive: true })
   const gh = join(fakeBin, 'gh')
-  writeFileSync(gh, `#!/bin/sh\ncase "$1 $2" in\n  "pr list") cat <<'JSON'\n${FAKE_PR}\nJSON\n  ;;\n  *) exit 1 ;;\nesac\n`)
+  writeFileSync(
+    gh,
+    `#!/bin/sh\ncase "$1 $2" in\n` +
+      `  "pr list") cat <<'JSON'\n${FAKE_PR}\nJSON\n  ;;\n` +
+      // the badges' count query only — the review panel's pullRequest(number:) query still fails
+      `  "api graphql") case "$*" in\n    *'pullRequests('*) cat <<'JSON'\n${FAKE_THREADS}\nJSON\n    ;;\n    *) exit 1 ;;\n  esac ;;\n` +
+      `  *) exit 1 ;;\nesac\n`
+  )
   chmodSync(gh, 0o755)
 }
 
@@ -154,7 +171,21 @@ test.beforeAll(async () => {
     }
   })
   win = await app.firstWindow()
+  // links never leave the app: a stray click on a PR badge would otherwise open this
+  // machine's browser — on a Linux runner xdg-open starts Chrome in the app's process
+  // group, which outlives the app and holds its pipes, so teardown hangs until timeout
+  await app.evaluate(({ shell }) => {
+    const g = globalThis as { openedUrls?: string[] }
+    g.openedUrls = []
+    shell.openExternal = async (url: string) => {
+      g.openedUrls?.push(url)
+    }
+  })
 })
+
+/** URLs the app asked the OS to open since launch — see the stub above. */
+const openedUrls = (): Promise<string[]> =>
+  app.evaluate(() => (globalThis as { openedUrls?: string[] }).openedUrls ?? [])
 
 test.afterAll(async () => {
   await closeApp(app)
@@ -449,11 +480,14 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   expect(await audit()).toEqual([])
   await win.keyboard.press('Escape')
 
-  await win.getByRole('treeitem', { name: /fix the login flake/ }).click()
+  // aim at the title, as a person would: at this width the row's compact PR badge takes
+  // nearly half the row, and a click that lands on it opens the PR instead
+  await win.getByRole('treeitem', { name: /fix the login flake/ }).locator('.session-title').click()
   await expect(win.getByRole('button', { name: 'Send' })).toBeVisible()
-  // the chat header at its widest: an open PR's badge (state, checks glyph and
-  // the changes-requested mark) beside the review key and the mode picker
-  await expect(win.locator('.chat-header .pr-badge')).toBeVisible()
+  // the chat header at its widest: an open PR's badge (state, checks glyph, a
+  // two-digit thread count and the changes-requested mark) beside the review key
+  // and the mode picker
+  await expect(win.locator('.chat-header .pr-badge .pr-threads')).toHaveText('12')
   expect(await audit()).toEqual([])
   // the composer's textarea keeps a readable width rather than sharing its row with
   // the controls (it was ~180px, its placeholder wrapped to five lines)
@@ -463,6 +497,8 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   await expect(win.getByRole('region', { name: 'Changes to review' })).toBeVisible()
   expect(await audit()).toEqual([])
   await win.getByRole('button', { name: 'Changes', exact: true }).click()
+  // every click above landed on what it aimed at — none of them opened a PR
+  expect(await openedUrls()).toEqual([])
 
   await win.setViewportSize({ width: 1100, height: 728 })
 })

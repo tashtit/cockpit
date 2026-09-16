@@ -53,11 +53,13 @@ function httpsUrl(v: unknown): string | null {
   return typeof v === 'string' && v.startsWith('https://') ? v : null
 }
 
-function obj(v: unknown): Record<string, unknown> | null {
+/** A JSON object, or null for anything else (arrays included). Shared with github-core. */
+export function obj(v: unknown): Record<string, unknown> | null {
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null
 }
 
-function nodes(v: unknown): unknown[] {
+/** A GraphQL connection's `nodes`, or [] when the connection is missing or malformed. */
+export function nodes(v: unknown): unknown[] {
   const n = obj(v)?.nodes
   return Array.isArray(n) ? n : []
 }

@@ -97,9 +97,10 @@ describe('session rows state that is not colour-coded', () => {
 })
 
 /**
- * The checks verdict and the review outcome are glyphs on the badge — a check, an
- * x, a dot, a red mark — so, like the state colour, they have to be said in the
- * accessible name and the tooltip too.
+ * The checks verdict, the review outcome and the unresolved threads are glyphs on
+ * the badge — a check, an x, a dot, a red mark, a discussion bubble and its count —
+ * so, like the state colour, they have to be said in the accessible name and the
+ * tooltip too.
  */
 describe('PR badge checks and review', () => {
   async function renderWithPr(pr: PrStatus): Promise<HTMLElement> {
@@ -149,14 +150,61 @@ describe('PR badge checks and review', () => {
     expect(badge.querySelector('.pr-checks')).toBeNull()
   })
 
+  it('counts the unresolved threads beside the other marks, and spells the count out', async () => {
+    const badge = await renderWithPr(
+      openPr({ checks: 'failing', review: 'changes_requested', unresolvedThreads: 3 })
+    )
+    expect(badge).toHaveAccessibleName(
+      'Open pull request #42: Fix the login flake, checks failing, changes requested, 3 unresolved threads'
+    )
+    expect(badge).toHaveAttribute(
+      'title',
+      'Open — #42 Fix the login flake\nchecks failing\nchanges requested\n3 unresolved threads'
+    )
+    const threads = badge.querySelector('.pr-threads')
+    expect(threads).toHaveTextContent(/^3$/)
+    // the digits are their own element: a narrow sidebar sheds them and keeps the glyph
+    expect(threads?.querySelector('.pr-threads-n')).toHaveTextContent(/^3$/)
+    // a glyph beside the number, so a bare "3" never has to explain itself
+    expect(threads?.querySelector('svg[aria-hidden="true"] path')).not.toBeNull()
+    expect(badge.querySelector('.pr-checks.failing')).not.toBeNull()
+    expect(badge.querySelector('.pr-review-mark')).not.toBeNull()
+  })
+
+  it('says one thread in the singular, and nothing at all when none are waiting', async () => {
+    const one = await renderWithPr(openPr({ unresolvedThreads: 1 }))
+    expect(one).toHaveAccessibleName(/, 1 unresolved thread$/)
+    expect(one.querySelector('.pr-threads')).toHaveTextContent(/^1$/)
+    cleanup()
+
+    const none = await renderWithPr(openPr({ unresolvedThreads: 0 }))
+    expect(none).not.toHaveAccessibleName(/unresolved/)
+    expect(none.querySelector('.pr-threads')).toBeNull()
+    expect(none).toHaveTextContent(/^#42$/)
+  })
+
+  it('counts threads on a draft too — reviewers can be waiting before it is ready', async () => {
+    const badge = await renderWithPr(openPr({ isDraft: true, checks: 'none', unresolvedThreads: 2 }))
+    expect(badge).toHaveAccessibleName('Draft pull request #42: Fix the login flake, 2 unresolved threads')
+    expect(badge.querySelector('.pr-threads')).toHaveTextContent(/^2$/)
+  })
+
   it('lets a merged PR rest: its old verdicts are history, not a contradiction', async () => {
     const badge = await renderWithPr(
-      openPr({ state: 'MERGED', checks: 'failing', review: 'changes_requested' })
+      openPr({ state: 'MERGED', checks: 'failing', review: 'changes_requested', unresolvedThreads: 4 })
     )
     expect(badge).toHaveAccessibleName('Merged pull request #42: Fix the login flake')
     expect(badge).toHaveAttribute('title', 'Merged — #42 Fix the login flake')
     expect(badge.querySelector('.pr-checks')).toBeNull()
     expect(badge.querySelector('.pr-review-mark')).toBeNull()
+    expect(badge.querySelector('.pr-threads')).toBeNull()
+  })
+
+  it('shows nothing on a closed PR either', async () => {
+    const badge = await renderWithPr(openPr({ state: 'CLOSED', unresolvedThreads: 2 }))
+    expect(badge).toHaveAccessibleName('Closed pull request #42: Fix the login flake')
+    expect(badge.querySelector('.pr-threads')).toBeNull()
+    expect(badge).toHaveTextContent(/^#42$/)
   })
 })
 
