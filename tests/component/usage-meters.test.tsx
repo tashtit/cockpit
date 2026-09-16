@@ -124,7 +124,7 @@ describe('footer usage meters', () => {
     const base = calls()
 
     // a turn starting is when the numbers begin to move; a turn ending is when they land
-    act(() => push!([{ id: 'claude:abc', startedAt: 1 }]))
+    act(() => push!([{ id: 'claude:abc', startedAt: 1, source: 'spawned' }]))
     await waitFor(() => expect(calls()).toBe(base + 1))
     act(() => push!([]))
     await waitFor(() => expect(calls()).toBe(base + 2))

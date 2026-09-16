@@ -6,6 +6,7 @@ import type {
   AttentionFocus,
   AttentionPrefs,
   AttentionTarget,
+  BusySession,
   ChatRequest,
   NewRoundtableRequest,
   PermissionMode,
@@ -22,6 +23,7 @@ import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { TranscriptSearcher } from './transcript-search'
 import { ChatManager } from './chat'
+import { mergeBusy } from './liveness-core'
 import {
   getPanel,
   matchPanelEntry,
@@ -119,6 +121,20 @@ let pendingOpen: AttentionTarget | null = null
  */
 function sendToWin(channel: string, payload?: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+/**
+ * Every session with a turn in progress: the ones Cockpit spawned (ChatManager knows
+ * exactly) and the ones the indexer sees mid-turn in their logs (a terminal, the
+ * provider's own app). One set, one push — the renderer never learns which is which
+ * unless it asks `source`. Either side may change before the other exists at startup.
+ */
+function busySessions(): BusySession[] {
+  return mergeBusy(chat?.busySessions() ?? [], indexer?.liveSessions() ?? [])
+}
+
+function pushBusy(): void {
+  sendToWin('busy-sessions', busySessions())
 }
 
 /**
@@ -397,7 +413,10 @@ app.whenReady().then(() => {
       resolveAttention()
       sendToWin('index-updated')
     },
-    { cacheFile: join(app.getPath('userData'), 'index-cache.json') }
+    {
+      cacheFile: join(app.getPath('userData'), 'index-cache.json'),
+      onLiveChange: () => pushBusy()
+    }
   )
   // candidate files come only from the indexer — the renderer never names a path
   transcripts = new TranscriptSearcher(indexer)
@@ -777,7 +796,7 @@ app.whenReady().then(() => {
       sendToWin('chat-event', ev)
     },
     {
-      onBusyChange: (ids) => sendToWin('busy-sessions', ids),
+      onBusyChange: () => pushBusy(),
       onTurnStart: (turnId, req) => {
         // a seat's turn is its table's business — the table lands once, as a whole
         if (roundtables?.tableIdForCwd(req.cwd)) return
@@ -794,7 +813,7 @@ app.whenReady().then(() => {
       resolveKey: (ep) => getEndpointKey(ep.id)
     }
   )
-  ipcMain.handle('sessions:busy', () => chat.busySessions())
+  ipcMain.handle('sessions:busy', () => busySessions())
   ipcMain.handle('chat:save-image', (_e, data: Uint8Array, mime: string) =>
     saveChatImage(chatImagesDir(), data, mime)
   )
@@ -933,7 +952,7 @@ app.whenReady().then(() => {
     sessions: () => indexer.cleanupSessions(),
     repoRoots: () => [...indexer.knownRepoRoots()],
     cockpitWorktreeRoot: worktreesDir(),
-    busyIds: () => new Set(chat.busySessions().map((b) => b.id)),
+    busyIds: () => new Set(busySessions().map((b) => b.id)),
     tableForCwd: (cwd) => roundtables?.tableIdForCwd(cwd) ?? null,
     sourceDirs: () => loadConfig().sources.map((s) => s.path)
   })
