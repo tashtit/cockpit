@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
+import { closeApp } from './close-app'
 
 const mainEntry = resolve('out/main/index.js')
 if (!existsSync(mainEntry)) {
@@ -24,11 +25,7 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  // graceful close occasionally hangs under xvfb on linux CI — bound it with a
-  // hard kill so teardown can never eat the 60s hook timeout and fail the run
-  const kill = setTimeout(() => app.process().kill('SIGKILL'), 15_000)
-  await app.close().catch(() => {})
-  clearTimeout(kill)
+  await closeApp(app)
 })
 
 test('boots to the home shell', async () => {
