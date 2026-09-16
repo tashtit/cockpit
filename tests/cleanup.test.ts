@@ -61,6 +61,7 @@ function session(over: Partial<SessionMeta> & { id: string; sourcePath: string }
     source: sourceDir,
     title: over.id,
     cwd: null,
+    logBranch: null,
     gitBranch: null,
     startedAt: OLD,
     updatedAt: OLD,

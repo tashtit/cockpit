@@ -19,7 +19,12 @@ import { endpointEnv } from '../shared/endpoints'
  */
 
 function sourceInfo(meta: SessionMeta): HandoffSourceInfo {
-  return { provider: meta.provider, title: meta.title, cwd: meta.cwd, branch: meta.gitBranch }
+  return {
+    provider: meta.provider,
+    title: meta.title,
+    cwd: meta.cwd,
+    branch: meta.gitBranch ?? null
+  }
 }
 
 function dirExists(cwd: string): boolean {

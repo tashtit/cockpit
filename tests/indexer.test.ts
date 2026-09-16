@@ -538,6 +538,77 @@ describe('lazy watcher install (source root appears after setSources)', () => {
   })
 })
 
+// Only Claude stamps a branch on its log lines: Copilot dropped context.branch after
+// CLI 1.0.80 and most Codex rollouts carry no git block, so without this fallback
+// every recent session of theirs shows no branch chip and never matches its PR.
+describe('branch fallback (log first, then the checkout itself)', () => {
+  const home = join(root, 'copilot-branch')
+  const repo = join(root, 'repo-b')
+  const worktree = join(root, 'wt-b')
+  let idx: SessionIndexer
+
+  afterAll(() => idx?.stopWatchers())
+
+  beforeAll(async () => {
+    mkdirSync(join(repo, '.git', 'worktrees', 'feat'), { recursive: true })
+    writeFileSync(join(repo, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/acme/repo-b.git\n')
+    writeFileSync(join(repo, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    writeFileSync(join(repo, '.git', 'worktrees', 'feat', 'HEAD'), 'ref: refs/heads/cockpit/feat\n')
+    mkdirSync(worktree, { recursive: true })
+    writeFileSync(join(worktree, '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'feat')}\n`)
+    clearRepoCache()
+
+    // what the current Copilot CLI writes: a context of { cwd } and nothing else
+    const write = (id: string, cwd: string, ctx: Record<string, unknown>): void => {
+      const dir = join(home, 'session-state', id)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(
+        join(dir, 'events.jsonl'),
+        jsonl([
+          { type: 'session.start', timestamp: '2026-08-10T10:00:00Z', data: { sessionId: id, context: { cwd, ...ctx } } },
+          { type: 'user.message', timestamp: '2026-08-10T10:00:00Z', data: { content: id } }
+        ])
+      )
+    }
+    write('no-branch-logged', worktree, {})
+    write('branch-logged', worktree, { branch: 'titan/what-the-log-said' })
+    write('cwd-is-gone', join(root, 'deleted-worktree'), { branch: 'titan/remembered' })
+
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: home, provider: 'copilot', label: 'branch-test' }])
+    idx.stopWatchers()
+  })
+
+  const branchOf = (id: string): string | null | undefined =>
+    idx.page({}).items.find((s) => s.nativeId === id)?.gitBranch
+
+  it("derives the branch from the worktree's HEAD when the log records none", () => {
+    expect(branchOf('no-branch-logged')).toBe('cockpit/feat')
+  })
+
+  it('keeps what the log recorded when it has one (the branch the session ran on)', () => {
+    expect(branchOf('branch-logged')).toBe('titan/what-the-log-said')
+  })
+
+  it('falls back to the log for a cwd that is gone (deleted worktree)', () => {
+    expect(branchOf('cwd-is-gone')).toBe('titan/remembered')
+  })
+
+  it('searches the derived branch, not just the logged one', () => {
+    expect(idx.page({ search: 'cockpit/feat' }).total).toBe(1)
+  })
+
+  // a derived branch must never stick: it is recomputed from logBranch every scan,
+  // so a worktree that moves — or a HEAD caught detached mid-rebase — self-corrects
+  it('follows the worktree onto a new branch across rescans', async () => {
+    writeFileSync(join(repo, '.git', 'worktrees', 'feat', 'HEAD'), 'ref: refs/heads/cockpit/moved\n')
+    await idx.rescan()
+    idx.stopWatchers()
+    expect(branchOf('no-branch-logged')).toBe('cockpit/moved')
+    expect(branchOf('branch-logged')).toBe('titan/what-the-log-said')
+  })
+})
+
 describe.skipIf(!hasSqlite3())('provider-deleted sessions (copilot data.db)', () => {
   // Deletion removes the sessions row but leaves session-state/<id>/events.jsonl on disk.
   // A row-less dir is hidden only when its mtime falls inside the mtime span of the dirs

@@ -24,6 +24,7 @@ function session(id: string, title: string, over: Partial<SessionMeta> = {}): Se
     source: 'claude-default',
     title,
     cwd: '/home/dev/rocket',
+    logBranch: 'cockpit/fix-login',
     gitBranch: 'cockpit/fix-login',
     startedAt: 1700000000000,
     updatedAt: 1700000600000,

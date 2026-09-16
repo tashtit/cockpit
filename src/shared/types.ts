@@ -36,7 +36,11 @@ export type SessionMeta = {
   readonly source: string
   readonly title: string
   readonly cwd: string | null
-  readonly gitBranch: string | null
+  /** The branch the provider's own log records, if any. Claude stamps one on every
+   *  line, but Copilot dropped `context.branch` from session.start after CLI 1.0.80
+   *  and most Codex rollouts carry no `git` block at all — so this is null for plenty
+   *  of sessions that are very much on a branch. Read `gitBranch`, not this. */
+  readonly logBranch: string | null
   /** GitHub owner/repo when the provider's log states it directly (Copilot does) */
   readonly repoFullName?: string | null
   readonly startedAt: number
@@ -48,6 +52,11 @@ export type SessionMeta = {
   repo?: RepoInfo | null
   /** True when cwd is a linked git worktree rather than the main checkout — set with repo */
   isWorktree?: boolean
+  /** The branch this session is on — what every branch chip and PR lookup reads:
+   *  `logBranch` when the provider recorded one, else the cwd's live git HEAD.
+   *  Set with repo, and recomputed from `logBranch` on every scan so a derived
+   *  value (a detached HEAD mid-rebase, say) can never freeze onto the session. */
+  gitBranch?: string | null
   /** App-level flag (stored in cockpit config, not provider logs) — set by the indexer */
   archived?: boolean
   /** Session id this one was handed off from (cockpit config, not provider logs) — set by the indexer */

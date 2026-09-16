@@ -99,6 +99,7 @@ describe('session rows follow the time format live', () => {
       source: '/home/dev/.claude',
       title: 'Fix the flaky indexer test',
       cwd: repo.root,
+      logBranch: null,
       gitBranch: null,
       startedAt: todayAt1405(),
       updatedAt: todayAt1405(),

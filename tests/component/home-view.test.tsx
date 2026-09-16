@@ -158,6 +158,7 @@ describe('HomeView recent activity', () => {
       source: '/home/dev/.claude',
       title: 'Fix the flaky indexer test',
       cwd: repo.root,
+      logBranch: 'dev/fix-indexer',
       gitBranch: 'dev/fix-indexer',
       startedAt: 1700000000000,
       updatedAt: 1700000100000,

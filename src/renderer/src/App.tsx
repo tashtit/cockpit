@@ -340,7 +340,7 @@ export function App(): JSX.Element {
         cwd: s.cwd ?? '~',
         nativeSessionId: s.nativeId,
         title: s.title,
-        branch: s.gitBranch,
+        branch: s.gitBranch ?? null,
         repoRoot: s.repo?.root ?? null,
         configDir: acct && !acct.isDefault ? acct.path : undefined,
         accountLabel: acct ? (acct.identity ?? acct.label) : undefined,

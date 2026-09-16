@@ -113,7 +113,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
   let nativeId = basename(file, '.jsonl')
   let threadId: string | null = null
   let cwd: string | null = null
-  let gitBranch: string | null = null
+  let logBranch: string | null = null
   let title = ''
   let firstTs: number | null = null
   let lastTs: number | null = null
@@ -136,7 +136,9 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       // The name index is keyed by thread id (continuation rollouts share it)
       if (p.session_id || p.id) threadId = String(p.session_id ?? p.id)
       if (p.cwd) cwd = p.cwd
-      if (p.git?.branch) gitBranch = p.git.branch
+      // often absent — plenty of rollouts carry no `git` block at all, or one with
+      // only a commit hash. The indexer reads the checkout itself when it's missing.
+      if (p.git?.branch) logBranch = p.git.branch
     }
     const isMessage =
       isItemMessage(l) ||
@@ -170,7 +172,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
     source: sourceLabel,
     title: title || '(untitled)',
     cwd,
-    gitBranch,
+    logBranch,
     startedAt: firstTs ?? ft.start,
     updatedAt: head.truncated ? ft.end : (lastTs ?? ft.end),
     messageCount,

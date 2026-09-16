@@ -38,12 +38,13 @@ The entire IPC surface is the `CockpitApi` interface in `src/shared/types.ts`. A
 
 ### Indexing pipeline (the core data flow)
 
-`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo (worktree-aware: linked worktrees group under the main repo; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s. Sessions archived or deleted in the provider's own app are dropped (`provider-archived.ts`), and the history-window setting (`historyDays` in config) hides sessions idle longer than N days.
+`SessionIndexer` (`src/main/indexer.ts`) walks registered source dirs (`~/.claude`, `~/.codex`, `~/.copilot`, plus extras from config) → per-provider parsers in `src/main/parsers/` produce `SessionMeta` → `repos.ts` resolves each session's cwd to its git repo *and its branch* (worktree-aware: linked worktrees group under the main repo but keep their own HEAD; GitHub `owner/repo` read from the origin remote) → the renderer only ever sees `RepoGroup`s and paged `SessionPage`s. Sessions archived or deleted in the provider's own app are dropped (`provider-archived.ts`), and the history-window setting (`historyDays` in config) hides sessions idle longer than N days.
 
 Performance invariants — all deliberate, keep them:
 
 - The full index is never shipped to or rendered by the UI. Always paginate.
 - Meta parsing reads at most 256KB per file. Parsers are failure-tolerant: session log formats are provider-internal and drift between releases, so skip anything unreadable rather than fail the scan.
+- A parser reports only what its log states (`SessionMeta.logBranch`), never what the disk says. Anything derived from the checkout — `repo`, `isWorktree`, `gitBranch` — is the indexer's `annotate()`, is recomputed on every scan, and is stripped before the stat-cache is written so a renamed remote or a moved worktree can't freeze into it. Branches are the live example: Copilot stopped writing `context.branch` after CLI 1.0.80 and most Codex rollouts carry no `git` block, so for those the checkout's HEAD is the only source.
 - The stat-cache (mtime+size, persisted to userData) means restarts only re-parse changed files; scans yield to the event loop so IPC never blocks.
 - Only per-provider session roots are walked/watched (never `pkg/`, `repos/`, logs, or SQLite files). Watching uses Node's `fs.watch(root, {recursive: true})` — chokidar was dropped on purpose (its bundled fsevents broke on the Electron 43 upgrade); the indexer does its own debouncing.
 

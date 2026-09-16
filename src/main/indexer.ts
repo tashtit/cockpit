@@ -12,7 +12,7 @@ import type {
   SourceDir,
   SourceStats
 } from '../shared/types'
-import { GENERAL_REPO, clearRepoCache, resolveRepo } from './repos'
+import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
 import { defaultClaudeStoreDir, listProviderArchivedIds } from './provider-archived'
 import {
   listClaudeSessionFiles,
@@ -61,7 +61,7 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 5
+const CACHE_VERSION = 6
 /** Yield to the event loop every N files so scans never starve IPC. */
 const YIELD_EVERY = 50
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -552,10 +552,11 @@ export class SessionIndexer {
       (cached.aux ?? 0) === aux
     ) {
       // the session file is unchanged, but its repo identity may not be (a renamed
-      // origin remote) — re-resolve, which is what clearRepoCache() each rescan is
-      // for. resolveRepo caches per cwd, so the real cost is one ancestor walk +
-      // git-config read per distinct cwd per scan, not per session.
-      if (cached.meta) this.annotateRepo(cached.meta)
+      // origin remote) and neither may its branch (the worktree moved) — re-resolve,
+      // which is what clearRepoCache() each rescan is for. resolveRepo caches per
+      // cwd, so the real cost is one ancestor walk + git-config + HEAD read per
+      // distinct cwd per scan, not per session.
+      if (cached.meta) this.annotate(cached.meta)
       return cached.meta
     }
     let meta: SessionMeta | null = null
@@ -564,14 +565,18 @@ export class SessionIndexer {
     } catch (err) {
       console.error(`[indexer] parse failed for ${file}:`, err)
     }
-    if (meta) this.annotateRepo(meta)
+    if (meta) this.annotate(meta)
     this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, meta })
     this.cacheDirty = true
     return meta
   }
 
-  /** GitHub-first grouping: owner/repo is the identity when known; local root is the fallback. */
-  private annotateRepo(meta: SessionMeta): void {
+  /**
+   * Everything about a session that comes from the checkout rather than the log:
+   * GitHub-first grouping (owner/repo is the identity when known, local root the
+   * fallback) and the branch.
+   */
+  private annotate(meta: SessionMeta): void {
     const res = resolveRepo(meta.cwd)
     const fullName = meta.repoFullName ?? res?.repo.fullName ?? null
     if (fullName) {
@@ -585,6 +590,12 @@ export class SessionIndexer {
       meta.repo = res?.repo ?? null
     }
     meta.isWorktree = res?.isWorktree ?? false
+    // The provider's log is the first authority, but two of the three don't record a
+    // branch any more (see SessionMeta.logBranch), so read the checkout's own HEAD
+    // when it doesn't. Derived from logBranch every time, never from the last value
+    // this wrote — otherwise a branch caught mid-rebase would freeze onto the session.
+    // A cwd that's gone (deleted worktree) keeps whatever the log remembered.
+    meta.gitBranch = meta.logBranch ?? branchForCwd(meta.cwd)
   }
 
   private emitUpdate(): void {
@@ -841,8 +852,9 @@ export class SessionIndexer {
 
   /**
    * Disk-persisted stat cache: app restarts only re-parse files that changed.
-   * Repo annotation is stripped on save and recomputed on load — a renamed git
-   * remote must not be frozen into the cache.
+   * Everything `annotate` derives from the checkout is stripped on save and
+   * recomputed on load — a renamed git remote, or a worktree that has since moved
+   * to another branch, must not be frozen into the cache.
    */
   private loadCache(): void {
     if (!this.cacheFile) return
@@ -851,7 +863,7 @@ export class SessionIndexer {
       if (raw?.v !== CACHE_VERSION || !Array.isArray(raw.entries)) return
       for (const [path, entry] of raw.entries) {
         if (typeof path === 'string' && entry && typeof entry.mtimeMs === 'number') {
-          if (entry.meta) this.annotateRepo(entry.meta)
+          if (entry.meta) this.annotate(entry.meta)
           this.fileCache.set(path, entry)
         }
       }
@@ -885,6 +897,7 @@ export class SessionIndexer {
               ...e.meta,
               repo: undefined,
               isWorktree: undefined,
+              gitBranch: undefined,
               archived: undefined,
               continuedFrom: undefined
             }
