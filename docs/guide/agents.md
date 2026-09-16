@@ -87,12 +87,14 @@ Write one baseline of instructions — global, or per-repository — and fan it 
 | Global | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | `~/.copilot/copilot-instructions.md` |
 | Per-repo | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` (read natively) |
 
-The shared text lives between `<!-- cockpit:shared -->` markers inside each file. **Everything outside the markers is that agent's own and is never touched** — you can keep agent-specific instructions alongside the shared baseline in the same file.
+The shared text lives between `<!-- agent-parity:shared -->` markers inside each file — the same managed block the [agent-parity](https://github.com/tashtit/marketplace) plugin compares and writes, so running both never leaves a file with two copies of it. **Everything outside the markers is that agent's own and is never touched** — you can keep agent-specific instructions alongside the shared baseline in the same file.
+
+Files written by an earlier Cockpit carry `<!-- cockpit:shared -->` markers. Those are read as the same block, and renamed to the current pair the next time the file is applied.
 
 Each target shows a drift state:
 
 - **In sync** — the file carries the current baseline.
-- **Out of date** — the baseline changed since this file was last applied; one click re-applies.
+- **Out of date** — the baseline changed since this file was last applied, or the file carries the block twice (one copy per marker spelling); one click re-applies, folding any second copy into the one block.
 - **Not applied** — the file has no shared block yet.
 
 ### Review before you apply

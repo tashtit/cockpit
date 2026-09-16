@@ -18,6 +18,7 @@ const file = (over: Partial<InstructionFile>): InstructionFile => ({
   content: 'own\n',
   block: BASE,
   own: { above: 12, below: 0 },
+  duplicates: 0,
   status: 'synced',
   ...over
 })
@@ -86,12 +87,29 @@ describe('Instructions › the Changes tab', () => {
     await open()
     await userEvent.click(changesTab())
     const codex = block('~/.codex/AGENTS.md')
-    expect(within(codex).getByText('<!-- cockpit:shared:start -->')).toBeInTheDocument()
-    expect(within(codex).getByText('<!-- cockpit:shared:end -->')).toBeInTheDocument()
+    // the rails are the pair the apply writes — the plugin's, never the older cockpit one
+    expect(within(codex).getByText('<!-- agent-parity:shared:start -->')).toBeInTheDocument()
+    expect(within(codex).getByText('<!-- agent-parity:shared:end -->')).toBeInTheDocument()
     expect(within(codex).getByText(/3 lines outside the markers stay as they are/)).toBeInTheDocument()
     expect(within(codex).getByText(/1 line outside the markers stays as it is/)).toBeInTheDocument()
     // colour and glyph never carry the state alone
     expect(within(codex).getByText('removed:')).toHaveClass('sr-only')
+  })
+
+  it('says when the write drops a second copy of the block', async () => {
+    // the same text under both spellings of the markers: nothing changes inside the
+    // rails, but the file is still written, and the review says why
+    await open({
+      ...state,
+      files: [file({ duplicates: 1, own: { above: 2, below: 0 }, status: 'drifted' })]
+    })
+    expect(changesTab()).toHaveTextContent('Changes1')
+    await userEvent.click(changesTab())
+    const claude = block('~/.claude/CLAUDE.md')
+    expect(within(claude).getByText('rewrites block')).toBeInTheDocument()
+    expect(within(claude).getByText(/a second copy of the block is dropped/)).toBeInTheDocument()
+    expect(diffLines(claude, 'add')).toEqual([])
+    expect(diffLines(claude, 'del')).toEqual([])
   })
 
   it('reviews an unsaved draft as the draft, and says so', async () => {

@@ -26,11 +26,13 @@ export function fileChange(file: InstructionFile, incoming: string): FileChange 
   const next = normalizeBaseline(incoming)
   const lines = diffLines(file.block === null ? [] : splitLines(file.block), splitLines(next))
   const { added, removed } = diffStat(lines)
+  // a second copy of the block is a write even when the first already says the
+  // text: applying folds the copies into one
   const status: InstructionStatus = !file.exists
     ? 'missing'
     : file.block === null
       ? 'unmanaged'
-      : added + removed === 0
+      : added + removed === 0 && file.duplicates === 0
         ? 'synced'
         : 'drifted'
   return { status, lines, added, removed }

@@ -72,8 +72,11 @@ that section holds a disagreement.
 ## Instructions tab
 
 - **Mental model shown to the user:** one shared baseline, fanned out into each agent's
-  *native* file inside `<!-- cockpit:shared:start/end -->` markers. Content outside the
-  markers belongs to the agent and is never touched. The hint states this explicitly.
+  *native* file inside `<!-- agent-parity:shared:start/end -->` markers — the pair the
+  agent-parity plugin writes, so the two tools manage one block rather than one each.
+  Content outside the markers belongs to the agent and is never touched. The hint states
+  this explicitly, and says that the older `cockpit:shared` pair is read as the same block
+  and renamed on the next apply.
 - **Scope comes from the card**, never from a second selector inside the tab. Global
   targets the agent home files (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`,
   `~/.copilot/copilot-instructions.md`); a project scope targets `<root>/CLAUDE.md` +
@@ -110,8 +113,10 @@ that section holds a disagreement.
 - **`InstructionDiff`** (`.idiff`) — the review's unit, drawn the way the contract
   reads: the agent's own lines folded into counted **bands** (`.idiff-band`,
   "12 lines outside the markers stay as they are"), two **marker rails**
-  (`.idiff-rail`, the real `<!-- cockpit:shared:start/end -->` text with a dashed
-  hairline), and the shared block diffed between them. Inside the rails it is
+  (`.idiff-rail`, the real `<!-- agent-parity:shared:start/end -->` text with a dashed
+  hairline), and the shared block diffed between them. A file holding the block twice —
+  one copy per marker spelling — gets a third band under the closing rail, "a second copy
+  of the block is dropped", in the band's voice: a fact about the write, not a diff line. Inside the rails it is
   GitHub's line grammar — `+`/`−` gutter, `rgba(--ok-rgb, 0.12)` / `rgba(--danger-rgb,
   0.12)` washes, context lines in `--fg-dim` — because that is the diff every user
   here already reads; the rails and bands are the part that is Cockpit's. Quiet

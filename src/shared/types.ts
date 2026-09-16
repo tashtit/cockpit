@@ -484,11 +484,11 @@ export type ExtensionsInventory = {
 export type InstructionStatus =
   /** File doesn't exist yet — applying creates it */
   | 'missing'
-  /** File exists but has no cockpit-managed block */
+  /** File exists but has no managed block */
   | 'unmanaged'
   /** Managed block matches the shared baseline */
   | 'synced'
-  /** Managed block differs from the baseline (stale, or hand-edited) */
+  /** Managed block differs from the baseline (stale, or hand-edited), or the file carries it twice */
   | 'drifted'
 
 export type InstructionFile = {
@@ -504,6 +504,11 @@ export type InstructionFile = {
    * block. A file with no block is all "above": applying appends the block after it.
    */
   readonly own: { readonly above: number; readonly below: number }
+  /**
+   * Further copies of the block after the first — the same text under the other
+   * spelling of the markers, typically. Applying folds them into the one block.
+   */
+  readonly duplicates: number
   readonly status: InstructionStatus
 }
 

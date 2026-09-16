@@ -4,12 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   END,
+  LEGACY_END,
+  LEGACY_START,
   START,
+  adoptableBlock,
   extractSharedBlock,
   fileStatus,
   instructionTargets,
   lineCount,
   normalizeBaseline,
+  removeSharedBlock,
   splitSharedBlock,
   upsertSharedBlock
 } from '../src/main/instructions-core'
@@ -121,13 +125,147 @@ describe('extractSharedBlock', () => {
 describe('splitSharedBlock', () => {
   it('reads the file as own lines, block, own lines', () => {
     const raw = `# mine\n\n${START}\n${BASE}\n${END}\n\nafter\n`
-    expect(splitSharedBlock(raw)).toEqual({ above: '# mine\n\n', block: BASE, below: '\n\nafter\n' })
+    expect(splitSharedBlock(raw)).toEqual({ above: '# mine\n\n', block: BASE, below: '\n\nafter\n', duplicates: 0 })
   })
 
   it('a file with no block is all own content — the block would go after it', () => {
-    expect(splitSharedBlock('# only mine\n')).toEqual({ above: '# only mine\n', block: null, below: '' })
+    expect(splitSharedBlock('# only mine\n')).toEqual({ above: '# only mine\n', block: null, below: '', duplicates: 0 })
     // an orphaned START is no block either: nothing between it and a missing END is managed
-    expect(splitSharedBlock(`${START}\nunclosed`)).toEqual({ above: `${START}\nunclosed`, block: null, below: '' })
+    expect(splitSharedBlock(`${START}\nunclosed`)).toEqual({ above: `${START}\nunclosed`, block: null, below: '', duplicates: 0 })
+  })
+})
+
+/*
+ * Two spellings of the markers: the `agent-parity` pair (canonical — what the plugin
+ * of that name writes) and the `cockpit` pair Cockpit wrote before adopting it. Both
+ * are read; only the canonical pair is ever written.
+ */
+describe('marker families', () => {
+  const OWN_ABOVE = '# Mine\n\nKeep this.\n\n'
+  const OWN_BELOW = '\n\n## Also mine\n\nAnd this.\n'
+  const legacy = (text: string): string => `${LEGACY_START}\n${text}\n${LEGACY_END}`
+  const canonical = (text: string): string => `${START}\n${text}\n${END}`
+
+  it('the canonical pair is the plugin’s; the legacy pair is what Cockpit used to write', () => {
+    expect(START).toBe('<!-- agent-parity:shared:start -->')
+    expect(END).toBe('<!-- agent-parity:shared:end -->')
+    expect(LEGACY_START).toBe('<!-- cockpit:shared:start -->')
+    expect(LEGACY_END).toBe('<!-- cockpit:shared:end -->')
+  })
+
+  describe('a file on the legacy markers', () => {
+    const raw = OWN_ABOVE + legacy(BASE) + OWN_BELOW
+
+    it('reads as the same block, with the same verdicts', () => {
+      expect(splitSharedBlock(raw)).toEqual({ above: OWN_ABOVE, block: BASE, below: OWN_BELOW, duplicates: 0 })
+      expect(fileStatus(raw, BASE)).toBe('synced')
+      expect(fileStatus(raw, BASE + '\nNew rule.')).toBe('drifted')
+      expect(fileStatus(raw.replace('worktrees', 'branches'), BASE)).toBe('drifted')
+      expect(adoptableBlock([raw])).toBe(BASE)
+    })
+
+    it('is renamed to the canonical pair where it stands on apply — every other byte kept', () => {
+      const out = upsertSharedBlock(raw, BASE)
+      expect(out).toBe(OWN_ABOVE + canonical(BASE) + OWN_BELOW)
+      expect(out).not.toContain(LEGACY_START)
+      expect(out).not.toContain(LEGACY_END)
+      expect(upsertSharedBlock(out, BASE)).toBe(out)
+    })
+
+    it('comes out whole when the agent is switched off', () => {
+      expect(removeSharedBlock(raw)).toBe('# Mine\n\nKeep this.\n\n## Also mine\n\nAnd this.\n')
+    })
+
+    it('a pasted whole file loses its legacy marker lines too', () => {
+      expect(normalizeBaseline(`${LEGACY_START}\n${BASE}\n${LEGACY_END}\n`)).toBe(BASE)
+    })
+
+    it('an orphaned legacy START is repaired in place, in the canonical spelling', () => {
+      const once = upsertSharedBlock(`${LEGACY_START}\nmy own notes\n`, BASE)
+      expect(once).toContain('my own notes')
+      expect(once).not.toContain(LEGACY_START)
+      expect(extractSharedBlock(once)).toBe(BASE)
+      expect(upsertSharedBlock(once, BASE)).toBe(once)
+    })
+  })
+
+  describe('a file on the canonical markers', () => {
+    const raw = OWN_ABOVE + canonical(BASE) + OWN_BELOW
+
+    it('is what apply writes, and applies over itself unchanged', () => {
+      expect(upsertSharedBlock('', BASE)).toBe(canonical(BASE) + '\n')
+      expect(splitSharedBlock(raw)).toEqual({ above: OWN_ABOVE, block: BASE, below: OWN_BELOW, duplicates: 0 })
+      expect(fileStatus(raw, BASE)).toBe('synced')
+      expect(fileStatus(raw, 'something else')).toBe('drifted')
+      expect(upsertSharedBlock(raw, BASE)).toBe(raw)
+    })
+  })
+
+  describe('a file with no block', () => {
+    it('is unmanaged, gets the canonical pair appended, and has nothing to remove', () => {
+      const own = '# Only mine\n'
+      expect(fileStatus(own, BASE)).toBe('unmanaged')
+      expect(upsertSharedBlock(own, BASE)).toBe(`${own}\n${canonical(BASE)}\n`)
+      expect(removeSharedBlock(own)).toBe(own)
+    })
+  })
+
+  describe('a file carrying the block under both spellings', () => {
+    // each tool appended its own copy before it could read the other's
+    const both = OWN_ABOVE + canonical(BASE) + '\n\n' + legacy(BASE) + '\n'
+    const between = '\n\n## Between\n\nStill mine.\n\n'
+    const withOwn = OWN_ABOVE + legacy('old text') + between + canonical(BASE) + OWN_BELOW
+
+    it('reads as the first block, with the second already gone from what is below it', () => {
+      expect(splitSharedBlock(both)).toEqual({ above: OWN_ABOVE, block: BASE, below: '\n', duplicates: 1 })
+      expect(splitSharedBlock(withOwn)).toEqual({
+        above: OWN_ABOVE,
+        block: 'old text',
+        below: '\n\n## Between\n\nStill mine.\n\n## Also mine\n\nAnd this.\n',
+        duplicates: 1
+      })
+    })
+
+    it('is never in sync, whatever the two copies say', () => {
+      expect(fileStatus(both, BASE)).toBe('drifted')
+      expect(fileStatus(withOwn, BASE)).toBe('drifted')
+    })
+
+    it('folds into one canonical block on apply, keeping every line the agent wrote', () => {
+      expect(upsertSharedBlock(both, BASE)).toBe(OWN_ABOVE + canonical(BASE) + '\n')
+      const out = upsertSharedBlock(withOwn, BASE)
+      expect(out).toBe(
+        OWN_ABOVE + canonical(BASE) + '\n\n## Between\n\nStill mine.\n\n## Also mine\n\nAnd this.\n'
+      )
+      expect(count(out, START)).toBe(1)
+      expect(count(out, LEGACY_START)).toBe(0)
+      expect(fileStatus(out, BASE)).toBe('synced')
+      expect(upsertSharedBlock(out, BASE)).toBe(out)
+    })
+
+    it('keeps the block where the first copy was, whichever spelling that had', () => {
+      const legacyFirst = 'top\n\n' + legacy(BASE) + '\n\nmiddle\n\n' + canonical(BASE) + '\n\nbottom\n'
+      expect(upsertSharedBlock(legacyFirst, BASE)).toBe('top\n\n' + canonical(BASE) + '\n\nmiddle\n\nbottom\n')
+    })
+
+    it('folds three copies the same way', () => {
+      const three = canonical(BASE) + '\n\n' + legacy(BASE) + '\n\n' + canonical('older') + '\n'
+      expect(splitSharedBlock(three).duplicates).toBe(2)
+      expect(upsertSharedBlock(three, BASE)).toBe(canonical(BASE) + '\n')
+    })
+
+    it('switching the agent off takes every copy out', () => {
+      expect(removeSharedBlock(withOwn)).toBe(
+        '# Mine\n\nKeep this.\n\n## Between\n\nStill mine.\n\n## Also mine\n\nAnd this.\n'
+      )
+    })
+  })
+
+  it('a START of one spelling closes with an END of the other', () => {
+    const mixed = `${START}\n${BASE}\n${LEGACY_END}\n`
+    expect(extractSharedBlock(mixed)).toBe(BASE)
+    expect(fileStatus(mixed, BASE)).toBe('synced')
+    expect(upsertSharedBlock(mixed, BASE)).toBe(canonical(BASE) + '\n')
   })
 })
 
@@ -247,6 +385,29 @@ describe('saveBaseline / applyInstructions (real files)', () => {
     expect(() => applyAfterSaving(`${START}\n${END}\n`)).toThrow(/empty/)
   })
 
+  it('apply renames the older markers and folds a doubled block, file by file', () => {
+    // CLAUDE.md as an earlier Cockpit left it; AGENTS.md after the plugin and that
+    // Cockpit each appended a copy of their own
+    const own = '# Repo rules\n\nRun the tests first.\n'
+    writeFileSync(claudeMd(), `${own}\n${LEGACY_START}\n${BASE}\n${LEGACY_END}\n`)
+    writeFileSync(agentsMd(), `${START}\n${BASE}\n${END}\n\n${LEGACY_START}\n${BASE}\n${LEGACY_END}\n`)
+    saveBaseline(repo, BASE)
+
+    const before = getInstructions(repo)
+    expect(before.files.map((f) => [f.status, f.duplicates])).toEqual([
+      ['synced', 0],
+      ['drifted', 1]
+    ])
+
+    const after = applyInstructions(repo)
+    expect(after.files.map((f) => [f.status, f.duplicates])).toEqual([
+      ['synced', 0],
+      ['synced', 0]
+    ])
+    expect(readFileSync(claudeMd(), 'utf8')).toBe(`${own}\n${START}\n${BASE}\n${END}\n`)
+    expect(readFileSync(agentsMd(), 'utf8')).toBe(`${START}\n${BASE}\n${END}\n`)
+  })
+
   function applyAfterSaving(text: string): ReturnType<typeof applyInstructions> {
     saveBaseline(repo, text)
     return applyInstructions(repo)
@@ -280,6 +441,13 @@ describe('adopting what the repo already carries', () => {
 
   it('takes the committed block as the baseline on first read', () => {
     writeFileSync(join(repo, 'CLAUDE.md'), upsertSharedBlock('# Repo rules\n', BASE))
+    const state = getInstructions(repo)
+    expect(state.baseline).toBe(BASE)
+    expect(state.files.find((f) => f.path.endsWith('CLAUDE.md'))?.status).toBe('synced')
+  })
+
+  it('adopts a block an earlier Cockpit wrote just the same', () => {
+    writeFileSync(join(repo, 'CLAUDE.md'), `# Repo rules\n\n${LEGACY_START}\n${BASE}\n${LEGACY_END}\n`)
     const state = getInstructions(repo)
     expect(state.baseline).toBe(BASE)
     expect(state.files.find((f) => f.path.endsWith('CLAUDE.md'))?.status).toBe('synced')

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { commitShare, writeShareFiles } from '../src/main/instructions-share'
 import { adoptableBlock, extractSharedBlock } from '../src/main/instructions-core'
-import { START, END } from '../src/shared/instruction-markers'
+import { END, LEGACY_END, LEGACY_START, START } from '../src/shared/instruction-markers'
 
 /*
  * Sharing writes into a real git worktree, so the test uses a real repo: the
@@ -103,6 +103,15 @@ describe('writeShareFiles', () => {
   it('changes nothing when the files already carry the baseline', () => {
     writeShareFiles(root, '# house rules')
     expect(writeShareFiles(root, '# house rules')).toEqual([])
+  })
+
+  it('renames the older markers as it writes, leaving the repo’s own text alone', () => {
+    writeFileSync(join(root, 'AGENTS.md'), `# AGENTS\n\n${LEGACY_START}\n# house rules\n${LEGACY_END}\n`)
+    const changed = writeShareFiles(root, '# house rules, revised')
+    expect(changed.map((p) => p.replace(root + '/', '')).sort()).toEqual(['AGENTS.md', 'CLAUDE.md'])
+    expect(readFileSync(join(root, 'AGENTS.md'), 'utf8')).toBe(
+      `# AGENTS\n\n${START}\n# house rules, revised\n${END}\n`
+    )
   })
 })
 
