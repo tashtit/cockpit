@@ -1,5 +1,5 @@
-import { sep } from 'node:path'
-import type { CleanupBlock, WorktreeOrigin } from '../shared/types'
+import { join, sep } from 'node:path'
+import type { CleanupBlock, SourceDir, WorktreeOrigin } from '../shared/types'
 
 /**
  * The IO-free half of cleanup: what counts as stale, how git's worktree listing
@@ -166,12 +166,20 @@ export type ProcessFacts = {
   readonly cwd: string
 }
 
+/** What lsof prints for a byte it could not render — such a name is no real path. */
+const LSOF_ESCAPE = /\\x[0-9a-f]{2}|\\[ntr]/
+
 /**
  * `lsof -a -d cwd -F pn`: a `p<pid>` line opens each process, its `n<path>` line
  * names the working directory. Other field lines (`f`, anything lsof adds) are
  * skipped. lsof keeps reporting a directory's old path after it is deleted, which
  * is exactly what makes a process inside a removed worktree findable at all
  * (Linux marks such a path with a trailing ` (deleted)`, dropped here).
+ *
+ * Without a UTF-8 locale lsof escapes every byte it can't print (`caf\xc3\xa9`,
+ * `\n`), and an escaped name matches no real path — a live process would read as
+ * one whose directory is gone. cleanup.ts runs lsof under `C.UTF-8`; a name still
+ * escaped is dropped rather than misjudged.
  */
 export function parseLsofCwds(out: string): Map<number, string> {
   const cwds = new Map<number, string>()
@@ -181,7 +189,9 @@ export function parseLsofCwds(out: string): Map<number, string> {
       const n = Number(line.slice(1))
       pid = Number.isInteger(n) && n > 0 ? n : null
     } else if (line.startsWith('n') && pid !== null && !cwds.has(pid)) {
-      cwds.set(pid, line.slice(1).replace(/ \(deleted\)$/, ''))
+      const name = line.slice(1)
+      if (LSOF_ESCAPE.test(name)) continue
+      cwds.set(pid, name.replace(/ \(deleted\)$/, ''))
     }
   }
   return cwds
@@ -221,6 +231,26 @@ export function parsePs(out: string, now: number): PsRow[] {
 }
 
 /**
+ * How far two readings of one process's start may drift: `etime` has whole-second
+ * resolution and each scan subtracts it from its own clock.
+ */
+export const SAME_START_MS = 2_000
+
+/**
+ * Whether the process a pid names now is still the one that was picked. Pids are
+ * handed out again, so the number alone proves nothing: the command line must
+ * match and it must have started at the same moment. An unknown start (0) can't
+ * be matched, so it never is.
+ */
+export function sameProcess(
+  now: Pick<ProcessFacts, 'command' | 'startedAt'>,
+  picked: Pick<ProcessFacts, 'command' | 'startedAt'>
+): boolean {
+  if (now.startedAt <= 0 || picked.startedAt <= 0) return false
+  return now.command === picked.command && Math.abs(now.startedAt - picked.startedAt) <= SAME_START_MS
+}
+
+/**
  * Cockpit's own process tree: itself, what launched it (a dev `npm run dev` in a
  * worktree must never be offered for stopping — that stops the app), and every
  * process it spawned (agent turns, which ChatManager already tracks as busy).
@@ -257,13 +287,38 @@ export type ProcessWorktree = {
 
 /**
  * A directory worktrees are cut under — Cockpit's own root, a repo's
- * `.claude/worktrees`, Codex's `~/.codex/worktrees`. It is what lets a process be
- * tied to a worktree whose registration has already been removed: git has
- * forgotten it, but a deleted directory under one of these was a worktree.
+ * `.claude/worktrees`, Codex's and Copilot's. It is what lets a process be tied to
+ * a worktree whose registration has already been removed: git has forgotten it,
+ * but a directory at the worktree level under one of these, with no `.git` in it,
+ * was a worktree.
  */
 export type WorktreeHome = {
   readonly path: string
   readonly repoName: string | null
+  /**
+   * How many directory levels below the home a worktree sits: 1 for
+   * `.claude/worktrees/<name>`, 2 for Cockpit's `<repo>/<name>`, Codex's
+   * `<id>/<repo>` and Copilot's `<repo>/<name>`. Anything shallower is the home
+   * itself or a grouping directory, never a worktree.
+   */
+  readonly depth: number
+}
+
+/**
+ * Where the agents cut their own worktrees, read off the configured config homes
+ * so a relocated one is followed: Codex's `<home>/worktrees/<id>/<repo>` and
+ * Copilot's `<home>/copilot-worktrees/<repo>/<name>`. Claude Code's live inside
+ * each repository (`.claude/worktrees`), so a Claude config home adds none.
+ */
+export function providerWorktreeHomes(sources: readonly SourceDir[]): WorktreeHome[] {
+  const homes: WorktreeHome[] = []
+  for (const s of sources) {
+    if (s.provider === 'codex') homes.push({ path: join(s.path, 'worktrees'), repoName: null, depth: 2 })
+    if (s.provider === 'copilot') {
+      homes.push({ path: join(s.path, 'copilot-worktrees'), repoName: null, depth: 2 })
+    }
+  }
+  return homes
 }
 
 /** A process judged to be left behind in an old worktree. */
@@ -292,13 +347,17 @@ function deepest<T extends { readonly path: string }>(
  *
  *   - its cwd is inside a linked worktree git still lists, and that worktree is
  *     stale (or its directory is gone);
- *   - its cwd no longer exists and sits under a worktree home — the worktree was
- *     removed (by this view, by `git worktree remove`, by hand) while something
- *     kept running in it.
+ *   - its cwd sits at or below the worktree level of a worktree home, and that
+ *     worktree has no `.git` — it was removed (by this view, by `git worktree
+ *     remove`, by hand) while something kept running in it. The directory itself
+ *     may well exist again: a dev server that outlives its worktree recreates its
+ *     caches (`.wrangler/`, `.nx/`) as an empty shell, so `.git` is the test, not
+ *     whether the path is there.
  *
- * A process in the repository's own checkout, in a worktree still in use, or in
- * a deleted directory that was never a worktree is none of cleanup's business.
- * `exists` is the one filesystem question, injected so this stays IO-free.
+ * A process in the repository's own checkout, in a worktree still in use, in a
+ * home or grouping directory itself, or in a deleted directory that was never a
+ * worktree is none of cleanup's business. `exists` is the one filesystem question,
+ * injected so this stays IO-free — and asked only about paths under a home.
  */
 export function judgeProcesses(input: {
   readonly processes: readonly ProcessFacts[]
@@ -320,27 +379,21 @@ export function judgeProcesses(input: {
       })
       continue
     }
-    if (input.exists(p.cwd)) continue
     const home = deepest(input.homes, p.cwd)
-    if (!home || home.path === p.cwd) continue
-    // the removed worktree is the topmost missing directory below its home
-    let gone = p.cwd
-    for (let up = parentOf(gone); up !== home.path && isUnder(up, home.path); up = parentOf(up)) {
-      if (input.exists(up)) break
-      gone = up
-    }
+    if (!home) continue
+    const rel = p.cwd.slice(home.path.length + 1).split(sep).filter(Boolean)
+    // the home itself, or a grouping directory (`<repo>`) above the worktrees
+    if (rel.length < home.depth) continue
+    const root = join(home.path, ...rel.slice(0, home.depth))
+    // a live worktree git does not list for any known repo — not ours to judge
+    if (input.exists(join(root, '.git'))) continue
     out.push({
       ...p,
-      worktreePath: gone,
+      worktreePath: root,
       repoName: home.repoName,
       branch: null,
-      directoryGone: true
+      directoryGone: !input.exists(p.cwd)
     })
   }
   return out.sort((a, b) => a.startedAt - b.startedAt || a.pid - b.pid)
-}
-
-function parentOf(path: string): string {
-  const i = path.lastIndexOf(sep)
-  return i <= 0 ? sep : path.slice(0, i)
 }

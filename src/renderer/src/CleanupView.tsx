@@ -448,18 +448,40 @@ function ProcessRow({
       <div className="cl-body">
         <div className="cl-title" title={p.command}>
           <span className="cl-proc">{name}</span>
-          {p.repoName && <span className="cl-proc-repo">{p.repoName}</span>}
-          {p.branch && <BranchChip branch={p.branch} />}
-          {p.directoryGone && <span className="cl-tag">worktree removed</span>}
         </div>
+        {/* the group names the worktree; the command line is what tells siblings apart */}
         <div className="cl-sub cl-path" title={`${p.command}\n${p.cwd}`}>
-          {p.cwd}
+          {p.command}
         </div>
       </div>
       <div className="cl-meta">
         <span className="cl-size">pid {p.pid}</span>
         <span>{fmtRunning(p.startedAt, now)}</span>
       </div>
+    </li>
+  )
+}
+
+/** One worktree's left-behind processes, under a line that names the worktree once. */
+function ProcessGroup({
+  procs,
+  children
+}: {
+  procs: readonly OrphanProcess[]
+  children: ReactNode
+}): JSX.Element {
+  const head = procs[0]
+  return (
+    <li className="cl-proc-group">
+      <div className="cl-title cl-proc-where">
+        {head.repoName && <span className="cl-proc-repo">{head.repoName}</span>}
+        {head.branch && <BranchChip branch={head.branch} />}
+        {procs.some((p) => p.directoryGone) && <span className="cl-tag">worktree removed</span>}
+        <span className="cl-sub cl-path" title={head.worktreePath}>
+          {head.worktreePath}
+        </span>
+      </div>
+      <ul className="source-list">{children}</ul>
     </li>
   )
 }
@@ -628,7 +650,16 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
 
   const sessions = useMemo(() => report?.sessions ?? [], [report])
   const worktrees = useMemo(() => report?.worktrees ?? [], [report])
-  const processes = useMemo(() => report?.processes ?? [], [report])
+  // one directory can hold a dozen `node`s: group by worktree, oldest group first,
+  // and pick over the grouped order so a shift-range follows what is on screen
+  const processGroups = useMemo(() => {
+    const by = new Map<string, OrphanProcess[]>()
+    for (const p of report?.processes ?? []) {
+      by.set(p.worktreePath, [...(by.get(p.worktreePath) ?? []), p])
+    }
+    return [...by.values()]
+  }, [report])
+  const processes = useMemo(() => processGroups.flat(), [processGroups])
 
   const sessionGroups = useMemo(
     () => sessionFilters(sessions, sSel, setSSel),
@@ -914,19 +945,32 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
                   arm: armed.arm,
                   disarm: armed.disarm,
                   commit: () =>
-                    void run('Stopped', () => api.stopProcesses([...pPicked].map(Number)))
+                    void run('Stopped', () =>
+                      api.stopProcesses(
+                        processes
+                          .filter((p) => pPicked.has(processKey(p)))
+                          .map(({ pid, command, startedAt }) => ({ pid, command, startedAt }))
+                      )
+                    )
                 }}
               />
             </GroupHead>
             <ul className="source-list cl-list">
-              {processes.map((p, i) => (
-                <ProcessRow
-                  key={p.pid}
-                  p={p}
-                  now={now}
-                  picked={pPicked.has(String(p.pid))}
-                  onPick={(on, range) => pPicks.toggle(i, on, range)}
-                />
+              {processGroups.map((group) => (
+                <ProcessGroup key={group[0].worktreePath} procs={group}>
+                  {group.map((p) => {
+                    const i = processes.indexOf(p)
+                    return (
+                      <ProcessRow
+                        key={p.pid}
+                        p={p}
+                        now={now}
+                        picked={pPicked.has(processKey(p))}
+                        onPick={(on, range) => pPicks.toggle(i, on, range)}
+                      />
+                    )
+                  })}
+                </ProcessGroup>
               ))}
             </ul>
           </>

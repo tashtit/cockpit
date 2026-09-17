@@ -1097,6 +1097,13 @@ export type OrphanProcess = {
   readonly directoryGone: boolean
 }
 
+/**
+ * A process picked for stopping, as the scan described it. A pid alone can name a
+ * different process by the time Stop is clicked, so main signals it only while the
+ * command line and start time still match.
+ */
+export type ProcessTarget = Pick<OrphanProcess, 'pid' | 'command' | 'startedAt'>
+
 /** What one clean actually did. Failures are per-target and never throw the batch. */
 export type CleanupResult = {
   readonly cleaned: number
@@ -1279,8 +1286,11 @@ export type CockpitApi = {
   readonly deleteSessions: (ids: readonly string[]) => Promise<CleanupResult>
   /** `git worktree remove` each path, then drop any branch git says is fully merged */
   readonly removeWorktrees: (paths: readonly string[]) => Promise<CleanupResult>
-  /** SIGTERM processes the scan reported as left in old worktrees (re-derived first) */
-  readonly stopProcesses: (pids: readonly number[]) => Promise<CleanupResult>
+  /**
+   * SIGTERM processes the scan reported as left in old worktrees (re-derived first;
+   * a pid whose command or start time no longer matches is refused)
+   */
+  readonly stopProcesses: (targets: readonly ProcessTarget[]) => Promise<CleanupResult>
   readonly getPrs: (repoRoot: string) => Promise<PrStatus[]>
   /** The branch a PR from this repo would target; null when git can't say */
   readonly getDefaultBranch: (repoRoot: string) => Promise<string | null>

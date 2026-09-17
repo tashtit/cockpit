@@ -485,7 +485,31 @@ describe('CleanupView — processes left in old worktrees', () => {
     await user.click(screen.getByRole('button', { name: 'Stop 1…' }))
     expect(window.cockpit.stopProcesses).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Stop 1 process?' }))
-    await waitFor(() => expect(window.cockpit.stopProcesses).toHaveBeenCalledWith([4242]))
+    // the start time and command travel with the pid, so main can tell a reused pid apart
+    await waitFor(() =>
+      expect(window.cockpit.stopProcesses).toHaveBeenCalledWith([
+        {
+          pid: 4242,
+          command: '/usr/local/bin/node node_modules/.bin/vite --port 5173',
+          startedAt: NOW - 3 * DAY
+        }
+      ])
+    )
+  })
+
+  it('groups processes under the worktree they run in, named once', async () => {
+    mount(
+      report({
+        processes: [
+          orphan(),
+          orphan({ pid: 7, command: 'node server.js' }),
+          orphan({ pid: 9, worktreePath: '/wt/site/feat-x', cwd: '/wt/site/feat-x', branch: null })
+        ]
+      })
+    )
+    expect(await screen.findAllByText('/userData/worktrees/cockpit/old-ui')).toHaveLength(1)
+    expect(screen.getAllByText('/wt/site/feat-x')).toHaveLength(1)
+    expect(screen.getByText('node server.js')).toBeInTheDocument()
   })
 
   it('names the block on a worktree a process still runs in', async () => {

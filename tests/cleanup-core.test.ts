@@ -13,6 +13,8 @@ import {
   parseLsofCwds,
   parsePs,
   parseWorktreeList,
+  providerWorktreeHomes,
+  sameProcess,
   staleCutoff,
   sumBytes,
   worktreeBlocks,
@@ -228,6 +230,11 @@ describe('parseLsofCwds', () => {
   it('ignores names that belong to no readable pid', () => {
     expect(parseLsofCwds('n/orphan\npabc\nn/also\n').size).toBe(0)
   })
+
+  it('drops a name lsof escaped, which would match no real path', () => {
+    const out = 'p1\nn/wt/caf\\xc3\\xa9\np2\nn/wt/odd\\nname\np3\nn/wt/café\n'
+    expect(parseLsofCwds(out)).toEqual(new Map([[3, '/wt/café']]))
+  })
 })
 
 describe('parseElapsed', () => {
@@ -295,11 +302,32 @@ describe('judgeProcesses', () => {
     { ...tree, path: '/wt/app/fresh', stale: false },
     { ...tree, path: '/repos/app/.claude/worktrees/spike', branch: 'spike' }
   ]
+  const copilotHome = '/home/.copilot/copilot-worktrees'
   const homes = [
-    { path: '/wt', repoName: null },
-    { path: '/repos/app/.claude/worktrees', repoName: 'app' }
+    // Cockpit's `<repo>/<name>`
+    { path: '/wt', repoName: null, depth: 2 },
+    { path: '/repos/app/.claude/worktrees', repoName: 'app', depth: 1 },
+    ...providerWorktreeHomes([{ path: '/home/.copilot', provider: 'copilot', label: 'copilot' }])
   ]
-  const onDisk = new Set(['/repos/app', '/repos/app/src', '/wt', '/wt/app', '/wt/app/fix', '/wt/app/fresh', '/repos/app/.claude/worktrees', '/repos/app/.claude/worktrees/spike'])
+  const onDisk = new Set([
+    '/repos/app',
+    '/repos/app/src',
+    '/wt',
+    '/wt/app',
+    '/wt/app/fix',
+    '/wt/app/fresh',
+    '/repos/app/.claude/worktrees',
+    '/repos/app/.claude/worktrees/spike',
+    // a dev server recreated its cache in a worktree removed from under it
+    '/wt/app/shell',
+    '/wt/app/shell/.wrangler',
+    // a live checkout under a home, of a repository no scan lists
+    '/wt/other/live',
+    '/wt/other/live/.git',
+    '/wt/other/live/src',
+    copilotHome,
+    `${copilotHome}/site`
+  ])
   const judge = (processes: ReturnType<typeof proc>[]) =>
     judgeProcesses({ processes, worktrees, homes, exists: (p) => onDisk.has(p) })
 
@@ -330,7 +358,55 @@ describe('judgeProcesses', () => {
     expect(judge([proc(1, '/tmp/scratch'), proc(2, '/repos/app/build')])).toEqual([])
   })
 
+  it('finds one whose removed worktree was recreated as a shell with no .git', () => {
+    const [p] = judge([proc(1, '/wt/app/shell/.wrangler')])
+    expect(p).toMatchObject({ worktreePath: '/wt/app/shell', branch: null, directoryGone: false })
+  })
+
+  it('leaves a live checkout under a home alone, listed or not', () => {
+    expect(judge([proc(1, '/wt/other/live/src')])).toEqual([])
+  })
+
+  it('never takes a home or a grouping directory for a worktree', () => {
+    const inHomes = ['/wt', '/wt/app', '/wt/gone-repo', '/repos/app/.claude/worktrees', copilotHome]
+    expect(judge(inHomes.map((cwd, i) => proc(i + 1, cwd)))).toEqual([])
+  })
+
+  it('finds one in a removed Copilot worktree', () => {
+    const [p] = judge([proc(1, `${copilotHome}/site/feat-x/web`)])
+    expect(p).toMatchObject({ worktreePath: `${copilotHome}/site/feat-x`, directoryGone: true })
+  })
+
   it('lists the longest-running first', () => {
     expect(judge([proc(9, '/wt/app/fix'), proc(3, '/wt/app/fix')]).map((p) => p.pid)).toEqual([3, 9])
+  })
+})
+
+describe('providerWorktreeHomes', () => {
+  it('reads Codex and Copilot worktree homes off their config homes, two levels deep', () => {
+    expect(
+      providerWorktreeHomes([
+        { path: '/h/.claude', provider: 'claude', label: 'c' },
+        { path: '/h/.codex', provider: 'codex', label: 'x' },
+        { path: '/h/.copilot-work', provider: 'copilot', label: 'p' }
+      ])
+    ).toEqual([
+      { path: '/h/.codex/worktrees', repoName: null, depth: 2 },
+      { path: '/h/.copilot-work/copilot-worktrees', repoName: null, depth: 2 }
+    ])
+  })
+})
+
+describe('sameProcess', () => {
+  const picked = { command: 'node vite', startedAt: 1_000_000 }
+
+  it('accepts the same command started within the tolerance', () => {
+    expect(sameProcess({ ...picked, startedAt: 1_001_500 }, picked)).toBe(true)
+  })
+
+  it('refuses a different start, a different command, or an unknown start', () => {
+    expect(sameProcess({ ...picked, startedAt: 1_060_000 }, picked)).toBe(false)
+    expect(sameProcess({ ...picked, command: 'zsh' }, picked)).toBe(false)
+    expect(sameProcess({ ...picked, startedAt: 0 }, { ...picked, startedAt: 0 })).toBe(false)
   })
 })

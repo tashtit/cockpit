@@ -5,6 +5,7 @@ import type {
   CleanupReport,
   CleanupResult,
   OrphanProcess,
+  ProcessTarget,
   SessionMeta,
   StaleSession,
   StaleWorktree
@@ -19,6 +20,7 @@ import {
   parseLsofCwds,
   parsePs,
   parseWorktreeList,
+  sameProcess,
   staleCutoff,
   worktreeBlocks,
   worktreeOrigin,
@@ -84,10 +86,11 @@ export type CleanupDeps = {
   readonly sourceDirs: () => string[]
   /**
    * Directories worktrees are cut under beyond Cockpit's own root and each repo's
-   * `.claude/worktrees` (Codex's `~/.codex/worktrees`). A deleted directory under
-   * one of them was a worktree, which is how a process outliving it is recognised.
+   * `.claude/worktrees` (Codex's and Copilot's, off their config homes). A
+   * worktree-level directory under one of them with no `.git` was a worktree,
+   * which is how a process outliving it is recognised.
    */
-  readonly worktreeHomes: () => string[]
+  readonly worktreeHomes: () => readonly WorktreeHome[]
   /** Cockpit's own pid — its process tree is never offered for stopping */
   readonly selfPid: number
 }
@@ -158,7 +161,10 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessFacts[]> {
   const uid = typeof process.getuid === 'function' ? process.getuid() : null
   const [lsof, ps] = await Promise.all([
     execText('lsof', ['-a', '-d', 'cwd', ...(uid === null ? [] : ['-u', String(uid)]), '-F', 'pn'], {
-      timeoutMs: PROCESS_SCAN_TIMEOUT_MS
+      timeoutMs: PROCESS_SCAN_TIMEOUT_MS,
+      // an app launched from Finder has no LANG, and lsof then escapes non-ASCII
+      // bytes in paths (`caf\xc3\xa9`) — a live process would read as removed
+      env: { LC_ALL: 'C.UTF-8' }
     }),
     execText('ps', ['-Ao', 'pid=,ppid=,etime=,command='], { timeoutMs: PROCESS_SCAN_TIMEOUT_MS })
   ])
@@ -313,11 +319,18 @@ async function judgeWorktrees(
 
 /** Where worktrees get cut: Cockpit's root, each repo's `.claude/worktrees`, the extras. */
 function worktreeHomes(deps: CleanupDeps): WorktreeHome[] {
-  const homes: WorktreeHome[] = [{ path: realish(deps.cockpitWorktreeRoot), repoName: null }]
+  // Cockpit cuts `<root>/<repo>/<name>` (workspace.ts)
+  const homes: WorktreeHome[] = [
+    { path: realish(deps.cockpitWorktreeRoot), repoName: null, depth: 2 }
+  ]
   for (const root of deps.repoRoots()) {
-    homes.push({ path: realish(join(root, '.claude', 'worktrees')), repoName: basename(root) })
+    homes.push({
+      path: realish(join(root, '.claude', 'worktrees')),
+      repoName: basename(root),
+      depth: 1
+    })
   }
-  for (const extra of deps.worktreeHomes()) homes.push({ path: realish(extra), repoName: null })
+  for (const extra of deps.worktreeHomes()) homes.push({ ...extra, path: realish(extra.path) })
   return homes
 }
 
@@ -634,19 +647,24 @@ function blockReason(blocks: readonly CleanupBlock[]): string {
 }
 
 /**
- * SIGTERM each process, then give them a moment to exit. The pids are renderer
+ * SIGTERM each process, then give them a moment to exit. The targets are renderer
  * input, so the whole judgement is re-derived first and only a pid that is still
  * a process left in an old worktree — same cwd judgement, and not Cockpit's own
- * tree — is signalled; a pid reused since the scan by something else is refused.
- * Never SIGKILL: a process that ignores the polite signal is reported, not forced.
+ * tree — is signalled. A pid is only a number the OS hands out again, so the
+ * process must also still be the one that was picked: the same command line,
+ * started at the same moment. Never SIGKILL: a process that ignores the polite
+ * signal is reported, not forced.
  */
 export async function stopProcesses(
   deps: CleanupDeps,
-  pids: readonly number[],
+  targets: readonly ProcessTarget[],
   staleDays: number
 ): Promise<CleanupResult> {
+  // the worktree walk first — it takes seconds — so the process table is read as
+  // close to the signal as it can be. Worktree blocks play no part in which
+  // processes are left behind, so the walk needs no process list of its own.
+  const trees = await judgeWorktrees(deps, [])
   const procs = await processSnapshot(deps)
-  const trees = await judgeWorktrees(deps, procs)
   const orphans = new Map(
     orphanProcesses(deps, { trees, procs, cutoff: staleCutoff(staleDays, Date.now()) }).map((p) => [
       p.pid,
@@ -655,10 +673,16 @@ export async function stopProcesses(
   )
   const failed: { target: string; reason: string }[] = []
   const signalled: JudgedProcess[] = []
-  for (const raw of new Set(pids.map((p) => Math.floor(Number(p))))) {
-    const p = orphans.get(raw)
+  const picked = new Map(targets.map((t) => [t.pid, t]))
+  for (const t of picked.values()) {
+    const p = orphans.get(t.pid)
     if (!p) {
-      failed.push({ target: `pid ${raw}`, reason: 'no longer a process left in an old worktree' })
+      failed.push({ target: `pid ${t.pid}`, reason: 'no longer a process left in an old worktree' })
+      continue
+    }
+    if (!sameProcess(p, t)) {
+      audit(`refused pid ${p.pid}: now "${p.command}" started ${p.startedAt}, picked ${t.startedAt}`)
+      failed.push({ target: label(p), reason: 'the pid now belongs to a different process — rescan' })
       continue
     }
     try {

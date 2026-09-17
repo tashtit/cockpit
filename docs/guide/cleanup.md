@@ -32,6 +32,10 @@ Two rules keep that safe:
 - A worktree hosting **several** sessions only goes when *every* one of them is being deleted. The row marks these `shared ×3`, and the running total beside the button only counts a worktree once it is fully covered.
 - The blocks below still apply. A worktree with uncommitted work, a live agent, or your own main checkout is never attached to a session in the first place — deleting the session leaves it alone.
 
+## Processes left in old worktrees
+
+Dev servers, watchers and shells still running inside a stale worktree, or inside one already removed from under them (Cockpit's, Claude Code's `.claude/worktrees`, Codex's and Copilot's), grouped by the worktree they run in. **Stop** is armed like Delete and sends each one SIGTERM, never a kill — but only while the pid still names the same process, with the same command line and start time, as the scan showed; one that ignores the signal is reported as still running.
+
 ## Worktrees with no session
 
 The leftovers: checkouts nothing in the list above claims. Cockpit asks **git itself** which worktrees each repository has, so this is not limited to the ones Cockpit created:
@@ -51,6 +55,7 @@ Rows that can't be cleaned stay visible with the reason spelled out, and their c
 |---|---|
 | uncommitted changes | the work isn't saved anywhere else |
 | an agent is running | a live turn is using the directory |
+| a process is running | a dev server, watcher or shell still works in it — stop it above first |
 | the repo's own checkout | Cockpit never touches your main working copy |
 | a roundtable's room | it belongs to the table, not to one session |
 | locked | you ran `git worktree lock` on it |

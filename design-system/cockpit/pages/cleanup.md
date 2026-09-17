@@ -47,6 +47,7 @@ New to this page — reuse rather than re-inventing:
 | `.cl-tag` | neutral state word (`archived`, `directory gone`) — quieter than a block |
 | `.cl-hidden` | selected rows the current filter is hiding — disclosed, never silent |
 | `.cl-proc` | a left-behind process's executable name, mono; the full command line is its tooltip |
+| `.cl-proc-where` | the worktree a group of processes runs in, named once above them — rows then show their command line, which is what tells a dozen `node`s apart |
 
 Reused as-is: `FilterBar` (see below), `.source-list` (row stack), `.tint-{agent}` on
 session rows, `BranchChip`, `.repo-count`, `.ns-card`/`.ns-label`/`.ns-hint`.
