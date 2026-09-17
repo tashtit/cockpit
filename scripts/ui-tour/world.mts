@@ -411,6 +411,32 @@ function populate(world: World): void {
       { speaker: 'copilot', seat: 2, text: 'Agreed.', at: t0 + 700_000, stance: 'agree', stanceNote: 'pull + TTL in main' }
     ]
   })
+  // an archived table: out of the tree's children and off the board, reachable from
+  // the group's Archived disclosure (see the archivedRoundtables id below)
+  const tArch = now - 9 * DAY
+  table({
+    id: 'rt-archived',
+    title: 'Ship a plugin marketplace of our own?',
+    topic: 'Ship a plugin marketplace of our own?',
+    createdAt: tArch,
+    updatedAt: tArch + 400_000,
+    cwd: join(world.userData, 'roundtables', 'rt-archived', 'room'),
+    repoRoot: null,
+    branch: null,
+    permissionMode: 'safe',
+    mode: 'open',
+    maxRounds: 3,
+    roundsRun: 1,
+    concluded: false,
+    participants: [
+      { provider: 'claude', nativeSessionId: null, seenUpTo: 2 },
+      { provider: 'copilot', nativeSessionId: null, seenUpTo: 2 }
+    ],
+    entries: [
+      { speaker: 'user', text: 'Do we need our own marketplace?', at: tArch },
+      { speaker: 'claude', seat: 0, text: 'Not before 1.0 — the agents already read directories.', at: tArch + 60_000 }
+    ]
+  })
   const t1 = now - 26 * HOUR
   table({
     id: 'rt-open',
@@ -449,6 +475,7 @@ function populate(world: World): void {
         { path: join(world.home, '.copilot'), provider: 'copilot', label: 'copilot-default' }
       ],
       archived: [],
+      archivedRoundtables: ['rt-archived'],
       hiddenRepos: [],
       historyDays: 0,
       staleDays: 30,

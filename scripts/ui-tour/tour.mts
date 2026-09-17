@@ -86,6 +86,15 @@ const STATIC: readonly Shot[] = [
   { view: 'palette', name: 'palette-query', go: async (w) => { await home(w); await w.keyboard.press('ControlOrMeta+k'); await w.keyboard.type('rocket'); await pause(w, 700) } },
   { view: 'palette', name: 'palette-transcripts', go: async (w) => { await home(w); await w.keyboard.press('ControlOrMeta+k'); await w.keyboard.type('spans'); await w.getByRole('option', { name: /Search transcripts for/ }).click(); await w.getByRole('option', { name: /agent:|you:/ }).first().waitFor(); await pause(w, 400) } },
   { view: 'sidebar', name: 'sidebar-search', go: async (w) => { await home(w); await w.getByLabel('Search sessions').fill('fix'); await pause(w, 800) } },
+  {
+    view: 'sidebar',
+    name: 'sidebar-archived',
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('button', { name: /^Archived/ }).click()
+      await pause(w, 300)
+    }
+  },
   { view: 'sidebar', name: 'sidebar-project-filter', go: async (w) => { await home(w); await w.getByRole('button', { name: 'Choose projects to display' }).click(); await pause(w, 300) } },
   { view: 'settings', name: 'settings', tall: 2400, go: (w) => nav(w, 'Settings') },
   { view: 'agents', name: 'agents', tall: 1600, go: (w) => nav(w, 'Agents') },

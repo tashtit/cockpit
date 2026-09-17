@@ -953,6 +953,8 @@ export type RoundtableMeta = {
   readonly branch: string | null
   /** Groups the table under its project in the tree; null = a Chats item */
   readonly repoRoot: string | null
+  /** Hidden from the tree, the board and the palette until it is brought back */
+  readonly archived: boolean
 }
 
 /** Renderer-supplied seat definition (main re-validates every field). */
@@ -1315,6 +1317,8 @@ export type CockpitApi = {
   /** A click that came in while no window was listening; null when there is none */
   readonly takeAttentionOpen: () => Promise<AttentionTarget | null>
   readonly setArchived: (sessionId: string, archived: boolean) => Promise<void>
+  /** Archive (or bring back) a whole roundtable — reversible, nothing on disk moves */
+  readonly setRoundtableArchived: (id: string, archived: boolean) => Promise<void>
   readonly setRepoHidden: (repoKey: string, hidden: boolean) => Promise<void>
   /** Save the project order (repo keys, top first); an empty list goes back to A→Z */
   readonly setRepoOrder: (repoKeys: readonly string[]) => Promise<void>

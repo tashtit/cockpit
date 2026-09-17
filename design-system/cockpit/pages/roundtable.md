@@ -70,6 +70,13 @@ attribution, never a parallel message grammar.
   **read-only** — `.composer-readonly` replaces the composer, and main refuses
   `chat:send` into any table cwd.
 
+- A table **archives like a session**: the same archive button in `.row-actions`, the
+  same strikethrough plus an `sr-only` "(archived)", and it hides inside the group's
+  Archived disclosure, whose count covers archived tables as well as sessions. Reversible
+  Cockpit config (`archivedRoundtables`) — the table file, its room and its seat logs all
+  stay where they are, and the board drops it because the board is about what is in the
+  air. A table mid-round refuses to be archived: stop the round first.
+
 ## Consensus mode ("Reach an understanding")
 
 - Goal picker at creation: **Free discussion** (rounds run when the user says so) vs

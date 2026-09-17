@@ -779,6 +779,9 @@ function GroupChildren({
   onSelect,
   onOpenUrl
 }: GroupChildrenProps): JSX.Element {
+  // an archived table hides with the archived sessions, and is brought back the same way
+  const active = tables.filter((t) => !t.archived)
+  const archivedTables = tables.filter((t) => t.archived)
   const list = (archived: boolean): JSX.Element => (
     <SessionList
       repoKey={repo.key}
@@ -793,7 +796,7 @@ function GroupChildren({
   )
   return (
     <div className="repo-children" role="group">
-      {tables.map((t) => (
+      {active.map((t) => (
         <RoundtableNode
           key={t.id}
           t={t}
@@ -804,8 +807,8 @@ function GroupChildren({
           onSelect={onSelect}
         />
       ))}
-      {(repo.sessionCount > 0 || tables.length === 0) && list(false)}
-      {repo.archivedCount > 0 && (
+      {(repo.sessionCount > 0 || active.length === 0) && list(false)}
+      {repo.archivedCount + archivedTables.length > 0 && (
         <>
           <button
             className="archived-toggle"
@@ -814,12 +817,33 @@ function GroupChildren({
             onClick={onToggleArchived}
           >
             <span className={`chev ${showArchived ? 'open' : ''}`} aria-hidden="true">▸</span>
-            Archived ({repo.archivedCount})
+            Archived ({repo.archivedCount + archivedTables.length})
           </button>
-          {showArchived && list(true)}
+          {showArchived &&
+            archivedTables.map((t) => (
+              <RoundtableNode
+                key={t.id}
+                t={t}
+                selected={selectedRoundtableId === t.id}
+                selectedId={selectedId}
+                indexVersion={indexVersion}
+                onOpen={onOpenRoundtable}
+                onSelect={onSelect}
+              />
+            ))}
+          {showArchived && repo.archivedCount > 0 && list(true)}
         </>
       )}
     </div>
+  )
+}
+
+/** The archive glyph both a session row and a table row carry (Octicons archive). */
+function ArchiveIcon(): JSX.Element {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H1.75A1.75 1.75 0 0 1 0 4.25ZM1.75 7a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25Zm4.5 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z" />
+    </svg>
   )
 }
 
@@ -850,7 +874,7 @@ function RoundtableNode({
   return (
     <>
       <div
-        className={`session-row rt-row ${selected ? 'selected' : ''}`}
+        className={`session-row rt-row ${selected ? 'selected' : ''} ${t.archived ? 'archived' : ''}`}
         role="treeitem"
         aria-selected={selected}
         aria-expanded={seatsOpen}
@@ -888,6 +912,20 @@ function RoundtableNode({
           ))}
         </span>
         <span className="session-title">{t.title}</span>
+        {t.archived && <span className="sr-only">(archived)</span>}
+        <span className="row-actions">
+          <button
+            className="icon-btn small"
+            title={t.archived ? 'Unarchive' : 'Archive'}
+            aria-label={t.archived ? 'Unarchive roundtable' : 'Archive roundtable'}
+            onClick={(e) => {
+              e.stopPropagation()
+              void api.setRoundtableArchived(t.id, !t.archived)
+            }}
+          >
+            <ArchiveIcon />
+          </button>
+        </span>
         {t.running ? (
           <span className="pulse" role="img" aria-label="round in progress" />
         ) : (
@@ -1164,9 +1202,7 @@ function SessionRow({
             void api.setArchived(s.id, !s.archived)
           }}
         >
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-            <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H1.75A1.75 1.75 0 0 1 0 4.25ZM1.75 7a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25Zm4.5 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z" />
-          </svg>
+          <ArchiveIcon />
         </button>
       </span>
       {/* the row's one meta slot, in order of urgency: an agent waiting on you, then

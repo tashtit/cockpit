@@ -429,3 +429,33 @@ describe('RoundtableManager', () => {
     expect(list[0].id).toBe(snap.id)
   })
 })
+
+describe('RoundtableManager — archiving', () => {
+  it('flags archived tables at list time, leaving the table file alone', () => {
+    const dir = newDir()
+    const h = makeManager(dir)
+    const a = h.manager.create(TWO_SEATS, null)
+    const b = h.manager.create({ ...TWO_SEATS, topic: 'tabs or spaces?' }, null)
+
+    h.manager.setArchived([a.id])
+    const byId = new Map(h.manager.list().map((t) => [t.id, t]))
+    expect(byId.get(a.id)?.archived).toBe(true)
+    expect(byId.get(b.id)?.archived).toBe(false)
+    // archiving is config, not content: the table on disk never learns about it
+    expect(JSON.parse(readFileSync(join(dir, `${a.id}.json`), 'utf8')).archived).toBeUndefined()
+
+    // and it comes back
+    h.manager.setArchived([])
+    expect(h.manager.list().every((t) => !t.archived)).toBe(true)
+  })
+
+  it('knows which tables are mid-round, so one cannot be hidden while it runs', () => {
+    const h = makeManager(newDir())
+    const t = h.manager.create(TWO_SEATS, null)
+    expect(h.manager.isRunning(t.id)).toBe(true)
+
+    replayTurn(h, h.turnIdOf(1), { text: ['yes'] })
+    replayTurn(h, h.turnIdOf(2), { text: ['no'] })
+    expect(h.manager.isRunning(t.id)).toBe(false)
+  })
+})

@@ -281,11 +281,24 @@ describe('HomeView board with roundtables', () => {
     title: `table ${id}`,
     updatedAt: 1700000000000,
     providers: ['claude', 'codex'],
+    archived: false,
     entryCount: 4,
     running: false,
     branch: null,
     repoRoot: null,
     ...over
+  })
+
+  it('keeps an archived table off the board', async () => {
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    vi.mocked(window.cockpit.listRoundtables).mockResolvedValue([
+      table('rt-1'),
+      table('rt-2', { title: 'table rt-2', archived: true })
+    ])
+    renderHome()
+
+    expect(await screen.findByText('table rt-1')).toBeInTheDocument()
+    expect(screen.queryByText('table rt-2')).not.toBeInTheDocument()
   })
 
   it('puts tables on the one board, not a second panel', async () => {

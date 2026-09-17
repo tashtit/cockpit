@@ -141,6 +141,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke('backup:restore', token, passphrase),
   undoRestore: (undoId: string) => ipcRenderer.invoke('backup:undo-restore', undoId),
   listRoundtables: () => ipcRenderer.invoke('roundtable:list'),
+  setRoundtableArchived: (id: string, archived: boolean) =>
+    ipcRenderer.invoke('roundtable:archive', id, archived),
   getRoundtable: (id: string) => ipcRenderer.invoke('roundtable:get', id),
   createRoundtable: (req: NewRoundtableRequest) => ipcRenderer.invoke('roundtable:create', req),
   sendRoundtableMessage: (id: string, text: string) =>
