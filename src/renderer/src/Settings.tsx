@@ -675,8 +675,10 @@ export function Settings({
               >
                 Release notes
               </button>
+              <span className="link-sep" aria-hidden="true">·</span>
             </>
-          )}{' '}
+          )}
+          {!appInfo && ' '}
           <button
             className="link-btn"
             onClick={() => {
