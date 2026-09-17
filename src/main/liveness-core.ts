@@ -29,6 +29,12 @@ export type TurnVerdict = {
   readonly startedAt: number | null
   /** Live only: the agent is blocked on the user — a question, or a permission prompt */
   readonly asks?: AttentionAsk
+  /**
+   * Live only: the newest record is a tool call still waiting for its result. A tool
+   * can run for minutes without a line written, so the tracker gives it a longer
+   * silence window than a turn waiting on the model.
+   */
+  readonly inTool?: true
   /** Idle only: what the agent said as it ended, when the ending record carries it */
   readonly closing?: string
 }
@@ -206,6 +212,9 @@ export function judgeClaudeTail(records: readonly any[]): TurnVerdict | null {
         const asks = b?.type === 'tool_use' ? claudeAsk(b) : undefined
         if (asks) return { live: true, startedAt, asks }
       }
+      // the tool_use line itself waits on its tool; a text line whose stop_reason says
+      // tool_use is only the words before that line
+      if (blocks.some((b) => b?.type === 'tool_use')) return { live: true, startedAt, inTool: true }
       return { live: true, startedAt }
     }
     if (r?.type === 'user') {
@@ -254,6 +263,20 @@ function codexAsks(records: readonly any[]): AttentionAsk | undefined {
   return undefined
 }
 
+/** Response items that wait on a tool, as opposed to its output or a message. */
+const CODEX_CALLS: ReadonlySet<string> = new Set(['function_call', 'custom_tool_call', 'local_shell_call', 'web_search_call'])
+
+/** Is the newest item of the running turn a tool call without its output? */
+function codexInTool(records: readonly any[]): boolean {
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = records[i]
+    const t = r?.payload?.type
+    if (r?.type === 'event_msg' && (t === 'task_started' || t === 'task_complete' || t === 'turn_aborted')) return false
+    if (r?.type === 'response_item') return CODEX_CALLS.has(t)
+  }
+  return false
+}
+
 function codexCommand(command: unknown): string {
   if (Array.isArray(command)) return oneLine(command.filter((c) => typeof c === 'string').join(' '))
   return oneLine(command)
@@ -281,7 +304,8 @@ export function judgeCodexTail(records: readonly any[]): TurnVerdict | null {
     if (p?.type === 'task_started') {
       const startedAt = toMs(p.started_at) ?? toMs(r.timestamp)
       const asks = codexAsks(records)
-      return asks ? { live: true, startedAt, asks } : { live: true, startedAt }
+      if (asks) return { live: true, startedAt, asks }
+      return codexInTool(records) ? { live: true, startedAt, inTool: true } : { live: true, startedAt }
     }
     if (p?.type === 'task_complete') return idle(closingOf(oneLine(p.last_agent_message, CLOSING_MAX)))
     if (p?.type === 'turn_aborted') return IDLE
@@ -304,6 +328,7 @@ export function judgeCodexTail(records: readonly any[]): TurnVerdict | null {
       case 'custom_tool_call':
       case 'local_shell_call':
       case 'web_search_call':
+        return { live: true, startedAt: null, inTool: true }
       case 'function_call_output':
       case 'custom_tool_call_output':
       case 'reasoning':
@@ -365,18 +390,29 @@ function copilotAsk(data: unknown): AttentionAsk {
  */
 export function judgeCopilotTail(records: readonly any[]): TurnVerdict | null {
   const completed = new Set<string>()
+  const toolsDone = new Set<string>()
   let asks: AttentionAsk | undefined
   let askedAt: number | null = null
+  let inTool = false
+  const live = (startedAt: number | null): TurnVerdict =>
+    asks ? { live: true, startedAt, asks } : inTool ? { live: true, startedAt, inTool: true } : { live: true, startedAt }
   for (let i = records.length - 1; i >= 0; i--) {
     const r = records[i]
     switch (r?.type) {
-      case 'assistant.turn_start': {
-        const startedAt = copilotTurnStart(records, i) ?? toMs(r.timestamp)
-        return asks ? { live: true, startedAt, asks } : { live: true, startedAt }
+      case 'assistant.turn_start':
+        return live(copilotTurnStart(records, i) ?? toMs(r.timestamp))
+      case 'user.message':
+        return live(toMs(r.timestamp))
+      case 'tool.execution_complete': {
+        const id = r.data?.toolCallId
+        if (typeof id === 'string') toolsDone.add(id)
+        continue
       }
-      case 'user.message': {
-        const startedAt = toMs(r.timestamp)
-        return asks ? { live: true, startedAt, asks } : { live: true, startedAt }
+      case 'tool.execution_start': {
+        // a start with no completion newer than it: the tool is still running
+        const id = r.data?.toolCallId
+        if (!(typeof id === 'string' && toolsDone.has(id))) inTool = true
+        continue
       }
       case 'assistant.turn_end':
         // a request newer than the bracket's end is still a request

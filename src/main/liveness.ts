@@ -11,7 +11,9 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
  * signal: on each write the tracker reads a bounded tail (never the file), asks
  * liveness-core what it says, and keeps the session in the busy set while the log
  * keeps growing. Silence ends it — a killed CLI leaves a mid-turn tail forever — so
- * an entry without a write for LIVE_WINDOW_MS expires on a timer. Best-effort by
+ * an entry without a write for LIVE_WINDOW_MS expires on a timer; while the newest
+ * record is a tool call waiting for its result (a test suite, a build — minutes with
+ * nothing written) the entry gets LIVE_TOOL_WINDOW_MS instead. Best-effort by
  * design: an unreadable or unrecognised tail is idle, never an error.
  *
  * The transitions are news too (`onTurn`, for the attention desk): a turn seen
@@ -22,6 +24,12 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
 
 /** No write for this long and an observed turn is over, whatever its tail says. */
 export const LIVE_WINDOW_MS = 90_000
+/**
+ * …unless that tail is a tool call still running: those write nothing until they
+ * finish, and a typical one takes 100–600s. The arrival gate stays LIVE_WINDOW_MS —
+ * a cold scan reads no old tails, and a turn is only ever *kept* live this long.
+ */
+export const LIVE_TOOL_WINDOW_MS = 10 * 60_000
 /**
  * Tail windows tried in turn. The first holds the newest few records and, for a
  * typical turn, the prompt that opened it — almost every read stops there. The rest
@@ -61,10 +69,14 @@ type LiveEntry = {
   lastWriteAt: number
   /** What the turn is waiting on the person for, while it is */
   asks: AttentionAsk | null
+  /** How long silence is tolerated before this entry expires — longer inside a tool call */
+  windowMs: number
 }
 
 export type LivenessOptions = {
   readonly windowMs?: number
+  /** The window while the newest record is a tool call without its result */
+  readonly toolWindowMs?: number
   readonly sweepMs?: number
   /** The clock — tests pin it */
   readonly now?: () => number
@@ -81,6 +93,7 @@ export class LivenessTracker {
   private readonly onChange: (sessions: BusySession[]) => void
   private readonly onTurn: (ev: ObservedTurn) => void
   private readonly windowMs: number
+  private readonly toolWindowMs: number
   private readonly sweepMs: number
   private readonly now: () => number
 
@@ -88,6 +101,7 @@ export class LivenessTracker {
     this.onChange = onChange
     this.onTurn = opts.onTurn ?? (() => {})
     this.windowMs = opts.windowMs ?? LIVE_WINDOW_MS
+    this.toolWindowMs = Math.max(this.windowMs, opts.toolWindowMs ?? LIVE_TOOL_WINDOW_MS)
     this.sweepMs = opts.sweepMs ?? SWEEP_MS
     this.now = opts.now ?? Date.now
   }
@@ -135,8 +149,10 @@ export class LivenessTracker {
     // learnt then and kept; when it has scrolled out, the last write is the lower bound
     const startedAt = verdict.startedAt ?? prev?.startedAt ?? written
     const asks = verdict.asks ?? null
+    const windowMs = verdict.inTool ? this.toolWindowMs : this.windowMs
     if (prev) {
       prev.lastWriteAt = Math.max(prev.lastWriteAt, written)
+      prev.windowMs = windowMs
       const newTurn = prev.startedAt !== startedAt
       const askChanged = !sameAsk(prev.asks, asks)
       prev.asks = asks
@@ -144,7 +160,7 @@ export class LivenessTracker {
       if (!newTurn) return
       prev.startedAt = startedAt
     } else {
-      this.entries.set(meta.id, { id: meta.id, file, startedAt, lastWriteAt: written, asks })
+      this.entries.set(meta.id, { id: meta.id, file, startedAt, lastWriteAt: written, asks, windowMs })
       this.ensureSweep()
       this.turnEvent(session, startedAt, asks)
     }
@@ -194,7 +210,7 @@ export class LivenessTracker {
     const now = this.now()
     let changed = false
     for (const [id, e] of this.entries) {
-      if (now - e.lastWriteAt > this.windowMs) {
+      if (now - e.lastWriteAt > e.windowMs) {
         this.entries.delete(id)
         changed = true
       }

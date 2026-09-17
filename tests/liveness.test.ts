@@ -114,7 +114,7 @@ describe('readTurnState', () => {
     const fx = FIXTURES[provider]
     it(`${provider}: a log ending mid-turn is live, from the turn's opening record`, () => {
       const file = writeFixture(provider, fx.midTurn)
-      expect(readTurnState(file, provider)).toEqual({ live: true, startedAt: fx.startedAt })
+      expect(readTurnState(file, provider)).toMatchObject({ live: true, startedAt: fx.startedAt })
     })
     it(`${provider}: the record that ends the turn makes it idle`, () => {
       const file = writeFixture(provider, [...fx.midTurn, fx.final])
@@ -134,7 +134,7 @@ describe('readTurnState', () => {
     const fx = FIXTURES.claude
     const [prompt, toolUse] = fx.midTurn
     const file = writeFixture('claude', [prompt, ...padding(LIVE_TAIL_STEPS[0] * 2), toolUse])
-    expect(readTurnState(file, 'claude')).toEqual({ live: true, startedAt: null })
+    expect(readTurnState(file, 'claude')).toMatchObject({ live: true, startedAt: null })
     appendFileSync(file, jsonl([fx.final]))
     expect(isLive(file, 'claude')).toBe(false)
   })
@@ -142,7 +142,7 @@ describe('readTurnState', () => {
   it('looks further back when the first window holds nothing decisive', () => {
     const fx = FIXTURES.claude
     const file = writeFixture('claude', [...fx.midTurn, ...padding(LIVE_TAIL_STEPS[0] * 2)])
-    expect(readTurnState(file, 'claude')).toEqual({ live: true, startedAt: fx.startedAt })
+    expect(readTurnState(file, 'claude')).toMatchObject({ live: true, startedAt: fx.startedAt })
     appendFileSync(file, jsonl([fx.final, ...padding(LIVE_TAIL_STEPS[0] * 2)]))
     expect(readTurnState(file, 'claude')).toMatchObject({ live: false, startedAt: null })
   })
@@ -223,7 +223,7 @@ describe('LivenessTracker', () => {
 
   it('going stale drops a live session on the sweep and pushes the change', async () => {
     const pushes: BusySession[][] = []
-    const t = tracker((s) => pushes.push(s), { windowMs: 300, sweepMs: 50 })
+    const t = tracker((s) => pushes.push(s), { windowMs: 300, toolWindowMs: 300, sweepMs: 50 })
     const file = writeFixture('claude', FIXTURES.claude.midTurn)
     t.observe(file, meta('claude', 'c1', file), mtime(file))
     expect(t.sessions().length).toBe(1)
@@ -232,7 +232,7 @@ describe('LivenessTracker', () => {
   })
 
   it('a heartbeat keeps a live session past the window, and never creates one', async () => {
-    const t = tracker(() => {}, { windowMs: 300, sweepMs: 50 })
+    const t = tracker(() => {}, { windowMs: 300, toolWindowMs: 300, sweepMs: 50 })
     const file = writeFixture('claude', FIXTURES.claude.midTurn)
     t.observe(file, meta('claude', 'c1', file), mtime(file))
     t.heartbeat('claude:nobody')
@@ -336,7 +336,7 @@ describe('LivenessTracker — what it tells the attention desk', () => {
 
   it('expiry is silence, not an ending — a killed CLI or a long tool call never chimes', async () => {
     const events: Ev[] = []
-    const t = tracker(() => {}, { windowMs: 300, sweepMs: 50, onTurn: (ev) => events.push(ev) })
+    const t = tracker(() => {}, { windowMs: 300, toolWindowMs: 300, sweepMs: 50, onTurn: (ev) => events.push(ev) })
     const file = writeFixture('claude', FIXTURES.claude.midTurn)
     t.observe(file, meta('claude', 'c1', file), mtime(file))
     await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
@@ -371,6 +371,28 @@ describe('LivenessTracker — what it tells the attention desk', () => {
     t.observe(file, meta('claude', 'c1', file), mtime(file))
     expect(events.at(-1)).toEqual({ type: 'running', id: 'claude:c1', provider: 'claude', cwd: '/x' })
     expect(t.sessions().map((s) => s.id)).toEqual(['claude:c1'])
+  })
+})
+
+describe('LivenessTracker — the tool window', () => {
+  it('a turn inside a tool call outlives the plain window, and drops back to it once the result is written', async () => {
+    const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 2_000, sweepMs: 40 })
+    const fx = FIXTURES.claude
+    const file = writeFixture('claude', fx.midTurn) // ends on a tool_use
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    await new Promise((r) => setTimeout(r, 500))
+    expect(t.sessions().map((s) => s.id)).toEqual(['claude:c1'])
+    // the result arrives: the model is thinking again, and silence means what it usually means
+    appendFileSync(file, jsonl([{ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] }, toolUseResult: {}, timestamp: T1 }]))
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+  })
+  it('the arrival gate is the plain window: an old tool call is not picked up late', () => {
+    const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 60_000 })
+    const file = writeFixture('claude', FIXTURES.claude.midTurn)
+    age(file, 5_000)
+    t.observe(file, meta('claude', 'c1', file, Date.now() - 5_000), mtime(file))
+    expect(t.sessions()).toEqual([])
   })
 })
 
