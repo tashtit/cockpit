@@ -27,6 +27,8 @@ export type AppConfig = {
   }
   /** Repo keys the user chose not to display (everything is visible by default) */
   readonly hiddenRepos?: string[]
+  /** Repo keys in the order the user dragged them into; absent/empty = A→Z */
+  readonly repoOrder?: string[]
   /** Days of history to display — sessions idle longer are hidden; 0/absent = all */
   readonly historyDays?: number
   /** Idle threshold the cleanup view calls stale, in days; absent = 30 */
@@ -169,6 +171,13 @@ export function setRepoHidden(repoKey: string, hidden: boolean): string[] {
   else set.delete(repoKey)
   const keys = [...set]
   saveConfig({ ...cfg, hiddenRepos: keys })
+  return keys
+}
+
+export function setRepoOrder(repoKeys: readonly string[]): string[] {
+  const cfg = loadConfig()
+  const keys = [...new Set(repoKeys.map(String))].filter((k) => k !== 'general')
+  saveConfig({ ...cfg, repoOrder: keys })
   return keys
 }
 

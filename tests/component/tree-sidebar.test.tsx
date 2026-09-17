@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
 import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
@@ -341,5 +341,105 @@ describe('sidebar footer', () => {
     await waitFor(() => expect(window.cockpit.getUsage).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: /^Subscription usage/ })).toBeNull()
     expect(screen.getByRole('button', { name: 'Accounts — open settings' })).toBeInTheDocument()
+  })
+})
+
+describe('project order', () => {
+  const project = (name: string): RepoGroup => ({
+    ...repo,
+    key: `gh:acme/${name}`,
+    name,
+    fullName: `acme/${name}`,
+    root: `/home/dev/${name}`
+  })
+
+  function renderProjects(repos: RepoGroup[]) {
+    const props = { ...renderSidebarProps(), repos }
+    render(<TreeSidebar {...props} />)
+  }
+
+  function renderSidebarProps() {
+    return {
+      repos: [] as RepoGroup[],
+      indexVersion: 0,
+      accounts: null,
+      zoom: 1,
+      onResetZoom: vi.fn(),
+      selectedId: null,
+      onSelect: vi.fn(),
+      onNewSession: vi.fn(),
+      onRepoSetup: vi.fn(),
+      selectedRoundtableId: null,
+      onOpenRoundtable: vi.fn(),
+      onNewTask: vi.fn(),
+      onGoHome: vi.fn(),
+      onNav: vi.fn(),
+      onOpenSettings: vi.fn(),
+      onOpenUrl: vi.fn(),
+      activeView: 'welcome'
+    }
+  }
+
+  const rowNames = (): string[] =>
+    Array.from(document.querySelectorAll('.repo-row .repo-name')).map((n) => n.textContent ?? '')
+
+  it('moves a project with ⌥↓, saves every key, and announces where it went', async () => {
+    renderProjects([project('apple'), project('mango'), project('zebra')])
+    const row = screen.getByRole('treeitem', { name: /acme\/apple/ })
+    row.focus()
+    await userEvent.keyboard('{Alt>}{ArrowDown}{/Alt}')
+
+    expect(rowNames()).toEqual(['acme/mango', 'acme/apple', 'acme/zebra'])
+    expect(window.cockpit.setRepoOrder).toHaveBeenCalledWith([
+      'gh:acme/mango',
+      'gh:acme/apple',
+      'gh:acme/zebra'
+    ])
+    expect(screen.getByRole('status')).toHaveTextContent('acme/apple moved to position 2 of 3')
+  })
+
+  it('drops a dragged project after the one it lands on, and ignores foreign drags', () => {
+    renderProjects([project('apple'), project('mango'), project('zebra')])
+    const types: string[] = []
+    const dataTransfer = {
+      types,
+      setData: (t: string) => types.push(t),
+      effectAllowed: '',
+      dropEffect: ''
+    }
+    const node = (name: string): HTMLElement =>
+      screen.getByRole('treeitem', { name: new RegExp(`acme/${name}`) }).parentElement as HTMLElement
+
+    // a file or anything else dragged over the tree is not a reorder
+    fireEvent.dragOver(node('mango'), { dataTransfer: { types: ['Files'] } })
+    expect(node('mango')).not.toHaveClass('drop-after')
+
+    fireEvent.dragStart(screen.getByRole('treeitem', { name: /acme\/apple/ }), { dataTransfer })
+    expect(node('apple')).toHaveClass('dragging')
+    // jsdom drag events carry no pointer position, which reads as the lower half
+    fireEvent.dragOver(node('mango'), { dataTransfer })
+    expect(node('mango')).toHaveClass('drop-after')
+    fireEvent.drop(node('mango'), { dataTransfer })
+
+    expect(rowNames()).toEqual(['acme/mango', 'acme/apple', 'acme/zebra'])
+    expect(window.cockpit.setRepoOrder).toHaveBeenCalledWith([
+      'gh:acme/mango',
+      'gh:acme/apple',
+      'gh:acme/zebra'
+    ])
+    expect(node('apple')).not.toHaveClass('dragging')
+  })
+
+  it('offers sort A→Z only while the projects are in a dragged order', async () => {
+    renderProjects([project('apple'), project('zebra')])
+    await userEvent.click(screen.getByRole('button', { name: 'Choose projects to display' }))
+    expect(screen.queryByRole('button', { name: /sort A→Z/ })).toBeNull()
+    cleanup()
+
+    renderProjects([project('zebra'), project('apple')])
+    await userEvent.click(screen.getByRole('button', { name: 'Choose projects to display' }))
+    await userEvent.click(screen.getByRole('button', { name: /sort A→Z/ }))
+    expect(window.cockpit.setRepoOrder).toHaveBeenCalledWith([])
+    expect(rowNames()).toEqual(['acme/apple', 'acme/zebra'])
   })
 })

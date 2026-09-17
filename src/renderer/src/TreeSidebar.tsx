@@ -7,6 +7,7 @@ import type {
   RoundtableMeta,
   SessionMeta
 } from '../../shared/types'
+import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
 import { useSessionBusy } from './busy'
 import { useSessionLanded } from './landed'
@@ -98,8 +99,45 @@ export function TreeSidebar({
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const autoExpanded = useRef(false)
 
-  const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
+  // projects arrive in main's order (A→Z or the user's drag order, never by activity);
+  // a drop reorders here at once and main's answer replaces it on the next index push
+  const [pendingOrder, setPendingOrder] = useState<readonly string[] | null>(null)
+  useEffect(() => setPendingOrder(null), [repos])
+  const orderedRepos = useMemo(
+    () => (pendingOrder ? orderRepos(repos, pendingOrder) : repos),
+    [repos, pendingOrder]
+  )
+  const visibleRepos = useMemo(() => orderedRepos.filter((r) => !r.hidden), [orderedRepos])
   const repoList = useMemo(() => visibleRepos.filter((r) => r.key !== 'general'), [visibleRepos])
+  const [dragKey, setDragKey] = useState<string | null>(null)
+  const [dropAt, setDropAt] = useState<{ target: string; place: 'before' | 'after' } | null>(null)
+  const [orderNote, setOrderNote] = useState('')
+
+  /** Every project's key is saved — hidden ones too — so each stays where it was left. */
+  const saveOrder = (keys: string[]): void => {
+    setPendingOrder(keys)
+    void api.setRepoOrder(keys)
+  }
+  const moveTo = (key: string, to: { target: string; place: 'before' | 'after' }): void => {
+    const all = orderedRepos.filter((r) => r.key !== 'general').map((r) => r.key)
+    const next = moveRepo(all, key, to)
+    if (next.some((k, i) => k !== all[i])) saveOrder(next)
+  }
+  /** ⌥↑/⌥↓ — the keyboard's drag: one visible slot at a time */
+  const nudge = (key: string, delta: -1 | 1): void => {
+    const i = repoList.findIndex((r) => r.key === key)
+    const target = repoList[i + delta]
+    if (i < 0 || !target) return
+    moveTo(key, { target: target.key, place: delta < 0 ? 'before' : 'after' })
+    const r = repoList[i]
+    setOrderNote(`${r.fullName ?? r.name} moved to position ${i + delta + 1} of ${repoList.length}`)
+  }
+  const resetOrder = (): void => {
+    saveOrder([])
+    setOrderNote('Projects sorted A to Z')
+  }
+  const projects = useMemo(() => orderedRepos.filter((r) => r.key !== 'general'), [orderedRepos])
+  const customOrder = !isAlphabetical(projects)
   const [chatsOpen, setChatsOpen] = useState(true)
 
   // roundtables are tree items like sessions: grounded ones sit under their project,
@@ -219,7 +257,10 @@ export function TreeSidebar({
       <div className="search-row">
         {/* the eye scopes the tree, the field searches it, compose creates —
             all three tree controls on one line, in reading order */}
-        <ProjectFilter repos={repos} />
+        <ProjectFilter
+          repos={orderedRepos}
+          onResetOrder={customOrder ? resetOrder : undefined}
+        />
         <input
           className="search"
           aria-label="Search sessions"
@@ -292,6 +333,25 @@ export function TreeSidebar({
               onNewSession={onNewSession}
               onRepoSetup={onRepoSetup}
               onOpenUrl={onOpenUrl}
+              reorder={{
+                dragging: dragKey === r.key,
+                drop: dragKey !== null && dropAt?.target === r.key ? dropAt.place : null,
+                onDragStart: () => setDragKey(r.key),
+                onDragOver: (place) =>
+                  setDropAt((prev) =>
+                    prev?.target === r.key && prev.place === place ? prev : { target: r.key, place }
+                  ),
+                onDrop: () => {
+                  if (dragKey && dropAt) moveTo(dragKey, dropAt)
+                  setDragKey(null)
+                  setDropAt(null)
+                },
+                onDragEnd: () => {
+                  setDragKey(null)
+                  setDropAt(null)
+                },
+                onNudge: (delta) => nudge(r.key, delta)
+              }}
             />
           ))
         )}
@@ -309,6 +369,9 @@ export function TreeSidebar({
             onSelect={onSelect}
           />
         )}
+        <div className="sr-only" role="status" aria-live="polite">
+          {orderNote}
+        </div>
         {repos.length === 0 && (
           <div className="empty-item">
             <p>No sessions indexed yet — Cockpit reads Claude Code, Codex, and Copilot logs.</p>
@@ -369,7 +432,14 @@ export function TreeSidebar({
 }
 
 /** Eye popover: every indexed project with a visibility checkbox (all on by default). */
-function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
+function ProjectFilter({
+  repos,
+  onResetOrder
+}: {
+  repos: RepoGroup[]
+  /** Present only while the projects are in a dragged order — puts them back A→Z */
+  onResetOrder?: () => void
+}): JSX.Element {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -425,7 +495,18 @@ function ProjectFilter({ repos }: { repos: RepoGroup[] }): JSX.Element {
       </button>
       {open && (
         <div className="repo-filter-pop" role="dialog" aria-label="Projects to display" ref={popRef}>
-          <div className="repo-filter-head">Projects</div>
+          <div className="repo-filter-head">
+            <span>Projects</span>
+            {onResetOrder && (
+              <button
+                className="btn-ghost small repo-filter-reset"
+                title="Forget the dragged order and list projects A→Z"
+                onClick={onResetOrder}
+              >
+                sort A→Z
+              </button>
+            )}
+          </div>
           {repos.map((r) => (
             <label key={r.key} className="repo-filter-row" title={r.fullName ?? r.root ?? r.name}>
               <input
@@ -466,7 +547,8 @@ function RepoNode({
   onSelect,
   onNewSession,
   onRepoSetup,
-  onOpenUrl
+  onOpenUrl,
+  reorder
 }: {
   repo: RepoGroup
   open: boolean
@@ -481,6 +563,7 @@ function RepoNode({
   onNewSession: (repo: RepoGroup) => void
   onRepoSetup: (repoRoot: string) => void
   onOpenUrl: (url: string) => void
+  reorder: RepoReorder
 }): JSX.Element {
   const [prs, setPrs] = useState<PrStatus[]>([])
   const [showArchived, setShowArchived] = useState(false)
@@ -495,16 +578,50 @@ function RepoNode({
   }, [open, repo.root, indexVersion])
 
   return (
-    <div className="repo-node" role="presentation">
+    <div
+      className={`repo-node${reorder.dragging ? ' dragging' : ''}${reorder.drop ? ` drop-${reorder.drop}` : ''}`}
+      role="presentation"
+      // the whole node is the drop target, so an expanded project's sessions count as
+      // its lower half — dropping there lands after the project, not inside it
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(REPO_DRAG_TYPE)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        const box = e.currentTarget.getBoundingClientRect()
+        reorder.onDragOver(e.clientY < box.top + Math.min(box.height / 2, 15) ? 'before' : 'after')
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes(REPO_DRAG_TYPE)) return
+        e.preventDefault()
+        reorder.onDrop()
+      }}
+    >
       <div
         className="repo-row"
         role="treeitem"
         aria-expanded={open}
         aria-level={1}
+        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
         tabIndex={-1}
-        title={repo.root ?? repo.fullName ?? repo.name}
+        title={`${repo.root ?? repo.fullName ?? repo.name}\nDrag (or ⌥↑/⌥↓) to reorder`}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(REPO_DRAG_TYPE, repo.key)
+          e.dataTransfer.effectAllowed = 'move'
+          reorder.onDragStart()
+        }}
+        onDragEnd={reorder.onDragEnd}
         onClick={onToggle}
-        onKeyDown={expandKeys(open, onToggle)}
+        onKeyDown={(e) => {
+          if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+            // the tree's own arrow handling would move focus instead — this moves the row
+            e.preventDefault()
+            e.stopPropagation()
+            reorder.onNudge(e.key === 'ArrowUp' ? -1 : 1)
+            return
+          }
+          expandKeys(open, onToggle)(e)
+        }}
       >
         <span className={`chev ${open ? 'open' : ''}`} aria-hidden="true">▸</span>
         <span className="repo-icon">
@@ -582,6 +699,20 @@ function RepoNode({
       )}
     </div>
   )
+}
+
+/** Private drag payload — a session row or a file dropped on the tree is not a reorder. */
+const REPO_DRAG_TYPE = 'application/x-cockpit-repo'
+
+type RepoReorder = {
+  readonly dragging: boolean
+  /** Where a drop on this project would land, while something is dragged over it */
+  readonly drop: 'before' | 'after' | null
+  readonly onDragStart: () => void
+  readonly onDragOver: (place: 'before' | 'after') => void
+  readonly onDrop: () => void
+  readonly onDragEnd: () => void
+  readonly onNudge: (delta: -1 | 1) => void
 }
 
 /** Stable identities: new [] / () => {} each render would re-trigger memoized children. */

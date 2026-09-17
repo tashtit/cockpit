@@ -167,6 +167,72 @@ describe('SessionIndexer', () => {
   })
 })
 
+describe('project order (setRepoOrder)', () => {
+  const orderDir = join(root, 'claude-order')
+  let idx: SessionIndexer
+
+  function repo(name: string): string {
+    const dir = join(root, 'order', name)
+    mkdirSync(join(dir, '.git'), { recursive: true })
+    writeFileSync(join(dir, '.git', 'config'), `[remote "origin"]\n\turl = https://github.com/acme/${name}.git\n`)
+    return dir
+  }
+
+  function writeSession(name: string, cwd: string, ts: string): void {
+    const dir = join(orderDir, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, `${name}.jsonl`),
+      jsonl([
+        { type: 'user', message: { role: 'user', content: name }, timestamp: ts, sessionId: name, cwd },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: ts }
+      ])
+    )
+  }
+
+  beforeAll(async () => {
+    // zebra is the busiest and most recent — it must still not jump to the top
+    writeSession('o-zebra-1', repo('zebra'), '2026-08-09T10:00:00Z')
+    writeSession('o-zebra-2', repo('zebra'), '2026-08-08T10:00:00Z')
+    writeSession('o-mango', repo('mango'), '2026-08-05T10:00:00Z')
+    writeSession('o-apple', repo('apple'), '2026-08-01T10:00:00Z')
+    writeSession('o-chat', '/nowhere/order', '2026-08-10T10:00:00Z')
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: orderDir, provider: 'claude', label: 'order' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('lists projects A→Z, not by activity, with general last', () => {
+    expect(idx.listRepos().map((r) => r.key)).toEqual([
+      'gh:acme/apple',
+      'gh:acme/mango',
+      'gh:acme/zebra',
+      'general'
+    ])
+  })
+
+  it("follows the user's order, and an empty order goes back to A→Z", () => {
+    idx.setRepoOrder(['gh:acme/zebra', 'gh:acme/apple'])
+    expect(idx.listRepos().map((r) => r.key)).toEqual([
+      'gh:acme/zebra',
+      'gh:acme/apple',
+      'gh:acme/mango',
+      'general'
+    ])
+    idx.setRepoOrder([])
+    expect(idx.listRepos()[0].key).toBe('gh:acme/apple')
+  })
+
+  it('still pages sessions inside a project newest first', () => {
+    expect(idx.page({ repoKey: 'gh:acme/zebra' }).items.map((s) => s.nativeId)).toEqual([
+      'o-zebra-1',
+      'o-zebra-2'
+    ])
+  })
+})
+
 describe('history window (setHistoryDays)', () => {
   // fixture timestamps are relative to now — the cutoff compares against Date.now()
   const histDir = join(root, 'claude-history')

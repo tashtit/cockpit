@@ -13,6 +13,7 @@ import type {
   SourceDir,
   SourceStats
 } from '../shared/types'
+import { orderRepos } from '../shared/repo-order'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
 import { LivenessTracker } from './liveness'
 import { defaultClaudeStoreDir, listProviderArchivedIds } from './provider-archived'
@@ -185,6 +186,8 @@ export class SessionIndexer {
   private providerArchivedTimer: NodeJS.Timeout | null = null
   /** Repo keys the user chose not to display */
   private hiddenRepos = new Set<string>()
+  /** Repo keys in the user's drag order (repo-order.ts); empty = A→Z */
+  private repoOrder: string[] = []
   /** Days of history to display — sessions idle longer are hidden; 0 = all */
   private historyDays = 0
   private onUpdate: () => void
@@ -249,6 +252,12 @@ export class SessionIndexer {
   /** Applied at query time; repo groups stay listed (flagged hidden) for the chooser UI. */
   setHiddenRepos(keys: string[]): void {
     this.hiddenRepos = new Set(keys)
+    this.emitUpdate()
+  }
+
+  /** Applied at query time; only the project order changes, never what is listed. */
+  setRepoOrder(keys: string[]): void {
+    this.repoOrder = [...keys]
     this.emitUpdate()
   }
 
@@ -729,10 +738,8 @@ export class SessionIndexer {
         g.root = info.root
       }
     }
-    return [...groups.values()].sort((a, b) => {
-      if ((a.key === 'general') !== (b.key === 'general')) return a.key === 'general' ? 1 : -1
-      return b.lastActivity - a.lastActivity
-    })
+    // projects hold still: A→Z or the user's own order, never by activity
+    return orderRepos([...groups.values()], this.repoOrder)
   }
 
   /** Roots the app may spawn git/gh in — IPC handlers validate against this. */

@@ -47,6 +47,7 @@ import {
   sessionLineageFor,
   setHistoryDays,
   setRepoHidden,
+  setRepoOrder,
   setSessionArchived,
   setSessionsArchived,
   setStaleDays,
@@ -422,6 +423,7 @@ app.whenReady().then(() => {
   transcripts = new TranscriptSearcher(indexer)
   indexer.setArchived(cfg.archived ?? [])
   indexer.setHiddenRepos(cfg.hiddenRepos ?? [])
+  indexer.setRepoOrder(cfg.repoOrder ?? [])
   indexer.setHistoryDays(cfg.historyDays ?? 0)
   indexer.setLineage(cfg.continuedFrom ?? {})
   void indexer.setSources(cfg.sources)
@@ -476,6 +478,11 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('repos:set-hidden', (_e, key: string, hidden: boolean) => {
     indexer.setHiddenRepos(setRepoHidden(String(key), Boolean(hidden)))
+  })
+  ipcMain.handle('repos:set-order', (_e, keys: unknown) => {
+    // a plain list of keys — only reorders what the indexer already lists
+    const list = Array.isArray(keys) ? keys.filter((k): k is string => typeof k === 'string') : []
+    indexer.setRepoOrder(setRepoOrder(list.slice(0, 2000)))
   })
   ipcMain.handle('history:get', () => loadConfig().historyDays ?? 0)
   ipcMain.handle('history:set', (_e, days: number) => {
@@ -670,6 +677,7 @@ app.whenReady().then(() => {
     const cfg = loadConfig()
     indexer.setArchived(cfg.archived ?? [])
     indexer.setHiddenRepos(cfg.hiddenRepos ?? [])
+    indexer.setRepoOrder(cfg.repoOrder ?? [])
     indexer.setHistoryDays(cfg.historyDays ?? 0)
     indexer.setLineage(cfg.continuedFrom ?? {})
     void indexer.setSources(cfg.sources)

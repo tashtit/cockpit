@@ -1236,6 +1236,8 @@ export type CockpitApi = {
   readonly takeAttentionOpen: () => Promise<AttentionTarget | null>
   readonly setArchived: (sessionId: string, archived: boolean) => Promise<void>
   readonly setRepoHidden: (repoKey: string, hidden: boolean) => Promise<void>
+  /** Save the project order (repo keys, top first); an empty list goes back to A→Z */
+  readonly setRepoOrder: (repoKeys: readonly string[]) => Promise<void>
   /** Days of history to display — sessions idle longer are hidden; 0 = all */
   readonly getHistoryDays: () => Promise<number>
   readonly setHistoryDays: (days: number) => Promise<void>
