@@ -158,6 +158,14 @@ describe('a difference kept on purpose', () => {
     expect(r.kept).toEqual([])
   })
 
+  // a restored or stale fingerprint for an agent that is off must not hide its extra copy
+  it('ignores a kept difference for an agent that is switched off', () => {
+    const entry = { ...keptEntry(fieldsKey(mcpFields(OTHER))), enabled: { claude: true, codex: true } }
+    const r = buildRow(entry, desired, { claude: has(CFG), codex: has(CFG), copilot: has(OTHER) })
+    expect(r.cells.copilot.state).toBe('extra')
+    expect(r.kept).toEqual([])
+  })
+
   it('keeps one agent quiet while another still needs an answer', () => {
     const r = buildRow(keptEntry(fieldsKey(mcpFields(OTHER))), desired, {
       claude: has(CFG),

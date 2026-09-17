@@ -483,10 +483,9 @@ export async function keepPanelDifference(target: PanelTarget, keep: boolean): P
   const actual = actualOf(entry, inv, target.repoRoot)
   const row = buildRow(entry, savedOf(entry, target.repoRoot, inv), actual)
   const kept: Partial<Record<Provider, string>> = { ...entry.kept }
-  for (const p of PROVIDERS) {
-    if (row.cells[p].state === 'changed') kept[p] = fieldsKey(actual[p]?.fields ?? {})
-  }
-  saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, kept }))
+  const changed = PROVIDERS.filter((p) => row.cells[p].state === 'changed')
+  for (const p of changed) kept[p] = fieldsKey(actual[p]?.fields ?? {})
+  if (changed.length > 0) saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, kept }))
   return getPanel(target.repoRoot)
 }
 

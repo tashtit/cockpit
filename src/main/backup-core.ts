@@ -199,13 +199,13 @@ function sanitizeEnabled(v: unknown): Partial<Record<Provider, boolean>> {
   return out
 }
 
-/** A kept difference is a fingerprint per agent — a short string, never a config. */
+/** A kept difference is a fingerprint per agent (`fieldsKey`'s hex hash), never a config. */
 function sanitizeKept(v: unknown): Partial<Record<Provider, string>> | undefined {
   if (!isRecord(v)) return undefined
   const out: Partial<Record<Provider, string>> = {}
   for (const p of PROVIDERS) {
-    const s = str(v[p], 4000)
-    if (s !== undefined) out[p] = s
+    const s = v[p]
+    if (typeof s === 'string' && /^[0-9a-f]{1,16}$/.test(s)) out[p] = s
   }
   return Object.keys(out).length > 0 ? out : undefined
 }

@@ -233,15 +233,29 @@ function oddOnesOut(groups: readonly Provider[][]): Provider[] {
 }
 
 /**
- * One string for one definition, so "still runs exactly this" is a comparison of two
- * strings: a kept difference is tied to the definition the user looked at, and a
- * later change to that agent's copy is drift again. Same inputs as `sameFields`.
+ * A fingerprint of one definition, so "still runs exactly this" is a comparison of two
+ * short strings: a kept difference is tied to the definition the user looked at, and a
+ * later change to that agent's copy is drift again. Same inputs as `sameFields`. Hashed,
+ * because the fields carry MCP args and URLs, which may hold tokens and must not reach
+ * the config or a backup in the clear. Field names are hashed too, so renaming one
+ * reads as drift — the safe direction.
  */
 export function fieldsKey(fields: Readonly<Record<string, string>>): string {
-  return Object.keys(fields)
+  const text = Object.keys(fields)
     .sort()
     .map((k) => `${k}=${fields[k]}`)
     .join('\n')
+  // cyrb53: a 53-bit string hash, no node:crypto (this module also runs in the renderer)
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    h1 = Math.imul(h1 ^ c, 2654435761)
+    h2 = Math.imul(h2 ^ c, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16)
 }
 
 export function buildRow(
@@ -259,7 +273,9 @@ export function buildRow(
   // an odd one out the user kept on purpose is quiet while it still runs the very
   // definition they kept; only agents that differ right now count, so an agent that
   // has since come back into line is plainly on, not "kept"
-  const kept = odd.filter((p) => entry.kept?.[p] === fieldsKey(actual[p]?.fields ?? {}))
+  const kept = odd.filter(
+    (p) => entry.enabled[p] === true && entry.kept?.[p] === fieldsKey(actual[p]?.fields ?? {})
+  )
 
   const cells = {} as { -readonly [K in Provider]: PanelCell }
   for (const p of PROVIDERS) {
