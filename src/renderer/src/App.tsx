@@ -8,8 +8,7 @@ import type {
   Provider,
   PrStatus,
   RepoGroup,
-  SessionMeta,
-  SessionMessage
+  SessionMeta
 } from '../../shared/types'
 import { api } from './api'
 import { withImageMarks, type ImageAttachment } from './attachments'
@@ -31,6 +30,15 @@ import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
 import { DevBanner } from './DevBanner'
 import { initBusySessions } from './busy'
+import {
+  addChatMessage,
+  addChatNotice,
+  announceChat,
+  endChatStream,
+  setChatLog,
+  streamChatText
+} from './chat-log'
+import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
 import type { StartSessionRequest } from './NewSession'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
@@ -144,7 +152,6 @@ export function App(): JSX.Element {
   const [prs, setPrs] = useState<PrStatus[]>([])
   const [binding, setBinding] = useState<ChatBinding | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [log, setLog] = useState<SessionMessage[]>([])
   const [activeTurn, setActiveTurn] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [creatingPr, setCreatingPr] = useState(false)
@@ -163,12 +170,14 @@ export function App(): JSX.Element {
   const pendingEventsRef = useRef<ChatEvent[]>([])
   /** Guards against a slow transcript load landing after the user switched sessions. */
   const openSeqRef = useRef(0)
-  /** Streamed text is batched (~40ms) so each stdout chunk doesn't re-render the log. */
-  const textBufRef = useRef('')
-  const textFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Did this turn report an error? "finished" would be a lie if it did. */
+  const turnFailedRef = useRef(false)
 
   useEffect(() => initBusySessions(), [])
   useEffect(() => initLanded(), [])
+  // the transcript's markdown pipeline is its own chunk — warm it once the window
+  // is up, so the first session opened renders formatted with no plain-text flash
+  useEffect(() => preloadMarkdown(), [])
 
   useEffect(() => {
     void initTimeFormat()
@@ -239,29 +248,11 @@ export function App(): JSX.Element {
     }
   }, [binding?.repoRoot, indexVersion])
 
-  /** Drop buffered stream text and its timer — switching sessions or cancelling a
-   *  turn must not let a pending 40ms flush write into the next view of the log. */
-  const clearPendingText = useCallback(() => {
-    textBufRef.current = ''
-    if (textFlushRef.current) {
-      clearTimeout(textFlushRef.current)
-      textFlushRef.current = null
-    }
-  }, [])
-
-  const flushText = useCallback(() => {
-    textFlushRef.current = null
-    const chunk = textBufRef.current
-    if (!chunk) return
-    textBufRef.current = ''
-    setLog((l) => {
-      const last = l[l.length - 1]
-      if (last && last.role === 'assistant' && last.kind === 'text' && last.streaming) {
-        return [...l.slice(0, -1), { ...last, text: last.text + chunk }]
-      }
-      return [...l, { role: 'assistant', kind: 'text', text: chunk, streaming: true } as SessionMessage]
-    })
-  }, [])
+  /** What the agent is called in an announcement — the provider behind this chat. */
+  const speaker = useCallback(
+    () => PROVIDER_LABEL[bindingRef.current?.provider ?? 'claude'],
+    []
+  )
 
   /**
    * Permission questions an ACP turn is blocked on. Kept out of the transcript on
@@ -275,8 +266,8 @@ export function App(): JSX.Element {
     setPermissions((list) => list.filter((a) => a.requestId !== ask.requestId))
     void api.respondPermission(ask.turnId, ask.requestId, optionId)
     // the answer belongs in the transcript even though the question did not — it is
-    // what the rest of the turn was conditioned on
-    setLog((l) => [...l, { role: 'system', kind: 'system', text: `${label} — ${ask.preview}` }])
+    // what the rest of the turn was conditioned on, and a reader should hear it once
+    addChatNotice(`${label} — ${ask.preview}`)
   }, [])
 
   const applyEvent = useCallback(
@@ -309,24 +300,20 @@ export function App(): JSX.Element {
         }
         setBinding((b) => (b ? { ...b, nativeSessionId: ev.nativeSessionId } : b))
       } else if (ev.type === 'text') {
-        textBufRef.current += ev.text
-        if (!textFlushRef.current) textFlushRef.current = setTimeout(flushText, 40)
+        streamChatText(ev.text)
       } else if (ev.type === 'tool') {
-        flushText()
-        setLog((l) => [
-          ...l,
-          {
-            role: 'assistant',
-            kind: 'tool_call',
-            toolName: ev.toolName,
-            text: ev.detail,
-            preview: ev.preview,
-            // a question with options reaches the transcript as an answerable card
-            ...(ev.asks ? { asks: ev.asks } : {})
-          }
-        ])
+        addChatMessage({
+          role: 'assistant',
+          kind: 'tool_call',
+          toolName: ev.toolName,
+          text: ev.detail,
+          preview: ev.preview,
+          // a question with options reaches the transcript as an answerable card
+          ...(ev.asks ? { asks: ev.asks } : {})
+        })
       } else if (ev.type === 'permission') {
-        flushText()
+        // the prompt is not a transcript row, but it must land after what came before it
+        endChatStream({ keepText: true })
         setPermissions((list) => [
           ...list.filter((a) => a.requestId !== ev.requestId),
           {
@@ -339,23 +326,20 @@ export function App(): JSX.Element {
           }
         ])
       } else if (ev.type === 'error') {
-        flushText()
-        setLog((l) => [...l, { role: 'system', kind: 'system', text: ev.message }])
+        // said as it happens, even mid-turn: an error nobody hears is the bug
+        turnFailedRef.current = true
+        addChatNotice(ev.message, `${speaker()}: ${ev.message}`)
       } else if (ev.type === 'done') {
-        flushText()
+        endChatStream({ keepText: true })
         setActiveTurn(null)
         // the turn is over; anything it was still asking has been answered or abandoned
         setPermissions([])
-        // only touch rows that were streaming: replacing every row's identity here
-        // would re-render (and re-markdown) the whole memoized transcript at once
-        setLog((l) =>
-          l.some((m) => m.streaming)
-            ? l.map((m) => (m.streaming ? { ...m, streaming: false } : m))
-            : l
+        announceChat(
+          turnFailedRef.current ? `${speaker()} finished with errors` : `${speaker()} finished`
         )
       }
     },
-    [flushText]
+    [speaker]
   )
 
   useEffect(() => {
@@ -379,16 +363,18 @@ export function App(): JSX.Element {
       pendingEventsRef.current = []
       const stillLive = !buffered.some((e) => e.type === 'done')
       activeTurnRef.current = turnId
+      turnFailedRef.current = false
       setActiveTurn(stillLive ? turnId : null)
+      announceChat(`${speaker()} is working…`)
       for (const ev of buffered) applyEvent(ev)
     },
-    [applyEvent]
+    [applyEvent, speaker]
   )
 
   const openSession = useCallback(
     async (s: SessionMeta) => {
       const seq = ++openSeqRef.current
-      clearPendingText()
+      setChatLog([])
       setActiveTurn(null)
       setSelectedSessionId(s.id)
       // restore the account this session's source dir belongs to — otherwise a
@@ -411,12 +397,11 @@ export function App(): JSX.Element {
         readOnly: s.roundtableId ? true : undefined
       })
       setView({ kind: 'chat' })
-      setLog([])
       const messages = await api.getSessionMessages(s.id)
       // a slower load for a previously clicked session must not clobber this one
-      if (seq === openSeqRef.current) setLog(messages)
+      if (seq === openSeqRef.current) setChatLog(messages)
     },
-    [accounts, clearPendingText]
+    [accounts]
   )
 
   /** Land on a history entry. A chat entry that is still the bound conversation
@@ -434,16 +419,15 @@ export function App(): JSX.Element {
         (entry.sessionId !== null || entry.binding === bindingRef.current)
       if (!sameChat) {
         const seq = ++openSeqRef.current
-        clearPendingText()
+        setChatLog([])
         setActiveTurn(null)
         setSelectedSessionId(entry.sessionId)
         setBinding(entry.binding)
-        setLog([])
         if (entry.sessionId) {
           void api
             .getSessionMessages(entry.sessionId)
             .then((messages) => {
-              if (seq === openSeqRef.current) setLog(messages)
+              if (seq === openSeqRef.current) setChatLog(messages)
             })
             // the transcript may be gone from disk — an empty log, not a crash
             .catch(() => {})
@@ -451,7 +435,7 @@ export function App(): JSX.Element {
       }
       setView({ kind: 'chat' })
     },
-    [clearPendingText]
+    []
   )
 
   const goBack = useCallback(() => {
@@ -524,7 +508,7 @@ export function App(): JSX.Element {
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
       if (!binding || activeTurn || binding.readOnly) return
       // the transcript shows attachments as one marker line per image
-      setLog((l) => [...l, { role: 'user', kind: 'text', text: withImageMarks(prompt, images) }])
+      addChatMessage({ role: 'user', kind: 'text', text: withImageMarks(prompt, images) })
       try {
         const turnId = await api.sendChat({
           provider: binding.provider,
@@ -541,14 +525,7 @@ export function App(): JSX.Element {
       } catch (err) {
         // a rejected invoke (e.g. copilot account no longer logged in) must not
         // leave the prompt looking sent with no reply and no error
-        setLog((l) => [
-          ...l,
-          {
-            role: 'system',
-            kind: 'system',
-            text: `Send failed: ${err instanceof Error ? err.message : String(err)}`
-          }
-        ])
+        addChatNotice(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
       }
     },
     [binding, activeTurn, beginTurn]
@@ -577,7 +554,7 @@ export function App(): JSX.Element {
           accountLabel: account.display
         })
         setView({ kind: 'chat' })
-        setLog([
+        setChatLog([
           {
             role: 'system',
             kind: 'system',
@@ -645,7 +622,7 @@ export function App(): JSX.Element {
           continuedFrom: { id: source.id, provider: source.provider }
         })
         setView({ kind: 'chat' })
-        setLog([
+        setChatLog([
           {
             role: 'system',
             kind: 'system',
@@ -679,12 +656,7 @@ export function App(): JSX.Element {
     async (sourceId: string) => {
       const meta = await api.getSession(sourceId)
       if (meta) void openSession(meta)
-      else {
-        setLog((l) => [
-          ...l,
-          { role: 'system', kind: 'system', text: 'The session this one continued is no longer in Cockpit’s index.' }
-        ])
-      }
+      else addChatNotice('The session this one continued is no longer in Cockpit’s index.')
     },
     [openSession]
   )
@@ -700,30 +672,23 @@ export function App(): JSX.Element {
       // the killed turn's terminal `done` no longer matches activeTurnRef, so do
       // its cleanup locally: stop the shimmer and drop any not-yet-flushed text
       setActiveTurn(null)
-      clearPendingText()
-      setLog((l) =>
-        l.some((m) => m.streaming)
-          ? l.map((m) => (m.streaming ? { ...m, streaming: false } : m))
-          : l
-      )
+      endChatStream({ keepText: false })
+      announceChat(`${speaker()} stopped`)
     }
-  }, [activeTurn, clearPendingText])
+  }, [activeTurn, speaker])
 
   const createPr = useCallback(async () => {
     // in-flight guard: a double-click must not race two `gh pr create` runs
     if (!binding || creatingPr) return
     setCreatingPr(true)
-    setLog((l) => [...l, { role: 'system', kind: 'system', text: 'Pushing branch and opening PR…' }])
+    addChatNotice('Pushing branch and opening PR…')
     try {
       const url = await api.createPr(binding.cwd)
-      setLog((l) => [...l, { role: 'system', kind: 'system', text: `PR created: ${url}` }])
+      addChatNotice(`PR created: ${url}`)
       void api.openExternal(url)
       setIndexVersion((v) => v + 1)
     } catch (err) {
-      setLog((l) => [
-        ...l,
-        { role: 'system', kind: 'system', text: `PR failed: ${err instanceof Error ? err.message : err}` }
-      ])
+      addChatNotice(`PR failed: ${err instanceof Error ? err.message : err}`)
     } finally {
       setCreatingPr(false)
     }
@@ -894,7 +859,6 @@ export function App(): JSX.Element {
         <ChatView
           binding={binding}
           prs={prs}
-          log={log}
           busy={activeTurn !== null}
           prBusy={creatingPr}
           onSend={send}

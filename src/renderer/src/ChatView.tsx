@@ -5,6 +5,7 @@ import { AskPicker } from './AskPicker'
 import type { ChatBinding, PendingPermission } from './App'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
+import { useChatLog, useChatStatus } from './chat-log'
 import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
 import { cwdLabel } from '../../shared/library'
@@ -18,7 +19,6 @@ const RENDER_LAST = 400
 export function ChatView({
   binding,
   prs,
-  log,
   busy,
   prBusy,
   onSend,
@@ -32,7 +32,6 @@ export function ChatView({
 }: {
   binding: ChatBinding | null
   prs: PrStatus[]
-  log: SessionMessage[]
   busy: boolean
   prBusy: boolean
   onSend: (prompt: string, mode: PermissionMode, images?: readonly string[]) => void
@@ -44,6 +43,10 @@ export function ChatView({
   permissions: readonly PendingPermission[]
   onAnswerPermission: (ask: PendingPermission, optionId: string) => void
 }): JSX.Element {
+  // the transcript is the app's hottest state and this is its only reader —
+  // subscribing here keeps a streaming turn out of every other view (chat-log.ts)
+  const log = useChatLog()
+  const announced = useChatStatus()
   const [draft, setDraft] = useState('')
   const atts = useImageAttachments()
   const [mode, setMode] = useState<PermissionMode>(
@@ -160,21 +163,21 @@ export function ChatView({
   // is still producing never folds — watching it is the point while it runs.
   const blocks = foldToolRuns(visible, busy)
 
-  // screen-reader announcement on turn completion/failure — not per streamed token
-  const lastSys = [...log].reverse().find((m) => m.kind === 'system')
-  // a blocked agent is the most important thing on the screen — announce it over the
-  // generic working line, which would otherwise be the last thing a reader heard
-  const status = permissions.length
-    ? `Permission needed: ${permissions[0].preview}`
-    : busy
-      ? 'Assistant is working'
-      : (lastSys?.text ?? (log.length ? 'Ready' : ''))
+  // a blocked agent is the most important thing on the screen — it speaks over
+  // whatever the turn last said. Otherwise chat-log.ts owns the announcements, and
+  // the working line is only the fallback for a turn that has not announced one
+  // (App does, at every turn start) — never an override, or a mid-turn error would
+  // be the one thing a reader never hears.
+  const status =
+    (permissions.length ? `Permission needed: ${permissions[0].preview}` : announced) ||
+    (busy && binding ? `${PROVIDER_LABEL[binding.provider]} is working…` : '')
 
   /** A pick from the agent's own options: the same send path a typed message takes. */
   const sendAnswer = (text: string): void => {
     if (!text.trim() || busy || !binding) return
     onSend(text, mode)
   }
+
 
   const submit = (): void => {
     const p = draft.trim()

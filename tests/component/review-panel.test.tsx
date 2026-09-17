@@ -196,6 +196,58 @@ describe('ReviewPanel', () => {
   })
 })
 
+describe('ReviewPanel keyboard', () => {
+  const noteButtons = (): HTMLButtonElement[] =>
+    screen.getAllByRole('button', { name: /^Note on/ }) as HTMLButtonElement[]
+
+  it('costs one tab stop per file, not one per line', async () => {
+    renderPanel({ onNotes: vi.fn() })
+    await screen.findByText('two changed')
+    const btns = noteButtons()
+    expect(btns.length).toBeGreaterThan(3)
+    // one per file (src/a.ts, notes.md) is reachable by Tab; the rest answer to arrows
+    expect(btns.filter((b) => b.tabIndex === 0)).toHaveLength(2)
+  })
+
+  it('moves between lines with the arrows, and stops at the ends', async () => {
+    renderPanel({ onNotes: vi.fn() })
+    await screen.findByText('two changed')
+    const inA = noteButtons().filter((b) => b.getAttribute('aria-label')?.includes('src/a.ts'))
+    inA[0].focus()
+    await userEvent.keyboard('{ArrowDown}')
+    expect(document.activeElement).toBe(inA[1])
+    await userEvent.keyboard('{End}')
+    expect(document.activeElement).toBe(inA[inA.length - 1])
+    // the end of the file is the end — focus never jumps into the next one
+    await userEvent.keyboard('{ArrowDown}')
+    expect(document.activeElement).toBe(inA[inA.length - 1])
+    await userEvent.keyboard('{Home}')
+    expect(document.activeElement).toBe(inA[0])
+    await userEvent.keyboard('{ArrowUp}')
+    expect(document.activeElement).toBe(inA[0])
+  })
+
+  it('hands the tab stop to the line the user last worked on', async () => {
+    renderPanel({ onNotes: vi.fn() })
+    await screen.findByText('two changed')
+    const inA = noteButtons().filter((b) => b.getAttribute('aria-label')?.includes('src/a.ts'))
+    inA[0].focus()
+    await userEvent.keyboard('{ArrowDown}')
+    expect(inA[1].tabIndex).toBe(0)
+    expect(inA[0].tabIndex).toBe(-1)
+  })
+
+  it('leaves the arrows alone inside a note', async () => {
+    renderPanel({ onNotes: vi.fn() })
+    await screen.findByText('two changed')
+    await userEvent.click(screen.getByRole('button', { name: 'Note on src/a.ts line 2' }))
+    const box = screen.getByRole('textbox', { name: /Note for the agent on src\/a.ts line 2/ })
+    await userEvent.type(box, 'a note worth two lines')
+    await userEvent.keyboard('{ArrowUp}{Home}{ArrowDown}{End}')
+    expect(document.activeElement).toBe(box)
+  })
+})
+
 describe('pairLines', () => {
   it('pairs the n-th removal with the n-th addition and spans context', () => {
     const rows = pairLines(aTs.hunks[0].lines)
@@ -430,7 +482,6 @@ describe('ChatView → review panel', () => {
       <ChatView
         binding={{ provider: 'codex', cwd: '/tmp/wt', nativeSessionId: 'n1', title: 't', branch: 'cockpit/test', repoRoot: '/tmp/repo' }}
         prs={[pr({ headRefName: 'cockpit/test', number: 7 })]}
-        log={[]}
         busy={false}
         prBusy={false}
         onSend={() => {}}

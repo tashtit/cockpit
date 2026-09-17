@@ -18,7 +18,6 @@ function renderChat() {
     <ChatView
       binding={binding}
       prs={[]}
-      log={[]}
       busy={false}
       prBusy={false}
       onSend={vi.fn()}

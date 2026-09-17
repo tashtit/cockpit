@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
+import { setChatLog } from '../../src/renderer/src/chat-log'
 import type { ChatBinding } from '../../src/renderer/src/App'
 import type { SessionMessage } from '../../src/shared/types'
 
@@ -37,11 +38,11 @@ function renderChat(
   over: { busy?: boolean; binding?: ChatBinding } = {}
 ): ReturnType<typeof vi.fn> {
   const onSend = vi.fn()
+  setChatLog(log)
   render(
     <ChatView
       binding={over.binding ?? binding}
       prs={[]}
-      log={log}
       busy={over.busy ?? false}
       prBusy={false}
       onSend={onSend}
