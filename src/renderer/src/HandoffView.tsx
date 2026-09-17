@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { AccountsSnapshot, AgentOptions, PermissionMode, Provider } from '../../shared/types'
 import { api } from './api'
+import { shortPath } from '../../shared/library'
 import {
   AccountField,
   AGENT_BLURB,
@@ -166,7 +167,7 @@ export function HandoffView({
         </div>
         <div className="ns-hint">
           Same worktree, same branch — the new session starts in{' '}
-          <span className="handoff-cwd">{source.cwd}</span>. No new workspace is created.
+          <span className="handoff-cwd" title={source.cwd}>{shortPath(source.cwd)}</span>. No new workspace is created.
         </div>
 
         <label className="ns-label">Continue with</label>

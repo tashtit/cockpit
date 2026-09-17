@@ -6,6 +6,7 @@ import type {
   RoundtableSnapshot,
   SessionMessage
 } from '../../shared/types'
+import { cwdLabel } from '../../shared/library'
 import { entrySeatIndex, seatDisplayName } from '../../shared/roundtable'
 import { api } from './api'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
@@ -253,7 +254,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                 setCwdCopied(true)
               }}
             >
-              {rt.cwd}
+              {rt.repoRoot ? cwdLabel(rt.cwd, rt.repoRoot, rt.branch) : 'scratch room'}
             </button>
             {cwdCopied && (
               <span className="copy-flash" role="status">

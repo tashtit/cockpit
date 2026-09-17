@@ -408,6 +408,15 @@ describe('CleanupView — filtering', () => {
     expect(screen.queryByRole('button', { name: 'Codex' })).not.toBeInTheDocument()
   })
 
+  it('waits for the scan before saying a list is empty', async () => {
+    // a scan in flight: an empty list is not yet a verdict about the filter
+    vi.mocked(window.cockpit.scanCleanup).mockReturnValue(new Promise(() => {}))
+    render(<CleanupView onClose={() => {}} />)
+    expect(await screen.findByText('Still reading every source…')).toBeInTheDocument()
+    expect(screen.getByText('Still asking git in every repository…')).toBeInTheDocument()
+    expect(screen.queryByText('No sessions match this filter.')).not.toBeInTheDocument()
+  })
+
   it('says when a filter matches nothing', async () => {
     const user = userEvent.setup()
     mount(report({ sessions: trio() }))

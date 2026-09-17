@@ -167,7 +167,7 @@ export function NewRoundtable({
                         onChange={(v) => patchSeat(i, { account: v })}
                       />
                     ) : (
-                      <span className="rt-seat-cfg-acct" title={acct?.display}>
+                      <span className="rt-seat-cfg-acct ns-account-single" title={acct?.display}>
                         {acct?.identity ?? (accounts === null ? '…' : 'not signed in')}
                       </span>
                     )}

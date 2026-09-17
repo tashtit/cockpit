@@ -4,6 +4,13 @@ import userEvent from '@testing-library/user-event'
 import { NewRoundtable } from '../../src/renderer/src/NewRoundtable'
 
 describe('NewRoundtable', () => {
+  it('keeps a one-account seat the same shape as a seat that can choose', async () => {
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    const acct = await waitFor(() => document.querySelector('.rt-seat-cfg-acct')!)
+    // the read-only field is trigger-shaped, the same recipe NewSession uses
+    expect(acct.className).toContain('ns-account-single')
+  })
+
   it('needs a topic and at least two seats before it can open', async () => {
     const onCreated = vi.fn()
     render(<NewRoundtable repos={[]} onCreated={onCreated} onCancel={() => {}} />)
