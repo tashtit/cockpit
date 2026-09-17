@@ -1339,6 +1339,8 @@ export type CockpitApi = {
   readonly onIndexUpdated: (cb: () => void) => () => void
   /* app updates (Settings › About) */
   readonly getAppInfo: () => Promise<AppInfo>
+  /** Open the third-party notices in the system text viewer; resolves to why not, or null once open */
+  readonly openLicenseNotices: () => Promise<string | null>
   readonly getUpdateState: () => Promise<UpdateState>
   /** Ask GitHub Releases for a newer build now (installed builds also check on a timer) */
   readonly checkForUpdates: () => Promise<UpdateState>

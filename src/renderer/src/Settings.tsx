@@ -176,6 +176,7 @@ export function Settings({
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [usage, setUsage] = useState<UsageSnapshot | null>(null)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [licensesError, setLicensesError] = useState<string | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [path, setPath] = useState('')
   /** The add form is a task, not a permanent fixture: Settings opens as a readout */
@@ -675,8 +676,22 @@ export function Settings({
                 Release notes
               </button>
             </>
-          )}
+          )}{' '}
+          <button
+            className="link-btn"
+            onClick={() => {
+              setLicensesError(null)
+              void api.openLicenseNotices().then(setLicensesError)
+            }}
+          >
+            Open source licenses
+          </button>
         </p>
+        {licensesError && (
+          <div role="alert" className="new-error">
+            {licensesError}
+          </div>
+        )}
         <div className="sr-only" role="status" aria-live="polite">{status}</div>
       </div>
     </main>

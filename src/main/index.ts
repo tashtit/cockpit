@@ -96,7 +96,7 @@ import { resolveRepo } from './repos'
 import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
 import { getProfile } from './profile'
-import { appInfo, UpdateManager } from './updates'
+import { appInfo, licenseNoticesPath, UpdateManager } from './updates'
 import { AttentionDesk, electronSurface } from './attention'
 import { tableOutcome } from './attention-core'
 import { homedir } from 'node:os'
@@ -599,6 +599,12 @@ app.whenReady().then(() => {
   // macOS build, so dev runs and e2e never reach the network
   const updates = new UpdateManager((state) => sendToWin('update-state', state))
   ipcMain.handle('app:info', () => appInfo())
+  ipcMain.handle('app:open-licenses', async () => {
+    // outside the asar (Contents/Resources), so a text viewer can open it in place
+    const file = licenseNoticesPath()
+    if (!existsSync(file)) return 'The notices are written by `npm run build` — run it once, then try again.'
+    return (await shell.openPath(file)) || null
+  })
   ipcMain.handle('updates:get', () => updates.current)
   ipcMain.handle('updates:check', () => updates.check())
   ipcMain.handle('updates:download', () => updates.download())

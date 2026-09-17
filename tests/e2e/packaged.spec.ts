@@ -57,6 +57,15 @@ test('the updater is wired to GitHub Releases', async () => {
   expect(manifest).toContain('owner: tashtit')
   expect(manifest).toContain('repo: cockpit')
 
+  // the notices ship outside the asar, where About opens them — and Chromium's with them,
+  // which electron-builder would otherwise delete from a mac bundle
+  const resources = join(dirname(exe), '..', 'Resources')
+  const notices = readFileSync(join(resources, 'THIRD_PARTY_NOTICES.txt'), 'utf8')
+  for (const shipped of ['react-dom', 'electron-updater', 'IBM Plex Sans', 'GitHub Octicons']) {
+    expect(notices).toContain(shipped)
+  }
+  expect(existsSync(join(resources, 'LICENSES.chromium.html'))).toBe(true)
+
   // an installed build reports a live updater — never the dev-run "unsupported"
   const win = await app!.firstWindow()
   const state = await win.evaluate(() => window.cockpit.getUpdateState())

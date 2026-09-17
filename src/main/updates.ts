@@ -1,5 +1,7 @@
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { join } from 'node:path'
+import { NOTICES_FILE } from '../../scripts/licenses/notices-core'
 import type { AppInfo, UpdateState } from '../shared/types'
 
 /** Where releases live — the updater's feed and the only place release notes are kept. */
@@ -117,6 +119,16 @@ export class UpdateManager {
     const message = err instanceof Error ? err.message : String(err)
     this.set({ status: 'error', message, version: this.state.version, checkedAt: Date.now() })
   }
+}
+
+/**
+ * The third-party notices `npm run build` generates (scripts/licenses): the app's
+ * Resources folder once packaged, out/ in a development run.
+ */
+export function licenseNoticesPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, NOTICES_FILE)
+    : join(__dirname, '..', NOTICES_FILE)
 }
 
 export function appInfo(): AppInfo {

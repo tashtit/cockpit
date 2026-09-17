@@ -122,6 +122,8 @@ Model providers · Backup · About).
   mixes control heights. Transitions announce through the `role="status"` region; progress
   ticks stay silent. The `.ns-hint` states that nothing downloads until asked and links the
   GitHub release notes through a `link-btn` (`openExternal`) — notes are not rendered
-  in-app. A development run shows the `unsupported` reason as prose and no control at all.
+  in-app. Beside it, "Open source licenses" (`link-btn`) opens the generated
+  `THIRD_PARTY_NOTICES.txt` in the system text viewer (`openLicenseNotices`); a refusal
+  shows verbatim in a `.new-error role="alert"` under the hint. A development run shows the `unsupported` reason as prose and no control at all.
 - App-level: the global Escape handler blurs a focused field first and only closes the
   view on a second press — a habitual Escape must never discard a half-typed path.

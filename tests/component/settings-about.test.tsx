@@ -89,4 +89,21 @@ describe('Settings › About', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Release notes' }))
     expect(window.cockpit.openExternal).toHaveBeenCalledWith(installed.releasesUrl)
   })
+
+  it('opens the third-party notices, and says why when it cannot', async () => {
+    vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
+    vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'idle' })
+    vi.mocked(window.cockpit.openLicenseNotices).mockResolvedValueOnce(null)
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByText('v1.4.2')
+
+    const link = screen.getByRole('button', { name: 'Open source licenses' })
+    await userEvent.click(link)
+    expect(window.cockpit.openLicenseNotices).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    vi.mocked(window.cockpit.openLicenseNotices).mockResolvedValueOnce('No application can open this file.')
+    await userEvent.click(link)
+    expect(await screen.findByRole('alert')).toHaveTextContent('No application can open this file.')
+  })
 })

@@ -263,6 +263,7 @@ export function freshApi(): CockpitApi {
     setZoomFactor: vi.fn(),
     openExternal: vi.fn(async () => {}),
     onIndexUpdated: vi.fn(() => () => {}),
+    openLicenseNotices: vi.fn(async () => null),
     getAppInfo: vi.fn(async () => ({
       version: '0.0.0',
       packaged: false,
