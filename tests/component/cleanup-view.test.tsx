@@ -74,7 +74,7 @@ function orphan(over: Partial<OrphanProcess> = {}): OrphanProcess {
     worktreePath: '/userData/worktrees/cockpit/old-ui',
     repoName: 'cockpit',
     branch: 'cockpit/old-ui',
-    directoryGone: false,
+    worktreeGone: false,
     ...over
   }
 }
@@ -471,7 +471,7 @@ describe('CleanupView — processes left in old worktrees', () => {
   })
 
   it('lists a left-behind process by name, with how long it has run', async () => {
-    mount(report({ processes: [orphan({ directoryGone: true })] }))
+    mount(report({ processes: [orphan({ worktreeGone: true })] }))
     expect(await screen.findByText('node')).toBeInTheDocument()
     expect(screen.getByText('running 3d')).toBeInTheDocument()
     expect(screen.getByText('worktree removed')).toBeInTheDocument()

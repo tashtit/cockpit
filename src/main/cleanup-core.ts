@@ -327,7 +327,8 @@ export type JudgedProcess = ProcessFacts & {
   readonly worktreePath: string
   readonly repoName: string | null
   readonly branch: string | null
-  readonly directoryGone: boolean
+  /** Its worktree is gone: removed under it, or never listed and carrying no `.git` */
+  readonly worktreeGone: boolean
 }
 
 /** Deepest path in `candidates` containing `child`. */
@@ -375,7 +376,7 @@ export function judgeProcesses(input: {
         worktreePath: tree.path,
         repoName: tree.repoName,
         branch: tree.branch,
-        directoryGone: tree.missing || !input.exists(p.cwd)
+        worktreeGone: tree.missing || !input.exists(tree.path)
       })
       continue
     }
@@ -392,7 +393,8 @@ export function judgeProcesses(input: {
       worktreePath: root,
       repoName: home.repoName,
       branch: null,
-      directoryGone: !input.exists(p.cwd)
+      // no `.git` at the worktree root is what put it here; the cwd may exist as a shell
+      worktreeGone: true
     })
   }
   return out.sort((a, b) => a.startedAt - b.startedAt || a.pid - b.pid)

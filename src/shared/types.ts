@@ -1093,8 +1093,8 @@ export type OrphanProcess = {
   readonly worktreePath: string
   readonly repoName: string | null
   readonly branch: string | null
-  /** Its working directory no longer exists: the worktree was removed under it */
-  readonly directoryGone: boolean
+  /** Its worktree is gone: removed under it, leaving the process running */
+  readonly worktreeGone: boolean
 }
 
 /**

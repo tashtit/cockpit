@@ -500,7 +500,7 @@ describe('processes left in old worktrees', () => {
     expect(listed).toMatchObject({
       worktreePath: tree,
       branch: 'cockpit/dev-server',
-      directoryGone: false
+      worktreeGone: false
     })
     expect(report.worktrees.find((w) => w.path === tree)?.blocks).toEqual(['process'])
     const refused = await removeWorktrees(deps, [tree])
@@ -524,7 +524,7 @@ describe('processes left in old worktrees', () => {
 
     const report = await scanCleanup(deps, 30)
     const listed = report.processes.find((p) => p.pid === child.pid)
-    expect(listed).toMatchObject({ worktreePath: gone, directoryGone: true })
+    expect(listed).toMatchObject({ worktreePath: gone, worktreeGone: true })
     const stopped = await stopProcesses(deps, [listed as OrphanProcess], 30)
     expect(stopped.cleaned).toBe(1)
     await exited(child)

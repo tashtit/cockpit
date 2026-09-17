@@ -333,7 +333,7 @@ describe('judgeProcesses', () => {
 
   it('finds a process in a stale worktree', () => {
     const [p] = judge([proc(1, '/wt/app/fix')])
-    expect(p).toMatchObject({ worktreePath: '/wt/app/fix', branch: 'cockpit/fix', directoryGone: false })
+    expect(p).toMatchObject({ worktreePath: '/wt/app/fix', branch: 'cockpit/fix', worktreeGone: false })
   })
 
   it('leaves the repository’s own checkout and worktrees still in use alone', () => {
@@ -350,7 +350,7 @@ describe('judgeProcesses', () => {
       proc(1, '/wt/app/removed/packages/web'),
       proc(2, '/repos/app/.claude/worktrees/old')
     ])
-    expect(a).toMatchObject({ worktreePath: '/wt/app/removed', repoName: null, directoryGone: true })
+    expect(a).toMatchObject({ worktreePath: '/wt/app/removed', repoName: null, worktreeGone: true })
     expect(b).toMatchObject({ worktreePath: '/repos/app/.claude/worktrees/old', repoName: 'app' })
   })
 
@@ -358,9 +358,10 @@ describe('judgeProcesses', () => {
     expect(judge([proc(1, '/tmp/scratch'), proc(2, '/repos/app/build')])).toEqual([])
   })
 
+  // the worktree is gone even where the process recreated its cwd: the row must still say so
   it('finds one whose removed worktree was recreated as a shell with no .git', () => {
     const [p] = judge([proc(1, '/wt/app/shell/.wrangler')])
-    expect(p).toMatchObject({ worktreePath: '/wt/app/shell', branch: null, directoryGone: false })
+    expect(p).toMatchObject({ worktreePath: '/wt/app/shell', branch: null, worktreeGone: true })
   })
 
   it('leaves a live checkout under a home alone, listed or not', () => {
@@ -374,7 +375,7 @@ describe('judgeProcesses', () => {
 
   it('finds one in a removed Copilot worktree', () => {
     const [p] = judge([proc(1, `${copilotHome}/site/feat-x/web`)])
-    expect(p).toMatchObject({ worktreePath: `${copilotHome}/site/feat-x`, directoryGone: true })
+    expect(p).toMatchObject({ worktreePath: `${copilotHome}/site/feat-x`, worktreeGone: true })
   })
 
   it('lists the longest-running first', () => {

@@ -476,7 +476,7 @@ function ProcessGroup({
       <div className="cl-title cl-proc-where">
         {head.repoName && <span className="cl-proc-repo">{head.repoName}</span>}
         {head.branch && <BranchChip branch={head.branch} />}
-        {procs.some((p) => p.directoryGone) && <span className="cl-tag">worktree removed</span>}
+        {procs.some((p) => p.worktreeGone) && <span className="cl-tag">worktree removed</span>}
         <span className="cl-sub cl-path" title={head.worktreePath}>
           {head.worktreePath}
         </span>
