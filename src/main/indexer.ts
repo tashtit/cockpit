@@ -16,7 +16,7 @@ import type {
 import { orderRepos } from '../shared/repo-order'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
 import { LivenessTracker, type ObservedTurn } from './liveness'
-import { defaultClaudeStoreDir, listProviderArchivedIds } from './provider-archived'
+import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
 import {
   listClaudeSessionFiles,
   listClaudeSessionRoots,
@@ -74,6 +74,12 @@ const UPDATE_THROTTLE_MS = 800
 const CACHE_SAVE_INTERVAL_MS = 30_000
 /** How often to re-check watch roots that didn't exist when sources were set. */
 const WATCH_RETRY_INTERVAL_MS = 30_000
+
+/** Is this file inside that directory? Both are absolute paths the indexer derived. */
+function isUnder(file: string, dir: string): boolean {
+  const base = resolve(dir)
+  return file === base || file.startsWith(base.endsWith(sep) ? base : base + sep)
+}
 /** Floor for re-judging a not-a-session verdict (see knownNonSessions). */
 const PROBE_REGROW_BYTES = 4096
 
@@ -194,6 +200,8 @@ export class SessionIndexer {
   private cacheFile: string | null
   /** undefined → the real desktop-app store; null → disabled (tests) */
   private claudeStoreDir: string | null
+  /** Reads the providers' own archived state, remembering what it read (see its docstring). */
+  private archivedReader: ProviderArchivedReader
   /**
    * Sessions whose logs show a turn in progress (liveness.ts). Fed from the one place
    * a changed file is re-parsed, so the watcher's debouncing and the scan's yielding
@@ -218,6 +226,7 @@ export class SessionIndexer {
     this.cacheFile = opts?.cacheFile ?? null
     this.watchRetryMs = opts?.watchRetryMs ?? WATCH_RETRY_INTERVAL_MS
     this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
+    this.archivedReader = new ProviderArchivedReader(this.claudeStoreDir)
     this.liveness = new LivenessTracker(opts?.onLiveChange ?? (() => {}), {
       windowMs: opts?.liveWindowMs,
       onTurn: opts?.onLiveTurn
@@ -275,10 +284,38 @@ export class SessionIndexer {
     return this.historyDays > 0 ? Date.now() - this.historyDays * 86_400_000 : 0
   }
 
+  /**
+   * Show last run's index straight away, before the first scan has read anything.
+   *
+   * The stat cache already holds a parsed meta for every file that hasn't changed,
+   * so the window can open on the tree it closed on instead of on an empty rail
+   * while the scan enumerates, sweeps the providers' archived state and re-annotates.
+   * The scan that follows replaces this map wholesale, so seeding only decides how
+   * soon the tree appears, never what it ends up saying — a session deleted while
+   * Cockpit was shut is listed until that scan lands, which is the same staleness
+   * the cache already carries.
+   */
+  private seedFromCache(): void {
+    if (this.sessions.size > 0 || this.fileCache.size === 0) return
+    const seeded = new Map<string, SessionMeta>()
+    const source = new Map<string, SourceDir>()
+    for (const [file, entry] of this.fileCache) {
+      if (!entry.meta) continue
+      const from = this.sources.find((s) => isUnder(file, s.path))
+      // a source removed since last run: its cached files are not ours to show
+      if (!from) continue
+      source.set(file, from)
+      const existing = seeded.get(entry.meta.id)
+      if (!existing || entry.meta.updatedAt >= existing.updatedAt) seeded.set(entry.meta.id, entry.meta)
+    }
+    if (seeded.size === 0) return
+    this.sessions = seeded
+    this.fileSource = source
+    this.emitUpdate()
+  }
+
   private async refreshProviderArchived(): Promise<void> {
-    const next = await listProviderArchivedIds(this.sources, this.providerArchived, {
-      claudeStoreDir: this.claudeStoreDir
-    })
+    const next = await this.archivedReader.list(this.sources, this.providerArchived)
     const changed =
       next.size !== this.providerArchived.size ||
       [...next].some((id) => !this.providerArchived.has(id))
@@ -306,6 +343,7 @@ export class SessionIndexer {
     // the dir up when it appears.
     this.sources = [...sources]
     this.stopWatchers()
+    this.seedFromCache()
     const scan = this.rescan()
     // claude's archive flags live in the desktop app's store, outside every source —
     // one recursive watch there picks up archive toggles made in the Claude app.
