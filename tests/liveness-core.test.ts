@@ -409,6 +409,35 @@ describe('inTool: the newest record is a tool call waiting for its result', () =
     expect(judgeCopilotTail([cp('assistant.turn_start', T1), start('a'), done('a')])?.inTool).toBeUndefined()
     expect(judgeCopilotTail([cp('assistant.turn_start', T1), start('a'), start('b'), done('b')])?.inTool).toBe(true)
   })
+  it('copilot: the ask tools wait on the person, not the machine — a question, not a tool', () => {
+    const ask = (name: string, args: object = {}, id = 'q1'): unknown =>
+      cp('tool.execution_start', T2, { toolCallId: id, toolName: name, arguments: args })
+    const answered = cp('tool.execution_complete', T2, { toolCallId: 'q1' })
+    const turn = cp('assistant.turn_start', T1)
+
+    // the real shape: ask_user carries its question in `arguments`
+    const asked = judgeCopilotTail([turn, ask('ask_user', { question: 'Which cleanup do you want me to run?', choices: ['a', 'b'] })])
+    expect(asked).toEqual({ live: true, startedAt: ms(T1), asks: { kind: 'question', detail: 'Which cleanup do you want me to run?' } })
+    expect(asked?.inTool).toBeUndefined()
+
+    expect(judgeCopilotTail([turn, ask('exit_plan_mode')])?.asks).toEqual({ kind: 'permission', detail: 'Approve the plan' })
+    // answered: back to an ordinary running turn, and not a question any more
+    expect(judgeCopilotTail([turn, ask('ask_user', { question: 'x' }), answered])).toEqual({ live: true, startedAt: ms(T1) })
+    // a question with no question text, and an ordinary tool, are both still themselves
+    expect(judgeCopilotTail([turn, ask('ask_user')])?.asks).toEqual({ kind: 'question', detail: '' })
+    expect(judgeCopilotTail([turn, ask('bash', { command: 'ls' })])?.asks).toBeUndefined()
+  })
+  it('copilot: the newest request is the one reported, and an open question outranks a tool', () => {
+    const turn = cp('assistant.turn_start', T1)
+    const ask = cp('tool.execution_start', T1, { toolCallId: 'q1', toolName: 'ask_user', arguments: { question: 'older' } })
+    const perm = cp('permission.requested', T2, { requestId: 'r1', promptRequest: { kind: 'commands', fullCommandText: 'rm -rf x' } })
+    expect(judgeCopilotTail([turn, ask, perm])?.asks).toEqual({ kind: 'permission', detail: 'rm -rf x' })
+    // a tool started after the question does not bury it: the person is still what it waits on
+    const bash = cp('tool.execution_start', T2, { toolCallId: 'b1', toolName: 'bash' })
+    const both = judgeCopilotTail([turn, ask, bash])
+    expect(both?.asks).toEqual({ kind: 'question', detail: 'older' })
+    expect(both?.inTool).toBeUndefined()
+  })
 })
 
 describe("copilotLockPids: who copilot says is holding the session", () => {
