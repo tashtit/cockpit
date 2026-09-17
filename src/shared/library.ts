@@ -52,6 +52,8 @@ export type PanelCell = {
   readonly state: AgentState
   /** what the switch is set to (Cockpit's desired state) */
   readonly desired: boolean
+  /** runs its own definition on purpose — the user kept the difference (state 'on') */
+  readonly kept?: true
   /** what this agent actually holds ('' when it holds nothing) */
   readonly detail: string
   readonly fields: Readonly<Record<string, string>>
@@ -71,6 +73,8 @@ export type PanelRow = {
    */
   readonly saved: { readonly detail: string; readonly fields: Readonly<Record<string, string>> }
   readonly cells: Readonly<Record<Provider, PanelCell>>
+  /** agents running their own definition on purpose, while it still differs */
+  readonly kept: readonly Provider[]
   /** field names, in the order the agents that have it record them */
   readonly fields: readonly string[]
   /** agents whose reality disagrees with their switch, or with the other agents */
@@ -228,6 +232,18 @@ function oddOnesOut(groups: readonly Provider[][]): Provider[] {
     : groups.flat()
 }
 
+/**
+ * One string for one definition, so "still runs exactly this" is a comparison of two
+ * strings: a kept difference is tied to the definition the user looked at, and a
+ * later change to that agent's copy is drift again. Same inputs as `sameFields`.
+ */
+export function fieldsKey(fields: Readonly<Record<string, string>>): string {
+  return Object.keys(fields)
+    .sort()
+    .map((k) => `${k}=${fields[k]}`)
+    .join('\n')
+}
+
 export function buildRow(
   entry: LibraryEntry,
   saved: Desired,
@@ -240,6 +256,10 @@ export function buildRow(
   const authoritative = holders.some((p) => actual[p]?.mismatch !== undefined)
   const groups = authoritative ? [holders] : agreementGroups(holders, actual)
   const odd = authoritative ? [] : oddOnesOut(groups)
+  // an odd one out the user kept on purpose is quiet while it still runs the very
+  // definition they kept; only agents that differ right now count, so an agent that
+  // has since come back into line is plainly on, not "kept"
+  const kept = odd.filter((p) => entry.kept?.[p] === fieldsKey(actual[p]?.fields ?? {}))
 
   const cells = {} as { -readonly [K in Provider]: PanelCell }
   for (const p of PROVIDERS) {
@@ -253,6 +273,7 @@ export function buildRow(
     if (on && !a.present) cells[p] = { ...base, state: 'pending' }
     else if (!on && a.present) cells[p] = { ...base, state: 'extra' }
     else if (!on) cells[p] = { ...base, state: 'off' }
+    else if (kept.includes(p)) cells[p] = { ...base, state: 'on', kept: true }
     else cells[p] = { ...base, state: a.mismatch || odd.includes(p) ? 'changed' : 'on' }
   }
 
@@ -270,10 +291,12 @@ export function buildRow(
     name: entry.name,
     saved,
     cells,
+    kept,
     fields,
     drift: PROVIDERS.filter((p) => isDrift(cells[p].state)),
     holders,
-    disagree: !authoritative && groups.length > 1,
+    // a disagreement every odd one out has been kept over is settled, not open
+    disagree: !authoritative && groups.length > 1 && odd.some((p) => !kept.includes(p)),
     ...(entry.removed ? { removed: true } : {})
   }
 }

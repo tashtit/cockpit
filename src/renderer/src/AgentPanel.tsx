@@ -77,6 +77,12 @@ function listOf(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
+/** "Copilot runs its own github on purpose" / "Claude and Copilot run their own …". */
+function ownWords(agents: readonly Provider[], name: string): string {
+  const who = listOf(agents.map((p) => PROVIDER_LABEL[p]))
+  return `${who} ${agents.length > 1 ? 'run their own' : 'runs its own'} ${name} on purpose`
+}
+
 export function AgentPanel({
   repoRoot,
   query,
@@ -170,6 +176,16 @@ export function AgentPanel({
       row.id,
       () => api.removePanelEntry(target(row)),
       `Removed ${row.name} from every agent. It’s under Removed if you want it back.`
+    )
+
+  /** The other answer to "which one is right?": they are meant to differ. */
+  const keep = (row: PanelRow, on: boolean): void =>
+    void run(
+      row.id,
+      () => api.keepPanelDifference(target(row), on),
+      on
+        ? `Kept. ${ownWords(row.drift.filter((p) => row.cells[p].state === 'changed'), row.name)} — it comes back here only if that changes.`
+        : `Flagging ${row.name} again wherever the agents differ.`
     )
 
   const restore = (row: PanelRow): void =>
@@ -316,6 +332,7 @@ export function AgentPanel({
               onToggle={() => setOpen(open === row.id ? null : row.id)}
               onFlip={flip}
               onMatch={match}
+              onKeep={keep}
               onRemove={remove}
               onArm={arm}
               onReload={load}
@@ -412,7 +429,9 @@ function AgentSwitches({
             title={
               isArmed
                 ? 'Click again to remove it from this agent'
-                : cell.detail || (cell.desired ? 'on' : 'off')
+                : cell.kept
+                  ? `${cell.detail || 'on'} — its own definition, kept on purpose`
+                  : cell.detail || (cell.desired ? 'on' : 'off')
             }
             disabled={busy !== null}
             className={`ag-chip ag-${p} ${cell.desired ? 'on' : 'off'} ${
@@ -442,6 +461,7 @@ function Row({
   onToggle,
   onFlip,
   onMatch,
+  onKeep,
   onRemove,
   onArm,
   onReload,
@@ -457,6 +477,7 @@ function Row({
   onToggle: () => void
   onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
   onMatch: (row: PanelRow, source: Provider) => void
+  onKeep: (row: PanelRow, on: boolean) => void
   onRemove: (row: PanelRow) => void
   onArm: (key: string | null) => void
   /** something outside the panel's own ops changed an agent — re-read every config */
@@ -501,6 +522,7 @@ function Row({
             busy={busy}
             onFlip={onFlip}
             onMatch={onMatch}
+            onKeep={onKeep}
             onRemove={onRemove}
             onArm={onArm}
             onReload={onReload}
@@ -524,6 +546,7 @@ function Detail({
   busy,
   onFlip,
   onMatch,
+  onKeep,
   onRemove,
   onArm,
   onReload,
@@ -535,6 +558,7 @@ function Detail({
   busy: string | null
   onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
   onMatch: (row: PanelRow, source: Provider) => void
+  onKeep: (row: PanelRow, on: boolean) => void
   onRemove: (row: PanelRow) => void
   onArm: (key: string | null) => void
   onReload: () => void
@@ -608,7 +632,26 @@ function Detail({
                 Use {PROVIDER_LABEL[p]}’s
               </button>
             ))}
+            {/* the honest third answer: they are meant to differ. Kept per agent, at
+                the definition on screen — a later change is drift again */}
+            <button
+              className="btn-ghost small"
+              disabled={busy !== null}
+              title="Remember what each differing agent runs as intended. The row goes quiet until one of them changes."
+              onClick={() => onKeep(row, true)}
+            >
+              Keep as they are
+            </button>
           </div>
+        </div>
+      )}
+
+      {row.kept.length > 0 && (
+        <div className="pnl-kept">
+          <span className="pnl-kept-what">{ownWords(row.kept, row.name)}.</span>
+          <button className="link-btn" disabled={busy !== null} onClick={() => onKeep(row, false)}>
+            Treat as drift again
+          </button>
         </div>
       )}
 

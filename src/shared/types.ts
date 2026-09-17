@@ -509,6 +509,14 @@ export type LibraryEntry = {
    */
   readonly removed?: boolean
   /**
+   * Agents that run their own definition on purpose — the user answered "which one
+   * is right?" with "keep them as they are". The value is the fingerprint
+   * (`fieldsKey`) of what that agent ran when they said so: the difference stays
+   * quiet only while the agent still runs exactly that, and is drift again the
+   * moment it changes.
+   */
+  readonly kept?: Partial<Record<Provider, string>>
+  /**
    * mcp restored from a backup that carried no passphrase: the env var names whose
    * values were left out. A switch refuses while this is set, rather than writing a
    * server with blank credentials; it clears itself once an agent supplies the real
@@ -1282,6 +1290,12 @@ export type CockpitApi = {
   ) => Promise<PanelReport>
   /** Copy one agent's definition to every other agent that has it switched on */
   readonly matchPanelEntry: (target: PanelTarget, source: Provider) => Promise<PanelReport>
+  /**
+   * Answer a disagreement with "keep them as they are": remember each differing
+   * agent's current definition as intended (`keep` true), or forget that and treat
+   * the difference as drift again (`keep` false).
+   */
+  readonly keepPanelDifference: (target: PanelTarget, keep: boolean) => Promise<PanelReport>
   /** Take it out of every agent. Cockpit keeps its copy, so it can be put back. */
   readonly removePanelEntry: (target: PanelTarget) => Promise<PanelReport>
   /** Put a removed entry back on the agents it was on */

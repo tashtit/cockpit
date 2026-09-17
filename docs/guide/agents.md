@@ -48,8 +48,12 @@ A row raises a flag when something disagrees:
 Open the row and you get **what each agent actually runs**, side by side, with the
 differing lines marked. When they disagree there's no "right" side for Cockpit to pick, so
 it asks: *Claude and Copilot don't run the same github. Which one is right?* — and copies
-the one you choose to the others. Env var *values* are never shown or compared, only their
-names, so a row never claims a difference you can't see.
+the one you choose to the others. The third answer is **Keep as they are**: the agents are
+meant to differ. Cockpit then remembers what each differing agent runs as intended, the row
+goes quiet, and it only comes back to **Needs you** if one of those agents changes its copy
+again; the row's detail says who runs their own on purpose, with *Treat as drift again* to
+undo. Env var *values* are never shown or compared, only their names, so a row never
+claims a difference you can't see.
 
 The shared instructions are the exception: you write that baseline in Cockpit, so a file
 that's out of step with it is simply out of date, whatever the other agents are doing.

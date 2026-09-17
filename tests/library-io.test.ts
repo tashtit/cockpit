@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   getPanel,
+  keepPanelDifference,
   matchPanelEntry,
   removePanelEntry,
   restorePanelEntry,
@@ -146,6 +147,69 @@ describe('when the agents disagree with each other', () => {
       JSON.stringify({ mcpServers: { gh: { command: 'npx', args: ['-y', 'gh-mcp'] } } })
     )
   }
+
+  it('keeps a difference on purpose, until a kept agent runs something else', async () => {
+    await split()
+    const target = { repoRoot: null, kind: 'mcp', name: 'gh' } as const
+    const kept = await keepPanelDifference(target, true)
+    const row = kept.rows.find((r) => r.name === 'gh')!
+    // two agents, two answers: both were flagged, so both are kept as they are
+    expect(row.drift).toEqual([])
+    expect(row.disagree).toBe(false)
+    expect([...row.kept].sort()).toEqual(['claude', 'copilot'])
+
+    // copilot moves on: its kept fingerprint no longer matches, claude's still does
+    write(
+      join(home, '.copilot', 'mcp-config.json'),
+      JSON.stringify({ mcpServers: { gh: { command: 'npx', args: ['-y', 'gh-mcp@2'] } } })
+    )
+    const again = getPanel(null)
+    expect(cell(again, 'gh', 'copilot').state).toBe('changed')
+    expect(cell(again, 'gh', 'claude').state).toBe('on')
+    expect(again.rows.find((r) => r.name === 'gh')!.disagree).toBe(true)
+
+    // and the other way back: forgetting the kept difference flags both again
+    const forgot = await keepPanelDifference(target, false)
+    expect(cell(forgot, 'gh', 'claude').state).toBe('changed')
+    expect(cell(forgot, 'gh', 'copilot').state).toBe('changed')
+  })
+
+  it('forgets a kept difference only for the agent switched off, never on a switch on', async () => {
+    await split()
+    const target = { repoRoot: null, kind: 'mcp', name: 'gh' } as const
+    await keepPanelDifference(target, true)
+    await setPanelSwitch(target, 'claude', false)
+    const back = await setPanelSwitch(target, 'claude', true)
+    // switching claude back on writes Cockpit's copy, refreshed from copilot while
+    // claude was off — so the two agree, and nothing is kept because nothing differs
+    expect(cell(back, 'gh', 'claude').state).toBe('on')
+    expect(back.rows.find((r) => r.name === 'gh')!.kept).toEqual([])
+    // claude's kept difference went with its switch; copilot's survived both flips
+    const cfg = JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8'))
+    const entry = cfg.library.global.find((e: { name: string }) => e.name === 'gh')
+    expect(Object.keys(entry.kept)).toEqual(['copilot'])
+
+    // and it still means something: claude goes its own way again, copilot stays quiet
+    seedClaudeMcp('gh', { command: 'gh-mcp', args: ['--stdio'] })
+    const split2 = getPanel(null)
+    expect(cell(split2, 'gh', 'copilot').state).toBe('on')
+    expect(cell(split2, 'gh', 'claude').state).toBe('changed')
+    expect(split2.rows.find((r) => r.name === 'gh')!.kept).toEqual(['copilot'])
+  })
+
+  it('forgets a kept difference once the agents are made to agree', async () => {
+    await split()
+    const target = { repoRoot: null, kind: 'mcp', name: 'gh' } as const
+    await keepPanelDifference(target, true)
+    const matched = await matchPanelEntry(target, 'claude')
+    const row = matched.rows.find((r) => r.name === 'gh')!
+    expect(row.kept).toEqual([])
+    expect(cell(matched, 'gh', 'copilot').state).toBe('on')
+    // nothing stale is left behind in the entry to resurface later
+    const cfg = JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8'))
+    const entry = cfg.library.global.find((e: { name: string }) => e.name === 'gh')
+    expect(entry.kept).toBeUndefined()
+  })
 
   it('flags both agents when two of them disagree and neither is the majority', async () => {
     await split()

@@ -4,6 +4,7 @@ import {
   buildReport,
   buildRow,
   cwdLabel,
+  fieldsKey,
   instructionRow,
   kindsForScope,
   mcpFields,
@@ -111,6 +112,63 @@ describe('the switch against what the agent has', () => {
       copilot: has({ command: 'x' })
     })
     expect(r.cells.copilot.state).toBe('changed')
+  })
+})
+
+describe('a difference kept on purpose', () => {
+  const OTHER: McpConfig = { command: 'npx', args: ['-y', 'gh-mcp'] }
+  const all = { claude: true, codex: true, copilot: true }
+  const keptEntry = (fp: string): LibraryEntry => ({ ...mcpEntry(all, CFG), kept: { copilot: fp } })
+  const desired = { detail: '', fields: mcpFields(CFG) }
+
+  it('stays quiet about the difference, and says who keeps it', () => {
+    const r = buildRow(keptEntry(fieldsKey(mcpFields(OTHER))), desired, {
+      claude: has(CFG),
+      codex: has(CFG),
+      copilot: has(OTHER)
+    })
+    expect(r.cells.copilot.state).toBe('on')
+    expect(r.cells.copilot.kept).toBe(true)
+    expect(r.kept).toEqual(['copilot'])
+    expect(r.drift).toEqual([])
+    expect(r.disagree).toBe(false)
+  })
+
+  // kept means "this exact definition", not "whatever copilot does from now on"
+  it('flags the kept agent again once it runs something else', () => {
+    const r = buildRow(keptEntry(fieldsKey(mcpFields(OTHER))), desired, {
+      claude: has(CFG),
+      codex: has(CFG),
+      copilot: has({ command: 'npx', args: ['-y', 'gh-mcp@2'] })
+    })
+    expect(r.cells.copilot.state).toBe('changed')
+    expect(r.cells.copilot.kept).toBeUndefined()
+    expect(r.kept).toEqual([])
+    expect(r.disagree).toBe(true)
+  })
+
+  it('calls a kept agent that came back into line plainly on', () => {
+    const r = buildRow(keptEntry(fieldsKey(mcpFields(OTHER))), desired, {
+      claude: has(CFG),
+      codex: has(CFG),
+      copilot: has(CFG)
+    })
+    expect(r.cells.copilot.state).toBe('on')
+    expect(r.cells.copilot.kept).toBeUndefined()
+    expect(r.kept).toEqual([])
+  })
+
+  it('keeps one agent quiet while another still needs an answer', () => {
+    const r = buildRow(keptEntry(fieldsKey(mcpFields(OTHER))), desired, {
+      claude: has(CFG),
+      codex: has({ command: 'gh-mcp', args: ['--http'] }),
+      copilot: has(OTHER)
+    })
+    // three agents, three answers: everyone is an odd one out, and only copilot was kept
+    expect(r.cells.copilot.state).toBe('on')
+    expect(r.cells.claude.state).toBe('changed')
+    expect(r.cells.codex.state).toBe('changed')
+    expect(r.disagree).toBe(true)
   })
 })
 

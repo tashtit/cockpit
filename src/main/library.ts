@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   buildReport,
   buildRow,
+  fieldsKey,
   instructionRow,
   kindsForScope,
   mcpFields,
@@ -443,7 +444,49 @@ export async function setPanelSwitch(
     }
   }
   await writeSwitch(entry, agent, on, target.repoRoot)
-  saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, enabled: { ...entry.enabled, [agent]: on } }))
+  saveEntries(
+    target.repoRoot,
+    replaceEntry(entries, {
+      // an agent switched off has nothing left to differ with; switching one on
+      // leaves every difference the user kept exactly as it was
+      ...(on ? entry : withoutKept(entry, [agent])),
+      enabled: { ...entry.enabled, [agent]: on }
+    })
+  )
+  return getPanel(target.repoRoot)
+}
+
+/** The entry with a kept difference forgotten for these agents (all of them when none named). */
+function withoutKept(entry: LibraryEntry, agents: readonly Provider[]): LibraryEntry {
+  if (!entry.kept) return entry
+  const { kept, ...rest } = entry
+  if (agents.length === 0) return rest
+  const left: Partial<Record<Provider, string>> = {}
+  for (const p of PROVIDERS) if (kept[p] !== undefined && !agents.includes(p)) left[p] = kept[p]
+  return Object.keys(left).length > 0 ? { ...rest, kept: left } : rest
+}
+
+/**
+ * The other answer to "which one is right?": they are meant to differ. Each agent
+ * that differs right now has its current definition remembered as intended, so the
+ * row goes quiet — until that agent runs something else, which is drift again.
+ * `keep` false forgets every kept difference on the entry.
+ */
+export async function keepPanelDifference(target: PanelTarget, keep: boolean): Promise<PanelReport> {
+  assertTarget(target)
+  const { entries, inv } = ensureScope(target.repoRoot)
+  const entry = findEntry(entries, target)
+  if (!keep) {
+    saveEntries(target.repoRoot, replaceEntry(entries, withoutKept(entry, [])))
+    return getPanel(target.repoRoot)
+  }
+  const actual = actualOf(entry, inv, target.repoRoot)
+  const row = buildRow(entry, savedOf(entry, target.repoRoot, inv), actual)
+  const kept: Partial<Record<Provider, string>> = { ...entry.kept }
+  for (const p of PROVIDERS) {
+    if (row.cells[p].state === 'changed') kept[p] = fieldsKey(actual[p]?.fields ?? {})
+  }
+  saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, kept }))
   return getPanel(target.repoRoot)
 }
 
@@ -456,7 +499,7 @@ export async function matchPanelEntry(target: PanelTarget, source: Provider): Pr
   assertTarget(target)
   const { entries, inv } = ensureScope(target.repoRoot)
   const entry = findEntry(entries, target)
-  const taken = takeFrom(entry, source, inv, target.repoRoot)
+  const taken = withoutKept(takeFrom(entry, source, inv, target.repoRoot), [])
   const others = PROVIDERS.filter((p) => p !== source && taken.enabled[p] === true)
   saveEntries(target.repoRoot, replaceEntry(entries, taken))
   for (const agent of others) await writeSwitch(taken, agent, true, target.repoRoot)

@@ -199,6 +199,17 @@ function sanitizeEnabled(v: unknown): Partial<Record<Provider, boolean>> {
   return out
 }
 
+/** A kept difference is a fingerprint per agent — a short string, never a config. */
+function sanitizeKept(v: unknown): Partial<Record<Provider, string>> | undefined {
+  if (!isRecord(v)) return undefined
+  const out: Partial<Record<Provider, string>> = {}
+  for (const p of PROVIDERS) {
+    const s = str(v[p], 4000)
+    if (s !== undefined) out[p] = s
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 function sanitizeEntry(v: unknown, repoScope: boolean): LibraryEntry | null {
   if (!isRecord(v)) return null
   const kind = PANEL_KINDS.find((k) => k === v['kind'])
@@ -213,10 +224,12 @@ function sanitizeEntry(v: unknown, repoScope: boolean): LibraryEntry | null {
   const config = sanitizeMcpConfig(v['config'])
   const source = str(v['source'], 500)
   const withheld = strList(v['withheld'], 100)
+  const kept = sanitizeKept(v['kept'])
   return {
     kind,
     name,
     enabled: sanitizeEnabled(v['enabled']),
+    ...(kept ? { kept } : {}),
     ...(config ? { config } : {}),
     // a marketplace source becomes an argument to the agent CLI, so a leading dash
     // would be read as a flag rather than a value

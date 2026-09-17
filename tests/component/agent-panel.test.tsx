@@ -2,7 +2,14 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AiSetup } from '../../src/renderer/src/AiSetup'
-import { buildReport, buildRow, instructionRow, mcpFields, type PanelReport } from '../../src/shared/library'
+import {
+  buildReport,
+  buildRow,
+  fieldsKey,
+  instructionRow,
+  mcpFields,
+  type PanelReport
+} from '../../src/shared/library'
 import type { InstructionsState, LibraryEntry, McpConfig, Provider, RepoGroup } from '../../src/shared/types'
 
 const COCKPIT_GH: McpConfig = { command: 'gh-mcp', args: ['--stdio'] }
@@ -232,6 +239,55 @@ describe('Agents › whether a server answers', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Check' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Log in · Claude' }))
     expect(window.cockpit.loginMcp).toHaveBeenCalledWith('github', 'claude', '/dev/rocket')
+  })
+})
+
+describe('Agents › a difference kept on purpose', () => {
+  it('offers "keep as they are" beside the agents to copy from', async () => {
+    await openPanel()
+    vi.mocked(window.cockpit.keepPanelDifference).mockResolvedValue(report)
+    await userEvent.click(screen.getByRole('button', { name: /github/ }))
+    expect(screen.getByText(/Which one is right\?/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Keep as they are' }))
+    expect(window.cockpit.keepPanelDifference).toHaveBeenCalledWith(
+      { repoRoot: null, kind: 'mcp', name: 'github' },
+      true
+    )
+    expect(await screen.findByText(/Copilot runs its own github on purpose/)).toBeInTheDocument()
+  })
+
+  it('shows a kept row as settled, with the way back to drift', async () => {
+    const entry: LibraryEntry = {
+      kind: 'mcp',
+      name: 'github',
+      enabled: { claude: true, codex: true, copilot: true },
+      config: COCKPIT_GH,
+      kept: { copilot: fieldsKey(mcpFields(OTHER_GH)) }
+    }
+    const kept = buildReport(null, [
+      buildRow(
+        entry,
+        { detail: 'gh-mcp --stdio', fields: mcpFields(COCKPIT_GH) },
+        { claude: present(COCKPIT_GH), codex: present(COCKPIT_GH), copilot: present(OTHER_GH) }
+      )
+    ])
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(kept)
+    vi.mocked(window.cockpit.keepPanelDifference).mockResolvedValue(kept)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    // nothing needs attention any more: no Needs you, no flag, no amber ring
+    expect(await screen.findByRole('tab', { name: /^MCP servers/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /^Needs you/ })).not.toBeInTheDocument()
+    await section('MCP servers')
+    expect(screen.queryByText('differs')).not.toBeInTheDocument()
+    expect(sw('github', 'Copilot')).not.toHaveClass('drift')
+    await userEvent.click(screen.getByRole('button', { name: /github/ }))
+    expect(screen.getByText('Copilot runs its own github on purpose.')).toBeInTheDocument()
+    expect(screen.queryByText(/Which one is right\?/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Treat as drift again' }))
+    expect(window.cockpit.keepPanelDifference).toHaveBeenCalledWith(
+      { repoRoot: null, kind: 'mcp', name: 'github' },
+      false
+    )
   })
 })
 
