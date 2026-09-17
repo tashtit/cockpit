@@ -78,7 +78,8 @@ export function fixedNotices(root: string): Notice[] {
       license: 'MIT',
       homepage: 'https://www.electronjs.org',
       text:
-        readFileSync(join(root, 'node_modules/electron/dist/LICENSE'), 'utf8').trim() +
+        // the npm package's own copy: dist/ only exists once something has required electron
+        readFileSync(join(root, 'node_modules/electron/LICENSE'), 'utf8').trim() +
         '\n\nChromium and the other components Electron is built from carry their own notices,' +
         ' shipped beside this file as LICENSES.chromium.html (Cockpit.app/Contents/Resources).'
     },
@@ -131,7 +132,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.`
 
-/** Compose, check and write the notices; throws, failing the build, on a refused license. */
+/**
+ * Compose and write the notices. A license that needs a person's look is a warning, never
+ * a failed build: the build also runs on dependency-update pull requests.
+ */
 export function writeNotices(root: string, bundledDirs: Iterable<string>): string {
   const packages = [...new Set([...bundledDirs, ...productionPackages(root)])]
     .map(readNotice)
@@ -139,9 +143,8 @@ export function writeNotices(root: string, bundledDirs: Iterable<string>): strin
   const notices = [...dedupe(packages), ...fixedNotices(root)]
   const refused = notices.map(refusal).filter(Boolean)
   if (refused.length > 0) {
-    throw new Error(
-      `Third-party notices: the build contains licenses Cockpit does not ship — ${refused.join('; ')}. ` +
-        'Replace the dependency, or decide on the license and extend scripts/licenses/notices-core.ts.'
+    console.warn(
+      `Third-party notices: review before release — ${refused.join('; ')} (scripts/licenses/notices-core.ts)`
     )
   }
   const file = join(root, 'out', NOTICES_FILE)

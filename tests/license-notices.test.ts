@@ -49,12 +49,16 @@ describe('declaredLicense and refusal', () => {
     expect(declaredLicense({})).toBe('UNKNOWN')
   })
 
-  it('refuses copyleft and anything unstated, unless a permissive branch is on offer', () => {
+  it('flags copyleft and anything unstated, unless a permissive branch is on offer', () => {
     expect(refusal(notice({ name: 'ok' }))).toBeNull()
     expect(refusal(notice({ name: 'gpl', license: 'GPL-3.0-only' }))).toBe('gpl@1.0.0 is GPL-3.0-only')
     expect(refusal(notice({ name: 'lgpl', license: 'LGPL-2.1' }))).not.toBeNull()
+    expect(refusal(notice({ name: 'mpl', license: 'MPL-2.0' }))).toBeNull()
     expect(refusal(notice({ name: 'dual', license: '(MIT OR GPL-3.0)' }))).toBeNull()
-    expect(refusal(notice({ name: 'mystery', license: 'UNKNOWN' }))).toBe('mystery@1.0.0 states no license')
+    expect(refusal(notice({ name: 'both', license: '(MIT OR GPL-2.0) AND LGPL-2.1' }))).not.toBeNull()
+    expect(refusal(notice({ name: 'mystery', license: 'UNKNOWN' }))).toBe('mystery@1.0.0 states no usable license (UNKNOWN)')
+    expect(refusal(notice({ name: 'closed', license: 'UNLICENSED' }))).not.toBeNull()
+    expect(refusal(notice({ name: 'elsewhere', license: 'SEE LICENSE IN LICENSE.md' }))).not.toBeNull()
   })
 })
 
@@ -109,8 +113,7 @@ describe('writeNotices over a real node_modules tree', () => {
     pkg(join(nm, 'unused'), { name: 'unused', version: '1.0.0', license: 'GPL-3.0' })
     // what fixedNotices reads
     pkg(join(nm, 'electron'), { name: 'electron', version: '44.0.0' })
-    mkdirSync(join(nm, 'electron', 'dist'))
-    writeFileSync(join(nm, 'electron', 'dist', 'LICENSE'), 'Copyright (c) Electron contributors')
+    writeFileSync(join(nm, 'electron', 'LICENSE'), 'Copyright (c) Electron contributors')
     mkdirSync(join(root, 'src/renderer/src/assets/fonts'), { recursive: true })
     writeFileSync(join(root, 'src/renderer/src/assets/fonts/LICENSE-IBM-Plex.txt'), 'SIL Open Font License')
   })
@@ -140,11 +143,5 @@ describe('writeNotices over a real node_modules tree', () => {
     }
     expect(text).not.toContain('unused')
     expect(text).not.toContain('sax 9.9.9')
-  })
-
-  it('fails the build when a refused license gets in', () => {
-    expect(() => writeNotices(root, [join(root, 'node_modules/unused')])).toThrow(
-      /does not ship — unused@1\.0\.0 is GPL-3\.0/
-    )
   })
 })

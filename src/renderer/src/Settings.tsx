@@ -665,10 +665,9 @@ export function Settings({
         </ul>
         <p className="ns-hint">
           Installed builds check GitHub Releases on launch and every few hours. Nothing downloads
-          until you choose to; a downloaded update installs on the next quit.
+          until you choose to; a downloaded update installs on the next quit.{' '}
           {appInfo && (
             <>
-              {' '}
               <button
                 className="link-btn"
                 onClick={() => void api.openExternal(appInfo.releasesUrl)}
@@ -678,7 +677,6 @@ export function Settings({
               <span className="link-sep" aria-hidden="true">·</span>
             </>
           )}
-          {!appInfo && ' '}
           <button
             className="link-btn"
             onClick={() => {

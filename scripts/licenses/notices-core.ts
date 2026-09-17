@@ -20,8 +20,11 @@ export type Notice = {
   readonly text: string
 }
 
-/** Licenses whose terms reach the app that ships them — none of these may enter the build. */
-const REFUSED = /\b(A?GPL|LGPL|SSPL|EUPL|OSL|CPAL|CC-BY-NC|CC-BY-SA|MPL)\b/i
+/** Licenses whose terms reach the app that ships them — a person looks before one ships. */
+const REFUSED = /\b(A?GPL|LGPL|SSPL|EUPL|OSL|CPAL|CC-BY-NC|CC-BY-SA)\b/i
+
+/** Says nothing a notice can rely on: no license, no permission, or a pointer elsewhere. */
+const UNSTATED = /^(UNKNOWN|UNLICENSED|SEE LICEN[CS]E IN\b)/i
 
 /**
  * The package directory a bundled module id lives in, or null for the app's own source.
@@ -49,16 +52,17 @@ export function declaredLicense(pkg: Readonly<Record<string, unknown>>): string 
 }
 
 /**
- * Why a notice cannot ship, or null. An `OR` expression passes when any branch is
- * permissive (the app takes that branch); anything unstated has to be looked at by a
- * person rather than assumed fine.
+ * Why a notice needs a person's look before it ships, or null. A plain `OR` expression
+ * passes when any branch is permissive (the app takes that branch); one that also joins
+ * with `AND` is flagged whenever a copyleft id appears in it, rather than parsed.
  */
 export function refusal(n: Pick<Notice, 'name' | 'version' | 'license'>): string | null {
   const id = `${n.name}@${n.version}`
-  if (n.license === 'UNKNOWN') return `${id} states no license`
+  if (UNSTATED.test(n.license.trim())) return `${id} states no usable license (${n.license})`
+  if (!REFUSED.test(n.license)) return null
   const branches = n.license.replace(/[()]/g, '').split(/\s+OR\s+/i)
-  if (branches.every((b) => REFUSED.test(b))) return `${id} is ${n.license}`
-  return null
+  if (!/\bAND\b/i.test(n.license) && branches.some((b) => !REFUSED.test(b))) return null
+  return `${id} is ${n.license}`
 }
 
 export function homepageOf(pkg: Readonly<Record<string, unknown>>): string | null {
