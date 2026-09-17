@@ -6,11 +6,13 @@ on:
   push:
     branches: [main]
 
-# Superseded PR runs are cancelled; pushes to main queue instead, so a release is never
-# cut short. GitHub keeps at most one run pending per group — a main push whose run is
-# skipped that way loses nothing: the next release covers every commit since the last tag.
+# Superseded PR runs are cancelled. Pushes to main get a group each, so every commit on
+# main is tested on its own: they used to share one, and because GitHub keeps at most one
+# run pending per group, a burst of merges evicted the runs in the middle and those commits
+# were never built at all. What must not happen twice at once — packaging and releasing —
+# is serialized by the package job's own group instead, not by holding back CI.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -116,6 +118,17 @@ jobs:
     needs: [ci]
     runs-on: macos-latest
     timeout-minutes: 30
+    # One packaged build at a time on main. A burst of merges would otherwise put several
+    # 30-minute macOS builds in flight, of which only the newest could ever be released —
+    # semantic-release refuses to publish a commit main has moved past. Queued rather than
+    # cancelled, and deliberately so: GitHub keeps one run pending per group and evicts the
+    # older one, so the pending slot always holds the newest commit, which is the one whose
+    # release can actually land. Cancelling in progress would instead hand the slot to
+    # whichever build started last, which is not the same thing as the newest commit.
+    # Pull requests are untouched — each packages its own head, so a reviewer gets a build.
+    concurrency:
+      group: package-${{ github.ref }}
+      cancel-in-progress: false
     # Apple signing and notarization secrets are scoped to this environment, never to the
     # repo, and only a build on main enters it — pull request code never runs with them.
     environment: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'release' || '' }}
@@ -207,6 +220,11 @@ jobs:
     needs: [package]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Never two of these at once, and never cancelled: semantic-release pushes the tag and
+    # then uploads the assets, so interrupting one strands a half-published release.
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: 'write' # semantic-release pushes the tag and creates the release + assets
       id-token: 'write' # for actions/attest-build-provenance
@@ -260,19 +278,40 @@ jobs:
           COCKPIT_PACKAGED_VERSION: ${{ needs.package.outputs.version }}
         run: node scripts/finish-release.mts
 
+      # semantic-release declines to publish a commit that main has moved past ("the local
+      # branch main is behind the remote one") and says so by releasing nothing. That is the
+      # right answer, not a failure: the push that overtook us carries its own run, and its
+      # release covers every commit since the last tag, this one included. Treating it as a
+      # failure is what turned every burst of merges into a red main. A mismatch is still a
+      # failure, and so is releasing nothing while we *are* the tip — then something is wrong.
       - name: 🔒 Released the packaged version
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PACKAGED: ${{ needs.package.outputs.version }}
           RELEASED: ${{ steps.release.outputs.version || steps.finish.outputs.version }}
         run: |
-          if [ "$RELEASED" != "$PACKAGED" ]; then
+          if [ "$RELEASED" = "$PACKAGED" ]; then
+            echo "released ${RELEASED}"
+            exit 0
+          fi
+          if [ -n "$RELEASED" ]; then
             echo "::error::the package job built ${PACKAGED}, but semantic-release released '${RELEASED}'"
             exit 1
           fi
+          tip="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)"
+          if [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::notice::superseded — ${GITHUB_REF_NAME} is at ${tip}, this run built ${GITHUB_SHA}; that run releases ${PACKAGED}"
+            exit 0
+          fi
+          echo "::error::the package job built ${PACKAGED}, but semantic-release released nothing from the tip of ${GITHUB_REF_NAME}"
+          exit 1
 
       # Signed statement of which workflow run produced each shipped file, verifiable with
-      # `gh attestation verify <file> --owner tashtit`.
+      # `gh attestation verify <file> --owner tashtit`. Only for files that actually shipped:
+      # a superseded run reaches here having released nothing, and attesting a build nobody
+      # can download would put a signature on a file that exists only on this run.
       - name: 🔏 Attest build provenance
+        if: ${{ steps.release.outputs.version != '' || steps.finish.outputs.version != '' }}
         uses: actions/attest-build-provenance@v4.2.2
         with:
           subject-path: |
