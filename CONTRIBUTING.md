@@ -108,13 +108,13 @@ Releases are cut by [semantic-release](https://semantic-release.gitbook.io/) fro
 | `feat` | minor |
 | any type with `!`, or a `BREAKING CHANGE:` footer | major |
 
-What the job does, in order: decide the version from the commits; `npm version` it into `package.json` (working tree only); `npm run package`; `npm run test:packaged` against that exact bundle; push the tag; create the GitHub Release with the disk images, zips, blockmaps and `latest-mac.yml`; attest build provenance for the shipped files (`gh attestation verify Cockpit-1.2.3-arm64.dmg --owner tashtit`). A re-run on an already-released commit is a no-op, and `workflow_dispatch` on `main` runs the same job by hand. On a pull request the same job runs as a check: `npm run package` and `npm run test:packaged` on the unversioned build, the disk images uploaded to the run, and no tag, release or signing secrets.
+It takes two jobs after `ci`. The `package` job runs the same way on every pull request and on `main`, with a read-only token: it decides the version from the commits (`node scripts/next-version.mts`, the same analyzer and rules semantic-release uses, which you can run locally); `npm version` stamps it into `package.json` (working tree only; with no release due the build stays `0.0.0`); then it runs `npm run package` and `npm run test:packaged` against that exact bundle and uploads the disk images, zips, blockmaps and `latest-mac.yml` to the run. On `main` only, and only when a version is due, the `release` job takes those files with a write token, pushes the tag, creates the GitHub Release with them, and attests build provenance for the shipped files (`gh attestation verify Cockpit-1.2.3-arm64.dmg --owner tashtit`). It builds nothing itself, and it refuses to publish if semantic-release decides a different version from the one that was packaged. A re-run on an already-released commit is a no-op, and `workflow_dispatch` on `main` runs the same jobs by hand.
 
 Versions start at `0.1.0`: semantic-release only ever bumps from an existing tag (with none it would begin at `1.0.0`), so the root commit carries a `v0.0.0` baseline tag and the first release is the minor bump from there, with the whole history in its notes. Breaking changes bump the major even below `1.0.0` — a `feat!` takes the app to `1.0.0`.
 
 ### Signing and notarization
 
-The release job reads its Apple credentials from the `release` [environment](https://github.com/tashtit/cockpit/settings/environments). Without them the build is ad-hoc signed and the README tells users how to open it; with them electron-builder signs with the hardened runtime (`build/entitlements.mac.plist`), notarizes and staples, Gatekeeper opens the app without a prompt, and the in-app updater can complete installs.
+The package job reads its Apple credentials from the `release` [environment](https://github.com/tashtit/cockpit/settings/environments). Without them the build is ad-hoc signed and the README tells users how to open it; with them electron-builder signs with the hardened runtime (`build/entitlements.mac.plist`), notarizes and staples, Gatekeeper opens the app without a prompt, and the in-app updater can complete installs.
 
 | Secret | What |
 | --- | --- |
@@ -139,7 +139,7 @@ Everything comes from an [Apple Developer Program](https://developer.apple.com/p
    gh secret set CSC_KEY_PASSWORD --env release --repo tashtit/cockpit   # paste the export password
    ```
 
-4. **Notarization login** — `APPLE_ID` is the account's email and `APPLE_TEAM_ID` the team id; `APPLE_APP_SPECIFIC_PASSWORD` is generated for that account under *Sign-In and Security › App-Specific Passwords* on the Apple account page (never the account password). Set all three the same way, as secrets of the `release` environment — not repository secrets, so only the release job runs with them.
+4. **Notarization login** — `APPLE_ID` is the account's email and `APPLE_TEAM_ID` the team id; `APPLE_APP_SPECIFIC_PASSWORD` is generated for that account under *Sign-In and Security › App-Specific Passwords* on the Apple account page (never the account password). Set all three the same way, as secrets of the `release` environment — not repository secrets, so only the package job on `main` runs with them, never pull request code.
 
 Dry-run locally before trusting a release to it: with the same five variables exported, `npm run package` signs, notarizes (a few minutes per architecture) and verifies exactly as the job does. Developer ID Application certificates are valid for five years; rotate by exporting the new one and replacing `CSC_LINK` and `CSC_KEY_PASSWORD`.
 
