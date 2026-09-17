@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AttentionDesk, type AttentionSurface } from '../src/main/attention'
 import type { Notice } from '../src/main/attention-core'
-import type { AttentionPrefs, AttentionTarget, Landing, NotificationDelivery } from '../src/shared/types'
+import type { AttentionPrefs, AttentionTarget, Landing, NotificationDelivery, Provider } from '../src/shared/types'
 
 const dirs: string[] = []
 afterAll(() => {
@@ -252,6 +252,43 @@ describe('AttentionDesk — observed turns and pull requests', () => {
     second.desk.prsUpdated(CHECKOUT, [{ ...RED, headSha: 'bbb222' }], () => 'claude:abc')
     await vi.runAllTimersAsync()
     expect(second.seen.banners.map((b) => b.title)).toEqual(['PR #57 has failing checks'])
+    second.desk.dispose()
+  })
+
+  it('after the first scan, a saved question is re-read from its log: answered while closed is dropped, still open is kept', async () => {
+    const dir = join(file, '..')
+    const jsonl = (records: unknown[]): string => records.map((r) => JSON.stringify(r)).join('\n') + '\n'
+    const prompt = { type: 'user', message: { role: 'user', content: 'create the repo' }, timestamp: '2026-09-16T10:00:00.000Z' }
+    const question = {
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: { questions: [{ question: 'Which owner?' }] } }] },
+      timestamp: '2026-09-16T10:00:05.000Z'
+    }
+    const answer = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_q', content: 'acme' }] }, timestamp: '2026-09-16T10:09:00.000Z' }
+    const ask = (id: string): void =>
+      first.desk.observedTurn({ type: 'asks', id, provider: 'claude', cwd: CHECKOUT, startedAt: 0, asks: { kind: 'question', detail: 'Which owner?' } })
+
+    const first = makeDesk(file)
+    ask('claude:answered')
+    ask('claude:open')
+    ask('claude:gone')
+    first.desk.dispose()
+
+    // while Cockpit was closed, one question was answered and the turn went on
+    writeFileSync(join(dir, 'answered.jsonl'), jsonl([prompt, question, answer]))
+    writeFileSync(join(dir, 'open.jsonl'), jsonl([prompt, question]))
+    const index: Record<string, { provider: Provider; sourcePath: string }> = {
+      'claude:answered': { provider: 'claude', sourcePath: join(dir, 'answered.jsonl') },
+      'claude:open': { provider: 'claude', sourcePath: join(dir, 'open.jsonl') }
+    }
+
+    const second = makeDesk(file)
+    expect(second.desk.landings()).toHaveLength(3)
+    second.desk.recheckAsks((id) => index[id] ?? null)
+    expect(second.desk.landings().map((l) => [l.id, l.kind])).toEqual([['claude:open', 'asks']])
+    expect(second.pushed.at(-1)?.map((l) => l.id)).toEqual(['claude:open'])
+    expect(second.seen.badges.at(-1)).toBe(1)
+    expect(JSON.parse(readFileSync(file, 'utf8')).unseen.map((u: { key: string }) => u.key)).toEqual(['asks:claude:open'])
     second.desk.dispose()
   })
 })

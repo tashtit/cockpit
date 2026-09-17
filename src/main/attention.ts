@@ -8,7 +8,8 @@ import type {
   ChatEvent,
   Landing,
   NotificationDelivery,
-  PrStatus
+  PrStatus,
+  SessionMeta
 } from '../shared/types'
 import {
   AttentionTracker,
@@ -20,6 +21,7 @@ import {
   type Unseen
 } from './attention-core'
 import { execText } from './env'
+import { readTurnState } from './liveness'
 import type { ObservedTurn } from './liveness-core'
 
 /**
@@ -137,6 +139,19 @@ export class AttentionDesk {
   /** One repo's PR list came back (github.ts): red ones on a session's branch are news once per push. */
   prsUpdated(repoRoot: string, prs: readonly PrStatus[], carrierFor: (pr: PrStatus) => string | null): void {
     this.tracker.prsUpdated(repoRoot, prs, carrierFor)
+    this.sync()
+  }
+
+  /**
+   * Once the first index scan knows where every log is: a question saved as waiting may
+   * have been answered, or its CLI closed, while Cockpit was not running. Re-read each
+   * one's tail and keep only those whose newest record still asks.
+   */
+  recheckAsks(sessionFor: (id: string) => Pick<SessionMeta, 'provider' | 'sourcePath'> | null): void {
+    this.tracker.settleAsks((u) => {
+      const s = u.id === null ? null : sessionFor(u.id)
+      return s !== null && readTurnState(s.sourcePath, s.provider)?.asks !== undefined
+    })
     this.sync()
   }
 

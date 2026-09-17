@@ -141,6 +141,10 @@ export class LivenessTracker {
           endedAt: written,
           closing: verdict.closing ?? null
         })
+      } else {
+        // nothing running here — so nothing is waiting either (a question answered while
+        // its entry had expired, an Esc on it)
+        this.onTurn({ ...session, type: 'settled' })
       }
       this.drop(meta.id)
       return

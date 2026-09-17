@@ -39,6 +39,11 @@ import type { ObservedTurn } from './liveness-core'
 export const BURST_MS = 1500
 /** Landings older than this are noise, not news. */
 export const LANDING_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * A question nobody answered for this long is not waiting any more: the CLI was closed,
+ * or the answer went in somewhere the log never showed. Real waits run minutes, not hours.
+ */
+export const WAIT_TTL_MS = 12 * 60 * 60 * 1000
 /** Bound the set: a long day of many sessions must not grow the file or the badge forever. */
 export const LANDING_MAX = 60
 /** Delivered banners remembered for withdrawal once their sessions are opened. */
@@ -299,7 +304,7 @@ export function sanitizeUnseen(raw: unknown, now: number): Unseen[] {
     const key = str(o['key'], 512) ?? ''
     const kind = KINDS.find((k) => k === o['kind'])
     const at = typeof o['at'] === 'number' && Number.isFinite(o['at']) ? o['at'] : NaN
-    if (!key || !kind || !(at > now - LANDING_TTL_MS)) continue
+    if (!key || !kind || !(at > now - (kind === 'asks' ? WAIT_TTL_MS : LANDING_TTL_MS))) continue
     const provider = PROVIDERS.find((p) => p === o['provider'])
     const id = str(o['id'], 512)
     const cwd = str(o['cwd'], 4096)
@@ -538,6 +543,11 @@ export class AttentionTracker {
         this.drop(askKey)
         this.drop(ev.id)
         return
+      case 'settled':
+        // the log is idle, so no question is open — but a landing stays: the records a
+        // turn writes after it ends (a title, a summary) must not clear fresh news
+        this.drop(askKey)
+        return
       case 'asks': {
         this.drop(ev.id)
         const prior = this.unseen.get(askKey)
@@ -600,6 +610,13 @@ export class AttentionTracker {
         this.trim()
         return
       }
+    }
+  }
+
+  /** Drop the questions that are no longer waiting — the desk re-reads their logs once after launch. */
+  settleAsks(stillWaiting: (u: Unseen) => boolean): void {
+    for (const u of [...this.unseen.values()]) {
+      if (u.kind === 'asks' && !stillWaiting(u)) this.drop(u.key)
     }
   }
 
@@ -949,9 +966,9 @@ export class AttentionTracker {
   }
 
   private trim(): void {
-    const cutoff = this.now() - LANDING_TTL_MS
+    const now = this.now()
     for (const u of [...this.unseen.values()]) {
-      if (u.at <= cutoff) this.drop(u.key)
+      if (u.at <= now - (u.kind === 'asks' ? WAIT_TTL_MS : LANDING_TTL_MS)) this.drop(u.key)
     }
     while (this.unseen.size > LANDING_MAX) {
       this.drop(this.unseen.keys().next().value as string)

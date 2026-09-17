@@ -5,6 +5,7 @@ import {
   LANDING_MAX,
   LANDING_TTL_MS,
   OBSERVED_ECHO_MS,
+  WAIT_TTL_MS,
   elapsedLabel,
   failureSnippet,
   outcomeSnippet,
@@ -349,6 +350,33 @@ describe('AttentionTracker — keeping it bounded', () => {
     expect(h.t.landings().some((l) => l.id === 'claude:s0')).toBe(false)
   })
 
+  it('a question nobody answered in 12 hours is not waiting any more; a landing that old still is', () => {
+    const h = harness()
+    observed(h, { type: 'asks' })
+    observed(h, { type: 'running', id: 'claude:done' })
+    observed(h, { type: 'ended', id: 'claude:done' })
+    h.clock.now += WAIT_TTL_MS
+    // the next thing that lands trims the set
+    observed(h, { type: 'ended', id: 'claude:later' })
+    expect(h.t.landings().map((l) => [l.id, l.kind])).toEqual([
+      ['claude:later', 'landed'],
+      ['claude:done', 'landed']
+    ])
+    // and a restart reads the file the same way
+    const asks = { kind: 'question', detail: 'Ship it?' }
+    const now = h.clock.now
+    expect(
+      sanitizeUnseen(
+        [
+          { key: 'asks:claude:a', kind: 'asks', id: 'claude:a', at: now - WAIT_TTL_MS, asks },
+          { key: 'asks:claude:b', kind: 'asks', id: 'claude:b', at: now - WAIT_TTL_MS + 1, asks },
+          { key: 'claude:c', kind: 'session', id: 'claude:c', at: now - WAIT_TTL_MS }
+        ],
+        now
+      ).map((u) => u.key)
+    ).toEqual(['claude:c', 'asks:claude:b'])
+  })
+
   it('reads the persisted file as untrusted input', () => {
     const now = 1_700_000_000_000
     expect(sanitizeUnseen('nope', now)).toEqual([])
@@ -615,6 +643,22 @@ describe('AttentionTracker — turns observed in the logs', () => {
     observed(h, { type: 'asks' })
     h.t.setFocus({ kind: 'session', id: 'claude:obs', provider: 'claude', cwd: CHECKOUT })
     expect(h.t.badgeCount(ALL_ON)).toBe(0)
+  })
+
+  it('a log that settles idle clears the question — but never a landing, whatever it writes after a turn', () => {
+    const h = harness()
+    observed(h, { type: 'asks' })
+    h.flush()
+    // answered (or dismissed) after the liveness entry had expired: no running turn to say so
+    observed(h, { type: 'settled' })
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.takeWithdrawn()).toEqual(['cockpit:asks:claude:obs'])
+    observed(h, { type: 'running' })
+    observed(h, { type: 'ended' })
+    // a title or summary record written right after the ending
+    observed(h, { type: 'settled' })
+    expect(h.t.landings()).toEqual([{ id: 'claude:obs', at: h.clock.now, kind: 'landed' }])
+    expect(h.t.flushAt()).not.toBeNull()
   })
 })
 

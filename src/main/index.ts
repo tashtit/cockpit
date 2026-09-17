@@ -788,6 +788,9 @@ app.whenReady().then(() => {
     onOpen: openAttentionTarget
   })
   attention = desk
+  // a question saved as waiting may have been answered while Cockpit was closed — once the
+  // first scan knows each session's log, the desk re-reads those tails and keeps what still asks
+  void indexer.whenScanned().then(() => desk.recheckAsks((id) => indexer.getSession(id)))
   ipcMain.handle('attention:prefs', () => desk.currentPrefs)
   ipcMain.handle('attention:set-prefs', (_e, prefs: AttentionPrefs) => {
     const saved = setAttentionPrefs(prefs)

@@ -66,6 +66,12 @@ export type ObservedTurn = ObservedSession &
         /** The agent's closing words, when the ending record carried them */
         readonly closing: string | null
       }
+    /**
+     * A fresh write judged idle with no turn seen running: whatever the log was waiting
+     * on is over (a question answered or dismissed while the entry had expired). Never
+     * an ending — a title or summary record lands after every turn.
+     */
+    | { readonly type: 'settled' }
   )
 
 /** How much of a closing answer or a question is worth carrying (a notification quotes one line). */

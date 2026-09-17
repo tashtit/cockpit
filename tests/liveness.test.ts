@@ -325,13 +325,32 @@ describe('LivenessTracker — what it tells the attention desk', () => {
     })
   })
 
-  it('a log that is already ended when first seen is not news', () => {
+  it('a log that is already ended when first seen is not an ending — it only settles what was waiting', () => {
     const events: Ev[] = []
     const t = tracker(() => {}, { onTurn: (ev) => events.push(ev) })
     const fx = FIXTURES.codex
     const file = writeFixture('codex', [...fx.midTurn, fx.final])
     t.observe(file, meta('codex', 'x1', file), mtime(file))
-    expect(events).toEqual([])
+    expect(events).toEqual([{ type: 'settled', id: 'codex:x1', provider: 'codex', cwd: '/x' }])
+    expect(t.sessions()).toEqual([])
+  })
+
+  it('a question answered after its entry expired settles it: the idle write is the only word', async () => {
+    const events: Ev[] = []
+    const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 200, sweepMs: 40, onTurn: (ev) => events.push(ev) })
+    const [prompt] = FIXTURES.claude.midTurn
+    const question = {
+      type: 'assistant',
+      message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: { questions: [{ question: 'Ship it?' }] } }] },
+      timestamp: T1
+    }
+    const file = writeFixture('claude', [prompt, question])
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+    // Esc on the question: the interrupt marker is the newest record
+    appendFileSync(file, jsonl([{ type: 'user', message: { role: 'user', content: '[Request interrupted by user for tool use]' }, timestamp: T1 }]))
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(events.map((e) => e.type)).toEqual(['asks', 'settled'])
   })
 
   it('expiry is silence, not an ending — a killed CLI or a long tool call never chimes', async () => {
