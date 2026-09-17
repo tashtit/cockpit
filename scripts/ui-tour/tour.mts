@@ -92,6 +92,31 @@ const STATIC: readonly Shot[] = [
       }
     })
   ),
+  // a disagreement opened up: what each agent runs, and the three answers to it —
+  // read-only, so the shots after it see the world unchanged
+  {
+    view: 'agents',
+    name: 'agents-row-open',
+    tall: 1100,
+    go: async (w) => {
+      await nav(w, 'Agents')
+      await w.getByRole('tab', { name: /^MCP servers/ }).click()
+      await w.locator('.pnl-entry', { hasText: 'github' }).click()
+      await pause(w, 500)
+    }
+  },
+  // the folded add forms, opened: what adding a config home or a provider asks for
+  {
+    view: 'settings',
+    name: 'settings-add-forms',
+    tall: 2600,
+    go: async (w) => {
+      await nav(w, 'Settings')
+      await w.getByRole('button', { name: 'Add a config home…' }).click()
+      await w.getByRole('button', { name: 'Add a model provider…' }).click()
+      await pause(w, 400)
+    }
+  },
   { view: 'profile', name: 'profile', tall: 1700, go: (w) => nav(w, 'Profile') },
   { view: 'cleanup', name: 'cleanup', tall: 1200, go: (w) => nav(w, 'Cleanup') },
   {
