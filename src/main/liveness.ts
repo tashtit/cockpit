@@ -25,7 +25,7 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
  * nothing written) the entry gets LIVE_TOOL_WINDOW_MS instead. Copilot is the one
  * provider that says so itself: it holds an `inuse.<pid>.lock` beside the log for as
  * long as its CLI runs, so a Copilot entry past either window is kept while that pid
- * is alive and expires once it is not. Best-effort by design: an unreadable or
+ * is one of ours and still running, and expires once it is not. Best-effort by design: an unreadable or
  * unrecognised tail — or lock — is idle, never an error.
  *
  * The transitions are news too (`onTurn`, for the attention desk): a turn seen
@@ -80,13 +80,18 @@ export function readTurnState(file: string, provider: Provider): TurnVerdict | n
  */
 export const LOCK_SCAN_ENTRIES = 64
 
-/** Does this pid still exist? EPERM says it does — it just isn't ours to signal. */
+/**
+ * Is this pid one of ours, and still running? A lock under the user's own config home
+ * was written by a process running as the user, so a pid we are not allowed to signal
+ * is not that process — it is a pid the OS has since handed to someone else. Treating
+ * it as gone is what keeps a recycled pid from pinning a session live forever.
+ */
 function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true
-  } catch (err) {
-    return (err as NodeJS.ErrnoException)?.code === 'EPERM'
+  } catch {
+    return false
   }
 }
 

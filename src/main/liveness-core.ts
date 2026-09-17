@@ -382,6 +382,28 @@ function copilotClosing(records: readonly any[], end: number): string | undefine
  * Confirmed against real logs (2026-09): the shell kind carries `fullCommandText`,
  * the mcp kind `serverName` + `toolName`.
  */
+/**
+ * Copilot's two user-facing tools, the counterparts of Claude's `AskUserQuestion` and
+ * `ExitPlanMode`. They arrive as an ordinary tool call — `tool.execution_start` with
+ * no completion — so without this they read as a long-running tool, and a session
+ * parked on a question looks like one still working.
+ */
+const COPILOT_TOOL_ASKS: Readonly<Record<string, AttentionAsk['kind']>> = {
+  ask_user: 'question',
+  exit_plan_mode: 'permission'
+}
+
+/** What a Copilot tool call is waiting on the user for, if it is one of those. */
+function copilotToolAsk(data: unknown): AttentionAsk | undefined {
+  const d = objectOf(data)
+  const name = typeof d?.toolName === 'string' ? d.toolName : ''
+  const kind = COPILOT_TOOL_ASKS[name]
+  if (!kind) return undefined
+  if (name === 'exit_plan_mode') return { kind, detail: 'Approve the plan' }
+  const args = objectOf(d?.arguments)
+  return { kind, detail: oneLine(args?.question) }
+}
+
 function copilotAsk(data: unknown): AttentionAsk {
   const d = objectOf(data)
   const prompt = objectOf(d?.promptRequest) ?? objectOf(d?.permissionRequest)
@@ -425,7 +447,15 @@ export function judgeCopilotTail(records: readonly any[]): TurnVerdict | null {
       case 'tool.execution_start': {
         // a start with no completion newer than it: the tool is still running
         const id = r.data?.toolCallId
-        if (!(typeof id === 'string' && toolsDone.has(id))) inTool = true
+        if (typeof id === 'string' && toolsDone.has(id)) continue
+        // …unless the tool *is* the question, which waits on the person, not the machine
+        const ask = copilotToolAsk(r.data)
+        if (ask) {
+          if (asks === undefined) {
+            asks = ask
+            askedAt = toMs(r.timestamp)
+          }
+        } else inTool = true
         continue
       }
       case 'assistant.turn_end':
