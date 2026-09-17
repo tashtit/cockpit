@@ -31,7 +31,7 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "npm version ${nextRelease.version} --no-git-tag-version --allow-same-version && npm run package && COCKPIT_EXPECTED_VERSION=${nextRelease.version} npm run test:packaged",
+        "verifyReleaseCmd": "[ -z \"$COCKPIT_PACKAGED_VERSION\" ] || [ \"${nextRelease.version}\" = \"$COCKPIT_PACKAGED_VERSION\" ] || { echo \"semantic-release decided ${nextRelease.version}, but the package job built $COCKPIT_PACKAGED_VERSION\" >&2; exit 1; }",
         "successCmd": "[ -z \"$GITHUB_OUTPUT\" ] || echo \"version=${nextRelease.version}\" >> \"$GITHUB_OUTPUT\""
       }
     ],
