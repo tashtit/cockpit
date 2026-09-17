@@ -30,6 +30,11 @@ attribution, never a parallel message grammar.
   single agent owns a multi-agent table. The thinking line inside the view names the
   current seat and uses its `.pulse-{agent}`.
 
+- The header names the table's directory the way Chat does (`cwdLabel`): a repo-backed
+  table reads `worktree` (or `worktree · <slug>`), a repo-less one `scratch room` — the
+  words the creation form used. Where a table's room *lives* is never the headline; the
+  full path stays in the tooltip and is what a click copies.
+
 ## Transcript
 
 - Row vocabulary is ChatView's: user → `.bubble-user`; agent → avatar + `.rt-speaker` +
@@ -87,7 +92,9 @@ attribution, never a parallel message grammar.
 
 - `.ns-card` grammar; the provider cards are **add-seat buttons** (2–4 seats total, a
   provider may sit twice with different models — twin seats get ordinals). Each seat
-  row: identity, account, model, remove.
+  row: identity, account, model, remove. A provider with one account keeps the row's
+  shape — the same inert `.ns-account-single` field NewSession uses, never bare text
+  where the other rows carry a control.
 - **No permission mode exists.** Roundtables are discussion-only: every turn runs
   'safe', codex is sandboxed read-only, and the framing tells seats the workspace is
   read-only. A roundtable decides; a normal session ships.

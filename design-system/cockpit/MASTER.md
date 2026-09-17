@@ -143,6 +143,8 @@ Nothing renders with stock Chromium chrome:
 
 - **One name per thing.** A directory an agent CLI keeps its sessions and sign-in in is a **config home** — in buttons, hints, empty states, aria labels, backups and the docs. ("Source" is the code's word, `SourceDir`, and stays in code.) A second word for the same object in the UI makes people wonder whether it is a second object.
 
+- **A path a person reads is never raw.** Home directories collapse to `~` (`shortPath`), and a directory whose location carries no information — a worktree, a table's room — is named instead of spelled out (`cwdLabel`). Headers, prose and chips all follow this; the absolute path belongs in the tooltip, in what a click copies, and in text an agent reads (a handoff briefing). Applies wherever a cwd is shown: Chat, Roundtable, Handoff.
+
 ## Interaction Rules
 
 - Focus: global `:focus-visible` 2px accent outline at `outline-offset: -1px`; **filled buttons** (`.btn-primary`, `.btn-pr`, `.btn-danger`) flip to `+2px` — inset, the accent ring sits on the button's own fill at 1.7–1.9:1 and fails 1.4.11. Inputs get accent border + 3px glow ring. Never remove.

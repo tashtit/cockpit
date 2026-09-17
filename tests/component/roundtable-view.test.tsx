@@ -25,6 +25,40 @@ function fixture(overrides: Partial<RoundtableSnapshot> = {}): RoundtableSnapsho
   }
 }
 
+describe('RoundtableView header', () => {
+  it('names a repo-backed table by its worktree, not by where worktrees live', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({
+        repoRoot: '/Users/dev/code/rocket',
+        branch: 'cockpit/table-adopt-biome',
+        cwd: '/Users/dev/Library/Application Support/cockpit/worktrees/rocket/table-adopt-biome'
+      })
+    )
+    render(<RoundtableView id="rt-1" />)
+    // the branch chip beside it already says table-adopt-biome, so the label stays bare
+    await waitFor(() =>
+      expect(document.querySelector('.chat-cwd')).toHaveTextContent(/^worktree$/)
+    )
+    // the full path stays one hover and one click away
+    expect(document.querySelector('.chat-cwd')).toHaveAttribute(
+      'title',
+      expect.stringContaining('Application Support')
+    )
+  })
+
+  it("calls a repo-less table's room what the form called it", async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({
+        repoRoot: null,
+        branch: null,
+        cwd: '/Users/dev/Library/Application Support/cockpit/roundtables/rt-1/room'
+      })
+    )
+    render(<RoundtableView id="rt-1" />)
+    await waitFor(() => expect(document.querySelector('.chat-cwd')).toHaveTextContent('scratch room'))
+  })
+})
+
 describe('RoundtableView', () => {
   it('renders the shared transcript with per-agent attribution', async () => {
     vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(fixture())

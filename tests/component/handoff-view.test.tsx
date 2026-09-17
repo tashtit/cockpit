@@ -25,6 +25,27 @@ function renderHandoff(
 }
 
 describe('HandoffView', () => {
+  it('abbreviates the directory it names in prose, keeping it whole in the briefing', async () => {
+    vi.mocked(window.cockpit.getHandoffBriefing).mockResolvedValue({
+      briefing: '- Directory: /Users/dev/code/rocket',
+      cwdExists: true
+    })
+    render(
+      <HandoffView
+        source={{ ...source, cwd: '/Users/dev/code/rocket' }}
+        busy={false}
+        onStart={vi.fn(async () => null)}
+        onCancel={vi.fn()}
+      />
+    )
+    await waitFor(() =>
+      expect(document.querySelector('.handoff-cwd')).toHaveTextContent('~/code/rocket')
+    )
+    expect(document.querySelector('.handoff-cwd')).toHaveAttribute('title', '/Users/dev/code/rocket')
+    // the agent reads an absolute path, never a ~
+    expect(await screen.findByLabelText('Briefing')).toHaveValue('- Directory: /Users/dev/code/rocket')
+  })
+
   it('loads the briefing into the editor and defaults to a different agent', async () => {
     vi.mocked(window.cockpit.getHandoffBriefing).mockResolvedValue({
       briefing: '# Handoff briefing\n\ncontext here',

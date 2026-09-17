@@ -95,6 +95,9 @@ Both lists use the shared `FilterBar`; this page is its reference implementation
   most and never a bare `.0`: "400 MB", not "400.0 MB".
 - **Ages are coarse** (`idle 47d` → `idle 8mo` → `idle 1.4y`). This view is about
   abandonment, not recency; minute precision would be false confidence.
+- **No verdict while the scan is still walking.** An empty list mid-scan means "not
+  read yet": both the "nothing idle that long" line and the per-filter empty line wait
+  for the scan, saying what is still being read instead ("Still reading every source…").
 - **The row list is a window, not the truth.** Main caps rows (`CLEANUP_ROW_CAP`);
   when it does, say so with the real total. Never present a capped list as complete.
 - **Report the outcome after the rescan, not before.** Every action re-scans, and the

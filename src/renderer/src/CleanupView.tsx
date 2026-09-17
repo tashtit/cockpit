@@ -884,7 +884,9 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             </GroupHead>
 
             {shownSessions.length === 0 ? (
-              <p className="ns-hint cl-empty">No sessions match this filter.</p>
+              <p className="ns-hint cl-empty">
+                {scanning ? 'Still reading every source…' : 'No sessions match this filter.'}
+              </p>
             ) : (
               <ul className="source-list cl-list">
                 {shownSessions.map((s, i) => (
@@ -1035,7 +1037,9 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             </GroupHead>
 
             {shownWorktrees.length === 0 ? (
-              <p className="ns-hint cl-empty">No worktrees match this filter.</p>
+              <p className="ns-hint cl-empty">
+                {scanning ? 'Still asking git in every repository…' : 'No worktrees match this filter.'}
+              </p>
             ) : (
               <ul className="source-list cl-list">
                 {shownWorktrees.map((w, i) => (
