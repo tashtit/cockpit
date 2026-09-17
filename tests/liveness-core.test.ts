@@ -45,8 +45,8 @@ describe('judgeClaudeTail', () => {
   it('a prompt with no answer yet is live, from the prompt', () => {
     expect(judgeClaudeTail([prompt()])).toEqual({ live: true, startedAt: ms(T0) })
   })
-  it('a tool_use waiting on its tool is live, from the turn prompt', () => {
-    expect(judgeClaudeTail([prompt(), toolUse()])).toEqual({ live: true, startedAt: ms(T0) })
+  it('a tool_use waiting on its tool is live, from the turn prompt, and says it is inside a tool', () => {
+    expect(judgeClaudeTail([prompt(), toolUse()])).toEqual({ live: true, startedAt: ms(T0), inTool: true })
   })
   it('a tool result waiting on the model is live', () => {
     expect(judgeClaudeTail([prompt(), toolUse(), toolResult()])).toEqual({
@@ -54,8 +54,8 @@ describe('judgeClaudeTail', () => {
       startedAt: ms(T0)
     })
   })
-  it('a text-only answer ends the turn', () => {
-    expect(judgeClaudeTail([prompt(), toolUse(), toolResult(), answer()])).toEqual(IDLE)
+  it('a text-only answer ends the turn, and its words come along for the notification', () => {
+    expect(judgeClaudeTail([prompt(), toolUse(), toolResult(), answer()])).toEqual({ ...IDLE, closing: 'Done.' })
   })
   it('content blocks decide, not stop_reason: the desktop harness stamps end_turn on tool_use', () => {
     expect(judgeClaudeTail([prompt(), toolUse(T1, 'end_turn')])?.live).toBe(true)
@@ -73,13 +73,26 @@ describe('judgeClaudeTail', () => {
   })
   it('the Stop hook summary confirms the end', () => {
     const summary = { type: 'system', subtype: 'stop_hook_summary', hookCount: 1 }
-    expect(judgeClaudeTail([prompt(), answer(), summary])).toEqual(IDLE)
+    expect(judgeClaudeTail([prompt(), answer(), summary])).toEqual({ ...IDLE, closing: 'Done.' })
     // and it is the newest word even after a tool_use line (a hook that ran on abort)
     expect(judgeClaudeTail([prompt(), toolUse(), summary])).toEqual(IDLE)
   })
   it('an API error the CLI is retrying is still a turn', () => {
     const err = { type: 'system', subtype: 'api_error', level: 'warning', retryAttempt: 1 }
     expect(judgeClaudeTail([prompt(), err])).toEqual({ live: true, startedAt: ms(T0) })
+  })
+  it('an API error or usage limit the CLI stopped on ends the turn as a failure, with its words', () => {
+    const stopped = {
+      type: 'assistant',
+      isApiErrorMessage: true,
+      message: { content: [{ type: 'text', text: 'API Error: 529 Overloaded' }] },
+      timestamp: T2
+    }
+    expect(judgeClaudeTail([prompt(), toolUse(), toolResult(), stopped])).toEqual({
+      ...IDLE,
+      closing: 'API Error: 529 Overloaded',
+      failed: true
+    })
   })
   it('the interrupt marker ends the turn', () => {
     expect(judgeClaudeTail([prompt(), toolUse(), prompt('[Request interrupted by user for tool use]', T2)])).toEqual(IDLE)
@@ -100,7 +113,7 @@ describe('judgeClaudeTail', () => {
       { type: 'queue-operation' }
     ]
     expect(judgeClaudeTail([prompt(), toolUse(), ...misc])?.live).toBe(true)
-    expect(judgeClaudeTail([prompt(), answer(), ...misc])).toEqual(IDLE)
+    expect(judgeClaudeTail([prompt(), answer(), ...misc])).toMatchObject(IDLE)
   })
   it('inlined sidechain lines speak for the subagent, not the parent', () => {
     const sub = { ...(answer(T2) as object), isSidechain: true }
@@ -113,7 +126,7 @@ describe('judgeClaudeTail', () => {
     })
   })
   it('a turn whose prompt scrolled out of the tail is live with an unknown start', () => {
-    expect(judgeClaudeTail([toolResult(T1), toolUse(T2)])).toEqual({ live: true, startedAt: null })
+    expect(judgeClaudeTail([toolResult(T1), toolUse(T2)])).toEqual({ live: true, startedAt: null, inTool: true })
   })
   it('a tail with nothing that speaks for the turn is silent, not idle', () => {
     expect(judgeClaudeTail([])).toBeNull()
@@ -171,7 +184,7 @@ describe('judgeCodexTail', () => {
         live: true,
         startedAt: ms(T0)
       })
-      expect(judgeCodexTail([{ type: 'message', role: 'assistant', content: 'done' }])).toEqual(IDLE)
+      expect(judgeCodexTail([{ type: 'message', role: 'assistant', content: 'done' }])).toEqual({ ...IDLE, closing: 'done' })
     })
     it('commentary and tool traffic are mid-turn, a final answer is not', () => {
       expect(judgeCodexTail([item({ type: 'message', role: 'assistant', phase: 'commentary' })])?.live).toBe(true)
@@ -207,7 +220,7 @@ describe('judgeCopilotTail', () => {
   })
   it('turn_start is live, from the user message that opened the turn', () => {
     const recs = [cp('user.message', T0), cp('assistant.turn_start', T1), cp('assistant.message', T1), cp('tool.execution_start', T2), cp('hook.start', T2)]
-    expect(judgeCopilotTail(recs)).toEqual({ live: true, startedAt: ms(T0) })
+    expect(judgeCopilotTail(recs)).toEqual({ live: true, startedAt: ms(T0), inTool: true })
   })
   it('a second round-trip in the same turn keeps the first start', () => {
     const recs = [cp('user.message', T0), cp('assistant.turn_start', T1), cp('assistant.turn_end', T1), cp('assistant.turn_start', T2)]
@@ -268,5 +281,131 @@ describe('mergeBusy', () => {
     const only = [{ id: 'copilot:c', startedAt: 1, source: 'observed' as const }]
     expect(mergeBusy([], only)).toEqual(only)
     expect(mergeBusy(only, [])).toEqual(only)
+  })
+})
+
+/* ---------- waiting on the person, and the closing words ---------- */
+
+describe('asks: a live turn blocked on the person', () => {
+  const ask = (name: string, input: object, ts = T1): unknown => ({
+    type: 'assistant',
+    message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_1', name, input }] },
+    timestamp: ts
+  })
+  const questions = { questions: [{ question: 'Which owner should the repo live under?\nSecond line', header: 'Owner', options: [] }] }
+
+  it('claude: AskUserQuestion is a question, with its first line', () => {
+    expect(judgeClaudeTail([prompt(), ask('AskUserQuestion', questions)])).toEqual({
+      live: true,
+      startedAt: ms(T0),
+      asks: { kind: 'question', detail: 'Which owner should the repo live under?' }
+    })
+  })
+  it('claude: ExitPlanMode waits for the plan to be approved', () => {
+    expect(judgeClaudeTail([prompt(), ask('ExitPlanMode', { plan: '# Plan' })])?.asks).toEqual({
+      kind: 'permission',
+      detail: 'Approve the plan'
+    })
+  })
+  it('claude: the answer clears it — the tool result is the newest record', () => {
+    const answered = { ...(toolResult(T2) as object), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'The user answered: …' }] } }
+    expect(judgeClaudeTail([prompt(), ask('AskUserQuestion', questions), answered])).toEqual({ live: true, startedAt: ms(T0) })
+  })
+  it('claude: an ordinary tool_use is not a question, even when it takes a while', () => {
+    expect(judgeClaudeTail([prompt(), toolUse()])?.asks).toBeUndefined()
+  })
+  it('claude: a question with no readable text still asks', () => {
+    expect(judgeClaudeTail([prompt(), ask('AskUserQuestion', { questions: 'nope' })])?.asks).toEqual({ kind: 'question', detail: '' })
+  })
+
+  it('codex: request_user_input with no output yet is a question; the async variant is not', () => {
+    const args = JSON.stringify({ questions: [{ title: 'What would you mainly use it for?', options: ['a', 'b'] }] })
+    const call = item({ type: 'function_call', name: 'request_user_input', call_id: 'c1', arguments: args })
+    expect(judgeCodexTail([started, call])).toEqual({
+      live: true,
+      startedAt: 1789556848000,
+      asks: { kind: 'question', detail: 'What would you mainly use it for?' }
+    })
+    const output = item({ type: 'function_call_output', call_id: 'c1', output: '{"accepted":true}' })
+    expect(judgeCodexTail([started, call, output])).toEqual({ live: true, startedAt: 1789556848000 })
+    const async = item({ type: 'function_call', name: 'request_user_input_async', call_id: 'c2', arguments: args })
+    expect(judgeCodexTail([started, async])?.asks).toBeUndefined()
+  })
+  it('codex: an approval request is a permission until anything newer is written', () => {
+    const exec = ev('exec_approval_request', { call_id: 'c3', command: ['bash', '-lc', 'rm -rf build'] })
+    expect(judgeCodexTail([started, exec])?.asks).toEqual({ kind: 'permission', detail: 'bash -lc rm -rf build' })
+    expect(judgeCodexTail([started, ev('apply_patch_approval_request', { call_id: 'c4' })])?.asks).toEqual({ kind: 'permission', detail: 'Apply a patch' })
+    const ran = item({ type: 'custom_tool_call_output', call_id: 'c3', output: 'ok' })
+    expect(judgeCodexTail([started, exec, ran])?.asks).toBeUndefined()
+    expect(judgeCodexTail([started, exec, ev('task_complete')])).toEqual(IDLE)
+  })
+
+  it('copilot: permission.requested without its permission.completed is a permission, with the command', () => {
+    const req = cp('permission.requested', T2, {
+      requestId: 'r1',
+      permissionRequest: { kind: 'shell', toolCallId: 't1' },
+      promptRequest: JSON.stringify({ kind: 'commands', fullCommandText: 'find . -name "*.ts" | head' })
+    })
+    const recs = [cp('user.message', T0), cp('assistant.turn_start', T1), cp('tool.execution_start', T1), req]
+    expect(judgeCopilotTail(recs)).toEqual({
+      live: true,
+      startedAt: ms(T0),
+      asks: { kind: 'permission', detail: 'find . -name "*.ts" | head' }
+    })
+    const done = cp('permission.completed', T2, { requestId: 'r1', toolCallId: 't1', result: { kind: 'approved' } })
+    // approved: the tool it gated is now the thing running
+    expect(judgeCopilotTail([...recs, done])).toEqual({ live: true, startedAt: ms(T0), inTool: true })
+  })
+  it('copilot: an MCP permission names the server and tool; an unreadable one still asks', () => {
+    const mcp = cp('permission.requested', T2, { requestId: 'r2', promptRequest: { kind: 'mcp', serverName: 'cachely', toolName: 'get_plan_usage' } })
+    expect(judgeCopilotTail([cp('assistant.turn_start', T1), mcp])?.asks).toEqual({ kind: 'permission', detail: 'cachely: get_plan_usage' })
+    expect(judgeCopilotTail([cp('assistant.turn_start', T1), cp('permission.requested', T2, 42 as never)])?.asks).toEqual({ kind: 'permission', detail: '' })
+  })
+  it('copilot: a completed request for another id does not answer this one', () => {
+    const recs = [
+      cp('assistant.turn_start', T1),
+      cp('permission.requested', T1, { requestId: 'r1', promptRequest: { kind: 'commands', fullCommandText: 'ls' } }),
+      cp('permission.completed', T2, { requestId: 'r0' })
+    ]
+    expect(judgeCopilotTail(recs)?.asks?.detail).toBe('ls')
+  })
+})
+
+describe('closing: what the agent said as the turn ended', () => {
+  it('claude: the answer text, capped; a tool_use before the hook summary means no answer yet', () => {
+    const long = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(2000) }] }, timestamp: T2 }
+    expect(judgeClaudeTail([prompt(), long])?.closing?.length).toBe(600)
+    const summary = { type: 'system', subtype: 'stop_hook_summary' }
+    expect(judgeClaudeTail([prompt(), toolUse(), summary])).toEqual(IDLE)
+  })
+  it('codex: task_complete carries last_agent_message', () => {
+    expect(judgeCodexTail([started, ev('task_complete', { last_agent_message: 'All green.\nDetails…' })])).toEqual({ ...IDLE, closing: 'All green.' })
+    expect(judgeCodexTail([started, ev('task_complete', { last_agent_message: 7 })])).toEqual(IDLE)
+  })
+  it('copilot: the assistant message just before turn_end; none after a tool call', () => {
+    const said = cp('assistant.message', T1, { content: 'Fixed the flake.' })
+    expect(judgeCopilotTail([cp('user.message', T0), cp('assistant.turn_start'), said, cp('assistant.turn_end', T2)])).toEqual({ ...IDLE, closing: 'Fixed the flake.' })
+    expect(judgeCopilotTail([cp('user.message', T0), cp('assistant.turn_start'), said, cp('tool.execution_start'), cp('assistant.turn_end', T2)])).toEqual(IDLE)
+  })
+})
+
+describe('inTool: the newest record is a tool call waiting for its result', () => {
+  it('claude: the tool_use line, not the text line before it, and not a question', () => {
+    expect(judgeClaudeTail([prompt(), answer(T1, 'tool_use')])?.inTool).toBeUndefined()
+    expect(judgeClaudeTail([prompt(), toolUse()])?.inTool).toBe(true)
+    expect(judgeClaudeTail([prompt(), toolUse(), toolResult()])?.inTool).toBeUndefined()
+  })
+  it('codex: a call item is inside a tool, its output is not, and markers bound the turn', () => {
+    expect(judgeCodexTail([started, item({ type: 'custom_tool_call', name: 'exec' })])?.inTool).toBe(true)
+    expect(judgeCodexTail([started, item({ type: 'custom_tool_call', name: 'exec' }), item({ type: 'custom_tool_call_output', output: 'ok' })])?.inTool).toBeUndefined()
+    expect(judgeCodexTail([item({ type: 'function_call', name: 'shell' }), started])?.inTool).toBeUndefined()
+    expect(judgeCodexTail([item({ type: 'function_call', name: 'shell' })])).toEqual({ live: true, startedAt: null, inTool: true })
+  })
+  it('copilot: an execution_start with no completion for its id; a completed one is not', () => {
+    const start = (id: string, ts = T2): unknown => cp('tool.execution_start', ts, { toolCallId: id })
+    const done = (id: string, ts = T2): unknown => cp('tool.execution_complete', ts, { toolCallId: id })
+    expect(judgeCopilotTail([cp('assistant.turn_start', T1), start('a')])?.inTool).toBe(true)
+    expect(judgeCopilotTail([cp('assistant.turn_start', T1), start('a'), done('a')])?.inTool).toBeUndefined()
+    expect(judgeCopilotTail([cp('assistant.turn_start', T1), start('a'), start('b'), done('b')])?.inTool).toBe(true)
   })
 })

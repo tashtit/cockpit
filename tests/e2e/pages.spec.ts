@@ -220,9 +220,11 @@ test('home composer wires repo, agent, and permission controls', async () => {
   await expect(agents.getByRole('button', { name: 'Codex' })).toHaveAttribute('aria-pressed', 'false')
   await expect(agents.getByRole('button', { name: 'Copilot' })).toHaveAttribute('aria-pressed', 'false')
   await expect(win.getByRole('button', { name: 'Permission mode' })).toBeVisible()
-  // fixture sessions surface on the board (idle fixtures = "all on the ground")
+  // fixture sessions surface on the board. They are idle, but the stub gh's PR on their
+  // branch fails its checks, so the badges' refresh raises it as a red PR (attention.ts)
   const board = win.locator('.board')
-  await expect(board.getByText('all on the ground')).toBeVisible()
+  await expect(board.locator('.board-eyebrow')).toContainText('1 red PR')
+  await expect(board.getByText('#42 checks failing')).toBeVisible()
   await expect(board.getByText('add pagination to the sessions list')).toBeVisible()
   await expect(board.getByText('scratch ideas with no repository')).toBeVisible()
 })

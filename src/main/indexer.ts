@@ -15,7 +15,7 @@ import type {
 } from '../shared/types'
 import { orderRepos } from '../shared/repo-order'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
-import { LivenessTracker } from './liveness'
+import { LivenessTracker, type ObservedTurn } from './liveness'
 import { defaultClaudeStoreDir, listProviderArchivedIds } from './provider-archived'
 import {
   listClaudeSessionFiles,
@@ -209,6 +209,8 @@ export class SessionIndexer {
       claudeStoreDir?: string | null
       /** The observed busy set changed — a turn started, ended or expired in some log */
       onLiveChange?: (sessions: BusySession[]) => void
+      /** An observed turn started, stopped to ask, or wrote its ending record (never an expiry) */
+      onLiveTurn?: (ev: ObservedTurn) => void
       liveWindowMs?: number
     }
   ) {
@@ -217,7 +219,8 @@ export class SessionIndexer {
     this.watchRetryMs = opts?.watchRetryMs ?? WATCH_RETRY_INTERVAL_MS
     this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
     this.liveness = new LivenessTracker(opts?.onLiveChange ?? (() => {}), {
-      windowMs: opts?.liveWindowMs
+      windowMs: opts?.liveWindowMs,
+      onTurn: opts?.onLiveTurn
     })
     this.firstScan = new Promise((resolve) => (this.markScanned = resolve))
     this.loadCache()

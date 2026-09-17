@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import type { PrChecks, PrReview, PrStatus, Provider } from '../../shared/types'
+import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, Provider } from '../../shared/types'
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude',
@@ -248,6 +248,9 @@ const OCTICON_CHECK =
 const OCTICON_X =
   'M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z'
 const OCTICON_DOT_FILL = 'M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z'
+/** GitHub's question mark in a circle: an agent has stopped to ask you something. */
+const OCTICON_QUESTION =
+  'M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.92 6.085h.001a.749.749 0 1 1-1.342-.67c.169-.339.436-.701.849-.977C6.845 4.16 7.369 4 8 4a2.756 2.756 0 0 1 1.637.525c.503.377.863.965.863 1.725 0 .448-.115.83-.329 1.15-.205.307-.47.513-.692.662-.109.072-.22.138-.313.195l-.006.004a6.24 6.24 0 0 0-.26.16 1.1 1.1 0 0 0-.276.245.75.75 0 0 1-1.248-.832c.184-.264.42-.489.692-.661.103-.067.207-.132.313-.195l.007-.004c.1-.061.182-.11.258-.161a.969.969 0 0 0 .277-.245C8.96 6.514 9 6.427 9 6.25a.612.612 0 0 0-.262-.525A1.27 1.27 0 0 0 8 5.5c-.369 0-.595.09-.74.187a1.01 1.01 0 0 0-.34.398ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z'
 
 /** The same check, on its own: a setup step that is already satisfied. */
 export const CheckIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
@@ -268,6 +271,69 @@ const REVIEW_LABEL: Record<Exclude<PrReview, 'none'>, string> = {
   approved: 'approved',
   changes_requested: 'changes requested',
   review_required: 'review required'
+}
+
+/** Why a red PR needs its author: the checks, else the review (the desk raises nothing else). */
+export function prReason(pr: AttentionPr): string {
+  return pr.checks === 'failing' ? 'checks failing' : 'changes requested'
+}
+
+/** The short state word a row's meta slot shows for a "needs you" reason. */
+export function landingWord(l: Landing): string {
+  switch (l.kind) {
+    case 'landed':
+      return 'landed'
+    case 'asks':
+      return l.asks.kind === 'question' ? 'asks you' : 'needs permission'
+    case 'pr':
+      return `#${l.pr.number} ${prReason(l.pr)}`
+  }
+}
+
+/** The whole reason in words, for tooltips and accessible names — a glyph never carries it alone. */
+export function landingLabel(l: Landing): string {
+  switch (l.kind) {
+    case 'landed':
+      return 'finished — not opened yet'
+    case 'asks':
+      return l.asks.detail ? `${landingWord(l)}: ${l.asks.detail}` : landingWord(l)
+    case 'pr':
+      return `PR ${landingWord(l)}`
+  }
+}
+
+/**
+ * A row's "needs you" mark, in the row's exclusive meta slot: the solid livery dot for
+ * a turn that ended unseen, the question glyph in the agent's livery when it has
+ * stopped to ask, GitHub's x in its red for a pull request that went red. Three
+ * shapes, so the reason never rides on colour. `mute` hides it from assistive tech
+ * where the row already says the reason in words (the board's meta column).
+ */
+export function LandingMark({
+  landing,
+  p,
+  mute = false
+}: {
+  landing: Landing
+  p: Provider
+  mute?: boolean
+}): JSX.Element {
+  const a11y = mute ? { 'aria-hidden': true as const } : { role: 'img', 'aria-label': landingLabel(landing) }
+  if (landing.kind === 'asks') {
+    return (
+      <span className={`asks-mark plogo-${p}`} {...a11y}>
+        <Octicon d={OCTICON_QUESTION} size={11} />
+      </span>
+    )
+  }
+  if (landing.kind === 'pr') {
+    return (
+      <span className="fix-mark" {...a11y}>
+        <Octicon d={OCTICON_X} size={11} />
+      </span>
+    )
+  }
+  return <span className={`landed-dot plogo-${p}`} {...a11y} />
 }
 
 export function PrBadge({

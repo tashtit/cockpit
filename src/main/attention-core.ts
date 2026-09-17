@@ -1,14 +1,20 @@
 import { normalize } from 'node:path'
 import type {
+  AttentionAsk,
   AttentionFocus,
+  AttentionPr,
   AttentionPrefs,
   AttentionTarget,
   ChatEvent,
   Landing,
+  PrChecks,
+  PrReview,
+  PrStatus,
   Provider,
   Roundtable,
   RoundtableEntry
 } from '../shared/types'
+import type { ObservedTurn } from './liveness-core'
 
 /**
  * Attention, the IO-free half: which ended turns are news, what the Dock badge
@@ -20,12 +26,24 @@ import type {
  * *unseen* until the user opens it. Main owns that state because only main sees
  * every turn end — including the ones for sessions no view has open — and the
  * renderer tells it what is on screen.
+ *
+ * Three inputs feed it. Turns Cockpit spawned (ChatManager's events) and roundtable
+ * runs; turns *observed* in the logs of sessions run elsewhere — a terminal, the
+ * provider's own app — which the liveness tracker reports as they end, and as they
+ * stop to ask the person something; and the PR badges' own refreshes, when an open
+ * pull request on a session's branch turns red. Every one lands under the same rule:
+ * on screen in a focused window, it is not news.
  */
 
 /** Endings this close together share one notification. */
 export const BURST_MS = 1500
 /** Landings older than this are noise, not news. */
 export const LANDING_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * A question nobody answered for this long is not waiting any more: the CLI was closed,
+ * or the answer went in somewhere the log never showed. Real waits run minutes, not hours.
+ */
+export const WAIT_TTL_MS = 12 * 60 * 60 * 1000
 /** Bound the set: a long day of many sessions must not grow the file or the badge forever. */
 export const LANDING_MAX = 60
 /** Delivered banners remembered for withdrawal once their sessions are opened. */
@@ -39,22 +57,40 @@ const TITLE_MAX = 60
 const SUMMARY_LINES = 3
 /** Faster than this, a duration says nothing ("failed after 0s"). */
 const DURATION_FLOOR_MS = 5_000
+/**
+ * A spawned turn's log is observed too, and its ending record reaches the tracker a
+ * debounce after the process exit landed it: an observed ending this soon after one
+ * of Cockpit's own is that echo, not a second landing.
+ */
+export const OBSERVED_ECHO_MS = 15_000
+/** Pull requests already raised, by head commit — bounded like everything else here. */
+const SEEN_PRS_MAX = 200
 
 const AGENT: Record<Provider, string> = { claude: 'Claude', codex: 'Codex', copilot: 'Copilot' }
 
-/** Something that ended while nobody was looking — one per session or table. Persisted. */
+/**
+ * Something that needs the user and hasn't been looked at — a session's ended turn, a
+ * concluded table, an agent's question, a red pull request. Persisted.
+ */
 export type Unseen = {
-  /** The session id, `table:<id>`, or `turn:<turnId>` until the agent names its session */
+  /**
+   * The session id, `table:<id>`, `turn:<turnId>` until the agent names its session,
+   * `asks:<session id>` for a question, `pr:<repo root>#<number>` for a pull request
+   */
   readonly key: string
-  readonly kind: 'session' | 'roundtable'
+  readonly kind: 'session' | 'roundtable' | 'asks' | 'pr'
   /** Session id (null until known — copilot never announces one) or table id */
   readonly id: string | null
   readonly provider?: Provider
   readonly cwd?: string
   /** When the turn started: how an id-less landing finds the session it became */
   readonly startedAt: number
-  /** When it ended */
+  /** When it became news */
   readonly at: number
+  /** `asks`: what the agent is waiting for */
+  readonly asks?: AttentionAsk
+  /** `pr`: the pull request (the head commit it went red on is `seenPrs`' business) */
+  readonly pr?: AttentionPr
 }
 
 export type TurnStart = {
@@ -115,12 +151,15 @@ type Flight = {
   cancelled: boolean
 }
 
+/** What a burst counts: how each pending banner reads in a summary title. */
+type Group = 'finished' | 'failed' | 'asks' | 'pr'
+
 /** A notification waiting out the burst window. */
 type Pending = {
   readonly key: string
-  /** "Claude", "Roundtable" */
+  /** "Claude", "Roundtable", "PR #57" */
   readonly who: string
-  /** "finished", "failed", "reached consensus" */
+  /** "finished", "failed", "reached consensus", "asks you" */
   readonly verb: string
   /** "4m", or null when too quick to be worth saying */
   readonly after: string | null
@@ -130,7 +169,12 @@ type Pending = {
   /** The prompt, for a brand-new session the index hasn't seen yet */
   readonly fallbackTitle: string
   readonly failed: boolean
+  /** Which sound speaks for it — a red PR sounds like a failure without being one */
+  readonly tone: 'finish' | 'fail'
+  readonly group: Group
 }
+
+const sameAsk = (a: AttentionAsk, b: AttentionAsk): boolean => a.kind === b.kind && a.detail === b.detail
 
 const samePath = (a: string | undefined, b: string | undefined): boolean =>
   a !== undefined && b !== undefined && trimSep(normalize(a)) === trimSep(normalize(b))
@@ -222,6 +266,32 @@ const TABLE_VERB: Record<TableOutcome['kind'], string> = {
 }
 
 const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
+const KINDS: readonly Unseen['kind'][] = ['session', 'roundtable', 'asks', 'pr']
+const CHECKS: readonly PrChecks[] = ['passing', 'failing', 'pending', 'none']
+const REVIEWS: readonly PrReview[] = ['approved', 'changes_requested', 'review_required', 'none']
+
+/** The provider a session id names, or undefined for a shape this code doesn't know. */
+function providerOf(id: string): Provider | undefined {
+  return PROVIDERS.find((p) => id.startsWith(`${p}:`))
+}
+
+const str = (v: unknown, max: number): string | null => (typeof v === 'string' ? v.slice(0, max) : null)
+
+function sanitizeAsk(raw: unknown): AttentionAsk | null {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  const kind = o?.['kind'] === 'question' ? 'question' : o?.['kind'] === 'permission' ? 'permission' : null
+  return kind ? { kind, detail: str(o?.['detail'], 512) ?? '' } : null
+}
+
+function sanitizePr(raw: unknown): AttentionPr | null {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  const number = o?.['number']
+  if (typeof number !== 'number' || !Number.isInteger(number) || number < 1) return null
+  const checks = CHECKS.find((c) => c === o?.['checks'])
+  const review = REVIEWS.find((r) => r === o?.['review'])
+  if (!checks || !review) return null
+  return { number, title: str(o?.['title'], 512) ?? '', url: str(o?.['url'], 2048) ?? '', checks, review }
+}
 
 /** The persisted file is untrusted input: keep only well-formed, fresh entries, newest last. */
 export function sanitizeUnseen(raw: unknown, now: number): Unseen[] {
@@ -230,22 +300,69 @@ export function sanitizeUnseen(raw: unknown, now: number): Unseen[] {
   for (const r of list.slice(-LANDING_MAX * 4)) {
     if (!r || typeof r !== 'object') continue
     const o = r as Record<string, unknown>
-    const key = typeof o['key'] === 'string' ? o['key'].slice(0, 512) : ''
-    const kind = o['kind'] === 'roundtable' ? 'roundtable' : o['kind'] === 'session' ? 'session' : null
+    const key = str(o['key'], 512) ?? ''
+    const kind = KINDS.find((k) => k === o['kind'])
     const at = typeof o['at'] === 'number' && Number.isFinite(o['at']) ? o['at'] : NaN
-    if (!key || !kind || !(at > now - LANDING_TTL_MS)) continue
+    if (!key || !kind || !(at > now - (kind === 'asks' ? WAIT_TTL_MS : LANDING_TTL_MS))) continue
     const provider = PROVIDERS.find((p) => p === o['provider'])
-    out.push({
+    const id = str(o['id'], 512)
+    const cwd = str(o['cwd'], 4096)
+    const base = {
       key,
       kind,
-      id: typeof o['id'] === 'string' ? o['id'].slice(0, 512) : null,
+      id,
       ...(provider ? { provider } : {}),
-      ...(typeof o['cwd'] === 'string' ? { cwd: o['cwd'].slice(0, 4096) } : {}),
+      ...(cwd !== null ? { cwd } : {}),
       startedAt: typeof o['startedAt'] === 'number' ? o['startedAt'] : at,
       at
-    })
+    }
+    if (kind === 'asks') {
+      const asks = sanitizeAsk(o['asks'])
+      if (!asks || id === null) continue
+      out.push({ ...base, asks })
+    } else if (kind === 'pr') {
+      const pr = sanitizePr(o['pr'])
+      if (!pr || id === null) continue
+      out.push({ ...base, pr })
+    } else {
+      out.push(base)
+    }
   }
   return out.sort((a, b) => a.at - b.at).slice(-LANDING_MAX)
+}
+
+/** The pull requests already raised (`[key, head sha]` pairs), from the same untrusted file. */
+export function sanitizeSeenPrs(raw: unknown): Array<[string, string]> {
+  const list = Array.isArray(raw) ? raw : []
+  const out: Array<[string, string]> = []
+  for (const r of list.slice(-SEEN_PRS_MAX)) {
+    if (!Array.isArray(r) || typeof r[0] !== 'string' || typeof r[1] !== 'string') continue
+    out.push([r[0].slice(0, 512), r[1].slice(0, 64)])
+  }
+  return out
+}
+
+/** The "needs you" row a persisted entry makes, or null for a table or a still-unnamed session. */
+function toLanding(u: Unseen): Landing | null {
+  if (u.id === null) return null
+  switch (u.kind) {
+    case 'session':
+      return { id: u.id, at: u.at, kind: 'landed' }
+    case 'asks':
+      return u.asks ? { id: u.id, at: u.at, kind: 'asks', asks: u.asks } : null
+    case 'pr':
+      return u.pr ? { id: u.id, at: u.at, kind: 'pr', pr: u.pr } : null
+    case 'roundtable':
+      return null
+  }
+}
+
+/** Which reason a session row carries when it has several: a question beats a red PR beats an ending. */
+const URGENCY: Record<Landing['kind'], number> = { asks: 0, pr: 1, landed: 2 }
+
+/** A pull request GitHub's own merge box would show red. */
+export function prIsRed(pr: Pick<PrStatus, 'state' | 'checks' | 'review'>): boolean {
+  return pr.state === 'OPEN' && (pr.checks === 'failing' || pr.review === 'changes_requested')
 }
 
 export type AttentionTrackerInit = {
@@ -253,6 +370,8 @@ export type AttentionTrackerInit = {
   readonly burstMs?: number
   /** What was still unseen when the app last saved */
   readonly unseen?: readonly Unseen[]
+  /** Pull requests already raised, by head commit, so a restart never repeats them */
+  readonly seenPrs?: ReadonlyArray<readonly [string, string]>
 }
 
 export class AttentionTracker {
@@ -270,11 +389,16 @@ export class AttentionTracker {
   /** Old key → the key that landing moved to (`turn:` → its session, a forked id → the new one) */
   private readonly aliases = new Map<string, string>()
   private withdrawn: string[] = []
+  /** Spawned turns that ended lately, by session id and by `provider|cwd` — observed echoes of them are skipped */
+  private readonly recentEnds = new Map<string, number>()
+  /** PR key → the head commit it was last raised for (insertion order is age) */
+  private readonly seenPrs = new Map<string, string>()
 
   constructor(init: AttentionTrackerInit = {}) {
     this.now = init.now ?? Date.now
     this.burstMs = init.burstMs ?? BURST_MS
     for (const u of init.unseen ?? []) this.unseen.set(u.key, u)
+    for (const [key, sha] of init.seenPrs ?? []) this.seenPrs.set(key, sha)
     this.trim()
   }
 
@@ -361,8 +485,14 @@ export class AttentionTracker {
     const f = this.flights.get(turnId)
     if (!f) return
     this.flights.delete(turnId)
-    if (f.cancelled || this.watching(f)) return
     const at = this.now()
+    // the log's own ending record follows within a debounce — that is not a second ending
+    for (const id of f.ids) this.recentEnds.set(id, at)
+    this.recentEnds.set(`${f.provider}|${trimSep(normalize(f.cwd))}`, at)
+    while (this.recentEnds.size > LANDING_MAX) {
+      this.recentEnds.delete(this.recentEnds.keys().next().value as string)
+    }
+    if (f.cancelled || this.watching(f)) return
     const key = f.latest ?? `turn:${f.turnId}`
     // a resumed claude turn forks a fresh id: an older landing under the id it
     // resumed is the same conversation, and must not count twice. Landing again is
@@ -387,8 +517,182 @@ export class AttentionTracker {
       detail: failed ? failureSnippet(f.error ?? '') : outcomeSnippet(f.text),
       title: null,
       fallbackTitle: clip(outcomeSnippet(f.prompt, TITLE_MAX) || 'New session', TITLE_MAX),
-      failed
+      failed,
+      tone: failed ? 'fail' : 'finish',
+      group: failed ? 'failed' : 'finished'
     })
+    this.trim()
+  }
+
+  /* ---------- turns observed in the logs (a terminal, the provider's own app) ---------- */
+
+  /**
+   * The liveness tracker saw a session's log move: a turn running, stopped on a
+   * question, or ended. Sessions Cockpit is running itself are its flights' business
+   * — their process exit lands them with better information, and the log's ending
+   * record arrives right after as an echo. Everything else lands under the same rule
+   * as a spawned turn: on screen in a focused window, it is not news.
+   */
+  observedTurn(ev: ObservedTurn): void {
+    if (this.spawned(ev)) return
+    const askKey = `asks:${ev.id}`
+    switch (ev.type) {
+      case 'running':
+        // the person is at that keyboard: the last landing is seen, the question answered
+        this.drop(askKey)
+        this.drop(ev.id)
+        return
+      case 'settled':
+        // the log is idle, so no question is open — but a landing stays: the records a
+        // turn writes after it ends (a title, a summary) must not clear fresh news
+        this.drop(askKey)
+        return
+      case 'asks': {
+        this.drop(ev.id)
+        const prior = this.unseen.get(askKey)
+        if (prior?.asks && sameAsk(prior.asks, ev.asks)) return
+        this.drop(askKey)
+        if (this.watchingId(ev.id)) return
+        const at = this.now()
+        this.unseen.set(askKey, {
+          key: askKey,
+          kind: 'asks',
+          id: ev.id,
+          provider: ev.provider,
+          ...(ev.cwd ? { cwd: ev.cwd } : {}),
+          startedAt: ev.startedAt,
+          at,
+          asks: ev.asks
+        })
+        const question = ev.asks.kind === 'question'
+        this.enqueue({
+          key: askKey,
+          who: AGENT[ev.provider],
+          verb: question ? 'asks you' : 'needs permission',
+          after: null,
+          detail: clip(ev.asks.detail, SNIPPET_MAX) || (question ? 'Answer in the session.' : 'Approve it where the agent runs.'),
+          title: null,
+          fallbackTitle: 'Session',
+          failed: false,
+          tone: 'finish',
+          group: 'asks'
+        })
+        this.trim()
+        return
+      }
+      case 'ended': {
+        this.drop(askKey)
+        if (this.watchingId(ev.id) || this.echoed(ev)) return
+        const at = this.now()
+        this.unseen.delete(ev.id)
+        this.unseen.set(ev.id, {
+          key: ev.id,
+          kind: 'session',
+          id: ev.id,
+          provider: ev.provider,
+          ...(ev.cwd ? { cwd: ev.cwd } : {}),
+          startedAt: ev.startedAt,
+          at
+        })
+        const failed = ev.failed === true
+        this.enqueue({
+          key: ev.id,
+          who: AGENT[ev.provider],
+          verb: failed ? 'failed' : 'finished',
+          after: elapsedLabel(ev.endedAt - ev.startedAt),
+          detail: failed ? failureSnippet(ev.closing ?? '') : outcomeSnippet(ev.closing ?? ''),
+          title: null,
+          fallbackTitle: 'Session',
+          failed,
+          tone: failed ? 'fail' : 'finish',
+          group: failed ? 'failed' : 'finished'
+        })
+        this.trim()
+        return
+      }
+    }
+  }
+
+  /** Drop the questions that are no longer waiting — the desk re-reads their logs once after launch. */
+  settleAsks(stillWaiting: (u: Unseen) => boolean): void {
+    for (const u of [...this.unseen.values()]) {
+      if (u.kind === 'asks' && !stillWaiting(u)) this.drop(u.key)
+    }
+  }
+
+  /* ---------- pull requests (the badges' refreshes, never a poller of its own) ---------- */
+
+  /**
+   * One repo's PR list came back from gh. A red open PR — failing checks, or changes
+   * requested — on a branch some session is working on is news once per head commit:
+   * the list refreshes every minute, and a push is what makes it new again. `carrierFor`
+   * names the session whose row carries it (main knows the index); a PR nobody's
+   * session is on has no row and waits for one. A PR that went green, or left the
+   * list, waits on nobody.
+   */
+  prsUpdated(repoRoot: string, prs: readonly PrStatus[], carrierFor: (pr: PrStatus) => string | null): void {
+    // the list is `--state all`, so an empty one is a failed gh call (answered [] and cached)
+    // or a repo with no PRs at all — nothing to clear either way, and a failure must not
+    // forget a PR that is still red
+    if (prs.length === 0) return
+    const prefix = `pr:${trimSep(normalize(repoRoot))}#`
+    const listed = new Set<string>()
+    for (const pr of prs) {
+      const key = `${prefix}${pr.number}`
+      listed.add(key)
+      if (!prIsRed(pr)) {
+        this.drop(key)
+        // green in between: the same commit turning red again (a review after a pass) is news
+        this.seenPrs.delete(key)
+        continue
+      }
+      const item: AttentionPr = {
+        number: pr.number,
+        title: clip(pr.title, TITLE_MAX * 2),
+        url: pr.url,
+        checks: pr.checks,
+        review: pr.review
+      }
+      if (this.seenPrs.get(key) === pr.headSha) {
+        // already raised for this push — keep what the row says current, say nothing new
+        const u = this.unseen.get(key)
+        if (u?.pr && (u.pr.checks !== item.checks || u.pr.review !== item.review)) {
+          this.unseen.set(key, { ...u, pr: item })
+        }
+        continue
+      }
+      const id = carrierFor(pr)
+      if (!id) continue
+      this.rememberPr(key, pr.headSha)
+      this.drop(key)
+      // the badge on screen already says it
+      if (this.watchingId(id)) continue
+      const at = this.now()
+      this.unseen.set(key, {
+        key,
+        kind: 'pr',
+        id,
+        ...(providerOf(id) ? { provider: providerOf(id) } : {}),
+        startedAt: at,
+        at,
+        pr: item
+      })
+      this.enqueue({
+        key,
+        who: `PR #${pr.number}`,
+        verb: pr.checks === 'failing' ? 'has failing checks' : 'has changes requested',
+        after: null,
+        detail: pr.headRefName,
+        title: clip(pr.title, TITLE_MAX),
+        fallbackTitle: `PR #${pr.number}`,
+        failed: false,
+        tone: 'fail',
+        group: 'pr'
+      })
+    }
+    for (const u of [...this.unseen.values()]) {
+      if (u.kind === 'pr' && u.key.startsWith(prefix) && !listed.has(u.key)) this.drop(u.key)
+    }
     this.trim()
   }
 
@@ -401,6 +705,7 @@ export class AttentionTracker {
     this.unseen.delete(key)
     const at = this.now()
     this.unseen.set(key, { key, kind: 'roundtable', id: end.id, startedAt: at, at })
+    const failed = end.outcome.kind === 'failed'
     this.enqueue({
       key,
       who: 'Roundtable',
@@ -409,7 +714,9 @@ export class AttentionTracker {
       detail: end.outcome.detail,
       title: clip(end.title, TITLE_MAX),
       fallbackTitle: 'Roundtable',
-      failed: end.outcome.kind === 'failed'
+      failed,
+      tone: failed ? 'fail' : 'finish',
+      group: failed ? 'failed' : 'finished'
     })
     this.trim()
   }
@@ -448,7 +755,7 @@ export class AttentionTracker {
     this.pending = []
     if (live.length === 0) return { notice: null, sound: null }
     const failed = live.some((p) => p.failed)
-    const sound = prefs.sound ? (failed ? 'fail' : 'finish') : null
+    const sound = prefs.sound ? (live.some((p) => p.tone === 'fail') ? 'fail' : 'finish') : null
     if (!prefs.notifications) return { notice: null, sound }
     const nameOf = (p: Pending): string => {
       const u = this.unseen.get(p.key)
@@ -467,14 +774,20 @@ export class AttentionTracker {
         keys: [p.key]
       }
     } else {
-      const bad = live.filter((p) => p.failed).length
-      const ok = live.length - bad
+      const count = (g: Group): number => live.filter((p) => p.group === g).length
+      const [ok, bad, asks, prs] = [count('finished'), count('failed'), count('asks'), count('pr')]
+      const parts = [
+        ok > 0 && `${ok} finished`,
+        bad > 0 && `${bad} failed`,
+        asks > 0 && `${asks} waiting on you`,
+        prs > 0 && `${prs} ${prs === 1 ? 'PR' : 'PRs'} red`
+      ].filter((s): s is string => typeof s === 'string')
       const title =
-        bad === 0
+        ok === live.length
           ? `${ok} sessions finished`
-          : ok === 0
+          : bad === live.length
             ? `${bad} sessions failed`
-            : `${ok} finished · ${bad} failed`
+            : parts.join(' · ')
       const lines = live
         .slice(0, SUMMARY_LINES)
         .map((p) => `${p.who} ${p.verb} · ${clip(nameOf(p), TITLE_MAX)}`)
@@ -509,22 +822,37 @@ export class AttentionTracker {
     return ids
   }
 
-  /** The board's landed sessions, newest first. */
+  /**
+   * The board's "needs you" rows, newest first: one per session, carrying its most
+   * urgent reason — a question over a red PR over an ended turn.
+   */
   landings(): Landing[] {
-    return [...this.unseen.values()]
-      .filter((u): u is Unseen & { id: string } => u.kind === 'session' && u.id !== null)
-      .sort((a, b) => b.at - a.at)
-      .map((u) => ({ id: u.id, at: u.at }))
+    const best = new Map<string, Landing>()
+    for (const u of this.unseen.values()) {
+      const l = toLanding(u)
+      if (!l) continue
+      const prev = best.get(l.id)
+      if (!prev || URGENCY[l.kind] < URGENCY[prev.kind] || (URGENCY[l.kind] === URGENCY[prev.kind] && l.at > prev.at)) {
+        best.set(l.id, l)
+      }
+    }
+    return [...best.values()].sort((a, b) => b.at - a.at)
   }
 
-  /** What the Dock badge shows: everything unseen, tables and not-yet-named sessions included. */
+  /** What the Dock badge shows: one per board row (however many reasons), tables and not-yet-named sessions included. */
   badgeCount(prefs: AttentionPrefs): number {
-    return prefs.badge ? this.unseen.size : 0
+    if (!prefs.badge) return 0
+    return new Set([...this.unseen.values()].map((u) => (u.kind === 'roundtable' || u.id === null ? u.key : u.id))).size
   }
 
   /** The state worth keeping across a restart, oldest first. */
   entries(): Unseen[] {
     return [...this.unseen.values()]
+  }
+
+  /** Pull requests already raised, by head commit — kept across a restart with the entries. */
+  seenPrEntries(): Array<[string, string]> {
+    return [...this.seenPrs.entries()]
   }
 
   /* ---------- internals ---------- */
@@ -541,13 +869,46 @@ export class AttentionTracker {
     return f.ids.size === 0 && v.provider === f.provider && samePath(v.cwd, f.cwd)
   }
 
+  /** Is this session on screen in a focused window? Then what happens in it is not news. */
+  private watchingId(id: string): boolean {
+    const v = this.focus
+    return this.windowFocused && v.kind === 'session' && v.id === id
+  }
+
+  /** Is Cockpit itself running a turn in this session? Its flight lands it. */
+  private spawned(ev: ObservedTurn): boolean {
+    for (const f of this.flights.values()) {
+      if (f.ids.has(ev.id)) return true
+      if (f.ids.size === 0 && f.provider === ev.provider && samePath(f.cwd, ev.cwd ?? undefined)) return true
+    }
+    return false
+  }
+
+  /** Did one of Cockpit's own turns in this session just end? Then this ending is its echo in the log. */
+  private echoed(ev: ObservedTurn): boolean {
+    const since = this.now() - OBSERVED_ECHO_MS
+    const byId = this.recentEnds.get(ev.id)
+    if (byId !== undefined && byId > since) return true
+    if (!ev.cwd) return false
+    const byPlace = this.recentEnds.get(`${ev.provider}|${trimSep(normalize(ev.cwd))}`)
+    return byPlace !== undefined && byPlace > since
+  }
+
+  private rememberPr(key: string, sha: string): void {
+    this.seenPrs.delete(key)
+    this.seenPrs.set(key, sha)
+    while (this.seenPrs.size > SEEN_PRS_MAX) {
+      this.seenPrs.delete(this.seenPrs.keys().next().value as string)
+    }
+  }
+
   private see(focus: AttentionFocus): void {
     if (focus.kind === 'none') return
     for (const u of [...this.unseen.values()]) {
       const seen =
         focus.kind === 'roundtable'
           ? u.kind === 'roundtable' && u.id === focus.id
-          : u.kind === 'session' &&
+          : u.kind !== 'roundtable' &&
             (u.id !== null
               ? u.id === focus.id
               : u.provider === focus.provider && samePath(u.cwd, focus.cwd))
@@ -561,6 +922,12 @@ export class AttentionTracker {
     for (let hops = 0; hops < 4 && this.aliases.has(k); hops++) k = this.aliases.get(k) as string
     if (k.startsWith('turn:')) return { kind: 'home' }
     if (k.startsWith('table:')) return { kind: 'roundtable', id: k.slice('table:'.length) }
+    if (k.startsWith('asks:')) return { kind: 'session', id: k.slice('asks:'.length) }
+    if (k.startsWith('pr:')) {
+      // the row that carries it, if it is still unseen; the board otherwise
+      const id = this.unseen.get(k)?.id
+      return id ? { kind: 'session', id } : { kind: 'home' }
+    }
     return { kind: 'session', id: k }
   }
 
@@ -599,9 +966,9 @@ export class AttentionTracker {
   }
 
   private trim(): void {
-    const cutoff = this.now() - LANDING_TTL_MS
+    const now = this.now()
     for (const u of [...this.unseen.values()]) {
-      if (u.at <= cutoff) this.drop(u.key)
+      if (u.at <= now - (u.kind === 'asks' ? WAIT_TTL_MS : LANDING_TTL_MS)) this.drop(u.key)
     }
     while (this.unseen.size > LANDING_MAX) {
       this.drop(this.unseen.keys().next().value as string)

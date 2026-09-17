@@ -98,7 +98,8 @@ describe('toPrStatus', () => {
     headRefName: 'cockpit/login-flake',
     url: 'https://github.com/acme/rocket/pull/42',
     statusCheckRollup: [run('SUCCESS'), run('FAILURE')],
-    reviewDecision: 'CHANGES_REQUESTED'
+    reviewDecision: 'CHANGES_REQUESTED',
+    headRefOid: 'deadbeef'
   }
 
   it('shapes a gh row into a PrStatus with the summaries folded in', () => {
@@ -108,6 +109,7 @@ describe('toPrStatus', () => {
       state: 'OPEN',
       isDraft: false,
       headRefName: 'cockpit/login-flake',
+      headSha: 'deadbeef',
       url: 'https://github.com/acme/rocket/pull/42',
       checks: 'failing',
       review: 'changes_requested',
@@ -134,6 +136,7 @@ describe('toPrStatus', () => {
       state: 'MERGED',
       isDraft: false,
       headRefName: '',
+      headSha: '',
       url: '',
       checks: 'none',
       review: 'none',

@@ -182,6 +182,8 @@ export type PrStatus = {
   readonly state: PrState
   readonly isDraft: boolean
   readonly headRefName: string
+  /** The head commit, so "this PR went red" is news once per push, not once per refresh */
+  readonly headSha: string
   readonly url: string
   readonly checks: PrChecks
   readonly review: PrReview
@@ -770,7 +772,8 @@ export type BusySession = {
 
 /** Settings › Notifications — how Cockpit tells you an agent needs you. */
 export type AttentionPrefs = {
-  /** A desktop notification when a turn finishes or fails, or a roundtable concludes */
+  /** A desktop notification when a turn finishes or fails, an agent waits on you, a
+   *  roundtable concludes, or a pull request turns red */
   readonly notifications: boolean
   /** A short macOS system sound on finish and on failure */
   readonly sound: boolean
@@ -790,13 +793,38 @@ export type AttentionFocus =
   | { readonly kind: 'roundtable'; readonly id: string }
   | { readonly kind: 'none' }
 
-/** A session whose turn ended while nobody was looking at it (the board's landed rows). */
+/** What an agent is blocked on: a question it asked, or a permission it wants. */
+export type AttentionAsk = {
+  readonly kind: 'question' | 'permission'
+  /** One line — the question, the command — or '' when the log doesn't say */
+  readonly detail: string
+}
+
+/** An open pull request that needs its author back. */
+export type AttentionPr = {
+  readonly number: number
+  readonly title: string
+  readonly url: string
+  readonly checks: PrChecks
+  readonly review: PrReview
+}
+
+/**
+ * A session on the board's "needs you" list, one row per session. Main decides
+ * (attention-core.ts): its turn ended while nobody was looking (`landed`), its agent
+ * is waiting on an answer or a permission (`asks`), or the pull request on its branch
+ * turned red (`pr`). A session with several reasons carries the most urgent one.
+ */
 export type Landing = {
   /** Session id: `${provider}:${nativeId}` */
   readonly id: string
-  /** Epoch ms the turn ended */
+  /** Epoch ms it became news */
   readonly at: number
-}
+} & (
+  | { readonly kind: 'landed' }
+  | { readonly kind: 'asks'; readonly asks: AttentionAsk }
+  | { readonly kind: 'pr'; readonly pr: AttentionPr }
+)
 
 /** Where clicking a notification takes the window. */
 export type AttentionTarget =

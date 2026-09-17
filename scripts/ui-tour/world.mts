@@ -26,7 +26,8 @@ export type World = {
 type Turn = {
   readonly user?: string
   readonly say?: string
-  readonly tools?: readonly { readonly name: string; readonly input: object; readonly result?: string }[]
+  /** `pending`: the call is written and nothing answers it — the agent is waiting on the person */
+  readonly tools?: readonly { readonly name: string; readonly input: object; readonly result?: string; readonly pending?: boolean }[]
 }
 
 const STUB = resolve(import.meta.dirname, 'stub-cli.mjs')
@@ -154,6 +155,7 @@ function populate(world: World): void {
       for (const tool of turn.tools ?? []) {
         const toolId = `toolu_${++seq}`
         assistant([{ type: 'tool_use', id: toolId, name: tool.name, input: tool.input }], 80)
+        if (tool.pending) continue
         lines.push({ type: 'user', timestamp: at(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: tool.result ?? 'ok' }] } })
       }
     }
@@ -193,6 +195,27 @@ function populate(world: World): void {
     ]
   })
   claude({ cwd: wt('rocket', 'paginate-sessions-list'), branch: 'cockpit/paginate-sessions-list', title: 'Add pagination to the sessions list', hoursAgo: 3, turns: [{ user: 'Add cursor pagination to the sessions list.' }, { say: 'Done — 20 per page with a "more…" row.' }] })
+  // a terminal session that has just stopped to ask — written moments ago, so the
+  // liveness tracker reads its tail and the board shows it waiting on you
+  claude({
+    cwd: code('rocket'),
+    branch: 'main',
+    title: 'Split the SDK into a monorepo layout',
+    hoursAgo: 0.012,
+    turns: [
+      { user: 'Move the SDK into packages/ with one package per runtime.' },
+      {
+        say: 'Two layouts are reasonable here; the choice affects every import path.',
+        tools: [
+          {
+            name: 'AskUserQuestion',
+            input: { questions: [{ question: 'Which layout should the SDK packages use?', header: 'Layout', options: [{ label: 'packages/<runtime>' }, { label: 'sdk/<runtime>' }] }] },
+            pending: true
+          }
+        ]
+      }
+    ]
+  })
   claude({ cwd: wt('rocket', 'dark-mode-tokens'), branch: 'cockpit/dark-mode-tokens', title: 'Extract dark-mode color tokens into a single :root block', hoursAgo: 5, turns: [{ user: 'Pull every hard-coded color into custom properties.' }, { say: 'Found 143 literals across 22 files.' }] })
   claude({ cwd: code('rocket'), branch: 'main', title: 'Why is the bundle 2MB? Audit the imports', hoursAgo: 26, turns: [{ user: 'Why is the production bundle 2MB?' }, { say: 'Moment.js with all locales is 600KB of it.' }] })
   claude({ cwd: wt('atlas', 'billing-webhook-retries'), branch: 'cockpit/billing-webhook-retries', title: 'Retry failed billing webhooks with idempotency keys', hoursAgo: 1.4, turns: [{ user: 'Retry webhooks with idempotency keys.' }, { say: 'Implemented a retry queue keyed by event id.' }] })
