@@ -1,7 +1,8 @@
 import { afterAll, describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
 import type { BusySession, Provider, SessionMeta } from '../src/shared/types'
 import { LIVE_TAIL_STEPS, LivenessTracker, readTurnState, type LivenessOptions } from '../src/main/liveness'
 
@@ -84,6 +85,41 @@ const FIXTURES: Record<Provider, { file: string; midTurn: unknown[]; final: unkn
     ],
     final: { type: 'assistant.turn_end', data: { turnId: '0' }, timestamp: T1 },
     startedAt: Date.parse(T0)
+  }
+}
+
+const NATIVE: Record<Provider, string> = { claude: 'c1', codex: 'x1', copilot: 'p1' }
+
+/**
+ * The two things silence can mean, per provider: a turn waiting on the model (the
+ * plain window — `thinking`) and one waiting on a tool call that writes nothing until
+ * it finishes (the tool window — `thinking` plus `inTool`), with the record that
+ * finally closes the call.
+ */
+const SILENCE: Record<
+  Provider,
+  { readonly thinking: readonly unknown[]; readonly inTool: unknown; readonly toolDone: unknown }
+> = {
+  claude: {
+    // the prompt alone: the model has been handed the turn and has written nothing yet
+    thinking: [FIXTURES.claude.midTurn[0]],
+    inTool: FIXTURES.claude.midTurn[1],
+    toolDone: {
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] },
+      toolUseResult: {},
+      timestamp: T1
+    }
+  },
+  codex: {
+    thinking: FIXTURES.codex.midTurn,
+    inTool: { timestamp: T1, type: 'response_item', payload: { type: 'function_call', name: 'shell' } },
+    toolDone: { timestamp: T1, type: 'response_item', payload: { type: 'function_call_output', output: 'ok' } }
+  },
+  copilot: {
+    thinking: FIXTURES.copilot.midTurn,
+    inTool: { type: 'tool.execution_start', data: { toolCallId: 'a' }, timestamp: T1 },
+    toolDone: { type: 'tool.execution_complete', data: { toolCallId: 'a' }, timestamp: T1 }
   }
 }
 
@@ -404,24 +440,117 @@ describe('LivenessTracker — what it tells the attention desk', () => {
 })
 
 describe('LivenessTracker — the tool window', () => {
-  it('a turn inside a tool call outlives the plain window, and drops back to it once the result is written', async () => {
-    const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 2_000, sweepMs: 40 })
-    const fx = FIXTURES.claude
-    const file = writeFixture('claude', fx.midTurn) // ends on a tool_use
-    t.observe(file, meta('claude', 'c1', file), mtime(file))
-    await new Promise((r) => setTimeout(r, 500))
-    expect(t.sessions().map((s) => s.id)).toEqual(['claude:c1'])
-    // the result arrives: the model is thinking again, and silence means what it usually means
-    appendFileSync(file, jsonl([{ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] }, toolUseResult: {}, timestamp: T1 }]))
-    t.observe(file, meta('claude', 'c1', file), mtime(file))
-    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
-  })
+  for (const provider of ['claude', 'codex', 'copilot'] as const) {
+    const sil = SILENCE[provider]
+    const nativeId = NATIVE[provider]
+    const id = `${provider}:${nativeId}`
+
+    it(`${provider}: a turn inside a tool call outlives the plain window, and drops back to it once the result is written`, async () => {
+      const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 3_000, sweepMs: 40 })
+      const file = writeFixture(provider, [...sil.thinking, sil.inTool])
+      t.observe(file, meta(provider, nativeId, file), mtime(file))
+      await new Promise((r) => setTimeout(r, 600))
+      expect(t.sessions().map((s) => s.id)).toEqual([id])
+      // the result arrives: the model is thinking again, and silence means what it usually means
+      appendFileSync(file, jsonl([sil.toolDone]))
+      t.observe(file, meta(provider, nativeId, file), mtime(file))
+      await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+    })
+
+    it(`${provider}: a turn waiting on the model gets the plain window, tool window or not`, async () => {
+      const t = tracker(() => {}, { windowMs: 150, toolWindowMs: 60_000, sweepMs: 40 })
+      const file = writeFixture(provider, [...sil.thinking])
+      t.observe(file, meta(provider, nativeId, file), mtime(file))
+      expect(t.sessions().map((s) => s.id)).toEqual([id])
+      await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+    })
+
+    it(`${provider}: the tool window is longer, not unbounded — a killed CLI mid-tool still expires`, async () => {
+      const t = tracker(() => {}, { windowMs: 100, toolWindowMs: 700, sweepMs: 40 })
+      const file = writeFixture(provider, [...sil.thinking, sil.inTool])
+      t.observe(file, meta(provider, nativeId, file), mtime(file))
+      await new Promise((r) => setTimeout(r, 300))
+      expect(t.sessions().map((s) => s.id)).toEqual([id]) // past the plain window
+      await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+    })
+  }
+
   it('the arrival gate is the plain window: an old tool call is not picked up late', () => {
     const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 60_000 })
     const file = writeFixture('claude', FIXTURES.claude.midTurn)
     age(file, 5_000)
     t.observe(file, meta('claude', 'c1', file, Date.now() - 5_000), mtime(file))
     expect(t.sessions()).toEqual([])
+  })
+})
+
+describe("LivenessTracker — copilot's own lock", () => {
+  /** A copilot session directory of its own, so a lock in it reaches no other test. */
+  function session(name: string, records: readonly unknown[]): string {
+    const file = join(root, 'copilot/session-state', name, 'events.jsonl')
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, jsonl([...records]))
+    return file
+  }
+  const lock = (file: string, pid: number): void =>
+    writeFileSync(join(dirname(file), `inuse.${pid}.lock`), `${pid}\n`)
+  /** A pid that has certainly gone: a child we waited on. */
+  const deadPid = (): number => spawnSync('/usr/bin/true').pid
+  const midTool = [...SILENCE.copilot.thinking, SILENCE.copilot.inTool]
+  const observe = (t: LivenessTracker, file: string, nativeId: string): void =>
+    t.observe(file, meta('copilot', nativeId, file), mtime(file))
+
+  it('a lock held by a living process keeps a running turn past both windows', async () => {
+    const t = tracker(() => {}, { windowMs: 100, toolWindowMs: 200, sweepMs: 40 })
+    const file = session('held', midTool)
+    lock(file, process.pid)
+    observe(t, file, 'held')
+    expect(t.sessions().map((s) => s.id)).toEqual(['copilot:held'])
+    await new Promise((r) => setTimeout(r, 600)) // several sweeps past the tool window
+    expect(t.sessions().map((s) => s.id)).toEqual(['copilot:held'])
+  })
+
+  it('a lock whose process has gone lets the turn expire at the next sweep', async () => {
+    const t = tracker(() => {}, { windowMs: 100, toolWindowMs: 200, sweepMs: 40 })
+    const file = session('stale-lock', midTool)
+    lock(file, deadPid())
+    observe(t, file, 'stale-lock')
+    expect(t.sessions().map((s) => s.id)).toEqual(['copilot:stale-lock'])
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+  })
+
+  it('a live lock with no running turn creates nothing — the log is what starts one', () => {
+    const t = tracker(() => {}, { windowMs: 100, toolWindowMs: 200, sweepMs: 40 })
+    const ended = session('ended', [...SILENCE.copilot.thinking, FIXTURES.copilot.final])
+    lock(ended, process.pid)
+    observe(t, ended, 'ended')
+    expect(t.sessions()).toEqual([])
+    // and the arrival gate is untouched: an old log is not picked up because a CLI holds it
+    const old = session('old', midTool)
+    lock(old, process.pid)
+    age(old, 10 * 60_000)
+    t.observe(old, meta('copilot', 'old', old, Date.now() - 10 * 60_000), mtime(old))
+    expect(t.sessions()).toEqual([])
+  })
+
+  it('an unreadable lock, or none at all, leaves the windows to decide', async () => {
+    const t = tracker(() => {}, { windowMs: 100, toolWindowMs: 200, sweepMs: 40 })
+    const file = session('no-lock', midTool)
+    writeFileSync(join(dirname(file), '.workspace-fork.lock'), '') // copilot's other lock is not this one
+    writeFileSync(join(dirname(file), 'inuse.lock'), 'no pid here')
+    observe(t, file, 'no-lock')
+    expect(t.sessions().map((s) => s.id)).toEqual(['copilot:no-lock'])
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+  })
+
+  it("the lock is copilot's alone: another provider's entry expires beside one", async () => {
+    const t = tracker(() => {}, { windowMs: 100, toolWindowMs: 200, sweepMs: 40 })
+    const file = writeFixture('claude', [...SILENCE.claude.thinking, SILENCE.claude.inTool])
+    writeFileSync(join(dirname(file), `inuse.${process.pid}.lock`), `${process.pid}\n`)
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(t.sessions().map((s) => s.id)).toEqual(['claude:c1'])
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+    rmSync(join(dirname(file), `inuse.${process.pid}.lock`), { force: true })
   })
 })
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   IDLE,
+  copilotLockPids,
   judgeClaudeTail,
   judgeCodexTail,
   judgeCopilotTail,
@@ -407,5 +408,27 @@ describe('inTool: the newest record is a tool call waiting for its result', () =
     expect(judgeCopilotTail([cp('assistant.turn_start', T1), start('a')])?.inTool).toBe(true)
     expect(judgeCopilotTail([cp('assistant.turn_start', T1), start('a'), done('a')])?.inTool).toBeUndefined()
     expect(judgeCopilotTail([cp('assistant.turn_start', T1), start('a'), start('b'), done('b')])?.inTool).toBe(true)
+  })
+})
+
+describe("copilotLockPids: who copilot says is holding the session", () => {
+  it('reads the pid out of every inuse lock, in the order the directory gave them', () => {
+    expect(copilotLockPids(['events.jsonl', 'inuse.23856.lock', 'workspace.yaml', 'inuse.9839.lock'])).toEqual([
+      23856, 9839
+    ])
+  })
+  it("ignores copilot's other lock, and anything that is not a pid", () => {
+    const names = [
+      '.workspace-fork.lock',
+      'inuse.lock',
+      'inuse..lock',
+      'inuse.abc.lock',
+      'inuse.-1.lock',
+      'inuse.12.lock.bak',
+      'xinuse.12.lock',
+      'session.db'
+    ]
+    expect(copilotLockPids(names)).toEqual([])
+    expect(copilotLockPids([])).toEqual([])
   })
 })

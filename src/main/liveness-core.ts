@@ -456,6 +456,29 @@ export function judgeCopilotTail(records: readonly any[]): TurnVerdict | null {
   return null
 }
 
+/* ---------- copilot's own lock ---------- */
+
+/** `inuse.<pid>.lock`, as Copilot names it while a CLI process holds the session. */
+const COPILOT_LOCK = /^inuse\.(\d{1,9})\.lock$/
+
+/**
+ * The pids Copilot claims are holding a session, read off the names in its
+ * `session-state/<id>/` directory. Copilot writes one `inuse.<pid>.lock` per holding
+ * process and, unlike the log, keeps it for as long as the CLI runs — so it answers
+ * the one question the records cannot: whether anything is still there. It leaves
+ * them behind on a crash too (most of the ones on disk are stale), which is why the
+ * pid, not the file, is the evidence; the caller checks each one. Names it does not
+ * recognise are skipped — `.workspace-fork.lock` is a different lock entirely.
+ */
+export function copilotLockPids(names: readonly string[]): number[] {
+  const pids: number[] = []
+  for (const name of names) {
+    const pid = COPILOT_LOCK.exec(name)
+    if (pid) pids.push(Number(pid[1]))
+  }
+  return pids
+}
+
 /* ---------- the busy set ---------- */
 
 /**
