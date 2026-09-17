@@ -151,6 +151,8 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'chat', name: 'chat-worktree', go: (w) => open(w, /Add pagination to the sessions list/) },
+  // the agent stopped to ask: its options, answerable in place
+  { view: 'chat', name: 'chat-asks', go: (w) => open(w, /Split the SDK into a monorepo/) },
   { view: 'chat', name: 'chat-codex', go: (w) => open(w, /Add a fallback when the billing API/) },
   { view: 'chat', name: 'chat-copilot', go: (w) => open(w, /Tidy the usage panel spacing/) },
   {
@@ -166,7 +168,7 @@ const STATIC: readonly Shot[] = [
 ]
 
 /** The floor gets the views whose chrome is width-budgeted, not every section again. */
-const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   {

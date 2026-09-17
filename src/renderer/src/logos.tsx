@@ -274,6 +274,11 @@ export const CheckIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_CHECK} size={size} />
 )
 
+/** The same question mark, on its own: the chat's card for a question awaiting a pick. */
+export const QuestionIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
+  <Octicon d={OCTICON_QUESTION} size={size} />
+)
+
 const CHECKS_GLYPH: Record<Exclude<PrChecks, 'none'>, string> = {
   passing: OCTICON_CHECK,
   failing: OCTICON_X,

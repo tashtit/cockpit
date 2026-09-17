@@ -1,6 +1,7 @@
 import { basename, dirname, join } from 'node:path'
 import { statSync } from 'node:fs'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
+import { parseAsks } from '../../shared/asks'
 import {
   capText,
   contentToText,
@@ -202,13 +203,16 @@ export function parseCodexMessages(file: string): SessionMessage[] {
         case 'function_call': {
           // the headline is the command or the patched files; the raw arguments stay in
           // the detail, as they do for every other agent's rows
-          const preview = toolPreview(p.name ?? 'tool', parseArguments(p.arguments))
+          const args = parseArguments(p.arguments)
+          const preview = toolPreview(p.name ?? 'tool', args)
+          const asks = parseAsks(p.name ?? '', args)
           out.push({
             role: 'assistant',
             kind: 'tool_call',
             toolName: p.name ?? 'tool',
             text: truncate(String(p.arguments ?? ''), 400),
             ...(preview ? { preview: truncate(preview, 200) } : {}),
+            ...(asks ? { asks } : {}),
             ts
           })
           break

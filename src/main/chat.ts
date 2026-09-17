@@ -8,6 +8,7 @@ import {
   isBlockedEndpointHost,
   isValidModel
 } from '../shared/endpoints'
+import { parseAsks } from '../shared/asks'
 import { contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
 import { cliEnv } from './env'
 
@@ -100,12 +101,16 @@ export function parseClaudeStreamLine(turnId: string, line: any): ChatEvent[] {
       for (const b of content) {
         if (b?.type === 'tool_use') {
           const preview = toolPreview(b.name ?? 'tool', b.input)
+          // a question the CLI can't answer itself rides along with its options, so
+          // the chat can offer them as picks rather than a JSON blob
+          const asks = parseAsks(b.name ?? '', b.input)
           out.push({
             turnId,
             type: 'tool',
             toolName: b.name ?? 'tool',
             detail: truncate(JSON.stringify(b.input ?? {}), 200),
-            ...(preview ? { preview: truncate(preview, 200) } : {})
+            ...(preview ? { preview: truncate(preview, 200) } : {}),
+            ...(asks ? { asks } : {})
           })
         }
       }

@@ -68,6 +68,27 @@ export type SessionMeta = {
 
 export type MessageKind = 'text' | 'tool_call' | 'tool_result' | 'reasoning' | 'system' | 'unknown'
 
+/** One choice an agent offered in a question (`AskUserQuestion`'s `options[]`). */
+export type AskOption = {
+  readonly label: string
+  /** What the option means — the agent's own one-liner under the label */
+  readonly description?: string
+}
+
+/**
+ * A question an agent stopped to ask, with the answers it offered. Parsed off the
+ * tool call that is waiting (`src/shared/asks.ts`), so the chat can render the
+ * options as picks instead of a JSON blob.
+ */
+export type AskPrompt = {
+  readonly question: string
+  /** The agent's own two-word label for the question, when it wrote one */
+  readonly header?: string
+  /** More than one answer may be picked */
+  readonly multiSelect?: boolean
+  readonly options: readonly AskOption[]
+}
+
 export type SessionMessage = {
   readonly role: 'user' | 'assistant' | 'system' | 'tool'
   readonly kind: MessageKind
@@ -78,6 +99,10 @@ export type SessionMessage = {
   readonly ts?: number
   /** True while this message is still being streamed into */
   readonly streaming?: boolean
+  /** A tool_call that stopped to ask the user to pick — the questions it offered.
+   *  Unanswered (no tool_result folded onto the row) and last in the transcript,
+   *  the chat renders it as an answerable card. */
+  readonly asks?: readonly AskPrompt[]
 }
 
 export type SourceDir = {
@@ -857,6 +882,8 @@ export type ChatEvent =
       readonly toolName: string
       readonly detail: string
       readonly preview?: string
+      /** The tool is a question waiting on the user — its options (see AskPrompt) */
+      readonly asks?: readonly AskPrompt[]
     }
   | { readonly turnId: string; readonly type: 'done'; readonly costUsd?: number }
   | { readonly turnId: string; readonly type: 'error'; readonly message: string }
