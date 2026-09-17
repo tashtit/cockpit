@@ -93,7 +93,7 @@ export function NotificationsSection({
 
   return (
     <>
-      <p className="ns-hint">
+      <p className="ns-hint ns-prose">
         When an agent finishes, fails or stops to ask you something while you&apos;re somewhere
         else — another session, another app, a terminal — Cockpit tells you, and when an open pull
         request on a session&apos;s branch turns red. Never about the session in front of you;
