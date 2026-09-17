@@ -175,12 +175,38 @@ export function HomeView({
   // the fleet: sessions and roundtables on one board, placed by what is happening
   const busyMap = useBusyMap()
   const landedMap = useLandedMap()
+  // main raises news on any session, not just the recent ten: the row the banner and the
+  // Dock badge promised is fetched by id when the page doesn't hold it
+  const [older, setOlder] = useState<SessionMeta[]>([])
+  const missing = useMemo(() => {
+    const paged = new Set(recent.map((s) => s.id))
+    return JSON.stringify([...landedMap.keys()].filter((id) => !paged.has(id)).slice(0, NEEDS_FETCH_MAX))
+  }, [recent, landedMap])
+  useEffect(() => {
+    const ids = JSON.parse(missing) as string[]
+    if (ids.length === 0) {
+      setOlder([])
+      return
+    }
+    let dead = false
+    void Promise.all(ids.map((id) => api.getSession(id))).then((found) => {
+      if (!dead) setOlder(found.filter((s): s is SessionMeta => s !== null))
+    })
+    return () => {
+      dead = true
+    }
+  }, [missing, indexVersion])
+  const sessions = useMemo(() => {
+    const paged = new Set(recent.map((s) => s.id))
+    // a fetched row stays only while it still needs you — it never joins the ground
+    return [...recent, ...older.filter((s) => !paged.has(s.id) && landedMap.has(s.id))]
+  }, [recent, older, landedMap])
   const active =
-    recent.some((s) => busyMap.has(s.id) || landedMap.has(s.id)) || tables.some((t) => t.running)
-  const fleetLeads = active && recent.length + tables.length > 0
-  const fleet = recent.length + tables.length > 0 && (
+    sessions.some((s) => busyMap.has(s.id) || landedMap.has(s.id)) || tables.some((t) => t.running)
+  const fleetLeads = active && sessions.length + tables.length > 0
+  const fleet = sessions.length + tables.length > 0 && (
     <Board
-      sessions={recent}
+      sessions={sessions}
       total={recentTotal}
       tables={tables}
       onOpen={onOpenSession}
@@ -543,6 +569,8 @@ function Board({
 
 /** Rows the board shows when nothing is happening — the page fetch's own size. */
 const BOARD_ROWS = 10
+/** Needs-you rows fetched beyond the page — main keeps no more landings than this (LANDING_MAX). */
+const NEEDS_FETCH_MAX = 60
 
 /**
  * A roundtable on the board: the seat cluster in the lead column, where a session has

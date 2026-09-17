@@ -226,6 +226,24 @@ describe('needs you: questions and red pull requests', () => {
     stop()
   })
 
+  it('news on a session older than the recent ten still gets its row, fetched by id', async () => {
+    const older = session('claude:old', 'rename the config flag')
+    vi.mocked(window.cockpit.getSession).mockImplementation(async (id) => (id === older.id ? older : null))
+    const stop = initLanded()
+    renderHome()
+    await screen.findByText('add pagination')
+
+    pushLandings([{ ...RED, id: older.id }])
+    const row = (await screen.findByText('rename the config flag')).closest<HTMLElement>('.board-row')!
+    expect(row).toHaveClass('fix')
+    expect(screen.getByText(/1 red PR/)).toBeInTheDocument()
+    expect(window.cockpit.getSession).toHaveBeenCalledWith('claude:old')
+    // seen: the row goes with its news rather than joining the ground
+    pushLandings([])
+    await waitFor(() => expect(screen.queryByText('rename the config flag')).not.toBeInTheDocument())
+    stop()
+  })
+
   it('a changes-requested PR says so', async () => {
     const stop = initLanded()
     renderHome()

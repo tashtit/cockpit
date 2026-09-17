@@ -63,7 +63,8 @@ surface, no shadow).
 - **Row budget:** flying and landed rows always show; the ground fills what is left of ten
   rows (`BOARD_ROWS`). The sidebar stays the exhaustive list. Rows come from
   the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
-  list; don't grow this.
+  list; don't grow this. The one addition: a session that needs you but is not on that page
+  is fetched by id (`getSession`), so every banner and Dock count has its row.
 - `.board-eyebrow` (h2 — the board renders above the hero's h2, so an h3 here would read
   as a skipped level): "**N waiting on you** · **N flying** · **N red PRs** · **M landed** ·
   K on the ground" (K from the page total, every zero count dropped), or "all on the
