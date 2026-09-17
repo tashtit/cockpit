@@ -595,17 +595,18 @@ export class AttentionTracker {
           startedAt: ev.startedAt,
           at
         })
+        const failed = ev.failed === true
         this.enqueue({
           key: ev.id,
           who: AGENT[ev.provider],
-          verb: 'finished',
+          verb: failed ? 'failed' : 'finished',
           after: elapsedLabel(ev.endedAt - ev.startedAt),
-          detail: outcomeSnippet(ev.closing ?? ''),
+          detail: failed ? failureSnippet(ev.closing ?? '') : outcomeSnippet(ev.closing ?? ''),
           title: null,
           fallbackTitle: 'Session',
-          failed: false,
-          tone: 'finish',
-          group: 'finished'
+          failed,
+          tone: failed ? 'fail' : 'finish',
+          group: failed ? 'failed' : 'finished'
         })
         this.trim()
         return

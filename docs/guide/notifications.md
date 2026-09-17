@@ -36,7 +36,7 @@ And a red pull request names the PR and the branch:
 
 Click any of them to bring Cockpit forward on that session. When several things land within a second or two of each other, they arrive as **one** notification ("2 finished · 1 waiting on you") listing them, and clicking it opens the home board where they all are.
 
-**The sound** is a macOS system sound: *Glass* when a turn finishes or an agent asks you something, *Basso* when a turn fails or a pull request goes red. Several endings at once play one sound, the graver one.
+**The sound** is a macOS system sound: *Glass* when a turn finishes or an agent asks you something, *Basso* when a turn fails (Claude stopping on an API error or usage limit included) or a pull request goes red. Several endings at once play one sound, the graver one.
 
 **The Dock badge** counts sessions that need you and you haven't opened yet — the same sessions the home board and the sidebar mark **landed**, **asks you** or with the red PR mark, plus roundtables that concluded. A session with several reasons counts once and shows its most urgent one: a question, then a red PR, then an ended turn. Opening it takes it off the count, clears every reason, and takes its notification out of Notification Center.
 

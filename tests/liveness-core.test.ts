@@ -81,6 +81,19 @@ describe('judgeClaudeTail', () => {
     const err = { type: 'system', subtype: 'api_error', level: 'warning', retryAttempt: 1 }
     expect(judgeClaudeTail([prompt(), err])).toEqual({ live: true, startedAt: ms(T0) })
   })
+  it('an API error or usage limit the CLI stopped on ends the turn as a failure, with its words', () => {
+    const stopped = {
+      type: 'assistant',
+      isApiErrorMessage: true,
+      message: { content: [{ type: 'text', text: 'API Error: 529 Overloaded' }] },
+      timestamp: T2
+    }
+    expect(judgeClaudeTail([prompt(), toolUse(), toolResult(), stopped])).toEqual({
+      ...IDLE,
+      closing: 'API Error: 529 Overloaded',
+      failed: true
+    })
+  })
   it('the interrupt marker ends the turn', () => {
     expect(judgeClaudeTail([prompt(), toolUse(), prompt('[Request interrupted by user for tool use]', T2)])).toEqual(IDLE)
   })

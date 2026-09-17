@@ -37,6 +37,8 @@ export type TurnVerdict = {
   readonly inTool?: true
   /** Idle only: what the agent said as it ended, when the ending record carries it */
   readonly closing?: string
+  /** Idle only: the turn ended on an error the CLI gave up on (an API error, a usage limit) */
+  readonly failed?: true
 }
 
 export const IDLE: TurnVerdict = { live: false, startedAt: null }
@@ -65,6 +67,8 @@ export type ObservedTurn = ObservedSession &
         readonly endedAt: number
         /** The agent's closing words, when the ending record carried them */
         readonly closing: string | null
+        /** It ended on an error rather than an answer */
+        readonly failed?: true
       }
     /**
      * A fresh write judged idle with no turn seen running: whatever the log was waiting
@@ -211,7 +215,11 @@ export function judgeClaudeTail(records: readonly any[]): TurnVerdict | null {
       const thinkingOnly =
         blocks.length > 0 &&
         blocks.every((b) => b?.type === 'thinking' || b?.type === 'redacted_thinking')
-      if (!toolPending && !thinkingOnly) return idle(closingOf(contentToText(blocks)))
+      if (!toolPending && !thinkingOnly) {
+        const ended = idle(closingOf(contentToText(blocks)))
+        // the CLI's own record of an API error or usage limit it stopped on
+        return r.isApiErrorMessage === true ? { ...ended, failed: true } : ended
+      }
       const startedAt = claudeTurnStart(records, i)
       // a tool_use that is a question to the person: the turn is live, but on them
       for (const b of blocks) {

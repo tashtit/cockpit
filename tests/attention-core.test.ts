@@ -660,6 +660,15 @@ describe('AttentionTracker — turns observed in the logs', () => {
     expect(h.t.landings()).toEqual([{ id: 'claude:obs', at: h.clock.now, kind: 'landed' }])
     expect(h.t.flushAt()).not.toBeNull()
   })
+
+  it('an ending on an API error reads as a failure, with the failure sound', () => {
+    const h = harness()
+    observed(h, { type: 'running' })
+    observed(h, { type: 'ended', failed: true, closing: 'API Error: 529 Overloaded' })
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('fail')
+    expect(notice).toMatchObject({ title: 'Claude failed after 4m', body: 'API Error: 529 Overloaded', failed: true })
+  })
 })
 
 /* ---------- red pull requests ---------- */

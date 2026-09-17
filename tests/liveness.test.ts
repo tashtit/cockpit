@@ -353,6 +353,16 @@ describe('LivenessTracker — what it tells the attention desk', () => {
     expect(events.map((e) => e.type)).toEqual(['asks', 'settled'])
   })
 
+  it('an API error the CLI stopped on is an ending that failed', () => {
+    const events: Ev[] = []
+    const t = tracker(() => {}, { onTurn: (ev) => events.push(ev) })
+    const file = writeFixture('claude', FIXTURES.claude.midTurn)
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    appendFileSync(file, jsonl([{ type: 'assistant', isApiErrorMessage: true, message: { content: [{ type: 'text', text: 'API Error: 529 Overloaded' }] }, timestamp: T1 }]))
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(events.at(-1)).toMatchObject({ type: 'ended', closing: 'API Error: 529 Overloaded', failed: true })
+  })
+
   it('expiry is silence, not an ending — a killed CLI or a long tool call never chimes', async () => {
     const events: Ev[] = []
     const t = tracker(() => {}, { windowMs: 300, toolWindowMs: 300, sweepMs: 50, onTurn: (ev) => events.push(ev) })

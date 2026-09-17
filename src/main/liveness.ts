@@ -139,7 +139,8 @@ export class LivenessTracker {
           type: 'ended',
           startedAt: prev.startedAt,
           endedAt: written,
-          closing: verdict.closing ?? null
+          closing: verdict.closing ?? null,
+          ...(verdict.failed ? { failed: true as const } : {})
         })
       } else {
         // nothing running here — so nothing is waiting either (a question answered while
