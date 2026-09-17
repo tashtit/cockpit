@@ -219,12 +219,34 @@ describe('HomeView first run', () => {
     elsewhere.remove()
   })
 
+  it('leaves focus alone while a surface is layered over the view', async () => {
+    // a dialog can be on screen a beat before it has focused its own field: nothing
+    // holds focus, but the home is not what the person is using
+    let answer: (s: AccountsSnapshot) => void = () => {}
+    vi.mocked(window.cockpit.getAccounts).mockReturnValue(
+      new Promise<AccountsSnapshot>((r) => {
+        answer = r
+      })
+    )
+    renderHome()
+    const overlay = document.createElement('div')
+    overlay.setAttribute('role', 'dialog')
+    document.body.append(overlay)
+
+    await act(async () => answer(claudeSnapshot))
+    const prompt = await screen.findByRole('textbox', { name: 'Task description' })
+    expect(prompt).not.toHaveFocus()
+    overlay.remove()
+  })
+
   it('shows the composer, focused, as soon as there is an account and a repo', async () => {
     // no need to wait for the scan to finish: a repo already read is proof enough
     vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
     renderHome({ indexed: false })
     const prompt = await screen.findByRole('textbox', { name: 'Task description' })
-    expect(prompt).toHaveFocus()
+    // the textarea is in the DOM one commit before the effect that focuses it runs —
+    // asserting focus straight off the find is a race a slow machine loses
+    await waitFor(() => expect(prompt).toHaveFocus())
   })
 })
 

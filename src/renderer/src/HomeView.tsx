@@ -36,6 +36,19 @@ function firstName(login: string): string {
 }
 
 /**
+ * Whether the composer may take focus: only while focus is still where the home view
+ * left it — the body, or nothing at all — and nothing is layered over the view. The
+ * ⌘K palette and the popovers are `[role="dialog"]`, and one can be on screen a
+ * beat before it has moved focus into itself; the home is still the mounted view
+ * underneath it, so the mount alone does not mean the home is what the person is using.
+ */
+function focusIsFree(): boolean {
+  if (document.querySelector('[role="dialog"]') !== null) return false
+  const el = document.activeElement
+  return el === null || el === document.body || el === document.documentElement
+}
+
+/**
  * Mission-control home, patterned after GitHub's Agent HQ: a task composer front
  * and center (repo + agent + permissions inline), recent agent work below it.
  */
@@ -173,8 +186,7 @@ export function HomeView({
   useEffect(() => {
     if (!canStart || focusedRef.current) return
     focusedRef.current = true
-    const busyElsewhere = document.activeElement !== null && document.activeElement !== document.body
-    if (!busyElsewhere) promptRef.current?.focus()
+    if (focusIsFree()) promptRef.current?.focus()
   }, [canStart])
 
   // the fleet: sessions and roundtables on one board, placed by what is happening

@@ -93,7 +93,11 @@ surface, no shadow).
   does **not** show the card: sessions run fine without `gh`, only PRs need it.
 - The composer takes focus when it first appears, not when the view mounts — and never
   takes it off anything already focused, since "first appears" can be seconds after the
-  view opened (it waits on the accounts answer and the first repos).
+  view opened (it waits on the accounts answer and the first repos). It takes focus only
+  while focus is still where the view left it (the body, or nothing at all) and nothing
+  is layered over the home: a `[role="dialog"]` anywhere — the ⌘K palette, a popover —
+  means the home is not what the person is using, even in the beat before that surface
+  has focused its own field.
 - Per-agent absence keeps its old, quieter signal: with one agent signed in, the
   composer's `.no-acct` dot and "not signed in" chip say the rest.
 - The hero's sub line swaps to what this screen is waiting for.
@@ -118,7 +122,8 @@ surface, no shadow).
   choosing YOLO shows the `.ns-hint.yolo` warning line under the card — the bypass mode is
   never silent.
 - Prompt textarea autofocuses when the composer appears, unless focus is already
-  elsewhere — the user should be able to type immediately.
+  elsewhere or a surface is layered over the view (see First run) — on a normal first
+  paint the user should be able to type immediately.
 - Pasting an image attaches it, exactly like the chat composer (shared
   `useImageAttachments` + `AttachRow` from `attachments.tsx`): a `.composer-attach` chip
   row appears as the card's first child (padded to the textarea's inset). An image-only

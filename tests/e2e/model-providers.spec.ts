@@ -165,6 +165,13 @@ test('settings lists seeded providers with agent applicability, and adds/removes
 })
 
 test('new session gates providers per agent and offers the model catalog', async () => {
+  // The composer card mounts only once the accounts snapshot lands, and that waits on
+  // `gh api user` (bounded at 10s in main) — on a slow runner it can appear after this
+  // test has started. Wait it out before touching the tree: row actions are display:none
+  // until the row is hovered or holds focus (the real cursor makes synthetic :hover
+  // flaky in a headed window, so this uses the keyboard path), and a mount arriving
+  // between the focus and the click must not be what decides whether the button is there.
+  await expect(win.getByLabel('Task description')).toBeVisible({ timeout: 15_000 })
   await win.getByRole('treeitem', { name: /acme\/\s*rocket/ }).focus()
   await win.getByRole('button', { name: 'New session in rocket' }).click()
   await expect(win.getByRole('heading', { name: 'New session' })).toBeVisible()
