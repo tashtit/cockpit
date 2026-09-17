@@ -13,6 +13,7 @@ import {
   type Secrets
 } from '../src/main/backup-core'
 import type { AppConfig } from '../src/main/config'
+import { fieldsKey, mcpFields } from '../src/shared/library'
 import type { LibraryEntry, ModelEndpoint } from '../src/shared/types'
 
 /*
@@ -138,6 +139,19 @@ describe('splitSecrets', () => {
     expect(out.secrets.endpointKeys).toEqual({ e1: 'sk-live-123' })
     expect(out.secrets.endpointHeaders).toEqual({ e1: { 'x-tenant': 'acme' } })
     expect(out.withheld).toEqual([])
+  })
+
+  // a kept difference rides on the entry outside the sealed half: only a fingerprint may
+  it('carries a kept difference as a fingerprint, never the args or url it was taken from', () => {
+    const copilot = { command: 'npx', args: ['gh-mcp', '--token', 'ghp_in_args'], url: 'https://x.test/?t=secret_url' }
+    const kept = { ...mcp, kept: { copilot: fieldsKey(mcpFields(copilot)) } }
+    for (const sealed of [true, false]) {
+      const out = splitSecrets([scope({ library: [kept] })], [], { sealed, keyFor: () => undefined })
+      const plain = JSON.stringify(out.scopes)
+      expect(plain).not.toContain('ghp_in_args')
+      expect(plain).not.toContain('secret_url')
+      expect(out.scopes[0].library[0].kept?.copilot).toMatch(/^[0-9a-f]+$/)
+    }
   })
 })
 

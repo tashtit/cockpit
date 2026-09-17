@@ -52,6 +52,8 @@ export type PanelCell = {
   readonly state: AgentState
   /** what the switch is set to (Cockpit's desired state) */
   readonly desired: boolean
+  /** runs its own definition on purpose — the user kept the difference (state 'on') */
+  readonly kept?: true
   /** what this agent actually holds ('' when it holds nothing) */
   readonly detail: string
   readonly fields: Readonly<Record<string, string>>
@@ -71,6 +73,8 @@ export type PanelRow = {
    */
   readonly saved: { readonly detail: string; readonly fields: Readonly<Record<string, string>> }
   readonly cells: Readonly<Record<Provider, PanelCell>>
+  /** agents running their own definition on purpose, while it still differs */
+  readonly kept: readonly Provider[]
   /** field names, in the order the agents that have it record them */
   readonly fields: readonly string[]
   /** agents whose reality disagrees with their switch, or with the other agents */
@@ -228,6 +232,32 @@ function oddOnesOut(groups: readonly Provider[][]): Provider[] {
     : groups.flat()
 }
 
+/**
+ * A fingerprint of one definition, so "still runs exactly this" is a comparison of two
+ * short strings: a kept difference is tied to the definition the user looked at, and a
+ * later change to that agent's copy is drift again. Same inputs as `sameFields`. Hashed,
+ * because the fields carry MCP args and URLs, which may hold tokens and must not reach
+ * the config or a backup in the clear. Field names are hashed too, so renaming one
+ * reads as drift — the safe direction.
+ */
+export function fieldsKey(fields: Readonly<Record<string, string>>): string {
+  const text = Object.keys(fields)
+    .sort()
+    .map((k) => `${k}=${fields[k]}`)
+    .join('\n')
+  // cyrb53: a 53-bit string hash, no node:crypto (this module also runs in the renderer)
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    h1 = Math.imul(h1 ^ c, 2654435761)
+    h2 = Math.imul(h2 ^ c, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16)
+}
+
 export function buildRow(
   entry: LibraryEntry,
   saved: Desired,
@@ -240,6 +270,12 @@ export function buildRow(
   const authoritative = holders.some((p) => actual[p]?.mismatch !== undefined)
   const groups = authoritative ? [holders] : agreementGroups(holders, actual)
   const odd = authoritative ? [] : oddOnesOut(groups)
+  // an odd one out the user kept on purpose is quiet while it still runs the very
+  // definition they kept; only agents that differ right now count, so an agent that
+  // has since come back into line is plainly on, not "kept"
+  const kept = odd.filter(
+    (p) => entry.enabled[p] === true && entry.kept?.[p] === fieldsKey(actual[p]?.fields ?? {})
+  )
 
   const cells = {} as { -readonly [K in Provider]: PanelCell }
   for (const p of PROVIDERS) {
@@ -253,6 +289,7 @@ export function buildRow(
     if (on && !a.present) cells[p] = { ...base, state: 'pending' }
     else if (!on && a.present) cells[p] = { ...base, state: 'extra' }
     else if (!on) cells[p] = { ...base, state: 'off' }
+    else if (kept.includes(p)) cells[p] = { ...base, state: 'on', kept: true }
     else cells[p] = { ...base, state: a.mismatch || odd.includes(p) ? 'changed' : 'on' }
   }
 
@@ -270,10 +307,12 @@ export function buildRow(
     name: entry.name,
     saved,
     cells,
+    kept,
     fields,
     drift: PROVIDERS.filter((p) => isDrift(cells[p].state)),
     holders,
-    disagree: !authoritative && groups.length > 1,
+    // a disagreement every odd one out has been kept over is settled, not open
+    disagree: !authoritative && groups.length > 1 && odd.some((p) => !kept.includes(p)),
     ...(entry.removed ? { removed: true } : {})
   }
 }

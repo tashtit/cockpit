@@ -1594,6 +1594,11 @@ button.pnl-flag:hover { text-decoration: underline; }
   border: 1px solid rgba(var(--warn-rgb), 0.28); border-radius: var(--radius-sm); }
 .pnl-fix-what { flex: 1; min-width: 200px; font-size: var(--fs-xs); color: var(--fg); }
 .pnl-fix-actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+/* a difference kept on purpose: settled, so the block is quiet — no amber */
+.pnl-kept { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-size: var(--fs-sm); color: var(--fg-dim); }
+.pnl-kept-what { flex: 1; min-width: 200px; }
 .pnl-detail-actions { display: flex; justify-content: flex-end; gap: var(--s2); }
 .pnl-detail-actions .armed { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
 

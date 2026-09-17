@@ -28,6 +28,7 @@ import { ChatManager } from './chat'
 import { mergeBusy } from './liveness-core'
 import {
   getPanel,
+  keepPanelDifference,
   matchPanelEntry,
   removePanelEntry,
   restorePanelEntry,
@@ -588,6 +589,9 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('panel:match', (_e, target: PanelTarget, source: Provider) =>
     matchPanelEntry(asTarget(target), asProvider(source))
+  )
+  ipcMain.handle('panel:keep', (_e, target: PanelTarget, keep: boolean) =>
+    keepPanelDifference(asTarget(target), Boolean(keep))
   )
   ipcMain.handle('panel:remove', (_e, target: PanelTarget) => removePanelEntry(asTarget(target)))
   ipcMain.handle('panel:restore', (_e, target: PanelTarget) => restorePanelEntry(asTarget(target)))

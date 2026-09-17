@@ -62,8 +62,17 @@ that section holds a disagreement.
 - **Two safety lines.** Flipping a chip is one click, because it is reversible. Turning a
   plugin or marketplace off, and "Remove everywhere", use the armed-confirm grammar.
 - **Disagreement has no house answer.** The detail asks which agent is right and offers
-  one button per holder ("Use Claude's"). Never add a "use Cockpit's version" button —
+  one button per holder ("Use Claude's") plus the honest third answer, **"Keep as they
+  are"**: the agents are meant to differ. Never add a "use Cockpit's version" button —
   Cockpit keeps a backup, not a version.
+- **A kept difference is settled, not muted.** "Keep as they are" remembers, per
+  differing agent, the fingerprint of the definition on screen (`LibraryEntry.kept`,
+  `fieldsKey`); the row's flag, amber ring and Needs you entry go away, and the detail
+  shows a quiet `.pnl-kept` line — "Copilot runs its own github on purpose." with a
+  `link-btn` "Treat as drift again". The moment that agent runs something else the
+  fingerprint no longer matches and it is `differs` again — a warning the user can
+  clear, never one they can only silence. Matching every agent to one definition, or
+  switching a kept agent off, forgets the kept difference.
 - **Remove everywhere is recoverable**, under a `Removed` section with *Put it back*.
 - Rows are a plain hairline-separated list on one surface (`.pnl-list`). No grid, no
   column rules, no lanes: with self-labelling controls there is nothing left to align to.

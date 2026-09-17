@@ -213,6 +213,7 @@ export function freshApi(): CockpitApi {
     getPanel: vi.fn(async () => emptyPanel),
     setPanelSwitch: vi.fn(async () => emptyPanel),
     matchPanelEntry: vi.fn(async () => emptyPanel),
+    keepPanelDifference: vi.fn(async () => emptyPanel),
     removePanelEntry: vi.fn(async () => emptyPanel),
     restorePanelEntry: vi.fn(async () => emptyPanel),
     getInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
