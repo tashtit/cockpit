@@ -7,6 +7,7 @@ import type {
   SourceDir,
   SourceStats,
   TimeFormat,
+  UpdatePrefs,
   UpdateState,
   UsageSnapshot,
   UsageTokens,
@@ -57,8 +58,25 @@ function tokensTitle(t: UsageTokens): string {
   )} · cache read ${fmtCount(t.cacheRead)}`
 }
 
+const UPDATE_SWITCHES: ReadonlyArray<{
+  readonly key: keyof UpdatePrefs
+  readonly label: string
+  readonly note: string
+}> = [
+  {
+    key: 'download',
+    label: 'Download updates automatically',
+    note: 'Fetch a new release as soon as a check finds one, in the background. Off leaves the download to you.'
+  },
+  {
+    key: 'install',
+    label: 'Install when I quit',
+    note: 'Swap the downloaded build in on the way out, so the next launch is the new one. Never under a running session — and “Restart now” installs it sooner.'
+  }
+]
+
 /** The About row's one-line readout of where the updater stands. */
-function updateLine(u: UpdateState | null): string {
+function updateLine(u: UpdateState | null, prefs: UpdatePrefs | null): string {
   if (!u) return 'loading…'
   switch (u.status) {
     case 'unsupported':
@@ -74,7 +92,9 @@ function updateLine(u: UpdateState | null): string {
     case 'downloading':
       return `Downloading ${u.version} · ${u.percent ?? 0}%`
     case 'ready':
-      return `Version ${u.version} is downloaded — restart to install.`
+      return prefs?.install
+        ? `Version ${u.version} is downloaded — it installs when you quit Cockpit.`
+        : `Version ${u.version} is downloaded — restart to install.`
     case 'error':
       return u.version ? `Could not install ${u.version}: ${u.message}` : `Update check failed: ${u.message}`
   }
@@ -86,7 +106,7 @@ function updateAnnouncement(u: UpdateState): string | null {
     case 'available':
       return `Version ${u.version} is available`
     case 'ready':
-      return `Version ${u.version} downloaded — restart to install`
+      return `Version ${u.version} downloaded — it installs when you quit`
     case 'up-to-date':
       return 'Cockpit is up to date'
     case 'error':
@@ -199,6 +219,7 @@ export function Settings({
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [licensesError, setLicensesError] = useState<string | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
+  const [updatePrefs, setUpdatePrefs] = useState<UpdatePrefs | null>(null)
   const [path, setPath] = useState('')
   /** The add form is a task, not a permanent fixture: Settings opens as a readout */
   const [addOpen, setAddOpen] = useState(false)
@@ -251,6 +272,7 @@ export function Settings({
   useEffect(() => {
     void api.getAppInfo().then(setAppInfo)
     void api.getUpdateState().then(setUpdate)
+    void api.getUpdatePrefs().then(setUpdatePrefs)
     // main pushes every transition (timer checks included) — announce the ones that matter
     return api.onUpdateState((s) => {
       setUpdate(s)
@@ -350,6 +372,19 @@ export function Settings({
   const downloadUpdate = async (): Promise<void> => {
     setUpdate(await api.downloadUpdate())
   }
+  const flipUpdatePref = async (key: keyof UpdatePrefs, on: boolean): Promise<void> => {
+    if (!updatePrefs) return
+    const name = UPDATE_SWITCHES.find((u) => u.key === key)?.label ?? key
+    const next = { ...updatePrefs, [key]: on }
+    setUpdatePrefs(next)
+    try {
+      setUpdatePrefs(await api.setUpdatePrefs(next))
+      setStatus(`${name} ${on ? 'on' : 'off'}`)
+    } catch (err) {
+      setUpdatePrefs(updatePrefs)
+      setStatus(`Could not change ${name}: ${ipcErrorText(err)}`)
+    }
+  }
 
   /** The About row's single action — one control at a time, so heights never mix. */
   const updateAction = (u: UpdateState): JSX.Element | null => {
@@ -383,7 +418,7 @@ export function Settings({
       case 'ready':
         return (
           <button className="btn-ghost small" onClick={() => void api.installUpdate()}>
-            Restart to install
+            Restart now
           </button>
         )
       case 'unsupported':
@@ -707,14 +742,48 @@ export function Settings({
                   </span>
                 )}
               </div>
-              <div className="source-note">{updateLine(update)}</div>
+              <div className="source-note">{updateLine(update, updatePrefs)}</div>
             </div>
             <div className="source-health">{update && updateAction(update)}</div>
           </li>
+          {update?.status !== 'unsupported' &&
+            UPDATE_SWITCHES.map((u) => (
+              <li key={u.key}>
+                <label className="source-row attn-switch">
+                  {/* same recipe as the notification switches: the row is the click
+                      target, but the name is the label span alone */}
+                  <input
+                    type="checkbox"
+                    checked={updatePrefs?.[u.key] ?? false}
+                    disabled={updatePrefs === null}
+                    aria-labelledby={`upd-${u.key}-label`}
+                    aria-describedby={`upd-${u.key}-note`}
+                    onChange={(e) => void flipUpdatePref(u.key, e.currentTarget.checked)}
+                  />
+                  <span className="source-body">
+                    <span className="source-label" id={`upd-${u.key}-label`}>
+                      {u.label}
+                    </span>
+                    <span className="source-note" id={`upd-${u.key}-note`}>
+                      {u.note}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            ))}
         </ul>
+        {update?.installFailure && (
+          <div role="alert" className="new-error">
+            The last update could not be installed, so the version you had was put back:{' '}
+            {update.installFailure} Nothing downloads on its own until you check for updates
+            again.
+          </div>
+        )}
         <p className="ns-hint ns-prose">
-          Installed builds check GitHub Releases on launch and every few hours. Nothing downloads
-          until you choose to; a downloaded update installs on the next quit.{' '}
+          Installed builds check GitHub Releases on launch and every few hours, then keep
+          themselves current on their own. Cockpit downloads and installs its own updates rather
+          than leaving it to macOS, which is what lets it clear the quarantine flag Gatekeeper
+          would otherwise block the new build on.{' '}
           {appInfo && (
             <>
               <button

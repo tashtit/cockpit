@@ -32,7 +32,7 @@ describe('Settings › About', () => {
     expect(window.cockpit.checkForUpdates).toHaveBeenCalled()
     expect(await screen.findByText('Version 1.5.0 is available.')).toBeInTheDocument()
 
-    // the offer is a button, never a silent download
+    // still reachable by hand, which is all there is when auto-download is off
     await userEvent.click(screen.getByRole('button', { name: 'Download 1.5.0' }))
     expect(window.cockpit.downloadUpdate).toHaveBeenCalled()
   })
@@ -54,8 +54,41 @@ describe('Settings › About', () => {
 
     act(() => pushed.cb?.({ status: 'ready', version: '1.5.0' }))
     expect(screen.getByRole('status')).toHaveTextContent('1.5.0 downloaded')
-    await userEvent.click(screen.getByRole('button', { name: 'Restart to install' }))
+    // the quit that was going to happen anyway is the install; the button is only sooner
+    expect(screen.getByText(/installs when you quit Cockpit/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Restart now' }))
     expect(window.cockpit.installUpdate).toHaveBeenCalled()
+  })
+
+  it('offers the two automatic steps as switches, and saves a flip', async () => {
+    vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
+    vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'idle' })
+    vi.mocked(window.cockpit.setUpdatePrefs).mockResolvedValue({ download: false, install: true })
+    render(<Settings onClose={vi.fn()} />)
+
+    const auto = await screen.findByRole('checkbox', { name: 'Download updates automatically' })
+    const onQuit = screen.getByRole('checkbox', { name: 'Install when I quit' })
+    expect(auto).toBeChecked()
+    expect(onQuit).toBeChecked()
+
+    await userEvent.click(auto)
+    expect(window.cockpit.setUpdatePrefs).toHaveBeenCalledWith({ download: false, install: true })
+    expect(auto).not.toBeChecked()
+    expect(screen.getByRole('status')).toHaveTextContent('Download updates automatically off')
+  })
+
+  it('says a rolled-back install is why nothing is happening on its own', async () => {
+    vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
+    vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({
+      status: 'idle',
+      installFailure: 'Could not move /Applications/Cockpit.app aside.'
+    })
+    render(<Settings onClose={vi.fn()} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /put back: Could not move \/Applications\/Cockpit.app aside\./
+    )
+    expect(screen.getByRole('button', { name: 'Check for updates' })).toBeEnabled()
   })
 
   it('reports a failed check without hiding the retry', async () => {
@@ -81,6 +114,8 @@ describe('Settings › About', () => {
     expect(screen.getByText('development run')).toBeInTheDocument()
     expect(screen.getByText(/installed builds only/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull()
+    // nothing to switch on either: this build could not act on them
+    expect(screen.queryByRole('checkbox', { name: 'Install when I quit' })).toBeNull()
   })
 
   it('opens the release notes externally', async () => {

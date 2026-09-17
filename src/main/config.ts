@@ -2,7 +2,14 @@ import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import type { AttentionPrefs, LibraryEntry, ModelEndpoint, SourceDir, TimeFormat } from '../shared/types'
+import type {
+  AttentionPrefs,
+  LibraryEntry,
+  ModelEndpoint,
+  SourceDir,
+  TimeFormat,
+  UpdatePrefs
+} from '../shared/types'
 import { clampStaleDays } from './cleanup-core'
 
 export type AppConfig = {
@@ -49,6 +56,8 @@ export type AppConfig = {
   readonly continuedFrom?: Record<string, string>
   /** Notification, sound and Dock-badge switches the user flipped; an absent one follows the build */
   readonly attention?: Partial<AttentionPrefs>
+  /** Automatic download/install switches the user flipped; an absent one is on */
+  readonly updates?: Partial<UpdatePrefs>
 }
 
 /**
@@ -232,6 +241,32 @@ export function setAttentionPrefs(next: AttentionPrefs): AttentionPrefs {
   }
   saveConfig({ ...cfg, attention: stored })
   return attentionPrefs()
+}
+
+const UPDATE_KEYS = ['download', 'install'] as const
+
+/**
+ * Both on until the user says otherwise: an installed Cockpit keeping itself
+ * current is the point, and every other build reports `unsupported` before these
+ * are ever read. Off is a real choice too — a metered connection, or wanting to
+ * read the release notes first — so a flipped switch is stored and honoured.
+ */
+export function updatePrefs(): UpdatePrefs {
+  const set = loadConfig().updates ?? {}
+  return {
+    download: set.download !== false,
+    install: set.install !== false
+  }
+}
+
+export function setUpdatePrefs(next: UpdatePrefs): UpdatePrefs {
+  const cfg = loadConfig()
+  const stored: { -readonly [K in keyof UpdatePrefs]?: boolean } = { ...cfg.updates }
+  // renderer input is untrusted, and these switches act on their own — anything
+  // but a real true is off, the direction a malformed value can do no work in
+  for (const key of UPDATE_KEYS) stored[key] = next?.[key] === true
+  saveConfig({ ...cfg, updates: stored })
+  return updatePrefs()
 }
 
 export function listModelEndpoints(): ModelEndpoint[] {
