@@ -58,7 +58,16 @@ async function nav(win: Page, label: string): Promise<void> {
 }
 async function open(win: Page, title: RegExp): Promise<void> {
   await home(win)
-  await win.getByRole('treeitem', { name: title }).first().click()
+  const row = win.getByRole('treeitem', { name: title }).first()
+  // repos keep a-z (or dragged) order and only the first one auto-expands, so the
+  // session may sit in a collapsed repo: open them in turn until it is on screen
+  const collapsed = win.locator('.repo-row[aria-expanded="false"]')
+  for (let i = 0; i < 20; i++) {
+    const shown = await row.waitFor({ state: 'visible', timeout: 1_500 }).then(() => true, () => false)
+    if (shown || (await collapsed.count()) === 0) break
+    await collapsed.first().click()
+  }
+  await row.click()
   await pause(win, 900)
 }
 async function send(win: Page, title: RegExp, text: string): Promise<void> {
