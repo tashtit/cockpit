@@ -8,6 +8,7 @@ const ZOOM_MIN = 0.7
 const ZOOM_MAX = 2
 import type {
   AttentionFocus,
+  AttentionItem,
   AttentionPrefs,
   AttentionTarget,
   BusySession,
@@ -19,7 +20,6 @@ import type {
   NewRoundtableRequest,
   Provider,
   RoundtableEvent,
-  Landing,
   PanelTarget,
   SessionQuery,
   TimeFormat,
@@ -63,12 +63,13 @@ const api: CockpitApi = {
   setAttentionPrefs: (prefs: AttentionPrefs) => ipcRenderer.invoke('attention:set-prefs', prefs),
   testNotification: () => ipcRenderer.invoke('attention:test'),
   setAttentionFocus: (focus: AttentionFocus) => ipcRenderer.invoke('attention:focus', focus),
-  getLandings: () => ipcRenderer.invoke('attention:landings'),
-  onLandings: (cb: (landings: Landing[]) => void) => {
-    const handler = (_e: unknown, landings: Landing[]): void => cb(landings)
-    ipcRenderer.on('landings', handler)
-    return () => ipcRenderer.removeListener('landings', handler)
+  getAttention: () => ipcRenderer.invoke('attention:items'),
+  onAttention: (cb: (items: AttentionItem[]) => void) => {
+    const handler = (_e: unknown, items: AttentionItem[]): void => cb(items)
+    ipcRenderer.on('attention', handler)
+    return () => ipcRenderer.removeListener('attention', handler)
   },
+  markAttentionSeen: (key: string) => ipcRenderer.invoke('attention:seen', key),
   onAttentionOpen: (cb: (target: AttentionTarget) => void) => {
     const handler = (_e: unknown, target: AttentionTarget): void => cb(target)
     ipcRenderer.on('attention-open', handler)

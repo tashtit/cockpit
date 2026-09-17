@@ -29,7 +29,7 @@ The About row in Settings shows `Could not install <version>: …` with a code-s
 
 ## Notifications never appear
 
-**Settings › Notifications › Send a test notification** says what macOS did. **Refused** (`UNErrorDomain error 1`) means macOS won't let an unsigned build post notifications — true of every release until they're signed, and of `npm run dev`. The sound and a Dock bounce still tell you something landed. **Showed it** but nothing on screen: check System Settings › Notifications › Cockpit, and whether a Focus mode is on. See [Notifications](/guide/notifications#unsigned-builds).
+**Settings › Notifications › Send a test notification** says what macOS did. **Refused** (`UNErrorDomain error 1`) means macOS won't let an unsigned build post notifications — true of every release until they're signed, and of `npm run dev`. The sound and a Dock bounce still tell you something needs you. **Showed it** but nothing on screen: check System Settings › Notifications › Cockpit, and whether a Focus mode is on. See [Notifications](/guide/notifications#unsigned-builds).
 
 ## Sessions missing from the sidebar
 

@@ -766,15 +766,15 @@ export type BusySession = {
   readonly source: 'spawned' | 'observed'
 }
 
-/* ---------- attention: notifications, sounds and the Dock badge ---------- */
+/* ---------- attention: what needs you — notifications, sounds and the Dock badge ---------- */
 
 /** Settings › Notifications — how Cockpit tells you an agent needs you. */
 export type AttentionPrefs = {
-  /** A desktop notification when a turn finishes or fails, or a roundtable concludes */
+  /** A desktop notification when something needs you: a turn ended, an agent is waiting, a PR went red */
   readonly notifications: boolean
-  /** A short macOS system sound on finish and on failure */
+  /** A short macOS system sound: one for a finish, one for a failure, one for an agent waiting on you */
   readonly sound: boolean
-  /** The number of landed, unopened sessions on the Dock icon */
+  /** The number of open items on the Dock icon */
   readonly badge: boolean
 }
 
@@ -790,18 +790,72 @@ export type AttentionFocus =
   | { readonly kind: 'roundtable'; readonly id: string }
   | { readonly kind: 'none' }
 
-/** A session whose turn ended while nobody was looking at it (the board's landed rows). */
-export type Landing = {
-  /** Session id: `${provider}:${nativeId}` */
-  readonly id: string
-  /** Epoch ms the turn ended */
-  readonly at: number
-}
+/**
+ * Why something needs the user. `landed` and `failed` are endings — news until the
+ * session is opened; `question` and `permission` are an agent waiting on an answer,
+ * open until the log moves on or the session is opened; `checks` and `review` are a
+ * pull request on one of the user's branches gone red, open until it recovers or the
+ * PR (or its session) is looked at. A usage window past its warning line would be a
+ * further reason here — `AttentionItem` gains a `usage` kind when that lands.
+ */
+export type AttentionReason = 'landed' | 'failed' | 'question' | 'permission' | 'checks' | 'review'
 
-/** Where clicking a notification takes the window. */
+/**
+ * One thing that needs the user, as the home board's "Needs you" group and the
+ * sidebar markers show it. Main owns the list (`attention-core.ts`) and pushes it
+ * whole on `attention`; session items carry a snapshot of the index's row so the
+ * board can render them without a second fetch, and every item carries what a jump
+ * needs — a session id, a table id, or the PR's url.
+ */
+export type AttentionItem =
+  | {
+      readonly kind: 'session'
+      /** Stable per session: the session id */
+      readonly key: string
+      /** `${provider}:${nativeId}` */
+      readonly id: string
+      readonly provider: Provider
+      readonly reason: 'landed' | 'failed' | 'question' | 'permission'
+      /** The index's title for the session, or the prompt that started it */
+      readonly title: string
+      readonly branch: string | null
+      /** Repository name, when the session's cwd is in one */
+      readonly repo: string | null
+      /** The question, the command awaiting approval, the closing words or the error — one line, may be empty */
+      readonly detail: string
+      /** Epoch ms since when */
+      readonly at: number
+    }
+  | {
+      readonly kind: 'roundtable'
+      readonly key: string
+      readonly id: string
+      readonly title: string
+      readonly reason: 'landed' | 'failed'
+      readonly detail: string
+      readonly at: number
+    }
+  | {
+      readonly kind: 'pr'
+      /** `pr:<url>` */
+      readonly key: string
+      readonly pr: PrStatus
+      readonly repoRoot: string
+      /** Repository name, for the row's pill */
+      readonly repo: string
+      /** The newest session on the PR's branch — where a click lands; null opens the PR itself */
+      readonly sessionId: string | null
+      readonly provider: Provider | null
+      readonly reason: 'checks' | 'review'
+      readonly at: number
+    }
+
+/** Where clicking a notification (or a board row) takes the user. */
 export type AttentionTarget =
   | { readonly kind: 'session'; readonly id: string }
   | { readonly kind: 'roundtable'; readonly id: string }
+  /** A pull request with no session of its own — opens in the browser */
+  | { readonly kind: 'url'; readonly url: string }
   | { readonly kind: 'home' }
 
 /** What macOS did with a notification Cockpit asked it to show. */
@@ -1226,10 +1280,12 @@ export type CockpitApi = {
   readonly testNotification: () => Promise<NotificationDelivery>
   /** Tell main what the window shows — it never notifies about that, and opening clears a landing */
   readonly setAttentionFocus: (focus: AttentionFocus) => Promise<void>
-  /** Sessions that landed while nobody was looking, newest first */
-  readonly getLandings: () => Promise<Landing[]>
-  /** Push: the landed set changed (a turn ended unseen, or a session was opened) */
-  readonly onLandings: (cb: (landings: Landing[]) => void) => () => void
+  /** Everything that needs you right now, newest first: endings unseen, agents waiting, PRs gone red */
+  readonly getAttention: () => Promise<AttentionItem[]>
+  /** Push: the list changed — something was raised, resolved, or looked at */
+  readonly onAttention: (cb: (items: AttentionItem[]) => void) => () => void
+  /** The user looked at an item some way other than opening its session (a PR opened in the browser) */
+  readonly markAttentionSeen: (key: string) => Promise<void>
   /** Push: a notification was clicked — the window is already focused, open the target */
   readonly onAttentionOpen: (cb: (target: AttentionTarget) => void) => () => void
   /** A click that came in while no window was listening; null when there is none */

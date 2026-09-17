@@ -8,7 +8,7 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { useBusyMap } from './busy'
-import { useLandedMap } from './landed'
+import { useLandedMap } from './attention'
 import {
   AgentIcon,
   BranchChip,

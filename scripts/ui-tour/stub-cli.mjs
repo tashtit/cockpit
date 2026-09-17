@@ -55,12 +55,13 @@ async function gh() {
   const repo = basename(cwd)
   const prs = {
     rocket: [
-      { n: 57, title: 'Fix login retry flake', state: 'OPEN', draft: false, head: 'cockpit/login-retry-flake', threads: [false, true, false] },
+      // red on purpose: checks failing, so the board's "needs you" group and the badge glyph have something to show
+      { n: 57, title: 'Fix login retry flake', state: 'OPEN', draft: false, head: 'cockpit/login-retry-flake', threads: [false, true, false], checks: 'FAILURE' },
       { n: 55, title: 'Paginate the sessions list', state: 'MERGED', draft: false, head: 'cockpit/paginate-sessions-list' },
       { n: 58, title: 'WIP dark mode tokens', state: 'OPEN', draft: true, head: 'cockpit/dark-mode-tokens', threads: [false] }
     ],
     atlas: [
-      { n: 12, title: 'Retry billing webhooks', state: 'OPEN', draft: false, head: 'cockpit/billing-webhook-retries' },
+      { n: 12, title: 'Retry billing webhooks', state: 'OPEN', draft: false, head: 'cockpit/billing-webhook-retries', review: 'CHANGES_REQUESTED' },
       { n: 9, title: 'GraphQL spike', state: 'CLOSED', draft: false, head: 'cockpit/old-spike-graphql' }
     ]
   }
@@ -76,7 +77,10 @@ async function gh() {
           state: p.state,
           isDraft: p.draft,
           headRefName: p.head,
-          url: `https://github.com/acme/${repo}/pull/${p.n}`
+          url: `https://github.com/acme/${repo}/pull/${p.n}`,
+          // the shapes github-core folds: a completed CheckRun, and GitHub's review enum
+          statusCheckRollup: p.checks ? [{ __typename: 'CheckRun', status: 'COMPLETED', conclusion: p.checks }] : [],
+          reviewDecision: p.review ?? ''
         }))
       )
     )

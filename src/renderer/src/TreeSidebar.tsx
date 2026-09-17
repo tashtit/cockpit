@@ -10,7 +10,7 @@ import type {
 import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
 import { useSessionBusy } from './busy'
-import { useSessionLanded } from './landed'
+import { useSessionAttention } from './attention'
 import type { SettingsSection } from './Settings'
 import { fmtTime, useTimeFormat } from './time'
 import { UsageMeters } from './UsageMeters'
@@ -23,6 +23,7 @@ import {
   GraphIcon,
   LinkExternalIcon,
   LiveDot,
+  NeedMark,
   OrgIcon,
   PrBadge,
   ProviderLogo,
@@ -1107,9 +1108,11 @@ function SessionRow({
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const timeFormat = useTimeFormat()
-  // the live dot takes the row's exclusive meta slot: running beats PR beats time
+  // the row's exclusive meta slot, in order of urgency: an agent waiting on you (or
+  // failed) beats running beats landed beats PR beats time
   const working = useSessionBusy(s.id)
-  const landed = useSessionLanded(s.id)
+  const need = useSessionAttention(s.id)
+  const waiting = need?.kind === 'session' && need.reason !== 'landed' ? need.reason : null
   const acct = accounts?.accounts.find((a) => a.provider === s.provider && a.label === s.source)
   const multiAccount =
     (accounts?.accounts.filter((a) => a.provider === s.provider).length ?? 0) > 1
@@ -1167,11 +1170,14 @@ function SessionRow({
           </svg>
         </button>
       </span>
-      {/* the row's one meta slot, in order of urgency: running, then finished-while-
-          you-were-away, then the branch's PR, then when it last moved */}
-      {working ? (
+      {/* the row's one meta slot, in order of urgency: waiting on you or failed, then
+          running, then finished-while-you-were-away, then the branch's PR, then when
+          it last moved. Every mark names its state — a dot alone would be colour */}
+      {waiting ? (
+        <NeedMark reason={waiting} size={10} />
+      ) : working ? (
         <LiveDot p={s.provider} />
-      ) : landed ? (
+      ) : need ? (
         <span className={`landed-dot plogo-${s.provider}`} role="img" aria-label="finished — not opened yet" />
       ) : pr ? (
         <PrBadge pr={pr} onOpen={onOpenUrl} compact />

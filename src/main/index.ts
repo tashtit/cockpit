@@ -198,6 +198,11 @@ function resolveAttention(): void {
 
 /** A notification was clicked: bring the window forward and open what it was about (if anything). */
 function openAttentionTarget(target: AttentionTarget | null): void {
+  // a PR with no session of its own lives on GitHub — the browser is where it opens
+  if (target?.kind === 'url') {
+    if (/^https?:\/\//.test(target.url)) void shell.openExternal(target.url)
+    return
+  }
   if (!win || win.isDestroyed()) {
     // the window was closed (macOS keeps running) — its successor asks once it listens
     pendingOpen = target
@@ -416,7 +421,11 @@ app.whenReady().then(() => {
     },
     {
       cacheFile: join(app.getPath('userData'), 'index-cache.json'),
-      onLiveChange: () => pushBusy()
+      onLiveChange: () => pushBusy(),
+      // what an agent waits for, read off the same write liveness judges; and the
+      // endings liveness reports — the desk exists before the first file is parsed
+      onLogWrite: (file, meta, mtimeMs) => attention?.observeLog(file, meta, mtimeMs),
+      onObservedEnd: (end) => attention?.observedEnd(end)
     }
   )
   // candidate files come only from the indexer — the renderer never names a path
@@ -749,9 +758,20 @@ app.whenReady().then(() => {
     file: join(app.getPath('userData'), 'attention.json'),
     surface: electronSurface(),
     prefs: attentionPrefs(),
-    titleFor: (u) => (u.id ? (indexer.getSession(u.id)?.title ?? null) : null),
-    onLandings: (landings) => sendToWin('landings', landings),
-    onOpen: openAttentionTarget
+    sessionFor: (id) => indexer.getSession(id),
+    onItems: (items) => sendToWin('attention', items),
+    onOpen: openAttentionTarget,
+    // pull requests on the user's own branches: the badges' reader (one gh call per
+    // repo, cached), and the index says which branches are the user's
+    prs: {
+      roots: () => [...indexer.knownRepoRoots()],
+      list: getPrs,
+      sessionOnBranch: (root, branch) =>
+        indexer
+          .allSessions()
+          .filter((s) => s.repo?.root === root && s.gitBranch === branch)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
+    }
   })
   attention = desk
   ipcMain.handle('attention:prefs', () => desk.currentPrefs)
@@ -762,7 +782,9 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('attention:test', () => desk.test())
   ipcMain.handle('attention:focus', (_e, focus: unknown) => desk.setFocus(asAttentionFocus(focus)))
-  ipcMain.handle('attention:landings', () => desk.landings())
+  ipcMain.handle('attention:items', () => desk.items())
+  // the key is renderer input: only ever looked up, never a path — but still bounded
+  ipcMain.handle('attention:seen', (_e, key: unknown) => desk.markSeen(String(key).slice(0, 2100)))
   ipcMain.handle('attention:take-open', () => {
     const target = pendingOpen
     pendingOpen = null

@@ -42,6 +42,7 @@ function renderHome(over: Partial<Parameters<typeof HomeView>[0]> = {}) {
     onNewRoundtable: vi.fn(),
     onOpenRoundtable: vi.fn(),
     onOpenSettings: vi.fn(),
+    onOpenUrl: vi.fn(),
     ...over
   }
   render(<HomeView {...props} />)

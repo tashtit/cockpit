@@ -3,8 +3,8 @@
 > Extends `MASTER.md`. Rules here win for this view.
 
 **Pattern:** mission control leads with whatever is true right now. While the fleet is up —
-anything flying, or anything **landed** and not yet looked at — **the board** opens the view
-and the composer follows; when everything is quiet the composer leads and the board reads as
+anything flying, or anything that **needs you** (landed and not yet looked at, an agent waiting
+on an answer, a failed turn, a red PR) — **the board** opens the view and the composer follows; when everything is quiet the composer leads and the board reads as
 recent activity underneath it. The board is the app's signature element; the composer is the
 action, and which one comes first is the view's one piece of state. This is the only view allowed hero-scale type (`--fs-xl`) and a
 floating card shadow (the composer card — the board is deliberately a quiet instrument
@@ -20,8 +20,8 @@ surface, no shadow).
 - Order: hero (h2 + sub + kbd hints; no logo — the sidebar carries the mark) →
   `.composer-card` → error line, with **the fleet** (`.board`, which carries sessions and
   roundtables alike) placed either above the hero or below the composer. It leads when
-  `useBusyMap()` or `useLandedMap()` holds one of the board's rows, or a table is running —
-  otherwise it follows. Nothing is hidden either way; only the order changes.
+  `useAttentionItems()` holds anything, `useBusyMap()` holds one of the board's rows, or a
+  table is running — otherwise it follows. Nothing is hidden either way; only the order changes.
 - The hero h2 is flat `--fg` (no gradient-clip decoration), set in the mono placard
   voice (the identity layer re-voices it; see MASTER Typography); when `gh` reports a
   user the headline personalizes — "What should we ship`, Titan?`" — the login's first
@@ -37,33 +37,45 @@ surface, no shadow).
   `.board-repo` pill · `.board-meta` (mono, `tabular-nums`). The branch slot renders
   **even when empty**, so every title starts on one grid line; roundtable rows put their
   seat cluster in the same `.board-lead` column.
+- **Needs you** (main's list, from `useAttentionItems()`): its own group at the top of the
+  board — a `needs you` placard label (`.board-group-label`, h3 under the eyebrow's h2) over
+  a second `.board-list` (`.board-needs`, labelled "Needs you") — rendered whole and newest
+  first, so a session that waits on you is on the board even when it is not among the ten
+  recent rows. Rows keep the board's grammar; the dot slot and the meta word say why:
+  **landed** (its turn ended and nobody has opened it since) — the solid, unpulsing livery
+  dot, a livery inset bar, `landed <time>`; **failed** — `NeedMark` `!` in `--danger`, a
+  danger inset bar, `failed <time>`; **asking** / **needs approval** — `NeedMark` `?` in
+  `--warn`, a warn inset bar, the question or the command after the title in dim
+  `.board-detail`; a **PR** gone red — `NeedMark`, the number as a `PrMark` placard in the
+  lead column (plus an sr-only "pull request #N"), the branch chip, the PR title, `checks
+  failing` or `changes requested`. A session row opens the session; a PR row opens the
+  session on its branch, or the PR on GitHub when no session claims the branch; a concluded
+  roundtable opens the table. The word carries the state, so colour never carries it alone.
 - **Flying** (session's provider process running, from the `useBusyMap()` store): `LiveDot`
   pulse + placard lit in the agent's livery color + elapsed time (`fmtElapsed`, ticks at
-  1s only while ≥1 session is flying). **Landed** (its turn ended and nobody has opened it
-  since, from `useLandedMap()`): a solid, unpulsing livery dot, a livery inset bar instead of
-  flying's wash, and `landed <time>` in the meta slot — the word carries the state, so colour
-  never carries it alone. **On the ground:** dim static dot, dim placard, last-activity
-  `fmtTime`.
-- Ordering: flying first (longest airborne on top, then any roundtable mid-round), then
-  landed (most recent landing first), then the ground — sessions and roundtables
-  interleaved by recency. Three states, one list.
+  1s only while ≥1 session is flying). A session that is both live and waiting on you sits
+  in the needs-you group, not here. **On the ground:** dim static dot, dim placard,
+  last-activity `fmtTime`.
+- Ordering: needs you first (newest first), then flying (longest airborne on top, then any
+  roundtable mid-round), then the ground — sessions and roundtables interleaved by recency.
+  Three states, one board.
 - **Roundtables are rows, not a second panel** (`TableRow`, `.board-row-table`): the seat
   cluster sits in the `.board-lead` column where a session has its placard; a running round
   pulses accent (no single agent owns a table), counts as flying, and holds the meta slot
   with "in round". A table is work in flight like a session — two panels in the same
   grammar made the eye compare them instead of reading one board.
-- **Row budget:** flying and landed rows always show; the ground fills what is left of ten
+- **Row budget:** needs-you and flying rows always show; the ground fills what is left of ten
   rows (`BOARD_ROWS`). The sidebar stays the exhaustive list. Rows come from
   the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
   list; don't grow this.
 - `.board-eyebrow` (h2 — the board renders above the hero's h2, so an h3 here would read
-  as a skipped level): "**N flying** · **M landed** · K on the ground" (K from the page
+  as a skipped level): "**N need you** · **M flying** · K on the ground" (K from the page
   total, either count dropped when zero), or "all on the ground" when nothing is flying
-  and nothing has landed unseen. It is a polite `aria-live` region — turn starts and
-  completions announce the new counts.
-- ≤780px the row sheds `.board-repo` first — the branch chip carries more identity;
-  ≤700px the `.board-branch` slot goes too, because on a ~360px pane the task title is
-  the row's content.
+  and nothing needs you. It is a polite `aria-live` region — turn starts, completions and
+  asks announce the new counts.
+- ≤780px the row sheds `.board-repo` first — the branch chip carries more identity — and a
+  needs-you row its `.board-detail` (the tooltip keeps it); ≤700px the `.board-branch` slot
+  goes too, because on a ~360px pane the task title is the row's content.
 
 ## First run (`Setup`, `.setup-card`)
 

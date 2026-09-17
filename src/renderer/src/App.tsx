@@ -24,7 +24,7 @@ import { RoundtableView } from './RoundtableView'
 import { PROVIDER_LABEL } from './logos'
 import { Settings, type SettingsSection } from './Settings'
 import { branchHint, taskTitle } from './task-names'
-import { initLanded } from './landed'
+import { initAttention } from './attention'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -148,7 +148,7 @@ export function App(): JSX.Element {
   const textFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => initBusySessions(), [])
-  useEffect(() => initLanded(), [])
+  useEffect(() => initAttention(), [])
 
   useEffect(() => {
     void initTimeFormat()
@@ -724,8 +724,11 @@ export function App(): JSX.Element {
         .getSession(target.id)
         .then((meta) => (meta ? openSession(meta) : setView({ kind: 'welcome' })))
         .catch(() => setView({ kind: 'welcome' }))
+    } else if (target.kind === 'url') {
+      // main opens these itself; a window that is handed one anyway does the same
+      void api.openExternal(target.url)
     } else {
-      // several landed at once — the board is where they all are
+      // several things at once — the board is where they all are
       setView({ kind: 'welcome' })
     }
   }
@@ -836,6 +839,7 @@ export function App(): JSX.Element {
           onNewRoundtable={() => setView({ kind: 'new-roundtable' })}
           onOpenRoundtable={openRoundtable}
           onOpenSettings={() => setView({ kind: 'settings' })}
+          onOpenUrl={openUrl}
         />
       ) : (
         <ChatView

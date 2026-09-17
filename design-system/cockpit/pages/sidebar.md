@@ -48,10 +48,12 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     logo, title, optional `.acct-chip` (only on a **non-default** account's rows when that
     provider has several — the exception is what gets marked; the provider prefix is
     dropped, so `claude-work` reads `work`),
-    then the exclusive meta slot, in order of urgency: agent-colored `LiveDot` while the
-    session's provider process runs, else a solid `.landed-dot` in the agent's color while
-    the session has an unseen landing (`useSessionLanded`, `aria-label="finished — not
-    opened yet"`), else compact `PrBadge` (number, then an open PR's checks glyph,
+    then the exclusive meta slot, in order of urgency: a `NeedMark` while the session waits
+    on you or failed (`useSessionAttention`: `?` for a question or an approval, `!` for a
+    failure, each named — "asking a question — needs you"), else agent-colored `LiveDot`
+    while the session's provider process runs, else a solid `.landed-dot` in the agent's
+    color while the session has an unseen landing (`aria-label="finished — not opened
+    yet"`), else compact `PrBadge` (number, then an open PR's checks glyph,
     unresolved-thread count and changes-requested mark — each spelled out in its
     `aria-label`; ≤780px the row sheds the count's digits, `.pr-threads-n`, and keeps
     the glyph, or the badge takes half the row at the 560px floor), else timestamp. Archived = strikethrough + dimmed,

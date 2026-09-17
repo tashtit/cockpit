@@ -2,18 +2,25 @@ import { describe, it, expect } from 'vitest'
 import {
   AttentionTracker,
   BURST_MS,
-  LANDING_MAX,
-  LANDING_TTL_MS,
+  ITEM_MAX,
+  ITEM_TTL_MS,
+  QUIET,
+  judgeAttentionTail,
   elapsedLabel,
   failureSnippet,
   outcomeSnippet,
+  sanitizeMemory,
   sanitizeUnseen,
   tableOutcome,
   type Unseen
 } from '../src/main/attention-core'
-import type { AttentionPrefs, Roundtable, RoundtableEntry } from '../src/shared/types'
+import type { AttentionPrefs, PrStatus, Roundtable, RoundtableEntry, SessionMeta } from '../src/shared/types'
 
 const ALL_ON: AttentionPrefs = { notifications: true, sound: true, badge: true }
+
+/** The board's session rows as the old landed set read them: id and when. */
+const landings = (t: AttentionTracker): Array<{ id: string; at: number }> =>
+  t.items(() => null).flatMap((i) => (i.kind === 'session' ? [{ id: i.id, at: i.at }] : []))
 const WORKTREE = '/Users/dev/Library/Application Support/Cockpit/worktrees/login-flake'
 const CHECKOUT = '/Users/dev/src/rocket'
 
@@ -72,7 +79,7 @@ describe('AttentionTracker — what lands', () => {
     h.titles.set('claude:abc', 'Fix the login flake')
     runTurn(h, { turnId: 't1', resume: 'abc', text: '## Done\n**Fixed** the flake by retrying the token refresh.' })
 
-    expect(h.t.landings()).toEqual([{ id: 'claude:abc', at: h.clock.now }])
+    expect(landings(h.t)).toEqual([{ id: 'claude:abc', at: h.clock.now }])
     expect(h.t.badgeCount(ALL_ON)).toBe(1)
     expect(h.t.flushAt()).toBe(h.clock.now + BURST_MS)
 
@@ -101,7 +108,7 @@ describe('AttentionTracker — what lands', () => {
     h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT })
     runTurn(h, { turnId: 't1', resume: 'abc', text: 'Done.' })
 
-    expect(h.t.landings()).toEqual([])
+    expect(landings(h.t)).toEqual([])
     expect(h.t.badgeCount(ALL_ON)).toBe(0)
     expect(h.t.flushAt()).toBeNull()
   })
@@ -129,7 +136,7 @@ describe('AttentionTracker — what lands', () => {
 
     // but a resumed conversation that happens to share the directory is not that chat
     runTurn(h, { turnId: 't2', provider: 'codex', cwd: WORKTREE, resume: 'old', text: 'Done.' })
-    expect(h.t.landings().map((l) => l.id)).toEqual(['codex:old'])
+    expect(landings(h.t).map((l) => l.id)).toEqual(['codex:old'])
   })
 
   it('a turn the user stopped is not news, even though it ends with an error', () => {
@@ -169,11 +176,11 @@ describe('AttentionTracker — what lands', () => {
   it('a claude resume forks a new id — one conversation lands once, under the id it now has', () => {
     const h = harness()
     runTurn(h, { turnId: 't1', resume: 'a', text: 'first' })
-    expect(h.t.landings().map((l) => l.id)).toEqual(['claude:a'])
+    expect(landings(h.t).map((l) => l.id)).toEqual(['claude:a'])
     h.flush()
 
     runTurn(h, { turnId: 't2', resume: 'a', announce: 'b', text: 'second' })
-    expect(h.t.landings().map((l) => l.id)).toEqual(['claude:b'])
+    expect(landings(h.t).map((l) => l.id)).toEqual(['claude:b'])
     expect(h.t.badgeCount(ALL_ON)).toBe(1)
     // the earlier banner moved to the new id rather than being withdrawn: nobody opened it
     expect(h.t.takeWithdrawn()).toEqual([])
@@ -258,7 +265,7 @@ describe('AttentionTracker — sessions without an id yet', () => {
   it('copilot never names its session: the landing counts, finds its session later, and then shows as landed', () => {
     const h = harness()
     runTurn(h, { turnId: 't1', provider: 'copilot', cwd: WORKTREE, text: 'Done.' })
-    expect(h.t.landings()).toEqual([])
+    expect(landings(h.t)).toEqual([])
     expect(h.t.badgeCount(ALL_ON)).toBe(1)
     const { notice } = h.flush()
     // nothing to open yet but the board
@@ -266,7 +273,7 @@ describe('AttentionTracker — sessions without an id yet', () => {
     expect(notice?.target).toEqual({ kind: 'home' })
 
     h.t.resolve((u) => (u.provider === 'copilot' && u.cwd === WORKTREE ? 'copilot:s1' : null))
-    expect(h.t.landings().map((l) => l.id)).toEqual(['copilot:s1'])
+    expect(landings(h.t).map((l) => l.id)).toEqual(['copilot:s1'])
     expect(h.t.badgeCount(ALL_ON)).toBe(1)
     // a click now goes to the session it became
     expect(notice && h.t.targetFor(notice)).toEqual({ kind: 'session', id: 'copilot:s1' })
@@ -301,7 +308,7 @@ describe('AttentionTracker — roundtables', () => {
     const h = harness()
     h.t.tableEnded({ id: 'rt1', title: 'Adopt incremental indexing?', outcome: consensus })
     expect(h.t.badgeCount(ALL_ON)).toBe(1)
-    expect(h.t.landings()).toEqual([])
+    expect(landings(h.t)).toEqual([])
     const { notice, sound } = h.flush()
     expect(sound).toBe('finish')
     expect(notice).toMatchObject({
@@ -330,19 +337,21 @@ describe('AttentionTracker — roundtables', () => {
 describe('AttentionTracker — keeping it bounded', () => {
   it('forgets landings older than a week and keeps only the newest when there are too many', () => {
     const now = 1_700_000_000_000
-    const old: Unseen = { key: 'claude:old', kind: 'session', id: 'claude:old', startedAt: 0, at: now - LANDING_TTL_MS - 1 }
-    const many: Unseen[] = Array.from({ length: LANDING_MAX + 5 }, (_, i) => ({
+    const old: Unseen = { key: 'claude:old', kind: 'session', reason: 'landed', id: 'claude:old', startedAt: 0, at: now - ITEM_TTL_MS - 1, detail: '' }
+    const many: Unseen[] = Array.from({ length: ITEM_MAX + 5 }, (_, i) => ({
       key: `claude:s${i}`,
       kind: 'session',
+      reason: 'landed',
       id: `claude:s${i}`,
       startedAt: now - 1000 + i,
-      at: now - 1000 + i
+      at: now - 1000 + i,
+      detail: ''
     }))
     const h = harness([old, ...many])
-    expect(h.t.badgeCount(ALL_ON)).toBe(LANDING_MAX)
-    expect(h.t.landings().some((l) => l.id === 'claude:old')).toBe(false)
-    expect(h.t.landings()[0].id).toBe(`claude:s${LANDING_MAX + 4}`)
-    expect(h.t.landings().some((l) => l.id === 'claude:s0')).toBe(false)
+    expect(h.t.badgeCount(ALL_ON)).toBe(ITEM_MAX)
+    expect(landings(h.t).some((l) => l.id === 'claude:old')).toBe(false)
+    expect(landings(h.t)[0].id).toBe(`claude:s${ITEM_MAX + 4}`)
+    expect(landings(h.t).some((l) => l.id === 'claude:s0')).toBe(false)
   })
 
   it('reads the persisted file as untrusted input', () => {
@@ -356,14 +365,14 @@ describe('AttentionTracker — keeping it bounded', () => {
           { key: 'table:rt', kind: 'roundtable', id: 'rt', at: now - 2, provider: 'rm -rf' },
           { key: '', kind: 'session', at: now },
           { key: 'x', kind: 'wat', at: now },
-          { key: 'stale', kind: 'session', at: now - LANDING_TTL_MS - 1 },
+          { key: 'stale', kind: 'session', at: now - ITEM_TTL_MS - 1 },
           { key: 'nan', kind: 'session', at: 'soon' }
         ],
         now
       )
     ).toEqual([
-      { key: 'table:rt', kind: 'roundtable', id: 'rt', startedAt: now - 2, at: now - 2 },
-      { key: 'claude:a', kind: 'session', id: 'claude:a', provider: 'claude', cwd: CHECKOUT, startedAt: now - 5, at: now - 1 }
+      { key: 'table:rt', kind: 'roundtable', reason: 'landed', id: 'rt', startedAt: now - 2, at: now - 2, detail: '' },
+      { key: 'claude:a', kind: 'session', reason: 'landed', id: 'claude:a', provider: 'claude', cwd: CHECKOUT, startedAt: now - 5, at: now - 1, detail: '' }
     ])
   })
 })
@@ -462,5 +471,375 @@ describe('tableOutcome', () => {
     expect(
       tableOutcome({ mode: 'open', concluded: false, roundsRun: 1, participants: seats, entries: [user] })
     ).toEqual({ kind: 'failed', detail: 'No seat replied.' })
+  })
+})
+
+/* ---------- what a log's tail says ---------- */
+
+const T = '2026-09-16T10:00:00.000Z'
+
+describe('judgeAttentionTail — claude', () => {
+  const ask = {
+    type: 'assistant',
+    timestamp: T,
+    message: {
+      role: 'assistant',
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'text', text: 'Two ways to go here.' },
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'AskUserQuestion',
+          input: { questions: [{ question: 'Which owner should the repo live under?', header: 'Owner', options: [] }] }
+        }
+      ]
+    }
+  }
+  const answer = {
+    type: 'user',
+    timestamp: T,
+    toolUseResult: { answers: {} },
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'Owner: ciqol' }] }
+  }
+  const bookkeeping = [{ type: 'attachment', attachment: { type: 'total_tokens_reminder' } }, { type: 'last-prompt' }]
+
+  it('an AskUserQuestion with nothing after it is a question — bookkeeping lines do not answer it', () => {
+    expect(judgeAttentionTail('claude', [ask, ...bookkeeping])).toEqual({
+      waiting: { reason: 'question', detail: 'Which owner should the repo live under?', signature: 'ask:toolu_1', at: Date.parse(T) },
+      failed: null,
+      closing: '',
+      ended: false
+    })
+  })
+
+  it('the answer arrives as a tool result, and the turn is quiet again', () => {
+    expect(judgeAttentionTail('claude', [ask, answer])).toEqual(QUIET)
+  })
+
+  it('leaving plan mode waits on approval; any other tool call is just a turn at work', () => {
+    const plan = { ...ask, message: { ...ask.message, content: [{ type: 'tool_use', id: 't2', name: 'ExitPlanMode', input: { plan: '# Plan' } }] } }
+    expect(judgeAttentionTail('claude', [plan])?.waiting).toMatchObject({ reason: 'permission', detail: 'approve the plan', signature: 'plan:t2' })
+    const bash = { ...ask, message: { ...ask.message, content: [{ type: 'tool_use', id: 't3', name: 'Bash', input: { command: 'npm test' } }] } }
+    expect(judgeAttentionTail('claude', [bash])).toEqual(QUIET)
+  })
+
+  it('a text-only answer is the closing word; the CLI\'s API-error message is a failure', () => {
+    const done = { type: 'assistant', timestamp: T, message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '## Done\nAll green.' }] } }
+    expect(judgeAttentionTail('claude', [done, { type: 'system', subtype: 'stop_hook_summary' }])).toEqual({
+      waiting: null, failed: null, closing: '## Done\nAll green.', ended: true
+    })
+    const dead = { type: 'assistant', timestamp: T, uuid: 'u9', isApiErrorMessage: true, error: 'server_error', message: { role: 'assistant', stop_reason: 'stop_sequence', content: [{ type: 'text', text: 'API Error: Your computer went to sleep mid-response.' }] } }
+    expect(judgeAttentionTail('claude', [dead])).toEqual({
+      waiting: null,
+      failed: { detail: 'API Error: Your computer went to sleep mid-response.', signature: 'api:u9', at: Date.parse(T) },
+      closing: '',
+      ended: true
+    })
+  })
+
+  it('a subagent\'s ask is the subagent\'s business; a tail with no message record says nothing', () => {
+    expect(judgeAttentionTail('claude', [{ ...ask, isSidechain: true }, ...bookkeeping])).toBeNull()
+    expect(judgeAttentionTail('claude', bookkeeping)).toBeNull()
+  })
+})
+
+describe('judgeAttentionTail — codex', () => {
+  const ev = (payload: Record<string, unknown>): unknown => ({ timestamp: T, type: 'event_msg', payload })
+
+  it('an exec approval request with nothing after it waits; the tool output after it is the turn moving on', () => {
+    const request = ev({ type: 'exec_approval_request', call_id: 'c1', command: ['bash', '-lc', 'rm -rf dist && npm run build'], cwd: '/x' })
+    expect(judgeAttentionTail('codex', [request, ev({ type: 'token_count' })])).toEqual({
+      waiting: { reason: 'permission', detail: 'rm -rf dist && npm run build', signature: 'exec_approval_request:c1', at: Date.parse(T) },
+      failed: null,
+      closing: '',
+      ended: false
+    })
+    const output = { timestamp: T, type: 'response_item', payload: { type: 'function_call_output', call_id: 'c1', output: 'ok' } }
+    expect(judgeAttentionTail('codex', [request, output])).toEqual(QUIET)
+  })
+
+  it('a patch approval names the files; an input request is a question', () => {
+    const patch = ev({ type: 'apply_patch_approval_request', call_id: 'c2', changes: { '/x/src/a.ts': {}, '/x/README.md': {} } })
+    expect(judgeAttentionTail('codex', [patch])?.waiting).toMatchObject({ reason: 'permission', detail: 'apply_patch a.ts, README.md' })
+    const input = ev({ type: 'request_user_input', id: 'q1', questions: [{ question: 'Ship behind a flag?' }] })
+    expect(judgeAttentionTail('codex', [input])?.waiting).toMatchObject({ reason: 'question', detail: 'Ship behind a flag?', signature: 'request_user_input:q1' })
+  })
+
+  it('task_complete carries the closing words, error the failure, and a started turn is quiet', () => {
+    expect(judgeAttentionTail('codex', [ev({ type: 'task_complete', turn_id: 't', last_agent_message: 'Pushed the branch.' })])).toEqual({
+      waiting: null, failed: null, closing: 'Pushed the branch.', ended: true
+    })
+    expect(judgeAttentionTail('codex', [ev({ type: 'error', message: 'stream disconnected' })])?.failed).toMatchObject({ detail: 'stream disconnected' })
+    expect(judgeAttentionTail('codex', [ev({ type: 'task_started', turn_id: 't' })])).toEqual(QUIET)
+    expect(judgeAttentionTail('codex', [ev({ type: 'token_count' })])).toBeNull()
+  })
+})
+
+describe('judgeAttentionTail — copilot', () => {
+  const rec = (type: string, data: Record<string, unknown>, id = 'e1'): unknown => ({ type, data, id, timestamp: T })
+  const requested = rec('permission.requested', {
+    requestId: 'r1',
+    permissionRequest: { kind: 'shell', fullCommandText: 'find . -name "*.env"\necho done', intention: 'List env files' }
+  })
+
+  it('a permission request waits until its completion arrives, whatever the answer was', () => {
+    expect(judgeAttentionTail('copilot', [requested, rec('hook.end', {})])).toEqual({
+      waiting: { reason: 'permission', detail: 'List env files', signature: 'permission:r1', at: Date.parse(T) },
+      failed: null,
+      closing: '',
+      ended: false
+    })
+    const completed = rec('permission.completed', { requestId: 'r1', result: { kind: 'denied' } }, 'e2')
+    expect(judgeAttentionTail('copilot', [requested, completed])).toBeNull()
+    expect(judgeAttentionTail('copilot', [requested, completed, rec('assistant.message', { content: 'Skipping that.' })])).toEqual({
+      waiting: null, failed: null, closing: 'Skipping that.', ended: true
+    })
+  })
+
+  it('without an intention the command\'s first line stands in', () => {
+    const bare = rec('permission.requested', { requestId: 'r2', permissionRequest: { kind: 'shell', fullCommandText: 'git push\n' } })
+    expect(judgeAttentionTail('copilot', [bare])?.waiting?.detail).toBe('git push')
+  })
+
+  it('session.error is a failure, task_complete the closing summary, a prompt quiet', () => {
+    expect(judgeAttentionTail('copilot', [rec('session.error', { errorType: 'query', message: 'Failed to get response from the AI model; retried 5 times' }, 'e3'), rec('assistant.turn_end', {})])).toEqual({
+      waiting: null,
+      failed: { detail: 'Failed to get response from the AI model; retried 5 times', signature: 'error:e3', at: Date.parse(T) },
+      closing: '',
+      ended: true
+    })
+    expect(judgeAttentionTail('copilot', [rec('session.task_complete', { summary: 'Opened PR #438.' })])?.closing).toBe('Opened PR #438.')
+    expect(judgeAttentionTail('copilot', [rec('user.message', { content: 'go' })])).toEqual(QUIET)
+  })
+})
+
+/* ---------- observed sessions and pull requests ---------- */
+
+const waitingOn = (detail: string, signature = 'ask:1'): ReturnType<typeof judgeAttentionTail> => ({
+  waiting: { reason: 'question', detail, signature, at: null },
+  failed: null,
+  closing: '',
+  ended: false
+})
+
+describe('AttentionTracker — an agent waiting in a terminal', () => {
+  it('a question raises the session, counts on the badge, and asks with its own sound', () => {
+    const h = harness()
+    h.titles.set('claude:abc', 'Fix the login flake')
+    h.t.observed('claude:abc', 'claude', waitingOn('Which owner?')!)
+    expect(h.t.items(() => null)).toEqual([
+      expect.objectContaining({ kind: 'session', id: 'claude:abc', reason: 'question', detail: 'Which owner?' })
+    ])
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('ask')
+    expect(notice).toMatchObject({ title: 'Claude is asking', subtitle: 'Fix the login flake', body: 'Which owner?', failed: false, target: { kind: 'session', id: 'claude:abc' } })
+  })
+
+  it('the log moving on resolves it and withdraws the banner; the same ask never speaks twice', () => {
+    const h = harness()
+    h.t.observed('claude:abc', 'claude', waitingOn('Which owner?')!)
+    const id = h.flush().notice?.id
+    // the same write judged again (a bookkeeping line landed): nothing new
+    h.t.observed('claude:abc', 'claude', waitingOn('Which owner?')!)
+    expect(h.t.flushAt()).toBeNull()
+    h.t.observed('claude:abc', 'claude', QUIET)
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    expect(h.t.takeWithdrawn()).toEqual([id])
+  })
+
+  it('never about the session on screen — but leaving it with the question still open raises it', () => {
+    const h = harness()
+    h.t.setWindowFocused(true)
+    h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT })
+    h.t.observed('claude:abc', 'claude', waitingOn('Which owner?')!)
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    h.t.setFocus({ kind: 'none' })
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    // opening it is looking at it: gone, and coming and going again does not bring it back
+    h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT })
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    h.t.setFocus({ kind: 'none' })
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    // a different question is news again
+    h.t.observed('claude:abc', 'claude', waitingOn('Ship behind a flag?', 'ask:2')!)
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+  })
+
+  it('an observed turn ending lands with its closing words, unless Cockpit ran that turn itself', () => {
+    const h = harness()
+    h.titles.set('codex:x1', 'Add pagination')
+    h.t.observed('codex:x1', 'codex', { waiting: null, failed: null, closing: '**Pushed** the branch.', ended: true })
+    h.t.observedEnd({ id: 'codex:x1', provider: 'codex', startedAt: h.clock.now - 3 * 60_000 })
+    expect(landings(h.t).map((l) => l.id)).toEqual(['codex:x1'])
+    expect(h.flush().notice).toMatchObject({ title: 'Codex finished after 3m', subtitle: 'Add pagination', body: 'Pushed the branch.' })
+
+    // a spawned turn's own ending was the news; the log saying so a moment later is not
+    runTurn(h, { turnId: 't1', resume: 'abc', text: 'Done.', minutes: 0 })
+    h.flush()
+    h.t.observedEnd({ id: 'claude:abc', provider: 'claude', startedAt: h.clock.now })
+    expect(h.t.flushAt()).toBeNull()
+  })
+
+  it('an observed failure lands as one, with the error the log records', () => {
+    const h = harness()
+    h.t.observed('copilot:p1', 'copilot', {
+      waiting: null,
+      failed: { detail: 'Failed to get response from the AI model', signature: 'error:e3', at: null },
+      closing: '',
+      ended: true
+    })
+    h.t.observedEnd({ id: 'copilot:p1', provider: 'copilot', startedAt: h.clock.now })
+    expect(h.t.items(() => null)[0]).toMatchObject({ reason: 'failed', detail: 'Failed to get response from the AI model' })
+    expect(h.flush()).toMatchObject({ sound: 'fail', notice: { title: 'Copilot failed', failed: true } })
+  })
+
+  it('a new turn in the terminal clears a landing nobody opened — the user drove past it', () => {
+    const h = harness()
+    h.t.observed('codex:x1', 'codex', { waiting: null, failed: null, closing: 'Done.', ended: true })
+    h.t.observedEnd({ id: 'codex:x1', provider: 'codex', startedAt: h.clock.now })
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    h.t.observed('codex:x1', 'codex', QUIET)
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+  })
+})
+
+function pr(over: Partial<PrStatus> = {}): PrStatus {
+  return {
+    number: 57,
+    title: 'Fix login retry flake',
+    state: 'OPEN',
+    isDraft: false,
+    headRefName: 'cockpit/login-retry-flake',
+    url: 'https://github.com/acme/rocket/pull/57',
+    checks: 'failing',
+    review: 'none',
+    unresolvedThreads: 0,
+    ...over
+  }
+}
+
+function sessionOn(id: string, branch: string): SessionMeta {
+  return {
+    id,
+    provider: 'claude',
+    nativeId: id.split(':')[1],
+    source: 'claude-default',
+    title: 'Fix the login flake',
+    cwd: CHECKOUT,
+    logBranch: branch,
+    gitBranch: branch,
+    startedAt: 0,
+    updatedAt: 0,
+    messageCount: 1,
+    sourcePath: '/x.jsonl',
+    repo: { key: 'gh:acme/rocket', name: 'rocket', fullName: 'acme/rocket', root: CHECKOUT }
+  }
+}
+
+describe('AttentionTracker — pull requests gone red', () => {
+  const signal = (p: PrStatus) => ({ pr: p, repoRoot: CHECKOUT, session: sessionOn('claude:abc', p.headRefName) })
+
+  it('failing checks raise the PR once, name the session on its branch, and clear when it recovers', () => {
+    const h = harness()
+    h.t.setPrs([signal(pr())])
+    expect(h.t.items(() => null)).toEqual([
+      expect.objectContaining({ kind: 'pr', reason: 'checks', sessionId: 'claude:abc', repo: 'rocket', provider: 'claude' })
+    ])
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('fail')
+    expect(notice).toMatchObject({
+      title: 'Checks failing on #57',
+      subtitle: 'Fix login retry flake',
+      body: 'rocket · cockpit/login-retry-flake',
+      target: { kind: 'session', id: 'claude:abc' }
+    })
+    // the next sweep, same condition: no second banner
+    h.t.setPrs([signal(pr())])
+    expect(h.t.flushAt()).toBeNull()
+    h.t.setPrs([signal(pr({ checks: 'passing' }))])
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    expect(h.t.takeWithdrawn()).toEqual([notice?.id])
+  })
+
+  it('changes requested asks; a PR with no session opens on GitHub; a green or merged PR is nobody\'s', () => {
+    const h = harness()
+    const orphan = { pr: pr({ number: 58, url: 'https://github.com/acme/rocket/pull/58', checks: 'none' as const, review: 'changes_requested' as const }), repoRoot: CHECKOUT, session: null }
+    h.t.setPrs([orphan, signal(pr({ number: 59, url: 'u59', checks: 'passing' })), signal(pr({ number: 60, url: 'u60', state: 'MERGED' }))])
+    expect(h.t.items(() => null).map((i) => i.key)).toEqual(['pr:https://github.com/acme/rocket/pull/58'])
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('ask')
+    expect(notice).toMatchObject({ title: 'Changes requested on #58', target: { kind: 'url', url: 'https://github.com/acme/rocket/pull/58' } })
+  })
+
+  it('opening the session on the branch is looking at the PR; a recovery and a new failure raise it again', () => {
+    const h = harness()
+    h.t.setPrs([signal(pr())])
+    h.flush()
+    h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT })
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    h.t.setPrs([signal(pr())])
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    h.t.setPrs([signal(pr({ checks: 'passing' }))])
+    h.t.setPrs([signal(pr())])
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    expect(h.flush().notice?.title).toBe('Checks failing on #57')
+  })
+
+  it('markSeen takes a PR off the list the way a click on its link does', () => {
+    const h = harness()
+    h.t.setPrs([signal(pr())])
+    h.t.markSeen('pr:https://github.com/acme/rocket/pull/57')
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    h.t.setPrs([signal(pr())])
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+  })
+
+  it('a burst that is not only endings says how many need you', () => {
+    const h = harness()
+    h.titles.set('claude:abc', 'Fix the login flake')
+    runTurn(h, { turnId: 't1', resume: 'abc', text: 'Done.', minutes: 0 })
+    h.t.observed('codex:x1', 'codex', waitingOn('Ship it?')!)
+    h.t.setPrs([signal(pr())])
+    expect(h.flush().notice).toMatchObject({
+      title: '3 need you',
+      body: 'Claude finished · Fix the login flake\nCodex is asking · New session\nChecks failing on #57 · Fix login retry flake',
+      target: { kind: 'home' }
+    })
+  })
+})
+
+describe('AttentionTracker — the list the board shows', () => {
+  it('names session rows from the index when it has them, and waits for it otherwise', () => {
+    const h = harness()
+    runTurn(h, { turnId: 't1', resume: 'abc', text: 'Done.' })
+    const named = h.t.items((id) => (id === 'claude:abc' ? sessionOn(id, 'cockpit/login-flake') : null))
+    expect(named).toEqual([
+      { kind: 'session', key: 'claude:abc', id: 'claude:abc', provider: 'claude', reason: 'landed', title: 'Fix the login flake', branch: 'cockpit/login-flake', repo: 'rocket', detail: 'Done.', at: h.clock.now }
+    ])
+    // a copilot landing with no session yet is on the badge but not on the board
+    runTurn(h, { turnId: 't2', provider: 'copilot', cwd: WORKTREE, text: 'Done.' })
+    expect(h.t.badgeCount(ALL_ON)).toBe(2)
+    expect(h.t.items(() => null)).toHaveLength(1)
+  })
+
+  it('reads persisted asks, PRs and memories as untrusted input', () => {
+    const now = 1_700_000_000_000
+    const good = pr()
+    expect(
+      sanitizeUnseen(
+        [
+          { key: 'claude:q', kind: 'session', reason: 'question', id: 'claude:q', at: now - 1, detail: 'Which?', signature: 'ask:1' },
+          { key: 'claude:old-q', kind: 'session', reason: 'question', id: 'claude:old-q', at: now - 13 * 3_600_000 },
+          { key: 'pr:u', kind: 'pr', reason: 'checks', at: now - 2, pr: good, repoRoot: CHECKOUT, sessionId: 'claude:abc', signature: 'checks:failing:none' },
+          { key: 'pr:bad', kind: 'pr', reason: 'checks', at: now - 2, pr: { number: 'x' }, repoRoot: CHECKOUT },
+          { key: 'pr:why', kind: 'pr', reason: 'landed', at: now - 2, pr: good, repoRoot: CHECKOUT },
+          { key: 'claude:r', kind: 'session', reason: 'review', id: 'claude:r', at: now - 3 }
+        ],
+        now
+      ).map((u) => u.key)
+    ).toEqual(['pr:u', 'claude:q'])
+    expect(sanitizeMemory([['k', 's'], ['bad'], 'nope', [1, 2]])).toEqual([['k', 's']])
   })
 })

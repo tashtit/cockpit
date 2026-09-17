@@ -47,9 +47,9 @@ normal palette; <kbd>Esc</kbd> closes it.
 
 Backing into the conversation that's currently running just flips the view — the live log keeps streaming, untouched.
 
-### Flying and landed
+### Flying, landed, and needing you
 
-A session whose agent is running right now is **flying**: a pulsing dot in the agent's color on its row and on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot and `landed <time>` — until you open it. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
+A session whose agent is running right now is **flying**: a pulsing dot in the agent's color on its row and on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot and `landed <time>` — until you open it. A session whose agent stopped to ask you something, or wants a command approved, carries a **?** mark and says so (`asking`, `needs approval`, with the question or the command alongside on the board); one whose turn died carries a **!** and `failed`. All of those, and any pull request of yours gone red, sit in the home board's **Needs you** group at the top, and the same list is what the Dock badge counts; see [Notifications](/guide/notifications).
 
 ## Archiving
 

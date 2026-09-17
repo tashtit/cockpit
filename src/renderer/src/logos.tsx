@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import type { PrChecks, PrReview, PrStatus, Provider } from '../../shared/types'
+import type { AttentionReason, PrChecks, PrReview, PrStatus, Provider } from '../../shared/types'
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude',
@@ -327,5 +327,73 @@ export function PrBadge({
           approved / review required stay in the tooltip */}
       {review === 'changes_requested' && <span className="pr-review-mark" aria-hidden="true" />}
     </button>
+  )
+}
+
+/** What each reason says — the word every mark carries, in tooltips and accessible names. */
+export const NEED_LABEL: Record<AttentionReason, string> = {
+  landed: 'finished — not opened yet',
+  failed: 'failed',
+  question: 'asking a question',
+  permission: 'waiting for approval',
+  checks: 'checks failing',
+  review: 'changes requested'
+}
+
+/**
+ * The "needs you" mark: a ring with a glyph — ? for an agent (or a reviewer)
+ * waiting on an answer, ! for a failure. Warn or danger by tone; the glyph and the
+ * accessible name carry the state, the colour only echoes it. 12px on the board,
+ * 10px in a sidebar row (the LiveDot's own slot).
+ */
+export function NeedMark({
+  reason,
+  size = 12
+}: {
+  reason: Exclude<AttentionReason, 'landed'>
+  size?: number
+}): JSX.Element {
+  const ask = reason === 'question' || reason === 'permission' || reason === 'review'
+  return (
+    <span
+      className={`need-mark ${ask ? 'need-warn' : 'need-danger'}`}
+      role="img"
+      aria-label={`${NEED_LABEL[reason]} — needs you`}
+    >
+      <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <circle cx="6" cy="6" r="5.2" stroke="currentColor" strokeWidth="1.3" />
+        {ask ? (
+          <path
+            d="M4.35 4.6a1.7 1.7 0 1 1 2.45 1.5c-.5.28-.8.6-.8 1.1"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+          />
+        ) : (
+          <path d="M6 3.1v3.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        )}
+        <circle cx="6" cy={ask ? 9 : 8.7} r="0.85" fill="currentColor" />
+      </svg>
+    </span>
+  )
+}
+
+/**
+ * A PR number as a placard, not a control: the board row it sits in is the button
+ * that opens the PR's session, so the number itself is decoration — the row's
+ * accessible name spells the PR out.
+ */
+export function PrMark({ pr }: { pr: PrStatus }): JSX.Element {
+  const checks = pr.state === 'OPEN' && pr.checks !== 'none' ? pr.checks : null
+  return (
+    <span className="pr-mark" aria-hidden="true">
+      <Octicon d={OCTICON_PR} size={11} />
+      {`#${pr.number}`}
+      {checks && (
+        <span className={`pr-checks ${checks}`}>
+          <Octicon d={CHECKS_GLYPH[checks]} size={11} />
+        </span>
+      )}
+    </span>
   )
 }

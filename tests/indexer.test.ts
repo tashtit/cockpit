@@ -942,3 +942,46 @@ describe('subagentParent', () => {
     expect(subagentParent('/h/.codex/sessions/2026/09/16/rollout-x.jsonl')).toBeNull()
   })
 })
+
+// Attention rides the same write: the indexer hands every fresh parse to onLogWrite
+// before the liveness tracker judges it, and passes the tracker's endings through.
+describe('log writes reach attention', () => {
+  it('a fresh parse reports the file first, then the busy set; the final answer ends the turn through the watcher path', async () => {
+    const dir = join(root, 'write-claude')
+    const proj = join(dir, 'projects', 'p')
+    mkdirSync(proj, { recursive: true })
+    const secondsAgo = (n: number): string => new Date(Date.now() - n * 1000).toISOString()
+    const T0 = secondsAgo(20)
+    const file = join(proj, 'w1.jsonl')
+    writeFileSync(
+      file,
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'fix it' }, timestamp: T0, sessionId: 'w1', cwd: repoA },
+        {
+          type: 'assistant',
+          message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Bash', input: {} }] },
+          timestamp: secondsAgo(15)
+        }
+      ])
+    )
+    const order: string[] = []
+    const ends: Array<{ id: string; startedAt: number }> = []
+    const idx = new SessionIndexer(() => {}, {
+      claudeStoreDir: null,
+      onLogWrite: (f, meta) => order.push(`write:${meta.id}:${f === file}`),
+      onLiveChange: (s) => order.push(`live:${s.length}`),
+      onObservedEnd: (e) => ends.push(e)
+    })
+    await idx.setSources([{ path: dir, provider: 'claude', label: 'w' }])
+    expect(order).toEqual(['write:claude:w1:true', 'live:1'])
+
+    appendFileSync(
+      file,
+      jsonl([{ type: 'assistant', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }] }, timestamp: secondsAgo(5) }])
+    )
+    ;(idx as any).markDirty('change', file)
+    await vi.waitFor(() => expect(ends).toEqual([{ id: 'claude:w1', startedAt: Date.parse(T0) }]), { timeout: 5000, interval: 50 })
+    expect(order.slice(2)).toEqual(['write:claude:w1:true', 'live:0'])
+    idx.stopWatchers()
+  })
+})

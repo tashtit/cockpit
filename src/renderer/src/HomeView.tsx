@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  AttentionItem,
+  AttentionReason,
   PermissionMode,
   Provider,
   RepoGroup,
@@ -10,9 +12,19 @@ import type {
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
-import { useLandedMap } from './landed'
+import { useAttentionItems } from './attention'
 import { accountOptions, MODES, savedAccount, type StartSessionRequest } from './NewSession'
-import { BranchChip, CheckIcon, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import {
+  BranchChip,
+  CheckIcon,
+  LiveDot,
+  NEED_LABEL,
+  NeedMark,
+  PrMark,
+  ProviderLogo,
+  PROVIDER_LABEL,
+  RepoIcon
+} from './logos'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
@@ -38,7 +50,8 @@ export function HomeView({
   onOpenFull,
   onNewRoundtable,
   onOpenRoundtable,
-  onOpenSettings
+  onOpenSettings,
+  onOpenUrl
 }: {
   repos: RepoGroup[]
   /** The index has finished its first scan, so an empty `repos` means none */
@@ -53,6 +66,8 @@ export function HomeView({
   onOpenRoundtable: (id: string) => void
   /** First run sends people to Settings for the step that is missing */
   onOpenSettings: () => void
+  /** A red PR with no session of its own opens on GitHub */
+  onOpenUrl: (url: string) => void
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
@@ -161,19 +176,22 @@ export function HomeView({
     promptRef.current?.focus()
   }, [canStart])
 
-  // the fleet: sessions and roundtables on one board, placed by what is happening
+  // the fleet: sessions and roundtables on one board, placed by what is happening.
+  // What needs you renders whole from main's list — a session waiting on you is on the
+  // board even when it is not among the ten most recent rows
   const busyMap = useBusyMap()
-  const landedMap = useLandedMap()
-  const active =
-    recent.some((s) => busyMap.has(s.id) || landedMap.has(s.id)) || tables.some((t) => t.running)
-  const fleetLeads = active && recent.length + tables.length > 0
-  const fleet = recent.length + tables.length > 0 && (
+  const needs = useAttentionItems()
+  const fleetLeads =
+    needs.length > 0 || recent.some((s) => busyMap.has(s.id)) || tables.some((t) => t.running)
+  const fleet = (recent.length + tables.length > 0 || needs.length > 0) && (
     <Board
       sessions={recent}
       total={recentTotal}
       tables={tables}
+      needs={needs}
       onOpen={onOpenSession}
       onOpenRoundtable={onOpenRoundtable}
+      onOpenUrl={onOpenUrl}
     />
   )
 
@@ -417,27 +435,31 @@ function Setup({
 
 /**
  * The board — the home view's opening move and the app's signature element:
- * a departure-board of sessions, flying first. Livery-colored pulse + placard
- * agent label + branch + elapsed time for running sessions; idle sessions keep
- * their timestamp. Replaces the old "Recent activity" list (the sidebar remains
- * the exhaustive one).
+ * a departure-board of sessions. What needs you comes first, as its own group; then
+ * what is flying — livery-colored pulse + placard agent label + branch + elapsed
+ * time; idle sessions keep their timestamp on the ground. Replaces the old "Recent
+ * activity" list (the sidebar remains the exhaustive one).
  */
 function Board({
   sessions,
   total,
   tables,
+  needs,
   onOpen,
-  onOpenRoundtable
+  onOpenRoundtable,
+  onOpenUrl
 }: {
   sessions: SessionMeta[]
   total: number
   /** Roundtables are rows on the same board — a table is work in flight like a session */
   tables: RoundtableMeta[]
+  /** Main's list of what waits on the user, newest first */
+  needs: readonly AttentionItem[]
   onOpen: (s: SessionMeta) => void
   onOpenRoundtable: (id: string) => void
+  onOpenUrl: (url: string) => void
 }): JSX.Element {
   const busy = useBusyMap()
-  const landed = useLandedMap()
   // the elapsed column ticks only while something is actually flying
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -446,25 +468,32 @@ function Board({
     return () => clearInterval(t)
   }, [busy.size])
 
-  // one list, three states: flying (longest airborne first, then any table mid-round),
-  // landed (newest landing first), then the ground — sessions and tables by recency
+  // one board, three states: needs you (whole, newest first — a session on that list
+  // stays there even while its turn is live, because it is waiting on you), flying
+  // (longest airborne first, then any table mid-round), then the ground — sessions
+  // and tables by recency
+  const needSessions = new Set(needs.flatMap((it) => (it.kind === 'session' ? [it.id] : [])))
+  const needTables = new Set(needs.flatMap((it) => (it.kind === 'roundtable' ? [it.id] : [])))
   const flyingSessions = sessions
-    .filter((s) => busy.has(s.id))
+    .filter((s) => busy.has(s.id) && !needSessions.has(s.id))
     .sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
-  const flyingTables = tables.filter((t) => t.running).sort((a, b) => b.updatedAt - a.updatedAt)
-  const arrived = sessions
-    .filter((s) => !busy.has(s.id) && landed.has(s.id))
-    .sort((a, b) => (landed.get(b.id) ?? 0) - (landed.get(a.id) ?? 0))
+  const flyingTables = tables
+    .filter((t) => t.running && !needTables.has(t.id))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
   const ground: Array<{ kind: 'session'; s: SessionMeta } | { kind: 'table'; t: RoundtableMeta }> = [
-    ...sessions.filter((s) => !busy.has(s.id) && !landed.has(s.id)).map((s) => ({ kind: 'session' as const, s })),
-    ...tables.filter((t) => !t.running).map((t) => ({ kind: 'table' as const, t }))
+    ...sessions
+      .filter((s) => !busy.has(s.id) && !needSessions.has(s.id))
+      .map((s) => ({ kind: 'session' as const, s })),
+    ...tables.filter((t) => !t.running && !needTables.has(t.id)).map((t) => ({ kind: 'table' as const, t }))
   ].sort((a, b) => (b.kind === 'session' ? b.s.updatedAt : b.t.updatedAt) - (a.kind === 'session' ? a.s.updatedAt : a.t.updatedAt))
   const flyingCount = flyingSessions.length + flyingTables.length
-  // the board is a taste, not the list: what is happening always shows, the ground fills
-  // what is left of ten rows (the sidebar stays the exhaustive one)
-  const shownGround = ground.slice(0, Math.max(0, BOARD_ROWS - flyingCount - arrived.length))
+  // the board is a taste, not the list: what needs you and what is happening always
+  // show, the ground fills what is left of ten rows (the sidebar stays the exhaustive one)
+  const shownGround = ground.slice(0, Math.max(0, BOARD_ROWS - needs.length - flyingCount))
+  const onPage = sessions.filter((s) => needSessions.has(s.id)).length
+  const tablesUp = flyingTables.length + tables.filter((t) => needTables.has(t.id)).length
   const groundTotal = Math.max(
-    total - flyingSessions.length - arrived.length + (tables.length - flyingTables.length),
+    total - flyingSessions.length - onPage + (tables.length - tablesUp),
     ground.length
   )
 
@@ -475,38 +504,184 @@ function Board({
             outranks nothing above it would read as a skipped level.
             Polite live region — turn starts/completions announce the new counts */}
         <h2 className="board-eyebrow" aria-live="polite">
-          {flyingCount === 0 && arrived.length === 0 ? (
+          {flyingCount === 0 && needs.length === 0 ? (
             <>all on the ground</>
           ) : (
             <>
+              {needs.length > 0 && (
+                <b>
+                  {needs.length} need{needs.length === 1 ? 's' : ''} you
+                </b>
+              )}
+              {needs.length > 0 && flyingCount > 0 && ' · '}
               {flyingCount > 0 && <b>{flyingCount} flying</b>}
-              {flyingCount > 0 && arrived.length > 0 && ' · '}
-              {arrived.length > 0 && <b>{arrived.length} landed</b>}
               {' · '}
               {groundTotal} on the ground
             </>
           )}
         </h2>
       </div>
+      {needs.length > 0 && (
+        <>
+          <h3 className="board-group-label">needs you</h3>
+          <ul className="board-list board-needs" aria-label="Needs you">
+            {needs.map((it) => (
+              <NeedRow
+                key={it.key}
+                it={it}
+                tables={tables}
+                onOpen={onOpen}
+                onOpenRoundtable={onOpenRoundtable}
+                onOpenUrl={onOpenUrl}
+              />
+            ))}
+          </ul>
+        </>
+      )}
       <ul className="board-list">
         {flyingSessions.map((s) => (
-          <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} landedAt={undefined} now={now} onOpen={onOpen} />
+          <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} now={now} onOpen={onOpen} />
         ))}
         {flyingTables.map((t) => (
           <TableRow key={t.id} t={t} onOpen={onOpenRoundtable} />
         ))}
-        {arrived.map((s) => (
-          <BoardRow key={s.id} s={s} startedAt={undefined} landedAt={landed.get(s.id)} now={now} onOpen={onOpen} />
-        ))}
         {shownGround.map((g) =>
           g.kind === 'session' ? (
-            <BoardRow key={g.s.id} s={g.s} startedAt={undefined} landedAt={undefined} now={now} onOpen={onOpen} />
+            <BoardRow key={g.s.id} s={g.s} startedAt={undefined} now={now} onOpen={onOpen} />
           ) : (
             <TableRow key={g.t.id} t={g.t} onOpen={onOpenRoundtable} />
           )
         )}
       </ul>
     </section>
+  )
+}
+
+/** The meta slot's word for each reason — what carries the state, so colour never does alone. */
+const NEED_WORD: Record<AttentionReason, string> = {
+  landed: 'landed',
+  failed: 'failed',
+  question: 'asking',
+  permission: 'needs approval',
+  checks: 'checks failing',
+  review: 'changes requested'
+}
+
+/**
+ * One row of the needs-you group, in the board's grammar. A session row opens the
+ * session; a PR row opens the session on its branch, or the PR itself when no
+ * session claims the branch; a table row opens the table. The mark in the dot slot
+ * and the word in the meta slot both say why — a landed row keeps the solid livery
+ * dot and "landed <time>" it always had, an ending's detail rides in the title.
+ */
+function NeedRow({
+  it,
+  tables,
+  onOpen,
+  onOpenRoundtable,
+  onOpenUrl
+}: {
+  it: AttentionItem
+  tables: RoundtableMeta[]
+  onOpen: (s: SessionMeta) => void
+  onOpenRoundtable: (id: string) => void
+  onOpenUrl: (url: string) => void
+}): JSX.Element {
+  const timeFormat = useTimeFormat()
+  const when = fmtTime(it.at, timeFormat)
+  const openSession = (id: string): void => {
+    void api.getSession(id).then((s) => s && onOpen(s))
+  }
+  if (it.kind === 'session') {
+    const landed = it.reason === 'landed'
+    const ended = landed || it.reason === 'failed'
+    return (
+      <li>
+        <button
+          className={`board-row needs needs-${it.reason} ${landed ? 'landed' : ''}`}
+          title={`${PROVIDER_LABEL[it.provider]} — ${it.title}${it.branch ? `\n⎇ ${it.branch}` : ''}\n${
+            NEED_LABEL[it.reason]
+          }${it.detail ? `: ${it.detail}` : ''}`}
+          onClick={() => openSession(it.id)}
+        >
+          {landed ? (
+            // solid, unpulsing, in the agent's livery: arrived, not working
+            <span className={`board-dot-landed plogo-${it.provider}`} aria-hidden="true" />
+          ) : (
+            <NeedMark reason={it.reason} />
+          )}
+          <span className={`board-agent board-lead board-agent-${it.provider}`}>
+            {PROVIDER_LABEL[it.provider]}
+          </span>
+          <span className="board-branch">{it.branch && <BranchChip branch={it.branch} />}</span>
+          <span className="board-task">
+            {it.title}
+            {it.detail && <span className="board-detail"> — {it.detail}</span>}
+          </span>
+          {it.repo && <span className="board-repo">{it.repo}</span>}
+          <span className="board-meta board-meta-needs">
+            {NEED_WORD[it.reason]}
+            {ended ? ` ${when}` : ''}
+          </span>
+        </button>
+      </li>
+    )
+  }
+  if (it.kind === 'roundtable') {
+    const t = tables.find((x) => x.id === it.id)
+    const failed = it.reason === 'failed'
+    return (
+      <li>
+        <button
+          className={`board-row board-row-table needs needs-${it.reason} ${failed ? '' : 'landed'}`}
+          title={`Roundtable — ${it.title}\n${failed ? 'failed' : 'concluded'}${it.detail ? `: ${it.detail}` : ''}`}
+          onClick={() => onOpenRoundtable(it.id)}
+        >
+          {failed ? <NeedMark reason="failed" /> : <span className="board-dot-landed" aria-hidden="true" />}
+          {t ? (
+            <span className="rt-seats board-lead" role="img" aria-label={`Roundtable: ${t.providers.map((p) => PROVIDER_LABEL[p]).join(', ')}`}>
+              {t.providers.map((p, i) => (
+                <span key={`${p}-${i}`} className={`rt-seat plogo-${p}`}>
+                  <ProviderLogo p={p} size={12} />
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className="board-agent board-lead">Table</span>
+          )}
+          <span className="board-branch">{t?.branch && <BranchChip branch={t.branch} />}</span>
+          <span className="board-task">
+            {it.title}
+            {it.detail && <span className="board-detail"> — {it.detail}</span>}
+          </span>
+          <span className="board-meta board-meta-needs">
+            {failed ? 'failed' : 'concluded'} {when}
+          </span>
+        </button>
+      </li>
+    )
+  }
+  const { pr } = it
+  return (
+    <li>
+      <button
+        className={`board-row needs needs-${it.reason}`}
+        title={`${NEED_LABEL[it.reason]} — #${pr.number} ${pr.title}\n⎇ ${pr.headRefName}\n${
+          it.sessionId ? 'opens the session on this branch' : 'opens the pull request on GitHub'
+        }`}
+        onClick={() => (it.sessionId ? openSession(it.sessionId) : onOpenUrl(pr.url))}
+      >
+        <NeedMark reason={it.reason} />
+        <span className="board-lead">
+          <PrMark pr={pr} />
+          <span className="sr-only">pull request #{pr.number}</span>
+        </span>
+        <span className="board-branch">{pr.headRefName && <BranchChip branch={pr.headRefName} />}</span>
+        <span className="board-task">{pr.title}</span>
+        <span className="board-repo">{it.repo}</span>
+        <span className="board-meta board-meta-needs">{NEED_WORD[it.reason]}</span>
+      </button>
+    </li>
   )
 }
 
@@ -556,38 +731,25 @@ function TableRow({ t, onOpen }: { t: RoundtableMeta; onOpen: (id: string) => vo
 function BoardRow({
   s,
   startedAt,
-  landedAt,
   now,
   onOpen
 }: {
   s: SessionMeta
   /** Epoch ms the running turn started; undefined = on the ground */
   startedAt: number | undefined
-  /** Epoch ms its last turn ended, while you weren't looking; undefined = seen */
-  landedAt: number | undefined
   now: number
   onOpen: (s: SessionMeta) => void
 }): JSX.Element {
   const timeFormat = useTimeFormat()
   const flying = startedAt !== undefined
-  const landed = !flying && landedAt !== undefined
   return (
     <li>
       <button
-        className={`board-row ${flying ? 'flying' : ''} ${landed ? 'landed' : ''}`}
-        title={`${PROVIDER_LABEL[s.provider]} — ${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${
-          landed ? '\nfinished while you were away' : ''
-        }`}
+        className={`board-row ${flying ? 'flying' : ''}`}
+        title={`${PROVIDER_LABEL[s.provider]} — ${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}`}
         onClick={() => onOpen(s)}
       >
-        {flying ? (
-          <LiveDot p={s.provider} />
-        ) : landed ? (
-          // solid, unpulsing, in the agent's livery: arrived, not working
-          <span className={`board-dot-landed plogo-${s.provider}`} aria-hidden="true" />
-        ) : (
-          <span className="board-dot-idle" aria-hidden="true" />
-        )}
+        {flying ? <LiveDot p={s.provider} /> : <span className="board-dot-idle" aria-hidden="true" />}
         <span className={`board-agent board-lead board-agent-${s.provider}`}>
           {PROVIDER_LABEL[s.provider]}
         </span>
@@ -597,11 +759,6 @@ function BoardRow({
         {s.repo && <span className="board-repo">{s.repo.name}</span>}
         {flying ? (
           <span className="board-meta">{fmtElapsed(now - startedAt)}</span>
-        ) : landed ? (
-          // the word carries the state, so colour never carries it alone
-          <span className="board-meta board-meta-landed">
-            landed {fmtTime(s.updatedAt, timeFormat)}
-          </span>
         ) : (
           <time className="board-meta" dateTime={new Date(s.updatedAt).toISOString()}>
             {fmtTime(s.updatedAt, timeFormat)}

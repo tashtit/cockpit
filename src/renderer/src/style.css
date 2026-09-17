@@ -1074,6 +1074,25 @@ summary::-webkit-details-marker { display: none; }
   white-space: nowrap; flex-shrink: 0; }
 .board-meta { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
   font-variant-numeric: tabular-nums; flex-shrink: 0; }
+/* needs you: the board's opening group — what waits on the user, before what flies.
+   A slim placard label, then rows in the board's own grammar: the mark says why
+   (? an agent or a reviewer waiting on an answer, ! a failure), the meta word says
+   it again, and the inset bar only echoes the tone. A landed row keeps the livery
+   bar it always had (the :has rules in the identity layer outrank these). */
+.board-group-label { padding: var(--s1) var(--s4); font-size: var(--fs-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.9px; color: var(--fg-dim);
+  border-bottom: 1px solid var(--border); }
+.board-needs + .board-list { border-top: 1px solid var(--border); }
+.board-needs .board-row { box-shadow: inset 2px 0 0 var(--warn); }
+.board-row.needs-failed, .board-row.needs-checks { box-shadow: inset 2px 0 0 var(--danger); }
+.board-detail { color: var(--fg-dim); }
+.board-meta-needs { color: var(--fg); }
+.need-mark { display: inline-flex; flex-shrink: 0; line-height: 0; }
+.need-warn { color: var(--warn); }
+.need-danger { color: var(--danger); }
+/* a PR number as a placard in the lead column — the row is the control */
+.pr-mark { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono);
+  font-size: var(--fs-xs); font-variant-numeric: tabular-nums; color: var(--pr-open); }
 
 /* ---------- ⌘K palette: the keyboard door to the whole fleet ----------
    Modal combobox over sessions / repos / views. The frame borrows the composer
@@ -1816,7 +1835,7 @@ button.pnl-flag:hover { text-decoration: underline; }
    name instruments. Both hero headline and placards speak mono; body rows and
    prose stay sans for legibility. */
 .home-hero h2 { font-family: var(--mono); letter-spacing: -1px; }
-.ns-label, .inst-scope label, .board-eyebrow, .board-agent,
+.ns-label, .inst-scope label, .board-eyebrow, .board-group-label, .board-agent,
 .section-row, .search-group, .repo-filter-head { font-family: var(--mono);
   letter-spacing: 0.7px; }
 /* view names are placards too: SETTINGS / AGENTS / NEW SESSION / PROFILE.
@@ -1864,6 +1883,8 @@ button.pnl-flag:hover { text-decoration: underline; }
      checks glyph, a two-digit count and the review mark it took half the row and left
      the title four letters — "reviewers are waiting" still shows, the number is in the name */
   .session-row .pr-threads-n { display: none; }
+  /* the detail after a needs-you title (the question, the command) goes before the title does */
+  .board-detail { display: none; }
   /* the review and handoff keys fold to 28px squares (an icon-btn's footprint) so
      the header's row still holds at the 560px floor — both keep an aria-label */
   .btn-review, .btn-handoff { width: 28px; height: 28px; padding: 0; justify-content: center; }

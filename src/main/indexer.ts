@@ -15,7 +15,7 @@ import type {
 } from '../shared/types'
 import { orderRepos } from '../shared/repo-order'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
-import { LivenessTracker } from './liveness'
+import { LivenessTracker, type ObservedTurnEnd } from './liveness'
 import { defaultClaudeStoreDir, listProviderArchivedIds } from './provider-archived'
 import {
   listClaudeSessionFiles,
@@ -200,6 +200,7 @@ export class SessionIndexer {
    * are its pacing too; it reads a bounded tail of fresh files only.
    */
   private liveness: LivenessTracker
+  private onLogWrite: ((file: string, meta: SessionMeta, mtimeMs: number) => void) | null
 
   constructor(
     onUpdate: () => void,
@@ -210,14 +211,25 @@ export class SessionIndexer {
       /** The observed busy set changed — a turn started, ended or expired in some log */
       onLiveChange?: (sessions: BusySession[]) => void
       liveWindowMs?: number
+      /**
+       * A session's log changed and was re-parsed — the one moment its tail can say
+       * something new (attention.ts reads what an agent waits for there). Called
+       * before the liveness tracker judges the same write, so an ending it reports
+       * finds the tail already read.
+       */
+      onLogWrite?: (file: string, meta: SessionMeta, mtimeMs: number) => void
+      /** An observed turn's log ended it (never silence — see liveness.ts) */
+      onObservedEnd?: (end: ObservedTurnEnd) => void
     }
   ) {
     this.onUpdate = onUpdate
     this.cacheFile = opts?.cacheFile ?? null
     this.watchRetryMs = opts?.watchRetryMs ?? WATCH_RETRY_INTERVAL_MS
     this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
+    this.onLogWrite = opts?.onLogWrite ?? null
     this.liveness = new LivenessTracker(opts?.onLiveChange ?? (() => {}), {
-      windowMs: opts?.liveWindowMs
+      windowMs: opts?.liveWindowMs,
+      onTurnEnd: opts?.onObservedEnd
     })
     this.firstScan = new Promise((resolve) => (this.markScanned = resolve))
     this.loadCache()
@@ -641,7 +653,10 @@ export class SessionIndexer {
     this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, meta })
     this.cacheDirty = true
     // a fresh parse means the file changed — the only time its tail can say something new
-    if (meta) this.liveness.observe(file, meta, st.mtimeMs)
+    if (meta) {
+      this.onLogWrite?.(file, meta, st.mtimeMs)
+      this.liveness.observe(file, meta, st.mtimeMs)
+    }
     return meta
   }
 

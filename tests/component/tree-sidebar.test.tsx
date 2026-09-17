@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
-import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
+import { clearAttention, initAttention } from '../../src/renderer/src/attention'
+import type { AttentionItem, PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
 import { openPr, usageFixture } from './stub-api'
 
 const repo: RepoGroup = {
@@ -441,5 +442,53 @@ describe('project order', () => {
     await userEvent.click(screen.getByRole('button', { name: /sort A→Z/ }))
     expect(window.cockpit.setRepoOrder).toHaveBeenCalledWith([])
     expect(rowNames()).toEqual(['acme/apple', 'acme/zebra'])
+  })
+})
+
+/**
+ * The meta slot's "needs you" marks come from main's attention list, mirrored by the
+ * attention store — and each carries its state in its name, since a coloured ring
+ * alone says nothing to a screen reader.
+ */
+describe('session rows that need you', () => {
+  it('marks a session waiting on an answer, a failed one, and a landed one, in the slot the live dot uses', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 3,
+      items: [
+        session(),
+        session({ id: 'claude:fail', nativeId: 'fail', title: 'bump deps' }),
+        session({ id: 'claude:land', nativeId: 'land', title: 'add pagination' })
+      ]
+    })
+    const stop = initAttention()
+    renderSidebar()
+    await screen.findByRole('treeitem', { name: /fix the login flake/ })
+    const item = (id: string, reason: 'question' | 'failed' | 'landed', title: string): AttentionItem => ({
+      kind: 'session',
+      key: id,
+      id,
+      provider: 'claude',
+      reason,
+      title,
+      branch: null,
+      repo: 'rocket',
+      detail: '',
+      at: Date.now()
+    })
+    const push = vi.mocked(window.cockpit.onAttention).mock.calls.at(-1)?.[0]
+    act(() => push?.([item('claude:abc', 'question', 'fix the login flake'), item('claude:fail', 'failed', 'bump deps'), item('claude:land', 'landed', 'add pagination')]))
+
+    const asking = await screen.findByRole('treeitem', { name: /fix the login flake/ })
+    expect(within(asking).getByRole('img', { name: 'asking a question — needs you' })).toBeInTheDocument()
+    const failed = screen.getByRole('treeitem', { name: /bump deps/ })
+    expect(within(failed).getByRole('img', { name: 'failed — needs you' })).toBeInTheDocument()
+    const landed = screen.getByRole('treeitem', { name: /add pagination/ })
+    expect(within(landed).getByRole('img', { name: 'finished — not opened yet' })).toBeInTheDocument()
+
+    // looked at: back to the timestamp
+    act(() => push?.([]))
+    await waitFor(() => expect(within(asking).queryByRole('img')).not.toBeInTheDocument())
+    clearAttention()
+    stop()
   })
 })

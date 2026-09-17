@@ -301,4 +301,33 @@ describe('LivenessTracker', () => {
   })
 })
 
+describe('LivenessTracker — endings the log states', () => {
+  it('reports a turn its log ended, after the busy push; a turn that merely went stale is not reported', () => {
+    const fx = FIXTURES.claude
+    const pushes: BusySession[][] = []
+    const ends: Array<{ id: string; startedAt: number; pushedFirst: boolean }> = []
+    const t = new LivenessTracker((s) => pushes.push(s), {
+      onTurnEnd: (e) => ends.push({ ...e, pushedFirst: pushes.at(-1)?.length === 0 })
+    })
+    trackers.push(t)
+    const file = writeFixture('claude', fx.midTurn)
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    appendFileSync(file, jsonl([fx.final]))
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(ends).toEqual([{ id: 'claude:c1', startedAt: fx.startedAt, pushedFirst: true }])
+
+    // idle again, judged again: nothing was running, so nothing ended
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(ends).toHaveLength(1)
+
+    // a running turn whose log goes stale is silence, not an ending
+    const killed = writeFixture('claude', fx.midTurn)
+    t.observe(killed, meta('claude', 'c1', killed), mtime(killed))
+    age(killed, 10 * 60_000)
+    t.observe(killed, meta('claude', 'c1', killed), mtime(killed))
+    expect(t.sessions()).toEqual([])
+    expect(ends).toHaveLength(1)
+  })
+})
+
 afterAll(() => rmSync(root, { recursive: true, force: true }))

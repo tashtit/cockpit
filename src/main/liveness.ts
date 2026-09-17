@@ -54,11 +54,23 @@ type LiveEntry = {
   lastWriteAt: number
 }
 
+/** A turn the tracker had as running, ended by its log's own say-so. */
+export type ObservedTurnEnd = {
+  readonly id: string
+  readonly startedAt: number
+}
+
 export type LivenessOptions = {
   readonly windowMs?: number
   readonly sweepMs?: number
   /** The clock — tests pin it */
   readonly now?: () => number
+  /**
+   * The log ended a turn the tracker had as running — a decisive record, never
+   * silence. An expiry is a killed CLI or a tool call outlasting the window; only
+   * an ending the log states is one attention.ts may land.
+   */
+  readonly onTurnEnd?: (end: ObservedTurnEnd) => void
 }
 
 export class LivenessTracker {
@@ -68,12 +80,14 @@ export class LivenessTracker {
   private readonly windowMs: number
   private readonly sweepMs: number
   private readonly now: () => number
+  private readonly onTurnEnd: ((end: ObservedTurnEnd) => void) | null
 
   constructor(onChange: (sessions: BusySession[]) => void, opts: LivenessOptions = {}) {
     this.onChange = onChange
     this.windowMs = opts.windowMs ?? LIVE_WINDOW_MS
     this.sweepMs = opts.sweepMs ?? SWEEP_MS
     this.now = opts.now ?? Date.now
+    this.onTurnEnd = opts.onTurnEnd ?? null
   }
 
   /**
@@ -101,6 +115,8 @@ export class LivenessTracker {
     }
     if (!verdict.live) {
       this.drop(meta.id)
+      // the busy set has already moved on when the ending is reported
+      if (prev) this.onTurnEnd?.({ id: prev.id, startedAt: prev.startedAt })
       return
     }
     // the opening record is in the tail on a turn's first write, so the exact start is
