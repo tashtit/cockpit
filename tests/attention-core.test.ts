@@ -4,14 +4,18 @@ import {
   BURST_MS,
   LANDING_MAX,
   LANDING_TTL_MS,
+  OBSERVED_ECHO_MS,
   elapsedLabel,
   failureSnippet,
   outcomeSnippet,
+  prIsRed,
+  sanitizeSeenPrs,
   sanitizeUnseen,
   tableOutcome,
   type Unseen
 } from '../src/main/attention-core'
-import type { AttentionPrefs, Roundtable, RoundtableEntry } from '../src/shared/types'
+import type { ObservedTurn } from '../src/main/liveness-core'
+import type { AttentionPrefs, PrStatus, Roundtable, RoundtableEntry } from '../src/shared/types'
 
 const ALL_ON: AttentionPrefs = { notifications: true, sound: true, badge: true }
 const WORKTREE = '/Users/dev/Library/Application Support/Cockpit/worktrees/login-flake'
@@ -72,7 +76,7 @@ describe('AttentionTracker — what lands', () => {
     h.titles.set('claude:abc', 'Fix the login flake')
     runTurn(h, { turnId: 't1', resume: 'abc', text: '## Done\n**Fixed** the flake by retrying the token refresh.' })
 
-    expect(h.t.landings()).toEqual([{ id: 'claude:abc', at: h.clock.now }])
+    expect(h.t.landings()).toEqual([{ id: 'claude:abc', at: h.clock.now, kind: 'landed' }])
     expect(h.t.badgeCount(ALL_ON)).toBe(1)
     expect(h.t.flushAt()).toBe(h.clock.now + BURST_MS)
 
@@ -462,5 +466,352 @@ describe('tableOutcome', () => {
     expect(
       tableOutcome({ mode: 'open', concluded: false, roundsRun: 1, participants: seats, entries: [user] })
     ).toEqual({ kind: 'failed', detail: 'No seat replied.' })
+  })
+})
+
+/* ---------- turns observed in the logs (terminals, the providers' own apps) ---------- */
+
+const FOUR_MIN = 4 * 60_000
+
+/** What the liveness tracker reports for a session the index knows. */
+function observed(h: ReturnType<typeof harness>, ev: Partial<ObservedTurn> & { type: ObservedTurn['type'] }): void {
+  const base = { id: 'claude:obs', provider: 'claude' as const, cwd: CHECKOUT }
+  const start = h.clock.now - FOUR_MIN
+  const full =
+    ev.type === 'ended'
+      ? { ...base, startedAt: start, endedAt: h.clock.now, closing: '## Done\nRetried the token refresh.', ...ev }
+      : ev.type === 'asks'
+        ? { ...base, startedAt: start, asks: { kind: 'question' as const, detail: 'Which owner?' }, ...ev }
+        : { ...base, ...ev }
+  h.t.observedTurn(full as ObservedTurn)
+}
+
+describe('AttentionTracker — turns observed in the logs', () => {
+  it('an observed ending lands, badges and notifies exactly like a spawned one', () => {
+    const h = harness()
+    h.titles.set('claude:obs', 'Fix the login flake')
+    observed(h, { type: 'running' })
+    expect(h.t.landings()).toEqual([])
+    observed(h, { type: 'ended' })
+    expect(h.t.landings()).toEqual([{ id: 'claude:obs', at: h.clock.now, kind: 'landed' }])
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('finish')
+    expect(notice).toMatchObject({
+      title: 'Claude finished after 4m',
+      subtitle: 'Fix the login flake',
+      body: 'Done',
+      target: { kind: 'session', id: 'claude:obs' }
+    })
+  })
+
+  it('a session on screen in a focused window never lands from its log either', () => {
+    const h = harness()
+    h.t.setWindowFocused(true)
+    h.t.setFocus({ kind: 'session', id: 'claude:obs', provider: 'claude', cwd: CHECKOUT })
+    observed(h, { type: 'running' })
+    observed(h, { type: 'ended' })
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.flushAt()).toBeNull()
+  })
+
+  it("a turn Cockpit is running itself is its flight's business — the log's echo is skipped", () => {
+    const h = harness()
+    h.t.turnStarted({ turnId: 't1', provider: 'claude', cwd: CHECKOUT, prompt: 'go', resumeNativeId: 'obs' })
+    observed(h, { type: 'running' })
+    observed(h, { type: 'ended' })
+    expect(h.t.landings()).toEqual([])
+    h.clock.now += FOUR_MIN
+    h.t.chatEvent({ turnId: 't1', type: 'text', text: 'All green.' })
+    h.t.chatEvent({ turnId: 't1', type: 'done' })
+    expect(h.t.landings().map((l) => l.id)).toEqual(['claude:obs'])
+    // the ending record reaches the tracker a debounce later: the same ending, not a second
+    h.clock.now += 2_000
+    observed(h, { type: 'ended' })
+    expect(h.t.landings()).toHaveLength(1)
+    expect(h.flush().notice?.body).toBe('All green.')
+    // well after, a genuinely new observed turn in that session is news again
+    h.clock.now += OBSERVED_ECHO_MS
+    observed(h, { type: 'running' })
+    observed(h, { type: 'ended' })
+    expect(h.t.flushAt()).not.toBeNull()
+  })
+
+  it('a copilot turn Cockpit spawned has no id — the same agent in the same directory is that turn', () => {
+    const h = harness()
+    h.t.turnStarted({ turnId: 't1', provider: 'copilot', cwd: WORKTREE, prompt: 'go' })
+    observed(h, { type: 'ended', id: 'copilot:p1', provider: 'copilot', cwd: WORKTREE })
+    expect(h.t.landings()).toEqual([])
+    h.t.chatEvent({ turnId: 't1', type: 'done' })
+    observed(h, { type: 'ended', id: 'copilot:p1', provider: 'copilot', cwd: `${WORKTREE}/` })
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    expect(h.flush().notice?.keys).toEqual(['turn:t1'])
+  })
+
+  it('the log running again means the person is at that keyboard: the landing is seen', () => {
+    const h = harness()
+    observed(h, { type: 'running' })
+    observed(h, { type: 'ended' })
+    h.flush()
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    observed(h, { type: 'running' })
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    expect(h.t.takeWithdrawn()).toEqual(['cockpit:claude:obs'])
+  })
+
+  it('a question lands as "asks you" with what was asked, and clicking the banner opens the session', () => {
+    const h = harness()
+    h.titles.set('claude:obs', 'Create the repo')
+    observed(h, { type: 'asks' })
+    expect(h.t.landings()).toEqual([
+      { id: 'claude:obs', at: h.clock.now, kind: 'asks', asks: { kind: 'question', detail: 'Which owner?' } }
+    ])
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('finish')
+    expect(notice).toMatchObject({
+      id: 'cockpit:asks:claude:obs',
+      title: 'Claude asks you',
+      subtitle: 'Create the repo',
+      body: 'Which owner?',
+      target: { kind: 'session', id: 'claude:obs' }
+    })
+    expect(h.t.targetFor(notice!)).toEqual({ kind: 'session', id: 'claude:obs' })
+  })
+
+  it('a permission prompt reads as one, and an empty detail gets a stand-in line', () => {
+    const h = harness()
+    observed(h, { type: 'asks', id: 'copilot:p1', provider: 'copilot', asks: { kind: 'permission', detail: '' } })
+    expect(h.flush().notice).toMatchObject({ title: 'Copilot needs permission', body: 'Approve it where the agent runs.' })
+  })
+
+  it('the same question is news once; the answer, or the ending, clears it', () => {
+    const h = harness()
+    observed(h, { type: 'asks' })
+    h.flush()
+    observed(h, { type: 'asks' })
+    expect(h.t.flushAt()).toBeNull()
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    observed(h, { type: 'running' })
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    expect(h.t.takeWithdrawn()).toEqual(['cockpit:asks:claude:obs'])
+    observed(h, { type: 'asks', asks: { kind: 'question', detail: 'And the branch name?' } })
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    observed(h, { type: 'ended' })
+    expect(h.t.landings()).toEqual([{ id: 'claude:obs', at: h.clock.now, kind: 'landed' }])
+  })
+
+  it('a question in the session on screen is not news, and never becomes one later', () => {
+    const h = harness()
+    h.t.setWindowFocused(true)
+    h.t.setFocus({ kind: 'session', id: 'claude:obs', provider: 'claude', cwd: CHECKOUT })
+    observed(h, { type: 'asks' })
+    expect(h.t.landings()).toEqual([])
+    h.t.setWindowFocused(false)
+    expect(h.t.landings()).toEqual([])
+  })
+
+  it('opening the session clears the question from the badge', () => {
+    const h = harness()
+    observed(h, { type: 'asks' })
+    h.t.setFocus({ kind: 'session', id: 'claude:obs', provider: 'claude', cwd: CHECKOUT })
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+  })
+})
+
+/* ---------- red pull requests ---------- */
+
+const ROCKET = '/Users/dev/src/rocket'
+
+function pr(over: Partial<PrStatus> = {}): PrStatus {
+  return {
+    number: 57,
+    title: 'Fix login retry flake',
+    state: 'OPEN',
+    isDraft: false,
+    headRefName: 'cockpit/login-retry-flake',
+    headSha: 'aaa111',
+    url: 'https://github.com/acme/rocket/pull/57',
+    checks: 'failing',
+    review: 'none',
+    unresolvedThreads: 0,
+    ...over
+  }
+}
+
+/** The index's answer: which session is on that branch. */
+const carrier = (p: PrStatus): string | null => (p.headRefName === 'cockpit/login-retry-flake' ? 'claude:abc' : null)
+
+describe('AttentionTracker — red pull requests', () => {
+  it("a red PR on a session's branch lands on that session — once per head commit, however often the badges refresh", () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.landings()).toEqual([
+      {
+        id: 'claude:abc',
+        at: h.clock.now,
+        kind: 'pr',
+        pr: { number: 57, title: 'Fix login retry flake', url: 'https://github.com/acme/rocket/pull/57', checks: 'failing', review: 'none' }
+      }
+    ])
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('fail')
+    expect(notice).toMatchObject({
+      title: 'PR #57 has failing checks',
+      subtitle: 'Fix login retry flake',
+      body: 'cockpit/login-retry-flake',
+      failed: false,
+      target: { kind: 'session', id: 'claude:abc' }
+    })
+    h.clock.now += 60_000
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    h.clock.now += 60_000
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.flushAt()).toBeNull()
+    expect(h.t.landings()).toHaveLength(1)
+  })
+
+  it('green again clears it; a new push that goes red is news again', () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    h.flush()
+    h.t.prsUpdated(ROCKET, [pr({ checks: 'passing' })], carrier)
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.takeWithdrawn()).toEqual(['cockpit:pr:/Users/dev/src/rocket#57'])
+    // the same commit failing again (a re-run) is not a new push
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.flushAt()).toBeNull()
+    h.t.prsUpdated(ROCKET, [pr({ headSha: 'bbb222' })], carrier)
+    expect(h.t.landings().map((l) => l.kind)).toEqual(['pr'])
+    expect(h.flush().notice?.title).toBe('PR #57 has failing checks')
+  })
+
+  it('changes requested is red; drafts too; merged, closed and pending are not', () => {
+    expect(prIsRed(pr({ checks: 'none', review: 'changes_requested' }))).toBe(true)
+    expect(prIsRed(pr({ isDraft: true }))).toBe(true)
+    expect(prIsRed(pr({ state: 'MERGED' }))).toBe(false)
+    expect(prIsRed(pr({ state: 'CLOSED', review: 'changes_requested' }))).toBe(false)
+    expect(prIsRed(pr({ checks: 'pending' }))).toBe(false)
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr({ checks: 'none', review: 'changes_requested' })], carrier)
+    expect(h.flush().notice?.title).toBe('PR #57 has changes requested')
+  })
+
+  it("a PR no session is on has no row: it waits for one, and is not marked seen", () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr({ headRefName: 'someone/else' })], carrier)
+    expect(h.t.landings()).toEqual([])
+    h.t.prsUpdated(ROCKET, [pr({ headRefName: 'someone/else' })], () => 'claude:new')
+    expect(h.t.landings().map((l) => l.id)).toEqual(['claude:new'])
+  })
+
+  it('opening the session clears the badge, and the same commit stays quiet afterwards', () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    h.flush()
+    h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: ROCKET })
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    h.t.setFocus({ kind: 'none' })
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    expect(h.t.flushAt()).toBeNull()
+  })
+
+  it('on screen in a focused window the badge already says it: seen, no notification', () => {
+    const h = harness()
+    h.t.setWindowFocused(true)
+    h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: ROCKET })
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.landings()).toEqual([])
+    h.t.setWindowFocused(false)
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.seenPrEntries()).toEqual([['pr:/Users/dev/src/rocket#57', 'aaa111']])
+  })
+
+  it('a PR that leaves the list (merged, closed, gone) waits on nobody; other repos are untouched', () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    h.t.prsUpdated('/Users/dev/src/atlas', [pr({ number: 12 })], () => 'codex:atlas')
+    expect(h.t.landings()).toHaveLength(2)
+    h.t.prsUpdated(ROCKET, [], carrier)
+    expect(h.t.landings().map((l) => l.id)).toEqual(['codex:atlas'])
+  })
+
+  it('while unseen, the row follows the PR: checks passing but changes requested is still red', () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    h.t.prsUpdated(ROCKET, [pr({ checks: 'passing', review: 'changes_requested' })], carrier)
+    expect(h.t.landings()[0]).toMatchObject({ kind: 'pr', pr: { checks: 'passing', review: 'changes_requested' } })
+    expect(h.t.flushAt()).not.toBeNull()
+    expect(h.flush().notice?.title).toBe('PR #57 has failing checks')
+  })
+})
+
+describe('AttentionTracker — one row per session, and mixed bursts', () => {
+  it('a session with several reasons carries the most urgent: a question over a red PR over a landing', () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.landings().map((l) => l.kind)).toEqual(['pr'])
+    observed(h, { type: 'running', id: 'claude:abc' })
+    observed(h, { type: 'ended', id: 'claude:abc' })
+    expect(h.t.landings().map((l) => l.kind)).toEqual(['pr'])
+    observed(h, { type: 'asks', id: 'claude:abc' })
+    expect(h.t.landings().map((l) => l.kind)).toEqual(['asks'])
+    expect(h.t.badgeCount(ALL_ON)).toBe(2)
+    // opening it takes every reason with it
+    h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: ROCKET })
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+  })
+
+  it('a burst of different kinds is counted by kind, and sounds like the worst of them', () => {
+    const h = harness()
+    runTurn(h, { turnId: 't1', resume: 'one', text: 'Done.' })
+    observed(h, { type: 'asks', id: 'codex:two', provider: 'codex' })
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('fail')
+    expect(notice).toMatchObject({ title: '1 finished · 1 waiting on you · 1 PR red', target: { kind: 'home' } })
+    expect(notice?.body.split('\n')).toEqual([
+      'Claude finished · fix the login flake',
+      'Codex asks you · Session',
+      'PR #57 has failing checks · Fix login retry flake'
+    ])
+  })
+})
+
+describe('sanitizeUnseen — the new kinds', () => {
+  const now = 1_700_000_000_000
+  it('keeps well-formed questions and pull requests, drops the rest', () => {
+    const asks = { key: 'asks:claude:a', kind: 'asks', id: 'claude:a', at: now, asks: { kind: 'question', detail: 'Ship it?' } }
+    const red = { key: 'pr:/r#1', kind: 'pr', id: 'claude:a', at: now, sha: 'abc', pr: { number: 1, title: 'T', url: 'u', checks: 'failing', review: 'none' } }
+    const out = sanitizeUnseen(
+      [
+        asks,
+        red,
+        { ...asks, key: 'asks:x', asks: { kind: 'shrug' } },
+        { ...asks, key: 'asks:y', id: null },
+        { ...red, key: 'pr:/r#2', pr: { number: 'two', checks: 'failing', review: 'none' } },
+        { ...red, key: 'pr:/r#3', pr: { number: 3, checks: 'red', review: 'none' } },
+        { key: 'x', kind: 'pull', id: 'claude:a', at: now }
+      ],
+      now
+    )
+    expect(out).toEqual([
+      { ...asks, startedAt: now },
+      { ...red, startedAt: now }
+    ])
+  })
+  it('seen PRs are pairs of strings, anything else is dropped', () => {
+    expect(sanitizeSeenPrs([['pr:/r#1', 'abc'], ['pr:/r#2'], 'x', null, [1, 2]])).toEqual([['pr:/r#1', 'abc']])
+    expect(sanitizeSeenPrs('nope')).toEqual([])
+  })
+  it('a restored tracker raises nothing for a commit it already raised', () => {
+    const h = harness()
+    const restored = new AttentionTracker({ now: () => h.clock.now, seenPrs: [['pr:/Users/dev/src/rocket#57', 'aaa111']] })
+    restored.prsUpdated(ROCKET, [pr()], carrier)
+    expect(restored.landings()).toEqual([])
+    expect(restored.flushAt()).toBeNull()
   })
 })

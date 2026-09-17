@@ -49,7 +49,7 @@ Backing into the conversation that's currently running just flips the view — t
 
 ### Flying and landed
 
-A session whose agent is running right now is **flying**: a pulsing dot in the agent's color on its row and on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot and `landed <time>` — until you open it. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
+A session whose agent is running right now is **flying**: a pulsing dot in the agent's color on its row and on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot and `landed <time>` — until you open it. Two more states say a session **needs you**: an agent that has stopped to ask a question or for a permission shows a question glyph and `asks you`, on top of the board whatever else is true of it, and an open pull request on the session's branch that has failing checks or changes requested shows GitHub's red x and `#57 checks failing`. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
 
 ## Archiving
 

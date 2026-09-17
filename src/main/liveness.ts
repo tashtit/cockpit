@@ -1,6 +1,8 @@
-import type { BusySession, Provider, SessionMeta } from '../shared/types'
+import type { AttentionAsk, BusySession, Provider, SessionMeta } from '../shared/types'
 import { TRANSCRIPT_TAIL_BYTES, parseJsonlText, readTail } from './parsers/util'
-import { IDLE, judgeTail, type TurnVerdict } from './liveness-core'
+import { IDLE, judgeTail, type ObservedSession, type ObservedTurn, type TurnVerdict } from './liveness-core'
+
+export type { ObservedSession, ObservedTurn } from './liveness-core'
 
 /**
  * Live status for the sessions Cockpit did not spawn — the ones running in a terminal
@@ -11,6 +13,11 @@ import { IDLE, judgeTail, type TurnVerdict } from './liveness-core'
  * keeps growing. Silence ends it — a killed CLI leaves a mid-turn tail forever — so
  * an entry without a write for LIVE_WINDOW_MS expires on a timer. Best-effort by
  * design: an unreadable or unrecognised tail is idle, never an error.
+ *
+ * The transitions are news too (`onTurn`, for the attention desk): a turn seen
+ * running whose log then writes its ending record has *ended* — an expiry is not
+ * that, a killed CLI or a long tool call must never chime — and a running turn whose
+ * newest record is a question or a permission prompt *asks*, until the log moves on.
  */
 
 /** No write for this long and an observed turn is over, whatever its tail says. */
@@ -52,6 +59,8 @@ type LiveEntry = {
   /** Tracker state, mutated in place: the turn's start (kept once known) and its newest write */
   startedAt: number
   lastWriteAt: number
+  /** What the turn is waiting on the person for, while it is */
+  asks: AttentionAsk | null
 }
 
 export type LivenessOptions = {
@@ -59,18 +68,25 @@ export type LivenessOptions = {
   readonly sweepMs?: number
   /** The clock — tests pin it */
   readonly now?: () => number
+  /** A turn started, stopped to ask, or ended — from the log's own records only */
+  readonly onTurn?: (ev: ObservedTurn) => void
 }
+
+const sameAsk = (a: AttentionAsk | null, b: AttentionAsk | null): boolean =>
+  a === b || (a !== null && b !== null && a.kind === b.kind && a.detail === b.detail)
 
 export class LivenessTracker {
   private entries = new Map<string, LiveEntry>()
   private sweepTimer: NodeJS.Timeout | null = null
   private readonly onChange: (sessions: BusySession[]) => void
+  private readonly onTurn: (ev: ObservedTurn) => void
   private readonly windowMs: number
   private readonly sweepMs: number
   private readonly now: () => number
 
   constructor(onChange: (sessions: BusySession[]) => void, opts: LivenessOptions = {}) {
     this.onChange = onChange
+    this.onTurn = opts.onTurn ?? (() => {})
     this.windowMs = opts.windowMs ?? LIVE_WINDOW_MS
     this.sweepMs = opts.sweepMs ?? SWEEP_MS
     this.now = opts.now ?? Date.now
@@ -99,22 +115,46 @@ export class LivenessTracker {
       if (prev) prev.lastWriteAt = Math.max(prev.lastWriteAt, written)
       return
     }
+    const session: ObservedSession = { id: meta.id, provider: meta.provider, cwd: meta.cwd }
     if (!verdict.live) {
+      // the ending record of a turn seen running is news; one never seen running is
+      // not (a quick exchange the person was there for, or a turn ended before launch)
+      if (prev) {
+        this.onTurn({
+          ...session,
+          type: 'ended',
+          startedAt: prev.startedAt,
+          endedAt: written,
+          closing: verdict.closing ?? null
+        })
+      }
       this.drop(meta.id)
       return
     }
     // the opening record is in the tail on a turn's first write, so the exact start is
     // learnt then and kept; when it has scrolled out, the last write is the lower bound
     const startedAt = verdict.startedAt ?? prev?.startedAt ?? written
+    const asks = verdict.asks ?? null
     if (prev) {
       prev.lastWriteAt = Math.max(prev.lastWriteAt, written)
-      if (prev.startedAt === startedAt) return
+      const newTurn = prev.startedAt !== startedAt
+      const askChanged = !sameAsk(prev.asks, asks)
+      prev.asks = asks
+      if (askChanged || newTurn) this.turnEvent(session, startedAt, asks)
+      if (!newTurn) return
       prev.startedAt = startedAt
     } else {
-      this.entries.set(meta.id, { id: meta.id, file, startedAt, lastWriteAt: written })
+      this.entries.set(meta.id, { id: meta.id, file, startedAt, lastWriteAt: written, asks })
       this.ensureSweep()
+      this.turnEvent(session, startedAt, asks)
     }
     this.emit()
+  }
+
+  /** A turn is running — or, when its newest record is a request, waiting on the person. */
+  private turnEvent(session: ObservedSession, startedAt: number, asks: AttentionAsk | null): void {
+    if (asks) this.onTurn({ ...session, type: 'asks', asks, startedAt })
+    else this.onTurn({ ...session, type: 'running' })
   }
 
   /**

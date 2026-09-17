@@ -21,6 +21,8 @@ import {
   ComposeIcon,
   GearIcon,
   GraphIcon,
+  landingLabel,
+  LandingMark,
   LinkExternalIcon,
   LiveDot,
   OrgIcon,
@@ -1120,7 +1122,7 @@ function SessionRow({
       aria-selected={selected}
       aria-level={level}
       tabIndex={-1}
-      title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}\n~${s.messageCount} messages`}
+      title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}\n~${s.messageCount} messages${landed ? `\n${landingLabel(landed)}` : ''}`}
       onClick={() => onSelect(s)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -1167,12 +1169,15 @@ function SessionRow({
           </svg>
         </button>
       </span>
-      {/* the row's one meta slot, in order of urgency: running, then finished-while-
-          you-were-away, then the branch's PR, then when it last moved */}
-      {working ? (
+      {/* the row's one meta slot, in order of urgency: an agent waiting on you, then
+          running, then a red PR or finished-while-you-were-away, then the branch's PR,
+          then when it last moved */}
+      {landed?.kind === 'asks' ? (
+        <LandingMark landing={landed} p={s.provider} />
+      ) : working ? (
         <LiveDot p={s.provider} />
       ) : landed ? (
-        <span className={`landed-dot plogo-${s.provider}`} role="img" aria-label="finished — not opened yet" />
+        <LandingMark landing={landed} p={s.provider} />
       ) : pr ? (
         <PrBadge pr={pr} onOpen={onOpenUrl} compact />
       ) : (

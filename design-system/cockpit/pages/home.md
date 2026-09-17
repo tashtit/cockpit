@@ -37,16 +37,24 @@ surface, no shadow).
   `.board-repo` pill · `.board-meta` (mono, `tabular-nums`). The branch slot renders
   **even when empty**, so every title starts on one grid line; roundtable rows put their
   seat cluster in the same `.board-lead` column.
-- **Flying** (session's provider process running, from the `useBusyMap()` store): `LiveDot`
+- **Waiting on you** (its agent stopped to ask a question or for a permission, from
+  `useLandedMap()` kind `asks` — whether or not its process is still up): the question
+  glyph in the agent's livery (`LandingMark`), the livery inset bar, and `asks you` or
+  `needs permission` in the meta slot; the question itself is in the tooltip. **Flying**
+  (session's provider process running, from the `useBusyMap()` store): `LiveDot`
   pulse + placard lit in the agent's livery color + elapsed time (`fmtElapsed`, ticks at
-  1s only while ≥1 session is flying). **Landed** (its turn ended and nobody has opened it
-  since, from `useLandedMap()`): a solid, unpulsing livery dot, a livery inset bar instead of
-  flying's wash, and `landed <time>` in the meta slot — the word carries the state, so colour
-  never carries it alone. **On the ground:** dim static dot, dim placard, last-activity
-  `fmtTime`.
-- Ordering: flying first (longest airborne on top, then any roundtable mid-round), then
-  landed (most recent landing first), then the ground — sessions and roundtables
-  interleaved by recency. Three states, one list.
+  1s only while ≥1 session is flying). **Red PR** (an open pull request on its branch has
+  failing checks or changes requested, kind `pr`): GitHub's x in `--danger`, a `--danger`
+  inset bar — it is the branch that needs you, not the agent — and `#57 checks failing` /
+  `#57 changes requested` in the meta slot. **Landed** (its turn ended and nobody has
+  opened it since, kind `landed`): a solid, unpulsing livery dot, a livery inset bar instead
+  of flying's wash, and `landed <time>` in the meta slot. In every case the word carries
+  the state, so colour never carries it alone. **On the ground:** dim static dot, dim
+  placard, last-activity `fmtTime`.
+- Ordering: waiting on you first (newest question on top), then flying (longest airborne
+  on top, then any roundtable mid-round), then red PRs and landings (red first, then most
+  recent first), then the ground — sessions and roundtables interleaved by recency. One
+  list; a session carries one state, its most urgent.
 - **Roundtables are rows, not a second panel** (`TableRow`, `.board-row-table`): the seat
   cluster sits in the `.board-lead` column where a session has its placard; a running round
   pulses accent (no single agent owns a table), counts as flying, and holds the meta slot
@@ -57,10 +65,10 @@ surface, no shadow).
   the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
   list; don't grow this.
 - `.board-eyebrow` (h2 — the board renders above the hero's h2, so an h3 here would read
-  as a skipped level): "**N flying** · **M landed** · K on the ground" (K from the page
-  total, either count dropped when zero), or "all on the ground" when nothing is flying
-  and nothing has landed unseen. It is a polite `aria-live` region — turn starts and
-  completions announce the new counts.
+  as a skipped level): "**N waiting on you** · **N flying** · **N red PRs** · **M landed** ·
+  K on the ground" (K from the page total, every zero count dropped), or "all on the
+  ground" when nothing is flying and nothing needs you. It is a polite `aria-live` region —
+  turn starts, completions and questions announce the new counts.
 - ≤780px the row sheds `.board-repo` first — the branch chip carries more identity;
   ≤700px the `.board-branch` slot goes too, because on a ~360px pane the task title is
   the row's content.

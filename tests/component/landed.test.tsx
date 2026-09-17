@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, renderHook, screen, waitFor } from '@testing-library/react'
+import { render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { act } from 'react'
 import { HomeView } from '../../src/renderer/src/HomeView'
+import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
 import { initBusySessions } from '../../src/renderer/src/busy'
 import { clearLanded, initLanded, useLandedMap } from '../../src/renderer/src/landed'
 import type { BusySession, Landing, RepoGroup, SessionMeta } from '../../src/shared/types'
@@ -80,14 +81,14 @@ describe('landed sessions', () => {
     renderHome()
     await screen.findByText('fix the login flake')
 
-    pushLandings([{ id: 'claude:one', at: Date.now() - 5000 }])
+    pushLandings([{ id: 'claude:one', at: Date.now() - 5000, kind: 'landed' }])
     await waitFor(() => expect(screen.getByText(/1 landed/)).toBeInTheDocument())
     expect(screen.getByText(/^landed/)).toBeInTheDocument()
     stop()
   })
 
   it('seeds from main, so landings survive a reload of the window', async () => {
-    vi.mocked(window.cockpit.getLandings).mockResolvedValue([{ id: 'claude:two', at: Date.now() }])
+    vi.mocked(window.cockpit.getLandings).mockResolvedValue([{ id: 'claude:two', at: Date.now(), kind: 'landed' }])
     const stop = initLanded()
     const { result } = renderHook(() => useLandedMap())
     await waitFor(() => expect(result.current.has('claude:two')).toBe(true))
@@ -104,7 +105,7 @@ describe('landed sessions', () => {
     const stop = initLanded()
     const { result } = renderHook(() => useLandedMap())
     pushLandings([])
-    await act(async () => resolveSeed([{ id: 'claude:one', at: Date.now() }]))
+    await act(async () => resolveSeed([{ id: 'claude:one', at: Date.now(), kind: 'landed' }]))
     expect(result.current.has('claude:one')).toBe(false)
     stop()
   })
@@ -114,7 +115,7 @@ describe('landed sessions', () => {
     renderHome()
     await screen.findByText('fix the login flake')
 
-    pushLandings([{ id: 'claude:two', at: Date.now() }])
+    pushLandings([{ id: 'claude:two', at: Date.now(), kind: 'landed' }])
     await waitFor(() => expect(screen.getByText(/1 landed/)).toBeInTheDocument())
 
     pushLandings([])
@@ -157,13 +158,116 @@ describe('landed sessions', () => {
     expect(composerAt).toBeGreaterThanOrEqual(0)
     expect(boardAt).toBeGreaterThan(composerAt)
 
-    pushLandings([{ id: 'claude:one', at: Date.now() }])
+    pushLandings([{ id: 'claude:one', at: Date.now(), kind: 'landed' }])
     await waitFor(() => {
       const busyOrder = [...document.querySelector('.home-inner')!.children].map((el) => el.className)
       const leadAt = busyOrder.findIndex((c) => c.includes('board'))
       expect(leadAt).toBe(0)
       expect(busyOrder.findIndex((c) => c.includes('composer-card'))).toBeGreaterThan(leadAt)
     })
+    stop()
+  })
+})
+
+/* ---------- the two other reasons a session needs you ---------- */
+
+const ASKS: Landing = {
+  id: 'claude:one',
+  at: Date.now(),
+  kind: 'asks',
+  asks: { kind: 'question', detail: 'Which owner should the repo live under?' }
+}
+const RED: Landing = {
+  id: 'claude:two',
+  at: Date.now(),
+  kind: 'pr',
+  pr: { number: 57, title: 'Fix login retry flake', url: 'https://github.com/acme/rocket/pull/57', checks: 'failing', review: 'none' }
+}
+
+describe('needs you: questions and red pull requests', () => {
+  it('an agent waiting on you leads the board, in words, and beats flying', async () => {
+    const stopBusy = initBusySessions()
+    const stop = initLanded()
+    renderHome()
+    await screen.findByText('fix the login flake')
+
+    pushBusy([{ id: 'claude:one', startedAt: Date.now() - 5000, source: 'observed' }])
+    pushLandings([ASKS])
+    await waitFor(() => expect(screen.getByText(/1 waiting on you/)).toBeInTheDocument())
+    expect(screen.queryByText(/flying/)).not.toBeInTheDocument()
+    const row = screen.getByText('fix the login flake').closest<HTMLElement>('.board-row')!
+    expect(row).toHaveClass('asks')
+    expect(within(row).getByText('asks you')).toBeInTheDocument()
+    expect(row).toHaveAttribute('title', expect.stringContaining('asks you: Which owner should the repo live under?'))
+    // the mark is a shape beside the words, not a second announcement
+    expect(row.querySelector('.asks-mark')).toHaveAttribute('aria-hidden', 'true')
+    expect(row.querySelector('.asks-mark svg')).not.toBeNull()
+    // the busy store outlives this test — leave it as the next one expects
+    pushBusy([])
+    stop()
+    stopBusy()
+  })
+
+  it('a red PR names its number and reason on the row, and counts as a red PR in the eyebrow', async () => {
+    const stop = initLanded()
+    renderHome()
+    await screen.findByText('add pagination')
+
+    pushLandings([RED, { id: 'claude:one', at: Date.now() - 1000, kind: 'landed' }])
+    await waitFor(() => expect(screen.getByText(/1 red PR/)).toBeInTheDocument())
+    expect(screen.getByText(/1 landed/)).toBeInTheDocument()
+    const row = screen.getByText('add pagination').closest<HTMLElement>('.board-row')!
+    expect(row).toHaveClass('fix')
+    expect(within(row).getByText('#57 checks failing')).toBeInTheDocument()
+    expect(row.querySelector('.fix-mark')).not.toBeNull()
+    // the red PR sits above the landing
+    const rows = [...document.querySelectorAll('.board-row')].map((r) => r.className)
+    expect(rows.findIndex((c) => c.includes('fix'))).toBeLessThan(rows.findIndex((c) => c.includes('landed')))
+    stop()
+  })
+
+  it('a changes-requested PR says so', async () => {
+    const stop = initLanded()
+    renderHome()
+    await screen.findByText('add pagination')
+    pushLandings([{ ...RED, pr: { ...RED.pr, checks: 'passing', review: 'changes_requested' } }])
+    await waitFor(() => expect(screen.getByText('#57 changes requested')).toBeInTheDocument())
+    stop()
+  })
+
+  it('sidebar rows carry the same marks with the reason as their accessible name', async () => {
+    const stop = initLanded()
+    render(
+      <TreeSidebar
+        repos={[repo]}
+        indexVersion={0}
+        accounts={null}
+        zoom={1}
+        onResetZoom={vi.fn()}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onNewSession={vi.fn()}
+        onRepoSetup={vi.fn()}
+        selectedRoundtableId={null}
+        onOpenRoundtable={vi.fn()}
+        onNewTask={vi.fn()}
+        onGoHome={vi.fn()}
+        onNav={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenUrl={vi.fn()}
+        activeView="welcome"
+      />
+    )
+    await screen.findByText('fix the login flake')
+    pushLandings([ASKS, RED])
+    const asks = await screen.findByRole('img', { name: 'asks you: Which owner should the repo live under?' })
+    expect(asks).toHaveClass('asks-mark', 'plogo-claude')
+    const red = await screen.findByRole('img', { name: 'PR #57 checks failing' })
+    expect(red).toHaveClass('fix-mark')
+    expect(screen.getByText('add pagination').closest('.session-row')).toHaveAttribute(
+      'title',
+      expect.stringContaining('PR #57 checks failing')
+    )
     stop()
   })
 })

@@ -7,10 +7,12 @@ import type {
   AttentionTarget,
   ChatEvent,
   Landing,
-  NotificationDelivery
+  NotificationDelivery,
+  PrStatus
 } from '../shared/types'
 import {
   AttentionTracker,
+  sanitizeSeenPrs,
   sanitizeUnseen,
   type Notice,
   type TableEnd,
@@ -18,6 +20,7 @@ import {
   type Unseen
 } from './attention-core'
 import { execText } from './env'
+import type { ObservedTurn } from './liveness-core'
 
 /**
  * Attention, the IO half: carries out what `attention-core.ts` decides. The desk
@@ -61,13 +64,18 @@ const SAMPLE: Notice = {
   keys: []
 }
 
-function readUnseen(file: string, now: number): Unseen[] {
+type Saved = {
+  readonly unseen: Unseen[]
+  readonly seenPrs: Array<[string, string]>
+}
+
+function readSaved(file: string, now: number): Saved {
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { unseen?: unknown }
-    return sanitizeUnseen(parsed?.unseen, now)
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { unseen?: unknown; prs?: unknown }
+    return { unseen: sanitizeUnseen(parsed?.unseen, now), seenPrs: sanitizeSeenPrs(parsed?.prs) }
   } catch {
     // first run, or a hand-edited file: landings are news, not records — start clean
-    return []
+    return { unseen: [], seenPrs: [] }
   }
 }
 
@@ -84,10 +92,11 @@ export class AttentionDesk {
   constructor(deps: AttentionDeskDeps) {
     this.deps = deps
     const now = deps.now ?? Date.now
-    this.tracker = new AttentionTracker({ now, unseen: readUnseen(deps.file, now()) })
+    const saved = readSaved(deps.file, now())
+    this.tracker = new AttentionTracker({ now, unseen: saved.unseen, seenPrs: saved.seenPrs })
     this.prefs = deps.prefs
     this.sentLandings = JSON.stringify(this.tracker.landings())
-    this.savedEntries = JSON.stringify(this.tracker.entries())
+    this.savedEntries = this.serialize()
     this.sync()
   }
 
@@ -116,6 +125,18 @@ export class AttentionDesk {
 
   tableEnded(end: TableEnd): void {
     this.tracker.tableEnded(end)
+    this.sync()
+  }
+
+  /** A turn in a session run elsewhere started, stopped to ask, or ended (liveness.ts). */
+  observedTurn(ev: ObservedTurn): void {
+    this.tracker.observedTurn(ev)
+    this.sync()
+  }
+
+  /** One repo's PR list came back (github.ts): red ones on a session's branch are news once per push. */
+  prsUpdated(repoRoot: string, prs: readonly PrStatus[], carrierFor: (pr: PrStatus) => string | null): void {
+    this.tracker.prsUpdated(repoRoot, prs, carrierFor)
     this.sync()
   }
 
@@ -159,7 +180,7 @@ export class AttentionDesk {
       this.sentLandings = landings
       this.deps.onLandings(this.tracker.landings())
     }
-    const entries = JSON.stringify(this.tracker.entries())
+    const entries = this.serialize()
     if (entries !== this.savedEntries) {
       this.savedEntries = entries
       this.save(entries)
@@ -193,12 +214,17 @@ export class AttentionDesk {
     this.sync()
   }
 
-  private save(entries: string): void {
+  /** The file's contents: what is unseen, and which PRs have already been raised. */
+  private serialize(): string {
+    return JSON.stringify({ unseen: this.tracker.entries(), prs: this.tracker.seenPrEntries() })
+  }
+
+  private save(json: string): void {
     try {
       mkdirSync(dirname(this.deps.file), { recursive: true })
       // write-then-rename: a crash mid-write must never leave a truncated file
       const tmp = `${this.deps.file}.tmp`
-      writeFileSync(tmp, `{"unseen":${entries}}`)
+      writeFileSync(tmp, json)
       renameSync(tmp, this.deps.file)
     } catch (err) {
       console.error('[attention] could not save landings:', err)

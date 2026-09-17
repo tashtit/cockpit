@@ -1,4 +1,4 @@
-import type { BusySession, Provider } from '../shared/types'
+import type { AttentionAsk, BusySession, Provider } from '../shared/types'
 import { contentToText, toMs } from './parsers/util'
 
 /**
@@ -12,6 +12,12 @@ import { contentToText, toMs } from './parsers/util'
  * by looking further back — as opposed to IDLE, which is a turn seen ending. Log
  * formats are provider-internal and drift between releases, so every rule errs
  * towards idle: an unrecognised shape never becomes a phantom running row.
+ *
+ * Two more things the same records say, for the attention desk: a live turn that has
+ * stopped to *ask* — a question put to the user, a permission the CLI is waiting on —
+ * and the *closing words* of a turn that ended, so a notification can quote them.
+ * Both are read only off the newest record (or its immediate neighbours), never
+ * searched for: a request the log has moved past is not a request any more.
  */
 export type TurnVerdict = {
   readonly live: boolean
@@ -21,9 +27,44 @@ export type TurnVerdict = {
    * already knew, or falls back to the file's last write — a lower bound.
    */
   readonly startedAt: number | null
+  /** Live only: the agent is blocked on the user — a question, or a permission prompt */
+  readonly asks?: AttentionAsk
+  /** Idle only: what the agent said as it ended, when the ending record carries it */
+  readonly closing?: string
 }
 
 export const IDLE: TurnVerdict = { live: false, startedAt: null }
+
+/** The session an observed turn belongs to, as the index knows it. */
+export type ObservedSession = {
+  readonly id: string
+  readonly provider: Provider
+  readonly cwd: string | null
+}
+
+/**
+ * What changed for one observed turn (the tracker in liveness.ts emits these, the
+ * attention desk listens) — only ever from a decisive record, never from a timer.
+ */
+export type ObservedTurn = ObservedSession &
+  (
+    /** A turn is running (a new one, or the log moved past a question) */
+    | { readonly type: 'running' }
+    /** The agent stopped to ask the person something */
+    | { readonly type: 'asks'; readonly asks: AttentionAsk; readonly startedAt: number }
+    /** The log wrote the record that ends a turn seen running */
+    | {
+        readonly type: 'ended'
+        readonly startedAt: number
+        readonly endedAt: number
+        /** The agent's closing words, when the ending record carried them */
+        readonly closing: string | null
+      }
+  )
+
+/** How much of a closing answer or a question is worth carrying (a notification quotes one line). */
+const CLOSING_MAX = 600
+const DETAIL_MAX = 160
 
 /** null: no record in these speaks for the turn — read further back before deciding. */
 export function judgeTail(provider: Provider, records: readonly any[]): TurnVerdict | null {
@@ -34,6 +75,32 @@ export function judgeTail(provider: Provider, records: readonly any[]): TurnVerd
       return judgeCodexTail(records)
     case 'copilot':
       return judgeCopilotTail(records)
+  }
+}
+
+/** One line of a possibly long, possibly non-string value; '' when there is nothing to say. */
+function oneLine(v: unknown, max = DETAIL_MAX): string {
+  if (typeof v !== 'string') return ''
+  const line = v.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+  const flat = line.replace(/\s+/g, ' ')
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat
+}
+
+/** A closing answer, whitespace-trimmed and capped; undefined when empty (keeps verdicts tidy). */
+function closingOf(text: string): string | undefined {
+  const t = text.trim()
+  return t ? t.slice(0, CLOSING_MAX) : undefined
+}
+
+/** A field that providers write either as an object or as its JSON text. */
+function objectOf(v: unknown): Record<string, unknown> | null {
+  if (v && typeof v === 'object') return v as Record<string, unknown>
+  if (typeof v !== 'string') return null
+  try {
+    const parsed: unknown = JSON.parse(v)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
   }
 }
 
@@ -50,6 +117,28 @@ function claudeBlocks(r: any): any[] {
  * and local slash-command echoes (`/cost`, `/clear` …) that never start a turn.
  */
 const CLAUDE_NON_PROMPT = /^\s*(\[Request interrupted|<command-name>|<local-command-stdout>|<local-command-caveat>)/
+
+/**
+ * Tool calls Claude Code never answers on its own: the CLI stops and waits for the
+ * person. A permission prompt for an ordinary tool leaves no record while it waits —
+ * the log looks exactly like a long-running tool — so only these two can be told.
+ * Confirmed against real logs (2026-09): `AskUserQuestion` carries `questions[]`,
+ * `ExitPlanMode` waits for the plan to be approved.
+ */
+const CLAUDE_ASKS: Readonly<Record<string, AttentionAsk['kind']>> = {
+  AskUserQuestion: 'question',
+  ExitPlanMode: 'permission'
+}
+
+/** What a Claude tool_use block is waiting on the user for, if it is one of those. */
+function claudeAsk(block: any): AttentionAsk | undefined {
+  const kind = typeof block?.name === 'string' ? CLAUDE_ASKS[block.name] : undefined
+  if (!kind) return undefined
+  if (block.name === 'ExitPlanMode') return { kind, detail: 'Approve the plan' }
+  const questions = block?.input?.questions
+  const first = Array.isArray(questions) ? questions[0] : null
+  return { kind, detail: oneLine(first?.question) || oneLine(first?.header) }
+}
 
 function isClaudeToolResult(r: any): boolean {
   return r?.toolUseResult !== undefined || claudeBlocks(r).some((b) => b?.type === 'tool_result')
@@ -69,6 +158,19 @@ function claudeTurnStart(records: readonly any[], end: number): number | null {
   return null
 }
 
+/** The nearest text-only assistant answer at or before `end` (a Stop hook summary follows one). */
+function claudeClosing(records: readonly any[], end: number): string | undefined {
+  for (let i = end; i >= 0 && i > end - 8; i--) {
+    const r = records[i]
+    if (r?.type !== 'assistant' || r?.isSidechain === true) continue
+    const blocks = claudeBlocks(r)
+    if (blocks.some((b) => b?.type === 'tool_use')) return undefined
+    const text = contentToText(blocks)
+    if (text.trim()) return closingOf(text)
+  }
+  return undefined
+}
+
 /**
  * Claude Code appends one record per message (a tool_use and the text before it are
  * separate lines), so the newest message record says where the turn stands:
@@ -84,7 +186,7 @@ export function judgeClaudeTail(records: readonly any[]): TurnVerdict | null {
     // for the subagent's turn, never the parent's
     if (r?.isSidechain === true) continue
     if (r?.type === 'system') {
-      if (r.subtype === 'stop_hook_summary') return IDLE
+      if (r.subtype === 'stop_hook_summary') return idle(claudeClosing(records, i - 1))
       // an API error the CLI is retrying is a turn still running
       if (r.subtype === 'api_error') return { live: true, startedAt: claudeTurnStart(records, i) }
       continue
@@ -97,8 +199,14 @@ export function judgeClaudeTail(records: readonly any[]): TurnVerdict | null {
       const thinkingOnly =
         blocks.length > 0 &&
         blocks.every((b) => b?.type === 'thinking' || b?.type === 'redacted_thinking')
-      if (!toolPending && !thinkingOnly) return IDLE
-      return { live: true, startedAt: claudeTurnStart(records, i) }
+      if (!toolPending && !thinkingOnly) return idle(closingOf(contentToText(blocks)))
+      const startedAt = claudeTurnStart(records, i)
+      // a tool_use that is a question to the person: the turn is live, but on them
+      for (const b of blocks) {
+        const asks = b?.type === 'tool_use' ? claudeAsk(b) : undefined
+        if (asks) return { live: true, startedAt, asks }
+      }
+      return { live: true, startedAt }
     }
     if (r?.type === 'user') {
       if (isClaudePrompt(r)) return { live: true, startedAt: toMs(r.timestamp) }
@@ -110,7 +218,52 @@ export function judgeClaudeTail(records: readonly any[]): TurnVerdict | null {
   return null
 }
 
+/** IDLE, with the closing words when there are any (an exact IDLE otherwise, for callers comparing). */
+function idle(closing: string | undefined): TurnVerdict {
+  return closing ? { live: false, startedAt: null, closing } : IDLE
+}
+
 /* ---------- codex ---------- */
+
+/**
+ * A live Codex turn waiting on the person, read newest-first: the request must be the
+ * newest item — anything the rollout wrote after it (its output, the tool it gated,
+ * a message) means the turn moved on. `request_user_input` is the collaboration
+ * tool that blocks until answered (`request_user_input_async` is answered at once and
+ * is not one); the two approval requests are codex-rs's own event names. None of the
+ * three has shown up in a rollout on this machine yet, so the shapes come from the
+ * protocol and are matched by exact name, never loosely.
+ */
+function codexAsks(records: readonly any[]): AttentionAsk | undefined {
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = records[i]
+    const p = r?.payload
+    if (r?.type === 'event_msg') {
+      if (p?.type === 'task_started' || p?.type === 'task_complete' || p?.type === 'turn_aborted') return undefined
+      if (p?.type === 'exec_approval_request') return { kind: 'permission', detail: codexCommand(p.command) }
+      if (p?.type === 'apply_patch_approval_request') return { kind: 'permission', detail: 'Apply a patch' }
+      continue
+    }
+    if (r?.type === 'response_item') {
+      if (p?.type === 'function_call' && p?.name === 'request_user_input') {
+        return { kind: 'question', detail: codexQuestion(p.arguments) }
+      }
+      return undefined
+    }
+  }
+  return undefined
+}
+
+function codexCommand(command: unknown): string {
+  if (Array.isArray(command)) return oneLine(command.filter((c) => typeof c === 'string').join(' '))
+  return oneLine(command)
+}
+
+function codexQuestion(args: unknown): string {
+  const a = objectOf(args)
+  const q = Array.isArray(a?.questions) ? objectOf(a?.questions[0]) : null
+  return oneLine(q?.title) || oneLine(q?.question) || oneLine(q?.prompt)
+}
 
 /**
  * codex-rs brackets every turn with event_msg records — `task_started`, then
@@ -126,9 +279,12 @@ export function judgeCodexTail(records: readonly any[]): TurnVerdict | null {
     if (r?.type !== 'event_msg') continue
     const p = r.payload
     if (p?.type === 'task_started') {
-      return { live: true, startedAt: toMs(p.started_at) ?? toMs(r.timestamp) }
+      const startedAt = toMs(p.started_at) ?? toMs(r.timestamp)
+      const asks = codexAsks(records)
+      return asks ? { live: true, startedAt, asks } : { live: true, startedAt }
     }
-    if (p?.type === 'task_complete' || p?.type === 'turn_aborted') return IDLE
+    if (p?.type === 'task_complete') return idle(closingOf(oneLine(p.last_agent_message, CLOSING_MAX)))
+    if (p?.type === 'turn_aborted') return IDLE
   }
   for (let i = records.length - 1; i >= 0; i--) {
     const r = records[i]
@@ -140,7 +296,9 @@ export function judgeCodexTail(records: readonly any[]): TurnVerdict | null {
     switch (p?.type) {
       case 'message':
         if (p.role === 'user') return { live: true, startedAt: toMs(r.timestamp) }
-        if (p.role === 'assistant') return p.phase === 'commentary' ? { live: true, startedAt: null } : IDLE
+        if (p.role === 'assistant') {
+          return p.phase === 'commentary' ? { live: true, startedAt: null } : idle(closingOf(contentToText(p.content)))
+        }
         continue // developer/system instructions ride along with a prompt
       case 'function_call':
       case 'custom_tool_call':
@@ -169,25 +327,78 @@ function copilotTurnStart(records: readonly any[], end: number): number | null {
   return null
 }
 
+/** The assistant message just before a turn_end, if the tail holds one. */
+function copilotClosing(records: readonly any[], end: number): string | undefined {
+  for (let i = end; i >= 0 && i > end - 8; i--) {
+    const r = records[i]
+    if (r?.type === 'assistant.message') return closingOf(typeof r.data?.content === 'string' ? r.data.content : '')
+    if (r?.type === 'tool.execution_start' || r?.type === 'assistant.turn_start') return undefined
+  }
+  return undefined
+}
+
+/**
+ * What a Copilot permission prompt is about, from `permission.requested`'s data —
+ * the prompt request (a command, an MCP tool) is written as an object or its JSON.
+ * Confirmed against real logs (2026-09): the shell kind carries `fullCommandText`,
+ * the mcp kind `serverName` + `toolName`.
+ */
+function copilotAsk(data: unknown): AttentionAsk {
+  const d = objectOf(data)
+  const prompt = objectOf(d?.promptRequest) ?? objectOf(d?.permissionRequest)
+  const tool = typeof prompt?.toolName === 'string' ? prompt.toolName : ''
+  const server = typeof prompt?.serverName === 'string' ? prompt.serverName : ''
+  const detail =
+    oneLine(prompt?.fullCommandText) ||
+    (tool ? oneLine(server ? `${server}: ${tool}` : tool) : '') ||
+    oneLine(prompt?.kind)
+  return { kind: 'permission', detail }
+}
+
 /**
  * Copilot CLI brackets each model round-trip with `assistant.turn_start` /
  * `assistant.turn_end` (a prompt runs several, back to back), closes a session with
  * `session.shutdown`, and writes `user.message` the instant a prompt is sent. Tool
- * and hook events, assistant messages and compaction all sit inside a bracket.
+ * and hook events, assistant messages and compaction all sit inside a bracket — and
+ * so does a `permission.requested`, answered by a `permission.completed` with the
+ * same `requestId` once the person decides (or the session is aborted).
  */
 export function judgeCopilotTail(records: readonly any[]): TurnVerdict | null {
+  const completed = new Set<string>()
+  let asks: AttentionAsk | undefined
+  let askedAt: number | null = null
   for (let i = records.length - 1; i >= 0; i--) {
     const r = records[i]
     switch (r?.type) {
-      case 'assistant.turn_start':
-        return { live: true, startedAt: copilotTurnStart(records, i) ?? toMs(r.timestamp) }
-      case 'user.message':
-        return { live: true, startedAt: toMs(r.timestamp) }
+      case 'assistant.turn_start': {
+        const startedAt = copilotTurnStart(records, i) ?? toMs(r.timestamp)
+        return asks ? { live: true, startedAt, asks } : { live: true, startedAt }
+      }
+      case 'user.message': {
+        const startedAt = toMs(r.timestamp)
+        return asks ? { live: true, startedAt, asks } : { live: true, startedAt }
+      }
       case 'assistant.turn_end':
+        // a request newer than the bracket's end is still a request
+        if (asks) return { live: true, startedAt: copilotTurnStart(records, i) ?? askedAt, asks }
+        return idle(copilotClosing(records, i - 1))
       case 'session.shutdown':
       case 'session.start':
       case 'session.resume':
         return IDLE
+      case 'permission.completed': {
+        const id = r.data?.requestId
+        if (typeof id === 'string') completed.add(id)
+        continue
+      }
+      case 'permission.requested': {
+        const id = r.data?.requestId
+        if (asks === undefined && !(typeof id === 'string' && completed.has(id))) {
+          asks = copilotAsk(r.data)
+          askedAt = toMs(r.timestamp)
+        }
+        continue
+      }
       default:
         continue
     }

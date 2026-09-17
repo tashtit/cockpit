@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, w
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { BusySession, Provider, SessionMeta } from '../src/shared/types'
-import { LIVE_TAIL_STEPS, LivenessTracker, readTurnState } from '../src/main/liveness'
+import { LIVE_TAIL_STEPS, LivenessTracker, readTurnState, type LivenessOptions } from '../src/main/liveness'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-liveness-fixtures-'))
 
@@ -100,7 +100,7 @@ beforeAll(() => {
 })
 
 const trackers: LivenessTracker[] = []
-function tracker(onChange: (s: BusySession[]) => void = () => {}, opts = {}): LivenessTracker {
+function tracker(onChange: (s: BusySession[]) => void = () => {}, opts: LivenessOptions = {}): LivenessTracker {
   const t = new LivenessTracker(onChange, opts)
   trackers.push(t)
   return t
@@ -118,7 +118,7 @@ describe('readTurnState', () => {
     })
     it(`${provider}: the record that ends the turn makes it idle`, () => {
       const file = writeFixture(provider, [...fx.midTurn, fx.final])
-      expect(readTurnState(file, provider)).toEqual({ live: false, startedAt: null })
+      expect(readTurnState(file, provider)).toMatchObject({ live: false, startedAt: null })
     })
     it(`${provider}: an unreadable tail is not live, never an error`, () => {
       expect(isLive(join(root, provider, 'missing.jsonl'), provider)).toBe(false)
@@ -144,7 +144,7 @@ describe('readTurnState', () => {
     const file = writeFixture('claude', [...fx.midTurn, ...padding(LIVE_TAIL_STEPS[0] * 2)])
     expect(readTurnState(file, 'claude')).toEqual({ live: true, startedAt: fx.startedAt })
     appendFileSync(file, jsonl([fx.final, ...padding(LIVE_TAIL_STEPS[0] * 2)]))
-    expect(readTurnState(file, 'claude')).toEqual({ live: false, startedAt: null })
+    expect(readTurnState(file, 'claude')).toMatchObject({ live: false, startedAt: null })
   })
 
   it('declares the tail silent past the last window rather than reading the file', () => {
@@ -298,6 +298,79 @@ describe('LivenessTracker', () => {
     expect(t.sessions()).toEqual([])
     expect(pushes.length).toBe(2)
     expect(pushes[1]).toEqual([])
+  })
+})
+
+describe('LivenessTracker — what it tells the attention desk', () => {
+  type Ev = import('../src/main/liveness').ObservedTurn
+
+  it('a turn seen running whose log then ends is an ending, with its start and closing words', () => {
+    const events: Ev[] = []
+    const t = tracker(() => {}, { onTurn: (ev) => events.push(ev) })
+    const fx = FIXTURES.claude
+    const file = writeFixture('claude', fx.midTurn)
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(events).toEqual([{ type: 'running', id: 'claude:c1', provider: 'claude', cwd: '/x' }])
+    appendFileSync(file, jsonl([fx.final]))
+    const m = meta('claude', 'c1', file)
+    t.observe(file, m, mtime(file))
+    expect(events.at(-1)).toEqual({
+      type: 'ended',
+      id: 'claude:c1',
+      provider: 'claude',
+      cwd: '/x',
+      startedAt: fx.startedAt,
+      endedAt: Math.min(mtime(file), m.updatedAt),
+      closing: 'Done.'
+    })
+  })
+
+  it('a log that is already ended when first seen is not news', () => {
+    const events: Ev[] = []
+    const t = tracker(() => {}, { onTurn: (ev) => events.push(ev) })
+    const fx = FIXTURES.codex
+    const file = writeFixture('codex', [...fx.midTurn, fx.final])
+    t.observe(file, meta('codex', 'x1', file), mtime(file))
+    expect(events).toEqual([])
+  })
+
+  it('expiry is silence, not an ending — a killed CLI or a long tool call never chimes', async () => {
+    const events: Ev[] = []
+    const t = tracker(() => {}, { windowMs: 300, sweepMs: 50, onTurn: (ev) => events.push(ev) })
+    const file = writeFixture('claude', FIXTURES.claude.midTurn)
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+    expect(events.map((e) => e.type)).toEqual(['running'])
+    // and a stale file — outside the window on arrival — says nothing either
+    const old = writeFixture('codex', [...FIXTURES.codex.midTurn, FIXTURES.codex.final])
+    age(old, 10 * 60_000)
+    t.observe(old, meta('codex', 'x1', old), mtime(old))
+    expect(events.map((e) => e.type)).toEqual(['running'])
+  })
+
+  it('a question is reported once, and the log moving past it is a turn running again', () => {
+    const events: Ev[] = []
+    const t = tracker(() => {}, { onTurn: (ev) => events.push(ev) })
+    const [prompt] = FIXTURES.claude.midTurn
+    const question = {
+      type: 'assistant',
+      message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: { questions: [{ question: 'Ship it?' }] } }] },
+      timestamp: T1
+    }
+    const file = writeFixture('claude', [prompt, question])
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(events).toEqual([
+      { type: 'asks', id: 'claude:c1', provider: 'claude', cwd: '/x', asks: { kind: 'question', detail: 'Ship it?' }, startedAt: FIXTURES.claude.startedAt }
+    ])
+    // the same tail again (a bookkeeping write): nothing new
+    appendFileSync(file, jsonl([{ type: 'attachment' }]))
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(events).toHaveLength(1)
+    // answered: the tool result is the newest record
+    appendFileSync(file, jsonl([{ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_q', content: 'yes' }] }, timestamp: T1 }]))
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(events.at(-1)).toEqual({ type: 'running', id: 'claude:c1', provider: 'claude', cwd: '/x' })
+    expect(t.sessions().map((s) => s.id)).toEqual(['claude:c1'])
   })
 })
 

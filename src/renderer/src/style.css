@@ -1061,6 +1061,13 @@ summary::-webkit-details-marker { display: none; }
 .board-row.flying .board-agent-copilot { color: var(--copilot); }
 .board-dot-idle { width: 7px; height: 7px; border-radius: 50%;
   background: var(--fg-dim); opacity: 0.35; flex-shrink: 0; }
+/* needs you, the two marks beside the landed dot: the question glyph in the agent's
+   livery when it has stopped to ask, GitHub's x in its red for a pull request that
+   went red. Shapes, not colours, tell them apart — and every row spells it out. */
+.asks-mark, .fix-mark { display: inline-flex; align-items: center; flex-shrink: 0; }
+.fix-mark { color: var(--danger); }
+.board-meta-asks { color: var(--fg); }
+.board-meta-pr { color: var(--danger); }
 /* landed: the turn ended and nobody has looked yet. Solid livery dot — arrived,
    not working — against flying's pulse and the ground's dim grey. */
 .board-dot-landed, .landed-dot { width: 7px; height: 7px; border-radius: 50%;
@@ -1842,11 +1849,13 @@ button.pnl-flag:hover { text-decoration: underline; }
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.09), transparent 55%); }
 /* landed rows carry the same livery, one step quieter than flying: an inset bar
    instead of a wash, so the group reads as arrivals without shouting over them */
-.board-row.landed:has(.plogo-claude) { box-shadow: inset 2px 0 0 var(--claude); }
-.board-row.landed:has(.plogo-codex) { box-shadow: inset 2px 0 0 var(--codex); }
-.board-row.landed:has(.plogo-copilot) { box-shadow: inset 2px 0 0 var(--copilot); }
+.board-row.landed:has(.plogo-claude), .board-row.asks:has(.plogo-claude) { box-shadow: inset 2px 0 0 var(--claude); }
+.board-row.landed:has(.plogo-codex), .board-row.asks:has(.plogo-codex) { box-shadow: inset 2px 0 0 var(--codex); }
+.board-row.landed:has(.plogo-copilot), .board-row.asks:has(.plogo-copilot) { box-shadow: inset 2px 0 0 var(--copilot); }
+/* a red PR wears GitHub's red, not the agent's livery: it is the branch that needs you */
+.board-row.fix { box-shadow: inset 2px 0 0 var(--danger); }
 /* :has beats .board-row:hover on specificity, so restate hover feedback */
-.board-row.flying:hover, .board-row.landed:hover { filter: brightness(1.18); }
+.board-row.flying:hover, .board-row.landed:hover, .board-row.asks:hover, .board-row.fix:hover { filter: brightness(1.18); }
 
 /* ---------- responsive: shed decoration before anything truncates ----------
    These live at the END of the file on purpose: they override same-specificity

@@ -10,17 +10,17 @@ const SWITCHES: ReadonlyArray<{
   {
     key: 'notifications',
     label: 'Desktop notifications',
-    note: 'The agent, the session and how it ended. Click one to open that session.'
+    note: 'The agent, the session and how it ended — or what it asks you, or which pull request went red. Click one to open that session.'
   },
   {
     key: 'sound',
     label: 'Sound',
-    note: 'The macOS Glass sound when a turn finishes, Basso when it fails.'
+    note: 'The macOS Glass sound when a turn finishes or an agent asks you something, Basso when a turn fails or a pull request goes red.'
   },
   {
     key: 'badge',
     label: 'Dock badge',
-    note: 'How many sessions have landed that you haven’t opened yet.'
+    note: 'How many sessions need you that you haven’t opened yet.'
   }
 ]
 
@@ -94,9 +94,11 @@ export function NotificationsSection({
   return (
     <>
       <p className="ns-hint">
-        When an agent finishes or fails while you&apos;re somewhere else — another session,
-        another app — Cockpit tells you. Never about the session in front of you; endings that
-        arrive together share one notification, and a roundtable speaks once it concludes.
+        When an agent finishes, fails or stops to ask you something while you&apos;re somewhere
+        else — another session, another app, a terminal — Cockpit tells you, and when an open pull
+        request on a session&apos;s branch turns red. Never about the session in front of you;
+        endings that arrive together share one notification, and a roundtable speaks once it
+        concludes.
       </p>
       <ul className="source-list">
         {SWITCHES.map((s) => (

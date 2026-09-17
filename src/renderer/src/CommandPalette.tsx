@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type {
+  Landing,
   RepoGroup,
   SessionMeta,
   TimeFormat,
@@ -15,6 +16,7 @@ import {
   CockpitLogo,
   GearIcon,
   GraphIcon,
+  LandingMark,
   LiveDot,
   ProviderLogo,
   PROVIDER_LABEL,
@@ -291,18 +293,23 @@ export function CommandPalette({
       if (viewHits.length > 0)
         out.push({ label: 'go to', items: viewHits.map((v) => ({ kind: 'view', v })) })
     } else {
-      // the board's ordering, in miniature: flying, then what landed unseen, then recent
+      // the board's ordering, in miniature: waiting on you, flying, then what needs a
+      // look (a red PR, a landing), then recent
+      const when = (s: SessionMeta): number => landed.get(s.id)?.at ?? 0
+      const asking = got.filter((s) => landed.get(s.id)?.kind === 'asks').sort((a, b) => when(b) - when(a))
       const flying = got
-        .filter((s) => busy.has(s.id))
+        .filter((s) => busy.has(s.id) && landed.get(s.id)?.kind !== 'asks')
         .sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
       const arrived = got
-        .filter((s) => !busy.has(s.id) && landed.has(s.id))
-        .sort((a, b) => (landed.get(b.id) ?? 0) - (landed.get(a.id) ?? 0))
+        .filter((s) => !busy.has(s.id) && landed.has(s.id) && landed.get(s.id)?.kind !== 'asks')
+        .sort((a, b) => when(b) - when(a))
       const ground = got.filter((s) => !busy.has(s.id) && !landed.has(s.id))
+      if (asking.length > 0)
+        out.push({ label: 'waiting on you', items: asking.map((s) => ({ kind: 'session', s })) })
       if (flying.length > 0)
         out.push({ label: 'flying now', items: flying.map((s) => ({ kind: 'session', s })) })
       if (arrived.length > 0)
-        out.push({ label: 'landed', items: arrived.map((s) => ({ kind: 'session', s })) })
+        out.push({ label: 'needs you', items: arrived.map((s) => ({ kind: 'session', s })) })
       if (ground.length > 0)
         out.push({ label: 'recent', items: ground.map((s) => ({ kind: 'session', s })) })
       out.push({ label: 'go to', items: VIEWS.map((v) => ({ kind: 'view', v })) })
@@ -441,7 +448,7 @@ export function CommandPalette({
                       it={it}
                       active={i === active}
                       flying={it.kind === 'session' && busy.has(it.s.id)}
-                      landed={it.kind === 'session' && !busy.has(it.s.id) && landed.has(it.s.id)}
+                      landing={it.kind === 'session' ? (landed.get(it.s.id) ?? null) : null}
                       showRepo={mode === 'transcripts' ? scopeKey === undefined : debounced !== ''}
                       scopeLabel={scopeLabel}
                       scopeRepo={scopeRepo}
@@ -554,7 +561,7 @@ function PaletteOption({
   it,
   active,
   flying,
-  landed,
+  landing,
   showRepo,
   scopeLabel,
   scopeRepo,
@@ -566,8 +573,8 @@ function PaletteOption({
   it: Item
   active: boolean
   flying: boolean
-  /** Its last turn ended and it hasn't been opened since (landed.ts) */
-  landed: boolean
+  /** Why it needs you, while it hasn't been opened since (landed.ts) */
+  landing: Landing | null
   /** Query mode shows which repo a session belongs to; recent mode stays clean */
   showRepo: boolean
   /** Where a transcript search looks — named on the door row and the scope row */
@@ -615,14 +622,12 @@ function PaletteOption({
           <span className="palette-title">{it.s.title}</span>
           {it.s.gitBranch && <BranchChip branch={it.s.gitBranch} />}
           {showRepo && it.s.repo && <span className="palette-hint">{it.s.repo.name}</span>}
-          {flying ? (
+          {landing?.kind === 'asks' ? (
+            <LandingMark landing={landing} p={it.s.provider} />
+          ) : flying ? (
             <LiveDot p={it.s.provider} />
-          ) : landed ? (
-            <span
-              className={`landed-dot plogo-${it.s.provider}`}
-              role="img"
-              aria-label="finished — not opened yet"
-            />
+          ) : landing ? (
+            <LandingMark landing={landing} p={it.s.provider} />
           ) : (
             <time className="palette-meta" dateTime={new Date(it.s.updatedAt).toISOString()}>
               {fmtTime(it.s.updatedAt, timeFormat)}

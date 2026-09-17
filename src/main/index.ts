@@ -7,6 +7,7 @@ import type {
   AttentionPrefs,
   AttentionTarget,
   BusySession,
+  PrStatus,
   ChatRequest,
   NewRoundtableRequest,
   PermissionMode,
@@ -180,6 +181,26 @@ function resolveCopilotHandoffs(): void {
       i--
     }
   }
+}
+
+/**
+ * The session whose row carries a pull request: the newest one working on the PR's
+ * head branch in that repo (linked worktrees group under the main root, so a session
+ * in a worktree matches its repo). Seats belong to their table, never to a PR; a
+ * branch no session is on has no row, and the PR waits until one appears.
+ */
+function prCarrier(repoRoot: string, pr: PrStatus): string | null {
+  if (!pr.headRefName) return null
+  const match = indexer
+    .allSessions()
+    .filter(
+      (s) =>
+        s.repo?.root === repoRoot &&
+        s.gitBranch === pr.headRefName &&
+        !(s.cwd !== null && roundtables?.tableIdForCwd(s.cwd))
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  return match?.id ?? null
 }
 
 /** Copilot never names its session: once the index has it, an id-less landing becomes that session. */
@@ -416,7 +437,13 @@ app.whenReady().then(() => {
     },
     {
       cacheFile: join(app.getPath('userData'), 'index-cache.json'),
-      onLiveChange: () => pushBusy()
+      onLiveChange: () => pushBusy(),
+      // a turn in a terminal or the provider's own app ended, or stopped to ask — news
+      // the way a spawned turn's ending is; a seat's turn is its table's business
+      onLiveTurn: (ev) => {
+        if (ev.cwd !== null && roundtables?.tableIdForCwd(ev.cwd)) return
+        attention?.observedTurn(ev)
+      }
     }
   )
   // candidate files come only from the indexer — the renderer never names a path
@@ -492,7 +519,14 @@ app.whenReady().then(() => {
   ipcMain.handle('time-format:set', (_e, format: TimeFormat) => {
     setTimeFormat(format)
   })
-  ipcMain.handle('github:prs', (_e, repoRoot: string) => getPrs(assertKnownRepoRoot(repoRoot)))
+  ipcMain.handle('github:prs', async (_e, repoRoot: string) => {
+    const root = assertKnownRepoRoot(repoRoot)
+    const prs = await getPrs(root)
+    // the badges' own refresh is the only time GitHub is asked — a red PR on a session's
+    // branch is handed to the desk from it, never polled for
+    attention?.prsUpdated(root, prs, (pr) => prCarrier(root, pr))
+    return prs
+  })
   ipcMain.handle('github:default-branch', (_e, repoRoot: string) =>
     getDefaultBranch(assertKnownRepoRoot(repoRoot))
   )

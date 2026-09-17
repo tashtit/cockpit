@@ -197,3 +197,61 @@ describe('AttentionDesk', () => {
     desk.dispose()
   })
 })
+
+describe('AttentionDesk — observed turns and pull requests', () => {
+  const RED = {
+    number: 57,
+    title: 'Fix login retry flake',
+    state: 'OPEN' as const,
+    isDraft: false,
+    headRefName: 'cockpit/login-retry-flake',
+    headSha: 'aaa111',
+    url: 'https://github.com/acme/rocket/pull/57',
+    checks: 'failing' as const,
+    review: 'none' as const,
+    unresolvedThreads: 0
+  }
+
+  it('an ending observed in a log lands like a spawned one, and reaches the renderer with its kind', async () => {
+    const { desk, seen, pushed } = makeDesk(file)
+    desk.observedTurn({ type: 'running', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT })
+    expect(pushed).toEqual([])
+    desk.observedTurn({ type: 'ended', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT, startedAt: 0, endedAt: 300_000, closing: 'All green now.' })
+    expect(pushed.at(-1)).toEqual([{ id: 'claude:abc', at: expect.any(Number), kind: 'landed' }])
+    await vi.runAllTimersAsync()
+    expect(seen.banners.map((b) => [b.title, b.subtitle, b.body])).toEqual([
+      ['Claude finished after 5m', 'Fix the login flake', 'All green now.']
+    ])
+    desk.dispose()
+  })
+
+  it('a question reaches the board as "asks", with what was asked', async () => {
+    const { desk, seen, pushed } = makeDesk(file)
+    desk.observedTurn({ type: 'asks', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT, startedAt: 0, asks: { kind: 'question', detail: 'Ship it?' } })
+    expect(pushed.at(-1)).toEqual([{ id: 'claude:abc', at: expect.any(Number), kind: 'asks', asks: { kind: 'question', detail: 'Ship it?' } }])
+    await vi.runAllTimersAsync()
+    expect(seen.banners.map((b) => b.title)).toEqual(['Claude asks you'])
+    desk.dispose()
+  })
+
+  it('a red PR is raised once per head commit, and a restart remembers that', async () => {
+    const first = makeDesk(file)
+    first.desk.prsUpdated(CHECKOUT, [RED], () => 'claude:abc')
+    await vi.runAllTimersAsync()
+    expect(first.seen.banners.map((b) => b.title)).toEqual(['PR #57 has failing checks'])
+    expect(first.seen.sounds).toEqual(['fail'])
+    expect(first.pushed.at(-1)?.[0]).toMatchObject({ id: 'claude:abc', kind: 'pr', pr: { number: 57, checks: 'failing' } })
+    first.desk.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT })
+    first.desk.dispose()
+    expect(JSON.parse(readFileSync(file, 'utf8')).prs).toEqual([[`pr:${CHECKOUT}#57`, 'aaa111']])
+
+    const second = makeDesk(file)
+    second.desk.prsUpdated(CHECKOUT, [RED], () => 'claude:abc')
+    await vi.runAllTimersAsync()
+    expect(second.seen.banners).toEqual([])
+    second.desk.prsUpdated(CHECKOUT, [{ ...RED, headSha: 'bbb222' }], () => 'claude:abc')
+    await vi.runAllTimersAsync()
+    expect(second.seen.banners.map((b) => b.title)).toEqual(['PR #57 has failing checks'])
+    second.desk.dispose()
+  })
+})

@@ -9,7 +9,7 @@ import { nodes, obj } from './pr-feedback-core'
 
 /** The `--json` fields the list call asks for, next to the parser that reads them. */
 export const PR_LIST_FIELDS =
-  'number,title,state,isDraft,headRefName,url,statusCheckRollup,reviewDecision'
+  'number,title,state,isDraft,headRefName,headRefOid,url,statusCheckRollup,reviewDecision'
 
 /**
  * One entry of gh's `statusCheckRollup`. GitHub reports two shapes — Checks-API
@@ -102,6 +102,7 @@ export function toPrStatus(row: unknown): PrStatus | null {
     state: r.state as PrState,
     isDraft: r.isDraft === true,
     headRefName: typeof r.headRefName === 'string' ? r.headRefName : '',
+    headSha: typeof r.headRefOid === 'string' ? r.headRefOid : '',
     url: typeof r.url === 'string' ? r.url : '',
     checks: summarizeChecks(r.statusCheckRollup),
     review: mapReviewDecision(r.reviewDecision),

@@ -43,6 +43,7 @@ export function openPr(over: Partial<PrStatus> = {}): PrStatus {
     state: 'OPEN',
     isDraft: false,
     headRefName: 'cockpit/login-flake',
+    headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
     url: 'https://github.com/acme/rocket/pull/42',
     checks: 'passing',
     review: 'none',

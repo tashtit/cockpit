@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  Landing,
   PermissionMode,
   Provider,
   RepoGroup,
@@ -12,7 +13,17 @@ import { AttachRow, useImageAttachments, type ImageAttachment } from './attachme
 import { useBusyMap } from './busy'
 import { useLandedMap } from './landed'
 import { accountOptions, MODES, savedAccount, type StartSessionRequest } from './NewSession'
-import { BranchChip, CheckIcon, LiveDot, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import {
+  BranchChip,
+  CheckIcon,
+  landingLabel,
+  LandingMark,
+  landingWord,
+  LiveDot,
+  ProviderLogo,
+  PROVIDER_LABEL,
+  RepoIcon
+} from './logos'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
@@ -446,27 +457,41 @@ function Board({
     return () => clearInterval(t)
   }, [busy.size])
 
-  // one list, three states: flying (longest airborne first, then any table mid-round),
-  // landed (newest landing first), then the ground — sessions and tables by recency
+  // one list, four states: waiting on you (an agent stopped to ask — on top, whatever
+  // else is true of it), flying (longest airborne first, then any table mid-round),
+  // arrived (a red PR, then what landed unseen, newest first), then the ground —
+  // sessions and tables by recency
+  const when = (s: SessionMeta): number => landed.get(s.id)?.at ?? 0
+  const asking = sessions.filter((s) => landed.get(s.id)?.kind === 'asks').sort((a, b) => when(b) - when(a))
   const flyingSessions = sessions
-    .filter((s) => busy.has(s.id))
+    .filter((s) => busy.has(s.id) && landed.get(s.id)?.kind !== 'asks')
     .sort((a, b) => (busy.get(a.id) ?? 0) - (busy.get(b.id) ?? 0))
   const flyingTables = tables.filter((t) => t.running).sort((a, b) => b.updatedAt - a.updatedAt)
   const arrived = sessions
-    .filter((s) => !busy.has(s.id) && landed.has(s.id))
-    .sort((a, b) => (landed.get(b.id) ?? 0) - (landed.get(a.id) ?? 0))
+    .filter((s) => !busy.has(s.id) && landed.has(s.id) && landed.get(s.id)?.kind !== 'asks')
+    .sort((a, b) => Number(landed.get(a.id)?.kind === 'landed') - Number(landed.get(b.id)?.kind === 'landed') || when(b) - when(a))
+  const red = arrived.filter((s) => landed.get(s.id)?.kind === 'pr').length
+  const landedCount = arrived.length - red
   const ground: Array<{ kind: 'session'; s: SessionMeta } | { kind: 'table'; t: RoundtableMeta }> = [
     ...sessions.filter((s) => !busy.has(s.id) && !landed.has(s.id)).map((s) => ({ kind: 'session' as const, s })),
     ...tables.filter((t) => !t.running).map((t) => ({ kind: 'table' as const, t }))
   ].sort((a, b) => (b.kind === 'session' ? b.s.updatedAt : b.t.updatedAt) - (a.kind === 'session' ? a.s.updatedAt : a.t.updatedAt))
   const flyingCount = flyingSessions.length + flyingTables.length
+  const needsCount = asking.length + arrived.length
   // the board is a taste, not the list: what is happening always shows, the ground fills
   // what is left of ten rows (the sidebar stays the exhaustive one)
-  const shownGround = ground.slice(0, Math.max(0, BOARD_ROWS - flyingCount - arrived.length))
+  const shownGround = ground.slice(0, Math.max(0, BOARD_ROWS - flyingCount - needsCount))
   const groundTotal = Math.max(
-    total - flyingSessions.length - arrived.length + (tables.length - flyingTables.length),
+    total - flyingSessions.length - needsCount + (tables.length - flyingTables.length),
     ground.length
   )
+  // "1 waiting on you · 2 flying · 1 red PR · 3 landed · 12 on the ground", zeros dropped
+  const counts = [
+    asking.length > 0 && `${asking.length} waiting on you`,
+    flyingCount > 0 && `${flyingCount} flying`,
+    red > 0 && `${red} red ${red === 1 ? 'PR' : 'PRs'}`,
+    landedCount > 0 && `${landedCount} landed`
+  ].filter((c): c is string => typeof c === 'string')
 
   return (
     <section className="board" aria-label="Session board">
@@ -475,13 +500,16 @@ function Board({
             outranks nothing above it would read as a skipped level.
             Polite live region — turn starts/completions announce the new counts */}
         <h2 className="board-eyebrow" aria-live="polite">
-          {flyingCount === 0 && arrived.length === 0 ? (
+          {counts.length === 0 ? (
             <>all on the ground</>
           ) : (
             <>
-              {flyingCount > 0 && <b>{flyingCount} flying</b>}
-              {flyingCount > 0 && arrived.length > 0 && ' · '}
-              {arrived.length > 0 && <b>{arrived.length} landed</b>}
+              {counts.map((c, i) => (
+                <span key={c}>
+                  {i > 0 && ' · '}
+                  <b>{c}</b>
+                </span>
+              ))}
               {' · '}
               {groundTotal} on the ground
             </>
@@ -489,18 +517,21 @@ function Board({
         </h2>
       </div>
       <ul className="board-list">
+        {asking.map((s) => (
+          <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} landing={landed.get(s.id)} now={now} onOpen={onOpen} />
+        ))}
         {flyingSessions.map((s) => (
-          <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} landedAt={undefined} now={now} onOpen={onOpen} />
+          <BoardRow key={s.id} s={s} startedAt={busy.get(s.id)} landing={undefined} now={now} onOpen={onOpen} />
         ))}
         {flyingTables.map((t) => (
           <TableRow key={t.id} t={t} onOpen={onOpenRoundtable} />
         ))}
         {arrived.map((s) => (
-          <BoardRow key={s.id} s={s} startedAt={undefined} landedAt={landed.get(s.id)} now={now} onOpen={onOpen} />
+          <BoardRow key={s.id} s={s} startedAt={undefined} landing={landed.get(s.id)} now={now} onOpen={onOpen} />
         ))}
         {shownGround.map((g) =>
           g.kind === 'session' ? (
-            <BoardRow key={g.s.id} s={g.s} startedAt={undefined} landedAt={undefined} now={now} onOpen={onOpen} />
+            <BoardRow key={g.s.id} s={g.s} startedAt={undefined} landing={undefined} now={now} onOpen={onOpen} />
           ) : (
             <TableRow key={g.t.id} t={g.t} onOpen={onOpenRoundtable} />
           )
@@ -556,35 +587,39 @@ function TableRow({ t, onOpen }: { t: RoundtableMeta; onOpen: (id: string) => vo
 function BoardRow({
   s,
   startedAt,
-  landedAt,
+  landing,
   now,
   onOpen
 }: {
   s: SessionMeta
   /** Epoch ms the running turn started; undefined = on the ground */
   startedAt: number | undefined
-  /** Epoch ms its last turn ended, while you weren't looking; undefined = seen */
-  landedAt: number | undefined
+  /** Why it needs you, while you haven't looked; undefined = seen (or nothing to see) */
+  landing: Landing | undefined
   now: number
   onOpen: (s: SessionMeta) => void
 }): JSX.Element {
   const timeFormat = useTimeFormat()
-  const flying = startedAt !== undefined
-  const landed = !flying && landedAt !== undefined
+  // an agent waiting on you is the row's state whether or not its process is still up
+  const asks = landing?.kind === 'asks'
+  const flying = !asks && startedAt !== undefined
+  const fix = !flying && landing?.kind === 'pr'
+  const landed = !flying && landing?.kind === 'landed'
+  const state = asks ? 'asks' : flying ? 'flying' : fix ? 'fix' : landed ? 'landed' : ''
   return (
     <li>
       <button
-        className={`board-row ${flying ? 'flying' : ''} ${landed ? 'landed' : ''}`}
+        className={`board-row ${state}`}
         title={`${PROVIDER_LABEL[s.provider]} — ${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${
-          landed ? '\nfinished while you were away' : ''
+          landed ? '\nfinished while you were away' : landing && !flying ? `\n${landingLabel(landing)}` : ''
         }`}
         onClick={() => onOpen(s)}
       >
-        {flying ? (
+        {landing && !flying ? (
+          // the meta column says it in words — the mark is the shape beside them
+          <LandingMark landing={landing} p={s.provider} mute />
+        ) : flying ? (
           <LiveDot p={s.provider} />
-        ) : landed ? (
-          // solid, unpulsing, in the agent's livery: arrived, not working
-          <span className={`board-dot-landed plogo-${s.provider}`} aria-hidden="true" />
         ) : (
           <span className="board-dot-idle" aria-hidden="true" />
         )}
@@ -602,6 +637,8 @@ function BoardRow({
           <span className="board-meta board-meta-landed">
             landed {fmtTime(s.updatedAt, timeFormat)}
           </span>
+        ) : landing ? (
+          <span className={`board-meta board-meta-${landing.kind}`}>{landingWord(landing)}</span>
         ) : (
           <time className="board-meta" dateTime={new Date(s.updatedAt).toISOString()}>
             {fmtTime(s.updatedAt, timeFormat)}
