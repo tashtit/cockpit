@@ -141,15 +141,27 @@ preferences, then the occasional tasks).
   version as an `.acct-chip` (a machine identifier, mono) · dim `.source-origin`
   "installed · arm64" or "development run" · `.source-note` readout of the updater (not
   checked yet / checking… / up to date — checked Xm ago / version X is available /
-  downloading X · 42% / downloaded — restart to install / the error verbatim) · **one**
-  `.btn-ghost.small` action at a time in `.source-health` (Check for updates → Download X
-  → Restart to install; a disabled "Checking…"/"Downloading…" while busy), so the row never
-  mixes control heights. Transitions announce through the `role="status"` region; progress
-  ticks stay silent. The `.ns-hint` states that nothing downloads until asked and links the
-  GitHub release notes through a `link-btn` (`openExternal`) — notes are not rendered
-  in-app. Beside it, "Open source licenses" (`link-btn`) opens the generated
-  `THIRD_PARTY_NOTICES.txt` in the system text viewer (`openLicenseNotices`); the reason
-  it could not open shows verbatim in a `.new-error role="alert"` under the hint. A
-  development run shows the `unsupported` reason as prose and no control at all.
+  downloading X · 42% / downloaded — it installs when you quit Cockpit / the error
+  verbatim) · **one** `.btn-ghost.small` action at a time in `.source-health` (Check for
+  updates → Download X → Restart now; a disabled "Checking…"/"Downloading…" while busy),
+  so the row never mixes control heights. The ready line and the button say the same
+  thing twice on purpose: quitting is what installs, and the button is only sooner — so
+  it never reads as the one way to get the update. Transitions announce through the
+  `role="status"` region; progress ticks stay silent.
+  Under that row, two `.source-row.attn-switch` rows on the Notifications recipe exactly
+  (whole row a `<label>`, `aria-labelledby` the label span alone, `aria-describedby` the
+  note): Download updates automatically · Install when I quit. A flip saves at once,
+  announces "<name> on/off" and reverts on refusal. They are the *whole* control surface
+  for the automatic path — there is no third switch for checking, which always happens.
+  An install that rolled back (`UpdateState.installFailure`) is a `.new-error
+  role="alert"` under the list, before the hint: what was put back, verbatim why, and
+  that nothing downloads on its own until Check for updates is pressed. The `.ns-hint`
+  says Cockpit keeps itself current and installs its own updates so it can clear the
+  quarantine flag, and links the GitHub release notes through a `link-btn`
+  (`openExternal`) — notes are not rendered in-app. Beside it, "Open source licenses"
+  (`link-btn`) opens the generated `THIRD_PARTY_NOTICES.txt` in the system text viewer
+  (`openLicenseNotices`); the reason it could not open shows verbatim in a `.new-error
+  role="alert"` under the hint. A development run shows the `unsupported` reason as prose
+  and neither the action nor the switches — this build could not act on them.
 - App-level: the global Escape handler blurs a focused field first and only closes the
   view on a second press — a habitual Escape must never discard a half-typed path.

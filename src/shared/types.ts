@@ -1174,6 +1174,20 @@ export type UpdateState = {
   readonly message?: string
   /** When the last check against GitHub Releases completed */
   readonly checkedAt?: number
+  /**
+   * The previous install was rolled back, and why. Carried on every state until a
+   * check is asked for by hand: nothing downloads by itself while it is set, so a
+   * build that cannot be installed is never fetched again and again in silence.
+   */
+  readonly installFailure?: string
+}
+
+/** Settings › About — how much of updating Cockpit does without being asked. */
+export type UpdatePrefs = {
+  /** Fetch a newer build as soon as a check finds one */
+  readonly download: boolean
+  /** Swap the downloaded build in when Cockpit next quits */
+  readonly install: boolean
 }
 
 export type AppInfo = {
@@ -1419,12 +1433,14 @@ export type CockpitApi = {
   /** Open the third-party notices in the system text viewer; resolves to why not, or null once open */
   readonly openLicenseNotices: () => Promise<string | null>
   readonly getUpdateState: () => Promise<UpdateState>
-  /** Ask GitHub Releases for a newer build now (installed builds also check on a timer) */
+  /** Ask GitHub Releases for a newer build now; also clears a rolled-back install */
   readonly checkForUpdates: () => Promise<UpdateState>
   /** Fetch the offered build; state streams through `downloading` into `ready` */
   readonly downloadUpdate: () => Promise<UpdateState>
-  /** Quit and hand over to the installer — only meaningful in the `ready` state */
+  /** Quit, swap the downloaded build in and reopen — only meaningful in the `ready` state */
   readonly installUpdate: () => Promise<void>
+  readonly getUpdatePrefs: () => Promise<UpdatePrefs>
+  readonly setUpdatePrefs: (prefs: UpdatePrefs) => Promise<UpdatePrefs>
   /** Push: every transition of the update state */
   readonly onUpdateState: (cb: (state: UpdateState) => void) => () => void
 }

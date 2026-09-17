@@ -14,7 +14,7 @@ Cockpit is early access: pre-1.0, and its releases are not yet signed with an Ap
    xattr -d com.apple.quarantine /Applications/Cockpit.app
    ```
 
-4. **Updates** — an installed Cockpit checks GitHub Releases on launch and every few hours; **Settings › About** shows the installed version and offers a newer build as a download. Nothing is fetched until you choose to. macOS only swaps in a signed bundle, so while releases are unsigned the install step ends in an error — download the new disk image and replace the app in Applications; your settings in `~/Library/Application Support/Cockpit` survive.
+4. **Updates** — you only do the three steps above once. From then on Cockpit checks GitHub Releases on launch and every few hours, fetches a newer build in the background and swaps it in the next time you quit, clearing the quarantine flag itself so the new version opens without another trip to Privacy & Security. **Settings › About** shows where it stands, offers **Restart now**, and holds both switches if you would rather do it by hand. A failed install puts the version you had back and says why.
 
 Every release asset carries a build-provenance attestation, so you can confirm a download is the file the release workflow produced before opening it:
 

@@ -25,6 +25,7 @@ import type {
   SessionQuery,
   TimeFormat,
   TranscriptSearchQuery,
+  UpdatePrefs,
   UpdateState
 } from '../shared/types'
 
@@ -167,6 +168,8 @@ const api: CockpitApi = {
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
   downloadUpdate: () => ipcRenderer.invoke('updates:download'),
   installUpdate: () => ipcRenderer.invoke('updates:install'),
+  getUpdatePrefs: () => ipcRenderer.invoke('updates:prefs'),
+  setUpdatePrefs: (prefs) => ipcRenderer.invoke('updates:set-prefs', prefs),
   onUpdateState: (cb: (state: UpdateState) => void) => {
     const handler = (_e: unknown, state: UpdateState): void => cb(state)
     ipcRenderer.on('update-state', handler)

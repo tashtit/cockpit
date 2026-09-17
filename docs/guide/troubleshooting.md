@@ -23,9 +23,18 @@ xattr -d com.apple.quarantine /Applications/Cockpit.app
 
 Signed and notarized releases open without any of this.
 
-## An update fails at "Restart to install"
+## An update did not install
 
-The About row in Settings shows `Could not install <version>: …` with a code-signature error. macOS only swaps in a signed bundle, so an unsigned release can be checked and downloaded but not installed in place. Download the new disk image from the [releases page](https://github.com/tashtit/cockpit/releases) and replace the app in Applications; your settings live in `~/Library/Application Support/Cockpit` and survive.
+Cockpit installs updates itself: it downloads the release zip, checks it against the checksum the release publishes, confirms the bundle inside is the same app at the version that was offered, clears the quarantine flag and swaps it in once Cockpit quits. Every step before the swap is reversible, and the swap puts the old bundle back if the copy fails — a failed update always leaves you with a working app.
+
+**Settings › About** then says so, verbatim, and nothing downloads on its own until you press **Check for updates** (which is also how you retry: the build stays downloaded, so it costs no second fetch).
+
+Two causes are worth knowing:
+
+- **"Could not move /Applications/Cockpit.app aside"** — the folder holding the app is not writable by you. Move Cockpit somewhere you own, or install it with an admin account.
+- **"the download does not match the checksum the release publishes"** — the fetch was corrupted or intercepted. Retrying is safe; nothing from a mismatched download is ever unpacked.
+
+Whatever the cause, replacing the app by hand always works: download the disk image from the [releases page](https://github.com/tashtit/cockpit/releases) and drag it into Applications. Your settings live in `~/Library/Application Support/Cockpit` and survive.
 
 ## Notifications never appear
 

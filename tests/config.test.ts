@@ -14,7 +14,9 @@ import {
   sessionLineage,
   sessionLineageFor,
   setAttentionPrefs,
-  updateModelEndpoint
+  setUpdatePrefs,
+  updateModelEndpoint,
+  updatePrefs
 } from '../src/main/config'
 import type { ModelEndpoint } from '../src/shared/types'
 
@@ -198,5 +200,28 @@ describe('attention prefs', () => {
       typeof setAttentionPrefs
     >[0])
     expect(saved).toEqual({ notifications: false, sound: false, badge: false })
+  })
+})
+
+describe('update prefs', () => {
+  it('keeps Cockpit current until the user says otherwise', () => {
+    // unlike the attention switches these do not follow the build: every build that
+    // can update at all is an installed one, and keeping itself current is the point
+    expect(updatePrefs()).toEqual({ download: true, install: true })
+  })
+
+  it('stores a switch the user flipped, and only that', () => {
+    expect(setUpdatePrefs({ download: false, install: true })).toEqual({ download: false, install: true })
+    expect(updatePrefs()).toEqual({ download: false, install: true })
+    expect(loadConfig().updates).toEqual({ download: false, install: true })
+  })
+
+  it('reads anything but a real true out of the renderer as off', () => {
+    // these switches act by themselves: a malformed value must land on the side
+    // that does no work, and a click puts it back
+    expect(setUpdatePrefs({ download: 'yes', install: 1 } as unknown as never)).toEqual({
+      download: false,
+      install: false
+    })
   })
 })
