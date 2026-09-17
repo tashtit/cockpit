@@ -6,8 +6,15 @@ import {
   clampStaleDays,
   isStale,
   isUnder,
+  judgeProcesses,
   lastWorktreeActivity,
+  ownProcessTree,
+  parseElapsed,
+  parseLsofCwds,
+  parsePs,
   parseWorktreeList,
+  providerWorktreeHomes,
+  sameProcess,
   staleCutoff,
   sumBytes,
   worktreeBlocks,
@@ -146,7 +153,14 @@ describe('isUnder / worktreeOrigin', () => {
 })
 
 describe('worktreeBlocks', () => {
-  const clean = { isMain: false, locked: false, dirty: false, busy: false, roundtable: false }
+  const clean = {
+    isMain: false,
+    locked: false,
+    dirty: false,
+    busy: false,
+    roundtable: false,
+    processes: false
+  }
 
   it('clears a quiet, clean worktree', () => {
     expect(worktreeBlocks(clean)).toEqual([])
@@ -161,11 +175,20 @@ describe('worktreeBlocks', () => {
     expect(worktreeBlocks({ ...clean, busy: true })).toEqual(['busy'])
     expect(worktreeBlocks({ ...clean, roundtable: true })).toEqual(['roundtable'])
     expect(worktreeBlocks({ ...clean, locked: true })).toEqual(['locked'])
+    expect(worktreeBlocks({ ...clean, processes: true })).toEqual(['process'])
   })
 
   it('orders several blocks most-fundamental first', () => {
-    expect(worktreeBlocks({ isMain: true, locked: true, dirty: true, busy: true, roundtable: true }))
-      .toEqual(['main', 'roundtable', 'busy', 'dirty', 'locked'])
+    expect(
+      worktreeBlocks({
+        isMain: true,
+        locked: true,
+        dirty: true,
+        busy: true,
+        roundtable: true,
+        processes: true
+      })
+    ).toEqual(['main', 'roundtable', 'busy', 'process', 'dirty', 'locked'])
   })
 })
 
@@ -186,5 +209,205 @@ describe('lastWorktreeActivity', () => {
 describe('sumBytes', () => {
   it('adds sizes and treats unmeasurable ones as zero', () => {
     expect(sumBytes([{ bytes: 10 }, { bytes: null }, { bytes: 5 }])).toBe(15)
+  })
+})
+
+describe('parseLsofCwds', () => {
+  it('pairs each pid with its working directory', () => {
+    const out = 'p10\nfcwd\nn/repos/app\np22\nfcwd\nn/wt/app/fix login\n'
+    expect(parseLsofCwds(out)).toEqual(
+      new Map([
+        [10, '/repos/app'],
+        [22, '/wt/app/fix login']
+      ])
+    )
+  })
+
+  it('drops the marker Linux puts on a deleted directory', () => {
+    expect(parseLsofCwds('p7\nn/wt/gone (deleted)\n').get(7)).toBe('/wt/gone')
+  })
+
+  it('ignores names that belong to no readable pid', () => {
+    expect(parseLsofCwds('n/orphan\npabc\nn/also\n').size).toBe(0)
+  })
+
+  it('drops a name lsof escaped, which would match no real path', () => {
+    const out = 'p1\nn/wt/caf\\xc3\\xa9\np2\nn/wt/odd\\nname\np3\nn/wt/café\n'
+    expect(parseLsofCwds(out)).toEqual(new Map([[3, '/wt/café']]))
+  })
+})
+
+describe('parseElapsed', () => {
+  it('reads every shape ps prints', () => {
+    expect(parseElapsed('00:05')).toBe(5)
+    expect(parseElapsed('12:34')).toBe(754)
+    expect(parseElapsed('01:00:00')).toBe(3600)
+    expect(parseElapsed('3-02:00:01')).toBe(3 * 86_400 + 7201)
+  })
+
+  it('refuses anything else', () => {
+    expect(parseElapsed('yesterday')).toBeNull()
+  })
+})
+
+describe('parsePs', () => {
+  it('keeps the whole command line, spaces included', () => {
+    const now = 1_000_000_000
+    const rows = parsePs('  501     1   01:40 node /wt/app/node_modules/.bin/vite --port 5173\n', now)
+    expect(rows).toEqual([
+      {
+        pid: 501,
+        ppid: 1,
+        startedAt: now - 100_000,
+        command: 'node /wt/app/node_modules/.bin/vite --port 5173'
+      }
+    ])
+  })
+})
+
+describe('ownProcessTree', () => {
+  const rows = [
+    { pid: 1, ppid: 0, startedAt: 0, command: 'launchd' },
+    { pid: 10, ppid: 1, startedAt: 0, command: 'zsh' },
+    { pid: 11, ppid: 10, startedAt: 0, command: 'npm run dev' },
+    { pid: 12, ppid: 11, startedAt: 0, command: 'electron' },
+    { pid: 13, ppid: 12, startedAt: 0, command: 'claude -p' },
+    { pid: 14, ppid: 13, startedAt: 0, command: 'git status' },
+    { pid: 20, ppid: 1, startedAt: 0, command: 'vite' }
+  ]
+
+  it('covers what launched the app and everything it spawned, never init or strangers', () => {
+    expect([...ownProcessTree(rows, 12)].sort((a, b) => a - b)).toEqual([10, 11, 12, 13, 14])
+  })
+})
+
+describe('judgeProcesses', () => {
+  const proc = (pid: number, cwd: string) => ({
+    pid,
+    ppid: 1,
+    command: 'node server.js',
+    startedAt: pid,
+    cwd
+  })
+  const tree = {
+    repoName: 'app',
+    branch: 'cockpit/fix',
+    isMain: false,
+    stale: true,
+    missing: false
+  }
+  const worktrees = [
+    { ...tree, path: '/repos/app', isMain: true, branch: 'main', stale: true },
+    { ...tree, path: '/wt/app/fix' },
+    { ...tree, path: '/wt/app/fresh', stale: false },
+    { ...tree, path: '/repos/app/.claude/worktrees/spike', branch: 'spike' }
+  ]
+  const copilotHome = '/home/.copilot/copilot-worktrees'
+  const homes = [
+    // Cockpit's `<repo>/<name>`
+    { path: '/wt', repoName: null, depth: 2 },
+    { path: '/repos/app/.claude/worktrees', repoName: 'app', depth: 1 },
+    ...providerWorktreeHomes([{ path: '/home/.copilot', provider: 'copilot', label: 'copilot' }])
+  ]
+  const onDisk = new Set([
+    '/repos/app',
+    '/repos/app/src',
+    '/wt',
+    '/wt/app',
+    '/wt/app/fix',
+    '/wt/app/fresh',
+    '/repos/app/.claude/worktrees',
+    '/repos/app/.claude/worktrees/spike',
+    // a dev server recreated its cache in a worktree removed from under it
+    '/wt/app/shell',
+    '/wt/app/shell/.wrangler',
+    // a live checkout under a home, of a repository no scan lists
+    '/wt/other/live',
+    '/wt/other/live/.git',
+    '/wt/other/live/src',
+    copilotHome,
+    `${copilotHome}/site`
+  ])
+  const judge = (processes: ReturnType<typeof proc>[]) =>
+    judgeProcesses({ processes, worktrees, homes, exists: (p) => onDisk.has(p) })
+
+  it('finds a process in a stale worktree', () => {
+    const [p] = judge([proc(1, '/wt/app/fix')])
+    expect(p).toMatchObject({ worktreePath: '/wt/app/fix', branch: 'cockpit/fix', worktreeGone: false })
+  })
+
+  it('leaves the repository’s own checkout and worktrees still in use alone', () => {
+    expect(judge([proc(1, '/repos/app/src'), proc(2, '/wt/app/fresh')])).toEqual([])
+  })
+
+  it('credits a nested worktree, not the checkout holding it', () => {
+    const [p] = judge([proc(1, '/repos/app/.claude/worktrees/spike')])
+    expect(p?.branch).toBe('spike')
+  })
+
+  it('finds a process whose worktree was removed from under it', () => {
+    const [a, b] = judge([
+      proc(1, '/wt/app/removed/packages/web'),
+      proc(2, '/repos/app/.claude/worktrees/old')
+    ])
+    expect(a).toMatchObject({ worktreePath: '/wt/app/removed', repoName: null, worktreeGone: true })
+    expect(b).toMatchObject({ worktreePath: '/repos/app/.claude/worktrees/old', repoName: 'app' })
+  })
+
+  it('ignores a deleted directory that never was a worktree', () => {
+    expect(judge([proc(1, '/tmp/scratch'), proc(2, '/repos/app/build')])).toEqual([])
+  })
+
+  // the worktree is gone even where the process recreated its cwd: the row must still say so
+  it('finds one whose removed worktree was recreated as a shell with no .git', () => {
+    const [p] = judge([proc(1, '/wt/app/shell/.wrangler')])
+    expect(p).toMatchObject({ worktreePath: '/wt/app/shell', branch: null, worktreeGone: true })
+  })
+
+  it('leaves a live checkout under a home alone, listed or not', () => {
+    expect(judge([proc(1, '/wt/other/live/src')])).toEqual([])
+  })
+
+  it('never takes a home or a grouping directory for a worktree', () => {
+    const inHomes = ['/wt', '/wt/app', '/wt/gone-repo', '/repos/app/.claude/worktrees', copilotHome]
+    expect(judge(inHomes.map((cwd, i) => proc(i + 1, cwd)))).toEqual([])
+  })
+
+  it('finds one in a removed Copilot worktree', () => {
+    const [p] = judge([proc(1, `${copilotHome}/site/feat-x/web`)])
+    expect(p).toMatchObject({ worktreePath: `${copilotHome}/site/feat-x`, worktreeGone: true })
+  })
+
+  it('lists the longest-running first', () => {
+    expect(judge([proc(9, '/wt/app/fix'), proc(3, '/wt/app/fix')]).map((p) => p.pid)).toEqual([3, 9])
+  })
+})
+
+describe('providerWorktreeHomes', () => {
+  it('reads Codex and Copilot worktree homes off their config homes, two levels deep', () => {
+    expect(
+      providerWorktreeHomes([
+        { path: '/h/.claude', provider: 'claude', label: 'c' },
+        { path: '/h/.codex', provider: 'codex', label: 'x' },
+        { path: '/h/.copilot-work', provider: 'copilot', label: 'p' }
+      ])
+    ).toEqual([
+      { path: '/h/.codex/worktrees', repoName: null, depth: 2 },
+      { path: '/h/.copilot-work/copilot-worktrees', repoName: null, depth: 2 }
+    ])
+  })
+})
+
+describe('sameProcess', () => {
+  const picked = { command: 'node vite', startedAt: 1_000_000 }
+
+  it('accepts the same command started within the tolerance', () => {
+    expect(sameProcess({ ...picked, startedAt: 1_001_500 }, picked)).toBe(true)
+  })
+
+  it('refuses a different start, a different command, or an unknown start', () => {
+    expect(sameProcess({ ...picked, startedAt: 1_060_000 }, picked)).toBe(false)
+    expect(sameProcess({ ...picked, command: 'zsh' }, picked)).toBe(false)
+    expect(sameProcess({ ...picked, startedAt: 0 }, { ...picked, startedAt: 0 })).toBe(false)
   })
 })

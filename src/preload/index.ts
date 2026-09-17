@@ -21,6 +21,7 @@ import type {
   RoundtableEvent,
   Landing,
   PanelTarget,
+  ProcessTarget,
   SessionQuery,
   TimeFormat,
   TranscriptSearchQuery,
@@ -91,6 +92,8 @@ const api: CockpitApi = {
   deleteSessions: (ids: readonly string[]) => ipcRenderer.invoke('cleanup:delete-sessions', ids),
   removeWorktrees: (paths: readonly string[]) =>
     ipcRenderer.invoke('cleanup:remove-worktrees', paths),
+  stopProcesses: (targets: readonly ProcessTarget[]) =>
+    ipcRenderer.invoke('cleanup:stop-processes', targets),
   getPrs: (repoRoot: string) => ipcRenderer.invoke('github:prs', repoRoot),
   getDefaultBranch: (repoRoot: string) => ipcRenderer.invoke('github:default-branch', repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>

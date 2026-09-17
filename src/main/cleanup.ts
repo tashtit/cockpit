@@ -4,6 +4,8 @@ import type {
   CleanupBlock,
   CleanupReport,
   CleanupResult,
+  OrphanProcess,
+  ProcessTarget,
   SessionMeta,
   StaleSession,
   StaleWorktree
@@ -12,11 +14,20 @@ import {
   clampStaleDays,
   isStale,
   isUnder,
+  judgeProcesses,
   lastWorktreeActivity,
+  ownProcessTree,
+  parseLsofCwds,
+  parsePs,
   parseWorktreeList,
+  sameProcess,
   staleCutoff,
   worktreeBlocks,
-  worktreeOrigin
+  worktreeOrigin,
+  type JudgedProcess,
+  type ProcessFacts,
+  type WorktreeEntry,
+  type WorktreeHome
 } from './cleanup-core'
 import { execText } from './env'
 
@@ -35,6 +46,10 @@ import { execText } from './env'
  *                hand-made ones) are found and cleanable too. Removal goes through
  *                `git worktree remove` without --force: anything git objects to is
  *                reported, never overridden.
+ *   processes  — whatever is still running with its cwd inside a stale worktree, or
+ *                inside one already removed from under it (the dev server nobody
+ *                stopped). Found with `lsof`, stopped with SIGTERM only, and a
+ *                worktree with one inside is blocked until it is gone.
  *
  * Nothing here trusts a renderer-supplied path. `removeWorktrees` re-derives the
  * whole listing before acting, and only paths that listing produced are touched.
@@ -69,6 +84,15 @@ export type CleanupDeps = {
   readonly tableForCwd: (cwd: string) => string | null
   /** Configured source dirs — the only roots a session file may be deleted from */
   readonly sourceDirs: () => string[]
+  /**
+   * Directories worktrees are cut under beyond Cockpit's own root and each repo's
+   * `.claude/worktrees` (Codex's and Copilot's, off their config homes). A
+   * worktree-level directory under one of them with no `.git` was a worktree,
+   * which is how a process outliving it is recognised.
+   */
+  readonly worktreeHomes: () => readonly WorktreeHome[]
+  /** Cockpit's own pid — its process tree is never offered for stopping */
+  readonly selfPid: number
 }
 
 /* ---------- sessions ---------- */
@@ -118,6 +142,45 @@ function sessionBytes(sourcePath: string): number {
   } catch {
     return 0
   }
+}
+
+/* ---------- processes ---------- */
+
+/** lsof walks every process the user owns — well under a second, but never unbounded. */
+const PROCESS_SCAN_TIMEOUT_MS = 10_000
+
+/** How long a stopped process gets to exit before it is reported as still running. */
+const STOP_GRACE_MS = 2_000
+
+/**
+ * Every process the user owns that has a working directory, minus Cockpit's own
+ * tree. Fails soft to an empty list: without lsof or ps there is simply nothing
+ * to report, and the worktree scan must not fail over it.
+ */
+async function processSnapshot(deps: CleanupDeps): Promise<ProcessFacts[]> {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null
+  const [lsof, ps] = await Promise.all([
+    execText('lsof', ['-a', '-d', 'cwd', ...(uid === null ? [] : ['-u', String(uid)]), '-F', 'pn'], {
+      timeoutMs: PROCESS_SCAN_TIMEOUT_MS,
+      // an app launched from Finder has no LANG, and lsof then escapes non-ASCII
+      // bytes in paths (`caf\xc3\xa9`) — a live process would read as removed
+      env: { LC_ALL: 'C.UTF-8' }
+    }),
+    execText('ps', ['-Ao', 'pid=,ppid=,etime=,command='], { timeoutMs: PROCESS_SCAN_TIMEOUT_MS })
+  ])
+  // lsof exits 1 when some process could not be read, with the readable ones on
+  // stdout — the output is what counts, not the status
+  if (!lsof.stdout || !ps.ok) return []
+  const cwds = parseLsofCwds(lsof.stdout)
+  const rows = parsePs(ps.stdout, Date.now())
+  const own = ownProcessTree(rows, deps.selfPid)
+  const out: ProcessFacts[] = []
+  for (const r of rows) {
+    const cwd = cwds.get(r.pid)
+    if (!cwd || own.has(r.pid) || cwd === '/') continue
+    out.push({ ...r, cwd })
+  }
+  return out
 }
 
 /* ---------- worktrees ---------- */
@@ -175,7 +238,10 @@ function dirMtime(path: string): number {
 /** One worktree, fully judged — shared by the scan and by removal's re-derivation. */
 type JudgedWorktree = StaleWorktree & { readonly repoRootForGit: string }
 
-async function judgeWorktrees(deps: CleanupDeps): Promise<JudgedWorktree[]> {
+async function judgeWorktrees(
+  deps: CleanupDeps,
+  procs: readonly ProcessFacts[]
+): Promise<JudgedWorktree[]> {
   const sessions = deps.sessions()
   const busy = deps.busyIds()
   const busyCwds = new Set(
@@ -183,59 +249,113 @@ async function judgeWorktrees(deps: CleanupDeps): Promise<JudgedWorktree[]> {
   )
   const cockpitRoot = realish(deps.cockpitWorktreeRoot)
   const out: JudgedWorktree[] = []
+  const listed: { root: string; entry: WorktreeEntry; path: string; isMain: boolean }[] = []
   const seen = new Set<string>()
   for (const root of deps.repoRoots()) {
     const listing = await git(root, ['worktree', 'list', '--porcelain'])
     if (listing === null) continue
-    const entries = parseWorktreeList(listing)
-    for (const [i, entry] of entries.entries()) {
+    for (const [i, entry] of parseWorktreeList(listing).entries()) {
       const path = realish(entry.path)
       if (seen.has(path)) continue
       seen.add(path)
       // the first record is the repository's own checkout; bare repos have no
       // working tree to clean at all
-      const isMain = i === 0
-      if (entry.bare) continue
-      const missing = entry.prunable || !existsSync(path)
-      const activity = sessionActivityIn(sessions, path)
-      const tip = missing ? null : await git(path, ['log', '-1', '--format=%ct', 'HEAD'])
-      const tipMs = tip === null ? 0 : Number(tip.trim()) * 1000
-      const dirty = missing
-        ? false
-        : ((await git(path, ['status', '--porcelain'])) ?? '').trim().length > 0
-      const unpushedOut = missing
-        ? null
-        : await git(path, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
-      // a registration whose directory is gone has nothing left to protect —
-      // the disk-derived facts are all false, so only `main` can still block it
-      const blocks = worktreeBlocks({
-        isMain,
-        locked: entry.locked && !missing,
-        dirty,
-        busy: !missing && [...busyCwds].some((c) => isUnder(c, path)),
-        roundtable: deps.tableForCwd(path) !== null
-      })
-      out.push({
-        path,
-        repoRoot: root,
-        repoRootForGit: root,
-        repoName: basename(root),
-        branch: entry.branch,
-        origin: worktreeOrigin(path, cockpitRoot),
-        lastActivity: lastWorktreeActivity([
-          Number.isFinite(tipMs) ? tipMs : 0,
-          activity.newest,
-          missing ? 0 : dirMtime(path)
-        ]),
-        sessionCount: activity.count,
-        missing,
-        unpushed: unpushedOut === null ? 0 : Number(unpushedOut.trim()) || 0,
-        bytes: null,
-        blocks
-      })
+      if (!entry.bare) listed.push({ root, entry, path, isMain: i === 0 })
     }
   }
+  // a process belongs to the deepest worktree around it, so one running in a
+  // `.claude/worktrees/*` checkout never counts against the repository holding it
+  const processIn = new Set<string>()
+  for (const p of procs) {
+    let best: string | null = null
+    for (const l of listed) {
+      if (isUnder(p.cwd, l.path) && (!best || l.path.length > best.length)) best = l.path
+    }
+    if (best) processIn.add(best)
+  }
+  for (const { root, entry, path, isMain } of listed) {
+    const missing = entry.prunable || !existsSync(path)
+    const activity = sessionActivityIn(sessions, path)
+    const tip = missing ? null : await git(path, ['log', '-1', '--format=%ct', 'HEAD'])
+    const tipMs = tip === null ? 0 : Number(tip.trim()) * 1000
+    const dirty = missing
+      ? false
+      : ((await git(path, ['status', '--porcelain'])) ?? '').trim().length > 0
+    const unpushedOut = missing
+      ? null
+      : await git(path, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
+    // a registration whose directory is gone has nothing left to protect —
+    // the disk-derived facts are all false, so only `main` can still block it
+    const blocks = worktreeBlocks({
+      isMain,
+      locked: entry.locked && !missing,
+      dirty,
+      busy: !missing && [...busyCwds].some((c) => isUnder(c, path)),
+      roundtable: deps.tableForCwd(path) !== null,
+      // nothing is left to protect in a directory that is already gone
+      processes: !missing && processIn.has(path)
+    })
+    out.push({
+      path,
+      repoRoot: root,
+      repoRootForGit: root,
+      repoName: basename(root),
+      branch: entry.branch,
+      origin: worktreeOrigin(path, cockpitRoot),
+      lastActivity: lastWorktreeActivity([
+        Number.isFinite(tipMs) ? tipMs : 0,
+        activity.newest,
+        missing ? 0 : dirMtime(path)
+      ]),
+      sessionCount: activity.count,
+      missing,
+      unpushed: unpushedOut === null ? 0 : Number(unpushedOut.trim()) || 0,
+      bytes: null,
+      blocks
+    })
+  }
   return out
+}
+
+/** Where worktrees get cut: Cockpit's root, each repo's `.claude/worktrees`, the extras. */
+function worktreeHomes(deps: CleanupDeps): WorktreeHome[] {
+  // Cockpit cuts `<root>/<repo>/<name>` (workspace.ts)
+  const homes: WorktreeHome[] = [
+    { path: realish(deps.cockpitWorktreeRoot), repoName: null, depth: 2 }
+  ]
+  for (const root of deps.repoRoots()) {
+    homes.push({
+      path: realish(join(root, '.claude', 'worktrees')),
+      repoName: basename(root),
+      depth: 1
+    })
+  }
+  for (const extra of deps.worktreeHomes()) homes.push({ ...extra, path: realish(extra.path) })
+  return homes
+}
+
+/** The processes left behind in old worktrees, judged against a fresh listing. */
+function orphanProcesses(
+  deps: CleanupDeps,
+  input: {
+    readonly trees: readonly JudgedWorktree[]
+    readonly procs: readonly ProcessFacts[]
+    readonly cutoff: number
+  }
+): JudgedProcess[] {
+  return judgeProcesses({
+    processes: input.procs,
+    worktrees: input.trees.map((w) => ({
+      path: w.path,
+      repoName: w.repoName,
+      branch: w.branch,
+      isMain: w.blocks.includes('main'),
+      stale: isStale(w.lastActivity, input.cutoff),
+      missing: w.missing
+    })),
+    homes: worktreeHomes(deps),
+    exists: existsSync
+  })
 }
 
 /* ---------- the scan ---------- */
@@ -268,7 +388,8 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
   const all = deps.sessions()
   const busy = deps.busyIds()
 
-  const judged = await judgeWorktrees(deps)
+  const procs = await processSnapshot(deps)
+  const judged = await judgeWorktrees(deps, procs)
   const linked = judged.filter((w) => !w.blocks.includes('main'))
   const staleTrees = linked
     .filter((w) => isStale(w.lastActivity, cutoff))
@@ -321,6 +442,10 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
     .slice(0, CLEANUP_ROW_CAP)
     .map(({ repoRootForGit: _drop, ...w }) => ({ ...w, bytes: sizes.get(w.path) ?? null }))
 
+  const processes: OrphanProcess[] = orphanProcesses(deps, { trees: judged, procs, cutoff })
+    .slice(0, CLEANUP_ROW_CAP)
+    .map(({ ppid: _ppid, ...p }) => p)
+
   return {
     staleDays: days,
     scannedAt,
@@ -329,6 +454,7 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
     staleSessionBytes: sessions.reduce((n, s) => n + s.bytes, 0),
     worktrees: orphans,
     staleWorktreeCount: staleTrees.length,
+    processes,
     totalSessions: all.length,
     totalWorktrees: linked.length
   }
@@ -409,7 +535,7 @@ export async function deleteSessions(
 
   if (deleted.size > 0) {
     const cutoff = staleCutoff(staleDays, Date.now())
-    for (const w of await judgeWorktrees(deps)) {
+    for (const w of await judgeWorktrees(deps, await processSnapshot(deps))) {
       if (w.blocks.length > 0 || w.missing) continue
       if (!isStale(w.lastActivity, cutoff)) continue
       const inside = all.filter((s) => s.cwd && isUnder(realish(s.cwd), w.path))
@@ -454,7 +580,9 @@ export async function removeWorktrees(
   deps: CleanupDeps,
   paths: readonly string[]
 ): Promise<CleanupResult> {
-  const judged = new Map((await judgeWorktrees(deps)).map((w) => [w.path, w]))
+  const judged = new Map(
+    (await judgeWorktrees(deps, await processSnapshot(deps))).map((w) => [w.path, w])
+  )
   const failed: { target: string; reason: string }[] = []
   const branchesDeleted: string[] = []
   const pruned = new Set<string>()
@@ -511,8 +639,83 @@ function blockReason(blocks: readonly CleanupBlock[]): string {
     main: 'this is the repository’s own checkout',
     roundtable: 'it is a roundtable’s shared room',
     busy: 'an agent is running in it',
+    process: 'a process is still running in it — stop it first',
     dirty: 'it has uncommitted changes',
     locked: 'the worktree is locked'
   }
   return REASONS[blocks[0]] ?? 'it cannot be removed'
+}
+
+/**
+ * SIGTERM each process, then give them a moment to exit. The targets are renderer
+ * input, so the whole judgement is re-derived first and only a pid that is still
+ * a process left in an old worktree — same cwd judgement, and not Cockpit's own
+ * tree — is signalled. A pid is only a number the OS hands out again, so the
+ * process must also still be the one that was picked: the same command line,
+ * started at the same moment. Never SIGKILL: a process that ignores the polite
+ * signal is reported, not forced.
+ */
+export async function stopProcesses(
+  deps: CleanupDeps,
+  targets: readonly ProcessTarget[],
+  staleDays: number
+): Promise<CleanupResult> {
+  // the worktree walk first — it takes seconds — so the process table is read as
+  // close to the signal as it can be. Worktree blocks play no part in which
+  // processes are left behind, so the walk needs no process list of its own.
+  const trees = await judgeWorktrees(deps, [])
+  const procs = await processSnapshot(deps)
+  const orphans = new Map(
+    orphanProcesses(deps, { trees, procs, cutoff: staleCutoff(staleDays, Date.now()) }).map((p) => [
+      p.pid,
+      p
+    ])
+  )
+  const failed: { target: string; reason: string }[] = []
+  const signalled: JudgedProcess[] = []
+  const picked = new Map(targets.map((t) => [t.pid, t]))
+  for (const t of picked.values()) {
+    const p = orphans.get(t.pid)
+    if (!p) {
+      failed.push({ target: `pid ${t.pid}`, reason: 'no longer a process left in an old worktree' })
+      continue
+    }
+    if (!sameProcess(p, t)) {
+      audit(`refused pid ${p.pid}: now "${p.command}" started ${p.startedAt}, picked ${t.startedAt}`)
+      failed.push({ target: label(p), reason: 'the pid now belongs to a different process — rescan' })
+      continue
+    }
+    try {
+      process.kill(p.pid, 'SIGTERM')
+      signalled.push(p)
+      audit(`sent SIGTERM to ${p.pid} (${p.command}) in ${p.cwd}`)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ESRCH') signalled.push(p)
+      else failed.push({ target: label(p), reason: code === 'EPERM' ? 'not permitted' : String(err) })
+    }
+  }
+  const deadline = Date.now() + STOP_GRACE_MS
+  let alive = signalled
+  while (alive.length > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100))
+    alive = alive.filter((p) => isAlive(p.pid))
+  }
+  for (const p of alive) {
+    failed.push({ target: label(p), reason: 'still running — it did not exit on SIGTERM' })
+  }
+  return { cleaned: signalled.length - alive.length, freedBytes: 0, failed }
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+function label(p: JudgedProcess): string {
+  return `${basename(p.command.split(' ')[0] ?? '') || 'process'} (pid ${p.pid})`
 }

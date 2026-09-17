@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { CleanupView } from '../../src/renderer/src/CleanupView'
 import type {
   CleanupReport,
+  OrphanProcess,
   Provider,
   SessionWorktree,
   StaleSession,
@@ -64,6 +65,20 @@ function worktree(over: Partial<StaleWorktree> = {}): StaleWorktree {
   }
 }
 
+function orphan(over: Partial<OrphanProcess> = {}): OrphanProcess {
+  return {
+    pid: 4242,
+    command: '/usr/local/bin/node node_modules/.bin/vite --port 5173',
+    startedAt: NOW - 3 * DAY,
+    cwd: '/userData/worktrees/cockpit/old-ui',
+    worktreePath: '/userData/worktrees/cockpit/old-ui',
+    repoName: 'cockpit',
+    branch: 'cockpit/old-ui',
+    worktreeGone: false,
+    ...over
+  }
+}
+
 function report(over: Partial<CleanupReport> = {}): CleanupReport {
   const sessions = over.sessions ?? [session()]
   const worktrees = over.worktrees ?? [worktree()]
@@ -75,6 +90,7 @@ function report(over: Partial<CleanupReport> = {}): CleanupReport {
     staleSessionBytes: sessions.reduce((n, s) => n + s.bytes, 0),
     worktrees,
     staleWorktreeCount: worktrees.length,
+    processes: [],
     totalSessions: 312,
     totalWorktrees: 9,
     ...over
@@ -445,5 +461,62 @@ describe('CleanupView — acting', () => {
     await user.click(screen.getByRole('button', { name: 'Remove 1…' }))
     await user.click(screen.getByRole('button', { name: 'Remove 1 worktree?' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('it has uncommitted changes')
+  })
+})
+
+describe('CleanupView — processes left in old worktrees', () => {
+  it('says so in a sentence when nothing is left running', async () => {
+    mount()
+    expect(await screen.findByText(/Nothing left running/)).toBeInTheDocument()
+  })
+
+  it('lists a left-behind process by name, with how long it has run', async () => {
+    mount(report({ processes: [orphan({ worktreeGone: true })] }))
+    expect(await screen.findByText('node')).toBeInTheDocument()
+    expect(screen.getByText('running 3d')).toBeInTheDocument()
+    expect(screen.getByText('worktree removed')).toBeInTheDocument()
+    expect(screen.getByText(/1 process left running/)).toBeInTheDocument()
+  })
+
+  it('stops the picked processes only after arming', async () => {
+    const user = userEvent.setup()
+    mount(report({ processes: [orphan(), orphan({ pid: 7, command: 'zsh' })] }))
+    await user.click(await screen.findByLabelText('Select process node (pid 4242)'))
+    await user.click(screen.getByRole('button', { name: 'Stop 1…' }))
+    expect(window.cockpit.stopProcesses).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Stop 1 process?' }))
+    // the start time and command travel with the pid, so main can tell a reused pid apart
+    await waitFor(() =>
+      expect(window.cockpit.stopProcesses).toHaveBeenCalledWith([
+        {
+          pid: 4242,
+          command: '/usr/local/bin/node node_modules/.bin/vite --port 5173',
+          startedAt: NOW - 3 * DAY
+        }
+      ])
+    )
+  })
+
+  it('groups processes under the worktree they run in, named once', async () => {
+    mount(
+      report({
+        processes: [
+          orphan(),
+          orphan({ pid: 7, command: 'node server.js' }),
+          orphan({ pid: 9, worktreePath: '/wt/site/feat-x', cwd: '/wt/site/feat-x', branch: null })
+        ]
+      })
+    )
+    expect(await screen.findAllByText('/userData/worktrees/cockpit/old-ui')).toHaveLength(1)
+    expect(screen.getAllByText('/wt/site/feat-x')).toHaveLength(1)
+    expect(screen.getByText('node server.js')).toBeInTheDocument()
+  })
+
+  it('names the block on a worktree a process still runs in', async () => {
+    mount(report({ worktrees: [worktree({ blocks: ['process'] })] }))
+    expect(await screen.findByText('a process is running')).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('Select worktree /userData/worktrees/cockpit/orphan')
+    ).toBeDisabled()
   })
 })

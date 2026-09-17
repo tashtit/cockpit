@@ -1028,6 +1028,8 @@ export type CleanupBlock =
   | 'locked'
   /** A roundtable's shared room: it belongs to the table, not to one session */
   | 'roundtable'
+  /** A process (a dev server, a watcher, a shell) still runs inside it */
+  | 'process'
 
 /**
  * The worktree a session ran in, carried on the session itself: deleting the
@@ -1097,10 +1099,38 @@ export type CleanupReport = {
    */
   readonly worktrees: StaleWorktree[]
   readonly staleWorktreeCount: number
+  /**
+   * Processes still running in a stale worktree, or in one already removed from
+   * under them — the dev server nobody stopped. Oldest first, capped.
+   */
+  readonly processes: OrphanProcess[]
   /** Denominators behind "47 of 312" — everything known, stale or not */
   readonly totalSessions: number
   readonly totalWorktrees: number
 }
+
+/** A process left running in an old worktree. */
+export type OrphanProcess = {
+  readonly pid: number
+  /** Full command line, as `ps` shows it */
+  readonly command: string
+  /** Epoch ms; 0 when unknown */
+  readonly startedAt: number
+  readonly cwd: string
+  /** The worktree it runs in — or, when that is gone, the removed directory */
+  readonly worktreePath: string
+  readonly repoName: string | null
+  readonly branch: string | null
+  /** Its worktree is gone: removed under it, leaving the process running */
+  readonly worktreeGone: boolean
+}
+
+/**
+ * A process picked for stopping, as the scan described it. A pid alone can name a
+ * different process by the time Stop is clicked, so main signals it only while the
+ * command line and start time still match.
+ */
+export type ProcessTarget = Pick<OrphanProcess, 'pid' | 'command' | 'startedAt'>
 
 /** What one clean actually did. Failures are per-target and never throw the batch. */
 export type CleanupResult = {
@@ -1284,6 +1314,11 @@ export type CockpitApi = {
   readonly deleteSessions: (ids: readonly string[]) => Promise<CleanupResult>
   /** `git worktree remove` each path, then drop any branch git says is fully merged */
   readonly removeWorktrees: (paths: readonly string[]) => Promise<CleanupResult>
+  /**
+   * SIGTERM processes the scan reported as left in old worktrees (re-derived first;
+   * a pid whose command or start time no longer matches is refused)
+   */
+  readonly stopProcesses: (targets: readonly ProcessTarget[]) => Promise<CleanupResult>
   readonly getPrs: (repoRoot: string) => Promise<PrStatus[]>
   /** The branch a PR from this repo would target; null when git can't say */
   readonly getDefaultBranch: (repoRoot: string) => Promise<string | null>

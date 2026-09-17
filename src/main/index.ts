@@ -15,6 +15,7 @@ import type {
   PanelKind,
   SourceDir,
   PanelTarget,
+  ProcessTarget,
   SessionMeta,
   SessionQuery,
   TimeFormat,
@@ -54,8 +55,14 @@ import {
   setStaleDays,
   setTimeFormat
 } from './config'
-import { deleteSessions, removeWorktrees, scanCleanup, type CleanupDeps } from './cleanup'
-import { DEFAULT_STALE_DAYS } from './cleanup-core'
+import {
+  deleteSessions,
+  removeWorktrees,
+  scanCleanup,
+  stopProcesses,
+  type CleanupDeps
+} from './cleanup'
+import { DEFAULT_STALE_DAYS, providerWorktreeHomes } from './cleanup-core'
 import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
 import { getDefaultBranch, getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
@@ -1000,7 +1007,10 @@ app.whenReady().then(() => {
     cockpitWorktreeRoot: worktreesDir(),
     busyIds: () => new Set(busySessions().map((b) => b.id)),
     tableForCwd: (cwd) => roundtables?.tableIdForCwd(cwd) ?? null,
-    sourceDirs: () => loadConfig().sources.map((s) => s.path)
+    sourceDirs: () => loadConfig().sources.map((s) => s.path),
+    // Codex and Copilot cut theirs under their config homes; Claude Code's sit inside each repo
+    worktreeHomes: () => providerWorktreeHomes(loadConfig().sources),
+    selfPid: process.pid
   })
   /** Renderer id lists are untrusted and unbounded — cap and stringify them here. */
   const asIdList = (raw: unknown): string[] =>
@@ -1039,6 +1049,25 @@ app.whenReady().then(() => {
     await indexer.rescan()
     return result
   })
+  /** Renderer process picks are untrusted too — cap them and keep only well-formed ones. */
+  const asProcessTargets = (raw: unknown): ProcessTarget[] =>
+    (Array.isArray(raw) ? raw : []).slice(0, 5000).flatMap((v: unknown) => {
+      const t = (v ?? {}) as Partial<Record<keyof ProcessTarget, unknown>>
+      const pid = Number(t.pid)
+      const startedAt = Number(t.startedAt)
+      return Number.isInteger(pid) && pid > 0 && Number.isFinite(startedAt)
+        ? [{ pid, startedAt, command: String(t.command ?? '') }]
+        : []
+    })
+  ipcMain.handle('cleanup:stop-processes', (_e, targets: unknown) =>
+    // re-judged in stopProcesses: only a process still left in an old worktree, and
+    // still the one that was picked (command + start time), is signalled
+    stopProcesses(
+      cleanupDeps(),
+      asProcessTargets(targets),
+      loadConfig().staleDays ?? DEFAULT_STALE_DAYS
+    )
+  )
 
   // Cockpit mark in the dock — dev only: a packaged build carries it as the bundle icon,
   // and resources/ is not in the asar

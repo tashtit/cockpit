@@ -15,6 +15,9 @@ every agent and every repository. Three ideas hold it together:
   are one thing: the worktree rides on its session's row (`.cl-carry` — "takes its
   worktree · 412 MB") and goes with it. The second list is only the leftovers.
   Every worktree appears exactly once across the view — never in both places.
+  Processes still running in a stale or removed worktree get their own list
+  between the two: they are why a worktree reads `a process is running`, so
+  stopping them comes before removing it.
 - **Two tiers, never blurred.** Archive is reversible Cockpit config that frees
   nothing — a plain `.btn-ghost`. Delete is not — `.btn-ghost.danger` arming into
   `.btn-danger` (the `useArmedConfirm` hook, shared with `ConfirmRemove`). Nothing
@@ -43,6 +46,8 @@ New to this page — reuse rather than re-inventing:
 | `.cl-block` | why it can't be cleaned, in words, `--warn` |
 | `.cl-tag` | neutral state word (`archived`, `directory gone`) — quieter than a block |
 | `.cl-hidden` | selected rows the current filter is hiding — disclosed, never silent |
+| `.cl-proc` | a left-behind process's executable name, mono; the full command line is its tooltip |
+| `.cl-proc-where` | the worktree a group of processes runs in, named once above them — rows then show their command line, which is what tells a dozen `node`s apart |
 
 Reused as-is: `FilterBar` (see below), `.source-list` (row stack), `.tint-{agent}` on
 session rows, `BranchChip`, `.repo-count`, `.ns-card`/`.ns-label`/`.ns-hint`.
@@ -83,6 +88,9 @@ Both lists use the shared `FilterBar`; this page is its reference implementation
 - **Session rows carry agent identity** (`.tint-{provider}` + `ProviderLogo`); worktree
   rows carry **repo** identity (`RepoIcon`) — a worktree belongs to a repository, not
   to an agent, and tinting it by agent would be a lie.
+- **Process rows carry neither agent nor repo tint** (`ProcessIcon`): a stray dev
+  server belongs to no agent. "Stop" is destructive and armed like Delete — it
+  sends SIGTERM, never a kill, and ages read `running 3d`.
 - **Sizes are tabular** (`.cl-size`), `—` when unmeasurable, never `0`. One decimal at
   most and never a bare `.0`: "400 MB", not "400.0 MB".
 - **Ages are coarse** (`idle 47d` → `idle 8mo` → `idle 1.4y`). This view is about

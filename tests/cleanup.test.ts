@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
@@ -12,8 +12,14 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { deleteSessions, removeWorktrees, scanCleanup, type CleanupDeps } from '../src/main/cleanup'
-import type { SessionMeta } from '../src/shared/types'
+import {
+  deleteSessions,
+  removeWorktrees,
+  scanCleanup,
+  stopProcesses,
+  type CleanupDeps
+} from '../src/main/cleanup'
+import type { OrphanProcess, SessionMeta } from '../src/shared/types'
 
 /**
  * Cleanup against real git repositories and real files in a tmpdir — the same
@@ -82,7 +88,11 @@ const deps: CleanupDeps = {
   cockpitWorktreeRoot: cockpitWorktrees,
   busyIds: () => busy,
   tableForCwd: (cwd) => (rooms.has(cwd) ? 'table-1' : null),
-  sourceDirs: () => [sourceDir]
+  sourceDirs: () => [sourceDir],
+  worktreeHomes: () => [],
+  // not this test process: the processes these tests spawn are its children, and
+  // Cockpit's own process tree is never offered for stopping
+  selfPid: -1
 }
 
 const cockpitTree = join(cockpitWorktrees, 'app', 'fix-login')
@@ -446,4 +456,122 @@ describe('deleteSessions — the worktree cascade', () => {
     expect(existsSync(tree)).toBe(true)
     sessions = []
   })
+})
+
+describe('processes left in old worktrees', () => {
+  // lsof is how a process's cwd is read; without it there is nothing to find
+  const hasLsof = (() => {
+    try {
+      execFileSync('lsof', ['-v'], { stdio: 'ignore' })
+      return true
+    } catch (err) {
+      return (err as { status?: number }).status !== undefined
+    }
+  })()
+  const children: ChildProcess[] = []
+  // each scan reads every process's cwd on top of the git walk — slower than the rest
+  const PROCESS_TIMEOUT_MS = 30_000
+
+  /** A long-running process with its cwd in `dir` — the dev server nobody stopped. */
+  async function runIn(dir: string): Promise<ChildProcess> {
+    const child = spawn('sleep', ['300'], { cwd: dir, stdio: 'ignore' })
+    children.push(child)
+    await new Promise<void>((r) => child.once('spawn', () => r()))
+    return child
+  }
+
+  const exited = (child: ChildProcess): Promise<void> =>
+    child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise((r) => child.once('exit', () => r()))
+
+  afterAll(() => {
+    for (const c of children) c.kill('SIGKILL')
+  }, PROCESS_TIMEOUT_MS)
+
+  it.runIf(hasLsof)('lists it and blocks removing the worktree until it is gone', async () => {
+    const tree = join(cockpitWorktrees, 'app', 'dev-server')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/dev-server', tree])
+    backdate(tree)
+    const child = await runIn(tree)
+
+    const report = await scanCleanup(deps, 30)
+    const listed = report.processes.find((p) => p.pid === child.pid)
+    expect(listed).toMatchObject({
+      worktreePath: tree,
+      branch: 'cockpit/dev-server',
+      worktreeGone: false
+    })
+    expect(report.worktrees.find((w) => w.path === tree)?.blocks).toEqual(['process'])
+    const refused = await removeWorktrees(deps, [tree])
+    expect(refused.failed[0]?.reason).toMatch(/process is still running/)
+    expect(existsSync(tree)).toBe(true)
+
+    const stopped = await stopProcesses(deps, [listed as OrphanProcess], 30)
+    expect(stopped).toMatchObject({ cleaned: 1, failed: [] })
+    await exited(child)
+    expect(child.signalCode).toBe('SIGTERM')
+
+    const after = await removeWorktrees(deps, [tree])
+    expect(after.cleaned).toBe(1)
+  }, PROCESS_TIMEOUT_MS)
+
+  it.runIf(hasLsof)('finds one whose worktree was removed from under it', async () => {
+    const gone = join(cockpitWorktrees, 'app', 'removed')
+    mkdirSync(join(gone, 'web'), { recursive: true })
+    const child = await runIn(join(gone, 'web'))
+    rmSync(gone, { recursive: true, force: true })
+
+    const report = await scanCleanup(deps, 30)
+    const listed = report.processes.find((p) => p.pid === child.pid)
+    expect(listed).toMatchObject({ worktreePath: gone, worktreeGone: true })
+    const stopped = await stopProcesses(deps, [listed as OrphanProcess], 30)
+    expect(stopped.cleaned).toBe(1)
+    await exited(child)
+  }, PROCESS_TIMEOUT_MS)
+
+  it.runIf(hasLsof)('refuses a pid whose start time no longer matches the one picked', async () => {
+    const tree = join(cockpitWorktrees, 'app', 'reused-pid')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/reused-pid', tree])
+    backdate(tree)
+    const child = await runIn(tree)
+    const listed = (await scanCleanup(deps, 30)).processes.find((p) => p.pid === child.pid)
+    expect(listed).toBeDefined()
+    // the same pid, but as if another process had been handed it since the scan
+    const reused = { ...(listed as OrphanProcess), startedAt: (listed?.startedAt ?? 0) - 60_000 }
+    const refused = await stopProcesses(deps, [reused], 30)
+    expect(refused.cleaned).toBe(0)
+    expect(refused.failed[0]?.reason).toMatch(/different process/)
+    expect(child.exitCode === null && child.signalCode === null).toBe(true)
+    child.kill('SIGKILL')
+    await exited(child)
+  }, PROCESS_TIMEOUT_MS)
+
+  it.runIf(hasLsof)('never offers Cockpit’s own process tree', async () => {
+    const tree = join(cockpitWorktrees, 'app', 'own')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/own', tree])
+    backdate(tree)
+    const child = await runIn(tree)
+    // this test process spawned it, exactly as Cockpit spawns its agent turns
+    const own: CleanupDeps = { ...deps, selfPid: process.pid }
+    const report = await scanCleanup(own, 30)
+    expect(report.processes.some((p) => p.pid === child.pid)).toBe(false)
+    // the very row a scan outside that tree would show, so only the tree refuses it
+    const seen = (await scanCleanup(deps, 30)).processes.find((p) => p.pid === child.pid)
+    const refused = await stopProcesses(own, [seen as OrphanProcess], 30)
+    expect(refused.cleaned).toBe(0)
+    expect(refused.failed).toHaveLength(1)
+    child.kill('SIGKILL')
+    await exited(child)
+  }, PROCESS_TIMEOUT_MS)
+
+  it.runIf(hasLsof)('refuses a pid that is not left in an old worktree', async () => {
+    const res = await stopProcesses(
+      deps,
+      [{ pid: process.pid, command: 'node', startedAt: Date.now() }],
+      30
+    )
+    expect(res.cleaned).toBe(0)
+    expect(res.failed[0]?.reason).toMatch(/no longer a process left/)
+  }, PROCESS_TIMEOUT_MS)
 })
