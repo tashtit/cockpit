@@ -498,6 +498,8 @@ summary::-webkit-details-marker { display: none; }
 .lineage-chip.acct-codex:hover { background: rgba(var(--codex-rgb), 0.12); }
 .lineage-chip.acct-copilot:hover { background: rgba(var(--copilot-rgb), 0.12); }
 .link-btn { color: var(--accent); font-size: inherit; padding: 0; }
+/* a quiet dot between inline links in running prose */
+.link-sep { color: var(--fg-dim); margin: 0 var(--s2); }
 .link-btn:hover { text-decoration: underline; }
 /* first run: the composer's shell holding what Cockpit still needs, one step per
    line. Satisfied steps stay on screen, ticked — the card is a progress readout,

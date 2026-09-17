@@ -162,6 +162,7 @@ const api: CockpitApi = {
     return () => ipcRenderer.removeListener('index-updated', handler)
   },
   getAppInfo: () => ipcRenderer.invoke('app:info'),
+  openLicenseNotices: () => ipcRenderer.invoke('app:open-licenses'),
   getUpdateState: () => ipcRenderer.invoke('updates:get'),
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
   downloadUpdate: () => ipcRenderer.invoke('updates:download'),

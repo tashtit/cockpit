@@ -197,6 +197,7 @@ export function Settings({
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [usage, setUsage] = useState<UsageSnapshot | null>(null)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [licensesError, setLicensesError] = useState<string | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [path, setPath] = useState('')
   /** The add form is a task, not a permanent fixture: Settings opens as a readout */
@@ -713,19 +714,33 @@ export function Settings({
         </ul>
         <p className="ns-hint ns-prose">
           Installed builds check GitHub Releases on launch and every few hours. Nothing downloads
-          until you choose to; a downloaded update installs on the next quit.
+          until you choose to; a downloaded update installs on the next quit.{' '}
           {appInfo && (
             <>
-              {' '}
               <button
                 className="link-btn"
                 onClick={() => void api.openExternal(appInfo.releasesUrl)}
               >
                 Release notes
               </button>
+              <span className="link-sep" aria-hidden="true">·</span>
             </>
           )}
+          <button
+            className="link-btn"
+            onClick={() => {
+              setLicensesError(null)
+              void api.openLicenseNotices().then(setLicensesError)
+            }}
+          >
+            Open source licenses
+          </button>
         </p>
+        {licensesError && (
+          <div role="alert" className="new-error">
+            {licensesError}
+          </div>
+        )}
         <div className="sr-only" role="status" aria-live="polite">{status}</div>
       </div>
     </main>
