@@ -11,7 +11,7 @@ import type {
   WorkspaceDiff
 } from '../../shared/types'
 import { api } from './api'
-import { ipcErrorText } from './attachments'
+import { ipcErrorText } from './ipc-error'
 import { useDiffLayout, type DiffLayout } from './diff-layout'
 import { DiffLayoutToggle, DiffStat } from './InstructionDiff'
 import { LinkExternalIcon, PROVIDER_LABEL } from './logos'

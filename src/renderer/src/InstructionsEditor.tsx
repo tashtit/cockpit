@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { fileChange, type FileChange } from '../../shared/instruction-changes'
 import type { InstructionFile, InstructionsState } from '../../shared/types'
 import { api } from './api'
+import { ipcErrorText } from './ipc-error'
 import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, DiffStat, InstructionDiff, ReadByNote } from './InstructionDiff'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -98,7 +99,7 @@ export function InstructionsEditor({
       onSaved()
     } catch (err) {
       if (startedOn !== repoRootRef.current) return
-      setNotice({ text: err instanceof Error ? err.message : String(err), kind: 'error' })
+      setNotice({ text: ipcErrorText(err), kind: 'error' })
     } finally {
       setBusy(false)
     }
@@ -154,7 +155,7 @@ export function InstructionsEditor({
       )
     } catch (err) {
       if (startedOn !== repoRootRef.current) return
-      setNotice({ text: err instanceof Error ? err.message : String(err), kind: 'error' })
+      setNotice({ text: ipcErrorText(err), kind: 'error' })
     } finally {
       setBusy(false)
     }
@@ -167,12 +168,11 @@ export function InstructionsEditor({
 
   return (
     <>
-      <p className="ns-hint">
-        One shared baseline, written into each agent&apos;s own instructions file inside{' '}
-        <code>&lt;!-- agent-parity:shared --&gt;</code> markers — the same block the agent-parity
-        plugin manages. Anything outside the markers belongs to that agent alone and is never
-        touched. Older <code>&lt;!-- cockpit:shared --&gt;</code> markers are read as the same
-        block and renamed on the next apply.
+      <p className="ns-hint ns-prose">
+        One shared baseline, written into each agent&apos;s own instructions file between{' '}
+        <code>&lt;!-- agent-parity:shared --&gt;</code> markers (the block the agent-parity plugin
+        manages; older <code>cockpit:shared</code> markers are read as the same block and renamed
+        on the next apply). Anything outside the markers belongs to that agent and is never touched.
       </p>
 
       {!inst && <div className="tree-empty">loading…</div>}
@@ -242,7 +242,12 @@ export function InstructionsEditor({
           )}
           <div className="inst-actions">
             {dirty && <span className="inst-dirty">unsaved changes</span>}
-            <button className="btn-ghost" disabled={busy || !dirty} onClick={() => void saveBaseline()}>
+            <button
+              className="btn-ghost"
+              disabled={busy || !dirty}
+              title="Keeps the baseline in Cockpit. Agent files change only when you apply."
+              onClick={() => void saveBaseline()}
+            >
               Save
             </button>
             {/* a repo's instructions belong in the repo, so sharing them is a PR to
@@ -413,6 +418,7 @@ function InstructionFileRow({
             <button
               className="link-btn inst-see"
               aria-label={`Take the shared block in ${file.path} as the baseline`}
+              title="Makes this file's block the baseline that every agent gets"
               disabled={busy}
               onClick={onTakeFile}
             >

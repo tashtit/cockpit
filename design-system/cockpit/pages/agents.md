@@ -39,10 +39,20 @@ that section holds a disagreement.
   an invitation rather than an absence.
 - **Search looks everywhere**, not just the section showing. Results carry a `.pnl-kind`
   tag; single-section views never do, because the pill above already said it.
+- **The section blurb says what the chips do.** Every switchable section's `.pnl-blurb`
+  ends "Click an agent to switch it on or off there." — the chips are self-labelling but
+  not self-explaining, and a first visit has no other legend. Needs you says what it
+  holds and what to do ("Open a row to settle it"). A pill's count is left off at zero:
+  "Instructions 0" as the only pill on a first run reads like a fault. Arrow keys walk
+  the pills.
 - **The agent chip (`.ag-chip`) is the signature**: the app's own identity colours doing
   the labelling. Each control says its own agent's name, so the list needs no column
   header, no lane, and no legend — "who runs this" reads as three brand-coloured tokens.
-  On = agent tint + solid agent border + full-opacity mark; off = deep paper, dim mark.
+  On = agent tint + solid agent border + full-opacity mark; off = deep paper, dim mark;
+  not applicable (`.na`, a kind the agent has no switch for) = dashed border, legible
+  `--fg-dim` name, an `sr-only` "not available — <reason>" and the reason as `title` —
+  never opacity on the text, which is how it once sat at 1.6:1 with a hover-only
+  explanation.
   - Drift adds an amber border **and must out-specify the agent colours**
     (`.ag-chip.on.drift`, not `.ag-chip.drift`) — `.ag-chip.on.ag-*` is 0,3,0 and silently
     wins otherwise, which is exactly how the warning went missing once already.

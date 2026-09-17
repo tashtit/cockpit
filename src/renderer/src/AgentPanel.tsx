@@ -13,6 +13,7 @@ import {
 import { fileChange } from '../../shared/instruction-changes'
 import type { InstructionsState, McpProbeResult, PanelKind, Provider } from '../../shared/types'
 import { api } from './api'
+import { ipcErrorText } from './ipc-error'
 import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, InstructionDiff } from './InstructionDiff'
 import { InstructionsEditor } from './InstructionsEditor'
@@ -99,7 +100,7 @@ export function AgentPanel({
     void api
       .getPanel(repoRoot)
       .then(setReport)
-      .catch((err) => setNotice({ text: String(err?.message ?? err), kind: 'error' }))
+      .catch((err) => setNotice({ text: ipcErrorText(err), kind: 'error' }))
   }, [repoRoot, setNotice])
 
   useEffect(() => {
@@ -129,7 +130,7 @@ export function AgentPanel({
       setReport(await op())
       setNotice({ text: ok, kind: 'ok' })
     } catch (err) {
-      setNotice({ text: err instanceof Error ? err.message : String(err), kind: 'error' })
+      setNotice({ text: ipcErrorText(err), kind: 'error' })
       load()
     } finally {
       setBusy(null)
@@ -198,7 +199,21 @@ export function AgentPanel({
 
   return (
     <>
-      <div className="pnl-tabs" role="tablist" aria-label="Sections">
+      <div
+        className="pnl-tabs"
+        role="tablist"
+        aria-label="Sections"
+        onKeyDown={(e) => {
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+          const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'))
+          const at = tabs.indexOf(document.activeElement as HTMLButtonElement)
+          if (at < 0) return
+          e.preventDefault()
+          const next = tabs[(at + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
+          next?.focus()
+          next?.click()
+        }}
+      >
         {driftRows.length > 0 && (
           <Pill
             label="Needs you"
@@ -237,9 +252,9 @@ export function AgentPanel({
           : current === 'removed'
             ? 'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
             : current === 'attention'
-              ? 'Something here disagrees — with where it’s switched on, or with the other agents.'
+              ? 'These don’t match what’s switched on, or the agents don’t match each other. Open a row to settle it.'
               : current
-                ? KIND_BLURB[current]
+                ? `${KIND_BLURB[current]} Click an agent to switch it on or off there.`
                 : ''}
       </p>
       )}
@@ -349,8 +364,8 @@ function Pill({
       onClick={onClick}
     >
       {label}
-      <span className="pnl-pill-n">{count}</span>
-      {marks.dot && <i className="pnl-pill-dot" aria-label="needs attention" />}
+      {count > 0 && <span className="pnl-pill-n">{count}</span>}
+      {marks.dot && <i className="pnl-pill-dot" role="img" aria-label="needs attention" />}
     </button>
   )
 }
@@ -383,6 +398,7 @@ function AgentSwitches({
             <span key={p} className="ag-chip na" title={cell.reason}>
               <ProviderLogo p={p} size={11} />
               {PROVIDER_LABEL[p]}
+              <span className="sr-only">: not available — {cell.reason}</span>
             </span>
           )
         }
@@ -642,7 +658,7 @@ function Detail({
             }}
             onClick={() => (removeArmed ? onRemove(row) : onArm(row.id))}
           >
-            {removeArmed ? 'remove everywhere?' : 'Remove everywhere'}
+            {removeArmed ? 'Remove everywhere?' : 'Remove everywhere'}
           </button>
         </div>
       )}
@@ -692,7 +708,7 @@ function InstructionsCompare({
       setNotice({ text: ok, kind: 'ok' })
       onChanged()
     } catch (err) {
-      setNotice({ text: err instanceof Error ? err.message : String(err), kind: 'error' })
+      setNotice({ text: ipcErrorText(err), kind: 'error' })
     } finally {
       setBusy(null)
     }
@@ -782,7 +798,7 @@ function McpHealth({
     try {
       setStatus(await api.checkMcp(row.name))
     } catch (err) {
-      setStatus({ status: 'error', detail: err instanceof Error ? err.message : String(err) })
+      setStatus({ status: 'error', detail: ipcErrorText(err) })
     }
   }
 
@@ -796,7 +812,7 @@ function McpHealth({
       setNotice({ text: await api.loginMcp(row.name, agent, repoRoot ?? undefined), kind: 'ok' })
       void check()
     } catch (err) {
-      setNotice({ text: `Login failed: ${err instanceof Error ? err.message : err}`, kind: 'error' })
+      setNotice({ text: `Login failed: ${ipcErrorText(err)}`, kind: 'error' })
     } finally {
       setLoginBusy(null)
     }

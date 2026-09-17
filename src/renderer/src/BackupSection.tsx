@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react'
 import type { BackupPreview, RestoreSummary } from '../../shared/types'
 import { api } from './api'
+import { ipcErrorText } from './ipc-error'
 
 /**
  * Backup: export everything of Cockpit's own to a file, and put one back.
@@ -45,7 +46,7 @@ export function BackupSection({
       setExported(said)
       onStatus(said)
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : String(err))
+      setExportError(ipcErrorText(err))
     } finally {
       setBusy(null)
     }
@@ -62,7 +63,7 @@ export function BackupSection({
       setRestorePass('')
       onStatus(`Backup from ${new Date(res.createdAt).toLocaleString()} opened`)
     } catch (err) {
-      setRestoreError(err instanceof Error ? err.message : String(err))
+      setRestoreError(ipcErrorText(err))
     } finally {
       setBusy(null)
     }
@@ -81,7 +82,7 @@ export function BackupSection({
       onRestored()
     } catch (err) {
       // the file stays open on a wrong passphrase, so the user can just type it again
-      setRestoreError(err instanceof Error ? err.message : String(err))
+      setRestoreError(ipcErrorText(err))
     } finally {
       setBusy(null)
     }
@@ -97,7 +98,7 @@ export function BackupSection({
       onStatus('Restore undone — settings are back as they were')
       onRestored()
     } catch (err) {
-      setRestoreError(err instanceof Error ? err.message : String(err))
+      setRestoreError(ipcErrorText(err))
     } finally {
       setBusy(null)
     }
@@ -105,12 +106,10 @@ export function BackupSection({
 
   return (
     <>
-      <p className="ns-hint">
-        A backup holds your config homes, shared instructions, library and its skills, model providers
-        and view settings — never session transcripts, which stay where each agent keeps them.
-        Without a passphrase, API keys and MCP credentials are left out and what is missing is
-        listed after a restore; MCP commands, arguments and URLs are written as they are. With one,
-        they are encrypted into the file, and nothing can recover it if you lose it.
+      <p className="ns-hint ns-prose">
+        One file with everything of Cockpit&apos;s own: config homes, shared instructions, the
+        library and its skills, model providers and view settings. Never session transcripts — those
+        stay where each agent keeps them.
       </p>
       <form
         className="source-add"
@@ -150,6 +149,11 @@ export function BackupSection({
             />
           </div>
         </div>
+        <p className="ns-hint">
+          Without a passphrase, API keys and MCP credentials are left out and listed as missing
+          after a restore; MCP commands, arguments and URLs are written as they are. With one they
+          are encrypted into the file — and a lost passphrase cannot be recovered.
+        </p>
         {mismatch && <div className="ns-hint">The two passphrases don&apos;t match yet.</div>}
         {tooShort && <div className="ns-hint">A passphrase needs at least 8 characters.</div>}
         {exportError && (
@@ -159,7 +163,7 @@ export function BackupSection({
         <div className="ns-actions">
           <button
             type="submit"
-            className="btn-primary"
+            className="btn-ghost"
             disabled={busy !== null || mismatch || tooShort}
           >
             {busy === 'export' ? 'Exporting…' : 'Export backup…'}

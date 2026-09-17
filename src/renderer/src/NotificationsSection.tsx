@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { AttentionPrefs, NotificationDelivery } from '../../shared/types'
 import { api } from './api'
+import { ipcErrorText } from './ipc-error'
 
 const SWITCHES: ReadonlyArray<{
   readonly key: keyof AttentionPrefs
@@ -75,7 +76,7 @@ export function NotificationsSection({
       onStatus(`${name} ${on ? 'on' : 'off'}`)
     } catch (err) {
       setPrefs(prefs)
-      onStatus(`Could not change ${name}: ${err instanceof Error ? err.message : String(err)}`)
+      onStatus(`Could not change ${name}: ${ipcErrorText(err)}`)
     }
   }
 
@@ -85,7 +86,7 @@ export function NotificationsSection({
     try {
       result = await api.testNotification()
     } catch (err) {
-      result = { status: 'refused', message: err instanceof Error ? err.message : String(err) }
+      result = { status: 'refused', message: ipcErrorText(err) }
     }
     setTest(result)
     onStatus(testLine(result, packaged))

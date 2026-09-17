@@ -128,10 +128,10 @@ test('settings lists seeded providers with agent applicability, and adds/removes
   // seeded rows: type chip, per-type agent applicability, cached model count
   const anthropicRow = win.locator('.source-row', { hasText: 'anthropic-gw' })
   await expect(anthropicRow).toContainText(`${gatewayUrl}/anthropic`)
-  await expect(anthropicRow.getByRole('img', { name: 'works with Claude and Copilot' })).toBeVisible()
+  await expect(anthropicRow).toContainText('works with Claude and Copilot')
   await expect(anthropicRow).toContainText('no key · 2 models')
   const ollamaRow = win.locator('.source-row', { hasText: 'ollama-local' })
-  await expect(ollamaRow.getByRole('img', { name: 'works with Copilot' })).toBeVisible()
+  await expect(ollamaRow).toContainText('works with Copilot')
 
   // the add form is folded until asked for — Settings opens as a readout
   await expect(win.getByLabel('Display name')).toHaveCount(0)

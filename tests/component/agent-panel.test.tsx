@@ -270,6 +270,52 @@ describe('Agents › finding things', () => {
     expect(screen.getByText(/1 match for/)).toBeInTheDocument()
   })
 
+  it('says what the chips do, once per section — a first visit has no legend otherwise', async () => {
+    await openPanel()
+    await section('MCP servers')
+    expect(screen.getByText(/Click an agent to switch it on or off there\./)).toBeInTheDocument()
+  })
+
+  it('walks the section pills with the arrow keys', async () => {
+    await openPanel()
+    screen.getByRole('tab', { name: /^Needs you/ }).focus()
+    await userEvent.keyboard('{ArrowRight}')
+    expect(screen.getByRole('tab', { name: /^Instructions/ })).toHaveAttribute('aria-selected', 'true')
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(screen.getByRole('tab', { name: /^Needs you/ })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('leaves a zero count off a pill — "Instructions 0" reads like a fault', async () => {
+    await openPanel()
+    expect(screen.getByRole('tab', { name: /^Instructions/ })).toHaveTextContent(/^Instructions$/)
+    expect(screen.getByRole('tab', { name: /^MCP servers/ })).toHaveTextContent(/^MCP servers2$/)
+  })
+
+  it('tells a screen reader why a chip has no switch, not only a hover', async () => {
+    // a kind an agent has no switch for arrives with a reason instead of a config
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(
+      buildReport(null, [
+        buildRow(
+          { kind: 'plugin', name: 'evalkit@tashtit', enabled: { claude: true }, source: 'tashtit' },
+          { detail: 'from tashtit', fields: { marketplace: 'tashtit' } },
+          {
+            claude: { present: true, detail: 'v0.1.0', fields: { marketplace: 'tashtit' } },
+            copilot: { present: false, detail: '', fields: {}, reason: 'Copilot has no plugin system' }
+          }
+        )
+      ])
+    )
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    // nothing drifts, so the panel lands on Instructions — the plugin is one click away
+    await screen.findByRole('tab', { name: /^Plugins/ })
+    await section('Plugins')
+    await screen.findByText('evalkit@tashtit')
+    const na = document.querySelector('.ag-chip.na')
+    expect(na).not.toBeNull()
+    expect(na?.textContent).toMatch(/Copilot: not available — Copilot has no plugin system/)
+    expect(na).toHaveAttribute('title', 'Copilot has no plugin system')
+  })
+
   it('labels which section a search result came from', async () => {
     await openPanel()
     await search('evalkit')

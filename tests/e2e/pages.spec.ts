@@ -254,8 +254,11 @@ test('settings lists the seeded source with its session count', async () => {
   await expect(source.locator('.repo-count')).toHaveText('3')
   await expect(source.getByRole('button', { name: /^Remove config home e2e-claude/ })).toBeVisible()
   // display preferences are present with live controls
-  await expect(win.getByRole('button', { name: 'Show sessions from' })).toBeVisible()
+  await expect(win.getByRole('button', { name: 'Sessions to show' })).toBeVisible()
   await expect(win.getByRole('button', { name: 'Time format' })).toBeVisible()
+  // the jump row under the title lands focus on the section picked
+  await win.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'About' }).click()
+  await expect(win.getByRole('heading', { name: 'About' })).toBeFocused()
   await gear.click()
   await expect(homeHeading()).toBeVisible()
   await expect(gear).not.toHaveAttribute('aria-current', 'page')

@@ -6,7 +6,7 @@ import { usageFixture } from './stub-api'
 describe('Settings opened at the usage section', () => {
   it('lands focus on the usage heading instead of the title', async () => {
     vi.mocked(window.cockpit.getUsage).mockResolvedValue(usageFixture())
-    render(<Settings onClose={vi.fn()} section="usage" />)
+    render(<Settings onClose={vi.fn()} section="accounts" />)
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Agent accounts & usage' })).toHaveFocus()
     )
