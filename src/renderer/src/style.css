@@ -1315,6 +1315,9 @@ summary::-webkit-details-marker { display: none; }
 /* the reason a row can't be cleaned — warn-toned, and always the words themselves */
 .cl-block { color: var(--warn); font-style: italic; white-space: nowrap; }
 .cl-unpushed { color: var(--branch); white-space: nowrap; }
+/* a left-behind process's executable name */
+.cl-proc { font-family: var(--mono); }
+.cl-proc-repo { color: var(--fg-dim); font-weight: 400; }
 /* the rescan button sits level with the threshold Select, not under a label */
 .cl-rescan { flex: 0 0 auto; justify-content: flex-end; }
 

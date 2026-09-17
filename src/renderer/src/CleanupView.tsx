@@ -3,6 +3,7 @@ import type {
   CleanupBlock,
   CleanupReport,
   CleanupResult,
+  OrphanProcess,
   Provider,
   StaleSession,
   StaleWorktree
@@ -15,7 +16,14 @@ import {
   type FilterGroup,
   type FilterOption
 } from './FilterBar'
-import { BranchChip, BranchIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import {
+  BranchChip,
+  BranchIcon,
+  ProcessIcon,
+  ProviderLogo,
+  PROVIDER_LABEL,
+  RepoIcon
+} from './logos'
 import { Select } from './Select'
 
 /**
@@ -78,8 +86,24 @@ const BLOCK_LABEL: Record<CleanupBlock, string> = {
   main: 'the repo’s own checkout',
   roundtable: 'a roundtable’s room',
   busy: 'an agent is running',
+  process: 'a process is running',
   dirty: 'uncommitted changes',
   locked: 'locked'
+}
+
+/** "running 3d" — how long a left-behind process has outlived its work. */
+function fmtRunning(since: number, now: number): string {
+  if (since <= 0) return 'running'
+  const mins = Math.max(0, Math.floor((now - since) / 60_000))
+  if (mins < 60) return `running ${mins}m`
+  if (mins < 60 * 24) return `running ${Math.floor(mins / 60)}h`
+  return `running ${Math.floor(mins / (60 * 24))}d`
+}
+
+/** The executable's own name, without its path — `node`, not `/usr/local/bin/node`. */
+function processName(command: string): string {
+  const first = command.trim().split(/\s+/)[0] ?? ''
+  return first.slice(first.lastIndexOf('/') + 1) || 'process'
 }
 
 /* ---------- selection ---------- */
@@ -403,6 +427,43 @@ function WorktreeRow({
   )
 }
 
+function ProcessRow({
+  p,
+  now,
+  picked,
+  onPick
+}: {
+  p: OrphanProcess
+  now: number
+  picked: boolean
+  onPick: (on: boolean, range: boolean) => void
+}): JSX.Element {
+  const name = processName(p.command)
+  return (
+    <li className={`cl-row ${picked ? 'picked' : ''}`}>
+      <Pick checked={picked} label={`Select process ${name} (pid ${p.pid})`} onPick={onPick} />
+      <span className="repo-icon" aria-hidden="true">
+        <ProcessIcon size={13} />
+      </span>
+      <div className="cl-body">
+        <div className="cl-title" title={p.command}>
+          <span className="cl-proc">{name}</span>
+          {p.repoName && <span className="cl-proc-repo">{p.repoName}</span>}
+          {p.branch && <BranchChip branch={p.branch} />}
+          {p.directoryGone && <span className="cl-tag">worktree removed</span>}
+        </div>
+        <div className="cl-sub cl-path" title={`${p.command}\n${p.cwd}`}>
+          {p.cwd}
+        </div>
+      </div>
+      <div className="cl-meta">
+        <span className="cl-size">pid {p.pid}</span>
+        <span>{fmtRunning(p.startedAt, now)}</span>
+      </div>
+    </li>
+  )
+}
+
 /* ---------- what a selection actually frees ---------- */
 
 /**
@@ -567,6 +628,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
 
   const sessions = useMemo(() => report?.sessions ?? [], [report])
   const worktrees = useMemo(() => report?.worktrees ?? [], [report])
+  const processes = useMemo(() => report?.processes ?? [], [report])
 
   const sessionGroups = useMemo(
     () => sessionFilters(sessions, sSel, setSSel),
@@ -598,6 +660,9 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   const treeBlocked = useCallback((w: StaleWorktree) => w.blocks.length > 0, [])
   const sPicks = usePicks(shownSessions, sessionKey, sessionBlocked)
   const wPicks = usePicks(shownWorktrees, treeKey, treeBlocked)
+  const processKey = useCallback((p: OrphanProcess) => String(p.pid), [])
+  const neverBlocked = useCallback(() => false, [])
+  const pPicks = usePicks(processes, processKey, neverBlocked)
 
   const scan = useCallback(async (): Promise<void> => {
     setScanning(true)
@@ -623,6 +688,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
     await api.setStaleDays(Number(days))
     sPicks.clear()
     wPicks.clear()
+    pPicks.clear()
     await scan()
   }
 
@@ -637,6 +703,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       // before it would be wiped off the screen the moment the truth came back
       sPicks.clear()
       wPicks.clear()
+      pPicks.clear()
       await scan()
       const failed = res.failed.length
       const freed = res.freedBytes > 0 ? ` · ${fmtBytes(res.freedBytes)} freed` : ''
@@ -662,6 +729,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
     .filter((w) => wPicked.has(w.path))
     .reduce((n, w) => n + (w.bytes ?? 0), 0)
   const hiddenTrees = wPicked.size - wPicks.shown
+  const pPicked = pPicks.picked
   const truncated = (report?.staleSessionCount ?? 0) > sessions.length
   const now = report?.scannedAt ?? Date.now()
 
@@ -711,7 +779,12 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             <>
               {report.staleSessionCount} of {report.totalSessions} sessions ·{' '}
               {fmtBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
-              {report.totalWorktrees} worktrees{status && ` — ${status}`}
+              {report.totalWorktrees} worktrees
+              {report.processes.length > 0 &&
+                ` · ${report.processes.length} process${
+                  report.processes.length === 1 ? '' : 'es'
+                } left running`}
+              {status && ` — ${status}`}
             </>
           ) : (
             status
@@ -800,6 +873,62 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
                 then rescan for the rest.
               </p>
             )}
+          </>
+        )}
+
+        <h3 className="ns-label">Processes left in old worktrees</h3>
+        {processes.length === 0 && !scanning ? (
+          <p className="ns-hint">
+            Nothing left running — no process is still working in a stale or removed worktree.
+          </p>
+        ) : (
+          <>
+            <p className="ns-hint">
+              Dev servers, watchers and shells still running in a worktree that has gone stale, or
+              in one already removed from under them. A worktree stays unremovable while one runs
+              inside it.
+            </p>
+            <GroupHead
+              picks={pPicks}
+              label="processes"
+              summary={
+                pPicked.size > 0 ? (
+                  <>
+                    <strong>{pPicked.size}</strong> selected
+                  </>
+                ) : (
+                  <>{processes.length} shown</>
+                )
+              }
+            >
+              <ArmedAction
+                id="processes"
+                armed={armed.armed}
+                disabled={working || pPicked.size === 0}
+                labels={[
+                  pPicked.size > 0 ? `Stop ${pPicked.size}…` : 'Stop…',
+                  `Stop ${pPicked.size} process${pPicked.size === 1 ? '' : 'es'}?`,
+                  'Sends SIGTERM to each, asking it to exit. Anything unsaved inside those processes is lost; one that ignores the signal is reported, never killed.'
+                ]}
+                confirm={{
+                  arm: armed.arm,
+                  disarm: armed.disarm,
+                  commit: () =>
+                    void run('Stopped', () => api.stopProcesses([...pPicked].map(Number)))
+                }}
+              />
+            </GroupHead>
+            <ul className="source-list cl-list">
+              {processes.map((p, i) => (
+                <ProcessRow
+                  key={p.pid}
+                  p={p}
+                  now={now}
+                  picked={pPicked.has(String(p.pid))}
+                  onPick={(on, range) => pPicks.toggle(i, on, range)}
+                />
+              ))}
+            </ul>
           </>
         )}
 

@@ -53,7 +53,13 @@ import {
   setStaleDays,
   setTimeFormat
 } from './config'
-import { deleteSessions, removeWorktrees, scanCleanup, type CleanupDeps } from './cleanup'
+import {
+  deleteSessions,
+  removeWorktrees,
+  scanCleanup,
+  stopProcesses,
+  type CleanupDeps
+} from './cleanup'
 import { DEFAULT_STALE_DAYS } from './cleanup-core'
 import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
 import { getDefaultBranch, getPrs } from './github'
@@ -963,7 +969,10 @@ app.whenReady().then(() => {
     cockpitWorktreeRoot: worktreesDir(),
     busyIds: () => new Set(busySessions().map((b) => b.id)),
     tableForCwd: (cwd) => roundtables?.tableIdForCwd(cwd) ?? null,
-    sourceDirs: () => loadConfig().sources.map((s) => s.path)
+    sourceDirs: () => loadConfig().sources.map((s) => s.path),
+    // Codex cuts its own worktrees here; Claude Code's sit inside each repo
+    worktreeHomes: () => [join(homedir(), '.codex', 'worktrees')],
+    selfPid: process.pid
   })
   /** Renderer id lists are untrusted and unbounded — cap and stringify them here. */
   const asIdList = (raw: unknown): string[] =>
@@ -1002,6 +1011,14 @@ app.whenReady().then(() => {
     await indexer.rescan()
     return result
   })
+  ipcMain.handle('cleanup:stop-processes', (_e, pids: number[]) =>
+    // pids are re-judged in stopProcesses: only one still left in an old worktree is signalled
+    stopProcesses(
+      cleanupDeps(),
+      asIdList(pids).map(Number),
+      loadConfig().staleDays ?? DEFAULT_STALE_DAYS
+    )
+  )
 
   // Cockpit mark in the dock — dev only: a packaged build carries it as the bundle icon,
   // and resources/ is not in the asar

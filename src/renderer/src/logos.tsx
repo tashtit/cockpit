@@ -204,6 +204,23 @@ export const DiffIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
 export const BranchIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_BRANCH} size={size} />
 )
+/** A prompt glyph — a process left running (cleanup's orphan-process rows). */
+export const ProcessIcon = ({ size = 13 }: { size?: number }): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="1" y="2" width="14" height="12" rx="1.75" />
+    <path d="M4.5 6.5 6.75 8.5 4.5 10.5M8.5 10.75h3" />
+  </svg>
+)
 /** octicon arrow-switch-16 — handing a session over to another agent */
 const OCTICON_ARROW_SWITCH =
   'M5.22 14.78a.75.75 0 0 0 1.06-1.06L4.56 12h8.69a.75.75 0 0 0 0-1.5H4.56l1.72-1.72a.75.75 0 0 0-1.06-1.06l-3 3a.75.75 0 0 0 0 1.06l3 3Zm5.56-6.5a.75.75 0 1 1-1.06-1.06l1.72-1.72H2.75a.75.75 0 0 1 0-1.5h8.69L9.72 2.28a.75.75 0 0 1 1.06-1.06l3 3a.75.75 0 0 1 0 1.06l-3 3Z'

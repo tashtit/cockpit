@@ -91,6 +91,7 @@ const api: CockpitApi = {
   deleteSessions: (ids: readonly string[]) => ipcRenderer.invoke('cleanup:delete-sessions', ids),
   removeWorktrees: (paths: readonly string[]) =>
     ipcRenderer.invoke('cleanup:remove-worktrees', paths),
+  stopProcesses: (pids: readonly number[]) => ipcRenderer.invoke('cleanup:stop-processes', pids),
   getPrs: (repoRoot: string) => ipcRenderer.invoke('github:prs', repoRoot),
   getDefaultBranch: (repoRoot: string) => ipcRenderer.invoke('github:default-branch', repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>
