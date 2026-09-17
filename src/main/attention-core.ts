@@ -288,10 +288,6 @@ function claudeBlocks(r: any): any[] {
   return Array.isArray(c) ? c : []
 }
 
-function isClaudeToolResult(r: any): boolean {
-  return r?.toolUseResult !== undefined || claudeBlocks(r).some((b) => b?.type === 'tool_result')
-}
-
 /**
  * The tools that stop and ask. A plain permission prompt leaves no record of its own
  * — a tool_use waiting on approval reads exactly like one that is running — so only
