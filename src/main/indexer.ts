@@ -916,6 +916,21 @@ export class SessionIndexer {
    * Roundtable seats stay out: they belong to their table, not to the user's own
    * work, and removing one would strand the table's transcript.
    */
+  /**
+   * Seat sessions — the ones cleanupSessions leaves out — stamped with their table.
+   * Deleting a roundtable takes these with it; nothing else may.
+   */
+  roundtableSessions(): SessionMeta[] {
+    const out: SessionMeta[] = []
+    for (const s of this.sessions.values()) {
+      if (this.providerArchived.has(s.id)) continue
+      const roundtableId = s.cwd === null ? null : this.roundtableForCwd(s.cwd)
+      if (roundtableId === null) continue
+      out.push({ ...s, roundtableId })
+    }
+    return out
+  }
+
   cleanupSessions(): SessionMeta[] {
     const out: SessionMeta[] = []
     for (const s of this.sessions.values()) {

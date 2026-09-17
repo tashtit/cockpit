@@ -1,5 +1,5 @@
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
   ChatEvent,
@@ -23,6 +23,7 @@ import {
   sanitizeRoundtable
 } from './roundtable-core'
 import { entrySeatIndex } from '../shared/roundtable'
+import type { CleanupTable } from './cleanup'
 
 /** In-memory working copy — the round loop mutates it, persisting after every entry. */
 type Table = Omit<Mutable<Roundtable>, 'participants' | 'entries'> & {
@@ -144,6 +145,40 @@ export class RoundtableManager {
     const t = this.tables.get(id)
     if (!t) throw new Error(`unknown roundtable: ${id}`)
     return t
+  }
+
+  /** Every table as cleanup reads it — where it runs, and whether a round is live. */
+  forCleanup(): CleanupTable[] {
+    this.ensureLoaded()
+    return [...this.tables.values()].map((t) => ({
+      id: t.id,
+      title: t.title,
+      updatedAt: t.updatedAt,
+      providers: t.participants.map((p) => p.provider),
+      entryCount: t.entries.length,
+      archived: this.archived.has(t.id),
+      running: this.rounds.has(t.id),
+      cwd: t.cwd,
+      repoRoot: t.repoRoot,
+      repoName: t.repoRoot === null ? null : basename(t.repoRoot),
+      branch: t.branch
+    }))
+  }
+
+  /**
+   * Drop a table Cockpit no longer keeps: its record file goes, and so does the
+   * in-memory copy. Cleanup calls this once the room and the seat logs are gone.
+   */
+  forget(id: string): void {
+    this.ensureLoaded()
+    if (this.rounds.has(id)) throw new Error('That roundtable is mid-round.')
+    try {
+      rmSync(join(this.dir, `${id}.json`), { force: true })
+    } catch {
+      /* already gone — the record is what matters, and it is about to be */
+    }
+    this.tables.delete(id)
+    this.cwdIndex = null
   }
 
   /** A round of this table is in flight right now. */

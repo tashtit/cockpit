@@ -8,6 +8,7 @@ import type {
   Provider,
   SessionWorktree,
   StaleSession,
+  StaleTable,
   StaleWorktree
 } from '../../src/shared/types'
 
@@ -79,10 +80,32 @@ function orphan(over: Partial<OrphanProcess> = {}): OrphanProcess {
   }
 }
 
+function table(over: Partial<StaleTable> = {}): StaleTable {
+  return {
+    id: 'rt-1',
+    title: 'adopt biome?',
+    providers: ['claude', 'codex'],
+    repoName: null,
+    cwd: '/userData/roundtables/rt-1/room',
+    updatedAt: NOW - 90 * DAY,
+    entryCount: 6,
+    seatCount: 2,
+    bytes: 1_500_000,
+    archived: false,
+    worktree: null,
+    blocks: [],
+    ...over
+  }
+}
+
 function report(over: Partial<CleanupReport> = {}): CleanupReport {
   const sessions = over.sessions ?? [session()]
   const worktrees = over.worktrees ?? [worktree()]
+  const tables = over.tables ?? []
   return {
+    tables,
+    staleTableCount: tables.length,
+    totalTables: tables.length,
     staleDays: 30,
     scannedAt: NOW,
     sessions,
@@ -444,6 +467,33 @@ describe('CleanupView — acting', () => {
     await user.click(await screen.findByLabelText('Select session Refactor the parser'))
     await user.click(screen.getByRole('button', { name: 'Archive 1' }))
     await waitFor(() => expect(window.cockpit.archiveSessions).toHaveBeenCalledWith(['claude:one']))
+  })
+
+  it('deletes a roundtable behind an arm, saying what leaves with it', async () => {
+    const user = userEvent.setup()
+    mount(report({ tables: [table({ seatCount: 3 })] }))
+
+    // the row says what the deletion carries — the table is the unit
+    const row = await screen.findByLabelText('Select roundtable adopt biome?')
+    expect(row.closest('li')).toHaveTextContent('takes 3 seat sessions · its room')
+
+    await user.click(row)
+    await user.click(screen.getByRole('button', { name: 'Delete 1…' }))
+    expect(window.cockpit.deleteRoundtables).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Delete 1 roundtable?' }))
+    await waitFor(() => expect(window.cockpit.deleteRoundtables).toHaveBeenCalledWith(['rt-1']))
+  })
+
+  it('shows a table with nothing to free as —, never 0 B', async () => {
+    mount(report({ tables: [table({ bytes: 0 })] }))
+    const row = (await screen.findByLabelText('Select roundtable adopt biome?')).closest('li')!
+    expect(row.querySelector('.cl-size')?.textContent).toBe('—')
+  })
+
+  it('never offers a table that is mid-round', async () => {
+    mount(report({ tables: [table({ blocks: ['busy'] })] }))
+    expect(await screen.findByLabelText('Select roundtable adopt biome?')).toBeDisabled()
+    expect(screen.getByText('an agent is running')).toBeInTheDocument()
   })
 
   it('changing the threshold persists it and rescans', async () => {

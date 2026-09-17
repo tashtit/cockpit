@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import {
   existsSync,
@@ -13,11 +13,13 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  deleteRoundtables,
   deleteSessions,
   removeWorktrees,
   scanCleanup,
   stopProcesses,
-  type CleanupDeps
+  type CleanupDeps,
+  type CleanupTable
 } from '../src/main/cleanup'
 import type { OrphanProcess, SessionMeta } from '../src/shared/types'
 
@@ -81,6 +83,11 @@ function session(over: Partial<SessionMeta> & { id: string; sourcePath: string }
 let sessions: SessionMeta[] = []
 let busy = new Set<string>()
 let rooms = new Set<string>()
+let tables: CleanupTable[] = []
+let seats: SessionMeta[] = []
+const forgotten: string[] = []
+
+const roundtableRoot = join(root, 'userData', 'roundtables')
 
 const deps: CleanupDeps = {
   sessions: () => sessions,
@@ -92,7 +99,11 @@ const deps: CleanupDeps = {
   worktreeHomes: () => [],
   // not this test process: the processes these tests spawn are its children, and
   // Cockpit's own process tree is never offered for stopping
-  selfPid: -1
+  selfPid: -1,
+  tables: () => tables,
+  seatSessions: () => seats,
+  roundtableRoot,
+  forgetTable: (id) => forgotten.push(id)
 }
 
 const cockpitTree = join(cockpitWorktrees, 'app', 'fix-login')
@@ -233,6 +244,121 @@ describe('scanCleanup — sessions', () => {
     const report = await scanCleanup(deps, 30)
     expect(report.sessions[0].bytes).toBe(75)
     sessions = []
+  })
+})
+
+describe('roundtables — the table is the unit', () => {
+  const room = join(roundtableRoot, 'rt-old', 'room')
+
+  function table(over: Partial<CleanupTable> = {}): CleanupTable {
+    return {
+      id: 'rt-old',
+      title: 'adopt biome?',
+      updatedAt: OLD,
+      providers: ['claude', 'codex'],
+      entryCount: 4,
+      archived: false,
+      running: false,
+      cwd: room,
+      repoRoot: null,
+      repoName: null,
+      branch: null,
+      ...over
+    }
+  }
+
+  /** A seat session's log inside the table's room, as the indexer would report it. */
+  function seat(id: string): SessionMeta {
+    const file = join(sourceDir, `${id}.jsonl`)
+    writeFileSync(file, '{"type":"user"}\n')
+    return session({ id: `claude:${id}`, sourcePath: file, cwd: room, roundtableId: 'rt-old' })
+  }
+
+  beforeEach(() => {
+    mkdirSync(room, { recursive: true })
+    writeFileSync(join(room, 'notes.md'), 'scratch\n')
+    backdate(room)
+    tables = [table()]
+    seats = []
+    forgotten.length = 0
+  })
+
+  afterEach(() => {
+    tables = []
+    seats = []
+    rmSync(join(roundtableRoot, 'rt-old'), { recursive: true, force: true })
+  })
+
+  it('lists a table idle past the threshold, with its seats and what it occupies', async () => {
+    seats = [seat('seat-a'), seat('seat-b')]
+    const report = await scanCleanup(deps, 30)
+    const row = report.tables.find((t) => t.id === 'rt-old')
+    expect(row).toMatchObject({ title: 'adopt biome?', seatCount: 2, entryCount: 4, blocks: [] })
+    expect(row?.bytes).toBeGreaterThan(0)
+    expect(report.totalTables).toBe(1)
+    // recent tables stay out of it entirely
+    tables = [table({ updatedAt: Date.now() })]
+    expect((await scanCleanup(deps, 30)).tables).toEqual([])
+  })
+
+  it('blocks a table that is mid-round, and refuses to delete it', async () => {
+    tables = [table({ running: true })]
+    const report = await scanCleanup(deps, 30)
+    expect(report.tables[0]?.blocks).toEqual(['busy'])
+
+    const result = await deleteRoundtables(deps, ['rt-old'])
+    expect(result.cleaned).toBe(0)
+    expect(result.failed[0]?.reason).toMatch(/stop it first/)
+    expect(existsSync(room)).toBe(true)
+    expect(forgotten).toEqual([])
+  })
+
+  it('takes the room, the seat logs and the record together', async () => {
+    const a = seat('seat-a')
+    seats = [a]
+    const result = await deleteRoundtables(deps, ['rt-old'])
+    expect(result.cleaned).toBe(1)
+    expect(result.freedBytes).toBeGreaterThan(0)
+    expect(existsSync(room)).toBe(false)
+    expect(existsSync(a.sourcePath)).toBe(false)
+    expect(forgotten).toEqual(['rt-old'])
+  })
+
+  it('never removes a room that sits outside the roundtable directory', async () => {
+    const outside = join(root, 'not-a-room')
+    mkdirSync(outside, { recursive: true })
+    tables = [table({ cwd: outside })]
+    const result = await deleteRoundtables(deps, ['rt-old'])
+    expect(result.failed[0]?.reason).toMatch(/outside the roundtable directory/)
+    expect(existsSync(outside)).toBe(true)
+    expect(forgotten).toEqual([])
+    rmSync(outside, { recursive: true, force: true })
+  })
+
+  it('a repo-backed table gives up its worktree and its merged branch', async () => {
+    const tree = join(cockpitWorktrees, 'app', 'rt-layout')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/rt-layout', tree])
+    backdate(tree)
+    tables = [table({ cwd: tree, repoRoot: mainRepo, repoName: 'app', branch: 'cockpit/rt-layout' })]
+
+    // the worktrees list leaves it alone: it rides on the table's own row
+    rooms = new Set([tree])
+    const report = await scanCleanup(deps, 30)
+    expect(report.worktrees.some((w) => w.path === tree)).toBe(false)
+    expect(report.tables[0]?.worktree?.path).toBe(tree)
+
+    const result = await deleteRoundtables(deps, ['rt-old'])
+    expect(result.cleaned).toBe(1)
+    expect(existsSync(tree)).toBe(false)
+    expect(result.branchesDeleted).toEqual(['cockpit/rt-layout'])
+    rooms = new Set()
+  })
+
+  it('refuses a table Cockpit no longer keeps', async () => {
+    tables = []
+    const result = await deleteRoundtables(deps, ['rt-gone'])
+    expect(result.cleaned).toBe(0)
+    expect(result.failed[0]?.reason).toMatch(/no longer a roundtable/)
   })
 })
 

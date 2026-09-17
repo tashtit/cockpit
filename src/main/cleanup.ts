@@ -6,8 +6,10 @@ import type {
   CleanupResult,
   OrphanProcess,
   ProcessTarget,
+  Provider,
   SessionMeta,
   StaleSession,
+  StaleTable,
   StaleWorktree
 } from '../shared/types'
 import {
@@ -71,6 +73,22 @@ const YIELD_EVERY = 200
 const yieldToLoop = (): Promise<void> => new Promise((r) => setImmediate(r))
 
 /** Everything the scan needs from the rest of main, injected so tests can drive it. */
+/** A roundtable as cleanup needs it: where it runs, and whether it is mid-round. */
+export type CleanupTable = {
+  readonly id: string
+  readonly title: string
+  readonly updatedAt: number
+  readonly providers: readonly Provider[]
+  readonly entryCount: number
+  readonly archived: boolean
+  readonly running: boolean
+  /** The table's shared room, or the worktree it was given */
+  readonly cwd: string
+  readonly repoRoot: string | null
+  readonly repoName: string | null
+  readonly branch: string | null
+}
+
 export type CleanupDeps = {
   /** Sessions Cockpit owns — archived included, roundtable seats already excluded */
   readonly sessions: () => SessionMeta[]
@@ -93,6 +111,14 @@ export type CleanupDeps = {
   readonly worktreeHomes: () => readonly WorktreeHome[]
   /** Cockpit's own pid — its process tree is never offered for stopping */
   readonly selfPid: number
+  /** Every roundtable Cockpit keeps, with where it runs and whether a round is live */
+  readonly tables: () => readonly CleanupTable[]
+  /** Seat sessions, stamped with their table — `sessions()` leaves these out */
+  readonly seatSessions: () => SessionMeta[]
+  /** `<userData>/roundtables` — the only root a table's own room may be removed from */
+  readonly roundtableRoot: string
+  /** Drop a table's record once its room and seats are gone (the manager owns the file) */
+  readonly forgetTable: (id: string) => void
 }
 
 /* ---------- sessions ---------- */
@@ -433,10 +459,37 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
     })
   }
 
+  const allTables = deps.tables()
+  const seats = deps.seatSessions()
+  const staleTables: StaleTable[] = []
+  for (const t of allTables.filter((t) => isStale(t.updatedAt, cutoff)).sort((a, b) => a.updatedAt - b.updatedAt)) {
+    const mine = seats.filter((s) => s.roundtableId === t.id)
+    const dirBytes = (await measureDir(t.cwd)) ?? null
+    const logBytes = mine.reduce((n, s) => n + sessionBytes(s.sourcePath), 0)
+    const w = staleTrees.find((tree) => tree.path === realish(t.cwd))
+    staleTables.push({
+      id: t.id,
+      title: t.title,
+      providers: t.providers,
+      repoName: t.repoName,
+      cwd: t.cwd,
+      updatedAt: t.updatedAt,
+      entryCount: t.entryCount,
+      seatCount: mine.length,
+      bytes: dirBytes === null ? null : dirBytes + logBytes,
+      archived: t.archived,
+      worktree: w ? { path: w.path, branch: w.branch, bytes: sizes.get(w.path) ?? null, sessionCount: w.sessionCount } : null,
+      blocks: t.running ? ['busy'] : []
+    })
+  }
+  const tableRows = staleTables.slice(0, CLEANUP_ROW_CAP)
+
   const rows = sessions.slice(0, CLEANUP_ROW_CAP)
   // a worktree a listed session will take with it is not also listed on its own —
   // every worktree appears exactly once across the report
-  const claimed = new Set(rows.map((r) => r.worktree?.path).filter((p): p is string => !!p))
+  const claimed = new Set(
+    [...rows, ...tableRows].map((r) => r.worktree?.path).filter((p): p is string => !!p)
+  )
   const orphans: StaleWorktree[] = staleTrees
     .filter((w) => !claimed.has(w.path))
     .slice(0, CLEANUP_ROW_CAP)
@@ -454,6 +507,9 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
     staleSessionBytes: sessions.reduce((n, s) => n + s.bytes, 0),
     worktrees: orphans,
     staleWorktreeCount: staleTrees.length,
+    tables: tableRows,
+    staleTableCount: staleTables.length,
+    totalTables: allTables.length,
     processes,
     totalSessions: all.length,
     totalWorktrees: linked.length
@@ -566,6 +622,114 @@ export async function deleteSessions(
         }
       }
     }
+  }
+
+  return { cleaned, freedBytes, failed, branchesDeleted }
+}
+
+/**
+ * Delete whole roundtables. The unit is the table, so one deletion takes, in order:
+ * every seat session's log (re-validated against the configured sources, exactly as
+ * deleteSessions does), then the directory the table ran in — its own room under
+ * `<userData>/roundtables`, or its worktree through git, with the branch when git
+ * says it is fully merged — and finally the table record. A table mid-round is
+ * refused; so is a room outside the roundtable root, and a worktree git will not
+ * give up (never --force). A table's room is only ever removed *with* its table,
+ * which is why the worktrees list keeps refusing it on its own.
+ */
+export async function deleteRoundtables(
+  deps: CleanupDeps,
+  ids: readonly string[]
+): Promise<CleanupResult> {
+  const byId = new Map(deps.tables().map((t) => [t.id, t]))
+  const seats = deps.seatSessions()
+  const sourceRoots = deps.sourceDirs().map((d) => resolve(d))
+  const roomRoot = realish(deps.roundtableRoot)
+  const failed: { target: string; reason: string }[] = []
+  const branchesDeleted: string[] = []
+  let cleaned = 0
+  let freedBytes = 0
+
+  for (const raw of ids) {
+    const id = String(raw)
+    const t = byId.get(id)
+    if (!t) {
+      failed.push({ target: id, reason: 'no longer a roundtable Cockpit keeps' })
+      continue
+    }
+    const name = t.title || id
+    if (t.running) {
+      failed.push({ target: name, reason: 'a round is running — stop it first' })
+      continue
+    }
+
+    // the seats first: their logs are provider files like any other session's
+    let seatTrouble: string | null = null
+    for (const s of seats.filter((s) => s.roundtableId === id)) {
+      const target = resolve(deleteTarget(s.sourcePath))
+      if (!sourceRoots.some((r) => isUnder(target, r))) {
+        audit(`refused seat ${s.id} of table ${id}: ${target} is outside every configured source`)
+        seatTrouble = 'a seat session sits outside every configured source'
+        break
+      }
+      const bytes = sessionBytes(s.sourcePath)
+      try {
+        rmSync(target, { recursive: true, force: false })
+        freedBytes += bytes
+        audit(`removed seat ${s.id} of table ${id}: ${target} (${bytes} bytes)`)
+      } catch (err) {
+        seatTrouble = err instanceof Error ? err.message : String(err)
+        break
+      }
+    }
+    if (seatTrouble) {
+      failed.push({ target: name, reason: seatTrouble })
+      continue
+    }
+
+    // then the directory the table ran in
+    const dir = realish(t.cwd)
+    const bytes = (await measureDir(dir)) ?? 0
+    if (t.repoRoot) {
+      const removed = await execText('git', ['-C', t.repoRoot, 'worktree', 'remove', dir], {
+        timeoutMs: 60_000
+      })
+      if (!removed.ok && existsSync(dir)) {
+        failed.push({
+          target: name,
+          reason: removed.stderr.trim() || 'git refused to remove the table’s worktree'
+        })
+        continue
+      }
+      freedBytes += bytes
+      audit(`removed table worktree ${dir} (${bytes} bytes)`)
+      if (t.branch) {
+        const gone = await execText('git', ['-C', t.repoRoot, 'branch', '-d', t.branch])
+        if (gone.ok) {
+          branchesDeleted.push(t.branch)
+          audit(`deleted branch ${t.branch} in ${t.repoRoot}`)
+        }
+      }
+    } else {
+      // a scratch room: main derived the path, and it must still sit under the root
+      if (!isUnder(dir, roomRoot)) {
+        audit(`refused table ${id}: ${dir} is outside ${roomRoot}`)
+        failed.push({ target: name, reason: 'its room sits outside the roundtable directory' })
+        continue
+      }
+      try {
+        rmSync(dir, { recursive: true, force: true })
+        freedBytes += bytes
+        audit(`removed table room ${dir} (${bytes} bytes)`)
+      } catch (err) {
+        failed.push({ target: name, reason: err instanceof Error ? err.message : String(err) })
+        continue
+      }
+    }
+
+    deps.forgetTable(id)
+    cleaned++
+    audit(`removed table ${id} (${name})`)
   }
 
   return { cleaned, freedBytes, failed, branchesDeleted }

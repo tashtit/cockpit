@@ -459,3 +459,31 @@ describe('RoundtableManager — archiving', () => {
     expect(h.manager.isRunning(t.id)).toBe(false)
   })
 })
+
+describe('RoundtableManager — forgetting a table', () => {
+  it('hands cleanup where a table runs, then drops its record for good', () => {
+    const dir = newDir()
+    const h = makeManager(dir)
+    const t = h.manager.create(TWO_SEATS, null)
+    replayTurn(h, h.turnIdOf(1), { text: ['yes'] })
+    replayTurn(h, h.turnIdOf(2), { text: ['no'] })
+
+    const row = h.manager.forCleanup().find((r) => r.id === t.id)
+    expect(row).toMatchObject({ running: false, archived: false, repoRoot: null, repoName: null })
+    expect(row?.cwd).toBe(join(dir, t.id, 'room'))
+    expect(row?.entryCount).toBeGreaterThan(0)
+
+    h.manager.forget(t.id)
+    expect(existsSync(join(dir, `${t.id}.json`))).toBe(false)
+    expect(h.manager.list()).toEqual([])
+    // and the room is no longer claimed, so nothing else thinks a table owns it
+    expect(h.manager.tableIdForCwd(join(dir, t.id, 'room'))).toBeNull()
+  })
+
+  it('refuses to forget a table mid-round', () => {
+    const h = makeManager(newDir())
+    const t = h.manager.create(TWO_SEATS, null)
+    expect(() => h.manager.forget(t.id)).toThrow(/mid-round/)
+    expect(h.manager.list()).toHaveLength(1)
+  })
+})

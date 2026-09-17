@@ -85,6 +85,14 @@ Both lists use the shared `FilterBar`; this page is its reference implementation
 
 ## Rules specific to this page
 
+- **A roundtable is one row, and the table is the unit.** Deleting a table takes its
+  seat sessions and the directory it ran in (its room, or its worktree plus the branch
+  when git says it is fully merged), so a table's directory never appears in the
+  worktrees list on its own — it rides the table's row, the way a session's worktree
+  rides the session. The row's `.cl-sub` says what leaves with it ("takes 3 seat
+  sessions · its room"), rows carry the **seat cluster** (`.rt-seats`) rather than one
+  agent's logo, and a table mid-round is blocked (`busy`), never selectable. Archiving
+  a table only hides it (see `pages/roundtable.md`); this section is the tier that frees it.
 - **Session rows carry agent identity** (`.tint-{provider}` + `ProviderLogo`); worktree
   rows carry **repo** identity (`RepoIcon`) — a worktree belongs to a repository, not
   to an agent, and tinting it by agent would be a lie.

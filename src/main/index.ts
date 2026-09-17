@@ -60,6 +60,7 @@ import {
   setUpdatePrefs
 } from './config'
 import {
+  deleteRoundtables,
   deleteSessions,
   removeWorktrees,
   scanCleanup,
@@ -1040,7 +1041,11 @@ app.whenReady().then(() => {
     sourceDirs: () => loadConfig().sources.map((s) => s.path),
     // Codex and Copilot cut theirs under their config homes; Claude Code's sit inside each repo
     worktreeHomes: () => providerWorktreeHomes(loadConfig().sources),
-    selfPid: process.pid
+    selfPid: process.pid,
+    tables: () => roundtables?.forCleanup() ?? [],
+    seatSessions: () => indexer.roundtableSessions(),
+    roundtableRoot: join(app.getPath('userData'), 'roundtables'),
+    forgetTable: (id) => roundtables?.forget(id)
   })
   /** Renderer id lists are untrusted and unbounded — cap and stringify them here. */
   const asIdList = (raw: unknown): string[] =>
@@ -1072,6 +1077,17 @@ app.whenReady().then(() => {
     // the tree stops offering sessions that no longer exist
     indexer.setArchived(setSessionsArchived(wanted, false))
     await indexer.rescan()
+    return result
+  })
+  ipcMain.handle('cleanup:delete-roundtables', async (_e, ids: string[]) => {
+    const wanted = asIdList(ids)
+    const result = await deleteRoundtables(cleanupDeps(), wanted)
+    // the archived flags of tables that no longer exist are dead config
+    for (const id of wanted) setRoundtableArchived(id, false)
+    roundtables?.setArchived(loadConfig().archivedRoundtables ?? [])
+    // seat logs went with them — the tree must stop offering those sessions
+    await indexer.rescan()
+    sendToWin('index-updated')
     return result
   })
   ipcMain.handle('cleanup:remove-worktrees', async (_e, paths: string[]) => {

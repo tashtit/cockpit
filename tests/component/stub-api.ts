@@ -169,6 +169,9 @@ export function freshApi(): CockpitApi {
       staleSessionBytes: 0,
       worktrees: [],
       staleWorktreeCount: 0,
+      tables: [],
+      staleTableCount: 0,
+      totalTables: 0,
       processes: [],
       totalSessions: 0,
       totalWorktrees: 0
@@ -241,6 +244,7 @@ export function freshApi(): CockpitApi {
     listEndpointModels: vi.fn(async () => []),
     listRoundtables: vi.fn(async () => []),
     setRoundtableArchived: vi.fn(async () => {}),
+    deleteRoundtables: vi.fn(async () => ({ cleaned: 0, freedBytes: 0, failed: [] })),
     getRoundtable: vi.fn(async () => emptyRoundtable()),
     createRoundtable: vi.fn(async () => emptyRoundtable()),
     sendRoundtableMessage: vi.fn(async () => {}),

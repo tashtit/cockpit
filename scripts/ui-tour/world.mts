@@ -413,7 +413,8 @@ function populate(world: World): void {
   })
   // an archived table: out of the tree's children and off the board, reachable from
   // the group's Archived disclosure (see the archivedRoundtables id below)
-  const tArch = now - 9 * DAY
+  // stale as well as archived: it is what Cleanup's Roundtables section lists
+  const tArch = now - 40 * DAY
   table({
     id: 'rt-archived',
     title: 'Ship a plugin marketplace of our own?',
