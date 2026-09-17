@@ -279,7 +279,7 @@ export function Settings({
     setError(null)
     // main quietly keeps a path it already watches (restores lean on that); typed in
     // here it is a slip, so say so instead of announcing an add that changed nothing
-    if (stats.some((s) => s.path === p)) {
+    if (stats.some((s) => s.path.replace(/\/+$/, '') === p.replace(/\/+$/, ''))) {
       setError(`Cockpit already watches ${p}.`)
       return
     }
@@ -419,7 +419,7 @@ export function Settings({
         <p className="ns-hint ns-prose">
           One row per config home Cockpit watches: who it&apos;s signed in as, what that
           subscription has spent, and whether it&apos;s healthy. Usage comes from each agent&apos;s
-          own records; nothing here reads credentials.
+          own logs, or GitHub&apos;s billing API for Copilot; nothing here reads credentials.
           {stats.length > 0 && (
             <> Currently {stats.length} config home{stats.length === 1 ? '' : 's'} · {totalSessions} sessions.</>
           )}

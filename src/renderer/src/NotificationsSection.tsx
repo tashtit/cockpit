@@ -95,9 +95,9 @@ export function NotificationsSection({
   return (
     <>
       <p className="ns-hint ns-prose">
-        When a turn finishes or fails, or a roundtable concludes, while you&apos;re looking
-        elsewhere, Cockpit tells you. Never about the session in front of you, and endings that
-        arrive together share one notification.
+        When an agent finishes or fails while you&apos;re somewhere else — another session,
+        another app — Cockpit tells you. Never about the session in front of you; endings that
+        arrive together share one notification, and a roundtable speaks once it concludes.
       </p>
       <ul className="source-list">
         {SWITCHES.map((s) => (

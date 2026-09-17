@@ -1195,9 +1195,6 @@ summary::-webkit-details-marker { display: none; }
 /* a section's explanation is prose, read once: body size and a reading line-height.
    Inline field notes ("the two passphrases don't match yet") stay .ns-hint metadata */
 .ns-prose, .scope-blurb, .pnl-blurb, .pnl-note { font-size: var(--fs-base); line-height: 1.5; }
-/* the card's map (.ns-jumps) — one pill per section, a jump row, never tabs: every
-   section stays on the one page. Reuses the Agents pills so the two views read as one
-   family; the card's own gap spaces it, no rule of its own */
 .ns-hint.yolo { color: var(--danger); }
 .ns-hint code { color: var(--fg); font-family: var(--mono); }
 /* handoff form: source summary row + briefing header with its AI controls */
