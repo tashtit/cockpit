@@ -153,12 +153,14 @@ export function writeNotices(root: string, bundledDirs: Iterable<string>): strin
 /**
  * Collects the packages each electron-vite target bundles, and rewrites the notices with
  * everything seen so far when each target finishes — whichever target builds last, the
- * file ends up covering all of them. Build only: the dev server bundles nothing.
+ * file ends up covering all of them. Production builds only: `electron-vite dev` still
+ * builds main and preload, but the renderer comes from the dev server, so notices written
+ * then would leave the renderer's packages out of a file `npm run build` already wrote.
  */
 export function licenseNotices(): Plugin {
   return {
     name: 'cockpit-license-notices',
-    apply: 'build',
+    apply: () => process.env['NODE_ENV_ELECTRON_VITE'] !== 'development',
     generateBundle() {
       const root = resolve(__dirname, '../..')
       for (const id of this.getModuleIds()) {
