@@ -91,6 +91,8 @@ const api: CockpitApi = {
   scanCleanup: () => ipcRenderer.invoke('cleanup:scan'),
   archiveSessions: (ids: readonly string[]) => ipcRenderer.invoke('cleanup:archive-sessions', ids),
   deleteSessions: (ids: readonly string[]) => ipcRenderer.invoke('cleanup:delete-sessions', ids),
+  deleteRoundtables: (ids: readonly string[]) =>
+    ipcRenderer.invoke('cleanup:delete-roundtables', ids),
   removeWorktrees: (paths: readonly string[]) =>
     ipcRenderer.invoke('cleanup:remove-worktrees', paths),
   stopProcesses: (targets: readonly ProcessTarget[]) =>

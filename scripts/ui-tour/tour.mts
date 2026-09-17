@@ -124,7 +124,17 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'profile', name: 'profile', tall: 1700, go: (w) => nav(w, 'Profile') },
-  { view: 'cleanup', name: 'cleanup', tall: 1200, go: (w) => nav(w, 'Cleanup') },
+  {
+    view: 'cleanup',
+    name: 'cleanup',
+    tall: 1200,
+    go: async (w) => {
+      await nav(w, 'Cleanup')
+      // the scan walks every source and repo — a shot taken mid-scan shows empty lists
+      await w.getByRole('button', { name: 'Rescan' }).waitFor({ timeout: 60_000 })
+      await pause(w, 200)
+    }
+  },
   {
     view: 'new session',
     name: 'new-session',

@@ -6,6 +6,7 @@ import type {
   OrphanProcess,
   Provider,
   StaleSession,
+  StaleTable,
   StaleWorktree
 } from '../../shared/types'
 import { api } from './api'
@@ -368,6 +369,67 @@ function SessionRow({
   )
 }
 
+/**
+ * A roundtable row. The carry chip says what leaves with it — the seats and the
+ * worktree — because the table is the unit, exactly as a session's worktree rides
+ * on the session above.
+ */
+function TableRow({
+  t,
+  now,
+  picked,
+  onPick
+}: {
+  t: StaleTable
+  now: number
+  picked: boolean
+  onPick: (on: boolean, range: boolean) => void
+}): JSX.Element {
+  const carry = [
+    t.seatCount > 0 && `${t.seatCount} seat session${t.seatCount === 1 ? '' : 's'}`,
+    t.worktree ? 'its worktree' : 'its room'
+  ].filter(Boolean)
+  return (
+    <li className={`cl-row ${picked ? 'picked' : ''}`}>
+      <Pick
+        checked={picked}
+        disabled={t.blocks.length > 0}
+        label={`Select roundtable ${t.title}`}
+        onPick={onPick}
+      />
+      <span className="rt-seats" aria-hidden="true">
+        {t.providers.map((p, i) => (
+          <span key={`${p}-${i}`} className={`rt-seat plogo-${p}`}>
+            <ProviderLogo p={p} size={10} />
+          </span>
+        ))}
+      </span>
+      <div className="cl-body">
+        <div className="cl-title">
+          {t.title}
+          {t.repoName && <span className="cl-tag">{t.repoName}</span>}
+          {t.archived && <span className="cl-tag">archived</span>}
+          {t.worktree?.branch && <BranchChip branch={t.worktree.branch} />}
+        </div>
+        <div className="cl-sub">
+          {t.entryCount} message{t.entryCount === 1 ? '' : 's'} · takes {carry.join(' · ')}
+        </div>
+      </div>
+      <div className="cl-meta">
+        {t.blocks.map((b) => (
+          <span key={b} className="cl-block">
+            {BLOCK_LABEL[b]}
+          </span>
+        ))}
+        {/* sizes are never a bare 0 (MASTER: "— when unmeasurable, never 0") — an
+            empty room with its seats already gone has nothing to free */}
+        <span className="cl-size">{fmtBytes(t.bytes ? t.bytes : null)}</span>
+        <span className="cl-age">{fmtIdle(t.updatedAt, now)}</span>
+      </div>
+    </li>
+  )
+}
+
 function WorktreeRow({
   w,
   now,
@@ -553,6 +615,16 @@ function sessionValues(s: StaleSession, groupId: string): readonly string[] {
   return state
 }
 
+function tableValues(t: StaleTable, groupId: string): readonly string[] {
+  if (groupId === 'agent') return t.providers
+  if (groupId === 'project') return [t.repoName ?? NO_REPO]
+  const state: string[] = []
+  if (t.archived) state.push('archived')
+  state.push(t.worktree ? 'worktree' : 'room')
+  if (t.blocks.length > 0) state.push('blocked')
+  return state
+}
+
 function worktreeValues(w: StaleWorktree, groupId: string): readonly string[] {
   if (groupId === 'project') return [w.repoName]
   if (groupId === 'origin') return [w.origin]
@@ -605,6 +677,44 @@ function sessionFilters(
   ]
 }
 
+function tableFilters(
+  rows: readonly StaleTable[],
+  sel: Selections,
+  set: (fn: (prev: Selections) => Selections) => void
+): FilterGroup[] {
+  const dim = dimension(sel, set)
+  return [
+    dim(
+      'agent',
+      'Agent',
+      // a seat's agent, so a table shows up under every agent sitting at it
+      presentOptions(rows.flatMap((t) => [...t.providers]), (p) => p).map((p) => ({
+        value: p,
+        label: PROVIDER_LABEL[p as Provider],
+        icon: (
+          <span className={`plogo plogo-${p}`} aria-hidden="true">
+            <ProviderLogo p={p as Provider} size={11} />
+          </span>
+        )
+      }))
+    ),
+    dim(
+      'project',
+      'Project',
+      presentOptions(rows, (t) => t.repoName ?? NO_REPO).map((r) => ({
+        value: r,
+        label: r === NO_REPO ? 'No repository' : r
+      }))
+    ),
+    dim('state', 'State', [
+      { value: 'worktree', label: 'Has a worktree' },
+      { value: 'room', label: 'Scratch room' },
+      { value: 'archived', label: 'Archived' },
+      { value: 'blocked', label: 'Blocked' }
+    ])
+  ]
+}
+
 function worktreeFilters(
   rows: readonly StaleWorktree[],
   sel: Selections,
@@ -644,12 +754,15 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
 
   const [sq, setSq] = useState('')
   const [wq, setWq] = useState('')
+  const [tq, setTq] = useState('')
   // one include/exclude pair per dimension, keyed by group id — the bar owns no state
   const [sSel, setSSel] = useState<Selections>({})
   const [wSel, setWSel] = useState<Selections>({})
+  const [tSel, setTSel] = useState<Selections>({})
 
   const sessions = useMemo(() => report?.sessions ?? [], [report])
   const worktrees = useMemo(() => report?.worktrees ?? [], [report])
+  const tables = useMemo(() => report?.tables ?? [], [report])
   // one directory can hold a dozen `node`s: group by worktree, oldest group first,
   // and pick over the grouped order so a shift-range follows what is on screen
   const processGroups = useMemo(() => {
@@ -666,6 +779,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
     [sessions, sSel]
   )
   const treeGroups = useMemo(() => worktreeFilters(worktrees, wSel, setWSel), [worktrees, wSel])
+  const tableGroups = useMemo(() => tableFilters(tables, tSel, setTSel), [tables, tSel])
 
   const shownSessions = useMemo(() => {
     const q = sq.trim().toLowerCase()
@@ -685,6 +799,15 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
     })
   }, [worktrees, wq, treeGroups])
 
+  const shownTables = useMemo(() => {
+    const q = tq.trim().toLowerCase()
+    return tables.filter((t) => {
+      if (!matchesFilters(tableGroups, (id) => tableValues(t, id))) return false
+      if (!q) return true
+      return `${t.title} ${t.repoName ?? ''} ${t.cwd}`.toLowerCase().includes(q)
+    })
+  }, [tables, tq, tableGroups])
+
   const sessionKey = useCallback((s: StaleSession) => s.id, [])
   const sessionBlocked = useCallback((s: StaleSession) => s.blocks.length > 0, [])
   const treeKey = useCallback((w: StaleWorktree) => w.path, [])
@@ -694,6 +817,9 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   const processKey = useCallback((p: OrphanProcess) => String(p.pid), [])
   const neverBlocked = useCallback(() => false, [])
   const pPicks = usePicks(processes, processKey, neverBlocked)
+  const tableKey = useCallback((t: StaleTable) => t.id, [])
+  const tableBlocked = useCallback((t: StaleTable) => t.blocks.length > 0, [])
+  const tPicks = usePicks(shownTables, tableKey, tableBlocked)
 
   const scan = useCallback(async (): Promise<void> => {
     setScanning(true)
@@ -760,6 +886,11 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
     .filter((w) => wPicked.has(w.path))
     .reduce((n, w) => n + (w.bytes ?? 0), 0)
   const hiddenTrees = wPicked.size - wPicks.shown
+  const tPicked = tPicks.picked
+  const tableGain = shownTables
+    .filter((t) => tPicked.has(t.id))
+    .reduce((n, t) => n + (t.bytes ?? 0), 0)
+  const hiddenTables = tPicked.size - tPicks.shown
   const pPicked = pPicks.picked
   const truncated = (report?.staleSessionCount ?? 0) > sessions.length
   const now = report?.scannedAt ?? Date.now()
@@ -811,6 +942,8 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
               {report.staleSessionCount} of {report.totalSessions} sessions ·{' '}
               {fmtBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
               {report.totalWorktrees} worktrees
+              {report.totalTables > 0 &&
+                ` · ${report.staleTableCount} of ${report.totalTables} roundtables`}
               {report.processes.length > 0 &&
                 ` · ${report.processes.length} process${
                   report.processes.length === 1 ? '' : 'es'
@@ -975,6 +1108,83 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
                 </ProcessGroup>
               ))}
             </ul>
+          </>
+        )}
+
+        <h3 className="ns-label">Roundtables</h3>
+        {tables.length === 0 && !scanning ? (
+          <p className="ns-hint">No table has gone quiet that long — every roundtable is recent.</p>
+        ) : (
+          <>
+            <p className="ns-hint">
+              Tables nobody has spoken to in a while. Deleting one takes the seat sessions that
+              ran inside it and the room it ran in — its worktree and, when git reports the
+              branch fully merged, that too. Archiving a table only hides it; this frees it.
+            </p>
+            <FilterBar
+              groups={tableGroups}
+              defaultPinned={['agent', 'state']}
+              search={{
+                value: tq,
+                onChange: setTq,
+                label: 'Filter roundtables',
+                placeholder: 'Filter by topic, project or path…'
+              }}
+            />
+
+            <GroupHead
+              picks={tPicks}
+              label="roundtables"
+              summary={
+                tPicked.size > 0 ? (
+                  <>
+                    <strong>{tPicked.size}</strong> selected · {fmtBytes(tableGain)}
+                    {hiddenTables > 0 && (
+                      <span className="cl-hidden"> · {hiddenTables} not shown</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {shownTables.length} shown
+                    {shownTables.length !== tables.length && ` of ${tables.length}`}
+                  </>
+                )
+              }
+            >
+              <ArmedAction
+                id="tables"
+                armed={armed.armed}
+                disabled={working || tPicked.size === 0}
+                labels={[
+                  tPicked.size > 0 ? `Delete ${tPicked.size}…` : 'Delete…',
+                  `Delete ${tPicked.size} roundtable${tPicked.size === 1 ? '' : 's'}?`,
+                  'Takes each table, its seat sessions and the directory it ran in. This cannot be undone.'
+                ]}
+                confirm={{
+                  arm: armed.arm,
+                  disarm: armed.disarm,
+                  commit: () => void run('Deleted', () => api.deleteRoundtables([...tPicked]))
+                }}
+              />
+            </GroupHead>
+
+            {shownTables.length === 0 ? (
+              <p className="ns-hint cl-empty">
+                {scanning ? 'Still reading every table…' : 'No roundtables match this filter.'}
+              </p>
+            ) : (
+              <ul className="source-list cl-list">
+                {shownTables.map((t, i) => (
+                  <TableRow
+                    key={t.id}
+                    t={t}
+                    now={now}
+                    picked={tPicked.has(t.id)}
+                    onPick={(on, range) => tPicks.toggle(i, on, range)}
+                  />
+                ))}
+              </ul>
+            )}
           </>
         )}
 

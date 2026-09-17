@@ -1071,6 +1071,31 @@ export type StaleSession = {
   readonly blocks: CleanupBlock[]
 }
 
+/**
+ * A roundtable idle past the threshold. The unit is the table: deleting one takes its
+ * room (or its worktree and merged branch), the seat sessions that ran inside it, and
+ * the table record itself — a table's room is never offered on its own.
+ */
+export type StaleTable = {
+  readonly id: string
+  readonly title: string
+  readonly providers: readonly Provider[]
+  readonly repoName: string | null
+  /** The table's shared room, or the worktree it was given */
+  readonly cwd: string
+  readonly updatedAt: number
+  readonly entryCount: number
+  /** Seat sessions indexed inside it — they go with the table */
+  readonly seatCount: number
+  /** Room/worktree plus the seat logs; null when the directory couldn't be measured */
+  readonly bytes: number | null
+  /** Archived in Cockpit already — still listed, because deleting is the next tier */
+  readonly archived: boolean
+  /** The worktree deleting this table would also remove; null for a scratch room */
+  readonly worktree: SessionWorktree | null
+  readonly blocks: CleanupBlock[]
+}
+
 export type StaleWorktree = {
   readonly path: string
   /** Main repo root the worktree is linked to */
@@ -1114,6 +1139,13 @@ export type CleanupReport = {
    * under them — the dev server nobody stopped. Oldest first, capped.
    */
   readonly processes: OrphanProcess[]
+  /**
+   * Roundtables idle past the threshold. A table's room (or worktree) rides on the
+   * table, so it never also appears in `worktrees`.
+   */
+  readonly tables: StaleTable[]
+  readonly staleTableCount: number
+  readonly totalTables: number
   /** Denominators behind "47 of 312" — everything known, stale or not */
   readonly totalSessions: number
   readonly totalWorktrees: number
@@ -1336,6 +1368,8 @@ export type CockpitApi = {
   readonly scanCleanup: () => Promise<CleanupReport>
   /** Reversible tier: hide them in Cockpit, touch nothing on disk */
   readonly archiveSessions: (ids: readonly string[]) => Promise<CleanupResult>
+  /** Delete whole roundtables: room or worktree, seat logs, and the table record */
+  readonly deleteRoundtables: (ids: readonly string[]) => Promise<CleanupResult>
   /** Destructive tier: delete the provider's own log files */
   readonly deleteSessions: (ids: readonly string[]) => Promise<CleanupResult>
   /** `git worktree remove` each path, then drop any branch git says is fully merged */
