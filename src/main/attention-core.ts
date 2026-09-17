@@ -89,9 +89,8 @@ export type Unseen = {
   readonly at: number
   /** `asks`: what the agent is waiting for */
   readonly asks?: AttentionAsk
-  /** `pr`: the pull request, and the head commit it went red on */
+  /** `pr`: the pull request (the head commit it went red on is `seenPrs`' business) */
   readonly pr?: AttentionPr
-  readonly sha?: string
 }
 
 export type TurnStart = {
@@ -324,7 +323,7 @@ export function sanitizeUnseen(raw: unknown, now: number): Unseen[] {
     } else if (kind === 'pr') {
       const pr = sanitizePr(o['pr'])
       if (!pr || id === null) continue
-      out.push({ ...base, pr, sha: str(o['sha'], 64) ?? '' })
+      out.push({ ...base, pr })
     } else {
       out.push(base)
     }
@@ -676,8 +675,7 @@ export class AttentionTracker {
         ...(providerOf(id) ? { provider: providerOf(id) } : {}),
         startedAt: at,
         at,
-        pr: item,
-        sha: pr.headSha
+        pr: item
       })
       this.enqueue({
         key,
@@ -841,9 +839,10 @@ export class AttentionTracker {
     return [...best.values()].sort((a, b) => b.at - a.at)
   }
 
-  /** What the Dock badge shows: everything unseen, tables and not-yet-named sessions included. */
+  /** What the Dock badge shows: one per board row (however many reasons), tables and not-yet-named sessions included. */
   badgeCount(prefs: AttentionPrefs): number {
-    return prefs.badge ? this.unseen.size : 0
+    if (!prefs.badge) return 0
+    return new Set([...this.unseen.values()].map((u) => (u.kind === 'roundtable' || u.id === null ? u.key : u.id))).size
   }
 
   /** The state worth keeping across a restart, oldest first. */

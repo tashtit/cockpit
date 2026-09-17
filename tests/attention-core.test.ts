@@ -829,7 +829,8 @@ describe('AttentionTracker — one row per session, and mixed bursts', () => {
     expect(h.t.landings().map((l) => l.kind)).toEqual(['pr'])
     observed(h, { type: 'asks', id: 'claude:abc' })
     expect(h.t.landings().map((l) => l.kind)).toEqual(['asks'])
-    expect(h.t.badgeCount(ALL_ON)).toBe(2)
+    // one row on the board, one on the Dock
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
     // opening it takes every reason with it
     h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: ROCKET })
     expect(h.t.landings()).toEqual([])
@@ -869,9 +870,11 @@ describe('sanitizeUnseen — the new kinds', () => {
       ],
       now
     )
+    // older files carry the head commit on the entry — `seenPrs` is what remembers it now
+    const { sha: _sha, ...redKept } = red
     expect(out).toEqual([
       { ...asks, startedAt: now },
-      { ...red, startedAt: now }
+      { ...redKept, startedAt: now }
     ])
   })
   it('seen PRs are pairs of strings, anything else is dropped', () => {
