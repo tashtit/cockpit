@@ -1,16 +1,18 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { InstructionFile, InstructionsState } from '../shared/types'
 import {
   adoptableBlock,
   extractSharedBlock,
   fileStatus,
+  foldTargets,
   instructionTargets,
   lineCount,
   normalizeBaseline,
   removeSharedBlock,
   splitSharedBlock,
-  upsertSharedBlock
+  upsertSharedBlock,
+  type FoldedTarget
 } from './instructions-core'
 import { loadConfig, saveConfig } from './config'
 
@@ -64,29 +66,45 @@ function readTarget(path: string): string | null {
   }
 }
 
-/** Display copy for the renderer: bounded, since the UI never writes it back whole. */
-function readTargetForDisplay(path: string): string | null {
-  const raw = readTarget(path)
-  return raw === null ? null : raw.slice(0, MAX_INSTRUCTION_BYTES)
+/** Where a path leads through a symlink — or the path itself when it is not there. */
+function realPathOf(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+/** The scope's files as an apply sees them: read once, with links and imports folded. */
+function readScope(repoRoot: string | null): FoldedTarget[] {
+  return foldTargets(
+    instructionTargets(repoRoot).map((target) => ({
+      target,
+      raw: readTarget(target.path),
+      real: realPathOf(target.path)
+    }))
+  )
 }
 
 export function getInstructions(repoRoot: string | null): InstructionsState {
   adoptFromFiles(repoRoot)
   const baseline = getBaseline(repoRoot)
-  const files: InstructionFile[] = instructionTargets(repoRoot).map(({ agents, path }) => {
-    const raw = readTargetForDisplay(path)
-    // the block and the counts around it come from the same read as the status,
-    // so the diff the renderer draws can never disagree with the pill beside it
-    const split = splitSharedBlock(raw ?? '')
+  const files: InstructionFile[] = readScope(repoRoot).map(({ target, raw, readBy }) => {
+    // display copy is bounded, since the UI never writes it back whole — and the
+    // block and the counts around it come from the same read as the status, so
+    // the diff the renderer draws can never disagree with the pill beside it
+    const shown = raw === null ? null : raw.slice(0, MAX_INSTRUCTION_BYTES)
+    const split = splitSharedBlock(shown ?? '')
     return {
-      agents,
-      path,
-      exists: raw !== null,
-      content: raw ?? '',
+      agents: target.agents,
+      path: target.path,
+      exists: shown !== null,
+      content: shown ?? '',
       block: split.block,
       own: { above: lineCount(split.above), below: lineCount(split.below) },
       duplicates: split.duplicates,
-      status: fileStatus(raw, baseline)
+      readBy,
+      status: fileStatus(shown, baseline)
     }
   })
   return { repoRoot, baseline, files }
@@ -102,15 +120,20 @@ export function saveBaseline(repoRoot: string | null, baseline: string): Instruc
 export function applyInstructions(repoRoot: string | null, onlyPath?: string): InstructionsState {
   const baseline = getBaseline(repoRoot)
   if (baseline.trim() === '') throw new Error('shared instructions are empty — nothing to apply')
-  const targets = instructionTargets(repoRoot)
-  if (onlyPath && !targets.some((t) => t.path === onlyPath)) {
-    throw new Error(`not an instruction file for this scope: ${onlyPath}`)
+  const targets = readScope(repoRoot)
+  if (onlyPath && !targets.some((t) => t.target.path === onlyPath)) {
+    // a file folded into another is a target of the scope, but not one to write
+    const through = targets.find((t) => t.readBy.some((r) => r.path === onlyPath))
+    throw new Error(
+      through
+        ? `${onlyPath} reads its block through ${through.target.path} — apply that file instead`
+        : `not an instruction file for this scope: ${onlyPath}`
+    )
   }
-  for (const { path } of targets) {
-    if (onlyPath && path !== onlyPath) continue
-    const raw = readTarget(path) ?? ''
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, upsertSharedBlock(raw, baseline))
+  for (const { target, raw } of targets) {
+    if (onlyPath && target.path !== onlyPath) continue
+    mkdirSync(dirname(target.path), { recursive: true })
+    writeFileSync(target.path, upsertSharedBlock(raw ?? '', baseline))
   }
   return getInstructions(repoRoot)
 }

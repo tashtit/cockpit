@@ -52,6 +52,28 @@ function bandText(n: number): string {
     : `${n} lines outside the markers stay as they are`
 }
 
+/** A sibling's bare name; the shortened path when it lives elsewhere. */
+function nameBeside(path: string, sibling: string): string {
+  const dir = (p: string): string => p.slice(0, p.lastIndexOf('/'))
+  return dir(path) === dir(sibling) ? path.slice(path.lastIndexOf('/') + 1) : shortPath(path)
+}
+
+/**
+ * Who reads this file on Claude's behalf — a `CLAUDE.md` that imports it or links
+ * to it, which is why Claude's logo sits on this row and that file has no row of
+ * its own. Shared with the file rows.
+ */
+export function ReadByNote({ file }: { file: InstructionFile }): JSX.Element | null {
+  if (file.readBy.length === 0) return null
+  return (
+    <span className="inst-via">
+      {file.readBy
+        .map((r) => `${nameBeside(r.path, file.path)} ${r.how === 'link' ? 'links here' : 'imports this file'}`)
+        .join(' · ')}
+    </span>
+  )
+}
+
 export function DiffStat({ added, removed }: { added: number; removed: number }): JSX.Element {
   return (
     <span className="idiff-stat">
@@ -114,6 +136,7 @@ export function InstructionDiff({
         <span className="idiff-path">{path}</span>
         {change.status !== 'synced' && <DiffStat added={change.added} removed={change.removed} />}
         <span className={`inst-status ${change.status}`}>{CHANGE_LABEL[change.status]}</span>
+        <ReadByNote file={file} />
         {action}
       </div>
       {change.status !== 'synced' && (

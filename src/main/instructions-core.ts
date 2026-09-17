@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, isAbsolute, join, normalize } from 'node:path'
 import {
   END,
   END_MARKERS,
@@ -9,7 +9,7 @@ import {
   START_MARKERS,
   normalizeBaseline
 } from '../shared/instruction-markers'
-import type { InstructionFile, InstructionStatus } from '../shared/types'
+import type { InstructionFile, InstructionReader, InstructionStatus, Provider } from '../shared/types'
 
 /*
  * Pure logic for the shared-instructions feature (no electron, unit-testable).
@@ -31,7 +31,9 @@ import type { InstructionFile, InstructionStatus } from '../shared/types'
  * Either opens or closes a block, in any combination, and a file that carries the
  * block under both names (each tool having appended its own before it could read
  * the other's) is folded back into one block on the next apply. Everything written
- * is the canonical pair; the legacy one is only ever read.
+ * is the canonical pair; the legacy one is only ever read. A marker counts only as
+ * the whole of its line and outside fenced code, the plugin's rule as well: a
+ * document that quotes the markers is not managed by them.
  */
 
 export { END, LEGACY_END, LEGACY_START, START, normalizeBaseline }
@@ -42,18 +44,62 @@ type Span = {
   readonly end: number
 }
 
+/** A file with its fenced code located once, so every marker lookup can skip it. */
+type Doc = {
+  readonly raw: string
+  readonly fences: readonly Span[]
+}
+
 /** A complete block: its START and its END marker. */
 type Block = {
   readonly start: Span
   readonly close: Span
 }
 
+/**
+ * Fenced code (``` or ~~~) as spans of the file. A fence counts only once it closes:
+ * markdown would run an unclosed one to the end of the file, but then a stray ```
+ * in the agent's own notes would hide the real block below it, and every apply
+ * would append another — so an unclosed fence is read as no fence at all.
+ */
+function fencedSpans(raw: string): Span[] {
+  const spans: Span[] = []
+  let open: { readonly at: number; readonly fence: string } | null = null
+  for (const m of raw.matchAll(/^[ \t]{0,3}(`{3,}|~{3,})/gm)) {
+    const fence = m[1]
+    if (open === null) {
+      open = { at: m.index, fence }
+    } else if (fence[0] === open.fence[0] && fence.length >= open.fence.length) {
+      const lineEnd = raw.indexOf('\n', m.index)
+      spans.push({ at: open.at, end: lineEnd === -1 ? raw.length : lineEnd + 1 })
+      open = null
+    }
+  }
+  return spans
+}
+
+function scan(raw: string): Doc {
+  return { raw, fences: fencedSpans(raw) }
+}
+
+/** A marker counts only as the whole of its line (blanks and a CR tolerated), outside fenced code. */
+function isMarkerAt(doc: Doc, at: number, marker: string): boolean {
+  const lineStart = doc.raw.lastIndexOf('\n', at - 1) + 1
+  const lineBreak = doc.raw.indexOf('\n', at)
+  const line = doc.raw.slice(lineStart, lineBreak === -1 ? doc.raw.length : lineBreak)
+  if (line.trim() !== marker) return false
+  return !doc.fences.some((f) => at >= f.at && at < f.end)
+}
+
 /** The earliest of the given markers at or after `from`, in either spelling. */
-function findMarker(raw: string, markers: readonly string[], from: number): Span | null {
+function findMarker(doc: Doc, markers: readonly string[], from: number): Span | null {
   let first: Span | null = null
   for (const marker of markers) {
-    const at = raw.indexOf(marker, from)
-    if (at !== -1 && (first === null || at < first.at)) first = { at, end: at + marker.length }
+    for (let at = doc.raw.indexOf(marker, from); at !== -1; at = doc.raw.indexOf(marker, at + 1)) {
+      if (!isMarkerAt(doc, at, marker)) continue
+      if (first === null || at < first.at) first = { at, end: at + marker.length }
+      break
+    }
   }
   return first
 }
@@ -63,16 +109,19 @@ function findMarker(raw: string, markers: readonly string[], from: number): Span
  * after it. An END of the other spelling closes it too — the plugin reads the two
  * "in any combination", and a file half-renamed by hand is still one block.
  */
-function findBlock(raw: string, from: number): Block | null {
-  const start = findMarker(raw, START_MARKERS, from)
+function findBlock(doc: Doc, from: number): Block | null {
+  const start = findMarker(doc, START_MARKERS, from)
   if (start === null) return null
-  const close = findMarker(raw, END_MARKERS, start.end)
+  const close = findMarker(doc, END_MARKERS, start.end)
   return close === null ? null : { start, close }
 }
 
-/** The text between a block's markers, without the newline after START or the blank tail. */
+/** The text between a block's markers, without the START line's ending or the blank tail. */
 function blockText(raw: string, block: Block): string {
-  return raw.slice(block.start.end, block.close.at).replace(/^\n/, '').replace(/\n[ \t]*$/, '')
+  return raw
+    .slice(block.start.end, block.close.at)
+    .replace(/^[ \t]*\r?\n/, '')
+    .replace(/\n[ \t]*$/, '')
 }
 
 /**
@@ -111,10 +160,11 @@ export type SharedSplit = {
  * put on purpose, and a later one is a tool's second copy, never the agent's text.
  */
 export function splitSharedBlock(raw: string): SharedSplit {
-  const first = findBlock(raw, 0)
+  const doc = scan(raw)
+  const first = findBlock(doc, 0)
   if (first === null) return { above: raw, block: null, below: '', duplicates: 0 }
   const later: Block[] = []
-  for (let b = findBlock(raw, first.close.end); b !== null; b = findBlock(raw, b.close.end)) {
+  for (let b = findBlock(doc, first.close.end); b !== null; b = findBlock(doc, b.close.end)) {
     later.push(b)
   }
   // drop the later blocks back to front, so each one's offsets still hold when its turn comes
@@ -153,7 +203,7 @@ export function upsertSharedBlock(raw: string, baseline: string): string {
   const block = `${START}\n${normalizeBaseline(baseline)}\n${END}`
   const split = splitSharedBlock(raw)
   if (split.block !== null) return split.above + block + split.below
-  const orphan = findMarker(raw, START_MARKERS, 0)
+  const orphan = findMarker(scan(raw), START_MARKERS, 0)
   if (orphan !== null) {
     // orphaned START (hand-edited or truncated file): repair it in place rather
     // than appending a second block — a later upsert would otherwise treat the
@@ -167,20 +217,15 @@ export function upsertSharedBlock(raw: string, baseline: string): string {
 /**
  * Take the managed block back out — every copy of it — leaving the agent's own
  * content exactly as it was. Switching an agent off must not touch a line the
- * user wrote themselves.
+ * user wrote themselves; only the padding around the block goes with it.
  */
 export function removeSharedBlock(raw: string): string {
   const split = splitSharedBlock(raw)
-  let rest: string
-  if (split.block !== null) {
-    rest = split.above + split.below
-  } else {
-    // an orphaned START of either spelling: the marker goes, what followed it stays
-    const orphan = findMarker(raw, START_MARKERS, 0)
-    if (orphan === null) return raw
-    rest = raw.slice(0, orphan.at) + raw.slice(orphan.end)
-  }
-  return rest.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '')
+  if (split.block !== null) return joinAround(split.above, split.below).replace(/^\n+/, '')
+  // an orphaned START of either spelling: the marker goes, what followed it stays
+  const orphan = findMarker(scan(raw), START_MARKERS, 0)
+  if (orphan === null) return raw
+  return joinAround(raw.slice(0, orphan.at), raw.slice(orphan.end)).replace(/^\n+/, '')
 }
 
 export function fileStatus(raw: string | null, baseline: string): InstructionStatus {
@@ -191,8 +236,10 @@ export function fileStatus(raw: string | null, baseline: string): InstructionSta
   // file needs an apply to fold the two back into one
   if (split.duplicates > 0) return 'drifted'
   // normalized on this side too: a baseline stored with its markers must not read
-  // every file as drifted until it happens to be saved again
-  return split.block.trim() === normalizeBaseline(baseline) ? 'synced' : 'drifted'
+  // every file as drifted until it happens to be saved again — and a file saved
+  // with CRLF line endings says the same thing as one saved with LF
+  const block = split.block.replace(/\r\n/g, '\n').trim()
+  return block === normalizeBaseline(baseline) ? 'synced' : 'drifted'
 }
 
 /**
@@ -232,4 +279,111 @@ export function instructionTargets(
     { agents: ['claude'], path: join(repoRoot, 'CLAUDE.md') },
     { agents: ['codex', 'copilot'], path: join(repoRoot, 'AGENTS.md') }
   ]
+}
+
+/**
+ * The files a Claude instructions file pulls in with `@path` imports, resolved.
+ * Claude Code expands a token that starts a line or follows whitespace, outside
+ * code spans, fenced code and HTML comments (the markers among them); a relative
+ * path counts from the importing file's directory and `~` from home. Codex and
+ * Copilot expand nothing, so this is asked only of Claude's files.
+ */
+export function claudeImports(raw: string, fromDir: string, home = homedir()): string[] {
+  let prose = raw
+  for (const f of [...fencedSpans(raw)].reverse()) {
+    prose = prose.slice(0, f.at) + ' '.repeat(f.end - f.at) + prose.slice(f.end)
+  }
+  prose = prose.replace(/<!--[\s\S]*?-->/g, ' ').replace(/`[^`\n]*`/g, ' ')
+  const out: string[] = []
+  for (const m of prose.matchAll(/(?:^|\s)@(\S+)/g)) {
+    const token = m[1].replace(/[.,;:!?)\]]+$/, '')
+    if (token === '') continue
+    const path =
+      token === '~'
+        ? home
+        : token.startsWith('~/')
+          ? join(home, token.slice(2))
+          : isAbsolute(token)
+            ? token
+            : join(fromDir, token)
+    out.push(normalize(path))
+  }
+  return out
+}
+
+/** One target as read from disk, for folding. */
+export type TargetRead = {
+  readonly target: InstructionTarget
+  /** the file's content, or null when it is missing or unreadable */
+  readonly raw: string | null
+  /** where the path really leads once a symlink is followed; the path itself otherwise */
+  readonly real: string
+}
+
+export type FoldedTarget = TargetRead & {
+  readonly readBy: readonly InstructionReader[]
+}
+
+const PROVIDER_ORDER: readonly Provider[] = ['claude', 'codex', 'copilot']
+
+/**
+ * The files an apply writes, once the ones that only *read* another target are
+ * folded into it. A repo `CLAUDE.md` that is a symlink to `AGENTS.md`, or that
+ * imports it with `@AGENTS.md` and holds no block of its own, gets Claude's text
+ * from there already: a block written into it as well would have Claude load the
+ * text twice (the plugin's `(linked)` and `(by import)`). Its agents join the
+ * target's, and the target says who reads it. Two paths that are one file resolve
+ * to the one that carries the file's own name.
+ */
+export function foldTargets(reads: readonly TargetRead[], home = homedir()): FoldedTarget[] {
+  const readBy = new Map<string, InstructionReader[]>()
+  const folded = new Set<string>()
+  const live = (r: TargetRead): boolean => !folded.has(r.target.path)
+  const fold = (into: TargetRead, from: TargetRead, how: InstructionReader['how']): void => {
+    folded.add(from.target.path)
+    readBy.set(into.target.path, [...(readBy.get(into.target.path) ?? []), { path: from.target.path, how }])
+  }
+
+  for (const r of reads) {
+    if (!live(r)) continue
+    const twin = reads.find((o) => o !== r && live(o) && o.real === r.real)
+    if (twin === undefined) continue
+    const owns = (t: TargetRead): boolean => basename(t.real) === basename(t.target.path)
+    const [into, from] = owns(twin) && !owns(r) ? [twin, r] : [r, twin]
+    fold(into, from, 'link')
+  }
+  for (const r of reads) {
+    if (!live(r) || !r.target.agents.includes('claude') || r.raw === null) continue
+    if (extractSharedBlock(r.raw) !== null) continue
+    const imports = claudeImports(r.raw, dirname(r.target.path), home)
+    const imported = reads.find(
+      (o) => o !== r && live(o) && (imports.includes(o.target.path) || imports.includes(o.real))
+    )
+    if (imported !== undefined) fold(imported, r, 'import')
+  }
+
+  return reads.filter(live).map((r) => {
+    const by = readBy.get(r.target.path) ?? []
+    const joined = new Set(r.target.agents)
+    for (const b of by) {
+      for (const a of reads.find((o) => o.target.path === b.path)?.target.agents ?? []) joined.add(a)
+    }
+    return { ...r, target: { ...r.target, agents: PROVIDER_ORDER.filter((p) => joined.has(p)) }, readBy: by }
+  })
+}
+
+/**
+ * Whether every file an apply would write already carries this baseline — the
+ * share's "the repo already says this", decided from what the base branch holds
+ * before any branch or worktree exists. What the repo *says* is what counts: a
+ * file still on the older markers with this very text is not worth a pull request
+ * that only renames them, a `CLAUDE.md` that imports `AGENTS.md` is covered by it,
+ * and a file holding the block twice is a fix worth opening.
+ */
+export function allCarryBaseline(
+  reads: readonly TargetRead[],
+  baseline: string,
+  home = homedir()
+): boolean {
+  return foldTargets(reads, home).every(({ raw }) => fileStatus(raw, baseline) === 'synced')
 }

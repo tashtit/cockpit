@@ -89,7 +89,9 @@ Write one baseline of instructions — global, or per-repository — and fan it 
 
 The shared text lives between `<!-- agent-parity:shared -->` markers inside each file — the same managed block the [agent-parity](https://github.com/tashtit/marketplace) plugin compares and writes, so running both never leaves a file with two copies of it. **Everything outside the markers is that agent's own and is never touched** — you can keep agent-specific instructions alongside the shared baseline in the same file.
 
-Files written by an earlier Cockpit carry `<!-- cockpit:shared -->` markers. Those are read as the same block, and renamed to the current pair the next time the file is applied.
+Files written by an earlier Cockpit carry `<!-- cockpit:shared -->` markers. Those are read as the same block, and renamed to the current pair the next time the file is applied. A marker counts only on a line of its own, outside fenced code, so a document that quotes the markers in a code block is not managed by them.
+
+A repository `CLAUDE.md` that is a symlink to `AGENTS.md`, or that imports it with `@AGENTS.md` and holds no block of its own, is never written: Claude Code already reads the block through `AGENTS.md`, and a second copy would have it load the text twice. That `AGENTS.md` row carries Claude's logo too, and says which file reads it.
 
 Each target shows a drift state:
 

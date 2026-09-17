@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -8,14 +8,18 @@ import {
   LEGACY_START,
   START,
   adoptableBlock,
+  allCarryBaseline,
+  claudeImports,
   extractSharedBlock,
   fileStatus,
+  foldTargets,
   instructionTargets,
   lineCount,
   normalizeBaseline,
   removeSharedBlock,
   splitSharedBlock,
-  upsertSharedBlock
+  upsertSharedBlock,
+  type TargetRead
 } from '../src/main/instructions-core'
 import {
   adoptInstructionsFrom,
@@ -269,6 +273,150 @@ describe('marker families', () => {
   })
 })
 
+/*
+ * A marker is a line of its own, outside fenced code — the plugin's rule too. Prose
+ * that quotes a marker, or a document that shows the pair in a code block, is not
+ * managed by it.
+ */
+describe('a marker is a whole line outside fenced code', () => {
+  it('a marker quoted mid-line is prose, and the block goes after it', () => {
+    const raw = `Cockpit writes between ${START} and ${END} markers.\n`
+    expect(extractSharedBlock(raw)).toBeNull()
+    expect(fileStatus(raw, BASE)).toBe('unmanaged')
+    expect(upsertSharedBlock(raw, BASE)).toBe(`${raw}\n${START}\n${BASE}\n${END}\n`)
+  })
+
+  it('a pair shown inside a fenced code block is not a block', () => {
+    for (const fence of ['```', '~~~']) {
+      const doc = `# How it works\n\n${fence}markdown\n${START}\nthe shared text\n${END}\n${fence}\n`
+      expect(extractSharedBlock(doc)).toBeNull()
+      const out = upsertSharedBlock(doc, BASE)
+      expect(out).toBe(`${doc}\n${START}\n${BASE}\n${END}\n`)
+      // the real block below the example is the one that reads back, and stays put
+      expect(extractSharedBlock(out)).toBe(BASE)
+      expect(upsertSharedBlock(out, BASE)).toBe(out)
+      expect(removeSharedBlock(out)).toBe(doc)
+    }
+  })
+
+  it('an unclosed fence hides nothing — or every apply would append once more', () => {
+    const raw = `# notes\n\n\`\`\`\nstray fence\n\n${START}\n${BASE}\n${END}\n`
+    expect(extractSharedBlock(raw)).toBe(BASE)
+    expect(upsertSharedBlock(raw, BASE)).toBe(raw)
+  })
+
+  it('blanks around a marker and CRLF line endings are tolerated', () => {
+    const crlf = BASE.replace(/\n/g, '\r\n')
+    const raw = `# mine\r\n\r\n  ${START}  \r\n${crlf}\r\n\t${END}\r\n`
+    expect(fileStatus(raw, BASE)).toBe('synced')
+    expect(fileStatus(raw, BASE + '\nNew rule.')).toBe('drifted')
+  })
+})
+
+describe('claudeImports', () => {
+  const home = '/Users/x'
+
+  it('resolves a relative path against the importing file, and ~ against home', () => {
+    expect(claudeImports('See @AGENTS.md for the rules.', '/repo', home)).toEqual(['/repo/AGENTS.md'])
+    expect(claudeImports('@./AGENTS.md\n', '/repo', home)).toEqual(['/repo/AGENTS.md'])
+    expect(claudeImports('@../AGENTS.md', '/repo/.claude', home)).toEqual(['/repo/AGENTS.md'])
+    expect(claudeImports('Also @~/.codex/AGENTS.md', '/Users/x/.claude', home)).toEqual([
+      '/Users/x/.codex/AGENTS.md'
+    ])
+    expect(claudeImports('@/abs/path.md', '/repo', home)).toEqual(['/abs/path.md'])
+  })
+
+  it('ignores a token inside code, a comment, or another word', () => {
+    expect(claudeImports('`@AGENTS.md` is literal', '/repo', home)).toEqual([])
+    expect(claudeImports('```\n@AGENTS.md\n```\n', '/repo', home)).toEqual([])
+    expect(claudeImports('<!-- @AGENTS.md -->', '/repo', home)).toEqual([])
+    expect(claudeImports('mail me@example.com', '/repo', home)).toEqual([])
+  })
+})
+
+/*
+ * A Claude file that reads another target instead of holding a block — a repo
+ * CLAUDE.md that imports @AGENTS.md, or is a symlink to it — is folded into that
+ * target, or Claude would load the text twice.
+ */
+describe('foldTargets', () => {
+  const targets = instructionTargets('/repo')
+  const read = (i: number, raw: string | null, real?: string): TargetRead => ({
+    target: targets[i],
+    raw,
+    real: real ?? targets[i].path
+  })
+
+  it('a CLAUDE.md that imports AGENTS.md and has no block is folded into it', () => {
+    const out = foldTargets([read(0, '# Repo\n\n@AGENTS.md\n'), read(1, upsertSharedBlock('', BASE))])
+    expect(out.map((t) => t.target.path)).toEqual(['/repo/AGENTS.md'])
+    expect(out[0].target.agents).toEqual(['claude', 'codex', 'copilot'])
+    expect(out[0].readBy).toEqual([{ path: '/repo/CLAUDE.md', how: 'import' }])
+  })
+
+  it('a CLAUDE.md with a block of its own is managed by that block, import or not', () => {
+    const out = foldTargets([read(0, `@AGENTS.md\n\n${START}\n${BASE}\n${END}\n`), read(1, null)])
+    expect(out.map((t) => t.target.path)).toEqual(['/repo/CLAUDE.md', '/repo/AGENTS.md'])
+    expect(out.every((t) => t.readBy.length === 0)).toBe(true)
+  })
+
+  it('an import that is not a target of the scope changes nothing', () => {
+    expect(foldTargets([read(0, '@docs/RULES.md\n'), read(1, null)])).toHaveLength(2)
+  })
+
+  it('folds an importing CLAUDE.md even when AGENTS.md is missing — the apply creates it', () => {
+    const out = foldTargets([read(0, '@AGENTS.md\n'), read(1, null)])
+    expect(out.map((t) => [t.target.path, t.raw])).toEqual([['/repo/AGENTS.md', null]])
+    expect(out[0].target.agents).toEqual(['claude', 'codex', 'copilot'])
+  })
+
+  it('two paths that are one file keep the one with the file’s own name', () => {
+    const shared = upsertSharedBlock('', BASE)
+    const out = foldTargets([read(0, shared, '/repo/AGENTS.md'), read(1, shared, '/repo/AGENTS.md')])
+    expect(out.map((t) => t.target.path)).toEqual(['/repo/AGENTS.md'])
+    expect(out[0].readBy).toEqual([{ path: '/repo/CLAUDE.md', how: 'link' }])
+    expect(out[0].target.agents).toEqual(['claude', 'codex', 'copilot'])
+    // and the other way round: AGENTS.md linking to CLAUDE.md
+    const back = foldTargets([read(0, shared), read(1, shared, '/repo/CLAUDE.md')])
+    expect(back.map((t) => t.target.path)).toEqual(['/repo/CLAUDE.md'])
+    expect(back[0].readBy).toEqual([{ path: '/repo/AGENTS.md', how: 'link' }])
+  })
+
+  /*
+   * The share's "the repo already says this", read off the base branch: no pull
+   * request for a rename, an import, or nothing — one for a missing file, a
+   * different text, or a doubled block.
+   */
+  it('says whether the base branch already carries the baseline', () => {
+    const block = upsertSharedBlock('', BASE)
+    expect(allCarryBaseline([read(0, block), read(1, block)], BASE)).toBe(true)
+    expect(allCarryBaseline([read(0, `${LEGACY_START}\n${BASE}\n${LEGACY_END}\n`), read(1, block)], BASE)).toBe(true)
+    expect(allCarryBaseline([read(0, '# Repo\n\n@AGENTS.md\n'), read(1, block)], BASE)).toBe(true)
+    expect(allCarryBaseline([read(0, null), read(1, block)], BASE)).toBe(false)
+    expect(allCarryBaseline([read(0, block), read(1, upsertSharedBlock('', 'older text'))], BASE)).toBe(false)
+    expect(allCarryBaseline([read(0, block), read(1, `${block}\n${block}`)], BASE)).toBe(false)
+    expect(allCarryBaseline([read(0, '# just prose\n'), read(1, block)], BASE)).toBe(false)
+  })
+
+  it('global: ~/.claude/CLAUDE.md importing the codex file joins its row', () => {
+    const g = instructionTargets(null, '/Users/x')
+    const out = foldTargets(
+      [
+        { target: g[0], raw: '@~/.codex/AGENTS.md\n', real: g[0].path },
+        { target: g[1], raw: null, real: g[1].path },
+        { target: g[2], raw: null, real: g[2].path }
+      ],
+      '/Users/x'
+    )
+    expect(out.map((t) => t.target.path)).toEqual([
+      '/Users/x/.codex/AGENTS.md',
+      '/Users/x/.copilot/copilot-instructions.md'
+    ])
+    expect(out[0].target.agents).toEqual(['claude', 'codex'])
+    expect(out[1].readBy).toEqual([])
+  })
+})
+
 describe('lineCount', () => {
   it('counts lines without the blank padding around them', () => {
     expect(lineCount('')).toBe(0)
@@ -383,6 +531,36 @@ describe('saveBaseline / applyInstructions (real files)', () => {
 
   it('a paste of nothing but the markers is an empty baseline: nothing to apply', () => {
     expect(() => applyAfterSaving(`${START}\n${END}\n`)).toThrow(/empty/)
+  })
+
+  it('writes nothing into a CLAUDE.md that imports AGENTS.md — Claude reads it there', () => {
+    const claude = '# Repo\n\nThe rules: @AGENTS.md\n'
+    writeFileSync(claudeMd(), claude)
+    saveBaseline(repo, BASE)
+    const state = getInstructions(repo)
+    expect(state.files.map((f) => [f.path, f.agents, f.status])).toEqual([
+      [agentsMd(), ['claude', 'codex', 'copilot'], 'missing']
+    ])
+    expect(state.files[0].readBy).toEqual([{ path: claudeMd(), how: 'import' }])
+
+    applyInstructions(repo)
+    expect(readFileSync(claudeMd(), 'utf8')).toBe(claude)
+    expect(extractSharedBlock(readFileSync(agentsMd(), 'utf8'))).toBe(BASE)
+    expect(getInstructions(repo).files.map((f) => f.status)).toEqual(['synced'])
+    expect(() => applyInstructions(repo, claudeMd())).toThrow(/reads its block through/)
+  })
+
+  it('a CLAUDE.md that is a link to AGENTS.md is one row, written once', () => {
+    writeFileSync(agentsMd(), '# AGENTS\n')
+    symlinkSync('AGENTS.md', claudeMd())
+    saveBaseline(repo, BASE)
+    const state = getInstructions(repo)
+    expect(state.files.map((f) => f.path)).toEqual([agentsMd()])
+    expect(state.files[0].readBy).toEqual([{ path: claudeMd(), how: 'link' }])
+    expect(state.files[0].agents).toEqual(['claude', 'codex', 'copilot'])
+    applyInstructions(repo)
+    expect(count(readFileSync(agentsMd(), 'utf8'), START)).toBe(1)
+    expect(getInstructions(repo).files.map((f) => f.status)).toEqual(['synced'])
   })
 
   it('apply renames the older markers and folds a doubled block, file by file', () => {

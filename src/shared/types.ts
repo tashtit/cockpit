@@ -562,7 +562,20 @@ export type InstructionFile = {
    * spelling of the markers, typically. Applying folds them into the one block.
    */
   readonly duplicates: number
+  /**
+   * Claude files of this scope that read this one instead of holding a block: a
+   * repo `CLAUDE.md` that imports `@AGENTS.md`, or is a symlink to it. Their
+   * agents are counted here and they are never written — Claude would otherwise
+   * load the text twice.
+   */
+  readonly readBy: readonly InstructionReader[]
   readonly status: InstructionStatus
+}
+
+/** A Claude file that reads another target of its scope, and how. */
+export type InstructionReader = {
+  readonly path: string
+  readonly how: 'import' | 'link'
 }
 
 export type InstructionsState = {

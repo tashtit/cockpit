@@ -13,6 +13,7 @@ const file = (over: Partial<InstructionFile>): InstructionFile => ({
   block: BASE,
   own: { above: 0, below: 0 },
   duplicates: 0,
+  readBy: [],
   status: 'synced',
   ...over
 })
