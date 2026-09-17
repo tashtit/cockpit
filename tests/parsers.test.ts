@@ -377,6 +377,51 @@ describe('claude parser', () => {
   })
 })
 
+describe('claude parser: a question waiting on the user', () => {
+  it('carries the offered options onto the tool_call row', () => {
+    const dir = join(root, 'claude-ask', 'projects', '-p')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'ask-1111.jsonl')
+    writeFileSync(
+      file,
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'set up the repo' }, timestamp: '2026-09-01T10:00:00Z' },
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                name: 'AskUserQuestion',
+                input: {
+                  questions: [
+                    {
+                      question: 'Which owner?',
+                      header: 'Owner',
+                      options: [{ label: 'tashtit', description: 'the shared org' }, { label: 'titan-ron' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          timestamp: '2026-09-01T10:00:05Z'
+        }
+      ])
+    )
+    const msgs = parseClaudeMessages(file)
+    expect(msgs[1]).toMatchObject({ kind: 'tool_call', toolName: 'AskUserQuestion', preview: 'Which owner?' })
+    expect(msgs[1].asks).toEqual([
+      {
+        question: 'Which owner?',
+        header: 'Owner',
+        options: [{ label: 'tashtit', description: 'the shared org' }, { label: 'titan-ron' }]
+      }
+    ])
+  })
+})
+
 describe('toolPreview', () => {
   it('extracts the headline field per tool', () => {
     expect(toolPreview('Bash', { command: 'npm test', description: 'x' })).toBe('npm test')
@@ -384,6 +429,10 @@ describe('toolPreview', () => {
     expect(toolPreview('Read', { file_path: '/tmp/f' })).toBe('/tmp/f')
     expect(toolPreview('Grep', { pattern: 'foo', path: 'src' })).toBe('foo in src')
     expect(toolPreview('WebSearch', { query: 'electron fs.watch' })).toBe('electron fs.watch')
+    // the calls that wait for a person read as what they asked
+    expect(toolPreview('AskUserQuestion', { questions: [{ question: 'Which owner?' }] })).toBe('Which owner?')
+    expect(toolPreview('AskUserQuestion', { questions: [] })).toBe('waiting for your answer')
+    expect(toolPreview('ExitPlanMode', { plan: '# Plan' })).toBe('waiting for the plan to be approved')
   })
   it('returns null for unknown tools and malformed input', () => {
     expect(toolPreview('mcp__server__tool', { a: 1 })).toBeNull()

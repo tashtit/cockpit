@@ -74,6 +74,22 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     run of a live turn never folds** — watching the steps arrive is the point while a
     turn runs. Earlier runs in that same turn still fold.
   - system → `.sys-row` dotted-left-border annotation, aligned with the assistant column
+  - **a question waiting on you → `.ask-card`** (`AskPicker.tsx`), the one tool call that
+    never collapses: the agent's own options are the message, so a `⚙︎` one-liner would
+    hide the point. Sits in the assistant column (`margin-left: 32px`, `min(85%, 76ch)`)
+    wearing the agent's livery (`.tint-*`), led by the `asks you` placard with the same
+    question glyph the "needs you" rows use. Each question is a `<fieldset>`: uppercase
+    legend (the agent's `header`, else `Question N`), the question at `--fs-prose`, then
+    full-width option rows — native radios, or checkboxes when the agent allowed several
+    (`accent-color`, so the control is the OS's and the row is the target). A picked row
+    takes the accent tint. **Send answer** is disabled until every question has a pick and
+    while a turn runs; the note beside it says the pick sends as the next message, and
+    sheds to its own line ≤700px. Only the *last* row qualifies, and only while nothing
+    has answered it (`isPendingAsk` — a folded `tool_result` is the answer); an older
+    question is history and renders as the ordinary tool row. A read-only seat session
+    gets none: the table owns that conversation. Parsed in main
+    (`src/shared/asks.ts` — Claude's `AskUserQuestion`/`ExitPlanMode`, Codex's
+    `request_user_input`), never from the raw JSON in the renderer.
 - Tool/system glyphs are text-presentation unicode (`⚙︎` with U+FE0E, `↳`) — if these
   ever grow, switch to SVGs from `logos.tsx`; never bare emoji-presentation glyphs.
 - **DOM bound:** only the last `RENDER_LAST` (400) messages render, with an explicit

@@ -256,6 +256,16 @@ export function toolPreview(name: string, input: unknown): string | null {
       return str(i.description) ?? str(i.prompt)
     case 'Skill':
       return str(i.skill)
+    // the calls that stop and wait for the person: the headline is what was asked
+    // (the options themselves render as picks — see SessionMessage.asks)
+    case 'AskUserQuestion':
+    case 'request_user_input': {
+      const first = Array.isArray(i.questions) ? i.questions[0] : null
+      const q = first && typeof first === 'object' ? (first as Record<string, unknown>) : null
+      return str(q?.question) ?? str(q?.title) ?? str(q?.header) ?? 'waiting for your answer'
+    }
+    case 'ExitPlanMode':
+      return 'waiting for the plan to be approved'
     // Codex: the command array (or string) it hands a shell, and apply_patch bodies
     case 'shell':
     case 'exec_command':

@@ -805,6 +805,39 @@ summary::-webkit-details-marker { display: none; }
   padding: 1px var(--s3); max-width: min(85%, 76ch); white-space: pre-wrap;
   word-break: break-word; }
 
+/* ---------- the agent's question, answered in place (AskPicker) ----------
+   A tool call that stopped to ask is the one tool row that must not collapse: its
+   options ARE the message. Sits in the assistant column, wearing the agent's livery
+   (the same tint the "needs you" rows use), and sends the pick as the next message. */
+.ask-card { align-self: flex-start; margin-left: 32px; max-width: min(85%, 76ch);
+  display: flex; flex-direction: column; gap: var(--s4);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  padding: var(--s4); }
+.ask-title { display: flex; align-items: center; gap: var(--s2); font-family: var(--mono);
+  font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.9px; text-transform: uppercase;
+  color: var(--fg-dim); }
+.ask-q { border: 0; padding: 0; margin: 0; min-width: 0; }
+.ask-legend { padding: 0; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.9px;
+  text-transform: uppercase; color: var(--fg-dim); }
+.ask-multi { font-weight: 400; letter-spacing: 0.6px; }
+.ask-question { margin: var(--s1) 0 var(--s3); font-size: var(--fs-prose); line-height: 1.5;
+  color: var(--fg); }
+.ask-opts { display: flex; flex-direction: column; gap: var(--s2); }
+/* an option is a target first: full-width row, ≥24px, the whole label clickable */
+.ask-opt { display: flex; align-items: flex-start; gap: var(--s3); min-height: 24px;
+  padding: var(--s2) var(--s3); cursor: pointer;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.ask-opt:hover { background: var(--bg3); border-color: var(--border-strong); }
+.ask-opt.on { background: rgba(var(--accent-rgb), 0.16); border-color: rgba(var(--accent-rgb), 0.55); }
+.ask-opt input { margin: 2px 0 0; flex-shrink: 0; }
+.ask-opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ask-opt-label { font-size: var(--fs-base); color: var(--fg); }
+.ask-opt-desc { font-size: var(--fs-sm); line-height: 1.45; color: var(--fg-dim); }
+.ask-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--s4);
+  flex-wrap: wrap; }
+.ask-note { flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--fg-dim); }
+
 .thinking { display: flex; align-items: center; gap: var(--s2); color: var(--fg-dim);
   font-size: var(--fs-sm); margin-left: 32px; }
 .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
@@ -1944,6 +1977,9 @@ button.pnl-flag:hover { text-decoration: underline; }
      Search takes its own line under the scope switch instead */
   .scope-line { flex-wrap: wrap; }
   .scope-line .pnl-search { flex-basis: 100%; }
+  /* the question card's note wrapped to three lines beside its key — the note takes
+     the row, the key follows under it (the composer's stacking, same reason) */
+  .ask-note { flex-basis: 100%; }
 }
 @media (max-height: 600px) {
   .home-hero { display: none; }

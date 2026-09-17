@@ -1,5 +1,6 @@
 import { basename, join, sep } from 'node:path'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
+import { parseAsks } from '../../shared/asks'
 import {
   capText,
   contentToText,
@@ -159,12 +160,14 @@ export function parseClaudeMessages(file: string): SessionMessage[] {
         for (const b of content) {
           if (b?.type === 'tool_use') {
             const preview = toolPreview(b.name ?? 'tool', b.input)
+            const asks = parseAsks(b.name ?? '', b.input)
             out.push({
               role: 'assistant',
               kind: 'tool_call',
               toolName: b.name ?? 'tool',
               text: truncate(JSON.stringify(b.input ?? {}), 400),
               ...(preview ? { preview: truncate(preview, 200) } : {}),
+              ...(asks ? { asks } : {}),
               ts
             })
           }

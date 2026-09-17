@@ -284,7 +284,9 @@ export function App(): JSX.Element {
             kind: 'tool_call',
             toolName: ev.toolName,
             text: ev.detail,
-            preview: ev.preview
+            preview: ev.preview,
+            // a question with options reaches the transcript as an answerable card
+            ...(ev.asks ? { asks: ev.asks } : {})
           }
         ])
       } else if (ev.type === 'error') {

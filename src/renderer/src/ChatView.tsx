@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import { api } from './api'
+import { AskPicker } from './AskPicker'
 import type { ChatBinding } from './App'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
@@ -144,6 +145,12 @@ export function ChatView({
   })
   const hidden = log.length - sliced.length
 
+  // the agent's question is answerable while it is the last thing in the transcript
+  // and nothing has answered it — an older one is history, and a seat session's
+  // conversation belongs to its table
+  const lastRow = visible[visible.length - 1]
+  const pendingAsk = lastRow && isPendingAsk(lastRow) && !binding?.readOnly ? lastRow : undefined
+
   // a long stretch of tool calls is one piece of work, not twenty rows of it: four or
   // more in a row fold into a work-log block that says what happened. The run a turn
   // is still producing never folds — watching it is the point while it runs.
@@ -152,6 +159,12 @@ export function ChatView({
   // screen-reader announcement on turn completion/failure — not per streamed token
   const lastSys = [...log].reverse().find((m) => m.kind === 'system')
   const status = busy ? 'Assistant is working' : (lastSys?.text ?? (log.length ? 'Ready' : ''))
+
+  /** A pick from the agent's own options: the same send path a typed message takes. */
+  const sendAnswer = (text: string): void => {
+    if (!text.trim() || busy || !binding) return
+    onSend(text, mode)
+  }
 
   const submit = (): void => {
     const p = draft.trim()
@@ -300,6 +313,16 @@ export function ChatView({
           {blocks.map((b) =>
             b.kind === 'run' ? (
               <ToolRun key={b.rows[0].key} rows={b.rows} provider={binding.provider} cwd={binding.cwd} />
+            ) : b.row === pendingAsk && b.row.m.asks ? (
+              // the question takes the tool row's place: its options are the point,
+              // and a collapsed ⚙︎ row hid them behind the raw JSON
+              <AskPicker
+                key={b.row.key}
+                prompts={b.row.m.asks}
+                provider={binding.provider}
+                disabled={busy}
+                onAnswer={sendAnswer}
+              />
             ) : (
               <Message
                 key={b.row.key}
@@ -387,6 +410,11 @@ type Block = { kind: 'row'; row: Row } | { kind: 'run'; rows: Row[] }
 /** Four is where a run stops reading as "a couple of steps" and starts as a wall. */
 const FOLD_AT = 4
 
+/** A question the agent is still waiting on: never folded away, never a one-liner. */
+export function isPendingAsk(row: Row): boolean {
+  return row.m.kind === 'tool_call' && !!row.m.asks?.length && !row.result
+}
+
 export function foldToolRuns(rows: readonly Row[], busy: boolean): Block[] {
   const out: Block[] = []
   let run: Row[] = []
@@ -397,7 +425,7 @@ export function foldToolRuns(rows: readonly Row[], busy: boolean): Block[] {
     run = []
   }
   for (const row of rows) {
-    if (row.m.kind === 'tool_call' || row.m.kind === 'tool_result') run.push(row)
+    if ((row.m.kind === 'tool_call' || row.m.kind === 'tool_result') && !isPendingAsk(row)) run.push(row)
     else {
       flush(false)
       out.push({ kind: 'row', row })
