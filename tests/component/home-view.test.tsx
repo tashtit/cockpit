@@ -197,6 +197,28 @@ describe('HomeView first run', () => {
     expect(screen.queryByRole('textbox', { name: 'Task description' })).not.toBeInTheDocument()
   })
 
+  it('never takes focus from what the person is already using when the composer appears late', async () => {
+    // accounts (and with them the composer) can answer seconds after the view opened —
+    // by then the person may be in the tree, and stealing focus also folds away the row
+    // actions they were reaching for
+    let answer: (s: AccountsSnapshot) => void = () => {}
+    vi.mocked(window.cockpit.getAccounts).mockReturnValue(
+      new Promise<AccountsSnapshot>((r) => {
+        answer = r
+      })
+    )
+    renderHome()
+    const elsewhere = document.createElement('button')
+    document.body.append(elsewhere)
+    elsewhere.focus()
+
+    await act(async () => answer(claudeSnapshot))
+    const prompt = await screen.findByRole('textbox', { name: 'Task description' })
+    expect(prompt).not.toHaveFocus()
+    expect(elsewhere).toHaveFocus()
+    elsewhere.remove()
+  })
+
   it('shows the composer, focused, as soon as there is an account and a repo', async () => {
     // no need to wait for the scan to finish: a repo already read is proof enough
     vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)

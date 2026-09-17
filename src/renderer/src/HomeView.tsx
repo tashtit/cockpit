@@ -164,12 +164,17 @@ export function HomeView({
   const canStart = (accounts?.accounts.length ?? 0) > 0 && selectable.length > 0
   const needsSetup = !canStart && accounts !== null && indexed
 
-  // focus lands in the composer when it first appears, not when the view mounts
+  // Focus lands in the composer when it first appears, not when the view mounts — and
+  // only if nobody is using anything else. The composer appears once the accounts answer
+  // and the first repos arrive, which can be seconds after the view opened: by then the
+  // person may be in the tree or the search box, and taking focus off them would also
+  // fold away the row actions they were reaching for.
   const focusedRef = useRef(false)
   useEffect(() => {
     if (!canStart || focusedRef.current) return
     focusedRef.current = true
-    promptRef.current?.focus()
+    const busyElsewhere = document.activeElement !== null && document.activeElement !== document.body
+    if (!busyElsewhere) promptRef.current?.focus()
   }, [canStart])
 
   // the fleet: sessions and roundtables on one board, placed by what is happening
