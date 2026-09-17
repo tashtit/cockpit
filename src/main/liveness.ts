@@ -1,6 +1,15 @@
+import { opendirSync, type Dir } from 'node:fs'
+import { dirname } from 'node:path'
 import type { AttentionAsk, BusySession, Provider, SessionMeta } from '../shared/types'
 import { TRANSCRIPT_TAIL_BYTES, parseJsonlText, readTail } from './parsers/util'
-import { IDLE, judgeTail, type ObservedSession, type ObservedTurn, type TurnVerdict } from './liveness-core'
+import {
+  IDLE,
+  copilotLockPids,
+  judgeTail,
+  type ObservedSession,
+  type ObservedTurn,
+  type TurnVerdict
+} from './liveness-core'
 
 export type { ObservedSession, ObservedTurn } from './liveness-core'
 
@@ -13,8 +22,11 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
  * keeps growing. Silence ends it — a killed CLI leaves a mid-turn tail forever — so
  * an entry without a write for LIVE_WINDOW_MS expires on a timer; while the newest
  * record is a tool call waiting for its result (a test suite, a build — minutes with
- * nothing written) the entry gets LIVE_TOOL_WINDOW_MS instead. Best-effort by
- * design: an unreadable or unrecognised tail is idle, never an error.
+ * nothing written) the entry gets LIVE_TOOL_WINDOW_MS instead. Copilot is the one
+ * provider that says so itself: it holds an `inuse.<pid>.lock` beside the log for as
+ * long as its CLI runs, so a Copilot entry past either window is kept while that pid
+ * is alive and expires once it is not. Best-effort by design: an unreadable or
+ * unrecognised tail — or lock — is idle, never an error.
  *
  * The transitions are news too (`onTurn`, for the attention desk): a turn seen
  * running whose log then writes its ending record has *ended* — an expiry is not
@@ -61,9 +73,63 @@ export function readTurnState(file: string, provider: Provider): TurnVerdict | n
   return null
 }
 
+/**
+ * Directory entries a lock check will look at. A Copilot session directory holds a
+ * handful of files (the log, a workspace, the locks); the cap is what keeps the read
+ * bounded whatever else has been dropped in there.
+ */
+export const LOCK_SCAN_ENTRIES = 64
+
+/** Does this pid still exist? EPERM says it does — it just isn't ours to signal. */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === 'EPERM'
+  }
+}
+
+/**
+ * Is a Copilot CLI still holding the session this log belongs to? Copilot writes
+ * `inuse.<pid>.lock` next to `events.jsonl` while a process has the session open, so
+ * a mid-turn tail that has gone quiet for minutes can be told from a killed CLI —
+ * which is the one thing the records never say. Bounded and best-effort: no lock, an
+ * unreadable directory or a pid that has gone leaves the windows to decide. It only
+ * ever *keeps* an entry: the locks outlive the turns (most of the ones on disk are
+ * stale), so one alone never means a turn is running.
+ */
+function copilotHolderAlive(file: string): boolean {
+  let dir: Dir
+  try {
+    dir = opendirSync(dirname(file))
+  } catch {
+    return false
+  }
+  try {
+    const names: string[] = []
+    for (let i = 0; i < LOCK_SCAN_ENTRIES; i++) {
+      const entry = dir.readSync()
+      if (!entry) break
+      names.push(entry.name)
+    }
+    return copilotLockPids(names).some(pidAlive)
+  } catch {
+    return false
+  } finally {
+    try {
+      dir.closeSync()
+    } catch {
+      // already closed, or the directory went away mid-read
+    }
+  }
+}
+
 type LiveEntry = {
   readonly id: string
   readonly file: string
+  /** Whose log this is — copilot's expiry also consults its lock */
+  readonly provider: Provider
   /** Tracker state, mutated in place: the turn's start (kept once known) and its newest write */
   startedAt: number
   lastWriteAt: number
@@ -165,7 +231,15 @@ export class LivenessTracker {
       if (!newTurn) return
       prev.startedAt = startedAt
     } else {
-      this.entries.set(meta.id, { id: meta.id, file, startedAt, lastWriteAt: written, asks, windowMs })
+      this.entries.set(meta.id, {
+        id: meta.id,
+        file,
+        provider: meta.provider,
+        startedAt,
+        lastWriteAt: written,
+        asks,
+        windowMs
+      })
       this.ensureSweep()
       this.turnEvent(session, startedAt, asks)
     }
@@ -215,10 +289,10 @@ export class LivenessTracker {
     const now = this.now()
     let changed = false
     for (const [id, e] of this.entries) {
-      if (now - e.lastWriteAt > e.windowMs) {
-        this.entries.delete(id)
-        changed = true
-      }
+      if (now - e.lastWriteAt <= e.windowMs) continue
+      if (e.provider === 'copilot' && copilotHolderAlive(e.file)) continue
+      this.entries.delete(id)
+      changed = true
     }
     if (this.entries.size === 0) this.stopSweep()
     if (changed) this.emit()
