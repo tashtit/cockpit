@@ -55,13 +55,17 @@ describe('ui-tour fixture world', () => {
     expect(list).toContain(join(world.userData, 'worktrees', 'rocket'))
   })
 
-  it('seeds roundtables the app will load, one consensus and one open', () => {
+  it('seeds roundtables the app will load, and archives one of them in config', () => {
     const dir = join(world.userData, 'roundtables')
     const tables = readdirSync(dir)
       .filter((f) => f.endsWith('.json'))
       .map((f) => sanitizeRoundtable(JSON.parse(readFileSync(join(dir, f), 'utf8'))))
     expect(tables.every(Boolean)).toBe(true)
-    expect(tables.map((t) => t?.mode).sort()).toEqual(['consensus', 'open'])
+    expect(tables.map((t) => t?.mode).sort()).toEqual(['consensus', 'open', 'open'])
+    // one is archived in cockpit's own config, so the tree's Archived list has something
+    const cfg = JSON.parse(readFileSync(join(world.userData, 'cockpit-config.json'), 'utf8'))
+    expect(cfg.archivedRoundtables).toEqual(['rt-archived'])
+    expect(tables.some((t) => t?.id === 'rt-archived')).toBe(true)
   })
 
   it('puts a runnable stub first on PATH for every CLI the app spawns', () => {

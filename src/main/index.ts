@@ -51,6 +51,7 @@ import {
   setHistoryDays,
   setRepoHidden,
   setRepoOrder,
+  setRoundtableArchived,
   setSessionArchived,
   setSessionsArchived,
   setStaleDays,
@@ -963,10 +964,20 @@ app.whenReady().then(() => {
     }
   })
   roundtables = tables
+  tables.setArchived(loadConfig().archivedRoundtables ?? [])
   // seat-sessions (anything whose cwd is a table's room/worktree) leave the normal
   // session listings and page only under their table
   indexer.setRoundtableResolver((cwd) => tables.tableIdForCwd(cwd))
   ipcMain.handle('roundtable:list', () => tables.list())
+  ipcMain.handle('roundtable:archive', (_e, id: string, archived: boolean) => {
+    // a running table would keep its board row while the tree hid it — stop it first
+    if (Boolean(archived) && tables.isRunning(String(id))) {
+      throw new Error('That roundtable is mid-round. Stop it first.')
+    }
+    tables.setArchived(setRoundtableArchived(String(id), Boolean(archived)))
+    // the tree, the board and the palette all read the table list on an index update
+    sendToWin('index-updated')
+  })
   ipcMain.handle('roundtable:get', (_e, id: string) => tables.get(String(id)))
   ipcMain.handle('roundtable:create', async (_e, req: NewRoundtableRequest) => {
     const topic = String(req?.topic ?? '').trim()

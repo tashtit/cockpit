@@ -9,6 +9,8 @@ export type AppConfig = {
   readonly sources: SourceDir[]
   /** Session ids the user archived in Cockpit (provider logs have no such flag) */
   readonly archived?: string[]
+  /** Roundtable ids the user archived — the tables themselves stay on disk */
+  readonly archivedRoundtables?: string[]
   /** Shared AI instruction baselines — fanned out into each agent's own file */
   readonly sharedInstructions?: {
     readonly global?: string
@@ -148,6 +150,17 @@ export function setSessionArchived(sessionId: string, archived: boolean): string
   else set.delete(sessionId)
   const ids = [...set]
   saveConfig({ ...cfg, archived: ids })
+  return ids
+}
+
+/** Same two tiers as a session: archiving a table only hides it, and is reversible. */
+export function setRoundtableArchived(id: string, archived: boolean): string[] {
+  const cfg = loadConfig()
+  const set = new Set(cfg.archivedRoundtables ?? [])
+  if (archived) set.add(id)
+  else set.delete(id)
+  const ids = [...set]
+  saveConfig({ ...cfg, archivedRoundtables: ids })
   return ids
 }
 

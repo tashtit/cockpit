@@ -126,7 +126,9 @@ export function HomeView({
   useEffect(() => {
     let dead = false
     const load = (): void => {
-      void api.listRoundtables?.().then((r) => !dead && setTables(r))
+      void api
+        .listRoundtables?.()
+        .then((r) => !dead && setTables(r.filter((t) => !t.archived)))
     }
     load()
     const unsub = api.onRoundtableEvent?.((ev) => {

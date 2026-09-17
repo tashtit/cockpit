@@ -273,6 +273,7 @@ describe('roundtables as tree items', () => {
     title: 'adopt biome?',
     updatedAt: 1700000000000,
     providers: ['claude', 'codex'],
+    archived: false,
     entryCount: 3,
     running: false,
     branch: 'cockpit/table-biome',
@@ -285,6 +286,33 @@ describe('roundtables as tree items', () => {
     branch: null,
     repoRoot: null
   }
+
+  it('archives a table from its row, and brings it back from the archived list', async () => {
+    vi.mocked(window.cockpit.listRoundtables).mockResolvedValue([grounded])
+    renderSidebar()
+
+    const row = await screen.findByRole('treeitem', { name: /adopt biome\?/ })
+    await userEvent.click(within(row).getByRole('button', { name: 'Archive roundtable' }))
+    expect(window.cockpit.setRoundtableArchived).toHaveBeenCalledWith('rt-g', true)
+  })
+
+  it('hides an archived table behind the archived list, and says it is archived', async () => {
+    vi.mocked(window.cockpit.listRoundtables).mockResolvedValue([
+      { ...grounded, archived: true }
+    ])
+    renderSidebar()
+
+    // out of the project's children; the disclosure counts it even with no archived sessions
+    await waitFor(() => expect(screen.getByRole('button', { name: /Archived \(1\)/ })).toBeVisible())
+    expect(screen.queryByRole('treeitem', { name: /adopt biome\?/ })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /Archived \(1\)/ }))
+    const row = await screen.findByRole('treeitem', { name: /adopt biome\?\s*\(archived\)/ })
+    // struck through like an archived session, not just labelled
+    expect(row.className).toContain('archived')
+    await userEvent.click(within(row).getByRole('button', { name: 'Unarchive roundtable' }))
+    expect(window.cockpit.setRoundtableArchived).toHaveBeenCalledWith('rt-g', false)
+  })
 
   it('groups tables under their project or Chats, and expands their seat sessions', async () => {
     vi.mocked(window.cockpit.pageSessions).mockImplementation(async (q) =>

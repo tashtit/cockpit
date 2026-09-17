@@ -240,6 +240,7 @@ export function freshApi(): CockpitApi {
     undoRestore: vi.fn(async () => {}),
     listEndpointModels: vi.fn(async () => []),
     listRoundtables: vi.fn(async () => []),
+    setRoundtableArchived: vi.fn(async () => {}),
     getRoundtable: vi.fn(async () => emptyRoundtable()),
     createRoundtable: vi.fn(async () => emptyRoundtable()),
     sendRoundtableMessage: vi.fn(async () => {}),

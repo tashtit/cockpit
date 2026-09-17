@@ -100,6 +100,8 @@ export class RoundtableManager {
   /** ChatManager turn id → roundtable id, for routing stream events */
   private readonly byTurn = new Map<string, string>()
   private loaded = false
+  /** Archived table ids — kept here, applied at list() time like the indexer's set */
+  private archived = new Set<string>()
 
   constructor(dir: string, hooks: Hooks) {
     this.dir = dir
@@ -144,6 +146,16 @@ export class RoundtableManager {
     return t
   }
 
+  /** A round of this table is in flight right now. */
+  isRunning(id: string): boolean {
+    return this.rounds.has(id)
+  }
+
+  /** Applied at query time, so archiving never rewrites a table file. */
+  setArchived(ids: readonly string[]): void {
+    this.archived = new Set(ids)
+  }
+
   list(): RoundtableMeta[] {
     this.ensureLoaded()
     return [...this.tables.values()]
@@ -155,7 +167,8 @@ export class RoundtableManager {
         entryCount: t.entries.length,
         running: this.rounds.has(t.id),
         branch: t.branch,
-        repoRoot: t.repoRoot
+        repoRoot: t.repoRoot,
+        archived: this.archived.has(t.id)
       }))
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
