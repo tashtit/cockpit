@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { afterAll, describe, it, expect, beforeAll } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { listClaudeSessions, parseClaudeMessages } from '../src/main/parsers/claude'
@@ -7,7 +7,7 @@ import { listCodexSessions, parseCodexMessages } from '../src/main/parsers/codex
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
 import { toolPreview } from '../src/main/parsers/util'
 
-const root = join(tmpdir(), 'cockpit-test-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-test-fixtures-'))
 
 function jsonl(objs: unknown[]): string {
   return objs.map((o) => JSON.stringify(o)).join('\n') + '\n'
@@ -501,3 +501,5 @@ describe('robustness', () => {
     expect(listCopilotSessions(join(root, 'nope'), 'x')).toEqual([])
   })
 })
+
+afterAll(() => rmSync(root, { recursive: true, force: true }))

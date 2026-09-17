@@ -124,6 +124,7 @@ export function freshApi(): CockpitApi {
     addSource: vi.fn(async () => []),
     removeSource: vi.fn(async () => []),
     listRepos: vi.fn(async () => []),
+    whenIndexed: vi.fn(async () => {}),
     pageSessions: vi.fn(async () => ({ total: 0, items: [] })),
     getSession: vi.fn(async () => null),
     getSessionMessages: vi.fn(async () => []),

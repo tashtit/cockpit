@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { afterAll, describe, it, expect, beforeAll } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
@@ -11,7 +11,7 @@ import {
   resolveRepo
 } from '../src/main/repos'
 
-const root = join(tmpdir(), 'cockpit-repo-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-repo-fixtures-'))
 const mainRepo = join(root, 'myrepo')
 const worktree = join(root, 'worktrees', 'fix-login')
 
@@ -185,3 +185,5 @@ describe('branchForCwd', () => {
     }
   })
 })
+
+afterAll(() => rmSync(root, { recursive: true, force: true }))

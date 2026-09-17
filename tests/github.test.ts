@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { getPrs } from '../src/main/github'
@@ -11,7 +11,7 @@ import { getPrs } from '../src/main/github'
  * getPrs caches per repo root for 60s, so every test asks from a root of its own.
  */
 
-const root = join(realpathSync(tmpdir()), 'cockpit-github-fixtures')
+const root = mkdtempSync(join(realpathSync(tmpdir()), 'cockpit-github-fixtures-'))
 const bin = join(root, 'bin')
 const data = join(root, 'data')
 const calls = join(data, 'calls.log')

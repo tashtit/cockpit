@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { appendFileSync, mkdirSync, writeFileSync, rmSync, utimesSync, readFileSync, readdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,7 @@ import { SessionIndexer, subagentParent } from '../src/main/indexer'
 import type { BusySession } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
-const root = join(tmpdir(), 'cockpit-indexer-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-indexer-fixtures-'))
 const claudeDir = join(root, 'claude')
 const copilotDir = join(root, 'copilot')
 const repoA = join(root, 'repo-a')
@@ -84,7 +84,10 @@ beforeAll(async () => {
   indexer.stopWatchers()
 })
 
-afterAll(() => indexer?.stopWatchers())
+afterAll(() => {
+  indexer?.stopWatchers()
+  rmSync(root, { recursive: true, force: true })
+})
 
 describe('SessionIndexer', () => {
   it('groups sessions by GitHub fullName, general bucket last', () => {
@@ -103,6 +106,30 @@ describe('SessionIndexer', () => {
     expect(page.items[0].title).toBe('add pagination')
     const page2 = indexer.page({ repoKey: 'gh:acme/repo-a', offset: 1, limit: 1 })
     expect(page2.items[0].title).toBe('fix the login bug')
+  })
+
+  it('settles whenScanned only after the first full scan has published', async () => {
+    const fresh = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    let settled = false
+    void fresh.whenScanned().then(() => (settled = true))
+    await new Promise((r) => setImmediate(r))
+    // no scan has run: an empty repo list here means "not read yet"
+    expect(settled).toBe(false)
+    expect(fresh.listRepos()).toEqual([])
+
+    const scan = fresh.setSources([{ path: claudeDir, provider: 'claude', label: 'test' }])
+    await fresh.whenScanned()
+    expect(fresh.listRepos().map((r) => r.key)).toContain('gh:acme/repo-a')
+    await scan
+    fresh.stopWatchers()
+  })
+
+  it('settles whenScanned even when there is nothing to scan', async () => {
+    const empty = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await empty.setSources([{ path: join(root, 'missing'), provider: 'codex', label: 'none' }])
+    await expect(empty.whenScanned()).resolves.toBeUndefined()
+    expect(empty.listRepos()).toEqual([])
+    empty.stopWatchers()
   })
 
   it('filters by search and provider', () => {

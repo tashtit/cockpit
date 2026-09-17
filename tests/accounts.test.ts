@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { afterAll, describe, it, expect, beforeAll } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
@@ -11,7 +11,7 @@ import {
   setCopilotActiveUser
 } from '../src/main/accounts'
 
-const root = join(tmpdir(), 'cockpit-accounts-fixtures')
+const root = mkdtempSync(join(tmpdir(), 'cockpit-accounts-fixtures-'))
 
 function fakeJwt(payload: object): string {
   const b64 = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base64url')
@@ -81,3 +81,5 @@ describe('setCopilotActiveUser', () => {
     expect(() => setCopilotActiveUser(join(root, 'copilot-x'), 'evil-user')).toThrow(/not logged in/)
   })
 })
+
+afterAll(() => rmSync(root, { recursive: true, force: true }))

@@ -44,6 +44,7 @@ const api: CockpitApi = {
     ipcRenderer.invoke('sources:add', path, provider, label),
   removeSource: (path: string) => ipcRenderer.invoke('sources:remove', path),
   listRepos: () => ipcRenderer.invoke('repos:list'),
+  whenIndexed: () => ipcRenderer.invoke('index:scanned'),
   pageSessions: (query: SessionQuery) => ipcRenderer.invoke('sessions:page', query),
   getSession: (sessionId: string) => ipcRenderer.invoke('sessions:get', sessionId),
   getSessionMessages: (id: string) => ipcRenderer.invoke('sessions:messages', id),

@@ -461,6 +461,7 @@ app.whenReady().then(() => {
     return sources
   })
   ipcMain.handle('repos:list', () => indexer.listRepos())
+  ipcMain.handle('index:scanned', () => indexer.whenScanned())
   ipcMain.handle('sessions:page', (_e, query: SessionQuery) => indexer.page(query))
   ipcMain.handle('sessions:get', (_e, id: string) => indexer.getSession(String(id)))
   ipcMain.handle('sessions:messages', (_e, id: string) => indexer.getMessages(id))

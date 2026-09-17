@@ -111,6 +111,7 @@ describe('session rows follow the time format live', () => {
     render(
       <HomeView
         repos={[repo]}
+        indexed
         indexVersion={0}
         busy={false}
         onStart={vi.fn().mockResolvedValue(null)}
