@@ -614,6 +614,10 @@ export class AttentionTracker {
    * list, waits on nobody.
    */
   prsUpdated(repoRoot: string, prs: readonly PrStatus[], carrierFor: (pr: PrStatus) => string | null): void {
+    // the list is `--state all`, so an empty one is a failed gh call (answered [] and cached)
+    // or a repo with no PRs at all — nothing to clear either way, and a failure must not
+    // forget a PR that is still red
+    if (prs.length === 0) return
     const prefix = `pr:${trimSep(normalize(repoRoot))}#`
     const listed = new Set<string>()
     for (const pr of prs) {
@@ -621,6 +625,8 @@ export class AttentionTracker {
       listed.add(key)
       if (!prIsRed(pr)) {
         this.drop(key)
+        // green in between: the same commit turning red again (a review after a pass) is news
+        this.seenPrs.delete(key)
         continue
       }
       const item: AttentionPr = {

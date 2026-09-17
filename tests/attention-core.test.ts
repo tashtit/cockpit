@@ -678,12 +678,30 @@ describe('AttentionTracker — red pull requests', () => {
     h.t.prsUpdated(ROCKET, [pr({ checks: 'passing' })], carrier)
     expect(h.t.landings()).toEqual([])
     expect(h.t.takeWithdrawn()).toEqual(['cockpit:pr:/Users/dev/src/rocket#57'])
-    // the same commit failing again (a re-run) is not a new push
-    h.t.prsUpdated(ROCKET, [pr()], carrier)
-    expect(h.t.flushAt()).toBeNull()
     h.t.prsUpdated(ROCKET, [pr({ headSha: 'bbb222' })], carrier)
     expect(h.t.landings().map((l) => l.kind)).toEqual(['pr'])
     expect(h.flush().notice?.title).toBe('PR #57 has failing checks')
+  })
+
+  it('red again after green on the same commit is raised again — a review after the checks pass', () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.flush().notice?.title).toBe('PR #57 has failing checks')
+    h.t.prsUpdated(ROCKET, [pr({ checks: 'passing' })], carrier)
+    h.t.prsUpdated(ROCKET, [pr({ checks: 'passing', review: 'changes_requested' })], carrier)
+    expect(h.t.landings().map((l) => l.kind)).toEqual(['pr'])
+    expect(h.flush().notice?.title).toBe('PR #57 has changes requested')
+  })
+
+  it('a failed gh call (an empty list) forgets nothing: the red PR keeps its row and stays raised once', () => {
+    const h = harness()
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    h.flush()
+    h.t.prsUpdated(ROCKET, [], carrier)
+    expect(h.t.landings()).toHaveLength(1)
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.landings()).toHaveLength(1)
+    expect(h.t.flushAt()).toBeNull()
   })
 
   it('changes requested is red; drafts too; merged, closed and pending are not', () => {
@@ -734,7 +752,7 @@ describe('AttentionTracker — red pull requests', () => {
     h.t.prsUpdated(ROCKET, [pr()], carrier)
     h.t.prsUpdated('/Users/dev/src/atlas', [pr({ number: 12 })], () => 'codex:atlas')
     expect(h.t.landings()).toHaveLength(2)
-    h.t.prsUpdated(ROCKET, [], carrier)
+    h.t.prsUpdated(ROCKET, [pr({ number: 58, headRefName: 'someone/else', checks: 'passing' })], carrier)
     expect(h.t.landings().map((l) => l.id)).toEqual(['codex:atlas'])
   })
 
