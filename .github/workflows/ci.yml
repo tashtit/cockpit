@@ -235,17 +235,35 @@ jobs:
           name: cockpit-mac
           path: dist
 
+      # Allowed to fail so the step below can finish what it started; nothing is released
+      # quietly, because the version check after them both is the gate.
       - name: 🚢 Release
         id: release
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COCKPIT_PACKAGED_VERSION: ${{ needs.package.outputs.version }}
         run: npx semantic-release
 
+      # semantic-release pushes the tag, creates the release as a draft, uploads the assets
+      # and only then publishes. A GitHub 500 on one of the ~130MB disk images breaks that
+      # in the middle and strands the release as a draft nobody can reach — and a re-run
+      # cannot help, because the tag is now there and the next run decides no release is
+      # due. This finishes the job: re-upload what is missing or was stored short, publish
+      # the draft. It acts only on a release carrying the version the package job built, so
+      # a failure that is not this one still fails the run.
+      - name: 🎉 Finish a release left half-published
+        id: finish
+        if: ${{ steps.release.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COCKPIT_PACKAGED_VERSION: ${{ needs.package.outputs.version }}
+        run: node scripts/finish-release.mts
+
       - name: 🔒 Released the packaged version
         env:
           PACKAGED: ${{ needs.package.outputs.version }}
-          RELEASED: ${{ steps.release.outputs.version }}
+          RELEASED: ${{ steps.release.outputs.version || steps.finish.outputs.version }}
         run: |
           if [ "$RELEASED" != "$PACKAGED" ]; then
             echo "::error::the package job built ${PACKAGED}, but semantic-release released '${RELEASED}'"
