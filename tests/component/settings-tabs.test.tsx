@@ -113,10 +113,38 @@ describe('Settings tabs', () => {
     expect(tab('Accounts')).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('names each panel by its tab', async () => {
+  it('names each panel by its tab, and only the open tab names a panel', async () => {
     render(<Settings onClose={vi.fn()} section="about" />)
     const panel = screen.getByRole('tabpanel')
     expect(panel).toHaveAccessibleName('About')
     expect(tab('About')).toHaveAttribute('aria-controls', panel.id)
+    // the other five panels are not in the DOM, so their tabs must not name one:
+    // an aria-controls pointing at nothing is a dead "go to the controlled element"
+    for (const s of SETTINGS_SECTIONS.filter((s) => s.id !== 'about')) {
+      expect(tab(s.label)).not.toHaveAttribute('aria-controls')
+    }
+  })
+
+  it('takes a deep link to a tab the user has since left', async () => {
+    // the sidebar's usage meters name 'accounts' every time they are clicked, so the
+    // section alone cannot say "take me there" twice — App counts the asking
+    const { rerender } = render(<Settings onClose={vi.fn()} section="accounts" openCount={1} />)
+    await screen.findByText('claude-default')
+
+    await userEvent.click(tab('Backup'))
+    expect(tab('Backup')).toHaveAttribute('aria-selected', 'true')
+
+    rerender(<Settings onClose={vi.fn()} section="accounts" openCount={2} />)
+    expect(tab('Accounts')).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByText('claude-default')).toBeInTheDocument()
+  })
+
+  it('leaves the open tab alone when Settings is reopened with no tab named', async () => {
+    const { rerender } = render(<Settings onClose={vi.fn()} openCount={1} />)
+    await screen.findByText('claude-default')
+    await userEvent.click(tab('Backup'))
+
+    rerender(<Settings onClose={vi.fn()} openCount={2} />)
+    expect(tab('Backup')).toHaveAttribute('aria-selected', 'true')
   })
 })

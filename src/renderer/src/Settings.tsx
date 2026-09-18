@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { AppInfo, TimeFormat, UpdateState } from '../../shared/types'
 import { AboutSection } from './AboutSection'
 import { AccountsSection } from './AccountsSection'
@@ -65,11 +65,16 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]['id']
 
 export function Settings({
   onClose,
-  section
+  section,
+  openCount
 }: {
   onClose: () => void
   /** Open on this tab instead of the first one */
   section?: SettingsSection
+  /** How many times something has asked to open Settings. A deep link to a tab you
+   *  have since left names the same section as last time, so the section alone
+   *  cannot say "take me there" twice — this counts the asking. */
+  openCount?: number
 }): JSX.Element {
   const [tab, setTab] = useState<SettingsSection>(section ?? SETTINGS_SECTIONS[0].id)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
@@ -85,10 +90,11 @@ export function Settings({
   }, [])
   useEffect(() => {
     if (section) setTab(section)
-  }, [section])
+  }, [section, openCount])
   // a tab is a fresh page: a panel is never entered half-scrolled because the one
-  // before it was long. Nothing ever scrolls the head out of reach.
-  useEffect(() => {
+  // before it was long. Nothing ever scrolls the head out of reach. Layout, not
+  // effect — a paint at the old scrollTop is the flash this is here to stop.
+  useLayoutEffect(() => {
     if (viewRef.current) viewRef.current.scrollTop = 0
   }, [tab])
   useEffect(() => {
@@ -101,6 +107,46 @@ export function Settings({
       if (said) setStatus(said)
     })
   }, [])
+
+  /** One panel per tab, keyed by the section id: a `Record<SettingsSection, …>`
+   *  will not compile if a tab is added to `SETTINGS_SECTIONS` without one, which a
+   *  chain of `tab === '…' &&` would have rendered as an empty panel. */
+  const panels: Record<SettingsSection, JSX.Element> = {
+    accounts: <AccountsSection onStatus={setStatus} />,
+    view: (
+      <>
+        <HistoryPanel onStatus={setStatus} />
+        <DisplayPanel onStatus={setStatus} />
+      </>
+    ),
+    notifications: (
+      <NotificationsSection packaged={appInfo?.packaged ?? null} onStatus={setStatus} />
+    ),
+    providers: (
+      <>
+        {/* both answer "what backs my agents": an endpoint you bring a key for, and a
+            CLI that speaks ACP. One tab, two groups. */}
+        <h3 className="ns-label">Model providers</h3>
+        <ModelProviders onStatus={setStatus} />
+        <h3 className="ns-label">ACP agents</h3>
+        <AcpAgents onStatus={setStatus} />
+      </>
+    ),
+    backup: (
+      <BackupSection
+        onStatus={setStatus}
+        onRestored={() => {
+          // a restore rewrites the very settings this card shows. The other tabs are
+          // unmounted and re-read on open; the display stores are app-wide, so they
+          // are re-initialised here.
+          void initTimeFormat()
+        }}
+      />
+    ),
+    about: (
+      <AboutSection appInfo={appInfo} update={update} onUpdate={setUpdate} onStatus={setStatus} />
+    )
+  }
 
   return (
     <main className="chat settings-view" ref={viewRef}>
@@ -139,7 +185,8 @@ export function Settings({
               role="tab"
               id={`settings-tab-${s.id}`}
               aria-selected={tab === s.id}
-              aria-controls={`settings-panel-${s.id}`}
+              // only the open panel is in the DOM, so only its tab may name one
+              aria-controls={tab === s.id ? `settings-panel-${s.id}` : undefined}
               // one stop in the tab order for the whole row; arrows move within it
               tabIndex={tab === s.id ? 0 : -1}
               className={`pnl-pill ${tab === s.id ? 'active' : ''}`}
@@ -156,45 +203,7 @@ export function Settings({
           id={`settings-panel-${tab}`}
           aria-labelledby={`settings-tab-${tab}`}
         >
-          {tab === 'accounts' && <AccountsSection onStatus={setStatus} />}
-          {tab === 'view' && (
-            <>
-              <HistoryPanel onStatus={setStatus} />
-              <DisplayPanel onStatus={setStatus} />
-            </>
-          )}
-          {tab === 'notifications' && (
-            <NotificationsSection packaged={appInfo?.packaged ?? null} onStatus={setStatus} />
-          )}
-          {tab === 'providers' && (
-            <>
-              {/* both answer "what backs my agents": an endpoint you bring a key for,
-                  and a CLI that speaks ACP. One tab, two groups. */}
-              <h3 className="ns-label">Model providers</h3>
-              <ModelProviders onStatus={setStatus} />
-              <h3 className="ns-label">ACP agents</h3>
-              <AcpAgents onStatus={setStatus} />
-            </>
-          )}
-          {tab === 'backup' && (
-            <BackupSection
-              onStatus={setStatus}
-              onRestored={() => {
-                // a restore rewrites the very settings this card shows. The other
-                // tabs are unmounted and re-read on open; the display stores are
-                // app-wide, so they are re-initialised here.
-                void initTimeFormat()
-              }}
-            />
-          )}
-          {tab === 'about' && (
-            <AboutSection
-              appInfo={appInfo}
-              update={update}
-              onUpdate={setUpdate}
-              onStatus={setStatus}
-            />
-          )}
+          {panels[tab]}
         </div>
         <div className="sr-only" role="status" aria-live="polite">{status}</div>
       </div>

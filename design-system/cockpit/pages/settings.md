@@ -33,7 +33,17 @@ seventh.
 - **The tab row is one tab stop.** Roving `tabIndex` (0 on the selected tab, -1 on the
   rest); ←/→ wrap, Home/End jump to the ends, and moving selects — the same activation
   the Agents panel uses. The card's `h2` still takes focus on mount; picking a tab leaves
-  focus on the tab, never on the panel.
+  focus on the tab, never on the panel. Only the **selected** tab carries
+  `aria-controls`: the other panels are not in the DOM, and a tab naming one that is not
+  there is a dead "go to the controlled element".
+- **A deep link counts the asking, not just the section.** The usage meters name
+  `accounts` every time they are pressed, so App carries an `openCount` beside the
+  section and Settings watches both — otherwise re-pressing them after you had moved to
+  another tab would name the same section, change no prop, and do nothing. Opening
+  Settings with no section named leaves the open tab where it is.
+- **The panel list is a `Record<SettingsSection, JSX.Element>`**, not a chain of
+  `tab === '…' &&`: a tab added to `SETTINGS_SECTIONS` without a panel behind it must
+  fail the typecheck rather than render a selected tab over an empty panel.
 - **Section prose is one or two sentences at body size** (`.ns-hint.ns-prose`): what the
   section is and the one consequence to know. Mechanism ("Claude is measured from session
   logs") moves onto the row it describes — a `title`, a `.source-note` — or into the form

@@ -90,7 +90,7 @@ type View =
   | { kind: 'handoff'; source: HandoffSourceRef }
   | { kind: 'new-roundtable' }
   | { kind: 'roundtable'; id: string }
-  | { kind: 'settings'; section?: SettingsSection }
+  | { kind: 'settings'; section?: SettingsSection; openCount?: number }
   | { kind: 'cleanup' }
   /** repoRoot null = the global agent setup; otherwise one repo's own */
   | { kind: 'extensions'; repoRoot: string | null }
@@ -832,7 +832,15 @@ export function App(): JSX.Element {
         }}
         onGoHome={() => setView({ kind: 'welcome' })}
         onNav={toggleView}
-        onOpenSettings={(section) => setView({ kind: 'settings', section })}
+        onOpenSettings={(section) =>
+          // count the asking, not just the section: the usage meters name 'accounts'
+          // every time, and it has to move you there again after you've left that tab
+          setView((v) => ({
+            kind: 'settings',
+            section,
+            openCount: (v.kind === 'settings' ? (v.openCount ?? 0) : 0) + 1
+          }))
+        }
         onOpenUrl={openUrl}
         activeView={view.kind}
       />
@@ -843,6 +851,7 @@ export function App(): JSX.Element {
       ) : view.kind === 'settings' ? (
         <Settings
           section={view.section}
+          openCount={view.openCount}
           onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
         />
       ) : view.kind === 'extensions' ? (
