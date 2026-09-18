@@ -769,6 +769,12 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <DevBanner />
+      {/* the app is one page and this is its name: every view needs a level-one
+          heading to sit under, and the view's own title is the h2 beneath it.
+          In a banner so it is page content inside a landmark, like everything else. */}
+      <header className="sr-only">
+        <h1>Cockpit</h1>
+      </header>
       {/* non-chat views have no draggable header of their own — give the window a
           slim grab strip along the top edge (chat's header is already a drag region) */}
       {view.kind !== 'chat' && <div className="drag-strip" aria-hidden />}

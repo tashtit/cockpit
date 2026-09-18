@@ -126,7 +126,7 @@ export function InstructionDiff({
   return (
     <section className="idiff" aria-label={`Changes to ${path}`}>
       <div className={`idiff-head ${tint}`} ref={headRef} tabIndex={headRef ? -1 : undefined}>
-        <span className="ext-agents" aria-label={`Read by ${readers}`}>
+        <span className="ext-agents" role="img" aria-label={`Read by ${readers}`}>
           {file.agents.map((a) => (
             <span key={a} className={`plogo plogo-${a}`} title={PROVIDER_LABEL[a]}>
               <ProviderLogo p={a} size={13} />
