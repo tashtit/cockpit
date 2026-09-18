@@ -514,6 +514,70 @@ describe.skipIf(!hasSqlite3())('provider-archived persistence across launches', 
   })
 })
 
+describe('first tree from the stat cache', () => {
+  const seedHome = join(root, 'claude-seed')
+  const cacheFile = join(root, 'cache-seed', 'index-cache.json')
+
+  /** Like writeClaudeSession, but into a config home this describe block owns. */
+  function writeIn(home: string, name: string, title: string): void {
+    const dir = join(home, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, `${name}.jsonl`),
+      jsonl([
+        {
+          type: 'user',
+          message: { role: 'user', content: title },
+          timestamp: '2026-08-01T10:00:00Z',
+          sessionId: name,
+          cwd: '/nowhere/seed',
+          gitBranch: 'main'
+        },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: '2026-08-01T10:00:00Z' }
+      ])
+    )
+  }
+
+  it('lists last run’s sessions before the first scan has read anything', async () => {
+    writeIn(seedHome, 'seed-1', 'a session from last launch')
+    const first = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    await first.setSources([{ path: seedHome, provider: 'claude', label: 'seed' }])
+    first.stopWatchers()
+    expect(first.page({}).items).toHaveLength(1)
+    first.saveCache()
+
+    // next launch: the tree is answerable the moment sources are set, while the
+    // scan that will replace it is still running
+    const second = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    const scan = second.setSources([{ path: seedHome, provider: 'claude', label: 'seed' }])
+    const seeded = second.page({}).items
+    expect(seeded.map((s) => s.title)).toEqual(['a session from last launch'])
+    await scan
+    second.stopWatchers()
+    expect(second.page({}).items.map((s) => s.title)).toEqual(['a session from last launch'])
+  })
+
+  it('leaves out cached files that belong to a source no longer configured', async () => {
+    const gone = join(root, 'claude-seed-gone')
+    writeIn(gone, 'seed-2', 'a session from a removed source')
+    const cache2 = join(root, 'cache-seed-2', 'index-cache.json')
+    const first = new SessionIndexer(() => {}, { cacheFile: cache2, claudeStoreDir: null })
+    await first.setSources([
+      { path: seedHome, provider: 'claude', label: 'seed' },
+      { path: gone, provider: 'claude', label: 'gone' }
+    ])
+    first.stopWatchers()
+    expect(first.page({}).items).toHaveLength(2)
+    first.saveCache()
+
+    const second = new SessionIndexer(() => {}, { cacheFile: cache2, claudeStoreDir: null })
+    const scan = second.setSources([{ path: seedHome, provider: 'claude', label: 'seed' }])
+    expect(second.page({}).items.map((s) => s.title)).toEqual(['a session from last launch'])
+    await scan
+    second.stopWatchers()
+  })
+})
+
 describe('cache save overlap (unique tmp file per save)', () => {
   const raceHome = join(root, 'claude-race')
   const cacheDir = join(root, 'cache-race')
