@@ -39,9 +39,15 @@ The entire IPC surface is the `CockpitApi` type in `src/shared/contract.ts`. Add
 
 The two shared files are split so the dependency direction stays one-way: `types.ts` is the
 domain vocabulary and imports nothing from `src/`, `library.ts` imports `types.ts`, and
-`contract.ts` imports both. Channel names are never written as string literals —
-`tests/ipc-channels.test.ts` fails on a bare literal, on a `CH` member only one side uses, and
-on a name that breaks the `domain:verb` shape.
+`contract.ts` imports both — `tests/shared-purity.test.ts` fails if that direction is
+reversed, since TypeScript compiles a type-only cycle happily. Channel names are never
+written as string literals — `tests/ipc-channels.test.ts` fails on a bare literal, on a `CH`
+member only one side uses, and on a name that breaks the `domain:verb` shape.
+
+`CockpitApi` is ~100 members under `/* ---------- topic ---------- */` banners, and `CH` is
+grouped by channel prefix: put a new method and its channel under the group that owns the
+question rather than at the end. The member order is not kept in step across the three files —
+don't spend a pass aligning them.
 
 **Renderer input is untrusted.** Any path arriving over IPC must be validated against roots the indexer itself derived — see `assertKnownRepoRoot` in `src/main/index.ts`. Never act on an arbitrary renderer-supplied path.
 
@@ -78,6 +84,20 @@ Performance invariants — all deliberate, keep them:
 - `github.ts` + `github-core.ts` — PR badges: one `gh pr list --json` per repo root, plus — only when a PR is open — one `gh api graphql` over the open PRs' review threads (`gh pr list` has no such field; `{owner}`/`{repo}` left to gh's placeholders), both in the same 60s cache entry. The list fails soft to an empty list, the thread call to counts of 0. `-core.ts` is the IO-free half (what the unit tests target): it folds each PR's `statusCheckRollup` into `PrStatus.checks` (`passing | failing | pending | none` — any failure wins, then any unfinished or unrecognized run, else passing), `reviewDecision` into `PrStatus.review`, and the explicitly unresolved threads into `PrStatus.unresolvedThreads` (open PRs only), reusing `pr-feedback-core`'s GraphQL node helpers.
 - `backup.ts` + `backup-core.ts` — one file holding everything of Cockpit's own that is worth keeping: sources, instruction baselines, library entries and the skills behind them, provider definitions and the session maps. Never session logs, worktrees or the index (rebuildable or machine-local). Repo scopes travel as the indexer's own `gh:owner/repo` key with the original root alongside, so a same-machine restore lands on the exact checkout and another Mac still matches by repo. Secrets — provider keys, MCP `env`/`args`/`url` — only enter the file behind a passphrase (scrypt + AES-256-GCM, fixed parameters, AAD-bound to the header); without one they are left out and the entry records `withheld`, which makes a switch refuse rather than write blank credentials. Restore is a merge that only ever *adds* (local state is what the agents actually run), so re-running the same file is a no-op and picks up repos cloned since; restored entries land as `pending` rows for the user to switch on, never written into agent configs by the restore itself. A raw snapshot of the config goes to `<userData>/backups/` first and backs the undo. `-core.ts` holds the IO-free half — `sanitizeBundle` (the file is untrusted input), the sealing, and `planRestore` — which is what the tests target; `index.ts` injects the dialogs, the keychain and the indexer's repo map, so the whole round trip runs headless.
 - `env.ts` — `cliEnv()`: GUI apps on macOS get a minimal PATH; use it for every spawned CLI. `execText(cmd, args, opts)` is the one way to run a CLI and read its output — it never rejects, so each caller decides what failure means (throw, fall back, log); don't hand-roll another `execFile` wrapper.
+
+### `src/shared/` — what both processes agree on
+
+Pure and IO-free by construction: every module imports nothing but its own siblings (no `node:*`, no `electron`, no reach into `src/main` or `src/renderer`), which is what lets the sandboxed renderer load the same file main does. `tests/shared-purity.test.ts` pins that, and the layering above. Check this list before writing a helper — several of these exist because the same rule was about to be implemented twice, once per process, and drift.
+
+- `types.ts` — the domain vocabulary, a leaf. `contract.ts` — `CockpitApi` plus the `CH`/`PUSH` channel names (above).
+- `asks.ts` — the question an agent stopped to ask, and what a pick turns into: the provider tool calls that are really questions (Claude's `AskUserQuestion` / `ExitPlanMode`, Codex's `request_user_input`). Copilot's permission prompts are deliberately out — answering one needs the blocked process.
+- `endpoints.ts` — custom model providers (BYOK): validation, env translation, the `/models` request/response shapes.
+- `acp.ts` — the Agent Client Protocol wire types and the agent-definition rules the sanitizer enforces.
+- `library.ts` — reconciling Cockpit's own config (what you asked for) against each agent's real config (what it has).
+- `instruction-markers.ts` — the managed-block markers, defined once so the writer and the review can never disagree. `instruction-changes.ts` — what applying a baseline would do to one agent file, the pre-apply review. `line-diff.ts` — the LCS line diff both of those draw with (pure, no DOM).
+- `repo-order.ts` — the order projects are listed in (A→Z, or the user's drag order; never session activity, which would move rows under the cursor).
+- `roundtable.ts` — seat identity: the names agents call each other in prompts and the UI shows on seats.
+- `pr-feedback.ts` — the verdicts both processes read off a PR's checks and threads.
 
 ### Tests
 

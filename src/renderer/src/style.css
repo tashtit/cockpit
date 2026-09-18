@@ -521,12 +521,19 @@ summary::-webkit-details-marker { display: none; }
 .setup-note code { font-family: var(--mono); color: var(--fg); }
 .setup-step .btn-ghost { flex-shrink: 0; }
 
-/* the discoverable paths out of Home's quick composer (roundtable / full form) */
-.home-more { display: flex; justify-content: flex-end; gap: var(--s5); flex-wrap: wrap;
-  font-size: var(--fs-sm); margin-top: calc(-1 * var(--s3)); }
+/* the discoverable paths out of Home's quick composer (roundtable / full form).
+   Both links share a line while they fit and stack right-aligned when they don't —
+   a tight row-gap, so the stacked pair still reads as one block under the card
+   rather than two lines adrift of it. */
+.home-more { display: flex; justify-content: flex-end; column-gap: var(--s5);
+  row-gap: var(--s1); flex-wrap: wrap; font-size: var(--fs-sm);
+  margin-top: calc(-1 * var(--s3)); }
 .new-error { color: var(--danger); font-size: var(--fs-sm); white-space: pre-wrap; }
 
-/* ---------- chat ---------- */
+/* ---------- chat: the view shell and its header ----------
+   The rest of the view has its own sections further down, in the order they stack:
+   the transcript, the agent's question, the permission card and composer, then the
+   review panel. Grep for the banner, not for `chat`. */
 .chat { display: flex; flex-direction: column; min-height: 0; }
 .chat-header { display: flex; align-items: center; gap: var(--s3);
   padding: var(--s3) var(--s5); border-bottom: 1px solid var(--border);
@@ -688,6 +695,9 @@ summary::-webkit-details-marker { display: none; }
 .rt-outcome-row .rt-stance { margin-left: 0; flex-shrink: 0; font-size: var(--fs-xs); }
 .rt-outcome-line { min-width: 0; }
 
+/* ---------- the transcript: messages, markdown, code, tool rows ----------
+   Shared by chat and roundtable — both render the same message list, which is why
+   this sits between them rather than inside either. */
 .messages { flex: 1; overflow-y: auto; display: flex;
   flex-direction: column; gap: var(--s4); padding-block: var(--s5);
   /* the conversation column: symmetric padding centers the exchange at the
@@ -852,10 +862,11 @@ summary::-webkit-details-marker { display: none; }
 .pulse-claude { background: var(--claude); }
 .pulse-codex { background: var(--codex); }
 .pulse-copilot { background: var(--copilot); }
-.session-row .pulse, .recent-row .pulse { flex-shrink: 0; }
+.session-row .pulse { flex-shrink: 0; }
 
-/* the agent is blocked on a decision — docked above the composer, in the same column
-   the transcript reads in, so the question sits where the answer will be typed */
+/* ---------- the permission card and the composer ----------
+   The agent is blocked on a decision — docked above the composer, in the same column
+   the transcript reads in, so the question sits where the answer will be typed. */
 .perm-card { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
   margin-inline: max(var(--s5), calc((100% - var(--chat-col)) / 2));
   margin-bottom: var(--s3); padding: var(--s3) var(--s4);
@@ -1121,7 +1132,7 @@ summary::-webkit-details-marker { display: none; }
 .board-meta-pr { color: var(--danger); }
 /* landed: the turn ended and nobody has looked yet. Solid livery dot — arrived,
    not working — against flying's pulse and the ground's dim grey. */
-.board-dot-landed, .landed-dot { width: 7px; height: 7px; border-radius: 50%;
+.landed-dot { width: 7px; height: 7px; border-radius: 50%;
   background: currentColor; flex-shrink: 0; }
 .board-meta-landed { color: var(--fg); }
 .board-row .pulse { flex-shrink: 0; }
@@ -1906,14 +1917,13 @@ button.pnl-flag:hover { text-decoration: underline; }
    name instruments. Both hero headline and placards speak mono; body rows and
    prose stay sans for legibility. */
 .home-hero h2 { font-family: var(--mono); letter-spacing: -1px; }
-.ns-label, .inst-scope label, .board-eyebrow, .board-agent,
+.ns-label, .board-eyebrow, .board-agent,
 .section-row, .search-group, .repo-filter-head { font-family: var(--mono);
   letter-spacing: 0.7px; }
 /* view names are placards too: SETTINGS / AGENTS / NEW SESSION / PROFILE.
    Session titles and prose are user content — they stay sans. */
 .ns-head h2, .empty-chat h2 { font-family: var(--mono); text-transform: uppercase;
   letter-spacing: 1.2px; font-size: var(--fs-md); }
-.ext-tab { font-family: var(--mono); letter-spacing: 0.5px; }
 .pv-stat span { font-family: var(--mono); letter-spacing: 0.7px; }
 /* the busy line reads as an instrument annunciator — "CLAUDE IS WORKING…" */
 .thinking { font-family: var(--mono); font-size: var(--fs-xs);
