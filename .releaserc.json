@@ -38,12 +38,7 @@
     [
       "@semantic-release/github",
       {
-        "assets": [
-          { "path": "dist/*.dmg" },
-          { "path": "dist/*.zip" },
-          { "path": "dist/*.blockmap" },
-          { "path": "dist/latest-mac.yml" }
-        ],
+        "draftRelease": true,
         "releaseBodyTemplate": "<%= nextRelease.notes %>\n\n## Installing this early-access build\n\nCockpit is pre-1.0 and not yet signed with an Apple Developer ID, so macOS blocks the first launch. Three steps, once \u2014 after them Cockpit updates itself:\n\n1. Download `Cockpit-<%= nextRelease.version %>-arm64.dmg` (Apple silicon) or `Cockpit-<%= nextRelease.version %>-x64.dmg` (Intel) from the assets below, open it and drag Cockpit into Applications.\n2. Open Cockpit. When macOS says it could not verify the app, click **Done** — not Move to Trash.\n3. Open System Settings › Privacy & Security, scroll to the notice that Cockpit was blocked, click **Open Anyway** and confirm with your password or Touch ID. Terminal alternative: `xattr -d com.apple.quarantine /Applications/Cockpit.app`\n4. Updates: only this first install needs the steps above. Cockpit then updates itself \u2014 it checks GitHub Releases, downloads a newer build in the background and swaps it in when you next quit, clearing the quarantine flag for you. Settings \u203a About holds the switches and a Restart now button.\n\nFull guide: https://github.com/tashtit/cockpit#install. To confirm a download is the file this release workflow produced: `gh attestation verify <file> --owner tashtit`.\n",
         "successComment": false,
         "failComment": false,

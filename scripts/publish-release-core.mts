@@ -1,17 +1,19 @@
 /**
- * IO-free half of scripts/finish-release.mts: what is left to do for a release that
- * semantic-release started but did not finish.
+ * IO-free half of scripts/publish-release.mts: what a release still needs before it can go
+ * out — which assets to upload, whether to publish.
  *
- * @semantic-release/github pushes the tag, creates the release as a draft, uploads the
- * assets one by one and only then clears the draft flag. A GitHub 500 on one of the
- * ~130MB disk images (v0.11.0, run 35267043631) aborts it in the middle of that, and the
- * state it leaves cannot be recovered by re-running: the tag is already there, so the
- * next run decides no release is due and skips the job entirely. This decides what an
- * already-created release still needs — which assets to re-upload, whether to publish —
- * so CI can finish the job semantic-release began.
+ * Cockpit uploads its own assets. @semantic-release/github would do it, but it sends all
+ * nine at once (`Promise.all` over the globbed assets) with each file read whole into
+ * memory first, so ~540MB is in flight from one runner at a time. The largest file stays
+ * in flight longest and absorbs any hiccup from GitHub's asset endpoint, which 500s now
+ * and then; three retries later the plugin gives up, having already pushed the tag and
+ * created the release as a draft. v0.11.0 and v0.13.0 died that way, both on the x64 disk
+ * image, the biggest of the nine. So the plugin is left to write the tag, the notes and an
+ * empty draft (`draftRelease` in .releaserc.json), and this decides what to send after it.
  *
- * It refuses anything that is not that situation, so a genuine failure still fails the
- * run. tests/finish-release-core.test.ts targets it.
+ * It is also the repair: the plan is the same whether the release is a fresh empty draft or
+ * one an earlier attempt left half-filled, which is what makes re-running it safe.
+ * tests/publish-release-core.test.ts targets it.
  */
 
 /** one asset as `gh release view --json assets` reports it */
@@ -27,12 +29,12 @@ export type ReleaseState = {
 /** a file the package job built and the release job downloaded into dist/ */
 export type LocalAsset = { readonly name: string; readonly size: number }
 
-export type FinishPlan =
+export type PublishPlan =
   /** the release is published and every asset is on it — nothing left to do */
   | { readonly action: 'none' }
   /** upload these, then publish if `publish` */
   | { readonly action: 'finish'; readonly upload: readonly string[]; readonly publish: boolean }
-  /** not a half-finished release; say why and let the run fail */
+  /** nothing publishable; say why and let the run fail */
   | { readonly action: 'refuse'; readonly reason: string }
 
 /** GitHub reports an asset that finished uploading as `uploaded`; anything else is in limbo. */
@@ -49,17 +51,18 @@ function needsUpload(local: LocalAsset, assets: readonly ReleaseAsset[]): boolea
 }
 
 /**
- * What `version`'s release still needs. `release` is null when none exists at all, which
- * means semantic-release failed before creating it — there is nothing to finish.
+ * What `version`'s release still needs before it can go out. `release` is null when none
+ * exists at all, which means semantic-release failed before creating the draft — there is
+ * nothing to publish.
  */
-export function planFinish(
+export function planPublish(
   version: string,
   release: ReleaseState | null,
   local: readonly LocalAsset[]
-): FinishPlan {
+): PublishPlan {
   if (!version) return { action: 'refuse', reason: 'no packaged version to finish' }
   if (!release) {
-    return { action: 'refuse', reason: `no release v${version} exists — semantic-release never created it` }
+    return { action: 'refuse', reason: `no release v${version} exists — semantic-release never created the draft` }
   }
   if (release.tagName !== `v${version}`) {
     return {
@@ -75,9 +78,9 @@ export function planFinish(
 }
 
 /** One line for the log, so a run says what it repaired without reading the plan back. */
-export function describePlan(version: string, plan: FinishPlan): string {
-  if (plan.action === 'refuse') return `cannot finish v${version}: ${plan.reason}`
+export function describePlan(version: string, plan: PublishPlan): string {
+  if (plan.action === 'refuse') return `cannot publish v${version}: ${plan.reason}`
   if (plan.action === 'none') return `v${version} is already published with every asset`
-  const uploads = plan.upload.length ? `re-uploading ${plan.upload.join(', ')}` : 'every asset is already there'
-  return `finishing v${version}: ${uploads}${plan.publish ? '; publishing the draft' : ''}`
+  const uploads = plan.upload.length ? `uploading ${plan.upload.join(', ')}` : 'every asset is already there'
+  return `v${version}: ${uploads}${plan.publish ? '; then publishing' : ''}`
 }

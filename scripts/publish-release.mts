@@ -1,23 +1,29 @@
 /**
- * Finishes a release that semantic-release created but could not publish — see
- * finish-release-core.mts for why that state exists and why a re-run cannot clear it.
+ * Uploads a release's assets and publishes it — the normal path, not a rescue. See
+ * publish-release-core.mts for why Cockpit sends its own assets instead of letting
+ * @semantic-release/github do it.
  *
- * Reads the release for $COCKPIT_PACKAGED_VERSION, re-uploads whatever is missing or was
- * stored short, publishes the draft, and writes `version` to $GITHUB_OUTPUT so the job's
- * own check still compares what was released against what was packaged. Exits non-zero
- * when the release is not a half-finished one, so a genuine failure stays a failure.
+ * Sequential and streamed: one `gh release upload` at a time, each reading the file off
+ * disk rather than holding it in memory, so one runner is never pushing ~540MB at once and
+ * a retry costs one file rather than the release. Re-running is safe — it uploads only what
+ * is missing or was stored short, and publishing an already-published release is a no-op —
+ * which is what lets it double as the repair when an earlier attempt died partway.
+ *
+ * Writes `version` to $GITHUB_OUTPUT so the job's own check still compares what was
+ * released against what was packaged. Exits non-zero when there is no release to publish,
+ * so a semantic-release that failed before creating one still fails the run.
  *
  * Needs `gh` authenticated ($GH_TOKEN) and the packaged files in dist/.
  */
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { describePlan, planFinish, type LocalAsset, type ReleaseState } from './finish-release-core.mts'
+import { describePlan, planPublish, type LocalAsset, type ReleaseState } from './publish-release-core.mts'
 
 const DIST = 'dist'
-/** the same set .releaserc.json hands @semantic-release/github */
+/** what the package job builds, and the whole of what a release carries */
 const ASSET = /\.(dmg|zip|blockmap)$|^latest-mac\.yml$/
-/** a 500 from the asset endpoint is transient; it cost us v0.11.0, so try well past it */
+/** GitHub's asset endpoint 500s now and then; it cost us v0.11.0 and v0.13.0 */
 const UPLOAD_ATTEMPTS = 5
 const RETRY_MS = 15_000
 
@@ -52,9 +58,9 @@ function readLocal(): readonly LocalAsset[] {
     .map((name) => ({ name, size: statSync(join(DIST, name)).size }))
 }
 
-const plan = planFinish(version, readRelease(), readLocal())
+const plan = planPublish(version, readRelease(), readLocal())
 console.log(describePlan(version, plan))
-if (plan.action === 'refuse') fail(`${plan.reason} — the release step's own error is above`)
+if (plan.action === 'refuse') fail(`${plan.reason} — the release step's own log is above`)
 
 if (plan.action === 'finish') {
   for (const name of plan.upload) {
@@ -72,10 +78,10 @@ if (plan.action === 'finish') {
   }
 
   if (plan.publish) {
-    // `--latest` is what semantic-release would have left behind, and it is safe here only
-    // because this runs inside the run that cut the tag: pushes to main queue rather than
-    // cancel, so no newer release exists yet. Publishing an older tag as latest out of band
-    // would demote the newer one.
+    // semantic-release sets make_latest itself when it publishes; with draftRelease it
+    // never gets there, so we do it. Safe because this runs inside the run that cut the tag
+    // and packaging is serialized, so no newer release exists yet — publishing an older tag
+    // as latest out of band would demote the newer one.
     const r = gh(['release', 'edit', tag, '--draft=false', '--latest'])
     if (!r.ok) fail(`could not publish ${tag}: ${r.stderr.trim()}`)
     console.log(`published ${tag}`)

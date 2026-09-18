@@ -253,7 +253,7 @@ jobs:
           name: cockpit-mac
           path: dist
 
-      # Allowed to fail so the step below can finish what it started; nothing is released
+      # Allowed to fail so the step below can still publish what it created; nothing goes out
       # quietly, because the version check after them both is the gate.
       - name: 🚢 Release
         id: release
@@ -263,20 +263,25 @@ jobs:
           COCKPIT_PACKAGED_VERSION: ${{ needs.package.outputs.version }}
         run: npx semantic-release
 
-      # semantic-release pushes the tag, creates the release as a draft, uploads the assets
-      # and only then publishes. A GitHub 500 on one of the ~130MB disk images breaks that
-      # in the middle and strands the release as a draft nobody can reach — and a re-run
-      # cannot help, because the tag is now there and the next run decides no release is
-      # due. This finishes the job: re-upload what is missing or was stored short, publish
-      # the draft. It acts only on a release carrying the version the package job built, so
-      # a failure that is not this one still fails the run.
-      - name: 🎉 Finish a release left half-published
+      # semantic-release wrote the tag, the notes and an empty draft; the assets and the
+      # publish are ours (`draftRelease` in .releaserc.json). The plugin would send all nine
+      # at once, each read whole into memory — ~540MB in flight from one runner, where the
+      # biggest file absorbs any hiccup from GitHub's asset endpoint and three retries later
+      # the whole release is abandoned as an unreachable draft. That is how v0.11.0 and
+      # v0.13.0 died, both on the x64 disk image. One upload at a time, streamed off disk,
+      # retried on its own, then the draft is published.
+      #
+      # Runs whenever there is a release to publish, and also when semantic-release failed,
+      # since it may have failed after creating the draft — uploading only what is missing
+      # makes that the same job. It is skipped when semantic-release deliberately released
+      # nothing, which is a superseded run: there is no draft, and none should be made.
+      - name: 🎉 Publish the release
         id: finish
-        if: ${{ steps.release.outcome == 'failure' }}
+        if: ${{ steps.release.outputs.version != '' || steps.release.outcome == 'failure' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COCKPIT_PACKAGED_VERSION: ${{ needs.package.outputs.version }}
-        run: node scripts/finish-release.mts
+        run: node scripts/publish-release.mts
 
       # semantic-release declines to publish a commit that main has moved past ("the local
       # branch main is behind the remote one") and says so by releasing nothing. That is the
