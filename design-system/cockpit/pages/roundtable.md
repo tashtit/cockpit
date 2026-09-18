@@ -77,8 +77,8 @@ attribution, never a parallel message grammar.
   stay where they are, and the board drops it because the board is about what is in the
   air. A table mid-round refuses to be archived: stop the round first.
 
-- Deleting a table is Cleanup's business, not this view's: a table idle past the
-  threshold appears under **Roundtables** there and goes with its seats and its room
+- Deleting a table is Cleanup's business, not this view's: an archived table — or one
+  idle past the threshold — appears under **Roundtables** there and goes with its seats and its room
   (`pages/cleanup.md`). Archiving is the reversible step in front of it.
 
 ## Consensus mode ("Reach an understanding")

@@ -462,7 +462,12 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
   const allTables = deps.tables()
   const seats = deps.seatSessions()
   const staleTables: StaleTable[] = []
-  for (const t of allTables.filter((t) => isStale(t.updatedAt, cutoff)).sort((a, b) => a.updatedAt - b.updatedAt)) {
+  // archived means "I am done with this", so it is listed without waiting out the
+  // threshold — unlike a session, a table is archived one at a time, by hand
+  const listable = allTables
+    .filter((t) => t.archived || isStale(t.updatedAt, cutoff))
+    .sort((a, b) => a.updatedAt - b.updatedAt)
+  for (const t of listable) {
     const mine = seats.filter((s) => s.roundtableId === t.id)
     const dirBytes = (await measureDir(t.cwd)) ?? null
     const logBytes = mine.reduce((n, s) => n + sessionBytes(s.sourcePath), 0)

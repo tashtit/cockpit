@@ -301,6 +301,17 @@ describe('roundtables — the table is the unit', () => {
     expect((await scanCleanup(deps, 30)).tables).toEqual([])
   })
 
+  it('lists an archived table at once, however recent it is', async () => {
+    // archiving is already the decision — a table need not also go quiet for 30 days
+    tables = [table({ updatedAt: Date.now(), archived: true })]
+    const report = await scanCleanup(deps, 30)
+    expect(report.tables.map((t) => t.id)).toEqual(['rt-old'])
+    expect(report.tables[0]?.archived).toBe(true)
+    // and a recent table nobody archived still stays out
+    tables = [table({ updatedAt: Date.now() })]
+    expect((await scanCleanup(deps, 30)).tables).toEqual([])
+  })
+
   it('blocks a table that is mid-round, and refuses to delete it', async () => {
     tables = [table({ running: true })]
     const report = await scanCleanup(deps, 30)

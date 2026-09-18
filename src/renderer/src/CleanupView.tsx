@@ -66,6 +66,18 @@ const UNITS = [
 ] as const
 
 /** One decimal at most, and never a bare `.0` — "400 MB", not "400.0 MB". */
+/**
+ * The card's sections, in order. The jump row under the title lists them with their
+ * counts — four lists on one long page, and the counts are the reason to jump.
+ */
+const CLEANUP_SECTIONS = [
+  { id: 'sessions', label: 'Sessions' },
+  { id: 'processes', label: 'Processes' },
+  { id: 'tables', label: 'Roundtables' },
+  { id: 'worktrees', label: 'Worktrees' }
+] as const
+type CleanupSection = (typeof CLEANUP_SECTIONS)[number]['id']
+
 function fmtBytes(n: number | null): string {
   if (n === null) return '—'
   for (const [scale, unit] of UNITS) {
@@ -751,6 +763,20 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   const [status, setStatus] = useState('')
   const armed = useArmedConfirm()
   const headingRef = useRef<HTMLHeadingElement>(null)
+  /** one heading per section — the jump row lands on them */
+  const headings = useRef(new Map<CleanupSection, HTMLHeadingElement>())
+  const heading =
+    (id: CleanupSection) =>
+    (el: HTMLHeadingElement | null): void => {
+      if (el) headings.current.set(id, el)
+      else headings.current.delete(id)
+    }
+  const jump = (id: CleanupSection): void => {
+    const h = headings.current.get(id)
+    if (!h) return
+    h.scrollIntoView({ block: 'start' })
+    h.focus()
+  }
 
   const [sq, setSq] = useState('')
   const [wq, setWq] = useState('')
@@ -892,6 +918,12 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
     .reduce((n, t) => n + (t.bytes ?? 0), 0)
   const hiddenTables = tPicked.size - tPicks.shown
   const pPicked = pPicks.picked
+  const counts: Record<CleanupSection, number> = {
+    sessions: sessions.length,
+    processes: processes.length,
+    tables: tables.length,
+    worktrees: worktrees.length
+  }
   const truncated = (report?.staleSessionCount ?? 0) > sessions.length
   const now = report?.scannedAt ?? Date.now()
 
@@ -906,6 +938,16 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             Close
           </button>
         </div>
+        {/* four lists on one page: the row is the map, and the counts are the reason
+            to use it. A jump row, not tabs — nothing is hidden behind it */}
+        <nav className="pnl-tabs ns-jumps" aria-label="Sections">
+          {CLEANUP_SECTIONS.map((s) => (
+            <button key={s.id} className="pnl-pill" onClick={() => jump(s.id)}>
+              {s.label}
+              {counts[s.id] > 0 && <span className="pnl-pill-n">{counts[s.id]}</span>}
+            </button>
+          ))}
+        </nav>
         <p className="ns-hint">
           What has gone quiet, across every agent and every repository. Deleting a session takes
           the worktree it ran in with it, and the branch when git reports that branch as fully
@@ -955,7 +997,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           )}
         </p>
 
-        <h3 className="ns-label">Stale sessions</h3>
+        <h3 className="ns-label" ref={heading('sessions')} tabIndex={-1}>Stale sessions</h3>
         {sessions.length === 0 && !scanning ? (
           <p className="ns-hint">Nothing idle that long — every session is still recent.</p>
         ) : (
@@ -1042,7 +1084,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           </>
         )}
 
-        <h3 className="ns-label">Processes left in old worktrees</h3>
+        <h3 className="ns-label" ref={heading('processes')} tabIndex={-1}>Processes left in old worktrees</h3>
         {processes.length === 0 && !scanning ? (
           <p className="ns-hint">
             Nothing left running — no process is still working in a stale or removed worktree.
@@ -1111,15 +1153,18 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           </>
         )}
 
-        <h3 className="ns-label">Roundtables</h3>
+        <h3 className="ns-label" ref={heading('tables')} tabIndex={-1}>Roundtables</h3>
         {tables.length === 0 && !scanning ? (
-          <p className="ns-hint">No table has gone quiet that long — every roundtable is recent.</p>
+          <p className="ns-hint">
+            No table archived, and none gone quiet that long — every roundtable is recent.
+          </p>
         ) : (
           <>
             <p className="ns-hint">
-              Tables nobody has spoken to in a while. Deleting one takes the seat sessions that
-              ran inside it and the room it ran in — its worktree and, when git reports the
-              branch fully merged, that too. Archiving a table only hides it; this frees it.
+              Tables nobody has spoken to in a while, plus every table you archived — that is
+              already a decision, so it needs no waiting. Deleting one takes the seat sessions
+              that ran inside it and the room it ran in — its worktree and, when git reports the
+              branch fully merged, that too.
             </p>
             <FilterBar
               groups={tableGroups}
@@ -1188,7 +1233,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           </>
         )}
 
-        <h3 className="ns-label">Worktrees with no session</h3>
+        <h3 className="ns-label" ref={heading('worktrees')} tabIndex={-1}>Worktrees with no session</h3>
         {worktrees.length === 0 && !scanning ? (
           <p className="ns-hint">
             No leftovers — every stale worktree belongs to a session above, or is still in use.
