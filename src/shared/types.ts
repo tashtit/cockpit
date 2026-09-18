@@ -378,6 +378,64 @@ export type ModelEndpoint = {
 /** Renderer-supplied endpoint definition — main assigns the id and stores the key. */
 export type NewModelEndpoint = Omit<ModelEndpoint, 'id' | 'hasKey'> & { readonly apiKey?: string }
 
+/* ---------- ACP (Agent Client Protocol) ---------- */
+
+/**
+ * An agent Cockpit drives over ACP — one JSON-RPC conversation on the agent's stdio —
+ * instead of that CLI's own headless flags.
+ *
+ * A definition is `{command, args, env}`: literally "run this binary". That makes it the
+ * most dangerous thing the renderer can put in config, so `sanitizeAcpAgent` in
+ * `src/shared/acp.ts` is the only way one is ever accepted — see the rules there.
+ */
+export type AcpAgent = {
+  readonly id: string
+  readonly label: string
+  /** Executable name resolved on PATH, or an absolute path — never a shell string */
+  readonly command: string
+  readonly args?: readonly string[]
+  /** Extra env for the spawned agent; keys that could redirect execution are refused */
+  readonly env?: Record<string, string>
+  /**
+   * Which CLI family this agent is. It is required, and it is what keeps an ACP session
+   * indexed: `copilot --acp` and `claude-code-acp` write the same session stores their
+   * CLIs always did, so Cockpit sees, resumes and live-tracks those conversations with
+   * no indexer changes. An agent that belongs to no known provider would be a session
+   * Cockpit drives and then loses, which is why there is no 'other' here yet.
+   */
+  readonly provider: Provider
+  /** Shipped in code rather than stored in config, and so not removable */
+  readonly builtin?: boolean
+}
+
+/** Renderer-supplied agent definition — main assigns the id. */
+export type NewAcpAgent = Omit<AcpAgent, 'id' | 'builtin'>
+
+/** What an agent answered at `initialize` — proves it speaks ACP before we store it. */
+export type AcpAgentProbe = {
+  readonly ok: boolean
+  /** `agentInfo.name` / `.version` from a successful handshake */
+  readonly name?: string
+  readonly version?: string
+  readonly protocolVersion?: number
+  /** The agent can resume a past conversation (`agentCapabilities.loadSession`) */
+  readonly loadSession?: boolean
+  /** The agent can enumerate its own past sessions (`sessionCapabilities.list`) */
+  readonly listSessions?: boolean
+  /** The agent offers sign-in methods, so prompts may fail until the user runs one */
+  readonly authMethods?: readonly string[]
+  /** Populated instead of the rest when the handshake failed */
+  readonly error?: string
+}
+
+/** One answer an agent will accept for a permission request. */
+export type AcpPermissionOption = {
+  readonly optionId: string
+  readonly name: string
+  /** allow_once | allow_always | reject_once | reject_always — absent on unknown kinds */
+  readonly kind?: string
+}
+
 /** Per-agent knobs; each maps to that CLI's own flags. */
 export type AgentOptions = {
   /** All three CLIs accept --model */
@@ -389,6 +447,12 @@ export type AgentOptions = {
   readonly codexSkipGitCheck?: boolean
   /** Custom model endpoint (ModelEndpoint.id) — claude/copilot run against it via env */
   readonly modelEndpoint?: string
+  /**
+   * Drive this turn over ACP with the named agent (`AcpAgent.id`) instead of the CLI's
+   * own headless flags. Absent means the provider's native path; `'auto'` asks main to
+   * use ACP when the provider's CLI is new enough to speak it.
+   */
+  readonly acpAgent?: string
 }
 
 export type ChatRequest = {
@@ -887,6 +951,20 @@ export type ChatEvent =
     }
   | { readonly turnId: string; readonly type: 'done'; readonly costUsd?: number }
   | { readonly turnId: string; readonly type: 'error'; readonly message: string }
+  /**
+   * ACP only: the agent is blocked until the user picks an option. Nothing else about
+   * the turn moves until `respondPermission` answers it — an unanswered request is
+   * exactly the "agent is waiting for you" state the log tails can only guess at.
+   */
+  | {
+      readonly turnId: string
+      readonly type: 'permission'
+      readonly requestId: string
+      readonly toolName: string
+      readonly detail: string
+      readonly preview?: string
+      readonly options: readonly AcpPermissionOption[]
+    }
 
 /* ---------- roundtable (multi-agent shared discussion) ---------- */
 
@@ -1329,6 +1407,8 @@ export type CockpitApi = {
   readonly sendChat: (req: ChatRequest) => Promise<string>
   readonly cancelChat: (turnId: string) => Promise<void>
   readonly onChatEvent: (cb: (ev: ChatEvent) => void) => () => void
+  /** Answer a 'permission' chat event; the agent stays blocked until this lands */
+  readonly respondPermission: (turnId: string, requestId: string, optionId: string) => Promise<void>
   /** Persist a pasted image in main's image dir; resolves to the absolute file path */
   readonly saveChatImage: (data: Uint8Array, mime: string) => Promise<string>
   readonly getSources: () => Promise<SourceDir[]>
@@ -1470,6 +1550,12 @@ export type CockpitApi = {
   readonly setEndpointKey: (id: string, apiKey: string) => Promise<ModelEndpoint[]>
   /** Ask the provider itself which models it serves (also refreshes the cached list) */
   readonly listEndpointModels: (id: string) => Promise<string[]>
+  /* ACP agents: user-defined CLIs Cockpit drives over the Agent Client Protocol */
+  readonly getAcpAgents: () => Promise<AcpAgent[]>
+  readonly addAcpAgent: (agent: NewAcpAgent) => Promise<AcpAgent[]>
+  readonly removeAcpAgent: (id: string) => Promise<AcpAgent[]>
+  /** Run the `initialize` handshake against a definition to prove it speaks ACP */
+  readonly probeAcpAgent: (agent: NewAcpAgent) => Promise<AcpAgentProbe>
   /* backup: export to a file the user keeps, restore it here or on another Mac */
   /** Native save dialog, then write the file; null when the user cancels */
   readonly exportBackup: (passphrase?: string) => Promise<BackupExportResult | null>

@@ -850,6 +850,18 @@ summary::-webkit-details-marker { display: none; }
 .pulse-copilot { background: var(--copilot); }
 .session-row .pulse, .recent-row .pulse { flex-shrink: 0; }
 
+/* the agent is blocked on a decision — docked above the composer, in the same column
+   the transcript reads in, so the question sits where the answer will be typed */
+.perm-card { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  margin-inline: max(var(--s5), calc((100% - var(--chat-col)) / 2));
+  margin-bottom: var(--s3); padding: var(--s3) var(--s4);
+  border: 1px solid var(--border-strong); border-radius: var(--radius); }
+.perm-body { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--s3); }
+.perm-tool { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: 0.9px; text-transform: uppercase; color: var(--fg-dim); flex: none; }
+.perm-what { font-size: var(--fs-sm); color: var(--fg); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perm-actions { display: flex; gap: var(--s2); flex: none; }
 .composer { display: flex; flex-wrap: wrap; gap: var(--s3);
   padding-block: var(--s4);
   /* the composer types inside the same column the transcript reads in */
@@ -1990,4 +2002,12 @@ button.pnl-flag:hover { text-decoration: underline; }
   /* the 200px rail can't hold three meter bars next to their numbers — the bars
      shed, the percentages (the actual reading) stay */
   .usage-mini { display: none; }
+}
+@media (max-width: 620px) {
+  /* a blocked agent's question and its answers can't share a line in a ~360px pane —
+     the headline takes the row, the buttons take the next one and split it evenly.
+     Nothing here sheds: both halves are load-bearing when the agent is waiting. */
+  .perm-body { flex-basis: 100%; }
+  .perm-actions { flex: 1; }
+  .perm-actions button { flex: 1; }
 }

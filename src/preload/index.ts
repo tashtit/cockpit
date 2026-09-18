@@ -25,6 +25,7 @@ import type {
   SessionQuery,
   TimeFormat,
   TranscriptSearchQuery,
+  NewAcpAgent,
   UpdatePrefs,
   UpdateState
 } from '../shared/types'
@@ -32,6 +33,8 @@ import type {
 const api: CockpitApi = {
   sendChat: (req: ChatRequest) => ipcRenderer.invoke('chat:send', req),
   cancelChat: (turnId: string) => ipcRenderer.invoke('chat:cancel', turnId),
+  respondPermission: (turnId: string, requestId: string, optionId: string) =>
+    ipcRenderer.invoke('chat:respond-permission', turnId, requestId, optionId),
   saveChatImage: (data: Uint8Array, mime: string) =>
     ipcRenderer.invoke('chat:save-image', data, mime),
   onChatEvent: (cb: (ev: ChatEvent) => void) => {
@@ -137,6 +140,10 @@ const api: CockpitApi = {
   removeModelEndpoint: (id: string) => ipcRenderer.invoke('endpoints:remove', id),
   setEndpointKey: (id: string, apiKey: string) => ipcRenderer.invoke('endpoints:set-key', id, apiKey),
   listEndpointModels: (id: string) => ipcRenderer.invoke('endpoints:models', id),
+  getAcpAgents: () => ipcRenderer.invoke('acp:get'),
+  addAcpAgent: (agent: NewAcpAgent) => ipcRenderer.invoke('acp:add', agent),
+  removeAcpAgent: (id: string) => ipcRenderer.invoke('acp:remove', id),
+  probeAcpAgent: (agent: NewAcpAgent) => ipcRenderer.invoke('acp:probe', agent),
   exportBackup: (passphrase?: string) => ipcRenderer.invoke('backup:export', passphrase),
   openBackup: () => ipcRenderer.invoke('backup:open'),
   restoreBackup: (token: string, passphrase?: string) =>

@@ -36,13 +36,18 @@ import {
   setPanelSwitch
 } from './library'
 import { assertChatImages, saveChatImage } from './chat-images'
+import { probeAcpAgent } from './acp'
+import { BUILTIN_ACP_AGENTS, builtinAgentFor, sanitizeAcpAgent } from '../shared/acp'
 import {
+  addAcpAgent,
   addModelEndpoint,
   attentionPrefs,
   bindSessionEndpoint,
   bindSessionLineage,
+  listAcpAgents,
   listModelEndpoints,
   loadConfig,
+  removeAcpAgent,
   removeModelEndpoint,
   saveConfig,
   sessionEndpointFor,
@@ -699,6 +704,33 @@ app.whenReady().then(() => {
     updateModelEndpoint({ ...ep, hasKey: true })
     return listModelEndpoints()
   })
+  /* ACP agents: CLIs the user asked Cockpit to drive over the Agent Client Protocol */
+  ipcMain.handle('acp:get', () => [...BUILTIN_ACP_AGENTS, ...listAcpAgents()])
+  ipcMain.handle('acp:add', (_e, input: unknown) => {
+    const agent = sanitizeAcpAgent(input, randomUUID())
+    if (!agent) {
+      throw new Error(
+        'Invalid agent: a name and an executable name or absolute path are required, and environment variables that redirect what runs are refused.'
+      )
+    }
+    if (listAcpAgents().length >= 32) throw new Error('That is as many custom agents as Cockpit stores.')
+    return [...BUILTIN_ACP_AGENTS, ...addAcpAgent(agent)]
+  })
+  ipcMain.handle('acp:remove', (_e, id: string) => {
+    // a built-in is defined in code, not config — there is nothing to remove
+    if (BUILTIN_ACP_AGENTS.some((a) => a.id === String(id))) {
+      throw new Error('Built-in agents cannot be removed.')
+    }
+    return [...BUILTIN_ACP_AGENTS, ...removeAcpAgent(String(id))]
+  })
+  ipcMain.handle('acp:probe', (_e, input: unknown) => {
+    const agent = sanitizeAcpAgent(input, 'probe')
+    if (!agent) return { ok: false, error: 'Fill in a name and a command first.' }
+    // the probe runs in the user's home, never in a repository: a definition being
+    // tested must not be handed a checkout to read before it is trusted enough to store
+    return probeAcpAgent(agent, homedir())
+  })
+
   ipcMain.handle('endpoints:models', (_e, id: string) => {
     const ep = listModelEndpoints().find((e) => e.id === String(id))
     if (!ep) throw new Error('Unknown model provider.')
@@ -835,6 +867,24 @@ app.whenReady().then(() => {
   })
 
   // BYOK turns in flight: when the stream reveals the native session id, remember which
+  /**
+   * Built-in ACP agents this machine's CLIs turned out to support, probed once in the
+   * background at startup.
+   *
+   * The handshake is the only honest test — a `--acp` flag in `--help` says the flag
+   * parses, not that the protocol answers. It costs one process launch per provider and
+   * creates no session. Until a probe lands, turns take the CLI path, so the worst case
+   * of a slow or missing CLI is the behaviour Cockpit had before ACP existed.
+   */
+  const acpReady = new Set<Provider>()
+  for (const builtin of BUILTIN_ACP_AGENTS) {
+    const provider = builtin.provider
+    if (!provider) continue
+    void probeAcpAgent(builtin, homedir()).then((probe) => {
+      if (probe.ok) acpReady.add(provider)
+    })
+  }
+
   // endpoint the session runs on so later resumes stay on that backend
   const byokTurns = new Map<string, { provider: Provider; endpointId: string }>()
   // Handoff turns in flight: same lifecycle, persisting continuedFrom lineage instead
@@ -871,6 +921,26 @@ app.whenReady().then(() => {
     },
     {
       onBusyChange: () => pushBusy(),
+      resolveAcpAgent: (req) => {
+        const chosen = req.options?.acpAgent
+        if (chosen && chosen !== 'auto') {
+          const agent = [...listAcpAgents(), ...BUILTIN_ACP_AGENTS].find((a) => a.id === chosen)
+          // refusing loudly beats silently running the provider's own CLI instead: the
+          // user picked a specific agent, and a different one is a different answer
+          if (!agent) throw new Error('That ACP agent is no longer configured — re-add it in Settings.')
+          if (agent.provider !== req.provider) {
+            throw new Error(`"${agent.label}" drives ${agent.provider}, not ${req.provider}.`)
+          }
+          return agent
+        }
+        // an agent the user defined for this provider is a deliberate choice and wins
+        // over the built-in; the built-in only applies once its CLI has answered a
+        // handshake, so a machine without ACP support behaves exactly as before
+        const defined = listAcpAgents().find((a) => a.provider === req.provider)
+        if (defined) return defined
+        const builtin = builtinAgentFor(req.provider)
+        return builtin && acpReady.has(req.provider) ? builtin : undefined
+      },
       onTurnStart: (turnId, req) => {
         // a seat's turn is its table's business — the table lands once, as a whole
         if (roundtables?.tableIdForCwd(req.cwd)) return
@@ -952,6 +1022,13 @@ app.whenReady().then(() => {
     return turnId
   })
   ipcMain.handle('chat:cancel', (_e, turnId: string) => chat.cancel(turnId))
+  ipcMain.handle(
+    'chat:respond-permission',
+    (_e, turnId: string, requestId: string, optionId: string) =>
+      // ids come back from an event Cockpit itself emitted; the turn validates them
+      // against what it actually asked, so a stale or invented answer is dropped
+      chat.respondPermission(String(turnId), String(requestId), String(optionId))
+  )
 
   // roundtables: several agents, one shared discussion, driven through the same
   // ChatManager (its emit hands their stream events to the manager above)

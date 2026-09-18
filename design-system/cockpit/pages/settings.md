@@ -7,8 +7,8 @@ it answers "what is Cockpit watching, as whom, how much of each subscription is 
 and is it healthy" before anything is edited. Small surface — resist growth; new setting
 groups get a new `.ns-label` section in the same card before they ever get tabs (current
 sections, in order: Agent accounts & usage · GitHub · History · Display · Notifications ·
-Model providers · Backup · About — the two account sections together, then the
-preferences, then the occasional tasks).
+Model providers · ACP agents · Backup · About — the two account sections together, then
+the preferences, then the occasional tasks).
 
 - **The card has a map.** A jump row (`.ns-jumps` — the Agents `.pnl-pill`s inside a
   `<nav aria-label="Sections">`) sits under the title, one pill per entry of
@@ -121,6 +121,19 @@ preferences, then the occasional tasks).
   method" wrapper; every settings surface that shows a rejection goes through it. A path
   the card already lists is refused in the renderer ("Cockpit already watches …") rather
   than sent to main, which keeps a duplicate silently.
+- ACP agents section (`AcpAgents.tsx`): borrows the Model providers grammar exactly —
+  `.source-list` rows, a folded `Add an ACP agent…` affordance, `ConfirmRemove` per row.
+  A row is tinted with the CLI it drives (`.tint-{provider}`) and carries that provider's
+  logo: an ACP agent is a *way of running* one of the three agents, not a fourth agent,
+  and the row has to say so at a glance. **Built-ins have no remove control** and read
+  `built in` — they are defined in code, not config, so their `.source-health` states
+  what is true of them ("used when this CLI supports it") rather than offering an action.
+  The add form's **Test** button runs the real ACP handshake and reports what answered
+  (name, version, protocol, whether it can resume, how to sign in), so a command is never
+  stored on faith; a failure shows the agent's own reason in an `alert`. Field validation
+  is the same function main enforces (`acpAgentRefusal` / `sanitizeAcpAgent` in
+  `src/shared/acp.ts`) — a form explaining a rule the store does not apply would be worse
+  than no explanation.
 - Backup section: export is a real `<form>` of labeled `.ns-opt`s — optional passphrase
   plus a repeat field that only matters once the first is typed; the **ghost** "Export
   backup…" (an occasional task, not the page's one filled key) stays disabled until the
