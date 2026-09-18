@@ -85,6 +85,13 @@ Both lists use the shared `FilterBar`; this page is its reference implementation
 
 ## Rules specific to this page
 
+- **The card maps itself.** Four lists on one page, so a `.ns-jumps` row of `.pnl-pill`s
+  under the title names each section with its count (`.pnl-pill-n`) and focuses that
+  heading — the same jump row Settings carries. A row, never tabs: nothing is hidden
+  behind it.
+- **An archived roundtable is listed at once**, however recent — archiving one is already
+  the decision, and unlike sessions a table is archived by hand, one at a time. Everything
+  else in this view still waits out the threshold.
 - **A roundtable is one row, and the table is the unit.** Deleting a table takes its
   seat sessions and the directory it ran in (its room, or its worktree plus the branch
   when git says it is fully merged), so a table's directory never appears in the

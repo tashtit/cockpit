@@ -469,6 +469,19 @@ describe('CleanupView — acting', () => {
     await waitFor(() => expect(window.cockpit.archiveSessions).toHaveBeenCalledWith(['claude:one']))
   })
 
+  it('maps its sections in a jump row, with the counts as the reason to use it', async () => {
+    const user = userEvent.setup()
+    mount(report({ sessions: [session(), session({ id: 'claude:two' })], tables: [table()] }))
+
+    const nav = await screen.findByRole('navigation', { name: 'Sections' })
+    expect(nav).toHaveTextContent('Sessions2')
+    expect(nav).toHaveTextContent('Roundtables1')
+    // nothing is hidden behind it: the heading it lands on is already on the page
+    const heading = screen.getByRole('heading', { name: 'Roundtables' })
+    await user.click(within(nav).getByRole('button', { name: /Roundtables/ }))
+    expect(heading).toHaveFocus()
+  })
+
   it('deletes a roundtable behind an arm, saying what leaves with it', async () => {
     const user = userEvent.setup()
     mount(report({ tables: [table({ seatCount: 3 })] }))
