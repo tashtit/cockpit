@@ -96,7 +96,20 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'sidebar', name: 'sidebar-project-filter', go: async (w) => { await home(w); await w.getByRole('button', { name: 'Choose projects to display' }).click(); await pause(w, 300) } },
-  { view: 'settings', name: 'settings', tall: 2400, go: (w) => nav(w, 'Settings') },
+  { view: 'settings', name: 'settings', go: (w) => nav(w, 'Settings') },
+  // one shot per tab: each is its own page now, and a tab nobody opens is a tab
+  // nobody sees break
+  ...['View', 'Notifications', 'Providers', 'Backup', 'About'].map(
+    (t): Shot => ({
+      view: 'settings',
+      name: `settings-${t.toLowerCase().replace(/\s+/g, '-')}`,
+      go: async (w) => {
+        await nav(w, 'Settings')
+        await w.getByRole('tab', { name: t }).click()
+        await pause(w, 400)
+      }
+    })
+  ),
   { view: 'agents', name: 'agents', tall: 1600, go: (w) => nav(w, 'Agents') },
   ...['Instructions', 'MCP servers', 'Skills', 'Plugins', 'Marketplaces'].map(
     (section): Shot => ({

@@ -1205,6 +1205,14 @@ summary::-webkit-details-marker { display: none; }
 .ns-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
 .ns-head h2 { font-size: var(--fs-lg); }
 .ns-repo { color: var(--fg-dim); font-size: var(--fs-sm); }
+/* Settings' one navigation (the Agents pill row, reused): a hairline marks it off
+   from the panel it switches, so the tabs read as chrome over the page, not as its
+   first row of content */
+.ns-tabs { border-bottom: 1px solid var(--border); padding-bottom: var(--s3); }
+/* the tabpanel wrapper keeps the card's vertical rhythm for its children; the panel's
+   own first heading needs no group gap — the tab row above it is the separation */
+.tab-panel { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.tab-panel > .ns-label:first-child { margin-top: 0; }
 /* clear group rhythm: far from the previous group, close to its own field */
 .ns-label { color: var(--fg-dim); font-size: var(--fs-xs); font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.9px; margin-top: var(--s4); }
@@ -1484,8 +1492,6 @@ summary::-webkit-details-marker { display: none; }
 .cl-empty { padding: var(--s3) 0; }
 
 /* ---------- extensions ---------- */
-/* the tabpanel wrapper keeps the card's vertical rhythm for its children */
-.tab-panel { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
 .ext-notice { background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: var(--s2) var(--s3); font-size: var(--fs-sm);
   color: var(--accent); }

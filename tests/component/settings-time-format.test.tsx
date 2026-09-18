@@ -53,7 +53,7 @@ describe('fmtElapsed', () => {
 
 describe('Settings time format', () => {
   it('persists a change and reflects it in the select', async () => {
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="view" />)
 
     // the trigger's accessible name is label + current value — a bare aria-label would
     // replace the contents and never announce which option is selected
@@ -72,7 +72,7 @@ describe('Settings time format', () => {
     vi.mocked(window.cockpit.getTimeFormat).mockResolvedValue('12h')
     await act(() => initTimeFormat())
 
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="view" />)
     expect(await screen.findByRole('button', { name: /^Time format 12-hour/ })).toHaveTextContent(
       '12-hour'
     )

@@ -253,12 +253,36 @@ test('settings lists the seeded source with its session count', async () => {
   // all three fixture sessions counted for this source
   await expect(source.locator('.repo-count')).toHaveText('3')
   await expect(source.getByRole('button', { name: /^Remove config home e2e-claude/ })).toBeVisible()
-  // display preferences are present with live controls
+  // preferences live on their own tabs, one panel at a time
+  const tabs = win.getByRole('tablist', { name: 'Settings sections' })
+  await tabs.getByRole('tab', { name: 'View' }).click()
   await expect(win.getByRole('button', { name: 'Sessions to show' })).toBeVisible()
   await expect(win.getByRole('button', { name: 'Time format' })).toBeVisible()
-  // the jump row under the title lands focus on the section picked
-  await win.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'About' }).click()
-  await expect(win.getByRole('heading', { name: 'About' })).toBeFocused()
+  await expect(source).toBeHidden()
+
+  // the bug the tabs replaced: picking a section used to scroll its heading to the
+  // top of the card, which took the title, the tab row and Close off the screen with
+  // it. Every tab must leave the head where it is, with nothing scrolled away.
+  for (const name of ['Notifications', 'Providers', 'Backup', 'About', 'Accounts']) {
+    await tabs.getByRole('tab', { name }).click()
+    await expect(tabs.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
+    await expect(win.getByRole('heading', { name: 'Settings' })).toBeVisible()
+    await expect(win.getByRole('button', { name: 'Close' })).toBeVisible()
+    const view = await win.evaluate(() => {
+      const el = document.querySelector('.settings-view')!
+      const tabs = document.querySelector('.ns-tabs')!.getBoundingClientRect()
+      return {
+        scrollTop: el.scrollTop,
+        overflow: el.scrollHeight - el.clientHeight,
+        clientHeight: el.clientHeight,
+        tabsTop: tabs.top
+      }
+    })
+    expect(view.scrollTop, `${name} scrolled the card`).toBe(0)
+    expect(view.tabsTop, `${name} pushed the tab row off the top`).toBeGreaterThan(0)
+    // one panel is at most one screen past the fold — the single card was 2.5 of them
+    expect(view.overflow, `${name} is a page, not a panel`).toBeLessThan(view.clientHeight)
+  }
   await gear.click()
   await expect(homeHeading()).toBeVisible()
   await expect(gear).not.toHaveAttribute('aria-current', 'page')
@@ -474,10 +498,17 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   expect((await win.getByPlaceholder('Search…').boundingBox())?.width ?? 0).toBeGreaterThan(200)
 
   // settings' rows carry an identity chip, a path, a count and an action, and its
-  // usage windows fixed-width meters — both outgrew the card here once, unaudited
+  // usage windows fixed-width meters — both outgrew the card here once, unaudited.
+  // Every tab is audited: each is its own page now, and only the open one is mounted.
   await win.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Settings' })).toBeVisible()
   expect(await audit()).toEqual([])
+  const settingsTabs = win.getByRole('tablist', { name: 'Settings sections' })
+  for (const name of ['View', 'Notifications', 'Providers', 'Backup', 'About']) {
+    await settingsTabs.getByRole('tab', { name }).click()
+    await expect(settingsTabs.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
+    expect(await audit(), `settings › ${name} at the window floor`).toEqual([])
+  }
 
   // cleanup's rows carry a path, a size and a reason — the widest content in the app
   await win.getByRole('button', { name: 'Cleanup', exact: true }).click()

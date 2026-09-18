@@ -123,7 +123,8 @@ test.afterAll(async () => {
 
 test('settings lists seeded providers with agent applicability, and adds/removes one live', async () => {
   await win.getByRole('button', { name: 'Settings', exact: true }).click()
-  await expect(win.getByRole('heading', { name: 'Model providers' })).toBeVisible()
+  await win.getByRole('tab', { name: 'Providers' }).click()
+  await expect(win.getByRole('button', { name: 'Add a model provider…' })).toBeVisible()
 
   // seeded rows: type chip, per-type agent applicability, cached model count
   const anthropicRow = win.locator('.source-row', { hasText: 'anthropic-gw' })

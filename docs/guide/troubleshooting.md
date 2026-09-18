@@ -44,7 +44,7 @@ Whatever the cause, replacing the app by hand always works: download the disk im
 
 Work through these in order:
 
-1. **History window** — if Settings has a history window set, sessions idle longer than N days are hidden (not deleted). Widen or clear the window.
+1. **History window** — if **Settings › View** has a history window set, sessions idle longer than N days are hidden (not deleted). Widen or clear the window.
 2. **Archived in the provider's own app** — sessions archived or deleted in Copilot (`data.db`), Codex (`archived_sessions/`), or the Claude desktop app are hidden entirely, by design.
 3. **Copilot specifically** — its session format is the least documented, and the parser is best-effort. If your Copilot sessions don't appear, grab one file from `~/.copilot` and [open an issue](https://github.com/tashtit/cockpit/issues) with it (redact anything sensitive); the parser lives in `src/main/parsers/copilot.ts`.
 

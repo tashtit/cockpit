@@ -28,7 +28,7 @@ const exportButton = (): HTMLElement => screen.getByRole('button', { name: 'Expo
 
 describe('Settings › Backup', () => {
   it('will not export until both passphrases match and are long enough', async () => {
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="backup" />)
 
     // no passphrase at all is a valid choice — the button is live from the start
     expect(await screen.findByLabelText('Passphrase · optional')).toBeInTheDocument()
@@ -61,7 +61,7 @@ describe('Settings › Backup', () => {
   })
 
   it('refuses a passphrase shorter than the minimum', async () => {
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="backup" />)
     await userEvent.type(await screen.findByLabelText('Passphrase · optional'), 'short')
     await userEvent.type(screen.getByLabelText('Repeat passphrase'), 'short')
     expect(exportButton()).toBeDisabled()
@@ -75,7 +75,7 @@ describe('Settings › Backup', () => {
     vi.mocked(window.cockpit.restoreBackup).mockResolvedValue(
       summary({ needsValues: ['github in global — TOKEN'] })
     )
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="backup" />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Choose backup…' }))
     expect(await screen.findByText(/4 library entries · 1 skills · 1 providers/)).toBeInTheDocument()
@@ -103,7 +103,7 @@ describe('Settings › Backup', () => {
     vi.mocked(window.cockpit.restoreBackup).mockRejectedValue(
       new Error('wrong passphrase or damaged backup')
     )
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="backup" />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Choose backup…' }))
     const restore = await screen.findByRole('button', { name: 'Restore' })

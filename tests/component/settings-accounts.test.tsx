@@ -127,31 +127,16 @@ describe('Settings account rows', () => {
   })
 })
 
-describe('Settings › the card’s map', () => {
-  it('lists every section under the title and lands focus on the one picked', async () => {
+describe('Settings › the GitHub account', () => {
+  it('rides with the agent accounts on their own tab — it is an account too', async () => {
     render(<Settings onClose={vi.fn()} />)
     await screen.findByText('claude-default')
-    const map = screen.getByRole('navigation', { name: 'Sections' })
-    expect(within(map).getAllByRole('button').map((b) => b.textContent)).toEqual([
-      'Accounts',
-      'GitHub',
-      'History',
-      'Display',
-      'Notifications',
-      'Providers',
-      'ACP agents',
-      'Backup',
-      'About'
-    ])
-    await userEvent.click(within(map).getByRole('button', { name: 'Backup' }))
-    expect(screen.getByRole('heading', { name: 'Backup' })).toHaveFocus()
-  })
-
-  it('keeps GitHub with the other accounts, ahead of the preferences', async () => {
-    render(<Settings onClose={vi.fn()} />)
-    await screen.findByText('claude-default')
+    const agents = screen.getByRole('heading', { name: 'Agent accounts & usage' })
     const github = screen.getByRole('heading', { name: 'GitHub' })
-    const history = screen.getByRole('heading', { name: 'History' })
-    expect(github.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // one tab, the agent homes first and the gh login under them
+    expect(agents.compareDocumentPosition(github) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(screen.getByRole('tabpanel')).getByText('@dev')).toBeInTheDocument()
+    // and it has no tab of its own to be looked for on
+    expect(screen.queryByRole('tab', { name: 'GitHub' })).toBeNull()
   })
 })

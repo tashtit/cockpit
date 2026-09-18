@@ -62,7 +62,7 @@ Two kinds of "gone", handled differently:
 
 ## The history window
 
-By default Cockpit shows your full history. If years of sessions make the sidebar noisy, set a **history window** in Settings — sessions idle for longer than N days disappear from the index (the files on disk are never touched).
+By default Cockpit shows your full history. If years of sessions make the sidebar noisy, set a **history window** in **Settings › View** — sessions idle for longer than N days disappear from the index (the files on disk are never touched).
 
 ## Why it's fast
 

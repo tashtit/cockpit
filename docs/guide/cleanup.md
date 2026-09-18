@@ -11,7 +11,7 @@ One setting drives the whole view: the **idle threshold**, default **30 days**. 
 The threshold has a hard floor of 7 days — short thresholds would sweep up work you're merely between sittings on.
 
 ::: tip Not the same as the history window
-Settings → History controls what the **sidebar** shows. Cleanup's threshold controls what this view offers to **delete**. They are independent on purpose.
+Settings › View › History controls what the **sidebar** shows. Cleanup's threshold controls what this view offers to **delete**. They are independent on purpose.
 :::
 
 ## Stale sessions
