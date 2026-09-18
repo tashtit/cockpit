@@ -2,19 +2,38 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** single `.ns-card` that is a *status readout first, config editor second* —
-it answers "what is Cockpit watching, as whom, how much of each subscription is used,
-and is it healthy" before anything is edited. Small surface — resist growth; new setting
-groups get a new `.ns-label` section in the same card before they ever get tabs (current
-sections, in order: Agent accounts & usage · GitHub · History · Display · Notifications ·
-Model providers · ACP agents · Backup · About — the two account sections together, then
-the preferences, then the occasional tasks).
+**Pattern:** one `.ns-card` of *tabs* that is a *status readout first, config editor
+second* — it answers "what is Cockpit watching, as whom, how much of each subscription
+is used, and is it healthy" before anything is edited. Small surface — resist growth; a
+new setting group joins the tab whose question it answers before it ever gets a tab of
+its own (current tabs, in order: Accounts · View · Notifications · Providers · Backup ·
+About — the accounts first, then what the app shows, then the occasional tasks). **The pill row must hold in two rows at the 560×420 floor** — every
+old section as its own tab wrapped it to three, a fifth of the window spent on
+navigation. History and Display share the View tab for that reason, and Model providers
+and ACP agents share Providers — both answer "what backs my agents", one as an endpoint
+you bring a key for and one as a CLI that speaks ACP. Measure the floor before adding a
+seventh.
 
-- **The card has a map.** A jump row (`.ns-jumps` — the Agents `.pnl-pill`s inside a
-  `<nav aria-label="Sections">`) sits under the title, one pill per entry of
-  `SETTINGS_SECTIONS`; a pill scrolls its `h3` into view and focuses it, and a deep link
-  (the `section` prop — the sidebar's usage meters land on `accounts`) does the same. It
-  is a map of one page, never tabs: everything stays on the card.
+- **The card is tabs, one panel at a time.** A `.pnl-tabs.ns-tabs` row (the Agents
+  `.pnl-pill`s inside a `role="tablist"` named "Settings sections") sits under the title,
+  one `role="tab"` per entry of `SETTINGS_SECTIONS`, and a deep link (the `section`
+  prop — the sidebar's usage meters land on `accounts`) opens on one. **Only the selected
+  panel is mounted**, so a tab reads its own data when it is opened and nothing is
+  fetched for someone who came to flip one switch. The whole card used to be a single
+  2.5-screen scroll behind a jump row, and a jump scrolled the picked heading to the top
+  — which took the title, the jump row and Close off screen with it. Nothing here may
+  scroll a section into view: **switching tabs resets `.settings-view` to `scrollTop 0`**,
+  so the head and its tabs can never be scrolled out of reach. `tests/e2e/pages.spec.ts`
+  asserts that on every tab, and audits every tab at the 560×420 floor.
+- **The selected tab is the panel's heading.** A panel holding one group carries no
+  leading `<h3>` — repeating the pill directly under it is noise, and the panel is already
+  named by its tab (`aria-labelledby`). A panel holding more than one group keeps an `h3`
+  per group (Accounts: "Agent accounts & usage", then "GitHub"; View: "History", then
+  "Display"; Providers: "Model providers", then "ACP agents").
+- **The tab row is one tab stop.** Roving `tabIndex` (0 on the selected tab, -1 on the
+  rest); ←/→ wrap, Home/End jump to the ends, and moving selects — the same activation
+  the Agents panel uses. The card's `h2` still takes focus on mount; picking a tab leaves
+  focus on the tab, never on the panel.
 - **Section prose is one or two sentences at body size** (`.ns-hint.ns-prose`): what the
   section is and the one consequence to know. Mechanism ("Claude is measured from session
   logs") moves onto the row it describes — a `title`, a `.source-note` — or into the form
@@ -27,15 +46,21 @@ the preferences, then the occasional tasks).
   long while answering half as much. Usage is matched to a home by path; Copilot reports
   no path (its quota belongs to the GitHub account, not a directory) so it matches on
   provider. Usage measured for a home that is no longer indexed still renders, after the
-  list. `section="usage"` (the sidebar footer's deep link) lands on this heading.
+  list. `section="accounts"` (the sidebar footer's deep link) opens on this tab.
 - **Add forms are folded.** `Add a config home…` and `Add a model provider…` are ghost
   buttons under the list each extends; the form opens in place, focuses its first field,
   and folds again once the thing is added (Cancel, too). A *refused* add keeps the form
-  open with its values. Anything the add produced that outlives the form — the model
+  open with its values. A half-typed form is lost if you leave the tab — that is the cost
+  of unmounting, and it is the same cost as pressing Close. Anything the add produced that outlives the form — the model
   probe's "N models found" / "couldn't list models" — renders outside it.
 
 ## Rules
 
+- Files: `Settings.tsx` is the shell (head, tabs, the `role="status"` region every
+  panel announces through, and the shared `appInfo` + update state that main pushes
+  whatever tab is open) plus the two one-`Select` panels. Everything else is one file per
+  panel — `AccountsSection` · `NotificationsSection` · `ModelProviders` · `BackupSection`
+  · `AboutSection` — each owning its own reads.
 - Header: `.ns-head` h2 + ghost Close. The heading takes focus on mount
   (`tabIndex={-1}` + `.focus()`) so screen readers land in context after navigation —
   keep this pattern for any new full-view card. Section headings are real `<h3
@@ -58,10 +83,10 @@ the preferences, then the occasional tasks).
   defaults are only auto-detected on first run). After removal an `.ns-hint` Undo line
   offers one-click restore. Adds/removes announce via the card's `sr-only`
   `role="status"` region (ChatView's pattern).
-- History section: one labeled `Select` ("Sessions to show" — preset day windows plus
+- View tab, History section: one labeled `Select` ("Sessions to show" — preset day windows plus
   "All history"). The `.ns-hint` must keep saying that older sessions are only hidden,
   never touched on disk — this is a view filter, not a destructive setting.
-- Display section: two labeled `Select`s. "Time format" (24-hour default vs 12-hour,
+- View tab, Display section: two labeled `Select`s. "Time format" (24-hour default vs 12-hour,
   each option shows a concrete example like `14:30`) applies live to session times in
   the sidebar and home view via the shared `time.ts` store. "Chat width" (narrow /
   comfortable / wide / full, px hints on the options) bounds the conversation column
@@ -86,8 +111,8 @@ the preferences, then the occasional tasks).
   build, then a second note line `macOS said: <code>…</code>` verbatim), or no answer yet
   (the permission prompt). Before a test it says a development run starts the switches off.
   The test posts a sample regardless of the switch — pressing the button is the request.
-- GitHub section: directly after the agent accounts — it is an account, and the sidebar
-  footer already shows the two together. One row — `OrgIcon` · "gh CLI" · `@login`
+- GitHub section: the second group on the Accounts tab — it is an account, and the
+  sidebar footer already shows the two together; it never gets a tab of its own. One row — `OrgIcon` · "gh CLI" · `@login`
   acct-chip (or `.missing`) · `.source-note` prose (NOT mono; mono is machine identifiers
   only). Copy references real commands in `<code>` (`gh auth login`).
 - Model providers section (BYOK): `.source-row` per provider — `EndpointIcon` · display
@@ -121,7 +146,8 @@ the preferences, then the occasional tasks).
   method" wrapper; every settings surface that shows a rejection goes through it. A path
   the card already lists is refused in the renderer ("Cockpit already watches …") rather
   than sent to main, which keeps a duplicate silently.
-- ACP agents section (`AcpAgents.tsx`): borrows the Model providers grammar exactly —
+- ACP agents section (second group on the Providers tab, `AcpAgents.tsx`): borrows the
+  Model providers grammar exactly —
   `.source-list` rows, a folded `Add an ACP agent…` affordance, `ConfirmRemove` per row.
   A row is tinted with the CLI it drives (`.tint-{provider}`) and carries that provider's
   logo: an ACP agent is a *way of running* one of the three agents, not a fourth agent,
@@ -150,7 +176,7 @@ the preferences, then the occasional tasks).
   `.new-error role="alert"`, verbatim. The summary is `.ns-hint` lines (what was added,
   what was kept, what was skipped, what needs values) ending in an Undo `link-btn`, and
   every outcome also goes through the card's `role="status"` region.
-- About section (last): one `.source-row` — `CockpitLogo` (decorative) · "Cockpit" · the
+- About tab (last): one `.source-row` — `CockpitLogo` (decorative) · "Cockpit" · the
   version as an `.acct-chip` (a machine identifier, mono) · dim `.source-origin`
   "installed · arm64" or "development run" · `.source-note` readout of the updater (not
   checked yet / checking… / up to date — checked Xm ago / version X is available /

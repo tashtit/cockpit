@@ -22,7 +22,7 @@ describe('Settings › About', () => {
       version: '1.5.0',
       checkedAt: Date.now()
     })
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="about" />)
 
     expect(await screen.findByText('v1.4.2')).toBeInTheDocument()
     expect(screen.getByText('installed · arm64')).toBeInTheDocument()
@@ -45,7 +45,7 @@ describe('Settings › About', () => {
     })
     vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
     vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'idle' })
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="about" />)
     await screen.findByText('v1.4.2')
 
     act(() => pushed.cb?.({ status: 'downloading', version: '1.5.0', percent: 42 }))
@@ -64,7 +64,7 @@ describe('Settings › About', () => {
     vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
     vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'idle' })
     vi.mocked(window.cockpit.setUpdatePrefs).mockResolvedValue({ download: false, install: true })
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="about" />)
 
     const auto = await screen.findByRole('checkbox', { name: 'Download updates automatically' })
     const onQuit = screen.getByRole('checkbox', { name: 'Install when I quit' })
@@ -83,7 +83,7 @@ describe('Settings › About', () => {
       status: 'idle',
       installFailure: 'Could not move /Applications/Cockpit.app aside.'
     })
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="about" />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       /put back: Could not move \/Applications\/Cockpit.app aside\./
@@ -99,7 +99,7 @@ describe('Settings › About', () => {
     })
     vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
     vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'idle' })
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="about" />)
     await screen.findByText('v1.4.2')
 
     act(() => pushed.cb?.({ status: 'error', message: 'net::ERR_INTERNET_DISCONNECTED' }))
@@ -109,7 +109,7 @@ describe('Settings › About', () => {
 
   it('explains that a development run cannot update, with no controls to press', async () => {
     // the stub's defaults are the dev-run shape: 0.0.0, not packaged, unsupported
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="about" />)
     expect(await screen.findByText('v0.0.0')).toBeInTheDocument()
     expect(screen.getByText('development run')).toBeInTheDocument()
     expect(screen.getByText(/installed builds only/)).toBeInTheDocument()
@@ -120,7 +120,7 @@ describe('Settings › About', () => {
 
   it('opens the release notes externally', async () => {
     vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="about" />)
     await userEvent.click(await screen.findByRole('button', { name: 'Release notes' }))
     expect(window.cockpit.openExternal).toHaveBeenCalledWith(installed.releasesUrl)
   })
@@ -129,7 +129,7 @@ describe('Settings › About', () => {
     vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
     vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'idle' })
     vi.mocked(window.cockpit.openLicenseNotices).mockResolvedValueOnce(null)
-    render(<Settings onClose={vi.fn()} />)
+    render(<Settings onClose={vi.fn()} section="about" />)
     await screen.findByText('v1.4.2')
 
     const link = screen.getByRole('button', { name: 'Open source licenses' })

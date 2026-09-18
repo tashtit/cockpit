@@ -4,12 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { Settings } from '../../src/renderer/src/Settings'
 import type { NotificationDelivery } from '../../src/shared/types'
 
-/** The Notifications section: the list right after its own heading. */
-async function section(): Promise<HTMLElement> {
-  const heading = await screen.findByRole('heading', { name: 'Notifications' })
-  let el = heading.nextElementSibling
-  while (el && el.tagName !== 'UL') el = el.nextElementSibling
-  return el as HTMLElement
+/** The switch list on the Notifications tab — the panel's own list, not the card's. */
+async function switches(): Promise<HTMLElement> {
+  const panel = await screen.findByRole('tabpanel')
+  return panel.querySelector('ul') as HTMLElement
 }
 
 describe('Settings notifications', () => {
@@ -19,8 +17,8 @@ describe('Settings notifications', () => {
       sound: false,
       badge: true
     })
-    render(<Settings onClose={vi.fn()} />)
-    const list = await section()
+    render(<Settings onClose={vi.fn()} section="notifications" />)
+    const list = await switches()
 
     const banner = within(list).getByRole('checkbox', { name: 'Desktop notifications' })
     await waitFor(() => expect(banner).toBeChecked())
@@ -35,8 +33,8 @@ describe('Settings notifications', () => {
       sound: true,
       badge: true
     })
-    render(<Settings onClose={vi.fn()} />)
-    const list = await section()
+    render(<Settings onClose={vi.fn()} section="notifications" />)
+    const list = await switches()
     const sound = within(list).getByRole('checkbox', { name: 'Sound' })
     await waitFor(() => expect(sound).toBeChecked())
 
@@ -57,8 +55,8 @@ describe('Settings notifications', () => {
       badge: true
     })
     vi.mocked(window.cockpit.setAttentionPrefs).mockRejectedValue(new Error('disk full'))
-    render(<Settings onClose={vi.fn()} />)
-    const list = await section()
+    render(<Settings onClose={vi.fn()} section="notifications" />)
+    const list = await switches()
     const badge = within(list).getByRole('checkbox', { name: 'Dock badge' })
     await waitFor(() => expect(badge).toBeChecked())
 
@@ -74,8 +72,8 @@ describe('Settings notifications', () => {
         answer = r
       })
     )
-    render(<Settings onClose={vi.fn()} />)
-    const list = await section()
+    render(<Settings onClose={vi.fn()} section="notifications" />)
+    const list = await switches()
 
     await userEvent.click(within(list).getByRole('button', { name: 'Send a test notification' }))
     // macOS can take seconds to answer: the button says so and can't be pressed twice
@@ -90,8 +88,8 @@ describe('Settings notifications', () => {
   it('a development run says the switches start off here', async () => {
     // the stub is a development run already; say so, since that is what's under test
     expect((await window.cockpit.getAppInfo()).packaged).toBe(false)
-    render(<Settings onClose={vi.fn()} />)
-    const list = await section()
+    render(<Settings onClose={vi.fn()} section="notifications" />)
+    const list = await switches()
     await within(list).findByText(/Development run/)
   })
 })
