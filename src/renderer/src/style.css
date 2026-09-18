@@ -1071,7 +1071,10 @@ summary::-webkit-details-marker { display: none; }
 /* agent picker + account form one "who runs this" control.
    1px padding: 24px agents + padding + border = 28px, level with the bar's selects */
 .composer-identity { display: inline-flex; align-items: center; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); padding: 1px; }
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 1px;
+  /* the bar wraps, but this control also has to give way inside its own line: without
+     this the account select holds its 210px and the card clips its right edge off */
+  min-width: 0; }
 .composer-identity .composer-agents { border: none; background: none; padding: 0 4px 0 0;
   margin-right: 6px; border-right: 1px solid var(--border); border-radius: 0; }
 .composer-agents { display: flex; gap: 2px; background: var(--surface);
@@ -1091,7 +1094,7 @@ summary::-webkit-details-marker { display: none; }
 .composer-agent.no-acct::after { content: ''; position: absolute; top: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
 /* account select sits borderless inside the identity control (quiet variant) */
-.composer-acct-wrap { max-width: 210px; }
+.composer-acct-wrap { max-width: 210px; min-width: 0; }
 /* every control in the bar is 28px tall — one shared bottom edge, no ragged line */
 .composer-bar .btn-primary { margin-left: auto; padding: 5px var(--s5); }
 /* ---------- the board: the home view's opening move ----------
@@ -1535,7 +1538,7 @@ summary::-webkit-details-marker { display: none; }
    every row underneath means. Everything else lives on the row it belongs to. */
 .scope-line { display: flex; align-items: center; gap: var(--s3); }
 .scope-seg { display: flex; align-items: stretch; border: 1px solid var(--border);
-  border-radius: var(--radius); overflow: hidden; }
+  border-radius: var(--radius); overflow: hidden; min-width: 0; }
 .scope-opt { padding: 0 var(--s4); min-height: 28px; font-family: var(--mono);
   font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.9px; color: var(--fg-dim); background: var(--bg2);
@@ -1544,7 +1547,9 @@ summary::-webkit-details-marker { display: none; }
 .scope-opt:hover { color: var(--fg); }
 .scope-opt.active { color: var(--fg); background: var(--bg3);
   box-shadow: inset 0 2px 0 var(--accent); }
-.scope-seg .select-wrap { min-width: 190px; }
+/* the project name asks for its 190px as a width, not as a floor: as a min-width the
+   switch stayed 260px wide in a narrower card and clipped instead of giving way */
+.scope-seg .select-wrap { width: 190px; min-width: 0; }
 .scope-seg .select-trigger { border: none; border-radius: 0; background: var(--bg2);
   min-height: 28px; }
 .scope-select.active .select-trigger { background: var(--bg3); color: var(--fg);

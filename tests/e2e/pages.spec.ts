@@ -538,3 +538,40 @@ test('the window minimum is enforced and every surface holds at exactly that siz
 
   await win.setViewportSize({ width: 1100, height: 728 })
 })
+
+test('the floor is in CSS pixels: zoom raises the window minimum instead of falling through it', async () => {
+  const minimum = (): Promise<number[]> =>
+    app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize())
+  const zoom = (factor: number): Promise<unknown> =>
+    win.evaluate((f) => window.cockpit.setZoomFactor(f), factor)
+
+  // 560pt holds 560 CSS px only at 100% — at 150% the same window lays out 373 of them,
+  // three breakpoints below anything the layout is written for. The minimum grows with it.
+  await zoom(1.5)
+  await expect.poll(minimum).toEqual([840, 630])
+
+  // and with the minimum in step, the floor is the floor: at 150% in an 840x630 window
+  // the layout gets exactly the 560x420 it is audited at above
+  await win.setViewportSize({ width: 840, height: 630 })
+  expect(await win.evaluate(() => [window.innerWidth, window.innerHeight])).toEqual([560, 420])
+  await win.keyboard.press('ControlOrMeta+n')
+  await expect(win.getByRole('button', { name: /^Start with/ })).toBeVisible()
+  const escapes = await win.evaluate(() => {
+    const bad: string[] = []
+    if (document.documentElement.scrollWidth > window.innerWidth + 1) bad.push('document scrolls horizontally')
+    for (const el of Array.from(document.querySelectorAll('*'))) {
+      const r = el.getBoundingClientRect()
+      if (r.width > 0 && (r.right > window.innerWidth + 1.5 || r.left < -1.5))
+        bad.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} escapes the window`)
+    }
+    return [...new Set(bad)]
+  })
+  expect(escapes).toEqual([])
+
+  // zooming out only ever hands the layout more CSS pixels — the floor stays the floor
+  await zoom(0.7)
+  await expect.poll(minimum).toEqual([560, 420])
+  await zoom(1)
+  await expect.poll(minimum).toEqual([560, 420])
+  await win.setViewportSize({ width: 1100, height: 728 })
+})

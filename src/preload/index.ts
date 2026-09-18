@@ -1,12 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
-
-/** UI stays usable at any zoom the user can reach. The ceiling is 2.0 on purpose:
- *  WCAG 1.4.4 wants text to reach 200% without loss of content, and this app's chrome
- *  is deliberately dense (11–13px), so low-vision users need the whole range.
- *  App.tsx mirrors these bounds to keep the zoom chip honest — change both. */
-const ZOOM_MIN = 0.7
-const ZOOM_MAX = 2
 import { CH, PUSH } from '../shared/contract'
+import { clampZoom } from '../shared/window'
 import type { CockpitApi } from '../shared/contract'
 import type {
   AttentionFocus,
@@ -169,8 +163,8 @@ const api: CockpitApi = {
   },
   getProfile: () => ipcRenderer.invoke(CH.profileGet),
   getZoomFactor: () => webFrame.getZoomFactor(),
-  setZoomFactor: (factor: number) =>
-    webFrame.setZoomFactor(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, factor))),
+  setZoomFactor: (factor: number) => webFrame.setZoomFactor(clampZoom(factor)),
+  reportZoom: (factor: number) => ipcRenderer.invoke(CH.windowZoom, factor),
   openExternal: (url: string) => ipcRenderer.invoke(CH.shellOpen, url),
   onIndexUpdated: (cb: () => void) => {
     const handler = (): void => cb()

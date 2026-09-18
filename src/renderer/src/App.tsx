@@ -10,6 +10,7 @@ import type {
   RepoGroup,
   SessionMeta
 } from '../../shared/types'
+import { clampZoom } from '../../shared/window'
 import { api } from './api'
 import { withImageMarks, type ImageAttachment } from './attachments'
 import { TreeSidebar } from './TreeSidebar'
@@ -107,6 +108,7 @@ export function App(): JSX.Element {
   const [repos, setRepos] = useState<RepoGroup[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [zoom, setZoom] = useState(1)
+  const zoomRef = useRef(1)
   const [view, setView] = useState<View>({ kind: 'welcome' })
   const [indexVersion, setIndexVersion] = useState(0)
   /** The first full scan has finished — an empty repo list is real, not unread */
@@ -160,17 +162,27 @@ export function App(): JSX.Element {
     return api.onIndexUpdated(load)
   }, [])
 
-  // menu zoom (⌘+/-) has no renderer event — poll, clamp to limits, surface the level.
-  // Bounds mirror ZOOM_MIN/ZOOM_MAX in preload (which does the actual clamping); the
-  // ceiling is 2.0 so text can reach 200% per WCAG 1.4.4.
-  useEffect(() => {
-    const t = setInterval(() => {
-      const z = api.getZoomFactor()
-      if (z > 2 || z < 0.7) api.setZoomFactor(z)
-      setZoom(Math.round(api.getZoomFactor() * 100) / 100)
-    }, 1200)
-    return () => clearInterval(t)
+  // Zoom has no event of its own — the menu's ⌘+/- acts in main and the chip's reset in
+  // preload — but every change resizes the layout viewport, so one resize listener sees
+  // all of them (the poll this replaced left the chip up to 1.2s stale). A window drag
+  // fires the same event, hence the ref: work is done only when the level really moved.
+  const syncZoom = useCallback((): void => {
+    const z = clampZoom(api.getZoomFactor())
+    if (z !== api.getZoomFactor()) api.setZoomFactor(z)
+    const level = Math.round(z * 100) / 100
+    if (level === zoomRef.current) return
+    zoomRef.current = level
+    setZoom(level)
+    // main keeps the window's minimum size in step: the floor is written in CSS pixels,
+    // and the further in this is zoomed the fewer of them the same window holds
+    void api.reportZoom(level)
   }, [])
+
+  useEffect(() => {
+    syncZoom()
+    window.addEventListener('resize', syncZoom)
+    return () => window.removeEventListener('resize', syncZoom)
+  }, [syncZoom])
 
   const bindingRef = useRef<ChatBinding | null>(null)
   bindingRef.current = binding
@@ -747,7 +759,9 @@ export function App(): JSX.Element {
         zoom={zoom}
         onResetZoom={() => {
           api.setZoomFactor(1)
-          setZoom(1)
+          // webFrame is synchronous, so the chip and main settle now rather than on the
+          // resize this triggers — which then sees the level already where it left it
+          syncZoom()
         }}
         selectedId={selectedSessionId}
         onSelect={openSession}
