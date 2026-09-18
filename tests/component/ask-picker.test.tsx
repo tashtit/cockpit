@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import { setChatLog } from '../../src/renderer/src/chat-log'
-import type { ChatBinding } from '../../src/renderer/src/App'
+import type { ChatBinding } from '../../src/renderer/src/chat-binding'
 import type { SessionMessage } from '../../src/shared/types'
 
 const binding: ChatBinding = {

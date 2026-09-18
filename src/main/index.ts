@@ -22,6 +22,7 @@ import type {
   TranscriptSearchQuery,
   UpdatePrefs
 } from '../shared/types'
+import { CH, PUSH, type PushChannel } from '../shared/contract'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { TranscriptSearcher } from './transcript-search'
@@ -139,7 +140,7 @@ let pendingOpen: AttentionTarget | null = null
  * (window-all-closed doesn't quit) — sending to a destroyed webContents would
  * throw inside a stream handler and take the whole main process down.
  */
-function sendToWin(channel: string, payload?: unknown): void {
+function sendToWin(channel: PushChannel, payload?: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
 }
 
@@ -154,7 +155,7 @@ function busySessions(): BusySession[] {
 }
 
 function pushBusy(): void {
-  sendToWin('busy-sessions', busySessions())
+  sendToWin(PUSH.busySessions, busySessions())
 }
 
 /**
@@ -248,7 +249,7 @@ function openAttentionTarget(target: AttentionTarget | null): void {
   app.focus({ steal: true })
   if (!target) return
   if (win.webContents.isLoading()) pendingOpen = target
-  else sendToWin('attention-open', target)
+  else sendToWin(PUSH.attentionOpen, target)
 }
 
 /** What the window shows is renderer input: only ever compared, never a path — but still shaped. */
@@ -451,7 +452,7 @@ app.whenReady().then(() => {
     () => {
       resolveCopilotHandoffs()
       resolveAttention()
-      sendToWin('index-updated')
+      sendToWin(PUSH.indexUpdated)
     },
     {
       cacheFile: join(app.getPath('userData'), 'index-cache.json'),
@@ -473,9 +474,9 @@ app.whenReady().then(() => {
   indexer.setLineage(cfg.continuedFrom ?? {})
   void indexer.setSources(cfg.sources)
 
-  ipcMain.handle('sources:get', () => loadConfig().sources)
-  ipcMain.handle('sources:stats', () => indexer.sourceStats(loadConfig().sources))
-  ipcMain.handle('sources:pick-dir', async () => {
+  ipcMain.handle(CH.sourcesGet, () => loadConfig().sources)
+  ipcMain.handle(CH.sourcesStats, () => indexer.sourceStats(loadConfig().sources))
+  ipcMain.handle(CH.sourcesPickDir, async () => {
     // main-process dialog: the renderer never supplies a path, it receives one
     const res = await dialog.showOpenDialog(win!, {
       title: 'Choose a config home to index',
@@ -484,7 +485,7 @@ app.whenReady().then(() => {
     })
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
   })
-  ipcMain.handle('sources:add', (_e, path: string, provider: Provider, label: string) => {
+  ipcMain.handle(CH.sourcesAdd, (_e, path: string, provider: Provider, label: string) => {
     // renderer args are untrusted — an unknown provider would crash the next scan
     if (!(['claude', 'codex', 'copilot'] as Provider[]).includes(provider)) {
       throw new Error(`Unknown provider: ${String(provider)}`)
@@ -500,44 +501,44 @@ app.whenReady().then(() => {
     void indexer.setSources(sources)
     return sources
   })
-  ipcMain.handle('sources:remove', (_e, path: string) => {
+  ipcMain.handle(CH.sourcesRemove, (_e, path: string) => {
     const cfg = loadConfig()
     const sources = cfg.sources.filter((s) => s.path !== path)
     saveConfig({ ...cfg, sources })
     void indexer.setSources(sources)
     return sources
   })
-  ipcMain.handle('repos:list', () => indexer.listRepos())
-  ipcMain.handle('index:scanned', () => indexer.whenScanned())
-  ipcMain.handle('sessions:page', (_e, query: SessionQuery) => indexer.page(query))
-  ipcMain.handle('sessions:get', (_e, id: string) => indexer.getSession(String(id)))
-  ipcMain.handle('sessions:messages', (_e, id: string) => indexer.getMessages(id))
-  ipcMain.handle('transcripts:search', (_e, query: TranscriptSearchQuery) =>
+  ipcMain.handle(CH.reposList, () => indexer.listRepos())
+  ipcMain.handle(CH.indexScanned, () => indexer.whenScanned())
+  ipcMain.handle(CH.sessionsPage, (_e, query: SessionQuery) => indexer.page(query))
+  ipcMain.handle(CH.sessionsGet, (_e, id: string) => indexer.getSession(String(id)))
+  ipcMain.handle(CH.sessionsMessages, (_e, id: string) => indexer.getMessages(id))
+  ipcMain.handle(CH.transcriptsSearch, (_e, query: TranscriptSearchQuery) =>
     transcripts.search(query)
   )
-  ipcMain.handle('transcripts:cancel', () => transcripts.cancel())
-  ipcMain.handle('handoff:briefing', (_e, id: string) => getHandoffBriefing(indexer, String(id)))
-  ipcMain.handle('handoff:improve', (_e, id: string) => improveHandoffBriefing(indexer, String(id)))
-  ipcMain.handle('sessions:archive', (_e, id: string, archived: boolean) => {
+  ipcMain.handle(CH.transcriptsCancel, () => transcripts.cancel())
+  ipcMain.handle(CH.handoffBriefing, (_e, id: string) => getHandoffBriefing(indexer, String(id)))
+  ipcMain.handle(CH.handoffImprove, (_e, id: string) => improveHandoffBriefing(indexer, String(id)))
+  ipcMain.handle(CH.sessionsArchive, (_e, id: string, archived: boolean) => {
     indexer.setArchived(setSessionArchived(id, archived))
   })
-  ipcMain.handle('repos:set-hidden', (_e, key: string, hidden: boolean) => {
+  ipcMain.handle(CH.reposSetHidden, (_e, key: string, hidden: boolean) => {
     indexer.setHiddenRepos(setRepoHidden(String(key), Boolean(hidden)))
   })
-  ipcMain.handle('repos:set-order', (_e, keys: unknown) => {
+  ipcMain.handle(CH.reposSetOrder, (_e, keys: unknown) => {
     // a plain list of keys — only reorders what the indexer already lists
     const list = Array.isArray(keys) ? keys.filter((k): k is string => typeof k === 'string') : []
     indexer.setRepoOrder(setRepoOrder(list.slice(0, 2000)))
   })
-  ipcMain.handle('history:get', () => loadConfig().historyDays ?? 0)
-  ipcMain.handle('history:set', (_e, days: number) => {
+  ipcMain.handle(CH.historyGet, () => loadConfig().historyDays ?? 0)
+  ipcMain.handle(CH.historySet, (_e, days: number) => {
     indexer.setHistoryDays(setHistoryDays(Number(days)))
   })
-  ipcMain.handle('time-format:get', () => loadConfig().timeFormat ?? '24h')
-  ipcMain.handle('time-format:set', (_e, format: TimeFormat) => {
+  ipcMain.handle(CH.timeFormatGet, () => loadConfig().timeFormat ?? '24h')
+  ipcMain.handle(CH.timeFormatSet, (_e, format: TimeFormat) => {
     setTimeFormat(format)
   })
-  ipcMain.handle('github:prs', async (_e, repoRoot: string) => {
+  ipcMain.handle(CH.githubPrs, async (_e, repoRoot: string) => {
     const root = assertKnownRepoRoot(repoRoot)
     const prs = await getPrs(root)
     // the badges' own refresh is the only time GitHub is asked — a red PR on a session's
@@ -545,13 +546,13 @@ app.whenReady().then(() => {
     attention?.prsUpdated(root, prs, (pr) => prCarrier(root, pr))
     return prs
   })
-  ipcMain.handle('github:default-branch', (_e, repoRoot: string) =>
+  ipcMain.handle(CH.githubDefaultBranch, (_e, repoRoot: string) =>
     getDefaultBranch(assertKnownRepoRoot(repoRoot))
   )
-  ipcMain.handle('workspace:create', (_e, repoRoot: string, name?: string) =>
+  ipcMain.handle(CH.workspaceCreate, (_e, repoRoot: string, name?: string) =>
     createWorkspace(assertKnownRepoRoot(repoRoot), name)
   )
-  ipcMain.handle('workspace:pr', (_e, cwd: string) => {
+  ipcMain.handle(CH.workspacePr, (_e, cwd: string) => {
     const c = resolve(String(cwd))
     const underWorktrees = c.startsWith(worktreesDir() + '/')
     const underKnownRoot = [...indexer.knownRepoRoots()].some(
@@ -563,18 +564,18 @@ app.whenReady().then(() => {
   // review before landing: the diff is read-only, so any dir a chat may run in is
   // fair to inspect; the scope is renderer input and is re-checked before it
   // selects git arguments
-  ipcMain.handle('workspace:diff', (_e, cwd: string, scope: unknown) =>
+  ipcMain.handle(CH.workspaceDiff, (_e, cwd: string, scope: unknown) =>
     getWorkspaceDiff(assertKnownCwd(cwd), asDiffScope(scope))
   )
   // an open PR's feedback and its fix prompt: the root is one the indexer derived,
   // and the number is renderer input that only ever reaches gh as a positive integer
-  ipcMain.handle('github:pr-feedback', (_e, repoRoot: string, n: unknown) =>
+  ipcMain.handle(CH.githubPrFeedback, (_e, repoRoot: string, n: unknown) =>
     getPrFeedback(assertKnownRepoRoot(repoRoot), asPrNumber(n))
   )
-  ipcMain.handle('github:pr-fix', (_e, repoRoot: string, n: unknown) =>
+  ipcMain.handle(CH.githubPrFix, (_e, repoRoot: string, n: unknown) =>
     getPrFixBriefing(assertKnownRepoRoot(repoRoot), asPrNumber(n))
   )
-  ipcMain.handle('extensions:get', () => getExtensions())
+  ipcMain.handle(CH.extensionsGet, () => getExtensions())
   // agent comes from the renderer and (for login) becomes a spawned command —
   // only ever accept the three known providers
   const asProvider = (agent: unknown): Provider => {
@@ -593,20 +594,20 @@ app.whenReady().then(() => {
     kind: asPanelKind(t?.kind),
     name: String(t?.name ?? '')
   })
-  ipcMain.handle('panel:get', (_e, repoRoot: string | null) => getPanel(asScope(repoRoot)))
-  ipcMain.handle('panel:set-switch', (_e, target: PanelTarget, agent: Provider, on: boolean) =>
+  ipcMain.handle(CH.panelGet, (_e, repoRoot: string | null) => getPanel(asScope(repoRoot)))
+  ipcMain.handle(CH.panelSetSwitch, (_e, target: PanelTarget, agent: Provider, on: boolean) =>
     setPanelSwitch(asTarget(target), asProvider(agent), Boolean(on))
   )
-  ipcMain.handle('panel:match', (_e, target: PanelTarget, source: Provider) =>
+  ipcMain.handle(CH.panelMatch, (_e, target: PanelTarget, source: Provider) =>
     matchPanelEntry(asTarget(target), asProvider(source))
   )
-  ipcMain.handle('panel:keep', (_e, target: PanelTarget, keep: boolean) =>
+  ipcMain.handle(CH.panelKeep, (_e, target: PanelTarget, keep: boolean) =>
     keepPanelDifference(asTarget(target), Boolean(keep))
   )
-  ipcMain.handle('panel:remove', (_e, target: PanelTarget) => removePanelEntry(asTarget(target)))
-  ipcMain.handle('panel:restore', (_e, target: PanelTarget) => restorePanelEntry(asTarget(target)))
-  ipcMain.handle('extensions:check-mcp', (_e, name: string) => probeMcp(getMcpConfig(String(name))))
-  ipcMain.handle('extensions:login-mcp', (_e, name: string, agent: Provider, projectPath?: string) => {
+  ipcMain.handle(CH.panelRemove, (_e, target: PanelTarget) => removePanelEntry(asTarget(target)))
+  ipcMain.handle(CH.panelRestore, (_e, target: PanelTarget) => restorePanelEntry(asTarget(target)))
+  ipcMain.handle(CH.extensionsCheckMcp, (_e, name: string) => probeMcp(getMcpConfig(String(name))))
+  ipcMain.handle(CH.extensionsLoginMcp, (_e, name: string, agent: Provider, projectPath?: string) => {
     const provider = asProvider(agent)
     // projectPath is renderer input — only trust it once it matches a claude
     // project entry read from ~/.claude.json itself
@@ -621,41 +622,41 @@ app.whenReady().then(() => {
   // indexer itself derived (never an arbitrary path)
   const instructionScope = (repoRoot: unknown): string | null =>
     repoRoot === null ? null : assertKnownRepoRoot(repoRoot)
-  ipcMain.handle('instructions:get', (_e, repoRoot: string | null) =>
+  ipcMain.handle(CH.instructionsGet, (_e, repoRoot: string | null) =>
     getInstructions(instructionScope(repoRoot))
   )
-  ipcMain.handle('instructions:save-baseline', (_e, repoRoot: string | null, baseline: string) =>
+  ipcMain.handle(CH.instructionsSaveBaseline, (_e, repoRoot: string | null, baseline: string) =>
     saveBaseline(instructionScope(repoRoot), String(baseline))
   )
-  ipcMain.handle('instructions:apply', (_e, repoRoot: string | null, onlyPath?: string) =>
+  ipcMain.handle(CH.instructionsApply, (_e, repoRoot: string | null, onlyPath?: string) =>
     applyInstructions(instructionScope(repoRoot), onlyPath ? String(onlyPath) : undefined)
   )
   ipcMain.handle(
-    'instructions:save-file',
+    CH.instructionsSaveFile,
     (_e, repoRoot: string | null, path: string, content: string) =>
       saveInstructionFile(instructionScope(repoRoot), String(path), String(content))
   )
-  ipcMain.handle('instructions:adopt-file', (_e, repoRoot: string | null, path: string) =>
+  ipcMain.handle(CH.instructionsAdoptFile, (_e, repoRoot: string | null, path: string) =>
     adoptInstructionsFrom(instructionScope(repoRoot), String(path))
   )
-  ipcMain.handle('instructions:share', (_e, repoRoot: string) =>
+  ipcMain.handle(CH.instructionsShare, (_e, repoRoot: string) =>
     shareInstructions(assertKnownRepoRoot(repoRoot))
   )
-  ipcMain.handle('shell:open', (_e, url: string) => {
+  ipcMain.handle(CH.shellOpen, (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
     return Promise.resolve()
   })
 
-  ipcMain.handle('accounts:get', () => getAccounts(loadConfig().sources))
-  ipcMain.handle('usage:get', () => getUsage(loadConfig().sources))
-  ipcMain.handle('profile:get', () => getProfile(indexer.allSessions(), loadConfig().sources))
+  ipcMain.handle(CH.accountsGet, () => getAccounts(loadConfig().sources))
+  ipcMain.handle(CH.usageGet, () => getUsage(loadConfig().sources))
+  ipcMain.handle(CH.profileGet, () => getProfile(indexer.allSessions(), loadConfig().sources))
 
   // app updates from GitHub Releases — the manager refuses everything but an installed
   // macOS build, so dev runs and e2e never reach the network
-  const updates = new UpdateManager((state) => sendToWin('update-state', state))
+  const updates = new UpdateManager((state) => sendToWin(PUSH.updateState, state))
   updater = updates
-  ipcMain.handle('app:info', () => appInfo())
-  ipcMain.handle('app:open-licenses', async () => {
+  ipcMain.handle(CH.appInfo, () => appInfo())
+  ipcMain.handle(CH.appOpenLicenses, async () => {
     // generated by `npm run build` (scripts/licenses): outside the asar once packaged, so a
     // text viewer can open it in place; out/ in a development run
     const file = app.isPackaged
@@ -664,20 +665,20 @@ app.whenReady().then(() => {
     if (!existsSync(file)) return 'The notices are written by `npm run build` — run it once, then try again.'
     return (await shell.openPath(file)) || null
   })
-  ipcMain.handle('updates:get', () => updates.current)
-  ipcMain.handle('updates:check', () => updates.check())
-  ipcMain.handle('updates:download', () => updates.download())
-  ipcMain.handle('updates:install', () => {
+  ipcMain.handle(CH.updatesGet, () => updates.current)
+  ipcMain.handle(CH.updatesCheck, () => updates.check())
+  ipcMain.handle(CH.updatesDownload, () => updates.download())
+  ipcMain.handle(CH.updatesInstall, () => {
     // the installer quits the app — persist the index first, as window-all-closed does
     if (updates.current.status !== 'ready') return
     indexer.saveCache()
     updates.install()
   })
-  ipcMain.handle('updates:prefs', () => updates.currentPrefs)
-  ipcMain.handle('updates:set-prefs', (_e, prefs: UpdatePrefs) => updates.setPrefs(setUpdatePrefs(prefs)))
+  ipcMain.handle(CH.updatesPrefs, () => updates.currentPrefs)
+  ipcMain.handle(CH.updatesSetPrefs, (_e, prefs: UpdatePrefs) => updates.setPrefs(setUpdatePrefs(prefs)))
 
-  ipcMain.handle('endpoints:get', () => listModelEndpoints())
-  ipcMain.handle('endpoints:add', (_e, input: unknown) => {
+  ipcMain.handle(CH.endpointsGet, () => listModelEndpoints())
+  ipcMain.handle(CH.endpointsAdd, (_e, input: unknown) => {
     // the key never enters the endpoint definition — strip it, encrypt it separately
     const { apiKey, ...def } = (input ?? {}) as { apiKey?: unknown }
     const ep = sanitizeEndpoint(def, randomUUID())
@@ -691,11 +692,11 @@ app.whenReady().then(() => {
     }
     return addModelEndpoint(key ? { ...ep, hasKey: true } : ep)
   })
-  ipcMain.handle('endpoints:remove', (_e, id: string) => {
+  ipcMain.handle(CH.endpointsRemove, (_e, id: string) => {
     deleteEndpointKey(String(id))
     return removeModelEndpoint(String(id))
   })
-  ipcMain.handle('endpoints:set-key', (_e, id: string, apiKey: string) => {
+  ipcMain.handle(CH.endpointsSetKey, (_e, id: string, apiKey: string) => {
     const ep = listModelEndpoints().find((e) => e.id === String(id))
     if (!ep) throw new Error('Unknown model provider.')
     const key = String(apiKey).trim()
@@ -705,8 +706,8 @@ app.whenReady().then(() => {
     return listModelEndpoints()
   })
   /* ACP agents: CLIs the user asked Cockpit to drive over the Agent Client Protocol */
-  ipcMain.handle('acp:get', () => [...BUILTIN_ACP_AGENTS, ...listAcpAgents()])
-  ipcMain.handle('acp:add', (_e, input: unknown) => {
+  ipcMain.handle(CH.acpGet, () => [...BUILTIN_ACP_AGENTS, ...listAcpAgents()])
+  ipcMain.handle(CH.acpAdd, (_e, input: unknown) => {
     const agent = sanitizeAcpAgent(input, randomUUID())
     if (!agent) {
       throw new Error(
@@ -716,14 +717,14 @@ app.whenReady().then(() => {
     if (listAcpAgents().length >= 32) throw new Error('That is as many custom agents as Cockpit stores.')
     return [...BUILTIN_ACP_AGENTS, ...addAcpAgent(agent)]
   })
-  ipcMain.handle('acp:remove', (_e, id: string) => {
+  ipcMain.handle(CH.acpRemove, (_e, id: string) => {
     // a built-in is defined in code, not config — there is nothing to remove
     if (BUILTIN_ACP_AGENTS.some((a) => a.id === String(id))) {
       throw new Error('Built-in agents cannot be removed.')
     }
     return [...BUILTIN_ACP_AGENTS, ...removeAcpAgent(String(id))]
   })
-  ipcMain.handle('acp:probe', (_e, input: unknown) => {
+  ipcMain.handle(CH.acpProbe, (_e, input: unknown) => {
     const agent = sanitizeAcpAgent(input, 'probe')
     if (!agent) return { ok: false, error: 'Fill in a name and a command first.' }
     // the probe runs in the user's home, never in a repository: a definition being
@@ -731,7 +732,7 @@ app.whenReady().then(() => {
     return probeAcpAgent(agent, homedir())
   })
 
-  ipcMain.handle('endpoints:models', (_e, id: string) => {
+  ipcMain.handle(CH.endpointsModels, (_e, id: string) => {
     const ep = listModelEndpoints().find((e) => e.id === String(id))
     if (!ep) throw new Error('Unknown model provider.')
     return fetchEndpointModels(ep, ep.hasKey ? getEndpointKey(ep.id) : undefined)
@@ -775,7 +776,7 @@ app.whenReady().then(() => {
     indexer.setHistoryDays(cfg.historyDays ?? 0)
     indexer.setLineage(cfg.continuedFrom ?? {})
     void indexer.setSources(cfg.sources)
-    sendToWin('index-updated')
+    sendToWin(PUSH.indexUpdated)
   }
   /** Parsed files waiting for a confirmed restore — one slot, and it goes stale. */
   const pendingBackups = new Map<string, { bundle: Bundle; at: number }>()
@@ -789,7 +790,7 @@ app.whenReady().then(() => {
     return found.bundle
   }
 
-  ipcMain.handle('backup:export', async (_e, passphrase?: string) => {
+  ipcMain.handle(CH.backupExport, async (_e, passphrase?: string) => {
     // main-process dialog: the renderer never supplies a path, it receives one
     const res = await dialog.showSaveDialog(win!, {
       title: 'Export Cockpit backup',
@@ -803,7 +804,7 @@ app.whenReady().then(() => {
       appVersion: app.getVersion()
     }, passphrase === undefined ? undefined : String(passphrase))
   })
-  ipcMain.handle('backup:open', async () => {
+  ipcMain.handle(CH.backupOpen, async () => {
     const res = await dialog.showOpenDialog(win!, {
       title: 'Restore from a Cockpit backup',
       defaultPath: app.getPath('downloads'),
@@ -817,7 +818,7 @@ app.whenReady().then(() => {
     pendingBackups.set(token, { bundle, at: Date.now() })
     return previewOf(bundle, token, knownRepos())
   })
-  ipcMain.handle('backup:restore', async (_e, token: string, passphrase?: string) => {
+  ipcMain.handle(CH.backupRestore, async (_e, token: string, passphrase?: string) => {
     const bundle = takePending(token)
     const summary = await restoreBackup(
       bundle,
@@ -829,7 +830,7 @@ app.whenReady().then(() => {
     republishConfig()
     return summary
   })
-  ipcMain.handle('backup:undo-restore', (_e, undoId: string) => {
+  ipcMain.handle(CH.backupUndoRestore, (_e, undoId: string) => {
     undoRestore(String(undoId), keyStore)
     republishConfig()
   })
@@ -844,23 +845,23 @@ app.whenReady().then(() => {
     surface: electronSurface(),
     prefs: attentionPrefs(),
     titleFor: (u) => (u.id ? (indexer.getSession(u.id)?.title ?? null) : null),
-    onLandings: (landings) => sendToWin('landings', landings),
+    onLandings: (landings) => sendToWin(PUSH.landings, landings),
     onOpen: openAttentionTarget
   })
   attention = desk
   // a question saved as waiting may have been answered while Cockpit was closed — once the
   // first scan knows each session's log, the desk re-reads those tails and keeps what still asks
   void indexer.whenScanned().then(() => desk.recheckAsks((id) => indexer.getSession(id)))
-  ipcMain.handle('attention:prefs', () => desk.currentPrefs)
-  ipcMain.handle('attention:set-prefs', (_e, prefs: AttentionPrefs) => {
+  ipcMain.handle(CH.attentionPrefs, () => desk.currentPrefs)
+  ipcMain.handle(CH.attentionSetPrefs, (_e, prefs: AttentionPrefs) => {
     const saved = setAttentionPrefs(prefs)
     desk.setPrefs(saved)
     return saved
   })
-  ipcMain.handle('attention:test', () => desk.test())
-  ipcMain.handle('attention:focus', (_e, focus: unknown) => desk.setFocus(asAttentionFocus(focus)))
-  ipcMain.handle('attention:landings', () => desk.landings())
-  ipcMain.handle('attention:take-open', () => {
+  ipcMain.handle(CH.attentionTest, () => desk.test())
+  ipcMain.handle(CH.attentionFocus, (_e, focus: unknown) => desk.setFocus(asAttentionFocus(focus)))
+  ipcMain.handle(CH.attentionLandings, () => desk.landings())
+  ipcMain.handle(CH.attentionTakeOpen, () => {
     const target = pendingOpen
     pendingOpen = null
     return target
@@ -917,7 +918,7 @@ app.whenReady().then(() => {
         handoffTurns.delete(ev.turnId)
       }
       desk.chatEvent(ev)
-      sendToWin('chat-event', ev)
+      sendToWin(PUSH.chatEvent, ev)
     },
     {
       onBusyChange: () => pushBusy(),
@@ -957,11 +958,11 @@ app.whenReady().then(() => {
       resolveKey: (ep) => getEndpointKey(ep.id)
     }
   )
-  ipcMain.handle('sessions:busy', () => busySessions())
-  ipcMain.handle('chat:save-image', (_e, data: Uint8Array, mime: string) =>
+  ipcMain.handle(CH.sessionsBusy, () => busySessions())
+  ipcMain.handle(CH.chatSaveImage, (_e, data: Uint8Array, mime: string) =>
     saveChatImage(chatImagesDir(), data, mime)
   )
-  ipcMain.handle('chat:send', (_e, req: ChatRequest) => {
+  ipcMain.handle(CH.chatSend, (_e, req: ChatRequest) => {
     // pasted-image paths are renderer input — only accept files chat:save-image wrote
     {
       const { images: rawImages, ...rest } = req
@@ -1021,9 +1022,9 @@ app.whenReady().then(() => {
     }
     return turnId
   })
-  ipcMain.handle('chat:cancel', (_e, turnId: string) => chat.cancel(turnId))
+  ipcMain.handle(CH.chatCancel, (_e, turnId: string) => chat.cancel(turnId))
   ipcMain.handle(
-    'chat:respond-permission',
+    CH.chatRespondPermission,
     (_e, turnId: string, requestId: string, optionId: string) =>
       // ids come back from an event Cockpit itself emitted; the turn validates them
       // against what it actually asked, so a stale or invented answer is dropped
@@ -1036,7 +1037,7 @@ app.whenReady().then(() => {
     sendTurn: (req) => chat.send(req),
     cancelTurn: (turnId) => chat.cancel(turnId),
     emit: (ev) => {
-      sendToWin('roundtable-event', ev)
+      sendToWin(PUSH.roundtableEvent, ev)
       // a table's run ending is news the way a turn's is — unless the user stopped it
       if (ev.type !== 'round' || ev.running || ev.stopped) return
       try {
@@ -1052,18 +1053,18 @@ app.whenReady().then(() => {
   // seat-sessions (anything whose cwd is a table's room/worktree) leave the normal
   // session listings and page only under their table
   indexer.setRoundtableResolver((cwd) => tables.tableIdForCwd(cwd))
-  ipcMain.handle('roundtable:list', () => tables.list())
-  ipcMain.handle('roundtable:archive', (_e, id: string, archived: boolean) => {
+  ipcMain.handle(CH.roundtableList, () => tables.list())
+  ipcMain.handle(CH.roundtableArchive, (_e, id: string, archived: boolean) => {
     // a running table would keep its board row while the tree hid it — stop it first
     if (Boolean(archived) && tables.isRunning(String(id))) {
       throw new Error('That roundtable is mid-round. Stop it first.')
     }
     tables.setArchived(setRoundtableArchived(String(id), Boolean(archived)))
     // the tree, the board and the palette all read the table list on an index update
-    sendToWin('index-updated')
+    sendToWin(PUSH.indexUpdated)
   })
-  ipcMain.handle('roundtable:get', (_e, id: string) => tables.get(String(id)))
-  ipcMain.handle('roundtable:create', async (_e, req: NewRoundtableRequest) => {
+  ipcMain.handle(CH.roundtableGet, (_e, id: string) => tables.get(String(id)))
+  ipcMain.handle(CH.roundtableCreate, async (_e, req: NewRoundtableRequest) => {
     const topic = String(req?.topic ?? '').trim()
     if (!topic) throw new Error('A topic is required.')
     if (topic.length > 20_000) throw new Error('Topic is too long.')
@@ -1097,11 +1098,11 @@ app.whenReady().then(() => {
     }
     return tables.create({ topic, seats, mode: tableMode, maxRounds }, place)
   })
-  ipcMain.handle('roundtable:send', (_e, id: string, text: string) =>
+  ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string) =>
     tables.sendMessage(String(id), String(text))
   )
-  ipcMain.handle('roundtable:continue', (_e, id: string) => tables.continueRound(String(id)))
-  ipcMain.handle('roundtable:stop', (_e, id: string) => tables.stop(String(id)))
+  ipcMain.handle(CH.roundtableContinue, (_e, id: string) => tables.continueRound(String(id)))
+  ipcMain.handle(CH.roundtableStop, (_e, id: string) => tables.stop(String(id)))
 
   /*
    * Cleanup: the cross-agent, cross-repo view of what has gone stale. Every input
@@ -1127,21 +1128,21 @@ app.whenReady().then(() => {
   /** Renderer id lists are untrusted and unbounded — cap and stringify them here. */
   const asIdList = (raw: unknown): string[] =>
     (Array.isArray(raw) ? raw : []).slice(0, 5000).map((v) => String(v))
-  ipcMain.handle('cleanup:stale-days', () => loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
-  ipcMain.handle('cleanup:set-stale-days', (_e, days: number) => {
+  ipcMain.handle(CH.cleanupStaleDays, () => loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
+  ipcMain.handle(CH.cleanupSetStaleDays, (_e, days: number) => {
     setStaleDays(Number(days))
   })
-  ipcMain.handle('cleanup:scan', () =>
+  ipcMain.handle(CH.cleanupScan, () =>
     scanCleanup(cleanupDeps(), loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
   )
-  ipcMain.handle('cleanup:archive-sessions', (_e, ids: string[]) => {
+  ipcMain.handle(CH.cleanupArchiveSessions, (_e, ids: string[]) => {
     // the reversible tier: config only, nothing on disk is touched
     const known = new Set(indexer.cleanupSessions().map((s) => s.id))
     const wanted = asIdList(ids).filter((id) => known.has(id))
     indexer.setArchived(setSessionsArchived(wanted, true))
     return { cleaned: wanted.length, freedBytes: 0, failed: [] }
   })
-  ipcMain.handle('cleanup:delete-sessions', async (_e, ids: string[]) => {
+  ipcMain.handle(CH.cleanupDeleteSessions, async (_e, ids: string[]) => {
     const wanted = asIdList(ids)
     // the same threshold the scan used, so the cascade can only take worktrees the
     // user was actually shown as going with these sessions
@@ -1156,7 +1157,7 @@ app.whenReady().then(() => {
     await indexer.rescan()
     return result
   })
-  ipcMain.handle('cleanup:delete-roundtables', async (_e, ids: string[]) => {
+  ipcMain.handle(CH.cleanupDeleteRoundtables, async (_e, ids: string[]) => {
     const wanted = asIdList(ids)
     const result = await deleteRoundtables(cleanupDeps(), wanted)
     // the archived flags of tables that no longer exist are dead config
@@ -1164,10 +1165,10 @@ app.whenReady().then(() => {
     roundtables?.setArchived(loadConfig().archivedRoundtables ?? [])
     // seat logs went with them — the tree must stop offering those sessions
     await indexer.rescan()
-    sendToWin('index-updated')
+    sendToWin(PUSH.indexUpdated)
     return result
   })
-  ipcMain.handle('cleanup:remove-worktrees', async (_e, paths: string[]) => {
+  ipcMain.handle(CH.cleanupRemoveWorktrees, async (_e, paths: string[]) => {
     const result = await removeWorktrees(cleanupDeps(), asIdList(paths))
     await indexer.rescan()
     return result
@@ -1182,7 +1183,7 @@ app.whenReady().then(() => {
         ? [{ pid, startedAt, command: String(t.command ?? '') }]
         : []
     })
-  ipcMain.handle('cleanup:stop-processes', (_e, targets: unknown) =>
+  ipcMain.handle(CH.cleanupStopProcesses, (_e, targets: unknown) =>
     // re-judged in stopProcesses: only a process still left in an old worktree, and
     // still the one that was picked (command + start time), is signalled
     stopProcesses(

@@ -5,11 +5,11 @@ description: Add or extend a Cockpit IPC capability — a new CockpitApi / windo
 
 # Add an IPC capability
 
-The entire renderer↔main surface is the `CockpitApi` type in `src/shared/types.ts` — a `type` alias with `readonly` members, like every shared type here. A new capability is four edits, in this order, then a consumer:
+The entire renderer↔main surface is the `CockpitApi` type in `src/shared/contract.ts` — a `type` alias with `readonly` members, like every shared type here. A new capability is four edits, in this order, then a consumer:
 
-1. **`src/shared/types.ts`** — define the request/response types and add the method to `CockpitApi` as a `readonly` member. This is the contract; everything else follows from it.
-2. **`src/main/index.ts`** — `ipcMain.handle('domain:verb', …)`. Invoke channels are `domain:verb` (`sessions:page`, `workspace:pr`, `panel:set-switch`, `cleanup:set-stale-days`).
-3. **`src/preload/index.ts`** — bridge method calling `ipcRenderer.invoke('domain:verb', …)` on the object handed to `contextBridge`.
+1. **`src/shared/contract.ts`** — add the method to `CockpitApi` as a `readonly` member, and its wire name to the `CH` map (`PUSH` for an event). Request/response types go in **`src/shared/types.ts`**: that file imports nothing from `src/` and must stay that way, so anything it would have to import back belongs in `contract.ts`. Invoke channels are `domain:verb` (`sessions:page`, `workspace:pr`, `panel:set-switch`, `cleanup:set-stale-days`); both halves may be kebab-case. Never write the string at a call site — `tests/ipc-channels.test.ts` fails on a bare literal, and on a `CH` member that only one side uses.
+2. **`src/main/index.ts`** — `ipcMain.handle(CH.domainVerb, …)`.
+3. **`src/preload/index.ts`** — bridge method calling `ipcRenderer.invoke(CH.domainVerb, …)` on the object handed to `contextBridge`.
 4. **`tests/component/stub-api.ts`** — add the method to `freshApi()`. It is typed as a complete `CockpitApi` and `tsconfig.json` includes `tests/**`, so `npm run typecheck` fails until the stub has it.
 
 Then call it from components as `api.<method>()` via `import { api } from './api'`. `src/renderer/src/api.ts` is a one-line re-export of `window.cockpit` and is never edited; components never touch `window.cockpit` directly.
@@ -19,13 +19,13 @@ Keep handler bodies in `index.ts` thin: real logic lives in a dedicated main mod
 ## Worked example — the stale-days setting
 
 ```ts
-// src/shared/types.ts, inside CockpitApi
+// src/shared/contract.ts, inside CockpitApi
 readonly getStaleDays: () => Promise<number>
 readonly setStaleDays: (days: number) => Promise<void>
 
 // src/main/index.ts (abridged)
-ipcMain.handle('cleanup:stale-days', () => loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
-ipcMain.handle('cleanup:set-stale-days', (_e, days: number) => {
+ipcMain.handle(CH.cleanupStaleDays, () => loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
+ipcMain.handle(CH.cleanupSetStaleDays, (_e, days: number) => {
   setStaleDays(Number(days)) // renderer input is coerced before use
   // …
 })
@@ -48,7 +48,7 @@ setStaleDays: vi.fn(async () => {}),
 
 ## Push events (main → renderer)
 
-Push with `sendToWin('event-name', payload)` in `src/main/index.ts`, never `win.webContents.send` directly: streams and scans outlive the window on macOS, and sending to a destroyed webContents throws inside the stream handler and takes the main process down — the helper checks `win.isDestroyed()` first. Push channels are kebab-case nouns (`index-updated`, `busy-sessions`, `chat-event`, `roundtable-event`). Pair each with a preload `onX(cb)` that returns an unsubscribe function, a `readonly onX: (cb: …) => () => void` member on `CockpitApi`, and `onX: vi.fn(() => () => {})` in the stub — follow `onIndexUpdated` / `onBusySessions`.
+Push with `sendToWin(PUSH.eventName, payload)` in `src/main/index.ts`, never `win.webContents.send` directly: streams and scans outlive the window on macOS, and sending to a destroyed webContents throws inside the stream handler and takes the main process down — the helper checks `win.isDestroyed()` first. Push channels are kebab-case nouns (`index-updated`, `busy-sessions`, `chat-event`, `roundtable-event`). Pair each with a preload `onX(cb)` that returns an unsubscribe function, a `readonly onX: (cb: …) => () => void` member on `CockpitApi`, and `onX: vi.fn(() => () => {})` in the stub — follow `onIndexUpdated` / `onBusySessions`.
 
 ## Verify
 

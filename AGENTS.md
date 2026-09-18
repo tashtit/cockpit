@@ -16,6 +16,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 - `npm run build` — production build into `out/`
 - `npm run package` — macOS disk images + zips into `dist/` via electron-builder (unsigned without Apple credentials; version `0.0.0` outside a release)
 - `npm run test:packaged` — Playwright smoke test against the `.app` from `npm run package` (`tests/e2e/packaged.spec.ts`; opt-in, uses the real userData dir)
+- `npm run docs:dev` — the user guide (VitePress, `docs/`) with hot reload; `docs:build` / `docs:preview` for the built site
 - `npm run ui:tour` — builds, then screenshots every view and state against a hermetic fixture world (`scripts/ui-tour/`): desktop and the 560×420 floor, sessions actually flying and landing (stub agent CLIs stream slowly), and a first launch. Writes `test-results/ui-tour/` with an `index.html` contact sheet; a shot it can't reach is marked missing and fails the run. `-- --only chat,settings` narrows it, `-- --no-live` skips the ~40s of live turns
 
 Both `npm run typecheck` and `npm test` must pass before delivering.
@@ -28,12 +29,19 @@ Cockpit is an Electron desktop hub that indexes and drives Claude Code / Codex /
 - **preload** (`src/preload/index.ts`) — contextBridge exposing `window.cockpit`.
 - **renderer** (`src/renderer/src/`) — React 19 UI, fully sandboxed (`contextIsolation`, `sandbox: true`, navigation blocked). No Node access, hand-written CSS (no Tailwind, no component library).
 
-The entire IPC surface is the `CockpitApi` interface in `src/shared/types.ts`. Adding a capability means touching four places, in order:
+The entire IPC surface is the `CockpitApi` type in `src/shared/contract.ts`. Adding a capability means touching four places, in order:
 
-1. types + `CockpitApi` method in `src/shared/types.ts`
-2. `ipcMain.handle(...)` in `src/main/index.ts`
-3. bridge method in `src/preload/index.ts`
+1. `src/shared/contract.ts` — the `CockpitApi` method and its channel name in the `CH` map
+   (`PUSH` for an event); request/response types go in `src/shared/types.ts`
+2. `ipcMain.handle(CH.yourChannel, ...)` in `src/main/index.ts`
+3. bridge method in `src/preload/index.ts` calling `ipcRenderer.invoke(CH.yourChannel, ...)`
 4. renderer call via `src/renderer/src/api.ts`
+
+The two shared files are split so the dependency direction stays one-way: `types.ts` is the
+domain vocabulary and imports nothing from `src/`, `library.ts` imports `types.ts`, and
+`contract.ts` imports both. Channel names are never written as string literals —
+`tests/ipc-channels.test.ts` fails on a bare literal, on a `CH` member only one side uses, and
+on a name that breaks the `domain:verb` shape.
 
 **Renderer input is untrusted.** Any path arriving over IPC must be validated against roots the indexer itself derived — see `assertKnownRepoRoot` in `src/main/index.ts`. Never act on an arbitrary renderer-supplied path.
 
@@ -93,11 +101,21 @@ Not a tier, but the check for anything a person *sees*: `npm run ui:tour` (above
 
 Before touching anything in `src/renderer/`, read `design-system/cockpit/MASTER.md`. Per-view rules in `design-system/cockpit/pages/<view>.md` override it. Canonical design tokens live in the `:root` block of `src/renderer/src/style.css` — components use tokens only, never raw hex. Dark mode only.
 
+## Documentation
+
+The user guide is a VitePress site in `docs/` (`docs/guide/`, one page per feature). It is
+**deliberately not deployed** — there is no Pages workflow and none is wanted yet. It is read
+locally with `npm run docs:dev`, so treat it as part of the repo rather than as a published site.
+
+Keep it current in the same commit as the change: anything that alters what a user sees or does —
+a new view, a renamed control, a changed default, a new setting — updates its page under
+`docs/guide/`. Nothing in CI checks this, so the rule is the only thing that catches drift.
+
 ## Repo skills
 
 Project skills (Agent Skills standard, `SKILL.md` format) live in **`.agents/skills/`** — the single source of truth. Codex and Copilot read that directory natively; `.claude/skills` is a symlink to it for Claude Code. Add new skills there, one directory per skill:
 
-- `add-ipc-capability` — the four-file recipe for extending the renderer↔main IPC surface
+- `add-ipc-capability` — the recipe for extending the renderer↔main IPC surface
 - `add-session-parser` — provider log parser rules (bounded reads, failure tolerance, fixtures)
 - `cockpit-ui` — design-system compliance for renderer work
 

@@ -6,6 +6,8 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron'
  *  App.tsx mirrors these bounds to keep the zoom chip honest — change both. */
 const ZOOM_MIN = 0.7
 const ZOOM_MAX = 2
+import { CH, PUSH } from '../shared/contract'
+import type { CockpitApi } from '../shared/contract'
 import type {
   AttentionFocus,
   AttentionPrefs,
@@ -13,7 +15,6 @@ import type {
   BusySession,
   ChatEvent,
   ChatRequest,
-  CockpitApi,
   DiffScope,
   NewModelEndpoint,
   NewRoundtableRequest,
@@ -31,160 +32,160 @@ import type {
 } from '../shared/types'
 
 const api: CockpitApi = {
-  sendChat: (req: ChatRequest) => ipcRenderer.invoke('chat:send', req),
-  cancelChat: (turnId: string) => ipcRenderer.invoke('chat:cancel', turnId),
+  sendChat: (req: ChatRequest) => ipcRenderer.invoke(CH.chatSend, req),
+  cancelChat: (turnId: string) => ipcRenderer.invoke(CH.chatCancel, turnId),
   respondPermission: (turnId: string, requestId: string, optionId: string) =>
-    ipcRenderer.invoke('chat:respond-permission', turnId, requestId, optionId),
+    ipcRenderer.invoke(CH.chatRespondPermission, turnId, requestId, optionId),
   saveChatImage: (data: Uint8Array, mime: string) =>
-    ipcRenderer.invoke('chat:save-image', data, mime),
+    ipcRenderer.invoke(CH.chatSaveImage, data, mime),
   onChatEvent: (cb: (ev: ChatEvent) => void) => {
     const handler = (_e: unknown, ev: ChatEvent): void => cb(ev)
-    ipcRenderer.on('chat-event', handler)
-    return () => ipcRenderer.removeListener('chat-event', handler)
+    ipcRenderer.on(PUSH.chatEvent, handler)
+    return () => ipcRenderer.removeListener(PUSH.chatEvent, handler)
   },
-  getSources: () => ipcRenderer.invoke('sources:get'),
-  getSourceStats: () => ipcRenderer.invoke('sources:stats'),
-  pickDirectory: () => ipcRenderer.invoke('sources:pick-dir'),
+  getSources: () => ipcRenderer.invoke(CH.sourcesGet),
+  getSourceStats: () => ipcRenderer.invoke(CH.sourcesStats),
+  pickDirectory: () => ipcRenderer.invoke(CH.sourcesPickDir),
   addSource: (path: string, provider: Provider, label: string) =>
-    ipcRenderer.invoke('sources:add', path, provider, label),
-  removeSource: (path: string) => ipcRenderer.invoke('sources:remove', path),
-  listRepos: () => ipcRenderer.invoke('repos:list'),
-  whenIndexed: () => ipcRenderer.invoke('index:scanned'),
-  pageSessions: (query: SessionQuery) => ipcRenderer.invoke('sessions:page', query),
-  getSession: (sessionId: string) => ipcRenderer.invoke('sessions:get', sessionId),
-  getSessionMessages: (id: string) => ipcRenderer.invoke('sessions:messages', id),
+    ipcRenderer.invoke(CH.sourcesAdd, path, provider, label),
+  removeSource: (path: string) => ipcRenderer.invoke(CH.sourcesRemove, path),
+  listRepos: () => ipcRenderer.invoke(CH.reposList),
+  whenIndexed: () => ipcRenderer.invoke(CH.indexScanned),
+  pageSessions: (query: SessionQuery) => ipcRenderer.invoke(CH.sessionsPage, query),
+  getSession: (sessionId: string) => ipcRenderer.invoke(CH.sessionsGet, sessionId),
+  getSessionMessages: (id: string) => ipcRenderer.invoke(CH.sessionsMessages, id),
   searchTranscripts: (query: TranscriptSearchQuery) =>
-    ipcRenderer.invoke('transcripts:search', query),
-  cancelTranscriptSearch: () => ipcRenderer.invoke('transcripts:cancel'),
-  getHandoffBriefing: (sessionId: string) => ipcRenderer.invoke('handoff:briefing', sessionId),
-  improveHandoffBriefing: (sessionId: string) => ipcRenderer.invoke('handoff:improve', sessionId),
-  getBusySessions: () => ipcRenderer.invoke('sessions:busy'),
+    ipcRenderer.invoke(CH.transcriptsSearch, query),
+  cancelTranscriptSearch: () => ipcRenderer.invoke(CH.transcriptsCancel),
+  getHandoffBriefing: (sessionId: string) => ipcRenderer.invoke(CH.handoffBriefing, sessionId),
+  improveHandoffBriefing: (sessionId: string) => ipcRenderer.invoke(CH.handoffImprove, sessionId),
+  getBusySessions: () => ipcRenderer.invoke(CH.sessionsBusy),
   onBusySessions: (cb: (sessions: BusySession[]) => void) => {
     const handler = (_e: unknown, sessions: BusySession[]): void => cb(sessions)
-    ipcRenderer.on('busy-sessions', handler)
-    return () => ipcRenderer.removeListener('busy-sessions', handler)
+    ipcRenderer.on(PUSH.busySessions, handler)
+    return () => ipcRenderer.removeListener(PUSH.busySessions, handler)
   },
-  getAttentionPrefs: () => ipcRenderer.invoke('attention:prefs'),
-  setAttentionPrefs: (prefs: AttentionPrefs) => ipcRenderer.invoke('attention:set-prefs', prefs),
-  testNotification: () => ipcRenderer.invoke('attention:test'),
-  setAttentionFocus: (focus: AttentionFocus) => ipcRenderer.invoke('attention:focus', focus),
-  getLandings: () => ipcRenderer.invoke('attention:landings'),
+  getAttentionPrefs: () => ipcRenderer.invoke(CH.attentionPrefs),
+  setAttentionPrefs: (prefs: AttentionPrefs) => ipcRenderer.invoke(CH.attentionSetPrefs, prefs),
+  testNotification: () => ipcRenderer.invoke(CH.attentionTest),
+  setAttentionFocus: (focus: AttentionFocus) => ipcRenderer.invoke(CH.attentionFocus, focus),
+  getLandings: () => ipcRenderer.invoke(CH.attentionLandings),
   onLandings: (cb: (landings: Landing[]) => void) => {
     const handler = (_e: unknown, landings: Landing[]): void => cb(landings)
-    ipcRenderer.on('landings', handler)
-    return () => ipcRenderer.removeListener('landings', handler)
+    ipcRenderer.on(PUSH.landings, handler)
+    return () => ipcRenderer.removeListener(PUSH.landings, handler)
   },
   onAttentionOpen: (cb: (target: AttentionTarget) => void) => {
     const handler = (_e: unknown, target: AttentionTarget): void => cb(target)
-    ipcRenderer.on('attention-open', handler)
-    return () => ipcRenderer.removeListener('attention-open', handler)
+    ipcRenderer.on(PUSH.attentionOpen, handler)
+    return () => ipcRenderer.removeListener(PUSH.attentionOpen, handler)
   },
-  takeAttentionOpen: () => ipcRenderer.invoke('attention:take-open'),
+  takeAttentionOpen: () => ipcRenderer.invoke(CH.attentionTakeOpen),
   setArchived: (sessionId: string, archived: boolean) =>
-    ipcRenderer.invoke('sessions:archive', sessionId, archived),
+    ipcRenderer.invoke(CH.sessionsArchive, sessionId, archived),
   setRepoHidden: (repoKey: string, hidden: boolean) =>
-    ipcRenderer.invoke('repos:set-hidden', repoKey, hidden),
-  setRepoOrder: (repoKeys: readonly string[]) => ipcRenderer.invoke('repos:set-order', [...repoKeys]),
-  getHistoryDays: () => ipcRenderer.invoke('history:get'),
-  setHistoryDays: (days: number) => ipcRenderer.invoke('history:set', days),
-  getTimeFormat: () => ipcRenderer.invoke('time-format:get'),
-  setTimeFormat: (format: TimeFormat) => ipcRenderer.invoke('time-format:set', format),
-  getStaleDays: () => ipcRenderer.invoke('cleanup:stale-days'),
-  setStaleDays: (days: number) => ipcRenderer.invoke('cleanup:set-stale-days', days),
-  scanCleanup: () => ipcRenderer.invoke('cleanup:scan'),
-  archiveSessions: (ids: readonly string[]) => ipcRenderer.invoke('cleanup:archive-sessions', ids),
-  deleteSessions: (ids: readonly string[]) => ipcRenderer.invoke('cleanup:delete-sessions', ids),
+    ipcRenderer.invoke(CH.reposSetHidden, repoKey, hidden),
+  setRepoOrder: (repoKeys: readonly string[]) => ipcRenderer.invoke(CH.reposSetOrder, [...repoKeys]),
+  getHistoryDays: () => ipcRenderer.invoke(CH.historyGet),
+  setHistoryDays: (days: number) => ipcRenderer.invoke(CH.historySet, days),
+  getTimeFormat: () => ipcRenderer.invoke(CH.timeFormatGet),
+  setTimeFormat: (format: TimeFormat) => ipcRenderer.invoke(CH.timeFormatSet, format),
+  getStaleDays: () => ipcRenderer.invoke(CH.cleanupStaleDays),
+  setStaleDays: (days: number) => ipcRenderer.invoke(CH.cleanupSetStaleDays, days),
+  scanCleanup: () => ipcRenderer.invoke(CH.cleanupScan),
+  archiveSessions: (ids: readonly string[]) => ipcRenderer.invoke(CH.cleanupArchiveSessions, ids),
+  deleteSessions: (ids: readonly string[]) => ipcRenderer.invoke(CH.cleanupDeleteSessions, ids),
   deleteRoundtables: (ids: readonly string[]) =>
-    ipcRenderer.invoke('cleanup:delete-roundtables', ids),
+    ipcRenderer.invoke(CH.cleanupDeleteRoundtables, ids),
   removeWorktrees: (paths: readonly string[]) =>
-    ipcRenderer.invoke('cleanup:remove-worktrees', paths),
+    ipcRenderer.invoke(CH.cleanupRemoveWorktrees, paths),
   stopProcesses: (targets: readonly ProcessTarget[]) =>
-    ipcRenderer.invoke('cleanup:stop-processes', targets),
-  getPrs: (repoRoot: string) => ipcRenderer.invoke('github:prs', repoRoot),
-  getDefaultBranch: (repoRoot: string) => ipcRenderer.invoke('github:default-branch', repoRoot),
+    ipcRenderer.invoke(CH.cleanupStopProcesses, targets),
+  getPrs: (repoRoot: string) => ipcRenderer.invoke(CH.githubPrs, repoRoot),
+  getDefaultBranch: (repoRoot: string) => ipcRenderer.invoke(CH.githubDefaultBranch, repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>
-    ipcRenderer.invoke('workspace:create', repoRoot, name),
-  createPr: (cwd: string) => ipcRenderer.invoke('workspace:pr', cwd),
-  getWorkspaceDiff: (cwd: string, scope: DiffScope) => ipcRenderer.invoke('workspace:diff', cwd, scope),
+    ipcRenderer.invoke(CH.workspaceCreate, repoRoot, name),
+  createPr: (cwd: string) => ipcRenderer.invoke(CH.workspacePr, cwd),
+  getWorkspaceDiff: (cwd: string, scope: DiffScope) => ipcRenderer.invoke(CH.workspaceDiff, cwd, scope),
   getPrFeedback: (repoRoot: string, prNumber: number) =>
-    ipcRenderer.invoke('github:pr-feedback', repoRoot, prNumber),
+    ipcRenderer.invoke(CH.githubPrFeedback, repoRoot, prNumber),
   getPrFixBriefing: (repoRoot: string, prNumber: number) =>
-    ipcRenderer.invoke('github:pr-fix', repoRoot, prNumber),
-  getExtensions: () => ipcRenderer.invoke('extensions:get'),
-  checkMcp: (name: string) => ipcRenderer.invoke('extensions:check-mcp', name),
+    ipcRenderer.invoke(CH.githubPrFix, repoRoot, prNumber),
+  getExtensions: () => ipcRenderer.invoke(CH.extensionsGet),
+  checkMcp: (name: string) => ipcRenderer.invoke(CH.extensionsCheckMcp, name),
   loginMcp: (name: string, agent: Provider, projectPath?: string) =>
-    ipcRenderer.invoke('extensions:login-mcp', name, agent, projectPath),
-  getPanel: (repoRoot: string | null) => ipcRenderer.invoke('panel:get', repoRoot),
+    ipcRenderer.invoke(CH.extensionsLoginMcp, name, agent, projectPath),
+  getPanel: (repoRoot: string | null) => ipcRenderer.invoke(CH.panelGet, repoRoot),
   setPanelSwitch: (target: PanelTarget, agent: Provider, on: boolean) =>
-    ipcRenderer.invoke('panel:set-switch', target, agent, on),
+    ipcRenderer.invoke(CH.panelSetSwitch, target, agent, on),
   keepPanelDifference: (target: PanelTarget, keep: boolean) =>
-    ipcRenderer.invoke('panel:keep', target, keep),
+    ipcRenderer.invoke(CH.panelKeep, target, keep),
   matchPanelEntry: (target: PanelTarget, source: Provider) =>
-    ipcRenderer.invoke('panel:match', target, source),
-  removePanelEntry: (target: PanelTarget) => ipcRenderer.invoke('panel:remove', target),
-  restorePanelEntry: (target: PanelTarget) => ipcRenderer.invoke('panel:restore', target),
-  getInstructions: (repoRoot: string | null) => ipcRenderer.invoke('instructions:get', repoRoot),
+    ipcRenderer.invoke(CH.panelMatch, target, source),
+  removePanelEntry: (target: PanelTarget) => ipcRenderer.invoke(CH.panelRemove, target),
+  restorePanelEntry: (target: PanelTarget) => ipcRenderer.invoke(CH.panelRestore, target),
+  getInstructions: (repoRoot: string | null) => ipcRenderer.invoke(CH.instructionsGet, repoRoot),
   saveInstructionsBaseline: (repoRoot: string | null, baseline: string) =>
-    ipcRenderer.invoke('instructions:save-baseline', repoRoot, baseline),
+    ipcRenderer.invoke(CH.instructionsSaveBaseline, repoRoot, baseline),
   applyInstructions: (repoRoot: string | null, onlyPath?: string) =>
-    ipcRenderer.invoke('instructions:apply', repoRoot, onlyPath),
+    ipcRenderer.invoke(CH.instructionsApply, repoRoot, onlyPath),
   saveInstructionFile: (repoRoot: string | null, path: string, content: string) =>
-    ipcRenderer.invoke('instructions:save-file', repoRoot, path, content),
+    ipcRenderer.invoke(CH.instructionsSaveFile, repoRoot, path, content),
   adoptInstructionsFrom: (repoRoot: string | null, path: string) =>
-    ipcRenderer.invoke('instructions:adopt-file', repoRoot, path),
-  shareInstructions: (repoRoot: string) => ipcRenderer.invoke('instructions:share', repoRoot),
-  getAccounts: () => ipcRenderer.invoke('accounts:get'),
-  getUsage: () => ipcRenderer.invoke('usage:get'),
-  getModelEndpoints: () => ipcRenderer.invoke('endpoints:get'),
-  addModelEndpoint: (ep: NewModelEndpoint) => ipcRenderer.invoke('endpoints:add', ep),
-  removeModelEndpoint: (id: string) => ipcRenderer.invoke('endpoints:remove', id),
-  setEndpointKey: (id: string, apiKey: string) => ipcRenderer.invoke('endpoints:set-key', id, apiKey),
-  listEndpointModels: (id: string) => ipcRenderer.invoke('endpoints:models', id),
-  getAcpAgents: () => ipcRenderer.invoke('acp:get'),
-  addAcpAgent: (agent: NewAcpAgent) => ipcRenderer.invoke('acp:add', agent),
-  removeAcpAgent: (id: string) => ipcRenderer.invoke('acp:remove', id),
-  probeAcpAgent: (agent: NewAcpAgent) => ipcRenderer.invoke('acp:probe', agent),
-  exportBackup: (passphrase?: string) => ipcRenderer.invoke('backup:export', passphrase),
-  openBackup: () => ipcRenderer.invoke('backup:open'),
+    ipcRenderer.invoke(CH.instructionsAdoptFile, repoRoot, path),
+  shareInstructions: (repoRoot: string) => ipcRenderer.invoke(CH.instructionsShare, repoRoot),
+  getAccounts: () => ipcRenderer.invoke(CH.accountsGet),
+  getUsage: () => ipcRenderer.invoke(CH.usageGet),
+  getModelEndpoints: () => ipcRenderer.invoke(CH.endpointsGet),
+  addModelEndpoint: (ep: NewModelEndpoint) => ipcRenderer.invoke(CH.endpointsAdd, ep),
+  removeModelEndpoint: (id: string) => ipcRenderer.invoke(CH.endpointsRemove, id),
+  setEndpointKey: (id: string, apiKey: string) => ipcRenderer.invoke(CH.endpointsSetKey, id, apiKey),
+  listEndpointModels: (id: string) => ipcRenderer.invoke(CH.endpointsModels, id),
+  getAcpAgents: () => ipcRenderer.invoke(CH.acpGet),
+  addAcpAgent: (agent: NewAcpAgent) => ipcRenderer.invoke(CH.acpAdd, agent),
+  removeAcpAgent: (id: string) => ipcRenderer.invoke(CH.acpRemove, id),
+  probeAcpAgent: (agent: NewAcpAgent) => ipcRenderer.invoke(CH.acpProbe, agent),
+  exportBackup: (passphrase?: string) => ipcRenderer.invoke(CH.backupExport, passphrase),
+  openBackup: () => ipcRenderer.invoke(CH.backupOpen),
   restoreBackup: (token: string, passphrase?: string) =>
-    ipcRenderer.invoke('backup:restore', token, passphrase),
-  undoRestore: (undoId: string) => ipcRenderer.invoke('backup:undo-restore', undoId),
-  listRoundtables: () => ipcRenderer.invoke('roundtable:list'),
+    ipcRenderer.invoke(CH.backupRestore, token, passphrase),
+  undoRestore: (undoId: string) => ipcRenderer.invoke(CH.backupUndoRestore, undoId),
+  listRoundtables: () => ipcRenderer.invoke(CH.roundtableList),
   setRoundtableArchived: (id: string, archived: boolean) =>
-    ipcRenderer.invoke('roundtable:archive', id, archived),
-  getRoundtable: (id: string) => ipcRenderer.invoke('roundtable:get', id),
-  createRoundtable: (req: NewRoundtableRequest) => ipcRenderer.invoke('roundtable:create', req),
+    ipcRenderer.invoke(CH.roundtableArchive, id, archived),
+  getRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableGet, id),
+  createRoundtable: (req: NewRoundtableRequest) => ipcRenderer.invoke(CH.roundtableCreate, req),
   sendRoundtableMessage: (id: string, text: string) =>
-    ipcRenderer.invoke('roundtable:send', id, text),
-  continueRoundtable: (id: string) => ipcRenderer.invoke('roundtable:continue', id),
-  stopRoundtable: (id: string) => ipcRenderer.invoke('roundtable:stop', id),
+    ipcRenderer.invoke(CH.roundtableSend, id, text),
+  continueRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableContinue, id),
+  stopRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableStop, id),
   onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => {
     const handler = (_e: unknown, ev: RoundtableEvent): void => cb(ev)
-    ipcRenderer.on('roundtable-event', handler)
-    return () => ipcRenderer.removeListener('roundtable-event', handler)
+    ipcRenderer.on(PUSH.roundtableEvent, handler)
+    return () => ipcRenderer.removeListener(PUSH.roundtableEvent, handler)
   },
-  getProfile: () => ipcRenderer.invoke('profile:get'),
+  getProfile: () => ipcRenderer.invoke(CH.profileGet),
   getZoomFactor: () => webFrame.getZoomFactor(),
   setZoomFactor: (factor: number) =>
     webFrame.setZoomFactor(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, factor))),
-  openExternal: (url: string) => ipcRenderer.invoke('shell:open', url),
+  openExternal: (url: string) => ipcRenderer.invoke(CH.shellOpen, url),
   onIndexUpdated: (cb: () => void) => {
     const handler = (): void => cb()
-    ipcRenderer.on('index-updated', handler)
-    return () => ipcRenderer.removeListener('index-updated', handler)
+    ipcRenderer.on(PUSH.indexUpdated, handler)
+    return () => ipcRenderer.removeListener(PUSH.indexUpdated, handler)
   },
-  getAppInfo: () => ipcRenderer.invoke('app:info'),
-  openLicenseNotices: () => ipcRenderer.invoke('app:open-licenses'),
-  getUpdateState: () => ipcRenderer.invoke('updates:get'),
-  checkForUpdates: () => ipcRenderer.invoke('updates:check'),
-  downloadUpdate: () => ipcRenderer.invoke('updates:download'),
-  installUpdate: () => ipcRenderer.invoke('updates:install'),
-  getUpdatePrefs: () => ipcRenderer.invoke('updates:prefs'),
-  setUpdatePrefs: (prefs) => ipcRenderer.invoke('updates:set-prefs', prefs),
+  getAppInfo: () => ipcRenderer.invoke(CH.appInfo),
+  openLicenseNotices: () => ipcRenderer.invoke(CH.appOpenLicenses),
+  getUpdateState: () => ipcRenderer.invoke(CH.updatesGet),
+  checkForUpdates: () => ipcRenderer.invoke(CH.updatesCheck),
+  downloadUpdate: () => ipcRenderer.invoke(CH.updatesDownload),
+  installUpdate: () => ipcRenderer.invoke(CH.updatesInstall),
+  getUpdatePrefs: () => ipcRenderer.invoke(CH.updatesPrefs),
+  setUpdatePrefs: (prefs) => ipcRenderer.invoke(CH.updatesSetPrefs, prefs),
   onUpdateState: (cb: (state: UpdateState) => void) => {
     const handler = (_e: unknown, state: UpdateState): void => cb(state)
-    ipcRenderer.on('update-state', handler)
-    return () => ipcRenderer.removeListener('update-state', handler)
+    ipcRenderer.on(PUSH.updateState, handler)
+    return () => ipcRenderer.removeListener(PUSH.updateState, handler)
   }
 }
 

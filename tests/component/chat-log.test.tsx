@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { ChatView } from '../../src/renderer/src/ChatView'
-import type { ChatBinding } from '../../src/renderer/src/App'
+import type { ChatBinding } from '../../src/renderer/src/chat-binding'
 import {
   addChatMessage,
   addChatNotice,
