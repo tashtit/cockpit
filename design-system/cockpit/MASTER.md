@@ -78,16 +78,16 @@ rather than a pale rinse of the button fill.
 - **Mono:** `--mono` — **IBM Plex Mono** (same bundle, falling back to `ui-monospace`/`SF Mono`) carries two registers, keep them distinct:
   - *machine identifiers* (normal case): account IDs, branches, paths, code — as always.
   - *placards* (the instrument voice): the hero h2, the `COCKPIT` wordmark, view
-    headings (`.ns-head h2`, `.empty-chat h2` — uppercase), tabs (`.ext-tab`), the
+    headings (`.ns-head h2`, `.empty-chat h2` — uppercase), tabs (`.pnl-pill`), the
     `.thinking` annunciator line, and every micro-label (`.ns-label`,
     `.board-eyebrow`, `.board-agent`, `.section-row`, `.search-group`,
-    `.repo-filter-head`, `.inst-scope label`, `.pv-stat span`) — re-voiced in the
+    `.repo-filter-head`, `.pv-stat span`) — re-voiced in the
     identity layer at the end of style.css. Session titles, body rows, buttons, and
     prose are user content and stay sans; mono display outside these two registers
     is a bug.
 - **Scale:** `--fs-xs` 11 / `--fs-sm` 12 / `--fs-base` 13 / `--fs-prose` 14 / `--fs-md` 15 / `--fs-lg` 16 / `--fs-xl` 26. Body text never below `--fs-base` — a section's explanation (`.ns-prose`, `.scope-blurb`, `.pnl-blurb`, `.pnl-note`) is body text at `--fs-base`/1.5, one or two sentences, never a paragraph of mechanism; a row's second line (`.source-note`) is chrome at `--fs-sm`; `--fs-xs` is for metadata (chips, timestamps, counts, inline field notes such as `.ns-hint` under an input) only; `--fs-prose` (with 1.6 line-height) is for transcript prose and composer textareas only.
 - **Icon scale** (keep to these four steps, don't invent in-between sizes): 10px minis (per-provider dots on repo/section rows), 12px footer/metadata glyphs, 13–14px row icons (session logos, repo icons, avatars), 16px toolbar glyphs inside 28px `.icon-btn`s.
-- **Micro-labels:** uppercase labels (`.ns-label`, `.inst-scope label`) are 600 weight with 0.9px tracking; lowercase section headers (`.section-row`, `.search-group`, `.repo-filter-head`) use 0.6px. Wide tracking at tiny sizes is the refinement signal — keep it consistent.
+- **Micro-labels:** uppercase labels (`.ns-label`) are 600 weight with 0.9px tracking; lowercase section headers (`.section-row`, `.search-group`, `.repo-filter-head`) use 0.6px. Wide tracking at tiny sizes is the refinement signal — keep it consistent.
 - `tabular-nums` on `time` and counts.
 
 ## Spacing & Shape
@@ -121,7 +121,7 @@ Reuse these; don't invent parallel variants:
 - **`.badge-{claude,codex,copilot}`** — solid agent badge (chat header).
 - **Buttons:** `.btn-primary` (accent-btn fill + glow), `.btn-ghost` (bordered, quiet), `.btn-danger`, `.btn-pr` (green = GitHub merge-button semantics), `.icon-btn`, `.link-btn`. `.new-task-btn` is an icon-only `.btn-primary` square docked to the search row — the one always-visible entry point (mirrors ⌘N; `aria-label="New task"`); it is the rail's only filled control, keep it that way.
 - **Lists are layout:** `ul, ol { padding: 0 }` is global — row lists sit flush with their section's left edge. Only transcript markdown restores an indent.
-- **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.recent-row`. Hover actions float absolutely over the row's right edge — nothing reflows.
+- **Rows:** `.section-row` (sticky, lowercase — the Chats header), `.repo-row`, `.session-row` (selected = agent-colored gradient + inset bar), `.board-row` (home), `.source-row` (settings/cards). Hover actions float absolutely over the row's right edge — nothing reflows.
 - **Cards:** `.ns-card` — ONE width (`min(760px, 94%)`) shared by every card view (Settings, Agents, Profile, New session); navigating between them must never make the dialog jump sizes. `.composer-card` for the home prompt.
 - **Chat:** user bubbles right (accent tint), assistant left with avatar; `.tool-row` = collapsed `<details>` one-liners; `.sys-row` = dotted-left-border annotations; streaming = accent left border.
 - **`.review`** — the worktree's changes in the transcript's place (chat only, `.btn-review` / ⌘D): the instructions review's `.idiff-*` line grammar with line numbers, a scope switch, and line notes that go back to the agent through the composer. With an open PR it leads with `.review-pr` (what the PR waits on + "Fix with <Agent>") and shows reviewers' unresolved threads (`.review-thread`) under their lines. See `pages/chat.md`.
@@ -159,6 +159,7 @@ Nothing renders with stock Chromium chrome:
 - `.app > * { min-width: 0 }` is load-bearing: grid items default to `min-width: auto`, and without the guard the chat pane's fixed header children push the 1fr column wider than the window. Any new fixed-width header content must still fit a 560px window.
 - **Supported minimum window: 560×420** — enforced by the BrowserWindow min sizes in `src/main/index.ts` and gated by the e2e minimum-size audit (no horizontal overflow, chrome rows contained, key controls visible at exactly that size — home, palette, Agents, Settings, Cleanup and chat are audited). At that size `.source-row`s wrap their health readout and action under the label, and usage windows put the label on its own line over a flexing meter. Anything new must hold there; change the floor and the gate together.
 - Narrow windows (≤780px) shed decorative chips before anything truncates; ≤700px the sidebar wordmark text sheds (the mark stays); short windows (≤600px) drop the home hero. Follow this "shed decoration first" pattern for new responsive cases. The shed media queries live at the **end** of style.css on purpose — earlier in the file they'd lose the cascade to same-specificity component rules; keep new shed rules there.
+- **Three widths, not two.** `npm run ui:tour` shoots every width-budgeted view at 1280×820, at an ordinary 900×700 window and at the 560×420 floor. The middle one is not decoration: cards are the window minus a user-draggable sidebar, so a layout can be correct at both ends and wrong between them (the home board pushing the composer off the bottom edge, a Settings usage row painting over the session count — both invisible at 1280 and at the floor). Check the mid shots before calling a layout change done.
 - **A breakpoint is the last resort, not the first.** The window is only one of the widths in play — the sidebar is user-draggable, so a card's own width is not a function of the viewport. Where a row can say what it needs, it says it intrinsically (`flex-wrap: wrap` plus a flex-basis, `nowrap` on the phrases that must not break; `.source-row` is the worked example, see `pages/settings.md`) and gives way on its own at every width. Reach for a media query only for what is genuinely about the window.
 - Window drag: `.tree-top` and `.chat-header` are drag regions; every other view gets the fixed 22px `.drag-strip` along the top edge (rendered by App for non-chat views). Keep interactive content below 22px from the window top.
 - Dev builds only: a 28px `.dev-banner` row spans the top of the grid naming the source branch (parallel worktree dev instances are otherwise identical). Branch-tinted, mono, also a drag region with selectable `no-drag` text; it absorbs the traffic-light clearance, so `.tree-top` sheds its 40px pad under it. Never renders in a packaged app.

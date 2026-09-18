@@ -69,6 +69,7 @@ import type {
 } from './types'
 
 export type CockpitApi = {
+  /* ---------- a turn: send, cancel, stream, answer ---------- */
   readonly sendChat: (req: ChatRequest) => Promise<string>
   readonly cancelChat: (turnId: string) => Promise<void>
   readonly onChatEvent: (cb: (ev: ChatEvent) => void) => () => void
@@ -76,6 +77,8 @@ export type CockpitApi = {
   readonly respondPermission: (turnId: string, requestId: string, optionId: string) => Promise<void>
   /** Persist a pasted image in main's image dir; resolves to the absolute file path */
   readonly saveChatImage: (data: Uint8Array, mime: string) => Promise<string>
+
+  /* ---------- sources and the index the renderer reads through ---------- */
   readonly getSources: () => Promise<SourceDir[]>
   readonly getSourceStats: () => Promise<SourceStats[]>
   /** Native directory picker (main-process dialog); null when the user cancels */
@@ -89,14 +92,20 @@ export type CockpitApi = {
   /** One indexed session by id (lineage navigation); null when unknown */
   readonly getSession: (sessionId: string) => Promise<SessionMeta | null>
   readonly getSessionMessages: (id: string) => Promise<SessionMessage[]>
+
+  /* ---------- searching transcript contents ---------- */
   /** Full-text search over transcript contents; a newer call cancels the one in flight */
   readonly searchTranscripts: (query: TranscriptSearchQuery) => Promise<TranscriptSearchResult>
   /** Stop the in-flight transcript search early (the palette closed) */
   readonly cancelTranscriptSearch: () => Promise<void>
+
+  /* ---------- handing a session to another agent ---------- */
   /** Deterministic context briefing for handing this session to another agent */
   readonly getHandoffBriefing: (sessionId: string) => Promise<HandoffBriefing>
   /** Ask the source session's own CLI to rewrite the briefing (resumes it read-only) */
   readonly improveHandoffBriefing: (sessionId: string) => Promise<string>
+
+  /* ---------- what is running, and what needs you ---------- */
   /** Sessions with a turn in progress — spawned by Cockpit, or observed mid-turn in their logs */
   readonly getBusySessions: () => Promise<BusySession[]>
   /**
@@ -120,6 +129,8 @@ export type CockpitApi = {
   readonly onAttentionOpen: (cb: (target: AttentionTarget) => void) => () => void
   /** A click that came in while no window was listening; null when there is none */
   readonly takeAttentionOpen: () => Promise<AttentionTarget | null>
+
+  /* ---------- what the tree shows ---------- */
   readonly setArchived: (sessionId: string, archived: boolean) => Promise<void>
   /** Archive (or bring back) a whole roundtable — reversible, nothing on disk moves */
   readonly setRoundtableArchived: (id: string, archived: boolean) => Promise<void>
@@ -132,6 +143,8 @@ export type CockpitApi = {
   /** Clock format for session times (sidebar, home); default 24h */
   readonly getTimeFormat: () => Promise<TimeFormat>
   readonly setTimeFormat: (format: TimeFormat) => Promise<void>
+
+  /* ---------- cleanup: stale sessions, worktrees, processes ---------- */
   /* cleanup: one place for stale sessions and worktrees across every agent and repo */
   /** Idle threshold the cleanup view applies, in days (default 30) */
   readonly getStaleDays: () => Promise<number>
@@ -151,6 +164,8 @@ export type CockpitApi = {
    * a pid whose command or start time no longer matches is refused)
    */
   readonly stopProcesses: (targets: readonly ProcessTarget[]) => Promise<CleanupResult>
+
+  /* ---------- GitHub: PRs, worktrees, the review before landing ---------- */
   readonly getPrs: (repoRoot: string) => Promise<PrStatus[]>
   /** The branch a PR from this repo would target; null when git can't say */
   readonly getDefaultBranch: (repoRoot: string) => Promise<string | null>
@@ -162,6 +177,8 @@ export type CockpitApi = {
   readonly getPrFeedback: (repoRoot: string, prNumber: number) => Promise<PrFeedback>
   /** The prompt that asks the agent to fix that PR — failing checks with their failed-step logs, threads, reviews */
   readonly getPrFixBriefing: (repoRoot: string, prNumber: number) => Promise<PrFixBriefing>
+
+  /* ---------- extensions: MCP servers, skills, plugins, marketplaces ---------- */
   readonly getExtensions: () => Promise<ExtensionsInventory>
   /** Probe the server (spawn stdio / hit URL) and report whether it answers */
   readonly checkMcp: (name: string) => Promise<McpProbeResult>
@@ -187,6 +204,8 @@ export type CockpitApi = {
   readonly removePanelEntry: (target: PanelTarget) => Promise<PanelReport>
   /** Put a removed entry back on the agents it was on */
   readonly restorePanelEntry: (target: PanelTarget) => Promise<PanelReport>
+
+  /* ---------- shared AI instructions ---------- */
   readonly getInstructions: (repoRoot: string | null) => Promise<InstructionsState>
   readonly saveInstructionsBaseline: (
     repoRoot: string | null,
@@ -203,11 +222,15 @@ export type CockpitApi = {
   readonly adoptInstructionsFrom: (repoRoot: string | null, path: string) => Promise<InstructionsState>
   /** Open a PR putting this repo's shared instructions into the repo itself */
   readonly shareInstructions: (repoRoot: string) => Promise<ShareResult>
+
+  /* ---------- who each agent is signed in as, and what it has spent ---------- */
   readonly getAccounts: () => Promise<AccountsSnapshot>
   /** Current subscription usage per configured provider account */
   readonly getUsage: () => Promise<UsageSnapshot>
   /** Aggregate cross-agent work profile (heatmap, per-agent totals, languages) */
   readonly getProfile: () => Promise<ProfileStats>
+
+  /* ---------- what backs an agent: BYOK providers and ACP agents ---------- */
   readonly getModelEndpoints: () => Promise<ModelEndpoint[]>
   readonly addModelEndpoint: (ep: NewModelEndpoint) => Promise<ModelEndpoint[]>
   readonly removeModelEndpoint: (id: string) => Promise<ModelEndpoint[]>
@@ -221,6 +244,8 @@ export type CockpitApi = {
   readonly removeAcpAgent: (id: string) => Promise<AcpAgent[]>
   /** Run the `initialize` handshake against a definition to prove it speaks ACP */
   readonly probeAcpAgent: (agent: NewAcpAgent) => Promise<AcpAgentProbe>
+
+  /* ---------- backup and restore ---------- */
   /* backup: export to a file the user keeps, restore it here or on another Mac */
   /** Native save dialog, then write the file; null when the user cancels */
   readonly exportBackup: (passphrase?: string) => Promise<BackupExportResult | null>
@@ -228,6 +253,8 @@ export type CockpitApi = {
   readonly openBackup: () => Promise<BackupPreview | null>
   readonly restoreBackup: (token: string, passphrase?: string) => Promise<RestoreSummary>
   readonly undoRestore: (undoId: string) => Promise<void>
+
+  /* ---------- roundtables: several agents, one discussion ---------- */
   /* roundtables: several agents, one shared discussion */
   readonly listRoundtables: () => Promise<RoundtableMeta[]>
   readonly getRoundtable: (id: string) => Promise<RoundtableSnapshot>
@@ -239,11 +266,15 @@ export type CockpitApi = {
   readonly continueRoundtable: (id: string) => Promise<void>
   readonly stopRoundtable: (id: string) => Promise<void>
   readonly onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => () => void
+
+  /* ---------- the window and the app shell ---------- */
   /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
   readonly getZoomFactor: () => number
   readonly setZoomFactor: (factor: number) => void
   readonly openExternal: (url: string) => Promise<void>
   readonly onIndexUpdated: (cb: () => void) => () => void
+
+  /* ---------- about, and the app updating itself ---------- */
   /* app updates (Settings › About) */
   readonly getAppInfo: () => Promise<AppInfo>
   /** Open the third-party notices in the system text viewer; resolves to why not, or null once open */

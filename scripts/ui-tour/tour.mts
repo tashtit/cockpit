@@ -21,6 +21,14 @@ import { buildWorld, type World } from './world.mts'
 const MAIN = resolve('out/main/index.js')
 const OUT = resolve('test-results', 'ui-tour')
 const DESKTOP = { width: 1280, height: 820 } as const
+/**
+ * An ordinary working window — and the band two fixed sizes miss. Cards are as wide as
+ * the window minus a sidebar the user drags, so a layout can be right at 1280 and right
+ * at the floor and still be wrong here: the home board pushed the composer off the
+ * bottom edge at exactly this size, and a Settings usage row painted its reset time over
+ * the session count. Both looked perfect at the other two.
+ */
+const MID = { width: 900, height: 700 } as const
 const FLOOR = { width: 560, height: 420 } as const
 
 type Size = { readonly width: number; readonly height: number }
@@ -190,7 +198,11 @@ const STATIC: readonly Shot[] = [
   }
 ]
 
-/** The floor gets the views whose chrome is width-budgeted, not every section again. */
+/**
+ * The views whose chrome is width-budgeted, not every section again — the same list
+ * serves both narrow sizes, so there is no second hand-curated set to drift out of
+ * step with this one.
+ */
 const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
@@ -258,7 +270,9 @@ async function capture(win: Page, shots: readonly Shot[], size: Size, suffix: st
       await win.setViewportSize(size)
       await win.keyboard.press('Escape')
       await shot.go(win)
-      if (shot.tall && size === DESKTOP) {
+      // the floor is the constraint under test, so it is shot at its real height; every
+      // other size grows to show the whole card, which is where a long panel's bugs are
+      if (shot.tall && size !== FLOOR) {
         await win.setViewportSize({ width: size.width, height: shot.tall })
         await pause(win, 500)
       }
@@ -315,8 +329,11 @@ async function main(): Promise<void> {
     {
       const { app, win } = await launch(world)
       outcomes.push(...(await capture(win, STATIC, DESKTOP, '')))
+      const narrow = STATIC.filter((s) => AT_FLOOR.has(s.name))
+      console.log('world: 900×700')
+      outcomes.push(...(await capture(win, narrow, MID, '-mid')))
       console.log('world: 560×420')
-      outcomes.push(...(await capture(win, STATIC.filter((s) => AT_FLOOR.has(s.name)), FLOOR, '-floor')))
+      outcomes.push(...(await capture(win, narrow, FLOOR, '-floor')))
       await app.close()
     }
     if (live) {
