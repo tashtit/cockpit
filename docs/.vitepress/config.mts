@@ -41,6 +41,7 @@ export default defineConfig({
           { text: 'The Agents view', link: '/guide/agents' },
           { text: 'Accounts & usage', link: '/guide/accounts-and-usage' },
           { text: 'Custom providers', link: '/guide/custom-providers' },
+          { text: 'ACP agents', link: '/guide/acp-agents' },
           { text: 'Backup & restore', link: '/guide/backup' }
         ]
       },

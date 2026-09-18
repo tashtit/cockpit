@@ -439,6 +439,8 @@ describe('ChatView → review panel', () => {
         onOpenUrl={() => {}}
         onOpenHandoff={() => {}}
         onOpenLineage={() => {}}
+        permissions={[]}
+        onAnswerPermission={() => {}}
       />
     )
     await userEvent.click(screen.getByRole('button', { name: 'Changes' }))

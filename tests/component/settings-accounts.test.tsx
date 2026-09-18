@@ -133,7 +133,15 @@ describe('Settings › the card’s map', () => {
     await screen.findByText('claude-default')
     const map = screen.getByRole('navigation', { name: 'Sections' })
     expect(within(map).getAllByRole('button').map((b) => b.textContent)).toEqual([
-      'Accounts', 'GitHub', 'History', 'Display', 'Notifications', 'Providers', 'Backup', 'About'
+      'Accounts',
+      'GitHub',
+      'History',
+      'Display',
+      'Notifications',
+      'Providers',
+      'ACP agents',
+      'Backup',
+      'About'
     ])
     await userEvent.click(within(map).getByRole('button', { name: 'Backup' }))
     expect(screen.getByRole('heading', { name: 'Backup' })).toHaveFocus()

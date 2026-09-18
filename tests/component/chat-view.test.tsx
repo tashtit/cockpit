@@ -35,6 +35,8 @@ function renderChat(
       onOpenUrl={() => {}}
       onOpenHandoff={onOpenHandoff}
       onOpenLineage={onOpenLineage}
+      permissions={[]}
+      onAnswerPermission={vi.fn()}
     />
   )
   return { onSend, onOpenHandoff, onOpenLineage }

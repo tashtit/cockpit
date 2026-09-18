@@ -38,6 +38,8 @@ function renderChat(log: SessionMessage[], busy = false): void {
       onOpenUrl={vi.fn()}
       onOpenHandoff={vi.fn()}
       onOpenLineage={vi.fn()}
+      permissions={[]}
+      onAnswerPermission={vi.fn()}
     />
   )
 }

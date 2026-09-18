@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import { api } from './api'
 import { AskPicker } from './AskPicker'
-import type { ChatBinding } from './App'
+import type { ChatBinding, PendingPermission } from './App'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { Markdown } from './Markdown'
@@ -26,7 +26,9 @@ export function ChatView({
   onCreatePr,
   onOpenUrl,
   onOpenHandoff,
-  onOpenLineage
+  onOpenLineage,
+  permissions,
+  onAnswerPermission
 }: {
   binding: ChatBinding | null
   prs: PrStatus[]
@@ -39,6 +41,8 @@ export function ChatView({
   onOpenUrl: (url: string) => void
   onOpenHandoff: () => void
   onOpenLineage: (sourceId: string) => void
+  permissions: readonly PendingPermission[]
+  onAnswerPermission: (ask: PendingPermission, optionId: string) => void
 }): JSX.Element {
   const [draft, setDraft] = useState('')
   const atts = useImageAttachments()
@@ -158,7 +162,13 @@ export function ChatView({
 
   // screen-reader announcement on turn completion/failure — not per streamed token
   const lastSys = [...log].reverse().find((m) => m.kind === 'system')
-  const status = busy ? 'Assistant is working' : (lastSys?.text ?? (log.length ? 'Ready' : ''))
+  // a blocked agent is the most important thing on the screen — announce it over the
+  // generic working line, which would otherwise be the last thing a reader heard
+  const status = permissions.length
+    ? `Permission needed: ${permissions[0].preview}`
+    : busy
+      ? 'Assistant is working'
+      : (lastSys?.text ?? (log.length ? 'Ready' : ''))
 
   /** A pick from the agent's own options: the same send path a typed message takes. */
   const sendAnswer = (text: string): void => {
@@ -346,6 +356,15 @@ export function ChatView({
       <div className="sr-only" role="status" aria-live="polite">
         {status}
       </div>
+
+      {permissions.map((ask) => (
+        <PermissionAsk
+          key={ask.requestId}
+          ask={ask}
+          provider={binding.provider}
+          onAnswer={(optionId) => onAnswerPermission(ask, optionId)}
+        />
+      ))}
 
       <footer className="composer">
         {binding.readOnly ? (
@@ -566,3 +585,55 @@ export const Message = memo(function Message({
     </div>
   )
 })
+
+/**
+ * A live ACP turn has stopped and is waiting on a decision.
+ *
+ * Docked between the transcript and the composer rather than written into the log: this
+ * is a thing that is true *now*, and nothing else in the turn moves until it is answered.
+ * It carries the agent's livery (`.tint-*`) because "this one needs you" is the same
+ * signal the sidebar's asks-mark gives, in the same colour.
+ *
+ * Sibling of `AskPicker`, deliberately not merged with it: that one answers a question
+ * *read out of a transcript* by composing the next message, which is how a session in
+ * someone's terminal gets answered. This one holds the process open and answers it
+ * directly, so it is one decision, not a form, and it can never be left half-filled.
+ */
+function PermissionAsk({
+  ask,
+  provider,
+  onAnswer
+}: {
+  ask: PendingPermission
+  provider: Provider
+  onAnswer: (optionId: string) => void
+}): JSX.Element {
+  return (
+    <div
+      className={`perm-card tint-${provider}`}
+      role="group"
+      aria-label={`${PROVIDER_LABEL[provider]} needs permission: ${ask.preview}`}
+    >
+      <div className="perm-body">
+        <span className="perm-tool">{ask.toolName}</span>
+        <span className="perm-what" title={ask.detail}>
+          {ask.preview}
+        </span>
+      </div>
+      <div className="perm-actions">
+        {ask.options.map((o) => (
+          <button
+            key={o.optionId}
+            type="button"
+            // allow is the affirmative action; everything else stays quiet, so the
+            // safe answer is never the one styled to be clicked without reading
+            className={o.kind?.startsWith('allow') ? 'btn-primary' : 'btn-ghost'}
+            onClick={() => onAnswer(o.optionId)}
+          >
+            {o.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}

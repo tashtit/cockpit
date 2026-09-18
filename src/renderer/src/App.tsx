@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
+  AcpPermissionOption,
   AttentionFocus,
   AttentionTarget,
   ChatEvent,
@@ -33,6 +34,25 @@ import { initBusySessions } from './busy'
 import { initTimeFormat } from './time'
 import type { StartSessionRequest } from './NewSession'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
+
+/**
+ * A permission request a live ACP turn is blocked on, and the answers it will take.
+ *
+ * Not to be confused with `AskPrompt` / `AskPicker`: that is a question *read out of a
+ * transcript*, answered by composing the next message, and it works for sessions Cockpit
+ * never spawned. This one is a process Cockpit is holding open — the answer goes back
+ * down the protocol, and nothing in the turn moves until it does.
+ */
+export type PendingPermission = {
+  readonly turnId: string
+  readonly requestId: string
+  readonly toolName: string
+  /** The agent's own one-line headline for what it wants to do */
+  readonly preview: string
+  /** The raw tool input behind the headline — the tooltip, so a click is informed */
+  readonly detail: string
+  readonly options: readonly AcpPermissionOption[]
+}
 
 export type ChatBinding = {
   readonly provider: Provider
@@ -243,6 +263,22 @@ export function App(): JSX.Element {
     })
   }, [])
 
+  /**
+   * Permission questions an ACP turn is blocked on. Kept out of the transcript on
+   * purpose: this is a thing that is true *now*, not a thing that happened, and the
+   * agent does not move again until one of them is answered.
+   */
+  const [permissions, setPermissions] = useState<PendingPermission[]>([])
+
+  const answerPermission = useCallback((ask: PendingPermission, optionId: string) => {
+    const label = ask.options.find((o) => o.optionId === optionId)?.name ?? optionId
+    setPermissions((list) => list.filter((a) => a.requestId !== ask.requestId))
+    void api.respondPermission(ask.turnId, ask.requestId, optionId)
+    // the answer belongs in the transcript even though the question did not — it is
+    // what the rest of the turn was conditioned on
+    setLog((l) => [...l, { role: 'system', kind: 'system', text: `${label} — ${ask.preview}` }])
+  }, [])
+
   const applyEvent = useCallback(
     (ev: ChatEvent) => {
       if (ev.type === 'session') {
@@ -289,12 +325,27 @@ export function App(): JSX.Element {
             ...(ev.asks ? { asks: ev.asks } : {})
           }
         ])
+      } else if (ev.type === 'permission') {
+        flushText()
+        setPermissions((list) => [
+          ...list.filter((a) => a.requestId !== ev.requestId),
+          {
+            turnId: ev.turnId,
+            requestId: ev.requestId,
+            toolName: ev.toolName,
+            preview: ev.preview ?? ev.detail,
+            detail: ev.detail,
+            options: ev.options
+          }
+        ])
       } else if (ev.type === 'error') {
         flushText()
         setLog((l) => [...l, { role: 'system', kind: 'system', text: ev.message }])
       } else if (ev.type === 'done') {
         flushText()
         setActiveTurn(null)
+        // the turn is over; anything it was still asking has been answered or abandoned
+        setPermissions([])
         // only touch rows that were streaming: replacing every row's identity here
         // would re-render (and re-markdown) the whole memoized transcript at once
         setLog((l) =>
@@ -852,6 +903,8 @@ export function App(): JSX.Element {
           onOpenUrl={openUrl}
           onOpenHandoff={openHandoff}
           onOpenLineage={(id) => void openLineage(id)}
+          permissions={permissions}
+          onAnswerPermission={answerPermission}
         />
       )}
       {paletteOpen && (

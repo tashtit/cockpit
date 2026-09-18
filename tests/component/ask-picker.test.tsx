@@ -50,6 +50,8 @@ function renderChat(
       onOpenUrl={() => {}}
       onOpenHandoff={() => {}}
       onOpenLineage={() => {}}
+      permissions={[]}
+      onAnswerPermission={() => {}}
     />
   )
   return onSend

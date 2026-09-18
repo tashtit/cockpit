@@ -1,7 +1,15 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
-import type { BusySession, ChatEvent, ChatRequest, ModelEndpoint, Provider } from '../shared/types'
+import type {
+  AcpAgent,
+  BusySession,
+  ChatEvent,
+  ChatRequest,
+  ModelEndpoint,
+  Provider
+} from '../shared/types'
+import { AcpTurn } from './acp'
 import {
   endpointEnv,
   endpointSupports,
@@ -238,6 +246,9 @@ type RunningTurn = {
   /** Native session ids this turn is known under — the resumed id plus any the
    *  stream announces (claude forks a fresh id per resumed turn). */
   readonly sessionIds: Set<string>
+  /** Set when the turn is driven over ACP: it answers permission questions and can be
+   *  asked to stop through the protocol before anything is signalled. */
+  readonly acp?: AcpTurn
 }
 
 /** Optional collaborators wired by index.ts (busy board, attention, BYOK endpoint/keychain store). */
@@ -249,6 +260,8 @@ type ChatManagerHooks = {
   readonly onTurnCancel?: (turnId: string) => void
   readonly resolveEndpoint?: ResolveEndpoint
   readonly resolveKey?: ResolveKey
+  /** The ACP agent to drive this request with, or undefined for the CLI's own flags */
+  readonly resolveAcpAgent?: (req: ChatRequest) => AcpAgent | undefined
 }
 
 export class ChatManager {
@@ -321,6 +334,15 @@ export class ChatManager {
       else if (req.provider === 'codex') env.CODEX_HOME = req.configDir
       else env.COPILOT_HOME = req.configDir
     }
+    // ACP: the same turn, driven over the agent's protocol instead of its headless
+    // flags. Everything above — cwd checks, BYOK env, the config home — has already
+    // been applied, and the agent inherits it as its environment.
+    const acpAgent = this.hooks.resolveAcpAgent?.(req)
+    if (acpAgent) {
+      this.startAcpTurn(turnId, req, acpAgent, env)
+      return turnId
+    }
+
     const child = spawn(cmd, args, {
       cwd: req.cwd,
       env,
@@ -373,14 +395,7 @@ export class ChatManager {
           req.provider === 'claude'
             ? parseClaudeStreamLine(turnId, parsed)
             : parseCodexStreamLine(turnId, parsed)
-        for (const ev of events) {
-          if (ev.type === 'done') turn.doneSent = true
-          if (ev.type === 'session' && !turn.sessionIds.has(ev.nativeSessionId)) {
-            turn.sessionIds.add(ev.nativeSessionId)
-            this.notifyBusy()
-          }
-          this.emit(ev)
-        }
+        for (const ev of events) this.deliver(turn, ev)
       }
     })
 
@@ -442,10 +457,72 @@ export class ChatManager {
     return turnId
   }
 
+  /**
+   * Emit one event and keep the turn's bookkeeping with it: a session id the stream
+   * announces is a new id this turn is busy under, and a `done` is what stops the close
+   * handler from reporting a failure on top of it.
+   */
+  private deliver(turn: RunningTurn, ev: ChatEvent): void {
+    if (ev.type === 'done') turn.doneSent = true
+    if (ev.type === 'session' && !turn.sessionIds.has(ev.nativeSessionId)) {
+      turn.sessionIds.add(ev.nativeSessionId)
+      this.notifyBusy()
+    }
+    this.emit(ev)
+  }
+
+  /** Spawn and run an ACP turn, with the same busy/cancel bookkeeping as a CLI turn. */
+  private startAcpTurn(
+    turnId: string,
+    req: ChatRequest,
+    agent: AcpAgent,
+    env: NodeJS.ProcessEnv
+  ): void {
+    const acp = new AcpTurn(agent, {
+      turnId,
+      cwd: req.cwd,
+      env,
+      permissionMode: req.permissionMode,
+      emit: (ev) => {
+        const turn = this.turns.get(turnId)
+        // a cancelled turn is already off the board; its trailing events are the kill
+        if (turn) this.deliver(turn, ev)
+      }
+    })
+    const turn: RunningTurn = {
+      child: acp.child,
+      doneSent: false,
+      provider: req.provider,
+      startedAt: Date.now(),
+      sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : []),
+      acp
+    }
+    this.turns.set(turnId, turn)
+    this.notifyBusy()
+    void acp.run(promptWithImages(req), req.resumeNativeId).then(() => {
+      // run() reports every outcome as events and never rejects, so reaching here means
+      // the turn is over one way or another
+      if (!turn.doneSent) this.emit({ turnId, type: 'done' })
+      this.turns.delete(turnId)
+      this.notifyBusy()
+    })
+  }
+
+  /**
+   * Answer a permission question an ACP turn asked. Silently ignored for a turn that has
+   * already ended — the click raced the agent giving up on it.
+   */
+  respondPermission(turnId: string, requestId: string, optionId: string): void {
+    this.turns.get(turnId)?.acp?.respondPermission(requestId, optionId)
+  }
+
   cancel(turnId: string): void {
     const t = this.turns.get(turnId)
     if (!t) return
     this.hooks.onTurnCancel?.(turnId)
+    // over ACP the agent can be told to stop, and anything it is waiting on refused,
+    // before the process group is signalled
+    t.acp?.cancel()
     this.turns.delete(turnId)
     this.notifyBusy()
     const pid = t.child.pid

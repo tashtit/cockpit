@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from '
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type {
+  AcpAgent,
   AttentionPrefs,
   LibraryEntry,
   ModelEndpoint,
@@ -11,6 +12,7 @@ import type {
   UpdatePrefs
 } from '../shared/types'
 import { clampStaleDays } from './cleanup-core'
+import { sanitizeAcpAgent } from '../shared/acp'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
@@ -46,6 +48,12 @@ export type AppConfig = {
   readonly timeFormat?: TimeFormat
   /** User-defined BYOK model providers (API keys live keychain-encrypted in secrets.ts, never here) */
   readonly modelEndpoints?: ModelEndpoint[]
+  /**
+   * Agents the user defined for Cockpit to drive over ACP. Built-ins are not stored —
+   * they ship in `BUILTIN_ACP_AGENTS` so an upgraded CLI is picked up without a config
+   * migration, and so a stale copy of one can never outlive the code that defines it.
+   */
+  readonly acpAgents?: AcpAgent[]
   /** ModelEndpoint.id each BYOK session runs on, keyed by `${provider}:${nativeId}` */
   readonly sessionEndpoints?: Record<string, string>
   /**
@@ -329,6 +337,43 @@ export function updateModelEndpoint(ep: ModelEndpoint): void {
   const existing = cfg.modelEndpoints ?? []
   if (!existing.some((e) => e.id === ep.id)) return
   saveConfig({ ...cfg, modelEndpoints: existing.map((e) => (e.id === ep.id ? ep : e)) })
+}
+
+/**
+ * Re-validated on every read, not just on the way in.
+ *
+ * Every other config list is data; this one is a command line Cockpit will execute, and
+ * the file is editable by hand (and arrives from a restore). Running the same rules the
+ * add form ran means an entry that was hand-written, or written by an older build with
+ * looser rules, is dropped rather than spawned.
+ */
+export function listAcpAgents(): AcpAgent[] {
+  const stored = loadConfig().acpAgents ?? []
+  return stored
+    .map((a) => (a?.id ? sanitizeAcpAgent(a, a.id) : null))
+    .filter((a): a is AcpAgent => a !== null)
+}
+
+/** Upsert by id, in place, so editing an agent keeps its position in the user's list. */
+export function withAcpAgent(cfg: AppConfig, agent: AcpAgent): AppConfig {
+  const existing = cfg.acpAgents ?? []
+  const agents = existing.some((a) => a.id === agent.id)
+    ? existing.map((a) => (a.id === agent.id ? agent : a))
+    : [...existing, agent]
+  return { ...cfg, acpAgents: agents }
+}
+
+export function addAcpAgent(agent: AcpAgent): AcpAgent[] {
+  const next = withAcpAgent(loadConfig(), agent)
+  saveConfig(next)
+  return next.acpAgents ?? []
+}
+
+export function removeAcpAgent(id: string): AcpAgent[] {
+  const cfg = loadConfig()
+  const agents = (cfg.acpAgents ?? []).filter((a) => a.id !== id)
+  saveConfig({ ...cfg, acpAgents: agents })
+  return agents
 }
 
 export function removeModelEndpoint(id: string): ModelEndpoint[] {

@@ -19,6 +19,7 @@ import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
 import { BackupSection } from './BackupSection'
 import { fmtCount, fmtResetIn } from './format'
+import { AcpAgents } from './AcpAgents'
 import { ModelProviders } from './ModelProviders'
 import { NotificationsSection } from './NotificationsSection'
 import { CockpitLogo, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -193,6 +194,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'display', label: 'Display' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'providers', label: 'Providers' },
+  { id: 'acp', label: 'ACP agents' },
   { id: 'backup', label: 'Backup' },
   { id: 'about', label: 'About' }
 ] as const
@@ -714,6 +716,9 @@ export function Settings({
 
         <h3 className="ns-label" ref={heading('providers')} tabIndex={-1}>Model providers</h3>
         <ModelProviders onStatus={setStatus} />
+
+        <h3 className="ns-label" ref={heading('acp')} tabIndex={-1}>ACP agents</h3>
+        <AcpAgents onStatus={setStatus} />
 
         <h3 className="ns-label" ref={heading('backup')} tabIndex={-1}>Backup</h3>
         <BackupSection

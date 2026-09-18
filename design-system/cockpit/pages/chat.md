@@ -110,6 +110,37 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
 - Code blocks get a hover/focus Copy button; highlight.js tokens map to app palette
   variables — no imported highlight theme.
 
+## Permission prompt (`PermissionAsk`, `.perm-card`)
+
+A turn Cockpit drives over ACP can stop mid-turn and ask (`session/request_permission`).
+
+**Sibling of `.ask-card`, deliberately not the same component.** `.ask-card` answers a
+question *read out of a transcript*, by composing the next message — which is how a
+session running in someone's terminal gets answered at all. This one is a process
+Cockpit is holding open: the answer goes back down the protocol, so it is one decision
+rather than a form, it can never be left half-filled, and it is docked rather than
+placed in the transcript. Same livery, different mechanism; keep both.
+
+- **It is docked, not logged.** The card sits between the transcript and the composer —
+  not in the message list — because it is a thing that is true *now*: nothing else in the
+  turn moves until it is answered, and the question has no meaning once it is. The
+  *answer* does go into the transcript, as a `.sys-row` ("Allow once — Run the test
+  suite"), since it is what the rest of the turn was conditioned on.
+- It carries the agent's livery via `.tint-{provider}` — the same signal the sidebar's
+  asks-mark and `.ask-card` use for a session waiting on you. No new token.
+- **Allow is the only affirmative.** Options whose `kind` starts with `allow` render
+  `.btn-primary`; every other answer is `.btn-ghost`. The safe answer must never be the
+  one styled to be clicked without reading.
+- The headline is the agent's own `title` (`.perm-what`, one line, ellipsised); the raw
+  tool input rides the `title` attribute so a click is informed. The tool kind sits left
+  in the micro-label register (`.perm-tool`).
+- It never autofocuses. A question that arrives while someone is typing must not steal
+  the caret out of the composer.
+- The `aria-live` status announces the question over the generic working line — a blocked
+  agent is the most important thing on the screen.
+- ≤620px the headline takes its own row and the answers split the next one evenly.
+  Nothing sheds: both halves are load-bearing while the agent waits.
+
 ## Review (`ReviewPanel.tsx`, `.review`)
 
 The **Changes** key in the header (`.btn-review`, ⌘D) swaps the transcript for the
