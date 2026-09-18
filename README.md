@@ -64,7 +64,8 @@ CI (`.github/workflows/ci.yml`) runs typecheck plus all three test tiers, packag
 ## Layout
 
 ```
-src/shared/types.ts       shared contracts (SessionMeta, RepoInfo, CockpitApi, …)
+src/shared/types.ts       domain vocabulary (SessionMeta, RepoInfo, …) — imports nothing from src/
+src/shared/contract.ts    the whole renderer↔main IPC surface (CockpitApi, CH, PUSH)
 src/main/parsers/         per-provider session log parsers (failure-tolerant)
 src/main/repos.ts         cwd → git repo resolution (worktree-aware, GitHub remote)
 src/main/indexer.ts       scan + stat-cache + fs.watch(recursive) + repo grouping + paging

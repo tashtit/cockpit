@@ -1,4 +1,4 @@
-import type { CockpitApi } from '../../shared/types'
+import type { CockpitApi } from '../../shared/contract'
 
 declare global {
   // global augmentation requires interface merging — the one allowed `interface`;

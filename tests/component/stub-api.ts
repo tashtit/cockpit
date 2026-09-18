@@ -1,6 +1,7 @@
 import { vi } from 'vitest'
 import type { PanelReport } from '../../src/shared/library'
-import type { CockpitApi, PrStatus, RoundtableSnapshot, UsageSnapshot } from '../../src/shared/types'
+import type { CockpitApi } from '../../src/shared/contract'
+import type { PrStatus, RoundtableSnapshot, UsageSnapshot } from '../../src/shared/types'
 
 /** An empty scope; panel tests override getPanel with real rows. */
 const emptyPanel: PanelReport = {

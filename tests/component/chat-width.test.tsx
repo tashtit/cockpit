@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import { reloadChatWidth, setChatWidth } from '../../src/renderer/src/chat-width'
-import type { ChatBinding } from '../../src/renderer/src/App'
+import type { ChatBinding } from '../../src/renderer/src/chat-binding'
 
 const binding: ChatBinding = {
   provider: 'claude',

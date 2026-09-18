@@ -41,46 +41,8 @@ import {
 import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
 import type { StartSessionRequest } from './NewSession'
+import type { ChatBinding, PendingPermission } from './chat-binding'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
-
-/**
- * A permission request a live ACP turn is blocked on, and the answers it will take.
- *
- * Not to be confused with `AskPrompt` / `AskPicker`: that is a question *read out of a
- * transcript*, answered by composing the next message, and it works for sessions Cockpit
- * never spawned. This one is a process Cockpit is holding open — the answer goes back
- * down the protocol, and nothing in the turn moves until it does.
- */
-export type PendingPermission = {
-  readonly turnId: string
-  readonly requestId: string
-  readonly toolName: string
-  /** The agent's own one-line headline for what it wants to do */
-  readonly preview: string
-  /** The raw tool input behind the headline — the tooltip, so a click is informed */
-  readonly detail: string
-  readonly options: readonly AcpPermissionOption[]
-}
-
-export type ChatBinding = {
-  readonly provider: Provider
-  readonly cwd: string
-  readonly nativeSessionId: string | null
-  readonly title: string
-  readonly branch: string | null
-  readonly repoRoot: string | null
-  /** Per-agent options chosen at session start; reused for every turn */
-  readonly options?: AgentOptions
-  /** Account chosen at session start (config home + copilot user) */
-  readonly configDir?: string
-  readonly copilotUser?: string
-  /** Human-readable identity shown in the chat header */
-  readonly accountLabel?: string
-  /** Lineage chip: the session this one was handed off from */
-  readonly continuedFrom?: { readonly id: string; readonly provider: Provider }
-  /** Roundtable seat-session: view only, no composer (main refuses sends there too) */
-  readonly readOnly?: boolean
-}
 
 /** `provider:nativeId` → the chip's {id, provider}; null for anything malformed
  *  (the lineage map lives in a hand-editable config file). */
