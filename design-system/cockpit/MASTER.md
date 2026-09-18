@@ -184,7 +184,8 @@ Nothing renders with stock Chromium chrome:
 - [ ] Async >300ms shows feedback; status announced politely where it matters
 - [ ] Text on `--surface`/`--bg*` meets 4.5:1 (use `--fg` or `--fg-dim`, nothing dimmer)
 - [ ] New chips/pills reuse the existing vocabulary (acct-chip, pr-badge, branch-chip…)
+- [ ] Markup deleted? Its rules go with it, and any mention of them here — `tests/style-reachability.test.ts` fails on a class nothing can emit
 - [ ] Drag-region children marked `no-drag`; selectable text opted out
 - [ ] Narrow/short window behavior: shed decoration, never horizontal-scroll
 - [ ] `npm run typecheck` and `npm test` pass
-- [ ] Looked at, not just tested: `npm run ui:tour`, and the affected views in `test-results/ui-tour/index.html` at both sizes
+- [ ] Looked at, not just tested: `npm run ui:tour`, and the affected views in `test-results/ui-tour/index.html` at all three sizes — the 900×700 shot especially, which is the one no breakpoint is written for
