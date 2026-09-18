@@ -191,8 +191,7 @@ export function HomeView({
     if (focusIsFree()) promptRef.current?.focus()
   }, [canStart])
 
-  // the fleet: sessions and roundtables on one board, placed by what is happening
-  const busyMap = useBusyMap()
+  // the fleet: sessions and roundtables on one board, under the composer
   const landedMap = useLandedMap()
   // main raises news on any session, not just the recent ten: the row the banner and the
   // Dock badge promised is fetched by id when the page doesn't hold it
@@ -220,9 +219,6 @@ export function HomeView({
     // a fetched row stays only while it still needs you — it never joins the ground
     return [...recent, ...older.filter((s) => !paged.has(s.id) && landedMap.has(s.id))]
   }, [recent, older, landedMap])
-  const active =
-    sessions.some((s) => busyMap.has(s.id) || landedMap.has(s.id)) || tables.some((t) => t.running)
-  const fleetLeads = active && sessions.length + tables.length > 0
   const fleet = sessions.length + tables.length > 0 && (
     <Board
       sessions={sessions}
@@ -236,10 +232,9 @@ export function HomeView({
   return (
     <main className="chat home-view">
       <div className="home-inner">
-        {/* mission control leads with whatever is true right now: while the fleet is
-            up (or something landed unseen) the board opens the view; when everything
-            is quiet the composer does, and the board reads as recent activity below */}
-        {fleetLeads && fleet}
+        {/* the composer always opens the view and the board always follows it: the one
+            thing this screen is for must not move under you, and a board that took the
+            top whenever a turn started pushed it off screen exactly when work was busiest */}
         <div className="home-hero">
           <h2>
             What should we ship
@@ -377,7 +372,7 @@ export function HomeView({
           <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
         )}
         {error && <div className="new-error" role="alert">{error}</div>}
-        {!fleetLeads && fleet}
+        {fleet}
       </div>
     </main>
   )
@@ -472,7 +467,7 @@ function Setup({
 }
 
 /**
- * The board — the home view's opening move and the app's signature element:
+ * The board — the app's signature element, under the composer:
  * a departure-board of sessions, flying first. Livery-colored pulse + placard
  * agent label + branch + elapsed time for running sessions; idle sessions keep
  * their timestamp. Replaces the old "Recent activity" list (the sidebar remains
@@ -541,8 +536,9 @@ function Board({
   return (
     <section className="board" aria-label="Session board">
       <div className="board-head">
-        {/* h2, not h3: the board renders above the hero's h2, and a heading that
-            outranks nothing above it would read as a skipped level.
+        {/* h2, a peer of the hero's — the board is the view's other half, not a
+            subsection of the composer, and the hero sheds at short heights, so a
+            level below it would skip from the h1 whenever it is gone.
             Polite live region — turn starts/completions announce the new counts */}
         <h2 className="board-eyebrow" aria-live="polite">
           {counts.length === 0 ? (

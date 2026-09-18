@@ -146,25 +146,27 @@ describe('landed sessions', () => {
     stop()
   })
 
-  it('the fleet leads the view only while something is flying or landed', async () => {
+  it('keeps the composer above the fleet, busy or quiet', async () => {
     const stop = initLanded()
     renderHome()
     await screen.findByText('fix the login flake')
-    const quiet = document.querySelector('.home-inner')!
-    // quiet: the composer card comes before the board
-    const order = [...quiet.children].map((el) => el.className)
-    const composerAt = order.findIndex((c) => c.includes('composer-card'))
-    const boardAt = order.findIndex((c) => c.includes('board'))
-    expect(composerAt).toBeGreaterThanOrEqual(0)
-    expect(boardAt).toBeGreaterThan(composerAt)
+    const placed = (): { composerAt: number; boardAt: number } => {
+      const order = [...document.querySelector('.home-inner')!.children].map((el) => el.className)
+      return {
+        composerAt: order.findIndex((c) => c.includes('composer-card')),
+        boardAt: order.findIndex((c) => c.includes('board'))
+      }
+    }
+    const quiet = placed()
+    expect(quiet.composerAt).toBeGreaterThanOrEqual(0)
+    expect(quiet.boardAt).toBeGreaterThan(quiet.composerAt)
 
+    // a landing changes the board's rows, never the board's place on the page
     pushLandings([{ id: 'claude:one', at: Date.now(), kind: 'landed' }])
-    await waitFor(() => {
-      const busyOrder = [...document.querySelector('.home-inner')!.children].map((el) => el.className)
-      const leadAt = busyOrder.findIndex((c) => c.includes('board'))
-      expect(leadAt).toBe(0)
-      expect(busyOrder.findIndex((c) => c.includes('composer-card'))).toBeGreaterThan(leadAt)
-    })
+    await waitFor(() => expect(screen.getByText(/1 landed/)).toBeInTheDocument())
+    const busy = placed()
+    expect(busy.composerAt).toBe(quiet.composerAt)
+    expect(busy.boardAt).toBeGreaterThan(busy.composerAt)
     stop()
   })
 })

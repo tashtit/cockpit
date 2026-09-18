@@ -1282,9 +1282,13 @@ summary::-webkit-details-marker { display: none; }
 
 /* ---------- settings sources ---------- */
 .source-list { list-style: none; display: flex; flex-direction: column; gap: var(--s1); }
+/* Wrapping is the row's own business, not the window's: the card is as wide as the
+   window minus a sidebar the user drags, so a viewport breakpoint can't say when the
+   health column stops fitting. The body claims a basis instead and the readout drops
+   under it the moment that basis can't be met. */
 .source-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  min-height: 46px; }
+  min-height: 46px; flex-wrap: wrap; row-gap: var(--s1); }
 /* rest-intensity agent identity for any bordered row (the sidebar's selected-row
    recipe, quieter) — used by settings source rows and ai-setup instruction files */
 .tint-claude { box-shadow: inset 2px 0 0 var(--claude);
@@ -1293,7 +1297,11 @@ summary::-webkit-details-marker { display: none; }
   background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.06), var(--surface) 45%); }
 .tint-copilot { box-shadow: inset 2px 0 0 var(--copilot);
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.07), var(--surface) 45%); }
-.source-body { flex: 1; min-width: 0; }
+.source-body { flex: 1 1 260px; min-width: 0; }
+/* a row carrying usage meters needs its two fixed columns and the numbers beside them:
+   ask for that width, so the health readout gives way before the meters are squeezed
+   (squeezed, the reset time wrapped a letter at a time straight over the count) */
+.source-row:has(.usage-windows) .source-body { flex-basis: 400px; }
 .source-label { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
   font-size: var(--fs-sm); font-weight: 600; min-width: 0; }
 .source-origin { color: var(--fg-dim); font-weight: 400; font-size: var(--fs-xs); }
@@ -1301,7 +1309,7 @@ summary::-webkit-details-marker { display: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; }
 /* is-it-healthy column: count pill (the established semantic) + recency, or a warn */
 .source-health { display: flex; align-items: center; gap: var(--s2); flex-shrink: 0;
-  color: var(--fg-dim); font-size: var(--fs-xs); }
+  margin-left: auto; color: var(--fg-dim); font-size: var(--fs-xs); }
 .source-warn { color: var(--warn); font-style: italic; }
 /* prose under a row label — NOT mono (mono is for machine identifiers). A row's
    second line is chrome, scanned in a list, so it sits one step under body size */
@@ -1316,8 +1324,11 @@ summary::-webkit-details-marker { display: none; }
 .attn-switch .source-note { display: block; }
 /* ---------- settings subscription usage ---------- */
 .usage-windows { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s1); }
-.usage-window { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-xs);
-  color: var(--fg-dim); }
+/* wraps between its parts, never inside them: each reading is a phrase, and a phrase
+   allowed to break mid-word overflows its shrunken box instead of moving down a line */
+.usage-window { display: flex; align-items: center; column-gap: var(--s2); row-gap: 2px;
+  flex-wrap: wrap; font-size: var(--fs-xs); color: var(--fg-dim); }
+.usage-window > time { white-space: nowrap; }
 /* fixed label column keeps meters/numbers aligned across windows */
 .usage-win-label { flex: 0 0 130px; }
 .usage-meter { flex: 0 0 120px; height: var(--s2); border-radius: 999px;
@@ -1328,7 +1339,7 @@ summary::-webkit-details-marker { display: none; }
 .usage-fill-codex { background: var(--codex); }
 .usage-fill-copilot { background: var(--copilot); }
 .usage-fill.hot { background: var(--danger); }
-.usage-num { color: var(--fg); font-variant-numeric: tabular-nums; }
+.usage-num { color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* the fold: the button that opens an add form sits under the list it extends */
 .source-add-open { display: flex; }
@@ -1957,15 +1968,13 @@ button.pnl-flag:hover { text-decoration: underline; }
   .review-thread { margin-left: var(--s4); }
   .tool-row, .thinking, .sys-row { margin-left: 0; }
   .ns-card { padding: var(--s5); margin: var(--s4) auto; }
-  /* source rows (settings sources, usage, providers, about): the health readout and
-     the row's action drop to their own line, right-aligned, instead of squeezing the
-     label until the identity chip paints over the session count */
-  .source-row { flex-wrap: wrap; }
-  .source-body { flex: 1 1 calc(100% - 40px); }
-  .source-health { margin-left: auto; }
+  /* source rows (settings sources, usage, providers, about): the body takes the whole
+     line here rather than merely asking for a basis, so the health readout and the
+     row's action are always under it, right-aligned (they wrap on their own above) */
+  .source-row .source-body,
+  .source-row:has(.usage-windows) .source-body { flex-basis: calc(100% - 40px); }
   /* usage windows: the fixed 130px label + 120px meter columns alone outgrew a
      narrow card — the label wraps onto its own line and the meter flexes */
-  .usage-window { flex-wrap: wrap; }
   .usage-win-label { flex-basis: 100%; }
   .usage-meter { flex: 1 1 60px; }
   /* panel rows: three self-labelling chips plus a title plus a flag stop fitting
