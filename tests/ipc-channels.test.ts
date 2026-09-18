@@ -17,12 +17,17 @@ const read = (p: string): string => readFileSync(fileURLToPath(new URL(p, import
 const MAIN = read('../src/main/index.ts')
 const PRELOAD = read('../src/preload/index.ts')
 
+/** Escape every regex metacharacter, not just the dot — `\` first, or it re-escapes. */
+function quoteRe(literal: string): string {
+  return literal.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
+}
+
 /**
  * Channel argument as written at the call site, literal or not. The lookbehind skips
  * `function sendToWin(channel: …)` — the declaration is not a call site.
  */
 function argsOf(source: string, fn: string): string[] {
-  const pattern = new RegExp(`(?<!function )${fn.replace(/\./g, '\\.')}\\(\\s*([^,)\\s]+)`, 'g')
+  const pattern = new RegExp(`(?<!function )${quoteRe(fn)}\\(\\s*([^,)\\s]+)`, 'g')
   return [...source.matchAll(pattern)].map((m) => m[1])
 }
 
