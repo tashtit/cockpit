@@ -91,7 +91,9 @@ const STATIC: readonly Shot[] = [
     name: 'sidebar-archived',
     go: async (w) => {
       await home(w)
-      await w.getByRole('button', { name: /^Archived/ }).click()
+      // a row in the tree, so role=treeitem and not button — a role=tree may own
+      // nothing else, and asking for the wrong role is a 30s wait, not a miss
+      await w.getByRole('treeitem', { name: /^Archived/ }).first().click()
       await pause(w, 300)
     }
   },
