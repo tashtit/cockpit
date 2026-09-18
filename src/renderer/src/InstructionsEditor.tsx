@@ -391,7 +391,13 @@ function InstructionFileRow({
 
   return (
     <li className={`ext-row inst-file ${file.agents.length === 1 ? `tint-${file.agents[0]}` : ''}`}>
-      <div className="ext-agents" aria-label={`Read by ${file.agents.map((a) => PROVIDER_LABEL[a]).join(' and ')}`}>
+      <div
+        className="ext-agents"
+        // logos and nothing else: the label is the whole meaning, and a bare div
+        // cannot carry one — Chromium drops it
+        role="img"
+        aria-label={`Read by ${file.agents.map((a) => PROVIDER_LABEL[a]).join(' and ')}`}
+      >
         {file.agents.map((a) => (
           <span key={a} className={`plogo plogo-${a}`} title={PROVIDER_LABEL[a]}>
             <ProviderLogo p={a} size={13} />

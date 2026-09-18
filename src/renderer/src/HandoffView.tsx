@@ -158,7 +158,7 @@ export function HandoffView({
         </div>
 
         <span className="ns-label" id="handoff-source-label">From</span>
-        <div className="handoff-source" aria-labelledby="handoff-source-label">
+        <div className="handoff-source" role="group" aria-labelledby="handoff-source-label">
           <span className={`acct-chip acct-${source.provider}`}>
             <ProviderLogo p={source.provider} size={10} /> {PROVIDER_LABEL[source.provider]}
           </span>

@@ -32,7 +32,9 @@ function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
       >
         {copied ? 'Copied' : 'Copy'}
       </button>
-      <pre>{children}</pre>
+      {/* a long line makes this scroll sideways, and a region you can only reach
+          with a pointer is not reachable at all (WCAG 2.1.1) — so it takes focus */}
+      <pre tabIndex={0}>{children}</pre>
     </div>
   )
 }

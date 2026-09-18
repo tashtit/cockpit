@@ -371,9 +371,6 @@ export function TreeSidebar({
             onSelect={onSelect}
           />
         )}
-        <div className="sr-only" role="status" aria-live="polite">
-          {orderNote}
-        </div>
         {repos.length === 0 && (
           <div className="empty-item">
             <p>No sessions indexed yet — Cockpit reads Claude Code, Codex, and Copilot logs.</p>
@@ -387,6 +384,11 @@ export function TreeSidebar({
             <p>All projects are hidden — the eye button above brings them back.</p>
           </div>
         )}
+      </div>
+      {/* outside the tree on purpose: a role=tree may only own treeitems and groups,
+          and a live region among them is content a screen reader cannot place */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {orderNote}
       </div>
       <footer className="sidebar-footer">
         {/* subscription meters ride above the identity bar — one cell per provider
@@ -812,6 +814,10 @@ function GroupChildren({
         <>
           <button
             className="archived-toggle"
+            // a row in the tree, and the arrows already treat it as one: a role=tree
+            // may own nothing but treeitems and groups
+            role="treeitem"
+            aria-level={2}
             aria-expanded={showArchived}
             tabIndex={-1}
             onClick={onToggleArchived}
@@ -1117,7 +1123,7 @@ function SessionList({
           the Archived toggle right below is the way back in */}
       {items.length === 0 && <div className="tree-empty">no active sessions</div>}
       {items.length < total && items.length < MAX_LOADED && (
-        <button className="tree-more" tabIndex={-1} onClick={() => setPages((p) => p + 1)}>
+        <button className="tree-more" role="treeitem" aria-level={2} tabIndex={-1} onClick={() => setPages((p) => p + 1)}>
           more… ({items.length}/{total})
         </button>
       )}

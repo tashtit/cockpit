@@ -218,7 +218,7 @@ export function ChatView({
           {(binding.accountLabel ?? 'default account').split('@')[0]}
         </span>
         <div className="chat-header-text">
-          <div className="chat-title">{binding.title}</div>
+          <h2 className="chat-title">{binding.title}</h2>
           <div className="chat-sub">
             {binding.continuedFrom && (
               <button

@@ -552,7 +552,7 @@ summary::-webkit-details-marker { display: none; }
 /* the text inside an icon chip — flex containers can't ellipsize bare text nodes */
 .chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* the constant cockpit/ worktree prefix, abbreviated and receded — the suffix is the signal */
-.chip-pre { opacity: 0.6; }
+.chip-pre { opacity: 0.85; }
 /* ---------- Select: the app's own dropdown (native popups can't be styled) ---------- */
 .select-wrap { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .select-trigger { display: flex; align-items: center; gap: var(--s2);
