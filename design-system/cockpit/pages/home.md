@@ -2,13 +2,15 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** mission control leads with whatever is true right now. While the fleet is up —
-anything flying, or anything **landed** and not yet looked at — **the board** opens the view
-and the composer follows; when everything is quiet the composer leads and the board reads as
-recent activity underneath it. The board is the app's signature element; the composer is the
-action, and which one comes first is the view's one piece of state. This is the only view allowed hero-scale type (`--fs-xl`) and a
-floating card shadow (the composer card — the board is deliberately a quiet instrument
-surface, no shadow).
+**Pattern:** mission control, in a fixed order: **the composer opens the view, the board
+always follows it.** The board is the app's signature element and the composer is the action,
+but the action is what the screen is *for* — so it never moves. The order used to be the
+view's one piece of state (the board took the top whenever anything was flying or had landed
+unseen), and it turned out to hide the composer exactly when work was busiest: at a 900px
+window a full board pushed it to the bottom edge, at the 560×420 floor off screen entirely.
+Nothing is hidden either way; the order is simply no longer a variable. This is the only view
+allowed hero-scale type (`--fs-xl`) and a floating card shadow (the composer card — the board
+is deliberately a quiet instrument surface, no shadow).
 
 ## Layout
 
@@ -17,17 +19,16 @@ surface, no shadow).
   `justify-content: safe center` and children carry `flex-shrink: 0` — both load-bearing:
   unqualified centering clips the top out of scroll reach, and shrinkable children let the
   composer card collapse to a sliver on short windows.
-- Order: hero (h2 + sub + kbd hints; no logo — the sidebar carries the mark) →
-  `.composer-card` → error line, with **the fleet** (`.board`, which carries sessions and
-  roundtables alike) placed either above the hero or below the composer. It leads when
-  `useBusyMap()` or `useLandedMap()` holds one of the board's rows, or a table is running —
-  otherwise it follows. Nothing is hidden either way; only the order changes.
+- Order, always: hero (h2 + sub + kbd hints; no logo — the sidebar carries the mark) →
+  `.composer-card` → `.home-more` → error line → **the fleet** (`.board`, which carries
+  sessions and roundtables alike). The board renders whenever it has a row; what is
+  happening changes the rows and their order, never the board's place on the page.
 - The hero h2 is flat `--fg` (no gradient-clip decoration), set in the mono placard
   voice (the identity layer re-voices it; see MASTER Typography); when `gh` reports a
   user the headline personalizes — "What should we ship`, Titan?`" — the login's first
   hyphen/dot/underscore segment, capitalized (`firstName()`), in dim `.hero-name`.
-- Short windows (≤600px height): hero is dropped, content top-aligns — the board and
-  composer are the priority, never the branding.
+- Short windows (≤600px height): hero is dropped, content top-aligns — the composer and
+  the board are the priority, never the branding.
 
 ## The board (`.board`)
 
@@ -65,8 +66,9 @@ surface, no shadow).
   the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
   list; don't grow this. The one addition: a session that needs you but is not on that page
   is fetched by id (`getSession`), so every banner and Dock count has its row.
-- `.board-eyebrow` (h2 — the board renders above the hero's h2, so an h3 here would read
-  as a skipped level): "**N waiting on you** · **N flying** · **N red PRs** · **M landed** ·
+- `.board-eyebrow` (h2 — a peer of the hero's, not a level under it: the board is the
+  view's other half, and the hero sheds on short windows, so an h3 would skip a level
+  from the h1 whenever the hero is gone): "**N waiting on you** · **N flying** · **N red PRs** · **M landed** ·
   K on the ground" (K from the page total, every zero count dropped), or "all on the
   ground" when nothing is flying and nothing needs you. It is a polite `aria-live` region —
   turn starts, completions and questions announce the new counts.

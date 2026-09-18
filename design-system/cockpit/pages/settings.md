@@ -88,6 +88,14 @@ seventh.
   come from as its `title`) · `.source-health` (bordered `.repo-count` pill **followed by
   the word** "sessions" — a bare number is a mystery in a readout — then "· active Xh
   ago", or `--warn` "path missing" / "no sessions yet") · Remove.
+- **The row decides when to wrap, not the window.** The card is as wide as the window
+  minus a sidebar the user drags, so no viewport breakpoint can say when the health
+  column stops fitting. `.source-row` is always `flex-wrap: wrap`; `.source-body` asks
+  for `260px` (`400px` on a row carrying `.usage-windows` — enough for the 130px label,
+  the 120px meter and the numbers beside them, via `:has()`), and `.source-health`
+  carries `margin-left: auto` so it right-aligns whether it sits beside the body or on
+  its own line under it. Give any new `.source-row` content a basis rather than a
+  breakpoint.
 - Remove is two-step, no modal: ghost `small` danger → armed `.btn-danger` "Remove?"
   (reverts on blur/Escape/4s; `aria-label` names the source; `title` states that
   defaults are only auto-detected on first run). After removal an `.ns-hint` Undo line
@@ -104,7 +112,11 @@ seventh.
   Changes announce through the card's `role="status"` region like every other setting.
 - Usage rows inside an account: window label · `.usage-meter` fill bar in the agent's
   identity color (`.hot` ≥90%) · `.usage-num` percentage (token detail in the `title`
-  tooltip). At ≤780px the label takes its own line over a flexing meter.
+  tooltip) · the reset time. Each of those is a phrase and wraps as one
+  (`.usage-window` is `flex-wrap: wrap`, its numbers and its `<time>` `nowrap`): a
+  reading squeezed into a sliver column wrapped a letter at a time and painted straight
+  over `.source-health`. At the 560×420 floor the label takes its own line over a
+  flexing meter.
 - Notifications section (`NotificationsSection.tsx`): the `.ns-hint` must keep saying
   when Cockpit speaks (a turn finishing or failing, a roundtable concluding), that it never
   speaks about the session in front of a focused window, and that endings arriving together
