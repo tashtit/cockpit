@@ -31,6 +31,7 @@
     "test:component": "vitest run --project component",
     "test:e2e": "playwright test",
     "test:packaged": "node scripts/test-packaged.mts",
+    "probe:agent-host": "COCKPIT_PROBE_AGENT_HOST=1 vitest run --project unit tests/agent-host-probe.test.ts --reporter=verbose",
     "ui:tour": "npm run build && node scripts/ui-tour/tour.mts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
