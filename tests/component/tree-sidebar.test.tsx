@@ -71,7 +71,8 @@ describe('session rows state that is not colour-coded', () => {
         ? { total: 1, items: [session({ id: 'claude:old', title: 'old work', archived: true })] }
         : { total: 1, items: [session()] }
     )
-    // the Archived disclosure only renders when the repo reports archived sessions
+    // the Archived disclosure only renders when the repo reports archived sessions.
+    // It is a treeitem, not a button: a role=tree may own nothing else (a11y.spec.ts)
     renderSidebar({ archivedCount: 1 })
 
     // the live row says nothing extra; the archived one carries the word
@@ -79,7 +80,7 @@ describe('session rows state that is not colour-coded', () => {
       await screen.findByRole('treeitem', { name: /fix the login flake/ })
     ).not.toHaveTextContent('archived')
 
-    await userEvent.click(await screen.findByRole('button', { name: /Archived/ }))
+    await userEvent.click(await screen.findByRole('treeitem', { name: /Archived/ }))
     expect(await screen.findByRole('treeitem', { name: /old work\s*\(archived\)/ })).toBeVisible()
   })
 
@@ -303,10 +304,10 @@ describe('roundtables as tree items', () => {
     renderSidebar()
 
     // out of the project's children; the disclosure counts it even with no archived sessions
-    await waitFor(() => expect(screen.getByRole('button', { name: /Archived \(1\)/ })).toBeVisible())
+    await waitFor(() => expect(screen.getByRole('treeitem', { name: /Archived \(1\)/ })).toBeVisible())
     expect(screen.queryByRole('treeitem', { name: /adopt biome\?/ })).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: /Archived \(1\)/ }))
+    await userEvent.click(screen.getByRole('treeitem', { name: /Archived \(1\)/ }))
     const row = await screen.findByRole('treeitem', { name: /adopt biome\?\s*\(archived\)/ })
     // struck through like an archived session, not just labelled
     expect(row.className).toContain('archived')

@@ -243,7 +243,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
           <ChatIcon size={11} /> Roundtable
         </span>
         <div className="chat-header-text">
-          <div className="chat-title">{rt.title}</div>
+          <h2 className="chat-title">{rt.title}</h2>
           <div className="chat-sub">
             {rt.branch && <BranchChip branch={rt.branch} />}
             <button
@@ -455,7 +455,7 @@ function RoundtableTable({
   })
   const n = seats.length
   return (
-    <div className={`rt-table ${running ? 'running' : ''}`} aria-label="The table">
+    <div className={`rt-table ${running ? 'running' : ''}`} role="group" aria-label="The table">
       <svg className="rt-table-arc" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <path className="rt-table-edge" d="M 4 91 Q 50 -36 96 91" />
         <path className="rt-table-glow" d="M 4 91 Q 50 -36 96 91" />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   DiffFile,
   DiffHunk,
@@ -373,10 +373,82 @@ function shownThreads(file: DiffFile, threads: ThreadMap): number {
   return seen.size
 }
 
+/**
+ * One tab stop per file, not one per line.
+ *
+ * Every addressable line carries a note button, and they are invisible until
+ * focused — so on a 300-line diff a keyboard user would tab through 300 blank
+ * controls to reach the composer. The buttons rove instead: Tab enters the file
+ * at the line it was left on, arrows (and Home/End) move between lines, Tab
+ * leaves for the next file. Arrows are left alone inside a note's textarea and
+ * anywhere else in the body, so typing a note still works normally.
+ */
+function useNoteRoving(): {
+  readonly ref: React.RefObject<HTMLDivElement | null>
+  readonly onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void
+  readonly onFocus: (e: React.FocusEvent<HTMLDivElement>) => void
+} {
+  const ref = useRef<HTMLDivElement>(null)
+  const roved = useRef<HTMLButtonElement | null>(null)
+  const cursor = useRef(0)
+
+  const buttons = (): HTMLButtonElement[] =>
+    ref.current ? [...ref.current.querySelectorAll<HTMLButtonElement>('button.review-note-btn')] : []
+
+  /** Exactly one note button is tabbable; the rest answer to the arrows. */
+  const rove = (next: HTMLButtonElement | undefined): void => {
+    if (roved.current && roved.current !== next) roved.current.tabIndex = -1
+    if (next) next.tabIndex = 0
+    roved.current = next ?? null
+  }
+
+  // JSX pins every button at -1, so the roving 0 is re-applied after each commit
+  // (and follows the line list when the split/unified layout swaps it out)
+  useLayoutEffect(() => {
+    const btns = buttons()
+    cursor.current = Math.min(cursor.current, Math.max(btns.length - 1, 0))
+    rove(btns[cursor.current])
+  })
+
+  return {
+    ref,
+    onKeyDown: (e) => {
+      // only while the cursor itself has focus: a note's textarea keeps its arrows
+      const target = e.target as HTMLElement
+      if (target !== e.currentTarget && !target.classList.contains('review-note-btn')) return
+      const btns = buttons()
+      if (btns.length === 0) return
+      const at = btns.indexOf(document.activeElement as HTMLButtonElement)
+      const next =
+        e.key === 'ArrowDown' ? Math.min(Math.max(at, 0) + 1, btns.length - 1)
+        : e.key === 'ArrowUp' ? Math.max(Math.max(at, 0) - 1, 0)
+        : e.key === 'Home' ? 0
+        : e.key === 'End' ? btns.length - 1
+        : -1
+      if (next < 0) return
+      e.preventDefault()
+      cursor.current = next
+      rove(btns[next])
+      btns[next].focus()
+    },
+    onFocus: (e) => {
+      // clicked or shift-tabbed into: the cursor stays where the user left it
+      const target = e.target as HTMLElement
+      if (!target.classList.contains('review-note-btn')) return
+      const at = buttons().indexOf(target as HTMLButtonElement)
+      if (at >= 0) {
+        cursor.current = at
+        rove(target as HTMLButtonElement)
+      }
+    }
+  }
+}
+
 function FileBlock({ file, layout, ...line }: LineProps & { layout: DiffLayout }): JSX.Element {
   const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path
   const kind = file.untracked ? 'untracked' : file.status
   const threadCount = shownThreads(file, line.threads)
+  const roving = useNoteRoving()
   return (
     <details className="idiff review-file" open={!file.binary}>
       <summary className="idiff-head plain" aria-label={`${shown}, ${kind}`}>
@@ -390,7 +462,7 @@ function FileBlock({ file, layout, ...line }: LineProps & { layout: DiffLayout }
         {!file.binary && <DiffStat added={file.added} removed={file.removed} />}
       </summary>
       {!file.binary && (
-        <div className="idiff-body">
+        <div className="idiff-body" ref={roving.ref} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
           {file.hunks.map((h, i) => (
             <Hunk key={i} hunk={h} layout={layout} file={file} {...line} />
           ))}
@@ -504,6 +576,8 @@ function Line({
       {onEdit && addressable ? (
         <button
           className="review-note-btn"
+          // roving: useNoteRoving hands the file's one tab stop to the current line
+          tabIndex={-1}
           aria-label={`Note on ${file.path} ${where}`}
           aria-expanded={open}
           title="Add a note for the agent"

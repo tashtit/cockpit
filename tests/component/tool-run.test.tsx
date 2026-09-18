@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView, foldToolRuns, runSummary } from '../../src/renderer/src/ChatView'
+import { setChatLog } from '../../src/renderer/src/chat-log'
 import type { ChatBinding } from '../../src/renderer/src/App'
 import type { SessionMessage } from '../../src/shared/types'
 
@@ -25,11 +26,11 @@ const binding: ChatBinding = {
 }
 
 function renderChat(log: SessionMessage[], busy = false): void {
+  setChatLog(log)
   render(
     <ChatView
       binding={binding}
       prs={[]}
-      log={log}
       busy={busy}
       prBusy={false}
       onSend={vi.fn()}

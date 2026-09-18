@@ -552,7 +552,7 @@ summary::-webkit-details-marker { display: none; }
 /* the text inside an icon chip — flex containers can't ellipsize bare text nodes */
 .chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* the constant cockpit/ worktree prefix, abbreviated and receded — the suffix is the signal */
-.chip-pre { opacity: 0.6; }
+.chip-pre { opacity: 0.85; }
 /* ---------- Select: the app's own dropdown (native popups can't be styled) ---------- */
 .select-wrap { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .select-trigger { display: flex; align-items: center; gap: var(--s2);
@@ -732,6 +732,10 @@ summary::-webkit-details-marker { display: none; }
 .markdown pre { background: var(--bg-deep); border: 1px solid var(--border);
   border-radius: var(--radius); padding: var(--s3) var(--s4); overflow-x: auto; }
 .markdown pre code { background: none; border: none; padding: 0; }
+/* the markdown chunk hasn't landed yet: the same words in the same place, as prose —
+   a fallback that reads as a code block would be a visible flash */
+.md-plain, .markdown .md-plain { margin: 0; padding: 0; background: none; border: none;
+  font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .markdown blockquote { border-left: 3px solid var(--border-strong); padding-left: var(--s4);
   color: var(--fg-dim); }
 .markdown a { color: var(--accent); }

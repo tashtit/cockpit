@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, beforeEach } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { freshApi } from './stub-api'
+import { setChatLog } from '../../src/renderer/src/chat-log'
 
 // api.ts captures window.cockpit at module load, so the stub must exist before any
 // test module imports it — and between tests we swap methods on that same object
@@ -16,6 +17,8 @@ Element.prototype.scrollTo ??= () => {}
 beforeEach(() => {
   Object.assign(window.cockpit, freshApi())
   window.localStorage.clear()
+  // the open conversation lives in a module store (chat-log.ts), not in App's state
+  setChatLog([])
 })
 
 afterEach(() => {

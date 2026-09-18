@@ -26,7 +26,6 @@ function renderChat(
     <ChatView
       binding={over.binding ?? binding}
       prs={over.prs ?? []}
-      log={[]}
       busy={over.busy ?? false}
       prBusy={false}
       onSend={onSend}

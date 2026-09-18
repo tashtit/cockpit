@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
+import { setChatLog } from '../../src/renderer/src/chat-log'
 import type { ChatBinding, PendingPermission } from '../../src/renderer/src/App'
 import { stubObjectUrls } from './paste'
 
@@ -34,7 +35,6 @@ function renderChat(permissions: PendingPermission[]): ReturnType<typeof vi.fn> 
     <ChatView
       binding={binding}
       prs={[]}
-      log={[]}
       busy={true}
       prBusy={false}
       onSend={vi.fn()}
@@ -90,7 +90,7 @@ describe('permission prompt', () => {
 
   it('says the agent is working when nothing is being asked', () => {
     renderChat([])
-    expect(screen.getByRole('status').textContent).toBe('Assistant is working')
+    expect(screen.getByRole('status').textContent).toBe('Copilot is working…')
     expect(screen.queryByRole('group', { name: /needs permission/i })).toBeNull()
   })
 
