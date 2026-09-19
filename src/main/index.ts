@@ -23,7 +23,7 @@ import type {
   UpdatePrefs
 } from '../shared/types'
 import { CH, PUSH, type PushChannel } from '../shared/contract'
-import { clampZoom, WINDOW_FLOOR, zoomedFloor } from '../shared/window'
+import { clampZoom, restoredBounds, WINDOW_FLOOR, zoomedFloor } from '../shared/window'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { TranscriptSearcher } from './transcript-search'
@@ -67,6 +67,7 @@ import {
   setStaleDays,
   setTimeFormat,
   setUpdatePrefs,
+  setWindowPlacement,
   setZoom
 } from './config'
 import {
@@ -337,6 +338,9 @@ function applyWindowFloor(zoom: number, { grow = true }: { grow?: boolean } = {}
   return z
 }
 
+/** How long a drag or a resize settles before the placement is written. */
+const PLACEMENT_SAVE_MS = 800
+
 function createWindow(): void {
   // dev-only: `npm run dev` relaunches never steal focus (COCKPIT_DEV_BACKGROUND=0
   // opts out), and the window can open on a chosen display — a packaged app
@@ -350,11 +354,20 @@ function createWindow(): void {
   // lands the window on another display under macOS separate-Spaces
   const devBounds = devPrefs.displayIndex !== null ? pickDevDisplayBounds(devPrefs.displayIndex) : null
 
+  // Where it was last time, when the screens still allow it — an update replaces the
+  // whole bundle, and reopening somewhere else is the one part of that the user feels.
+  // A dev display override outranks it: that flag exists to put the window elsewhere.
+  const saved = loadConfig().window
+  const placed = devBounds ?? restoredBounds(saved, screen.getAllDisplays().map((d) => d.workArea))
+
   win = new BrowserWindow({
     show: !devPrefs.background,
-    ...(devBounds ? { x: devBounds.x, y: devBounds.y } : {}),
-    width: devBounds?.width ?? 1100,
-    height: devBounds?.height ?? 760,
+    ...(placed ? { x: placed.x, y: placed.y } : {}),
+    width: placed?.width ?? 1100,
+    height: placed?.height ?? 760,
+    // full screen is restored here rather than after `show`: entering it later plays
+    // the whole macOS animation, in front of the user, every single launch
+    fullscreen: !devBounds && placed !== null && saved?.fullScreen === true,
     // the supported floor, in CSS pixels at 100% — the e2e minimum-size gate audits
     // the layout at exactly these numbers. Zoom raises it (applyWindowFloor), since
     // the same window holds fewer CSS pixels the further it is zoomed in.
@@ -428,6 +441,31 @@ function createWindow(): void {
   win.on('moved', () => {
     const w = win
     if (w && !w.isDestroyed()) applyWindowFloor(w.webContents.getZoomFactor(), { grow: false })
+  })
+
+  // Remembered on the way out, and debounced while it is being dragged or resized so
+  // a crash or a force-quit does not cost the placement — 'move' and 'resize' fire for
+  // every pixel of a drag, and each save rewrites the whole config file.
+  const remember = (): void => {
+    const w = win
+    if (!w || w.isDestroyed()) return
+    // getNormalBounds, not getBounds: in full screen the latter is the whole display,
+    // and what has to be saved is the window to fall back to when it leaves
+    setWindowPlacement({ ...w.getNormalBounds(), fullScreen: w.isFullScreen() })
+  }
+  let rememberSoon: NodeJS.Timeout | null = null
+  const rememberLater = (): void => {
+    if (rememberSoon) clearTimeout(rememberSoon)
+    // unref'd: a pending write must never be what keeps the process alive
+    rememberSoon = setTimeout(remember, PLACEMENT_SAVE_MS).unref()
+  }
+  win.on('move', rememberLater)
+  win.on('resize', rememberLater)
+  win.on('enter-full-screen', rememberLater)
+  win.on('leave-full-screen', rememberLater)
+  win.on('close', () => {
+    if (rememberSoon) clearTimeout(rememberSoon)
+    remember()
   })
 
   // a turn that ends while nobody is in front of the window is news (attention.ts)

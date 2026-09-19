@@ -13,7 +13,7 @@ import type {
 } from '../shared/types'
 import { clampStaleDays } from './cleanup-core'
 import { sanitizeAcpAgent } from '../shared/acp'
-import { clampZoom } from '../shared/window'
+import { clampZoom, type WindowPlacement } from '../shared/window'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
@@ -54,6 +54,12 @@ export type AppConfig = {
    * would mean a window that spends its first frames under the layout's floor.
    */
   readonly zoom?: number
+  /**
+   * Where the window was when it last closed — position, windowed size and whether
+   * it was full screen. Restored on launch so an update, which replaces the whole
+   * bundle, does not also move the app to a different size on a different screen.
+   */
+  readonly window?: WindowPlacement
   /** User-defined BYOK model providers (API keys live keychain-encrypted in secrets.ts, never here) */
   readonly modelEndpoints?: ModelEndpoint[]
   /**
@@ -238,6 +244,10 @@ export function setZoom(factor: number): number {
   const z = clampZoom(factor)
   saveConfig({ ...cfg, zoom: z })
   return z
+}
+
+export function setWindowPlacement(placement: WindowPlacement): void {
+  saveConfig({ ...loadConfig(), window: placement })
 }
 
 export function setTimeFormat(format: TimeFormat): TimeFormat {

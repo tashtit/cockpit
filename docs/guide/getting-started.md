@@ -28,7 +28,9 @@ gh attestation verify ~/Downloads/Cockpit-<version>-arm64.dmg --owner tashtit
 
 After the first launch, updating takes nothing. Cockpit checks GitHub Releases on launch and every few hours, fetches a newer build in the background, and swaps it in the next time you quit — so the launch after that is the new version. Nothing is ever replaced under a running session.
 
-**Settings › About** shows where it stands and holds both switches (*Download updates automatically*, *Install when I quit*) if you would rather do it by hand, plus **Restart now** to install a downloaded build immediately.
+**Settings › About** shows where it stands and holds both switches (*Download updates automatically*, *Install when I quit*) if you would rather do it by hand, plus **Restart now** to install a downloaded build immediately. **Check again** sits beside it: a build waiting to be installed never stops Cockpit looking for a newer one, and a check that finds the version you already have costs no second download. Only one build is ever kept on disk — a newer release replaces it, and a download that will not be installed is cleared at the next launch.
+
+The new version opens where the old one was: the same size, the same screen, and full screen if that is how you were working.
 
 Cockpit installs its own updates rather than handing them to macOS. macOS only swaps in a bundle whose Developer ID signature matches the running one, which an early-access release does not have — so this is also what lets Cockpit clear the quarantine flag itself and hand you an app that opens without a second trip to Privacy & Security. Nothing you did once at install has to be done again.
 

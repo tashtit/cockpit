@@ -1335,7 +1335,12 @@ export type UpdateState = {
   readonly version?: string
   /** Download progress, 0–100, while `downloading` */
   readonly percent?: number
-  /** The reason for `unsupported`, the failure for `error` */
+  /**
+   * The reason for `unsupported`, the failure for `error` — and, on `ready`, a
+   * check that came back with nothing usable. A downloaded build outranks a
+   * failed check: it is still installable, so the reason rides alongside it
+   * rather than replacing it.
+   */
   readonly message?: string
   /** When the last check against GitHub Releases completed */
   readonly checkedAt?: number

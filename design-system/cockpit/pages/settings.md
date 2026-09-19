@@ -209,6 +209,12 @@ seventh.
   thing twice on purpose: quitting is what installs, and the button is only sooner — so
   it never reads as the one way to get the update. Transitions announce through the
   `role="status"` region; progress ticks stay silent.
+  The one row carrying two actions is `ready`: **Check again** sits before **Restart
+  now**, both `.btn-ghost.small`, so the heights still match. A downloaded build is not
+  the end of updating — a newer release has to stay reachable without installing this
+  one first — and a check that came back with nothing usable (`UpdateState.message` on
+  `ready`) is appended to that line rather than replacing it, because the build is still
+  installable and losing Restart now to an offline moment would be the worse answer.
   Under that row, two `.source-row.attn-switch` rows on the Notifications recipe exactly
   (whole row a `<label>`, `aria-labelledby` the label span alone, `aria-describedby` the
   note): Download updates automatically · Install when I quit. A flip saves at once,

@@ -33,7 +33,9 @@ function updateAnnouncement(u: UpdateState): string | null {
     case 'available':
       return `Version ${u.version} is available`
     case 'ready':
-      return `Version ${u.version} downloaded — it installs when you quit`
+      return u.message
+        ? `Version ${u.version} downloaded; could not check for a newer one: ${u.message}`
+        : `Version ${u.version} downloaded — it installs when you quit`
     case 'up-to-date':
       return 'Cockpit is up to date'
     case 'error':

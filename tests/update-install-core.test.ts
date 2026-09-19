@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   assetUrl,
   bundleOf,
+  checkOutcome,
   isNewer,
   isSafeAssetName,
   isSafeVersion,
@@ -161,5 +162,65 @@ describe('swapScript', () => {
   it('reopens the app only when asked', () => {
     expect(swapScript(plan)).toContain('RELAUNCH=1')
     expect(swapScript({ ...plan, relaunch: false })).toContain('RELAUNCH=0')
+  })
+})
+
+describe('checkOutcome', () => {
+  const AT = 1_700_000_000_000
+
+  it('offers what a check found when nothing is downloaded', () => {
+    expect(checkOutcome({ kind: 'offer', version: '0.18.0' }, null, AT)).toEqual({
+      state: { status: 'available', version: '0.18.0', checkedAt: AT },
+      sweep: false
+    })
+    expect(checkOutcome({ kind: 'none' }, null, AT)).toEqual({
+      state: { status: 'up-to-date', checkedAt: AT },
+      sweep: false
+    })
+    expect(checkOutcome({ kind: 'failed', message: 'no network' }, null, AT)).toEqual({
+      state: { status: 'error', message: 'no network', checkedAt: AT },
+      sweep: false
+    })
+  })
+
+  it('answers a re-offer of the build already downloaded with that build', () => {
+    // the whole point: checking again with 0.17.1 staged must not fetch 0.17.1 again
+    const again = checkOutcome({ kind: 'offer', version: '0.17.1' }, '0.17.1', AT)
+    expect(again).toEqual({ state: { status: 'ready', version: '0.17.1', checkedAt: AT }, sweep: false })
+  })
+
+  it('takes a newer release over the one on disk, and says the disk copy can go', () => {
+    expect(checkOutcome({ kind: 'offer', version: '0.18.0' }, '0.17.1', AT)).toEqual({
+      state: { status: 'available', version: '0.18.0', checkedAt: AT },
+      sweep: true
+    })
+  })
+
+  it('keeps a downloaded build through a check that came back with nothing', () => {
+    // a withdrawn release, and an offline Mac: neither un-downloads a verified build,
+    // and installOnQuit reads the same `ready` either way
+    expect(checkOutcome({ kind: 'none' }, '0.17.1', AT)).toEqual({
+      state: { status: 'ready', version: '0.17.1', checkedAt: AT },
+      sweep: false
+    })
+    expect(checkOutcome({ kind: 'failed', message: 'net::ERR_INTERNET_DISCONNECTED' }, '0.17.1', AT)).toEqual({
+      state: {
+        status: 'ready',
+        version: '0.17.1',
+        message: 'net::ERR_INTERNET_DISCONNECTED',
+        checkedAt: AT
+      },
+      sweep: false
+    })
+  })
+
+  it('never sweeps a build it is not replacing', () => {
+    for (const result of [
+      { kind: 'none' } as const,
+      { kind: 'failed', message: 'x' } as const,
+      { kind: 'offer', version: '0.17.0' } as const
+    ]) {
+      expect(checkOutcome(result, '0.17.1', AT).sweep).toBe(false)
+    }
   })
 })

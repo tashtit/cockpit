@@ -60,6 +60,45 @@ describe('Settings › About', () => {
     expect(window.cockpit.installUpdate).toHaveBeenCalled()
   })
 
+  it('keeps checking reachable with a build already downloaded', async () => {
+    const pushed: { cb: ((s: UpdateState) => void) | null } = { cb: null }
+    vi.mocked(window.cockpit.onUpdateState).mockImplementation((cb) => {
+      pushed.cb = cb
+      return () => {}
+    })
+    vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
+    vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'ready', version: '1.5.0' })
+    vi.mocked(window.cockpit.checkForUpdates).mockResolvedValue({
+      status: 'available',
+      version: '1.6.0',
+      checkedAt: Date.now()
+    })
+    render(<Settings onClose={vi.fn()} section="about" />)
+    await screen.findByText('v1.4.2')
+
+    // a downloaded build is not the end of updating: a newer release has to stay
+    // reachable without installing this one first
+    await userEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(window.cockpit.checkForUpdates).toHaveBeenCalled()
+    expect(await screen.findByText('Version 1.6.0 is available.')).toBeInTheDocument()
+  })
+
+  it('says a check failed after the build it could not better, never in place of it', async () => {
+    vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
+    vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({
+      status: 'ready',
+      version: '1.5.0',
+      message: 'net::ERR_INTERNET_DISCONNECTED'
+    })
+    render(<Settings onClose={vi.fn()} section="about" />)
+
+    expect(
+      await screen.findByText(/downloaded.*Could not check for a newer one: net::ERR_INTERNET_DISCONNECTED/)
+    ).toBeInTheDocument()
+    // and the build is still one press from installed
+    expect(screen.getByRole('button', { name: 'Restart now' })).toBeEnabled()
+  })
+
   it('offers the two automatic steps as switches, and saves a flip', async () => {
     vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
     vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'idle' })

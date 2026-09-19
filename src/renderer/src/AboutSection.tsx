@@ -38,10 +38,14 @@ export function updateLine(u: UpdateState | null, prefs: UpdatePrefs | null): st
       return `Version ${u.version} is available.`
     case 'downloading':
       return `Downloading ${u.version} · ${u.percent ?? 0}%`
-    case 'ready':
-      return prefs?.install
+    case 'ready': {
+      const line = prefs?.install
         ? `Version ${u.version} is downloaded — it installs when you quit Cockpit.`
         : `Version ${u.version} is downloaded — restart to install.`
+      // a check that came back with nothing usable says so after the build it
+      // could not better, never in place of it
+      return u.message ? `${line} Could not check for a newer one: ${u.message}` : line
+    }
     case 'error':
       return u.version ? `Could not install ${u.version}: ${u.message}` : `Update check failed: ${u.message}`
   }
@@ -93,7 +97,12 @@ export function AboutSection({
     }
   }
 
-  /** The About row's single action — one control at a time, so heights never mix. */
+  /**
+   * The About row's action. One control at a time, so heights never mix — except
+   * on `ready`, where a downloaded build is not the end of updating: Check again
+   * sits beside Restart now (same `btn-ghost small`, so the row stays one height)
+   * because a newer release must stay reachable without installing this one first.
+   */
   const updateAction = (u: UpdateState): JSX.Element | null => {
     switch (u.status) {
       case 'idle':
@@ -124,9 +133,14 @@ export function AboutSection({
         )
       case 'ready':
         return (
-          <button className="btn-ghost small" onClick={() => void api.installUpdate()}>
-            Restart now
-          </button>
+          <>
+            <button className="btn-ghost small" onClick={() => void checkUpdates()}>
+              Check again
+            </button>
+            <button className="btn-ghost small" onClick={() => void api.installUpdate()}>
+              Restart now
+            </button>
+          </>
         )
       case 'unsupported':
         return null
