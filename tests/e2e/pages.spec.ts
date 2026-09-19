@@ -191,8 +191,12 @@ test.afterAll(async () => {
   await closeApp(app)
 })
 
-// the heading may carry the gh login ("What should we ship, dev?") — match the stem
-const homeHeading = (): Locator => win.getByRole('heading', { name: /What should we ship/ })
+/**
+ * Home's own marker. The view's only heading is the board's masthead, whose text is
+ * the live counts, so "are we home?" is asked of the footer line instead — home
+ * renders it in every state, signed in or not, board or no board.
+ */
+const homeHeading = (): Locator => win.getByRole('button', { name: /Start a roundtable/ })
 
 test('sidebar indexes the fixtures into a repo tree with a flat Chats section', async () => {
   // the rail's always-visible entry point
@@ -223,7 +227,7 @@ test('home composer wires repo, agent, and permission controls', async () => {
   // fixture sessions surface on the board. They are idle, but the stub gh's PR on their
   // branch fails its checks, so the badges' refresh raises it as a red PR (attention.ts)
   const board = win.locator('.board')
-  await expect(board.locator('.board-eyebrow')).toContainText('1 red PR')
+  await expect(board.locator('.board-mast')).toContainText('1 red PR')
   await expect(board.getByText('#42 checks failing')).toBeVisible()
   await expect(board.getByText('add pagination to the sessions list')).toBeVisible()
   await expect(board.getByText('scratch ideas with no repository')).toBeVisible()

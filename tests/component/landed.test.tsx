@@ -119,7 +119,7 @@ describe('landed sessions', () => {
     await waitFor(() => expect(screen.getByText(/1 landed/)).toBeInTheDocument())
 
     pushLandings([])
-    await waitFor(() => expect(screen.getByText('all on the ground')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/all \d+ on the ground/)).toBeInTheDocument())
     stop()
   })
 
@@ -133,7 +133,7 @@ describe('landed sessions', () => {
     await waitFor(() => expect(screen.getByText(/1 flying/)).toBeInTheDocument())
     pushBusy([])
 
-    await waitFor(() => expect(screen.getByText('all on the ground')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/all \d+ on the ground/)).toBeInTheDocument())
     expect(screen.queryByText(/landed/)).not.toBeInTheDocument()
     stop()
     stopBusy()

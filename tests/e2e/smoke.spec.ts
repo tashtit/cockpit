@@ -34,14 +34,18 @@ test.afterAll(async () => {
 test('boots to the home shell', async () => {
   const win = await app.firstWindow()
   await expect(win).toHaveTitle('Cockpit')
-  // the heading may carry the gh login ("What should we ship, dev?") — match the stem
-  await expect(win.getByRole('heading', { name: /What should we ship/ })).toBeVisible()
+  // home's only heading is the board's masthead (live counts), so the footer line is
+  // the marker: home renders it whether or not anything is indexed or signed in
+  await expect(win.getByRole('button', { name: /Start a roundtable/ })).toBeVisible()
 
   // with no agent signed in the home settles on the setup card. The composer stands in
   // until the accounts snapshot lands, and that waits on `gh api user` (bounded at 10s
   // in main), so wait out the swap rather than assert either side of it. The composer
   // itself is covered against a seeded world in pages.spec.ts.
-  await expect(win.getByRole('region', { name: 'Set up Cockpit' })).toBeVisible({ timeout: 15_000 })
+  // the card names itself from its own visible heading now, not an aria-label
+  await expect(
+    win.getByRole('region', { name: 'Three things and you fly' })
+  ).toBeVisible({ timeout: 15_000 })
 })
 
 test('preload bridge is wired through context isolation', async () => {

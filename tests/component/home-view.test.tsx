@@ -182,7 +182,8 @@ describe('HomeView first run', () => {
     // either guess would be swapped for the other a moment later — a flash both ways
     vi.mocked(window.cockpit.getAccounts).mockReturnValue(new Promise(() => {}))
     renderHome()
-    expect(await screen.findByRole('heading', { name: /What should we ship/ })).toBeInTheDocument()
+    // the footer line is the one thing the view renders in every state
+    expect(await screen.findByRole('button', { name: /Start a roundtable/ })).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Task description' })).not.toBeInTheDocument()
     expect(screen.queryByText('Sign in to an agent')).not.toBeInTheDocument()
   })

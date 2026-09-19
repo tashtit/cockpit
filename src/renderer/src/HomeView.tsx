@@ -29,12 +29,6 @@ import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
-/** "titan-ron" → "Titan": the login's first name-ish segment, capitalized. */
-function firstName(login: string): string {
-  const first = login.split(/[-._]/, 1)[0] || login
-  return first.charAt(0).toUpperCase() + first.slice(1)
-}
-
 /**
  * Whether the composer may take focus: only while focus is still where the home view
  * left it — the body, or nothing at all — and nothing is layered over the view. The
@@ -230,34 +224,16 @@ export function HomeView({
   )
 
   return (
-    <main className="chat home-view">
-      {/* Two fixed regions, and the order never varies: the board reads above, the
-          composer is docked to the bottom edge. Nothing about the page as a whole
-          scrolls — only the board's own rows do — so the one thing this screen is for
-          is on screen at every window size, however much is flying. */}
+    <main className={`chat home-view ${needsSetup ? 'home-setup' : ''}`}>
+      {/* Two fixed regions, and the order never varies: the board reads above — wide,
+          because it is a table and the deck has the room — and the composer is docked
+          to the bottom edge in a reading column of its own. Nothing about the page as a
+          whole scrolls, only the board's own rows, so the one thing this screen is for
+          is on screen at every window size however much is flying. The board carries
+          the view's only heading (its masthead); there is no separate hero, because a
+          greeting at the top of the page no longer introduces anything. */}
       <div className="home-stack">
-        <div className="home-inner">
-          <div className="home-hero">
-            <h2>
-              What should we ship
-              {accounts?.githubUser ? (
-                <span className="hero-name">, {firstName(accounts.githubUser)}?</span>
-              ) : (
-                '?'
-              )}
-            </h2>
-            <p className="home-sub">
-              {canStart ? (
-                <>Assign a task to an agent — it runs in an isolated worktree and lands as a PR.</>
-              ) : needsSetup ? (
-                <>Cockpit reads the sessions your agent CLIs already write. Three things and you fly.</>
-              ) : null}
-              <span className="home-kbd">⌘N new task · ⌘K jump anywhere</span>
-            </p>
-          </div>
-
-          {fleet}
-        </div>
+        <div className="home-inner">{fleet}</div>
       </div>
 
       <div className="home-dock">
@@ -363,6 +339,7 @@ export function HomeView({
             </div>
           ) : null}
           <div className="home-more">
+            <span className="home-kbd">⌘K jump anywhere</span>
             <button className="link-btn" disabled={busy} onClick={onNewRoundtable}>
               Start a roundtable — several agents, one discussion
             </button>
@@ -448,7 +425,11 @@ function Setup({
   ]
 
   return (
-    <section className="composer-card setup-card" aria-label="Set up Cockpit">
+    <section className="composer-card setup-card" aria-labelledby="setup-head">
+      <h2 className="setup-head" id="setup-head">
+        Three things and you fly
+      </h2>
+      <p className="setup-blurb">Cockpit reads the sessions your agent CLIs already write.</p>
       <ol className="setup-steps">
         {steps.map((s) => (
           <li key={s.title} className={`setup-step ${s.done ? 'done' : ''}`}>
@@ -526,6 +507,15 @@ function Board({
   ].sort((a, b) => (b.kind === 'session' ? b.s.updatedAt : b.t.updatedAt) - (a.kind === 'session' ? a.s.updatedAt : a.t.updatedAt))
   const flyingCount = flyingSessions.length + flyingTables.length
   const needsCount = asking.length + arrived.length
+  // The masthead's copy, in two registers. `needs` is the one question this screen
+  // exists to answer, in the order a session's own state answers it (a question beats
+  // a red PR beats an unseen landing); `calm` is what else is true. Flying is not
+  // news — an agent working is the normal condition — so it never leads.
+  const needs = [
+    asking.length > 0 && `${asking.length} waiting on you`,
+    red > 0 && `${red} red ${red === 1 ? 'PR' : 'PRs'}`,
+    landedCount > 0 && `${landedCount} landed`
+  ].filter((c): c is string => typeof c === 'string')
   // the board is a taste, not the list: what is happening always shows, the ground fills
   // what is left of ten rows (the sidebar stays the exhaustive one)
   const shownGround = ground.slice(0, Math.max(0, BOARD_ROWS - flyingCount - needsCount))
@@ -533,35 +523,25 @@ function Board({
     total - flyingSessions.length - needsCount + (tables.length - flyingTables.length),
     ground.length
   )
-  // "1 waiting on you · 2 flying · 1 red PR · 3 landed · 12 on the ground", zeros dropped
-  const counts = [
-    asking.length > 0 && `${asking.length} waiting on you`,
+  // "all N on the ground" only when it is true — with anything flying or waiting on
+  // you, they are not all on the ground and the phrase drops its "all"
+  const quiet = needs.length === 0 && flyingCount === 0
+  const calm = [
     flyingCount > 0 && `${flyingCount} flying`,
-    red > 0 && `${red} red ${red === 1 ? 'PR' : 'PRs'}`,
-    landedCount > 0 && `${landedCount} landed`
+    quiet ? `all ${groundTotal} on the ground` : `${groundTotal} on the ground`
   ].filter((c): c is string => typeof c === 'string')
 
   return (
     <section className="board" aria-label="Session board">
       <div className="board-head">
-        {/* h2, a peer of the hero's — the board is the view's other half, not a
-            subsection of the composer, and the hero sheds at short heights, so a
-            level below it would skip from the h1 whenever it is gone.
-            Polite live region — turn starts/completions announce the new counts */}
-        <h2 className="board-eyebrow" aria-live="polite">
-          {counts.length === 0 ? (
-            <>all on the ground</>
-          ) : (
-            <>
-              {counts.map((c, i) => (
-                <span key={c}>
-                  {i > 0 && ' · '}
-                  <b>{c}</b>
-                </span>
-              ))}
-              {' · '}
-              {groundTotal} on the ground
-            </>
+        {/* The view's heading, and a polite live region so turn starts, completions
+            and questions announce the new counts. Its size is the alarm: one quiet
+            line while nothing needs you, the urgent phrase at hero scale the moment
+            something does. */}
+        <h2 className={`board-mast ${needs.length > 0 ? 'alarm' : ''}`} aria-live="polite">
+          <span className="mast-lead">{needs.length > 0 ? needs[0] : calm.join(' · ')}</span>
+          {needs.length > 0 && (
+            <span className="mast-rest">{[...needs.slice(1), ...calm].join(' · ')}</span>
           )}
         </h2>
       </div>

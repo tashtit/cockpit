@@ -34,8 +34,13 @@ function session(id: string, title: string): SessionMeta {
   }
 }
 
+/**
+ * Home's own marker. The view has no greeting heading any more — its only heading is
+ * the board's masthead, whose text is the live counts — so this is the footer line,
+ * which home renders in every state (signed in or not, board or no board).
+ */
 const homeHero = (): Promise<HTMLElement> =>
-  screen.findByRole('heading', { name: /what should we ship/i })
+  screen.findByRole('button', { name: /Start a roundtable/ })
 
 /** Main's notification-click push, as the preload would deliver it. */
 function click(target: AttentionTarget): void {

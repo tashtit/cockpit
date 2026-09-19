@@ -91,6 +91,11 @@ ul, ol { padding: 0; }
      preference; on big windows the exchange centers instead of stranding user
      bubbles a screen away from the replies */
   --chat-col: 860px;
+  /* Home's two columns. The board is a table — fixed branch and placard slots, a
+     title that truncates — so it takes the deck's width; the composer is text you
+     type, so it keeps a reading column. They converge on their own below ~1200px of
+     pane, which is why neither needs a breakpoint. */
+  --board-col: 1100px; --task-col: 700px;
   /* The live zoom factor, written by App.tsx. Everything in this file is in CSS
      pixels, which zoom rescales — but the macOS traffic lights are drawn by the OS
      at a fixed physical size, so the one measurement that has to match them is
@@ -517,7 +522,10 @@ summary::-webkit-details-marker { display: none; }
    line. Satisfied steps stay on screen, ticked — the card is a progress readout,
    not a gate that empties as you go. */
 .setup-card { padding: var(--s5); }
-.setup-steps { display: flex; flex-direction: column; gap: var(--s4); }
+.setup-head { font-size: var(--fs-lg); font-weight: 700; }
+.setup-blurb { color: var(--fg-dim); font-size: var(--fs-base); margin-top: 2px; }
+.setup-steps { display: flex; flex-direction: column; gap: var(--s4);
+  margin-top: var(--s5); }
 .setup-step { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto;
   gap: var(--s3); align-items: start; }
 .setup-mark { display: inline-flex; align-items: center; justify-content: center;
@@ -663,7 +671,7 @@ summary::-webkit-details-marker { display: none; }
 .rt-seat-pulse { position: absolute; top: -2px; right: -2px; width: 7px; height: 7px; }
 .rt-table-name { font-size: var(--fs-xs); font-weight: 600; color: var(--fg);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 132px; }
-/* status captions speak the board-eyebrow language: mono, uppercase, quiet */
+/* status captions speak the masthead language: mono, uppercase, quiet */
 .rt-table-status { font-family: var(--mono); font-size: 9px; letter-spacing: 0.4px;
   text-transform: uppercase; color: var(--fg-dim); }
 .rt-table-seat.status-agree .rt-table-status { color: var(--ok); }
@@ -1063,27 +1071,28 @@ summary::-webkit-details-marker { display: none; }
    board to list — a first run, or a history window that hides everything — so it reads
    as the composer's caption instead of marooned at the top of an empty region. The
    composer itself never moves either way; only the hero does. */
-.home-stack:not(:has(.board)) { justify-content: flex-end; }
-.home-inner { width: min(700px, 94%); margin: 0 auto; min-height: 0;
+/* First run: there is no fleet to list and the dock's card *is* the content, so the
+   two regions collapse into one — the card centres in the deck instead of hanging off
+   an edge with an empty board area above it. Gated on `needsSetup`, which already
+   waits for both accounts and the first scan, so this can never flash. */
+.home-view.home-setup:not(:has(.board)) .home-stack { flex: 0 0 auto; padding: 0; }
+.home-view.home-setup:not(:has(.board)) .home-dock { flex: 1; justify-content: center;
+  border-top: none; background: none; }
+.home-inner { width: min(var(--board-col), 94%); margin: 0 auto; min-height: 0;
   display: flex; flex-direction: column; gap: var(--s5); }
 /* the composer, docked: the chat composer's chrome recipe, over the column the board
    reads in. `flex: none` is what keeps it out of the height negotiation above. */
 .home-dock { flex: none; border-top: 1px solid var(--border); background: var(--pane);
-  padding: var(--s4) 0 var(--s5); }
-.home-dock-inner { width: min(700px, 94%); margin: 0 auto;
+  padding: var(--s4) 0 var(--s5); display: flex; flex-direction: column; }
+.home-dock-inner { width: min(var(--task-col), 94%); margin: 0 auto;
   display: flex; flex-direction: column; gap: var(--s4); }
 /* children must never shrink below content height — without this the composer card
    (overflow: hidden → zero min-content) collapses to a sliver on short windows */
 .home-dock-inner > * { flex-shrink: 0; }
-.home-hero { display: flex; flex-direction: column; align-items: center; gap: var(--s2);
-  text-align: center; flex-shrink: 0; }
-/* flat, quietly confident — the board under it is the view's one bold move */
-.home-hero h2 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.5px; }
-.hero-name { color: var(--fg-dim); font-weight: 400; }
-.home-sub { color: var(--fg-dim); font-size: var(--fs-sm); display: flex;
-  flex-direction: column; gap: var(--s1); align-items: center; }
-/* 0.85 keeps the 11px kbd hints at/above 4.5:1 on the dark base */
-.home-kbd { font-size: var(--fs-xs); opacity: 0.85; font-family: var(--mono); }
+/* 0.85 keeps the 11px kbd hint at/above 4.5:1 on the dark base. `margin-right: auto`
+   anchors it left so the footer line reads as a row rather than two links adrift. */
+.home-kbd { font-size: var(--fs-xs); opacity: 0.85; font-family: var(--mono);
+  color: var(--fg-dim); margin-right: auto; align-self: center; }
 .composer-card { background: linear-gradient(180deg, var(--bg3), var(--bg2) 55%);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1138,11 +1147,21 @@ summary::-webkit-details-marker { display: none; }
   /* the board takes what the window leaves and gives way by scrolling its rows —
      never by shrinking its head, which is where the counts are read */
   display: flex; flex-direction: column; min-height: 0; }
-.board-head { flex: none; padding: var(--s2) var(--s4);
+/* The masthead — the board's name for itself and the view's only heading, aligned
+   with the rows' own left edge. Its SIZE is the alarm: one quiet line while nothing
+   needs you, and the urgent phrase at hero scale the moment something does, with
+   everything else dropping to a sub-line under it. That is the one thing this screen
+   exists to answer, so it is the one place the view spends scale — read across the
+   room, and never carried by colour alone (the phrase says what it is). */
+.board-head { flex: none; padding: var(--s3) var(--s4);
   border-bottom: 1px solid var(--border); }
-.board-eyebrow { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.9px; color: var(--fg-dim); }
-.board-eyebrow b { color: var(--fg); font-weight: 700; }
+.board-mast { display: flex; flex-direction: column; gap: 2px;
+  text-transform: uppercase; font-weight: 600; color: var(--fg-dim); }
+.mast-lead { font-size: var(--fs-lg); letter-spacing: 0.9px; }
+.board-mast.alarm .mast-lead { font-size: var(--fs-xl); font-weight: 700;
+  /* big mono uppercase sets itself apart; positive tracking at 26px reads as a gap */
+  letter-spacing: -0.5px; color: var(--fg); }
+.mast-rest { font-size: var(--fs-sm); letter-spacing: 0.9px; }
 .board-list { list-style: none; overflow-y: auto; min-height: 0; }
 .board-list li + li .board-row { border-top: 1px solid var(--border); }
 .board-row { display: flex; align-items: center; gap: var(--s3); width: 100%;
@@ -1977,8 +1996,7 @@ button.pnl-flag:hover { text-decoration: underline; }
    before) and the *placard* register — the uppercase/lowercase micro-labels that
    name instruments. Both hero headline and placards speak mono; body rows and
    prose stay sans for legibility. */
-.home-hero h2 { font-family: var(--mono); letter-spacing: -1px; }
-.ns-label, .board-eyebrow, .board-agent,
+.ns-label, .board-mast, .board-agent,
 .section-row, .search-group, .repo-filter-head { font-family: var(--mono);
   letter-spacing: 0.7px; }
 /* view names are placards too: SETTINGS / AGENTS / NEW SESSION / PROFILE.
@@ -2084,8 +2102,14 @@ button.pnl-flag:hover { text-decoration: underline; }
   .ask-note { flex-basis: 100%; }
 }
 @media (max-height: 600px) {
-  .home-hero { display: none; }
   .home-stack { padding-block: var(--s4); }
+  /* where rows are what's scarce the masthead sheds, in order: the sub-line goes
+     first (the counts that aren't urgent — the rows say the rest), then the alarm's
+     scale. The urgent phrase itself never goes: at this height it is the only thing
+     on screen that says so. */
+  .board-mast.alarm .mast-lead { font-size: var(--fs-lg); letter-spacing: 0.9px; }
+  .mast-rest { display: none; }
+  .board-head { padding-block: var(--s2); }
   .ns-card { margin: var(--s3) auto; }
 }
 @media (max-width: 700px) {
