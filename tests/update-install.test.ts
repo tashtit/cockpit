@@ -136,7 +136,20 @@ describe.skipIf(!onMac)('stageUpdate', () => {
     expect(existsSync(join(updatesDir(), 'staged', 'Cockpit-0.12.0-arm64.zip'))).toBe(false)
     // and it survives a quit: the next launch picks the download back up
     expect(await resumeStaged('0.11.0')).toEqual(staged)
+    // but only while it is still ahead of the app — once it is not, resuming is
+    // also what sweeps it, or a few hundred MB of a version nobody will run sits
+    // there until some later update happens to overwrite it
     expect(await resumeStaged('0.12.0')).toBeNull()
+    expect(existsSync(join(updatesDir(), 'staged'))).toBe(false)
+  })
+
+  it('sweeps a download a quit interrupted, which has no manifest to resume from', async () => {
+    const half = join(updatesDir(), 'staged')
+    mkdirSync(half, { recursive: true })
+    writeFileSync(join(half, 'Cockpit-0.12.0-arm64.zip'), 'half a download', 'utf8')
+
+    expect(await resumeStaged('0.11.0')).toBeNull()
+    expect(existsSync(half)).toBe(false)
   })
 
   it('refuses a download that does not match the checksum the release publishes', async () => {

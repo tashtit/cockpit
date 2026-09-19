@@ -12,7 +12,7 @@ import {
   stageUpdate,
   type Staged
 } from './update-install'
-import { pickZip, type FeedFile } from './update-install-core'
+import { checkOutcome, pickZip, type CheckResult, type FeedFile } from './update-install-core'
 
 /** Where releases live — the updater's feed and the only place release notes are kept. */
 export const RELEASES_URL = 'https://github.com/tashtit/cockpit/releases'
@@ -54,6 +54,12 @@ function initialState(): UpdateState {
  * fetches what it finds, and swaps the new build in the next time you quit. Both of
  * those are switches (Settings › About) and neither ever interrupts a session — the
  * swap happens when Cockpit is on its way out, never under a running agent.
+ *
+ * Checking never stops, not even with a build downloaded and waiting: that build is
+ * the answer to a check that turns up the same version (it is never fetched twice)
+ * or none at all, but a release newer than it supersedes it and takes its place on
+ * disk. Exactly one download is ever kept, and one that will not be installed —
+ * interrupted by a quit, or a version this app has since passed — goes at launch.
  */
 export class UpdateManager {
   private state: UpdateState
@@ -105,13 +111,17 @@ export class UpdateManager {
 
   private async runCheck(): Promise<UpdateState> {
     const s = this.state.status
-    if (s === 'unsupported' || s === 'checking' || s === 'downloading' || s === 'ready') {
+    // `ready` is deliberately not among these: a build waiting to be installed
+    // must never be what stops Cockpit from learning that a newer one exists.
+    // The three that are have nothing a check could act on — one is already in
+    // flight, bytes are coming down, or the swap is armed and the app is leaving.
+    if (s === 'unsupported' || s === 'checking' || s === 'downloading' || this.armed) {
       return this.state
     }
     try {
       await autoUpdater.checkForUpdates()
     } catch (err) {
-      this.fail(err)
+      this.checked({ kind: 'failed', message: err instanceof Error ? err.message : String(err) })
     }
     return this.state
   }
@@ -165,8 +175,10 @@ export class UpdateManager {
    * spawned are going away regardless.
    */
   installOnQuit(): void {
-    if (this.armed || !this.staged || !this.prefs.install) return
-    if (this.state.status !== 'ready') return
+    // what is on disk decides, not what the row last said: a check that could not
+    // reach GitHub must not cost an offline Mac the update it already has. A swap
+    // that rolled back is the one downloaded build never handed over again.
+    if (this.armed || !this.staged || !this.prefs.install || this.failure) return
     const target = runningBundle()
     if (!target) return
     try {
@@ -177,6 +189,27 @@ export class UpdateManager {
     }
   }
 
+  /**
+   * Act on what a check came back with. Weighing it against a build already
+   * downloaded is `checkOutcome`'s decision; what is left here is carrying it out —
+   * fetch a newer release if that is the switch, and let a superseded download go.
+   */
+  private checked(result: CheckResult): void {
+    const { state, sweep } = checkOutcome(result, this.staged?.version ?? null, Date.now())
+    this.set(state)
+    if (state.status !== 'available') return
+    // a download clears the stage dir itself, and an rm racing it would take the
+    // new build with it — so a superseded one is only swept when none follows
+    if (this.prefs.download && !this.failure) void this.download()
+    else if (sweep) this.dropStaged()
+  }
+
+  /** Let go of a downloaded build nobody is going to install, and its ~300MB with it. */
+  private dropStaged(): void {
+    this.staged = null
+    void discardStaged()
+  }
+
   private wire(): void {
     // electron-updater never downloads or installs here: both are Cockpit's own
     autoUpdater.autoDownload = false
@@ -185,22 +218,21 @@ export class UpdateManager {
     autoUpdater.on('checking-for-update', () => this.set({ status: 'checking' }))
     autoUpdater.on('update-available', (info) => {
       this.offered = pickZip((info.files ?? []) as FeedFile[], process.arch)
-      if (!this.offered) {
-        this.set({
-          status: 'error',
-          version: info.version,
-          message: `Release ${info.version} publishes nothing for this Mac (${process.arch}).`,
-          checkedAt: Date.now()
-        })
-        return
-      }
-      this.set({ status: 'available', version: info.version, checkedAt: Date.now() })
-      if (this.prefs.download && !this.failure) void this.download()
+      // a release with no zip for this Mac is nothing this build can act on, so
+      // it is reported the way an unreachable feed is rather than as an offer
+      this.checked(
+        this.offered
+          ? { kind: 'offer', version: info.version }
+          : {
+              kind: 'failed',
+              message: `Release ${info.version} publishes nothing for this Mac (${process.arch}).`
+            }
+      )
     })
-    autoUpdater.on('update-not-available', () =>
-      this.set({ status: 'up-to-date', checkedAt: Date.now() })
+    autoUpdater.on('update-not-available', () => this.checked({ kind: 'none' }))
+    autoUpdater.on('error', (err) =>
+      this.checked({ kind: 'failed', message: err instanceof Error ? err.message : String(err) })
     )
-    autoUpdater.on('error', (err) => this.fail(err))
 
     void this.restore()
 
@@ -215,6 +247,8 @@ export class UpdateManager {
   /** What the last run left behind: a rolled-back install, or a download to reuse. */
   private async restore(): Promise<void> {
     this.failure = await readInstallResult()
+    // resuming also sweeps: anything left in the stage dir that is not going to be
+    // installed is hundreds of MB, and this is the only pass that reaches it
     const staged = await resumeStaged(app.getVersion())
     if (staged) this.staged = staged
     // a rolled-back install holds the offer back until it is asked for by hand,
@@ -228,6 +262,7 @@ export class UpdateManager {
     this.onChange(this.state)
   }
 
+  /** A download or a swap that failed — a check reports itself through `checked`. */
   private fail(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err)
     this.set({ status: 'error', message, version: this.state.version, checkedAt: Date.now() })

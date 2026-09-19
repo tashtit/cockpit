@@ -1,7 +1,8 @@
 /**
  * Installing an update, minus the IO: which asset this Mac wants, where it comes
- * from, whether a staged bundle may replace the running one, and the script that
- * does the swap. `update-install.ts` carries these out.
+ * from, whether a staged bundle may replace the running one, what a later check
+ * means for one already downloaded, and the script that does the swap.
+ * `update-install.ts` carries these out.
  *
  * Cockpit installs its own updates rather than handing the zip to Squirrel.Mac
  * (what electron-updater does on macOS). Squirrel validates that the new bundle
@@ -17,6 +18,8 @@
  * inside it must be the same app, at the version that was offered, signed by the
  * same team as the one it replaces.
  */
+
+import type { UpdateState } from '../shared/types'
 
 /** One macOS asset as `latest-mac.yml` lists it — remote input, so every field is optional. */
 export type FeedFile = {
@@ -198,4 +201,52 @@ if [ "$RELAUNCH" = 1 ]; then
   open "$TARGET"
 fi
 `
+}
+
+/**
+ * What a finished check came back with. A release that publishes nothing this Mac
+ * can install is a `failed` with that sentence — there is nothing to offer, and
+ * saying so is the whole of what the check produced.
+ */
+export type CheckResult =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'offer'; readonly version: string }
+  | { readonly kind: 'failed'; readonly message: string }
+
+/** Where a finished check leaves the updater, and what it leaves on disk. */
+export type CheckOutcome = {
+  readonly state: UpdateState
+  /** The build on disk is superseded: sweep it rather than keep a version nobody will run */
+  readonly sweep: boolean
+}
+
+/**
+ * What a check means once a build is already downloaded.
+ *
+ * A staged build is verified and installable, so it outranks everything a check
+ * can come back with except a release that is newer than it: the same version is
+ * never fetched twice, a feed that has gone quiet (a withdrawn release) does not
+ * un-download it, and a check that could not reach GitHub reports itself alongside
+ * it rather than in place of it — an offline Mac must not lose the update it has.
+ * Only a genuinely newer release supersedes it, and then the ~300MB it occupies
+ * goes with it.
+ */
+export function checkOutcome(result: CheckResult, staged: string | null, at: number): CheckOutcome {
+  if (result.kind === 'offer' && (!staged || isNewer(result.version, staged))) {
+    return {
+      state: { status: 'available', version: result.version, checkedAt: at },
+      sweep: staged !== null
+    }
+  }
+  if (staged) {
+    const message = result.kind === 'failed' ? { message: result.message } : {}
+    return { state: { status: 'ready', version: staged, checkedAt: at, ...message }, sweep: false }
+  }
+  return {
+    state:
+      result.kind === 'failed'
+        ? { status: 'error', message: result.message, checkedAt: at }
+        : { status: 'up-to-date', checkedAt: at },
+    sweep: false
+  }
 }

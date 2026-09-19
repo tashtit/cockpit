@@ -257,11 +257,23 @@ export async function clearInstallResult(): Promise<void> {
 }
 
 /**
- * A build staged before the app last quit, if it is still newer than what is
- * running. Cockpit downloads on its own now, so quitting mid-cycle is ordinary —
- * without this every such quit would throw away a finished ~130MB download.
+ * The build staged before the app last quit — and nothing else left behind.
+ *
+ * Cockpit downloads on its own now, so quitting mid-cycle is ordinary: without
+ * this, every such quit would throw away a finished download. The other half is
+ * that the stage dir is hundreds of megabytes and only worth that while the build
+ * in it is still going to be installed. A download a quit interrupted leaves no
+ * manifest to resume from, and one this app has since passed — installed by hand,
+ * or superseded by a newer release — will never be run. Launch is the only pass
+ * that reaches either, so it is where they go.
  */
 export async function resumeStaged(currentVersion: string): Promise<Staged | null> {
+  const staged = await readStaged(currentVersion)
+  if (!staged) await discardStaged()
+  return staged
+}
+
+async function readStaged(currentVersion: string): Promise<Staged | null> {
   try {
     const saved = JSON.parse(await readFile(manifestFile(), 'utf8')) as Partial<Staged>
     if (typeof saved.version !== 'string' || typeof saved.app !== 'string') return null
