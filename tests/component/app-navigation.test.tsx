@@ -44,8 +44,13 @@ const boardRow = async (name: RegExp): Promise<HTMLElement> =>
   within(await screen.findByRole('region', { name: 'Session board' })).findByRole('button', {
     name
   })
+/**
+ * Home's own marker. The view has no greeting heading any more — its only heading is
+ * the board's masthead, whose text is the live counts — so this is the footer line,
+ * which home renders in every state (signed in or not, board or no board).
+ */
 const homeHero = (): Promise<HTMLElement> =>
-  screen.findByRole('heading', { name: /what should we ship/i })
+  screen.findByRole('button', { name: /Start a roundtable/ })
 const chatComposer = (): HTMLElement => screen.getByRole('textbox', { name: 'Message Claude' })
 
 describe('App back/forward navigation (⌘[ / ⌘])', () => {

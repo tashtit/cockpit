@@ -146,7 +146,7 @@ async function faults(): Promise<string[]> {
     }
 
     // 5. A region that scrolls must be reachable without a pointer (WCAG 2.1.1).
-    for (const el of document.querySelectorAll('pre, .messages, .idiff-body, .tree')) {
+    for (const el of document.querySelectorAll('pre, .messages, .idiff-body, .tree, .board-list, .home-stack')) {
       const style = getComputedStyle(el)
       const scrolls =
         (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(style.overflowX)) ||

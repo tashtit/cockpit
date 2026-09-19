@@ -14,6 +14,7 @@ import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
 /** History window presets; value is days as a string, '0' = all history. */
 const HISTORY_OPTIONS = [
   { value: '0', label: 'All history' },
+  { value: '1', label: 'Last day' },
   { value: '3', label: 'Last 3 days' },
   { value: '7', label: 'Last 7 days' },
   { value: '14', label: 'Last 14 days' },
@@ -230,7 +231,10 @@ function HistoryPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Elem
   // a hand-edited config value outside the presets still renders as itself
   const options =
     historyDays !== null && !HISTORY_OPTIONS.some((o) => o.value === String(historyDays))
-      ? [...HISTORY_OPTIONS, { value: String(historyDays), label: `Last ${historyDays} days` }]
+      ? [
+          ...HISTORY_OPTIONS,
+          { value: String(historyDays), label: `Last ${historyDays} day${historyDays === 1 ? '' : 's'}` }
+        ]
       : HISTORY_OPTIONS
 
   return (

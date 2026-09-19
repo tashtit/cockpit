@@ -11,7 +11,7 @@ attribution, never a parallel message grammar.
 - `.rt-table` sits between header and transcript: an SVG arc (the tabletop edge,
   `--border` at 1px) with every seat placed around it via `arcPoint()`. Seats carry a
   26px identity tile, the seat name, and a mono-uppercase status caption in the
-  board-eyebrow voice: `thinking…` (accent, provider pulse on the tile), `agrees`
+  board-masthead voice: `thinking…` (accent, provider pulse on the tile), `agrees`
   (`--ok`), `not yet`, `spoke`, `quiet`.
 - The arc's accent overlay breathes only while a round runs (`rt-breathe`, disabled
   under `prefers-reduced-motion`); below 640px the arc yields to a flat seat row.

@@ -45,7 +45,7 @@ test('the bundle boots as an installed Cockpit', async () => {
 
   const win = await app!.firstWindow()
   await expect(win).toHaveTitle('Cockpit')
-  await expect(win.getByRole('heading', { name: /What should we ship/ })).toBeVisible()
+  await expect(win.getByRole('button', { name: /Start a roundtable/ })).toBeVisible()
   expect(await win.evaluate(() => typeof window.cockpit?.pageSessions)).toBe('function')
 })
 

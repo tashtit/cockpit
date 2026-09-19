@@ -63,6 +63,19 @@ describe('Settings tabs', () => {
     expect(await screen.findByRole('button', { name: /^Sessions to show/ })).toBeInTheDocument()
   })
 
+  it('offers a one-day window, and saves it', async () => {
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByText('claude-default')
+    await userEvent.click(tab('View'))
+
+    await userEvent.click(await screen.findByRole('button', { name: /^Sessions to show/ }))
+    // the shortest window the presets offer — "today's work only"
+    const day = await screen.findByRole('option', { name: 'Last day' })
+    expect(day).toBeInTheDocument()
+    await userEvent.click(day)
+    expect(window.cockpit.setHistoryDays).toHaveBeenCalledWith(1)
+  })
+
   it('opens on the tab a deep link names', async () => {
     render(<Settings onClose={vi.fn()} section="backup" />)
 

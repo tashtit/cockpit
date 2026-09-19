@@ -191,8 +191,12 @@ test.afterAll(async () => {
   await closeApp(app)
 })
 
-// the heading may carry the gh login ("What should we ship, dev?") — match the stem
-const homeHeading = (): Locator => win.getByRole('heading', { name: /What should we ship/ })
+/**
+ * Home's own marker. The view's only heading is the board's masthead, whose text is
+ * the live counts, so "are we home?" is asked of the footer line instead — home
+ * renders it in every state, signed in or not, board or no board.
+ */
+const homeHeading = (): Locator => win.getByRole('button', { name: /Start a roundtable/ })
 
 test('sidebar indexes the fixtures into a repo tree with a flat Chats section', async () => {
   // the rail's always-visible entry point
@@ -223,7 +227,7 @@ test('home composer wires repo, agent, and permission controls', async () => {
   // fixture sessions surface on the board. They are idle, but the stub gh's PR on their
   // branch fails its checks, so the badges' refresh raises it as a red PR (attention.ts)
   const board = win.locator('.board')
-  await expect(board.locator('.board-eyebrow')).toContainText('1 red PR')
+  await expect(board.locator('.board-mast')).toContainText('1 red PR')
   await expect(board.getByText('#42 checks failing')).toBeVisible()
   await expect(board.getByText('add pagination to the sessions list')).toBeVisible()
   await expect(board.getByText('scratch ideas with no repository')).toBeVisible()
@@ -483,6 +487,21 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   await win.keyboard.press('ControlOrMeta+n')
   await expect(win.getByRole('button', { name: /^Start with/ })).toBeVisible()
   expect(await audit()).toEqual([])
+  // home is a frame, not a page: the composer is docked to the bottom edge and on
+  // screen without a scroll however many rows the board has, and the board is what
+  // gives way — it scrolls its own list. This is the shape at its tightest.
+  expect(
+    await win.evaluate(() => {
+      const bad: string[] = []
+      const doc = document.documentElement
+      if (doc.scrollHeight > window.innerHeight + 1) bad.push('the page itself scrolls')
+      const start = document.querySelector('.composer-bar .btn-primary')!.getBoundingClientRect()
+      if (start.top < 0 || start.bottom > window.innerHeight + 1) bad.push('Start is off screen')
+      const list = document.querySelector('.board-list')!
+      if (list.scrollHeight <= list.clientHeight + 1) bad.push('the board is not the one giving way')
+      return bad
+    })
+  ).toEqual([])
 
   await win.keyboard.press('ControlOrMeta+k')
   await expect(win.getByRole('dialog', { name: 'Jump to' })).toBeVisible()

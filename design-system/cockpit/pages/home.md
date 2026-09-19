@@ -2,36 +2,85 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** mission control, in a fixed order: **the composer opens the view, the board
-always follows it.** The board is the app's signature element and the composer is the action,
-but the action is what the screen is *for* — so it never moves. The order used to be the
-view's one piece of state (the board took the top whenever anything was flying or had landed
-unseen), and it turned out to hide the composer exactly when work was busiest: at a 900px
-window a full board pushed it to the bottom edge, at the 560×420 floor off screen entirely.
-Nothing is hidden either way; the order is simply no longer a variable. This is the only view
-allowed hero-scale type (`--fs-xl`) and a floating card shadow (the composer card — the board
-is deliberately a quiet instrument surface, no shadow).
+**Pattern:** mission control, in a fixed order: **the board reads above, the composer is
+docked to the bottom edge** — a chat's shape, which is what the view is. The board is the
+app's signature element and the composer is the action, but the action is what the screen is
+*for*, so it is the one thing that never moves: it lives outside the scroll entirely.
+
+The order was a variable once (the board took the top whenever anything was flying or had
+landed unseen) and that hid the composer exactly when work was busiest — at a 900px window a
+full board pushed it to the bottom edge, at the 560×420 floor off screen entirely. Pinning
+the composer to the *top* fixed that and cost the board: past ten rows it was the board that
+fell off the bottom, and on a short window you scrolled the whole page to see what was
+flying. Docking is what answers both — **nothing about the page scrolls, only the board's own
+rows** — so neither half can push the other out of the window. Don't reintroduce a page-level
+scroll here, and don't make either region's place depend on what is happening.
+
+This is the only view allowed hero-scale type (`--fs-xl`) and a floating card shadow (the
+composer card — the board is deliberately a quiet instrument surface, no shadow). Both
+are spent once: the scale on the masthead's alarm, the shadow on the composer card.
+Everything between them stays quiet.
 
 ## Layout
 
-- `.home-inner`: `min(700px, 94%)` column, vertically centered (`justify-content: center`),
-  `--s5` gaps. Scrolls as a whole (`.home-view { overflow-y: auto }`). Centering is
-  `justify-content: safe center` and children carry `flex-shrink: 0` — both load-bearing:
-  unqualified centering clips the top out of scroll reach, and shrinkable children let the
-  composer card collapse to a sliver on short windows.
-- Order, always: hero (h2 + sub + kbd hints; no logo — the sidebar carries the mark) →
-  `.composer-card` → `.home-more` → error line → **the fleet** (`.board`, which carries
-  sessions and roundtables alike). The board renders whenever it has a row; what is
-  happening changes the rows and their order, never the board's place on the page.
-- The hero h2 is flat `--fg` (no gradient-clip decoration), set in the mono placard
-  voice (the identity layer re-voices it; see MASTER Typography); when `gh` reports a
-  user the headline personalizes — "What should we ship`, Titan?`" — the login's first
-  hyphen/dot/underscore segment, capitalized (`firstName()`), in dim `.hero-name`.
-- Short windows (≤600px height): hero is dropped, content top-aligns — the composer and
-  the board are the priority, never the branding.
+- `.home-view` is a frame, not a page: `display: flex; flex-direction: column;
+  overflow: hidden`. Two children, and only one of them can give way.
+- **One column, `--home-col` (780px), shared by the stack and the dock** — the board
+  and the composer are the same width and read as one stack. Resist widening the board
+  on its own: a row is a fixed lead and branch slot, a title, and a right-aligned repo
+  pill + time, so past the width the title needs, every extra pixel opens a canyon down
+  the middle of each row rather than showing more (at 1100px it was ~600px of nothing
+  between the title and the time, and the row read as two disconnected clusters). If
+  the board ever needs to be genuinely wide, the row grammar has to change first —
+  more per row, or a meta column that doesn't hug the far edge. Wider is emptier here,
+  not richer.
+- `.home-stack` — the reading half: `flex: 1; min-height: 0`, holding `.home-inner`.
+  Its content **hangs from the top** and the board grows downward into the room it has.
+  The dock is already anchored to the bottom; anchoring the reading half to it as well
+  left a full-screen window with everything piled at the bottom under 400px of nothing,
+  and centring split that void in two.
+- The stack keeps `overflow-y: auto` as a last-resort escape valve
+  (`scrollbar-gutter: stable both-edges`, since it centers a column), but it is not the
+  normal scroller: the board gives way first, and only a window too short for the
+  masthead plus one row ever reaches it.
+- `.home-dock` — the acting half: `flex: none`, the chat composer's chrome recipe
+  (`border-top` + `--pane`) over `.home-dock-inner`. Its children carry
+  `flex-shrink: 0` — without it the composer card (`overflow: hidden` → zero
+  min-content) collapses to a sliver on short windows.
+- Order, always: **stack** — the fleet (`.board`, which carries sessions and
+  roundtables alike); **dock** — `.composer-card` → `.home-more` → YOLO hint → error
+  line. The board renders whenever it has a row; what is happening changes the rows and
+  their order, never either region's place on the page.
+- **There is no page-level hero.** A centred greeting used to open the view, and once
+  the composer moved to the dock it introduced nothing — a question 700px from its own
+  answer, centred over a left-aligned table. It did not go away; it moved to the thing
+  it asks about. `.home-greet` is the first child of `.home-dock-inner`, directly above
+  the composer card: "What should we ship`, Octo?`" — the `gh` login's first
+  hyphen/dot/underscore segment, capitalized (`firstName()`), in dim `.hero-name`. It
+  keeps the mono voice but at `--fs-md`, because the masthead now carries the view's
+  display type; **don't grow it back**, and don't move it above the board. It renders
+  only with the composer (`canStart`) — the setup card has its own heading — and sheds
+  at ≤600px height, where the dock is what's scarce and the placeholder and button
+  already say what the composer is. The hero's other job, the ⌘K hint, is the left
+  anchor of `.home-more`.
+- **First run** (`.home-setup`, and only when there is no board): the two regions
+  collapse into one and the setup card centres in the deck, without the dock's rule and
+  pane. There is no fleet to list and the card *is* the content, so an anchored dock
+  would just be a card hanging off an edge under an empty board area. Gated on
+  `needsSetup`, which already waits for both accounts and the first scan — so it can
+  never flash, and it is the one state where the action's placement varies.
+- Short windows (≤600px height): `.home-stack` trims to `--s4` padding and the masthead
+  sheds (below). Nothing else gives — the board and the composer are the priority.
 
 ## The board (`.board`)
 
+- **The view's only scroll.** The board is a flex column (`min-height: 0`) whose
+  `.board-head` is `flex: none` and whose `.board-list` carries `overflow-y: auto`: it
+  takes whatever height the window leaves above the dock and gives way by scrolling its
+  rows, never by shrinking its head — the counts are what the head is for. At the floor
+  and at 200% zoom that is two or three rows, with the next one half-shown; that cut row
+  is the scroll affordance, don't pad it away. On a full screen the same board runs from
+  the hero to the dock, which is why the row budget below is 30 and not ten.
 - Grammar per row (`.board-row`, a button that opens the session): status dot ·
   `.board-agent` placard (`.board-lead`, fixed 68px column, uppercase micro-caps) ·
   `.board-branch` slot (fixed 150px, holding the `BranchChip`) · title (truncates) ·
@@ -61,17 +110,35 @@ is deliberately a quiet instrument surface, no shadow).
   pulses accent (no single agent owns a table), counts as flying, and holds the meta slot
   with "in round". A table is work in flight like a session — two panels in the same
   grammar made the eye compare them instead of reading one board.
-- **Row budget:** flying and landed rows always show; the ground fills what is left of ten
-  rows (`BOARD_ROWS`). The sidebar stays the exhaustive list. Rows come from
-  the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
-  list; don't grow this. The one addition: a session that needs you but is not on that page
-  is fetched by id (`getSession`), so every banner and Dock count has its row.
-- `.board-eyebrow` (h2 — a peer of the hero's, not a level under it: the board is the
-  view's other half, and the hero sheds on short windows, so an h3 would skip a level
-  from the h1 whenever the hero is gone): "**N waiting on you** · **N flying** · **N red PRs** · **M landed** ·
-  K on the ground" (K from the page total, every zero count dropped), or "all on the
-  ground" when nothing is flying and nothing needs you. It is a polite `aria-live` region —
-  turn starts, completions and questions announce the new counts.
+- **Row budget:** flying and landed rows always show; the ground fills what is left of
+  `BOARD_ROWS`, which is also the `pageSessions({ limit })` size — one number, two uses.
+  It is 30, and it is a budget in rows for a panel measured in pixels: the board takes
+  the height the window leaves and scrolls the rest, so the number only has to be deep
+  enough to fill the tallest window anyone flies in (a full-screen 16" is ~25 rows of
+  region). It was ten while the board had to fit *under* the composer, and ten left a
+  full screen two-thirds empty once it no longer did. The sidebar is still the
+  exhaustive list — this is a taste, not the index; don't grow it past what a screen
+  can hold. The one addition: a session that needs you but is not on that page is
+  fetched by id (`getSession`), so every banner and Dock count has its row.
+- **The masthead** (`.board-mast`, the h2 — the view's only heading, in the mono
+  placard voice, aligned with the rows' own left edge). **Its size is the alarm.** One
+  quiet `--fs-lg` line while nothing needs you — "2 flying · 22 on the ground", or
+  "all 22 on the ground" when nothing is flying either. The moment something does need
+  you it gains the `alarm` class: the urgent phrase jumps to `--fs-xl` in full `--fg`
+  (`.mast-lead`) and everything else drops to a `--fs-sm` sub-line under it
+  (`.mast-rest`). This is the view's one bold move and the one place it spends scale,
+  because "does anything need me?" is the one question this screen exists to answer —
+  readable across a room, and never carried by colour (the phrase says what it is).
+  The lead is the most urgent non-zero of **waiting on you → red PRs → landed**, the
+  same order a session's own state resolves in; **flying never leads** — an agent
+  working is the normal condition, not news. K comes from the page total and every zero
+  count is dropped. Polite `aria-live`: turn starts, completions and questions announce
+  the new counts.
+- ≤600px height the masthead sheds in order — `.mast-rest` first (the counts that
+  aren't urgent; the rows say the rest), then the alarm's scale back to `--fs-lg`, then
+  the head's block padding. The urgent phrase itself never goes: at that height it is
+  the only thing on screen that says so. Unlike the hero it replaced, the view now
+  keeps a heading at the floor and at 200% zoom.
 - ≤780px the row sheds `.board-repo` first — the branch chip carries more identity;
   ≤700px the `.board-branch` slot goes too, because on a ~360px pane the task title is
   the row's content.
@@ -79,8 +146,10 @@ is deliberately a quiet instrument surface, no shadow).
 ## First run (`Setup`, `.setup-card`)
 
 - When Cockpit cannot start anything — no agent signed in, or no repository indexed —
-  the composer card is **replaced** by the same card shape holding the three things it
-  needs: sign in to an agent · point Cockpit at your work · connect GitHub for PRs.
+  the composer card is **replaced** in the dock by the same card shape, which names
+  itself: `.setup-head` ("Three things and you fly") over a `.setup-blurb`, and the
+  section takes its accessible name from that heading (`aria-labelledby`, not an
+  `aria-label`). It holds the three things Cockpit needs: sign in to an agent · point Cockpit at your work · connect GitHub for PRs.
   A disabled Start button that says nothing is an accurate screen that helps nobody.
 - Steps already satisfied stay on screen, ticked (`CheckIcon` in `--ok`, the title
   quieted, an `sr-only` "— done"): the card is a progress readout, not a gate that
@@ -106,14 +175,17 @@ is deliberately a quiet instrument surface, no shadow).
 
 ## Composer card
 
+- `.home-greet` sits directly above the card (see Layout) — the one personal line in
+  the view, and the only reason `accounts.githubUser` reaches this half of the screen.
 - `.composer-card` = borderless textarea on top, `.composer-bar` control strip below a
   hairline divider. Focus ring lives on the **card** (`:focus-within`), not the textarea.
 - Bar order is fixed: repo icon + repo select · `.composer-identity` (agent picker +
   account select fused into one bordered control — they answer one question, "who runs
   this") · permission mode select · `.btn-primary` pushed right with `margin-left: auto`.
-- `.home-more`: a right-aligned `.link-btn` line directly under the card — "All options —
-  branch name, model, custom model provider…" — the discoverable path into the full New
-  session form; it carries the typed draft over, so clicking it never loses work. Kept
+- `.home-more`: the dock's footer line, directly under the card. `.home-kbd`
+  ("⌘K jump anywhere") anchors it left on `margin-right: auto`; the `.link-btn`s sit
+  right — "All options — branch name, model, custom model provider…" is the
+  discoverable path into the full New session form; it carries the typed draft over, so clicking it never loses work. Kept
   out of the bar on purpose: the bar is width-budgeted and must stay one line.
 - Agent picker: `.composer-agent` logo buttons, `aria-pressed` + `aria-label`; active =
   agent-tinted background + 1.5px inset ring in the agent color. Signed-out agents get the
@@ -140,4 +212,6 @@ is deliberately a quiet instrument surface, no shadow).
 - Start is disabled until: prompt non-empty (or an image attached), a repo selected, and
   (once accounts have loaded) an account resolved. While `accounts === null` (still loading), don't flash the
   missing-account state.
-- Keyboard hints in the hero use `.home-kbd` mono, and must match real bindings (⌘N, ⌘K).
+- The keyboard hint uses `.home-kbd` mono in `.home-more`, and must match a real
+  binding. It is ⌘K alone: ⌘N was dropped with the hero, since on this view the
+  composer *is* the new task and the placeholder already carries ⌘Enter.

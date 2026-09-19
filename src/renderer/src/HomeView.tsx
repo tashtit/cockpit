@@ -112,7 +112,7 @@ export function HomeView({
 
   useEffect(() => {
     let dead = false
-    void api.pageSessions({ limit: 10 }).then((p) => {
+    void api.pageSessions({ limit: BOARD_ROWS }).then((p) => {
       if (dead) return
       setRecent(p.items)
       setRecentTotal(p.total)
@@ -230,149 +230,154 @@ export function HomeView({
   )
 
   return (
-    <main className="chat home-view">
-      <div className="home-inner">
-        {/* the composer always opens the view and the board always follows it: the one
-            thing this screen is for must not move under you, and a board that took the
-            top whenever a turn started pushed it off screen exactly when work was busiest */}
-        <div className="home-hero">
-          <h2>
-            What should we ship
-            {accounts?.githubUser ? (
-              <span className="hero-name">, {firstName(accounts.githubUser)}?</span>
-            ) : (
-              '?'
-            )}
-          </h2>
-          <p className="home-sub">
-            {canStart ? (
-              <>Assign a task to an agent — it runs in an isolated worktree and lands as a PR.</>
-            ) : needsSetup ? (
-              <>Cockpit reads the sessions your agent CLIs already write. Three things and you fly.</>
-            ) : null}
-            <span className="home-kbd">⌘N new task · ⌘K jump anywhere</span>
-          </p>
-        </div>
+    <main className={`chat home-view ${needsSetup ? 'home-setup' : ''}`}>
+      {/* Two fixed regions, and the order never varies: the board reads above — wide,
+          because it is a table and the deck has the room — and the composer is docked
+          to the bottom edge in a reading column of its own. Nothing about the page as a
+          whole scrolls, only the board's own rows, so the one thing this screen is for
+          is on screen at every window size however much is flying. The board carries
+          the view's only heading (its masthead); there is no separate hero, because a
+          greeting at the top of the page no longer introduces anything. */}
+      <div className="home-stack">
+        <div className="home-inner">{fleet}</div>
+      </div>
 
-        {needsSetup ? (
-          <Setup
-            signedIn={(accounts?.accounts.length ?? 0) > 0}
-            indexed={selectable.length > 0}
-            githubUser={accounts?.githubUser ?? null}
-            onOpenSettings={onOpenSettings}
-          />
-        ) : canStart ? (
-        <div className="composer-card">
-          <AttachRow atts={atts} />
-          <textarea
-            ref={promptRef}
-            aria-label="Task description"
-            placeholder="Describe a task…  (⌘Enter to start)"
-            rows={3}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onPaste={atts.onPaste}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
-            }}
-          />
-          <div className="composer-bar">
-            <span className="composer-repo-icon"><RepoIcon size={13} /></span>
-            <Select
-              className="composer-repo"
-              ariaLabel="Repository"
-              value={selected?.key ?? ''}
-              options={
-                selectable.length > 0
-                  ? selectable.map((r) => ({ value: r.key, label: r.fullName ?? r.name }))
-                  : [{ value: '', label: 'no repositories indexed yet' }]
-              }
-              onChange={setRepoKey}
-            />
-            <div className="composer-identity">
-              <div className="composer-agents" role="group" aria-label="Agent">
-                {PROVIDERS.map((p) => {
-                  const pAcct = savedAccount(accounts, p)
-                  return (
-                    <button
-                      key={p}
-                      aria-pressed={provider === p}
-                      aria-label={PROVIDER_LABEL[p]}
-                      title={`${PROVIDER_LABEL[p]} — ${pAcct?.display ?? 'not signed in'}`}
-                      className={`composer-agent plogo-${p} ${provider === p ? 'active' : ''} ${
-                        accounts !== null && !pAcct ? 'no-acct' : ''
-                      }`}
-                      onClick={() => setProvider(p)}
-                    >
-                      <ProviderLogo p={p} size={15} />
-                    </button>
-                  )
-                })}
-              </div>
-              {accounts === null ? (
-                // still loading — an empty placeholder, never a false "not signed in"
-                <span className="acct-chip" aria-hidden="true">
-                  …
-                </span>
-              ) : opts.length > 0 ? (
-                <Select
-                  className="composer-acct-wrap"
-                  mono
-                  quiet
-                  ariaLabel={`${PROVIDER_LABEL[provider]} account`}
-                  title={`${PROVIDER_LABEL[provider]} account in use`}
-                  value={account?.key ?? ''}
-                  options={opts.map((o) => ({ value: o.key, label: o.display }))}
-                  onChange={(v) => {
-                    window.localStorage.setItem(`cockpit:account:${provider}`, v)
-                    setAccountKey(v)
-                  }}
-                />
+      <div className="home-dock">
+        <div className="home-dock-inner">
+          {/* the greeting, asked directly above the thing it asks about. It opened the
+              view once, which stopped working when the composer moved down here — a
+              question 700px from its own answer. At caption scale it introduces the
+              composer without competing with the masthead's alarm. */}
+          {canStart && (
+            <p className="home-greet">
+              What should we ship
+              {accounts?.githubUser ? (
+                <span className="hero-name">, {firstName(accounts.githubUser)}?</span>
               ) : (
-                <span className="acct-chip missing">not signed in</span>
+                '?'
               )}
-            </div>
-            <Select
-              ariaLabel="Permission mode"
-              value={mode}
-              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-              onChange={(v) => setMode(v as PermissionMode)}
-            />
-            <button
-              className="btn-primary"
-              title={account ? `runs as ${account.display}` : undefined}
-              disabled={
-                busy ||
-                (!prompt.trim() && atts.attachments.length === 0) ||
-                !selected ||
-                (accounts !== null && !account)
-              }
-              onClick={() => void start()}
-            >
-              {busy ? 'Starting…' : `Start with ${PROVIDER_LABEL[provider]}`}
-            </button>
-          </div>
-        </div>
-        ) : null}
-        <div className="home-more">
-          <button className="link-btn" disabled={busy} onClick={onNewRoundtable}>
-            Start a roundtable — several agents, one discussion
-          </button>
-          {selected && (
-            <button
-              className="link-btn"
-              disabled={busy}
-              onClick={() => onOpenFull(selected, prompt, atts.release())}
-            >
-              All options — branch name, model, custom model provider…
-            </button>
+            </p>
           )}
+          {needsSetup ? (
+            <Setup
+              signedIn={(accounts?.accounts.length ?? 0) > 0}
+              indexed={selectable.length > 0}
+              githubUser={accounts?.githubUser ?? null}
+              onOpenSettings={onOpenSettings}
+            />
+          ) : canStart ? (
+            <div className="composer-card">
+              <AttachRow atts={atts} />
+              <textarea
+                ref={promptRef}
+                aria-label="Task description"
+                placeholder="Describe a task…  (⌘Enter to start)"
+                rows={3}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onPaste={atts.onPaste}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
+                }}
+              />
+              <div className="composer-bar">
+                <span className="composer-repo-icon"><RepoIcon size={13} /></span>
+                <Select
+                  className="composer-repo"
+                  ariaLabel="Repository"
+                  value={selected?.key ?? ''}
+                  options={
+                    selectable.length > 0
+                      ? selectable.map((r) => ({ value: r.key, label: r.fullName ?? r.name }))
+                      : [{ value: '', label: 'no repositories indexed yet' }]
+                  }
+                  onChange={setRepoKey}
+                />
+                <div className="composer-identity">
+                  <div className="composer-agents" role="group" aria-label="Agent">
+                    {PROVIDERS.map((p) => {
+                      const pAcct = savedAccount(accounts, p)
+                      return (
+                        <button
+                          key={p}
+                          aria-pressed={provider === p}
+                          aria-label={PROVIDER_LABEL[p]}
+                          title={`${PROVIDER_LABEL[p]} — ${pAcct?.display ?? 'not signed in'}`}
+                          className={`composer-agent plogo-${p} ${provider === p ? 'active' : ''} ${
+                            accounts !== null && !pAcct ? 'no-acct' : ''
+                          }`}
+                          onClick={() => setProvider(p)}
+                        >
+                          <ProviderLogo p={p} size={15} />
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {accounts === null ? (
+                    // still loading — an empty placeholder, never a false "not signed in"
+                    <span className="acct-chip" aria-hidden="true">
+                      …
+                    </span>
+                  ) : opts.length > 0 ? (
+                    <Select
+                      className="composer-acct-wrap"
+                      mono
+                      quiet
+                      ariaLabel={`${PROVIDER_LABEL[provider]} account`}
+                      title={`${PROVIDER_LABEL[provider]} account in use`}
+                      value={account?.key ?? ''}
+                      options={opts.map((o) => ({ value: o.key, label: o.display }))}
+                      onChange={(v) => {
+                        window.localStorage.setItem(`cockpit:account:${provider}`, v)
+                        setAccountKey(v)
+                      }}
+                    />
+                  ) : (
+                    <span className="acct-chip missing">not signed in</span>
+                  )}
+                </div>
+                <Select
+                  ariaLabel="Permission mode"
+                  value={mode}
+                  options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+                  onChange={(v) => setMode(v as PermissionMode)}
+                />
+                <button
+                  className="btn-primary"
+                  title={account ? `runs as ${account.display}` : undefined}
+                  disabled={
+                    busy ||
+                    (!prompt.trim() && atts.attachments.length === 0) ||
+                    !selected ||
+                    (accounts !== null && !account)
+                  }
+                  onClick={() => void start()}
+                >
+                  {busy ? 'Starting…' : `Start with ${PROVIDER_LABEL[provider]}`}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="home-more">
+            <span className="home-kbd">⌘K jump anywhere</span>
+            <button className="link-btn" disabled={busy} onClick={onNewRoundtable}>
+              Start a roundtable — several agents, one discussion
+            </button>
+            {selected && (
+              <button
+                className="link-btn"
+                disabled={busy}
+                onClick={() => onOpenFull(selected, prompt, atts.release())}
+              >
+                All options — branch name, model, custom model provider…
+              </button>
+            )}
+          </div>
+          {mode === 'yolo' && (
+            <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
+          )}
+          {error && <div className="new-error" role="alert">{error}</div>}
         </div>
-        {mode === 'yolo' && (
-          <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
-        )}
-        {error && <div className="new-error" role="alert">{error}</div>}
-        {fleet}
       </div>
     </main>
   )
@@ -440,7 +445,11 @@ function Setup({
   ]
 
   return (
-    <section className="composer-card setup-card" aria-label="Set up Cockpit">
+    <section className="composer-card setup-card" aria-labelledby="setup-head">
+      <h2 className="setup-head" id="setup-head">
+        Three things and you fly
+      </h2>
+      <p className="setup-blurb">Cockpit reads the sessions your agent CLIs already write.</p>
       <ol className="setup-steps">
         {steps.map((s) => (
           <li key={s.title} className={`setup-step ${s.done ? 'done' : ''}`}>
@@ -518,6 +527,15 @@ function Board({
   ].sort((a, b) => (b.kind === 'session' ? b.s.updatedAt : b.t.updatedAt) - (a.kind === 'session' ? a.s.updatedAt : a.t.updatedAt))
   const flyingCount = flyingSessions.length + flyingTables.length
   const needsCount = asking.length + arrived.length
+  // The masthead's copy, in two registers. `needs` is the one question this screen
+  // exists to answer, in the order a session's own state answers it (a question beats
+  // a red PR beats an unseen landing); `calm` is what else is true. Flying is not
+  // news — an agent working is the normal condition — so it never leads.
+  const needs = [
+    asking.length > 0 && `${asking.length} waiting on you`,
+    red > 0 && `${red} red ${red === 1 ? 'PR' : 'PRs'}`,
+    landedCount > 0 && `${landedCount} landed`
+  ].filter((c): c is string => typeof c === 'string')
   // the board is a taste, not the list: what is happening always shows, the ground fills
   // what is left of ten rows (the sidebar stays the exhaustive one)
   const shownGround = ground.slice(0, Math.max(0, BOARD_ROWS - flyingCount - needsCount))
@@ -525,35 +543,25 @@ function Board({
     total - flyingSessions.length - needsCount + (tables.length - flyingTables.length),
     ground.length
   )
-  // "1 waiting on you · 2 flying · 1 red PR · 3 landed · 12 on the ground", zeros dropped
-  const counts = [
-    asking.length > 0 && `${asking.length} waiting on you`,
+  // "all N on the ground" only when it is true — with anything flying or waiting on
+  // you, they are not all on the ground and the phrase drops its "all"
+  const quiet = needs.length === 0 && flyingCount === 0
+  const calm = [
     flyingCount > 0 && `${flyingCount} flying`,
-    red > 0 && `${red} red ${red === 1 ? 'PR' : 'PRs'}`,
-    landedCount > 0 && `${landedCount} landed`
+    quiet ? `all ${groundTotal} on the ground` : `${groundTotal} on the ground`
   ].filter((c): c is string => typeof c === 'string')
 
   return (
     <section className="board" aria-label="Session board">
       <div className="board-head">
-        {/* h2, a peer of the hero's — the board is the view's other half, not a
-            subsection of the composer, and the hero sheds at short heights, so a
-            level below it would skip from the h1 whenever it is gone.
-            Polite live region — turn starts/completions announce the new counts */}
-        <h2 className="board-eyebrow" aria-live="polite">
-          {counts.length === 0 ? (
-            <>all on the ground</>
-          ) : (
-            <>
-              {counts.map((c, i) => (
-                <span key={c}>
-                  {i > 0 && ' · '}
-                  <b>{c}</b>
-                </span>
-              ))}
-              {' · '}
-              {groundTotal} on the ground
-            </>
+        {/* The view's heading, and a polite live region so turn starts, completions
+            and questions announce the new counts. Its size is the alarm: one quiet
+            line while nothing needs you, the urgent phrase at hero scale the moment
+            something does. */}
+        <h2 className={`board-mast ${needs.length > 0 ? 'alarm' : ''}`} aria-live="polite">
+          <span className="mast-lead">{needs.length > 0 ? needs[0] : calm.join(' · ')}</span>
+          {needs.length > 0 && (
+            <span className="mast-rest">{[...needs.slice(1), ...calm].join(' · ')}</span>
           )}
         </h2>
       </div>
@@ -582,8 +590,15 @@ function Board({
   )
 }
 
-/** Rows the board shows when nothing is happening — the page fetch's own size. */
-const BOARD_ROWS = 10
+/**
+ * Rows the board shows when nothing is happening — the page fetch's own size.
+ * A budget in rows, not in pixels: the board takes the height the window leaves and
+ * scrolls what doesn't fit, so this only has to be enough to fill the tallest window
+ * anyone flies in (a full-screen 16" is ~25 rows of region). The sidebar is still the
+ * exhaustive list — this is a taste, just one deep enough not to leave a full screen
+ * two-thirds empty.
+ */
+const BOARD_ROWS = 30
 /** Needs-you rows fetched beyond the page — main keeps no more landings than this (LANDING_MAX). */
 const NEEDS_FETCH_MAX = 60
 
