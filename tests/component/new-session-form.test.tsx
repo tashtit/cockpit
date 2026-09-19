@@ -30,6 +30,15 @@ describe('NewSession form order', () => {
     expect(task).toHaveFocus()
   })
 
+  // the stub answers with no accounts, which is the state the form opens in while
+  // they load: a div there carried an aria-labelledby the browser drops, so the
+  // readout read as labelled in the source and was nameless in the tree
+  it('gives the read-only account a role that can carry its label', () => {
+    renderForm()
+    const readout = screen.getByRole('status', { name: 'Account' })
+    expect(readout.tagName).toBe('OUTPUT')
+  })
+
   it('previews the branch the task will produce, before anything is typed into it', async () => {
     renderForm()
     const branch = screen.getByLabelText('Branch')

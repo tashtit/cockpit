@@ -215,16 +215,20 @@ export function AccountField({
           />
         </>
       ) : (
-        // static text, not a form control — label-for can't associate with a div
+        // A read-only value, so there is no control for label-for to point at — and
+        // a div can't carry the name either: a generic role drops an
+        // aria-labelledby, which reads as labelled in the source and is absent in
+        // the tree. `output` is the element for a value the other controls decide,
+        // and it is nameable, so the label sticks.
         <>
           <span className="ns-label" id="ns-account-label">Account</span>
-          <div
+          <output
             className="ns-account-single"
             aria-labelledby="ns-account-label"
             title={account?.display}
           >
             {account?.display ?? (loading ? '…' : 'not signed in')}
-          </div>
+          </output>
         </>
       )}
     </div>
