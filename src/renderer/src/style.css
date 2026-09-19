@@ -1052,15 +1052,18 @@ summary::-webkit-details-marker { display: none; }
 .home-view { display: flex; flex-direction: column; overflow: hidden; }
 .home-stack { flex: 1; min-height: 0; display: flex; flex-direction: column;
   padding: var(--s6) 0 var(--s5);
-  /* the column sits on the dock rather than floating in the middle of the region:
-     the hero is the composer's caption and reads directly above it when the board is
-     short or absent, and a board that grows grows upward, away from the composer.
-     The region is the last-resort scroller, not the normal one — the board gives way
-     first, and only a window too short for the hero and one row reaches this; `safe`
-     falls back to flex-start when it does, since an unqualified flex-end would clip
-     the top of the column out of scroll reach */
-  justify-content: safe flex-end; overflow-y: auto;
+  /* the column hangs from the top and the board grows downward into the room it has
+     — the dock is already anchored, and anchoring the reading half to it too left a
+     full-screen window with everything piled at the bottom under 400px of nothing.
+     The region is the last-resort scroller, not the normal one: the board gives way
+     first, and only a window too short for the hero and one row reaches this */
+  justify-content: flex-start; overflow-y: auto;
   scrollbar-gutter: stable both-edges; }
+/* the hero always sits against the thing it introduces: on the dock when there is no
+   board to list — a first run, or a history window that hides everything — so it reads
+   as the composer's caption instead of marooned at the top of an empty region. The
+   composer itself never moves either way; only the hero does. */
+.home-stack:not(:has(.board)) { justify-content: flex-end; }
 .home-inner { width: min(700px, 94%); margin: 0 auto; min-height: 0;
   display: flex; flex-direction: column; gap: var(--s5); }
 /* the composer, docked: the chat composer's chrome recipe, over the column the board

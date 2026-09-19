@@ -24,14 +24,18 @@ composer card — the board is deliberately a quiet instrument surface, no shado
 - `.home-view` is a frame, not a page: `display: flex; flex-direction: column;
   overflow: hidden`. Two children, and only one of them can give way.
 - `.home-stack` — the reading half: `flex: 1; min-height: 0`, holding `.home-inner`
-  (`min(700px, 94%)` column, `--s5` gaps). Its content sits on the dock
-  (`justify-content: safe flex-end`): the hero is the composer's caption and reads
-  directly above it when the board is short or absent, and a growing board grows
-  *upward*, away from the composer. `safe` is load-bearing — an unqualified `flex-end`
-  clips the top of the column out of scroll reach. The stack keeps `overflow-y: auto`
-  as a last-resort escape valve (`scrollbar-gutter: stable both-edges`, since it
-  centers a column), but it is not the normal scroller: the board gives way first, and
-  only a window too short for the hero plus one row ever reaches it.
+  (`min(700px, 94%)` column, `--s5` gaps). Its content **hangs from the top** and the
+  board grows downward into the room it has. The dock is already anchored to the
+  bottom; anchoring the reading half to it as well left a full-screen window with
+  everything piled at the bottom under 400px of nothing, and centring split that void
+  in two. The one exception is `:not(:has(.board))` — with nothing to list (a first
+  run, or a history window that hides everything) the stack flips to `flex-end` so the
+  hero sits on the dock as the composer's caption instead of marooned at the top of an
+  empty region. The hero is the only thing that moves; the composer never does.
+- The stack keeps `overflow-y: auto` as a last-resort escape valve
+  (`scrollbar-gutter: stable both-edges`, since it centers a column), but it is not the
+  normal scroller: the board gives way first, and only a window too short for the hero
+  plus one row ever reaches it.
 - `.home-dock` — the acting half: `flex: none`, the chat composer's chrome recipe
   (`border-top` + `--pane`) over `.home-dock-inner`, the same `min(700px, 94%)` column.
   Its children carry `flex-shrink: 0` — without it the composer card
@@ -55,7 +59,8 @@ composer card — the board is deliberately a quiet instrument surface, no shado
   takes whatever height the window leaves above the dock and gives way by scrolling its
   rows, never by shrinking its head — the counts are what the head is for. At the floor
   and at 200% zoom that is two or three rows, with the next one half-shown; that cut row
-  is the scroll affordance, don't pad it away.
+  is the scroll affordance, don't pad it away. On a full screen the same board runs from
+  the hero to the dock, which is why the row budget below is 30 and not ten.
 - Grammar per row (`.board-row`, a button that opens the session): status dot ·
   `.board-agent` placard (`.board-lead`, fixed 68px column, uppercase micro-caps) ·
   `.board-branch` slot (fixed 150px, holding the `BranchChip`) · title (truncates) ·
@@ -85,11 +90,16 @@ composer card — the board is deliberately a quiet instrument surface, no shado
   pulses accent (no single agent owns a table), counts as flying, and holds the meta slot
   with "in round". A table is work in flight like a session — two panels in the same
   grammar made the eye compare them instead of reading one board.
-- **Row budget:** flying and landed rows always show; the ground fills what is left of ten
-  rows (`BOARD_ROWS`). The sidebar stays the exhaustive list. Rows come from
-  the same `pageSessions({ limit: 10 })` fetch as before — the sidebar is the exhaustive
-  list; don't grow this. The one addition: a session that needs you but is not on that page
-  is fetched by id (`getSession`), so every banner and Dock count has its row.
+- **Row budget:** flying and landed rows always show; the ground fills what is left of
+  `BOARD_ROWS`, which is also the `pageSessions({ limit })` size — one number, two uses.
+  It is 30, and it is a budget in rows for a panel measured in pixels: the board takes
+  the height the window leaves and scrolls the rest, so the number only has to be deep
+  enough to fill the tallest window anyone flies in (a full-screen 16" is ~25 rows of
+  region). It was ten while the board had to fit *under* the composer, and ten left a
+  full screen two-thirds empty once it no longer did. The sidebar is still the
+  exhaustive list — this is a taste, not the index; don't grow it past what a screen
+  can hold. The one addition: a session that needs you but is not on that page is
+  fetched by id (`getSession`), so every banner and Dock count has its row.
 - `.board-eyebrow` (h2 — a peer of the hero's, not a level under it: the board is the
   view's other half, and the hero sheds on short windows, so an h3 would skip a level
   from the h1 whenever the hero is gone): "**N waiting on you** · **N flying** · **N red PRs** · **M landed** ·

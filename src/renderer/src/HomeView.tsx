@@ -112,7 +112,7 @@ export function HomeView({
 
   useEffect(() => {
     let dead = false
-    void api.pageSessions({ limit: 10 }).then((p) => {
+    void api.pageSessions({ limit: BOARD_ROWS }).then((p) => {
       if (dead) return
       setRecent(p.items)
       setRecentTotal(p.total)
@@ -590,8 +590,15 @@ function Board({
   )
 }
 
-/** Rows the board shows when nothing is happening — the page fetch's own size. */
-const BOARD_ROWS = 10
+/**
+ * Rows the board shows when nothing is happening — the page fetch's own size.
+ * A budget in rows, not in pixels: the board takes the height the window leaves and
+ * scrolls what doesn't fit, so this only has to be enough to fill the tallest window
+ * anyone flies in (a full-screen 16" is ~25 rows of region). The sidebar is still the
+ * exhaustive list — this is a taste, just one deep enough not to leave a full screen
+ * two-thirds empty.
+ */
+const BOARD_ROWS = 30
 /** Needs-you rows fetched beyond the page — main keeps no more landings than this (LANDING_MAX). */
 const NEEDS_FETCH_MAX = 60
 
