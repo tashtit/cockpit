@@ -15,16 +15,24 @@ import { describe, expect, it } from 'vitest'
 // long as it did.
 const SHARED = join(__dirname, '..', 'src', 'shared')
 
-/** Every module specifier a file imports or re-exports from. */
+/**
+ * Every module specifier a file imports or re-exports from — including a
+ * side-effect `import 'x'`, which carries no `from` and used to slip through.
+ *
+ * Nothing between the keyword and `from` may be quoted: a statement never is, while
+ * ordinary code often is (`new Set(['--from'])` once read as an import of
+ * everything up to the next apostrophe).
+ */
 function specifiers(source: string): string[] {
-  return [...source.matchAll(/(?:^|\n)\s*(?:import|export)[\s\S]*?from\s*['"]([^'"]+)['"]/g)].map(
-    (m) => m[1] ?? ''
-  )
+  const from = [...source.matchAll(/(?:^|\n)\s*(?:import|export)\b[^'"]*?\bfrom\s*['"]([^'"]+)['"]/g)]
+  const bare = [...source.matchAll(/(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g)]
+  return [...from, ...bare].map((m) => m[1] ?? '')
 }
 
 /** What a shared module may import from its own directory. Anything absent may import any sibling. */
 const LAYERS: Record<string, readonly string[]> = {
   'types.ts': [],
+  'mcp-source.ts': ['./types'],
   'library.ts': ['./types'],
   'contract.ts': ['./types', './library']
 }

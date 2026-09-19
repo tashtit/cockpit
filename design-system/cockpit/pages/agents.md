@@ -49,16 +49,22 @@ that section holds a disagreement.
   the labelling. Each control says its own agent's name, so the list needs no column
   header, no lane, and no legend — "who runs this" reads as three brand-coloured tokens.
   On = agent tint + solid agent border + full-opacity mark; off = deep paper, dim mark;
-  not applicable (`.na`, a kind the agent has no switch for) = dashed border, legible
-  `--fg-dim` name, an `sr-only` "not available — <reason>" and the reason as `title` —
-  never opacity on the text, which is how it once sat at 1.6:1 with a hover-only
-  explanation.
+  not applicable (`.na`, a kind or a thing the agent has no switch for) = dashed
+  `--border-strong` edge, legible `--fg-dim` name, an `sr-only` "not available —
+  <reason>" and the reason as `title` — never opacity on the text, which is how it once
+  sat at 1.6:1 with a hover-only explanation. A hairline dashed edge is *not* enough on
+  its own: at `--border` it was indistinguishable from an off chip, which is why the
+  row carries the word too (below) and the detail carries the sentence.
   - Drift adds an amber border **and must out-specify the agent colours**
     (`.ag-chip.on.drift`, not `.ag-chip.drift`) — `.ag-chip.on.ag-*` is 0,3,0 and silently
     wins otherwise, which is exactly how the warning went missing once already.
 - **One word per row** (`.pnl-flag`, amber, right-aligned): the ringed chip already says
   *which* agent, so the row only has to say *what* — `not applied` / `differs` /
-  `added outside`.
+  `added outside`. The same slot carries a dim `.pnl-only` word when some agent has no
+  switch at all — `Codex only`, `not for Copilot` — and the amber flag outranks it: one
+  is a fact about the thing, the other is waiting on you. A "not available" reason is
+  also spelled out in full in the opened row (`.pnl-note`); a `title` is unreadable to a
+  keyboard.
 - **Two safety lines.** Flipping a chip is one click, because it is reversible. Turning a
   plugin or marketplace off, and "Remove everywhere", use the armed-confirm grammar.
 - **Disagreement has no house answer.** The detail asks which agent is right and offers
@@ -186,15 +192,35 @@ that section holds a disagreement.
 - Notices reuse `.ext-notice` and always state the consequence ("running sessions pick
   it up on their next start").
 
-## MCP health tab
+## What an MCP row says
 
-- Only what a switch can't tell you: whether the server *answers*. Per-row **Check**
-  probes it and reports through an `.mcp-status` pill — `connected` (ok), `needs login`
-  (warn), `unreachable` (danger, detail in title), italic `checking…` in flight. When a
-  URL server reports `needs login`, ghost-small `Log in · <Agent>` buttons appear for
-  agents with an `mcp login` CLI (Claude, Codex — never Copilot).
-- `.mcp-scope` chips stay, read-only: they say *where* a server is defined. Turning it
-  on and off belongs to the Panel, and this tab must never grow a second way to do it.
+An MCP row carries two facts no switch can carry, both in the row's own detail — there
+is no health tab, and there must never be a second place to turn a server on.
+
+- **What it is** (`.pnl-def`, from `mcpLabel`): where the code comes from, what it is
+  called, and which version — `npm · @playwright/mcp 0.0.78`, `PyPI · analytics-mcp
+  latest`, `http · app.example.dev`, `local · node scripts/db-mcp.js`. Never the raw
+  launch line, which is the command the agent runs rather than the thing it runs; that
+  stays one click away, per agent, in the field table. Anything `describeMcp` can't read
+  confidently falls back to the command itself rather than guessing a package name.
+- **Whether it answers**: per-row **Check** probes it and reports through an
+  `.mcp-status` pill — `answers` (ok), `needs login` (warn), `unreachable` (danger,
+  detail in the line beside it), `checking…` in flight. When a server reports `needs
+  login`, ghost-small `Log in · <Agent>` buttons appear for agents with an `mcp login`
+  CLI (Claude, Codex — never Copilot).
+- **Whether there is a newer one** (`.pnl-ver`, the health line's shape: one fact, one
+  `.mcp-status` pill, one action). Only a server pinned to an exact version gets this
+  line at all — an unpinned runner installs the latest at every launch, so there is
+  nothing to suggest, and saying "up to date" about it would be noise. The registry is
+  asked once when the section opens and never on a schedule; offline the line says which
+  registry didn't answer and the row still says what it is pinned to.
+  - A newer release rides the row's own line as `.mcp-bump` ("update 0.0.81"), inside
+    `.pnl-entry` beside the title — **not** in the `.pnl-flag` slot, which is for a
+    disagreement waiting to be settled, and not in `.pnl-def`, which sheds at ≤780px.
+    News about the world outlives the widths where decoration goes.
+  - The action is one button, `Update to <version>`, and it may only offer the version
+    the registry just gave: the pin is rewritten wherever that server is switched on and
+    nothing else in the command changes.
 
 ## Shared list vocabulary
 

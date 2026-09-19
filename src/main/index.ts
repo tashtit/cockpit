@@ -32,8 +32,10 @@ import {
   getPanel,
   keepPanelDifference,
   matchPanelEntry,
+  mcpVersionsFor,
   removePanelEntry,
   restorePanelEntry,
+  setMcpVersion,
   setPanelSwitch
 } from './library'
 import { assertChatImages, saveChatImage } from './chat-images'
@@ -617,6 +619,12 @@ app.whenReady().then(() => {
         : undefined
     return loginMcp(String(name), provider, { cwd })
   })
+  ipcMain.handle(CH.extensionsMcpVersions, (_e, repoRoot: string | null) =>
+    mcpVersionsFor(asScope(repoRoot))
+  )
+  ipcMain.handle(CH.extensionsSetMcpVersion, (_e, target: PanelTarget, version: string) =>
+    setMcpVersion(asTarget(target), String(version))
+  )
 
   // instruction scopes come from the renderer — null = global, else a repo the
   // indexer itself derived (never an arbitrary path)

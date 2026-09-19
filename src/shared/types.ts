@@ -552,6 +552,25 @@ export type McpProbeResult = {
   readonly detail?: string
 }
 
+/**
+ * What a registry said about a server that pins an exact version. Only pinned
+ * package servers get one: an unpinned runner already installs the newest release
+ * at every launch, and a remote server has no version to compare.
+ */
+export type McpVersion = {
+  /** the server's name, as the panel lists it */
+  readonly name: string
+  readonly registry: 'npm' | 'pypi'
+  readonly pkg: string
+  /** the version the definition pins */
+  readonly current: string
+  /** the newest release, when the registry answered */
+  readonly latest?: string
+  readonly status: 'update' | 'current' | 'unknown'
+  /** why the registry couldn't answer (status 'unknown') */
+  readonly detail?: string
+}
+
 export type SkillInfo = {
   readonly name: string
   readonly description: string
