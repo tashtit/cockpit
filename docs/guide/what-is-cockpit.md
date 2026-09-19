@@ -26,7 +26,7 @@ Sessions that don't belong to any repository land in a flat **Chats** section at
 
 ## What's in the window
 
-- **Home — mission control.** A task composer front and center: pick a repo, agent, account, and permission mode, then ⌘Enter to start. Recent activity lives below; the sidebar stays the exhaustive list.
+- **Home — mission control.** The board of recent agent work reads above, and the task composer is docked to the bottom edge like a chat's: pick a repo, agent, account, and permission mode, then ⌘Enter to start. The page itself never scrolls — the board's rows do — so the composer is on screen however busy the board is. The sidebar stays the exhaustive list.
 - **Sessions.** Click any session for a parsed transcript — messages, tool calls, results. Type in an indexed session to continue it. See [Sessions & the index](/guide/sessions).
 - **Chat.** Cockpit spawns the provider CLI headless and streams replies and tool activity live. See [Chat](/guide/chat).
 - **Agents.** Shared instructions with drift detection, MCP/skills/plugins inventory, and one-click sharing across the three agents. See [The Agents view](/guide/agents).

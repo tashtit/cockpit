@@ -146,27 +146,25 @@ describe('landed sessions', () => {
     stop()
   })
 
-  it('keeps the composer above the fleet, busy or quiet', async () => {
+  it('reads board first, composer docked under it — busy or quiet', async () => {
     const stop = initLanded()
     renderHome()
     await screen.findByText('fix the login flake')
-    const placed = (): { composerAt: number; boardAt: number } => {
-      const order = [...document.querySelector('.home-inner')!.children].map((el) => el.className)
-      return {
-        composerAt: order.findIndex((c) => c.includes('composer-card')),
-        boardAt: order.findIndex((c) => c.includes('board'))
-      }
+    /** DOCUMENT_POSITION_FOLLOWING: the composer comes after the board in the page. */
+    const composerFollowsBoard = (): boolean => {
+      const board = document.querySelector('.board')!
+      const composer = document.querySelector('.composer-card')!
+      return (board.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
     }
-    const quiet = placed()
-    expect(quiet.composerAt).toBeGreaterThanOrEqual(0)
-    expect(quiet.boardAt).toBeGreaterThan(quiet.composerAt)
+    // the board reads above; the composer is the docked footer, never part of the scroll
+    expect(composerFollowsBoard()).toBe(true)
+    expect(document.querySelector('.home-stack')!.contains(document.querySelector('.board'))).toBe(true)
+    expect(document.querySelector('.home-dock')!.contains(document.querySelector('.composer-card'))).toBe(true)
 
     // a landing changes the board's rows, never the board's place on the page
     pushLandings([{ id: 'claude:one', at: Date.now(), kind: 'landed' }])
     await waitFor(() => expect(screen.getByText(/1 landed/)).toBeInTheDocument())
-    const busy = placed()
-    expect(busy.composerAt).toBe(quiet.composerAt)
-    expect(busy.boardAt).toBeGreaterThan(busy.composerAt)
+    expect(composerFollowsBoard()).toBe(true)
     stop()
   })
 })

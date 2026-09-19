@@ -231,148 +231,156 @@ export function HomeView({
 
   return (
     <main className="chat home-view">
-      <div className="home-inner">
-        {/* the composer always opens the view and the board always follows it: the one
-            thing this screen is for must not move under you, and a board that took the
-            top whenever a turn started pushed it off screen exactly when work was busiest */}
-        <div className="home-hero">
-          <h2>
-            What should we ship
-            {accounts?.githubUser ? (
-              <span className="hero-name">, {firstName(accounts.githubUser)}?</span>
-            ) : (
-              '?'
-            )}
-          </h2>
-          <p className="home-sub">
-            {canStart ? (
-              <>Assign a task to an agent — it runs in an isolated worktree and lands as a PR.</>
-            ) : needsSetup ? (
-              <>Cockpit reads the sessions your agent CLIs already write. Three things and you fly.</>
-            ) : null}
-            <span className="home-kbd">⌘N new task · ⌘K jump anywhere</span>
-          </p>
-        </div>
-
-        {needsSetup ? (
-          <Setup
-            signedIn={(accounts?.accounts.length ?? 0) > 0}
-            indexed={selectable.length > 0}
-            githubUser={accounts?.githubUser ?? null}
-            onOpenSettings={onOpenSettings}
-          />
-        ) : canStart ? (
-        <div className="composer-card">
-          <AttachRow atts={atts} />
-          <textarea
-            ref={promptRef}
-            aria-label="Task description"
-            placeholder="Describe a task…  (⌘Enter to start)"
-            rows={3}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onPaste={atts.onPaste}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
-            }}
-          />
-          <div className="composer-bar">
-            <span className="composer-repo-icon"><RepoIcon size={13} /></span>
-            <Select
-              className="composer-repo"
-              ariaLabel="Repository"
-              value={selected?.key ?? ''}
-              options={
-                selectable.length > 0
-                  ? selectable.map((r) => ({ value: r.key, label: r.fullName ?? r.name }))
-                  : [{ value: '', label: 'no repositories indexed yet' }]
-              }
-              onChange={setRepoKey}
-            />
-            <div className="composer-identity">
-              <div className="composer-agents" role="group" aria-label="Agent">
-                {PROVIDERS.map((p) => {
-                  const pAcct = savedAccount(accounts, p)
-                  return (
-                    <button
-                      key={p}
-                      aria-pressed={provider === p}
-                      aria-label={PROVIDER_LABEL[p]}
-                      title={`${PROVIDER_LABEL[p]} — ${pAcct?.display ?? 'not signed in'}`}
-                      className={`composer-agent plogo-${p} ${provider === p ? 'active' : ''} ${
-                        accounts !== null && !pAcct ? 'no-acct' : ''
-                      }`}
-                      onClick={() => setProvider(p)}
-                    >
-                      <ProviderLogo p={p} size={15} />
-                    </button>
-                  )
-                })}
-              </div>
-              {accounts === null ? (
-                // still loading — an empty placeholder, never a false "not signed in"
-                <span className="acct-chip" aria-hidden="true">
-                  …
-                </span>
-              ) : opts.length > 0 ? (
-                <Select
-                  className="composer-acct-wrap"
-                  mono
-                  quiet
-                  ariaLabel={`${PROVIDER_LABEL[provider]} account`}
-                  title={`${PROVIDER_LABEL[provider]} account in use`}
-                  value={account?.key ?? ''}
-                  options={opts.map((o) => ({ value: o.key, label: o.display }))}
-                  onChange={(v) => {
-                    window.localStorage.setItem(`cockpit:account:${provider}`, v)
-                    setAccountKey(v)
-                  }}
-                />
+      {/* Two fixed regions, and the order never varies: the board reads above, the
+          composer is docked to the bottom edge. Nothing about the page as a whole
+          scrolls — only the board's own rows do — so the one thing this screen is for
+          is on screen at every window size, however much is flying. */}
+      <div className="home-stack">
+        <div className="home-inner">
+          <div className="home-hero">
+            <h2>
+              What should we ship
+              {accounts?.githubUser ? (
+                <span className="hero-name">, {firstName(accounts.githubUser)}?</span>
               ) : (
-                <span className="acct-chip missing">not signed in</span>
+                '?'
               )}
-            </div>
-            <Select
-              ariaLabel="Permission mode"
-              value={mode}
-              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-              onChange={(v) => setMode(v as PermissionMode)}
-            />
-            <button
-              className="btn-primary"
-              title={account ? `runs as ${account.display}` : undefined}
-              disabled={
-                busy ||
-                (!prompt.trim() && atts.attachments.length === 0) ||
-                !selected ||
-                (accounts !== null && !account)
-              }
-              onClick={() => void start()}
-            >
-              {busy ? 'Starting…' : `Start with ${PROVIDER_LABEL[provider]}`}
-            </button>
+            </h2>
+            <p className="home-sub">
+              {canStart ? (
+                <>Assign a task to an agent — it runs in an isolated worktree and lands as a PR.</>
+              ) : needsSetup ? (
+                <>Cockpit reads the sessions your agent CLIs already write. Three things and you fly.</>
+              ) : null}
+              <span className="home-kbd">⌘N new task · ⌘K jump anywhere</span>
+            </p>
           </div>
+
+          {fleet}
         </div>
-        ) : null}
-        <div className="home-more">
-          <button className="link-btn" disabled={busy} onClick={onNewRoundtable}>
-            Start a roundtable — several agents, one discussion
-          </button>
-          {selected && (
-            <button
-              className="link-btn"
-              disabled={busy}
-              onClick={() => onOpenFull(selected, prompt, atts.release())}
-            >
-              All options — branch name, model, custom model provider…
+      </div>
+
+      <div className="home-dock">
+        <div className="home-dock-inner">
+          {needsSetup ? (
+            <Setup
+              signedIn={(accounts?.accounts.length ?? 0) > 0}
+              indexed={selectable.length > 0}
+              githubUser={accounts?.githubUser ?? null}
+              onOpenSettings={onOpenSettings}
+            />
+          ) : canStart ? (
+            <div className="composer-card">
+              <AttachRow atts={atts} />
+              <textarea
+                ref={promptRef}
+                aria-label="Task description"
+                placeholder="Describe a task…  (⌘Enter to start)"
+                rows={3}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onPaste={atts.onPaste}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
+                }}
+              />
+              <div className="composer-bar">
+                <span className="composer-repo-icon"><RepoIcon size={13} /></span>
+                <Select
+                  className="composer-repo"
+                  ariaLabel="Repository"
+                  value={selected?.key ?? ''}
+                  options={
+                    selectable.length > 0
+                      ? selectable.map((r) => ({ value: r.key, label: r.fullName ?? r.name }))
+                      : [{ value: '', label: 'no repositories indexed yet' }]
+                  }
+                  onChange={setRepoKey}
+                />
+                <div className="composer-identity">
+                  <div className="composer-agents" role="group" aria-label="Agent">
+                    {PROVIDERS.map((p) => {
+                      const pAcct = savedAccount(accounts, p)
+                      return (
+                        <button
+                          key={p}
+                          aria-pressed={provider === p}
+                          aria-label={PROVIDER_LABEL[p]}
+                          title={`${PROVIDER_LABEL[p]} — ${pAcct?.display ?? 'not signed in'}`}
+                          className={`composer-agent plogo-${p} ${provider === p ? 'active' : ''} ${
+                            accounts !== null && !pAcct ? 'no-acct' : ''
+                          }`}
+                          onClick={() => setProvider(p)}
+                        >
+                          <ProviderLogo p={p} size={15} />
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {accounts === null ? (
+                    // still loading — an empty placeholder, never a false "not signed in"
+                    <span className="acct-chip" aria-hidden="true">
+                      …
+                    </span>
+                  ) : opts.length > 0 ? (
+                    <Select
+                      className="composer-acct-wrap"
+                      mono
+                      quiet
+                      ariaLabel={`${PROVIDER_LABEL[provider]} account`}
+                      title={`${PROVIDER_LABEL[provider]} account in use`}
+                      value={account?.key ?? ''}
+                      options={opts.map((o) => ({ value: o.key, label: o.display }))}
+                      onChange={(v) => {
+                        window.localStorage.setItem(`cockpit:account:${provider}`, v)
+                        setAccountKey(v)
+                      }}
+                    />
+                  ) : (
+                    <span className="acct-chip missing">not signed in</span>
+                  )}
+                </div>
+                <Select
+                  ariaLabel="Permission mode"
+                  value={mode}
+                  options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+                  onChange={(v) => setMode(v as PermissionMode)}
+                />
+                <button
+                  className="btn-primary"
+                  title={account ? `runs as ${account.display}` : undefined}
+                  disabled={
+                    busy ||
+                    (!prompt.trim() && atts.attachments.length === 0) ||
+                    !selected ||
+                    (accounts !== null && !account)
+                  }
+                  onClick={() => void start()}
+                >
+                  {busy ? 'Starting…' : `Start with ${PROVIDER_LABEL[provider]}`}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="home-more">
+            <button className="link-btn" disabled={busy} onClick={onNewRoundtable}>
+              Start a roundtable — several agents, one discussion
             </button>
+            {selected && (
+              <button
+                className="link-btn"
+                disabled={busy}
+                onClick={() => onOpenFull(selected, prompt, atts.release())}
+              >
+                All options — branch name, model, custom model provider…
+              </button>
+            )}
+          </div>
+          {mode === 'yolo' && (
+            <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
           )}
+          {error && <div className="new-error" role="alert">{error}</div>}
         </div>
-        {mode === 'yolo' && (
-          <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
-        )}
-        {error && <div className="new-error" role="alert">{error}</div>}
-        {fleet}
       </div>
     </main>
   )

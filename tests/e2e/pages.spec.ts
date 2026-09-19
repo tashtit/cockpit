@@ -483,6 +483,21 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   await win.keyboard.press('ControlOrMeta+n')
   await expect(win.getByRole('button', { name: /^Start with/ })).toBeVisible()
   expect(await audit()).toEqual([])
+  // home is a frame, not a page: the composer is docked to the bottom edge and on
+  // screen without a scroll however many rows the board has, and the board is what
+  // gives way — it scrolls its own list. This is the shape at its tightest.
+  expect(
+    await win.evaluate(() => {
+      const bad: string[] = []
+      const doc = document.documentElement
+      if (doc.scrollHeight > window.innerHeight + 1) bad.push('the page itself scrolls')
+      const start = document.querySelector('.composer-bar .btn-primary')!.getBoundingClientRect()
+      if (start.top < 0 || start.bottom > window.innerHeight + 1) bad.push('Start is off screen')
+      const list = document.querySelector('.board-list')!
+      if (list.scrollHeight <= list.clientHeight + 1) bad.push('the board is not the one giving way')
+      return bad
+    })
+  ).toEqual([])
 
   await win.keyboard.press('ControlOrMeta+k')
   await expect(win.getByRole('dialog', { name: 'Jump to' })).toBeVisible()

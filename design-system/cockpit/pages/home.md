@@ -2,36 +2,60 @@
 
 > Extends `MASTER.md`. Rules here win for this view.
 
-**Pattern:** mission control, in a fixed order: **the composer opens the view, the board
-always follows it.** The board is the app's signature element and the composer is the action,
-but the action is what the screen is *for* — so it never moves. The order used to be the
-view's one piece of state (the board took the top whenever anything was flying or had landed
-unseen), and it turned out to hide the composer exactly when work was busiest: at a 900px
-window a full board pushed it to the bottom edge, at the 560×420 floor off screen entirely.
-Nothing is hidden either way; the order is simply no longer a variable. This is the only view
-allowed hero-scale type (`--fs-xl`) and a floating card shadow (the composer card — the board
-is deliberately a quiet instrument surface, no shadow).
+**Pattern:** mission control, in a fixed order: **the board reads above, the composer is
+docked to the bottom edge** — a chat's shape, which is what the view is. The board is the
+app's signature element and the composer is the action, but the action is what the screen is
+*for*, so it is the one thing that never moves: it lives outside the scroll entirely.
+
+The order was a variable once (the board took the top whenever anything was flying or had
+landed unseen) and that hid the composer exactly when work was busiest — at a 900px window a
+full board pushed it to the bottom edge, at the 560×420 floor off screen entirely. Pinning
+the composer to the *top* fixed that and cost the board: past ten rows it was the board that
+fell off the bottom, and on a short window you scrolled the whole page to see what was
+flying. Docking is what answers both — **nothing about the page scrolls, only the board's own
+rows** — so neither half can push the other out of the window. Don't reintroduce a page-level
+scroll here, and don't make either region's place depend on what is happening.
+
+This is the only view allowed hero-scale type (`--fs-xl`) and a floating card shadow (the
+composer card — the board is deliberately a quiet instrument surface, no shadow).
 
 ## Layout
 
-- `.home-inner`: `min(700px, 94%)` column, vertically centered (`justify-content: center`),
-  `--s5` gaps. Scrolls as a whole (`.home-view { overflow-y: auto }`). Centering is
-  `justify-content: safe center` and children carry `flex-shrink: 0` — both load-bearing:
-  unqualified centering clips the top out of scroll reach, and shrinkable children let the
-  composer card collapse to a sliver on short windows.
-- Order, always: hero (h2 + sub + kbd hints; no logo — the sidebar carries the mark) →
-  `.composer-card` → `.home-more` → error line → **the fleet** (`.board`, which carries
-  sessions and roundtables alike). The board renders whenever it has a row; what is
-  happening changes the rows and their order, never the board's place on the page.
+- `.home-view` is a frame, not a page: `display: flex; flex-direction: column;
+  overflow: hidden`. Two children, and only one of them can give way.
+- `.home-stack` — the reading half: `flex: 1; min-height: 0`, holding `.home-inner`
+  (`min(700px, 94%)` column, `--s5` gaps). Its content sits on the dock
+  (`justify-content: safe flex-end`): the hero is the composer's caption and reads
+  directly above it when the board is short or absent, and a growing board grows
+  *upward*, away from the composer. `safe` is load-bearing — an unqualified `flex-end`
+  clips the top of the column out of scroll reach. The stack keeps `overflow-y: auto`
+  as a last-resort escape valve (`scrollbar-gutter: stable both-edges`, since it
+  centers a column), but it is not the normal scroller: the board gives way first, and
+  only a window too short for the hero plus one row ever reaches it.
+- `.home-dock` — the acting half: `flex: none`, the chat composer's chrome recipe
+  (`border-top` + `--pane`) over `.home-dock-inner`, the same `min(700px, 94%)` column.
+  Its children carry `flex-shrink: 0` — without it the composer card
+  (`overflow: hidden` → zero min-content) collapses to a sliver on short windows.
+- Order, always: **stack** — hero (h2 + sub + kbd hints; no logo — the sidebar carries
+  the mark) → **the fleet** (`.board`, which carries sessions and roundtables alike);
+  **dock** — `.composer-card` → `.home-more` → YOLO hint → error line. The board renders
+  whenever it has a row; what is happening changes the rows and their order, never
+  either region's place on the page.
 - The hero h2 is flat `--fg` (no gradient-clip decoration), set in the mono placard
   voice (the identity layer re-voices it; see MASTER Typography); when `gh` reports a
   user the headline personalizes — "What should we ship`, Titan?`" — the login's first
   hyphen/dot/underscore segment, capitalized (`firstName()`), in dim `.hero-name`.
-- Short windows (≤600px height): hero is dropped, content top-aligns — the composer and
-  the board are the priority, never the branding.
+- Short windows (≤600px height): the hero is dropped and `.home-stack` trims to
+  `--s4` padding — the board and the composer are the priority, never the branding.
 
 ## The board (`.board`)
 
+- **The view's only scroll.** The board is a flex column (`min-height: 0`) whose
+  `.board-head` is `flex: none` and whose `.board-list` carries `overflow-y: auto`: it
+  takes whatever height the window leaves above the dock and gives way by scrolling its
+  rows, never by shrinking its head — the counts are what the head is for. At the floor
+  and at 200% zoom that is two or three rows, with the next one half-shown; that cut row
+  is the scroll affordance, don't pad it away.
 - Grammar per row (`.board-row`, a button that opens the session): status dot ·
   `.board-agent` placard (`.board-lead`, fixed 68px column, uppercase micro-caps) ·
   `.board-branch` slot (fixed 150px, holding the `BranchChip`) · title (truncates) ·
@@ -79,8 +103,8 @@ is deliberately a quiet instrument surface, no shadow).
 ## First run (`Setup`, `.setup-card`)
 
 - When Cockpit cannot start anything — no agent signed in, or no repository indexed —
-  the composer card is **replaced** by the same card shape holding the three things it
-  needs: sign in to an agent · point Cockpit at your work · connect GitHub for PRs.
+  the composer card is **replaced** in the dock by the same card shape holding the three
+  things it needs: sign in to an agent · point Cockpit at your work · connect GitHub for PRs.
   A disabled Start button that says nothing is an accurate screen that helps nobody.
 - Steps already satisfied stay on screen, ticked (`CheckIcon` in `--ok`, the title
   quieted, an `sr-only` "— done"): the card is a progress readout, not a gate that
@@ -111,9 +135,9 @@ is deliberately a quiet instrument surface, no shadow).
 - Bar order is fixed: repo icon + repo select · `.composer-identity` (agent picker +
   account select fused into one bordered control — they answer one question, "who runs
   this") · permission mode select · `.btn-primary` pushed right with `margin-left: auto`.
-- `.home-more`: a right-aligned `.link-btn` line directly under the card — "All options —
-  branch name, model, custom model provider…" — the discoverable path into the full New
-  session form; it carries the typed draft over, so clicking it never loses work. Kept
+- `.home-more`: a right-aligned `.link-btn` line directly under the card, inside the dock
+  — "All options — branch name, model, custom model provider…" — the discoverable path
+  into the full New session form; it carries the typed draft over, so clicking it never loses work. Kept
   out of the bar on purpose: the bar is width-budgeted and must stay one line.
 - Agent picker: `.composer-agent` logo buttons, `aria-pressed` + `aria-label`; active =
   agent-tinted background + 1.5px inset ring in the agent color. Signed-out agents get the

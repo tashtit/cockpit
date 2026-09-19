@@ -1045,18 +1045,36 @@ summary::-webkit-details-marker { display: none; }
 .empty-chat.small { flex: none; padding: var(--s6); align-self: center; }
 
 /* ---------- mission-control home ---------- */
-.home-view { overflow-y: auto; scrollbar-gutter: stable both-edges; }
-.home-inner { width: min(700px, 94%); margin: 0 auto; padding: var(--s6) 0;
-  display: flex; flex-direction: column; gap: var(--s5); min-height: 100%;
-  /* `safe` falls back to flex-start when content overflows — an unqualified center
-     would clip the top of the column out of scroll reach */
-  justify-content: safe center; }
+/* Two regions and a fixed frame: the board reads above, the composer is docked to
+   the bottom edge. The page as a whole never scrolls — the board's own rows do — so
+   the one thing this screen is for is on screen whatever the window's height, and a
+   busy board can no longer walk the composer off the bottom. */
+.home-view { display: flex; flex-direction: column; overflow: hidden; }
+.home-stack { flex: 1; min-height: 0; display: flex; flex-direction: column;
+  padding: var(--s6) 0 var(--s5);
+  /* the column sits on the dock rather than floating in the middle of the region:
+     the hero is the composer's caption and reads directly above it when the board is
+     short or absent, and a board that grows grows upward, away from the composer.
+     The region is the last-resort scroller, not the normal one — the board gives way
+     first, and only a window too short for the hero and one row reaches this; `safe`
+     falls back to flex-start when it does, since an unqualified flex-end would clip
+     the top of the column out of scroll reach */
+  justify-content: safe flex-end; overflow-y: auto;
+  scrollbar-gutter: stable both-edges; }
+.home-inner { width: min(700px, 94%); margin: 0 auto; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--s5); }
+/* the composer, docked: the chat composer's chrome recipe, over the column the board
+   reads in. `flex: none` is what keeps it out of the height negotiation above. */
+.home-dock { flex: none; border-top: 1px solid var(--border); background: var(--pane);
+  padding: var(--s4) 0 var(--s5); }
+.home-dock-inner { width: min(700px, 94%); margin: 0 auto;
+  display: flex; flex-direction: column; gap: var(--s4); }
 /* children must never shrink below content height — without this the composer card
    (overflow: hidden → zero min-content) collapses to a sliver on short windows */
-.home-inner > * { flex-shrink: 0; }
+.home-dock-inner > * { flex-shrink: 0; }
 .home-hero { display: flex; flex-direction: column; align-items: center; gap: var(--s2);
-  text-align: center; }
-/* flat, quietly confident — the board above it is the view's one bold move */
+  text-align: center; flex-shrink: 0; }
+/* flat, quietly confident — the board under it is the view's one bold move */
 .home-hero h2 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.5px; }
 .hero-name { color: var(--fg-dim); font-weight: 400; }
 .home-sub { color: var(--fg-dim); font-size: var(--fs-sm); display: flex;
@@ -1113,12 +1131,16 @@ summary::-webkit-details-marker { display: none; }
    A departure-board of sessions, flying first. Quiet instrument surface on
    purpose — the composer card below keeps the view's only floating shadow. */
 .board { border: 1px solid var(--border); border-radius: var(--radius-lg);
-  background: var(--surface); overflow: hidden; }
-.board-head { padding: var(--s2) var(--s4); border-bottom: 1px solid var(--border); }
+  background: var(--surface); overflow: hidden;
+  /* the board takes what the window leaves and gives way by scrolling its rows —
+     never by shrinking its head, which is where the counts are read */
+  display: flex; flex-direction: column; min-height: 0; }
+.board-head { flex: none; padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--border); }
 .board-eyebrow { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.9px; color: var(--fg-dim); }
 .board-eyebrow b { color: var(--fg); font-weight: 700; }
-.board-list { list-style: none; }
+.board-list { list-style: none; overflow-y: auto; min-height: 0; }
 .board-list li + li .board-row { border-top: 1px solid var(--border); }
 .board-row { display: flex; align-items: center; gap: var(--s3); width: 100%;
   text-align: left; padding: var(--s2) var(--s4); min-height: 32px;
@@ -2060,7 +2082,7 @@ button.pnl-flag:hover { text-decoration: underline; }
 }
 @media (max-height: 600px) {
   .home-hero { display: none; }
-  .home-inner { justify-content: flex-start; padding-top: var(--s4); }
+  .home-stack { padding-block: var(--s4); }
   .ns-card { margin: var(--s3) auto; }
 }
 @media (max-width: 700px) {
