@@ -91,6 +91,15 @@ ul, ol { padding: 0; }
      preference; on big windows the exchange centers instead of stranding user
      bubbles a screen away from the replies */
   --chat-col: 860px;
+  /* The live zoom factor, written by App.tsx. Everything in this file is in CSS
+     pixels, which zoom rescales — but the macOS traffic lights are drawn by the OS
+     at a fixed physical size, so the one measurement that has to match them is
+     divided by this and stays put. Nothing else should need it. */
+  --zoom: 1;
+  /* clearance under the traffic lights (hiddenInset puts them at y=14, ~12 tall),
+     in the points they are drawn in rather than in pixels that zoom rescales:
+     at 70% a flat 40px left 28pt against their 26, a 2pt margin */
+  --traffic-clear: calc(40px / var(--zoom));
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -149,7 +158,10 @@ button, input, select, textarea, details { transition: background var(--dur) var
    identical. Sits under the traffic lights (text is centered clear of them),
    doubles as a drag region; the branch text itself is copyable. */
 .dev-banner { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center;
-  height: 28px; background: rgba(var(--branch-rgb), 0.09);
+  /* the banner is what clears the lights when it is up, so its floor answers to the
+     same measurement the sidebar's pad does rather than to a height zoom rescales —
+     a floor, not a height: its own text grows with the zoom while the lights do not */
+  min-height: calc(28px / var(--zoom)); background: rgba(var(--branch-rgb), 0.09);
   border-bottom: 1px solid rgba(var(--branch-rgb), 0.25);
   color: var(--branch); font-family: var(--mono); font-size: var(--fs-xs);
   -webkit-app-region: drag; }
@@ -158,7 +170,7 @@ button, input, select, textarea, details { transition: background var(--dur) var
 .dev-banner svg { flex-shrink: 0; }
 /* the banner row claims the traffic-light clearance, so the sidebar top sheds
    its 40px pad; the banner also replaces the 22px strip as the top drag target */
-.app:has(.dev-banner) { grid-template-rows: 28px minmax(0, 1fr); }
+.app:has(.dev-banner) { grid-template-rows: auto minmax(0, 1fr); }
 .app:has(.dev-banner) .tree-top { padding-top: var(--s3); }
 .tree-top button, .chat-header button { -webkit-app-region: no-drag; }
 /* the subtitle carries paths/branches a developer copies — selectable, not draggable */
@@ -223,8 +235,8 @@ summary::-webkit-details-marker { display: none; }
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; min-height: 0; backdrop-filter: blur(8px); }
 .tree-top { display: flex; align-items: center; gap: var(--s1);
-  /* clears the macOS traffic lights (hiddenInset) */
-  padding: 40px var(--s4) var(--s3); }
+  /* clears the macOS traffic lights (hiddenInset) — see --traffic-clear */
+  padding: var(--traffic-clear) var(--s4) var(--s3); }
 /* the wordmark speaks the instrument voice: mono, wide-tracked, beside the mark */
 .app-title { font-size: var(--fs-base); font-weight: 700; letter-spacing: 1.5px;
   font-family: var(--mono); text-transform: uppercase; display: flex;
@@ -1071,7 +1083,10 @@ summary::-webkit-details-marker { display: none; }
 /* agent picker + account form one "who runs this" control.
    1px padding: 24px agents + padding + border = 28px, level with the bar's selects */
 .composer-identity { display: inline-flex; align-items: center; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); padding: 1px; }
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 1px;
+  /* the bar wraps, but this control also has to give way inside its own line: without
+     this the account select holds its 210px and the card clips its right edge off */
+  min-width: 0; }
 .composer-identity .composer-agents { border: none; background: none; padding: 0 4px 0 0;
   margin-right: 6px; border-right: 1px solid var(--border); border-radius: 0; }
 .composer-agents { display: flex; gap: 2px; background: var(--surface);
@@ -1091,7 +1106,7 @@ summary::-webkit-details-marker { display: none; }
 .composer-agent.no-acct::after { content: ''; position: absolute; top: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
 /* account select sits borderless inside the identity control (quiet variant) */
-.composer-acct-wrap { max-width: 210px; }
+.composer-acct-wrap { max-width: 210px; min-width: 0; }
 /* every control in the bar is 28px tall — one shared bottom edge, no ragged line */
 .composer-bar .btn-primary { margin-left: auto; padding: 5px var(--s5); }
 /* ---------- the board: the home view's opening move ----------
@@ -1111,8 +1126,11 @@ summary::-webkit-details-marker { display: none; }
 .board-row:hover { background: var(--bg3); }
 /* the lead column (placard, or a table's seat cluster) and the branch slot are both
    fixed-width, so every task title starts on one grid line — a ragged title edge
-   made the list read as a pile instead of a board */
-.board-lead { flex: 0 0 68px; }
+   made the list read as a pile instead of a board. The lead asks for its 68px and
+   gives them back rather than clipping: past the floor a row's reason ("#57 checks
+   failing") no longer fits beside it, and the placard is the part that can afford to. */
+.board-lead { flex: 0 1 68px; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 .board-branch { flex: 0 0 150px; min-width: 0; display: flex; }
 .board-branch .branch-chip { max-width: 100%; }
 .board-agent { font-size: var(--fs-xs); font-weight: 700;
@@ -1535,7 +1553,7 @@ summary::-webkit-details-marker { display: none; }
    every row underneath means. Everything else lives on the row it belongs to. */
 .scope-line { display: flex; align-items: center; gap: var(--s3); }
 .scope-seg { display: flex; align-items: stretch; border: 1px solid var(--border);
-  border-radius: var(--radius); overflow: hidden; }
+  border-radius: var(--radius); overflow: hidden; min-width: 0; }
 .scope-opt { padding: 0 var(--s4); min-height: 28px; font-family: var(--mono);
   font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.9px; color: var(--fg-dim); background: var(--bg2);
@@ -1544,7 +1562,9 @@ summary::-webkit-details-marker { display: none; }
 .scope-opt:hover { color: var(--fg); }
 .scope-opt.active { color: var(--fg); background: var(--bg3);
   box-shadow: inset 0 2px 0 var(--accent); }
-.scope-seg .select-wrap { min-width: 190px; }
+/* the project name asks for its 190px as a width, not as a floor: as a min-width the
+   switch stayed 260px wide in a narrower card and clipped instead of giving way */
+.scope-seg .select-wrap { width: 190px; min-width: 0; }
 .scope-seg .select-trigger { border: none; border-radius: 0; background: var(--bg2);
   min-height: 28px; }
 .scope-select.active .select-trigger { background: var(--bg3); color: var(--fg);
@@ -2055,4 +2075,16 @@ button.pnl-flag:hover { text-decoration: underline; }
   .perm-body { flex-basis: 100%; }
   .perm-actions { flex: 1; }
   .perm-actions button { flex: 1; }
+}
+/* Below the floor. Only a display too small to grant the zoomed floor reaches this —
+   main keeps the window's minimum at 560x420 CSS px wherever the screen allows it
+   (`zoomedFloor`) — so this is the one tier that exists for a window smaller than the
+   layout, not for a layout that wants rearranging. Nothing above 559px sees it: the
+   floor's own layout is what every audit and every screenshot is taken of. */
+@media (max-width: 559px) {
+  /* the chat header's keys and PR badge are already as small as they shed to, and the
+     row has nowhere left to give — they walked out of the window instead. The session's
+     name takes the row (it is what the header exists to say) and they take the next. */
+  .chat-header { flex-wrap: wrap; }
+  .chat-header-text { flex-basis: 100%; }
 }

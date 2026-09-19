@@ -273,9 +273,16 @@ export type CockpitApi = {
   readonly onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => () => void
 
   /* ---------- the window and the app shell ---------- */
-  /** Renderer zoom (webFrame) — synchronous, clamped to sane limits */
+  /** Renderer zoom (webFrame) — synchronous, clamped to ZOOM_MIN/ZOOM_MAX */
   readonly getZoomFactor: () => number
   readonly setZoomFactor: (factor: number) => void
+  /**
+   * Tell main the layout is now at this zoom, so the window's minimum size can keep
+   * the 560x420 floor in CSS pixels. Only the renderer sees every change: the menu's
+   * zoom items act in main with no event, and the chip's own reset acts in preload —
+   * both land as a layout resize here. Answers with the level main settled on.
+   */
+  readonly reportZoom: (factor: number) => Promise<number>
   readonly openExternal: (url: string) => Promise<void>
   readonly onIndexUpdated: (cb: () => void) => () => void
 
@@ -427,6 +434,8 @@ export const CH = {
   updatesSetPrefs: 'updates:set-prefs',
 
   usageGet: 'usage:get',
+
+  windowZoom: 'window:zoom',
 
   workspaceCreate: 'workspace:create',
   workspaceDiff: 'workspace:diff',

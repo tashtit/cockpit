@@ -32,6 +32,21 @@ Sessions that don't belong to any repository land in a flat **Chats** section at
 - **Agents.** Shared instructions with drift detection, MCP/skills/plugins inventory, and one-click sharing across the three agents. See [The Agents view](/guide/agents).
 - **Settings.** Accounts and config-home sources, subscription usage, history window, GitHub identity. See [Accounts & usage](/guide/accounts-and-usage).
 
+## Resizing and zoom
+
+The window can be dragged down to 560×420, and every view is checked at exactly that size.
+As it narrows, rows shed decorative chips and labels — one at a time, in the order that costs
+you least — so nothing truncates and nothing escapes the window.
+
+⌘+ and ⌘− zoom the whole interface between 70% and 200%; ⌘0 returns to 100%, as does clicking
+the percentage beside the wordmark, which appears whenever you are not at 100%. The level is
+remembered — set it once and every later launch opens there.
+
+Zooming in makes everything bigger, which leaves the same window with less layout to show — so
+Cockpit raises the window's minimum in step. At 150% the window will not go below 840×630, which
+is the same amount of layout as 560×420 at 100%. If a zoom level needs more room than the display
+has, the minimum stops at the screen and the views go on shedding rather than breaking.
+
 ## How it's built
 
 Three Electron processes with a strict boundary: all filesystem, git, and CLI work happens in the main process; the React UI is fully sandboxed and only ever sees paged, validated data over a typed IPC surface. The indexer is deliberately frugal — it walks only per-provider session roots, reads at most 256&nbsp;KB per file, and persists a stat-cache so restarts re-parse only what changed. Session log formats are provider-internal and drift between releases, so parsers skip what they can't read rather than fail the scan.

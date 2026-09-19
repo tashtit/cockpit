@@ -23,6 +23,7 @@ import type {
   UpdatePrefs
 } from '../shared/types'
 import { CH, PUSH, type PushChannel } from '../shared/contract'
+import { clampZoom, WINDOW_FLOOR, zoomedFloor } from '../shared/window'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { TranscriptSearcher } from './transcript-search'
@@ -65,7 +66,8 @@ import {
   setSessionsArchived,
   setStaleDays,
   setTimeFormat,
-  setUpdatePrefs
+  setUpdatePrefs,
+  setZoom
 } from './config'
 import {
   deleteRoundtables,
@@ -314,6 +316,27 @@ function readDevBranch(): string | null {
   }
 }
 
+/**
+ * Keep the minimum the OS enforces in step with the zoom, so the layout is never handed
+ * fewer CSS pixels than the floor it is written down to, and lift a window already under
+ * the new minimum — `setMinimumSize` alone leaves a smaller window smaller. A maximized
+ * or full-screen window already holds everything the display has, so it is left alone.
+ *
+ * Returns the zoom it settled on, so main and the renderer's chip read the same number.
+ */
+function applyWindowFloor(zoom: number, { grow = true }: { grow?: boolean } = {}): number {
+  const z = clampZoom(zoom)
+  const w = win
+  if (!w || w.isDestroyed()) return z
+  const min = zoomedFloor(z, screen.getDisplayMatching(w.getBounds()).workAreaSize)
+  w.setMinimumSize(min.width, min.height)
+  if (!grow || w.isMaximized() || w.isFullScreen()) return z
+  const [width = 0, height = 0] = w.getSize()
+  if (width < min.width || height < min.height)
+    w.setSize(Math.max(width, min.width), Math.max(height, min.height), true)
+  return z
+}
+
 function createWindow(): void {
   // dev-only: `npm run dev` relaunches never steal focus (COCKPIT_DEV_BACKGROUND=0
   // opts out), and the window can open on a chosen display — a packaged app
@@ -332,10 +355,11 @@ function createWindow(): void {
     ...(devBounds ? { x: devBounds.x, y: devBounds.y } : {}),
     width: devBounds?.width ?? 1100,
     height: devBounds?.height ?? 760,
-    // the supported floor — the e2e minimum-size gate audits the layout at
-    // exactly these numbers; change them together or the gate fails
-    minWidth: 560,
-    minHeight: 420,
+    // the supported floor, in CSS pixels at 100% — the e2e minimum-size gate audits
+    // the layout at exactly these numbers. Zoom raises it (applyWindowFloor), since
+    // the same window holds fewer CSS pixels the further it is zoomed in.
+    minWidth: WINDOW_FLOOR.width,
+    minHeight: WINDOW_FLOOR.height,
     title: devBranch ? `Cockpit — ${devBranch}` : 'Cockpit',
     // matches --bg in style.css so pre-paint and resize flashes stay on-theme
     backgroundColor: '#0c1219',
@@ -375,6 +399,19 @@ function createWindow(): void {
   // pinch-zoom would silently distort the layout — keyboard zoom (⌘+/-) stays available
   void win.webContents.setVisualZoomLevelLimits(1, 1)
 
+  // The zoom is the user's, not the session's — restore what they last set. The window's
+  // minimum goes first because it is derived from the zoom: a window that opens under the
+  // floor has already shown a frame of the layout it cannot hold. A load resets the
+  // frame's own zoom, so the factor is re-applied per load rather than once.
+  const savedZoom = clampZoom(loadConfig().zoom ?? 1)
+  applyWindowFloor(savedZoom)
+  if (savedZoom !== 1) {
+    const w = win
+    w.webContents.on('dom-ready', () => {
+      if (!w.isDestroyed()) w.webContents.setZoomFactor(savedZoom)
+    })
+  }
+
   // dev-server URL only in dev — a packaged app must never load an env-supplied origin
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
     // the branch rides in as a query param — no IPC surface for a dev-only affordance
@@ -384,6 +421,14 @@ function createWindow(): void {
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // the zoomed floor is bounded by the display, so a window dragged to a smaller one
+  // gets its minimum re-judged there. Minimum only — resizing a window mid-drag would
+  // fight the hand moving it, and 'moved' fires for every pixel of that drag.
+  win.on('moved', () => {
+    const w = win
+    if (w && !w.isDestroyed()) applyWindowFloor(w.webContents.getZoomFactor(), { grow: false })
+  })
 
   // a turn that ends while nobody is in front of the window is news (attention.ts)
   win.on('focus', () => attention?.setWindowFocused(true))
@@ -654,6 +699,9 @@ app.whenReady().then(() => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
     return Promise.resolve()
   })
+  // the level is the user's, so it outlives the window: main restores it next launch
+  // before the first paint, which is also when it needs it to size the window
+  ipcMain.handle(CH.windowZoom, (_e, factor: number) => setZoom(applyWindowFloor(Number(factor))))
 
   ipcMain.handle(CH.accountsGet, () => getAccounts(loadConfig().sources))
   ipcMain.handle(CH.usageGet, () => getUsage(loadConfig().sources))

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -536,5 +536,113 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   // every click above landed on what it aimed at — none of them opened a PR
   expect(await openedUrls()).toEqual([])
 
+  await win.setViewportSize({ width: 1100, height: 728 })
+})
+
+test('the floor is in CSS pixels: zoom raises the window minimum instead of falling through it', async () => {
+  const minimum = (): Promise<number[]> =>
+    app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize())
+  const zoom = (factor: number): Promise<unknown> =>
+    win.evaluate((f) => window.cockpit.setZoomFactor(f), factor)
+
+  // 560pt holds 560 CSS px only at 100% — at 150% the same window lays out 373 of them,
+  // three breakpoints below anything the layout is written for. The minimum grows with it.
+  await zoom(1.5)
+  await expect.poll(minimum).toEqual([840, 630])
+
+  // the level is the user's, so main writes it down — next launch restores it before
+  // the first paint, which is also when it needs it to size the window
+  expect(JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8')).zoom).toBe(1.5)
+
+  // and with the minimum in step, the floor is the floor: at 150% in an 840x630 window
+  // the layout gets exactly the 560x420 it is audited at above
+  await win.setViewportSize({ width: 840, height: 630 })
+  expect(await win.evaluate(() => [window.innerWidth, window.innerHeight])).toEqual([560, 420])
+  await win.keyboard.press('ControlOrMeta+n')
+  await expect(win.getByRole('button', { name: /^Start with/ })).toBeVisible()
+  const escapes = await win.evaluate(() => {
+    const bad: string[] = []
+    if (document.documentElement.scrollWidth > window.innerWidth + 1) bad.push('document scrolls horizontally')
+    for (const el of Array.from(document.querySelectorAll('*'))) {
+      const r = el.getBoundingClientRect()
+      if (r.width > 0 && (r.right > window.innerWidth + 1.5 || r.left < -1.5))
+        bad.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} escapes the window`)
+    }
+    return [...new Set(bad)]
+  })
+  expect(escapes).toEqual([])
+
+  // zooming out only ever hands the layout more CSS pixels — the floor stays the floor
+  await zoom(0.7)
+  await expect.poll(minimum).toEqual([560, 420])
+  await zoom(1)
+  await expect.poll(minimum).toEqual([560, 420])
+  await win.setViewportSize({ width: 1100, height: 728 })
+})
+
+test('and where a display cannot grant the zoomed floor, the views give way instead of breaking', async () => {
+  /** Every element whose box leaves the window, ignoring what a scroller legitimately holds. */
+  const escapes = (): Promise<string[]> =>
+    win.evaluate(() => {
+      const vw = document.documentElement.clientWidth
+      const bad: string[] = []
+      for (const el of Array.from(document.querySelectorAll('body *'))) {
+        const cs = getComputedStyle(el)
+        if (cs.display === 'none' || cs.visibility === 'hidden') continue
+        let scrolled = false
+        for (let n = el.parentElement; n; n = n.parentElement) {
+          const c = getComputedStyle(n)
+          if (/auto|scroll/.test(c.overflowX) || /auto|scroll/.test(c.overflowY)) { scrolled = true; break }
+        }
+        if (scrolled) continue
+        const r = el.getBoundingClientRect()
+        if (r.width > 0 && (r.right > vw + 1.5 || r.left < -1.5))
+          bad.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]}`)
+      }
+      return [...new Set(bad)]
+    })
+  const openChat = async (): Promise<void> => {
+    await win.keyboard.press('ControlOrMeta+n')
+    const row = win.getByRole('treeitem', { name: /fix the login flake/ })
+    // repos keep their own expanded state, and this test stands alone: open them in
+    // turn until the session is on screen rather than assuming an earlier test did
+    const collapsed = win.locator('.repo-row[aria-expanded="false"]')
+    for (let i = 0; i < 20; i++) {
+      const shown = await row.first().isVisible()
+      if (shown || (await collapsed.count()) === 0) break
+      await collapsed.first().click()
+    }
+    // aim at the title: at these widths the row's compact PR badge takes nearly half of
+    // it, and a click that lands there opens the PR instead of the session
+    await row.first().locator('.session-title').click()
+    await expect(win.locator('.chat-header')).toBeVisible()
+  }
+
+  // The header's keys and PR badge are already as small as they shed to, so the row has
+  // nowhere left to give — it takes a second line rather than walking out of the window.
+  // At the floor it must still be one line: that is the layout every shot is taken of.
+  await win.evaluate(() => window.cockpit.setZoomFactor(1))
+  await win.setViewportSize({ width: 560, height: 420 })
+  await openChat()
+  const oneLine = (await win.locator('.chat-header').boundingBox())?.height ?? 0
+  expect(oneLine).toBeLessThan(60)
+  expect(await escapes()).toEqual([])
+
+  // A 1280x800 laptop at 200% is the case the display really does bound: 1120 points of
+  // width is the zoomed floor, but 775 of height is all there is — 560x387 of layout.
+  await win.evaluate(() => window.cockpit.setZoomFactor(2))
+  await win.setViewportSize({ width: 1120, height: 775 })
+  await openChat()
+  expect(await escapes()).toEqual([])
+
+  // and past the floor on width, which needs a display narrower than any Mac has: the
+  // header wraps (it is taller than the one-line row above) and still nothing escapes
+  await win.evaluate(() => window.cockpit.setZoomFactor(1.5))
+  await win.setViewportSize({ width: 630, height: 480 })
+  await openChat()
+  expect((await win.locator('.chat-header').boundingBox())?.height ?? 0).toBeGreaterThan(oneLine)
+  expect(await escapes()).toEqual([])
+
+  await win.evaluate(() => window.cockpit.setZoomFactor(1))
   await win.setViewportSize({ width: 1100, height: 728 })
 })

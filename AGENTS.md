@@ -17,7 +17,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 - `npm run package` — macOS disk images + zips into `dist/` via electron-builder (unsigned without Apple credentials; version `0.0.0` outside a release)
 - `npm run test:packaged` — Playwright smoke test against the `.app` from `npm run package` (`tests/e2e/packaged.spec.ts`; opt-in, uses the real userData dir)
 - `npm run docs:dev` — the user guide (VitePress, `docs/`) with hot reload; `docs:build` / `docs:preview` for the built site
-- `npm run ui:tour` — builds, then screenshots every view and state against a hermetic fixture world (`scripts/ui-tour/`): desktop and the 560×420 floor, sessions actually flying and landing (stub agent CLIs stream slowly), and a first launch. Writes `test-results/ui-tour/` with an `index.html` contact sheet; a shot it can't reach is marked missing and fails the run. `-- --only chat,settings` narrows it, `-- --no-live` skips the ~40s of live turns
+- `npm run ui:tour` — builds, then screenshots every view and state against a hermetic fixture world (`scripts/ui-tour/`): desktop, an ordinary 900×700 window, the 560×420 floor and 200% zoom, sessions actually flying and landing (stub agent CLIs stream slowly), and a first launch. Writes `test-results/ui-tour/` with an `index.html` contact sheet; a shot it can't reach is marked missing and fails the run. `-- --only chat,settings` narrows it, `-- --no-live` skips the ~40s of live turns
 
 Both `npm run typecheck` and `npm test` must pass before delivering.
 
@@ -125,6 +125,7 @@ Pure and IO-free by construction: every module imports nothing but its own sibli
 - `repo-order.ts` — the order projects are listed in (A→Z, or the user's drag order; never session activity, which would move rows under the cursor).
 - `roundtable.ts` — seat identity: the names agents call each other in prompts and the UI shows on seats.
 - `pr-feedback.ts` — the verdicts both processes read off a PR's checks and threads.
+- `window.ts` — the window's own numbers: the 560×420 layout floor, the zoom range, and `zoomedFloor` between them. The floor is in CSS pixels and a window holds that many only at 100%, so main grows the OS minimum with the zoom (`window:zoom`, which the renderer reports off the layout resize every zoom change fires) rather than letting ⌘+ walk the layout below every rule written for it.
 
 ### Tests
 
