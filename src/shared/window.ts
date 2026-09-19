@@ -45,3 +45,52 @@ export function zoomedFloor(zoom: number, work: Size): Size {
     height: Math.min(Math.round(WINDOW_FLOOR.height * z), Math.max(1, Math.round(work.height)))
   }
 }
+
+/** A rectangle in the OS's own points — a display's work area, or a window's frame. */
+type Rect = { readonly x: number; readonly y: number } & Size
+
+/**
+ * Where the window was when it last closed, so the next launch opens there. Kept in
+ * config because it has to outlive the bundle: an update replaces the whole app, and
+ * an install that drops you into a differently-sized window on the wrong screen is
+ * the update making itself felt for no reason.
+ *
+ * The bounds are the *windowed* ones even when `fullScreen` is set — that is what
+ * leaving full screen has to fall back to.
+ */
+export type WindowPlacement = Rect & { readonly fullScreen: boolean }
+
+/** Enough of a window to see and grab, whatever else is off the edge of a screen. */
+const MIN_ON_SCREEN: Size = { width: 120, height: 40 }
+
+function overlap(aFrom: number, aTo: number, bFrom: number, bTo: number): number {
+  return Math.min(aTo, bTo) - Math.max(aFrom, bFrom)
+}
+
+/**
+ * The bounds to open at, given what was saved and the screens there are now — null
+ * when the saved placement cannot be honoured and the OS default should stand.
+ *
+ * Displays come and go with a cable or a dock, so a saved position is never trusted
+ * on its own: it is honoured only where one display can still both hold the window
+ * and show a grabbable corner of it. Everything else — a monitor unplugged, a
+ * smaller screen than the one it was sized on, a config edited by hand — falls back
+ * to the centred window a first launch gets, which is always reachable.
+ */
+export function restoredBounds(
+  saved: WindowPlacement | undefined,
+  workAreas: readonly Rect[]
+): Rect | null {
+  if (!saved) return null
+  const { x, y, width, height } = saved
+  if (![x, y, width, height].every((n) => typeof n === 'number' && Number.isFinite(n))) return null
+  if (width < WINDOW_FLOOR.width || height < WINDOW_FLOOR.height) return null
+  const fits = workAreas.some(
+    (a) =>
+      width <= a.width &&
+      height <= a.height &&
+      overlap(a.x, a.x + a.width, x, x + width) >= MIN_ON_SCREEN.width &&
+      overlap(a.y, a.y + a.height, y, y + height) >= MIN_ON_SCREEN.height
+  )
+  return fits ? { x, y, width, height } : null
+}

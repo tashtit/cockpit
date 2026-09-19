@@ -126,7 +126,7 @@ Pure and IO-free by construction: every module imports nothing but its own sibli
 - `repo-order.ts` — the order projects are listed in (A→Z, or the user's drag order; never session activity, which would move rows under the cursor).
 - `roundtable.ts` — seat identity: the names agents call each other in prompts and the UI shows on seats.
 - `pr-feedback.ts` — the verdicts both processes read off a PR's checks and threads.
-- `window.ts` — the window's own numbers: the 560×420 layout floor, the zoom range, and `zoomedFloor` between them. The floor is in CSS pixels and a window holds that many only at 100%, so main grows the OS minimum with the zoom (`window:zoom`, which the renderer reports off the layout resize every zoom change fires) rather than letting ⌘+ walk the layout below every rule written for it.
+- `window.ts` — the window's own numbers: the 560×420 layout floor, the zoom range, `zoomedFloor` between them, and where the window opens. The floor is in CSS pixels and a window holds that many only at 100%, so main grows the OS minimum with the zoom (`window:zoom`, which the renderer reports off the layout resize every zoom change fires) rather than letting ⌘+ walk the layout below every rule written for it. `restoredBounds` decides whether the placement saved at the last close (config `window`, debounced while dragging) can still be honoured — displays come and go, so it is honoured only where one can both hold the window and show a grabbable corner of it, and anything else falls back to the centred window a first launch gets. Full screen is restored as a constructor flag, never by entering it after `show`.
 
 ### Tests
 
