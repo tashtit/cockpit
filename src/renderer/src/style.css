@@ -1114,8 +1114,11 @@ summary::-webkit-details-marker { display: none; }
 .board-row:hover { background: var(--bg3); }
 /* the lead column (placard, or a table's seat cluster) and the branch slot are both
    fixed-width, so every task title starts on one grid line — a ragged title edge
-   made the list read as a pile instead of a board */
-.board-lead { flex: 0 0 68px; }
+   made the list read as a pile instead of a board. The lead asks for its 68px and
+   gives them back rather than clipping: past the floor a row's reason ("#57 checks
+   failing") no longer fits beside it, and the placard is the part that can afford to. */
+.board-lead { flex: 0 1 68px; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 .board-branch { flex: 0 0 150px; min-width: 0; display: flex; }
 .board-branch .branch-chip { max-width: 100%; }
 .board-agent { font-size: var(--fs-xs); font-weight: 700;
@@ -2060,4 +2063,16 @@ button.pnl-flag:hover { text-decoration: underline; }
   .perm-body { flex-basis: 100%; }
   .perm-actions { flex: 1; }
   .perm-actions button { flex: 1; }
+}
+/* Below the floor. Only a display too small to grant the zoomed floor reaches this —
+   main keeps the window's minimum at 560x420 CSS px wherever the screen allows it
+   (`zoomedFloor`) — so this is the one tier that exists for a window smaller than the
+   layout, not for a layout that wants rearranging. Nothing above 559px sees it: the
+   floor's own layout is what every audit and every screenshot is taken of. */
+@media (max-width: 559px) {
+  /* the chat header's keys and PR badge are already as small as they shed to, and the
+     row has nowhere left to give — they walked out of the window instead. The session's
+     name takes the row (it is what the header exists to say) and they take the next. */
+  .chat-header { flex-wrap: wrap; }
+  .chat-header-text { flex-basis: 100%; }
 }
