@@ -17,7 +17,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 - `npm run package` — macOS disk images + zips into `dist/` via electron-builder (unsigned without Apple credentials; version `0.0.0` outside a release)
 - `npm run test:packaged` — Playwright smoke test against the `.app` from `npm run package` (`tests/e2e/packaged.spec.ts`; opt-in, uses the real userData dir)
 - `npm run docs:dev` — the user guide (VitePress, `docs/`) with hot reload; `docs:build` / `docs:preview` for the built site
-- `npm run ui:tour` — builds, then screenshots every view and state against a hermetic fixture world (`scripts/ui-tour/`): desktop and the 560×420 floor, sessions actually flying and landing (stub agent CLIs stream slowly), and a first launch. Writes `test-results/ui-tour/` with an `index.html` contact sheet; a shot it can't reach is marked missing and fails the run. `-- --only chat,settings` narrows it, `-- --no-live` skips the ~40s of live turns
+- `npm run ui:tour` — builds, then screenshots every view and state against a hermetic fixture world (`scripts/ui-tour/`): desktop, an ordinary 900×700 window, the 560×420 floor and 200% zoom, sessions actually flying and landing (stub agent CLIs stream slowly), and a first launch. Writes `test-results/ui-tour/` with an `index.html` contact sheet; a shot it can't reach is marked missing and fails the run. `-- --only chat,settings` narrows it, `-- --no-live` skips the ~40s of live turns
 
 Both `npm run typecheck` and `npm test` must pass before delivering.
 

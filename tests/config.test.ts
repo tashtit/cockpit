@@ -15,6 +15,7 @@ import {
   sessionLineageFor,
   setAttentionPrefs,
   setUpdatePrefs,
+  setZoom,
   updateModelEndpoint,
   updatePrefs
 } from '../src/main/config'
@@ -223,5 +224,23 @@ describe('update prefs', () => {
       download: false,
       install: false
     })
+  })
+})
+
+describe('interface zoom', () => {
+  it('is absent until the user sets one, so a fresh install opens at 100%', () => {
+    expect(loadConfig().zoom).toBeUndefined()
+  })
+
+  it('stores the level the user last set', () => {
+    expect(setZoom(1.25)).toBe(1.25)
+    expect(loadConfig().zoom).toBe(1.25)
+  })
+
+  it('stores only a level the user could have reached — the file is editable by hand', () => {
+    expect(setZoom(9)).toBe(2)
+    expect(setZoom(0.01)).toBe(0.7)
+    expect(setZoom(Number.NaN)).toBe(1)
+    expect(loadConfig().zoom).toBe(1)
   })
 })

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -549,6 +549,10 @@ test('the floor is in CSS pixels: zoom raises the window minimum instead of fall
   // three breakpoints below anything the layout is written for. The minimum grows with it.
   await zoom(1.5)
   await expect.poll(minimum).toEqual([840, 630])
+
+  // the level is the user's, so main writes it down — next launch restores it before
+  // the first paint, which is also when it needs it to size the window
+  expect(JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8')).zoom).toBe(1.5)
 
   // and with the minimum in step, the floor is the floor: at 150% in an 840x630 window
   // the layout gets exactly the 560x420 it is audited at above

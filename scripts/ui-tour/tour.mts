@@ -6,7 +6,8 @@
  * Tests assert behaviour; this shows what a person sees. Every state that matters is
  * reached for real rather than mocked: sessions actually run (the stub CLIs stream
  * slowly) so the board flies, then land when you walk away; a first launch runs
- * against an empty home; each view is shot at desktop size and at the 560×420 floor.
+ * against an empty home; each width-budgeted view is shot at desktop size, at an
+ * ordinary 900×700 window, at the 560×420 floor, and at 200% zoom.
  *
  * usage: npm run ui:tour [-- --only <substring,…>] [-- --no-live]
  * A shot that can't be reached is recorded as missing in the sheet and fails the run,
@@ -41,7 +42,13 @@ type Shot = {
   readonly tall?: number
   readonly go: (win: Page) => Promise<void>
 }
-type Outcome = { readonly shot: Shot; readonly file: string; readonly size: Size } | { readonly shot: Shot; readonly missing: string; readonly size: Size }
+/** How a pass is shot: the window, and the zoom the person is at inside it. */
+type Pass = { readonly size: Size; readonly suffix: string; readonly zoom?: number }
+type Outcome = ({ readonly file: string } | { readonly missing: string }) & {
+  readonly shot: Shot
+  readonly size: Size
+  readonly zoom: number
+}
 
 const argv = process.argv.slice(2)
 const only = argv.includes('--only') ? (argv[argv.indexOf('--only') + 1] ?? '').split(',').filter(Boolean) : []
@@ -215,7 +222,7 @@ const STATIC: readonly Shot[] = [
 
 /**
  * The views whose chrome is width-budgeted, not every section again — the same list
- * serves both narrow sizes, so there is no second hand-curated set to drift out of
+ * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
 const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'roundtable-consensus'])
@@ -277,8 +284,10 @@ async function launch(world: World, extraEnv: NodeJS.ProcessEnv = {}): Promise<{
   return { app, win }
 }
 
-async function capture(win: Page, shots: readonly Shot[], size: Size, suffix: string): Promise<Outcome[]> {
+async function capture(win: Page, shots: readonly Shot[], pass: Pass): Promise<Outcome[]> {
+  const { size, suffix, zoom = 1 } = pass
   const out: Outcome[] = []
+  await win.evaluate((z) => window.cockpit.setZoomFactor(z), zoom)
   for (const shot of shots.filter(wanted)) {
     const file = `${shot.name}${suffix}.png`
     try {
@@ -292,14 +301,15 @@ async function capture(win: Page, shots: readonly Shot[], size: Size, suffix: st
         await pause(win, 500)
       }
       await win.screenshot({ path: join(OUT, file) })
-      out.push({ shot, file, size })
+      out.push({ shot, file, size, zoom })
       console.log(`  ✓ ${file}`)
     } catch (err) {
       const reason = (err instanceof Error ? err.message : String(err)).split('\n')[0] ?? 'unreachable'
-      out.push({ shot, missing: reason, size })
+      out.push({ shot, missing: reason, size, zoom })
       console.log(`  ✗ ${file} — ${reason}`)
     }
   }
+  await win.evaluate(() => window.cockpit.setZoomFactor(1))
   return out
 }
 
@@ -308,7 +318,7 @@ function sheet(outcomes: readonly Outcome[]): string {
   const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
   const card = (o: Outcome): string =>
     'file' in o
-      ? `<figure><a href="${o.file}"><img src="${o.file}" loading="lazy" alt="${esc(o.shot.name)}"></a><figcaption>${esc(o.file)} · ${o.size.width}×${o.size.height}</figcaption></figure>`
+      ? `<figure><a href="${o.file}"><img src="${o.file}" loading="lazy" alt="${esc(o.shot.name)}"></a><figcaption>${esc(o.file)} · ${o.size.width}×${o.size.height}${o.zoom === 1 ? '' : ` · ${Math.round(o.zoom * 100)}% → ${Math.round(o.size.width / o.zoom)}×${Math.round(o.size.height / o.zoom)}`}</figcaption></figure>`
       : `<figure class="missing"><div>missing</div><figcaption>${esc(o.shot.name)} · ${esc(o.missing)}</figcaption></figure>`
   return `<!doctype html><meta charset="utf-8"><title>Cockpit ui-tour</title>
 <style>
@@ -343,26 +353,33 @@ async function main(): Promise<void> {
     const world = buildWorld(join(scratch, 'world'))
     {
       const { app, win } = await launch(world)
-      outcomes.push(...(await capture(win, STATIC, DESKTOP, '')))
+      outcomes.push(...(await capture(win, STATIC, { size: DESKTOP, suffix: '' })))
       const narrow = STATIC.filter((s) => AT_FLOOR.has(s.name))
       console.log('world: 900×700')
-      outcomes.push(...(await capture(win, narrow, MID, '-mid')))
+      outcomes.push(...(await capture(win, narrow, { size: MID, suffix: '-mid' })))
       console.log('world: 560×420')
-      outcomes.push(...(await capture(win, narrow, FLOOR, '-floor')))
+      outcomes.push(...(await capture(win, narrow, { size: FLOOR, suffix: '-floor' })))
+      // The fourth width nobody drags to: an ordinary window at the 200% a low-vision
+      // reader works at, which is 640×410 of layout — between the mid shot and the floor,
+      // and at type sizes none of the other three ever show. Not the floor zoomed: main
+      // keeps the window's minimum at the floor whatever the zoom (`zoomedFloor`), so
+      // that shot would only be the floor again, larger.
+      console.log('world: 1280×820 at 200%')
+      outcomes.push(...(await capture(win, narrow, { size: DESKTOP, suffix: '-zoom200', zoom: 2 })))
       await app.close()
     }
     if (live) {
       console.log('world: live turns (stub agents stream, then land)')
       const fresh = buildWorld(join(scratch, 'live'))
       const { app, win } = await launch(fresh, { UI_TOUR_STUB_DELAY_MS: '900' })
-      outcomes.push(...(await capture(win, LIVE, DESKTOP, '')))
+      outcomes.push(...(await capture(win, LIVE, { size: DESKTOP, suffix: '' })))
       await app.close()
     }
     console.log('world: first run')
     const empty = buildWorld(join(scratch, 'empty'), { populated: false })
     {
       const { app, win } = await launch(empty)
-      outcomes.push(...(await capture(win, FIRST_RUN, DESKTOP, '')))
+      outcomes.push(...(await capture(win, FIRST_RUN, { size: DESKTOP, suffix: '' })))
       await app.close()
     }
   } finally {

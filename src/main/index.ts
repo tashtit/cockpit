@@ -66,7 +66,8 @@ import {
   setSessionsArchived,
   setStaleDays,
   setTimeFormat,
-  setUpdatePrefs
+  setUpdatePrefs,
+  setZoom
 } from './config'
 import {
   deleteRoundtables,
@@ -398,6 +399,19 @@ function createWindow(): void {
   // pinch-zoom would silently distort the layout — keyboard zoom (⌘+/-) stays available
   void win.webContents.setVisualZoomLevelLimits(1, 1)
 
+  // The zoom is the user's, not the session's — restore what they last set. The window's
+  // minimum goes first because it is derived from the zoom: a window that opens under the
+  // floor has already shown a frame of the layout it cannot hold. A load resets the
+  // frame's own zoom, so the factor is re-applied per load rather than once.
+  const savedZoom = clampZoom(loadConfig().zoom ?? 1)
+  applyWindowFloor(savedZoom)
+  if (savedZoom !== 1) {
+    const w = win
+    w.webContents.on('dom-ready', () => {
+      if (!w.isDestroyed()) w.webContents.setZoomFactor(savedZoom)
+    })
+  }
+
   // dev-server URL only in dev — a packaged app must never load an env-supplied origin
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
     // the branch rides in as a query param — no IPC surface for a dev-only affordance
@@ -685,7 +699,9 @@ app.whenReady().then(() => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
     return Promise.resolve()
   })
-  ipcMain.handle(CH.windowZoom, (_e, factor: number) => applyWindowFloor(Number(factor)))
+  // the level is the user's, so it outlives the window: main restores it next launch
+  // before the first paint, which is also when it needs it to size the window
+  ipcMain.handle(CH.windowZoom, (_e, factor: number) => setZoom(applyWindowFloor(Number(factor))))
 
   ipcMain.handle(CH.accountsGet, () => getAccounts(loadConfig().sources))
   ipcMain.handle(CH.usageGet, () => getUsage(loadConfig().sources))

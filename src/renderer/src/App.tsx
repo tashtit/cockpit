@@ -173,6 +173,10 @@ export function App(): JSX.Element {
     if (level === zoomRef.current) return
     zoomRef.current = level
     setZoom(level)
+    // the traffic lights are drawn by the OS at a fixed size while everything in the
+    // stylesheet is in CSS pixels — `--traffic-clear` divides by this to keep the one
+    // measurement that has to meet them in the same units they are
+    document.documentElement.style.setProperty('--zoom', String(level))
     // main keeps the window's minimum size in step: the floor is written in CSS pixels,
     // and the further in this is zoomed the fewer of them the same window holds
     void api.reportZoom(level)

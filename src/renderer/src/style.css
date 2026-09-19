@@ -91,6 +91,15 @@ ul, ol { padding: 0; }
      preference; on big windows the exchange centers instead of stranding user
      bubbles a screen away from the replies */
   --chat-col: 860px;
+  /* The live zoom factor, written by App.tsx. Everything in this file is in CSS
+     pixels, which zoom rescales — but the macOS traffic lights are drawn by the OS
+     at a fixed physical size, so the one measurement that has to match them is
+     divided by this and stays put. Nothing else should need it. */
+  --zoom: 1;
+  /* clearance under the traffic lights (hiddenInset puts them at y=14, ~12 tall),
+     in the points they are drawn in rather than in pixels that zoom rescales:
+     at 70% a flat 40px left 28pt against their 26, a 2pt margin */
+  --traffic-clear: calc(40px / var(--zoom));
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -149,7 +158,10 @@ button, input, select, textarea, details { transition: background var(--dur) var
    identical. Sits under the traffic lights (text is centered clear of them),
    doubles as a drag region; the branch text itself is copyable. */
 .dev-banner { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center;
-  height: 28px; background: rgba(var(--branch-rgb), 0.09);
+  /* the banner is what clears the lights when it is up, so its floor answers to the
+     same measurement the sidebar's pad does rather than to a height zoom rescales —
+     a floor, not a height: its own text grows with the zoom while the lights do not */
+  min-height: calc(28px / var(--zoom)); background: rgba(var(--branch-rgb), 0.09);
   border-bottom: 1px solid rgba(var(--branch-rgb), 0.25);
   color: var(--branch); font-family: var(--mono); font-size: var(--fs-xs);
   -webkit-app-region: drag; }
@@ -158,7 +170,7 @@ button, input, select, textarea, details { transition: background var(--dur) var
 .dev-banner svg { flex-shrink: 0; }
 /* the banner row claims the traffic-light clearance, so the sidebar top sheds
    its 40px pad; the banner also replaces the 22px strip as the top drag target */
-.app:has(.dev-banner) { grid-template-rows: 28px minmax(0, 1fr); }
+.app:has(.dev-banner) { grid-template-rows: auto minmax(0, 1fr); }
 .app:has(.dev-banner) .tree-top { padding-top: var(--s3); }
 .tree-top button, .chat-header button { -webkit-app-region: no-drag; }
 /* the subtitle carries paths/branches a developer copies — selectable, not draggable */
@@ -223,8 +235,8 @@ summary::-webkit-details-marker { display: none; }
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; min-height: 0; backdrop-filter: blur(8px); }
 .tree-top { display: flex; align-items: center; gap: var(--s1);
-  /* clears the macOS traffic lights (hiddenInset) */
-  padding: 40px var(--s4) var(--s3); }
+  /* clears the macOS traffic lights (hiddenInset) — see --traffic-clear */
+  padding: var(--traffic-clear) var(--s4) var(--s3); }
 /* the wordmark speaks the instrument voice: mono, wide-tracked, beside the mark */
 .app-title { font-size: var(--fs-base); font-weight: 700; letter-spacing: 1.5px;
   font-family: var(--mono); text-transform: uppercase; display: flex;

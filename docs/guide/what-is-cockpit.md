@@ -39,11 +39,13 @@ As it narrows, rows shed decorative chips and labels — one at a time, in the o
 you least — so nothing truncates and nothing escapes the window.
 
 ⌘+ and ⌘− zoom the whole interface between 70% and 200%; ⌘0 returns to 100%, as does clicking
-the percentage beside the wordmark, which appears whenever you are not at 100%. Zooming in
-makes everything bigger, which leaves the same window with less layout to show — so Cockpit
-raises the window's minimum in step. At 150% the window will not go below 840×630, which is
-the same amount of layout as 560×420 at 100%. If a zoom level needs more room than the display
-has, the minimum stops at the screen and the views go on shedding.
+the percentage beside the wordmark, which appears whenever you are not at 100%. The level is
+remembered — set it once and every later launch opens there.
+
+Zooming in makes everything bigger, which leaves the same window with less layout to show — so
+Cockpit raises the window's minimum in step. At 150% the window will not go below 840×630, which
+is the same amount of layout as 560×420 at 100%. If a zoom level needs more room than the display
+has, the minimum stops at the screen and the views go on shedding rather than breaking.
 
 ## How it's built
 

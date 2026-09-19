@@ -13,6 +13,7 @@ import type {
 } from '../shared/types'
 import { clampStaleDays } from './cleanup-core'
 import { sanitizeAcpAgent } from '../shared/acp'
+import { clampZoom } from '../shared/window'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
@@ -46,6 +47,13 @@ export type AppConfig = {
   readonly staleDays?: number
   /** Clock format for session times in the UI; absent = 24h */
   readonly timeFormat?: TimeFormat
+  /**
+   * Interface zoom the user last set, as a webFrame factor; absent = 100%. Main
+   * restores it before the window paints, because it also decides the window's
+   * minimum size (`zoomedFloor`) — a level restored by the renderer after load
+   * would mean a window that spends its first frames under the layout's floor.
+   */
+  readonly zoom?: number
   /** User-defined BYOK model providers (API keys live keychain-encrypted in secrets.ts, never here) */
   readonly modelEndpoints?: ModelEndpoint[]
   /**
@@ -223,6 +231,13 @@ export function setStaleDays(days: number): number {
   const d = clampStaleDays(days)
   saveConfig({ ...cfg, staleDays: d })
   return d
+}
+
+export function setZoom(factor: number): number {
+  const cfg = loadConfig()
+  const z = clampZoom(factor)
+  saveConfig({ ...cfg, zoom: z })
+  return z
 }
 
 export function setTimeFormat(format: TimeFormat): TimeFormat {
