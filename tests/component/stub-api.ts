@@ -215,6 +215,8 @@ export function freshApi(): CockpitApi {
     getExtensions: vi.fn(async () => ({ mcp: [], skills: [], plugins: [], marketplaces: [] })),
     checkMcp: vi.fn(async () => ({ status: 'ok' as const })),
     loginMcp: vi.fn(async () => 'logged in'),
+    mcpVersions: vi.fn(async () => []),
+    setMcpVersion: vi.fn(async () => emptyPanel),
     getPanel: vi.fn(async () => emptyPanel),
     setPanelSwitch: vi.fn(async () => emptyPanel),
     matchPanelEntry: vi.fn(async () => emptyPanel),

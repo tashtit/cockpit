@@ -326,7 +326,9 @@ function populate(world: World): void {
       mcpServers: {
         github: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] },
         linear: { type: 'sse', url: 'https://mcp.linear.app/sse' },
-        playwright: { command: 'npx', args: ['@playwright/mcp@latest'] }
+        // pinned on purpose: a pinned server is the only one that can have a newer
+        // release, so this is the row the version chip shows up on
+        playwright: { command: 'npx', args: ['@playwright/mcp@0.0.78'] }
       },
       projects: { [code('rocket')]: { mcpServers: { 'rocket-db': { command: 'node', args: ['scripts/db-mcp.js'] } } } }
     })
@@ -345,8 +347,13 @@ function populate(world: World): void {
   write(
     join(world.home, '.codex', 'config.toml'),
     '[mcp_servers.github]\ncommand = "npx"\nargs = ["-y", "@modelcontextprotocol/server-github"]\n\n' +
-      '[mcp_servers.playwright]\ncommand = "npx"\nargs = ["@playwright/mcp@latest"]\n\n' +
-      '[plugins."review@acme-market"]\nenabled = true\n\n[marketplaces.acme-market]\nsource = "acme/agent-plugins"\n'
+      '[mcp_servers.playwright]\ncommand = "npx"\nargs = ["@playwright/mcp@0.0.78"]\n\n' +
+      '[plugins."review@acme-market"]\nenabled = true\n\n[marketplaces.acme-market]\nsource = "acme/agent-plugins"\n\n' +
+      // a marketplace that ships inside codex: nothing another agent could add, so
+      // its plugin's other two chips read "not available" rather than offering an
+      // install that would fail
+      '[plugins."scratchpad@codex-bundled"]\nenabled = true\n\n[marketplaces.codex-bundled]\n' +
+      `source_type = "local"\nsource = "${join(world.home, '.codex', '.tmp', 'bundled')}"\n`
   )
   // copilot's github server differs (--read-only): a "differs" row
   write(

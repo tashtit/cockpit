@@ -10,7 +10,14 @@ import {
   mcpFields,
   type PanelReport
 } from '../../src/shared/library'
-import type { InstructionsState, LibraryEntry, McpConfig, Provider, RepoGroup } from '../../src/shared/types'
+import type {
+  InstructionsState,
+  LibraryEntry,
+  McpConfig,
+  McpVersion,
+  Provider,
+  RepoGroup
+} from '../../src/shared/types'
 
 const COCKPIT_GH: McpConfig = { command: 'gh-mcp', args: ['--stdio'] }
 const OTHER_GH: McpConfig = { command: 'npx', args: ['-y', 'gh-mcp'] }
@@ -239,6 +246,89 @@ describe('Agents › whether a server answers', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Check' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Log in · Claude' }))
     expect(window.cockpit.loginMcp).toHaveBeenCalledWith('github', 'claude', '/dev/rocket')
+  })
+})
+
+describe('Agents › is there a newer one', () => {
+  const pinned = { command: 'npx', args: ['-y', 'shots-mcp@0.0.78'] }
+  const bump: McpVersion = {
+    name: 'shots',
+    registry: 'npm',
+    pkg: 'shots-mcp',
+    current: '0.0.78',
+    latest: '0.0.82',
+    status: 'update'
+  }
+
+  async function openPinned(version: McpVersion = bump): Promise<void> {
+    const pinnedReport = buildReport(null, [
+      mcpRow('shots', { claude: true }, { claude: present(pinned) }, pinned)
+    ])
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(pinnedReport)
+    vi.mocked(window.cockpit.setMcpVersion).mockResolvedValue(pinnedReport)
+    vi.mocked(window.cockpit.mcpVersions).mockResolvedValue([version])
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByRole('tab', { name: /^MCP servers/ })
+    await section('MCP servers')
+  }
+
+  it('marks the row, and bumps every agent that runs it from the row itself', async () => {
+    await openPinned()
+    expect(await screen.findByText('update 0.0.82')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /shots/ }))
+    expect(screen.getByText(/shots-mcp is pinned to 0.0.78; npm has 0.0.82/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Update to 0.0.82' }))
+    expect(window.cockpit.setMcpVersion).toHaveBeenCalledWith(
+      { repoRoot: null, kind: 'mcp', name: 'shots' },
+      '0.0.82'
+    )
+  })
+
+  it('says a pin is current without asking to be acted on', async () => {
+    await openPinned({ ...bump, latest: '0.0.78', status: 'current' })
+    expect(screen.queryByText(/^update /)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /shots/ }))
+    expect(screen.getByText('up to date')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Update to/ })).not.toBeInTheDocument()
+  })
+
+  // offline, the row still says what it is pinned to — the version line says why
+  it('names the registry that didn’t answer', async () => {
+    await openPinned({ ...bump, latest: undefined, status: 'unknown', detail: 'timed out' })
+    await userEvent.click(screen.getByRole('button', { name: /shots/ }))
+    expect(screen.getByText(/Couldn’t ask npm about shots-mcp — timed out/)).toBeInTheDocument()
+  })
+})
+
+describe('Agents › what an agent can’t be given', () => {
+  it('explains an unswitchable agent in the row, not only in a tooltip', async () => {
+    const reason = 'openai-bundled ships with Codex — there’s no source another agent could add it from.'
+    const blocked = buildReport(null, [
+      buildRow(
+        { kind: 'plugin', name: 'visualize@openai-bundled', enabled: { codex: true }, source: 'openai-bundled' },
+        { detail: 'from openai-bundled', fields: {} },
+        {
+          codex: { present: true, detail: 'v1.0.0', fields: {} },
+          claude: { present: false, detail: '', fields: {}, reason },
+          copilot: { present: false, detail: '', fields: {}, reason }
+        }
+      )
+    ])
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(blocked)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByRole('tab', { name: /^Plugins/ })
+    await section('Plugins')
+    // no switch at all for an agent that could never install it
+    expect(
+      screen.queryByRole('switch', { name: 'visualize@openai-bundled in Claude' })
+    ).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: /visualize/ }))
+    // the reason is in the row, not only in the chip's title: a tooltip is unreadable
+    // to a keyboard, and the chip's own text can't hold a sentence
+    const note = screen.getByText((_t, el) => el?.className === 'pnl-note')
+    // one sentence, not one per blocked agent: the chip under it names the agent
+    expect(note.textContent).toBe(reason)
+    expect(screen.getByText('Codex only')).toBeInTheDocument()
   })
 })
 

@@ -11,7 +11,13 @@ import {
   type PanelRow
 } from '../../shared/library'
 import { fileChange } from '../../shared/instruction-changes'
-import type { InstructionsState, McpProbeResult, PanelKind, Provider } from '../../shared/types'
+import type {
+  InstructionsState,
+  McpProbeResult,
+  McpVersion,
+  PanelKind,
+  Provider
+} from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { useDiffLayout } from './diff-layout'
@@ -77,6 +83,21 @@ function listOf(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
+/**
+ * Who can run this at all, when not everyone can — "Codex only" for a plugin from a
+ * marketplace that ships inside Codex, "Claude only" for an MCP server in a repo scope.
+ * A dashed chip alone says this to nobody: it reads as "off" at a glance.
+ */
+function reachWord(row: PanelRow): string | null {
+  const able = PROVIDERS.filter((p) => row.cells[p].state !== 'na')
+  if (able.length === PROVIDERS.length || able.length === 0) return null
+  return able.length === 1
+    ? `${PROVIDER_LABEL[able[0]]} only`
+    : `not for ${listOf(
+        PROVIDERS.filter((p) => row.cells[p].state === 'na').map((p) => PROVIDER_LABEL[p])
+      )}`
+}
+
 /** "Copilot runs its own github on purpose" / "Claude and Copilot run their own …". */
 function ownWords(agents: readonly Provider[], name: string): string {
   const who = listOf(agents.map((p) => PROVIDER_LABEL[p]))
@@ -101,6 +122,10 @@ export function AgentPanel({
   /** key whose destructive action is in its armed step */
   const [armed, setArmed] = useState<string | null>(null)
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** what the registries said about the version-pinned servers, by server name */
+  const [versions, setVersions] = useState<Readonly<Record<string, McpVersion>>>({})
+  /** the scope whose registries have been asked — this costs the network, so once */
+  const asked = useRef<string | null | undefined>(undefined)
 
   const load = useCallback(() => {
     void api
@@ -109,11 +134,32 @@ export function AgentPanel({
       .catch((err) => setNotice({ text: ipcErrorText(err), kind: 'error' }))
   }, [repoRoot, setNotice])
 
+  /**
+   * Ask each registry whether a pinned server has a newer release. Failing soft is
+   * the point: offline, the rows still say what they are pinned to.
+   */
+  const loadVersions = useCallback(() => {
+    void api
+      .mcpVersions(repoRoot)
+      .then((list) => setVersions(Object.fromEntries(list.map((v) => [v.name, v]))))
+      .catch(() => setVersions({}))
+  }, [repoRoot])
+
   useEffect(() => {
     setReport(null)
     setSection(null)
+    setVersions({})
+    asked.current = undefined
     load()
   }, [load])
+
+  // once per scope, and only when it has a server that could have a newer release
+  useEffect(() => {
+    if (asked.current === repoRoot) return
+    if (!report?.rows.some((r) => r.kind === 'mcp')) return
+    asked.current = repoRoot
+    loadVersions()
+  }, [report, repoRoot, loadVersions])
 
   useEffect(
     () => () => {
@@ -190,6 +236,15 @@ export function AgentPanel({
 
   const restore = (row: PanelRow): void =>
     void run(row.id, () => api.restorePanelEntry(target(row)), `Put ${row.name} back.`)
+
+  /** Bump a pinned server to the release the registry offers, wherever it runs. */
+  const update = (row: PanelRow, version: string): void => {
+    void run(
+      row.id,
+      () => api.setMcpVersion(target(row), version),
+      `${row.name} is pinned to ${version} — restart those CLIs to pick it up.`
+    ).then(loadVersions)
+  }
 
   if (!report) return <div className="tree-empty">reading every agent’s config…</div>
 
@@ -325,6 +380,7 @@ export function AgentPanel({
               key={row.id}
               row={row}
               repoRoot={repoRoot}
+              version={row.kind === 'mcp' ? versions[row.name] : undefined}
               showKind={q !== '' || current === 'attention'}
               armed={armed}
               busy={busy}
@@ -336,6 +392,7 @@ export function AgentPanel({
               onRemove={remove}
               onArm={arm}
               onReload={load}
+              onUpdate={update}
               setNotice={setNotice}
             />
           ))}
@@ -454,6 +511,7 @@ function AgentSwitches({
 function Row({
   row,
   repoRoot,
+  version,
   showKind,
   open,
   armed,
@@ -465,10 +523,13 @@ function Row({
   onRemove,
   onArm,
   onReload,
+  onUpdate,
   setNotice
 }: {
   row: PanelRow
   repoRoot: string | null
+  /** what the registry said about this server's pinned version, when it pins one */
+  version?: McpVersion
   /** the cross-kind views mix sections, so each row says which one it is */
   showKind: boolean
   open: boolean
@@ -482,11 +543,13 @@ function Row({
   onArm: (key: string | null) => void
   /** something outside the panel's own ops changed an agent — re-read every config */
   onReload: () => void
+  onUpdate: (row: PanelRow, version: string) => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
   // one word for the whole row: the amber chip already says which agent
   const flag = row.drift.length > 0 ? STATE_WORD[row.cells[row.drift[0]].state] : null
   const armedHere = armed !== null && armed.startsWith(`${row.id}|`)
+  const only = reachWord(row)
   return (
     <>
       <div className={`pnl-row ${open ? 'open' : ''}`}>
@@ -495,6 +558,14 @@ function Row({
             ▸
           </span>
           <span className="pnl-title">{row.name}</span>
+          {version?.status === 'update' && (
+            <span
+              className="mcp-bump"
+              title={`${version.pkg} ${version.current} is pinned; ${version.registry} offers ${version.latest}`}
+            >
+              update {version.latest}
+            </span>
+          )}
           {showKind && <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>}
           <span className="pnl-def" title={row.saved.detail}>
             {row.saved.detail}
@@ -504,12 +575,12 @@ function Row({
         <span className="pnl-state">
           {armedHere ? (
             <em className="pnl-flag danger">click again to remove</em>
+          ) : flag ? (
+            <button className="pnl-flag" onClick={onToggle} title="Open the row to settle it">
+              {flag}
+            </button>
           ) : (
-            flag && (
-              <button className="pnl-flag" onClick={onToggle} title="Open the row to settle it">
-                {flag}
-              </button>
-            )
+            only && <span className="pnl-only">{only}</span>
           )}
         </span>
       </div>
@@ -518,6 +589,7 @@ function Row({
           <Detail
             row={row}
             repoRoot={repoRoot}
+            version={version}
             armed={armed}
             busy={busy}
             onFlip={onFlip}
@@ -526,6 +598,7 @@ function Row({
             onRemove={onRemove}
             onArm={onArm}
             onReload={onReload}
+            onUpdate={onUpdate}
             setNotice={setNotice}
           />
         </div>
@@ -542,6 +615,7 @@ function Row({
 function Detail({
   row,
   repoRoot,
+  version,
   armed,
   busy,
   onFlip,
@@ -550,10 +624,12 @@ function Detail({
   onRemove,
   onArm,
   onReload,
+  onUpdate,
   setNotice
 }: {
   row: PanelRow
   repoRoot: string | null
+  version?: McpVersion
   armed: string | null
   busy: string | null
   onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
@@ -562,13 +638,23 @@ function Detail({
   onRemove: (row: PanelRow) => void
   onArm: (key: string | null) => void
   onReload: () => void
+  onUpdate: (row: PanelRow, version: string) => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
   const holders = PROVIDERS.filter((p) => agentHasIt(row.cells[p].state))
   const removeArmed = armed === row.id
+  // two agents blocked for the same reason state it once
+  const blocked = [
+    ...new Set(PROVIDERS.map((p) => row.cells[p].reason).filter((r): r is string => Boolean(r)))
+  ]
   return (
     <div className="pnl-detail-body">
+      {version && <McpVersionLine row={row} version={version} busy={busy} onUpdate={onUpdate} />}
       {row.kind === 'mcp' && <McpHealth row={row} repoRoot={repoRoot} setNotice={setNotice} />}
+
+      {/* a chip that can't be switched explains itself here as well as in its title:
+          a tooltip is not an explanation anyone can read with a keyboard */}
+      {blocked.length > 0 && <p className="pnl-note">{blocked.join(' ')}</p>}
 
       {/* the field table would only list file paths here — the honest comparison for
           instructions is each file against the baseline, line by line */}
@@ -816,6 +902,57 @@ function InstructionsCompare({
       })}
     </div>
     </>
+  )
+}
+
+/** What the pill says beside a version line — never the same words as the sentence. */
+const VERSION_LABEL: Record<McpVersion['status'], string> = {
+  update: 'update',
+  current: 'up to date',
+  unknown: 'not checked'
+}
+
+/**
+ * The version question, which only a pinned server has: it runs exactly what the
+ * definition says, so "there is a newer one" is news, and one button moves every
+ * agent that runs it. An unpinned server installs the latest at each launch and
+ * never gets this line — its own label already says so.
+ */
+function McpVersionLine({
+  row,
+  version,
+  busy,
+  onUpdate
+}: {
+  row: PanelRow
+  version: McpVersion
+  busy: string | null
+  onUpdate: (row: PanelRow, version: string) => void
+}): JSX.Element {
+  const latest = version.latest
+  const said =
+    version.status === 'update'
+      ? `${version.pkg} is pinned to ${version.current}; ${version.registry} has ${version.latest}.`
+      : version.status === 'current'
+        ? `${version.current} is the newest ${version.registry} release of ${version.pkg}.`
+        : `Couldn’t ask ${version.registry} about ${version.pkg} — ${version.detail ?? 'no answer'}.`
+  return (
+    <div className="pnl-ver">
+      <span className="pnl-health-what">{said}</span>
+      <span className={`mcp-status ${version.status}`}>{VERSION_LABEL[version.status]}</span>
+      {version.status === 'update' && latest && (
+        <div className="pnl-fix-actions">
+          <button
+            className="btn-ghost small"
+            disabled={busy !== null}
+            title="Rewrite the pinned version wherever this server is switched on — nothing else in the command changes"
+            onClick={() => onUpdate(row, latest)}
+          >
+            {busy === row.id ? 'pinning…' : `Update to ${latest}`}
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 

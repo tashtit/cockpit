@@ -146,6 +146,19 @@ const STATIC: readonly Shot[] = [
       await pause(w, 500)
     }
   },
+  // the version question, on the one kind of server that can have an answer: a
+  // pinned package. Needs the network — offline the line says so instead
+  {
+    view: 'agents',
+    name: 'agents-mcp-version',
+    tall: 1100,
+    go: async (w) => {
+      await nav(w, 'Agents')
+      await w.getByRole('tab', { name: /^MCP servers/ }).click()
+      await w.locator('.pnl-entry', { hasText: 'playwright' }).click()
+      await pause(w, 900)
+    }
+  },
   { view: 'profile', name: 'profile', tall: 1700, go: (w) => nav(w, 'Profile') },
   {
     view: 'cleanup',

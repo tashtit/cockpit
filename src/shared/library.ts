@@ -2,6 +2,7 @@ import type {
   ExtensionsInventory,
   InstructionsState,
   LibraryEntry,
+  MarketplaceInfo,
   McpConfig,
   PanelKind,
   Provider
@@ -151,10 +152,6 @@ export function mcpFields(config: McpConfig): Record<string, string> {
   }
 }
 
-export function mcpSummary(config: McpConfig): string {
-  return config.url ?? [config.command, ...(config.args ?? [])].filter(Boolean).join(' ')
-}
-
 /**
  * Same definition? Only fields *both* sides record are compared: an agent that
  * simply doesn't track a version or a source is unknown, not different, and
@@ -170,6 +167,50 @@ export function sameFields(
     if (k in b && a[k] !== b[k]) return false
   }
   return true
+}
+
+/* ---------- what an agent can be given at all ---------- */
+
+/**
+ * Where a marketplace can be reached from, across every agent that knows it.
+ *
+ * A plugin is installed *from* a marketplace, so an agent with no way to reach that
+ * marketplace can't be offered the plugin: the switch would run an install that
+ * fails. Reach is decided from the source each agent records — a git remote or a
+ * GitHub `owner/repo` is something any agent can be pointed at, while a path inside
+ * another agent's own install (Codex's bundled marketplaces live under its runtime
+ * cache) is not, and Copilot records no source at all because its list is a
+ * directory listing. So a marketplace nobody names a real source for is reachable
+ * only by the agents that already have it.
+ */
+export type MarketReach = {
+  readonly has: readonly Provider[]
+  /** a source any agent could be pointed at, when one of them records one */
+  readonly source?: string
+}
+
+export function isAddableSource(source: string | undefined): boolean {
+  if (!source) return false
+  if (/^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(source)) return true
+  // GitHub shorthand — the other spelling an agent records. One segment each side,
+  // so an absolute path or a marketplace unpacked under a home directory never passes.
+  return /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(source)
+}
+
+export function marketReach(
+  name: string | undefined,
+  marketplaces: readonly MarketplaceInfo[]
+): MarketReach {
+  const rows = name === undefined ? [] : marketplaces.filter((m) => m.name === name)
+  return {
+    has: PROVIDERS.filter((p) => rows.some((m) => m.agent === p)),
+    source: rows.map((m) => m.source).find(isAddableSource)
+  }
+}
+
+/** Can this agent be given something that comes from that marketplace? */
+export function canReach(reach: MarketReach, agent: Provider): boolean {
+  return reach.has.includes(agent) || reach.source !== undefined
 }
 
 /* ---------- what an agent actually holds ---------- */

@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +8,7 @@ import {
   matchPanelEntry,
   removePanelEntry,
   restorePanelEntry,
+  setMcpVersion,
   setPanelSwitch
 } from '../src/main/library'
 import { saveBaseline } from '../src/main/instructions'
@@ -38,6 +39,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   process.env.HOME = realHome
   if (realUserData === undefined) delete process.env.COCKPIT_USER_DATA
   else process.env.COCKPIT_USER_DATA = realUserData
@@ -286,7 +288,7 @@ describe('project scope', () => {
     const report = getPanel(repo)
     expect(cell(report, 'local', 'claude').state).toBe('on')
     expect(cell(report, 'local', 'codex').state).toBe('na')
-    expect(cell(report, 'local', 'codex').reason).toMatch(/globally only/)
+    expect(cell(report, 'local', 'codex').reason).toMatch(/Only Claude Code scopes/)
   })
 
   it('keeps a repo’s switches separate from the global ones', async () => {
@@ -321,5 +323,92 @@ describe('the instructions row', () => {
     expect(file).not.toContain('be careful')
     // the agent's own content is never touched
     expect(file).toContain('my own notes')
+  })
+})
+
+/*
+ * Plugins are read here, never switched: reading a row only reads config files,
+ * while flipping one would run the agent's own CLI.
+ */
+describe('a plugin an agent has no way to install', () => {
+  function seedBundled(): void {
+    write(
+      join(home, '.codex', 'config.toml'),
+      [
+        '[marketplaces.openai-bundled]',
+        'source_type = "local"',
+        `source = "${join(home, '.codex', '.tmp', 'bundled', 'openai-bundled')}"`,
+        '',
+        '[marketplaces.tashtit]',
+        'source = "https://github.com/tashtit/marketplace.git"',
+        '',
+        '[plugins."visualize@openai-bundled"]',
+        'enabled = true',
+        '',
+        '[plugins."git-workflow@tashtit"]',
+        'enabled = true',
+        ''
+      ].join('\n')
+    )
+  }
+
+  it('says so on the chip instead of offering a switch that would fail', () => {
+    seedBundled()
+    const report = getPanel(null)
+    expect(cell(report, 'visualize@openai-bundled', 'codex').state).toBe('on')
+    for (const agent of ['claude', 'copilot'] as const) {
+      const blocked = cell(report, 'visualize@openai-bundled', agent)
+      expect(blocked.state).toBe('na')
+      expect(blocked.reason).toContain('openai-bundled ships with Codex')
+    }
+  })
+
+  it('leaves a marketplace with a real source switchable everywhere', () => {
+    seedBundled()
+    const report = getPanel(null)
+    expect(cell(report, 'git-workflow@tashtit', 'claude').state).toBe('off')
+    expect(cell(report, 'tashtit', 'claude').state).toBe('off')
+    expect(cell(report, 'openai-bundled', 'claude').state).toBe('na')
+  })
+})
+
+describe('pinning a server to a newer version', () => {
+  const serve = (version: string): void => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ version })
+    }))
+  }
+
+  it('rewrites the pin in every agent that runs it', async () => {
+    seedClaudeMcp('shots', { command: 'npx', args: ['-y', 'shots-mcp@0.0.78', '--headless'] })
+    getPanel(null)
+    await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'shots' }, 'copilot', true)
+    serve('0.0.82')
+    const report = await setMcpVersion({ repoRoot: null, kind: 'mcp', name: 'shots' }, '0.0.82')
+    expect(claudeJson().mcpServers.shots.args).toEqual(['-y', 'shots-mcp@0.0.82', '--headless'])
+    const copilot = JSON.parse(readFileSync(join(home, '.copilot', 'mcp-config.json'), 'utf8'))
+    expect(copilot.mcpServers.shots.args).toEqual(['-y', 'shots-mcp@0.0.82', '--headless'])
+    // the agents still agree, so the row is quiet
+    expect(cell(report, 'shots', 'claude').state).toBe('on')
+  })
+
+  it('refuses a version the registry didn’t offer', async () => {
+    seedClaudeMcp('other', { command: 'npx', args: ['-y', 'other-mcp@1.0.0'] })
+    getPanel(null)
+    serve('1.1.0')
+    await expect(
+      setMcpVersion({ repoRoot: null, kind: 'mcp', name: 'other' }, '9.9.9')
+    ).rejects.toThrow(/isn’t what npm offers/)
+    expect(claudeJson().mcpServers.other.args).toEqual(['-y', 'other-mcp@1.0.0'])
+  })
+
+  it('refuses a server that pins nothing at all', async () => {
+    seedClaudeMcp('remote', { type: 'http', url: 'https://example.dev/mcp' })
+    getPanel(null)
+    await expect(
+      setMcpVersion({ repoRoot: null, kind: 'mcp', name: 'remote' }, '1.0.0')
+    ).rejects.toThrow(/doesn’t pin a package version/)
   })
 })

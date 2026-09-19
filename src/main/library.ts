@@ -4,21 +4,25 @@ import { join } from 'node:path'
 import {
   buildReport,
   buildRow,
+  canReach,
   fieldsKey,
   instructionRow,
   kindsForScope,
+  marketReach,
   mcpFields,
-  mcpSummary,
   PROVIDERS,
   type Actual,
   type Desired,
+  type MarketReach,
   type PanelReport,
   type PanelRow
 } from '../shared/library'
+import { describeMcp, mcpLabel, registryOf, withVersion } from '../shared/mcp-source'
 import type {
   ExtensionsInventory,
   LibraryEntry,
   McpConfig,
+  McpVersion,
   PanelKind,
   PanelTarget,
   Provider
@@ -37,6 +41,7 @@ import {
   writeClaudeProjectMcp
 } from './extensions'
 import { applyInstructions, getInstructions, unapplyInstructions } from './instructions'
+import { mcpVersions } from './mcp-versions'
 import { adoptInventory } from '../shared/library'
 
 /**
@@ -130,6 +135,39 @@ function scopedInventory(repoRoot: string | null): ExtensionsInventory {
 
 /* ---------- an entry's two sides ---------- */
 
+/** The agents' own names, for the sentences that have to name one. */
+const AGENT_LABEL: Record<Provider, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  copilot: 'Copilot'
+}
+
+/** The marketplace a plugin is installed from — the half after the last `@`. */
+function marketOf(entry: LibraryEntry): string | undefined {
+  if (entry.kind === 'marketplace') return entry.name
+  const at = entry.name.lastIndexOf('@')
+  return entry.source ?? (at > 0 ? entry.name.slice(at + 1) : undefined)
+}
+
+/**
+ * Why an agent can't be offered it. A plugin is only ever installed from its
+ * marketplace, so an agent that can't reach the marketplace can't be given the
+ * plugin either — and saying that plainly is better than a switch that runs an
+ * install and fails.
+ *
+ * The sentence never names the agent it is about: the chip it sits under *is* that
+ * agent, and two blocked agents would otherwise put the same sentence on screen
+ * twice with one word different.
+ */
+function reachReason(entry: LibraryEntry, reach: MarketReach): string {
+  const market = marketOf(entry) ?? entry.name
+  const verb = entry.kind === 'marketplace' ? 'add it' : `install ${entry.name}`
+  const who = reach.has.map((p) => AGENT_LABEL[p]).join(' and ')
+  return reach.has.length > 0
+    ? `${market} ships with ${who} — there’s no source another agent could add it from.`
+    : `Cockpit can’t tell where ${market} comes from, so it can’t ${verb} in another agent.`
+}
+
 function skillFields(fingerprint: string, description: string): Record<string, string> {
   // a fingerprint of the folder's files: two agents with the same hash run the same skill
   return { description, 'folder hash': fingerprint.slice(0, 8) }
@@ -154,7 +192,7 @@ function savedOf(entry: LibraryEntry, repoRoot: string | null, inv: ExtensionsIn
         detail: entry.withheld?.length
           ? `needs values: ${entry.withheld.join(', ')}`
           : entry.config
-            ? mcpSummary(entry.config)
+            ? mcpLabel(entry.config)
             : 'no definition yet',
         fields: mcpFields(entry.config ?? {})
       }
@@ -192,13 +230,14 @@ function actualOf(
           present: false,
           detail: '',
           fields: {},
-          reason: `${agent === 'codex' ? 'Codex' : 'Copilot'} reads MCP servers globally only — set it in Global.`
+          // the same sentence for both agents, so the opened row states it once
+          reason: 'Only Claude Code scopes MCP servers to a project — set it in Global.'
         }
         continue
       }
       const presence = server?.presences.find((p) => p.agent === agent)
       out[agent] = presence
-        ? { present: true, detail: mcpSummary(presence.config), fields: mcpFields(presence.config) }
+        ? { present: true, detail: mcpLabel(presence.config), fields: mcpFields(presence.config) }
         : { present: false, detail: '', fields: {} }
     }
     return out
@@ -218,6 +257,7 @@ function actualOf(
   }
   if (entry.kind === 'plugin' || entry.kind === 'marketplace') {
     const key = entry.kind === 'plugin' ? 'marketplace' : 'source'
+    const reach = marketReach(marketOf(entry), inv.marketplaces)
     for (const agent of PROVIDERS) {
       const plugin =
         entry.kind === 'plugin'
@@ -228,7 +268,11 @@ function actualOf(
           ? inv.marketplaces.find((x) => x.name === entry.name && x.agent === agent)
           : undefined
       if (!plugin && !market) {
-        out[agent] = { present: false, detail: '', fields: {} }
+        // an agent that can't reach the marketplace gets no switch at all: offering
+        // one would be offering an install Cockpit knows it can't carry out
+        out[agent] = canReach(reach, agent)
+          ? { present: false, detail: '', fields: {} }
+          : { present: false, detail: '', fields: {}, reason: reachReason(entry, reach) }
         continue
       }
       const source = plugin?.marketplace ?? market?.source
@@ -342,6 +386,22 @@ async function runAgentCli(agent: Provider, args: readonly string[]): Promise<vo
   }
 }
 
+/**
+ * An install only works from a marketplace the agent already has, so say which one
+ * is missing rather than handing back whatever the CLI prints when it can't find it.
+ * Unreachable marketplaces never get a switch at all (`reachReason`), so the case
+ * left here is the ordinary one: add the marketplace first.
+ */
+function assertInstallable(entry: LibraryEntry, agent: Provider): void {
+  const market = marketOf(entry)
+  const reach = marketReach(market, getExtensions().marketplaces)
+  if (reach.has.includes(agent)) return
+  if (!canReach(reach, agent)) throw new Error(reachReason(entry, reach))
+  throw new Error(
+    `${AGENT_LABEL[agent]} doesn’t have the ${market} marketplace yet — switch it on under Marketplaces first.`
+  )
+}
+
 function skillTarget(repoRoot: string | null, agent: Provider): string {
   return repoRoot === null ? skillDir(agent) : projectSkillDir(repoRoot, agent)
 }
@@ -395,6 +455,7 @@ async function writeSwitch(
       return
     }
     case 'plugin': {
+      if (on) assertInstallable(entry, agent)
       const cmd = PLUGIN_CMD[agent]
       return runAgentCli(agent, [...(on ? cmd.on : cmd.off), entry.name])
     }
@@ -562,6 +623,61 @@ export async function removePanelEntry(target: PanelTarget): Promise<PanelReport
   }
   if (failed.length > 0) throw new Error(`couldn't remove it everywhere — ${failed.join(' · ')}`)
   saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, removed: true }))
+  return getPanel(target.repoRoot)
+}
+
+/* ---------- versions ---------- */
+
+/**
+ * What the registries say about this scope's pinned servers. Read on demand — the
+ * panel asks once when its MCP section opens — and never as part of `getPanel`: a
+ * panel that can't be drawn until two network calls answer is a panel that hangs
+ * offline.
+ */
+export async function mcpVersionsFor(repoRoot: string | null): Promise<readonly McpVersion[]> {
+  const { entries } = ensureScope(repoRoot)
+  const servers = entries
+    .filter((e) => e.kind === 'mcp' && !e.removed && e.config !== undefined)
+    .map((e) => ({ name: e.name, config: e.config! }))
+  return mcpVersions(servers)
+}
+
+/**
+ * Pin a server to another version, everywhere it is switched on.
+ *
+ * Only the version moves: `withVersion` rewrites the package spec and leaves the
+ * rest of the launch line byte-identical, so a bump can't quietly become a rewrite
+ * of what the user runs. The version itself arrives from the renderer, which makes
+ * it untrusted input on its way into a command line — it is checked against the
+ * registry's own answer for this server before anything is written.
+ */
+export async function setMcpVersion(target: PanelTarget, version: string): Promise<PanelReport> {
+  assertTarget(target)
+  if (target.kind !== 'mcp') throw new Error('only an MCP server is pinned to a version')
+  const { entries } = ensureScope(target.repoRoot)
+  const entry = findEntry(entries, target)
+  if (!entry.config) throw new Error(`no definition recorded for "${entry.name}"`)
+  const described = describeMcp(entry.config)
+  if (registryOf(described) === null || described.version === undefined) {
+    throw new Error(`“${entry.name}” doesn’t pin a package version`)
+  }
+  const offered = (await mcpVersions([{ name: entry.name, config: entry.config }]))[0]
+  if (offered?.latest !== version) {
+    throw new Error(
+      `${version} isn’t what ${offered?.registry ?? 'the registry'} offers for ${described.what}`
+    )
+  }
+  const next: LibraryEntry = { ...entry, config: withVersion(entry.config, version) }
+  saveEntries(target.repoRoot, replaceEntry(entries, next))
+  const failed: string[] = []
+  for (const agent of PROVIDERS.filter((p) => next.enabled[p] === true)) {
+    try {
+      await writeSwitch(next, agent, true, target.repoRoot)
+    } catch (err) {
+      failed.push(`${agent}: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+  if (failed.length > 0) throw new Error(`pinned to ${version}, but not everywhere — ${failed.join(' · ')}`)
   return getPanel(target.repoRoot)
 }
 

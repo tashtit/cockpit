@@ -34,6 +34,7 @@ import type {
   InstructionsState,
   Landing,
   McpProbeResult,
+  McpVersion,
   ModelEndpoint,
   NewAcpAgent,
   NewModelEndpoint,
@@ -184,6 +185,10 @@ export type CockpitApi = {
   readonly checkMcp: (name: string) => Promise<McpProbeResult>
   /** Run the agent CLI's own OAuth login for the server; resolves with its output */
   readonly loginMcp: (name: string, agent: Provider, projectPath?: string) => Promise<string>
+  /** Ask each registry whether a scope's version-pinned servers have a newer release */
+  readonly mcpVersions: (repoRoot: string | null) => Promise<readonly McpVersion[]>
+  /** Pin that server to `version` in every agent it is switched on for */
+  readonly setMcpVersion: (target: PanelTarget, version: string) => Promise<PanelReport>
   /* the panel: Cockpit's own config for a scope, reconciled against each agent */
   readonly getPanel: (repoRoot: string | null) => Promise<PanelReport>
   /** Flip one agent's switch — writes the entry into that agent, or takes it out */
@@ -350,6 +355,8 @@ export const CH = {
   extensionsCheckMcp: 'extensions:check-mcp',
   extensionsGet: 'extensions:get',
   extensionsLoginMcp: 'extensions:login-mcp',
+  extensionsMcpVersions: 'extensions:mcp-versions',
+  extensionsSetMcpVersion: 'extensions:set-mcp-version',
 
   githubDefaultBranch: 'github:default-branch',
   githubPrFeedback: 'github:pr-feedback',

@@ -146,15 +146,61 @@ A server's switch translates one definition into each agent's own config format:
 - Codex — `~/.codex/config.toml`
 - Copilot CLI — `~/.copilot/mcp-config.json`
 
-Define a server once, run it everywhere. The **MCP health** tab covers the one thing a
-switch can't tell you: whether the server actually answers. Check probes it, and when it
-reports *needs login* you can run the agent's own OAuth flow from there.
+Define a server once, run it everywhere.
+
+### What a row says it is
+
+A row names the server by **what it is**, not by the command line that launches it —
+where the code comes from, what it's called, and which version:
+
+| Row reads | What it means |
+| --- | --- |
+| `npm · @playwright/mcp 0.0.78` | an npm package, pinned to exactly that release |
+| `npm · @modelcontextprotocol/server-github latest` | an npm package with no pin — the runner installs the newest release at every launch |
+| `PyPI · analytics-mcp latest` | the same, through `pipx` or `uvx` |
+| `http · app.example.dev` | a remote server, reached over HTTP (or `sse`) — nothing runs on your machine |
+| `container · org/image:1.2` | run as a container image |
+| `local · node scripts/db-mcp.js` | a program on this machine |
+
+Open the row for the launch line itself, agent by agent. Anything Cockpit can't read with
+confidence stays `local · <command>` rather than being guessed at.
+
+### Is there a newer one?
+
+A **pinned** server runs exactly the release it names, so it is the one kind that can fall
+behind. Cockpit asks npm or PyPI — once, when you open the section, never on a schedule —
+and marks the row `update 0.0.81`. Open it and one button, **Update to 0.0.81**, rewrites
+the pin wherever that server is switched on; nothing else in the command changes. Restart
+those CLIs to pick it up.
+
+Nothing else is asked about: an unpinned server already installs the newest release at
+every launch, and a remote server has no version to compare. If a registry can't be
+reached, the row still says what it is pinned to and the open row says which registry
+didn't answer.
+
+### Whether it answers
+
+The one thing a switch can't tell you. **Check** probes the server from its own row, and
+when it reports *needs login* you can run the agent's own OAuth flow from there.
 
 ## Skills, plugins, marketplaces
 
 All three agents read personal skills from the same `SKILL.md` format — `~/.claude/skills`, `~/.codex/skills` and `~/.copilot/skills` — so a skill copies to any other agent as-is.
 
 Plugins and marketplaces are read from wherever each agent keeps them (`installed_plugins.json` and `known_marketplaces.json` for Claude Code, `[plugins]` / `[marketplaces]` sections in `~/.codex/config.toml` for Codex, the `~/.copilot/installed-plugins/<marketplace>/<plugin>` tree for Copilot) and keyed by the `<name>@<marketplace>` id all three use — so the same plugin lines up across agents in Compare.
+
+### Not everything can go everywhere
+
+A plugin is installed **from a marketplace**, so an agent with no way to reach that
+marketplace can't be given the plugin. Some marketplaces ship inside an agent — Codex's
+`openai-bundled` lives in its own runtime folder — and there is no source another agent
+could be pointed at. Cockpit doesn't offer a switch it knows would fail: those agents get
+a dashed *not available* chip, the row reads **Codex only**, and opening it spells out why.
+
+A marketplace that *is* addable (a git remote, or a GitHub `owner/repo`) stays switchable
+everywhere. It does have to be added to an agent before that agent can install anything
+from it — if it isn't yet, the switch says which marketplace to turn on first rather than
+handing you the CLI's own error.
 
 ::: tip Repo-level skills
 For a shared per-repository setup, a `.agents/skills/` directory with a `.claude/skills` symlink lets Codex and Copilot read skills natively while Claude Code follows the symlink — one source of truth, three consumers.

@@ -115,6 +115,9 @@ const api: CockpitApi = {
   checkMcp: (name: string) => ipcRenderer.invoke(CH.extensionsCheckMcp, name),
   loginMcp: (name: string, agent: Provider, projectPath?: string) =>
     ipcRenderer.invoke(CH.extensionsLoginMcp, name, agent, projectPath),
+  mcpVersions: (repoRoot: string | null) => ipcRenderer.invoke(CH.extensionsMcpVersions, repoRoot),
+  setMcpVersion: (target: PanelTarget, version: string) =>
+    ipcRenderer.invoke(CH.extensionsSetMcpVersion, target, version),
   getPanel: (repoRoot: string | null) => ipcRenderer.invoke(CH.panelGet, repoRoot),
   setPanelSwitch: (target: PanelTarget, agent: Provider, on: boolean) =>
     ipcRenderer.invoke(CH.panelSetSwitch, target, agent, on),
