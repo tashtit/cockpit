@@ -91,11 +91,12 @@ ul, ol { padding: 0; }
      preference; on big windows the exchange centers instead of stranding user
      bubbles a screen away from the replies */
   --chat-col: 860px;
-  /* Home's two columns. The board is a table — fixed branch and placard slots, a
-     title that truncates — so it takes the deck's width; the composer is text you
-     type, so it keeps a reading column. They converge on their own below ~1200px of
-     pane, which is why neither needs a breakpoint. */
-  --board-col: 1100px; --task-col: 700px;
+  /* Home's column, shared by the board and the composer so the two read as one
+     stack. It is the width the board's own row fills: a row is a fixed lead and
+     branch slot, a title, and a right-aligned repo + time, so any width past what
+     the title needs opens a canyon down the middle of every row rather than showing
+     more. Wider is emptier here, not richer. */
+  --home-col: 780px;
   /* The live zoom factor, written by App.tsx. Everything in this file is in CSS
      pixels, which zoom rescales — but the macOS traffic lights are drawn by the OS
      at a fixed physical size, so the one measurement that has to match them is
@@ -1078,13 +1079,13 @@ summary::-webkit-details-marker { display: none; }
 .home-view.home-setup:not(:has(.board)) .home-stack { flex: 0 0 auto; padding: 0; }
 .home-view.home-setup:not(:has(.board)) .home-dock { flex: 1; justify-content: center;
   border-top: none; background: none; }
-.home-inner { width: min(var(--board-col), 94%); margin: 0 auto; min-height: 0;
+.home-inner { width: min(var(--home-col), 94%); margin: 0 auto; min-height: 0;
   display: flex; flex-direction: column; gap: var(--s5); }
 /* the composer, docked: the chat composer's chrome recipe, over the column the board
    reads in. `flex: none` is what keeps it out of the height negotiation above. */
 .home-dock { flex: none; border-top: 1px solid var(--border); background: var(--pane);
   padding: var(--s4) 0 var(--s5); display: flex; flex-direction: column; }
-.home-dock-inner { width: min(var(--task-col), 94%); margin: 0 auto;
+.home-dock-inner { width: min(var(--home-col), 94%); margin: 0 auto;
   display: flex; flex-direction: column; gap: var(--s4); }
 /* children must never shrink below content height — without this the composer card
    (overflow: hidden → zero min-content) collapses to a sliver on short windows */

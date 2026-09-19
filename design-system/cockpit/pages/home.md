@@ -25,12 +25,15 @@ Everything between them stays quiet.
 
 - `.home-view` is a frame, not a page: `display: flex; flex-direction: column;
   overflow: hidden`. Two children, and only one of them can give way.
-- **Two columns, not one.** `--board-col` (1100px) for the stack, `--task-col` (700px)
-  for the dock. The board is a table — fixed placard and branch slots, a title that
-  truncates — so it takes the deck's width; the composer is text you type, so it keeps
-  a reading column. The asymmetry is the point: a wide instrument over a focused
-  control. Both are `min(<col>, 94%)`, so they converge on their own below ~1200px of
-  pane and no breakpoint is involved.
+- **One column, `--home-col` (780px), shared by the stack and the dock** — the board
+  and the composer are the same width and read as one stack. Resist widening the board
+  on its own: a row is a fixed lead and branch slot, a title, and a right-aligned repo
+  pill + time, so past the width the title needs, every extra pixel opens a canyon down
+  the middle of each row rather than showing more (at 1100px it was ~600px of nothing
+  between the title and the time, and the row read as two disconnected clusters). If
+  the board ever needs to be genuinely wide, the row grammar has to change first —
+  more per row, or a meta column that doesn't hug the far edge. Wider is emptier here,
+  not richer.
 - `.home-stack` — the reading half: `flex: 1; min-height: 0`, holding `.home-inner`.
   Its content **hangs from the top** and the board grows downward into the room it has.
   The dock is already anchored to the bottom; anchoring the reading half to it as well
