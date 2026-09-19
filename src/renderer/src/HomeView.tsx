@@ -29,6 +29,12 @@ import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
+/** "titan-ron" → "Titan": the login's first name-ish segment, capitalized. */
+function firstName(login: string): string {
+  const first = login.split(/[-._]/, 1)[0] || login
+  return first.charAt(0).toUpperCase() + first.slice(1)
+}
+
 /**
  * Whether the composer may take focus: only while focus is still where the home view
  * left it — the body, or nothing at all — and nothing is layered over the view. The
@@ -238,6 +244,20 @@ export function HomeView({
 
       <div className="home-dock">
         <div className="home-dock-inner">
+          {/* the greeting, asked directly above the thing it asks about. It opened the
+              view once, which stopped working when the composer moved down here — a
+              question 700px from its own answer. At caption scale it introduces the
+              composer without competing with the masthead's alarm. */}
+          {canStart && (
+            <p className="home-greet">
+              What should we ship
+              {accounts?.githubUser ? (
+                <span className="hero-name">, {firstName(accounts.githubUser)}?</span>
+              ) : (
+                '?'
+              )}
+            </p>
+          )}
           {needsSetup ? (
             <Setup
               signedIn={(accounts?.accounts.length ?? 0) > 0}

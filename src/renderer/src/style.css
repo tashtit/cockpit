@@ -1090,6 +1090,10 @@ summary::-webkit-details-marker { display: none; }
 /* children must never shrink below content height — without this the composer card
    (overflow: hidden → zero min-content) collapses to a sliver on short windows */
 .home-dock-inner > * { flex-shrink: 0; }
+/* the greeting: a caption for the composer, not a page banner. The masthead owns
+   the view's one loud voice, so this stays at caption scale and never grows. */
+.home-greet { font-size: var(--fs-md); color: var(--fg); }
+.hero-name { color: var(--fg-dim); font-weight: 400; }
 /* 0.85 keeps the 11px kbd hint at/above 4.5:1 on the dark base. `margin-right: auto`
    anchors it left so the footer line reads as a row rather than two links adrift. */
 .home-kbd { font-size: var(--fs-xs); opacity: 0.85; font-family: var(--mono);
@@ -1997,6 +2001,9 @@ button.pnl-flag:hover { text-decoration: underline; }
    before) and the *placard* register — the uppercase/lowercase micro-labels that
    name instruments. Both hero headline and placards speak mono; body rows and
    prose stay sans for legibility. */
+/* the greeting keeps the hero's mono voice at caption scale — a sentence, so it
+   takes none of the placards' tracking */
+.home-greet { font-family: var(--mono); letter-spacing: -0.2px; }
 .ns-label, .board-mast, .board-agent,
 .section-row, .search-group, .repo-filter-head { font-family: var(--mono);
   letter-spacing: 0.7px; }
@@ -2104,6 +2111,9 @@ button.pnl-flag:hover { text-decoration: underline; }
 }
 @media (max-height: 600px) {
   .home-stack { padding-block: var(--s4); }
+  /* the dock is where height is scarcest at the floor, and the composer's own
+     placeholder and button already say what it is */
+  .home-greet { display: none; }
   /* where rows are what's scarce the masthead sheds, in order: the sub-line goes
      first (the counts that aren't urgent — the rows say the rest), then the alarm's
      scale. The urgent phrase itself never goes: at this height it is the only thing

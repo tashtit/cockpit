@@ -51,14 +51,18 @@ Everything between them stays quiet.
   roundtables alike); **dock** — `.composer-card` → `.home-more` → YOLO hint → error
   line. The board renders whenever it has a row; what is happening changes the rows and
   their order, never either region's place on the page.
-- **There is no hero.** A centred greeting used to open the view. It was the generic
-  move, it was dropped at ≤600px height (a heading you delete under pressure is not a
-  heading), it was centred over a left-aligned table, and once the composer moved to
-  the dock it introduced nothing — it sat 700px from the thing it framed. Its two jobs
-  went where they belong: the heading is now the board's masthead (below), and the ⌘K
-  hint is the left anchor of `.home-more`. `firstName()` and `.home-hero` / `.home-sub`
-  / `.hero-name` went with it; the person's identity is already on screen in the rail's
-  footer. Don't reintroduce a page-level greeting without a job for it.
+- **There is no page-level hero.** A centred greeting used to open the view, and once
+  the composer moved to the dock it introduced nothing — a question 700px from its own
+  answer, centred over a left-aligned table. It did not go away; it moved to the thing
+  it asks about. `.home-greet` is the first child of `.home-dock-inner`, directly above
+  the composer card: "What should we ship`, Octo?`" — the `gh` login's first
+  hyphen/dot/underscore segment, capitalized (`firstName()`), in dim `.hero-name`. It
+  keeps the mono voice but at `--fs-md`, because the masthead now carries the view's
+  display type; **don't grow it back**, and don't move it above the board. It renders
+  only with the composer (`canStart`) — the setup card has its own heading — and sheds
+  at ≤600px height, where the dock is what's scarce and the placeholder and button
+  already say what the composer is. The hero's other job, the ⌘K hint, is the left
+  anchor of `.home-more`.
 - **First run** (`.home-setup`, and only when there is no board): the two regions
   collapse into one and the setup card centres in the deck, without the dock's rule and
   pane. There is no fleet to list and the card *is* the content, so an anchored dock
@@ -171,6 +175,8 @@ Everything between them stays quiet.
 
 ## Composer card
 
+- `.home-greet` sits directly above the card (see Layout) — the one personal line in
+  the view, and the only reason `accounts.githubUser` reaches this half of the screen.
 - `.composer-card` = borderless textarea on top, `.composer-bar` control strip below a
   hairline divider. Focus ring lives on the **card** (`:focus-within`), not the textarea.
 - Bar order is fixed: repo icon + repo select · `.composer-identity` (agent picker +
