@@ -23,15 +23,23 @@ const PYPI_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$/
 /** Answers keyed `<registry>:<package>`; a process-lifetime cache, so it mutates. */
 const cache = new Map<string, { readonly version: string; readonly at: number }>()
 
-function registryUrl(registry: Registry, pkg: string): string {
-  // the npm registry spells a scope's slash escaped and its @ bare
-  return registry === 'npm'
-    ? `https://registry.npmjs.org/${pkg.replace('/', '%2F')}/latest`
-    : `https://pypi.org/pypi/${encodeURIComponent(pkg)}/json`
-}
-
 function nameOk(registry: Registry, pkg: string): boolean {
   return registry === 'npm' ? NPM_NAME.test(pkg) : PYPI_NAME.test(pkg)
+}
+
+/**
+ * The URL, from a name `nameOk` has already limited to the registry's own
+ * charset — which is what makes escaping a closed question. The slash in a scope
+ * is the only character npm needs escaped, and it is escaped everywhere it
+ * appears rather than once: a partial encoding is how a name gets to mean
+ * something else.
+ */
+function registryUrl(registry: Registry, pkg: string): string {
+  if (!nameOk(registry, pkg)) throw new Error(`${pkg} isn’t a package name`)
+  // the npm registry spells a scope's slash escaped and its @ bare
+  return registry === 'npm'
+    ? `https://registry.npmjs.org/${pkg.replaceAll('/', '%2F')}/latest`
+    : `https://pypi.org/pypi/${encodeURIComponent(pkg)}/json`
 }
 
 async function fetchLatest(registry: Registry, pkg: string): Promise<string> {
@@ -79,9 +87,6 @@ export async function mcpVersions(
         registry,
         pkg: described.what,
         current: described.version!
-      }
-      if (!nameOk(registry, described.what)) {
-        return { ...base, status: 'unknown', detail: `${described.what} isn’t a package name` }
       }
       try {
         const latest = await latestVersion(registry, described.what)
