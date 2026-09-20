@@ -14,6 +14,7 @@ import type {
   SourceStats
 } from '../shared/types'
 import { orderRepos } from '../shared/repo-order'
+import { isUnder } from './paths'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
@@ -75,11 +76,6 @@ const CACHE_SAVE_INTERVAL_MS = 30_000
 /** How often to re-check watch roots that didn't exist when sources were set. */
 const WATCH_RETRY_INTERVAL_MS = 30_000
 
-/** Is this file inside that directory? Both are absolute paths the indexer derived. */
-function isUnder(file: string, dir: string): boolean {
-  const base = resolve(dir)
-  return file === base || file.startsWith(base.endsWith(sep) ? base : base + sep)
-}
 /** Floor for re-judging a not-a-session verdict (see knownNonSessions). */
 const PROBE_REGROW_BYTES = 4096
 
@@ -301,7 +297,9 @@ export class SessionIndexer {
     const source = new Map<string, SourceDir>()
     for (const [file, entry] of this.fileCache) {
       if (!entry.meta) continue
-      const from = this.sources.find((s) => isUnder(file, s.path))
+      // `resolve` here, not in `isUnder`: a source path comes from config, which a
+      // hand edit can leave unnormalized, while `file` is already the indexer's own
+      const from = this.sources.find((s) => isUnder(file, resolve(s.path)))
       // a source removed since last run: its cached files are not ours to show
       if (!from) continue
       source.set(file, from)
@@ -541,7 +539,7 @@ export class SessionIndexer {
   private sourceForFile(path: string): SourceDir | null {
     for (const s of this.sources) {
       for (const root of ROOT_LISTERS[s.provider](s.path)) {
-        if (path.startsWith(root + sep)) return s
+        if (isUnder(path, root)) return s
       }
     }
     return null

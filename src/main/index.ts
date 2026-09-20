@@ -26,6 +26,7 @@ import { CH, PUSH, type PushChannel } from '../shared/contract'
 import { clampZoom, restoredBounds, WINDOW_FLOOR, zoomedFloor } from '../shared/window'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
+import { isUnder } from './paths'
 import { TranscriptSearcher } from './transcript-search'
 import { ChatManager } from './chat'
 import { mergeBusy } from './liveness-core'
@@ -510,8 +511,8 @@ function chatImagesDir(): string {
 function assertKnownCwd(cwd: unknown): string {
   if (typeof cwd !== 'string') throw new Error('invalid working directory')
   const c = resolve(cwd)
-  if (c === worktreesDir() || c.startsWith(worktreesDir() + '/')) return c
-  if ([...indexer.knownRepoRoots()].some((r) => c === r || c.startsWith(r + '/'))) return c
+  if (isUnder(c, worktreesDir())) return c
+  if ([...indexer.knownRepoRoots()].some((r) => isUnder(c, r))) return c
   if (indexer.knownSessionCwds().has(c)) return c
   throw new Error(`unknown working directory: ${c}`)
 }
@@ -639,10 +640,9 @@ app.whenReady().then(() => {
   )
   ipcMain.handle(CH.workspacePr, (_e, cwd: string) => {
     const c = resolve(String(cwd))
-    const underWorktrees = c.startsWith(worktreesDir() + '/')
-    const underKnownRoot = [...indexer.knownRepoRoots()].some(
-      (r) => c === r || c.startsWith(r + '/')
-    )
+    // the worktrees dir itself is not a workspace — only something cut inside it
+    const underWorktrees = c !== worktreesDir() && isUnder(c, worktreesDir())
+    const underKnownRoot = [...indexer.knownRepoRoots()].some((r) => isUnder(c, r))
     if (!underWorktrees && !underKnownRoot) throw new Error(`unknown workspace: ${c}`)
     return createPr(c)
   })

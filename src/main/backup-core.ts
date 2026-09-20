@@ -496,6 +496,13 @@ function capMap(map: Record<string, string>, cap: number): Record<string, string
   return Object.fromEntries(entries.slice(Math.max(0, entries.length - cap)))
 }
 
+/**
+ * Not `isUnder`, on purpose: this swaps one prefix for another, so it depends on
+ * `from` being exactly the string it slices off. `from` is the backup file's own
+ * `home` field — untrusted input, which may carry a trailing slash that `isUnder`
+ * would helpfully look past and this cannot, since the slice would then eat the
+ * separator and hand back `<to>Users/…`.
+ */
 function rewriteHome(path: string, from: string, to: string): string {
   if (from === '' || from === to) return path
   return path === from || path.startsWith(from + '/') ? to + path.slice(from.length) : path

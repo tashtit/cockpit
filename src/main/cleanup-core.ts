@@ -1,5 +1,6 @@
 import { join, sep } from 'node:path'
 import type { CleanupBlock, SourceDir, WorktreeOrigin } from '../shared/types'
+import { isUnder } from './paths'
 
 /**
  * The IO-free half of cleanup: what counts as stale, how git's worktree listing
@@ -81,11 +82,6 @@ export function parseWorktreeList(porcelain: string): WorktreeEntry[] {
     if (path) out.push({ path, branch, head, bare, detached, locked, prunable })
   }
   return out
-}
-
-/** True when `child` is `parent` itself or sits inside it. */
-export function isUnder(child: string, parent: string): boolean {
-  return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep)
 }
 
 /**
