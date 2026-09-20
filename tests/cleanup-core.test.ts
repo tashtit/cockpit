@@ -5,7 +5,6 @@ import {
   MIN_STALE_DAYS,
   clampStaleDays,
   isStale,
-  isUnder,
   judgeProcesses,
   lastWorktreeActivity,
   ownProcessTree,
@@ -134,15 +133,8 @@ describe('parseWorktreeList', () => {
   })
 })
 
-describe('isUnder / worktreeOrigin', () => {
-  it('treats a directory as under itself', () => {
-    expect(isUnder('/a/b', '/a/b')).toBe(true)
-  })
-
-  it('does not match a sibling with a shared prefix', () => {
-    expect(isUnder('/a/bcd', '/a/b')).toBe(false)
-  })
-
+// isUnder itself lives in src/main/paths.ts — tests/path-containment.test.ts owns it
+describe('worktreeOrigin', () => {
   it('calls Cockpit-owned worktrees cockpit and everything else external', () => {
     const root = '/userData/worktrees'
     expect(worktreeOrigin('/userData/worktrees/app/fix', root)).toBe('cockpit')

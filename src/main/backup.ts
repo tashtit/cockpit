@@ -45,6 +45,7 @@ import {
 } from './config'
 import { adoptScope, hasSkillCopy, skillCopyDir, skillSource } from './library'
 import { walkFiles } from './parsers/util'
+import { isUnder } from './paths'
 
 /*
  * The disk around backup-core: reading skills, writing the file, and putting a
@@ -316,7 +317,7 @@ function writeSkill(name: string, repoRoot: string | null, files: SkillFiles): s
     const dest = resolve(dir, rel)
     // belt and braces: sanitizeBundle already rejected traversal, but this is the
     // line that actually writes, so it checks for itself
-    if (dest !== dir && !dest.startsWith(dir + sep)) throw new Error(`unsafe path in skill "${name}"`)
+    if (dest === dir || !isUnder(dest, dir)) throw new Error(`unsafe path in skill "${name}"`)
     mkdirSync(dirname(dest), { recursive: true })
     writeFileSync(dest, Buffer.from(file.data, 'base64'), { mode: file.exec ? 0o755 : 0o644 })
   }

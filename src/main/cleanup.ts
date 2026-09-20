@@ -15,7 +15,6 @@ import type {
 import {
   clampStaleDays,
   isStale,
-  isUnder,
   judgeProcesses,
   lastWorktreeActivity,
   ownProcessTree,
@@ -32,6 +31,7 @@ import {
   type WorktreeHome
 } from './cleanup-core'
 import { execText } from './env'
+import { isUnder } from './paths'
 
 /**
  * Cross-agent cleanup: the one place that answers "what has gone stale, across

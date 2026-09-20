@@ -26,6 +26,7 @@ import {
   RepoIcon
 } from './logos'
 import { Select } from './Select'
+import { shortPath } from '../../shared/library'
 
 /**
  * Cleanup: one place for everything that has gone quiet, across every agent and
@@ -362,7 +363,7 @@ function SessionRow({
             s.cwd && (
               <span className="cl-path" title={s.cwd}>
                 {' · '}
-                {s.cwd}
+                {shortPath(s.cwd)}
               </span>
             )
           )}
@@ -474,7 +475,7 @@ function WorktreeRow({
           {w.missing && <span className="cl-tag">directory gone</span>}
         </div>
         <div className="cl-sub cl-path" title={w.path}>
-          {w.path}
+          {shortPath(w.path)}
         </div>
       </div>
       <div className="cl-meta">
@@ -552,7 +553,7 @@ function ProcessGroup({
         {head.branch && <BranchChip branch={head.branch} />}
         {procs.some((p) => p.worktreeGone) && <span className="cl-tag">worktree removed</span>}
         <span className="cl-sub cl-path" title={head.worktreePath}>
-          {head.worktreePath}
+          {shortPath(head.worktreePath)}
         </span>
       </div>
       <ul className="source-list">{children}</ul>

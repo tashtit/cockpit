@@ -26,6 +26,7 @@ import { CH, PUSH, type PushChannel } from '../shared/contract'
 import { clampZoom, restoredBounds, WINDOW_FLOOR, zoomedFloor } from '../shared/window'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
+import { isUnder } from './paths'
 import { TranscriptSearcher } from './transcript-search'
 import { ChatManager } from './chat'
 import { mergeBusy } from './liveness-core'
@@ -129,6 +130,22 @@ import { homedir } from 'node:os'
 if (!app.isPackaged && process.env['COCKPIT_USER_DATA']) {
   app.setPath('userData', resolve(process.env['COCKPIT_USER_DATA']))
 }
+
+/**
+ * Node's answer to an unhandled rejection is to end the process. For a server that is
+ * the right call; for a desktop hub it means the window vanishes mid-session, taking
+ * every running turn with it, over a background write that nobody was waiting on.
+ *
+ * Main is full of deliberate fire-and-forget work — a rescan, a cache flush, a
+ * notification sound — and each of those already decides what its own failure means.
+ * This is the net under the one that forgot, and it only writes the reason down:
+ * anything that actually matters to the user is reported through its own IPC reply.
+ * `uncaughtException` is deliberately left alone — a throw off the stack can leave
+ * state half-written, and there is no honest way to carry on from it.
+ */
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandled rejection:', reason)
+})
 
 let win: BrowserWindow | null = null
 let indexer: SessionIndexer
@@ -510,8 +527,8 @@ function chatImagesDir(): string {
 function assertKnownCwd(cwd: unknown): string {
   if (typeof cwd !== 'string') throw new Error('invalid working directory')
   const c = resolve(cwd)
-  if (c === worktreesDir() || c.startsWith(worktreesDir() + '/')) return c
-  if ([...indexer.knownRepoRoots()].some((r) => c === r || c.startsWith(r + '/'))) return c
+  if (isUnder(c, worktreesDir())) return c
+  if ([...indexer.knownRepoRoots()].some((r) => isUnder(c, r))) return c
   if (indexer.knownSessionCwds().has(c)) return c
   throw new Error(`unknown working directory: ${c}`)
 }
@@ -639,10 +656,9 @@ app.whenReady().then(() => {
   )
   ipcMain.handle(CH.workspacePr, (_e, cwd: string) => {
     const c = resolve(String(cwd))
-    const underWorktrees = c.startsWith(worktreesDir() + '/')
-    const underKnownRoot = [...indexer.knownRepoRoots()].some(
-      (r) => c === r || c.startsWith(r + '/')
-    )
+    // the worktrees dir itself is not a workspace — only something cut inside it
+    const underWorktrees = c !== worktreesDir() && isUnder(c, worktreesDir())
+    const underKnownRoot = [...indexer.knownRepoRoots()].some((r) => isUnder(c, r))
     if (!underWorktrees && !underKnownRoot) throw new Error(`unknown workspace: ${c}`)
     return createPr(c)
   })

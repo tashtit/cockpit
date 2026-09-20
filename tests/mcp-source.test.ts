@@ -203,6 +203,23 @@ describe('pinning a new version', () => {
     ])
   })
 
+  it('keeps the flag the spec shares its argument with', () => {
+    // `uvx --from=pkg cmd` runs `cmd` out of `pkg`; `uvx pkg cmd` runs `pkg` and hands
+    // it `cmd` — dropping the flag rewrites what the server launches, not its version
+    expect(
+      withVersion({ command: 'uvx', args: ['--from=a-pkg==1.0.0', 'a-cmd'] }, '2.0.0').args
+    ).toEqual(['--from=a-pkg==2.0.0', 'a-cmd'])
+    expect(
+      withVersion({ command: 'npx', args: ['--package=a-mcp@1.0.0', 'a-cmd'] }, '2.0.0').args
+    ).toEqual(['--package=a-mcp@2.0.0', 'a-cmd'])
+  })
+
+  it('rewrites the value, not the flag, when the flag stands alone', () => {
+    expect(
+      withVersion({ command: 'uvx', args: ['--from', 'a-pkg==1.0.0', 'a-cmd'] }, '2.0.0').args
+    ).toEqual(['--from', 'a-pkg==2.0.0', 'a-cmd'])
+  })
+
   it('refuses to pin a server that deliberately pins nothing', () => {
     expect(() => withVersion({ command: 'npx', args: ['-y', 'a-mcp'] }, '2.0.0')).toThrow(
       /pins no version/

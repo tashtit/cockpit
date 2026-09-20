@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import { api } from './api'
 
 function nodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -40,9 +41,37 @@ function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
 }
 
 /**
+ * A link in an agent's reply — a PR, a doc, a stack trace's source.
+ *
+ * The window itself must never navigate (main's `will-navigate` prevents it, since
+ * this renderer holds `window.cockpit` and can spawn CLIs), so an `<a href>` left to
+ * itself is a control that looks live and does nothing. It goes to the real browser
+ * instead, through the same `openExternal` every other link in the app uses.
+ *
+ * Anything that isn't http(s) — a relative path, a bare `#anchor`, a `mailto:` — is
+ * not somewhere this can send anyone: main refuses it, so it renders as its own text
+ * rather than as a link that swallows clicks.
+ */
+function Link({ href, children }: { href?: string; children?: ReactNode }): JSX.Element {
+  if (href === undefined || !/^https?:\/\//i.test(href)) return <>{children}</>
+  return (
+    <a
+      href={href}
+      title={href}
+      onClick={(e) => {
+        e.preventDefault()
+        void api.openExternal(href)
+      }}
+    >
+      {children}
+    </a>
+  )
+}
+
+/**
  * The app's one markdown pipeline: GFM + syntax highlighting + copyable code
- * blocks. Chat replies and the instructions preview render through this same
- * component so the two surfaces can never drift.
+ * blocks and links that open where links open. Chat replies and the instructions
+ * preview render through this same component so the two surfaces can never drift.
  *
  * Nothing imports this directly — it is the lazy half of `Markdown.tsx`, which is
  * what callers use. react-markdown, remark-gfm and the highlighter's grammars are
@@ -54,7 +83,7 @@ export function MarkdownPipeline({ text }: { text: string }): JSX.Element {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
-      components={{ pre: CodeBlock }}
+      components={{ pre: CodeBlock, a: Link }}
     >
       {text}
     </ReactMarkdown>

@@ -20,6 +20,11 @@ Open any session from the sidebar and type: Cockpit resumes that conversation wi
 
 The permission mode sits beside **Send** and applies to the next turn you send. Tool activity reads one row per call: the command or file it touched, and its result's first line on the right — expand the row for the full input and output.
 
+Replies render as markdown: code blocks carry a **Copy** button, and a link opens in your
+default browser rather than inside Cockpit — the window itself never navigates away from
+the app. Relative paths and `mailto:` links are shown as plain text, since there is
+nowhere for them to go.
+
 ## When the agent asks you something
 
 An agent that stops to ask — Claude Code's `AskUserQuestion` or its plan gate, Codex's

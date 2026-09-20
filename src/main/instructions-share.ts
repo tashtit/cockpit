@@ -4,6 +4,7 @@ import type { ShareResult } from '../shared/types'
 import { execText } from './env'
 import { getInstructions } from './instructions'
 import { allCarryBaseline, foldTargets, instructionTargets, upsertSharedBlock } from './instructions-core'
+import { isUnder } from './paths'
 import { resolveRepo } from './repos'
 import { createPr, createWorkspace, removeWorkspace } from './workspace'
 
@@ -84,7 +85,7 @@ export function writeShareFiles(cwd: string, baseline: string): string[] {
   const base = existsSync(cwd) ? realpathSync(cwd) : cwd
   const reads = instructionTargets(cwd).map((target) => {
     const real = existsSync(target.path) ? realpathSync(target.path) : join(base, relative(cwd, target.path))
-    if (real !== base && !real.startsWith(base + sep)) {
+    if (real === base || !isUnder(real, base)) {
       throw new Error(`${target.path} points outside the worktree — refusing to write through it`)
     }
     return { target, raw: existsSync(real) ? readFileSync(real, 'utf8') : null, real }

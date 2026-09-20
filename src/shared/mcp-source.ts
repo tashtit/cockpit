@@ -96,6 +96,12 @@ type Found = {
   /** index in the original args array — what a version rewrite has to replace */
   readonly at: number
   readonly spec: string
+  /**
+   * What sits in front of the spec inside that same argument — `--from=` when the flag
+   * and its value rode in one token, empty otherwise. A rewrite has to put it back:
+   * `uvx --from=pkg cmd` and `uvx pkg cmd` run different programs.
+   */
+  readonly prefix: string
 }
 
 /**
@@ -107,14 +113,16 @@ function findSpec(args: readonly string[], offset: number): Found | null {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (PACKAGE_FLAGS.has(arg)) {
-      return args[i + 1] === undefined ? null : { at: offset + i + 1, spec: args[i + 1] }
+      return args[i + 1] === undefined
+        ? null
+        : { at: offset + i + 1, spec: args[i + 1], prefix: '' }
     }
     const eq = arg.indexOf('=')
     if (eq > 0 && PACKAGE_FLAGS.has(arg.slice(0, eq))) {
-      return { at: offset + i, spec: arg.slice(eq + 1) }
+      return { at: offset + i, spec: arg.slice(eq + 1), prefix: arg.slice(0, eq + 1) }
     }
     if (arg.startsWith('-')) continue
-    return { at: offset + i, spec: arg }
+    return { at: offset + i, spec: arg, prefix: '' }
   }
   return null
 }
@@ -279,6 +287,8 @@ export function withVersion(config: McpConfig, version: string): McpConfig {
   const { name, version: had, sep } = splitSpec(found.spec)
   if (had === undefined) throw new Error(`${name} pins no version to change`)
   const next = [...args]
-  next[found.at] = `${name}${sep}${version}`
+  // `found.prefix` is the flag the spec shares its argument with (`--from=`): dropping
+  // it would turn "run this command from that package" into "run that package"
+  next[found.at] = `${found.prefix}${name}${sep}${version}`
   return { ...config, args: next }
 }

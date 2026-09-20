@@ -568,8 +568,17 @@ summary::-webkit-details-marker { display: none; }
   overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center;
   gap: var(--s2); }
 .chat-cwd { overflow: hidden; text-overflow: ellipsis; color: inherit; font-size: inherit;
-  padding: 0; text-align: left; cursor: copy; }
+  padding: 0; text-align: left; cursor: copy;
+  /* `overflow: hidden` zeroes a flex item's automatic minimum size, so without a floor
+     this shrinks past even its own ellipsis — in a 900px window it rendered as a bare
+     "w". The floor is the shortest label `cwdLabel` produces ("worktree"); anything
+     longer than that ellipsizes, which is the one thing the ellipsis is for. */
+  min-width: 9ch; }
 .chat-cwd:hover { color: var(--fg); }
+/* in this row the chip gives way first: it ellipsizes itself (`.chip-text`) and keeps
+   the full branch in its tooltip, while the path beside it has no second copy to fall
+   back on. Everywhere else the chip stays rigid — a board row sizes its own column. */
+.chat-sub .branch-chip { flex-shrink: 1; min-width: 6ch; }
 /* transient "copied" confirmation next to copy affordances */
 .copy-flash { color: var(--ok); font-size: var(--fs-xs); flex-shrink: 0; }
 .branch-chip { display: inline-flex; align-items: center; gap: 3px;
@@ -1106,9 +1115,13 @@ summary::-webkit-details-marker { display: none; }
 .composer-card:focus-within { border-color: var(--accent);
   box-shadow: inset 0 1px 0 var(--highlight), 0 0 0 3px var(--accent-glow),
     var(--shadow-card); }
+/* Grows with what is typed, like the chat composer — the two composers are the same
+   control in two places, and a fixed box here meant a long prompt scrolled inside
+   three lines while the same text in a chat opened to twelve. `min-height` keeps the
+   empty card exactly the size it has always been. */
 .composer-card textarea { border: none; background: transparent; color: var(--fg);
   padding: var(--s4) var(--s5); font: inherit; font-size: var(--fs-prose); line-height: 1.6;
-  resize: none; min-height: 84px; }
+  resize: none; field-sizing: content; min-height: 84px; max-height: 12lh; }
 .composer-card textarea:focus { outline: none; }
 .composer-bar { display: flex; align-items: center; gap: var(--s2);
   padding: var(--s2) var(--s3); border-top: 1px solid var(--border);
@@ -2114,6 +2127,14 @@ button.pnl-flag:hover { text-decoration: underline; }
   /* the dock is where height is scarcest at the floor, and the composer's own
      placeholder and button already say what it is */
   .home-greet { display: none; }
+  /* the rest of the dock sheds too, in the same order the masthead does: the empty
+     space inside the composer first — three blank lines is a default, not content —
+     then the padding around it. At the floor this was the largest fixed block on the
+     screen, and the board it was taking the room from was down to two rows. It still
+     grows to 12 lines the moment anything is typed into it. */
+  .composer-card textarea { min-height: 2.6lh; padding-block: var(--s2); }
+  .home-dock { padding: var(--s2) 0 var(--s3); }
+  .home-dock-inner { gap: var(--s2); }
   /* where rows are what's scarce the masthead sheds, in order: the sub-line goes
      first (the counts that aren't urgent — the rows say the rest), then the alarm's
      scale. The urgent phrase itself never goes: at this height it is the only thing

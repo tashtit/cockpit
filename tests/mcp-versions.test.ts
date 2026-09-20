@@ -111,3 +111,66 @@ describe('asking a registry about a pinned server', () => {
     expect(asked).toHaveLength(1)
   })
 })
+
+describe('asking a lot of registries at once', () => {
+  it('asks a package once even when two rows want it in the same call', async () => {
+    // the cache is only written when an answer is back, so without an in-flight map
+    // both rows miss it and the same package is fetched twice
+    const asked = serve({ 'https://registry.npmjs.org/shared-mcp/latest': { body: { version: '4.0.0' } } })
+    const found = await mcpVersions([
+      { name: 'a', config: npx('shared-mcp@1.0.0') },
+      { name: 'b', config: npx('shared-mcp@2.0.0') }
+    ])
+    expect(asked).toHaveLength(1)
+    expect(found.map((f) => f.status)).toEqual(['update', 'update'])
+  })
+
+  it('keeps a failure out of the cache, so the next ask tries again', async () => {
+    const asked = serve({
+      'https://registry.npmjs.org/flaky-mcp/latest': { fail: new Error('ENOTFOUND') }
+    })
+    await mcpVersions([{ name: 'a', config: npx('flaky-mcp@1.0.0') }])
+    await mcpVersions([{ name: 'b', config: npx('flaky-mcp@1.0.0') }])
+    expect(asked).toHaveLength(2)
+  })
+
+  it('holds the answers in the order the rows came in, however they finish', async () => {
+    const answers: Record<string, { body: unknown }> = {}
+    for (let i = 0; i < 20; i++) {
+      answers[`https://registry.npmjs.org/row${i}-mcp/latest`] = { body: { version: '9.0.0' } }
+    }
+    serve(answers)
+    const rows = Array.from({ length: 20 }, (_, i) => ({
+      name: `row${i}`,
+      config: npx(`row${i}-mcp@1.0.0`)
+    }))
+    const found = await mcpVersions(rows)
+    expect(found.map((f) => f.name)).toEqual(rows.map((r) => r.name))
+  })
+
+  it('keeps at most six registry requests in the air', async () => {
+    let open = 0
+    let peak = 0
+    const release: Array<() => void> = []
+    vi.stubGlobal('fetch', async () => {
+      open++
+      peak = Math.max(peak, open)
+      await new Promise<void>((r) => release.push(r))
+      open--
+      return { ok: true, status: 200, json: async () => ({ version: '9.0.0' }) }
+    })
+    const rows = Array.from({ length: 20 }, (_, i) => ({
+      name: `wave${i}`,
+      config: npx(`wave${i}-mcp@1.0.0`)
+    }))
+    const done = mcpVersions(rows)
+    // let every worker that is going to start, start
+    for (let i = 0; i < 40 && release.length < 20; i++) {
+      await new Promise<void>((r) => setTimeout(r, 0))
+      release.splice(0).forEach((fn) => fn())
+    }
+    await done
+    expect(peak).toBeLessThanOrEqual(6)
+    expect(peak).toBeGreaterThan(1)
+  })
+})

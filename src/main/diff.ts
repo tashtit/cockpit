@@ -12,6 +12,7 @@ import {
   withNumstat
 } from './diff-core'
 import { execText } from './env'
+import { isUnder } from './paths'
 
 /**
  * IO around diff-core: the git calls that describe a worktree's changes and the
@@ -74,7 +75,7 @@ function untrackedFiles(cwd: string, paths: readonly string[]): DiffFile[] {
     // git reports paths relative to the worktree and never escapes it; the check
     // is belt-and-braces against a status line the parser misread
     const abs = resolve(join(cwd, rel))
-    if (abs !== cwd && !abs.startsWith(cwd + '/')) continue
+    if (abs === cwd || !isUnder(abs, cwd)) continue
     const head = readHead(abs)
     if (!head) continue
     out.push(untrackedFile(rel, head.bytes, { truncated: head.truncated }))
