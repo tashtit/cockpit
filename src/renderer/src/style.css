@@ -568,8 +568,17 @@ summary::-webkit-details-marker { display: none; }
   overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center;
   gap: var(--s2); }
 .chat-cwd { overflow: hidden; text-overflow: ellipsis; color: inherit; font-size: inherit;
-  padding: 0; text-align: left; cursor: copy; }
+  padding: 0; text-align: left; cursor: copy;
+  /* `overflow: hidden` zeroes a flex item's automatic minimum size, so without a floor
+     this shrinks past even its own ellipsis — in a 900px window it rendered as a bare
+     "w". The floor is the shortest label `cwdLabel` produces ("worktree"); anything
+     longer than that ellipsizes, which is the one thing the ellipsis is for. */
+  min-width: 9ch; }
 .chat-cwd:hover { color: var(--fg); }
+/* in this row the chip gives way first: it ellipsizes itself (`.chip-text`) and keeps
+   the full branch in its tooltip, while the path beside it has no second copy to fall
+   back on. Everywhere else the chip stays rigid — a board row sizes its own column. */
+.chat-sub .branch-chip { flex-shrink: 1; min-width: 6ch; }
 /* transient "copied" confirmation next to copy affordances */
 .copy-flash { color: var(--ok); font-size: var(--fs-xs); flex-shrink: 0; }
 .branch-chip { display: inline-flex; align-items: center; gap: 3px;
