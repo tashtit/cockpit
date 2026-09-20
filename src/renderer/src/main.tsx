@@ -1,6 +1,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { ErrorBoundary } from './ErrorBoundary'
 import './style.css'
 
 // dropped files must never navigate the window (defense in depth with will-navigate)
@@ -15,6 +16,9 @@ if (devBranch) document.title = `Cockpit — ${devBranch}`
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    {/* outside App on purpose: a throw in App's own body has to land somewhere too */}
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 )
