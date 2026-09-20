@@ -10,6 +10,7 @@ import {
   type Page
 } from '@playwright/test'
 import { closeApp } from './close-app'
+import { launchEnv } from './launch-env'
 
 const mainEntry = resolve('out/main/index.js')
 if (!existsSync(mainEntry)) {
@@ -162,13 +163,10 @@ test.beforeAll(async () => {
 
   app = await electron.launch({
     args: [mainEntry],
-    env: {
-      ...process.env,
+    env: launchEnv({
       PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-      COCKPIT_USER_DATA: userData,
-      // CI linux runners restrict unprivileged user namespaces; no SUID helper either
-      ...(process.env.CI ? { ELECTRON_DISABLE_SANDBOX: '1' } : {})
-    }
+      COCKPIT_USER_DATA: userData
+    })
   })
   win = await app.firstWindow()
   // links never leave the app: a stray click on a PR badge would otherwise open this
