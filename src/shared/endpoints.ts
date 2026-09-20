@@ -28,7 +28,13 @@ const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/
  * is not: it carries the cloud instance-metadata services, which no model gateway
  * uses and which hand out credentials to whatever asks. Main fetches these URLs
  * outside the renderer's CSP, so an endpoint the renderer can define is a request
- * the renderer can make. Covers the literal forms, not every numeric encoding.
+ * the renderer can make.
+ *
+ * Numeric encodings need no rule of their own: every caller reads `hostname` off a
+ * parsed URL, and the WHATWG parser has already folded `2852039166`, `0xA9FEA9FE`
+ * and `0251.0376.0251.0376` to the dotted quad by then (`tests/endpoints.test.ts`
+ * pins that). What no rule here can see is a *name* that resolves to a blocked
+ * address — only the resolver knows that, and only at connect time.
  */
 /**
  * `::ffff:169.254.169.254` is the same address in an IPv6 suit, and the URL parser
