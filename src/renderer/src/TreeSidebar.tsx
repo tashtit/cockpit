@@ -218,43 +218,48 @@ export function TreeSidebar({
           </button>
         )}
 
-        <button
-          className={`icon-btn nav-btn ${activeView === 'extensions' ? 'active' : ''}`}
-          title="Agents — shared instructions, MCP servers, skills, plugins"
-          onClick={() => onNav('extensions')}
-          aria-label="Agents"
-          aria-current={activeView === 'extensions' ? 'page' : undefined}
-        >
-          <AgentIcon size={16} />
-        </button>
-        <button
-          className={`icon-btn nav-btn ${activeView === 'profile' ? 'active' : ''}`}
-          title="Profile — your work across every agent"
-          onClick={() => onNav('profile')}
-          aria-label="Profile"
-          aria-current={activeView === 'profile' ? 'page' : undefined}
-        >
-          {/* GitHub's graph glyph: this is an activity view, not an account page */}
-          <GraphIcon size={16} />
-        </button>
-        <button
-          className={`icon-btn nav-btn ${activeView === 'cleanup' ? 'active' : ''}`}
-          title="Cleanup — stale sessions and abandoned worktrees"
-          onClick={() => onNav('cleanup')}
-          aria-label="Cleanup"
-          aria-current={activeView === 'cleanup' ? 'page' : undefined}
-        >
-          <TrashIcon size={16} />
-        </button>
-        <button
-          className={`icon-btn nav-btn ${activeView === 'settings' ? 'active' : ''}`}
-          title="Settings"
-          onClick={() => onNav('settings')}
-          aria-label="Settings"
-          aria-current={activeView === 'settings' ? 'page' : undefined}
-        >
-          <GearIcon size={16} />
-        </button>
+        {/* the four nav keys travel as one group: where the rail is too narrow to
+            hold them beside the wordmark they take their own line together, rather
+            than one of them wrapping alone (or walking out over the deck) */}
+        <div className="tree-nav">
+          <button
+            className={`icon-btn nav-btn ${activeView === 'extensions' ? 'active' : ''}`}
+            title="Agents — shared instructions, MCP servers, skills, plugins"
+            onClick={() => onNav('extensions')}
+            aria-label="Agents"
+            aria-current={activeView === 'extensions' ? 'page' : undefined}
+          >
+            <AgentIcon size={16} />
+          </button>
+          <button
+            className={`icon-btn nav-btn ${activeView === 'profile' ? 'active' : ''}`}
+            title="Profile — your work across every agent"
+            onClick={() => onNav('profile')}
+            aria-label="Profile"
+            aria-current={activeView === 'profile' ? 'page' : undefined}
+          >
+            {/* GitHub's graph glyph: this is an activity view, not an account page */}
+            <GraphIcon size={16} />
+          </button>
+          <button
+            className={`icon-btn nav-btn ${activeView === 'cleanup' ? 'active' : ''}`}
+            title="Cleanup — stale sessions and abandoned worktrees"
+            onClick={() => onNav('cleanup')}
+            aria-label="Cleanup"
+            aria-current={activeView === 'cleanup' ? 'page' : undefined}
+          >
+            <TrashIcon size={16} />
+          </button>
+          <button
+            className={`icon-btn nav-btn ${activeView === 'settings' ? 'active' : ''}`}
+            title="Settings"
+            onClick={() => onNav('settings')}
+            aria-label="Settings"
+            aria-current={activeView === 'settings' ? 'page' : undefined}
+          >
+            <GearIcon size={16} />
+          </button>
+        </div>
       </div>
       <div className="search-row">
         {/* the eye scopes the tree, the field searches it, compose creates —

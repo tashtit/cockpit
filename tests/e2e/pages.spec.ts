@@ -665,3 +665,74 @@ test('and where a display cannot grant the zoomed floor, the views give way inst
   await win.evaluate(() => window.cockpit.setZoomFactor(1))
   await win.setViewportSize({ width: 1100, height: 728 })
 })
+
+test('the rail holds its own top row at every zoom, not just at 100%', async () => {
+  // The bug this pins: the wordmark's text used to shed on a *viewport* breakpoint
+  // while the row it has to fit in is the rail, which is `clamp()`ed off that same
+  // viewport — zoom pulls the two apart. At 120% in a 1100pt window the viewport was
+  // still 916 CSS px (no shed) and the rail had already clamped to 240, so the four
+  // nav keys walked across the rail's border and painted onto the deck. Nothing left
+  // the *window*, which is all the audits above ever asked.
+  const audit = (): Promise<string[]> =>
+    win.evaluate(() => {
+      const bad: string[] = []
+      const rail = document.querySelector('.tree-sidebar')!.getBoundingClientRect()
+      const top = document.querySelector('.tree-top')!
+      const title = document.querySelector('.app-title')
+      if (top.scrollWidth > top.clientWidth + 1) bad.push(`.tree-top overflows its row (${top.scrollWidth} in ${top.clientWidth})`)
+      for (const key of document.querySelectorAll('.tree-nav .nav-btn, .zoom-chip, .app-title')) {
+        const r = key.getBoundingClientRect()
+        const name = key.getAttribute('aria-label') ?? key.className
+        if (r.right > rail.right + 0.5 || r.left < rail.left - 0.5) bad.push(`${name} leaves the rail`)
+        // a zoomed reader is the last person to hand a smaller target to, so the row
+        // gives way by reflowing rather than by shrinking its keys. (.app-title is
+        // exempt: it renders 22px tall at every zoom, a target-size miss that predates
+        // this row's shed rules and is not this rule's to fix.)
+        if (key !== title && (r.width < 23.5 || r.height < 23.5))
+          bad.push(`${name} shrank to ${r.width.toFixed(1)}×${r.height.toFixed(1)}`)
+      }
+      return [...new Set(bad)]
+    })
+
+  // every level the menu can reach, in the window each one's floor allows: main keeps
+  // the zoomed floor at 560x420 of layout, which is the narrowest rail there is (200px)
+  for (const factor of [0.7, 1, 1.1, 1.2, 1.3, 1.5, 1.75, 2]) {
+    await win.evaluate((f) => window.cockpit.setZoomFactor(f), factor)
+    await win.setViewportSize({ width: Math.round(560 * Math.max(1, factor)), height: Math.round(420 * Math.max(1, factor)) })
+    await expect.poll(() => win.locator('.zoom-chip').count()).toBe(factor === 1 ? 0 : 1)
+    expect(await audit(), `the rail at ${Math.round(factor * 100)}%, at its floor`).toEqual([])
+    // and in an ordinary window, where the rail is wider but the viewport is past
+    // every breakpoint — the band the bug actually lived in
+    await win.setViewportSize({ width: 1100, height: 760 })
+    expect(await audit(), `the rail at ${Math.round(factor * 100)}%, in a 1100pt window`).toEqual([])
+  }
+
+  /** Have the nav keys dropped below the wordmark, i.e. is the row on two lines? */
+  const wrapped = (): Promise<boolean> =>
+    win.evaluate(
+      () =>
+        document.querySelector('.tree-nav')!.getBoundingClientRect().top >=
+        document.querySelector('.app-title')!.getBoundingClientRect().bottom
+    )
+  const rowHeight = (): Promise<number> =>
+    win.evaluate(() => document.querySelector('.tree-top')!.getBoundingClientRect().height)
+
+  // the reflow is the floor's answer and only the floor's: at 100% the row is one line
+  // at every width, which is the layout every screenshot and every audit above is of
+  await win.evaluate(() => window.cockpit.setZoomFactor(1))
+  await win.setViewportSize({ width: 560, height: 420 })
+  const oneLine = await rowHeight()
+  expect(await wrapped()).toBe(false)
+
+  // with the chip up in the same 200px rail the keys take their own line rather than
+  // shrinking or leaving: nothing is lost, the row is simply taller
+  await win.evaluate(() => window.cockpit.setZoomFactor(1.1))
+  await win.setViewportSize({ width: 616, height: 462 })
+  await expect(win.locator('.zoom-chip')).toBeVisible()
+  expect(await wrapped()).toBe(true)
+  expect(await rowHeight()).toBeGreaterThan(oneLine)
+  expect(await audit()).toEqual([])
+
+  await win.evaluate(() => window.cockpit.setZoomFactor(1))
+  await win.setViewportSize({ width: 1100, height: 728 })
+})

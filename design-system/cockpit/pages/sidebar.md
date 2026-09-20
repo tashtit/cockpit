@@ -19,11 +19,25 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   `.new-task-btn`.
 - `.tree-top` (drag region, 40px top padding clears macOS traffic lights — the pad
   drops to `--s3` when the dev `.dev-banner` row already provides that clearance):
-  app title button (→ home; the wordmark speaks the mono placard voice — its text
-  sheds ≤700px, the mark stays) · zoom chip (only when zoom ≠ 100%, warn-colored,
-  click resets) · Agents, Profile, and Settings `.nav-btn`s (shared icons from
+  app title button (→ home; the wordmark speaks the mono placard voice) · zoom chip
+  (only when zoom ≠ 100%, warn-colored, click resets) · a `.tree-nav` group holding
+  the Agents, Profile, Cleanup and Settings `.nav-btn`s (shared icons from
   `logos.tsx` — the same marks the ⌘K palette renders, so nav and palette can't
-  drift). The top row is wordmark + navigation only. The open view's icon stays
+  drift). The top row is wordmark + navigation only.
+  - **It gives way to the rail, not to the window.** The rail is `clamp()`ed off the
+    viewport and zoom divides the viewport, so a `@media` width answers the wrong
+    question — at 120% in a 1100pt window the viewport is still 916 CSS px while the
+    rail has already clamped to 240px, and the nav keys used to walk across the
+    rail's border onto the deck. `.tree-sidebar` is a `container: rail / inline-size`
+    and the three tiers are `@container` rules at the end of style.css, each set to
+    the width the row measurably stops fitting at: **≤282cqi** the wordmark's text
+    sheds while the chip is up (the mark, which is the way home, stays), **≤237cqi**
+    it sheds regardless, and **≤210cqi** — the 200px rail with a chip in it, which
+    still wants 211 — `.tree-top` wraps and `.tree-nav` takes its own line,
+    right-aligned. Nothing shrinks and nothing is taken away in that last tier on
+    purpose: the person reading at 175% is the last one to hand a smaller target to.
+    Without a chip the row is one line at every reachable rail width, which is the
+    layout the floor is audited and screenshotted at. The open view's icon stays
   quietly lit (`.active` soft accent tint, no underline, `aria-current="page"`),
   and re-clicking it backs out (toggle); the footer and empty-state Settings
   entries stay open-only.
