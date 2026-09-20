@@ -131,6 +131,22 @@ if (!app.isPackaged && process.env['COCKPIT_USER_DATA']) {
   app.setPath('userData', resolve(process.env['COCKPIT_USER_DATA']))
 }
 
+/**
+ * Node's answer to an unhandled rejection is to end the process. For a server that is
+ * the right call; for a desktop hub it means the window vanishes mid-session, taking
+ * every running turn with it, over a background write that nobody was waiting on.
+ *
+ * Main is full of deliberate fire-and-forget work — a rescan, a cache flush, a
+ * notification sound — and each of those already decides what its own failure means.
+ * This is the net under the one that forgot, and it only writes the reason down:
+ * anything that actually matters to the user is reported through its own IPC reply.
+ * `uncaughtException` is deliberately left alone — a throw off the stack can leave
+ * state half-written, and there is no honest way to carry on from it.
+ */
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandled rejection:', reason)
+})
+
 let win: BrowserWindow | null = null
 let indexer: SessionIndexer
 let transcripts: TranscriptSearcher
