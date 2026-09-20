@@ -151,6 +151,25 @@ describe('CleanupView — what it shows', () => {
     expect(screen.getByText('4.2 MB')).toBeInTheDocument()
   })
 
+  it('collapses a home directory in every path it prints', async () => {
+    // "a path a person reads is never raw" (design-system MASTER) — these rows were
+    // the one place still spelling out /Users/<name>, and they truncate from the
+    // right, so the boilerplate prefix was crowding out the part that identifies it
+    mount(
+      report({
+        sessions: [session({ cwd: '/Users/dev/code/cockpit' })],
+        worktrees: [worktree({ path: '/Users/dev/Library/Application Support/cockpit/worktrees/a' })]
+      })
+    )
+    await screen.findByText('Refactor the parser')
+    // the absolute path stays reachable, where every other view keeps it
+    const cwd = screen.getByTitle('/Users/dev/code/cockpit')
+    expect(cwd).toHaveTextContent('~/code/cockpit')
+    expect(cwd.textContent).not.toContain('/Users')
+    const wt = screen.getByTitle('/Users/dev/Library/Application Support/cockpit/worktrees/a')
+    expect(wt).toHaveTextContent('~/Library/Application Support/cockpit/worktrees/a')
+  })
+
   it('says on the row that a session takes its worktree with it', async () => {
     mount(report({ sessions: [session({ worktree: carried() })] }))
     await screen.findByText('Refactor the parser')
