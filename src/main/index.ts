@@ -376,15 +376,25 @@ function createWindow(): void {
   // A dev display override outranks it: that flag exists to put the window elsewhere.
   const saved = loadConfig().window
   const placed = devBounds ?? restoredBounds(saved, screen.getAllDisplays().map((d) => d.workArea))
+  const openFullScreen = !devBounds && placed !== null && saved?.fullScreen === true
 
   win = new BrowserWindow({
     show: !devPrefs.background,
     ...(placed ? { x: placed.x, y: placed.y } : {}),
     width: placed?.width ?? 1100,
     height: placed?.height ?? 760,
-    // full screen is restored here rather than after `show`: entering it later plays
-    // the whole macOS animation, in front of the user, every single launch
-    fullscreen: !devBounds && placed !== null && saved?.fullScreen === true,
+    // Full screen is restored here rather than after `show`: entering it later plays
+    // the whole macOS animation, in front of the user, every single launch.
+    //
+    // Spread, never passed as a plain boolean: Electron reads an explicit
+    // `fullscreen: false` as "this window is not fullscreenable" and clears
+    // NSWindowCollectionBehaviorFullScreenPrimary, which demotes the green button to
+    // zoom and makes ⌃⌘F, View ▸ Enter Full Screen and `setFullScreen(true)` all
+    // no-ops. Every launch that is not restoring a full-screen window takes that
+    // branch, so the one window nobody could ever put into full screen was the
+    // ordinary one. Leaving the option out is the only way to say "windowed, but
+    // fullscreenable" — `e2e/smoke.spec.ts` holds the line.
+    ...(openFullScreen ? { fullscreen: true } : {}),
     // the supported floor, in CSS pixels at 100% — the e2e minimum-size gate audits
     // the layout at exactly these numbers. Zoom raises it (applyWindowFloor), since
     // the same window holds fewer CSS pixels the further it is zoomed in.

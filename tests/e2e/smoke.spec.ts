@@ -48,6 +48,15 @@ test('boots to the home shell', async () => {
   ).toBeVisible({ timeout: 15_000 })
 })
 
+test('an ordinary window can still be put into full screen', async () => {
+  // Electron turns an explicit `fullscreen: false` into "not fullscreenable", which
+  // takes the green button, ⌃⌘F and the View menu with it — and the option is only
+  // ever true when a saved full-screen placement is being restored, so a plain boolean
+  // there disables full screen for every other launch, which is all of them.
+  await app.firstWindow()
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isFullScreenable())).toBe(true)
+})
+
 test('preload bridge is wired through context isolation', async () => {
   const win = await app.firstWindow()
   expect(await win.evaluate(() => typeof window.cockpit?.pageSessions)).toBe('function')
