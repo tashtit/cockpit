@@ -24,6 +24,7 @@ import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, InstructionDiff } from './InstructionDiff'
 import { InstructionsEditor } from './InstructionsEditor'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { TabList, TabPanel, type TabDef } from './Tabs'
 
 /**
  * The panel: everything the agents share, one row per thing.
@@ -255,8 +256,30 @@ export function AgentPanel({
   )
   const driftRows = report.rows.filter((r) => r.drift.length > 0)
   const q = query.trim().toLowerCase()
-  const current: Section | null =
-    section ?? (driftRows.length > 0 ? 'attention' : (kinds[0] ?? null))
+  const tabs: TabDef<Section>[] = [
+    ...(driftRows.length > 0
+      ? [{ id: 'attention' as const, label: 'Needs you', count: driftRows.length, tone: 'warn' as const }]
+      : []),
+    ...kinds.map((kind) => ({
+      id: kind,
+      label: KIND_LABEL[kind],
+      count: report.rows.filter((r) => r.kind === kind).length,
+      dot: report.rows.some((r) => r.kind === kind && r.drift.length > 0)
+    })),
+    ...(report.removed.length > 0
+      ? [{ id: 'removed' as const, label: 'Removed', count: report.removed.length }]
+      : [])
+  ]
+  // a section whose tab has gone — Needs you once the last drift is settled, Removed
+  // once the last entry is back — falls through to where the panel would open: the
+  // panel must never be named by a tab that is not there. kinds always holds
+  // instructions, so there is always a section to land on.
+  const current: Section =
+    section !== null && tabs.some((t) => t.id === section)
+      ? section
+      : driftRows.length > 0
+        ? 'attention'
+        : kinds[0]
   // a search looks everywhere: you rarely know which section a thing ended up in
   const rows = q
     ? report.rows.filter((r) =>
@@ -270,177 +293,108 @@ export function AgentPanel({
 
   return (
     <>
-      <div
-        className="pnl-tabs"
-        role="tablist"
-        aria-label="Sections"
-        onKeyDown={(e) => {
-          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-          const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'))
-          const at = tabs.indexOf(document.activeElement as HTMLButtonElement)
-          if (at < 0) return
-          e.preventDefault()
-          const next = tabs[(at + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
-          next?.focus()
-          next?.click()
-        }}
-      >
-        {driftRows.length > 0 && (
-          <Pill
-            label="Needs you"
-            count={driftRows.length}
-            tone="warn"
-            active={current === 'attention'}
-            onClick={() => setSection('attention')}
-          />
+      <TabList id="agents" label="Agents sections" tabs={tabs} selected={current} onSelect={setSection} />
+      <TabPanel id="agents" selected={current}>
+        {/* the instructions editor opens with its own explanation — a section blurb
+            above it would say the same thing twice */}
+        {(q !== '' || current !== 'instructions') && (
+        <p className="pnl-blurb">
+          {q
+            ? `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
+            : current === 'removed'
+              ? 'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
+              : current === 'attention'
+                ? 'These don’t match what’s switched on, or the agents don’t match each other. Open a row to settle it.'
+                : current
+                  ? `${KIND_BLURB[current]} Click an agent to switch it on or off there.`
+                  : ''}
+        </p>
         )}
-        {kinds.map((kind) => (
-          <Pill
-            key={kind}
-            label={KIND_LABEL[kind]}
-            count={report.rows.filter((r) => r.kind === kind).length}
-            dot={report.rows.some((r) => r.kind === kind && r.drift.length > 0)}
-            active={current === kind}
-            onClick={() => setSection(kind)}
-          />
-        ))}
-        {report.removed.length > 0 && (
-          <Pill
-            label="Removed"
-            count={report.removed.length}
-            active={current === 'removed'}
-            onClick={() => setSection('removed')}
-          />
+
+        {!q && current === 'instructions' && (
+          <InstructionsEditor repoRoot={repoRoot} setNotice={setNotice} onSaved={load} />
         )}
-      </div>
 
-      {/* the instructions editor opens with its own explanation — a section blurb
-          above it would say the same thing twice */}
-      {(q !== '' || current !== 'instructions') && (
-      <p className="pnl-blurb">
-        {q
-          ? `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
-          : current === 'removed'
-            ? 'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
-            : current === 'attention'
-              ? 'These don’t match what’s switched on, or the agents don’t match each other. Open a row to settle it.'
-              : current
-                ? `${KIND_BLURB[current]} Click an agent to switch it on or off there.`
-                : ''}
-      </p>
-      )}
+        {!q && current === 'removed' && (
+          <div className="pnl-list">
+            {report.removed.map((row) => (
+              <div key={row.id} className="pnl-row">
+                <span className="pnl-entry">
+                  <span className="pnl-title">{row.name}</span>
+                  <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>
+                  <span className="pnl-def">{row.saved.detail}</span>
+                </span>
+                <button
+                  className="btn-ghost small"
+                  disabled={busy !== null}
+                  onClick={() => restore(row)}
+                >
+                  {busy === row.id ? 'putting back…' : 'Put it back'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
-      {!q && current === 'instructions' && (
-        <InstructionsEditor repoRoot={repoRoot} setNotice={setNotice} onSaved={load} />
-      )}
+        {q && rows.length === 0 && (
+          <div className="tree-empty">nothing here matches “{query.trim()}”</div>
+        )}
 
-      {!q && current === 'removed' && (
-        <div className="pnl-list">
-          {report.removed.map((row) => (
-            <div key={row.id} className="pnl-row">
-              <span className="pnl-entry">
-                <span className="pnl-title">{row.name}</span>
-                <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>
-                <span className="pnl-def">{row.saved.detail}</span>
-              </span>
-              <button
-                className="btn-ghost small"
-                disabled={busy !== null}
-                onClick={() => restore(row)}
-              >
-                {busy === row.id ? 'putting back…' : 'Put it back'}
-              </button>
+        {/* in its own section the instructions row would echo the editor above it: same
+            files, same drift, a second diff. What the editor lacks is only the switches —
+            whose file takes part in the baseline — so that line is all that stays */}
+        {!q && current === 'instructions' &&
+          rows.map((row) => (
+            <div key={row.id} className="pnl-sync">
+              <span className="pnl-sync-label">Kept in sync for</span>
+              <AgentSwitches row={row} armed={armed} busy={busy} onFlip={flip} onArm={arm} />
+              {armed !== null && armed.startsWith(`${row.id}|`) && (
+                <em className="pnl-flag danger">click again to remove</em>
+              )}
             </div>
           ))}
-        </div>
-      )}
 
-      {q && rows.length === 0 && (
-        <div className="tree-empty">nothing here matches “{query.trim()}”</div>
-      )}
-
-      {/* in its own section the instructions row would echo the editor above it: same
-          files, same drift, a second diff. What the editor lacks is only the switches —
-          whose file takes part in the baseline — so that line is all that stays */}
-      {!q && current === 'instructions' &&
-        rows.map((row) => (
-          <div key={row.id} className="pnl-sync">
-            <span className="pnl-sync-label">Kept in sync for</span>
-            <AgentSwitches row={row} armed={armed} busy={busy} onFlip={flip} onArm={arm} />
-            {armed !== null && armed.startsWith(`${row.id}|`) && (
-              <em className="pnl-flag danger">click again to remove</em>
-            )}
+        {rows.length > 0 && !(!q && current === 'instructions') && (
+          <div className="pnl-list">
+            {rows.map((row) => (
+              <Row
+                key={row.id}
+                row={row}
+                repoRoot={repoRoot}
+                version={row.kind === 'mcp' ? versions[row.name] : undefined}
+                showKind={q !== '' || current === 'attention'}
+                armed={armed}
+                busy={busy}
+                open={open === row.id}
+                onToggle={() => setOpen(open === row.id ? null : row.id)}
+                onFlip={flip}
+                onMatch={match}
+                onKeep={keep}
+                onRemove={remove}
+                onArm={arm}
+                onReload={load}
+                onUpdate={update}
+                setNotice={setNotice}
+              />
+            ))}
           </div>
-        ))}
+        )}
 
-      {rows.length > 0 && !(!q && current === 'instructions') && (
-        <div className="pnl-list">
-          {rows.map((row) => (
-            <Row
-              key={row.id}
-              row={row}
-              repoRoot={repoRoot}
-              version={row.kind === 'mcp' ? versions[row.name] : undefined}
-              showKind={q !== '' || current === 'attention'}
-              armed={armed}
-              busy={busy}
-              open={open === row.id}
-              onToggle={() => setOpen(open === row.id ? null : row.id)}
-              onFlip={flip}
-              onMatch={match}
-              onKeep={keep}
-              onRemove={remove}
-              onArm={arm}
-              onReload={load}
-              onUpdate={update}
-              setNotice={setNotice}
-            />
-          ))}
-        </div>
-      )}
+        {current === 'skill' && repoRoot !== null && (
+          <p className="pnl-note">
+            Codex and Copilot both read <code>.agents/skills</code> in this repo, so their switches
+            move together.
+          </p>
+        )}
 
-      {current === 'skill' && repoRoot !== null && (
-        <p className="pnl-note">
-          Codex and Copilot both read <code>.agents/skills</code> in this repo, so their switches
-          move together.
-        </p>
-      )}
-
-      {report.globalOnly.length > 0 && (
-        <p className="pnl-note">
-          {listOf(report.globalOnly.map((k) => KIND_LABEL[k]))} are installed per machine, so a repo
-          can’t change them. They live in <strong>Global</strong>.
-        </p>
-      )}
+        {report.globalOnly.length > 0 && (
+          <p className="pnl-note">
+            {listOf(report.globalOnly.map((k) => KIND_LABEL[k]))} are installed per machine, so a repo
+            can’t change them. They live in <strong>Global</strong>.
+          </p>
+        )}
+      </TabPanel>
     </>
-  )
-}
-
-function Pill({
-  label,
-  count,
-  active,
-  onClick,
-  ...marks
-}: {
-  label: string
-  count: number
-  active: boolean
-  onClick: () => void
-  tone?: 'warn'
-  dot?: boolean
-}): JSX.Element {
-  return (
-    <button
-      role="tab"
-      aria-selected={active}
-      className={`pnl-pill ${marks.tone === 'warn' ? 'attention' : ''} ${active ? 'active' : ''}`}
-      onClick={onClick}
-    >
-      {label}
-      {count > 0 && <span className="pnl-pill-n">{count}</span>}
-      {marks.dot && <i className="pnl-pill-dot" role="img" aria-label="needs attention" />}
-    </button>
   )
 }
 

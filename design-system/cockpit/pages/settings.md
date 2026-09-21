@@ -14,8 +14,8 @@ and ACP agents share Providers — both answer "what backs my agents", one as an
 you bring a key for and one as a CLI that speaks ACP. Measure the floor before adding a
 seventh.
 
-- **The card is tabs, one panel at a time.** A `.pnl-tabs.ns-tabs` row (the Agents
-  `.pnl-pill`s inside a `role="tablist"` named "Settings sections") sits under the title,
+- **The card is tabs, one panel at a time** — the shared card tabs (`TabList` /
+  `TabPanel`, see MASTER), a `role="tablist"` named "Settings sections", under the title,
   one `role="tab"` per entry of `SETTINGS_SECTIONS`, and a deep link (the `section`
   prop — the sidebar's usage meters land on `accounts`) opens on one. **Only the selected
   panel is mounted**, so a tab reads its own data when it is opened and nothing is
@@ -31,8 +31,8 @@ seventh.
   per group (Accounts: "Agent accounts & usage", then "GitHub"; View: "History", then
   "Display"; Providers: "Model providers", then "ACP agents").
 - **The tab row is one tab stop.** Roving `tabIndex` (0 on the selected tab, -1 on the
-  rest); ←/→ wrap, Home/End jump to the ends, and moving selects — the same activation
-  the Agents panel uses. The card's `h2` still takes focus on mount; picking a tab leaves
+  rest); ←/→ wrap, Home/End jump to the ends, and moving selects — `TabList` does this for
+  every card view. The card's `h2` still takes focus on mount; picking a tab leaves
   focus on the tab, never on the panel. Only the **selected** tab carries
   `aria-controls`: the other panels are not in the DOM, and a tab naming one that is not
   there is a dead "go to the controlled element".

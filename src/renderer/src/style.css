@@ -1303,9 +1303,9 @@ summary::-webkit-details-marker { display: none; }
 .ns-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
 .ns-head h2 { font-size: var(--fs-lg); }
 .ns-repo { color: var(--fg-dim); font-size: var(--fs-sm); }
-/* Settings' one navigation (the Agents pill row, reused): a hairline marks it off
-   from the panel it switches, so the tabs read as chrome over the page, not as its
-   first row of content */
+/* every card view's one navigation (Tabs.tsx — Settings, Agents, Profile, Cleanup): a
+   hairline marks it off from the panel it switches, so the tabs read as chrome over
+   the page, not as its first row of content */
 .ns-tabs { border-bottom: 1px solid var(--border); padding-bottom: var(--s3); }
 /* the tabpanel wrapper keeps the card's vertical rhythm for its children; the panel's
    own first heading needs no group gap — the tab row above it is the separation */

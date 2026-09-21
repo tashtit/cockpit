@@ -5,6 +5,9 @@
 **Route:** rail nav (trash mark) · `⌘K → "Cleanup"` · `View = { kind: 'cleanup' }`
 **Shell:** `.ns-card` inside `.chat.settings-view` — the shared card width
 (`min(760px, 94%)`), like Settings, Agents and Profile. Never give it its own width.
+Head → one line of prose → the idle threshold and Rescan → the `aria-live` scan summary
+→ the card tabs (Sessions · Processes · Roundtables · Worktrees) → one list's panel →
+the `.new-error` alert. Everything above the tabs governs every list.
 
 ## What this view is
 
@@ -13,9 +16,9 @@ every agent and every repository. Three ideas hold it together:
 
 - **The unit is a piece of work, not a file.** A session and the worktree it ran in
   are one thing: the worktree rides on its session's row (`.cl-carry` — "takes its
-  worktree · 412 MB") and goes with it. The second list is only the leftovers.
+  worktree · 412 MB") and goes with it. The Worktrees tab is only the leftovers.
   Every worktree appears exactly once across the view — never in both places.
-  Processes still running in a stale or removed worktree get their own list
+  Processes still running in a stale or removed worktree get their own tab
   between the two: they are why a worktree reads `a process is running`, so
   stopping them comes before removing it.
 - **Two tiers, never blurred.** Archive is reversible Cockpit config that frees
@@ -54,7 +57,11 @@ session rows, `BranchChip`, `.repo-count`, `.ns-card`/`.ns-label`/`.ns-hint`.
 
 ## Filtering — the `FilterBar` contract
 
-Both lists use the shared `FilterBar`; this page is its reference implementation.
+Sessions, Roundtables and Worktrees each carry the shared `FilterBar`; this page is its
+reference implementation. Each tab mounts its own bar (the card tabs remount a panel on
+every switch) — the bars are built alike, and reconciled as one the worktrees bar once
+wore the sessions bar's pins. Queries and include/exclude selections live in the view,
+so they survive a tab switch; only an empty pinned dimension is forgotten.
 
 - **Free text sits leftmost**, divided from the pills by a `.fb-divider` hairline. It
   narrows the same list but is not a dimension, so it never becomes a pill.
@@ -77,18 +84,27 @@ Both lists use the shared `FilterBar`; this page is its reference implementation
   before calling the state setter — inside the updater it is already the new row and
   every range collapses to one.
 - Blocked rows are unselectable by every path: click, range, and master toggle.
-- Selections survive a filter change, and the head discloses what it is holding
-  off-screen (`3 not shown`). Never act on a hidden selection without saying so.
+- Selections survive a filter change and a tab switch, and the head discloses what it
+  is holding off-screen (`3 not shown`). Never act on a hidden selection without saying
+  so. Each tab's actions reach only that tab's selection.
+- **Leaving a tab disarms** an armed Delete/Stop/Remove: the armed question was about
+  the list on screen.
 - The head totals what the selection actually frees, worktrees included — and counts
   a shared worktree only once every session in it is picked, matching main's rule.
   The number beside a destructive button has to be the truth.
 
 ## Rules specific to this page
 
-- **The card maps itself.** Four lists on one page, so a `.ns-jumps` row of `.pnl-pill`s
-  under the title names each section with its count (`.pnl-pill-n`) and focuses that
-  heading — the same jump row Settings carries. A row, never tabs: nothing is hidden
-  behind it.
+- **One list per tab.** The four lists were one page behind a jump row that scrolled
+  a heading to the top — taking the title, the threshold and Close with it. They are
+  the card tabs now (`tablist` "Cleanup sections"), each pill carrying its row count
+  (`.pnl-pill-n`, left off at zero), which is how the view still says where the work
+  is without showing every list. The tab is the list's heading: panels open on their
+  one or two sentences of prose (what the list holds, what acting on it takes), never an
+  `h3` repeating the pill.
+- **Open on the first tab that holds anything**, once the first scan lands — unless a tab
+  was picked while it was still walking, which is kept. After that the view never moves
+  you: a rescan that empties the open tab leaves you on it, reading its empty sentence.
 - **An archived roundtable is listed at once**, however recent — archiving one is already
   the decision, and unlike sessions a table is archived by hand, one at a time. Everything
   else in this view still waits out the threshold.

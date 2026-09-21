@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { AppInfo, TimeFormat, UpdateState } from '../../shared/types'
 import { AboutSection } from './AboutSection'
 import { AccountsSection } from './AccountsSection'
@@ -9,6 +9,7 @@ import { CHAT_WIDTH_OPTIONS, setChatWidth, useChatWidth, type ChatWidth } from '
 import { ModelProviders } from './ModelProviders'
 import { NotificationsSection } from './NotificationsSection'
 import { Select } from './Select'
+import { TabList, TabPanel } from './Tabs'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
 
 /** History window presets; value is days as a string, '0' = all history. */
@@ -86,7 +87,6 @@ export function Settings({
   /** sr-only announcements (same pattern as ChatView's status region) */
   const [status, setStatus] = useState('')
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const viewRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     headingRef.current?.focus()
@@ -94,12 +94,6 @@ export function Settings({
   useEffect(() => {
     if (section) setTab(section)
   }, [section, openCount])
-  // a tab is a fresh page: a panel is never entered half-scrolled because the one
-  // before it was long. Nothing ever scrolls the head out of reach. Layout, not
-  // effect — a paint at the old scrollTop is the flash this is here to stop.
-  useLayoutEffect(() => {
-    if (viewRef.current) viewRef.current.scrollTop = 0
-  }, [tab])
   useEffect(() => {
     void api.getAppInfo().then(setAppInfo)
     void api.getUpdateState().then(setUpdate)
@@ -152,7 +146,7 @@ export function Settings({
   }
 
   return (
-    <main className="chat settings-view" ref={viewRef}>
+    <main className="chat settings-view">
       <div className="ns-card">
         <div className="ns-head">
           <h2 ref={headingRef} tabIndex={-1}>Settings</h2>
@@ -160,54 +154,16 @@ export function Settings({
         </div>
         {/* tabs, not a jump row: each panel is short enough to read whole, and the
             title, the tabs and Close stay put instead of scrolling away under you */}
-        <div
-          className="pnl-tabs ns-tabs"
-          role="tablist"
-          aria-label="Settings sections"
-          onKeyDown={(e) => {
-            const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
-            if (!keys.includes(e.key)) return
-            const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'))
-            const at = tabs.indexOf(document.activeElement as HTMLButtonElement)
-            if (at < 0) return
-            e.preventDefault()
-            const to =
-              e.key === 'Home'
-                ? 0
-                : e.key === 'End'
-                  ? tabs.length - 1
-                  : (at + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length
-            const next = tabs[to]
-            next?.focus()
-            next?.click()
-          }}
-        >
-          {SETTINGS_SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              role="tab"
-              id={`settings-tab-${s.id}`}
-              aria-selected={tab === s.id}
-              // only the open panel is in the DOM, so only its tab may name one
-              aria-controls={tab === s.id ? `settings-panel-${s.id}` : undefined}
-              // one stop in the tab order for the whole row; arrows move within it
-              tabIndex={tab === s.id ? 0 : -1}
-              className={`pnl-pill ${tab === s.id ? 'active' : ''}`}
-              onClick={() => setTab(s.id)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        <div
-          className="tab-panel"
-          role="tabpanel"
-          id={`settings-panel-${tab}`}
-          aria-labelledby={`settings-tab-${tab}`}
-        >
+        <TabList
+          id="settings"
+          label="Settings sections"
+          tabs={SETTINGS_SECTIONS}
+          selected={tab}
+          onSelect={setTab}
+        />
+        <TabPanel id="settings" selected={tab}>
           {panels[tab]}
-        </div>
+        </TabPanel>
         <div className="sr-only" role="status" aria-live="polite">{status}</div>
       </div>
     </main>

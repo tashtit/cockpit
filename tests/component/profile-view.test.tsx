@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ProfileView } from '../../src/renderer/src/ProfileView'
 import type { ActivityDay, ProfileStats } from '../../src/shared/types'
 
@@ -63,6 +64,11 @@ function profile(over: Partial<ProfileStats> = {}): ProfileStats {
   }
 }
 
+/** Each group lives on its own tab now — open the one an assertion reads. */
+const openTab = async (name: string): Promise<void> => {
+  await userEvent.click(await screen.findByRole('tab', { name }))
+}
+
 describe('ProfileView', () => {
   it('shows a loading state until the profile resolves', () => {
     vi.mocked(window.cockpit.getProfile).mockReturnValue(new Promise(() => {}))
@@ -80,16 +86,43 @@ describe('ProfileView', () => {
     expect(screen.getByText('day streak')).toBeTruthy()
     // lines edited is summed across agents
     expect(screen.getByText('1,234')).toBeTruthy()
+    expect(screen.getByText(/busiest day/i)).toBeTruthy()
 
+    await openTab('Agents')
     expect(screen.getByText('Claude')).toBeTruthy()
     expect(screen.getByText('+1,234')).toBeTruthy()
     expect(screen.getByText('−567')).toBeTruthy()
     // the model name renders as an agent chip AND a model bar — assert the chip
     expect(screen.getAllByText('claude-opus-5').length).toBeGreaterThan(0)
 
+    await openTab('Code')
     expect(screen.getByText('.ts')).toBeTruthy()
     expect(screen.getByText('alpha')).toBeTruthy()
-    expect(screen.getByText(/busiest day/i)).toBeTruthy()
+  })
+
+  it('pages its groups in tabs, under headline numbers that stay put', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
+    render(<ProfileView onClose={() => {}} />)
+    await screen.findByText('octocat')
+
+    // opens on when you work; the agents and code groups are not rendered at all
+    expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName('Activity')
+    expect(screen.queryByText('+1,234')).toBeNull()
+
+    await openTab('Agents')
+    expect(screen.getByText('+1,234')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /activity over the last/i })).toBeNull()
+    // the headline is the glance every tab keeps
+    expect(screen.getByText('day streak')).toBeInTheDocument()
+  })
+
+  it('drops the Code tab when nothing edited or indexed can fill it', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile({ languages: [], repos: [] }))
+    render(<ProfileView onClose={() => {}} />)
+    await screen.findByText('octocat')
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Activity', 'Agents'])
   })
 
   it('labels the heatmap and gives every day a readable tooltip', async () => {
@@ -119,7 +152,7 @@ describe('ProfileView', () => {
   it('explains a zero-edit agent instead of showing a bare +0', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
     const { container } = render(<ProfileView onClose={() => {}} />)
-    await screen.findByText('octocat')
+    await openTab('Agents')
     // codex edits through shell commands, so it has sessions but no countable lines
     const codexRow = container.querySelector('.pv-agent.tint-codex')
     expect(codexRow?.textContent).toContain('no measurable edits')
@@ -130,7 +163,7 @@ describe('ProfileView', () => {
   it('renders model bars split by the agents that served each model', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
     const { container } = render(<ProfileView onClose={() => {}} />)
-    await screen.findByText('octocat')
+    await openTab('Agents')
     const names = [...container.querySelectorAll('.pv-model-name')].map((el) => el.textContent)
     expect(names).toEqual(['claude-opus-5', 'gpt-5.6-sol'])
     // opus is served by two agents → its bar splits into two tinted segments
@@ -143,7 +176,7 @@ describe('ProfileView', () => {
   it('lists accounts with their signed-in identity or an honest gap', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
     render(<ProfileView onClose={() => {}} />)
-    await screen.findByText('octocat')
+    await openTab('Agents')
     expect(screen.getByText('dev@example.com')).toBeTruthy()
     expect(screen.getByText('not signed in')).toBeTruthy()
   })
@@ -179,6 +212,7 @@ describe('ProfileView', () => {
     })
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(p)
     const { container } = render(<ProfileView onClose={() => {}} />)
+    await openTab('Agents')
     expect(await screen.findByText('logs unreadable')).toBeTruthy()
     // the session count comes off the index, so it survives a failed deep parse
     const codexRow = container.querySelector('.pv-agent.tint-codex')

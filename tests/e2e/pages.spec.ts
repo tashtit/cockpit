@@ -300,8 +300,13 @@ test('profile aggregates the fixture sessions into a heatmap', async () => {
   // the heatmap renders as one labelled graphic with a dense grid of days
   await expect(win.getByRole('img', { name: /activity over the last \d+ days/i })).toBeVisible()
   expect(await win.locator('.pv-grid .pv-sq').count()).toBeGreaterThan(0)
-  // the per-agent breakdown is the view's reason to exist
+  // the per-agent breakdown is the view's reason to exist — one tab over, a page of its own
+  const tabs = win.getByRole('tablist', { name: 'Profile sections' })
+  await tabs.getByRole('tab', { name: 'Agents' }).click()
   await expect(win.locator('.pv-agent')).not.toHaveCount(0)
+  await expect(win.getByRole('img', { name: /activity over the last \d+ days/i })).toHaveCount(0)
+  // the headline numbers are the glance every tab keeps
+  await expect(stats).toBeVisible()
   await win.getByRole('button', { name: 'Close' }).click()
   await expect(homeHeading()).toBeVisible()
 })
@@ -312,10 +317,22 @@ test('cleanup opens on a completed scan of sessions and worktrees', async () => 
   // the scan must finish, not sit on its loading line: the summary replaces it
   await expect(win.getByText(/of \d+ sessions/)).toBeVisible()
   await expect(win.getByText(/of \d+ worktrees/)).toBeVisible()
-  // the threshold is the view's one setting, and both groups are always present
+  // the threshold is the view's one setting, over tabs that page one list at a time
   await expect(win.getByRole('button', { name: /^Idle threshold/ })).toBeVisible()
-  await expect(win.getByRole('heading', { name: 'Stale sessions' })).toBeVisible()
-  await expect(win.getByRole('heading', { name: 'Worktrees with no session' })).toBeVisible()
+  const tabs = win.getByRole('tablist', { name: 'Cleanup sections' })
+  for (const name of ['Sessions', 'Processes', 'Roundtables', 'Worktrees']) {
+    const tab = tabs.getByRole('tab', { name: new RegExp(`^${name}`) })
+    await tab.click()
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(win.getByRole('tabpanel')).toHaveCount(1)
+    // a tab replaces the page under it; it never scrolls one further down into view
+    const view = await win.evaluate(() => ({
+      scrollTop: document.querySelector('.settings-view')!.scrollTop,
+      tabsTop: document.querySelector('.ns-tabs')!.getBoundingClientRect().top
+    }))
+    expect(view.scrollTop, `${name} scrolled the card`).toBe(0)
+    expect(view.tabsTop, `${name} pushed the tab row off the top`).toBeGreaterThan(0)
+  }
   await win.keyboard.press('Escape')
   await expect(homeHeading()).toBeVisible()
 })
@@ -325,10 +342,10 @@ test('agents view opens on the panel, with sections as its only navigation', asy
   await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
   // the panel reads the fixture agent homes — it must render, not sit on its
   // loading line or throw (the sections only appear once a scope has loaded)
-  const sections = win.getByRole('tablist', { name: 'Sections' })
+  const sections = win.getByRole('tablist', { name: 'Agents sections' })
   await expect(sections.getByRole('tab', { name: /^Instructions/ })).toBeVisible()
-  // scope is the one control above the panel; there is no second tab bar
-  await expect(win.getByRole('tablist', { name: 'Agents sections' })).toHaveCount(0)
+  // scope is the one control above the panel; the sections are the only tab bar
+  await expect(win.getByRole('tablist')).toHaveCount(1)
   // Escape backs out of secondary views — no chat is open yet, so back home
   await win.keyboard.press('Escape')
   await expect(homeHeading()).toBeVisible()
@@ -527,10 +544,27 @@ test('the window minimum is enforced and every surface holds at exactly that siz
     expect(await audit(), `settings › ${name} at the window floor`).toEqual([])
   }
 
+  // profile's heatmap and bars, one tab at a time
+  await win.getByRole('button', { name: 'Profile', exact: true }).click()
+  await expect(win.getByRole('heading', { name: 'Profile' })).toBeVisible()
+  const profileTabs = win.getByRole('tablist', { name: 'Profile sections' })
+  for (const name of ['Activity', 'Agents', 'Code']) {
+    await profileTabs.getByRole('tab', { name }).click()
+    await expect(profileTabs.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
+    expect(await audit(), `profile › ${name} at the window floor`).toEqual([])
+  }
+
   // cleanup's rows carry a path, a size and a reason — the widest content in the app
   await win.getByRole('button', { name: 'Cleanup', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
-  expect(await audit()).toEqual([])
+  await expect(win.getByText(/of \d+ sessions/)).toBeVisible({ timeout: 30_000 })
+  const cleanupTabs = win.getByRole('tablist', { name: 'Cleanup sections' })
+  for (const name of ['Sessions', 'Processes', 'Roundtables', 'Worktrees']) {
+    const tab = cleanupTabs.getByRole('tab', { name: new RegExp(`^${name}`) })
+    await tab.click()
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    expect(await audit(), `cleanup › ${name} at the window floor`).toEqual([])
+  }
   await win.keyboard.press('Escape')
 
   // aim at the title, as a person would: at this width the row's compact PR badge takes

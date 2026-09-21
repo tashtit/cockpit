@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { ActivityDay, ModelStat, ProfileStats, Provider } from '../../shared/types'
 import { api } from './api'
 import { ChatIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import { TabList, TabPanel } from './Tabs'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals.
@@ -16,6 +17,19 @@ const LEVELS = 4
 const LEVEL_ALPHA = [0, 0.22, 0.42, 0.66, 0.92]
 
 const WEEKDAY_LABELS = ['Mon', 'Wed', 'Fri']
+
+/**
+ * The card's tabs, under the headline numbers: when you work, which agent did it,
+ * and what it touched. Each is its own page — seven sections in one scroll was a
+ * readout nobody could take in at once. A group with no data is dropped, and a tab
+ * left with none is dropped with it.
+ */
+const PROFILE_TABS = [
+  { id: 'activity', label: 'Activity' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'code', label: 'Code' }
+] as const
+type ProfileTab = (typeof PROFILE_TABS)[number]['id']
 
 function fmtNum(n: number): string {
   return n.toLocaleString()
@@ -227,6 +241,7 @@ function Stat({ value, label }: { value: string; label: string }): JSX.Element {
 export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
   const [profile, setProfile] = useState<ProfileStats | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<ProfileTab>('activity')
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
@@ -246,6 +261,184 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
   const busiest = Math.max(0, ...(profile?.days ?? []).map((d) => d.sessions))
   const totalLines = (profile?.providers ?? []).reduce((n, p) => n + p.linesAdded, 0)
   const maxLang = Math.max(1, ...(profile?.languages ?? []).map((l) => l.linesAdded))
+
+  /** One page per tab: a `Record` will not compile with a tab that has no page behind it. */
+  const panels: Record<ProfileTab, JSX.Element> | null = profile && {
+    activity: (
+      <>
+        <h3 className="ns-label">By day</h3>
+        <Heatmap days={profile.days} busiest={busiest} />
+        <div className="pv-legend">
+          <span>
+            {profile.busiestDay
+              ? `Busiest day ${fmtDay(profile.busiestDay.day)} · ${profile.busiestDay.sessions} sessions`
+              : ''}
+          </span>
+          <span className="pv-scale">
+            Less
+            {Array.from({ length: LEVELS + 1 }, (_, i) => (
+              <i
+                key={i}
+                className="pv-sq"
+                style={
+                  i === 0
+                    ? undefined
+                    : { background: `rgba(var(--accent-rgb), ${LEVEL_ALPHA[i]})` }
+                }
+              />
+            ))}
+            More
+          </span>
+        </div>
+
+        <h3 className="ns-label">By hour</h3>
+        <Rhythm hours={profile.hourCounts} />
+      </>
+    ),
+    agents: (
+      <>
+        <h3 className="ns-label">By agent</h3>
+        <p className="ns-hint">
+          Lines are counted from each agent&apos;s own edit tools — they measure edits made,
+          not diff that survived to a commit.
+        </p>
+        <ul className="pv-agents">
+          {profile.providers.map((p) => (
+            <li key={p.provider} className={`pv-agent tint-${p.provider}`}>
+              <span className={`plogo plogo-${p.provider}`} aria-hidden="true">
+                <ProviderLogo p={p.provider} size={13} />
+              </span>
+              <div className="pv-agent-body">
+                <div className="pv-agent-head">
+                  {PROVIDER_LABEL[p.provider]}
+                  <span className="repo-count">{fmtNum(p.sessions)}</span>
+                  <span className="pv-agent-days">
+                    {p.activeDays} active day{p.activeDays === 1 ? '' : 's'}
+                    {p.avgTurns > 0 && <> · ~{fmtNum(p.avgTurns)} turns/session</>}
+                  </span>
+                </div>
+                <div className="pv-agent-meta">
+                  {p.deepUnavailable ? (
+                    <span className="source-warn">{p.deepUnavailable}</span>
+                  ) : (
+                    <>
+                      {p.linesAdded === 0 && p.linesRemoved === 0 ? (
+                        // Not a parse failure: some agents (codex especially) edit
+                        // through shell commands rather than a structured edit tool,
+                        // and those leave nothing countable in the log.
+                        <span
+                          className="pv-untracked"
+                          title="This agent edits through shell commands rather than a structured edit tool, so its line changes aren't recorded in the session log."
+                        >
+                          no measurable edits
+                        </span>
+                      ) : (
+                        <>
+                          <span className="pv-diff">
+                            <em className="pv-add">+{fmtNum(p.linesAdded)}</em>
+                            <em className="pv-del">−{fmtNum(p.linesRemoved)}</em>
+                          </span>
+                          <span>{fmtNum(p.filesTouched)} files</span>
+                        </>
+                      )}
+                      {p.tools.length > 0 && (
+                        <span className="pv-tools" title={p.tools.map((t) => `${t.name} ${t.count}`).join(', ')}>
+                          {p.tools.slice(0, 3).map((t) => t.name).join(' · ')}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+                {p.models.length > 0 && (
+                  <div className="pv-models">
+                    {p.models.slice(0, 3).map((m) => (
+                      <span key={m.name} className={`acct-chip acct-${p.provider}`}>
+                        {m.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        {profile.models.length > 0 && (
+          <>
+            <h3 className="ns-label">Models</h3>
+            <p className="ns-hint">
+              Counted in assistant messages, colored by the agent that served them — model
+              families cross agent lines, so the split is worth watching.
+            </p>
+            <ul className="pv-langs pv-models-list">
+              {profile.models.map((m) => (
+                <ModelBar key={m.name} model={m} max={profile.models[0].count} />
+              ))}
+            </ul>
+          </>
+        )}
+
+        {profile.accounts.length > 0 && (
+          <>
+            <h3 className="ns-label">Accounts</h3>
+            <ul className="pv-accounts">
+              {profile.accounts.map((a) => (
+                <li key={`${a.provider}:${a.label}`}>
+                  <span className={`plogo plogo-${a.provider}`} aria-hidden="true">
+                    <ProviderLogo p={a.provider} size={13} />
+                  </span>
+                  {a.identity ? (
+                    <span className={`acct-chip acct-${a.provider}`}>{a.identity}</span>
+                  ) : (
+                    <span className="acct-chip missing">not signed in</span>
+                  )}
+                  <span className="pv-acct-label">{a.label}</span>
+                  <span className="repo-count">{fmtNum(a.sessions)}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </>
+    ),
+    code: (
+      <>
+        {profile.languages.length > 0 && (
+          <>
+            <h3 className="ns-label">Languages</h3>
+            <ul className="pv-langs">
+              {profile.languages.map((l) => (
+                <li key={l.ext}>
+                  <span className="pv-lang-ext">.{l.ext}</span>
+                  <span className="pv-bar" aria-hidden="true">
+                    <i style={{ width: `${Math.round((l.linesAdded / maxLang) * 100)}%` }} />
+                  </span>
+                  <span className="pv-lang-n">
+                    {fmtNum(l.linesAdded)} lines · {fmtNum(l.files)} files
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {profile.repos.length > 0 && (
+          <>
+            <h3 className="ns-label">Top repos</h3>
+            <ul className="pv-repos">
+              {profile.repos.map((r) => (
+                <li key={r.key}>
+                  {r.key === 'general' ? <ChatIcon size={13} /> : <RepoIcon size={13} />}
+                  <span className="pv-repo-name">{r.key === 'general' ? 'Chats' : r.name}</span>
+                  <span className="repo-count">{fmtNum(r.sessions)}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </>
+    )
+  }
 
   return (
     <main className="chat settings-view">
@@ -283,170 +476,18 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
               <Stat value={fmtNum(totalLines)} label="lines edited" />
             </div>
 
-            <h3 className="ns-label">Activity</h3>
-            <Heatmap days={profile.days} busiest={busiest} />
-            <div className="pv-legend">
-              <span>
-                {profile.busiestDay
-                  ? `Busiest day ${fmtDay(profile.busiestDay.day)} · ${profile.busiestDay.sessions} sessions`
-                  : ''}
-              </span>
-              <span className="pv-scale">
-                Less
-                {Array.from({ length: LEVELS + 1 }, (_, i) => (
-                  <i
-                    key={i}
-                    className="pv-sq"
-                    style={
-                      i === 0
-                        ? undefined
-                        : { background: `rgba(var(--accent-rgb), ${LEVEL_ALPHA[i]})` }
-                    }
-                  />
-                ))}
-                More
-              </span>
-            </div>
-
-            <h3 className="ns-label">Rhythm</h3>
-            <Rhythm hours={profile.hourCounts} />
-
-            <h3 className="ns-label">Agents</h3>
-            <p className="ns-hint">
-              Lines are counted from each agent&apos;s own edit tools — they measure edits made,
-              not diff that survived to a commit.
-            </p>
-            <ul className="pv-agents">
-              {profile.providers.map((p) => (
-                <li key={p.provider} className={`pv-agent tint-${p.provider}`}>
-                  <span className={`plogo plogo-${p.provider}`} aria-hidden="true">
-                    <ProviderLogo p={p.provider} size={13} />
-                  </span>
-                  <div className="pv-agent-body">
-                    <div className="pv-agent-head">
-                      {PROVIDER_LABEL[p.provider]}
-                      <span className="repo-count">{fmtNum(p.sessions)}</span>
-                      <span className="pv-agent-days">
-                        {p.activeDays} active day{p.activeDays === 1 ? '' : 's'}
-                        {p.avgTurns > 0 && <> · ~{fmtNum(p.avgTurns)} turns/session</>}
-                      </span>
-                    </div>
-                    <div className="pv-agent-meta">
-                      {p.deepUnavailable ? (
-                        <span className="source-warn">{p.deepUnavailable}</span>
-                      ) : (
-                        <>
-                          {p.linesAdded === 0 && p.linesRemoved === 0 ? (
-                            // Not a parse failure: some agents (codex especially) edit
-                            // through shell commands rather than a structured edit tool,
-                            // and those leave nothing countable in the log.
-                            <span
-                              className="pv-untracked"
-                              title="This agent edits through shell commands rather than a structured edit tool, so its line changes aren't recorded in the session log."
-                            >
-                              no measurable edits
-                            </span>
-                          ) : (
-                            <>
-                              <span className="pv-diff">
-                                <em className="pv-add">+{fmtNum(p.linesAdded)}</em>
-                                <em className="pv-del">−{fmtNum(p.linesRemoved)}</em>
-                              </span>
-                              <span>{fmtNum(p.filesTouched)} files</span>
-                            </>
-                          )}
-                          {p.tools.length > 0 && (
-                            <span className="pv-tools" title={p.tools.map((t) => `${t.name} ${t.count}`).join(', ')}>
-                              {p.tools.slice(0, 3).map((t) => t.name).join(' · ')}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    {p.models.length > 0 && (
-                      <div className="pv-models">
-                        {p.models.slice(0, 3).map((m) => (
-                          <span key={m.name} className={`acct-chip acct-${p.provider}`}>
-                            {m.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {profile.models.length > 0 && (
-              <>
-                <h3 className="ns-label">Models</h3>
-                <p className="ns-hint">
-                  Counted in assistant messages, colored by the agent that served them — model
-                  families cross agent lines, so the split is worth watching.
-                </p>
-                <ul className="pv-langs pv-models-list">
-                  {profile.models.map((m) => (
-                    <ModelBar key={m.name} model={m} max={profile.models[0].count} />
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {profile.accounts.length > 0 && (
-              <>
-                <h3 className="ns-label">Accounts</h3>
-                <ul className="pv-accounts">
-                  {profile.accounts.map((a) => (
-                    <li key={`${a.provider}:${a.label}`}>
-                      <span className={`plogo plogo-${a.provider}`} aria-hidden="true">
-                        <ProviderLogo p={a.provider} size={13} />
-                      </span>
-                      {a.identity ? (
-                        <span className={`acct-chip acct-${a.provider}`}>{a.identity}</span>
-                      ) : (
-                        <span className="acct-chip missing">not signed in</span>
-                      )}
-                      <span className="pv-acct-label">{a.label}</span>
-                      <span className="repo-count">{fmtNum(a.sessions)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {profile.languages.length > 0 && (
-              <>
-                <h3 className="ns-label">Languages</h3>
-                <ul className="pv-langs">
-                  {profile.languages.map((l) => (
-                    <li key={l.ext}>
-                      <span className="pv-lang-ext">.{l.ext}</span>
-                      <span className="pv-bar" aria-hidden="true">
-                        <i style={{ width: `${Math.round((l.linesAdded / maxLang) * 100)}%` }} />
-                      </span>
-                      <span className="pv-lang-n">
-                        {fmtNum(l.linesAdded)} lines · {fmtNum(l.files)} files
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {profile.repos.length > 0 && (
-              <>
-                <h3 className="ns-label">Top repos</h3>
-                <ul className="pv-repos">
-                  {profile.repos.map((r) => (
-                    <li key={r.key}>
-                      {r.key === 'general' ? <ChatIcon size={13} /> : <RepoIcon size={13} />}
-                      <span className="pv-repo-name">{r.key === 'general' ? 'Chats' : r.name}</span>
-                      <span className="repo-count">{fmtNum(r.sessions)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
+            <TabList
+              id="profile"
+              label="Profile sections"
+              tabs={PROFILE_TABS.filter(
+                (t) => t.id !== 'code' || profile.languages.length > 0 || profile.repos.length > 0
+              )}
+              selected={tab}
+              onSelect={setTab}
+            />
+            <TabPanel id="profile" selected={tab}>
+              {panels?.[tab]}
+            </TabPanel>
           </>
         )}
       </div>

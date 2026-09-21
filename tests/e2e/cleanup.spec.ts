@@ -149,29 +149,44 @@ const openCleanup = async (): Promise<void> => {
   await expect(win.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
 }
 
+/** Each list is its own tab; a tab's name carries its count ("Worktrees3"). */
+const openTab = async (name: string): Promise<void> => {
+  const tab = win
+    .getByRole('tablist', { name: 'Cleanup sections' })
+    .getByRole('tab', { name: new RegExp(`^${name}`) })
+  await tab.click()
+  await expect(tab).toHaveAttribute('aria-selected', 'true')
+}
+
 test('lists only what is idle past the threshold, and says how it counted', async () => {
   await openCleanup()
   // three of the four sessions are old enough; the day-old one must never show
   await expect(win.getByText('3 of 4 sessions', { exact: false })).toBeVisible()
+  await openTab('Sessions')
   await expect(win.locator('.cl-row', { hasText: 'this one is recent' })).toHaveCount(0)
   // an archived session is still listed — archiving is the reversible tier, not the end
   await expect(win.locator('.cl-row', { hasText: 'Refactor the session parser' })).toContainText(
     'archived'
   )
+  await openTab('Worktrees')
   await expect(win.locator('.cl-row', { hasText: 'directory gone' })).toBeVisible()
 })
 
 test('rides a worktree on the session that ran in it, rather than listing it twice', async () => {
   await openCleanup()
+  await openTab('Sessions')
   // the session in Cockpit's own worktree says what deleting it would take
   const row = win.locator('.cl-row', { hasText: 'Investigate the flaky indexer test' })
   await expect(row.locator('.cl-carry')).toContainText('takes its worktree')
   // and that worktree is not also standing on its own in the leftovers
+  await openTab('Worktrees')
+  await expect(win.locator('.cl-row', { hasText: 'spike/edge-cache' })).toBeVisible()
   await expect(win.locator('.cl-row', { hasText: 'c/fix-login' })).toHaveCount(0)
 })
 
 test('leaves only the worktrees no session claims, marked by origin', async () => {
   await openCleanup()
+  await openTab('Worktrees')
   // the dirty one has no session of its own, and Claude Code cut it — external
   await expect(
     win.locator('.cl-row', { hasText: 'spike/edge-cache' }).locator('.cl-origin')
@@ -184,6 +199,7 @@ test('leaves only the worktrees no session claims, marked by origin', async () =
 
 test('a worktree with uncommitted work is shown, explained, and never selectable', async () => {
   await openCleanup()
+  await openTab('Worktrees')
   const row = win.locator('.cl-row', { hasText: 'spike/edge-cache' })
   await expect(row).toBeVisible()
   await expect(row).toContainText('uncommitted changes')
@@ -192,6 +208,7 @@ test('a worktree with uncommitted work is shown, explained, and never selectable
 
 test('archiving a session takes it off the list', async () => {
   await openCleanup()
+  await openTab('Sessions')
   await win.getByLabel('Select session Investigate the flaky indexer test').check()
   await win.getByRole('button', { name: 'Archive 1' }).click()
   await expect(win.getByText(/Archived 1/)).toBeVisible()
@@ -199,6 +216,7 @@ test('archiving a session takes it off the list', async () => {
 
 test('deleting a session takes its worktree and merged branch off the disk', async () => {
   await openCleanup()
+  await openTab('Sessions')
   await win.getByLabel('Select session Investigate the flaky indexer test').check()
   await win.getByRole('button', { name: 'Delete 1…' }).click()
   await win.getByRole('button', { name: 'Delete 1 for good?' }).click()
@@ -212,6 +230,7 @@ test('deleting a session takes its worktree and merged branch off the disk', asy
 
 test('removing an orphan whose directory is already gone clears the registration', async () => {
   await openCleanup()
+  await openTab('Worktrees')
   const row = win.locator('.cl-row', { hasText: 'directory gone' })
   await expect(row).toBeVisible()
   await row.locator('.cl-pick').check()
@@ -225,6 +244,7 @@ test('removing an orphan whose directory is already gone clears the registration
 
 test('the filter bar narrows by dimension, and select-all follows it', async () => {
   await openCleanup()
+  await openTab('Sessions')
   const bar = win.locator('.fb-bar').first()
   await bar.getByRole('button', { name: /^Agent/ }).click()
   await win.getByRole('button', { name: 'Claude', exact: true }).click()

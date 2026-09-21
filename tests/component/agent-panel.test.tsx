@@ -85,9 +85,10 @@ const search = async (text: string): Promise<void> => {
   await userEvent.type(screen.getByRole('searchbox', { name: 'Search this scope' }), text)
 }
 
-/** The card is three bands deep now — no tab bar between the scope and the panel. */
-const noTabBar = (): void => {
-  expect(screen.queryByRole('tablist', { name: 'Agents sections' })).not.toBeInTheDocument()
+/** The card is three bands deep — its sections are the one tab row, with no second bar
+ *  stacked between the scope and the panel. */
+const oneTabBar = (): void => {
+  expect(screen.getAllByRole('tablist')).toHaveLength(1)
 }
 
 describe('Agents › Panel', () => {
@@ -480,7 +481,7 @@ describe('Agents › scope', () => {
   it('opens on Global and says what that means, with nothing stacked in between', async () => {
     await openPanel()
     expect(screen.getByText(/every session, in every repo/)).toBeInTheDocument()
-    noTabBar()
+    oneTabBar()
   })
 
   it('reads a project scope, and says which kinds a repo can’t carry', async () => {
