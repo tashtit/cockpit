@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { closeApp } from './close-app'
+import { launchEnv } from './launch-env'
 
 const mainEntry = resolve('out/main/index.js')
 if (!existsSync(mainEntry)) {
@@ -105,12 +106,7 @@ test.beforeAll(async () => {
   mkdirSync(ghConfig, { recursive: true })
   app = await electron.launch({
     args: [mainEntry],
-    env: {
-      ...process.env,
-      COCKPIT_USER_DATA: userData,
-      GH_CONFIG_DIR: ghConfig,
-      ...(process.env.CI ? { ELECTRON_DISABLE_SANDBOX: '1' } : {})
-    }
+    env: launchEnv({ COCKPIT_USER_DATA: userData, GH_CONFIG_DIR: ghConfig })
   })
   win = await app.firstWindow()
 })

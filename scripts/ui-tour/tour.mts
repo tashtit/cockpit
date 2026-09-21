@@ -266,11 +266,23 @@ const FIRST_RUN: readonly Shot[] = [
 
 // ---------- running ----------
 
+/**
+ * The dev window prefs are a person's local choice and this harness's whole contract is
+ * that it is not: `COCKPIT_DEV_DISPLAY` opens the window on another display, whose work
+ * area is what bounds `zoomedFloor` — so the floor and 200% passes would be composed
+ * against a screen nobody else has. Stripped here for the same reason the e2e tier
+ * strips it in tests/e2e/launch-env.ts; kept separate because tests import from
+ * scripts/, never the other way.
+ */
+const DEV_WINDOW_VARS = ['COCKPIT_DEV_DISPLAY', 'COCKPIT_DEV_BACKGROUND']
+
 async function launch(world: World, extraEnv: NodeJS.ProcessEnv = {}): Promise<{ app: ElectronApplication; win: Page }> {
+  const inherited = { ...process.env }
+  for (const name of DEV_WINDOW_VARS) delete inherited[name]
   const app = await electron.launch({
     args: [MAIN],
     env: {
-      ...process.env,
+      ...inherited,
       HOME: world.home,
       COCKPIT_USER_DATA: world.userData,
       PATH: `${world.bin}:${process.env['PATH'] ?? ''}`,

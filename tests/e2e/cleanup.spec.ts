@@ -10,6 +10,7 @@ import {
   type Page
 } from '@playwright/test'
 import { closeApp } from './close-app'
+import { launchEnv } from './launch-env'
 
 /**
  * Cleanup against a REAL git repository, unlike the rest of the e2e fixtures: this
@@ -124,11 +125,7 @@ test.beforeAll(async () => {
 
   app = await electron.launch({
     args: [mainEntry],
-    env: {
-      ...process.env,
-      COCKPIT_USER_DATA: userData,
-      ...(process.env.CI ? { ELECTRON_DISABLE_SANDBOX: '1' } : {})
-    }
+    env: launchEnv({ COCKPIT_USER_DATA: userData })
   })
   win = await app.firstWindow()
 })

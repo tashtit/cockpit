@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { closeApp } from './close-app'
+import { launchEnv } from './launch-env'
 import type { World } from '../../scripts/ui-tour/world.mts'
 
 /**
@@ -50,13 +51,11 @@ test.beforeAll(async () => {
   world = (await loadWorldBuilder())(join(root, 'world'))
   app = await electron.launch({
     args: [mainEntry],
-    env: {
-      ...process.env,
+    env: launchEnv({
       HOME: world.home,
       COCKPIT_USER_DATA: world.userData,
-      PATH: `${world.bin}:${process.env.PATH ?? ''}`,
-      ...(process.env.CI ? { ELECTRON_DISABLE_SANDBOX: '1' } : {})
-    }
+      PATH: `${world.bin}:${process.env.PATH ?? ''}`
+    })
   })
   win = await app.firstWindow()
   await win.setViewportSize({ width: 1280, height: 860 })

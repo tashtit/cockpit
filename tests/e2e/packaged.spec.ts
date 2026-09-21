@@ -49,6 +49,19 @@ test('the bundle boots as an installed Cockpit', async () => {
   expect(await win.evaluate(() => typeof window.cockpit?.pageSessions)).toBe('function')
 })
 
+test('the installed window is fullscreenable', async () => {
+  // The one macOS surface in CI: the e2e tier runs on Linux under xvfb, where the
+  // regression this guards cannot exist. Electron reads an explicit `fullscreen: false`
+  // as "this window is not fullscreenable" and clears the NSWindow collection
+  // behaviour, which takes the green button, ⌃⌘F and the View menu with it.
+  //
+  // A pure read on purpose: this spec uses the real userData dir of whoever runs it
+  // (the packaged app refuses COCKPIT_USER_DATA), so it must not actually enter full
+  // screen — the window's own 'close' handler would persist that into a person's
+  // config. tests/e2e/window.spec.ts drives the transition, against a scratch dir.
+  expect(await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isFullScreenable())).toBe(true)
+})
+
 test('the updater is wired to GitHub Releases', async () => {
   // electron-builder writes this from the publish config; without it electron-updater
   // has no feed and every check fails

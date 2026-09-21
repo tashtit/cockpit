@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
 import { closeApp } from './close-app'
+import { launchEnv } from './launch-env'
 
 const mainEntry = resolve('out/main/index.js')
 if (!existsSync(mainEntry)) {
@@ -14,16 +15,13 @@ let app: ElectronApplication
 test.beforeAll(async () => {
   app = await electron.launch({
     args: [mainEntry],
-    env: {
-      ...process.env,
-      // hermetic run: config, index cache, and worktrees land in a throwaway dir, and
-      // agent homes resolve under an empty HOME — no agent signed in, nothing to index —
-      // so the home settles on the same screen on a laptop as on a CI runner
+    // hermetic run: config, index cache, and worktrees land in a throwaway dir, and
+    // agent homes resolve under an empty HOME — no agent signed in, nothing to index —
+    // so the home settles on the same screen on a laptop as on a CI runner
+    env: launchEnv({
       HOME: mkdtempSync(join(tmpdir(), 'cockpit-e2e-home-')),
-      COCKPIT_USER_DATA: mkdtempSync(join(tmpdir(), 'cockpit-e2e-')),
-      // CI linux runners restrict unprivileged user namespaces; no SUID helper either
-      ...(process.env.CI ? { ELECTRON_DISABLE_SANDBOX: '1' } : {})
-    }
+      COCKPIT_USER_DATA: mkdtempSync(join(tmpdir(), 'cockpit-e2e-'))
+    })
   })
 })
 
@@ -46,15 +44,6 @@ test('boots to the home shell', async () => {
   await expect(
     win.getByRole('region', { name: 'Three things and you fly' })
   ).toBeVisible({ timeout: 15_000 })
-})
-
-test('an ordinary window can still be put into full screen', async () => {
-  // Electron turns an explicit `fullscreen: false` into "not fullscreenable", which
-  // takes the green button, ⌃⌘F and the View menu with it — and the option is only
-  // ever true when a saved full-screen placement is being restored, so a plain boolean
-  // there disables full screen for every other launch, which is all of them.
-  await app.firstWindow()
-  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isFullScreenable())).toBe(true)
 })
 
 test('preload bridge is wired through context isolation', async () => {
