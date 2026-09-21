@@ -1,6 +1,7 @@
 import type {
   AgentOptions,
   ModelEndpoint,
+  Mutable,
   Provider,
   Roundtable,
   RoundtableEntry,
@@ -14,6 +15,7 @@ import {
   seatDisplayName
 } from '../shared/roundtable'
 import { endpointSupports, isValidModel } from '../shared/endpoints'
+import { EFFORT_LEVELS } from '../shared/agent-models'
 
 export { SEAT_NAME } from '../shared/roundtable'
 
@@ -263,24 +265,44 @@ export function clampRounds(v: unknown): number {
  */
 export function seatOptions(
   provider: Provider,
-  raw: { readonly model?: unknown; readonly modelEndpoint?: unknown },
+  raw: {
+    readonly model?: unknown
+    readonly modelEndpoint?: unknown
+    readonly effort?: unknown
+    readonly fast?: unknown
+    readonly longContext?: unknown
+  },
   endpoints: readonly ModelEndpoint[]
 ): AgentOptions | undefined {
   const model = typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : undefined
   if (model && !isValidModel(model)) {
     throw new Error(`"${model.slice(0, 80)}" is not a usable model name.`)
   }
-  if (raw.modelEndpoint === undefined || raw.modelEndpoint === '') {
-    return model ? { model } : undefined
+  let effort: string | undefined
+  if (raw.effort !== undefined && raw.effort !== '') {
+    if (typeof raw.effort !== 'string' || !EFFORT_LEVELS[provider].includes(raw.effort)) {
+      throw new Error(`${SEAT_NAME[provider]} has no "${String(raw.effort).slice(0, 20)}" thinking level.`)
+    }
+    effort = raw.effort
   }
-  const ep = endpoints.find((e) => e.id === raw.modelEndpoint)
-  if (!ep) throw new Error('That model provider is no longer configured — re-add it in Settings.')
-  if (!endpointSupports(provider, ep)) {
-    throw new Error(`Provider "${ep.label}" (${ep.type}) can't run a ${SEAT_NAME[provider]} seat.`)
+  // each knob exists for one CLI only — anywhere else it is dropped, not passed on
+  const knobs: Mutable<AgentOptions> = {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(provider === 'codex' && raw.fast === true ? { fast: true } : {}),
+    ...(provider === 'copilot' && raw.longContext === true ? { longContext: true } : {})
   }
-  // copilot never learns a custom provider's catalog on its own
-  if (provider === 'copilot' && !model) {
-    throw new Error(`The Copilot seat on "${ep.label}" needs an explicit model.`)
+  if (raw.modelEndpoint !== undefined && raw.modelEndpoint !== '') {
+    const ep = endpoints.find((e) => e.id === raw.modelEndpoint)
+    if (!ep) throw new Error('That model provider is no longer configured — re-add it in Settings.')
+    if (!endpointSupports(provider, ep)) {
+      throw new Error(`Provider "${ep.label}" (${ep.type}) can't run a ${SEAT_NAME[provider]} seat.`)
+    }
+    // copilot never learns a custom provider's catalog on its own
+    if (provider === 'copilot' && !model) {
+      throw new Error(`The Copilot seat on "${ep.label}" needs an explicit model.`)
+    }
+    knobs.modelEndpoint = ep.id
   }
-  return { ...(model ? { model } : {}), modelEndpoint: ep.id }
+  return Object.keys(knobs).length > 0 ? knobs : undefined
 }

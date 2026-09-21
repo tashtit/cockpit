@@ -167,4 +167,56 @@ describe('NewRoundtable', () => {
     // discussion-only: the form offers no permission mode at all
     expect(screen.queryByText(/YOLO/i)).not.toBeInTheDocument()
   })
+
+  it('offers the thinking levels the chosen model takes, and each agent’s own knob', async () => {
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    await choose(control('Codex', 'model'), /^GPT-5\.6-Sol/)
+    // the model's own list and default, straight from codex's catalog
+    expect(control('Codex', 'thinking')).toHaveTextContent('default · low')
+    await choose(control('Codex', 'thinking'), 'ultra')
+    // only codex has a fast tier; only copilot a context tier; claude has neither
+    await choose(control('Codex', 'speed'), /^fast/)
+    expect(within(seat('Claude')).queryByText('Speed')).not.toBeInTheDocument()
+    expect(within(seat('Claude')).queryByText('Context')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add Copilot seat' }))
+    await choose(control('Copilot', 'context'), 'long context')
+    await choose(control('Claude', 'thinking'), 'max')
+
+    // a model that does not take "ultra" drops the choice rather than sending it
+    await choose(control('Codex', 'model'), /^GPT-5\.5/)
+    expect(control('Codex', 'thinking')).toHaveTextContent('default · medium')
+    await choose(control('Codex', 'model'), /^GPT-5\.6-Sol/)
+
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
+    await waitFor(() => expect(window.cockpit.createRoundtable).toHaveBeenCalled())
+    expect(createdSeats()).toEqual([
+      expect.objectContaining({ provider: 'claude', effort: 'max', fast: undefined }),
+      expect.objectContaining({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'ultra', fast: true }),
+      expect.objectContaining({ provider: 'copilot', longContext: true, effort: undefined })
+    ])
+  })
+
+  it('copies a seat as a marked twin, and brings the seating back next time', async () => {
+    const first = render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    await choose(control('Claude', 'model'), /^opus/)
+    await choose(control('Claude', 'thinking'), 'high')
+    await userEvent.click(screen.getByRole('button', { name: 'Copy Claude seat' }))
+    // the copy sits right after its original, set up the same — so it is a duplicate
+    expect(control('Claude #2', 'model')).toHaveTextContent('opus')
+    expect(control('Claude #2', 'thinking')).toHaveTextContent('high')
+    expect(within(seat('Claude #2')).getByText('duplicate')).toBeInTheDocument()
+    await choose(control('Claude #2', 'thinking'), 'low')
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
+    await waitFor(() => expect(window.cockpit.createRoundtable).toHaveBeenCalled())
+    first.unmount()
+
+    // a new form starts from that seating: the topic is all that is left to write
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    expect(screen.getByLabelText('Topic')).toHaveFocus()
+    expect(control('Claude #1', 'thinking')).toHaveTextContent('high')
+    expect(control('Claude #2', 'thinking')).toHaveTextContent('low')
+    expect(seat('Codex')).toBeInTheDocument()
+  })
 })

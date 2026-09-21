@@ -34,6 +34,7 @@ export function isValidNativeId(id: string): boolean {
 }
 
 export { isValidModel } from '../shared/endpoints'
+import { EFFORT_LEVELS } from '../shared/agent-models'
 
 const CODEX_SANDBOXES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 
@@ -51,12 +52,49 @@ export function promptWithImages(req: ChatRequest): string {
 }
 
 /** Build argv for each provider's headless one-turn invocation. */
+/**
+ * The thinking level, re-checked here against the provider's own list: it reaches the
+ * CLI as an argv value (or a `-c` config value), so only a known word ever gets there.
+ */
+function effortOf(req: ChatRequest): string | null {
+  const e = req.options?.effort
+  return e && EFFORT_LEVELS[req.provider].includes(e) ? e : null
+}
+
+/**
+ * Copilot's per-turn knobs as flags. Shared by the headless command and the built-in
+ * ACP agent (`copilot --acp` takes the same flags), so a seat's model is honoured
+ * whichever transport runs it.
+ */
+export function copilotFlags(req: ChatRequest): string[] {
+  const out: string[] = []
+  const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
+  if (model) out.push('--model', model)
+  const effort = effortOf(req)
+  if (effort) out.push('--reasoning-effort', effort)
+  if (req.options?.longContext) out.push('--context', 'long_context')
+  return out
+}
+
+/**
+ * The ACP agent a turn actually spawns. The built-in `copilot --acp` takes the CLI's
+ * own flags, so the turn's model, thinking level and context ride on it — without them
+ * a Copilot seat over ACP ran on the default model whatever was picked. A user-defined
+ * agent is any binary, so nothing is ever appended to it. Exported for tests.
+ */
+export function withTurnFlags(agent: AcpAgent | undefined, req: ChatRequest): AcpAgent | undefined {
+  if (!agent?.builtin || agent.provider !== 'copilot') return agent
+  return { ...agent, args: [...(agent.args ?? []), ...copilotFlags(req)] }
+}
+
 export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } {
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
+  const effort = effortOf(req)
   switch (req.provider) {
     case 'claude': {
       const args = ['-p', '--output-format', 'stream-json', '--verbose']
       if (model) args.push('--model', model)
+      if (effort) args.push('--effort', effort)
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
@@ -69,6 +107,9 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       // both `exec` and `exec resume` take this flag (verified against codex --help)
       if (req.options?.codexSkipGitCheck) args.push('--skip-git-repo-check')
       if (model) args.push('--model', model)
+      // no flags for these: the config-override form works for `exec` and `exec resume`
+      if (effort) args.push('-c', `model_reasoning_effort="${effort}"`)
+      if (req.options?.fast) args.push('-c', 'service_tier="priority"')
       const requested = req.options?.codexSandbox
       // --full-auto was removed from `codex exec`; auto-edit maps to its old meaning
       const sandbox =
@@ -87,8 +128,7 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       return { cmd: 'codex', args }
     }
     case 'copilot': {
-      const args = ['-p', promptWithImages(req)]
-      if (model) args.push('--model', model)
+      const args = ['-p', promptWithImages(req), ...copilotFlags(req)]
       if (req.permissionMode !== 'safe') args.push('--allow-all-tools')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
       return { cmd: 'copilot', args }
@@ -337,7 +377,7 @@ export class ChatManager {
     // ACP: the same turn, driven over the agent's protocol instead of its headless
     // flags. Everything above — cwd checks, BYOK env, the config home — has already
     // been applied, and the agent inherits it as its environment.
-    const acpAgent = this.hooks.resolveAcpAgent?.(req)
+    const acpAgent = withTurnFlags(this.hooks.resolveAcpAgent?.(req), req)
     if (acpAgent) {
       this.startAcpTurn(turnId, req, acpAgent, env)
       return turnId

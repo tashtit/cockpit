@@ -25,10 +25,21 @@ export function codexCatalog(raw: string): AgentModel[] {
   for (const m of models as Array<Record<string, unknown>>) {
     if (!m || typeof m.slug !== 'string' || !isValidModel(m.slug)) continue
     if (m.visibility !== undefined && m.visibility !== 'list') continue
+    const efforts = Array.isArray(m.supported_reasoning_levels)
+      ? (m.supported_reasoning_levels as Array<{ effort?: unknown }>)
+          .map((l) => l?.effort)
+          .filter((e): e is string => typeof e === 'string' && /^[a-z]{1,16}$/.test(e))
+      : []
+    const tiers = Array.isArray(m.service_tiers) ? (m.service_tiers as Array<{ id?: unknown }>) : []
     out.push({
       id: m.slug,
       label: typeof m.display_name === 'string' && m.display_name ? m.display_name : m.slug,
       ...(typeof m.description === 'string' && m.description ? { description: m.description } : {}),
+      ...(efforts.length > 0 ? { efforts } : {}),
+      ...(typeof m.default_reasoning_level === 'string' && efforts.includes(m.default_reasoning_level)
+        ? { defaultEffort: m.default_reasoning_level }
+        : {}),
+      ...(tiers.some((t) => t?.id === 'priority') ? { fast: true } : {}),
       priority: typeof m.priority === 'number' ? m.priority : Number.MAX_SAFE_INTEGER
     })
   }

@@ -21,7 +21,16 @@ const CODEX_CACHE = JSON.stringify({
   models: [
     { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list', priority: 5 },
     { slug: 'gpt-reserve', display_name: 'GPT Reserve', visibility: 'hide', priority: 2 },
-    { slug: 'gpt-6-astra', display_name: 'GPT-6-Astra', description: 'Most capable', visibility: 'list', priority: 1 },
+    {
+      slug: 'gpt-6-astra',
+      display_name: 'GPT-6-Astra',
+      description: 'Most capable',
+      visibility: 'list',
+      priority: 1,
+      default_reasoning_level: 'low',
+      supported_reasoning_levels: [{ effort: 'low' }, { effort: 'ultra' }, { effort: 'Bad Level' }],
+      service_tiers: [{ id: 'priority', name: 'Fast' }]
+    },
     { slug: '--flag', visibility: 'list' },
     { display_name: 'no slug' }
   ]
@@ -30,7 +39,14 @@ const CODEX_CACHE = JSON.stringify({
 describe('codexCatalog', () => {
   it('lists what Codex’s own picker lists, in its priority order', () => {
     expect(codexCatalog(CODEX_CACHE)).toEqual([
-      { id: 'gpt-6-astra', label: 'GPT-6-Astra', description: 'Most capable' },
+      {
+        id: 'gpt-6-astra',
+        label: 'GPT-6-Astra',
+        description: 'Most capable',
+        efforts: ['low', 'ultra'],
+        defaultEffort: 'low',
+        fast: true
+      },
       { id: 'gpt-5.5', label: 'GPT-5.5' }
     ])
   })

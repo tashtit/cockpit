@@ -708,6 +708,8 @@ summary::-webkit-details-marker { display: none; }
 /* status captions speak the masthead language: mono, uppercase, quiet */
 .rt-table-status { font-family: var(--mono); font-size: 9px; letter-spacing: 0.4px;
   text-transform: uppercase; color: var(--fg-dim); }
+.rt-table-setup { font-family: var(--mono); font-size: 10px; color: var(--fg-dim);
+  max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rt-table-seat.status-agree .rt-table-status { color: var(--ok); }
 .rt-table-seat.thinking .rt-table-status { color: var(--accent); }
 /* narrow windows: the arc yields, seats fall into a flat row — same data, no drama */
@@ -716,21 +718,25 @@ summary::-webkit-details-marker { display: none; }
     justify-content: center; padding: var(--s3) 0; }
   .rt-table-arc { display: none; }
   .rt-table-seat { position: static; transform: none; }
+  /* a short window needs the rows for the transcript — the seat's tooltip keeps it */
+  .rt-table-setup { display: none; }
 }
 
-/* per-seat setup in the creation form: one row per chosen seat — account + model */
+/* per-seat setup in the creation form: one card per seat */
 .rt-seat-config { display: flex; flex-direction: column; gap: var(--s3); }
-/* one card per seat: the name and remove on top, then the seat's own four choices in
-   the option grid — each labelled, so nothing about a seat is a hidden default */
+/* one card per seat: name, Copy and remove on top, then the seat's own choices in the
+   grid — each labelled, so nothing about a seat is a hidden default */
 .rt-seat-card { border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--bg3); padding: var(--s3); display: flex; flex-direction: column;
   gap: var(--s2); }
 .rt-seat-card.duplicate { border-color: rgba(var(--warn-rgb), 0.4); }
 .rt-seat-card-head { display: flex; align-items: center; gap: var(--s2); }
-.rt-seat-card-head .icon-btn { margin-left: auto; }
-.rt-seat-card .ns-options { gap: var(--s3); }
-.rt-seat-card .ns-opt { min-width: 120px; }
-.rt-seat-card .ns-opt input { font-family: var(--mono); }
+.rt-seat-card-actions { margin-left: auto; display: flex; align-items: center; gap: var(--s1); }
+/* three columns on a desktop card (who · model · thinking, then account · provider ·
+   the agent's own knob), two in a narrow one — cells stay aligned across seats */
+.rt-seat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--s2) var(--s3); }
+.rt-seat-grid .ns-opt { min-width: 0; }
 .rt-seat-cfg-name { font-size: var(--fs-sm); font-weight: 600; }
 .rt-seat-cfg-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; color: var(--fg-dim); font-family: var(--mono);

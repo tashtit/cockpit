@@ -21,6 +21,23 @@ export const BUILTIN_MODELS: Record<Provider, readonly AgentModel[]> = {
   copilot: [{ id: 'auto', label: 'auto', description: 'Copilot picks the model' }]
 }
 
+/**
+ * Thinking levels each CLI accepts, from its own `--help` (claude `--effort`, copilot
+ * `--reasoning-effort`). Codex lists the levels per model in its catalog; this is the
+ * set its config accepts at all, the fallback when a model's own list is unknown.
+ */
+export const EFFORT_LEVELS: Record<Provider, readonly string[]> = {
+  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  codex: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  copilot: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+}
+
+/** The levels a seat may pick: the model's own list when known, else the agent's. */
+export function effortsFor(provider: Provider, model: AgentModel | undefined): readonly string[] {
+  const own = model?.efforts?.filter((e) => EFFORT_LEVELS[provider].includes(e))
+  return own && own.length > 0 ? own : EFFORT_LEVELS[provider]
+}
+
 /** Built-ins first, then what was found — each id once, the first description kept. */
 export function mergeModels(
   first: readonly AgentModel[],

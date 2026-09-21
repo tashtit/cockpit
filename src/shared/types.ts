@@ -460,6 +460,13 @@ export type AgentOptions = {
   readonly codexSkipGitCheck?: boolean
   /** Custom model endpoint (ModelEndpoint.id) — claude/copilot run against it via env */
   readonly modelEndpoint?: string
+  /** Thinking level — claude `--effort`, codex `model_reasoning_effort`, copilot
+   *  `--reasoning-effort`; one of `EFFORT_LEVELS` for the provider (absent = the CLI's default) */
+  readonly effort?: string
+  /** Codex only: the priority service tier ("Fast" — about twice the speed, and the usage) */
+  readonly fast?: boolean
+  /** Copilot only: the long-context window tier (`--context long_context`) */
+  readonly longContext?: boolean
   /**
    * Drive this turn over ACP with the named agent (`AcpAgent.id`) instead of the CLI's
    * own headless flags. Absent means the provider's native path; `'auto'` asks main to
@@ -475,6 +482,12 @@ export type AgentModel = {
   /** Picker label; the id when the source names nothing better */
   readonly label: string
   readonly description?: string
+  /** Thinking levels this model takes, when its source says (codex does, per model) */
+  readonly efforts?: readonly string[]
+  /** The level it runs at when none is chosen */
+  readonly defaultEffort?: string
+  /** Offers the fast (priority) service tier */
+  readonly fast?: boolean
 }
 
 export type ChatRequest = {
@@ -1128,6 +1141,9 @@ export type NewRoundtableSeat = {
   readonly model?: string
   /** Custom model provider (ModelEndpoint.id) this seat runs on — each seat picks its own */
   readonly modelEndpoint?: string
+  readonly effort?: string
+  readonly fast?: boolean
+  readonly longContext?: boolean
 }
 
 /** Renderer request to open a roundtable. */

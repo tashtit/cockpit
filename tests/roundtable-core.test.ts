@@ -370,6 +370,18 @@ describe('seatOptions', () => {
     expect(kept?.limits).toEqual({ maxTurnsPerMessage: 8, maxTurnsPerTable: 0 })
   })
 
+  it('takes each agent’s own thinking levels and knobs, and drops another agent’s', () => {
+    expect(
+      seatOptions('codex', { model: 'gpt-5.5', effort: 'ultra', fast: true, longContext: true }, [])
+    ).toEqual({ model: 'gpt-5.5', effort: 'ultra', fast: true })
+    expect(seatOptions('copilot', { effort: 'none', longContext: true, fast: true }, [])).toEqual({
+      effort: 'none',
+      longContext: true
+    })
+    expect(() => seatOptions('claude', { effort: 'ultra' }, [])).toThrow(/no "ultra" thinking level/)
+    expect(() => seatOptions('copilot', { effort: 7 }, [])).toThrow(/thinking level/)
+  })
+
   it('ignores anything that is not a string', () => {
     expect(seatOptions('claude', { model: 7, modelEndpoint: '' }, ENDPOINTS)).toBeUndefined()
   })

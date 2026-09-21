@@ -242,8 +242,14 @@ export function freshApi(): CockpitApi {
     listAgentModels: vi.fn(async (provider: Provider) =>
       provider === 'codex'
         ? [
-            { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
-            { id: 'gpt-5.5', label: 'GPT-5.5' }
+            {
+              id: 'gpt-5.6-sol',
+              label: 'GPT-5.6-Sol',
+              efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+              defaultEffort: 'low',
+              fast: true
+            },
+            { id: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium' }
           ]
         : [...BUILTIN_MODELS[provider]]
     ),

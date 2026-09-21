@@ -481,6 +481,20 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   )
 }
 
+/** One line naming how a seat was set up: model, thinking, and the knobs it has on. */
+export function seatSetup(p: RoundtableParticipant): string {
+  const o = p.options ?? {}
+  return [
+    o.model ?? 'default model',
+    o.effort ? `${o.effort} thinking` : null,
+    o.fast ? 'fast' : null,
+    o.longContext ? 'long context' : null,
+    o.modelEndpoint ? 'custom provider' : null
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 /** Point on the table edge (a quadratic arc) at parameter t ∈ [0,1], in % of the panel. */
 function arcPoint(t: number): { x: number; y: number } {
   const u = 1 - t
@@ -534,7 +548,13 @@ function RoundtableTable({
           : last
             ? 'spoke'
             : 'quiet'
-    return { provider: p.provider, name: uiSeatName(rt.participants, i), status, thinking }
+    return {
+      provider: p.provider,
+      name: uiSeatName(rt.participants, i),
+      status,
+      thinking,
+      setup: seatSetup(p)
+    }
   })
   const n = seats.length
   return (
@@ -552,6 +572,7 @@ function RoundtableTable({
               s.status === 'agrees' ? 'agree' : s.status === 'not yet' ? 'continue' : 'other'
             }`}
             style={{ left: `${p.x}%`, top: `${p.y}%` }}
+            title={`${s.name}\n${s.setup}`}
           >
             <span className={`rt-seat plogo-${s.provider}`}>
               <ProviderLogo p={s.provider} size={14} />
@@ -559,6 +580,8 @@ function RoundtableTable({
             </span>
             <span className="rt-table-name">{s.name}</span>
             <span className="rt-table-status">{s.status}</span>
+            {/* what this seat runs on — the form's choices, readable on the table itself */}
+            <span className="rt-table-setup">{s.setup}</span>
           </div>
         )
       })}

@@ -103,19 +103,24 @@ attribution, never a parallel message grammar.
 
 - `.ns-card` grammar; the provider cards are **add-seat buttons** (two to
   `ROUNDTABLE_MAX_SEATS` = 8; an agent may sit more than once — twin seats get ordinals).
-- **Every seat is a `.rt-seat-card`**: name, duplicate chip and remove on top, then the
-  seat's own four choices in the `.ns-options` grid, each with its `.ns-label` — Agent,
-  Account, Model provider, Model. Nothing about a seat is a hidden default: the Model
-  provider column exists even when no custom provider is configured (an inert
-  `.ns-account-single` reading "<Agent> (own)", its tooltip saying why and where to add
-  one), and the model is a `Select` over *every* model the agent offers under the seat's
-  account (`listAgentModels`) or the custom provider's catalog — **never a text field**: a
-  model is chosen from what the CLI can run, not typed. Each option shows the source's
-  display name with the `--model` id as its hint; "loading models…" while the list is in
-  flight. Switching a seat's agent resets
-  the seat — accounts, providers and models are all per agent.
+- **Topic first**, as in New session: it is why the form is open. Seating, goal,
+  project and limits follow, and the last seating is restored (`cockpit:rt-seats`), so a
+  repeat table is a topic and ⌘↵.
+- **Every seat is a `.rt-seat-card`**: name, duplicate chip, **Copy** (a `.btn-ghost.small`
+  that inserts an identical seat right after) and remove on top, then `.rt-seat-grid` —
+  three columns on a desktop card, two in a narrow one: Agent, Model, Thinking; Account,
+  Model provider, and the knob only that agent's CLI has (Codex **Speed**, Copilot
+  **Context**; Claude has none, so its row ends short). Every cell carries its
+  `.ns-label`. Nothing about a seat is a hidden default: the Model provider column exists
+  even when no custom provider is configured (an inert `.ns-account-single` reading
+  "<Agent> (own)", its tooltip saying why and where to add one), and the model is a
+  `Select` over *every* model the agent offers under the seat's account
+  (`listAgentModels`) or the custom provider's catalog — **never a text field**. Thinking
+  lists the chosen model's own levels when its source says (Codex) and names the default
+  ("default · low"); a choice the new model doesn't take falls back to default rather than
+  being sent. Switching a seat's agent resets the seat.
 - **An exact repeat is allowed, marked and confirmed.** A seat equal to an earlier one in
-  agent, account, model provider and model carries the warn chip (`.acct-chip.missing`,
+  agent, account, model provider, model, thinking level and knobs carries the warn chip (`.acct-chip.missing`,
   "duplicate") and a warn border; only the later seat is marked. Open stays disabled
   until the `.rt-dup-confirm` checkbox ("Seat the duplicate on purpose") is ticked.
 - **Spending limits live on this form, per table** — "Roundtable spending limits": agent
@@ -124,7 +129,8 @@ attribution, never a parallel message grammar.
   buys); the round-cap picker only offers what the per-message ceiling allows. Last
   choice is remembered for the next table. Never in Settings: Settings is app-wide, and
   these belong to a table.
-- **On the table**, `.rt-budget` in the header reads "N of M agent turns" (warn once
+- **On the table**, each seat on the arc carries `.rt-table-setup` — its model, thinking
+  level and knobs in one mono line (tooltip only in the flat row below 640px). `.rt-budget` in the header reads "N of M agent turns" (warn once
   another round would not fit) and opens `.rt-limits`, the in-place editor. A table out
   of turns says so in a `.sys-row` before the user tries, with a "Raise the limit"
   `.link-btn` — a refusal always carries its way on.
