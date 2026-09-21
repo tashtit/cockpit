@@ -19,6 +19,8 @@ import type {
   RoundtableEntry,
   RoundtableEvent,
   RoundtableLimits,
+  RoundtableQueued,
+  RoundtableSendOptions,
   RoundtableMeta,
   RoundtableMode,
   RoundtableParticipant,
@@ -85,13 +87,20 @@ type TurnState = {
   /** Transcript length when this turn's prompt was built — the seat's next delta
    *  starts here, so wave replies that landed meanwhile are never skipped */
   readonly promptedUpTo: number
+  /** Epoch ms it started — the view shows how long a seat has been at it */
+  readonly startedAt: number
+  /** Why the round is going on without it, once it was cut short (skip, time limit) */
+  skipped: string | null
+  /** The time-limit timer, cleared when the turn ends */
+  timer: ReturnType<typeof setTimeout> | null
 }
 
 /** Live state of a round in flight — mutable turn bookkeeping on purpose. */
 type Round = {
   /** The seats this round addresses — the whole table, or the ones a message named;
-   *  a consensus cycle keeps running with the same set */
-  readonly seats: readonly number[]
+   *  a consensus cycle keeps running with the same set. A seat skipped mid-round
+   *  leaves it, so the cycle carries on — and agrees — without it. */
+  seats: number[]
   /** Seat indexes not yet launched: a wave drains this at once, a relay one at a time */
   queue: number[]
   /** ChatManager turn id → live turn (several at once during a wave) */
@@ -130,6 +139,9 @@ export class RoundtableManager {
   private readonly hooks: Hooks
   private readonly tables = new Map<string, Table>()
   private readonly rounds = new Map<string, Round>()
+  /** A message sent while a round ran, per table — sent the moment the round ends.
+   *  In memory, like rounds: a restart mid-round leaves the table idle anyway. */
+  private readonly queued = new Map<string, RoundtableQueued>()
   /** ChatManager turn id → roundtable id, for routing stream events */
   private readonly byTurn = new Map<string, string>()
   private loaded = false
@@ -267,12 +279,15 @@ export class RoundtableManager {
 
   private snapshot(t: Table): RoundtableSnapshot {
     const round = this.rounds.get(t.id)
-    const speaking = new Set([...(round?.turns.values() ?? [])].map((turn) => turn.seatIndex))
+    const live = [...(round?.turns.values() ?? [])]
+    const speaking = new Set(live.map((turn) => turn.seatIndex))
     return {
       ...(structuredClone(t) as Roundtable),
       running: round !== undefined,
       // seat order, not launch order — the view lays live blocks out by seat
-      speaking: t.participants.map((_, i) => i).filter((i) => speaking.has(i))
+      speaking: t.participants.map((_, i) => i).filter((i) => speaking.has(i)),
+      speakingSince: Object.fromEntries(live.map((turn) => [turn.seatIndex, turn.startedAt])),
+      queued: this.queued.get(t.id) ?? null
     }
   }
 
@@ -360,13 +375,30 @@ export class RoundtableManager {
     return this.snapshot(t)
   }
 
-  /** Append a user message and run one wave of replies — every seat at once. */
-  sendMessage(id: string, text: string, seats?: readonly number[]): void {
+  /**
+   * Append a user message and run one wave of replies — every seat at once, or the
+   * seats it names. While a round runs the message waits instead (`whenBusy: 'queue'`,
+   * the default) and goes out the moment the round ends — a consensus cycle ends early
+   * for it — or stops the round and goes now (`'interrupt'`). A second message sent
+   * while one waits joins it, so nothing typed is lost.
+   */
+  sendMessage(id: string, text: string, opts: RoundtableSendOptions = {}): void {
     const t = this.mustGet(id)
-    if (this.rounds.has(id)) throw new Error('A round is already running — stop it first.')
     const msg = text.trim()
     if (!msg) throw new Error('Empty message.')
-    const to = this.pickSeats(t, seats)
+    const to = this.pickSeats(t, opts.seats)
+    if (this.rounds.has(id)) {
+      const partial = to.length < t.participants.length
+      const waiting = this.queued.get(id)
+      const next: RoundtableQueued = {
+        text: waiting ? `${waiting.text}\n\n${msg}` : msg,
+        ...(partial ? { to } : {})
+      }
+      this.queued.set(id, next)
+      this.hooks.emit({ id, type: 'queued', queued: next })
+      if (opts.whenBusy === 'interrupt') this.stop(id)
+      return
+    }
     this.assertAffordable(t, to)
     // each user message opens a fresh consensus cycle — the cap counts from here
     t.roundsRun = 0
@@ -398,11 +430,42 @@ export class RoundtableManager {
    * effect at the next round; a round in flight keeps the ceilings it started under
    * only in the sense that a consensus cycle re-reads them between rounds.
    */
-  setLimits(id: string, limits: RoundtableLimits): RoundtableSnapshot {
+  setLimits(id: string, limits: RoundtableLimits, maxRounds?: number): RoundtableSnapshot {
     const t = this.mustGet(id)
     t.limits = limits
+    // the round cap too: a running consensus cycle reads it again before every round,
+    // so lowering it ends a cycle the person regrets starting, raising it extends one
+    if (maxRounds !== undefined) t.maxRounds = clampRounds(maxRounds)
     this.save(t)
     return this.snapshot(t)
+  }
+
+  /** Drop the waiting message — what the person sees go when they cancel it. */
+  unqueue(id: string): void {
+    if (this.queued.delete(id)) this.hooks.emit({ id, type: 'queued', queued: null })
+  }
+
+  /**
+   * Stop waiting for one seat: its turn is cancelled and the round goes on without it —
+   * a stuck CLI, or one the person has heard enough from. A seat still queued in a
+   * relay just leaves the queue. Either way it sits out the rest of this cycle.
+   */
+  skipSeat(id: string, seatIndex: number): void {
+    const round = this.rounds.get(id)
+    if (!round) return
+    round.seats = round.seats.filter((i) => i !== seatIndex)
+    round.queue = round.queue.filter((i) => i !== seatIndex)
+    for (const [turnId, turn] of round.turns) {
+      if (turn.seatIndex === seatIndex) this.cutShort(turnId, turn, 'Skipped — the table went on without it.')
+    }
+  }
+
+  /** End one turn early; the done handler records why and moves the round along. */
+  private cutShort(turnId: string, turn: TurnState, why: string): void {
+    if (turn.skipped !== null) return
+    turn.skipped = why
+    if (turn.timer) clearTimeout(turn.timer)
+    this.hooks.cancelTurn(turnId)
   }
 
   stop(id: string): void {
@@ -435,7 +498,7 @@ export class RoundtableManager {
   private startRound(t: Table, parallel: boolean, seats?: readonly number[]): void {
     const addressed = seats ?? t.participants.map((_, i) => i)
     const round: Round = {
-      seats: addressed,
+      seats: [...addressed],
       queue: [...addressed],
       turns: new Map(),
       cancelled: false,
@@ -461,7 +524,7 @@ export class RoundtableManager {
    */
   private roundComplete(t: Table, round: Round): void {
     // a round the user stopped never finished — it must not spend one of the cap
-    if (round.cancelled || t.mode !== 'consensus') {
+    if (round.cancelled || t.mode !== 'consensus' || this.queued.has(t.id)) {
       if (!round.cancelled) t.roundsRun++
       this.save(t)
       this.endRound(t.id)
@@ -478,7 +541,13 @@ export class RoundtableManager {
       this.endRound(t.id)
       return
     }
-    // everyone must have been heard this round and agree
+    // everyone still at the table must have been heard this round and agree; with every
+    // seat skipped there is nobody left to agree, and the cycle simply stops
+    if (round.seats.length === 0) {
+      this.save(t)
+      this.endRound(t.id)
+      return
+    }
     const stances = new Map<number, RoundtableEntry['stance']>()
     for (const e of roundEntries) {
       if (e.speaker !== 'user') stances.set(entrySeatIndex(t.participants, e), e.stance)
@@ -512,6 +581,25 @@ export class RoundtableManager {
       ...(t ? { roundsRun: t.roundsRun, concluded: t.concluded } : {}),
       ...(stopped ? { stopped: true } : {})
     })
+    // the message that waited for this round goes out now — after the round-end event,
+    // so the view sees the old round close before the new one opens
+    const waiting = this.queued.get(id)
+    if (waiting) {
+      this.queued.delete(id)
+      try {
+        this.sendMessage(id, waiting.text, { seats: waiting.to })
+        this.hooks.emit({ id, type: 'queued', queued: null })
+      } catch (err) {
+        // refused (a spent ceiling): keep it waiting, and say why, rather than lose it
+        this.queued.set(id, waiting)
+        this.hooks.emit({
+          id,
+          type: 'queued',
+          queued: waiting,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
   }
 
   /** Sequential relay: pop the next seat; the round completes when the queue runs dry. */
@@ -534,7 +622,8 @@ export class RoundtableManager {
     const seat = t.participants[seatIndex]
     if (!seat) return false
     const speaker = seat.provider
-    this.hooks.emit({ id: t.id, type: 'turn', speaker, seat: seatIndex })
+    const startedAt = Date.now()
+    this.hooks.emit({ id: t.id, type: 'turn', speaker, seat: seatIndex, at: startedAt })
     // discussion-only: codex runs read-only sandboxed, and repo-less scratch rooms
     // wave off its git-repo trust check (repo-grounded tables sit in a real worktree)
     const options =
@@ -572,13 +661,27 @@ export class RoundtableManager {
       this.hooks.emit({ id: t.id, type: 'turn-end', speaker, seat: seatIndex })
       return false
     }
-    round.turns.set(turnId, {
+    const turn: TurnState = {
       seatIndex,
       speaker,
       buf: '',
       error: null,
-      promptedUpTo: t.entries.length
-    })
+      promptedUpTo: t.entries.length,
+      startedAt,
+      skipped: null,
+      timer: null
+    }
+    // the table's time limit: past it, the round goes on without this seat. Read now,
+    // so a limit changed mid-round applies from the next turn
+    const minutes = t.limits.maxTurnMinutes
+    if (minutes > 0) {
+      turn.timer = setTimeout(
+        () => this.cutShort(turnId, turn, `Took longer than ${minutes} min — the table went on without it.`),
+        minutes * 60_000
+      )
+      turn.timer.unref?.()
+    }
+    round.turns.set(turnId, turn)
     this.byTurn.set(turnId, t.id)
     return true
   }
@@ -627,6 +730,18 @@ export class RoundtableManager {
       case 'done': {
         this.byTurn.delete(ev.turnId)
         round.turns.delete(ev.turnId)
+        if (turn.timer) clearTimeout(turn.timer)
+        if (turn.skipped !== null) {
+          // cut short: whatever it had streamed is half an answer, so it is not kept;
+          // the note says the table went on without it. Its seenUpTo stays, so its next
+          // prompt carries everything it missed.
+          this.appendEntry(t, { speaker, seat: seatIndex, text: turn.skipped, at: Date.now(), skipped: true })
+          this.save(t)
+          this.hooks.emit({ id, type: 'turn-end', speaker, seat: seatIndex })
+          if (!round.cancelled && round.queue.length > 0) this.launchNext(t, round)
+          else if (round.turns.size === 0) this.roundComplete(t, round)
+          break
+        }
         const text = turn.buf.trim()
         // A turn that errored and produced only a scrap of text almost certainly
         // streamed its own failure banner (claude prints auth errors as plain

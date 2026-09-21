@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterAll } from 'vitest'
+import { describe, it, expect, vi, afterAll, afterEach } from 'vitest'
 import {
   existsSync,
   mkdirSync,
@@ -70,6 +70,104 @@ function replayTurn(
 }
 
 describe('RoundtableManager', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('a message sent mid-round waits, then goes out the moment the round ends', () => {
+    const h = makeManager(newDir())
+    const snap = h.manager.create(TWO_SEATS, null)
+    h.manager.sendMessage(snap.id, 'and CI time?')
+    h.manager.sendMessage(snap.id, 'also cost', { seats: [1] })
+    // nothing launched yet, and nothing lost: the two join, addressed as the last one was
+    expect(h.sent).toHaveLength(2)
+    expect(h.manager.get(snap.id).queued).toEqual({ text: 'and CI time?\n\nalso cost', to: [1] })
+    expect(h.events).toContainEqual(expect.objectContaining({ type: 'queued', queued: expect.anything() }))
+
+    replayTurn(h, h.turnIdOf(1), { text: ['a'] })
+    replayTurn(h, h.turnIdOf(2), { text: ['b'] })
+    const after = h.manager.get(snap.id)
+    expect(after.queued).toBeNull()
+    expect(after.entries.at(-1)).toMatchObject({ speaker: 'user', text: 'and CI time?\n\nalso cost', to: [1] })
+    expect(h.sent.at(-1)!.provider).toBe('codex')
+    expect(after.running).toBe(true)
+  })
+
+  it('a waiting message cuts a consensus cycle short instead of sitting through its rounds', () => {
+    const h = makeManager(newDir())
+    const snap = h.manager.create({ ...TWO_SEATS, mode: 'consensus', maxRounds: 5 }, null)
+    h.manager.sendMessage(snap.id, 'new angle')
+    replayTurn(h, h.turnIdOf(1), { text: ['x\nCONSENSUS: continue — no'] })
+    replayTurn(h, h.turnIdOf(2), { text: ['y\nCONSENSUS: continue — no'] })
+    // no second discussion round: the new message opened a wave of its own
+    expect(h.manager.get(snap.id).entries.at(-1)).toMatchObject({ speaker: 'user', text: 'new angle' })
+    expect(h.sent).toHaveLength(4)
+  })
+
+  it('send-now stops the round and sends; a waiting message can be cancelled', () => {
+    const h = makeManager(newDir())
+    const snap = h.manager.create(TWO_SEATS, null)
+    h.manager.sendMessage(snap.id, 'forget that', { whenBusy: 'interrupt' })
+    expect(h.cancelled).toEqual(['turn-1', 'turn-2'])
+    replayTurn(h, 'turn-1', {})
+    replayTurn(h, 'turn-2', {})
+    expect(h.manager.get(snap.id).entries.at(-1)).toMatchObject({ speaker: 'user', text: 'forget that' })
+
+    h.manager.sendMessage(snap.id, 'never mind')
+    h.manager.unqueue(snap.id)
+    replayTurn(h, 'turn-3', { text: ['a'] })
+    replayTurn(h, 'turn-4', { text: ['b'] })
+    expect(h.manager.get(snap.id).running).toBe(false)
+    expect(h.manager.get(snap.id).entries.some((e) => e.text === 'never mind')).toBe(false)
+  })
+
+  it('skipping a stuck seat ends its turn and the round goes on without it', () => {
+    const h = makeManager(newDir())
+    const snap = h.manager.create({ ...TWO_SEATS, mode: 'consensus', maxRounds: 5 }, null)
+    replayTurn(h, h.turnIdOf(2), { text: ['Orrery.\nCONSENSUS: agree — Orrery'] })
+    // claude hangs; the person stops waiting
+    expect(h.manager.get(snap.id).speaking).toEqual([0])
+    h.manager.skipSeat(snap.id, 0)
+    expect(h.cancelled).toEqual(['turn-1'])
+    h.manager.handleChatEvent({ turnId: 'turn-1', type: 'text', text: 'half an answ' })
+    replayTurn(h, 'turn-1', {})
+    const after = h.manager.get(snap.id)
+    // a note, not half a reply — and not a failure, so the cycle is not stopped for it:
+    // the seat left the cycle, and the seats still there agree
+    expect(after.entries.at(-1)).toMatchObject({ speaker: 'claude', skipped: true })
+    expect(after.entries.some((e) => e.text.includes('half an answ'))).toBe(false)
+    expect(after.concluded).toBe(true)
+    expect(after.running).toBe(false)
+  })
+
+  it('a seat past the table’s time limit is skipped by itself', () => {
+    vi.useFakeTimers()
+    const h = makeManager(newDir())
+    const snap = h.manager.create(
+      { ...TWO_SEATS, limits: { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnMinutes: 5 } },
+      null
+    )
+    expect(h.manager.get(snap.id).speakingSince[0]).toBeTypeOf('number')
+    replayTurn(h, h.turnIdOf(2), { text: ['done fast'] })
+    vi.advanceTimersByTime(5 * 60_000)
+    expect(h.cancelled).toEqual(['turn-1'])
+    replayTurn(h, 'turn-1', {})
+    expect(h.manager.get(snap.id).entries.at(-1)?.text).toMatch(/longer than 5 min/)
+    expect(h.manager.get(snap.id).running).toBe(false)
+  })
+
+  it('the round cap can be changed while a cycle runs — lowering it ends the cycle sooner', () => {
+    const h = makeManager(newDir())
+    const snap = h.manager.create({ ...TWO_SEATS, mode: 'consensus', maxRounds: 5 }, null)
+    h.manager.setLimits(snap.id, DEFAULT_ROUNDTABLE_LIMITS, 1)
+    replayTurn(h, h.turnIdOf(1), { text: ['x\nCONSENSUS: continue — no'] })
+    replayTurn(h, h.turnIdOf(2), { text: ['y\nCONSENSUS: continue — no'] })
+    const after = h.manager.get(snap.id)
+    expect(after.maxRounds).toBe(1)
+    expect(after.concluded).toBe(true)
+    expect(h.sent).toHaveLength(2)
+  })
+
   it('a message can go to some seats only — the rest read it but are not asked', () => {
     const h = makeManager(newDir())
     const snap = h.manager.create(TWO_SEATS, null)
@@ -77,7 +175,7 @@ describe('RoundtableManager', () => {
     replayTurn(h, h.turnIdOf(2), { text: ['first take'] })
 
     // carry on without claude: only codex is launched, and the entry says whom it was to
-    h.manager.sendMessage(snap.id, 'go on without claude', [1])
+    h.manager.sendMessage(snap.id, 'go on without claude', { seats: [1] })
     expect(h.sent.slice(2).map((r) => r.provider)).toEqual(['codex'])
     expect(h.sent[2].prompt).toContain('[User (to you)]: go on without claude')
     const entry = h.manager.get(snap.id).entries.at(-1)!
@@ -88,10 +186,10 @@ describe('RoundtableManager', () => {
     h.manager.continueRound(snap.id, [1])
     expect(h.sent.at(-1)!.provider).toBe('codex')
     replayTurn(h, h.turnIdOf(4), { text: ['third'] })
-    expect(() => h.manager.sendMessage(snap.id, 'x', [])).toThrow(/at least one seat/)
-    expect(() => h.manager.sendMessage(snap.id, 'x', [7])).toThrow(/at least one seat/)
+    expect(() => h.manager.sendMessage(snap.id, 'x', { seats: [] })).toThrow(/at least one seat/)
+    expect(() => h.manager.sendMessage(snap.id, 'x', { seats: [7] })).toThrow(/at least one seat/)
     // the whole table is not recorded as a partial address
-    h.manager.sendMessage(snap.id, 'everyone', [0, 1])
+    h.manager.sendMessage(snap.id, 'everyone', { seats: [0, 1] })
     expect(h.manager.get(snap.id).entries.at(-1)!.to).toBeUndefined()
   })
 
@@ -105,7 +203,7 @@ describe('RoundtableManager', () => {
     // round 2 relays one seat at a time; answer each as it launches
     while (h.manager.get(snap.id).running) replayTurn(h, `turn-${h.sent.length}`, { text: ['x\nCONSENSUS: continue — no'] })
     const before = h.sent.length
-    h.manager.sendMessage(snap.id, 'just you two', [1, 2])
+    h.manager.sendMessage(snap.id, 'just you two', { seats: [1, 2] })
     replayTurn(h, `turn-${before + 1}`, { text: ['y\nCONSENSUS: agree — fine'] })
     replayTurn(h, `turn-${before + 2}`, { text: ['z\nCONSENSUS: agree — fine'] })
     const after = h.manager.get(snap.id)
@@ -463,10 +561,10 @@ describe('RoundtableManager', () => {
     expect(h.events[h.events.length - 1]).toMatchObject({ type: 'round', running: false, stopped: true })
   })
 
-  it('refuses overlapping rounds and unknown tables', () => {
+  it('refuses an overlapping round and unknown tables', () => {
     const h = makeManager(newDir())
     const snap = h.manager.create(TWO_SEATS, null)
-    expect(() => h.manager.sendMessage(snap.id, 'wait your turn')).toThrow(/already running/)
+    expect(() => h.manager.continueRound(snap.id)).toThrow(/already running/)
     expect(() => h.manager.get('nope')).toThrow(/unknown roundtable/)
     expect(h.manager.handleChatEvent({ turnId: 'foreign', type: 'done' })).toBe(false)
   })

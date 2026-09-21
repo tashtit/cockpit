@@ -56,7 +56,7 @@ export function formatEntries(
   selfIndex?: number
 ): string {
   return entries
-    .filter((e) => !e.error)
+    .filter((e) => !e.error && !e.skipped)
     .map((e) => `[${entryLabel(participants, e, selfIndex)}]: ${cap(e.text, ENTRY_CAP)}`)
     .join('\n\n')
 }
@@ -222,6 +222,7 @@ export function sanitizeRoundtable(raw: unknown): Roundtable | null {
       text: e.text,
       at: typeof e.at === 'number' ? e.at : 0,
       ...(e.error === true ? { error: true } : {}),
+      ...(e.skipped === true ? { skipped: true } : {}),
       ...(e.stance === 'agree' || e.stance === 'continue' ? { stance: e.stance } : {}),
       ...(typeof e.stanceNote === 'string' && e.stanceNote
         ? { stanceNote: e.stanceNote.slice(0, 200) }

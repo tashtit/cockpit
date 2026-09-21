@@ -68,14 +68,17 @@ export const ROUNDTABLE_MAX_SEATS = 8
 
 export const DEFAULT_ROUNDTABLE_LIMITS: RoundtableLimits = {
   maxTurnsPerMessage: 16,
-  maxTurnsPerTable: 80
+  maxTurnsPerTable: 80,
+  maxTurnMinutes: 15
 }
 
 /** The range each ceiling may be set to. */
 export const ROUNDTABLE_LIMIT_RANGE = {
   maxTurnsPerMessage: { min: 2, max: 64 },
   /** 0 switches the ceiling off */
-  maxTurnsPerTable: { min: 0, max: 1000 }
+  maxTurnsPerTable: { min: 0, max: 1000 },
+  /** 0 = wait as long as it takes */
+  maxTurnMinutes: { min: 0, max: 240 }
 } as const
 
 /** Limits are renderer input and file content alike: anything out of range is the default. */
@@ -90,7 +93,8 @@ export function sanitizeRoundtableLimits(raw: unknown): RoundtableLimits {
   }
   return {
     maxTurnsPerMessage: pick('maxTurnsPerMessage'),
-    maxTurnsPerTable: pick('maxTurnsPerTable')
+    maxTurnsPerTable: pick('maxTurnsPerTable'),
+    maxTurnMinutes: pick('maxTurnMinutes')
   }
 }
 

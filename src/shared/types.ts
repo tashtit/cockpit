@@ -1089,6 +1089,9 @@ export type RoundtableEntry = {
   /** A user message addressed to some seats only: their participant indexes (absent =
    *  the whole table). Every seat still reads it; only these were asked to answer. */
   readonly to?: readonly number[]
+  /** The seat's turn was cut short — skipped by the person, or past the table's time
+   *  limit — and the round went on without it. Neither a reply nor a failure. */
+  readonly skipped?: boolean
 }
 
 /** How a table runs its rounds: user-driven, or auto-rounds until the seats agree. */
@@ -1151,6 +1154,31 @@ export type RoundtableSnapshot = Roundtable & {
   readonly running: boolean
   /** Participant indexes with a turn in flight — several at once during a wave */
   readonly speaking: readonly number[]
+  /** When each speaking seat's turn started (epoch ms), by participant index */
+  readonly speakingSince: Readonly<Record<number, number>>
+  /** A message sent while a round ran — it goes out when the round ends */
+  readonly queued: RoundtableQueued | null
+}
+
+/** A message waiting for the round in flight to end. */
+export type RoundtableQueued = {
+  readonly text: string
+  /** Participant indexes it goes to; absent = the whole table */
+  readonly to?: readonly number[]
+}
+
+/** How a message sent while a round runs is handled. */
+export type RoundtableWhenBusy =
+  /** Hold it until the round ends (a consensus cycle ends early for it) */
+  | 'queue'
+  /** Stop the round now and send it */
+  | 'interrupt'
+
+export type RoundtableSendOptions = {
+  /** Participant indexes to answer; absent = the whole table */
+  readonly seats?: readonly number[]
+  /** Only matters while a round runs; default 'queue' */
+  readonly whenBusy?: RoundtableWhenBusy
 }
 
 /** List-row projection — transcripts stay out so the list is always light. */
@@ -1179,6 +1207,9 @@ export type RoundtableLimits = {
   readonly maxTurnsPerMessage: number
   /** Most agent turns the table may spend over its whole life; 0 = no ceiling */
   readonly maxTurnsPerTable: number
+  /** Longest a seat may take over one turn before the round goes on without it, in
+   *  minutes; 0 = wait as long as it takes */
+  readonly maxTurnMinutes: number
 }
 
 /** Renderer-supplied seat definition (main re-validates every field). */
@@ -1222,7 +1253,21 @@ export type RoundtableEvent =
       /** The user stopped the round — nothing finished, so nobody is notified */
       readonly stopped?: boolean
     }
-  | { readonly id: string; readonly type: 'turn'; readonly speaker: Provider; readonly seat: number }
+  | {
+      readonly id: string
+      readonly type: 'turn'
+      readonly speaker: Provider
+      readonly seat: number
+      /** Epoch ms the turn started — the table shows how long a seat has been at it */
+      readonly at: number
+    }
+  /** The waiting message changed: set, replaced, sent (null) or refused (with why) */
+  | {
+      readonly id: string
+      readonly type: 'queued'
+      readonly queued: RoundtableQueued | null
+      readonly error?: string
+    }
   /** The seat's turn is over — fires even when no entry was produced (silent stop) */
   | { readonly id: string; readonly type: 'turn-end'; readonly speaker: Provider; readonly seat: number }
   | {

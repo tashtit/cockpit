@@ -365,9 +365,9 @@ describe('seatOptions', () => {
       cwd: '/r',
       participants: [seat()],
       entries: [],
-      limits: { maxTurnsPerMessage: 8, maxTurnsPerTable: 0 }
+      limits: { maxTurnsPerMessage: 8, maxTurnsPerTable: 0, maxTurnMinutes: 15 }
     })
-    expect(kept?.limits).toEqual({ maxTurnsPerMessage: 8, maxTurnsPerTable: 0 })
+    expect(kept?.limits).toEqual({ maxTurnsPerMessage: 8, maxTurnsPerTable: 0, maxTurnMinutes: 15 })
   })
 
   it('takes each agent’s own thinking levels and knobs, and drops another agent’s', () => {
@@ -415,7 +415,8 @@ describe('roundtable limits', () => {
     expect(sanitizeRoundtableLimits(undefined)).toEqual(DEFAULT_ROUNDTABLE_LIMITS)
     expect(sanitizeRoundtableLimits({ maxTurnsPerMessage: 1, maxTurnsPerTable: 0 })).toEqual({
       maxTurnsPerMessage: 16,
-      maxTurnsPerTable: 0
+      maxTurnsPerTable: 0,
+      maxTurnMinutes: 15
     })
     expect(sanitizeRoundtableLimits({ maxTurnsPerMessage: 99, maxTurnsPerTable: 2.5 })).toEqual(
       DEFAULT_ROUNDTABLE_LIMITS
@@ -423,7 +424,7 @@ describe('roundtable limits', () => {
   })
 
   it('a message buys whole rounds, and always at least its wave', () => {
-    const limits = { maxTurnsPerMessage: 16, maxTurnsPerTable: 80 }
+    const limits = { maxTurnsPerMessage: 16, maxTurnsPerTable: 80, maxTurnMinutes: 15 }
     expect(roundsAllowed(limits, 2)).toBe(8)
     expect(roundsAllowed(limits, 3)).toBe(5)
     expect(roundsAllowed(limits, 6)).toBe(2)
