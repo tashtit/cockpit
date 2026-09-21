@@ -49,14 +49,20 @@ const COPILOT_MODEL_FIELD = /"(?:model|currentModel|selectedModel|newModel|expli
 /**
  * Models a Copilot log shows the CLI serving. Copilot keeps no catalog on disk and its
  * ACP session offers no model option, so what it has actually run is the evidence.
- * A custom provider's model reads `<provider-uuid>/<model>` (not something `--model`
- * takes on the default backend) and some records carry a hash — both are skipped.
+ *
+ * A custom provider's session names its model `<provider-id>/<model>` where it is
+ * chosen (`selectedModel`, `newModel`) but bare on every turn record — and `--model`
+ * cannot run that bare name on Copilot's own backend. So any name this log also shows
+ * behind a provider prefix is a custom provider's, and is skipped along with the
+ * prefixed ids and the hashes some records carry.
  */
 export function copilotModelsInLog(text: string): string[] {
+  const ids = [...text.matchAll(COPILOT_MODEL_FIELD)].map((m) => m[1])
+  const viaProvider = new Set(ids.filter((id) => id.includes('/')).map((id) => id.slice(id.lastIndexOf('/') + 1)))
   const found = new Set<string>()
-  for (const m of text.matchAll(COPILOT_MODEL_FIELD)) {
-    const id = m[1]
-    if (id.includes('/') || /^[0-9a-f]{32,}$/.test(id) || !isValidModel(id)) continue
+  for (const id of ids) {
+    if (id.includes('/') || viaProvider.has(id)) continue
+    if (/^[0-9a-f]{32,}$/.test(id) || !isValidModel(id)) continue
     found.add(id)
   }
   return [...found]

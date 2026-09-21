@@ -55,7 +55,19 @@ describe('copilotModelsInLog', () => {
       '{"data":{"model":"b6ea42e4bd2e47862f414a7cee21313ac3435212d79334a6716b7591b90bdc9d"}}',
       '{"data":{"model":"claude-opus-5"}}'
     ].join('\n')
-    expect(copilotModelsInLog(log)).toEqual(['gpt-5.6-sol', 'claude-opus-5'])
+    // claude-opus-5 also ran behind a provider in this log, so its bare name is that
+    // provider's too — only the default backend's models are kept
+    expect(copilotModelsInLog(log)).toEqual(['gpt-5.6-sol'])
+  })
+
+  it('a custom provider’s bare turn records never reach the picker', () => {
+    const log = [
+      '{"type":"session.start","data":{"selectedModel":"ea92903f-20cf-44d0-9c37-af9c9def253a/qwen3.5:4b"}}',
+      '{"type":"assistant.message","data":{"model":"qwen3.5:4b"}}',
+      '{"type":"session.shutdown","data":{"currentModel":"qwen3.5:4b"}}'
+    ].join('\n')
+    expect(copilotModelsInLog(log)).toEqual([])
+    expect(copilotModelsInLog('{"data":{"model":"claude-opus-5"}}')).toEqual(['claude-opus-5'])
   })
 })
 
