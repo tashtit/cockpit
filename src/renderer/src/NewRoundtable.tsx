@@ -293,6 +293,10 @@ export function NewRoundtable({
     }
   }
 
+  /** The seat's name without the agent — its ordinal, when the agent sits twice. */
+  const ordinal = (index: number): string => seatLabel(index).slice(PROVIDER_LABEL[seats[index].provider].length).trim()
+  const seatWord = seats.length === 1 ? 'seat' : 'seats'
+
   return (
     <main className="chat new-session-view">
       <div className="ns-card">
@@ -320,34 +324,31 @@ export function NewRoundtable({
           }}
         />
 
-        <label className="ns-label">Seat the table</label>
-        <div className="ns-providers" role="group" aria-label="Add seats">
-          {PROVIDERS.map((p) => {
-            const count = seats.filter((s) => s.provider === p).length
-            return (
+        {/* the seats are the hero: their header carries the add pills, so adding one is
+            where you are already looking — no second agent picker above them */}
+        <div className="rt-seats-head">
+          <span className="ns-label" id="rt-seats-label">
+            Seats · {seats.length}
+          </span>
+          <div className="rt-add-seats" role="group" aria-label="Add seats">
+            {PROVIDERS.map((p) => (
               <button
                 key={p}
+                className="fb-add"
                 aria-label={`Add ${PROVIDER_LABEL[p]} seat`}
-                className={`ns-provider ns-${p} ${count > 0 ? 'active' : ''}`}
+                title={`${AGENT_BLURB[p]} — add a seat`}
                 disabled={seats.length >= ROUNDTABLE_MAX_SEATS}
                 onClick={() => addSeat(p)}
               >
-                <ProviderLogo p={p} size={20} />
-                <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
-                <span className="ns-provider-blurb">{AGENT_BLURB[p]}</span>
-                <span className={`acct-chip${count > 0 ? '' : ' missing'}`}>
-                  {count === 0 ? '+ add seat' : `${count} seated · + add`}
+                <span aria-hidden="true">+</span>
+                <span className={`plogo plogo-${p}`} aria-hidden="true">
+                  <ProviderLogo p={p} size={12} />
                 </span>
+                {PROVIDER_LABEL[p]}
               </button>
-            )
-          })}
+            ))}
+          </div>
         </div>
-        <div className="ns-hint">
-          Two to {ROUNDTABLE_MAX_SEATS} seats, each set up on its own. The same agent can sit
-          more than once — same mind at a different depth, or a copy for a second sample.
-        </div>
-
-        <span className="ns-label" id="rt-seats-label">Seats · {seats.length}</span>
         <div className="rt-seat-config" role="group" aria-labelledby="rt-seats-label">
           {seats.map((seat, i) => {
             const opts = accountOptions(accounts, seat.provider)
@@ -362,7 +363,7 @@ export function NewRoundtable({
             return (
               <div
                 key={i}
-                className={`rt-seat-card${duplicates[i] ? ' duplicate' : ''}`}
+                className={`rt-seat-card tint-${seat.provider}${duplicates[i] ? ' duplicate' : ''}`}
                 role="group"
                 aria-label={`${name} seat`}
               >
@@ -370,17 +371,47 @@ export function NewRoundtable({
                   <span className={`plogo plogo-${seat.provider}`} aria-hidden="true">
                     <ProviderLogo p={seat.provider} size={13} />
                   </span>
-                  <span className="rt-seat-cfg-name">{name}</span>
+                  {/* the seat's agent is its title, and changeable in place */}
+                  <Select
+                    className="rt-seat-agent"
+                    quiet
+                    ariaLabel={`${name} agent`}
+                    value={seat.provider}
+                    options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
+                    onChange={(v) => switchAgent(i, v as Provider)}
+                  />
+                  {ordinal(i) && <span className="rt-seat-ordinal">{ordinal(i)}</span>}
                   {duplicates[i] && (
                     // the warn chip: allowed, and worth a second look
-                    <span
-                      className="acct-chip missing"
-                      title="Set up exactly like an earlier seat"
-                    >
+                    <span className="acct-chip missing" title="Set up exactly like an earlier seat">
                       duplicate
                     </span>
                   )}
                   <span className="rt-seat-card-actions">
+                    {/* the one switch only this agent's CLI has — a checkbox, since it is on or off */}
+                    {fastOffered(seat) && (
+                      <label className="rt-seat-flag" title="Priority tier: about twice the speed, and twice the usage">
+                        <input
+                          type="checkbox"
+                          checked={seat.fast === true}
+                          onChange={(e) => patchSeat(i, { fast: e.currentTarget.checked || undefined })}
+                        />
+                        <span>fast</span>
+                        <span className="rt-seat-flag-note">~2× usage</span>
+                      </label>
+                    )}
+                    {seat.provider === 'copilot' && (
+                      <label className="rt-seat-flag" title="The long-context window tier">
+                        <input
+                          type="checkbox"
+                          checked={seat.longContext === true}
+                          onChange={(e) =>
+                            patchSeat(i, { longContext: e.currentTarget.checked || undefined })
+                          }
+                        />
+                        <span>long context</span>
+                      </label>
+                    )}
                     <button
                       className="btn-ghost small"
                       aria-label={`Copy ${name} seat`}
@@ -400,18 +431,8 @@ export function NewRoundtable({
                     </button>
                   </span>
                 </div>
-                {/* who and how deep first; where it runs second — every cell labelled */}
+                {/* how it thinks, then where it runs — one row on a desktop card */}
                 <div className="rt-seat-grid">
-                  <div className="ns-opt">
-                    <label className="ns-label" htmlFor={`${id}-agent`}>Agent</label>
-                    <Select
-                      id={`${id}-agent`}
-                      ariaLabel={`${name} agent`}
-                      value={seat.provider}
-                      options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
-                      onChange={(v) => switchAgent(i, v as Provider)}
-                    />
-                  </div>
                   <div className="ns-opt">
                     <label className="ns-label" htmlFor={`${id}-model`}>Model</label>
                     <Select
@@ -514,41 +535,14 @@ export function NewRoundtable({
                       </>
                     )}
                   </div>
-                  {/* the knob only this agent's CLI has, if it has one */}
-                  {fastOffered(seat) && (
-                    <div className="ns-opt">
-                      <label className="ns-label" htmlFor={`${id}-speed`}>Speed</label>
-                      <Select
-                        id={`${id}-speed`}
-                        ariaLabel={`${name} speed`}
-                        value={seat.fast ? 'fast' : ''}
-                        options={[
-                          { value: '', label: 'standard' },
-                          { value: 'fast', label: 'fast', hint: '~2× usage', title: 'Priority tier: about twice the speed, and twice the usage' }
-                        ]}
-                        onChange={(v) => patchSeat(i, { fast: v === 'fast' || undefined })}
-                      />
-                    </div>
-                  )}
-                  {seat.provider === 'copilot' && (
-                    <div className="ns-opt">
-                      <label className="ns-label" htmlFor={`${id}-context`}>Context</label>
-                      <Select
-                        id={`${id}-context`}
-                        ariaLabel={`${name} context`}
-                        value={seat.longContext ? 'long' : ''}
-                        options={[
-                          { value: '', label: 'default' },
-                          { value: 'long', label: 'long context', title: 'The long-context window tier' }
-                        ]}
-                        onChange={(v) => patchSeat(i, { longContext: v === 'long' || undefined })}
-                      />
-                    </div>
-                  )}
                 </div>
               </div>
             )
           })}
+        </div>
+        <div className="ns-hint">
+          Two to {ROUNDTABLE_MAX_SEATS} seats. The same agent can sit more than once — at a different
+          depth, or as a copy for a second sample.
         </div>
 
         {dupCount > 0 && (
@@ -579,7 +573,8 @@ export function NewRoundtable({
           </div>
         )}
 
-        <div className="ns-options">
+        <span className="ns-label" id="rt-table-label">The table</span>
+        <div className="ns-options" role="group" aria-labelledby="rt-table-label">
           <div className="ns-opt">
             <label className="ns-label" htmlFor="rt-goal">Goal</label>
             <Select
@@ -668,16 +663,26 @@ export function NewRoundtable({
 
         {error && <div className="new-error" role="alert">{error}</div>}
 
-        <div className="ns-actions">
-          <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button
-            className="btn-primary"
-            onClick={() => void start()}
-            disabled={busy || !topic.trim() || blocked}
-            title="⌘↵ from the topic"
-          >
-            {busy ? 'Opening…' : 'Open roundtable'}
-          </button>
+        {/* pinned to the bottom of the view: however many seats, the bill and the way
+            to open the table are always in sight */}
+        <div className="ns-actions rt-footer">
+          <span className="rt-footer-bill" aria-live="polite">
+            {seats.length} {seatWord} ·{' '}
+            {tableMode === 'consensus' ? 'up to ' : ''}
+            {turnsPerMessage} agent turns a message
+          </span>
+          {/* the keys wrap as one: a narrow card puts the bill above them, never Open alone */}
+          <span className="rt-footer-keys">
+            <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
+            <button
+              className="btn-primary"
+              onClick={() => void start()}
+              disabled={busy || !topic.trim() || blocked}
+              title="⌘↵ from the topic"
+            >
+              {busy ? 'Opening…' : 'Open roundtable'}
+            </button>
+          </span>
         </div>
       </div>
     </main>

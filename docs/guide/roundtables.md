@@ -24,9 +24,9 @@ Send another message to reopen a concluded table for a fresh cycle.
 
 ## Seats
 
-Each seat is a card with its own choices, all visible on the form — who and how deep on the first row, where it runs on the second:
+Add seats with the **+ Claude / + Codex / + Copilot** buttons beside the Seats heading. Each seat is a card in its agent's colour, with its own choices all visible:
 
-- **Agent** — Claude Code, Codex or Copilot. Change it on the card; switching resets that seat's other choices, which are all per agent.
+- **Agent** — the card's title: Claude Code, Codex or Copilot. Change it there; switching resets that seat's other choices, which are all per agent.
 - **Model** — picked from every model that agent offers under the seat's account, never typed:
   - **Claude Code**: its aliases (`fable`, `opus`, `sonnet`, `haiku` — each the latest of its line) and the current full model names. The CLI keeps no catalog of its own.
   - **Codex**: the models Codex's own picker lists, read from its cached catalog, plus the default in its `config.toml`.
@@ -35,8 +35,8 @@ Each seat is a card with its own choices, all visible on the form — who and ho
 - **Thinking** — how hard the seat reasons: Claude `low`–`max`, Copilot `none`–`max`, and for Codex the levels the chosen model takes (up to `ultra` on some), with that model's default shown.
 - **Account** — which signed-in identity the seat runs as (a read-only field when there is only one).
 - **Model provider** — the agent's own backend, or one of your [custom providers](./custom-providers.md). Only providers that agent can use are offered: Codex has none, Claude takes anthropic-type providers. A Copilot seat on a custom provider needs an explicit model.
-- **Speed** (Codex only) — the fast priority tier, about twice the speed and twice the usage, on models that offer it.
-- **Context** (Copilot only) — the long-context window.
+- **fast** (Codex only) — a checkbox on the card for the priority tier, about twice the speed and twice the usage, on models that offer it.
+- **long context** (Copilot only) — a checkbox on the card for the long-context window.
 
 **Copy** on a seat adds another set up exactly like it, right after it. The open table shows each seat's setup under its name ("opus · high thinking").
 
@@ -53,7 +53,7 @@ Every reply at a table is a full agent turn on that seat's account, and a table 
 | Agent turns per message | 16 | The opening wave plus every automatic round after it. Six seats on 16 turns is two rounds, whatever round cap the table asked for. |
 | Agent turns for the table | 80 (or no ceiling) | Every reply the table has on record, failed ones included. |
 
-Under them the form states the bill before you open the table — what one message costs at this size, and roughly how many messages the table ceiling allows. The next table starts from the limits you last chose.
+The form's footer stays pinned to the bottom with the bill ("4 seats · 4 agent turns a message") beside **Open roundtable**, and under the limits it spells the bill out — what one message costs at this size, and roughly how many messages the table ceiling allows. The next table starts from the limits you last chose.
 
 On an open table, the header shows what it has spent ("12 of 80 agent turns"). Click it to change that table's limits. When another round would pass the ceiling, the table says so before you try and offers **Raise the limit**; a round that doesn't fit never starts. Seats are capped at eight regardless.
 

@@ -28,9 +28,11 @@ describe('NewRoundtable', () => {
     for (const name of ['Claude', 'Codex']) {
       const card = seat(name)
       // every choice is visible and labelled, even with nothing configured to choose from
-      for (const label of ['Agent', 'Account', 'Model provider', 'Model']) {
+      for (const label of ['Model', 'Thinking', 'Account', 'Model provider']) {
         expect(within(card).getByText(label)).toBeInTheDocument()
       }
+      // the agent is the card's title, and a picker in its own right
+      expect(within(card).getByRole('button', { name: new RegExp(`^${name} agent ${name}`) })).toBeInTheDocument()
     }
     // the model is a picker over every model the agent offers — never a text field
     expect(screen.queryByRole('textbox', { name: /model/i })).not.toBeInTheDocument()
@@ -114,7 +116,7 @@ describe('NewRoundtable', () => {
     // a different model makes it a different voice — no mark, nothing to confirm
     await choose(control('Claude #2', 'model'), /^haiku/)
     expect(screen.queryByText('duplicate')).not.toBeInTheDocument()
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: /on purpose/ })).not.toBeInTheDocument()
 
     await userEvent.click(open)
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('rt-1'))
@@ -122,6 +124,8 @@ describe('NewRoundtable', () => {
 
   it('sets this table’s spending limits on the same page, and shows what a message costs', async () => {
     render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    // the bill rides the footer beside Open, whatever else is on screen
+    expect(document.querySelector('.rt-footer')).toHaveTextContent('2 seats · 2 agent turns a message')
     const limits = screen.getByRole('group', { name: 'Roundtable spending limits' })
     expect(screen.getByText(/costs 2 agent turns — one per seat/)).toBeInTheDocument()
     expect(screen.getByText(/stops at 80 turns — about 40 messages/)).toBeInTheDocument()
@@ -131,6 +135,7 @@ describe('NewRoundtable', () => {
     await choose(within(limits).getByRole('button', { name: /^Agent turns per message/ }), '8 turns')
     await choose(screen.getByRole('button', { name: /^Goal/ }), 'Reach an understanding')
     expect(screen.getByText(/up to 6 agent turns — 3 seats × 2 rounds,/)).toBeInTheDocument()
+    expect(document.querySelector('.rt-footer')).toHaveTextContent('3 seats · up to 6 agent turns a message')
     await choose(within(limits).getByRole('button', { name: /^Agent turns for the table/ }), 'no ceiling')
     expect(screen.getByText(/No ceiling for the whole table/)).toBeInTheDocument()
 
@@ -174,12 +179,12 @@ describe('NewRoundtable', () => {
     // the model's own list and default, straight from codex's catalog
     expect(control('Codex', 'thinking')).toHaveTextContent('default · low')
     await choose(control('Codex', 'thinking'), 'ultra')
-    // only codex has a fast tier; only copilot a context tier; claude has neither
-    await choose(control('Codex', 'speed'), /^fast/)
-    expect(within(seat('Claude')).queryByText('Speed')).not.toBeInTheDocument()
-    expect(within(seat('Claude')).queryByText('Context')).not.toBeInTheDocument()
+    // only codex has a fast tier; only copilot a context tier; claude has neither —
+    // each is on or off, so each is a checkbox on the seat's own card
+    await userEvent.click(within(seat('Codex')).getByRole('checkbox', { name: /fast/ }))
+    expect(within(seat('Claude')).queryByRole('checkbox')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Add Copilot seat' }))
-    await choose(control('Copilot', 'context'), 'long context')
+    await userEvent.click(within(seat('Copilot')).getByRole('checkbox', { name: 'long context' }))
     await choose(control('Claude', 'thinking'), 'max')
 
     // a model that does not take "ultra" drops the choice rather than sending it

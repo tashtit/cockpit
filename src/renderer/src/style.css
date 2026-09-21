@@ -722,25 +722,57 @@ summary::-webkit-details-marker { display: none; }
   .rt-table-setup { display: none; }
 }
 
+/* the seats header: the section label, and the add pills where the eye already is */
+.rt-seats-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2) var(--s3);
+  margin-top: var(--s4); }
+.rt-seats-head .ns-label { margin-top: 0; }
+.rt-add-seats { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--s2); }
+.rt-add-seats .plogo { display: inline-flex; }
+.fb-add:disabled { opacity: 0.5; cursor: default; }
+.fb-add:disabled:hover { color: var(--fg-dim); border-color: var(--border-strong); }
 /* per-seat setup in the creation form: one card per seat */
-.rt-seat-config { display: flex; flex-direction: column; gap: var(--s3); }
-/* one card per seat: name, Copy and remove on top, then the seat's own choices in the
-   grid — each labelled, so nothing about a seat is a hidden default */
-.rt-seat-card { border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--bg3); padding: var(--s3); display: flex; flex-direction: column;
+.rt-seat-config { display: flex; flex-direction: column; gap: var(--s2); }
+/* one card per seat, in its agent's rest-intensity identity (.tint-{agent}): the agent
+   picker is its title, the on/off knob only that CLI has sits by Copy and remove, and
+   the four choices below are each labelled, so nothing about a seat is a hidden default */
+.rt-seat-card { container: seat / inline-size;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--s2) var(--s3) var(--s3) var(--s4); display: flex; flex-direction: column;
   gap: var(--s2); }
 .rt-seat-card.duplicate { border-color: rgba(var(--warn-rgb), 0.4); }
-.rt-seat-card-head { display: flex; align-items: center; gap: var(--s2); }
-.rt-seat-card-actions { margin-left: auto; display: flex; align-items: center; gap: var(--s1); }
-/* three columns on a desktop card (who · model · thinking, then account · provider ·
-   the agent's own knob), two in a narrow one — cells stay aligned across seats */
-.rt-seat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+.rt-seat-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); min-height: 28px; }
+.rt-seat-agent { flex: 0 0 auto; font-weight: 600; }
+.rt-seat-ordinal { color: var(--fg-dim); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.rt-seat-card-actions { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+.rt-seat-flag { display: inline-flex; align-items: center; gap: var(--s1); min-height: 24px;
+  font-size: var(--fs-sm); color: var(--fg); cursor: pointer; white-space: nowrap; }
+.rt-seat-flag-note { color: var(--fg-dim); font-size: var(--fs-xs); }
+/* four cells in one row, two by two, or stacked — never three and one. Asked of the
+   seat card itself, since its width is the window less a draggable sidebar. Thresholds
+   are the grid width a row stops fitting at: 4 × 130px cells + 3 gaps = 544px,
+   2 × 130px + 1 gap = 268px */
+.rt-seat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--s2) var(--s3); }
+@container seat (max-width: 543px) {
+  .rt-seat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container seat (max-width: 267px) {
+  .rt-seat-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .rt-seat-grid .ns-opt { min-width: 0; }
-.rt-seat-cfg-name { font-size: var(--fs-sm); font-weight: 600; }
 .rt-seat-cfg-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; color: var(--fg-dim); font-family: var(--mono);
   font-size: var(--fs-sm); }
+/* the footer rides the bottom of the view: the bill and Open stay in sight however many
+   seats there are. It spans the card's padding and repaints the card's lower fill */
+.rt-footer { position: sticky; bottom: 0; z-index: 1; align-items: center; flex-wrap: wrap;
+  row-gap: var(--s2);
+  margin: var(--s2) calc(-1 * var(--s6)) calc(-1 * var(--s6)); padding: var(--s3) var(--s6);
+  background: var(--bg2); border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.rt-footer-bill { flex: 1 1 200px; color: var(--fg-dim); font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums; }
+.rt-footer-keys { display: flex; gap: var(--s2); margin-left: auto; }
 /* a table's spend in its header, and the in-place editor it opens */
 .rt-budget { color: inherit; font-size: inherit; padding: 0 var(--s2); min-height: 20px;
   border: 1px solid var(--border-strong); border-radius: 999px; font-family: var(--mono);
