@@ -726,12 +726,23 @@ test('the rail holds its own top row at every zoom, not just at 100%', async () 
       return [...new Set(bad)]
     })
 
+  /**
+   * Zoom into a viewport, then wait for the renderer to catch up. It learns of a zoom
+   * change only from the resize event that change fires, so until its next render the
+   * chip still reads the old level — and the chip is what decides whether the row wraps.
+   */
+  const zoomTo = async (factor: number, viewport: { width: number; height: number }): Promise<void> => {
+    await win.evaluate((f) => window.cockpit.setZoomFactor(f), factor)
+    await win.setViewportSize(viewport)
+    const chip = win.locator('.zoom-chip')
+    if (factor === 1) await expect(chip).toHaveCount(0)
+    else await expect(chip).toHaveText(`${Math.round(factor * 100)}%`)
+  }
+
   // every level the menu can reach, in the window each one's floor allows: main keeps
   // the zoomed floor at 560x420 of layout, which is the narrowest rail there is (200px)
   for (const factor of [0.7, 1, 1.1, 1.2, 1.3, 1.5, 1.75, 2]) {
-    await win.evaluate((f) => window.cockpit.setZoomFactor(f), factor)
-    await win.setViewportSize({ width: Math.round(560 * Math.max(1, factor)), height: Math.round(420 * Math.max(1, factor)) })
-    await expect.poll(() => win.locator('.zoom-chip').count()).toBe(factor === 1 ? 0 : 1)
+    await zoomTo(factor, { width: Math.round(560 * Math.max(1, factor)), height: Math.round(420 * Math.max(1, factor)) })
     expect(await audit(), `the rail at ${Math.round(factor * 100)}%, at its floor`).toEqual([])
     // and in an ordinary window, where the rail is wider but the viewport is past
     // every breakpoint — the band the bug actually lived in
@@ -751,23 +762,17 @@ test('the rail holds its own top row at every zoom, not just at 100%', async () 
 
   // the reflow is the floor's answer and only the floor's: at 100% the row is one line
   // at every width, which is the layout every screenshot and every audit above is of
-  await win.evaluate(() => window.cockpit.setZoomFactor(1))
-  await win.setViewportSize({ width: 560, height: 420 })
-  // the chip leaves on the renderer's next zoom report, not with the call: measured
-  // before it goes, the row is still the chip-up row and reads as wrapped
-  await expect(win.locator('.zoom-chip')).toHaveCount(0)
+  await zoomTo(1, { width: 560, height: 420 })
   const oneLine = await rowHeight()
   expect(await wrapped()).toBe(false)
 
   // with the chip up in the same 200px rail the keys take their own line rather than
   // shrinking or leaving: nothing is lost, the row is simply taller
-  await win.evaluate(() => window.cockpit.setZoomFactor(1.1))
-  await win.setViewportSize({ width: 616, height: 462 })
+  await zoomTo(1.1, { width: 616, height: 462 })
   await expect(win.locator('.zoom-chip')).toBeVisible()
   expect(await wrapped()).toBe(true)
   expect(await rowHeight()).toBeGreaterThan(oneLine)
   expect(await audit()).toEqual([])
 
-  await win.evaluate(() => window.cockpit.setZoomFactor(1))
-  await win.setViewportSize({ width: 1100, height: 728 })
+  await zoomTo(1, { width: 1100, height: 728 })
 })
