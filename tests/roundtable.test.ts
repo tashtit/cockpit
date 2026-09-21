@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, afterAll } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RoundtableManager, type NewTable } from '../src/main/roundtable'
@@ -311,6 +320,34 @@ describe('RoundtableManager', () => {
     const snap = h.manager.create(TWO_SEATS, null)
     expect(h.manager.tableIdForCwd(snap.cwd)).toBe(snap.id)
     expect(h.manager.tableIdForCwd('/somewhere/else')).toBeNull()
+  })
+
+  // a seat's log records the cwd its CLI resolved for itself — the on-disk spelling —
+  // while the table keeps the path it was handed (Electron's userData, a tmpdir link)
+  it('claims a seat cwd spelled the way the disk spells it, not the way the table was', () => {
+    const h = makeManager(newDir())
+    const real = join(realpathSync.native(newDir()), 'worktree')
+    mkdirSync(real)
+    const link = join(newDir(), 'link')
+    symlinkSync(real, link)
+    const place = { cwd: link, repoRoot: '/repo', branch: 'cockpit/table-x' }
+    const snap = h.manager.create(TWO_SEATS, place)
+    expect(h.manager.tableIdForCwd(link)).toBe(snap.id)
+    expect(h.manager.tableIdForCwd(real)).toBe(snap.id)
+    expect(h.manager.tableIdForCwd(join(real, 'nested'))).toBeNull()
+  })
+
+  it('claims a seat cwd that differs from the table\'s only by case, where the volume allows', () => {
+    const base = realpathSync.native(newDir())
+    const real = join(base, 'cockpit')
+    mkdirSync(real)
+    const shouted = join(base, 'Cockpit')
+    // a case-sensitive volume (Linux CI) has no such second spelling to get wrong
+    if (!existsSync(shouted)) return
+    const h = makeManager(newDir())
+    const place = { cwd: shouted, repoRoot: '/repo', branch: 'cockpit/table-x' }
+    const snap = h.manager.create(TWO_SEATS, place)
+    expect(h.manager.tableIdForCwd(real)).toBe(snap.id)
   })
 
   it('consensus: concludes the moment every seat agrees — no extra AI turn runs', () => {
