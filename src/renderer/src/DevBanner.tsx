@@ -2,10 +2,11 @@ import type { JSX } from 'react'
 import { BranchIcon } from './logos'
 
 /**
- * Dev-only: full-width banner naming the branch/worktree this instance runs
- * from — parallel `npm run dev` windows look identical otherwise. Main tags
- * the dev-server URL with `?devBranch=`; a packaged app never carries the
- * param, so this renders nothing outside dev.
+ * Unpackaged-only: full-width banner naming the branch/worktree this instance
+ * runs from — parallel dev, e2e and ui-tour windows look identical otherwise.
+ * Main tags the page URL with `?devBranch=` (the dev server's, or the built
+ * `index.html`'s); a packaged app never carries the param, so this renders
+ * nothing in a release.
  */
 export function DevBanner(): JSX.Element | null {
   const branch = new URLSearchParams(window.location.search).get('devBranch')

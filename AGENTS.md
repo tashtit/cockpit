@@ -158,6 +158,21 @@ suffixes template literals compose (`plogo-${p}`). When it fires, delete the rul
 really does render it, add the reason to that test. Being generous on purpose, it cannot catch
 a class reachable only through a prefix that is itself dead.
 
+## Running the app
+
+Every session that touches this repo shows the person its work in a running app before
+reporting, no exceptions: `npm run dev` from the session's own worktree, started detached and
+left running. The branch banner across the top of every unpackaged window is how the person
+tells one session's app from another's — don't hide or skip it.
+
+Every window a session opens — `npm run dev`, the e2e tier, `npm run ui:tour`, a Playwright
+driver script — goes to the display in `COCKPIT_DEV_DISPLAY` and never takes focus. Launch
+with the inherited environment: never unset `COCKPIT_DEV_DISPLAY`, never set
+`COCKPIT_DEV_BACKGROUND=0` (or use `npm run dev:fg`) unless the person asks, and build a
+driver's env from `launchEnv` in `tests/e2e/launch-env.ts` (or the same spread of
+`process.env`). `COCKPIT_E2E_TAKE_FOCUS=1` is the one switch that fronts a window, for the
+full-screen specs; don't set it unasked.
+
 ## Documentation
 
 The user guide is a VitePress site in `docs/` (`docs/guide/`, one page per feature). It is

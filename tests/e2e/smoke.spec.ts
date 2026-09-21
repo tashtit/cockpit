@@ -31,7 +31,9 @@ test.afterAll(async () => {
 
 test('boots to the home shell', async () => {
   const win = await app.firstWindow()
-  await expect(win).toHaveTitle('Cockpit')
+  // an unpackaged run names the checkout it runs from — a branch here, a short sha on
+  // CI's detached checkout; packaged.spec.ts holds the bare title of a release
+  await expect(win).toHaveTitle(/^Cockpit — \S+$/)
   // home's only heading is the board's masthead (live counts), so the footer line is
   // the marker: home renders it whether or not anything is indexed or signed in
   await expect(win.getByRole('button', { name: /Start a roundtable/ })).toBeVisible()

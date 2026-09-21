@@ -55,6 +55,10 @@ Common causes:
 
 They compose: `COCKPIT_DEV_DISPLAY=1 npm run dev` parks the app on your second screen and leaves your editor focused.
 
+The same holds for every window the e2e tier and `npm run ui:tour` open: they inherit `COCKPIT_DEV_DISPLAY`, and are pinned to the background whatever `COCKPIT_DEV_BACKGROUND` says. With the override set, a saved window placement is still honoured when it lies on the chosen display, so the placement specs observe the same thing with it as without. The one exception is the two `window.spec.ts` cases that enter full screen — macOS fronts any window entering it — which only run with `COCKPIT_E2E_TAKE_FOCUS=1`.
+
+Every unpackaged run — `npm run dev`, the e2e tier, the tour, `electron out/main` — names the branch it runs from in the window title and a banner across the top (a short sha on a detached checkout); a packaged app never shows it.
+
 Display order is OS-assigned and won't necessarily match your mental "first/second screen" — when `COCKPIT_DEV_DISPLAY` is set, the dev console prints the table so you can pick:
 
 ```

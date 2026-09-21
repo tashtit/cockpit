@@ -16,11 +16,20 @@ import { launchEnv } from './launch-env'
  * regression they guard can exist — and this tier runs on Linux under xvfb in CI,
  * where a real full-screen transition proves nothing either way. `packaged.spec.ts`
  * is the macOS-side guard that does run on a runner; see the note there.
+ *
+ * A full-screen transition activates the app — AppKit fronts any window entering it,
+ * shown inactive or not — so the two that perform one only run when asked to with
+ * `COCKPIT_E2E_TAKE_FOCUS=1`. Every other launch here stays in the background on the
+ * developer's chosen display, and a default run never takes the keyboard from
+ * whoever is typing while it runs.
  */
 const mainEntry = resolve('out/main/index.js')
 if (!existsSync(mainEntry)) {
   throw new Error('out/main/index.js missing — run `npm run build` before `npm run test:e2e`')
 }
+
+const TAKES_FOCUS = process.env['COCKPIT_E2E_TAKE_FOCUS'] === '1'
+const TAKES_FOCUS_SKIP = 'enters full screen, which fronts the app — set COCKPIT_E2E_TAKE_FOCUS=1 to run'
 
 /** How long a macOS full-screen transition gets — it is animated, and asynchronous. */
 const TRANSITION_MS = 8_000
@@ -62,7 +71,7 @@ function windowState(app: ElectronApplication): Promise<{
   })
 }
 
-test('an ordinary window can be put into full screen', async () => {
+test('an ordinary window is fullscreenable', async () => {
   test.skip(process.platform !== 'darwin', 'NSWindow collection behaviour — macOS only')
   const app = await launch(mkdtempSync(join(tmpdir(), 'cockpit-window-')))
 
@@ -72,6 +81,12 @@ test('an ordinary window can be put into full screen', async () => {
   // saved full-screen placement is being restored, so passing it as a plain boolean
   // disabled full screen on every other launch — which is nearly all of them.
   expect((await windowState(app)).fullScreenable).toBe(true)
+})
+
+test('an ordinary window can be put into full screen', async () => {
+  test.skip(process.platform !== 'darwin', 'NSWindow collection behaviour — macOS only')
+  test.skip(!TAKES_FOCUS, TAKES_FOCUS_SKIP)
+  const app = await launch(mkdtempSync(join(tmpdir(), 'cockpit-window-')))
 
   await app.evaluate(async ({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0]!
@@ -87,6 +102,7 @@ test('an ordinary window can be put into full screen', async () => {
 
 test('a window closed in full screen reopens in it', async () => {
   test.skip(process.platform !== 'darwin', 'NSWindow collection behaviour — macOS only')
+  test.skip(!TAKES_FOCUS, TAKES_FOCUS_SKIP)
   const userData = mkdtempSync(join(tmpdir(), 'cockpit-window-'))
 
   const first = await launch(userData)

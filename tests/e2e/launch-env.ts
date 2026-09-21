@@ -1,22 +1,18 @@
 /**
- * The environment an app under test is launched with: this process's, minus the
- * developer-shell variables that would quietly run a different app than CI runs,
- * plus the caller's own overrides.
+ * The environment an app under test is launched with: this process's, with the window
+ * pinned to the background, plus the caller's own overrides.
  *
- * `COCKPIT_DEV_DISPLAY` is the one that bites. It is a dev affordance for opening the
- * window on a chosen display, and `devBounds` deliberately outranks the saved
- * placement (see createWindow in src/main/index.ts) — so with it exported the window
- * never restores where it was and never reopens full screen. A developer who has it
- * set runs a spec against behaviour the runner never sees, in either direction:
- * a placement assertion that passes here and fails on CI, or the reverse.
- * `COCKPIT_DEV_BACKGROUND` is the milder half of the same pair — it decides whether
- * the window fronts itself — and a spec that depends on focus should say so in its
- * own env rather than inherit an answer from whoever is running it.
+ * `COCKPIT_DEV_DISPLAY` is inherited on purpose: a developer who exports it wants every
+ * window a run opens on that screen, not on the one they are working on. It no longer
+ * changes what a spec observes — the override only narrows which display a saved
+ * placement is judged against (see createWindow in src/main/index.ts), and the
+ * placement specs place the window on the display it already opened on.
  *
- * Both are read by `readDevWindowPrefs`, which is the boundary this list tracks: the
- * dev window prefs are a person's local choice, and a test states its own.
+ * `COCKPIT_DEV_BACKGROUND` is pinned on rather than inherited: an app under test never
+ * fronts itself or takes focus from whoever is typing while it runs, and a spec that
+ * depends on focus says so in its own overrides.
  */
-const DEV_WINDOW_VARS: readonly string[] = ['COCKPIT_DEV_DISPLAY', 'COCKPIT_DEV_BACKGROUND']
+const PINNED: Readonly<Record<string, string>> = { COCKPIT_DEV_BACKGROUND: '1' }
 
 /**
  * Build the env for `electron.launch`. Overrides win over the inherited environment,
@@ -25,9 +21,9 @@ const DEV_WINDOW_VARS: readonly string[] = ['COCKPIT_DEV_DISPLAY', 'COCKPIT_DEV_
 export function launchEnv(overrides: Readonly<Record<string, string>> = {}): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !DEV_WINDOW_VARS.includes(key)) env[key] = value
+    if (value !== undefined) env[key] = value
   }
   // CI linux runners restrict unprivileged user namespaces; no SUID helper either
   if (process.env['CI']) env['ELECTRON_DISABLE_SANDBOX'] = '1'
-  return { ...env, ...overrides }
+  return { ...env, ...PINNED, ...overrides }
 }
