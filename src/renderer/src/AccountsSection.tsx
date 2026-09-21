@@ -3,6 +3,7 @@ import type {
   AccountsSnapshot,
   Provider,
   ProviderUsage,
+  SignInState,
   SourceDir,
   SourceStats,
   UsageSnapshot,
@@ -15,6 +16,7 @@ import { fmtAgo, fmtCount, fmtResetIn } from './format'
 import { ipcErrorText } from './ipc-error'
 import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { SignInFix } from './SignInFix'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -118,6 +120,9 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
   /** Removal failures get their own slot — `error` belongs to the add form below */
   const [removeError, setRemoveError] = useState<string | null>(null)
   const confirm = useArmedConfirm()
+  /** Per config home, whether the CLI itself says it is signed in — the identity chip
+   *  is what a config file remembers, and it outlives an expired session */
+  const [signIns, setSignIns] = useState<Record<string, SignInState>>({})
 
   const refresh = (): void => {
     void api.getSourceStats().then(setStats)
@@ -144,6 +149,22 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
     accounts?.accounts.find((a) => a.path === p)?.identity ?? null
   const isDefault = (p: string): boolean =>
     accounts?.accounts.find((a) => a.path === p)?.isDefault ?? false
+
+  // ask each home's CLI once the accounts say which home is the default: the default
+  // runs with no config-home variable, exactly as a session would, since a CLI can
+  // keep a home's sign-in under a different name when the variable is set
+  const homesKey = accounts ? stats.map((s) => `${s.provider}|${s.path}`).join('\n') : ''
+  useEffect(() => {
+    if (!accounts) return
+    for (const s of stats) {
+      const key = `${s.provider}|${s.path}`
+      if (key in signIns || s.missing) continue
+      void api
+        .signInState?.(s.provider, isDefault(s.path) ? undefined : s.path)
+        .then((state) => setSignIns((prev) => ({ ...prev, [key]: state })))
+        .catch(() => {})
+    }
+  }, [homesKey])
 
   const add = async (): Promise<void> => {
     const p = path.trim()
@@ -230,6 +251,9 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
                 ) : (
                   <span className="acct-chip missing">not signed in</span>
                 )}
+                {identityOf(s.path) && signIns[`${s.provider}|${s.path}`] === 'signed-out' && (
+                  <span className="acct-chip missing">signed out</span>
+                )}
                 {isDefault(s.path) && <span className="source-origin">auto-detected</span>}
                 {usageFor(s)?.plan && (
                   <span className="source-origin">{usageFor(s)?.plan} plan</span>
@@ -239,6 +263,13 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
                 )}
               </div>
               <div className="source-path" title={s.path}>{s.path}</div>
+              {signIns[`${s.provider}|${s.path}`] === 'signed-out' && (
+                // the remembered identity alone would read as fine: say it can't run, and the fix
+                <div className="source-note source-signin">
+                  Its session has expired — sessions and roundtable seats on this home will fail.{' '}
+                  <SignInFix provider={s.provider} configHome={isDefault(s.path) ? undefined : s.path} />
+                </div>
+              )}
               {/* the subscription this home spends — the identity above is whose it is */}
               <UsageBody u={usageFor(s)} loading={usage === null} />
             </div>

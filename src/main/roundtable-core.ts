@@ -39,7 +39,11 @@ export function entryLabel(
   entry: RoundtableEntry,
   selfIndex?: number
 ): string {
-  if (entry.speaker === 'user') return 'User'
+  if (entry.speaker === 'user') {
+    // a message to part of the table says so, so the seats not asked know it wasn't theirs
+    if (!entry.to || entry.to.length === 0) return 'User'
+    return `User (to ${entry.to.map((i) => (i === selfIndex ? 'you' : seatDisplayName(participants, i))).join(', ')})`
+  }
   const idx = entrySeatIndex(participants, entry)
   const name = idx >= 0 ? seatDisplayName(participants, idx) : SEAT_NAME[entry.speaker]
   return selfIndex !== undefined && idx === selfIndex ? `You (${name})` : name
@@ -224,6 +228,9 @@ export function sanitizeRoundtable(raw: unknown): Roundtable | null {
         : {}),
       ...(typeof e.seat === 'number' && Number.isInteger(e.seat) && e.seat >= 0
         ? { seat: e.seat }
+        : {}),
+      ...(Array.isArray(e.to) && e.to.length > 0 && e.to.every((i) => Number.isInteger(i) && i >= 0)
+        ? { to: (e.to as number[]).slice(0, 16) }
         : {})
     })
   }

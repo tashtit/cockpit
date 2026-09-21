@@ -222,6 +222,25 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'roundtable', name: 'roundtable-consensus', go: (w) => open(w, /Should usage polling move/) },
+  // a seat on an account whose CLI session has expired: said on the card, before the
+  // table starts, with the command that fixes it — and Open held until it is
+  {
+    view: 'roundtable',
+    name: 'new-roundtable-signed-out',
+    tall: 1000,
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('button', { name: /Start a roundtable/ }).click()
+      // by keyboard: at the floor the pinned footer can sit over the picker
+      const account = w.getByRole('button', { name: /^Claude account / })
+      await account.focus()
+      await w.keyboard.press('Enter')
+      await w.keyboard.press('ArrowDown')
+      await w.keyboard.press('Enter')
+      await w.getByRole('group', { name: 'Claude seat' }).scrollIntoViewIfNeeded()
+      await pause(w, 800)
+    }
+  },
   // the model picker open on a codex seat: every model the CLI's own catalog lists
   {
     view: 'roundtable',
@@ -278,7 +297,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'new-roundtable-seats', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   {

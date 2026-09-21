@@ -8,6 +8,7 @@ import type {
   Provider,
   RoundtableLimits,
   RoundtableSnapshot,
+  SignInState,
   UsageSnapshot
 } from '../../src/shared/types'
 
@@ -239,6 +240,7 @@ export function freshApi(): CockpitApi {
     adoptInstructionsFrom: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     shareInstructions: vi.fn(async () => ({ status: 'unchanged' as const })),
     getAccounts: vi.fn(async () => ({ accounts: [], githubUser: null })),
+    signInState: vi.fn(async (): Promise<SignInState> => 'signed-in'),
     listAgentModels: vi.fn(async (provider: Provider) =>
       provider === 'codex'
         ? [

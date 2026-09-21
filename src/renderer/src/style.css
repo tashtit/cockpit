@@ -729,6 +729,9 @@ summary::-webkit-details-marker { display: none; }
 .rt-add-seats { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--s2); }
 .rt-add-seats .plogo { display: inline-flex; }
 .fb-add:disabled { opacity: 0.5; cursor: default; }
+/* an add pill whose CLI is signed out: still allowed (another account may work), said in words */
+.fb-add.signed-out { border-color: rgba(var(--warn-rgb), 0.5); }
+.rt-add-out { color: var(--warn); }
 .fb-add:disabled:hover { color: var(--fg-dim); border-color: var(--border-strong); }
 /* per-seat setup in the creation form: one card per seat */
 .rt-seat-config { display: flex; flex-direction: column; gap: var(--s2); }
@@ -760,6 +763,9 @@ summary::-webkit-details-marker { display: none; }
   .rt-seat-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .rt-seat-grid .ns-opt { min-width: 0; }
+/* a seat whose CLI is signed out: why it can't run, the fix, and a way to check again */
+.rt-seat-signin { font-size: var(--fs-sm); color: var(--warn); line-height: 1.5; }
+.rt-seat-signin .link-btn { font-size: inherit; }
 .rt-seat-cfg-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; color: var(--fg-dim); font-family: var(--mono);
   font-size: var(--fs-sm); }
@@ -772,9 +778,27 @@ summary::-webkit-details-marker { display: none; }
   border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 .rt-footer-bill { flex: 1 1 200px; color: var(--fg-dim); font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums; }
+.rt-footer-bill.blocked { color: var(--warn); }
 .rt-footer-keys { display: flex; gap: var(--s2); margin-left: auto; }
+/* a command to run, inside a sentence (SignInFix): mono, at the sentence's own size */
+.signin-cmd { font-family: var(--mono); font-size: inherit; color: var(--fg);
+  overflow-wrap: anywhere; }
 /* the fix a failed turn names (a lapsed sign-in): brighter than the failure around it */
 .rt-fail-hint { color: var(--fg); }
+/* who the next message goes to: one toggle per seat above the composer, on = included */
+.rt-to { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.rt-to-label { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: 0.9px; text-transform: uppercase; color: var(--fg-dim); }
+.rt-to-seat { display: inline-flex; align-items: center; gap: var(--s1); min-height: 24px;
+  padding: 0 var(--s3); border-radius: var(--radius-pill); font-size: var(--fs-sm);
+  color: var(--fg-dim); border: 1px dashed var(--border-strong);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.rt-to-seat span { color: var(--fg-dim); }
+.rt-to-seat.on { border-style: solid; border-color: currentColor; }
+.rt-to-seat.on span { color: var(--fg); }
+.rt-to-seat:disabled { cursor: default; }
+.rt-to-all { font-size: var(--fs-xs); }
+.rt-to-caption { font-size: var(--fs-xs); color: var(--fg-dim); margin-bottom: var(--s1); }
 /* a table's spend in its header, and the in-place editor it opens */
 .rt-budget { color: inherit; font-size: inherit; padding: 0 var(--s2); min-height: 20px;
   border: 1px solid var(--border-strong); border-radius: 999px; font-family: var(--mono);
@@ -1492,6 +1516,7 @@ summary::-webkit-details-marker { display: none; }
    second line is chrome, scanned in a list, so it sits one step under body size */
 .source-note { color: var(--fg-dim); font-size: var(--fs-sm); }
 .source-note code { font-family: var(--mono); color: var(--fg); }
+.source-signin { color: var(--warn); }
 /* notification switches: the whole row labels its checkbox, so the row is the hit
    area; the 14px box keeps its own 24px target through the margin (WCAG 2.5.8) */
 .attn-switch { cursor: pointer; transition: border-color var(--dur) var(--ease); }

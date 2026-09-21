@@ -54,6 +54,7 @@ import type {
   RoundtableLimits,
   RoundtableMeta,
   RoundtableSnapshot,
+  SignInState,
   SessionMessage,
   SessionMeta,
   SessionPage,
@@ -232,6 +233,9 @@ export type CockpitApi = {
 
   /* ---------- who each agent is signed in as, and what it has spent ---------- */
   readonly getAccounts: () => Promise<AccountsSnapshot>
+  /** Whether an agent CLI is signed in under one config home, asked of the CLI itself —
+   *  an account's remembered identity outlives an expired session (undefined = the default home) */
+  readonly signInState: (provider: Provider, configDir?: string) => Promise<SignInState>
   /** Every model an agent offers under one config home — the model pickers list these */
   readonly listAgentModels: (provider: Provider, configDir?: string) => Promise<AgentModel[]>
   /** Current subscription usage per configured provider account */
@@ -269,10 +273,11 @@ export type CockpitApi = {
   readonly getRoundtable: (id: string) => Promise<RoundtableSnapshot>
   /** Creates the table (a shared worktree when a repo is chosen) and runs the opening round */
   readonly createRoundtable: (req: NewRoundtableRequest) => Promise<RoundtableSnapshot>
-  /** Append a user message and run one full round of replies */
-  readonly sendRoundtableMessage: (id: string, text: string) => Promise<void>
-  /** One more round with no new user message — the seats keep talking */
-  readonly continueRoundtable: (id: string) => Promise<void>
+  /** Append a user message and run one round of replies — from every seat, or only the
+   *  seats named (participant indexes) */
+  readonly sendRoundtableMessage: (id: string, text: string, seats?: readonly number[]) => Promise<void>
+  /** One more round with no new user message — every seat, or only the ones named */
+  readonly continueRoundtable: (id: string, seats?: readonly number[]) => Promise<void>
   readonly stopRoundtable: (id: string) => Promise<void>
   /** Change what one table may spend (main clamps every field) — how a table that hit
    *  its ceiling goes on */
@@ -326,6 +331,7 @@ export type CockpitApi = {
 export const CH = {
   accountsGet: 'accounts:get',
   accountsModels: 'accounts:models',
+  accountsSignIn: 'accounts:sign-in',
 
   acpAdd: 'acp:add',
   acpGet: 'acp:get',

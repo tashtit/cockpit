@@ -6,10 +6,12 @@ import type {
   Provider,
   RepoGroup,
   RoundtableLimits,
-  RoundtableMode
+  RoundtableMode,
+  SignInState
 } from '../../shared/types'
 import { endpointSupports } from '../../shared/endpoints'
 import { effortsFor } from '../../shared/agent-models'
+import { signInHint } from '../../shared/agent-auth'
 import {
   DEFAULT_ROUNDTABLE_LIMITS,
   duplicateSeats,
@@ -21,6 +23,7 @@ import { api } from './api'
 import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './NewSession'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { SignInFix } from './SignInFix'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
@@ -132,6 +135,8 @@ export function NewRoundtable({
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
   /** Every model each agent offers, per config home (`agentKey`) — main reads the CLIs' own lists */
   const [agentModels, setAgentModels] = useState<Record<string, AgentModel[]>>({})
+  /** Whether each agent is signed in, per config home (`agentKey`) — asked of the CLI */
+  const [signIns, setSignIns] = useState<Record<string, SignInState | 'checking'>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const topicRef = useRef<HTMLTextAreaElement>(null)
@@ -175,6 +180,30 @@ export function NewRoundtable({
         .catch(() => setAgentModels((prev) => ({ ...prev, [key]: [] })))
     }
   }, [agentKeys.join('\n')])
+
+  /** Ask the CLI whether it is signed in under this agent and home; Recheck asks again. */
+  const checkSignIn = (key: string): void => {
+    const [provider, configDir] = key.split('|') as [Provider, string]
+    setSignIns((prev) => ({ ...prev, [key]: 'checking' }))
+    void api
+      .signInState?.(provider, configDir || undefined)
+      .then((state) => setSignIns((prev) => ({ ...prev, [key]: state })))
+      .catch(() => setSignIns((prev) => ({ ...prev, [key]: 'unknown' })))
+  }
+  // every seat's agent and home, plus each agent's default — so the add pills can say
+  // a CLI is signed out before a seat is ever added. Waits for the accounts, since a
+  // seat's home comes from them.
+  const signInKeys = accounts
+    ? [...new Set([...agentKeys, ...PROVIDERS.map((p) => agentKey({ provider: p }))])]
+    : []
+  useEffect(() => {
+    for (const key of signInKeys) if (!(key in signIns)) checkSignIn(key)
+  }, [signInKeys.join('\n')])
+  const signedOut = (seat: SeatDraft): boolean => signIns[agentKey(seat)] === 'signed-out'
+  const missing = (seat: SeatDraft): boolean => signIns[agentKey(seat)] === 'missing'
+  /** A seat that can't run as it stands — never opened with (main re-checks at open) */
+  const broken = (seat: SeatDraft): boolean => signedOut(seat) || missing(seat)
+  const checking = seats.some((seat) => signIns[agentKey(seat)] === 'checking')
 
   const seatEndpoint = (seat: SeatDraft): ModelEndpoint | undefined =>
     endpoints.find((e) => e.id === seat.endpointId && endpointSupports(seat.provider, e))
@@ -264,7 +293,13 @@ export function NewRoundtable({
     limits.maxTurnsPerTable === 0
       ? null
       : Math.floor(limits.maxTurnsPerTable / Math.max(1, turnsPerMessage))
-  const blocked = seats.length < 2 || seats.some(modelMissing) || (dupCount > 0 && !dupConfirmed)
+  const brokenSeats = seats.map((seat, i) => (broken(seat) ? i : -1)).filter((i) => i >= 0)
+  const blocked =
+    seats.length < 2 ||
+    seats.some(modelMissing) ||
+    (dupCount > 0 && !dupConfirmed) ||
+    brokenSeats.length > 0 ||
+    checking
 
   const start = async (): Promise<void> => {
     if (busy || !topic.trim() || blocked) return
@@ -331,22 +366,38 @@ export function NewRoundtable({
             Seats · {seats.length}
           </span>
           <div className="rt-add-seats" role="group" aria-label="Add seats">
-            {PROVIDERS.map((p) => (
-              <button
-                key={p}
-                className="fb-add"
-                aria-label={`Add ${PROVIDER_LABEL[p]} seat`}
-                title={`${AGENT_BLURB[p]} — add a seat`}
-                disabled={seats.length >= ROUNDTABLE_MAX_SEATS}
-                onClick={() => addSeat(p)}
-              >
-                <span aria-hidden="true">+</span>
-                <span className={`plogo plogo-${p}`} aria-hidden="true">
-                  <ProviderLogo p={p} size={12} />
-                </span>
-                {PROVIDER_LABEL[p]}
-              </button>
-            ))}
+            {PROVIDERS.map((p) => {
+              // said on the pill, before a seat exists: this CLI can't answer as it stands
+              const state = signIns[agentKey({ provider: p })]
+              const out = state === 'signed-out' || state === 'missing'
+              return (
+                <button
+                  key={p}
+                  className={`fb-add${out ? ' signed-out' : ''}`}
+                  aria-label={`Add ${PROVIDER_LABEL[p]} seat${out ? ` (${state === 'missing' ? 'not installed' : 'signed out'})` : ''}`}
+                  title={
+                    state === 'missing'
+                      ? `${PROVIDER_LABEL[p]} isn't installed on this Mac`
+                      : out
+                        ? `${PROVIDER_LABEL[p]} isn't signed in — ${signInHint(p)}`
+                        : `${AGENT_BLURB[p]} — add a seat`
+                  }
+                  disabled={seats.length >= ROUNDTABLE_MAX_SEATS}
+                  onClick={() => addSeat(p)}
+                >
+                  <span aria-hidden="true">+</span>
+                  <span className={`plogo plogo-${p}`} aria-hidden="true">
+                    <ProviderLogo p={p} size={12} />
+                  </span>
+                  {PROVIDER_LABEL[p]}
+                  {out && (
+                    <span className="rt-add-out" aria-hidden="true">
+                      {state === 'missing' ? 'not installed' : 'signed out'}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         </div>
         <div className="rt-seat-config" role="group" aria-labelledby="rt-seats-label">
@@ -363,7 +414,7 @@ export function NewRoundtable({
             return (
               <div
                 key={i}
-                className={`rt-seat-card tint-${seat.provider}${duplicates[i] ? ' duplicate' : ''}`}
+                className={`rt-seat-card tint-${seat.provider}${duplicates[i] || broken(seat) ? ' duplicate' : ''}`}
                 role="group"
                 aria-label={`${name} seat`}
               >
@@ -381,6 +432,8 @@ export function NewRoundtable({
                     onChange={(v) => switchAgent(i, v as Provider)}
                   />
                   {ordinal(i) && <span className="rt-seat-ordinal">{ordinal(i)}</span>}
+                  {signedOut(seat) && <span className="acct-chip missing">signed out</span>}
+                  {missing(seat) && <span className="acct-chip missing">not installed</span>}
                   {duplicates[i] && (
                     // the warn chip: allowed, and worth a second look
                     <span className="acct-chip missing" title="Set up exactly like an earlier seat">
@@ -536,6 +589,33 @@ export function NewRoundtable({
                     )}
                   </div>
                 </div>
+                {missing(seat) && (
+                  <div className="rt-seat-signin" role="alert">
+                    Cockpit can’t find the <code className="signin-cmd">{seat.provider}</code> command
+                    on this Mac, so this seat can’t run. Install {PROVIDER_LABEL[seat.provider]}’s CLI,
+                    then{' '}
+                    <button className="link-btn" onClick={() => checkSignIn(agentKey(seat))}>
+                      Recheck
+                    </button>
+                  </div>
+                )}
+                {signedOut(seat) && (
+                  <div className="rt-seat-signin" role="alert">
+                    {PROVIDER_LABEL[seat.provider]} isn’t signed in
+                    {acct?.identity ? ` as ${acct.identity}` : ''} on this Mac, so this seat would fail
+                    every turn.
+                    {seat.provider === 'claude' &&
+                      ' The Claude app keeps its own sign-in — it doesn’t carry over to the CLI Cockpit runs.'}{' '}
+                    <SignInFix provider={seat.provider} configHome={acct?.configDir} />{' '}
+                    <button
+                      className="link-btn"
+                      disabled={signIns[agentKey(seat)] === 'checking'}
+                      onClick={() => checkSignIn(agentKey(seat))}
+                    >
+                      {signIns[agentKey(seat)] === 'checking' ? 'Checking…' : 'Recheck'}
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -666,10 +746,20 @@ export function NewRoundtable({
         {/* pinned to the bottom of the view: however many seats, the bill and the way
             to open the table are always in sight */}
         <div className="ns-actions rt-footer">
-          <span className="rt-footer-bill" aria-live="polite">
-            {seats.length} {seatWord} ·{' '}
-            {tableMode === 'consensus' ? 'up to ' : ''}
-            {turnsPerMessage} agent turns a message
+          <span className={`rt-footer-bill${brokenSeats.length > 0 ? ' blocked' : ''}`} aria-live="polite">
+            {brokenSeats.length > 0 ? (
+              <>
+                {brokenSeats.map((i) => seatLabel(i)).join(', ')} can’t run —{' '}
+                {brokenSeats.length === 1 ? 'fix it' : 'fix them'} to open the table
+              </>
+            ) : checking ? (
+              'Checking the seats can run…'
+            ) : (
+              <>
+                {seats.length} {seatWord} · {tableMode === 'consensus' ? 'up to ' : ''}
+                {turnsPerMessage} agent turns a message
+              </>
+            )}
           </span>
           {/* the keys wrap as one: a narrow card puts the bill above them, never Open alone */}
           <span className="rt-footer-keys">

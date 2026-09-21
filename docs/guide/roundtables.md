@@ -10,6 +10,7 @@ Open one from the home composer ("Start a roundtable") or the sidebar. Write the
 
 - **Your message opens a wave.** Every seat receives it at once and streams simultaneously, each in its own attributed block — the seats think in parallel, not in a queue.
 - **"One more round" is the discussion pass.** It runs a sequential round with no new message from you: each seat sees what the earlier seats just said, so they push back, agree, or build on it.
+- **You choose who answers.** The **To** row above the composer has one toggle per seat, all on by default. Switch a seat off and your next message — and "One more round" — goes only to the seats left on. Every seat still reads the message later; the ones left out simply weren't asked, and the message is marked "to Codex" in the transcript.
 - **Each seat keeps its own provider session.** Later turns are resumed with only the delta since that seat last spoke, so a long table doesn't re-send the whole transcript to every agent.
 
 The table at the top of the view shows each seat's live state: thinking, agrees, not yet.
@@ -22,7 +23,7 @@ The conclusion is assembled by Cockpit, not written by an agent — no seat spea
 
 Send another message to reopen a concluded table for a fresh cycle.
 
-If a seat's turn fails — a lapsed sign-in, say — the table stops running rounds on its own instead of billing the other seats to answer an empty chair. It says which seat couldn't answer; fix it, then send a message or run one more round. A stop is not a conclusion, so no outcome panel appears.
+If a seat's turn fails — a lapsed sign-in, say — the table stops running rounds on its own instead of billing the other seats to answer an empty chair. It says which seat couldn't answer: fix it, then send a message or run one more round — or click **continue without Claude** to carry on with the seats that work. A stop is not a conclusion, so no outcome panel appears. A table among some seats reaches an understanding when those seats agree.
 
 ## Seats
 
@@ -46,11 +47,13 @@ The same agent can sit more than once with different models — "Claude · opus"
 
 A seat that repeats an earlier one *exactly* — same agent, account, model provider, model, thinking level and knobs — is marked **duplicate**, and the table won't open until you tick **Seat the duplicate on purpose**. Several samples of one mind is a real technique, but it costs a full seat every round for a voice the table already has.
 
-## Signed-in seats
+## Seats that can't run
 
-Opening a table first asks each seat's CLI whether it is signed in under that seat's account (`claude auth status`, `codex login status`). A seat that is signed out stops the table from opening, with the command that fixes it — for example "Run `claude auth login` in a terminal to sign in again." Cockpit's account list shows the identity a config file remembers, which outlives an expired session, so this check is the one that knows. Copilot has no status command and is not checked.
+The form asks each agent's CLI, as you set a seat up, whether it can run under that seat's account — `claude auth status`, `codex login status`, and for Copilot (which has no status command) whether it is installed at all. A seat that is **signed out** or **not installed** says so on its card with the fix — for example "Run `claude auth login` in a terminal to sign in again" — and a **Recheck** button; the add buttons say it too, before you add the seat. **Open roundtable stays disabled** until every seat can run, and while the checks are still answering. Opening the table checks again, so nothing starts with a broken seat.
 
-A turn that fails mid-table on a sign-in error carries the same hint in its failure line.
+Why a CLI can be signed out while its app works: Cockpit runs the agents' command-line tools. The Codex app and the `codex` CLI share one sign-in, but the Claude app runs its own copy of Claude Code and keeps its sign-in to itself — being signed in to the Claude app does not sign in the `claude` CLI. Settings › Accounts shows the same **signed out** state beside the remembered identity.
+
+A turn that fails mid-table on a sign-in error carries the same fix in its failure line.
 
 ## Spending limits
 

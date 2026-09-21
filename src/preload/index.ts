@@ -133,6 +133,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.instructionsAdoptFile, repoRoot, path),
   shareInstructions: (repoRoot: string) => ipcRenderer.invoke(CH.instructionsShare, repoRoot),
   getAccounts: () => ipcRenderer.invoke(CH.accountsGet),
+  signInState: (provider: Provider, configDir?: string) =>
+    ipcRenderer.invoke(CH.accountsSignIn, provider, configDir),
   listAgentModels: (provider: Provider, configDir?: string) =>
     ipcRenderer.invoke(CH.accountsModels, provider, configDir),
   getUsage: () => ipcRenderer.invoke(CH.usageGet),
@@ -155,9 +157,10 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.roundtableArchive, id, archived),
   getRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableGet, id),
   createRoundtable: (req: NewRoundtableRequest) => ipcRenderer.invoke(CH.roundtableCreate, req),
-  sendRoundtableMessage: (id: string, text: string) =>
-    ipcRenderer.invoke(CH.roundtableSend, id, text),
-  continueRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableContinue, id),
+  sendRoundtableMessage: (id: string, text: string, seats?: readonly number[]) =>
+    ipcRenderer.invoke(CH.roundtableSend, id, text, seats),
+  continueRoundtable: (id: string, seats?: readonly number[]) =>
+    ipcRenderer.invoke(CH.roundtableContinue, id, seats),
   stopRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableStop, id),
   setRoundtableLimits: (id: string, limits: RoundtableLimits) =>
     ipcRenderer.invoke(CH.roundtableSetLimits, id, limits),

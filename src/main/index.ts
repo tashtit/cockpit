@@ -773,6 +773,15 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.accountsGet, () => getAccounts(loadConfig().sources))
   // the provider and config home are renderer input: a known provider, and a home the
   // indexer derived — the lister reads files under it
+  // same validation: a known provider, and a config home the indexer derived — the
+  // CLI's status command runs against it
+  ipcMain.handle(CH.accountsSignIn, (_e, agent: unknown, configDir: unknown) => {
+    const provider = asProvider(agent)
+    return signInState(
+      provider,
+      configDir === undefined || configDir === null ? undefined : assertKnownConfigDir(configDir, provider)
+    )
+  })
   ipcMain.handle(CH.accountsModels, (_e, agent: unknown, configDir: unknown) => {
     const provider = asProvider(agent)
     return listAgentModels(
@@ -1238,13 +1247,16 @@ app.whenReady().then(() => {
     // theirs answering it — refuse before anything runs, with the command that fixes it
     const homes = [...new Map(seats.map((s) => [`${s.provider}|${s.configDir ?? ''}`, s])).values()]
     const states = await Promise.all(homes.map((s) => signInState(s.provider, s.configDir)))
-    const signedOut = homes.filter((_, i) => states[i] === 'signed-out')
-    if (signedOut.length > 0) {
+    const broken = homes
+      .map((s, i) => ({ s, state: states[i] }))
+      .filter(({ state }) => state === 'signed-out' || state === 'missing')
+    if (broken.length > 0) {
       throw new Error(
-        signedOut
-          .map(
-            (s) =>
-              `${SEAT_NAME[s.provider]} isn't signed in${s.accountLabel ? ` (${s.accountLabel})` : ''}. ${signInHint(s.provider, s.configDir)}`
+        broken
+          .map(({ s, state }) =>
+            state === 'missing'
+              ? `${SEAT_NAME[s.provider]} isn't installed — Cockpit can't find its \`${s.provider}\` command.`
+              : `${SEAT_NAME[s.provider]} isn't signed in${s.accountLabel ? ` (${s.accountLabel})` : ''}. ${signInHint(s.provider, s.configDir)}`
           )
           .join('\n')
       )
@@ -1261,10 +1273,15 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.roundtableSetLimits, (_e, id: string, limits: unknown) =>
     tables.setLimits(String(id), sanitizeRoundtableLimits(limits))
   )
-  ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string) =>
-    tables.sendMessage(String(id), String(text))
+  // the addressed seats are renderer input — the manager keeps only real seat indexes
+  const seatList = (raw: unknown): number[] | undefined =>
+    raw === undefined || raw === null ? undefined : Array.isArray(raw) ? raw.map(Number) : []
+  ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string, seats: unknown) =>
+    tables.sendMessage(String(id), String(text), seatList(seats))
   )
-  ipcMain.handle(CH.roundtableContinue, (_e, id: string) => tables.continueRound(String(id)))
+  ipcMain.handle(CH.roundtableContinue, (_e, id: string, seats: unknown) =>
+    tables.continueRound(String(id), seatList(seats))
+  )
   ipcMain.handle(CH.roundtableStop, (_e, id: string) => tables.stop(String(id)))
 
   /*

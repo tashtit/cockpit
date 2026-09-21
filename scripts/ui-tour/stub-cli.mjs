@@ -106,6 +106,13 @@ async function gh() {
 }
 
 async function claude() {
+  // sign-in status: the default home is signed in; any other home (the world's
+  // claude-work) reads as an expired session, so the tour shows both states
+  if (args[0] === 'auth' && args[1] === 'status') {
+    const other = process.env.CLAUDE_CONFIG_DIR !== undefined && process.env.CLAUDE_CONFIG_DIR !== join(HOME, '.claude')
+    console.log(JSON.stringify({ loggedIn: !other, authMethod: other ? 'none' : 'claudeai' }))
+    process.exit(other ? 1 : 0)
+  }
   if (args[0] !== '-p') return console.log('ok') // mcp login, plugin install, …
   const prompt = args.at(-1) ?? ''
   const id = flag('--resume') ?? randomUUID()
@@ -139,6 +146,7 @@ async function claude() {
 }
 
 async function codex() {
+  if (args[0] === 'login' && args[1] === 'status') return console.log('Logged in using ChatGPT')
   if (args[0] !== 'exec') return console.log('ok')
   const resume = args[1] === 'resume' ? args[2] : undefined
   const id = resume ?? randomUUID()

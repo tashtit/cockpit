@@ -83,10 +83,11 @@ describe('RoundtableView', () => {
 
     await userEvent.type(screen.getByRole('textbox'), 'what about CI time?')
     await userEvent.click(screen.getByRole('button', { name: 'Send' }))
-    expect(window.cockpit.sendRoundtableMessage).toHaveBeenCalledWith('rt-1', 'what about CI time?')
+    // no seats named: the whole table
+    expect(window.cockpit.sendRoundtableMessage).toHaveBeenCalledWith('rt-1', 'what about CI time?', undefined)
 
     await userEvent.click(screen.getByRole('button', { name: 'One more round' }))
-    expect(window.cockpit.continueRoundtable).toHaveBeenCalledWith('rt-1')
+    expect(window.cockpit.continueRoundtable).toHaveBeenCalledWith('rt-1', undefined)
   })
 
   it('a running round shows the speaking seat and swaps Send for Stop', async () => {
@@ -318,7 +319,7 @@ describe('RoundtableView failed seats', () => {
       })
     )
     render(<RoundtableView id="rt-1" />)
-    expect(await screen.findByText(/Run `claude auth login` in a terminal/)).toBeInTheDocument()
+    expect(await screen.findByText('claude auth login')).toBeInTheDocument()
     expect(screen.getByText(/Stopped reaching an understanding — Claude couldn’t answer/)).toBeInTheDocument()
     // a stop is not an outcome: no ledger claims agreement or disagreement
     expect(screen.queryByText(/Shared understanding|No full agreement/)).not.toBeInTheDocument()
@@ -338,5 +339,54 @@ describe('RoundtableView failed seats', () => {
     expect(screen.queryByText(/sign in again/)).not.toBeInTheDocument()
     // an open table never runs rounds on its own, so there is nothing to stop
     expect(screen.queryByText(/Stopped reaching an understanding/)).not.toBeInTheDocument()
+  })
+})
+
+describe('RoundtableView addressing seats', () => {
+  it('sends to the seats left on, and says whom a message went to', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({
+        entries: [
+          { speaker: 'user', text: 'adopt biome?', at: 1 },
+          { speaker: 'user', text: 'just codex', at: 2, to: [1] }
+        ]
+      })
+    )
+    render(<RoundtableView id="rt-1" />)
+    // the caption on a message that went to part of the table
+    expect(await screen.findByText('to Codex')).toBeInTheDocument()
+
+    const toRow = screen.getByRole('group', { name: 'Send to' })
+    await userEvent.click(within(toRow).getByRole('button', { name: 'Claude' }))
+    expect(within(toRow).getByRole('button', { name: 'Claude' })).toHaveAttribute('aria-pressed', 'false')
+    // the last seat on can't be switched off too — a message always reaches someone
+    expect(within(toRow).getByRole('button', { name: 'Codex' })).toBeDisabled()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Message the roundtable' }), 'your turn{Enter}')
+    expect(window.cockpit.sendRoundtableMessage).toHaveBeenCalledWith('rt-1', 'your turn', [1])
+
+    await userEvent.click(within(toRow).getByRole('button', { name: 'everyone' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Message the roundtable' }), 'all{Enter}')
+    expect(window.cockpit.sendRoundtableMessage).toHaveBeenLastCalledWith('rt-1', 'all', undefined)
+  })
+
+  it('a table stopped by a failed seat offers to carry on without it', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({
+        mode: 'consensus',
+        concluded: false,
+        entries: [
+          { speaker: 'user', text: 'rename it?', at: 1 },
+          { speaker: 'claude', seat: 0, text: 'Failed to authenticate: OAuth session expired', at: 2, error: true },
+          { speaker: 'codex', seat: 1, text: 'Orrery.', at: 3, stance: 'agree' }
+        ]
+      })
+    )
+    render(<RoundtableView id="rt-1" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'continue without Claude' }))
+    expect(window.cockpit.continueRoundtable).toHaveBeenCalledWith('rt-1', [1])
+    // and the composer now addresses the same seats
+    expect(
+      within(screen.getByRole('group', { name: 'Send to' })).getByRole('button', { name: 'Claude' })
+    ).toHaveAttribute('aria-pressed', 'false')
   })
 })

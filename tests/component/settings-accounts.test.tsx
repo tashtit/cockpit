@@ -140,3 +140,21 @@ describe('Settings › the GitHub account', () => {
     expect(screen.queryByRole('tab', { name: 'GitHub' })).toBeNull()
   })
 })
+
+describe('Settings › Accounts sign-in', () => {
+  it('flags a home whose CLI says it is signed out, though its identity is remembered', async () => {
+    vi.mocked(window.cockpit.signInState).mockImplementation(async (provider) =>
+      provider === 'claude' ? 'signed-out' : 'signed-in'
+    )
+    render(<Settings onClose={vi.fn()} />)
+    const row = (await screen.findByText('claude-default')).closest('li')!
+    // the remembered identity stays; the CLI's own answer sits beside it, with the fix
+    expect(within(row).getByText('dev@example.com')).toBeInTheDocument()
+    expect(await within(row).findByText('signed out')).toBeInTheDocument()
+    expect(within(row).getByText(/in a terminal to sign in again/)).toBeInTheDocument()
+    // the default home is asked with no config-home variable, as a session runs
+    expect(window.cockpit.signInState).toHaveBeenCalledWith('claude', undefined)
+    const codex = screen.getByText('codex-default').closest('li')!
+    expect(within(codex).queryByText('signed out')).not.toBeInTheDocument()
+  })
+})

@@ -1,4 +1,5 @@
 import type { Provider } from './types'
+import { shortPath } from './library'
 
 /** The command that signs each agent CLI back in — what a person runs in a terminal. */
 export const SIGN_IN_COMMAND: Record<Provider, string> = {
@@ -19,11 +20,19 @@ export function looksSignedOut(text: string): boolean {
   )
 }
 
-/** The line a failed sign-in gets: what to run, and where. */
+/**
+ * The command that signs one agent back in under one config home, as a person types
+ * it: a non-default home rides in front as its variable, with the home collapsed to `~`
+ * (a shell expands a tilde after `=`).
+ */
+export function signInCommandLine(provider: Provider, configHome?: string): string {
+  if (configHome === undefined) return SIGN_IN_COMMAND[provider]
+  const variable =
+    provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : provider === 'codex' ? 'CODEX_HOME' : 'COPILOT_HOME'
+  return `${variable}=${shortPath(configHome)} ${SIGN_IN_COMMAND[provider]}`
+}
+
+/** The fix as one plain-text line, for an error message that can't carry markup. */
 export function signInHint(provider: Provider, configHome?: string): string {
-  const env =
-    configHome === undefined
-      ? ''
-      : `${provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : provider === 'codex' ? 'CODEX_HOME' : 'COPILOT_HOME'}=${configHome} `
-  return `Run \`${env}${SIGN_IN_COMMAND[provider]}\` in a terminal to sign in again.`
+  return `Run \`${signInCommandLine(provider, configHome)}\` in a terminal to sign in again.`
 }

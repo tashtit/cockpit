@@ -51,6 +51,12 @@ attribution, never a parallel message grammar.
   live block (`.rt-live`, `display: contents` so blocks join the transcript flow), in
   seat order. The thinking line names every active seat ("Claude and Codex are
   thinking…"); a single active seat pulses its own color, several pulse accent.
+- **The To row** (`.rt-to`, the composer's first line): one `.rt-to-seat` toggle per seat
+  (`aria-pressed`; on = solid border in the seat's colour, off = dashed and dim), all on
+  by default. The next message and "One more round" go to the seats left on; the last
+  one on can't be switched off, and "everyone" resets. A message to part of the table
+  carries `.rt-to-caption` ("to Codex") on its bubble, and the prompt labels it
+  "User (to Codex)" so the seats not asked know it wasn't theirs.
 - Enter sends; the action slot swaps Send ↔ Stop in place. "One more round" is a ghost
   button, idle-only: it runs a **sequential discussion round** with no new user message —
   each seat sees what the earlier seats said this round, so they answer each other.
@@ -101,7 +107,8 @@ attribution, never a parallel message grammar.
   `.rt-outcome` appears. The view says so in a `.sys-row` ("Stopped reaching an
   understanding — Claude couldn't answer…"); a failure whose text is a lapsed sign-in
   (`looksSignedOut`) carries the fix in `.rt-fail-hint` ("Run `claude auth login` in a
-  terminal…").
+  terminal…"), and the note offers "continue without Claude" — one round among the
+  seats that work, with the To row set to them.
 - While a cycle runs, the thinking line carries `.rt-progress` ("round 2 of ≤3"); Stop
   halts the auto-loop immediately, and a new user message reopens a concluded table.
 
@@ -146,6 +153,13 @@ attribution, never a parallel message grammar.
   agent, account, model provider, model, thinking level and knobs carries the warn chip (`.acct-chip.missing`,
   "duplicate") and a warn border; only the later seat is marked. Open stays disabled
   until the `.rt-dup-confirm` checkbox ("Seat the duplicate on purpose") is ticked.
+- **A seat that can't run says so before anything starts.** Each seat's agent and home
+  is asked (`signInState`) as the seat appears: signed out or not installed puts the
+  `.acct-chip.missing` chip in the head, the warn border on the card and a `.rt-seat-signin`
+  line with the fix (`SignInFix`, the command as `.signin-cmd` code, home collapsed to
+  `~`) and Recheck. The add pills carry "signed out" / "not installed" the same way.
+  Open is disabled while any seat is broken *or still being checked*, and the footer says
+  which ("Claude can't run — fix it to open the table"). Main checks again at open.
 - **Spending limits live on this form, per table** — "Roundtable spending limits": agent
   turns per message and for the whole table. One `.ns-hint` under them spells the bill
   out (seats × rounds for a consensus table, and about how many messages the table

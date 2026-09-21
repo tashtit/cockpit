@@ -224,4 +224,45 @@ describe('NewRoundtable', () => {
     expect(control('Claude #2', 'thinking')).toHaveTextContent('low')
     expect(seat('Codex')).toBeInTheDocument()
   })
+
+  it('shows a signed-out agent before the table starts, and opens once it is fixed', async () => {
+    let claude: 'signed-out' | 'signed-in' = 'signed-out'
+    vi.mocked(window.cockpit.signInState).mockImplementation(async (provider) =>
+      provider === 'claude' ? claude : 'signed-in'
+    )
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    // said on the add pill before any seat is added, and on the seated card
+    expect(await screen.findByRole('button', { name: 'Add Claude seat (signed out)' })).toBeInTheDocument()
+    expect(await within(seat('Claude')).findByText('signed out')).toBeInTheDocument()
+    expect(within(seat('Claude')).getByRole('alert')).toHaveTextContent(
+      /The Claude app keeps its own sign-in.*Run claude auth login in a terminal/
+    )
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    const open = screen.getByRole('button', { name: 'Open roundtable' })
+    expect(open).toBeDisabled()
+    expect(document.querySelector('.rt-footer')).toHaveTextContent('Claude can’t run')
+
+    // signed in at a terminal, then Recheck: the seat clears and the table can open
+    claude = 'signed-in'
+    await userEvent.click(within(seat('Claude')).getByRole('button', { name: 'Recheck' }))
+    await waitFor(() => expect(within(seat('Claude')).queryByText('signed out')).not.toBeInTheDocument())
+    expect(open).toBeEnabled()
+  })
+
+  it('holds Open for a seat whose CLI is not installed, and while seats are being checked', async () => {
+    let resolveCodex: (s: 'missing') => void = () => {}
+    vi.mocked(window.cockpit.signInState).mockImplementation(async (provider) =>
+      provider === 'codex' ? new Promise((r) => (resolveCodex = r)) : 'signed-in'
+    )
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    const open = screen.getByRole('button', { name: 'Open roundtable' })
+    // an answer still out is not a green light
+    await waitFor(() => expect(document.querySelector('.rt-footer')).toHaveTextContent('Checking the seats can run'))
+    expect(open).toBeDisabled()
+    resolveCodex('missing')
+    expect(await within(seat('Codex')).findByText('not installed')).toBeInTheDocument()
+    expect(within(seat('Codex')).getByRole('alert')).toHaveTextContent(/can’t find the codex command/)
+    expect(open).toBeDisabled()
+  })
 })

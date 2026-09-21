@@ -531,6 +531,14 @@ export type AccountInfo = {
   readonly isDefault: boolean
 }
 
+/**
+ * Whether an agent CLI can run under one config home, as the CLI itself answers
+ * (`claude auth status`, `codex login status`): `missing` when the CLI isn't installed
+ * at all, `unknown` when it cannot say (copilot has no status command, or the output
+ * drifted) — and unknown is never treated as signed out.
+ */
+export type SignInState = 'signed-in' | 'signed-out' | 'missing' | 'unknown'
+
 export type AccountsSnapshot = {
   readonly accounts: AccountInfo[]
   /** `gh` CLI user — the identity used for PR creation and status */
@@ -1040,6 +1048,9 @@ export type RoundtableEntry = {
   /** Participant index that spoke — several seats may share a provider (old files
    *  lack it; resolvers fall back to the provider's first seat) */
   readonly seat?: number
+  /** A user message addressed to some seats only: their participant indexes (absent =
+   *  the whole table). Every seat still reads it; only these were asked to answer. */
+  readonly to?: readonly number[]
 }
 
 /** How a table runs its rounds: user-driven, or auto-rounds until the seats agree. */
