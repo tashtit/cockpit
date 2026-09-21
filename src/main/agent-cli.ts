@@ -13,6 +13,9 @@ import { brewVersion } from './agent-cli-core'
 import { execText } from './env'
 
 const LATEST_TTL_MS = 60 * 60_000
+/** Homebrew's own answer is a local command, so it is re-read often — that is what
+ *  lets a row notice a `brew update` the person just ran without asking again. */
+const BREW_TTL_MS = 60_000
 const latestCache = new Map<Provider, { at: number; version: string | null }>()
 const brewCache = new Map<string, { at: number; version: string | null }>()
 
@@ -61,7 +64,7 @@ async function brewLatest(provider: Provider, cask: boolean, force: boolean): Pr
   const token = CLI_PACKAGE[provider].brew
   const key = `${token}|${cask ? 'cask' : 'formula'}`
   const hit = brewCache.get(key)
-  if (!force && hit && Date.now() - hit.at < LATEST_TTL_MS) return hit.version
+  if (!force && hit && Date.now() - hit.at < BREW_TTL_MS) return hit.version
   const r = await execText('brew', ['info', '--json=v2', cask ? '--cask' : '--formula', token], {
     timeoutMs: 20_000
   })

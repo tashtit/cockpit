@@ -49,4 +49,6 @@ The **Agent CLIs** group lists each CLI Cockpit runs: the version installed, whe
 
 A CLI is compared against **the channel it can actually update from**, not against the newest release anywhere: a Homebrew install can only get what Homebrew has packaged. So the row offers an **Update…** only when that channel really has something newer, and hovering the button shows the exact command (`brew update && brew upgrade --cask claude-code`, `npm install -g @openai/codex@latest`, or `copilot update`, since Copilot updates itself in place). The row picks up the new version by itself once the update finishes.
 
-When a newer version exists that your channel hasn't packaged yet, the row says so — "2.1.278 is out, but Homebrew hasn't packaged it yet" — and stays **up to date**, because there is nothing to run. It will offer the update once the channel catches up.
+When a newer version exists that your channel hasn't packaged yet, the row says so — "2.1.278 is out, but Homebrew hasn't packaged it yet" — and stays **up to date**, because there is nothing to run.
+
+Homebrew only knows the releases its last `brew update` fetched, so such a row also offers **Refresh Homebrew**: it opens Terminal on `brew update` alone, which changes nothing that is installed. When Homebrew comes back with the newer version, the row turns into an **Update…** by itself. (A CLI that updates itself, like Copilot, has nothing to refresh, so it isn't offered.)

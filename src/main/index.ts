@@ -805,6 +805,23 @@ app.whenReady().then(() => {
     }
     return openInTerminal(`update-${provider}`, `Cockpit — update ${SEAT_NAME[provider]}`, status.updateCommand)
   })
+  // Homebrew only knows the releases its last `brew update` fetched, so a row whose
+  // channel is behind the release can refresh it — the update itself stays a separate,
+  // deliberate step
+  ipcMain.handle(CH.cliRefreshChannel, async (_e, agent: unknown) => {
+    const provider = asProvider(agent)
+    const status = await cliStatus(provider)
+    if (status.install !== 'brew-cask' && status.install !== 'brew-formula') {
+      throw new Error(
+        `${SEAT_NAME[provider]} doesn't get its updates from Homebrew, so there is nothing to refresh.`
+      )
+    }
+    return openInTerminal(
+      `refresh-${provider}`,
+      `Cockpit — refresh what Homebrew knows (for ${SEAT_NAME[provider]})`,
+      'brew update'
+    )
+  })
   // same validation: a known provider, and a config home the indexer derived — the
   // CLI's status command runs against it
   ipcMain.handle(CH.accountsSignIn, (_e, agent: unknown, configDir: unknown) => {

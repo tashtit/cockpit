@@ -510,6 +510,8 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
   const [checking, setChecking] = useState(false)
   /** CLIs whose update was opened in Terminal, with the version they had then */
   const [updating, setUpdating] = useState<Readonly<Record<string, string | null>>>({})
+  /** CLIs whose channel is being refreshed, with what it offered then */
+  const [refreshing, setRefreshing] = useState<Readonly<Record<string, string | null>>>({})
   const [error, setError] = useState<string | null>(null)
 
   const load = (force: boolean): void => {
@@ -518,10 +520,15 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
       .listCliStatus(force)
       .then((next) => {
         setClis(next)
-        // an update landed once the version moved on
+        // an update landed once the version moved on; a refresh, once the channel did
         setUpdating((u) =>
           Object.fromEntries(
             Object.entries(u).filter(([p, was]) => next.find((c) => c.provider === p)?.version === was)
+          )
+        )
+        setRefreshing((r) =>
+          Object.fromEntries(
+            Object.entries(r).filter(([p, was]) => next.find((c) => c.provider === p)?.latest === was)
           )
         )
       })
@@ -529,7 +536,22 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
       .finally(() => setChecking(false))
   }
   useEffect(() => load(false), [])
-  useWatchUntil(Object.keys(updating).length > 0, () => load(false), { everyMs: 5_000, forMs: 10 * 60_000 })
+  // Homebrew's own answer is re-read every minute, so a plain load picks a refresh up
+  useWatchUntil(Object.keys(updating).length + Object.keys(refreshing).length > 0, () => load(false), {
+    everyMs: 5_000,
+    forMs: 10 * 60_000
+  })
+
+  const refreshChannel = async (c: CliStatus): Promise<void> => {
+    setError(null)
+    try {
+      await api.openCliChannelRefresh(c.provider)
+      setRefreshing((r) => ({ ...r, [c.provider]: c.latest }))
+      onStatus(`Opened Terminal to refresh what ${c.channel ?? 'the channel'} knows`)
+    } catch (err) {
+      setError(ipcErrorText(err))
+    }
+  }
 
   const update = async (c: CliStatus): Promise<void> => {
     setError(null)
@@ -575,15 +597,33 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
                   </div>
                 )}
                 {/* a channel can lag the release: say so, rather than offer an update
-                    that `brew upgrade` can't deliver */}
+                    that `brew upgrade` can't deliver. Homebrew only knows what its last
+                    `brew update` fetched, so that much can be refreshed from here */}
                 {!c.updateAvailable &&
                   c.installed &&
                   c.upstream !== null &&
                   c.version !== null &&
                   compareVersions(c.upstream, c.version) > 0 && (
                     <div className="source-note">
-                      {c.upstream} is out, but {c.channel} hasn’t packaged it yet — this is as new
-                      as {c.channel} goes.
+                      {refreshing[c.provider] !== undefined ? (
+                        'Refreshing in the Terminal window — this row updates by itself.'
+                      ) : (
+                        <>
+                          {c.upstream} is out, but {c.channel} hasn’t packaged it yet — this is as
+                          new as {c.channel} goes.
+                        </>
+                      )}{' '}
+                      {(c.install === 'brew-cask' || c.install === 'brew-formula') && (
+                        <button
+                          className="link-btn"
+                          title="Runs `brew update` in a terminal — it only refreshes what Homebrew knows about"
+                          onClick={() => void refreshChannel(c)}
+                        >
+                          {refreshing[c.provider] !== undefined
+                            ? 'Open Terminal again'
+                            : `Refresh ${c.channel}`}
+                        </button>
+                      )}
                     </div>
                   )}
               </div>

@@ -248,5 +248,50 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
     expect(within(row).getByText('up to date')).toBeInTheDocument()
     expect(within(row).queryByRole('button', { name: 'Update…' })).not.toBeInTheDocument()
     expect(within(row).getByText(/2\.1\.278 is out, but Homebrew hasn’t packaged it yet/)).toBeInTheDocument()
+
+    // Homebrew only knows what its last `brew update` fetched — that much is refreshable
+    await userEvent.click(within(row).getByRole('button', { name: 'Refresh Homebrew' }))
+    expect(window.cockpit.openCliChannelRefresh).toHaveBeenCalledWith('claude')
+    expect(within(row).getByText(/Refreshing in the Terminal window/)).toBeInTheDocument()
+
+    // once Homebrew has it, the same row offers the update it can now deliver
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+      {
+        provider: 'claude',
+        installed: true,
+        version: '2.1.267',
+        path: '/opt/homebrew/Caskroom/claude-code/2.1.267/claude',
+        install: 'brew-cask',
+        latest: '2.1.278',
+        upstream: '2.1.278',
+        channel: 'Homebrew',
+        updateAvailable: true,
+        updateCommand: 'brew update && brew upgrade --cask claude-code'
+      }
+    ])
+    window.dispatchEvent(new Event('focus'))
+    expect(await within(row).findByRole('button', { name: 'Update…' })).toBeInTheDocument()
+    expect(within(row).queryByText(/hasn’t packaged it yet/)).not.toBeInTheDocument()
+  })
+
+  it('a CLI that does not come from Homebrew is never offered a refresh', async () => {
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+      {
+        provider: 'copilot',
+        installed: true,
+        version: '1.0.85',
+        path: '/Users/dev/.local/bin/copilot',
+        install: 'native',
+        latest: '1.0.85',
+        upstream: '1.0.87',
+        channel: 'its own updater',
+        updateAvailable: false,
+        updateCommand: 'copilot update'
+      }
+    ])
+    render(<Settings onClose={vi.fn()} />)
+    const row = (await screen.findByText('1.0.85')).closest('li')!
+    expect(within(row).getByText(/1\.0\.87 is out, but its own updater hasn’t packaged it yet/)).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /^Refresh/ })).not.toBeInTheDocument()
   })
 })

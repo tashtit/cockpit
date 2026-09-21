@@ -244,6 +244,9 @@ export type CockpitApi = {
   readonly listCliStatus: (force?: boolean) => Promise<CliStatus[]>
   /** Open Terminal on the command that updates one CLI the way it was installed */
   readonly openCliUpdate: (provider: Provider) => Promise<void>
+  /** Open Terminal on `brew update` — refreshes what Homebrew knows, for a CLI whose
+   *  channel is behind the release. Only for a Homebrew install. */
+  readonly openCliChannelRefresh: (provider: Provider) => Promise<void>
   /** Every model an agent offers under one config home — the model pickers list these */
   readonly listAgentModels: (provider: Provider, configDir?: string) => Promise<AgentModel[]>
   /** Current subscription usage per configured provider account */
@@ -343,6 +346,7 @@ export const CH = {
   accountsLogin: 'accounts:login',
   cliStatus: 'cli:status',
   cliUpdate: 'cli:update',
+  cliRefreshChannel: 'cli:refresh-channel',
 
   acpAdd: 'acp:add',
   acpGet: 'acp:get',

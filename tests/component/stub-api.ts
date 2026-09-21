@@ -245,6 +245,7 @@ export function freshApi(): CockpitApi {
     openSignIn: vi.fn(async () => {}),
     listCliStatus: vi.fn(async (): Promise<CliStatus[]> => []),
     openCliUpdate: vi.fn(async () => {}),
+    openCliChannelRefresh: vi.fn(async () => {}),
     listAgentModels: vi.fn(async (provider: Provider) =>
       provider === 'codex'
         ? [

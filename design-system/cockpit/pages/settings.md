@@ -249,7 +249,10 @@ seventh.
   update from**, never the newest release anywhere — a Homebrew install can only get
   what Homebrew packaged, and offering more would be an Update that does nothing. When
   the release is ahead of the channel, the row stays *up to date* and a `.source-note`
-  says so ("2.1.278 is out, but Homebrew hasn't packaged it yet"). Updating opens Terminal the same way and the row
+  says so ("2.1.278 is out, but Homebrew hasn't packaged it yet") — with a **Refresh
+  Homebrew** `.link-btn` on a brew install, since Homebrew only knows what its last
+  `brew update` fetched. Refreshing is its own step (`brew update`, which installs
+  nothing) and the row picks the new answer up by itself, turning into an Update. Updating opens Terminal the same way and the row
   is watched until the version moves. The latest release is main's to fetch (npm
   registry, an hour's cache, fail soft); the ui-tour and e2e pin it with
   `COCKPIT_CLI_LATEST`, never the network.
