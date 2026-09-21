@@ -158,3 +158,57 @@ describe('Settings › Accounts sign-in', () => {
     expect(within(codex).queryByText('signed out')).not.toBeInTheDocument()
   })
 })
+
+describe('Settings › Accounts sign-in and CLI updates', () => {
+  it('opens the sign-in for a signed-out home in Terminal', async () => {
+    vi.mocked(window.cockpit.signInState).mockImplementation(async (provider) =>
+      provider === 'claude' ? 'signed-out' : 'signed-in'
+    )
+    render(<Settings onClose={vi.fn()} />)
+    const row = (await screen.findByText('claude-default')).closest('li')!
+    await userEvent.click(await within(row).findByRole('button', { name: 'Sign in…' }))
+    // the default home is signed in with no config-home variable, as sessions run
+    expect(window.cockpit.openSignIn).toHaveBeenCalledWith('claude', undefined)
+    expect(within(row).getByText(/Finish signing in in the Terminal window/)).toBeInTheDocument()
+  })
+
+  it('lists each CLI against its latest release and updates the one behind', async () => {
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+      {
+        provider: 'claude',
+        installed: true,
+        version: '2.1.236',
+        path: '/opt/homebrew/Caskroom/claude-code/2.1.236/claude',
+        install: 'brew-cask',
+        latest: '2.1.278',
+        updateAvailable: true,
+        updateCommand: 'brew update && brew upgrade --cask claude-code'
+      },
+      {
+        provider: 'codex',
+        installed: true,
+        version: '0.155.1',
+        path: '/opt/homebrew/Caskroom/codex/0.155.1/bin/codex',
+        install: 'brew-cask',
+        latest: '0.155.1',
+        updateAvailable: false,
+        updateCommand: 'brew update && brew upgrade --cask codex'
+      },
+      { provider: 'copilot', installed: false, version: null, path: null, install: null, latest: '1.0.87', updateAvailable: false, updateCommand: null }
+    ])
+    render(<Settings onClose={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Agent CLIs' })).toBeInTheDocument()
+    const claude = (await screen.findByText('2.1.236')).closest('li')!
+    expect(within(claude).getByText('2.1.278 available')).toBeInTheDocument()
+    expect(within(claude).getByText('via Homebrew')).toBeInTheDocument()
+    const update = within(claude).getByRole('button', { name: 'Update…' })
+    // what Update will run is visible before it runs
+    expect(update).toHaveAttribute('title', 'brew update && brew upgrade --cask claude-code')
+    await userEvent.click(update)
+    expect(window.cockpit.openCliUpdate).toHaveBeenCalledWith('claude')
+    expect(within(claude).getByText(/Finish the update in the Terminal window/)).toBeInTheDocument()
+
+    expect(within(screen.getByText('0.155.1').closest('li')!).getByText('up to date')).toBeInTheDocument()
+    expect(screen.getByText('not installed')).toBeInTheDocument()
+  })
+})

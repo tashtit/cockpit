@@ -18,6 +18,7 @@ import type {
   AcpAgent,
   AcpAgentProbe,
   AgentModel,
+  CliStatus,
   AppInfo,
   AttentionFocus,
   AttentionPrefs,
@@ -236,6 +237,13 @@ export type CockpitApi = {
   /** Whether an agent CLI is signed in under one config home, asked of the CLI itself —
    *  an account's remembered identity outlives an expired session (undefined = the default home) */
   readonly signInState: (provider: Provider, configDir?: string) => Promise<SignInState>
+  /** Open Terminal on the agent's own sign-in command for one config home — the person
+   *  signs in there (browser, device code); Cockpit never sees the credentials */
+  readonly openSignIn: (provider: Provider, configDir?: string) => Promise<void>
+  /** Each agent CLI as installed here, against its latest release (`force` skips the hour's cache) */
+  readonly listCliStatus: (force?: boolean) => Promise<CliStatus[]>
+  /** Open Terminal on the command that updates one CLI the way it was installed */
+  readonly openCliUpdate: (provider: Provider) => Promise<void>
   /** Every model an agent offers under one config home — the model pickers list these */
   readonly listAgentModels: (provider: Provider, configDir?: string) => Promise<AgentModel[]>
   /** Current subscription usage per configured provider account */
@@ -332,6 +340,9 @@ export const CH = {
   accountsGet: 'accounts:get',
   accountsModels: 'accounts:models',
   accountsSignIn: 'accounts:sign-in',
+  accountsLogin: 'accounts:login',
+  cliStatus: 'cli:status',
+  cliUpdate: 'cli:update',
 
   acpAdd: 'acp:add',
   acpGet: 'acp:get',

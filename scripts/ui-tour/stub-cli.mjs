@@ -182,6 +182,12 @@ async function copilot() {
   ev('assistant.message', { content: reply, model: 'claude-sonnet-4.5' })
 }
 
+// `--version`, as each real CLI words it — the Agent CLIs group reads these
+const VERSIONS = { claude: '2.1.236 (Claude Code)', codex: 'codex-cli 0.155.1', copilot: 'GitHub Copilot CLI 1.0.87-0.' }
+if (args[0] === '--version' && VERSIONS[tool]) {
+  console.log(VERSIONS[tool])
+  process.exit(0)
+}
 const run = { gh, claude, codex, copilot }[tool]
 if (!run) {
   console.error(`ui-tour stub: unknown tool ${tool}`)

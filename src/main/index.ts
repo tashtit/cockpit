@@ -89,6 +89,8 @@ import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
 import { clampRounds, seatOptions } from './roundtable-core'
 import { listAgentModels } from './agent-models'
 import { signInState } from './agent-auth'
+import { cliStatus, listCliStatus, writeTerminalScript } from './agent-cli'
+import { loginLine, terminalScript } from './agent-cli-core'
 import { signInHint } from '../shared/agent-auth'
 import {
   ROUNDTABLE_MAX_SEATS,
@@ -773,6 +775,36 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.accountsGet, () => getAccounts(loadConfig().sources))
   // the provider and config home are renderer input: a known provider, and a home the
   // indexer derived — the lister reads files under it
+  // sign-in and updates run in Terminal, where the person can answer a browser, a
+  // device code or a password prompt. The script is built from fixed commands; the
+  // provider is whitelisted and the config home must be one the indexer derived.
+  const terminalDir = join(app.getPath('userData'), 'terminal')
+  const openInTerminal = async (name: string, title: string, line: string): Promise<void> => {
+    const file = writeTerminalScript(terminalDir, name, terminalScript(title, line))
+    const failure = await shell.openPath(file)
+    if (failure) throw new Error(`Couldn't open Terminal: ${failure}`)
+  }
+  ipcMain.handle(CH.accountsLogin, (_e, agent: unknown, configDir: unknown) => {
+    const provider = asProvider(agent)
+    const home =
+      configDir === undefined || configDir === null ? undefined : assertKnownConfigDir(configDir, provider)
+    return openInTerminal(
+      `sign-in-${provider}`,
+      `Cockpit — sign in to ${SEAT_NAME[provider]}${home ? ` (${home})` : ''}`,
+      loginLine(provider, home)
+    )
+  })
+  ipcMain.handle(CH.cliStatus, (_e, force: unknown) => listCliStatus({ force: force === true }))
+  ipcMain.handle(CH.cliUpdate, async (_e, agent: unknown) => {
+    const provider = asProvider(agent)
+    // the command comes from main's own reading of how the CLI is installed, never
+    // from the renderer
+    const status = await cliStatus(provider)
+    if (!status.installed || !status.updateCommand) {
+      throw new Error(`${SEAT_NAME[provider]} isn't installed, so there is nothing to update.`)
+    }
+    return openInTerminal(`update-${provider}`, `Cockpit — update ${SEAT_NAME[provider]}`, status.updateCommand)
+  })
   // same validation: a known provider, and a config home the indexer derived — the
   // CLI's status command runs against it
   ipcMain.handle(CH.accountsSignIn, (_e, agent: unknown, configDir: unknown) => {

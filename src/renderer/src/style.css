@@ -766,6 +766,7 @@ summary::-webkit-details-marker { display: none; }
 /* a seat whose CLI is signed out: why it can't run, the fix, and a way to check again */
 .rt-seat-signin { font-size: var(--fs-sm); color: var(--warn); line-height: 1.5; }
 .rt-seat-signin .link-btn { font-size: inherit; }
+.rt-seat-signin-actions { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s2); }
 .rt-seat-cfg-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; color: var(--fg-dim); font-family: var(--mono);
   font-size: var(--fs-sm); }

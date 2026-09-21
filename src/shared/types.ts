@@ -539,6 +539,26 @@ export type AccountInfo = {
  */
 export type SignInState = 'signed-in' | 'signed-out' | 'missing' | 'unknown'
 
+/** How an agent CLI got onto this Mac — it decides the command that updates it. */
+export type CliInstall = 'brew-cask' | 'brew-formula' | 'npm' | 'native'
+
+/** One agent CLI as installed here, against its latest release. */
+export type CliStatus = {
+  readonly provider: Provider
+  /** false when the command isn't on the PATH Cockpit spawns with */
+  readonly installed: boolean
+  /** Semver read off `--version`; null when it couldn't be read */
+  readonly version: string | null
+  /** Where the command really lives (symlinks resolved), `~`-free absolute path */
+  readonly path: string | null
+  readonly install: CliInstall | null
+  /** Newest release upstream; null when the registry couldn't be reached */
+  readonly latest: string | null
+  readonly updateAvailable: boolean
+  /** What Update runs in a terminal — shown before it is run */
+  readonly updateCommand: string | null
+}
+
 export type AccountsSnapshot = {
   readonly accounts: AccountInfo[]
   /** `gh` CLI user — the identity used for PR creation and status */

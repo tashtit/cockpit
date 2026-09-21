@@ -114,6 +114,18 @@ const STATIC: readonly Shot[] = [
   },
   { view: 'sidebar', name: 'sidebar-project-filter', go: async (w) => { await home(w); await w.getByRole('button', { name: 'Choose projects to display' }).click(); await pause(w, 300) } },
   { view: 'settings', name: 'settings', go: (w) => nav(w, 'Settings') },
+  // the agent CLIs against their latest releases — one behind, with its Update
+  {
+    view: 'settings',
+    name: 'settings-clis',
+    go: async (w) => {
+      await nav(w, 'Settings')
+      const behind = w.getByText('2.1.278 available')
+      await behind.waitFor()
+      await behind.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pause(w, 300)
+    }
+  },
   // one shot per tab: each is its own page now, and a tab nobody opens is a tab
   // nobody sees break
   ...['View', 'Notifications', 'Providers', 'Backup', 'About'].map(
@@ -344,7 +356,12 @@ const FIRST_RUN: readonly Shot[] = [
  * that screen rather than the one they are working on. Mirrors tests/e2e/launch-env.ts;
  * kept separate because tests import from scripts/, never the other way.
  */
-const PINNED = { COCKPIT_DEV_BACKGROUND: '1' }
+const PINNED = {
+  COCKPIT_DEV_BACKGROUND: '1',
+  // the agent-CLI update check's "latest" releases, so the tour never reaches the
+  // network — and shows one CLI behind (the stubs report 2.1.236 / 0.155.1 / 1.0.87)
+  COCKPIT_CLI_LATEST: JSON.stringify({ claude: '2.1.278', codex: '0.155.1', copilot: '1.0.87' })
+}
 
 async function launch(world: World, extraEnv: NodeJS.ProcessEnv = {}): Promise<{ app: ElectronApplication; win: Page }> {
   const app = await electron.launch({

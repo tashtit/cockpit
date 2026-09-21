@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  CliStatus,
   Provider,
   ProviderUsage,
   SignInState,
@@ -10,13 +11,14 @@ import type {
   UsageTokens,
   UsageWindow
 } from '../../shared/types'
+import { shortPath } from '../../shared/library'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { fmtAgo, fmtCount, fmtResetIn } from './format'
 import { ipcErrorText } from './ipc-error'
 import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
-import { SignInFix } from './SignInFix'
+import { SignInFix, useWatchUntil } from './SignInFix'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -123,6 +125,9 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
   /** Per config home, whether the CLI itself says it is signed in — the identity chip
    *  is what a config file remembers, and it outlives an expired session */
   const [signIns, setSignIns] = useState<Record<string, SignInState>>({})
+  /** Homes whose sign-in was opened in Terminal and hasn't landed yet */
+  const [signingIn, setSigningIn] = useState<readonly string[]>([])
+  const [cliError, setCliError] = useState<string | null>(null)
 
   const refresh = (): void => {
     void api.getSourceStats().then(setStats)
@@ -150,6 +155,35 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
   const isDefault = (p: string): boolean =>
     accounts?.accounts.find((a) => a.path === p)?.isDefault ?? false
 
+  const askSignIn = (s: SourceStats): void => {
+    const key = `${s.provider}|${s.path}`
+    void api
+      .signInState?.(s.provider, isDefault(s.path) ? undefined : s.path)
+      .then((state) => {
+        setSignIns((prev) => ({ ...prev, [key]: state }))
+        if (state === 'signed-in') {
+          setSigningIn((k) => k.filter((x) => x !== key))
+          // the identity chip comes from the config file the sign-in just rewrote
+          void api.getAccounts().then(setAccounts)
+        }
+      })
+      .catch(() => {})
+  }
+  const signIn = async (s: SourceStats): Promise<void> => {
+    setCliError(null)
+    try {
+      await api.openSignIn(s.provider, isDefault(s.path) ? undefined : s.path)
+      const key = `${s.provider}|${s.path}`
+      setSigningIn((k) => (k.includes(key) ? k : [...k, key]))
+      onStatus(`Opened Terminal to sign in to ${PROVIDER_LABEL[s.provider]}`)
+    } catch (err) {
+      setCliError(ipcErrorText(err))
+    }
+  }
+  useWatchUntil(signingIn.length > 0, () => {
+    for (const s of stats) if (signingIn.includes(`${s.provider}|${s.path}`)) askSignIn(s)
+  })
+
   // ask each home's CLI once the accounts say which home is the default: the default
   // runs with no config-home variable, exactly as a session would, since a CLI can
   // keep a home's sign-in under a different name when the variable is set
@@ -159,10 +193,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
     for (const s of stats) {
       const key = `${s.provider}|${s.path}`
       if (key in signIns || s.missing) continue
-      void api
-        .signInState?.(s.provider, isDefault(s.path) ? undefined : s.path)
-        .then((state) => setSignIns((prev) => ({ ...prev, [key]: state })))
-        .catch(() => {})
+      askSignIn(s)
     }
   }, [homesKey])
 
@@ -263,11 +294,24 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
                 )}
               </div>
               <div className="source-path" title={s.path}>{s.path}</div>
-              {signIns[`${s.provider}|${s.path}`] === 'signed-out' && (
-                // the remembered identity alone would read as fine: say it can't run, and the fix
+              {(signIns[`${s.provider}|${s.path}`] === 'signed-out' ||
+                (!identityOf(s.path) && !s.missing)) && (
+                // the remembered identity alone would read as fine: say it can't run, and
+                // offer the sign-in itself — Terminal does it, Cockpit watches for it
                 <div className="source-note source-signin">
-                  Its session has expired — sessions and roundtable seats on this home will fail.{' '}
-                  <SignInFix provider={s.provider} configHome={isDefault(s.path) ? undefined : s.path} />
+                  {signingIn.includes(`${s.provider}|${s.path}`) ? (
+                    'Finish signing in in the Terminal window — this row updates by itself.'
+                  ) : (
+                    <>
+                      {identityOf(s.path)
+                        ? 'Its session has expired — sessions and roundtable seats on this home will fail. '
+                        : 'Nobody is signed in on this home. '}
+                      <SignInFix provider={s.provider} configHome={isDefault(s.path) ? undefined : s.path} />
+                    </>
+                  )}{' '}
+                  <button className="btn-ghost small" onClick={() => void signIn(s)}>
+                    {signingIn.includes(`${s.provider}|${s.path}`) ? 'Open Terminal again' : 'Sign in…'}
+                  </button>
                 </div>
               )}
               {/* the subscription this home spends — the identity above is whose it is */}
@@ -419,6 +463,10 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
         </form>
       )}
 
+      {cliError && <div className="new-error" role="alert">{cliError}</div>}
+
+      <AgentClis onStatus={onStatus} />
+
       {/* GitHub is an account too — it sits with the others, under the same tab */}
       <h3 className="ns-label">GitHub</h3>
       <ul className="source-list">
@@ -444,6 +492,118 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
             </div>
           </div>
         </li>
+      </ul>
+    </>
+  )
+}
+
+/**
+ * The agent CLIs themselves — what Cockpit actually runs: the version here against the
+ * latest release, how it was installed, and the update, run in Terminal the way that
+ * install expects (Homebrew, npm, or the CLI's own updater). Checked when the tab opens
+ * (the latest release is cached for an hour), and watched after an update until the
+ * new version shows.
+ */
+function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
+  const [clis, setClis] = useState<CliStatus[] | null>(null)
+  const [checking, setChecking] = useState(false)
+  /** CLIs whose update was opened in Terminal, with the version they had then */
+  const [updating, setUpdating] = useState<Readonly<Record<string, string | null>>>({})
+  const [error, setError] = useState<string | null>(null)
+
+  const load = (force: boolean): void => {
+    setChecking(true)
+    void api
+      .listCliStatus(force)
+      .then((next) => {
+        setClis(next)
+        // an update landed once the version moved on
+        setUpdating((u) =>
+          Object.fromEntries(
+            Object.entries(u).filter(([p, was]) => next.find((c) => c.provider === p)?.version === was)
+          )
+        )
+      })
+      .catch(() => setClis([]))
+      .finally(() => setChecking(false))
+  }
+  useEffect(() => load(false), [])
+  useWatchUntil(Object.keys(updating).length > 0, () => load(false), { everyMs: 5_000, forMs: 10 * 60_000 })
+
+  const update = async (c: CliStatus): Promise<void> => {
+    setError(null)
+    try {
+      await api.openCliUpdate(c.provider)
+      setUpdating((u) => ({ ...u, [c.provider]: c.version }))
+      onStatus(`Opened Terminal to update ${PROVIDER_LABEL[c.provider]}`)
+    } catch (err) {
+      setError(ipcErrorText(err))
+    }
+  }
+
+  const INSTALL_LABEL: Record<NonNullable<CliStatus['install']>, string> = {
+    'brew-cask': 'Homebrew',
+    'brew-formula': 'Homebrew',
+    npm: 'npm',
+    native: 'its own installer'
+  }
+
+  return (
+    <>
+      <h3 className="ns-label">Agent CLIs</h3>
+      <p className="ns-hint ns-prose">
+        The command-line tools Cockpit runs for every session and roundtable seat — separate
+        from the agents’ own apps, which keep their own copies and sign-ins.{' '}
+        <button className="link-btn" disabled={checking} onClick={() => load(true)}>
+          {checking ? 'Checking…' : 'Check for updates'}
+        </button>
+      </p>
+      {error && <div className="new-error" role="alert">{error}</div>}
+      <ul className="source-list">
+        {clis === null ? (
+          <li className="source-row"><span className="ns-hint">checking…</span></li>
+        ) : (
+          clis.map((c) => (
+            <li key={c.provider} className={`source-row tint-${c.provider}`}>
+              <span className={`plogo plogo-${c.provider}`} aria-hidden="true">
+                <ProviderLogo p={c.provider} size={13} />
+              </span>
+              <div className="source-body">
+                <div className="source-label">
+                  {PROVIDER_LABEL[c.provider]}
+                  {c.version && <span className={`acct-chip acct-${c.provider}`}>{c.version}</span>}
+                  {c.install && <span className="source-origin">via {INSTALL_LABEL[c.install]}</span>}
+                </div>
+                {c.path && <div className="source-path" title={c.path}>{shortPath(c.path)}</div>}
+                {updating[c.provider] !== undefined && (
+                  <div className="source-note">
+                    Finish the update in the Terminal window — this row updates by itself.
+                  </div>
+                )}
+              </div>
+              <div className="source-health">
+                {!c.installed ? (
+                  <span className="source-warn">not installed</span>
+                ) : c.updateAvailable ? (
+                  <>
+                    <span className="source-warn">{c.latest} available</span>
+                    <button
+                      className="btn-ghost small"
+                      title={c.updateCommand ?? undefined}
+                      onClick={() => void update(c)}
+                    >
+                      {updating[c.provider] !== undefined ? 'Open Terminal again' : 'Update…'}
+                    </button>
+                  </>
+                ) : c.latest === null ? (
+                  <span>couldn’t check for updates</span>
+                ) : (
+                  <span>up to date</span>
+                )}
+              </div>
+            </li>
+          ))
+        )}
       </ul>
     </>
   )

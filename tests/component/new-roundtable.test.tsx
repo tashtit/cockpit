@@ -265,4 +265,20 @@ describe('NewRoundtable', () => {
     expect(within(seat('Codex')).getByRole('alert')).toHaveTextContent(/can’t find the codex command/)
     expect(open).toBeDisabled()
   })
+
+  it('signs a seat in from the form, and clears it once Terminal is done', async () => {
+    let claude: 'signed-out' | 'signed-in' = 'signed-out'
+    vi.mocked(window.cockpit.signInState).mockImplementation(async (provider) =>
+      provider === 'claude' ? claude : 'signed-in'
+    )
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    await userEvent.click(await within(seat('Claude')).findByRole('button', { name: 'Sign in…' }))
+    expect(window.cockpit.openSignIn).toHaveBeenCalledWith('claude', undefined)
+    expect(within(seat('Claude')).getByRole('alert')).toHaveTextContent(/Finish signing in in the Terminal window/)
+
+    // the person signs in; coming back to the window is enough — no Recheck to press
+    claude = 'signed-in'
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() => expect(within(seat('Claude')).queryByText('signed out')).not.toBeInTheDocument())
+  })
 })

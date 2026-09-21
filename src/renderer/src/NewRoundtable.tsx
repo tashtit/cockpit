@@ -23,7 +23,7 @@ import { api } from './api'
 import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './NewSession'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
-import { SignInFix } from './SignInFix'
+import { SignInFix, useWatchUntil } from './SignInFix'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
@@ -199,6 +199,26 @@ export function NewRoundtable({
   useEffect(() => {
     for (const key of signInKeys) if (!(key in signIns)) checkSignIn(key)
   }, [signInKeys.join('\n')])
+  /** Homes whose sign-in was opened in Terminal and hasn't landed yet */
+  const [signingIn, setSigningIn] = useState<readonly string[]>([])
+  const openSignIn = async (seat: SeatDraft): Promise<void> => {
+    const key = agentKey(seat)
+    setError(null)
+    try {
+      await api.openSignIn(seat.provider, seatAccount(seat)?.configDir)
+      setSigningIn((k) => (k.includes(key) ? k : [...k, key]))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+  // watch the homes being signed in until each reads signed in — then stop asking
+  useWatchUntil(signingIn.length > 0, () => {
+    for (const key of signingIn) if (signIns[key] !== 'checking') checkSignIn(key)
+  })
+  useEffect(() => {
+    const done = signingIn.filter((key) => signIns[key] === 'signed-in')
+    if (done.length > 0) setSigningIn((k) => k.filter((key) => !done.includes(key)))
+  }, [signIns])
   const signedOut = (seat: SeatDraft): boolean => signIns[agentKey(seat)] === 'signed-out'
   const missing = (seat: SeatDraft): boolean => signIns[agentKey(seat)] === 'missing'
   /** A seat that can't run as it stands — never opened with (main re-checks at open) */
@@ -606,14 +626,23 @@ export function NewRoundtable({
                     every turn.
                     {seat.provider === 'claude' &&
                       ' The Claude app keeps its own sign-in — it doesn’t carry over to the CLI Cockpit runs.'}{' '}
-                    <SignInFix provider={seat.provider} configHome={acct?.configDir} />{' '}
-                    <button
-                      className="link-btn"
-                      disabled={signIns[agentKey(seat)] === 'checking'}
-                      onClick={() => checkSignIn(agentKey(seat))}
-                    >
-                      {signIns[agentKey(seat)] === 'checking' ? 'Checking…' : 'Recheck'}
-                    </button>
+                    {signingIn.includes(agentKey(seat)) ? (
+                      'Finish signing in in the Terminal window — this seat clears by itself when you’re done.'
+                    ) : (
+                      <SignInFix provider={seat.provider} configHome={acct?.configDir} />
+                    )}
+                    <span className="rt-seat-signin-actions">
+                      <button className="btn-ghost small" onClick={() => void openSignIn(seat)}>
+                        {signingIn.includes(agentKey(seat)) ? 'Open Terminal again' : 'Sign in…'}
+                      </button>
+                      <button
+                        className="link-btn"
+                        disabled={signIns[agentKey(seat)] === 'checking'}
+                        onClick={() => checkSignIn(agentKey(seat))}
+                      >
+                        {signIns[agentKey(seat)] === 'checking' ? 'Checking…' : 'Recheck'}
+                      </button>
+                    </span>
                   </div>
                 )}
               </div>

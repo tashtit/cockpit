@@ -232,3 +232,20 @@ seventh.
   and neither the action nor the switches — this build could not act on them.
 - App-level: the global Escape handler blurs a focused field first and only closes the
   view on a second press — a habitual Escape must never discard a half-typed path.
+
+## Sign-in and the agent CLIs (Accounts tab)
+
+- A config home's row carries the CLI's own sign-in answer beside the remembered
+  identity: **signed out** as an `.acct-chip.missing`, and a `.source-note.source-signin`
+  line with the fix (`SignInFix`) and a `.btn-ghost.small` **Sign in…** that opens
+  Terminal on the agent's sign-in (`accounts:login`). While it is pending the line says
+  to finish in Terminal, and the row re-asks every few seconds and on window focus
+  (`useWatchUntil`) — nothing to press when the person comes back.
+- **Agent CLIs** is its own group (`h3`) between the accounts and GitHub: one
+  `.source-row.tint-{agent}` per CLI — name, version chip, "via Homebrew / npm / its own
+  installer", the real path (`shortPath`), and on the right *up to date*, *couldn't check
+  for updates*, *not installed*, or *x.y.z available* (`.source-warn`) with **Update…**
+  whose tooltip is the exact command. Updating opens Terminal the same way and the row
+  is watched until the version moves. The latest release is main's to fetch (npm
+  registry, an hour's cache, fail soft); the ui-tour and e2e pin it with
+  `COCKPIT_CLI_LATEST`, never the network.

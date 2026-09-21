@@ -8,11 +8,19 @@
  * placement is judged against (see createWindow in src/main/index.ts), and the
  * placement specs place the window on the display it already opened on.
  *
+ * `COCKPIT_CLI_LATEST` is pinned too: the agent-CLI update check would otherwise ask
+ * the npm registry.
+ *
  * `COCKPIT_DEV_BACKGROUND` is pinned on rather than inherited: an app under test never
  * fronts itself or takes focus from whoever is typing while it runs, and a spec that
  * depends on focus says so in its own overrides.
  */
-const PINNED: Readonly<Record<string, string>> = { COCKPIT_DEV_BACKGROUND: '1' }
+const PINNED: Readonly<Record<string, string>> = {
+  COCKPIT_DEV_BACKGROUND: '1',
+  // the agent-CLI update check names its "latest" releases here instead of asking the
+  // npm registry — a spec never reaches the network (Settings › Accounts runs the check)
+  COCKPIT_CLI_LATEST: JSON.stringify({ claude: '9.9.9', codex: '9.9.9', copilot: '9.9.9' })
+}
 
 /**
  * Build the env for `electron.launch`. Overrides win over the inherited environment,
