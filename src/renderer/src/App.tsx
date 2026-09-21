@@ -844,6 +844,7 @@ export function App(): JSX.Element {
           repos={visibleRepos}
           onCreated={openRoundtable}
           onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
+          onOpenLimits={() => setView({ kind: 'settings', section: 'limits' })}
         />
       ) : view.kind === 'roundtable' ? (
         <RoundtableView id={view.id} />

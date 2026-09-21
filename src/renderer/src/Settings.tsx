@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import type { AppInfo, TimeFormat, UpdateState } from '../../shared/types'
+import { roundsAllowed } from '../../shared/roundtable'
+import type { AppInfo, RoundtableLimits, TimeFormat, UpdateState } from '../../shared/types'
 import { AboutSection } from './AboutSection'
 import { AccountsSection } from './AccountsSection'
 import { AcpAgents } from './AcpAgents'
@@ -11,6 +12,11 @@ import { NotificationsSection } from './NotificationsSection'
 import { Select } from './Select'
 import { TabList, TabPanel } from './Tabs'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
+
+/** Ceiling presets — within ROUNDTABLE_LIMIT_RANGE, which main enforces. */
+const SEAT_LIMITS = [2, 3, 4, 5, 6, 8]
+const MESSAGE_LIMITS = [4, 8, 12, 16, 24, 32, 64]
+const TABLE_LIMITS = [20, 40, 80, 160, 320, 0]
 
 /** History window presets; value is days as a string, '0' = all history. */
 const HISTORY_OPTIONS = [
@@ -62,6 +68,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'view', label: 'View' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'providers', label: 'Providers' },
+  { id: 'limits', label: 'Limits' },
   { id: 'backup', label: 'Backup' },
   { id: 'about', label: 'About' }
 ] as const
@@ -129,6 +136,7 @@ export function Settings({
         <AcpAgents onStatus={setStatus} />
       </>
     ),
+    limits: <RoundtableLimitsPanel onStatus={setStatus} />,
     backup: (
       <BackupSection
         onStatus={setStatus}
@@ -171,6 +179,95 @@ export function Settings({
 }
 
 /** How far back sessions are listed — a view filter, never anything on disk. */
+/** One ceiling's presets, plus whatever a hand-edited config holds, shown as itself. */
+function limitOptions(
+  presets: readonly number[],
+  current: number,
+  label: (n: number) => string
+): Array<{ value: string; label: string }> {
+  // 0 means "no ceiling", so it sorts as the largest
+  const rank = (n: number): number => (n === 0 ? Infinity : n)
+  const values = presets.includes(current)
+    ? presets
+    : [...presets, current].sort((a, b) => rank(a) - rank(b))
+  return values.map((n) => ({ value: String(n), label: label(n) }))
+}
+
+/** What a roundtable may spend — every seat's reply is a full agent turn. */
+function RoundtableLimitsPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
+  /** null until loaded — the Selects only render with real values */
+  const [limits, setLimits] = useState<RoundtableLimits | null>(null)
+  useEffect(() => {
+    void api.getRoundtableLimits().then(setLimits)
+  }, [])
+
+  const change = async (patch: Partial<RoundtableLimits>): Promise<void> => {
+    if (!limits) return
+    // main clamps; what it stored is what the panel shows
+    setLimits(await api.setRoundtableLimits({ ...limits, ...patch }))
+    onStatus('Roundtable limits saved')
+  }
+
+  return (
+    <>
+      <p className="ns-hint ns-prose">
+        Every reply at a roundtable is a full agent turn on that seat’s account, and a table
+        set to reach an understanding keeps spending rounds on its own. These ceilings apply
+        to every table, including ones already open — a round that would pass one does not
+        start, and the table says why.
+      </p>
+      {limits === null ? (
+        <span className="ns-hint">loading…</span>
+      ) : (
+        <>
+          <div className="ns-options">
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="rt-limit-seats">Seats per table</label>
+              <Select
+                id="rt-limit-seats"
+                ariaLabel="Seats per table"
+                value={String(limits.maxSeats)}
+                options={limitOptions(SEAT_LIMITS, limits.maxSeats, (n) => `up to ${n}`)}
+                onChange={(v) => void change({ maxSeats: Number(v) })}
+              />
+            </div>
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="rt-limit-message">Turns per message</label>
+              <Select
+                id="rt-limit-message"
+                ariaLabel="Turns per message"
+                value={String(limits.maxTurnsPerMessage)}
+                options={limitOptions(MESSAGE_LIMITS, limits.maxTurnsPerMessage, (n) => `up to ${n}`)}
+                onChange={(v) => void change({ maxTurnsPerMessage: Number(v) })}
+              />
+            </div>
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="rt-limit-table">Turns per table</label>
+              <Select
+                id="rt-limit-table"
+                ariaLabel="Turns per table"
+                value={String(limits.maxTurnsPerTable)}
+                options={limitOptions(TABLE_LIMITS, limits.maxTurnsPerTable, (n) =>
+                  n === 0 ? 'no ceiling' : `up to ${n}`
+                )}
+                onChange={(v) => void change({ maxTurnsPerTable: Number(v) })}
+              />
+            </div>
+          </div>
+          <p className="ns-hint ns-prose">
+            Turns per message covers the opening wave and every automatic round after it:
+            with {limits.maxSeats} seats, a message may run{' '}
+            {roundsAllowed(limits, limits.maxSeats)}{' '}
+            {roundsAllowed(limits, limits.maxSeats) === 1 ? 'round' : 'rounds'} at most. Turns
+            per table counts every reply a table has on record; once spent, open a new table
+            or raise the ceiling.
+          </p>
+        </>
+      )}
+    </>
+  )
+}
+
 function HistoryPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
   /** null until loaded — the Select only renders with a real value */
   const [historyDays, setHistoryDays] = useState<number | null>(null)

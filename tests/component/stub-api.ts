@@ -1,7 +1,13 @@
 import { vi } from 'vitest'
 import type { PanelReport } from '../../src/shared/library'
 import type { CockpitApi } from '../../src/shared/contract'
-import type { PrStatus, RoundtableSnapshot, UsageSnapshot } from '../../src/shared/types'
+import { DEFAULT_ROUNDTABLE_LIMITS } from '../../src/shared/roundtable'
+import type {
+  PrStatus,
+  RoundtableLimits,
+  RoundtableSnapshot,
+  UsageSnapshot
+} from '../../src/shared/types'
 
 /** An empty scope; panel tests override getPanel with real rows. */
 const emptyPanel: PanelReport = {
@@ -255,6 +261,8 @@ export function freshApi(): CockpitApi {
     deleteRoundtables: vi.fn(async () => ({ cleaned: 0, freedBytes: 0, failed: [] })),
     getRoundtable: vi.fn(async () => emptyRoundtable()),
     createRoundtable: vi.fn(async () => emptyRoundtable()),
+    getRoundtableLimits: vi.fn(async () => DEFAULT_ROUNDTABLE_LIMITS),
+    setRoundtableLimits: vi.fn(async (l: RoundtableLimits) => l),
     sendRoundtableMessage: vi.fn(async () => {}),
     continueRoundtable: vi.fn(async () => {}),
     stopRoundtable: vi.fn(async () => {}),

@@ -720,11 +720,14 @@ summary::-webkit-details-marker { display: none; }
 
 /* per-seat setup in the creation form: one row per chosen seat — account + model */
 .rt-seat-config { display: flex; flex-direction: column; gap: var(--s2); }
-.rt-seat-cfg-row { display: flex; align-items: center; gap: var(--s3); }
-.rt-seat-cfg-name { width: 60px; flex-shrink: 0; font-size: var(--fs-sm); }
-.rt-seat-cfg-row .select-wrap { flex: 1; min-width: 0; }
-.rt-seat-cfg-row input { flex: 1; min-width: 0; font-family: var(--mono); }
-.rt-seat-cfg-acct { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+/* account, model provider, model: three controls a narrow card cannot hold on one
+   line, so they wrap under the seat's name rather than squeeze below a readable width */
+.rt-seat-cfg-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2) var(--s3); }
+.rt-seat-cfg-name { width: 72px; flex-shrink: 0; font-size: var(--fs-sm); display: flex;
+  flex-direction: column; align-items: flex-start; gap: 2px; }
+.rt-seat-cfg-row .select-wrap { flex: 1 1 120px; min-width: 0; }
+.rt-seat-cfg-row input { flex: 1 1 120px; min-width: 0; font-family: var(--mono); }
+.rt-seat-cfg-acct { flex: 1 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; color: var(--fg-dim); font-family: var(--mono);
   font-size: var(--fs-sm); }
 

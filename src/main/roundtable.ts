@@ -18,6 +18,7 @@ import type {
   Roundtable,
   RoundtableEntry,
   RoundtableEvent,
+  RoundtableLimits,
   RoundtableMeta,
   RoundtableMode,
   RoundtableParticipant,
@@ -30,7 +31,12 @@ import {
   parseStance,
   sanitizeRoundtable
 } from './roundtable-core'
-import { entrySeatIndex } from '../shared/roundtable'
+import {
+  DEFAULT_ROUNDTABLE_LIMITS,
+  entrySeatIndex,
+  roundRefusal,
+  roundsAllowed
+} from '../shared/roundtable'
 import type { CleanupTable } from './cleanup'
 
 /** In-memory working copy — the round loop mutates it, persisting after every entry. */
@@ -65,6 +71,9 @@ type Hooks = {
   readonly sendTurn: (req: ChatRequest) => string
   readonly cancelTurn: (turnId: string) => void
   readonly emit: (ev: RoundtableEvent) => void
+  /** What a table may spend, read fresh each time — lowering a ceiling in Settings
+   *  reins in the tables that already exist. Absent = the defaults. */
+  readonly limits?: () => RoundtableLimits
 }
 
 /** One in-flight seat turn — mutable stream bookkeeping on purpose. */
@@ -159,6 +168,16 @@ export class RoundtableManager {
     const tmp = join(this.dir, `${t.id}.json.tmp`)
     writeFileSync(tmp, JSON.stringify(t, null, 2))
     renameSync(tmp, join(this.dir, `${t.id}.json`))
+  }
+
+  private limits(): RoundtableLimits {
+    return this.hooks.limits?.() ?? DEFAULT_ROUNDTABLE_LIMITS
+  }
+
+  /** A round the table cannot afford never starts — the user hears why, up front. */
+  private assertAffordable(t: Table): void {
+    const refusal = roundRefusal(this.limits(), t)
+    if (refusal) throw new Error(refusal)
   }
 
   private mustGet(id: string): Table {
@@ -333,6 +352,7 @@ export class RoundtableManager {
     if (this.rounds.has(id)) throw new Error('A round is already running — stop it first.')
     const msg = text.trim()
     if (!msg) throw new Error('Empty message.')
+    this.assertAffordable(t)
     // each user message opens a fresh consensus cycle — the cap counts from here
     t.roundsRun = 0
     t.concluded = false
@@ -350,6 +370,7 @@ export class RoundtableManager {
     const t = this.mustGet(id)
     if (this.rounds.has(id)) throw new Error('A round is already running — stop it first.')
     if (t.entries.length === 0) throw new Error('Nothing to continue yet.')
+    this.assertAffordable(t)
     // a manual round after a conclusion reopens the cycle for a fresh evaluation
     t.concluded = false
     this.startRound(t, false)
@@ -422,7 +443,11 @@ export class RoundtableManager {
       if (e.speaker !== 'user' && !e.error) stances.set(entrySeatIndex(t.participants, e), e.stance)
     }
     const allAgree = t.participants.every((_, i) => stances.get(i) === 'agree')
-    if (allAgree || t.roundsRun >= t.maxRounds) {
+    // the table's own cap, then the user's ceilings: a round it cannot afford closes
+    // the cycle exactly as the cap does — a split table is shown as split
+    const limits = this.limits()
+    const rounds = Math.min(t.maxRounds, roundsAllowed(limits, t.participants.length))
+    if (allAgree || t.roundsRun >= rounds || roundRefusal(limits, t) !== null) {
       t.concluded = true
       this.save(t)
       this.endRound(t.id)
@@ -459,7 +484,8 @@ export class RoundtableManager {
     if (!this.launchTurn(t, round, seatIndex)) this.launchNext(t, round)
   }
 
-  /** Spawn one seat's turn. False when the seat no longer exists on the table. */
+  /** Spawn one seat's turn. False when nothing is in flight for it: the seat no longer
+   *  exists on the table, or its turn could not be started (recorded as its failure). */
   private launchTurn(t: Table, round: Round, seatIndex: number): boolean {
     const seat = t.participants[seatIndex]
     if (!seat) return false
@@ -487,7 +513,21 @@ export class RoundtableManager {
     }
     // send() returns synchronously; even its fast-fail events arrive via microtask,
     // so the routing entry below is always in place before the first event fires
-    const turnId = this.hooks.sendTurn(req)
+    let turnId: string
+    try {
+      turnId = this.hooks.sendTurn(req)
+    } catch (err) {
+      this.appendEntry(t, {
+        speaker,
+        seat: seatIndex,
+        text: err instanceof Error ? err.message : String(err),
+        at: Date.now(),
+        error: true
+      })
+      this.save(t)
+      this.hooks.emit({ id: t.id, type: 'turn-end', speaker, seat: seatIndex })
+      return false
+    }
     round.turns.set(turnId, {
       seatIndex,
       speaker,

@@ -6,7 +6,7 @@ Roundtables are discussion-only by design. A table **decides**; a normal session
 
 ## How a table runs
 
-Open one from the home composer ("Start a roundtable") or the sidebar. You seat two to four agents, optionally attach a project, and write the topic.
+Open one from the home composer ("Start a roundtable") or the sidebar. You seat two or more agents (four by default — see [Limits](#limits)), optionally attach a project, and write the topic.
 
 - **Your message opens a wave.** Every seat receives it at once and streams simultaneously, each in its own attributed block — the seats think in parallel, not in a queue.
 - **"One more round" is the discussion pass.** It runs a sequential round with no new message from you: each seat sees what the earlier seats just said, so they push back, agree, or build on it.
@@ -16,7 +16,7 @@ The table at the top of the view shows each seat's live state: thinking, agrees,
 
 ## Reaching an understanding
 
-Set the goal to **Reach an understanding** and the table drives itself: it keeps running discussion rounds until every seat ends its reply with an agreement line, or the round cap (2–5) is reached.
+Set the goal to **Reach an understanding** and the table drives itself: it keeps running discussion rounds until every seat ends its reply with an agreement line, or the round cap is reached. The cap you can pick (up to 5) is held to what one message may spend — see [Limits](#limits).
 
 The conclusion is assembled by Cockpit, not written by an agent — no seat speaks for the table. Each seat's own closing line is laid out side by side, headed **Shared understanding** when everyone agreed, or **No full agreement** when the cap closed a split table. A split is never dressed up as agreement, and the open points stay on the record.
 
@@ -24,7 +24,27 @@ Send another message to reopen a concluded table for a fresh cycle.
 
 ## Seats
 
-A seat is an agent plus an account and a model. The same provider can sit twice with different models — "Claude · opus" against "Claude · haiku" — which is how you settle a model-tier question on your own repository instead of on benchmarks.
+A seat is an agent plus everything it runs on, and each seat picks its own:
+
+- **Account** — which signed-in identity the seat runs as.
+- **Model provider** — the agent's own backend, or one of your [custom providers](./custom-providers.md). Only providers that agent can use are offered: Codex has none, Claude takes anthropic-type providers. A Copilot seat on a custom provider needs an explicit model.
+- **Model** — free text on the agent's own backend; on a custom provider that lists its models, a picker over that provider's catalog.
+
+The same agent can sit more than once with different models — "Claude · opus" against "Claude · haiku" — which is how you settle a model-tier question on your own repository instead of on benchmarks.
+
+A seat that repeats an earlier one *exactly* — same agent, account, model provider and model — is allowed, and the form marks it **duplicate**. Several samples of one mind is a real technique, but it costs a full seat for a voice the table already has, so the mark is there to make it a choice rather than a slip.
+
+## Limits
+
+Every reply at a table is a full agent turn on that seat's account, and a table set to reach an understanding keeps spending rounds on its own. **Settings › Limits** holds the three ceilings, and the creation form shows what a message will cost under them before you open the table:
+
+| Limit | Default | What it bounds |
+| --- | --- | --- |
+| Seats per table | 4 (2–8) | How many seats the form will let you add. |
+| Turns per message | 16 | The opening wave plus every automatic round after it. Six seats on 16 turns is two rounds, whatever round cap the table asked for. |
+| Turns per table | 80 (or no ceiling) | Every reply a table has on record, failed ones included. A round that would pass it does not start — the table says so, and you raise the ceiling or open a new table. |
+
+The ceilings are read each time a round is about to start, so lowering one reins in tables that are already open.
 
 ## Discussion-only, enforced
 

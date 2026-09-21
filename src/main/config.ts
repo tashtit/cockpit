@@ -7,6 +7,7 @@ import type {
   AttentionPrefs,
   LibraryEntry,
   ModelEndpoint,
+  RoundtableLimits,
   SourceDir,
   TimeFormat,
   UpdatePrefs
@@ -14,6 +15,7 @@ import type {
 import { clampStaleDays } from './cleanup-core'
 import { sanitizeAcpAgent } from '../shared/acp'
 import { clampZoom, type WindowPlacement } from '../shared/window'
+import { sanitizeRoundtableLimits } from '../shared/roundtable'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
@@ -21,6 +23,8 @@ export type AppConfig = {
   readonly archived?: string[]
   /** Roundtable ids the user archived — the tables themselves stay on disk */
   readonly archivedRoundtables?: string[]
+  /** What a roundtable may spend (seats, agent turns); absent = the defaults */
+  readonly roundtableLimits?: RoundtableLimits
   /** Shared AI instruction baselines — fanned out into each agent's own file */
   readonly sharedInstructions?: {
     readonly global?: string
@@ -193,6 +197,17 @@ export function setRoundtableArchived(id: string, archived: boolean): string[] {
   const ids = [...set]
   saveConfig({ ...cfg, archivedRoundtables: ids })
   return ids
+}
+
+/** The ceilings as they apply right now — a hand-edited value out of range is the default. */
+export function roundtableLimits(): RoundtableLimits {
+  return sanitizeRoundtableLimits(loadConfig().roundtableLimits)
+}
+
+export function setRoundtableLimits(raw: unknown): RoundtableLimits {
+  const limits = sanitizeRoundtableLimits(raw)
+  saveConfig({ ...loadConfig(), roundtableLimits: limits })
+  return limits
 }
 
 /** Batch counterpart of setSessionArchived — cleanup archives hundreds at once. */

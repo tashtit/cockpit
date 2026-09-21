@@ -1032,7 +1032,7 @@ export type RoundtableParticipant = {
   readonly copilotUser?: string
   /** Human-readable identity, display only */
   readonly accountLabel?: string
-  /** Per-seat agent knobs chosen at creation (model) */
+  /** Per-seat agent knobs chosen at creation (model, custom model provider) */
   readonly options?: AgentOptions
   /** Latest provider-native session id — null until the CLI announces one (copilot never does) */
   readonly nativeSessionId: string | null
@@ -1094,6 +1094,21 @@ export type RoundtableMeta = {
   readonly archived: boolean
 }
 
+/**
+ * What a roundtable may spend. Every seat's reply is a full agent turn on somebody's
+ * subscription, and a consensus table spends them on its own, so the ceilings are the
+ * user's to set (Settings › Limits) and main enforces them — at creation, and
+ * again while a table runs, so lowering one reins in tables that already exist.
+ */
+export type RoundtableLimits = {
+  /** Most seats a table may have */
+  readonly maxSeats: number
+  /** Most agent turns one user message may spend: its wave plus every auto-round */
+  readonly maxTurnsPerMessage: number
+  /** Most agent turns a table may spend over its whole life; 0 = no ceiling */
+  readonly maxTurnsPerTable: number
+}
+
 /** Renderer-supplied seat definition (main re-validates every field). */
 export type NewRoundtableSeat = {
   readonly provider: Provider
@@ -1101,6 +1116,8 @@ export type NewRoundtableSeat = {
   readonly copilotUser?: string
   readonly accountLabel?: string
   readonly model?: string
+  /** Custom model provider (ModelEndpoint.id) this seat runs on — each seat picks its own */
+  readonly modelEndpoint?: string
 }
 
 /** Renderer request to open a roundtable. */
@@ -1108,7 +1125,7 @@ export type NewRoundtableRequest = {
   readonly topic: string
   /** null = no repo: the table runs in a scratch dir instead of a worktree */
   readonly repoRoot: string | null
-  /** Seats may repeat a provider (different models); main caps the count */
+  /** Seats may repeat a provider — even the same model; main caps the count (RoundtableLimits) */
   readonly seats: NewRoundtableSeat[]
   readonly mode?: RoundtableMode
   /** Consensus mode: auto discussion-round cap (main clamps to a sane range) */

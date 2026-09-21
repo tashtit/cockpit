@@ -7,10 +7,18 @@ import {
   formatEntries,
   parseStance,
   sanitizeRoundtable,
+  seatOptions,
   type TableInfo
 } from '../src/main/roundtable-core'
-import { seatDisplayName } from '../src/shared/roundtable'
-import type { RoundtableEntry, RoundtableParticipant } from '../src/shared/types'
+import {
+  DEFAULT_ROUNDTABLE_LIMITS,
+  duplicateSeats,
+  roundRefusal,
+  roundsAllowed,
+  sanitizeRoundtableLimits,
+  seatDisplayName
+} from '../src/shared/roundtable'
+import type { ModelEndpoint, RoundtableEntry, RoundtableParticipant } from '../src/shared/types'
 
 function seat(overrides: Partial<RoundtableParticipant> = {}): RoundtableParticipant {
   return { provider: 'claude', nativeSessionId: null, seenUpTo: 0, ...overrides }
@@ -297,5 +305,104 @@ describe('sanitizeRoundtable', () => {
     })
     expect(rt!.entries.map((e) => e.text)).toEqual(['ok', 'kept'])
     expect(rt!.entries[1].error).toBe(true)
+  })
+})
+
+describe('seatOptions', () => {
+  const ANTHROPIC: ModelEndpoint = {
+    id: 'ep-a',
+    label: 'Gateway',
+    type: 'anthropic',
+    baseUrl: 'https://gw.example/v1'
+  }
+  const OPENAI: ModelEndpoint = {
+    id: 'ep-o',
+    label: 'Local',
+    type: 'openai',
+    baseUrl: 'http://localhost:11434/v1'
+  }
+  const ENDPOINTS = [ANTHROPIC, OPENAI]
+
+  it('each seat carries its own model and model provider', () => {
+    expect(seatOptions('claude', {}, ENDPOINTS)).toBeUndefined()
+    expect(seatOptions('claude', { model: ' opus ' }, ENDPOINTS)).toEqual({ model: 'opus' })
+    expect(seatOptions('claude', { model: 'big', modelEndpoint: 'ep-a' }, ENDPOINTS)).toEqual({
+      model: 'big',
+      modelEndpoint: 'ep-a'
+    })
+    // claude on a custom provider may leave the model to that provider's default
+    expect(seatOptions('claude', { modelEndpoint: 'ep-a' }, ENDPOINTS)).toEqual({
+      modelEndpoint: 'ep-a'
+    })
+    expect(seatOptions('copilot', { model: 'llama3', modelEndpoint: 'ep-o' }, ENDPOINTS)).toEqual({
+      model: 'llama3',
+      modelEndpoint: 'ep-o'
+    })
+  })
+
+  it('refuses the table rather than letting a seat fail its first turn', () => {
+    // a provider removed since the form loaded, or one the renderer invented
+    expect(() => seatOptions('claude', { modelEndpoint: 'gone' }, ENDPOINTS)).toThrow(
+      /no longer configured/
+    )
+    // an agent the provider type cannot run
+    expect(() => seatOptions('claude', { modelEndpoint: 'ep-o' }, ENDPOINTS)).toThrow(/can't run/)
+    expect(() => seatOptions('codex', { modelEndpoint: 'ep-a' }, ENDPOINTS)).toThrow(/can't run/)
+    // copilot never learns a custom provider's catalog on its own
+    expect(() => seatOptions('copilot', { modelEndpoint: 'ep-o' }, ENDPOINTS)).toThrow(
+      /explicit model/
+    )
+    // a model name rides as an argv value
+    expect(() => seatOptions('claude', { model: '--dangerous' }, ENDPOINTS)).toThrow(/model name/)
+    expect(() => seatOptions('claude', { model: 'a b' }, ENDPOINTS)).toThrow(/model name/)
+  })
+
+  it('ignores anything that is not a string', () => {
+    expect(seatOptions('claude', { model: 7, modelEndpoint: '' }, ENDPOINTS)).toBeUndefined()
+  })
+})
+
+describe('roundtable limits', () => {
+  it('anything out of range is the default, field by field', () => {
+    expect(sanitizeRoundtableLimits(undefined)).toEqual(DEFAULT_ROUNDTABLE_LIMITS)
+    expect(
+      sanitizeRoundtableLimits({ maxSeats: 6, maxTurnsPerMessage: 1, maxTurnsPerTable: 0 })
+    ).toEqual({ maxSeats: 6, maxTurnsPerMessage: 16, maxTurnsPerTable: 0 })
+    expect(sanitizeRoundtableLimits({ maxSeats: 99, maxTurnsPerTable: 2.5 })).toEqual(
+      DEFAULT_ROUNDTABLE_LIMITS
+    )
+  })
+
+  it('a message buys whole rounds, and always at least its wave', () => {
+    const limits = { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerMessage: 16 }
+    expect(roundsAllowed(limits, 2)).toBe(8)
+    expect(roundsAllowed(limits, 3)).toBe(5)
+    expect(roundsAllowed(limits, 6)).toBe(2)
+    expect(roundsAllowed({ ...limits, maxTurnsPerMessage: 4 }, 6)).toBe(1)
+  })
+
+  it('refuses a round the table cannot afford, counting failed replies as spent', () => {
+    const participants = [seat(), seat({ provider: 'codex' })]
+    const entries = [
+      entry('user', 'q'),
+      entry('claude', 'a', 0),
+      { ...entry('codex', 'boom', 1), error: true }
+    ]
+    const limits = { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerTable: 4 }
+    expect(roundRefusal(limits, { participants, entries })).toBeNull()
+    expect(roundRefusal({ ...limits, maxTurnsPerTable: 3 }, { participants, entries })).toMatch(
+      /spent 2 of its 3 agent turns/
+    )
+    // 0 switches the ceiling off
+    expect(roundRefusal({ ...limits, maxTurnsPerTable: 0 }, { participants, entries })).toBeNull()
+  })
+
+  it('marks the later seat of an identical pair, never the first', () => {
+    expect(duplicateSeats(['claude||opus', 'codex||', 'claude||opus', 'claude||haiku'])).toEqual([
+      false,
+      false,
+      true,
+      false
+    ])
   })
 })

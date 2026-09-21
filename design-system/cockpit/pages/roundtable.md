@@ -101,11 +101,25 @@ attribution, never a parallel message grammar.
 
 ## Creation form (`NewRoundtable.tsx`)
 
-- `.ns-card` grammar; the provider cards are **add-seat buttons** (2–4 seats total, a
-  provider may sit twice with different models — twin seats get ordinals). Each seat
-  row: identity, account, model, remove. A provider with one account keeps the row's
-  shape — the same inert `.ns-account-single` field NewSession uses, never bare text
-  where the other rows carry a control.
+- `.ns-card` grammar; the provider cards are **add-seat buttons** (two seats up to the
+  `maxSeats` limit; an agent may sit more than once — twin seats get ordinals). Each seat
+  row: identity, account, model provider, model, remove — **every row keeps the same
+  columns**. A provider with one account keeps the row's shape — the same inert
+  `.ns-account-single` field NewSession uses, never bare text where the other rows carry
+  a control — and an agent no configured custom provider can run shows an inert "default
+  provider" the same way (the column only exists once a custom provider is configured).
+  On a provider that lists its models the model field becomes a picker over that catalog.
+  In a narrow card (the 560px floor) the three controls wrap under the seat's name rather
+  than squeeze.
+- **An exact repeat is allowed and marked.** A seat equal to an earlier one in agent,
+  account, model provider and model carries the warn chip (`.acct-chip.missing`,
+  "duplicate") *under its name* — never beside it, which would knock that row's columns
+  out of line — and one hint under the rows says what it costs. Only the later seat is
+  marked; it never blocks the form.
+- **The bill is shown before it is run up.** One `.ns-hint` line above the topic states
+  what a message will cost in agent turns (seats × rounds for a consensus table), the
+  ceilings in force, and a `.link-btn` to Settings › Limits. The round-cap picker only
+  offers what the per-message ceiling allows with the current seats.
 - **No permission mode exists.** Roundtables are discussion-only: every turn runs
   'safe', codex is sandboxed read-only, and the framing tells seats the workspace is
   read-only. A roundtable decides; a normal session ships.

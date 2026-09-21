@@ -50,6 +50,7 @@ import type {
   RepoGroup,
   RestoreSummary,
   RoundtableEvent,
+  RoundtableLimits,
   RoundtableMeta,
   RoundtableSnapshot,
   SessionMessage,
@@ -270,6 +271,10 @@ export type CockpitApi = {
   /** One more round with no new user message — the seats keep talking */
   readonly continueRoundtable: (id: string) => Promise<void>
   readonly stopRoundtable: (id: string) => Promise<void>
+  /** What a table may spend — seats, agent turns per message and per table */
+  readonly getRoundtableLimits: () => Promise<RoundtableLimits>
+  /** Main clamps every field; the limits as stored come back */
+  readonly setRoundtableLimits: (limits: RoundtableLimits) => Promise<RoundtableLimits>
   readonly onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => () => void
 
   /* ---------- the window and the app shell ---------- */
@@ -402,8 +407,10 @@ export const CH = {
   roundtableContinue: 'roundtable:continue',
   roundtableCreate: 'roundtable:create',
   roundtableGet: 'roundtable:get',
+  roundtableLimits: 'roundtable:limits',
   roundtableList: 'roundtable:list',
   roundtableSend: 'roundtable:send',
+  roundtableSetLimits: 'roundtable:set-limits',
   roundtableStop: 'roundtable:stop',
 
   sessionsArchive: 'sessions:archive',

@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  ModelEndpoint,
   Provider,
   RepoGroup,
+  RoundtableLimits,
   RoundtableMode
 } from '../../shared/types'
+import { endpointSupports } from '../../shared/endpoints'
+import {
+  DEFAULT_ROUNDTABLE_LIMITS,
+  duplicateSeats,
+  roundsAllowed
+} from '../../shared/roundtable'
 import { api } from './api'
 import {
   accountOptions,
@@ -17,12 +25,15 @@ import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
-const MAX_SEATS = 4
+/** Round caps the form offers — the limits may allow fewer, never more */
+const ROUND_CHOICES = [1, 2, 3, 4, 5]
 
-/** One seat being configured: provider fixed, account/model overridable. */
+/** One seat being configured: the agent is fixed, everything it runs on is the seat's own. */
 type SeatDraft = {
   readonly provider: Provider
   readonly account?: string
+  /** Custom model provider (ModelEndpoint.id); absent = the agent's own backend */
+  readonly endpointId?: string
   readonly model?: string
 }
 
@@ -34,11 +45,14 @@ type SeatDraft = {
 export function NewRoundtable({
   repos,
   onCreated,
-  onCancel
+  onCancel,
+  onOpenLimits
 }: {
   repos: RepoGroup[]
   onCreated: (id: string) => void
   onCancel: () => void
+  /** Opens Settings › Limits — where the ceilings this form obeys are set */
+  onOpenLimits?: () => void
 }): JSX.Element {
   const [seats, setSeats] = useState<SeatDraft[]>([{ provider: 'claude' }, { provider: 'codex' }])
   const [repoKey, setRepoKey] = useState('')
@@ -48,6 +62,11 @@ export function NewRoundtable({
   )
   const [maxRounds, setMaxRounds] = useState(3)
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
+  /** What a table may spend; the defaults until main answers (it re-checks anyway) */
+  const [limits, setLimits] = useState<RoundtableLimits>(DEFAULT_ROUNDTABLE_LIMITS)
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
+  const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const topicRef = useRef<HTMLTextAreaElement>(null)
@@ -58,14 +77,46 @@ export function NewRoundtable({
   useEffect(() => {
     topicRef.current?.focus()
     void api.getAccounts().then(setAccounts)
+    // optional call: a preload from before this method must not crash the form (dev HMR)
+    void api.getModelEndpoints?.().then(setEndpoints)
+    void api.getRoundtableLimits?.().then(setLimits)
   }, [])
+
+  // ask each chosen provider what it serves, once; the cached list covers the meantime
+  const chosenEndpoints = [...new Set(seats.map((s) => s.endpointId ?? ''))].filter(Boolean)
+  useEffect(() => {
+    for (const id of chosenEndpoints) {
+      if (endpointModels[id]) continue
+      void api
+        .listEndpointModels?.(id)
+        .then((m) => m.length > 0 && setEndpointModels((prev) => ({ ...prev, [id]: m })))
+        .catch(() => {}) // unreachable provider → free-text model entry still works
+    }
+  }, [chosenEndpoints.join('\n')])
+
+  const seatEndpoint = (seat: SeatDraft): ModelEndpoint | undefined =>
+    endpoints.find((e) => e.id === seat.endpointId && endpointSupports(seat.provider, e))
+  const seatModels = (seat: SeatDraft): string[] => {
+    const ep = seatEndpoint(seat)
+    return ep ? (endpointModels[ep.id] ?? ep.models ?? []) : []
+  }
+  /** The model this seat would run: a catalog, once known, outranks a typed name it
+   *  does not serve — the picker would show "choose…" while the stale value ran. */
+  const seatModel = (seat: SeatDraft): string => {
+    const model = seat.model?.trim() ?? ''
+    const catalog = seatModels(seat)
+    return catalog.length > 0 && !catalog.includes(model) ? '' : model
+  }
+  /** Copilot never learns a custom provider's catalog on its own — it needs a model. */
+  const modelMissing = (seat: SeatDraft): boolean =>
+    seat.provider === 'copilot' && !!seatEndpoint(seat) && !seatModel(seat)
 
   const seatAccount = (seat: SeatDraft): AccountOption | undefined =>
     accountOptions(accounts, seat.provider).find((o) => o.key === seat.account) ??
     savedAccount(accounts, seat.provider)
 
   const addSeat = (p: Provider): void =>
-    setSeats((s) => (s.length >= MAX_SEATS ? s : [...s, { provider: p }]))
+    setSeats((s) => (s.length >= limits.maxSeats ? s : [...s, { provider: p }]))
   const removeSeat = (index: number): void => setSeats((s) => s.filter((_, i) => i !== index))
   const patchSeat = (index: number, patch: Partial<SeatDraft>): void =>
     setSeats((s) => s.map((seat, i) => (i === index ? { ...seat, ...patch } : seat)))
@@ -79,8 +130,22 @@ export function NewRoundtable({
     return `${PROVIDER_LABEL[seat.provider]} #${ordinal}`
   }
 
+  // a seat that repeats an earlier one exactly — allowed, but marked so it is a choice
+  const duplicates = duplicateSeats(
+    seats.map((seat) =>
+      [seat.provider, seatAccount(seat)?.key ?? '', seatEndpoint(seat)?.id ?? '', seatModel(seat)].join('|')
+    )
+  )
+  const overSeated = seats.length > limits.maxSeats
+  // what one message may cost: a wave is a turn per seat, and a consensus table keeps
+  // spending rounds on its own, so its cap is held to the per-message ceiling
+  const roundChoices = ROUND_CHOICES.filter((n) => n <= roundsAllowed(limits, seats.length))
+  const rounds = Math.min(maxRounds, roundChoices[roundChoices.length - 1] ?? 1)
+  const turnsPerMessage = seats.length * (tableMode === 'consensus' ? rounds : 1)
+  const blocked = seats.length < 2 || overSeated || seats.some(modelMissing)
+
   const start = async (): Promise<void> => {
-    if (busy || !topic.trim() || seats.length < 2) return
+    if (busy || !topic.trim() || blocked) return
     setError(null)
     setBusy(true)
     window.localStorage.setItem('cockpit:rt-table-mode', tableMode)
@@ -89,16 +154,17 @@ export function NewRoundtable({
         topic: topic.trim(),
         repoRoot: selected?.root ?? null,
         mode: tableMode,
-        maxRounds: tableMode === 'consensus' ? maxRounds : undefined,
+        maxRounds: tableMode === 'consensus' ? rounds : undefined,
         seats: seats.map((seat) => {
           const acct = seatAccount(seat)
-          const model = seat.model?.trim()
+          const model = seatModel(seat)
           return {
             provider: seat.provider,
             configDir: acct?.configDir,
             copilotUser: acct?.copilotUser,
             accountLabel: acct?.display,
-            model: model || undefined
+            model: model || undefined,
+            modelEndpoint: seatEndpoint(seat)?.id
           }
         })
       })
@@ -126,7 +192,7 @@ export function NewRoundtable({
                 key={p}
                 aria-label={`Add ${PROVIDER_LABEL[p]} seat`}
                 className={`ns-provider ns-${p} ${count > 0 ? 'active' : ''}`}
-                disabled={seats.length >= MAX_SEATS}
+                disabled={seats.length >= limits.maxSeats}
                 onClick={() => addSeat(p)}
               >
                 <ProviderLogo p={p} size={20} />
@@ -140,9 +206,9 @@ export function NewRoundtable({
           })}
         </div>
         <div className="ns-hint">
-          Two to four seats. A provider can sit twice with different models — same mind,
-          different depth. Every message reaches all seats at once; rounds are how they
-          answer each other.
+          Two to {limits.maxSeats} seats, each with its own account, model provider and
+          model. An agent can sit more than once — same mind, different depth. Every message
+          reaches all seats at once; rounds are how they answer each other.
         </div>
 
         {seats.length > 0 && (
@@ -152,12 +218,26 @@ export function NewRoundtable({
               {seats.map((seat, i) => {
                 const opts = accountOptions(accounts, seat.provider)
                 const acct = seatAccount(seat)
+                const usable = endpoints.filter((e) => endpointSupports(seat.provider, e))
+                const catalog = seatModels(seat)
                 return (
                   <div key={i} className="rt-seat-cfg-row">
                     <span className={`plogo plogo-${seat.provider}`} aria-hidden="true">
                       <ProviderLogo p={seat.provider} size={13} />
                     </span>
-                    <span className="rt-seat-cfg-name">{seatLabel(i)}</span>
+                    {/* the mark rides under the name, so a marked row keeps its columns */}
+                    <span className="rt-seat-cfg-name">
+                      {seatLabel(i)}
+                      {duplicates[i] && (
+                        // the warn chip: allowed, and worth a second look
+                        <span
+                          className="acct-chip missing"
+                          title="Same agent, account, model provider and model as an earlier seat"
+                        >
+                          duplicate
+                        </span>
+                      )}
+                    </span>
                     {opts.length > 1 ? (
                       <Select
                         ariaLabel={`${seatLabel(i)} account`}
@@ -171,13 +251,57 @@ export function NewRoundtable({
                         {acct?.identity ?? (accounts === null ? '…' : 'not signed in')}
                       </span>
                     )}
-                    <input
-                      aria-label={`${seatLabel(i)} model`}
-                      list={`rt-models-${seat.provider}`}
-                      placeholder="default model"
-                      value={seat.model ?? ''}
-                      onChange={(e) => patchSeat(i, { model: e.target.value })}
-                    />
+                    {/* every row keeps the same columns: an agent no custom provider
+                        can run shows the one backend it has, inert */}
+                    {usable.length > 0 ? (
+                      <Select
+                        ariaLabel={`${seatLabel(i)} model provider`}
+                        value={seatEndpoint(seat)?.id ?? ''}
+                        options={[
+                          { value: '', label: 'default provider' },
+                          ...usable.map((e) => ({ value: e.id, label: e.label, title: e.baseUrl }))
+                        ]}
+                        onChange={(v) => patchSeat(i, { endpointId: v || undefined, model: '' })}
+                      />
+                    ) : (
+                      endpoints.length > 0 && (
+                        <span
+                          className="rt-seat-cfg-acct ns-account-single"
+                          title={
+                            seat.provider === 'codex'
+                              ? 'Custom model providers can’t run Codex — it has no launch-time provider override.'
+                              : 'Claude can only use anthropic-type custom providers — none is configured.'
+                          }
+                        >
+                          default provider
+                        </span>
+                      )
+                    )}
+                    {catalog.length > 0 ? (
+                      // the provider told us what it serves — pick from its own catalog
+                      <Select
+                        ariaLabel={`${seatLabel(i)} model`}
+                        mono
+                        value={seatModel(seat)}
+                        options={[
+                          {
+                            value: '',
+                            label: seat.provider === 'copilot' ? 'choose a model…' : 'default model'
+                          },
+                          ...catalog.map((m) => ({ value: m, label: m }))
+                        ]}
+                        onChange={(v) => patchSeat(i, { model: v })}
+                      />
+                    ) : (
+                      <input
+                        aria-label={`${seatLabel(i)} model`}
+                        // the suggestions name the agent's own backend's models
+                        list={seatEndpoint(seat) ? undefined : `rt-models-${seat.provider}`}
+                        placeholder={modelMissing(seat) ? 'model required' : 'default model'}
+                        value={seat.model ?? ''}
+                        onChange={(e) => patchSeat(i, { model: e.target.value })}
+                      />
+                    )}
                     <button
                       className="icon-btn small"
                       aria-label={`Remove ${seatLabel(i)} seat`}
@@ -198,6 +322,19 @@ export function NewRoundtable({
               ))}
             </div>
           </>
+        )}
+
+        {duplicates.some(Boolean) && (
+          <div className="ns-hint">
+            A duplicate seat runs the same agent on the same model as an earlier one — a second
+            sample of one mind, at the full cost of a seat. Change its model to make it a
+            different voice, or keep it if that is the point.
+          </div>
+        )}
+        {seats.some(modelMissing) && (
+          <div className="ns-hint">
+            A Copilot seat on a custom model provider needs a model that provider serves.
+          </div>
         )}
 
         <div className="ns-options">
@@ -224,10 +361,10 @@ export function NewRoundtable({
               <Select
                 id="rt-rounds"
                 ariaLabel="Round cap"
-                value={String(maxRounds)}
-                options={[2, 3, 4, 5].map((n) => ({
+                value={String(rounds)}
+                options={roundChoices.map((n) => ({
                   value: String(n),
-                  label: `${n} rounds`,
+                  label: n === 1 ? '1 round' : `${n} rounds`,
                   title: 'auto discussion rounds per message before the table must conclude'
                 }))}
                 onChange={(v) => setMaxRounds(Number(v))}
@@ -254,6 +391,21 @@ export function NewRoundtable({
             : 'No codebase attached — the table runs in a scratch room.'}
         </div>
 
+        {/* the bill, before it is run up: every seat's reply is a full agent turn */}
+        <div className="ns-hint">
+          {tableMode === 'consensus'
+            ? `Each message costs up to ${turnsPerMessage} agent turns — ${seats.length} seats × ${rounds} ${rounds === 1 ? 'round' : 'rounds'}, fewer if they agree sooner.`
+            : `Each message, and each extra round, costs ${turnsPerMessage} agent turns — one per seat.`}{' '}
+          {overSeated
+            ? `The limit is ${limits.maxSeats} seats. `
+            : `Limits: ${limits.maxSeats} seats, ${limits.maxTurnsPerMessage} turns a message, ${
+                limits.maxTurnsPerTable === 0 ? 'no ceiling' : `${limits.maxTurnsPerTable} turns`
+              } a table. `}
+          {onOpenLimits && (
+            <button className="link-btn" onClick={onOpenLimits}>Change limits</button>
+          )}
+        </div>
+
         <label className="ns-label" htmlFor="rt-topic">Topic</label>
         <textarea
           id="rt-topic"
@@ -278,7 +430,7 @@ export function NewRoundtable({
           <button
             className="btn-primary"
             onClick={() => void start()}
-            disabled={busy || !topic.trim() || seats.length < 2}
+            disabled={busy || !topic.trim() || blocked}
           >
             {busy ? 'Opening…' : 'Open roundtable'}
           </button>
