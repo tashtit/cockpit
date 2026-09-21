@@ -25,6 +25,7 @@ export function Select({
   className = '',
   mono = false,
   quiet = false,
+  autoFocus = false,
   title
 }: {
   value: string
@@ -37,6 +38,8 @@ export function Select({
   mono?: boolean
   /** Borderless trigger for use inside an already-bordered control */
   quiet?: boolean
+  /** Focus the trigger on mount — for a Select that is its form's first field */
+  autoFocus?: boolean
   title?: string
 }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -151,6 +154,7 @@ export function Select({
         ref={triggerRef}
         type="button"
         id={id}
+        autoFocus={autoFocus}
         className={`select-trigger ${quiet ? 'quiet' : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}

@@ -144,15 +144,30 @@ seventh.
   mono `.source-path` base URL · `.source-note` "key in keychain"/"no key" + cached model
   count · "Add key" opening an inline `.source-browse-row` form (password input with a
   placeholder, Save key, Cancel; Escape cancels) · two-step Remove (same recipe as
-  sources; also deletes the stored key). The Type select's options carry the agents they
-  serve as `hint` annotations.
+  sources; also deletes the stored key). The chip reads `anthropic · bearer` when a
+  gateway takes its key as a bearer token, the one setting that tells two anthropic rows apart.
   The hint must keep saying keys are encrypted with the OS keychain, never written to
-  config, and sent only to the provider. Add form mirrors the config-home form: labeled
-  `.ns-opt`s in **two rows of three** (one row wrapped "API key · optional" and dropped
-  its input out of line) — Display name · Type · Base URL, then API key
-  (`type="password"`, `autoComplete="off"`) · Wire API only for openai type (progressive
-  disclosure) · Custom headers (JSON object, validated inline). Primary disabled until
-  name + URL are non-empty. After add, the
+  config, and sent only to the provider. **The add form starts from a provider, not a
+  blank form**: its first field is a **Provider** `Select` (autofocused) of
+  `ENDPOINT_PRESETS` (`src/shared/endpoints.ts`), which are Anthropic (the default), OpenAI,
+  Azure OpenAI, Ollama, LM Studio, then "Anthropic-compatible" / "OpenAI-compatible" (its
+  `.source-opt-provider` basis is what keeps the longest of those untruncated at 900px).
+  Each option carries the agents it serves as its `hint`. A pick fills the fields with values
+  that work. Display name and Base URL follow the pick only while they still hold the last
+  pick's suggestion, so anything typed over one stays. A provider with no address of its own
+  (Azure, a gateway) empties the URL and shows a concrete example as its placeholder.
+  The fields are two rows of three at most (one row wrapped "API key · optional" and dropped
+  its input out of line): Provider · Display name · Base URL, then API key (`type="password"`,
+  `autoComplete="off"`, the vendor's key shape as placeholder) · whatever that provider leaves
+  open (`preset.ask`: Wire API on OpenAI and OpenAI-compatible, **Send key as** (`Bearer` /
+  `x-api-key`) on Anthropic-compatible, Headers on both -compatible entries, as a JSON object
+  validated inline). Labels stay short enough for one line in a third of the row: "Custom
+  headers · optional" wrapped and dropped its input out of line.
+  A field the pick hides is cleared, never sent unseen. One `.ns-hint` line under the fields
+  says what that provider needs that no field can (where the key comes from, "start Ollama
+  first", "type the deployment name"). The key's label drops "· optional" for a hosted API,
+  and the primary stays disabled until name, URL, and a required key are filled. Folding after
+  an add resets to Anthropic. After add, the
   provider's `/models` catalog is probed; the visible `.ns-hint` outcome line ("N models
   found" / why not) is mirrored to the sr-only status region.
 - Add form (behind `Add a config home…`): a real `<form>` (Enter submits) of labeled

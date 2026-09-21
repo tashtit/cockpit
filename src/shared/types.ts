@@ -370,6 +370,14 @@ export type ModelEndpointType = 'openai' | 'azure' | 'anthropic'
 export type WireApi = 'completions' | 'responses'
 
 /**
+ * How an endpoint's key is sent. `key` is the provider class's own API-key header —
+ * `x-api-key` for anthropic, `api-key` for azure, `Authorization: Bearer` for openai —
+ * and `bearer` is always `Authorization: Bearer`, which is what most gateways in front
+ * of an Anthropic-shaped API expect. The Anthropic API itself accepts only `key`.
+ */
+export type EndpointAuth = 'key' | 'bearer'
+
+/**
  * A user-defined model provider endpoint (bring-your-own-key). The API key is entered
  * once, encrypted with the OS keychain (Electron safeStorage), and kept out of config —
  * this record only carries `hasKey` so the UI can show that one is stored.
@@ -382,7 +390,9 @@ export type ModelEndpoint = {
   /** An encrypted API key is stored for this endpoint (the key itself never crosses IPC back) */
   readonly hasKey?: boolean
   readonly wireApi?: WireApi
-  /** Extra HTTP headers sent to the provider (e.g. anthropic-version) */
+  /** Absent on endpoints defined before the choice existed — `endpointAuth` resolves those */
+  readonly auth?: EndpointAuth
+  /** Extra HTTP headers sent to the provider (e.g. a gateway's tenant or routing header) */
   readonly headers?: Record<string, string>
   /** Models this endpoint serves — cached from the provider's own /models listing */
   readonly models?: string[]

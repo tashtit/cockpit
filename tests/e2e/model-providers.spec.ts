@@ -134,6 +134,13 @@ test('settings lists seeded providers with agent applicability, and adds/removes
   await expect(win.getByLabel('Display name')).toHaveCount(0)
   await win.getByRole('button', { name: 'Add a model provider…' }).click()
 
+  // it opens on Anthropic, already filled in: only the key is left, and Add waits for it
+  await expect(win.getByLabel('Display name')).toHaveValue('Anthropic')
+  await expect(win.getByLabel('Base URL')).toHaveValue('https://api.anthropic.com')
+  await expect(win.getByRole('button', { name: 'Add provider' })).toBeDisabled()
+  await win.getByLabel('Provider', { exact: true }).click()
+  await win.getByRole('option', { name: /^OpenAI-compatible/ }).click()
+
   // a bad definition is refused by main and surfaces verbatim
   await win.getByLabel('Display name').fill('broken')
   await win.getByLabel('Base URL').fill('not a url')
