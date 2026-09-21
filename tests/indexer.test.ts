@@ -3,8 +3,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSy
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { SessionIndexer, subagentParent } from '../src/main/indexer'
-import type { BusySession } from '../src/shared/types'
+import { SessionIndexer, groupFamilies, subagentParent } from '../src/main/indexer'
+import type { BusySession, SessionMeta } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-indexer-fixtures-'))
@@ -910,6 +910,103 @@ describe('handoff lineage (stamping + chain grouping)', () => {
     idx.saveCache()
     const raw = readFileSync(cacheFile, 'utf8')
     expect(raw).not.toContain('continuedFrom')
+  })
+})
+
+// A Copilot session another session created names its creator at kickoff; the tree
+// shows such children under their parent, so the pages have to deliver them that way.
+describe('child sessions (family grouping)', () => {
+  const home = join(root, 'copilot-family')
+  const cacheFile = join(root, 'cache-family', 'index-cache.json')
+  let idx: SessionIndexer
+
+  function writeSession(id: string, ts: string, creator?: string): void {
+    const dir = join(home, 'session-state', id)
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'events.jsonl')
+    const kickoff = creator
+      ? `<copilot_tauri_workspace>\ncreator_chat_session_id: ${creator}\n</copilot_tauri_workspace>\n\ntask ${id}`
+      : undefined
+    writeFileSync(
+      file,
+      jsonl([
+        { type: 'session.start', timestamp: ts, data: { sessionId: id, context: { cwd: '/nowhere/family' } } },
+        { type: 'user.message', timestamp: ts, data: { content: `task ${id}`, ...(kickoff ? { transformedContent: kickoff } : {}) } }
+      ])
+    )
+    utimesSync(file, new Date(ts), new Date(ts))
+  }
+
+  beforeAll(async () => {
+    writeSession('fam-parent', '2026-08-01T10:00:00Z')
+    writeSession('fam-grandchild', '2026-08-02T10:00:00Z', 'fam-child-old')
+    writeSession('fam-child-old', '2026-08-03T10:00:00Z', 'fam-parent')
+    writeSession('fam-other', '2026-08-04T10:00:00Z')
+    writeSession('fam-child-new', '2026-08-05T10:00:00Z', 'fam-parent')
+    writeSession('fam-orphan', '2026-08-06T10:00:00Z', 'never-indexed')
+    idx = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    await idx.setSources([{ path: home, provider: 'copilot', label: 'family' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('pulls a family under its parent, at its most recent member, children by recency', () => {
+    // recency alone: orphan, child-new, other, child-old, grandchild, parent
+    expect(idx.page({}).items.map((s) => s.nativeId)).toEqual([
+      'fam-orphan',
+      'fam-parent',
+      'fam-child-new',
+      'fam-child-old',
+      'fam-grandchild',
+      'fam-other'
+    ])
+  })
+
+  it('keeps the parent on every row that has one, and getSession too', () => {
+    const items = idx.page({}).items
+    expect(items.find((s) => s.nativeId === 'fam-child-new')?.parentId).toBe('copilot:fam-parent')
+    expect(items.find((s) => s.nativeId === 'fam-parent')?.parentId).toBeUndefined()
+    expect(idx.getSession('copilot:fam-grandchild')?.parentId).toBe('copilot:fam-child-old')
+  })
+
+  it('a family split across page boundaries stays contiguous over the concatenation', () => {
+    const first = idx.page({ limit: 3 }).items.map((s) => s.nativeId)
+    const second = idx.page({ offset: 3, limit: 3 }).items.map((s) => s.nativeId)
+    expect([...first, ...second]).toEqual(idx.page({}).items.map((s) => s.nativeId))
+  })
+
+  it('a child whose parent is filtered out stays where recency put it', () => {
+    const found = idx.page({ search: 'fam-child' }).items.map((s) => s.nativeId)
+    expect(found).toEqual(['fam-child-new', 'fam-child-old'])
+  })
+})
+
+describe('groupFamilies', () => {
+  const meta = (id: string, updatedAt: number, parentId?: string): SessionMeta => ({
+    id,
+    provider: 'copilot',
+    nativeId: id,
+    source: 'test',
+    title: id,
+    cwd: null,
+    logBranch: null,
+    startedAt: updatedAt,
+    updatedAt,
+    messageCount: 1,
+    sourcePath: `/nowhere/${id}`,
+    ...(parentId ? { parentId } : {})
+  })
+
+  it('returns the list untouched when no parent is present', () => {
+    const list = [meta('a', 3), meta('b', 2, 'gone'), meta('c', 1)]
+    expect(groupFamilies(list)).toBe(list)
+  })
+
+  it('a cycle in the logs neither hangs nor drops sessions', () => {
+    const list = [meta('a', 4, 'b'), meta('b', 3, 'a'), meta('c', 2, 'a'), meta('d', 1, 'd')]
+    const ids = groupFamilies(list).map((s) => s.id)
+    expect([...ids].sort()).toEqual(['a', 'b', 'c', 'd'])
   })
 })
 

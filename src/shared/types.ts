@@ -55,6 +55,12 @@ export type SessionMeta = {
   readonly messageCount: number
   /** Absolute path of the backing file/dir, for on-demand full parse */
   readonly sourcePath: string
+  /** Stable id of the session that started this one, as this session's own log states
+   *  it — a Copilot session another session created with its `create_session` tool
+   *  (the kickoff's `<copilot_tauri_workspace>` block names the creator). The tree
+   *  nests such children under their parent. Subagent transcripts that are not work
+   *  of their own (Claude sidechains, Codex guardians) are never indexed at all. */
+  readonly parentId?: string
   /** Filled in by the indexer after parsing (parsers leave it undefined) — mutable on purpose */
   repo?: RepoInfo | null
   /** True when cwd is a linked git worktree rather than the main checkout — set with repo */

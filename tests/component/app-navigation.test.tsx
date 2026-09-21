@@ -143,3 +143,31 @@ describe('App back/forward navigation (⌘[ / ⌘])', () => {
     expect(vi.mocked(window.cockpit.sendChat).mock.calls[1][0].resumeNativeId).toBe('a2')
   })
 })
+
+describe('App child sessions', () => {
+  it('names the parent of a session another one started, and opens it from the chip', async () => {
+    const parent = session('p', 'Free plan limits')
+    const child = session('c', 'Account usage foundation', { parentId: 'claude:p' })
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 2, items: [parent, child] })
+    vi.mocked(window.cockpit.getSession).mockImplementation(async (id) => (id === 'claude:p' ? parent : null))
+    render(<App />)
+
+    await userEvent.click(await boardRow(/Account usage foundation/))
+    const chip = await screen.findByRole('button', { name: /Started by the Claude session “Free plan limits”/ })
+    await userEvent.click(chip)
+    await waitFor(() => expect(window.cockpit.getSessionMessages).toHaveBeenLastCalledWith('claude:p'))
+    // the parent itself was started by nobody
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Started by/ })).not.toBeInTheDocument())
+  })
+
+  it('gives no chip when the parent is gone from the index', async () => {
+    const child = session('c', 'Account usage foundation', { parentId: 'claude:gone' })
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [child] })
+    vi.mocked(window.cockpit.getSession).mockResolvedValue(null)
+    render(<App />)
+
+    await userEvent.click(await boardRow(/Account usage foundation/))
+    await waitFor(() => expect(window.cockpit.getSession).toHaveBeenCalledWith('claude:gone'))
+    expect(screen.queryByRole('button', { name: /Started by/ })).not.toBeInTheDocument()
+  })
+})
