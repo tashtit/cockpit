@@ -1064,6 +1064,9 @@ export type Roundtable = {
   readonly mode: RoundtableMode
   /** Consensus mode: max auto discussion rounds per user message (the wave is round 1) */
   readonly maxRounds: number
+  /** What this table may spend — mutable: raised from the table when a ceiling is hit.
+   *  Tables saved before limits existed load with the defaults. */
+  limits: RoundtableLimits
   /** Rounds completed since the last user message — mutable cycle state */
   roundsRun: number
   /** Consensus mode: the current cycle ended with a synthesis; a new message reopens */
@@ -1095,17 +1098,15 @@ export type RoundtableMeta = {
 }
 
 /**
- * What a roundtable may spend. Every seat's reply is a full agent turn on somebody's
- * subscription, and a consensus table spends them on its own, so the ceilings are the
- * user's to set (Settings › Limits) and main enforces them — at creation, and
- * again while a table runs, so lowering one reins in tables that already exist.
+ * What one roundtable may spend. Every seat's reply is a full agent turn on somebody's
+ * subscription, and a consensus table spends them on its own, so each table carries its
+ * own ceilings — chosen on the creation form, raisable on the table — and main enforces
+ * them every time a round is about to start.
  */
 export type RoundtableLimits = {
-  /** Most seats a table may have */
-  readonly maxSeats: number
   /** Most agent turns one user message may spend: its wave plus every auto-round */
   readonly maxTurnsPerMessage: number
-  /** Most agent turns a table may spend over its whole life; 0 = no ceiling */
+  /** Most agent turns the table may spend over its whole life; 0 = no ceiling */
   readonly maxTurnsPerTable: number
 }
 
@@ -1125,11 +1126,13 @@ export type NewRoundtableRequest = {
   readonly topic: string
   /** null = no repo: the table runs in a scratch dir instead of a worktree */
   readonly repoRoot: string | null
-  /** Seats may repeat a provider — even the same model; main caps the count (RoundtableLimits) */
+  /** Seats may repeat a provider — even the same model; main caps the count (ROUNDTABLE_MAX_SEATS) */
   readonly seats: NewRoundtableSeat[]
   readonly mode?: RoundtableMode
   /** Consensus mode: auto discussion-round cap (main clamps to a sane range) */
   readonly maxRounds?: number
+  /** This table's spending ceilings (main clamps; absent = the defaults) */
+  readonly limits?: RoundtableLimits
 }
 
 /** Push events for a live roundtable (renderer filters by id). */

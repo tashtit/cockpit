@@ -157,9 +157,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.roundtableSend, id, text),
   continueRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableContinue, id),
   stopRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableStop, id),
-  getRoundtableLimits: () => ipcRenderer.invoke(CH.roundtableLimits),
-  setRoundtableLimits: (limits: RoundtableLimits) =>
-    ipcRenderer.invoke(CH.roundtableSetLimits, limits),
+  setRoundtableLimits: (id: string, limits: RoundtableLimits) =>
+    ipcRenderer.invoke(CH.roundtableSetLimits, id, limits),
   onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => {
     const handler = (_e: unknown, ev: RoundtableEvent): void => cb(ev)
     ipcRenderer.on(PUSH.roundtableEvent, handler)

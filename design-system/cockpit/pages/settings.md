@@ -6,16 +6,13 @@
 second* — it answers "what is Cockpit watching, as whom, how much of each subscription
 is used, and is it healthy" before anything is edited. Small surface — resist growth; a
 new setting group joins the tab whose question it answers before it ever gets a tab of
-its own (current tabs, in order: Accounts · View · Notifications · Providers · Limits · Backup ·
-About — the accounts first, then what the app shows and what it may spend, then the
-occasional tasks). **The pill row must hold in two rows at the 560×420 floor** — every
+its own (current tabs, in order: Accounts · View · Notifications · Providers · Backup ·
+About — the accounts first, then what the app shows, then the occasional tasks). **The pill row must hold in two rows at the 560×420 floor** — every
 old section as its own tab wrapped it to three, a fifth of the window spent on
 navigation. History and Display share the View tab for that reason, and Model providers
 and ACP agents share Providers — both answer "what backs my agents", one as an endpoint
-you bring a key for and one as a CLI that speaks ACP. The seventh tab is **Limits** (what a
-roundtable may spend) — named for its question and not for the feature because
-"Roundtables" wrapped the row to three at the floor; seven short labels is what two rows
-hold. Measure the floor before adding an eighth, and put the next ceiling in Limits.
+you bring a key for and one as a CLI that speaks ACP. Measure the floor before adding a
+seventh.
 
 - **The card is tabs, one panel at a time** — the shared card tabs (`TabList` /
   `TabPanel`, see MASTER), a `role="tablist"` named "Settings sections", under the title,

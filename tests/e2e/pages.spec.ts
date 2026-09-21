@@ -265,7 +265,7 @@ test('settings lists the seeded source with its session count', async () => {
   // the bug the tabs replaced: picking a section used to scroll its heading to the
   // top of the card, which took the title, the tab row and Close off the screen with
   // it. Every tab must leave the head where it is, with nothing scrolled away.
-  for (const name of ['Notifications', 'Providers', 'Limits', 'Backup', 'About', 'Accounts']) {
+  for (const name of ['Notifications', 'Providers', 'Backup', 'About', 'Accounts']) {
     await tabs.getByRole('tab', { name }).click()
     await expect(tabs.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
     await expect(win.getByRole('heading', { name: 'Settings' })).toBeVisible()
@@ -538,7 +538,7 @@ test('the window minimum is enforced and every surface holds at exactly that siz
   await expect(win.getByRole('heading', { name: 'Settings' })).toBeVisible()
   expect(await audit()).toEqual([])
   const settingsTabs = win.getByRole('tablist', { name: 'Settings sections' })
-  for (const name of ['View', 'Notifications', 'Providers', 'Limits', 'Backup', 'About']) {
+  for (const name of ['View', 'Notifications', 'Providers', 'Backup', 'About']) {
     await settingsTabs.getByRole('tab', { name }).click()
     await expect(settingsTabs.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
     expect(await audit(), `settings › ${name} at the window floor`).toEqual([])

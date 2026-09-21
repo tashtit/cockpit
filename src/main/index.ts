@@ -62,9 +62,7 @@ import {
   setHistoryDays,
   setRepoHidden,
   setRepoOrder,
-  roundtableLimits,
   setRoundtableArchived,
-  setRoundtableLimits,
   setSessionArchived,
   setSessionsArchived,
   setStaleDays,
@@ -89,7 +87,11 @@ import { asDiffScope, getWorkspaceDiff } from './diff'
 import { asPrNumber, getPrFeedback, getPrFixBriefing } from './pr-feedback'
 import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
 import { clampRounds, seatOptions } from './roundtable-core'
-import { roundsAllowed } from '../shared/roundtable'
+import {
+  ROUNDTABLE_MAX_SEATS,
+  roundsAllowed,
+  sanitizeRoundtableLimits
+} from '../shared/roundtable'
 import {
   assertClaudeProjectServer,
   getExtensions,
@@ -1161,7 +1163,6 @@ app.whenReady().then(() => {
       return chat.send(req)
     },
     cancelTurn: (turnId) => chat.cancel(turnId),
-    limits: () => roundtableLimits(),
     emit: (ev) => {
       sendToWin(PUSH.roundtableEvent, ev)
       // a table's run ending is news the way a turn's is — unless the user stopped it
@@ -1211,12 +1212,10 @@ app.whenReady().then(() => {
         options: seatOptions(provider, raw, listModelEndpoints())
       })
     }
-    const limits = roundtableLimits()
+    const limits = sanitizeRoundtableLimits(req?.limits)
     if (seats.length < 2) throw new Error('Pick at least two seats for a roundtable.')
-    if (seats.length > limits.maxSeats) {
-      throw new Error(
-        `A table seats at most ${limits.maxSeats} — raise the limit in Settings › Limits.`
-      )
+    if (seats.length > ROUNDTABLE_MAX_SEATS) {
+      throw new Error(`A table seats at most ${ROUNDTABLE_MAX_SEATS}.`)
     }
     // consensus knobs are renderer input: whitelist the mode, clamp the round cap to
     // what one message may spend with this many seats
@@ -1228,10 +1227,12 @@ app.whenReady().then(() => {
       const ws = await createWorkspace(root, `table ${topic.slice(0, 30)}`)
       place = { cwd: ws.cwd, branch: ws.branch, repoRoot: root }
     }
-    return tables.create({ topic, seats, mode: tableMode, maxRounds }, place)
+    return tables.create({ topic, seats, mode: tableMode, maxRounds, limits }, place)
   })
-  ipcMain.handle(CH.roundtableLimits, () => roundtableLimits())
-  ipcMain.handle(CH.roundtableSetLimits, (_e, limits: unknown) => setRoundtableLimits(limits))
+  // limits are renderer input: every field clamped to its range
+  ipcMain.handle(CH.roundtableSetLimits, (_e, id: string, limits: unknown) =>
+    tables.setLimits(String(id), sanitizeRoundtableLimits(limits))
+  )
   ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string) =>
     tables.sendMessage(String(id), String(text))
   )

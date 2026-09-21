@@ -116,7 +116,7 @@ const STATIC: readonly Shot[] = [
   { view: 'settings', name: 'settings', go: (w) => nav(w, 'Settings') },
   // one shot per tab: each is its own page now, and a tab nobody opens is a tab
   // nobody sees break
-  ...['View', 'Notifications', 'Providers', 'Limits', 'Backup', 'About'].map(
+  ...['View', 'Notifications', 'Providers', 'Backup', 'About'].map(
     (t): Shot => ({
       view: 'settings',
       name: `settings-${t.toLowerCase().replace(/\s+/g, '-')}`,
@@ -217,11 +217,21 @@ const STATIC: readonly Shot[] = [
       await w.getByRole('button', { name: /Start a roundtable/ }).click()
       await w.getByRole('button', { name: 'Add Claude seat' }).click()
       await w.getByRole('button', { name: 'Add Copilot seat' }).click()
-      await w.getByRole('group', { name: 'Seats', exact: true }).scrollIntoViewIfNeeded()
+      await w.getByRole('group', { name: 'Claude #2 seat' }).scrollIntoViewIfNeeded()
       await pause(w, 400)
     }
   },
   { view: 'roundtable', name: 'roundtable-consensus', go: (w) => open(w, /Should usage polling move/) },
+  // a table's spend in its header, and the in-place editor it opens
+  {
+    view: 'roundtable',
+    name: 'roundtable-limits',
+    go: async (w) => {
+      await open(w, /Monorepo or polyrepo/)
+      await w.locator('.rt-budget').click()
+      await pause(w, 300)
+    }
+  },
   { view: 'roundtable', name: 'roundtable-open', go: (w) => open(w, /Monorepo or polyrepo/) },
   { view: 'chat', name: 'chat-claude', go: (w) => open(w, /Fix the login flake/) },
   {

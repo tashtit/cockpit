@@ -1,8 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { NewRoundtable } from '../../src/renderer/src/NewRoundtable'
-import { DEFAULT_ROUNDTABLE_LIMITS } from '../../src/shared/roundtable'
 import type { ModelEndpoint } from '../../src/shared/types'
 
 /** Pick an option from the app's own Select (a button + listbox, never a native select). */
@@ -11,70 +10,49 @@ async function choose(trigger: HTMLElement, option: string): Promise<void> {
   await userEvent.click(await screen.findByRole('option', { name: option }))
 }
 
+const seat = (name: string): HTMLElement => screen.getByRole('group', { name: `${name} seat` })
+/** A Select trigger is named "<label> <value>" — match on the label. */
+const control = (name: string, label: string): HTMLElement =>
+  within(seat(name)).getByRole('button', {
+    // "model" must not also match "model provider"
+    name: new RegExp(`^${name.replace('#', '\\#')} ${label} (?!provider)`)
+  })
+
+const createdSeats = () => vi.mocked(window.cockpit.createRoundtable).mock.calls[0][0].seats
+
+beforeEach(() => window.localStorage.clear())
+
 describe('NewRoundtable', () => {
-  it('keeps a one-account seat the same shape as a seat that can choose', async () => {
+  it('lays every seat out with its own agent, account, model provider and model', async () => {
     render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
-    const acct = await waitFor(() => document.querySelector('.rt-seat-cfg-acct')!)
-    // the read-only field is trigger-shaped, the same recipe NewSession uses
-    expect(acct.className).toContain('ns-account-single')
+    for (const name of ['Claude', 'Codex']) {
+      const card = seat(name)
+      // every choice is visible and labelled, even with nothing configured to choose from
+      for (const label of ['Agent', 'Account', 'Model provider', 'Model']) {
+        expect(within(card).getByText(label)).toBeInTheDocument()
+      }
+    }
+    // the model is a real picker over the agent's usual models, not a hidden hint list
+    await choose(control('Claude', 'model'), 'opus')
+    expect(control('Claude', 'model')).toHaveTextContent('opus')
+    // the account stays a read-only field when there is one — same shape as a Select
+    await waitFor(() => expect(within(seat('Claude')).getByText('not signed in')).toHaveClass('ns-account-single'))
   })
 
-  it('needs a topic and at least two seats before it can open', async () => {
-    const onCreated = vi.fn()
-    render(<NewRoundtable repos={[]} onCreated={onCreated} onCancel={() => {}} />)
+  it('switches a seat to a different agent, and types a model the list lacks', async () => {
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    await choose(control('Codex', 'agent'), 'Copilot')
+    expect(screen.queryByRole('group', { name: 'Codex seat' })).not.toBeInTheDocument()
 
-    // claude + codex are seated by default; the cards ADD seats now
-    expect(screen.getByRole('group', { name: 'Add seats' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Claude model' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Codex model' })).toBeInTheDocument()
-
-    const open = screen.getByRole('button', { name: 'Open roundtable' })
-    expect(open).toBeDisabled()
-    await userEvent.type(screen.getByLabelText('Topic'), 'tabs or spaces')
-    expect(open).toBeEnabled()
-
-    // dropping to one seat disarms the form again
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Codex seat' }))
-    expect(open).toBeDisabled()
-    expect(onCreated).not.toHaveBeenCalled()
-  })
-
-  it('seats the same provider twice with different models and hands over the id', async () => {
-    const onCreated = vi.fn()
-    render(<NewRoundtable repos={[]} onCreated={onCreated} onCancel={() => {}} />)
-
-    // a second Claude seat joins the default pair; twin rows get ordinals
-    await userEvent.click(screen.getByRole('button', { name: 'Add Claude seat' }))
-    expect(screen.getByText('Claude #1')).toBeInTheDocument()
-    expect(screen.getByText('Claude #2')).toBeInTheDocument()
-
-    await userEvent.type(screen.getByRole('combobox', { name: 'Claude #1 model' }), 'opus')
-    await userEvent.type(screen.getByRole('combobox', { name: 'Claude #2 model' }), 'haiku')
-    await userEvent.type(screen.getByLabelText('Topic'), 'depth or speed?')
+    await choose(control('Copilot', 'model'), 'other model…')
+    await userEvent.type(within(seat('Copilot')).getByLabelText('Model'), 'gpt-5.1')
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
-
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('rt-1'))
-    expect(window.cockpit.createRoundtable).toHaveBeenCalledWith(
-      expect.objectContaining({
-        topic: 'depth or speed?',
-        repoRoot: null,
-        seats: [
-          expect.objectContaining({ provider: 'claude', model: 'opus' }),
-          expect.objectContaining({ provider: 'codex', model: undefined }),
-          expect.objectContaining({ provider: 'claude', model: 'haiku' })
-        ]
-      })
-    )
-    // discussion-only: the form offers no permission mode at all
-    expect(screen.queryByText(/YOLO/i)).not.toBeInTheDocument()
-  })
-
-  it('caps the table at four seats', async () => {
-    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add Copilot seat' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add Claude seat' }))
-    // four seated — the add cards disarm
-    expect(screen.getByRole('button', { name: 'Add Codex seat' })).toBeDisabled()
+    await waitFor(() => expect(window.cockpit.createRoundtable).toHaveBeenCalled())
+    expect(createdSeats()).toEqual([
+      expect.objectContaining({ provider: 'claude', model: undefined }),
+      expect.objectContaining({ provider: 'copilot', model: 'gpt-5.1' })
+    ])
   })
 
   it('gives every seat its own model provider, and a model from that provider’s catalog', async () => {
@@ -90,68 +68,91 @@ describe('NewRoundtable', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add Claude seat' }))
 
     // only the first Claude moves to the gateway; its twin stays on Claude's own backend
-    await choose(await screen.findByRole('button', { name: /^Claude #1 model provider/ }), 'Gateway')
-    await choose(screen.getByRole('button', { name: /^Claude #1 model (?!provider)/ }), 'big')
+    await waitFor(() => control('Claude #1', 'model provider'))
+    await choose(control('Claude #1', 'model provider'), 'Gateway')
+    await choose(control('Claude #1', 'model'), 'big')
     // an anthropic-type provider cannot run Codex: the column stays, inert
-    expect(screen.queryByRole('button', { name: /^Codex model provider/ })).not.toBeInTheDocument()
+    expect(within(seat('Codex')).getByText('Codex (own)')).toBeInTheDocument()
 
     await userEvent.type(screen.getByLabelText('Topic'), 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
     await waitFor(() => expect(window.cockpit.createRoundtable).toHaveBeenCalled())
-    expect(vi.mocked(window.cockpit.createRoundtable).mock.calls[0][0].seats).toEqual([
+    expect(createdSeats()).toEqual([
       expect.objectContaining({ provider: 'claude', modelEndpoint: 'ep-a', model: 'big' }),
       expect.objectContaining({ provider: 'codex', modelEndpoint: undefined }),
       expect.objectContaining({ provider: 'claude', modelEndpoint: undefined, model: undefined })
     ])
   })
 
-  it('allows an identical seat, and marks it so it is a choice', async () => {
-    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
-    expect(screen.queryByText('duplicate')).not.toBeInTheDocument()
+  it('seats an exact duplicate only once it is confirmed as deliberate', async () => {
+    const onCreated = vi.fn()
+    render(<NewRoundtable repos={[]} onCreated={onCreated} onCancel={() => {}} />)
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    const open = screen.getByRole('button', { name: 'Open roundtable' })
+    expect(open).toBeEnabled()
 
     await userEvent.click(screen.getByRole('button', { name: 'Add Claude seat' }))
-    // the second Claude repeats the first exactly — only the later seat carries the mark
-    expect(screen.getAllByText('duplicate')).toHaveLength(1)
-    expect(screen.getByText(/at the full cost of a seat/)).toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('Topic'), 'x')
-    expect(screen.getByRole('button', { name: 'Open roundtable' })).toBeEnabled()
+    // only the later seat of the identical pair carries the mark
+    expect(within(seat('Claude #2')).getByText('duplicate')).toBeInTheDocument()
+    expect(within(seat('Claude #1')).queryByText('duplicate')).not.toBeInTheDocument()
+    expect(open).toBeDisabled()
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Seat the duplicate on purpose' }))
+    expect(open).toBeEnabled()
 
-    // a different model makes it a different voice
-    await userEvent.type(screen.getByRole('combobox', { name: 'Claude #2 model' }), 'haiku')
+    // a different model makes it a different voice — no mark, nothing to confirm
+    await choose(control('Claude #2', 'model'), 'haiku')
     expect(screen.queryByText('duplicate')).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+    await userEvent.click(open)
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('rt-1'))
   })
 
-  it('shows what a message will cost and holds the round cap to the limits', async () => {
-    vi.mocked(window.cockpit.getRoundtableLimits).mockResolvedValue({
-      ...DEFAULT_ROUNDTABLE_LIMITS,
-      maxSeats: 6,
-      maxTurnsPerMessage: 6
-    })
-    const onOpenLimits = vi.fn()
-    render(
-      <NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} onOpenLimits={onOpenLimits} />
-    )
-    expect(await screen.findByText(/costs 2 agent turns — one per seat/)).toBeInTheDocument()
-    expect(screen.getByText(/Limits: 6 seats, 6 turns a message, 80 turns a table/)).toBeInTheDocument()
+  it('sets this table’s spending limits on the same page, and shows what a message costs', async () => {
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    const limits = screen.getByRole('group', { name: 'Roundtable spending limits' })
+    expect(screen.getByText(/costs 2 agent turns — one per seat/)).toBeInTheDocument()
+    expect(screen.getByText(/stops at 80 turns — about 40 messages/)).toBeInTheDocument()
 
-    // six seats fit now; the cards disarm at the limit, not at four
-    for (const _ of [1, 2, 3, 4]) {
-      await userEvent.click(screen.getByRole('button', { name: 'Add Codex seat' }))
-    }
-    expect(screen.getByRole('button', { name: 'Add Codex seat' })).toBeDisabled()
-
-    // 6 seats × 6 turns a message = one round: consensus cannot ask for more
+    // 3 seats on 6 turns a message: two rounds at most, whatever the cap asked for
+    await userEvent.click(screen.getByRole('button', { name: 'Add Copilot seat' }))
+    await choose(within(limits).getByRole('button', { name: /^Agent turns per message/ }), '8 turns')
     await choose(screen.getByRole('button', { name: /^Goal/ }), 'Reach an understanding')
-    expect(screen.getByText(/up to 6 agent turns — 6 seats × 1 round,/)).toBeInTheDocument()
+    expect(screen.getByText(/up to 6 agent turns — 3 seats × 2 rounds,/)).toBeInTheDocument()
+    await choose(within(limits).getByRole('button', { name: /^Agent turns for the table/ }), 'no ceiling')
+    expect(screen.getByText(/No ceiling for the whole table/)).toBeInTheDocument()
+
     await userEvent.type(screen.getByLabelText('Topic'), 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
     await waitFor(() =>
       expect(window.cockpit.createRoundtable).toHaveBeenCalledWith(
-        expect.objectContaining({ mode: 'consensus', maxRounds: 1 })
+        expect.objectContaining({
+          mode: 'consensus',
+          maxRounds: 2,
+          limits: { maxTurnsPerMessage: 8, maxTurnsPerTable: 0 }
+        })
       )
     )
+    // the next table starts from what was chosen here
+    expect(JSON.parse(window.localStorage.getItem('cockpit:rt-limits')!)).toEqual({
+      maxTurnsPerMessage: 8,
+      maxTurnsPerTable: 0
+    })
+  })
 
-    await userEvent.click(screen.getByRole('button', { name: 'Change limits' }))
-    expect(onOpenLimits).toHaveBeenCalled()
+  it('needs a topic and at least two seats, and stops adding at eight', async () => {
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    const open = screen.getByRole('button', { name: 'Open roundtable' })
+    await userEvent.type(screen.getByLabelText('Topic'), 'tabs or spaces')
+    expect(open).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Codex seat' }))
+    expect(open).toBeDisabled()
+
+    for (let i = 0; i < 7; i++) {
+      await userEvent.click(screen.getByRole('button', { name: 'Add Codex seat' }))
+    }
+    expect(screen.getByRole('button', { name: 'Add Claude seat' })).toBeDisabled()
+    // discussion-only: the form offers no permission mode at all
+    expect(screen.queryByText(/YOLO/i)).not.toBeInTheDocument()
   })
 })

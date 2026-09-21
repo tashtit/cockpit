@@ -101,25 +101,30 @@ attribution, never a parallel message grammar.
 
 ## Creation form (`NewRoundtable.tsx`)
 
-- `.ns-card` grammar; the provider cards are **add-seat buttons** (two seats up to the
-  `maxSeats` limit; an agent may sit more than once — twin seats get ordinals). Each seat
-  row: identity, account, model provider, model, remove — **every row keeps the same
-  columns**. A provider with one account keeps the row's shape — the same inert
-  `.ns-account-single` field NewSession uses, never bare text where the other rows carry
-  a control — and an agent no configured custom provider can run shows an inert "default
-  provider" the same way (the column only exists once a custom provider is configured).
-  On a provider that lists its models the model field becomes a picker over that catalog.
-  In a narrow card (the 560px floor) the three controls wrap under the seat's name rather
-  than squeeze.
-- **An exact repeat is allowed and marked.** A seat equal to an earlier one in agent,
-  account, model provider and model carries the warn chip (`.acct-chip.missing`,
-  "duplicate") *under its name* — never beside it, which would knock that row's columns
-  out of line — and one hint under the rows says what it costs. Only the later seat is
-  marked; it never blocks the form.
-- **The bill is shown before it is run up.** One `.ns-hint` line above the topic states
-  what a message will cost in agent turns (seats × rounds for a consensus table), the
-  ceilings in force, and a `.link-btn` to Settings › Limits. The round-cap picker only
-  offers what the per-message ceiling allows with the current seats.
+- `.ns-card` grammar; the provider cards are **add-seat buttons** (two to
+  `ROUNDTABLE_MAX_SEATS` = 8; an agent may sit more than once — twin seats get ordinals).
+- **Every seat is a `.rt-seat-card`**: name, duplicate chip and remove on top, then the
+  seat's own four choices in the `.ns-options` grid, each with its `.ns-label` — Agent,
+  Account, Model provider, Model. Nothing about a seat is a hidden default: the Model
+  provider column exists even when no custom provider is configured (an inert
+  `.ns-account-single` reading "<Agent> (own)", its tooltip saying why and where to add
+  one), and the model is a `Select` over the agent's usual models or the provider's
+  catalog, with "other model…" swapping in a text field. Switching a seat's agent resets
+  the seat — accounts, providers and models are all per agent.
+- **An exact repeat is allowed, marked and confirmed.** A seat equal to an earlier one in
+  agent, account, model provider and model carries the warn chip (`.acct-chip.missing`,
+  "duplicate") and a warn border; only the later seat is marked. Open stays disabled
+  until the `.rt-dup-confirm` checkbox ("Seat the duplicate on purpose") is ticked.
+- **Spending limits live on this form, per table** — "Roundtable spending limits": agent
+  turns per message and for the whole table. One `.ns-hint` under them states the bill
+  (seats × rounds for a consensus table, and about how many messages the table ceiling
+  buys); the round-cap picker only offers what the per-message ceiling allows. Last
+  choice is remembered for the next table. Never in Settings: Settings is app-wide, and
+  these belong to a table.
+- **On the table**, `.rt-budget` in the header reads "N of M agent turns" (warn once
+  another round would not fit) and opens `.rt-limits`, the in-place editor. A table out
+  of turns says so in a `.sys-row` before the user tries, with a "Raise the limit"
+  `.link-btn` — a refusal always carries its way on.
 - **No permission mode exists.** Roundtables are discussion-only: every turn runs
   'safe', codex is sandboxed read-only, and the framing tells seats the workspace is
   read-only. A roundtable decides; a normal session ships.

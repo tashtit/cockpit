@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RoundtableManager, type NewTable } from '../src/main/roundtable'
 import { DEFAULT_ROUNDTABLE_LIMITS } from '../src/shared/roundtable'
-import type { ChatRequest, RoundtableEvent, RoundtableLimits } from '../src/shared/types'
+import type { ChatRequest, RoundtableEvent } from '../src/shared/types'
 
 const dirs: string[] = []
 afterAll(() => {
@@ -35,7 +35,7 @@ type Harness = {
 }
 
 /** A manager whose "CLI" is the test: sendTurn records the request, the test replays events. */
-function makeManager(dir: string, limits?: () => RoundtableLimits): Harness {
+function makeManager(dir: string): Harness {
   const sent: ChatRequest[] = []
   const events: RoundtableEvent[] = []
   const cancelled: string[] = []
@@ -45,8 +45,7 @@ function makeManager(dir: string, limits?: () => RoundtableLimits): Harness {
       return `turn-${sent.length}`
     }),
     cancelTurn: vi.fn((id: string) => cancelled.push(id)),
-    emit: (ev) => events.push(ev),
-    ...(limits ? { limits } : {})
+    emit: (ev) => events.push(ev)
   })
   return { manager, sent, events, cancelled, turnIdOf: (n) => `turn-${n}` }
 }
@@ -73,8 +72,16 @@ function replayTurn(
 describe('RoundtableManager', () => {
   it('a consensus table stops at what one message may spend, not only at its own cap', () => {
     // 2 seats, 4 turns a message: two rounds, though the table asked for five
-    const h = makeManager(newDir(), () => ({ ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerMessage: 4 }))
-    const snap = h.manager.create({ ...TWO_SEATS, mode: 'consensus', maxRounds: 5 }, null)
+    const h = makeManager(newDir())
+    const snap = h.manager.create(
+      {
+        ...TWO_SEATS,
+        mode: 'consensus',
+        maxRounds: 5,
+        limits: { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerMessage: 4 }
+      },
+      null
+    )
     for (let turn = 1; turn <= 4; turn++) {
       replayTurn(h, h.turnIdOf(turn), { text: ['still thinking\nCONSENSUS: continue — not yet'] })
     }
@@ -86,20 +93,26 @@ describe('RoundtableManager', () => {
   })
 
   it('a table that has spent its turns refuses the next round, and says how to go on', () => {
-    let limits = { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerTable: 3 }
-    const h = makeManager(newDir(), () => limits)
-    const snap = h.manager.create(TWO_SEATS, null)
+    const dir = newDir()
+    const h = makeManager(dir)
+    const snap = h.manager.create(
+      { ...TWO_SEATS, limits: { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerTable: 3 } },
+      null
+    )
     replayTurn(h, h.turnIdOf(1), { text: ['one'] })
     replayTurn(h, h.turnIdOf(2), { text: ['two'] })
 
     expect(() => h.manager.sendMessage(snap.id, 'and?')).toThrow(/spent 2 of its 3 agent turns/)
-    expect(() => h.manager.continueRound(snap.id)).toThrow(/Settings › Limits/)
+    expect(() => h.manager.continueRound(snap.id)).toThrow(/Raise the table’s limit/)
     // nothing was recorded or launched for the refused message
     expect(h.manager.get(snap.id).entries).toHaveLength(3)
     expect(h.sent).toHaveLength(2)
 
-    // the ceiling is read fresh: raising it in Settings lets the same table go on
-    limits = { ...limits, maxTurnsPerTable: 10 }
+    // raising the table's own ceiling lets it go on — and the raise is persisted
+    const raised = h.manager.setLimits(snap.id, { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerTable: 10 })
+    expect(raised.limits.maxTurnsPerTable).toBe(10)
+    const saved = JSON.parse(readFileSync(join(dir, `${snap.id}.json`), 'utf8'))
+    expect(saved.limits).toEqual({ ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerTable: 10 })
     h.manager.sendMessage(snap.id, 'and?')
     expect(h.sent).toHaveLength(4)
   })

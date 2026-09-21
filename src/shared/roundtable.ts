@@ -63,21 +63,22 @@ export function entrySeatIndex(
 
 /* ---------- what a table may spend ---------- */
 
+/** Hard seat cap — past this a wave is a crowd, not a discussion. */
+export const ROUNDTABLE_MAX_SEATS = 8
+
 export const DEFAULT_ROUNDTABLE_LIMITS: RoundtableLimits = {
-  maxSeats: 4,
   maxTurnsPerMessage: 16,
   maxTurnsPerTable: 80
 }
 
-/** The range each ceiling may be set to — a table always needs two seats to be one. */
+/** The range each ceiling may be set to. */
 export const ROUNDTABLE_LIMIT_RANGE = {
-  maxSeats: { min: 2, max: 8 },
   maxTurnsPerMessage: { min: 2, max: 64 },
   /** 0 switches the ceiling off */
   maxTurnsPerTable: { min: 0, max: 1000 }
 } as const
 
-/** Stored limits are config and renderer input alike: anything out of range is the default. */
+/** Limits are renderer input and file content alike: anything out of range is the default. */
 export function sanitizeRoundtableLimits(raw: unknown): RoundtableLimits {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const pick = (key: keyof RoundtableLimits): number => {
@@ -88,7 +89,6 @@ export function sanitizeRoundtableLimits(raw: unknown): RoundtableLimits {
       : DEFAULT_ROUNDTABLE_LIMITS[key]
   }
   return {
-    maxSeats: pick('maxSeats'),
     maxTurnsPerMessage: pick('maxTurnsPerMessage'),
     maxTurnsPerTable: pick('maxTurnsPerTable')
   }
@@ -117,7 +117,7 @@ export function roundRefusal(
   if (spent + table.participants.length <= limits.maxTurnsPerTable) return null
   return (
     `This table has spent ${spent} of its ${limits.maxTurnsPerTable} agent turns — another round ` +
-    'would pass the ceiling. Raise it in Settings › Limits, or open a new table.'
+    'would pass its ceiling. Raise the table’s limit, or open a new table.'
   )
 }
 

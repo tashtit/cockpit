@@ -357,6 +357,19 @@ describe('seatOptions', () => {
     expect(() => seatOptions('claude', { model: 'a b' }, ENDPOINTS)).toThrow(/model name/)
   })
 
+  it('a table saved before per-table limits loads with the defaults', () => {
+    const rt = sanitizeRoundtable({ id: 'x', cwd: '/r', participants: [seat()], entries: [] })
+    expect(rt?.limits).toEqual(DEFAULT_ROUNDTABLE_LIMITS)
+    const kept = sanitizeRoundtable({
+      id: 'x',
+      cwd: '/r',
+      participants: [seat()],
+      entries: [],
+      limits: { maxTurnsPerMessage: 8, maxTurnsPerTable: 0 }
+    })
+    expect(kept?.limits).toEqual({ maxTurnsPerMessage: 8, maxTurnsPerTable: 0 })
+  })
+
   it('ignores anything that is not a string', () => {
     expect(seatOptions('claude', { model: 7, modelEndpoint: '' }, ENDPOINTS)).toBeUndefined()
   })
@@ -365,16 +378,17 @@ describe('seatOptions', () => {
 describe('roundtable limits', () => {
   it('anything out of range is the default, field by field', () => {
     expect(sanitizeRoundtableLimits(undefined)).toEqual(DEFAULT_ROUNDTABLE_LIMITS)
-    expect(
-      sanitizeRoundtableLimits({ maxSeats: 6, maxTurnsPerMessage: 1, maxTurnsPerTable: 0 })
-    ).toEqual({ maxSeats: 6, maxTurnsPerMessage: 16, maxTurnsPerTable: 0 })
-    expect(sanitizeRoundtableLimits({ maxSeats: 99, maxTurnsPerTable: 2.5 })).toEqual(
+    expect(sanitizeRoundtableLimits({ maxTurnsPerMessage: 1, maxTurnsPerTable: 0 })).toEqual({
+      maxTurnsPerMessage: 16,
+      maxTurnsPerTable: 0
+    })
+    expect(sanitizeRoundtableLimits({ maxTurnsPerMessage: 99, maxTurnsPerTable: 2.5 })).toEqual(
       DEFAULT_ROUNDTABLE_LIMITS
     )
   })
 
   it('a message buys whole rounds, and always at least its wave', () => {
-    const limits = { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerMessage: 16 }
+    const limits = { maxTurnsPerMessage: 16, maxTurnsPerTable: 80 }
     expect(roundsAllowed(limits, 2)).toBe(8)
     expect(roundsAllowed(limits, 3)).toBe(5)
     expect(roundsAllowed(limits, 6)).toBe(2)

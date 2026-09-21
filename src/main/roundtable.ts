@@ -57,6 +57,8 @@ export type NewTable = {
   /** 'consensus' = auto-rounds until every seat agrees, then a joint synthesis */
   readonly mode?: RoundtableMode
   readonly maxRounds?: number
+  /** Already sanitized by the caller; absent = the defaults */
+  readonly limits?: RoundtableLimits
 }
 
 /** Where the table runs: a main-derived worktree, or null for a scratch room. */
@@ -71,9 +73,6 @@ type Hooks = {
   readonly sendTurn: (req: ChatRequest) => string
   readonly cancelTurn: (turnId: string) => void
   readonly emit: (ev: RoundtableEvent) => void
-  /** What a table may spend, read fresh each time — lowering a ceiling in Settings
-   *  reins in the tables that already exist. Absent = the defaults. */
-  readonly limits?: () => RoundtableLimits
 }
 
 /** One in-flight seat turn — mutable stream bookkeeping on purpose. */
@@ -170,13 +169,9 @@ export class RoundtableManager {
     renameSync(tmp, join(this.dir, `${t.id}.json`))
   }
 
-  private limits(): RoundtableLimits {
-    return this.hooks.limits?.() ?? DEFAULT_ROUNDTABLE_LIMITS
-  }
-
   /** A round the table cannot afford never starts — the user hears why, up front. */
   private assertAffordable(t: Table): void {
-    const refusal = roundRefusal(this.limits(), t)
+    const refusal = roundRefusal(t.limits, t)
     if (refusal) throw new Error(refusal)
   }
 
@@ -333,6 +328,7 @@ export class RoundtableManager {
       permissionMode: 'safe',
       mode: input.mode ?? 'open',
       maxRounds: clampRounds(input.maxRounds),
+      limits: input.limits ?? DEFAULT_ROUNDTABLE_LIMITS,
       roundsRun: 0,
       concluded: false,
       participants: input.seats.map((s) => ({ ...s, nativeSessionId: null, seenUpTo: 0 })),
@@ -374,6 +370,18 @@ export class RoundtableManager {
     // a manual round after a conclusion reopens the cycle for a fresh evaluation
     t.concluded = false
     this.startRound(t, false)
+  }
+
+  /**
+   * Change what a table may spend — how a table that hit its ceiling goes on. Takes
+   * effect at the next round; a round in flight keeps the ceilings it started under
+   * only in the sense that a consensus cycle re-reads them between rounds.
+   */
+  setLimits(id: string, limits: RoundtableLimits): RoundtableSnapshot {
+    const t = this.mustGet(id)
+    t.limits = limits
+    this.save(t)
+    return this.snapshot(t)
   }
 
   stop(id: string): void {
@@ -445,7 +453,7 @@ export class RoundtableManager {
     const allAgree = t.participants.every((_, i) => stances.get(i) === 'agree')
     // the table's own cap, then the user's ceilings: a round it cannot afford closes
     // the cycle exactly as the cap does — a split table is shown as split
-    const limits = this.limits()
+    const limits = t.limits
     const rounds = Math.min(t.maxRounds, roundsAllowed(limits, t.participants.length))
     if (allAgree || t.roundsRun >= rounds || roundRefusal(limits, t) !== null) {
       t.concluded = true

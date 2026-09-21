@@ -7,7 +7,12 @@ import type {
   RoundtableParticipant,
   RoundtableSpeaker
 } from '../shared/types'
-import { entrySeatIndex, SEAT_NAME, seatDisplayName } from '../shared/roundtable'
+import {
+  entrySeatIndex,
+  sanitizeRoundtableLimits,
+  SEAT_NAME,
+  seatDisplayName
+} from '../shared/roundtable'
 import { endpointSupports, isValidModel } from '../shared/endpoints'
 
 export { SEAT_NAME } from '../shared/roundtable'
@@ -233,6 +238,8 @@ export function sanitizeRoundtable(raw: unknown): Roundtable | null {
     permissionMode: 'safe',
     mode: r.mode === 'consensus' ? 'consensus' : 'open',
     maxRounds: clampRounds(r.maxRounds),
+    // tables from before per-table limits load with the defaults
+    limits: sanitizeRoundtableLimits(r.limits),
     roundsRun:
       typeof r.roundsRun === 'number' && Number.isInteger(r.roundsRun) && r.roundsRun >= 0
         ? r.roundsRun
