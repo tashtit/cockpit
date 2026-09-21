@@ -252,17 +252,27 @@ test('agents, every section', async () => {
   }
 })
 
-test('profile', async () => {
+test('profile, every section', async () => {
   await nav('Profile')
   await audit()
+  for (const section of ['Activity', 'Agents', 'Code']) {
+    await win.getByRole('tab', { name: section }).click()
+    await expect(win.getByRole('tab', { name: section })).toHaveAttribute('aria-selected', 'true')
+    await audit()
+  }
 })
 
-test('cleanup, once its scan lands', async () => {
+test('cleanup, every section, once its scan lands', async () => {
   await nav('Cleanup')
   // the scan asks git about every worktree it knows: slower than the default wait
   // allows on a loaded machine, and auditing the loading state proves nothing
   await expect(win.getByText(/of \d+ sessions/)).toBeVisible({ timeout: 30_000 })
   await audit()
+  for (const section of ['Sessions', 'Processes', 'Roundtables', 'Worktrees']) {
+    await win.getByRole('tab', { name: new RegExp(`^${section}`) }).click()
+    await expect(win.getByRole('tab', { name: new RegExp(`^${section}`) })).toHaveAttribute('aria-selected', 'true')
+    await audit()
+  }
 })
 
 test('the new-session form', async () => {

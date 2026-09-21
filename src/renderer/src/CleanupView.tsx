@@ -26,6 +26,7 @@ import {
   RepoIcon
 } from './logos'
 import { Select } from './Select'
+import { TabList, TabPanel } from './Tabs'
 import { shortPath } from '../../shared/library'
 
 /**
@@ -66,10 +67,10 @@ const UNITS = [
   [1e3, 'KB']
 ] as const
 
-/** One decimal at most, and never a bare `.0` — "400 MB", not "400.0 MB". */
 /**
- * The card's sections, in order. The jump row under the title lists them with their
- * counts — four lists on one long page, and the counts are the reason to jump.
+ * The card's tabs, in order — one list each. Four lists on one page read as a single
+ * long scroll, so each is its own panel, and the counts on the tabs say where the work
+ * is without opening them.
  */
 const CLEANUP_SECTIONS = [
   { id: 'sessions', label: 'Sessions' },
@@ -79,6 +80,17 @@ const CLEANUP_SECTIONS = [
 ] as const
 type CleanupSection = (typeof CLEANUP_SECTIONS)[number]['id']
 
+/** How many rows each tab holds — the counts its pill carries. */
+function sectionCounts(r: CleanupReport | null): Record<CleanupSection, number> {
+  return {
+    sessions: r?.sessions.length ?? 0,
+    processes: r?.processes.length ?? 0,
+    tables: r?.tables.length ?? 0,
+    worktrees: r?.worktrees.length ?? 0
+  }
+}
+
+/** One decimal at most, and never a bare `.0` — "400 MB", not "400.0 MB". */
 function fmtBytes(n: number | null): string {
   if (n === null) return '—'
   for (const [scale, unit] of UNITS) {
@@ -764,20 +776,10 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   const [status, setStatus] = useState('')
   const armed = useArmedConfirm()
   const headingRef = useRef<HTMLHeadingElement>(null)
-  /** one heading per section — the jump row lands on them */
-  const headings = useRef(new Map<CleanupSection, HTMLHeadingElement>())
-  const heading =
-    (id: CleanupSection) =>
-    (el: HTMLHeadingElement | null): void => {
-      if (el) headings.current.set(id, el)
-      else headings.current.delete(id)
-    }
-  const jump = (id: CleanupSection): void => {
-    const h = headings.current.get(id)
-    if (!h) return
-    h.scrollIntoView({ block: 'start' })
-    h.focus()
-  }
+  /** null until the first scan lands, which opens the first tab holding anything —
+   *  unless you picked one while it was still walking */
+  const [tab, setTab] = useState<CleanupSection | null>(null)
+  const current = tab ?? 'sessions'
 
   const [sq, setSq] = useState('')
   const [wq, setWq] = useState('')
@@ -855,6 +857,8 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       const r = await api.scanCleanup()
       setReport(r)
       setStaleDays(String(r.staleDays))
+      const counts = sectionCounts(r)
+      setTab((t) => t ?? CLEANUP_SECTIONS.find((s) => counts[s.id] > 0)?.id ?? 'sessions')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -919,14 +923,332 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
     .reduce((n, t) => n + (t.bytes ?? 0), 0)
   const hiddenTables = tPicked.size - tPicks.shown
   const pPicked = pPicks.picked
-  const counts: Record<CleanupSection, number> = {
-    sessions: sessions.length,
-    processes: processes.length,
-    tables: tables.length,
-    worktrees: worktrees.length
-  }
+  const counts = sectionCounts(report)
   const truncated = (report?.staleSessionCount ?? 0) > sessions.length
   const now = report?.scannedAt ?? Date.now()
+
+  /** One panel per tab: a `Record` will not compile if a tab is added to
+   *  `CLEANUP_SECTIONS` without a list behind it. */
+  const panels: Record<CleanupSection, JSX.Element> = {
+    sessions:
+      sessions.length === 0 && !scanning ? (
+        <p className="ns-hint">Nothing idle that long — every session is still recent.</p>
+      ) : (
+        <>
+          <p className="ns-hint">
+            Deleting a session takes the worktree it ran in with it, and the branch when git
+            reports that branch as fully merged. Archiving only hides a session in Cockpit — it
+            frees nothing.
+          </p>
+          <FilterBar
+            groups={sessionGroups}
+            defaultPinned={['agent', 'project']}
+            search={{
+              value: sq,
+              onChange: setSq,
+              label: 'Filter sessions',
+              placeholder: 'Filter by title, project or path…'
+            }}
+          />
+
+          <GroupHead
+            picks={sPicks}
+            label="stale sessions"
+            summary={
+              sPicked.size > 0 ? (
+                <>
+                  <strong>{sPicked.size}</strong> selected · {fmtBytes(gain.bytes)}
+                  {gain.trees > 0 && ` · ${gain.trees} worktree${gain.trees === 1 ? '' : 's'}`}
+                  {hiddenSessions > 0 && (
+                    <span className="cl-hidden"> · {hiddenSessions} not shown</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  {shownSessions.length} shown
+                  {shownSessions.length !== sessions.length && ` of ${sessions.length}`}
+                </>
+              )
+            }
+          >
+            <button
+              className="btn-ghost"
+              disabled={working || sPicked.size === 0}
+              title="Hides them in Cockpit. Nothing on disk is touched."
+              onClick={() => void run('Archived', () => api.archiveSessions([...sPicked]))}
+            >
+              Archive{sPicked.size > 0 ? ` ${sPicked.size}` : ''}
+            </button>
+            <ArmedAction
+              id="sessions"
+              armed={armed.armed}
+              disabled={working || sPicked.size === 0}
+              labels={[
+                sPicked.size > 0 ? `Delete ${sPicked.size}…` : 'Delete…',
+                `Delete ${sPicked.size} for good?`,
+                "Deletes the agents' own log files, the worktrees these sessions ran in, and any branch git reports as fully merged. This cannot be undone."
+              ]}
+              confirm={{
+                arm: armed.arm,
+                disarm: armed.disarm,
+                commit: () => void run('Deleted', () => api.deleteSessions([...sPicked]))
+              }}
+            />
+          </GroupHead>
+
+          {shownSessions.length === 0 ? (
+            <p className="ns-hint cl-empty">
+              {scanning ? 'Still reading every source…' : 'No sessions match this filter.'}
+            </p>
+          ) : (
+            <ul className="source-list cl-list">
+              {shownSessions.map((s, i) => (
+                <SessionRow
+                  key={s.id}
+                  s={s}
+                  now={now}
+                  picked={sPicked.has(s.id)}
+                  onPick={(on, range) => sPicks.toggle(i, on, range)}
+                />
+              ))}
+            </ul>
+          )}
+          {truncated && (
+            <p className="ns-hint">
+              Showing the {sessions.length} oldest of {report?.staleSessionCount} — clean these,
+              then rescan for the rest.
+            </p>
+          )}
+        </>
+      ),
+    processes:
+      processes.length === 0 && !scanning ? (
+        <p className="ns-hint">
+          Nothing left running — no process is still working in a stale or removed worktree.
+        </p>
+      ) : (
+        <>
+          <p className="ns-hint">
+            Dev servers, watchers and shells still running in a worktree that has gone stale, or
+            in one already removed from under them. A worktree stays unremovable while one runs
+            inside it.
+          </p>
+          <GroupHead
+            picks={pPicks}
+            label="processes"
+            summary={
+              pPicked.size > 0 ? (
+                <>
+                  <strong>{pPicked.size}</strong> selected
+                </>
+              ) : (
+                <>{processes.length} shown</>
+              )
+            }
+          >
+            <ArmedAction
+              id="processes"
+              armed={armed.armed}
+              disabled={working || pPicked.size === 0}
+              labels={[
+                pPicked.size > 0 ? `Stop ${pPicked.size}…` : 'Stop…',
+                `Stop ${pPicked.size} process${pPicked.size === 1 ? '' : 'es'}?`,
+                'Sends SIGTERM to each, asking it to exit. Anything unsaved inside those processes is lost; one that ignores the signal is reported, never killed.'
+              ]}
+              confirm={{
+                arm: armed.arm,
+                disarm: armed.disarm,
+                commit: () =>
+                  void run('Stopped', () =>
+                    api.stopProcesses(
+                      processes
+                        .filter((p) => pPicked.has(processKey(p)))
+                        .map(({ pid, command, startedAt }) => ({ pid, command, startedAt }))
+                    )
+                  )
+              }}
+            />
+          </GroupHead>
+          {processes.length === 0 ? (
+            <p className="ns-hint cl-empty">Still looking for processes in old worktrees…</p>
+          ) : (
+            <ul className="source-list cl-list">
+              {processGroups.map((group) => (
+                <ProcessGroup key={group[0].worktreePath} procs={group}>
+                  {group.map((p) => {
+                    const i = processes.indexOf(p)
+                    return (
+                      <ProcessRow
+                        key={p.pid}
+                        p={p}
+                        now={now}
+                        picked={pPicked.has(processKey(p))}
+                        onPick={(on, range) => pPicks.toggle(i, on, range)}
+                      />
+                    )
+                  })}
+                </ProcessGroup>
+              ))}
+            </ul>
+          )}
+        </>
+      ),
+    tables:
+      tables.length === 0 && !scanning ? (
+        <p className="ns-hint">
+          No table archived, and none gone quiet that long — every roundtable is recent.
+        </p>
+      ) : (
+        <>
+          <p className="ns-hint">
+            Tables nobody has spoken to in a while, plus every table you archived — that is
+            already a decision, so it needs no waiting. Deleting one takes the seat sessions
+            that ran inside it and the room it ran in — its worktree and, when git reports the
+            branch fully merged, that too.
+          </p>
+          <FilterBar
+            groups={tableGroups}
+            defaultPinned={['agent', 'state']}
+            search={{
+              value: tq,
+              onChange: setTq,
+              label: 'Filter roundtables',
+              placeholder: 'Filter by topic, project or path…'
+            }}
+          />
+
+          <GroupHead
+            picks={tPicks}
+            label="roundtables"
+            summary={
+              tPicked.size > 0 ? (
+                <>
+                  <strong>{tPicked.size}</strong> selected · {fmtBytes(tableGain)}
+                  {hiddenTables > 0 && (
+                    <span className="cl-hidden"> · {hiddenTables} not shown</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  {shownTables.length} shown
+                  {shownTables.length !== tables.length && ` of ${tables.length}`}
+                </>
+              )
+            }
+          >
+            <ArmedAction
+              id="tables"
+              armed={armed.armed}
+              disabled={working || tPicked.size === 0}
+              labels={[
+                tPicked.size > 0 ? `Delete ${tPicked.size}…` : 'Delete…',
+                `Delete ${tPicked.size} roundtable${tPicked.size === 1 ? '' : 's'}?`,
+                'Takes each table, its seat sessions and the directory it ran in. This cannot be undone.'
+              ]}
+              confirm={{
+                arm: armed.arm,
+                disarm: armed.disarm,
+                commit: () => void run('Deleted', () => api.deleteRoundtables([...tPicked]))
+              }}
+            />
+          </GroupHead>
+
+          {shownTables.length === 0 ? (
+            <p className="ns-hint cl-empty">
+              {scanning ? 'Still reading every table…' : 'No roundtables match this filter.'}
+            </p>
+          ) : (
+            <ul className="source-list cl-list">
+              {shownTables.map((t, i) => (
+                <TableRow
+                  key={t.id}
+                  t={t}
+                  now={now}
+                  picked={tPicked.has(t.id)}
+                  onPick={(on, range) => tPicks.toggle(i, on, range)}
+                />
+              ))}
+            </ul>
+          )}
+        </>
+      ),
+    worktrees:
+      worktrees.length === 0 && !scanning ? (
+        <p className="ns-hint">
+          No leftovers — every stale worktree belongs to a stale session, or is still in use.
+        </p>
+      ) : (
+        <>
+          <p className="ns-hint">
+            Checkouts no stale session claims, including ones Cockpit never cut — a session’s
+            own worktree goes with it, under Sessions. Removing one keeps its branch unless git
+            reports it as fully merged.
+          </p>
+          <FilterBar
+            groups={treeGroups}
+            defaultPinned={['origin', 'state']}
+            search={{
+              value: wq,
+              onChange: setWq,
+              label: 'Filter worktrees',
+              placeholder: 'Filter by project, branch or path…'
+            }}
+          />
+
+          <GroupHead
+            picks={wPicks}
+            label="worktrees"
+            summary={
+              wPicked.size > 0 ? (
+                <>
+                  <strong>{wPicked.size}</strong> selected · {fmtBytes(treeGain)}
+                  {hiddenTrees > 0 && <span className="cl-hidden"> · {hiddenTrees} not shown</span>}
+                </>
+              ) : (
+                <>
+                  {shownWorktrees.length} shown
+                  {shownWorktrees.length !== worktrees.length && ` of ${worktrees.length}`}
+                </>
+              )
+            }
+          >
+            <ArmedAction
+              id="worktrees"
+              armed={armed.armed}
+              disabled={working || wPicked.size === 0}
+              labels={[
+                wPicked.size > 0 ? `Remove ${wPicked.size}…` : 'Remove…',
+                `Remove ${wPicked.size} worktree${wPicked.size === 1 ? '' : 's'}?`,
+                'Runs git worktree remove on each — the directory goes, the branch stays unless git says it is fully merged.'
+              ]}
+              confirm={{
+                arm: armed.arm,
+                disarm: armed.disarm,
+                commit: () => void run('Removed', () => api.removeWorktrees([...wPicked]))
+              }}
+            />
+          </GroupHead>
+
+          {shownWorktrees.length === 0 ? (
+            <p className="ns-hint cl-empty">
+              {scanning ? 'Still asking git in every repository…' : 'No worktrees match this filter.'}
+            </p>
+          ) : (
+            <ul className="source-list cl-list">
+              {shownWorktrees.map((w, i) => (
+                <WorktreeRow
+                  key={w.path}
+                  w={w}
+                  now={now}
+                  picked={wPicked.has(w.path)}
+                  onPick={(on, range) => wPicks.toggle(i, on, range)}
+                />
+              ))}
+            </ul>
+          )}
+        </>
+      )
+  }
 
   return (
     <main className="chat settings-view">
@@ -939,20 +1261,8 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             Close
           </button>
         </div>
-        {/* four lists on one page: the row is the map, and the counts are the reason
-            to use it. A jump row, not tabs — nothing is hidden behind it */}
-        <nav className="pnl-tabs ns-jumps" aria-label="Sections">
-          {CLEANUP_SECTIONS.map((s) => (
-            <button key={s.id} className="pnl-pill" onClick={() => jump(s.id)}>
-              {s.label}
-              {counts[s.id] > 0 && <span className="pnl-pill-n">{counts[s.id]}</span>}
-            </button>
-          ))}
-        </nav>
         <p className="ns-hint">
-          What has gone quiet, across every agent and every repository. Deleting a session takes
-          the worktree it ran in with it, and the branch when git reports that branch as fully
-          merged. Archiving only hides a session in Cockpit — it frees nothing.
+          What has gone quiet, across every agent and every repository, and what can safely go.
         </p>
 
         <div className="ns-options">
@@ -998,319 +1308,22 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           )}
         </p>
 
-        <h3 className="ns-label" ref={heading('sessions')} tabIndex={-1}>Stale sessions</h3>
-        {sessions.length === 0 && !scanning ? (
-          <p className="ns-hint">Nothing idle that long — every session is still recent.</p>
-        ) : (
-          <>
-            <FilterBar
-              groups={sessionGroups}
-              defaultPinned={['agent', 'project']}
-              search={{
-                value: sq,
-                onChange: setSq,
-                label: 'Filter sessions',
-                placeholder: 'Filter by title, project or path…'
-              }}
-            />
-
-            <GroupHead
-              picks={sPicks}
-              label="stale sessions"
-              summary={
-                sPicked.size > 0 ? (
-                  <>
-                    <strong>{sPicked.size}</strong> selected · {fmtBytes(gain.bytes)}
-                    {gain.trees > 0 && ` · ${gain.trees} worktree${gain.trees === 1 ? '' : 's'}`}
-                    {hiddenSessions > 0 && (
-                      <span className="cl-hidden"> · {hiddenSessions} not shown</span>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {shownSessions.length} shown
-                    {shownSessions.length !== sessions.length && ` of ${sessions.length}`}
-                  </>
-                )
-              }
-            >
-              <button
-                className="btn-ghost"
-                disabled={working || sPicked.size === 0}
-                title="Hides them in Cockpit. Nothing on disk is touched."
-                onClick={() => void run('Archived', () => api.archiveSessions([...sPicked]))}
-              >
-                Archive{sPicked.size > 0 ? ` ${sPicked.size}` : ''}
-              </button>
-              <ArmedAction
-                id="sessions"
-                armed={armed.armed}
-                disabled={working || sPicked.size === 0}
-                labels={[
-                  sPicked.size > 0 ? `Delete ${sPicked.size}…` : 'Delete…',
-                  `Delete ${sPicked.size} for good?`,
-                  "Deletes the agents' own log files, the worktrees these sessions ran in, and any branch git reports as fully merged. This cannot be undone."
-                ]}
-                confirm={{
-                  arm: armed.arm,
-                  disarm: armed.disarm,
-                  commit: () => void run('Deleted', () => api.deleteSessions([...sPicked]))
-                }}
-              />
-            </GroupHead>
-
-            {shownSessions.length === 0 ? (
-              <p className="ns-hint cl-empty">
-                {scanning ? 'Still reading every source…' : 'No sessions match this filter.'}
-              </p>
-            ) : (
-              <ul className="source-list cl-list">
-                {shownSessions.map((s, i) => (
-                  <SessionRow
-                    key={s.id}
-                    s={s}
-                    now={now}
-                    picked={sPicked.has(s.id)}
-                    onPick={(on, range) => sPicks.toggle(i, on, range)}
-                  />
-                ))}
-              </ul>
-            )}
-            {truncated && (
-              <p className="ns-hint">
-                Showing the {sessions.length} oldest of {report?.staleSessionCount} — clean these,
-                then rescan for the rest.
-              </p>
-            )}
-          </>
-        )}
-
-        <h3 className="ns-label" ref={heading('processes')} tabIndex={-1}>Processes left in old worktrees</h3>
-        {processes.length === 0 && !scanning ? (
-          <p className="ns-hint">
-            Nothing left running — no process is still working in a stale or removed worktree.
-          </p>
-        ) : (
-          <>
-            <p className="ns-hint">
-              Dev servers, watchers and shells still running in a worktree that has gone stale, or
-              in one already removed from under them. A worktree stays unremovable while one runs
-              inside it.
-            </p>
-            <GroupHead
-              picks={pPicks}
-              label="processes"
-              summary={
-                pPicked.size > 0 ? (
-                  <>
-                    <strong>{pPicked.size}</strong> selected
-                  </>
-                ) : (
-                  <>{processes.length} shown</>
-                )
-              }
-            >
-              <ArmedAction
-                id="processes"
-                armed={armed.armed}
-                disabled={working || pPicked.size === 0}
-                labels={[
-                  pPicked.size > 0 ? `Stop ${pPicked.size}…` : 'Stop…',
-                  `Stop ${pPicked.size} process${pPicked.size === 1 ? '' : 'es'}?`,
-                  'Sends SIGTERM to each, asking it to exit. Anything unsaved inside those processes is lost; one that ignores the signal is reported, never killed.'
-                ]}
-                confirm={{
-                  arm: armed.arm,
-                  disarm: armed.disarm,
-                  commit: () =>
-                    void run('Stopped', () =>
-                      api.stopProcesses(
-                        processes
-                          .filter((p) => pPicked.has(processKey(p)))
-                          .map(({ pid, command, startedAt }) => ({ pid, command, startedAt }))
-                      )
-                    )
-                }}
-              />
-            </GroupHead>
-            <ul className="source-list cl-list">
-              {processGroups.map((group) => (
-                <ProcessGroup key={group[0].worktreePath} procs={group}>
-                  {group.map((p) => {
-                    const i = processes.indexOf(p)
-                    return (
-                      <ProcessRow
-                        key={p.pid}
-                        p={p}
-                        now={now}
-                        picked={pPicked.has(processKey(p))}
-                        onPick={(on, range) => pPicks.toggle(i, on, range)}
-                      />
-                    )
-                  })}
-                </ProcessGroup>
-              ))}
-            </ul>
-          </>
-        )}
-
-        <h3 className="ns-label" ref={heading('tables')} tabIndex={-1}>Roundtables</h3>
-        {tables.length === 0 && !scanning ? (
-          <p className="ns-hint">
-            No table archived, and none gone quiet that long — every roundtable is recent.
-          </p>
-        ) : (
-          <>
-            <p className="ns-hint">
-              Tables nobody has spoken to in a while, plus every table you archived — that is
-              already a decision, so it needs no waiting. Deleting one takes the seat sessions
-              that ran inside it and the room it ran in — its worktree and, when git reports the
-              branch fully merged, that too.
-            </p>
-            <FilterBar
-              groups={tableGroups}
-              defaultPinned={['agent', 'state']}
-              search={{
-                value: tq,
-                onChange: setTq,
-                label: 'Filter roundtables',
-                placeholder: 'Filter by topic, project or path…'
-              }}
-            />
-
-            <GroupHead
-              picks={tPicks}
-              label="roundtables"
-              summary={
-                tPicked.size > 0 ? (
-                  <>
-                    <strong>{tPicked.size}</strong> selected · {fmtBytes(tableGain)}
-                    {hiddenTables > 0 && (
-                      <span className="cl-hidden"> · {hiddenTables} not shown</span>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {shownTables.length} shown
-                    {shownTables.length !== tables.length && ` of ${tables.length}`}
-                  </>
-                )
-              }
-            >
-              <ArmedAction
-                id="tables"
-                armed={armed.armed}
-                disabled={working || tPicked.size === 0}
-                labels={[
-                  tPicked.size > 0 ? `Delete ${tPicked.size}…` : 'Delete…',
-                  `Delete ${tPicked.size} roundtable${tPicked.size === 1 ? '' : 's'}?`,
-                  'Takes each table, its seat sessions and the directory it ran in. This cannot be undone.'
-                ]}
-                confirm={{
-                  arm: armed.arm,
-                  disarm: armed.disarm,
-                  commit: () => void run('Deleted', () => api.deleteRoundtables([...tPicked]))
-                }}
-              />
-            </GroupHead>
-
-            {shownTables.length === 0 ? (
-              <p className="ns-hint cl-empty">
-                {scanning ? 'Still reading every table…' : 'No roundtables match this filter.'}
-              </p>
-            ) : (
-              <ul className="source-list cl-list">
-                {shownTables.map((t, i) => (
-                  <TableRow
-                    key={t.id}
-                    t={t}
-                    now={now}
-                    picked={tPicked.has(t.id)}
-                    onPick={(on, range) => tPicks.toggle(i, on, range)}
-                  />
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-
-        <h3 className="ns-label" ref={heading('worktrees')} tabIndex={-1}>Worktrees with no session</h3>
-        {worktrees.length === 0 && !scanning ? (
-          <p className="ns-hint">
-            No leftovers — every stale worktree belongs to a session above, or is still in use.
-          </p>
-        ) : (
-          <>
-            <p className="ns-hint">
-              Checkouts nothing in the list above claims, including ones Cockpit never cut.
-              Removing one keeps its branch unless git reports it as fully merged.
-            </p>
-            <FilterBar
-              groups={treeGroups}
-              defaultPinned={['origin', 'state']}
-              search={{
-                value: wq,
-                onChange: setWq,
-                label: 'Filter worktrees',
-                placeholder: 'Filter by project, branch or path…'
-              }}
-            />
-
-            <GroupHead
-              picks={wPicks}
-              label="worktrees"
-              summary={
-                wPicked.size > 0 ? (
-                  <>
-                    <strong>{wPicked.size}</strong> selected · {fmtBytes(treeGain)}
-                    {hiddenTrees > 0 && (
-                      <span className="cl-hidden"> · {hiddenTrees} not shown</span>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {shownWorktrees.length} shown
-                    {shownWorktrees.length !== worktrees.length && ` of ${worktrees.length}`}
-                  </>
-                )
-              }
-            >
-              <ArmedAction
-                id="worktrees"
-                armed={armed.armed}
-                disabled={working || wPicked.size === 0}
-                labels={[
-                  wPicked.size > 0 ? `Remove ${wPicked.size}…` : 'Remove…',
-                  `Remove ${wPicked.size} worktree${wPicked.size === 1 ? '' : 's'}?`,
-                  'Runs git worktree remove on each — the directory goes, the branch stays unless git says it is fully merged.'
-                ]}
-                confirm={{
-                  arm: armed.arm,
-                  disarm: armed.disarm,
-                  commit: () => void run('Removed', () => api.removeWorktrees([...wPicked]))
-                }}
-              />
-            </GroupHead>
-
-            {shownWorktrees.length === 0 ? (
-              <p className="ns-hint cl-empty">
-                {scanning ? 'Still asking git in every repository…' : 'No worktrees match this filter.'}
-              </p>
-            ) : (
-              <ul className="source-list cl-list">
-                {shownWorktrees.map((w, i) => (
-                  <WorktreeRow
-                    key={w.path}
-                    w={w}
-                    now={now}
-                    picked={wPicked.has(w.path)}
-                    onPick={(on, range) => wPicks.toggle(i, on, range)}
-                  />
-                ))}
-              </ul>
-            )}
-          </>
-        )}
+        {/* the threshold and the scan above govern every list, so they sit over the
+            tabs; each list is its own page under them, never a heading further down */}
+        <TabList
+          id="cleanup"
+          label="Cleanup sections"
+          tabs={CLEANUP_SECTIONS.map((s) => ({ ...s, count: counts[s.id] }))}
+          selected={current}
+          onSelect={(t) => {
+            // an armed Delete is a question about the list on screen — leaving it is "no"
+            armed.disarm()
+            setTab(t)
+          }}
+        />
+        <TabPanel id="cleanup" selected={current}>
+          {panels[current]}
+        </TabPanel>
 
         {error && (
           <div role="alert" className="new-error">

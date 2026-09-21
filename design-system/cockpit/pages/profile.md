@@ -19,12 +19,21 @@ in `src/main/profile.ts` from logs already on disk.
 
 ## Layout
 
-Reuses the standard secondary-view shell (`.chat.settings-view` > `.ns-card.wide`), same as
-Settings and AI Setup: `.ns-head` (h2 + Close), then sections led by `.ns-label`.
+Reuses the standard secondary-view shell (`.chat.settings-view` > `.ns-card`), same as
+Settings, Agents and Cleanup: `.ns-head` (h2 + Close), the identity line and `.pv-stats`
+(the headline every tab keeps), then the card tabs (`tablist` "Profile sections") over
+one panel. Seven sections in one scroll was a readout nobody could take in at once.
 
-Order is fixed — identity line → `.pv-stats` → Activity → Rhythm → Agents → Models →
-Accounts → Languages → Top repos. Each section is dropped entirely when it has no data;
-only the identity line and `.pv-stats` are unconditional.
+Tabs and order are fixed:
+
+- **Activity** — By day (the heatmap + legend) → By hour (rhythm): *when* you work.
+- **Agents** — By agent (the agent rows) → Models → Accounts: *who* did it, on what, as whom.
+- **Code** — Languages → Top repos: *what* it touched.
+
+The tab is the panel's name, so no group heading repeats it ("Activity" under Activity
+read as noise — hence By day / By hour / By agent). Each group is dropped entirely when it
+has no data, and a tab left with none (Code, with no languages and no repos) is dropped
+with it; the identity line and `.pv-stats` are unconditional.
 
 ## The heatmap (`.pv-heat`)
 
@@ -74,7 +83,7 @@ One row per config home that produced sessions: provider logo, identity as the s
 error), source label, session count pill. This is the "which users" answer for a local app:
 signed-in identities per config home, meaningful once a second account is added.
 
-## Rhythm (`.pv-rhythm`)
+## By hour — rhythm (`.pv-rhythm`)
 
 Sessions started per local hour, 24 accent bars on a `--surface` strip with mono axis marks
 (00/06/12/18/23). A quiet instrument readout, not a chart — no gridlines, no y-axis; the
@@ -87,7 +96,7 @@ Line counts come from each agent's own edit-tool inputs. They measure **edits pe
 diff that survived to a commit: rewriting a file twice counts twice, and nothing is reconciled
 against git. The standing hint under **Agents** says exactly this and must stay. Label these
 numbers "lines edited" — never "lines shipped", "lines of code", or anything implying merged
-work.
+work. (The group is headed **By agent** on the Agents tab.)
 
 The profile deliberately covers **all** history, ignoring the `historyDays` display window
 that trims the sidebar tree. A profile's job is the long view; that setting exists to keep the

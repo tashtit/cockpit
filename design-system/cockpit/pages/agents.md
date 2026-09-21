@@ -28,10 +28,13 @@ historical `AiSetup.tsx` name.
 
 **One row is one object, and everything about that object lives in its row** — where it
 runs, what each agent is actually running, whether the server answers, how to remove it.
-There are no tabs: MCP health is a block in a server's own row, and the instructions
-editor is what the Instructions *section* shows. Sections (`.pnl-pill`) are the only
-navigation, in the app's placard voice, carrying their own counts and an amber dot when
-that section holds a disagreement.
+There is no second tab bar: MCP health is a block in a server's own row, and the
+instructions editor is what the Instructions *section* shows. The sections are the only
+navigation — the shared card tabs (`TabList`/`TabPanel`, `tablist` "Agents sections",
+see MASTER), in the app's placard voice, carrying their own counts and an amber dot when
+that section holds a disagreement. A section whose tab has gone — Needs you once the last
+drift is settled, Removed once the last entry is back — falls through to where the panel
+would open, so the panel is never named by a tab that is not there.
 
 - **The panel lands on "Needs you"** — every drifted row across all sections — whenever
   there is one, and on the first section otherwise. **Instructions always has a section**
@@ -43,8 +46,8 @@ that section holds a disagreement.
   ends "Click an agent to switch it on or off there." — the chips are self-labelling but
   not self-explaining, and a first visit has no other legend. Needs you says what it
   holds and what to do ("Open a row to settle it"). A pill's count is left off at zero:
-  "Instructions 0" as the only pill on a first run reads like a fault. Arrow keys walk
-  the pills.
+  "Instructions 0" as the only pill on a first run reads like a fault. The row is one
+  tab stop; arrow keys walk the pills and Home/End jump to the ends.
 - **The agent chip (`.ag-chip`) is the signature**: the app's own identity colours doing
   the labelling. Each control says its own agent's name, so the list needs no column
   header, no lane, and no legend — "who runs this" reads as three brand-coloured tokens.

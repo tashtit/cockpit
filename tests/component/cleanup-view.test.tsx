@@ -132,6 +132,11 @@ const summary = (n = 0): string =>
 /** Same for the row's "takes its worktree · 400 MB" chip. */
 const carryText = (): string => document.querySelector('.cl-carry')?.textContent ?? ''
 
+/** Each list is its own tab: open the one a test reads. A tab's name carries its count. */
+const openTab = async (name: string): Promise<void> => {
+  await userEvent.click(await screen.findByRole('tab', { name: new RegExp(`^${name}`) }))
+}
+
 const picks = (): HTMLElement[] =>
   screen
     .getAllByRole('checkbox')
@@ -166,6 +171,7 @@ describe('CleanupView — what it shows', () => {
     const cwd = screen.getByTitle('/Users/dev/code/cockpit')
     expect(cwd).toHaveTextContent('~/code/cockpit')
     expect(cwd.textContent).not.toContain('/Users')
+    await openTab('Worktrees')
     const wt = screen.getByTitle('/Users/dev/Library/Application Support/cockpit/worktrees/a')
     expect(wt).toHaveTextContent('~/Library/Application Support/cockpit/worktrees/a')
   })
@@ -184,12 +190,14 @@ describe('CleanupView — what it shows', () => {
 
   it('marks a worktree Cockpit never created as external', async () => {
     mount(report({ worktrees: [worktree({ origin: 'external', path: '/repos/x/.claude/wt' })] }))
+    await openTab('Worktrees')
     expect(await screen.findByText('external')).toBeInTheDocument()
   })
 
   it('says so when there is nothing to clean', async () => {
     mount(report({ sessions: [], worktrees: [], staleSessionCount: 0, staleWorktreeCount: 0 }))
     expect(await screen.findByText(/every session is still recent/)).toBeInTheDocument()
+    await openTab('Worktrees')
     expect(screen.getByText(/No leftovers/)).toBeInTheDocument()
   })
 
@@ -286,6 +294,7 @@ describe('CleanupView — selection', () => {
 
   it('never lets a blocked row be selected, and says why', async () => {
     mount(report({ worktrees: [worktree({ blocks: ['dirty'] })] }))
+    await openTab('Worktrees')
     const pick = await screen.findByLabelText(
       'Select worktree /userData/worktrees/cockpit/orphan'
     )
@@ -432,14 +441,15 @@ describe('CleanupView — filtering', () => {
         ]
       })
     )
+    await openTab('Worktrees')
     await openPill(user, /^Origin Any/)
     await user.click(screen.getByRole('button', { name: 'External' }))
     await user.keyboard('{Escape}')
-    expect(summary(1)).toMatch(/2 shown of 3/)
+    expect(summary()).toMatch(/2 shown of 3/)
     await openPill(user, /^State Any/)
     await user.click(screen.getByRole('button', { name: 'Removable' }))
     await user.keyboard('{Escape}')
-    expect(summary(1)).toMatch(/1 shown of 3/)
+    expect(summary()).toMatch(/1 shown of 3/)
   })
 
   it('only offers dimension values the rows actually carry', async () => {
@@ -455,8 +465,12 @@ describe('CleanupView — filtering', () => {
     vi.mocked(window.cockpit.scanCleanup).mockReturnValue(new Promise(() => {}))
     render(<CleanupView onClose={() => {}} />)
     expect(await screen.findByText('Still reading every source…')).toBeInTheDocument()
-    expect(screen.getByText('Still asking git in every repository…')).toBeInTheDocument()
     expect(screen.queryByText('No sessions match this filter.')).not.toBeInTheDocument()
+    await openTab('Worktrees')
+    expect(screen.getByText('Still asking git in every repository…')).toBeInTheDocument()
+    await openTab('Processes')
+    expect(screen.getByText('Still looking for processes in old worktrees…')).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing left running/)).not.toBeInTheDocument()
   })
 
   it('says when a filter matches nothing', async () => {
@@ -488,22 +502,93 @@ describe('CleanupView — acting', () => {
     await waitFor(() => expect(window.cockpit.archiveSessions).toHaveBeenCalledWith(['claude:one']))
   })
 
-  it('maps its sections in a jump row, with the counts as the reason to use it', async () => {
-    const user = userEvent.setup()
+  it('pages its lists in tabs, with the counts as the reason to open one', async () => {
+    // the bug the tabs replaced: a jump row scrolled a heading further down the card to
+    // the top, taking the title, the row and Close off screen with it
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView')
     mount(report({ sessions: [session(), session({ id: 'claude:two' })], tables: [table()] }))
 
-    const nav = await screen.findByRole('navigation', { name: 'Sections' })
-    expect(nav).toHaveTextContent('Sessions2')
-    expect(nav).toHaveTextContent('Roundtables1')
-    // nothing is hidden behind it: the heading it lands on is already on the page
-    const heading = screen.getByRole('heading', { name: 'Roundtables' })
-    await user.click(within(nav).getByRole('button', { name: /Roundtables/ }))
-    expect(heading).toHaveFocus()
+    const tabs = await screen.findByRole('tablist', { name: 'Cleanup sections' })
+    await screen.findByText(/312 sessions/)
+    expect(within(tabs).getByRole('tab', { name: /^Sessions/ })).toHaveTextContent('Sessions2')
+    expect(within(tabs).getByRole('tab', { name: /^Roundtables/ })).toHaveTextContent('Roundtables1')
+    // a list with nothing in it carries no count — "Processes 0" reads as a fault
+    expect(within(tabs).getByRole('tab', { name: /^Processes/ })).toHaveTextContent(/^Processes$/)
+
+    // one list is one page: only the open tab's panel exists
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
+    expect(screen.getAllByLabelText('Select session Refactor the parser')).toHaveLength(2)
+    await openTab('Roundtables')
+    expect(screen.getByRole('tab', { name: /^Roundtables/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByLabelText('Select roundtable adopt biome?')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Select session Refactor the parser')).toBeNull()
+    // and the head stays where it was
+    expect(screen.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
+    expect(scrolled).not.toHaveBeenCalled()
+    scrolled.mockRestore()
+  })
+
+  it('moves between tabs with the arrow keys, as one tab stop', async () => {
+    const user = userEvent.setup()
+    mount()
+    const first = await screen.findByRole('tab', { name: /^Sessions/ })
+    expect(first).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('tab', { name: /^Worktrees/ })).toHaveAttribute('tabindex', '-1')
+    first.focus()
+    await user.keyboard('{End}')
+    expect(screen.getByRole('tab', { name: /^Worktrees/ })).toHaveAttribute('aria-selected', 'true')
+    await user.keyboard('{ArrowRight}')
+    expect(first).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('gives each list its own filter bar, never the last tab’s', async () => {
+    // the lists are built alike, so without a fresh mount per tab the worktrees bar was
+    // reconciled from the sessions one and wore its pins
+    mount()
+    await screen.findByRole('button', { name: /^Agent Any/ })
+    await openTab('Worktrees')
+    expect(screen.getByRole('button', { name: /^Origin Any/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Agent/ })).toBeNull()
+  })
+
+  it('opens on the first tab that holds anything', async () => {
+    mount(report({ sessions: [], staleSessionCount: 0, worktrees: [worktree()] }))
+    expect(await screen.findByRole('tab', { name: /^Worktrees/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    expect(
+      await screen.findByLabelText('Select worktree /userData/worktrees/cockpit/orphan')
+    ).toBeInTheDocument()
+  })
+
+  it('keeps a tab picked while the scan was still walking', async () => {
+    let land: (r: CleanupReport) => void = () => {}
+    vi.mocked(window.cockpit.scanCleanup).mockReturnValue(new Promise((ok) => (land = ok)))
+    render(<CleanupView onClose={() => {}} />)
+    await openTab('Worktrees')
+    land(report())
+    expect(await screen.findByText(/312 sessions/)).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /^Worktrees/ })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('disarms a Delete when you leave its tab', async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(await screen.findByLabelText('Select session Refactor the parser'))
+    await user.click(screen.getByRole('button', { name: 'Delete 1…' }))
+    expect(screen.getByRole('button', { name: 'Delete 1 for good?' })).toBeInTheDocument()
+    await openTab('Worktrees')
+    await openTab('Sessions')
+    // the selection is still there; the question it was asking is not
+    expect(screen.getByRole('button', { name: 'Delete 1…' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete 1 for good?' })).toBeNull()
   })
 
   it('deletes a roundtable behind an arm, saying what leaves with it', async () => {
     const user = userEvent.setup()
     mount(report({ tables: [table({ seatCount: 3 })] }))
+    await openTab('Roundtables')
 
     // the row says what the deletion carries — the table is the unit
     const row = await screen.findByLabelText('Select roundtable adopt biome?')
@@ -518,12 +603,14 @@ describe('CleanupView — acting', () => {
 
   it('shows a table with nothing to free as —, never 0 B', async () => {
     mount(report({ tables: [table({ bytes: 0 })] }))
+    await openTab('Roundtables')
     const row = (await screen.findByLabelText('Select roundtable adopt biome?')).closest('li')!
     expect(row.querySelector('.cl-size')?.textContent).toBe('—')
   })
 
   it('never offers a table that is mid-round', async () => {
     mount(report({ tables: [table({ blocks: ['busy'] })] }))
+    await openTab('Roundtables')
     expect(await screen.findByLabelText('Select roundtable adopt biome?')).toBeDisabled()
     expect(screen.getByText('an agent is running')).toBeInTheDocument()
   })
@@ -546,6 +633,7 @@ describe('CleanupView — acting', () => {
       freedBytes: 0,
       failed: [{ target: '/userData/worktrees/cockpit/orphan', reason: 'it has uncommitted changes' }]
     })
+    await openTab('Worktrees')
     await user.click(
       await screen.findByLabelText('Select worktree /userData/worktrees/cockpit/orphan')
     )
@@ -558,11 +646,13 @@ describe('CleanupView — acting', () => {
 describe('CleanupView — processes left in old worktrees', () => {
   it('says so in a sentence when nothing is left running', async () => {
     mount()
+    await openTab('Processes')
     expect(await screen.findByText(/Nothing left running/)).toBeInTheDocument()
   })
 
   it('lists a left-behind process by name, with how long it has run', async () => {
     mount(report({ processes: [orphan({ worktreeGone: true })] }))
+    await openTab('Processes')
     expect(await screen.findByText('node')).toBeInTheDocument()
     expect(screen.getByText('running 3d')).toBeInTheDocument()
     expect(screen.getByText('worktree removed')).toBeInTheDocument()
@@ -572,6 +662,7 @@ describe('CleanupView — processes left in old worktrees', () => {
   it('stops the picked processes only after arming', async () => {
     const user = userEvent.setup()
     mount(report({ processes: [orphan(), orphan({ pid: 7, command: 'zsh' })] }))
+    await openTab('Processes')
     await user.click(await screen.findByLabelText('Select process node (pid 4242)'))
     await user.click(screen.getByRole('button', { name: 'Stop 1…' }))
     expect(window.cockpit.stopProcesses).not.toHaveBeenCalled()
@@ -598,6 +689,7 @@ describe('CleanupView — processes left in old worktrees', () => {
         ]
       })
     )
+    await openTab('Processes')
     expect(await screen.findAllByText('/userData/worktrees/cockpit/old-ui')).toHaveLength(1)
     expect(screen.getAllByText('/wt/site/feat-x')).toHaveLength(1)
     expect(screen.getByText('node server.js')).toBeInTheDocument()
@@ -605,6 +697,7 @@ describe('CleanupView — processes left in old worktrees', () => {
 
   it('names the block on a worktree a process still runs in', async () => {
     mount(report({ worktrees: [worktree({ blocks: ['process'] })] }))
+    await openTab('Worktrees')
     expect(await screen.findByText('a process is running')).toBeInTheDocument()
     expect(
       screen.getByLabelText('Select worktree /userData/worktrees/cockpit/orphan')

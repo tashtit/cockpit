@@ -4,6 +4,8 @@ Agent work leaves residue. Every task cuts a worktree, every conversation leaves
 
 Open it from the trash icon in the sidebar rail, or with ⌘K → "Cleanup".
 
+The idle threshold and a one-line count of everything stale sit at the top. Under them, each list is its own tab — **Sessions**, **Processes**, **Roundtables** and **Worktrees** — and each tab shows how many rows it holds, so you can see where the work is without opening it. Picking a tab replaces the list below; nothing scrolls. The view opens on the first tab that has anything in it.
+
 ## What counts as stale
 
 One setting drives the whole view: the **idle threshold**, default **30 days**. Anything untouched for longer than that is listed; everything else is invisible here. The presets run 30 / 60 / 90 days, 6 months, and a year, and the choice is remembered.
@@ -14,7 +16,7 @@ The threshold has a hard floor of 7 days — short thresholds would sweep up wor
 Settings › View › History controls what the **sidebar** shows. Cleanup's threshold controls what this view offers to **delete**. They are independent on purpose.
 :::
 
-## Stale sessions
+## Sessions
 
 Every session from every agent, oldest first, with its size on disk. Two actions, two very different consequences:
 
@@ -32,13 +34,17 @@ Two rules keep that safe:
 - A worktree hosting **several** sessions only goes when *every* one of them is being deleted. The row marks these `shared ×3`, and the running total beside the button only counts a worktree once it is fully covered.
 - The blocks below still apply. A worktree with uncommitted work, a live agent, or your own main checkout is never attached to a session in the first place — deleting the session leaves it alone.
 
-## Processes left in old worktrees
+## Processes
 
 Dev servers, watchers and shells still running inside a stale worktree, or inside one already removed from under them (Cockpit's, Claude Code's `.claude/worktrees`, Codex's and Copilot's), grouped by the worktree they run in. **Stop** is armed like Delete and sends each one SIGTERM, never a kill — but only while the pid still names the same process, with the same command line and start time, as the scan showed; one that ignores the signal is reported as still running.
 
-## Worktrees with no session
+## Roundtables
 
-The leftovers: checkouts nothing in the list above claims. Cockpit asks **git itself** which worktrees each repository has, so this is not limited to the ones Cockpit created:
+Tables nobody has spoken to in a while, plus every table you archived — archiving one is already the decision, so it is listed at once. A table is one row: deleting it takes its seat sessions and the directory it ran in (its room, or its worktree and the branch when git reports it fully merged). A table mid-round is never selectable.
+
+## Worktrees
+
+The leftovers: checkouts no stale session claims — a session's own worktree is on its row under **Sessions**. Cockpit asks **git itself** which worktrees each repository has, so this is not limited to the ones Cockpit created:
 
 - **cockpit** — cut by Cockpit for a task, under the app's own data directory.
 - **external** — everything else: Claude Code's own `.claude/worktrees`, worktrees you made by hand, another tool's. Found, listed, and cleanable all the same.
@@ -55,7 +61,7 @@ Rows that can't be cleaned stay visible with the reason spelled out, and their c
 |---|---|
 | uncommitted changes | the work isn't saved anywhere else |
 | an agent is running | a live turn is using the directory |
-| a process is running | a dev server, watcher or shell still works in it — stop it above first |
+| a process is running | a dev server, watcher or shell still works in it — stop it on the **Processes** tab first |
 | the repo's own checkout | Cockpit never touches your main working copy |
 | a roundtable's room | it belongs to the table, not to one session |
 | locked | you ran `git worktree lock` on it |
@@ -64,11 +70,12 @@ A worktree whose directory is already gone shows as **directory gone** — clean
 
 ## Finding things
 
-Each list has a filter bar. Free text on the left searches titles, projects and paths; to its right sit **dimension pills** — one per axis, each summarising its own selection:
+Every list but Processes has a filter bar. Free text on the left searches titles, projects and paths; to its right sit **dimension pills** — one per axis, each summarising its own selection:
 
 | | |
 |---|---|
 | Sessions | Agent, Project, State (has a worktree, archived, blocked) |
+| Roundtables | Agent (any seat), Project, State (has a worktree, scratch room, archived, blocked) |
 | Worktrees | Origin, Project, State (removable, blocked, unpushed, directory gone) |
 
 Click a pill to open it, then click values to include them. Every option also carries a **⊘** on hover that *excludes* it instead — so "every project except docs" is one click. Within a dimension the values are OR-ed; across dimensions they are AND-ed. The pill tells you where it stands: `Any` → `web` → `not docs` → `2 selected, 1 excluded`.
@@ -79,7 +86,7 @@ Click a pill to open it, then click values to include them. Every option also ca
 
 - The checkbox in each group header selects **everything the current filter shows** — filter to one agent, select all, act. It skips blocked rows, so it can never arm something that would only be refused.
 - **Shift-click** a second row to select the whole range between it and the last one you touched. Shift also works from the keyboard.
-- Selections survive a filter change. If some of what you have selected is no longer on screen, the header says so (`3 not shown`) rather than acting on it silently.
+- Selections survive a filter change, and switching tabs. If some of what you have selected is no longer on screen, the header says so (`3 not shown`) rather than acting on it silently.
 - The header adds up what the selection actually frees, worktrees included: `12 selected · 840 MB · 3 worktrees`.
 
 ## Safety
