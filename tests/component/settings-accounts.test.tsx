@@ -181,6 +181,8 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
         path: '/opt/homebrew/Caskroom/claude-code/2.1.236/claude',
         install: 'brew-cask',
         latest: '2.1.278',
+        upstream: '2.1.278',
+        channel: 'Homebrew',
         updateAvailable: true,
         updateCommand: 'brew update && brew upgrade --cask claude-code'
       },
@@ -191,10 +193,23 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
         path: '/opt/homebrew/Caskroom/codex/0.155.1/bin/codex',
         install: 'brew-cask',
         latest: '0.155.1',
+        upstream: '0.155.1',
+        channel: 'Homebrew',
         updateAvailable: false,
         updateCommand: 'brew update && brew upgrade --cask codex'
       },
-      { provider: 'copilot', installed: false, version: null, path: null, install: null, latest: '1.0.87', updateAvailable: false, updateCommand: null }
+      {
+        provider: 'copilot',
+        installed: false,
+        version: null,
+        path: null,
+        install: null,
+        latest: '1.0.87',
+        upstream: '1.0.87',
+        channel: null,
+        updateAvailable: false,
+        updateCommand: null
+      }
     ])
     render(<Settings onClose={vi.fn()} />)
     expect(await screen.findByRole('heading', { name: 'Agent CLIs' })).toBeInTheDocument()
@@ -210,5 +225,28 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
 
     expect(within(screen.getByText('0.155.1').closest('li')!).getByText('up to date')).toBeInTheDocument()
     expect(screen.getByText('not installed')).toBeInTheDocument()
+  })
+
+  it('never offers an update its channel cannot deliver — it says the channel is behind', async () => {
+    // Homebrew has packaged 2.1.267 and that is installed; 2.1.278 exists on npm only
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+      {
+        provider: 'claude',
+        installed: true,
+        version: '2.1.267',
+        path: '/opt/homebrew/Caskroom/claude-code/2.1.267/claude',
+        install: 'brew-cask',
+        latest: '2.1.267',
+        upstream: '2.1.278',
+        channel: 'Homebrew',
+        updateAvailable: false,
+        updateCommand: 'brew update && brew upgrade --cask claude-code'
+      }
+    ])
+    render(<Settings onClose={vi.fn()} />)
+    const row = (await screen.findByText('2.1.267')).closest('li')!
+    expect(within(row).getByText('up to date')).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: 'Update…' })).not.toBeInTheDocument()
+    expect(within(row).getByText(/2\.1\.278 is out, but Homebrew hasn’t packaged it yet/)).toBeInTheDocument()
   })
 })

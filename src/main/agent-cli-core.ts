@@ -50,3 +50,23 @@ export function terminalScript(title: string, line: string): string {
     ''
   ].join('\n')
 }
+
+/**
+ * The version Homebrew has packaged, from `brew info --json=v2`. A cask states its
+ * `version`; a formula its stable one. Anything unreadable is null — "couldn't check",
+ * never "up to date".
+ */
+export function brewVersion(json: string): string | null {
+  try {
+    const d = JSON.parse(json) as {
+      casks?: Array<{ version?: unknown }>
+      formulae?: Array<{ versions?: { stable?: unknown } }>
+    }
+    const cask = d.casks?.[0]?.version
+    if (typeof cask === 'string') return cask
+    const formula = d.formulae?.[0]?.versions?.stable
+    return typeof formula === 'string' ? formula : null
+  } catch {
+    return null
+  }
+}

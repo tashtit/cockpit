@@ -552,8 +552,16 @@ export type CliStatus = {
   /** Where the command really lives (symlinks resolved), `~`-free absolute path */
   readonly path: string | null
   readonly install: CliInstall | null
-  /** Newest release upstream; null when the registry couldn't be reached */
+  /**
+   * The newest version this install can actually get — what Homebrew has packaged for
+   * a brew install, the newest release otherwise. null when it couldn't be read.
+   */
   readonly latest: string | null
+  /** The newest release anywhere. Ahead of `latest` while a channel lags behind it. */
+  readonly upstream: string | null
+  /** Where `latest` comes from, as the row says it: "Homebrew", "npm", … */
+  readonly channel: string | null
+  /** `latest` is newer than what is installed — the only case with something to run */
   readonly updateAvailable: boolean
   /** What Update runs in a terminal — shown before it is run */
   readonly updateCommand: string | null

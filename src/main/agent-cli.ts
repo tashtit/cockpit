@@ -2,16 +2,19 @@ import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CliStatus, Provider } from '../shared/types'
 import {
+  CHANNEL_LABEL,
   CLI_PACKAGE,
   compareVersions,
   installMethodOf,
   parseVersion,
   updateCommandFor
 } from '../shared/agent-cli'
+import { brewVersion } from './agent-cli-core'
 import { execText } from './env'
 
 const LATEST_TTL_MS = 60 * 60_000
 const latestCache = new Map<Provider, { at: number; version: string | null }>()
+const brewCache = new Map<string, { at: number; version: string | null }>()
 
 /**
  * The newest release of a CLI, from the npm registry — every one of the three
@@ -49,13 +52,43 @@ async function latestRelease(provider: Provider, force: boolean): Promise<string
   return version
 }
 
+/**
+ * What Homebrew has packaged for one CLI. A brew install can only ever get this — the
+ * newest release upstream is not an update it can run, which is why it is asked for
+ * separately rather than assumed from the registry.
+ */
+async function brewLatest(provider: Provider, cask: boolean, force: boolean): Promise<string | null> {
+  const token = CLI_PACKAGE[provider].brew
+  const key = `${token}|${cask ? 'cask' : 'formula'}`
+  const hit = brewCache.get(key)
+  if (!force && hit && Date.now() - hit.at < LATEST_TTL_MS) return hit.version
+  const r = await execText('brew', ['info', '--json=v2', cask ? '--cask' : '--formula', token], {
+    timeoutMs: 20_000
+  })
+  const version = r.ok ? parseVersion(brewVersion(r.stdout) ?? '') : null
+  brewCache.set(key, { at: Date.now(), version })
+  return version
+}
+
 /** One CLI as this Mac has it: where, which version, how installed, and whether it is behind. */
 export async function cliStatus(provider: Provider, opts: { readonly force?: boolean } = {}): Promise<CliStatus> {
   const found = await execText('/usr/bin/which', [provider], { timeoutMs: 5_000 })
   const bin = found.ok ? found.stdout.trim().split('\n')[0] : ''
-  const latest = await latestRelease(provider, opts.force === true)
+  const force = opts.force === true
+  const upstream = await latestRelease(provider, force)
   if (!bin) {
-    return { provider, installed: false, version: null, path: null, install: null, latest, updateAvailable: false, updateCommand: null }
+    return {
+      provider,
+      installed: false,
+      version: null,
+      path: null,
+      install: null,
+      latest: upstream,
+      upstream,
+      channel: null,
+      updateAvailable: false,
+      updateCommand: null
+    }
   }
   let real = bin
   try {
@@ -66,6 +99,11 @@ export async function cliStatus(provider: Provider, opts: { readonly force?: boo
   const out = await execText(provider, ['--version'], { timeoutMs: 10_000 })
   const version = parseVersion(`${out.stdout}\n${out.stderr}`)
   const install = installMethodOf(real)
+  // what this install can actually get: Homebrew packages releases on its own schedule,
+  // so comparing a brew install against the newest release would offer an update that
+  // `brew upgrade` cannot deliver. Copilot updates itself whatever installed it.
+  const viaBrew = (install === 'brew-cask' || install === 'brew-formula') && provider !== 'copilot'
+  const latest = viaBrew ? await brewLatest(provider, install === 'brew-cask', force) : upstream
   return {
     provider,
     installed: true,
@@ -73,6 +111,8 @@ export async function cliStatus(provider: Provider, opts: { readonly force?: boo
     path: real,
     install,
     latest,
+    upstream,
+    channel: viaBrew ? CHANNEL_LABEL[install] : provider === 'copilot' ? 'its own updater' : CHANNEL_LABEL[install],
     updateAvailable: version !== null && latest !== null && compareVersions(latest, version) > 0,
     updateCommand: updateCommandFor(provider, install)
   }

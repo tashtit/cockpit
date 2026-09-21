@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { compareVersions, installMethodOf, parseVersion, updateCommandFor } from '../src/shared/agent-cli'
-import { loginLine, shQuote, terminalScript } from '../src/main/agent-cli-core'
+import { brewVersion, loginLine, shQuote, terminalScript } from '../src/main/agent-cli-core'
 import { writeTerminalScript } from '../src/main/agent-cli'
 
 const dirs: string[] = []
@@ -39,6 +39,18 @@ describe('reading a CLI’s version and how it was installed', () => {
     expect(updateCommandFor('claude', 'native')).toBe('claude update')
     // its cask auto-updates; `brew upgrade` could roll a self-updated copilot back
     expect(updateCommandFor('copilot', 'brew-cask')).toBe('copilot update')
+  })
+})
+
+describe('what Homebrew has packaged', () => {
+  it('reads a cask’s version and a formula’s stable one', () => {
+    expect(brewVersion('{"casks":[{"version":"2.1.267"}]}')).toBe('2.1.267')
+    expect(brewVersion('{"formulae":[{"versions":{"stable":"2.101.0"}}]}')).toBe('2.101.0')
+  })
+
+  it('an unreadable answer is "couldn’t check", never "up to date"', () => {
+    expect(brewVersion('Error: No available cask')).toBeNull()
+    expect(brewVersion('{"casks":[]}')).toBeNull()
   })
 })
 

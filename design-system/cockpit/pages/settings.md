@@ -243,9 +243,13 @@ seventh.
   (`useWatchUntil`) — nothing to press when the person comes back.
 - **Agent CLIs** is its own group (`h3`) between the accounts and GitHub: one
   `.source-row.tint-{agent}` per CLI — name, version chip, "via Homebrew / npm / its own
-  installer", the real path (`shortPath`), and on the right *up to date*, *couldn't check
-  for updates*, *not installed*, or *x.y.z available* (`.source-warn`) with **Update…**
-  whose tooltip is the exact command. Updating opens Terminal the same way and the row
+  updater", the real path (`shortPath`), and on the right *up to date*, *couldn't check
+  <channel>*, *not installed*, or *x.y.z available* (`.source-warn`) with **Update…**
+  whose tooltip is the exact command. **A version is judged against the channel it can
+  update from**, never the newest release anywhere — a Homebrew install can only get
+  what Homebrew packaged, and offering more would be an Update that does nothing. When
+  the release is ahead of the channel, the row stays *up to date* and a `.source-note`
+  says so ("2.1.278 is out, but Homebrew hasn't packaged it yet"). Updating opens Terminal the same way and the row
   is watched until the version moves. The latest release is main's to fetch (npm
   registry, an hour's cache, fail soft); the ui-tour and e2e pin it with
   `COCKPIT_CLI_LATEST`, never the network.

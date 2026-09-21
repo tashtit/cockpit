@@ -11,6 +11,7 @@ import type {
   UsageTokens,
   UsageWindow
 } from '../../shared/types'
+import { compareVersions } from '../../shared/agent-cli'
 import { shortPath } from '../../shared/library'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
@@ -541,13 +542,6 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
     }
   }
 
-  const INSTALL_LABEL: Record<NonNullable<CliStatus['install']>, string> = {
-    'brew-cask': 'Homebrew',
-    'brew-formula': 'Homebrew',
-    npm: 'npm',
-    native: 'its own installer'
-  }
-
   return (
     <>
       <h3 className="ns-label">Agent CLIs</h3>
@@ -572,7 +566,7 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
                 <div className="source-label">
                   {PROVIDER_LABEL[c.provider]}
                   {c.version && <span className={`acct-chip acct-${c.provider}`}>{c.version}</span>}
-                  {c.install && <span className="source-origin">via {INSTALL_LABEL[c.install]}</span>}
+                  {c.channel && <span className="source-origin">via {c.channel}</span>}
                 </div>
                 {c.path && <div className="source-path" title={c.path}>{shortPath(c.path)}</div>}
                 {updating[c.provider] !== undefined && (
@@ -580,6 +574,18 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
                     Finish the update in the Terminal window — this row updates by itself.
                   </div>
                 )}
+                {/* a channel can lag the release: say so, rather than offer an update
+                    that `brew upgrade` can't deliver */}
+                {!c.updateAvailable &&
+                  c.installed &&
+                  c.upstream !== null &&
+                  c.version !== null &&
+                  compareVersions(c.upstream, c.version) > 0 && (
+                    <div className="source-note">
+                      {c.upstream} is out, but {c.channel} hasn’t packaged it yet — this is as new
+                      as {c.channel} goes.
+                    </div>
+                  )}
               </div>
               <div className="source-health">
                 {!c.installed ? (
@@ -596,7 +602,7 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
                     </button>
                   </>
                 ) : c.latest === null ? (
-                  <span>couldn’t check for updates</span>
+                  <span>couldn’t check {c.channel ?? 'for updates'}</span>
                 ) : (
                   <span>up to date</span>
                 )}

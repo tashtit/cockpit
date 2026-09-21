@@ -10,6 +10,14 @@ export const CLI_PACKAGE: Record<Provider, { readonly npm: string; readonly brew
   copilot: { npm: '@github/copilot', brew: 'copilot-cli' }
 }
 
+/** Where an install gets its updates from — what a version number is compared against. */
+export const CHANNEL_LABEL: Record<CliInstall, string> = {
+  'brew-cask': 'Homebrew',
+  'brew-formula': 'Homebrew',
+  npm: 'npm',
+  native: 'its own installer'
+}
+
 /** The first x.y.z in a `--version` line ("codex-cli 0.154.0", "2.1.236 (Claude Code)"). */
 export function parseVersion(text: string): string | null {
   return /\d+\.\d+\.\d+/.exec(text)?.[0] ?? null

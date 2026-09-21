@@ -45,4 +45,8 @@ Cockpit runs the agents' command-line tools. The Codex app and the `codex` CLI s
 
 ## Agent CLIs
 
-The **Agent CLIs** group lists each CLI Cockpit runs: the version installed, how it was installed (Homebrew, npm, or its own installer), where it lives, and whether a newer release is out — checked against each CLI's published releases when the tab opens (at most once an hour; **Check for updates** asks again). A CLI that is behind shows the new version and an **Update…** button, which opens Terminal on the command that fits how it was installed — `brew update && brew upgrade --cask claude-code`, `npm install -g @openai/codex@latest`, or `copilot update` (Copilot updates itself in place). Hover the button to see the command first. The row picks up the new version by itself once the update finishes.
+The **Agent CLIs** group lists each CLI Cockpit runs: the version installed, where it lives, and where it gets updates — "via Homebrew", "via npm", or "via its own updater". Checked when the tab opens, at most once an hour; **Check for updates** asks again.
+
+A CLI is compared against **the channel it can actually update from**, not against the newest release anywhere: a Homebrew install can only get what Homebrew has packaged. So the row offers an **Update…** only when that channel really has something newer, and hovering the button shows the exact command (`brew update && brew upgrade --cask claude-code`, `npm install -g @openai/codex@latest`, or `copilot update`, since Copilot updates itself in place). The row picks up the new version by itself once the update finishes.
+
+When a newer version exists that your channel hasn't packaged yet, the row says so — "2.1.278 is out, but Homebrew hasn't packaged it yet" — and stays **up to date**, because there is nothing to run. It will offer the update once the channel catches up.
