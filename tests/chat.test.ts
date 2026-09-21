@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { buildCommand, parseClaudeStreamLine, parseCodexStreamLine, promptWithImages } from '../src/main/chat'
+import {
+  buildCommand,
+  parseClaudeStreamLine,
+  parseCodexStreamLine,
+  promptWithImages,
+  withTurnFlags
+} from '../src/main/chat'
+import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
+import type { ChatRequest } from '../src/shared/types'
 
 describe('buildCommand', () => {
   it('claude new chat, auto-edit', () => {
@@ -222,5 +230,57 @@ describe('parseCodexStreamLine', () => {
     expect(edit).toMatchObject({ type: 'tool', toolName: 'edit', preview: 'src/a.ts, src/b.ts' })
     const [old] = parseCodexStreamLine('t', { msg: { type: 'exec_command_begin', command: ['bash', '-lc', 'npm test'] } })
     expect(old).toMatchObject({ type: 'tool', preview: 'npm test' })
+  })
+})
+
+describe('thinking level, speed and context', () => {
+  const req = (provider: ChatRequest['provider'], options: ChatRequest['options']): ChatRequest => ({
+    provider,
+    cwd: '/x',
+    prompt: 'hi',
+    permissionMode: 'safe',
+    options
+  })
+
+  it('claude takes --effort', () => {
+    const { args } = buildCommand(req('claude', { model: 'opus', effort: 'xhigh' }))
+    expect(args.slice(args.indexOf('--effort'), args.indexOf('--effort') + 2)).toEqual(['--effort', 'xhigh'])
+  })
+
+  it('codex takes both as config overrides — on exec and on exec resume', () => {
+    for (const resumeNativeId of [undefined, 'abc']) {
+      const { args } = buildCommand({ ...req('codex', { effort: 'ultra', fast: true }), resumeNativeId })
+      expect(args).toContain('model_reasoning_effort="ultra"')
+      expect(args).toContain('service_tier="priority"')
+    }
+  })
+
+  it('copilot takes --reasoning-effort and --context', () => {
+    const { args } = buildCommand(req('copilot', { model: 'gpt-5.6-sol', effort: 'minimal', longContext: true }))
+    expect(args).toEqual(expect.arrayContaining(['--model', 'gpt-5.6-sol', '--reasoning-effort', 'minimal', '--context', 'long_context']))
+  })
+
+  it('a level the CLI does not take never reaches its argv', () => {
+    // "ultra" is codex's word; claude has none such, and nothing flag-shaped passes
+    expect(buildCommand(req('claude', { effort: 'ultra' })).args).not.toContain('--effort')
+    expect(buildCommand(req('copilot', { effort: '--yolo' })).args).not.toContain('--reasoning-effort')
+    expect(buildCommand(req('codex', { effort: 'x"; rm' })).args.join(' ')).not.toContain('reasoning')
+  })
+
+  it('the built-in copilot ACP agent carries the turn’s flags; a user-defined one never does', () => {
+    const builtin = BUILTIN_ACP_AGENTS.find((a) => a.provider === 'copilot')!
+    const r = req('copilot', { model: 'gpt-5.6-sol', effort: 'high' })
+    expect(withTurnFlags(builtin, r)?.args).toEqual([
+      '--acp',
+      '--model',
+      'gpt-5.6-sol',
+      '--reasoning-effort',
+      'high'
+    ])
+    // the shared definition itself is untouched
+    expect(builtin.args).toEqual(['--acp'])
+    const custom = { id: 'mine', label: 'Mine', command: 'my-agent', args: ['--stdio'], provider: 'copilot' as const }
+    expect(withTurnFlags(custom, r)).toBe(custom)
+    expect(withTurnFlags(undefined, r)).toBeUndefined()
   })
 })

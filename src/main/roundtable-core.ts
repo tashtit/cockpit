@@ -1,11 +1,21 @@
 import type {
+  AgentOptions,
+  ModelEndpoint,
+  Mutable,
   Provider,
   Roundtable,
   RoundtableEntry,
   RoundtableParticipant,
   RoundtableSpeaker
 } from '../shared/types'
-import { entrySeatIndex, SEAT_NAME, seatDisplayName } from '../shared/roundtable'
+import {
+  entrySeatIndex,
+  sanitizeRoundtableLimits,
+  SEAT_NAME,
+  seatDisplayName
+} from '../shared/roundtable'
+import { endpointSupports, isValidModel } from '../shared/endpoints'
+import { EFFORT_LEVELS } from '../shared/agent-models'
 
 export { SEAT_NAME } from '../shared/roundtable'
 
@@ -230,6 +240,8 @@ export function sanitizeRoundtable(raw: unknown): Roundtable | null {
     permissionMode: 'safe',
     mode: r.mode === 'consensus' ? 'consensus' : 'open',
     maxRounds: clampRounds(r.maxRounds),
+    // tables from before per-table limits load with the defaults
+    limits: sanitizeRoundtableLimits(r.limits),
     roundsRun:
       typeof r.roundsRun === 'number' && Number.isInteger(r.roundsRun) && r.roundsRun >= 0
         ? r.roundsRun
@@ -243,4 +255,54 @@ export function sanitizeRoundtable(raw: unknown): Roundtable | null {
 /** Auto-round cap: bounded so a stuck table can never grind a subscription. */
 export function clampRounds(v: unknown): number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 8 ? v : 3
+}
+
+/**
+ * One seat's agent knobs, from renderer input. Each seat chooses its own — two Claude
+ * seats may sit on different backends — so every choice is judged per seat, and a bad
+ * one refuses the whole table at creation rather than failing that seat's first turn
+ * in front of the others. `endpoints` is the configured provider list, main-derived.
+ */
+export function seatOptions(
+  provider: Provider,
+  raw: {
+    readonly model?: unknown
+    readonly modelEndpoint?: unknown
+    readonly effort?: unknown
+    readonly fast?: unknown
+    readonly longContext?: unknown
+  },
+  endpoints: readonly ModelEndpoint[]
+): AgentOptions | undefined {
+  const model = typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : undefined
+  if (model && !isValidModel(model)) {
+    throw new Error(`"${model.slice(0, 80)}" is not a usable model name.`)
+  }
+  let effort: string | undefined
+  if (raw.effort !== undefined && raw.effort !== '') {
+    if (typeof raw.effort !== 'string' || !EFFORT_LEVELS[provider].includes(raw.effort)) {
+      throw new Error(`${SEAT_NAME[provider]} has no "${String(raw.effort).slice(0, 20)}" thinking level.`)
+    }
+    effort = raw.effort
+  }
+  // each knob exists for one CLI only — anywhere else it is dropped, not passed on
+  const knobs: Mutable<AgentOptions> = {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(provider === 'codex' && raw.fast === true ? { fast: true } : {}),
+    ...(provider === 'copilot' && raw.longContext === true ? { longContext: true } : {})
+  }
+  if (raw.modelEndpoint !== undefined && raw.modelEndpoint !== '') {
+    const ep = endpoints.find((e) => e.id === raw.modelEndpoint)
+    if (!ep) throw new Error('That model provider is no longer configured — re-add it in Settings.')
+    if (!endpointSupports(provider, ep)) {
+      throw new Error(`Provider "${ep.label}" (${ep.type}) can't run a ${SEAT_NAME[provider]} seat.`)
+    }
+    // copilot never learns a custom provider's catalog on its own
+    if (provider === 'copilot' && !model) {
+      throw new Error(`The Copilot seat on "${ep.label}" needs an explicit model.`)
+    }
+    knobs.modelEndpoint = ep.id
+  }
+  return Object.keys(knobs).length > 0 ? knobs : undefined
 }

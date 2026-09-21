@@ -18,6 +18,7 @@ import type {
   Roundtable,
   RoundtableEntry,
   RoundtableEvent,
+  RoundtableLimits,
   RoundtableMeta,
   RoundtableMode,
   RoundtableParticipant,
@@ -30,7 +31,12 @@ import {
   parseStance,
   sanitizeRoundtable
 } from './roundtable-core'
-import { entrySeatIndex } from '../shared/roundtable'
+import {
+  DEFAULT_ROUNDTABLE_LIMITS,
+  entrySeatIndex,
+  roundRefusal,
+  roundsAllowed
+} from '../shared/roundtable'
 import type { CleanupTable } from './cleanup'
 
 /** In-memory working copy — the round loop mutates it, persisting after every entry. */
@@ -51,6 +57,8 @@ export type NewTable = {
   /** 'consensus' = auto-rounds until every seat agrees, then a joint synthesis */
   readonly mode?: RoundtableMode
   readonly maxRounds?: number
+  /** Already sanitized by the caller; absent = the defaults */
+  readonly limits?: RoundtableLimits
 }
 
 /** Where the table runs: a main-derived worktree, or null for a scratch room. */
@@ -159,6 +167,12 @@ export class RoundtableManager {
     const tmp = join(this.dir, `${t.id}.json.tmp`)
     writeFileSync(tmp, JSON.stringify(t, null, 2))
     renameSync(tmp, join(this.dir, `${t.id}.json`))
+  }
+
+  /** A round the table cannot afford never starts — the user hears why, up front. */
+  private assertAffordable(t: Table): void {
+    const refusal = roundRefusal(t.limits, t)
+    if (refusal) throw new Error(refusal)
   }
 
   private mustGet(id: string): Table {
@@ -314,6 +328,7 @@ export class RoundtableManager {
       permissionMode: 'safe',
       mode: input.mode ?? 'open',
       maxRounds: clampRounds(input.maxRounds),
+      limits: input.limits ?? DEFAULT_ROUNDTABLE_LIMITS,
       roundsRun: 0,
       concluded: false,
       participants: input.seats.map((s) => ({ ...s, nativeSessionId: null, seenUpTo: 0 })),
@@ -333,6 +348,7 @@ export class RoundtableManager {
     if (this.rounds.has(id)) throw new Error('A round is already running — stop it first.')
     const msg = text.trim()
     if (!msg) throw new Error('Empty message.')
+    this.assertAffordable(t)
     // each user message opens a fresh consensus cycle — the cap counts from here
     t.roundsRun = 0
     t.concluded = false
@@ -350,9 +366,22 @@ export class RoundtableManager {
     const t = this.mustGet(id)
     if (this.rounds.has(id)) throw new Error('A round is already running — stop it first.')
     if (t.entries.length === 0) throw new Error('Nothing to continue yet.')
+    this.assertAffordable(t)
     // a manual round after a conclusion reopens the cycle for a fresh evaluation
     t.concluded = false
     this.startRound(t, false)
+  }
+
+  /**
+   * Change what a table may spend — how a table that hit its ceiling goes on. Takes
+   * effect at the next round; a round in flight keeps the ceilings it started under
+   * only in the sense that a consensus cycle re-reads them between rounds.
+   */
+  setLimits(id: string, limits: RoundtableLimits): RoundtableSnapshot {
+    const t = this.mustGet(id)
+    t.limits = limits
+    this.save(t)
+    return this.snapshot(t)
   }
 
   stop(id: string): void {
@@ -422,7 +451,11 @@ export class RoundtableManager {
       if (e.speaker !== 'user' && !e.error) stances.set(entrySeatIndex(t.participants, e), e.stance)
     }
     const allAgree = t.participants.every((_, i) => stances.get(i) === 'agree')
-    if (allAgree || t.roundsRun >= t.maxRounds) {
+    // the table's own cap, then the user's ceilings: a round it cannot afford closes
+    // the cycle exactly as the cap does — a split table is shown as split
+    const limits = t.limits
+    const rounds = Math.min(t.maxRounds, roundsAllowed(limits, t.participants.length))
+    if (allAgree || t.roundsRun >= rounds || roundRefusal(limits, t) !== null) {
       t.concluded = true
       this.save(t)
       this.endRound(t.id)
@@ -459,7 +492,8 @@ export class RoundtableManager {
     if (!this.launchTurn(t, round, seatIndex)) this.launchNext(t, round)
   }
 
-  /** Spawn one seat's turn. False when the seat no longer exists on the table. */
+  /** Spawn one seat's turn. False when nothing is in flight for it: the seat no longer
+   *  exists on the table, or its turn could not be started (recorded as its failure). */
   private launchTurn(t: Table, round: Round, seatIndex: number): boolean {
     const seat = t.participants[seatIndex]
     if (!seat) return false
@@ -487,7 +521,21 @@ export class RoundtableManager {
     }
     // send() returns synchronously; even its fast-fail events arrive via microtask,
     // so the routing entry below is always in place before the first event fires
-    const turnId = this.hooks.sendTurn(req)
+    let turnId: string
+    try {
+      turnId = this.hooks.sendTurn(req)
+    } catch (err) {
+      this.appendEntry(t, {
+        speaker,
+        seat: seatIndex,
+        text: err instanceof Error ? err.message : String(err),
+        at: Date.now(),
+        error: true
+      })
+      this.save(t)
+      this.hooks.emit({ id: t.id, type: 'turn-end', speaker, seat: seatIndex })
+      return false
+    }
     round.turns.set(turnId, {
       seatIndex,
       speaker,

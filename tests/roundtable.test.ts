@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RoundtableManager, type NewTable } from '../src/main/roundtable'
+import { DEFAULT_ROUNDTABLE_LIMITS } from '../src/shared/roundtable'
 import type { ChatRequest, RoundtableEvent } from '../src/shared/types'
 
 const dirs: string[] = []
@@ -69,6 +70,102 @@ function replayTurn(
 }
 
 describe('RoundtableManager', () => {
+  it('a consensus table stops at what one message may spend, not only at its own cap', () => {
+    // 2 seats, 4 turns a message: two rounds, though the table asked for five
+    const h = makeManager(newDir())
+    const snap = h.manager.create(
+      {
+        ...TWO_SEATS,
+        mode: 'consensus',
+        maxRounds: 5,
+        limits: { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerMessage: 4 }
+      },
+      null
+    )
+    for (let turn = 1; turn <= 4; turn++) {
+      replayTurn(h, h.turnIdOf(turn), { text: ['still thinking\nCONSENSUS: continue — not yet'] })
+    }
+    const after = h.manager.get(snap.id)
+    expect(h.sent).toHaveLength(4)
+    expect(after.running).toBe(false)
+    expect(after.concluded).toBe(true)
+    expect(after.roundsRun).toBe(2)
+  })
+
+  it('a table that has spent its turns refuses the next round, and says how to go on', () => {
+    const dir = newDir()
+    const h = makeManager(dir)
+    const snap = h.manager.create(
+      { ...TWO_SEATS, limits: { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerTable: 3 } },
+      null
+    )
+    replayTurn(h, h.turnIdOf(1), { text: ['one'] })
+    replayTurn(h, h.turnIdOf(2), { text: ['two'] })
+
+    expect(() => h.manager.sendMessage(snap.id, 'and?')).toThrow(/spent 2 of its 3 agent turns/)
+    expect(() => h.manager.continueRound(snap.id)).toThrow(/Raise the table’s limit/)
+    // nothing was recorded or launched for the refused message
+    expect(h.manager.get(snap.id).entries).toHaveLength(3)
+    expect(h.sent).toHaveLength(2)
+
+    // raising the table's own ceiling lets it go on — and the raise is persisted
+    const raised = h.manager.setLimits(snap.id, { ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerTable: 10 })
+    expect(raised.limits.maxTurnsPerTable).toBe(10)
+    const saved = JSON.parse(readFileSync(join(dir, `${snap.id}.json`), 'utf8'))
+    expect(saved.limits).toEqual({ ...DEFAULT_ROUNDTABLE_LIMITS, maxTurnsPerTable: 10 })
+    h.manager.sendMessage(snap.id, 'and?')
+    expect(h.sent).toHaveLength(4)
+  })
+
+  it('runs each seat on its own model and model provider', () => {
+    const h = makeManager(newDir())
+    h.manager.create(
+      {
+        topic: 'depth or speed?',
+        seats: [
+          { provider: 'claude', options: { model: 'opus', modelEndpoint: 'ep-a' } },
+          { provider: 'claude', options: { model: 'haiku' } },
+          { provider: 'codex', options: { model: 'gpt-5-codex' } }
+        ]
+      },
+      null
+    )
+    expect(h.sent.map((r) => r.options)).toEqual([
+      { model: 'opus', modelEndpoint: 'ep-a' },
+      { model: 'haiku' },
+      // codex keeps the table's read-only posture on top of the seat's own choice
+      { model: 'gpt-5-codex', codexSandbox: 'read-only', codexSkipGitCheck: true }
+    ])
+  })
+
+  it('a seat whose turn cannot start fails alone, and the round still closes', () => {
+    const dir = newDir()
+    const sent: ChatRequest[] = []
+    const events: RoundtableEvent[] = []
+    const manager = new RoundtableManager(dir, {
+      sendTurn: (req) => {
+        if (req.provider === 'copilot') throw new Error('copilot is not logged in as "ghost"')
+        sent.push(req)
+        return `turn-${sent.length}`
+      },
+      cancelTurn: () => {},
+      emit: (ev) => events.push(ev)
+    })
+    const snap = manager.create(
+      { topic: 't', seats: [{ provider: 'claude' }, { provider: 'copilot', copilotUser: 'ghost' }] },
+      null
+    )
+    // the copilot seat is on the record as failed, and is not shown as speaking
+    expect(snap.speaking).toEqual([0])
+    expect(snap.entries[1]).toMatchObject({ speaker: 'copilot', seat: 1, error: true })
+    expect(snap.entries[1].text).toContain('ghost')
+    expect(events).toContainEqual({ id: snap.id, type: 'turn-end', speaker: 'copilot', seat: 1 })
+
+    manager.handleChatEvent({ turnId: 'turn-1', type: 'text', text: 'my view' })
+    manager.handleChatEvent({ turnId: 'turn-1', type: 'done' })
+    expect(manager.get(snap.id).running).toBe(false)
+  })
+
   it('a user message opens a parallel wave: every seat launches at once, blind to the others', () => {
     const dir = newDir()
     const h = makeManager(dir)

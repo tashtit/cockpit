@@ -1,7 +1,15 @@
 import { vi } from 'vitest'
 import type { PanelReport } from '../../src/shared/library'
 import type { CockpitApi } from '../../src/shared/contract'
-import type { PrStatus, RoundtableSnapshot, UsageSnapshot } from '../../src/shared/types'
+import { DEFAULT_ROUNDTABLE_LIMITS } from '../../src/shared/roundtable'
+import { BUILTIN_MODELS } from '../../src/shared/agent-models'
+import type {
+  PrStatus,
+  Provider,
+  RoundtableLimits,
+  RoundtableSnapshot,
+  UsageSnapshot
+} from '../../src/shared/types'
 
 /** An empty scope; panel tests override getPanel with real rows. */
 const emptyPanel: PanelReport = {
@@ -27,6 +35,7 @@ export function emptyRoundtable(): RoundtableSnapshot {
     permissionMode: 'safe',
     mode: 'open',
     maxRounds: 3,
+    limits: DEFAULT_ROUNDTABLE_LIMITS,
     roundsRun: 0,
     concluded: false,
     participants: [],
@@ -230,6 +239,20 @@ export function freshApi(): CockpitApi {
     adoptInstructionsFrom: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     shareInstructions: vi.fn(async () => ({ status: 'unchanged' as const })),
     getAccounts: vi.fn(async () => ({ accounts: [], githubUser: null })),
+    listAgentModels: vi.fn(async (provider: Provider) =>
+      provider === 'codex'
+        ? [
+            {
+              id: 'gpt-5.6-sol',
+              label: 'GPT-5.6-Sol',
+              efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+              defaultEffort: 'low',
+              fast: true
+            },
+            { id: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium' }
+          ]
+        : [...BUILTIN_MODELS[provider]]
+    ),
     getUsage: vi.fn(async () => ({ at: 0, providers: [] })),
     getModelEndpoints: vi.fn(async () => []),
     addModelEndpoint: vi.fn(async () => []),
@@ -255,6 +278,10 @@ export function freshApi(): CockpitApi {
     deleteRoundtables: vi.fn(async () => ({ cleaned: 0, freedBytes: 0, failed: [] })),
     getRoundtable: vi.fn(async () => emptyRoundtable()),
     createRoundtable: vi.fn(async () => emptyRoundtable()),
+    setRoundtableLimits: vi.fn(async (_id: string, limits: RoundtableLimits) => ({
+      ...emptyRoundtable(),
+      limits
+    })),
     sendRoundtableMessage: vi.fn(async () => {}),
     continueRoundtable: vi.fn(async () => {}),
     stopRoundtable: vi.fn(async () => {}),

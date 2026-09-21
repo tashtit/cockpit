@@ -351,6 +351,18 @@ function populate(world: World): void {
     })
   )
   write(join(work, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'dev@work.example.org' } }))
+  // codex's own model catalog — what the roundtable model picker lists for a codex seat
+  write(
+    join(world.home, '.codex', 'models_cache.json'),
+    JSON.stringify({
+      models: [
+        { slug: 'gpt-5.6-sol', display_name: 'GPT-5.6-Sol', description: 'Frontier coding model', visibility: 'list', priority: 1 },
+        { slug: 'gpt-5.6-luna', display_name: 'GPT-5.6-Luna', description: 'Fast and light', visibility: 'list', priority: 2 },
+        { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list', priority: 3 },
+        { slug: 'codex-auto-review', display_name: 'Auto review', visibility: 'hide', priority: 9 }
+      ]
+    })
+  )
   write(join(world.home, '.codex', 'auth.json'), JSON.stringify({ tokens: { id_token: `${b64({ alg: 'none' })}.${b64({ email: 'dev@example.com' })}.x` } }))
   write(
     join(world.home, '.copilot', 'config.json'),

@@ -206,7 +206,44 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'roundtable', name: 'new-roundtable', tall: 1000, go: async (w) => { await home(w); await w.getByRole('button', { name: /Start a roundtable/ }).click(); await pause(w, 500) } },
+  // a seat row is three controls wide and a twin can be an exact repeat: the state the
+  // plain form never shows — the duplicate mark, its hint, and the row wrapping at the floor
+  {
+    view: 'roundtable',
+    name: 'new-roundtable-seats',
+    tall: 1000,
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('button', { name: /Start a roundtable/ }).click()
+      await w.getByRole('button', { name: 'Add Claude seat' }).click()
+      await w.getByRole('button', { name: 'Add Copilot seat' }).click()
+      await w.getByRole('group', { name: 'Claude #2 seat' }).scrollIntoViewIfNeeded()
+      await pause(w, 400)
+    }
+  },
   { view: 'roundtable', name: 'roundtable-consensus', go: (w) => open(w, /Should usage polling move/) },
+  // the model picker open on a codex seat: every model the CLI's own catalog lists
+  {
+    view: 'roundtable',
+    name: 'new-roundtable-models',
+    // no `tall`: growing the viewport before the capture would close the open listbox
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('button', { name: /Start a roundtable/ }).click()
+      await w.getByRole('button', { name: /^Codex model / }).click()
+      await pause(w, 400)
+    }
+  },
+  // a table's spend in its header, and the in-place editor it opens
+  {
+    view: 'roundtable',
+    name: 'roundtable-limits',
+    go: async (w) => {
+      await open(w, /Monorepo or polyrepo/)
+      await w.locator('.rt-budget').click()
+      await pause(w, 300)
+    }
+  },
   { view: 'roundtable', name: 'roundtable-open', go: (w) => open(w, /Monorepo or polyrepo/) },
   { view: 'chat', name: 'chat-claude', go: (w) => open(w, /Fix the login flake/) },
   {
@@ -241,7 +278,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'new-roundtable-seats', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   {

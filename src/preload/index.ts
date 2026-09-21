@@ -14,6 +14,7 @@ import type {
   NewRoundtableRequest,
   Provider,
   RoundtableEvent,
+  RoundtableLimits,
   Landing,
   PanelTarget,
   ProcessTarget,
@@ -132,6 +133,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.instructionsAdoptFile, repoRoot, path),
   shareInstructions: (repoRoot: string) => ipcRenderer.invoke(CH.instructionsShare, repoRoot),
   getAccounts: () => ipcRenderer.invoke(CH.accountsGet),
+  listAgentModels: (provider: Provider, configDir?: string) =>
+    ipcRenderer.invoke(CH.accountsModels, provider, configDir),
   getUsage: () => ipcRenderer.invoke(CH.usageGet),
   getModelEndpoints: () => ipcRenderer.invoke(CH.endpointsGet),
   addModelEndpoint: (ep: NewModelEndpoint) => ipcRenderer.invoke(CH.endpointsAdd, ep),
@@ -156,6 +159,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.roundtableSend, id, text),
   continueRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableContinue, id),
   stopRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableStop, id),
+  setRoundtableLimits: (id: string, limits: RoundtableLimits) =>
+    ipcRenderer.invoke(CH.roundtableSetLimits, id, limits),
   onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => {
     const handler = (_e: unknown, ev: RoundtableEvent): void => cb(ev)
     ipcRenderer.on(PUSH.roundtableEvent, handler)

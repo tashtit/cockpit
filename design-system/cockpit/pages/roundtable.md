@@ -101,11 +101,56 @@ attribution, never a parallel message grammar.
 
 ## Creation form (`NewRoundtable.tsx`)
 
-- `.ns-card` grammar; the provider cards are **add-seat buttons** (2–4 seats total, a
-  provider may sit twice with different models — twin seats get ordinals). Each seat
-  row: identity, account, model, remove. A provider with one account keeps the row's
-  shape — the same inert `.ns-account-single` field NewSession uses, never bare text
-  where the other rows carry a control.
+- `.ns-card` grammar, in this order: Topic · Seats · The table (goal, round cap, project)
+  · Roundtable spending limits · the pinned footer.
+- **Topic first**, as in New session: it is why the form is open. The last seating is
+  restored (`cockpit:rt-seats`), so a repeat table is a topic and ⌘↵.
+- **The seats are the hero, so there is no second agent picker above them.** New
+  session's big `.ns-provider` tiles are its hero because choosing the agent *is* that
+  form's decision; here each seat already names its agent. Adding a seat is the
+  `.rt-seats-head` row: the "Seats · N" label and, right-aligned, three dashed `.fb-add`
+  pills (`+ <logo> Claude`) — the FilterBar's "add another" shape, meaning the same thing.
+  They disarm at `ROUNDTABLE_MAX_SEATS` = 8.
+- **Every seat is a `.rt-seat-card` in its agent's `.tint-{agent}`** (the rest-intensity
+  identity: 2px inset bar + faint gradient), so a column of seats scans by colour *and*
+  by name. Head: logo, the agent picker as a `quiet` `Select` (the seat's title,
+  changeable in place — switching resets the seat), the ordinal when the agent sits
+  twice, the duplicate chip, then — right-aligned — the on/off knob only that CLI has as
+  a checkbox (`.rt-seat-flag`: Codex **fast** with its "~2× usage" note, Copilot **long
+  context**; a two-value dropdown for a boolean is the wrong control), **Copy** (a
+  `.btn-ghost.small` that inserts an identical seat right after) and remove.
+- Body: `.rt-seat-grid`, four labelled cells — Model, Thinking, Account, Model provider.
+  **Four across, two by two, or stacked; never three and one.** The card is a
+  `container: seat` and the grid asks it (`@container seat`), since the card's width is
+  the window less a draggable sidebar; thresholds are measured in the stylesheet
+  comment. Nothing about a seat is a hidden default: the Model provider cell exists even
+  with no custom provider configured (an inert `.ns-account-single` reading
+  "<Agent> (own)", its tooltip saying why and where to add one), and the model is a
+  `Select` over *every* model the agent offers under the seat's account
+  (`listAgentModels`) or the custom provider's catalog — **never a text field**. Thinking
+  lists the chosen model's own levels when its source says (Codex) and names the default
+  ("default · low"); a choice the new model doesn't take falls back to default rather than
+  being sent.
+- **The footer is pinned** (`.rt-footer`, sticky to the bottom of the view, spanning the
+  card's padding on `--bg2` under a hairline): the bill on the left ("4 seats · up to 12
+  agent turns a message"), Cancel and Open on the right as one `.rt-footer-keys` group,
+  so a narrow card puts the bill on its own line and never strands Open. However many
+  seats, the cost and the way to open the table stay in sight.
+- **An exact repeat is allowed, marked and confirmed.** A seat equal to an earlier one in
+  agent, account, model provider, model, thinking level and knobs carries the warn chip (`.acct-chip.missing`,
+  "duplicate") and a warn border; only the later seat is marked. Open stays disabled
+  until the `.rt-dup-confirm` checkbox ("Seat the duplicate on purpose") is ticked.
+- **Spending limits live on this form, per table** — "Roundtable spending limits": agent
+  turns per message and for the whole table. One `.ns-hint` under them spells the bill
+  out (seats × rounds for a consensus table, and about how many messages the table
+  ceiling buys) — the footer carries its short form; the round-cap picker only offers what the per-message ceiling allows. Last
+  choice is remembered for the next table. Never in Settings: Settings is app-wide, and
+  these belong to a table.
+- **On the table**, each seat on the arc carries `.rt-table-setup` — its model, thinking
+  level and knobs in one mono line (tooltip only in the flat row below 640px). `.rt-budget` in the header reads "N of M agent turns" (warn once
+  another round would not fit) and opens `.rt-limits`, the in-place editor. A table out
+  of turns says so in a `.sys-row` before the user tries, with a "Raise the limit"
+  `.link-btn` — a refusal always carries its way on.
 - **No permission mode exists.** Roundtables are discussion-only: every turn runs
   'safe', codex is sandboxed read-only, and the framing tells seats the workspace is
   read-only. A roundtable decides; a normal session ships.

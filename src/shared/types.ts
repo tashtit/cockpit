@@ -460,12 +460,34 @@ export type AgentOptions = {
   readonly codexSkipGitCheck?: boolean
   /** Custom model endpoint (ModelEndpoint.id) — claude/copilot run against it via env */
   readonly modelEndpoint?: string
+  /** Thinking level — claude `--effort`, codex `model_reasoning_effort`, copilot
+   *  `--reasoning-effort`; one of `EFFORT_LEVELS` for the provider (absent = the CLI's default) */
+  readonly effort?: string
+  /** Codex only: the priority service tier ("Fast" — about twice the speed, and the usage) */
+  readonly fast?: boolean
+  /** Copilot only: the long-context window tier (`--context long_context`) */
+  readonly longContext?: boolean
   /**
    * Drive this turn over ACP with the named agent (`AcpAgent.id`) instead of the CLI's
    * own headless flags. Absent means the provider's native path; `'auto'` asks main to
    * use ACP when the provider's CLI is new enough to speak it.
    */
   readonly acpAgent?: string
+}
+
+/** One model an agent CLI can run, as the model picker lists it. */
+export type AgentModel = {
+  /** What goes to the CLI's --model */
+  readonly id: string
+  /** Picker label; the id when the source names nothing better */
+  readonly label: string
+  readonly description?: string
+  /** Thinking levels this model takes, when its source says (codex does, per model) */
+  readonly efforts?: readonly string[]
+  /** The level it runs at when none is chosen */
+  readonly defaultEffort?: string
+  /** Offers the fast (priority) service tier */
+  readonly fast?: boolean
 }
 
 export type ChatRequest = {
@@ -1032,7 +1054,7 @@ export type RoundtableParticipant = {
   readonly copilotUser?: string
   /** Human-readable identity, display only */
   readonly accountLabel?: string
-  /** Per-seat agent knobs chosen at creation (model) */
+  /** Per-seat agent knobs chosen at creation (model, custom model provider) */
   readonly options?: AgentOptions
   /** Latest provider-native session id — null until the CLI announces one (copilot never does) */
   readonly nativeSessionId: string | null
@@ -1064,6 +1086,9 @@ export type Roundtable = {
   readonly mode: RoundtableMode
   /** Consensus mode: max auto discussion rounds per user message (the wave is round 1) */
   readonly maxRounds: number
+  /** What this table may spend — mutable: raised from the table when a ceiling is hit.
+   *  Tables saved before limits existed load with the defaults. */
+  limits: RoundtableLimits
   /** Rounds completed since the last user message — mutable cycle state */
   roundsRun: number
   /** Consensus mode: the current cycle ended with a synthesis; a new message reopens */
@@ -1094,6 +1119,19 @@ export type RoundtableMeta = {
   readonly archived: boolean
 }
 
+/**
+ * What one roundtable may spend. Every seat's reply is a full agent turn on somebody's
+ * subscription, and a consensus table spends them on its own, so each table carries its
+ * own ceilings — chosen on the creation form, raisable on the table — and main enforces
+ * them every time a round is about to start.
+ */
+export type RoundtableLimits = {
+  /** Most agent turns one user message may spend: its wave plus every auto-round */
+  readonly maxTurnsPerMessage: number
+  /** Most agent turns the table may spend over its whole life; 0 = no ceiling */
+  readonly maxTurnsPerTable: number
+}
+
 /** Renderer-supplied seat definition (main re-validates every field). */
 export type NewRoundtableSeat = {
   readonly provider: Provider
@@ -1101,6 +1139,11 @@ export type NewRoundtableSeat = {
   readonly copilotUser?: string
   readonly accountLabel?: string
   readonly model?: string
+  /** Custom model provider (ModelEndpoint.id) this seat runs on — each seat picks its own */
+  readonly modelEndpoint?: string
+  readonly effort?: string
+  readonly fast?: boolean
+  readonly longContext?: boolean
 }
 
 /** Renderer request to open a roundtable. */
@@ -1108,11 +1151,13 @@ export type NewRoundtableRequest = {
   readonly topic: string
   /** null = no repo: the table runs in a scratch dir instead of a worktree */
   readonly repoRoot: string | null
-  /** Seats may repeat a provider (different models); main caps the count */
+  /** Seats may repeat a provider — even the same model; main caps the count (ROUNDTABLE_MAX_SEATS) */
   readonly seats: NewRoundtableSeat[]
   readonly mode?: RoundtableMode
   /** Consensus mode: auto discussion-round cap (main clamps to a sane range) */
   readonly maxRounds?: number
+  /** This table's spending ceilings (main clamps; absent = the defaults) */
+  readonly limits?: RoundtableLimits
 }
 
 /** Push events for a live roundtable (renderer filters by id). */

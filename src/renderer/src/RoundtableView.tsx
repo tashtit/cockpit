@@ -2,16 +2,24 @@ import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import type {
   RoundtableEntry,
   RoundtableEvent,
+  RoundtableLimits,
   RoundtableParticipant,
   RoundtableSnapshot,
   SessionMessage
 } from '../../shared/types'
 import { cwdLabel } from '../../shared/library'
-import { entrySeatIndex, seatDisplayName } from '../../shared/roundtable'
+import {
+  entrySeatIndex,
+  roundRefusal,
+  seatDisplayName,
+  turnsSpent
+} from '../../shared/roundtable'
 import { api } from './api'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { Message } from './ChatView'
 import { Markdown } from './Markdown'
+import { limitOptions, MESSAGE_LIMITS, TABLE_LIMITS } from './NewRoundtable'
+import { Select } from './Select'
 import { BranchChip, ChatIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 
 /** Same DOM bound as ChatView, scaled to discussion-length transcripts. */
@@ -50,6 +58,8 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   const [draft, setDraft] = useState('')
   const [note, setNote] = useState<string | null>(null)
   const [cwdCopied, setCwdCopied] = useState(false)
+  /** The table's limits being edited in place; null = the editor is closed */
+  const [limitsDraft, setLimitsDraft] = useState<RoundtableLimits | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
@@ -213,6 +223,18 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     }
   }
 
+  const saveLimits = async (): Promise<void> => {
+    if (!limitsDraft) return
+    try {
+      const snap = await api.setRoundtableLimits(id, limitsDraft)
+      setRt((prev) => (prev ? { ...prev, limits: snap.limits } : prev))
+      setLimitsDraft(null)
+      setNote(null)
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   if (!rt) {
     return (
       <main className="chat">
@@ -223,6 +245,9 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     )
   }
 
+  const spent = turnsSpent(entries)
+  // the table cannot afford another round — said before the user tries, with the way on
+  const outOfTurns = !running && roundRefusal(rt.limits, { participants: rt.participants, entries }) !== null
   const sliced = entries.length > RENDER_LAST ? entries.slice(-RENDER_LAST) : entries
   const base = entries.length - sliced.length
   /** Seat indexes streaming right now, in seat order. */
@@ -261,9 +286,50 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                 copied
               </span>
             )}
+            <button
+              className={`rt-budget${outOfTurns ? ' spent' : ''}`}
+              aria-expanded={limitsDraft !== null}
+              // only while the editor exists — an id that isn't on the page is a dead link
+              aria-controls={limitsDraft ? 'rt-limits' : undefined}
+              title={`Roundtable spending limits — up to ${rt.limits.maxTurnsPerMessage} agent turns per message`}
+              onClick={() => setLimitsDraft(limitsDraft ? null : rt.limits)}
+            >
+              {rt.limits.maxTurnsPerTable === 0
+                ? `${spent} agent turns · no ceiling`
+                : `${spent} of ${rt.limits.maxTurnsPerTable} agent turns`}
+            </button>
           </div>
         </div>
       </header>
+
+      {limitsDraft && (
+        <div className="rt-limits" id="rt-limits" role="group" aria-label="Roundtable spending limits">
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="rt-edit-message">Agent turns per message</label>
+            <Select
+              id="rt-edit-message"
+              ariaLabel="Agent turns per message"
+              value={String(limitsDraft.maxTurnsPerMessage)}
+              options={limitOptions(MESSAGE_LIMITS, limitsDraft.maxTurnsPerMessage)}
+              onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerMessage: Number(v) })}
+            />
+          </div>
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="rt-edit-table">Agent turns for the table</label>
+            <Select
+              id="rt-edit-table"
+              ariaLabel="Agent turns for the table"
+              value={String(limitsDraft.maxTurnsPerTable)}
+              options={limitOptions(TABLE_LIMITS, limitsDraft.maxTurnsPerTable)}
+              onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerTable: Number(v) })}
+            />
+          </div>
+          <div className="rt-limits-actions">
+            <button className="btn-ghost" onClick={() => setLimitsDraft(null)}>Cancel</button>
+            <button className="btn-primary" onClick={() => void saveLimits()}>Save limits</button>
+          </div>
+        </div>
+      )}
 
       <RoundtableTable rt={rt} entries={entries} speaking={speaking} running={running} />
 
@@ -351,9 +417,26 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         {!running && rt.mode === 'consensus' && cycle.concluded && (
           <ConsensusOutcome rt={rt} entries={entries} rounds={cycle.roundsRun} />
         )}
+        {outOfTurns && !note && (
+          <div className="sys-row">
+            This table has spent {spent} of its {rt.limits.maxTurnsPerTable} agent turns — another
+            round would pass its ceiling.{' '}
+            <button className="link-btn" onClick={() => setLimitsDraft(rt.limits)}>
+              Raise the limit
+            </button>
+          </div>
+        )}
         {note && (
           <div className="sys-row" role="alert">
             {note}
+            {outOfTurns && (
+              <>
+                {' '}
+                <button className="link-btn" onClick={() => setLimitsDraft(rt.limits)}>
+                  Raise the limit
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -396,6 +479,20 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
       </footer>
     </main>
   )
+}
+
+/** One line naming how a seat was set up: model, thinking, and the knobs it has on. */
+export function seatSetup(p: RoundtableParticipant): string {
+  const o = p.options ?? {}
+  return [
+    o.model ?? 'default model',
+    o.effort ? `${o.effort} thinking` : null,
+    o.fast ? 'fast' : null,
+    o.longContext ? 'long context' : null,
+    o.modelEndpoint ? 'custom provider' : null
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 /** Point on the table edge (a quadratic arc) at parameter t ∈ [0,1], in % of the panel. */
@@ -451,7 +548,13 @@ function RoundtableTable({
           : last
             ? 'spoke'
             : 'quiet'
-    return { provider: p.provider, name: uiSeatName(rt.participants, i), status, thinking }
+    return {
+      provider: p.provider,
+      name: uiSeatName(rt.participants, i),
+      status,
+      thinking,
+      setup: seatSetup(p)
+    }
   })
   const n = seats.length
   return (
@@ -469,6 +572,7 @@ function RoundtableTable({
               s.status === 'agrees' ? 'agree' : s.status === 'not yet' ? 'continue' : 'other'
             }`}
             style={{ left: `${p.x}%`, top: `${p.y}%` }}
+            title={`${s.name}\n${s.setup}`}
           >
             <span className={`rt-seat plogo-${s.provider}`}>
               <ProviderLogo p={s.provider} size={14} />
@@ -476,6 +580,8 @@ function RoundtableTable({
             </span>
             <span className="rt-table-name">{s.name}</span>
             <span className="rt-table-status">{s.status}</span>
+            {/* what this seat runs on — the form's choices, readable on the table itself */}
+            <span className="rt-table-setup">{s.setup}</span>
           </div>
         )
       })}

@@ -6,7 +6,7 @@ Roundtables are discussion-only by design. A table **decides**; a normal session
 
 ## How a table runs
 
-Open one from the home composer ("Start a roundtable") or the sidebar. You seat two to four agents, optionally attach a project, and write the topic.
+Open one from the home composer ("Start a roundtable") or the sidebar. Write the topic, then seat two to eight agents, optionally attach a project, and set what the table may spend. The form comes back with the seating you last used, so a table like the last one is a topic and ⌘↵.
 
 - **Your message opens a wave.** Every seat receives it at once and streams simultaneously, each in its own attributed block — the seats think in parallel, not in a queue.
 - **"One more round" is the discussion pass.** It runs a sequential round with no new message from you: each seat sees what the earlier seats just said, so they push back, agree, or build on it.
@@ -16,7 +16,7 @@ The table at the top of the view shows each seat's live state: thinking, agrees,
 
 ## Reaching an understanding
 
-Set the goal to **Reach an understanding** and the table drives itself: it keeps running discussion rounds until every seat ends its reply with an agreement line, or the round cap (2–5) is reached.
+Set the goal to **Reach an understanding** and the table drives itself: it keeps running discussion rounds until every seat ends its reply with an agreement line, or the round cap is reached. The cap you can pick (up to 5) is held to what one message may spend — see [Spending limits](#spending-limits).
 
 The conclusion is assembled by Cockpit, not written by an agent — no seat speaks for the table. Each seat's own closing line is laid out side by side, headed **Shared understanding** when everyone agreed, or **No full agreement** when the cap closed a split table. A split is never dressed up as agreement, and the open points stay on the record.
 
@@ -24,7 +24,38 @@ Send another message to reopen a concluded table for a fresh cycle.
 
 ## Seats
 
-A seat is an agent plus an account and a model. The same provider can sit twice with different models — "Claude · opus" against "Claude · haiku" — which is how you settle a model-tier question on your own repository instead of on benchmarks.
+Add seats with the **+ Claude / + Codex / + Copilot** buttons beside the Seats heading. Each seat is a card in its agent's colour, with its own choices all visible:
+
+- **Agent** — the card's title: Claude Code, Codex or Copilot. Change it there; switching resets that seat's other choices, which are all per agent.
+- **Model** — picked from every model that agent offers under the seat's account, never typed:
+  - **Claude Code**: its aliases (`fable`, `opus`, `sonnet`, `haiku` — each the latest of its line) and the current full model names. The CLI keeps no catalog of its own.
+  - **Codex**: the models Codex's own picker lists, read from its cached catalog, plus the default in its `config.toml`.
+  - **Copilot**: `auto`, plus every model your recent Copilot sessions show it serving. Copilot keeps no catalog on disk, so a model you have never run through it won't appear until you have.
+  - On a custom provider, that provider's own model list.
+- **Thinking** — how hard the seat reasons: Claude `low`–`max`, Copilot `none`–`max`, and for Codex the levels the chosen model takes (up to `ultra` on some), with that model's default shown.
+- **Account** — which signed-in identity the seat runs as (a read-only field when there is only one).
+- **Model provider** — the agent's own backend, or one of your [custom providers](./custom-providers.md). Only providers that agent can use are offered: Codex has none, Claude takes anthropic-type providers. A Copilot seat on a custom provider needs an explicit model.
+- **fast** (Codex only) — a checkbox on the card for the priority tier, about twice the speed and twice the usage, on models that offer it.
+- **long context** (Copilot only) — a checkbox on the card for the long-context window.
+
+**Copy** on a seat adds another set up exactly like it, right after it. The open table shows each seat's setup under its name ("opus · high thinking").
+
+The same agent can sit more than once with different models — "Claude · opus" against "Claude · haiku" — which is how you settle a model-tier question on your own repository instead of on benchmarks.
+
+A seat that repeats an earlier one *exactly* — same agent, account, model provider, model, thinking level and knobs — is marked **duplicate**, and the table won't open until you tick **Seat the duplicate on purpose**. Several samples of one mind is a real technique, but it costs a full seat every round for a voice the table already has.
+
+## Spending limits
+
+Every reply at a table is a full agent turn on that seat's account, and a table set to reach an understanding keeps spending rounds on its own. Each table carries its own ceilings, set in the **Roundtable spending limits** section of the creation form:
+
+| Limit | Default | What it bounds |
+| --- | --- | --- |
+| Agent turns per message | 16 | The opening wave plus every automatic round after it. Six seats on 16 turns is two rounds, whatever round cap the table asked for. |
+| Agent turns for the table | 80 (or no ceiling) | Every reply the table has on record, failed ones included. |
+
+The form's footer stays pinned to the bottom with the bill ("4 seats · 4 agent turns a message") beside **Open roundtable**, and under the limits it spells the bill out — what one message costs at this size, and roughly how many messages the table ceiling allows. The next table starts from the limits you last chose.
+
+On an open table, the header shows what it has spent ("12 of 80 agent turns"). Click it to change that table's limits. When another round would pass the ceiling, the table says so before you try and offers **Raise the limit**; a round that doesn't fit never starts. Seats are capped at eight regardless.
 
 ## Discussion-only, enforced
 

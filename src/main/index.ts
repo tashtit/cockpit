@@ -86,7 +86,13 @@ import { createPr, createWorkspace } from './workspace'
 import { asDiffScope, getWorkspaceDiff } from './diff'
 import { asPrNumber, getPrFeedback, getPrFixBriefing } from './pr-feedback'
 import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
-import { clampRounds } from './roundtable-core'
+import { clampRounds, seatOptions } from './roundtable-core'
+import { listAgentModels } from './agent-models'
+import {
+  ROUNDTABLE_MAX_SEATS,
+  roundsAllowed,
+  sanitizeRoundtableLimits
+} from '../shared/roundtable'
 import {
   assertClaudeProjectServer,
   getExtensions,
@@ -762,6 +768,15 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.windowZoom, (_e, factor: number) => setZoom(applyWindowFloor(Number(factor))))
 
   ipcMain.handle(CH.accountsGet, () => getAccounts(loadConfig().sources))
+  // the provider and config home are renderer input: a known provider, and a home the
+  // indexer derived — the lister reads files under it
+  ipcMain.handle(CH.accountsModels, (_e, agent: unknown, configDir: unknown) => {
+    const provider = asProvider(agent)
+    return listAgentModels(
+      provider,
+      configDir === undefined || configDir === null ? undefined : assertKnownConfigDir(configDir, provider)
+    )
+  })
   ipcMain.handle(CH.usageGet, () => getUsage(loadConfig().sources))
   ipcMain.handle(CH.profileGet, () => getProfile(indexer.allSessions(), loadConfig().sources))
 
@@ -1148,7 +1163,15 @@ app.whenReady().then(() => {
   // roundtables: several agents, one shared discussion, driven through the same
   // ChatManager (its emit hands their stream events to the manager above)
   const tables = new RoundtableManager(join(app.getPath('userData'), 'roundtables'), {
-    sendTurn: (req) => chat.send(req),
+    sendTurn: (req) => {
+      // copilot multi-account: a seat runs as the user it was seated with — the same
+      // activation chat:send does. A throw here is that seat's failed turn (the manager
+      // records it), never a turn quietly run as somebody else.
+      if (req.provider === 'copilot' && req.copilotUser) {
+        setCopilotActiveUser(req.configDir ?? join(homedir(), '.copilot'), req.copilotUser)
+      }
+      return chat.send(req)
+    },
     cancelTurn: (turnId) => chat.cancel(turnId),
     emit: (ev) => {
       sendToWin(PUSH.roundtableEvent, ev)
@@ -1188,7 +1211,6 @@ app.whenReady().then(() => {
     const seats: SeatInit[] = []
     for (const raw of Array.isArray(req?.seats) ? req.seats : []) {
       const provider = asProvider(raw?.provider)
-      const model = typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : undefined
       seats.push({
         provider,
         configDir:
@@ -1196,22 +1218,31 @@ app.whenReady().then(() => {
         copilotUser: raw.copilotUser === undefined ? undefined : String(raw.copilotUser),
         accountLabel:
           raw.accountLabel === undefined ? undefined : String(raw.accountLabel).slice(0, 200),
-        options: model ? { model } : undefined
+        // model and model provider are per seat, judged against the configured list
+        options: seatOptions(provider, raw, listModelEndpoints())
       })
     }
+    const limits = sanitizeRoundtableLimits(req?.limits)
     if (seats.length < 2) throw new Error('Pick at least two seats for a roundtable.')
-    if (seats.length > 4) throw new Error('A table seats at most four.')
-    // consensus knobs are renderer input: whitelist the mode, clamp the round cap
+    if (seats.length > ROUNDTABLE_MAX_SEATS) {
+      throw new Error(`A table seats at most ${ROUNDTABLE_MAX_SEATS}.`)
+    }
+    // consensus knobs are renderer input: whitelist the mode, clamp the round cap to
+    // what one message may spend with this many seats
     const tableMode = req?.mode === 'consensus' ? 'consensus' : 'open'
-    const maxRounds = clampRounds(req?.maxRounds)
+    const maxRounds = Math.min(clampRounds(req?.maxRounds), roundsAllowed(limits, seats.length))
     let place: TablePlace | null = null
     if (req.repoRoot !== null && req.repoRoot !== undefined) {
       const root = assertKnownRepoRoot(req.repoRoot)
       const ws = await createWorkspace(root, `table ${topic.slice(0, 30)}`)
       place = { cwd: ws.cwd, branch: ws.branch, repoRoot: root }
     }
-    return tables.create({ topic, seats, mode: tableMode, maxRounds }, place)
+    return tables.create({ topic, seats, mode: tableMode, maxRounds, limits }, place)
   })
+  // limits are renderer input: every field clamped to its range
+  ipcMain.handle(CH.roundtableSetLimits, (_e, id: string, limits: unknown) =>
+    tables.setLimits(String(id), sanitizeRoundtableLimits(limits))
+  )
   ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string) =>
     tables.sendMessage(String(id), String(text))
   )

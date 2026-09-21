@@ -17,6 +17,7 @@ import type {
   AccountsSnapshot,
   AcpAgent,
   AcpAgentProbe,
+  AgentModel,
   AppInfo,
   AttentionFocus,
   AttentionPrefs,
@@ -50,6 +51,7 @@ import type {
   RepoGroup,
   RestoreSummary,
   RoundtableEvent,
+  RoundtableLimits,
   RoundtableMeta,
   RoundtableSnapshot,
   SessionMessage,
@@ -230,6 +232,8 @@ export type CockpitApi = {
 
   /* ---------- who each agent is signed in as, and what it has spent ---------- */
   readonly getAccounts: () => Promise<AccountsSnapshot>
+  /** Every model an agent offers under one config home — the model pickers list these */
+  readonly listAgentModels: (provider: Provider, configDir?: string) => Promise<AgentModel[]>
   /** Current subscription usage per configured provider account */
   readonly getUsage: () => Promise<UsageSnapshot>
   /** Aggregate cross-agent work profile (heatmap, per-agent totals, languages) */
@@ -270,6 +274,9 @@ export type CockpitApi = {
   /** One more round with no new user message — the seats keep talking */
   readonly continueRoundtable: (id: string) => Promise<void>
   readonly stopRoundtable: (id: string) => Promise<void>
+  /** Change what one table may spend (main clamps every field) — how a table that hit
+   *  its ceiling goes on */
+  readonly setRoundtableLimits: (id: string, limits: RoundtableLimits) => Promise<RoundtableSnapshot>
   readonly onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => () => void
 
   /* ---------- the window and the app shell ---------- */
@@ -318,6 +325,7 @@ export type CockpitApi = {
  */
 export const CH = {
   accountsGet: 'accounts:get',
+  accountsModels: 'accounts:models',
 
   acpAdd: 'acp:add',
   acpGet: 'acp:get',
@@ -404,6 +412,7 @@ export const CH = {
   roundtableGet: 'roundtable:get',
   roundtableList: 'roundtable:list',
   roundtableSend: 'roundtable:send',
+  roundtableSetLimits: 'roundtable:set-limits',
   roundtableStop: 'roundtable:stop',
 
   sessionsArchive: 'sessions:archive',

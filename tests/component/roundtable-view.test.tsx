@@ -264,3 +264,35 @@ describe('RoundtableView', () => {
     )
   })
 })
+
+describe('RoundtableView spending limits', () => {
+  it('shows what the table has spent and raises its ceiling in place', async () => {
+    // two replies on record against a ceiling of three: a two-seat round no longer fits
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({ limits: { maxTurnsPerMessage: 16, maxTurnsPerTable: 3 } })
+    )
+    vi.mocked(window.cockpit.setRoundtableLimits).mockImplementation(async (_id, limits) =>
+      fixture({ limits })
+    )
+    render(<RoundtableView id="rt-1" />)
+
+    const budget = await screen.findByRole('button', { name: '2 of 3 agent turns' })
+    expect(budget).toHaveClass('spent')
+    // said before the user tries — with the way on
+    expect(screen.getByText(/another round would pass its ceiling/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Raise the limit' }))
+
+    const editor = screen.getByRole('group', { name: 'Roundtable spending limits' })
+    await userEvent.click(within(editor).getByRole('button', { name: /^Agent turns for the table/ }))
+    await userEvent.click(await screen.findByRole('option', { name: '80 turns' }))
+    await userEvent.click(within(editor).getByRole('button', { name: 'Save limits' }))
+
+    expect(window.cockpit.setRoundtableLimits).toHaveBeenCalledWith('rt-1', {
+      maxTurnsPerMessage: 16,
+      maxTurnsPerTable: 80
+    })
+    expect(await screen.findByRole('button', { name: '2 of 80 agent turns' })).not.toHaveClass('spent')
+    expect(screen.queryByText(/another round would pass its ceiling/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Roundtable spending limits' })).not.toBeInTheDocument()
+  })
+})
