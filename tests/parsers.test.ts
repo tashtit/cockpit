@@ -543,6 +543,108 @@ describe('copilot parser', () => {
   })
 })
 
+// The Copilot app names a session after its whole kickoff prompt until it gets a real
+// name, and a prompt one session writes for another runs to paragraphs — so the name
+// arrives as a YAML block scalar, and the session that created it is named in the
+// kickoff's <copilot_tauri_workspace> block.
+describe('copilot child sessions', () => {
+  const home = join(root, 'copilot-children')
+  const PARENT = '0a0a0a0a-1111-4111-8111-000000000001'
+  const CHILD = '0a0a0a0a-1111-4111-8111-000000000002'
+  const SYS_CHILD = '0a0a0a0a-1111-4111-8111-000000000003'
+  const TALKER = '0a0a0a0a-1111-4111-8111-000000000004'
+  const SELF = '0a0a0a0a-1111-4111-8111-000000000005'
+
+  const workspace = (creator: string): string =>
+    [
+      '<copilot_tauri_workspace>',
+      'project_name: site',
+      'workspace_type: worktree',
+      `creator_chat_session_id: ${creator}`,
+      '</copilot_tauri_workspace>'
+    ].join('\n')
+
+  function write(id: string, events: unknown[], yaml: string[]): void {
+    const dir = join(home, 'session-state', id)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'events.jsonl'),
+      jsonl([
+        {
+          type: 'session.start',
+          timestamp: '2026-08-22T18:51:09Z',
+          data: { sessionId: id, context: { cwd: `/Users/titan/.copilot/copilot-worktrees/site/${id.slice(0, 8)}` } }
+        },
+        ...events
+      ])
+    )
+    writeFileSync(join(dir, 'workspace.yaml'), [`id: ${id}`, ...yaml].join('\n') + '\n')
+  }
+
+  const prompt = (content: string, transformedContent?: string): unknown => ({
+    type: 'user.message',
+    timestamp: '2026-08-22T18:51:10Z',
+    data: { content, ...(transformedContent ? { transformedContent } : {}) }
+  })
+
+  beforeAll(() => {
+    write(PARENT, [prompt('plan the free plan')], ['name: Free plan limits', 'user_named: false'])
+    // the creator rides on the first prompt's transformedContent; the name is a literal block
+    write(
+      CHILD,
+      [prompt('Build the first reviewable PR.', `<current_datetime>now</current_datetime>\n\n${workspace(PARENT)}\n\nBuild the first reviewable PR.`)],
+      [
+        'client_name: github/autopilot',
+        'name: |-',
+        '  Build the first reviewable PR in the Free-plan redesign.',
+        '  Work only on the usage-accounting foundation.',
+        '',
+        '  Context and evidence:',
+        'user_named: false'
+      ]
+    )
+    // the creator in a system.message ahead of the prompt; the name is a folded block
+    write(
+      SYS_CHILD,
+      [
+        { type: 'system.message', timestamp: '2026-08-22T18:51:09Z', data: { content: `You are Copilot.\n\n${workspace(PARENT)}` } },
+        prompt('Retain free trials.')
+      ],
+      ['name: >2-', '  Free trial', '  retention', '', '  second paragraph', 'user_named: false']
+    )
+    // a session that only *talks* to another one is not its child: the id arrives in a
+    // cross-session message, and a context block after the first prompt is not kickoff
+    write(
+      TALKER,
+      [
+        prompt('which task takes 6 minutes?'),
+        prompt(`<cross_session_message>\nfrom_session_id: ${PARENT}\n</cross_session_message>`, workspace(PARENT))
+      ],
+      ['name: Six minute task']
+    )
+    // a block naming the session itself is no parent
+    write(SELF, [prompt('go', workspace(SELF))], ['name: Self-made'])
+  })
+
+  const byId = (id: string) => listCopilotSessions(home, 'copilot-test').find((s) => s.nativeId === id)
+
+  it('titles a literal block-scalar name by its first line, never the indicator', () => {
+    expect(byId(CHILD)?.title).toBe('Build the first reviewable PR in the Free-plan redesign.')
+  })
+  it('titles a folded block-scalar name by its first paragraph, joined', () => {
+    expect(byId(SYS_CHILD)?.title).toBe('Free trial retention')
+  })
+  it('names the creator as the parent, from the prompt or from a system message before it', () => {
+    expect(byId(CHILD)?.parentId).toBe(`copilot:${PARENT}`)
+    expect(byId(SYS_CHILD)?.parentId).toBe(`copilot:${PARENT}`)
+  })
+  it('gives no parent to a top-level session, one that only messages another, or one naming itself', () => {
+    expect(byId(PARENT)?.parentId).toBeUndefined()
+    expect(byId(TALKER)?.parentId).toBeUndefined()
+    expect(byId(SELF)?.parentId).toBeUndefined()
+  })
+})
+
 describe('robustness', () => {
   it('empty/missing dirs return no sessions', () => {
     expect(listClaudeSessions(join(root, 'nope'), 'x')).toEqual([])

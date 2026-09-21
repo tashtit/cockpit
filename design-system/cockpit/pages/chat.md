@@ -10,7 +10,9 @@ turns are compact right-aligned bubbles.
 
 Identity + situation in one row, left to right:
 solid agent `.badge` · `.acct-chip` ("running as" — shows the identity's local part,
-full identity in the tooltip; shed entirely ≤780px) · title + sub (branch chip, clickable
+full identity in the tooltip; shed entirely ≤780px) · title + sub (lineage chips that open
+the related session — `from <Agent>` for a handoff, `by <title>` (`.parent-chip`, which
+gives way like the branch chip) for a session another session started — then branch chip, clickable
 cwd that copies its full path — displayed via `cwdLabel`: a worktree as `worktree · <slug>`, or bare
 `worktree` when the slug is the branch chip's own name (its location is only where a tool keeps
 worktrees), anything else `~`-abbreviated; the full path is always in the tooltip — and "· not started" when no native session yet) · PR affordance · `Changes` ·

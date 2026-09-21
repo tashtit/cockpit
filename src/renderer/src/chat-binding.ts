@@ -44,6 +44,9 @@ export type ChatBinding = {
   readonly accountLabel?: string
   /** Lineage chip: the session this one was handed off from */
   readonly continuedFrom?: { readonly id: string; readonly provider: Provider }
+  /** Parent chip: the session that started this one (`SessionMeta.parentId`), set once
+   *  the parent is found in the index — a parent Cockpit can't open gets no chip */
+  readonly startedBy?: { readonly id: string; readonly provider: Provider; readonly title: string }
   /** Roundtable seat-session: view only, no composer (main refuses sends there too) */
   readonly readOnly?: boolean
 }

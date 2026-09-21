@@ -375,6 +375,15 @@ export function App(): JSX.Element {
         readOnly: s.roundtableId ? true : undefined
       })
       setView({ kind: 'chat' })
+      // the parent chip names the session, so it waits for the lookup — and a parent
+      // the index no longer holds gets no chip at all rather than one that can't open
+      if (s.parentId) {
+        void api.getSession(s.parentId).then((p) => {
+          if (!p || seq !== openSeqRef.current) return
+          const startedBy = { id: p.id, provider: p.provider, title: p.title }
+          setBinding((b) => (b && b.nativeSessionId === s.nativeId ? { ...b, startedBy } : b))
+        })
+      }
       const messages = await api.getSessionMessages(s.id)
       // a slower load for a previously clicked session must not clobber this one
       if (seq === openSeqRef.current) setChatLog(messages)
@@ -634,7 +643,8 @@ export function App(): JSX.Element {
     async (sourceId: string) => {
       const meta = await api.getSession(sourceId)
       if (meta) void openSession(meta)
-      else addChatNotice('The session this one continued is no longer in Cockpit’s index.')
+      // one handler for both header chips — the one this continued, the one that started it
+      else addChatNotice('That session is no longer in Cockpit’s index.')
     },
     [openSession]
   )

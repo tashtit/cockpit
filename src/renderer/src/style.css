@@ -389,9 +389,12 @@ summary::-webkit-details-marker { display: none; }
   text-overflow: ellipsis; }
 .session-row time { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0; }
 .session-row .acct-chip { font-size: var(--fs-xs); padding: 0 4px; max-width: 72px; }
-/* handoff thread: ancestor rows sit under their continuation with an elbow guide */
+/* handoff thread: ancestor rows sit under their continuation with an elbow guide.
+   A session another one started hangs from its parent the same way, one indent further
+   in per level (`--depth`, set inline from 2 and capped at 3) */
 .session-row .chain-elbow { display: inline-flex; flex-shrink: 0;
-  color: var(--border-strong); margin-left: var(--s1); }
+  color: var(--border-strong);
+  margin-left: calc(var(--s1) + (var(--depth, 1) - 1) * var(--indent-1)); }
 
 .archived-toggle { display: flex; align-items: center; gap: var(--s2);
   padding: 2px var(--s2) 2px var(--s1); color: var(--fg-dim); font-size: var(--fs-xs);
@@ -515,6 +518,8 @@ summary::-webkit-details-marker { display: none; }
 /* lineage chip: acct-chip vocabulary made clickable, provider tint on hover */
 .lineage-chip { display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
   transition: background var(--dur) var(--ease); }
+/* a chip that gives way must shed its text, never its agent mark */
+.lineage-chip svg { flex-shrink: 0; }
 .lineage-chip.acct-claude:hover { background: rgba(var(--claude-rgb), 0.12); }
 .lineage-chip.acct-codex:hover { background: rgba(var(--codex-rgb), 0.12); }
 .lineage-chip.acct-copilot:hover { background: rgba(var(--copilot-rgb), 0.12); }
@@ -582,6 +587,13 @@ summary::-webkit-details-marker { display: none; }
    the full branch in its tooltip, while the path beside it has no second copy to fall
    back on. Everywhere else the chip stays rigid — a board row sizes its own column. */
 .chat-sub .branch-chip { flex-shrink: 1; min-width: 6ch; }
+/* the parent chip carries a whole session title, and the tree already shows the parent
+   right above the row — so it is the first thing in this row to give way: it shrinks
+   before the branch chip and the path do, keeps a readable stretch of title, and sheds
+   once the row can't hold that beside a whole branch chip (see `@container chat-sub`
+   at the end). The full title stays in its tooltip and aria-label. */
+.chat-sub { container: chat-sub / inline-size; }
+.chat-sub .parent-chip { flex-shrink: 100; min-width: 20ch; }
 /* transient "copied" confirmation next to copy affordances */
 .copy-flash { color: var(--ok); font-size: var(--fs-xs); flex-shrink: 0; }
 .branch-chip { display: inline-flex; align-items: center; gap: 3px;
@@ -2209,4 +2221,14 @@ button.pnl-flag:hover { text-decoration: underline; }
 @container rail (max-width: 210px) {
   .tree-top:has(.zoom-chip) { flex-wrap: wrap; }
   .tree-top:has(.zoom-chip) .tree-nav { flex-basis: 100%; justify-content: flex-end; }
+}
+
+/* ---------- the chat subtitle's own width ----------
+   The parent chip at its 20ch floor (132px) beside a whole branch chip (180px) and the
+   path's 9ch floor (59px) needs 383px of row with the two gaps; below that it would
+   only take letters from the branch. Measured on a child session: the row is 442px at
+   a 1300px window and 350px at 1200 with the default rail. At ≤780px the whole
+   `.chat-header .acct-chip` family is already gone, this chip with it. */
+@container chat-sub (max-width: 382px) {
+  .parent-chip { display: none; }
 }

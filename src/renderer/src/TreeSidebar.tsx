@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type {
   AccountsSnapshot,
   PrStatus,
@@ -1067,6 +1067,22 @@ function ChatsSection({
   )
 }
 
+/**
+ * How deep each row sits in a family of sessions one session started (`parentId`),
+ * and under whom. A row nests only under the family the rows above it are still in:
+ * the indexer emits a family contiguously (`groupFamilies`), so a parent anywhere
+ * else in the list is not what the row hangs from.
+ */
+function nesting(items: readonly SessionMeta[]): ReadonlyArray<{ depth: number; parent?: SessionMeta }> {
+  const path: SessionMeta[] = []
+  return items.map((s) => {
+    while (path.length > 0 && path[path.length - 1].id !== s.parentId) path.pop()
+    const parent = path[path.length - 1]
+    path.push(s)
+    return { depth: path.length - 1, parent }
+  })
+}
+
 function SessionList({
   repoKey,
   archived,
@@ -1106,6 +1122,8 @@ function SessionList({
     }
   }, [repoKey, archived, pages, indexVersion])
 
+  const nested = useMemo(() => nesting(items ?? []), [items])
+
   if (items === null) return <div className="tree-empty">loading…</div>
 
   return (
@@ -1120,6 +1138,8 @@ function SessionList({
           // the indexer emits handoff chains contiguously, newest first: a row whose
           // id is the previous row's `continuedFrom` renders as that row's ancestor
           chained={items[i - 1]?.continuedFrom === s.id}
+          depth={nested[i]?.depth}
+          parent={nested[i]?.parent}
           onSelect={onSelect}
           onOpenUrl={onOpenUrl}
         />
@@ -1143,6 +1163,8 @@ function SessionRow({
   selected,
   level = 2,
   chained = false,
+  depth = 0,
+  parent,
   onSelect,
   onOpenUrl
 }: {
@@ -1154,6 +1176,10 @@ function SessionRow({
   level?: number
   /** This session was continued by the row above it (handoff thread ancestor) */
   chained?: boolean
+  /** How many sessions up the family this row hangs from — 0 for a top-level row */
+  depth?: number
+  /** The session that started this one, when its row is the one this nests under */
+  parent?: SessionMeta
   onSelect: (s: SessionMeta) => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
@@ -1171,7 +1197,7 @@ function SessionRow({
       aria-selected={selected}
       aria-level={level}
       tabIndex={-1}
-      title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}\n~${s.messageCount} messages${landed ? `\n${landingLabel(landed)}` : ''}`}
+      title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${parent ? `\nstarted by ${parent.title}` : ''}\n~${s.messageCount} messages${landed ? `\n${landingLabel(landed)}` : ''}`}
       onClick={() => onSelect(s)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -1180,8 +1206,14 @@ function SessionRow({
         }
       }}
     >
-      {chained && (
-        <span className="chain-elbow" aria-hidden="true">
+      {(chained || depth > 0) && (
+        // deeper family rows step in by one indent per level, capped so a long chain
+        // of sessions starting sessions can't push the title out of a narrow rail
+        <span
+          className="chain-elbow"
+          aria-hidden="true"
+          style={depth > 1 ? ({ '--depth': Math.min(depth, 3) } as CSSProperties) : undefined}
+        >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M3 0v4a3 3 0 0 0 3 3h4" stroke="currentColor" strokeWidth="1.2" />
           </svg>
@@ -1196,6 +1228,7 @@ function SessionRow({
       {s.archived && <span className="sr-only">(archived)</span>}
       {/* the elbow is the only visual signal, so it can't be the only signal */}
       {chained && <span className="sr-only">(continued by the session above)</span>}
+      {parent && <span className="sr-only">(started by {parent.title})</span>}
       {/* only the exception is marked: with two Claude homes, every default-account row
           wearing "claude-d…" spent a third of the title's width saying nothing */}
       {multiAccount && acct && !acct.isDefault && (

@@ -80,6 +80,20 @@ describe('ChatView handoff affordances', () => {
     expect(
       screen.queryByRole('button', { name: /Continued from/ })
     ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Started by/ })).not.toBeInTheDocument()
+  })
+
+  it('names the session that started this one and opens it', async () => {
+    const child: ChatBinding = {
+      ...started,
+      provider: 'copilot',
+      startedBy: { id: 'copilot:parent-1', provider: 'copilot', title: 'Free plan limits' }
+    }
+    const { onOpenLineage } = renderChat(vi.fn(), { binding: child })
+    const chip = screen.getByRole('button', { name: 'Started by the Copilot session “Free plan limits” — open it' })
+    expect(chip).toHaveTextContent('by Free plan limits')
+    await userEvent.click(chip)
+    expect(onOpenLineage).toHaveBeenCalledWith('copilot:parent-1')
   })
 })
 

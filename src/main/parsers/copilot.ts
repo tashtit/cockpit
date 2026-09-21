@@ -83,6 +83,10 @@ export function copilotWorkspaceFile(eventsFile: string): string {
   return join(dirname(eventsFile), 'workspace.yaml')
 }
 
+/** A YAML block-scalar header: `|` literal or `>` folded, with optional chomping and
+ *  indentation indicators in either order, and an optional trailing comment. */
+const BLOCK_SCALAR = /^([|>])(?:[1-9][+-]?|[+-][1-9]?)?(?:[ \t]+#.*)?$/
+
 function workspaceName(eventsFile: string): string {
   let raw: string
   try {
@@ -90,13 +94,50 @@ function workspaceName(eventsFile: string): string {
   } catch {
     return ''
   }
-  const m = raw.match(/^name:[ \t]*(.+)$/m)
-  if (!m) return ''
-  let v = m[1].trim()
+  const lines = raw.split(/\r?\n/)
+  const at = lines.findIndex((l) => l.startsWith('name:'))
+  if (at < 0) return ''
+  let v = lines[at].slice('name:'.length).trim()
+  // A name that runs over several lines — until a session is named it carries its whole
+  // kickoff prompt, and the prompt one session writes for another is long — is written
+  // as a block scalar: `name: |-` with the text indented underneath. The key's own line
+  // then holds only the indicator, which used to become the title verbatim.
+  const block = BLOCK_SCALAR.exec(v)
+  if (block) {
+    // the block runs over every indented or blank line, up to the next top-level key;
+    // a title wants its first paragraph — one line of a literal, the joined lines of a
+    // folded one (truncate() collapses the whitespace either way)
+    const paragraph: string[] = []
+    for (const l of lines.slice(at + 1)) {
+      if (l.trim() === '') {
+        if (paragraph.length > 0) break
+        continue
+      }
+      if (!/^[ \t]/.test(l)) break
+      paragraph.push(l.trim())
+      if (block[1] === '|') break
+    }
+    return paragraph.join(' ')
+  }
   if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
     v = v.slice(1, -1)
   }
   return v
+}
+
+/**
+ * The session that created this one, when another session did. The Copilot app opens a
+ * session it was asked to create (`create_session`) with a `<copilot_tauri_workspace>`
+ * context block naming the creator: in a `system.message` ahead of the first prompt, or
+ * in that prompt's `transformedContent`. Only that block is read — a later
+ * `<cross_session_message>` names sessions too, but only ones this session talks to.
+ */
+function creatorId(text: unknown): string | null {
+  if (typeof text !== 'string') return null
+  const block = /<copilot_tauri_workspace>([\s\S]*?)<\/copilot_tauri_workspace>/.exec(text)
+  if (!block) return null
+  const m = /^creator_chat_session_id:[ \t]*([\w-]{8,})[ \t]*$/m.exec(block[1])
+  return m ? m[1] : null
 }
 
 function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null {
@@ -113,10 +154,18 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
   let firstTs: number | null = null
   let messageCount = 0
   let sawStart = false
+  let sawPrompt = false
+  let creator: string | null = null
 
   for (const ev of events) {
     const ts = toMs(ev.timestamp)
     if (ts && !firstTs) firstTs = ts
+    // the creator is stated at kickoff: before the first prompt, or with it
+    if (!sawPrompt && !creator) {
+      if (ev.type === 'system.message') creator = creatorId(ev.data?.content)
+      else if (ev.type === 'user.message') creator = creatorId(ev.data?.transformedContent)
+    }
+    if (ev.type === 'user.message') sawPrompt = true
     if (ev.type === 'session.start' && ev.data) {
       sawStart = true
       if (ev.data.sessionId) nativeId = String(ev.data.sessionId)
@@ -161,7 +210,8 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
     startedAt: firstTs ?? ft.start,
     updatedAt: ft.end,
     messageCount,
-    sourcePath: file
+    sourcePath: file,
+    ...(creator && creator !== nativeId ? { parentId: `copilot:${creator}` } : {})
   }
 }
 

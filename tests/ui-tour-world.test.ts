@@ -38,6 +38,14 @@ describe('ui-tour fixture world', () => {
     expect(copilot.map((s) => s.title)).toContain('Tidy the usage panel spacing')
   })
 
+  it('has a Copilot session another one started, named by a block scalar', () => {
+    const copilot = listCopilotSessions(join(world.home, '.copilot'), 'copilot-default')
+    const parent = copilot.find((s) => s.title === 'Add OpenTelemetry spans to the job runner')
+    const child = copilot.find((s) => s.parentId !== undefined)
+    expect(child?.title).toBe('Instrument the retry queue with the same spans as the job runner.')
+    expect(child?.parentId).toBe(parent?.id)
+  })
+
   it('has stale work for Cleanup and recent work for the board', () => {
     const all = [
       ...listClaudeSessions(join(world.home, '.claude'), 'claude-default'),

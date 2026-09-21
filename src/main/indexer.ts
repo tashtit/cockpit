@@ -65,7 +65,7 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 6
+const CACHE_VERSION = 7
 /** Yield to the event loop every N files so scans never starve IPC. */
 const YIELD_EVERY = 50
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -867,7 +867,7 @@ export class SessionIndexer {
       )
     }
     all.sort((a, b) => b.updatedAt - a.updatedAt)
-    all = this.groupChains(all)
+    all = this.groupChains(groupFamilies(all))
     const offset = Math.max(0, query.offset ?? 0)
     const limit = Math.max(1, Math.min(1000, query.limit ?? DEFAULT_PAGE_SIZE))
     return {
@@ -1126,6 +1126,48 @@ export class SessionIndexer {
       this.providerArchivedTimer = null
     }
   }
+}
+
+/**
+ * Sessions another session started (`SessionMeta.parentId`) render under it: a family
+ * is pulled together where its most recently active member already sorted, the parent
+ * first and each child followed by its own children, siblings by recency. Done here
+ * for the same reason as chains — the renderer only ever sees pages. Parent edges
+ * only count when both ends survived the query's filters; a child whose parent did
+ * not stays where recency put it.
+ */
+export function groupFamilies(sorted: SessionMeta[]): SessionMeta[] {
+  const present = new Map(sorted.map((s) => [s.id, s]))
+  const children = new Map<string, SessionMeta[]>()
+  for (const s of sorted) {
+    if (!s.parentId || s.parentId === s.id || !present.has(s.parentId)) continue
+    const siblings = children.get(s.parentId)
+    if (siblings) siblings.push(s)
+    else children.set(s.parentId, [s])
+  }
+  if (children.size === 0) return sorted
+  // the edges come from logs: cap the walk and track visits so a cycle can't hang
+  const rootOf = (s: SessionMeta): SessionMeta => {
+    let cur = s
+    const seen = new Set([cur.id])
+    for (let i = 0; i < 32; i++) {
+      const parent = cur.parentId ? present.get(cur.parentId) : undefined
+      if (!parent || seen.has(parent.id)) return cur
+      seen.add(parent.id)
+      cur = parent
+    }
+    return cur
+  }
+  const out: SessionMeta[] = []
+  const emitted = new Set<string>()
+  const emit = (s: SessionMeta): void => {
+    if (emitted.has(s.id)) return
+    emitted.add(s.id)
+    out.push(s)
+    for (const child of children.get(s.id) ?? []) emit(child)
+  }
+  for (const s of sorted) emit(rootOf(s))
+  return out
 }
 
 function isHiddenPath(p: string): boolean {

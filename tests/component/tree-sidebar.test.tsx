@@ -245,6 +245,56 @@ describe('handoff threads', () => {
   })
 })
 
+describe('child sessions', () => {
+  const copilot = (id: string, title: string, parentId?: string): SessionMeta =>
+    session({ id: `copilot:${id}`, provider: 'copilot', nativeId: id, title, ...(parentId ? { parentId } : {}) })
+
+  it('hangs children and grandchildren from the family above them, one step in per level', async () => {
+    // the indexer emits a family contiguously: parent, then each child and its own children
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 4,
+      items: [
+        copilot('p', 'Free plan limits'),
+        copilot('c1', 'Account usage foundation', 'copilot:p'),
+        copilot('g', 'Usage fixtures', 'copilot:c1'),
+        copilot('c2', 'Free trial retention', 'copilot:p')
+      ]
+    })
+    renderSidebar()
+
+    const child = await screen.findByRole('treeitem', {
+      name: /Account usage foundation\s*\(started by Free plan limits\)/
+    })
+    // a first-level child sits where a handoff ancestor does; the elbow says so, and
+    // the tooltip names the parent for anyone who hovers instead
+    expect(child.querySelector('.chain-elbow')).not.toBeNull()
+    expect(child.querySelector<HTMLElement>('.chain-elbow')?.style.getPropertyValue('--depth')).toBe('')
+    expect(child.getAttribute('title')).toContain('started by Free plan limits')
+    const grandchild = screen.getByRole('treeitem', { name: /Usage fixtures\s*\(started by Account usage foundation\)/ })
+    expect(grandchild.querySelector<HTMLElement>('.chain-elbow')?.style.getPropertyValue('--depth')).toBe('2')
+    // a sibling after a grandchild steps back out to its own parent
+    const sibling = screen.getByRole('treeitem', { name: /Free trial retention\s*\(started by Free plan limits\)/ })
+    expect(sibling.querySelector<HTMLElement>('.chain-elbow')?.style.getPropertyValue('--depth')).toBe('')
+    expect(screen.getByRole('treeitem', { name: /^Free plan limits/ }).querySelector('.chain-elbow')).toBeNull()
+  })
+
+  it('does not nest a child whose parent is not the family above it', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 3,
+      items: [
+        copilot('p', 'Free plan limits'),
+        copilot('x', 'unrelated work'),
+        copilot('c1', 'Account usage foundation', 'copilot:p')
+      ]
+    })
+    renderSidebar()
+
+    const child = await screen.findByRole('treeitem', { name: /Account usage foundation/ })
+    expect(child.querySelector('.chain-elbow')).toBeNull()
+    expect(child).not.toHaveAccessibleName(/started by/)
+  })
+})
+
 describe('sidebar row controls stay reachable', () => {
   it('gives every hover action an accessible name, not just an icon', async () => {
     vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session()] })

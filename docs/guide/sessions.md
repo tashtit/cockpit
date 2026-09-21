@@ -16,6 +16,7 @@ One row per repository, ordered by last activity, with that repo's sessions unde
 - **Search** — global, across all providers and repos, by title, branch, path or id.
 - **Names** — sessions carry their agent-generated titles where the provider records one.
 - **PR badges** — sessions on a Cockpit-created branch show their pull request state (open, draft, merged, closed) in GitHub's colors.
+- **Child sessions** — a session that another session started sits under that session, indented one step per level. Copilot's app does this when a session creates new sessions for pieces of its work, each in its own workspace. Open a child to get a **by <parent>** chip in its chat header that takes you back to the session that started it.
 
 Click a session to read its parsed transcript — messages, tool calls, and results. Type below the transcript to continue the conversation with the same provider; see [Chat](/guide/chat).
 

@@ -231,6 +231,17 @@ export function ChatView({
                 {PROVIDER_LABEL[binding.continuedFrom.provider]}
               </button>
             )}
+            {binding.startedBy && (
+              <button
+                className={`acct-chip acct-${binding.startedBy.provider} lineage-chip parent-chip`}
+                aria-label={`Started by the ${PROVIDER_LABEL[binding.startedBy.provider]} session “${binding.startedBy.title}” — open it`}
+                title={`Started by “${binding.startedBy.title}” — click to open it`}
+                onClick={() => binding.startedBy && onOpenLineage(binding.startedBy.id)}
+              >
+                <ProviderLogo p={binding.startedBy.provider} size={10} /> by{' '}
+                <span className="chip-text">{binding.startedBy.title}</span>
+              </button>
+            )}
             {binding.branch && <BranchChip branch={binding.branch} />}
             <button
               className={`chat-cwd ${cwdCopied ? 'copied' : ''}`}

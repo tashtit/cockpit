@@ -286,7 +286,8 @@ function populate(world: World): void {
   codex({ cwd: code('infra-tools'), branch: 'main', hoursAgo: 38 * 24, items: [message('user', 'List unused IAM roles.'), message('assistant', 'Found 11 roles unused for 90+ days.')] })
 
   // ---------- Copilot sessions ----------
-  const copilot = (o: { readonly cwd: string; readonly repository: string; readonly title: string; readonly hoursAgo: number; readonly events: readonly [string, object][] }): void => {
+  // `workspace` replaces the one-line name file, for a name Copilot writes another way
+  const copilot = (o: { readonly cwd: string; readonly repository: string; readonly title: string; readonly hoursAgo: number; readonly events: readonly [string, object][]; readonly workspace?: string }): string => {
     const id = randomUUID()
     const dir = join(world.home, '.copilot', 'session-state', id)
     const at = iso(o.hoursAgo)
@@ -297,10 +298,11 @@ function populate(world: World): void {
         ...o.events.map(([type, data]) => ({ type, timestamp: at, data }))
       ])
     )
-    write(join(dir, 'workspace.yaml'), `name: ${o.title}\n`)
+    write(join(dir, 'workspace.yaml'), o.workspace ?? `name: ${o.title}\n`)
     // copilot's updatedAt is the file's mtime, not a timestamp inside it
     const t = (now - o.hoursAgo * HOUR) / 1000
     utimesSync(join(dir, 'events.jsonl'), t, t)
+    return id
   }
   copilot({
     cwd: code('rocket'),
@@ -314,7 +316,22 @@ function populate(world: World): void {
       ['assistant.message', { content: 'Increased the grid gap and padded the meters.', model: 'claude-sonnet-4.5' }]
     ]
   })
-  copilot({ cwd: code('atlas'), repository: 'acme/atlas', title: 'Add OpenTelemetry spans to the job runner', hoursAgo: 7, events: [['user.message', { content: 'Add spans around each job.' }], ['assistant.message', { content: 'Wrapped runJob in a span.' }]] })
+  const spans = copilot({ cwd: code('atlas'), repository: 'acme/atlas', title: 'Add OpenTelemetry spans to the job runner', hoursAgo: 7, events: [['user.message', { content: 'Add spans around each job.' }], ['assistant.message', { content: 'Wrapped runJob in a span.' }]] })
+  // a session that one started for a piece of its work: the Copilot app names it after
+  // its kickoff prompt, as a block scalar, and the kickoff states who created it — the
+  // tree hangs it under the session above
+  const retryPrompt = 'Instrument the retry queue with the same spans as the job runner.'
+  copilot({
+    cwd: code('atlas'),
+    repository: 'acme/atlas',
+    title: retryPrompt,
+    hoursAgo: 6,
+    workspace: `name: |-\n  ${retryPrompt}\n  Keep the attribute names identical so one dashboard covers both.\nuser_named: false\n`,
+    events: [
+      ['user.message', { content: retryPrompt, transformedContent: `<copilot_tauri_workspace>\nproject_name: atlas\ncreator_chat_session_id: ${spans}\n</copilot_tauri_workspace>\n\n${retryPrompt}` }],
+      ['assistant.message', { content: 'Added spans around enqueue and each retry attempt.' }]
+    ]
+  })
   copilot({ cwd: code('lumen-docs'), repository: 'lumenlabs/lumen-docs', title: 'Fix typos in the tutorials', hoursAgo: 55 * 24, events: [['user.message', { content: 'Fix typos.' }], ['assistant.message', { content: 'Fixed 23 typos.' }]] })
 
   // ---------- accounts ----------
