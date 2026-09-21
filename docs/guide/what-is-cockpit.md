@@ -43,6 +43,8 @@ the percentage beside the wordmark, which appears whenever you are not at 100%. 
 remembered — set it once and every later launch opens there.
 
 Zooming in makes everything bigger, which leaves the same window with less layout to show — so
+the sidebar gives way as it would if you had narrowed the window: the wordmark drops to its mark,
+and at the very tightest the four header buttons take their own line rather than shrinking. And
 Cockpit raises the window's minimum in step. At 150% the window will not go below 840×630, which
 is the same amount of layout as 560×420 at 100%. If a zoom level needs more room than the display
 has, the minimum stops at the screen and the views go on shedding rather than breaking.

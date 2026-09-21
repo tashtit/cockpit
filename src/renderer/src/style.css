@@ -147,10 +147,6 @@ button, input, select, textarea, details { transition: background var(--dur) var
 .app > * { min-width: 0; }
 @media (max-width: 700px) {
   .app { grid-template-columns: clamp(200px, 34vw, 240px) 1fr; }
-  /* a 200px rail can't hold the wordmark AND the nav — shed the text, keep the
-     mark (the shed-decoration-first rule; without this the nav icons overflow
-     the rail onto the content pane) */
-  .app-title-text { display: none; }
 }
 
 /* native chrome: sidebar top + chat header double as the window drag region */
@@ -239,7 +235,12 @@ summary::-webkit-details-marker { display: none; }
    materials — instrument rail on the left, flight deck on the right */
 .tree-sidebar { background: color-mix(in srgb, var(--bg-deep) 62%, transparent);
   border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; min-height: 0; backdrop-filter: blur(8px); }
+  display: flex; flex-direction: column; min-height: 0; backdrop-filter: blur(8px);
+  /* the rail asks about itself: its width is `clamp()` of the viewport at one zoom and
+     something else at the next, so the top row's shed has to be measured here. The
+     backdrop-filter above already makes this a containing block, so the containment
+     inline-size adds moves nothing that was positioned against it. */
+  container: rail / inline-size; }
 .tree-top { display: flex; align-items: center; gap: var(--s1);
   /* clears the macOS traffic lights (hiddenInset) — see --traffic-clear */
   padding: var(--traffic-clear) var(--s4) var(--s3); }
@@ -249,6 +250,8 @@ summary::-webkit-details-marker { display: none; }
   align-items: center; gap: var(--s2); flex: 1; padding: 2px var(--s1);
   border-radius: var(--radius-sm); }
 .app-title:hover { background: var(--bg3); }
+/* the nav keys are one object, so the row has one thing to move rather than four */
+.tree-nav { display: flex; align-items: center; gap: var(--s1); flex-shrink: 0; }
 /* visible whenever the window is not at 100% — no more mystery zoom states */
 .zoom-chip { font-size: var(--fs-xs); font-family: var(--mono); color: var(--warn);
   border: 1px solid rgba(var(--warn-rgb), 0.4); border-radius: var(--radius-pill); padding: 0 var(--s2);
@@ -2168,4 +2171,42 @@ button.pnl-flag:hover { text-decoration: underline; }
      name takes the row (it is what the header exists to say) and they take the next. */
   .chat-header { flex-wrap: wrap; }
   .chat-header-text { flex-basis: 100%; }
+}
+
+/* ---------- the rail's own width: what the top row has to fit in ----------
+   The window is the wrong question here and zoom is what proves it. The rail is
+   `clamp()`ed off the viewport, so at 120% in a 1100pt window the viewport is still
+   916 CSS px — above every media query below — while the rail has already clamped to
+   its 240px floor. The row it holds is six fixed things (wordmark, the zoom chip that
+   only exists *because* you zoomed, four nav keys), none of which shrink, so the keys
+   walked across the rail's border onto the deck. These ask the rail instead, so they
+   are true at any zoom — and stay true if the rail ever becomes draggable.
+
+   Three tiers, and the widths are measured rather than guessed: the narrowest rail
+   `.tree-top` fits in, by what it is carrying — 238 with the wordmark alone, 283 with
+   the chip beside it, 211 with the chip and the wordmark shed to its mark. All of them
+   are `cqi`, the rail's content box, which is one less than its grid track. That track
+   bottoms out at 200 (`clamp(200px, 34vw, 240px)`), i.e. 199cqi, which the third of
+   those misses by 12 — so the narrowest rail with a chip in it reflows. Re-derive the
+   three if the wordmark, the chip or the keys change. */
+
+/* 1. the chip arrives and the wordmark's text leaves — decoration first, and the
+      mark (which is also the way home) stays */
+@container rail (max-width: 282px) {
+  .tree-top:has(.zoom-chip) .app-title-text { display: none; }
+}
+/* 2. and without a chip it goes at the width it stops fitting at on its own — the
+      old `@media (max-width: 700px)` rule, asked of the rail so zoom can't fool it */
+@container rail (max-width: 237px) {
+  .app-title-text { display: none; }
+}
+/* 3. at the rail's floor the mark, the chip and four keys still want 211px of 200.
+      Nothing sheds here: a person at 175% is the one who least wants a control made
+      smaller or taken away, so the row reflows instead — identity and the zoom
+      readout on one line, the nav keys full-size on the next (the chat header's
+      move at ≤559px, for the same reason). Only ever with the chip up: without it
+      the floor holds one line, and that is the layout every shot is taken of. */
+@container rail (max-width: 210px) {
+  .tree-top:has(.zoom-chip) { flex-wrap: wrap; }
+  .tree-top:has(.zoom-chip) .tree-nav { flex-basis: 100%; justify-content: flex-end; }
 }
