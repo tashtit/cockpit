@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
+  ENDPOINT_PRESETS,
   endpointAgents,
+  endpointAuth,
   endpointEnv,
   endpointSupports,
   isBlockedEndpointHost,
@@ -92,6 +94,14 @@ describe('sanitizeEndpoint', () => {
     expect(sanitizeEndpoint({ ...base, baseUrl: 'http://0251.0376.0251.0376/' }, 'i')).toBeNull()
   })
 
+  it('keeps a known key-sending choice and refuses anything else', () => {
+    const base = { label: 'x', type: 'anthropic', baseUrl: 'https://gw.example' }
+    expect(sanitizeEndpoint({ ...base, auth: 'bearer' }, 'i')?.auth).toBe('bearer')
+    expect(sanitizeEndpoint({ ...base, auth: 'key' }, 'i')?.auth).toBe('key')
+    expect(sanitizeEndpoint({ ...base, auth: '' }, 'i')).not.toHaveProperty('auth')
+    expect(sanitizeEndpoint({ ...base, auth: 'basic' }, 'i')).toBeNull()
+  })
+
   it('rejects malformed headers and wire APIs', () => {
     const base = { label: 'x', type: 'openai', baseUrl: 'https://a.example' }
     expect(sanitizeEndpoint({ ...base, wireApi: 'grpc' }, 'i')).toBeNull()
@@ -139,29 +149,83 @@ describe('endpointAgents / endpointSupports', () => {
 })
 
 describe('endpointEnv', () => {
+  /** Every credential variable a turn sets, blank — what a keyless endpoint carries */
+  const noCopilotKey = {
+    COPILOT_PROVIDER_API_KEY: '',
+    COPILOT_PROVIDER_BEARER_TOKEN: '',
+    COPILOT_PROVIDER_API_KEY_COMMAND: ''
+  }
+  const noClaudeKey = { ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' }
+
   it('copilot gets the full COPILOT_PROVIDER_* set', () => {
     expect(endpointEnv('copilot', ep({ wireApi: 'responses' }), 'sk-1')).toEqual({
       COPILOT_PROVIDER_BASE_URL: 'https://gw.example.com/v1',
       COPILOT_PROVIDER_TYPE: 'openai',
+      ...noCopilotKey,
       COPILOT_PROVIDER_API_KEY: 'sk-1',
       COPILOT_PROVIDER_WIRE_API: 'responses'
     })
   })
 
-  it('copilot omits key and wire api when absent (local Ollama)', () => {
+  it('copilot carries no key and no wire api when there are none (local Ollama)', () => {
     expect(endpointEnv('copilot', ep())).toEqual({
       COPILOT_PROVIDER_BASE_URL: 'https://gw.example.com/v1',
-      COPILOT_PROVIDER_TYPE: 'openai'
+      COPILOT_PROVIDER_TYPE: 'openai',
+      ...noCopilotKey
     })
   })
 
-  it('claude gets ANTHROPIC_BASE_URL plus the bearer auth token', () => {
-    expect(endpointEnv('claude', ep({ type: 'anthropic' }), 'sk-ant')).toEqual({
-      ANTHROPIC_BASE_URL: 'https://gw.example.com/v1',
-      ANTHROPIC_AUTH_TOKEN: 'sk-ant'
+  it('the Anthropic API gets its key as x-api-key from both agents, as it requires', () => {
+    const anthropic = ep({ type: 'anthropic', baseUrl: 'https://api.anthropic.com', auth: 'key' })
+    expect(endpointEnv('claude', anthropic, 'sk-ant')).toEqual({
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      ANTHROPIC_API_KEY: 'sk-ant',
+      ANTHROPIC_AUTH_TOKEN: ''
     })
-    expect(endpointEnv('claude', ep({ type: 'anthropic' }))).toEqual({
-      ANTHROPIC_BASE_URL: 'https://gw.example.com/v1'
+    expect(endpointEnv('copilot', anthropic, 'sk-ant')).toMatchObject({
+      COPILOT_PROVIDER_TYPE: 'anthropic',
+      COPILOT_PROVIDER_API_KEY: 'sk-ant',
+      COPILOT_PROVIDER_BEARER_TOKEN: ''
+    })
+  })
+
+  it('a bearer gateway gets Authorization from both agents', () => {
+    const gateway = ep({ type: 'anthropic', auth: 'bearer' })
+    expect(endpointEnv('claude', gateway, 'gw-1')).toEqual({
+      ANTHROPIC_BASE_URL: 'https://gw.example.com/v1',
+      ANTHROPIC_API_KEY: '',
+      ANTHROPIC_AUTH_TOKEN: 'gw-1'
+    })
+    expect(endpointEnv('copilot', gateway, 'gw-1')).toMatchObject({
+      COPILOT_PROVIDER_API_KEY: '',
+      COPILOT_PROVIDER_BEARER_TOKEN: 'gw-1'
+    })
+  })
+
+  // the shell's own ANTHROPIC_API_KEY would otherwise ride along: Claude sends both
+  // headers when both variables are set
+  it('blanks every credential the endpoint does not supply, so none is inherited', () => {
+    expect(endpointEnv('claude', ep({ type: 'anthropic', auth: 'bearer' }))).toEqual({
+      ANTHROPIC_BASE_URL: 'https://gw.example.com/v1',
+      ...noClaudeKey
+    })
+  })
+
+  it('an endpoint stored before the choice existed keeps what each agent was sent', () => {
+    const legacy = ep({ type: 'anthropic' })
+    expect(endpointAuth(legacy, 'claude')).toBe('bearer')
+    expect(endpointAuth(legacy, 'copilot')).toBe('key')
+    expect(endpointAuth(legacy)).toBe('key')
+    expect(endpointEnv('claude', legacy, 'sk-gw')).toMatchObject({ ANTHROPIC_AUTH_TOKEN: 'sk-gw' })
+  })
+
+  // Claude used to send the key as a bearer token there, which the API refuses
+  it('except Claude against the Anthropic API, which only ever took x-api-key', () => {
+    const legacy = ep({ type: 'anthropic', baseUrl: 'https://api.anthropic.com/' })
+    expect(endpointAuth(legacy, 'claude')).toBe('key')
+    expect(endpointEnv('claude', legacy, 'sk-ant')).toMatchObject({
+      ANTHROPIC_API_KEY: 'sk-ant',
+      ANTHROPIC_AUTH_TOKEN: ''
     })
   })
 
@@ -171,8 +235,8 @@ describe('endpointEnv', () => {
       COPILOT_PROVIDER_HEADERS: 'X-Gateway-Key: abc\nX-Tenant-Id: mai'
     })
     expect(
-      endpointEnv('claude', ep({ type: 'anthropic', headers: { 'anthropic-version': '2023-06-01' } }))
-    ).toMatchObject({ ANTHROPIC_CUSTOM_HEADERS: 'anthropic-version: 2023-06-01' })
+      endpointEnv('claude', ep({ type: 'anthropic', headers: { 'X-Tenant-Id': 'mai' } }))
+    ).toMatchObject({ ANTHROPIC_CUSTOM_HEADERS: 'X-Tenant-Id: mai' })
   })
 
   it('returns null for unsupported provider/endpoint pairs', () => {
@@ -196,6 +260,13 @@ describe('modelsRequest / parseModelsResponse', () => {
       url: 'https://api.anthropic.com/v1/models',
       headers: { 'anthropic-version': '2023-06-01', 'x-api-key': 'sk-ant' }
     })
+  })
+
+  // the listing is the add form's only check of the key, so it has to send it the
+  // way a turn will — a gateway taking bearer tokens refuses x-api-key
+  it('an anthropic gateway taking bearer tokens is listed with one', () => {
+    const req = modelsRequest(ep({ type: 'anthropic', auth: 'bearer' }), 'gw-1')
+    expect(req?.headers).toEqual({ 'anthropic-version': '2023-06-01', Authorization: 'Bearer gw-1' })
   })
 
   it('azure has no listable catalog', () => {
@@ -254,5 +325,63 @@ describe('endpointPreflight', () => {
   it('passes a fully-specified copilot BYOK turn', () => {
     const r = req({ options: { modelEndpoint: 'ep-1', model: 'llama3.3' } })
     expect(endpointPreflight(r, ep({ hasKey: true }), true)).toBeNull()
+  })
+})
+
+describe('ENDPOINT_PRESETS', () => {
+  const preset = (id: string) => {
+    const p = ENDPOINT_PRESETS.find((x) => x.id === id)
+    if (!p) throw new Error(`no preset ${id}`)
+    return p
+  }
+
+  it('opens on Anthropic, filled in with the address and key header its API takes', () => {
+    expect(ENDPOINT_PRESETS[0]).toMatchObject({
+      id: 'anthropic',
+      type: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      auth: 'key'
+    })
+    expect(ENDPOINT_PRESETS[0].keyOptional).toBeFalsy()
+  })
+
+  it('every preset with an address of its own is one sanitizeEndpoint accepts as-is', () => {
+    for (const p of ENDPOINT_PRESETS.filter((x) => x.baseUrl)) {
+      const out = sanitizeEndpoint(
+        { label: p.name, type: p.type, baseUrl: p.baseUrl, wireApi: p.wireApi, auth: p.auth },
+        'i'
+      )
+      expect(out, p.id).not.toBeNull()
+      expect(out?.baseUrl, p.id).toBe(p.baseUrl)
+    }
+  })
+
+  it('every example address is valid too, so a placeholder never teaches a refused URL', () => {
+    for (const p of ENDPOINT_PRESETS) {
+      expect(sanitizeEndpoint({ label: 'x', type: p.type, baseUrl: p.urlExample }, 'i'), p.id).not.toBeNull()
+    }
+  })
+
+  it('only local servers and bring-your-own gateways go without a key', () => {
+    const optional = ENDPOINT_PRESETS.filter((p) => p.keyOptional).map((p) => p.id)
+    expect(optional).toEqual(['ollama', 'lmstudio', 'anthropic-compatible', 'openai-compatible'])
+  })
+
+  it('asks about the wire API only where it is an openai endpoint, and the key header only on an anthropic one', () => {
+    for (const p of ENDPOINT_PRESETS) {
+      if (p.ask.includes('wireApi')) expect(p.type, p.id).toBe('openai')
+      if (p.ask.includes('auth')) expect(p.type, p.id).toBe('anthropic')
+    }
+    expect(preset('openai').wireApi).toBe('responses')
+    expect(preset('anthropic-compatible').auth).toBe('bearer')
+  })
+
+  it('local presets point at the servers\' own default ports', () => {
+    expect(preset('ollama').baseUrl).toBe('http://localhost:11434/v1')
+    expect(preset('lmstudio').baseUrl).toBe('http://localhost:1234/v1')
+  })
+
+  it('ids are unique — they are the picker values', () => {
+    expect(new Set(ENDPOINT_PRESETS.map((p) => p.id)).size).toBe(ENDPOINT_PRESETS.length)
   })
 })

@@ -4,7 +4,7 @@ Custom providers (BYOK — bring your own key) let you point agents at model end
 
 ## What's supported
 
-An endpoint has one of three types, and the type decides which agents can use it:
+A provider has one of three API types, and the type decides which agents can use it:
 
 | Endpoint type | Claude Code | Copilot CLI | Codex |
 | --- | --- | --- | --- |
@@ -14,19 +14,43 @@ An endpoint has one of three types, and the type decides which agents can use it
 
 Claude Code only speaks its own API shape, so it pairs with Anthropic-compatible endpoints; Copilot's BYOK mode speaks all three. **Codex is not supported yet** — pointing it elsewhere requires `config.toml` writes rather than environment variables.
 
-## Defining an endpoint
+## Adding a provider
 
-A definition is a label, a base URL, and a type — plus optionally:
+**Settings › Providers › Add a model provider…** starts from a **Provider** picker that fills in everything it can, so a hosted API needs only its key and a local server needs nothing at all:
 
-- a **wire API** (`completions` or `responses`) for OpenAI-compatible endpoints,
-- **custom headers** (up to 16), for gateways that require them,
-- a **model list**. For OpenAI- and Anthropic-compatible endpoints Cockpit fetches the catalog from the endpoint's `/models` listing automatically; Azure has no listable catalog, so you enter deployment names yourself.
+| Provider | Base URL filled in | Key | Works with |
+| --- | --- | --- | --- |
+| Anthropic (the default) | `https://api.anthropic.com` | required — from console.anthropic.com | Claude Code, Copilot |
+| OpenAI | `https://api.openai.com/v1` (wire API `responses`) | required | Copilot |
+| Azure OpenAI | your resource's URL | required | Copilot |
+| Ollama | `http://localhost:11434/v1` | none | Copilot |
+| LM Studio | `http://localhost:1234/v1` | none | Copilot |
+| Anthropic-compatible | your gateway's URL | optional | Claude Code, Copilot |
+| OpenAI-compatible | your endpoint's URL | optional | Copilot |
 
-Models from your endpoints then appear in the task composer's model picker.
+Every filled-in field stays editable: point Anthropic at a regional proxy, or run Ollama on another port. **Add provider** stays off until a hosted API has its key, because those APIs refuse every request without one.
+
+Only the two **-compatible** entries ask for more, because only a gateway can differ:
+
+- **Wire API** (`completions` or `responses`) for OpenAI-compatible endpoints; GPT-5 models need `responses`. The OpenAI entry asks too, starting on `responses`.
+- **Send key as** for Anthropic-compatible gateways: `Authorization: Bearer` (most gateways, such as LiteLLM) or `x-api-key` (the Anthropic API's own header, which some proxies pass through).
+- **Headers** (up to 16) for gateways that require them, as a JSON object.
+
+When a provider is added, Cockpit fetches its model list from its `/models` listing and says how many models it found. The key goes out the way sessions will send it, so a list that loads means the key works. Azure has no listable catalog, so type the deployment name as the model when you start a session. Models from your providers then appear in the task composer's model picker.
+
+## How the key is sent
+
+Claude Code and Copilot send a provider's key the same way, and so does the model listing:
+
+- **Anthropic** and gateways set to `x-api-key`: Claude Code gets `ANTHROPIC_API_KEY`, Copilot gets `COPILOT_PROVIDER_API_KEY`.
+- **Gateways set to Bearer**: Claude Code gets `ANTHROPIC_AUTH_TOKEN`, Copilot gets `COPILOT_PROVIDER_BEARER_TOKEN`.
+- **OpenAI-compatible and Azure**: Copilot gets `COPILOT_PROVIDER_API_KEY`, sent as that API's own header.
+
+A session on a provider carries that provider's key and no other. Every other credential variable the agent reads is set to empty, so a key exported in your shell never reaches the provider. A provider added before this choice existed keeps working as it did. The one change is Claude against `api.anthropic.com`, which now gets `x-api-key`: that API never accepted the bearer token Claude used to send it.
 
 ## Where the key lives
 
-The API key is **not** part of the endpoint definition and never lands in Cockpit's config file. It's encrypted with the OS keychain (Electron `safeStorage`) into a separate store, decrypted only at spawn time, and injected into the provider CLI's environment for that one turn (`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` for Claude Code, `COPILOT_PROVIDER_*` for Copilot).
+The API key is **not** part of the provider definition and never lands in Cockpit's config file. It's encrypted with the OS keychain (Electron `safeStorage`) into a separate store, decrypted only at spawn time, and injected into the agent's environment for that one turn.
 
 ## Sessions remember their provider
 

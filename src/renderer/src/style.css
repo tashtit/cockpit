@@ -627,6 +627,9 @@ summary::-webkit-details-marker { display: none; }
 .select-chev { flex-shrink: 0; color: var(--fg-dim); transition: transform var(--dur) var(--ease); }
 .select-trigger[aria-expanded='true'] .select-chev { transform: rotate(180deg); }
 .select-pop { position: fixed; z-index: 60; list-style: none; margin: 0;
+  /* a list that opens upward can cover the window's drag strip or dev banner — without
+     the opt-out a click on an option there starts a window drag instead */
+  -webkit-app-region: no-drag;
   max-height: 300px; overflow-y: auto; padding: var(--s1);
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-pop); }
@@ -1552,6 +1555,9 @@ summary::-webkit-details-marker { display: none; }
 .source-browse-row { display: flex; gap: var(--s2); }
 .source-browse-row input { flex: 1; font-family: var(--mono); }
 .source-opt-path { flex: 2 1 220px; }
+/* holds "Anthropic-compatible" (118px of text + 34px of trigger chrome) untruncated
+   beside the name and URL in a 900px window, where the row is 551px wide */
+.source-opt-provider { flex: 1 1 160px; }
 
 /* ---------- cleanup ---------- */
 /* rows reuse the settings source-row shell (.source-list gives the stack); what is

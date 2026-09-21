@@ -1,16 +1,17 @@
 import { useEffect, useState, type JSX } from 'react'
-import type {
-  ModelEndpoint,
-  ModelEndpointType,
-  NewModelEndpoint,
-  WireApi
-} from '../../shared/types'
-import { endpointAgents } from '../../shared/endpoints'
+import type { EndpointAuth, ModelEndpoint, NewModelEndpoint, WireApi } from '../../shared/types'
+import { ENDPOINT_PRESETS, endpointAgents, type EndpointPreset } from '../../shared/endpoints'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
 import { EndpointIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+
+const DEFAULT_PRESET = ENDPOINT_PRESETS[0]
+
+/** "Claude · Copilot" — the agents a provider class serves, as the pickers annotate it */
+const agentsHint = (p: Pick<EndpointPreset, 'type'>): string =>
+  endpointAgents(p).map((a) => PROVIDER_LABEL[a]).join(' · ')
 
 /**
  * Custom model providers (BYOK): the list, the add form, and removal.
@@ -22,11 +23,13 @@ import { Select } from './Select'
  */
 export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }): JSX.Element {
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
-  const [epLabel, setEpLabel] = useState('')
-  const [epType, setEpType] = useState<ModelEndpointType>('openai')
-  const [epUrl, setEpUrl] = useState('')
+  /** The provider the form starts from — it fills every field below with what works */
+  const [preset, setPreset] = useState<EndpointPreset>(DEFAULT_PRESET)
+  const [epLabel, setEpLabel] = useState(DEFAULT_PRESET.name)
+  const [epUrl, setEpUrl] = useState(DEFAULT_PRESET.baseUrl)
   const [epKey, setEpKey] = useState('')
-  const [epWire, setEpWire] = useState<'' | WireApi>('')
+  const [epWire, setEpWire] = useState<'' | WireApi>(DEFAULT_PRESET.wireApi ?? '')
+  const [epAuth, setEpAuth] = useState<EndpointAuth>(DEFAULT_PRESET.auth ?? 'key')
   const [epHeaders, setEpHeaders] = useState('')
   const [epError, setEpError] = useState<string | null>(null)
   /** Visible outcome of the add + model-listing probe (the sr-only region mirrors it) */
@@ -46,6 +49,30 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
     void api.getModelEndpoints?.().then(setEndpoints)
   }, [])
 
+  const pickPreset = (id: string): void => {
+    const next = ENDPOINT_PRESETS.find((p) => p.id === id) ?? DEFAULT_PRESET
+    // a field still holding the last provider's suggestion follows the new one;
+    // anything typed over it stays
+    if (!epLabel.trim() || epLabel === preset.name) setEpLabel(next.name)
+    if (!epUrl.trim() || epUrl === preset.baseUrl) setEpUrl(next.baseUrl)
+    setEpWire(next.wireApi ?? '')
+    setEpAuth(next.auth ?? 'key')
+    // a field the new provider doesn't show must not carry a value it can't see
+    if (!next.ask.includes('headers')) setEpHeaders('')
+    setPreset(next)
+    setEpError(null)
+  }
+
+  const resetForm = (): void => {
+    setPreset(DEFAULT_PRESET)
+    setEpLabel(DEFAULT_PRESET.name)
+    setEpUrl(DEFAULT_PRESET.baseUrl)
+    setEpKey('')
+    setEpWire(DEFAULT_PRESET.wireApi ?? '')
+    setEpAuth(DEFAULT_PRESET.auth ?? 'key')
+    setEpHeaders('')
+  }
+
   const notice = (msg: string): void => {
     setEpNotice(msg)
     onStatus(msg)
@@ -59,26 +86,24 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
         try {
           headers = JSON.parse(epHeaders) as Record<string, string>
         } catch {
-          throw new Error('Custom headers must be a JSON object, e.g. {"anthropic-version": "2023-06-01"}.')
+          throw new Error('Custom headers must be a JSON object, e.g. {"X-Tenant-Id": "team-a"}.')
         }
       }
       const def: NewModelEndpoint = {
         label: epLabel.trim(),
-        type: epType,
+        type: preset.type,
         baseUrl: epUrl.trim(),
         apiKey: epKey.trim() || undefined,
-        wireApi: epType === 'openai' && epWire ? epWire : undefined,
+        wireApi: preset.type === 'openai' && epWire ? epWire : undefined,
+        // only an Anthropic-shaped API has two ways to take a key worth telling apart
+        auth: preset.type === 'anthropic' ? epAuth : undefined,
         headers
       }
       const before = endpoints
       const after = await api.addModelEndpoint(def)
       setEndpoints(after)
       setAddOpen(false)
-      setEpLabel('')
-      setEpUrl('')
-      setEpKey('')
-      setEpWire('')
-      setEpHeaders('')
+      resetForm()
       notice(`Added ${def.label} — checking its model list…`)
       // warm the model list so the session form can offer a picker; failure is advice, not an error
       const added = after.find((e) => !before.some((o) => o.id === e.id))
@@ -161,6 +186,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                   <span className="acct-chip">
                     {ep.type}
                     {ep.wireApi ? ` · ${ep.wireApi}` : ''}
+                    {ep.auth === 'bearer' ? ' · bearer' : ''}
                   </span>
                   <span className="repo-providers" aria-hidden="true">
                     {endpointAgents(ep).map((p) => (
@@ -262,39 +288,36 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
         }}
       >
         <div className="ns-options">
+          <div className="ns-opt source-opt-provider">
+            <label className="ns-label" htmlFor="ep-preset">Provider</label>
+            <Select
+              id="ep-preset"
+              ariaLabel="Provider"
+              autoFocus
+              value={preset.id}
+              options={ENDPOINT_PRESETS.map((p) => ({
+                value: p.id,
+                label: p.label,
+                hint: agentsHint(p),
+                title: p.baseUrl || p.label
+              }))}
+              onChange={pickPreset}
+            />
+          </div>
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ep-label">Display name</label>
             <input
               id="ep-label"
-              autoFocus
-              placeholder="Anthropic"
+              placeholder="LiteLLM"
               value={epLabel}
               onChange={(e) => setEpLabel(e.target.value)}
-            />
-          </div>
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="ep-type">Type</label>
-            <Select
-              id="ep-type"
-              ariaLabel="Provider type"
-              mono
-              value={epType}
-              options={[
-                { value: 'openai', label: 'openai — any OpenAI-compatible', hint: 'Copilot' },
-                { value: 'azure', label: 'azure', hint: 'Copilot' },
-                { value: 'anthropic', label: 'anthropic', hint: 'Claude · Copilot' }
-              ]}
-              onChange={(v) => {
-                setEpType(v as ModelEndpointType)
-                if (v !== 'openai') setEpWire('')
-              }}
             />
           </div>
           <div className="ns-opt source-opt-path">
             <label className="ns-label" htmlFor="ep-url">Base URL</label>
             <input
               id="ep-url"
-              placeholder="https://api.anthropic.com"
+              placeholder={preset.urlExample}
               value={epUrl}
               aria-invalid={!!epError}
               aria-describedby={epError ? 'endpoint-add-error' : undefined}
@@ -307,17 +330,20 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
         </div>
         <div className="ns-options">
           <div className="ns-opt">
-            <label className="ns-label" htmlFor="ep-key">API key · optional</label>
+            <label className="ns-label" htmlFor="ep-key">
+              {preset.keyOptional ? 'API key · optional' : 'API key'}
+            </label>
             <input
               id="ep-key"
               type="password"
               autoComplete="off"
-              placeholder="sk-…"
+              placeholder={preset.keyExample}
               value={epKey}
+              aria-describedby="ep-preset-note"
               onChange={(e) => setEpKey(e.target.value)}
             />
           </div>
-          {epType === 'openai' && (
+          {preset.ask.includes('wireApi') && (
             <div className="ns-opt">
               <label className="ns-label" htmlFor="ep-wire">Wire API</label>
               <Select
@@ -326,23 +352,42 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                 mono
                 value={epWire}
                 options={[
-                  { value: '', label: 'completions (default)' },
-                  { value: 'responses', label: 'responses — GPT-5 series' }
+                  { value: '', label: 'completions' },
+                  { value: 'responses', label: 'responses', hint: 'GPT-5 series' }
                 ]}
                 onChange={(v) => setEpWire(v as '' | WireApi)}
               />
             </div>
           )}
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="ep-headers">Custom headers · optional</label>
-            <input
-              id="ep-headers"
-              placeholder='{"anthropic-version": "2023-06-01"}'
-              value={epHeaders}
-              onChange={(e) => setEpHeaders(e.target.value)}
-            />
-          </div>
+          {preset.ask.includes('auth') && (
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-auth">Send key as</label>
+              <Select
+                id="ep-auth"
+                ariaLabel="Send key as"
+                mono
+                value={epAuth}
+                options={[
+                  { value: 'bearer', label: 'Bearer', hint: 'Authorization header · most gateways' },
+                  { value: 'key', label: 'x-api-key', hint: 'like the Anthropic API' }
+                ]}
+                onChange={(v) => setEpAuth(v as EndpointAuth)}
+              />
+            </div>
+          )}
+          {preset.ask.includes('headers') && (
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="ep-headers">Headers · optional</label>
+              <input
+                id="ep-headers"
+                placeholder='{"X-Tenant-Id": "team-a"}'
+                value={epHeaders}
+                onChange={(e) => setEpHeaders(e.target.value)}
+              />
+            </div>
+          )}
         </div>
+        <p id="ep-preset-note" className="ns-hint">{preset.note}</p>
         {epError && <div id="endpoint-add-error" role="alert" className="new-error">{epError}</div>}
         <div className="ns-actions">
           <button
@@ -355,7 +400,13 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
           >
             Cancel
           </button>
-          <button type="submit" className="btn-primary" disabled={!epLabel.trim() || !epUrl.trim()}>
+          <button
+            type="submit"
+            className="btn-primary"
+            // a hosted API refuses every request without a key — adding one without it
+            // would only store a provider no session can start on
+            disabled={!epLabel.trim() || !epUrl.trim() || (!preset.keyOptional && !epKey.trim())}
+          >
             Add provider
           </button>
         </div>
