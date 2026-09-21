@@ -773,6 +773,8 @@ summary::-webkit-details-marker { display: none; }
 .rt-footer-bill { flex: 1 1 200px; color: var(--fg-dim); font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums; }
 .rt-footer-keys { display: flex; gap: var(--s2); margin-left: auto; }
+/* the fix a failed turn names (a lapsed sign-in): brighter than the failure around it */
+.rt-fail-hint { color: var(--fg); }
 /* a table's spend in its header, and the in-place editor it opens */
 .rt-budget { color: inherit; font-size: inherit; padding: 0 var(--s2); min-height: 20px;
   border: 1px solid var(--border-strong); border-radius: 999px; font-family: var(--mono);

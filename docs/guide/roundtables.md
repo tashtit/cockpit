@@ -22,6 +22,8 @@ The conclusion is assembled by Cockpit, not written by an agent — no seat spea
 
 Send another message to reopen a concluded table for a fresh cycle.
 
+If a seat's turn fails — a lapsed sign-in, say — the table stops running rounds on its own instead of billing the other seats to answer an empty chair. It says which seat couldn't answer; fix it, then send a message or run one more round. A stop is not a conclusion, so no outcome panel appears.
+
 ## Seats
 
 Add seats with the **+ Claude / + Codex / + Copilot** buttons beside the Seats heading. Each seat is a card in its agent's colour, with its own choices all visible:
@@ -43,6 +45,12 @@ Add seats with the **+ Claude / + Codex / + Copilot** buttons beside the Seats h
 The same agent can sit more than once with different models — "Claude · opus" against "Claude · haiku" — which is how you settle a model-tier question on your own repository instead of on benchmarks.
 
 A seat that repeats an earlier one *exactly* — same agent, account, model provider, model, thinking level and knobs — is marked **duplicate**, and the table won't open until you tick **Seat the duplicate on purpose**. Several samples of one mind is a real technique, but it costs a full seat every round for a voice the table already has.
+
+## Signed-in seats
+
+Opening a table first asks each seat's CLI whether it is signed in under that seat's account (`claude auth status`, `codex login status`). A seat that is signed out stops the table from opening, with the command that fixes it — for example "Run `claude auth login` in a terminal to sign in again." Cockpit's account list shows the identity a config file remembers, which outlives an expired session, so this check is the one that knows. Copilot has no status command and is not checked.
+
+A turn that fails mid-table on a sign-in error carries the same hint in its failure line.
 
 ## Spending limits
 

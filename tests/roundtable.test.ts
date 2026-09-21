@@ -70,6 +70,20 @@ function replayTurn(
 }
 
 describe('RoundtableManager', () => {
+  it('a consensus table stops its auto-rounds when a seat’s turn fails', () => {
+    // claude cannot sign in; codex agrees. Another round would bill codex to answer an
+    // empty chair, so the cycle ends — unconcluded, so no outcome claims a result
+    const h = makeManager(newDir())
+    const snap = h.manager.create({ ...TWO_SEATS, mode: 'consensus', maxRounds: 5 }, null)
+    replayTurn(h, h.turnIdOf(1), { error: 'Failed to authenticate: OAuth session expired' })
+    replayTurn(h, h.turnIdOf(2), { text: ['Orrery.\nCONSENSUS: agree — Orrery'] })
+    const after = h.manager.get(snap.id)
+    expect(h.sent).toHaveLength(2)
+    expect(after.running).toBe(false)
+    expect(after.concluded).toBe(false)
+    expect(after.entries.filter((e) => e.error)).toHaveLength(1)
+  })
+
   it('a consensus table stops at what one message may spend, not only at its own cap', () => {
     // 2 seats, 4 turns a message: two rounds, though the table asked for five
     const h = makeManager(newDir())

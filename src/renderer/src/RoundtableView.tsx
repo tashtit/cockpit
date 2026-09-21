@@ -18,6 +18,7 @@ import { api } from './api'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { Message } from './ChatView'
 import { Markdown } from './Markdown'
+import { looksSignedOut, signInHint } from '../../shared/agent-auth'
 import { limitOptions, MESSAGE_LIMITS, TABLE_LIMITS } from './NewRoundtable'
 import { Select } from './Select'
 import { BranchChip, ChatIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -246,6 +247,17 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   }
 
   const spent = turnsSpent(entries)
+  // the seats that failed in the latest round: a consensus table stops its auto-rounds
+  // on one (main's roundComplete), and says so here rather than looking merely idle
+  const lastRoundFailures: number[] = []
+  for (let j = entries.length - 1, seen = 0; j >= 0 && seen < rt.participants.length; j--) {
+    const e = entries[j]
+    if (e.speaker === 'user') break
+    seen++
+    if (e.error) lastRoundFailures.push(entrySeatIndex(rt.participants, e))
+  }
+  const stoppedOnFailure =
+    !running && rt.mode === 'consensus' && !cycle.concluded && lastRoundFailures.length > 0
   // the table cannot afford another round — said before the user tries, with the way on
   const outOfTurns = !running && roundRefusal(rt.limits, { participants: rt.participants, entries }) !== null
   const sliced = entries.length > RENDER_LAST ? entries.slice(-RENDER_LAST) : entries
@@ -353,6 +365,11 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                 ? 'User'
                 : uiSeatName(rt.participants, entrySeatIndex(rt.participants, e))
             }
+            hint={
+              e.speaker !== 'user' && e.error && looksSignedOut(e.text)
+                ? signInHint(e.speaker, rt.participants[entrySeatIndex(rt.participants, e)]?.configDir)
+                : undefined
+            }
           />
         ))}
         {/* the wave: one live block per seat currently streaming, in seat order */}
@@ -416,6 +433,14 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         )}
         {!running && rt.mode === 'consensus' && cycle.concluded && (
           <ConsensusOutcome rt={rt} entries={entries} rounds={cycle.roundsRun} />
+        )}
+        {stoppedOnFailure && (
+          <div className="sys-row">
+            Stopped reaching an understanding —{' '}
+            {joinNames([...new Set(lastRoundFailures)].map((i) => uiSeatName(rt.participants, i)))}{' '}
+            couldn’t answer, so another round would only bill the others. Fix it, then send a
+            message or run one more round.
+          </div>
         )}
         {outOfTurns && !note && (
           <div className="sys-row">
@@ -661,10 +686,13 @@ function ConsensusOutcome({
 /** Memoized: the transcript is append-only, so settled rows never re-render. */
 const EntryRow = memo(function EntryRow({
   e,
-  label
+  label,
+  hint
 }: {
   e: RoundtableEntry
   label: string
+  /** What fixes a failed turn, when the failure says (a lapsed sign-in) */
+  hint?: string
 }): JSX.Element {
   if (e.speaker === 'user') {
     return (
@@ -676,7 +704,12 @@ const EntryRow = memo(function EntryRow({
     )
   }
   if (e.error) {
-    return <div className="sys-row">{`${label} turn failed: ${e.text}`}</div>
+    return (
+      <div className="sys-row">
+        {`${label} turn failed: ${e.text}`}
+        {hint && <span className="rt-fail-hint"> {hint}</span>}
+      </div>
+    )
   }
   return (
     <div className="msg msg-assistant">

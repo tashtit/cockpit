@@ -296,3 +296,47 @@ describe('RoundtableView spending limits', () => {
     expect(screen.queryByRole('group', { name: 'Roundtable spending limits' })).not.toBeInTheDocument()
   })
 })
+
+describe('RoundtableView failed seats', () => {
+  it('names the fix for a lapsed sign-in, and says why a consensus table stopped', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({
+        mode: 'consensus',
+        roundsRun: 1,
+        concluded: false,
+        entries: [
+          { speaker: 'user', text: 'rename it?', at: 1 },
+          {
+            speaker: 'claude',
+            seat: 0,
+            text: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+            at: 2,
+            error: true
+          },
+          { speaker: 'codex', seat: 1, text: 'Orrery.', at: 3, stance: 'agree', stanceNote: 'Orrery' }
+        ]
+      })
+    )
+    render(<RoundtableView id="rt-1" />)
+    expect(await screen.findByText(/Run `claude auth login` in a terminal/)).toBeInTheDocument()
+    expect(screen.getByText(/Stopped reaching an understanding — Claude couldn’t answer/)).toBeInTheDocument()
+    // a stop is not an outcome: no ledger claims agreement or disagreement
+    expect(screen.queryByText(/Shared understanding|No full agreement/)).not.toBeInTheDocument()
+  })
+
+  it('a failure that is not a sign-in gets no sign-in advice', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({
+        entries: [
+          { speaker: 'user', text: 'q', at: 1 },
+          { speaker: 'codex', seat: 1, text: 'process exited with code 1', at: 2, error: true }
+        ]
+      })
+    )
+    render(<RoundtableView id="rt-1" />)
+    expect(await screen.findByText(/Codex turn failed: process exited/)).toBeInTheDocument()
+    expect(screen.queryByText(/sign in again/)).not.toBeInTheDocument()
+    // an open table never runs rounds on its own, so there is nothing to stop
+    expect(screen.queryByText(/Stopped reaching an understanding/)).not.toBeInTheDocument()
+  })
+})

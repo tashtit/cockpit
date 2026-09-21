@@ -88,10 +88,13 @@ import { asPrNumber, getPrFeedback, getPrFixBriefing } from './pr-feedback'
 import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
 import { clampRounds, seatOptions } from './roundtable-core'
 import { listAgentModels } from './agent-models'
+import { signInState } from './agent-auth'
+import { signInHint } from '../shared/agent-auth'
 import {
   ROUNDTABLE_MAX_SEATS,
   roundsAllowed,
-  sanitizeRoundtableLimits
+  sanitizeRoundtableLimits,
+  SEAT_NAME
 } from '../shared/roundtable'
 import {
   assertClaudeProjectServer,
@@ -1231,6 +1234,21 @@ app.whenReady().then(() => {
     // what one message may spend with this many seats
     const tableMode = req?.mode === 'consensus' ? 'consensus' : 'open'
     const maxRounds = Math.min(clampRounds(req?.maxRounds), roundsAllowed(limits, seats.length))
+    // a seat whose CLI is signed out would fail every turn while the others spent
+    // theirs answering it — refuse before anything runs, with the command that fixes it
+    const homes = [...new Map(seats.map((s) => [`${s.provider}|${s.configDir ?? ''}`, s])).values()]
+    const states = await Promise.all(homes.map((s) => signInState(s.provider, s.configDir)))
+    const signedOut = homes.filter((_, i) => states[i] === 'signed-out')
+    if (signedOut.length > 0) {
+      throw new Error(
+        signedOut
+          .map(
+            (s) =>
+              `${SEAT_NAME[s.provider]} isn't signed in${s.accountLabel ? ` (${s.accountLabel})` : ''}. ${signInHint(s.provider, s.configDir)}`
+          )
+          .join('\n')
+      )
+    }
     let place: TablePlace | null = null
     if (req.repoRoot !== null && req.repoRoot !== undefined) {
       const root = assertKnownRepoRoot(req.repoRoot)

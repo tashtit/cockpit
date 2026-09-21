@@ -445,10 +445,20 @@ export class RoundtableManager {
       return
     }
     t.roundsRun++
-    // everyone must have been heard this round (errors are not agreement) and agree
+    // a seat whose turn failed cannot agree, and retrying it by itself fixes nothing (a
+    // lapsed sign-in, a gone model): another auto-round would only bill the others for
+    // answering an empty chair. Stop — not concluded, so no outcome claims a result —
+    // and let the person fix it and carry on.
+    const roundEntries = t.entries.slice(round.entriesAtStart)
+    if (roundEntries.some((e) => e.speaker !== 'user' && e.error)) {
+      this.save(t)
+      this.endRound(t.id)
+      return
+    }
+    // everyone must have been heard this round and agree
     const stances = new Map<number, RoundtableEntry['stance']>()
-    for (const e of t.entries.slice(round.entriesAtStart)) {
-      if (e.speaker !== 'user' && !e.error) stances.set(entrySeatIndex(t.participants, e), e.stance)
+    for (const e of roundEntries) {
+      if (e.speaker !== 'user') stances.set(entrySeatIndex(t.participants, e), e.stance)
     }
     const allAgree = t.participants.every((_, i) => stances.get(i) === 'agree')
     // the table's own cap, then the user's ceilings: a round it cannot afford closes

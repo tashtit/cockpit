@@ -96,6 +96,12 @@ attribution, never a parallel message grammar.
   the first line of its final reply). Header: "Shared understanding" when every seat
   agrees, "No full agreement" when the cap closed a split table — never dress a split
   as agreement.
+- **A failed seat stops the cycle.** A seat that errored cannot agree, and retrying it
+  alone fixes nothing, so main ends the auto-loop after that round — unconcluded, so no
+  `.rt-outcome` appears. The view says so in a `.sys-row` ("Stopped reaching an
+  understanding — Claude couldn't answer…"); a failure whose text is a lapsed sign-in
+  (`looksSignedOut`) carries the fix in `.rt-fail-hint` ("Run `claude auth login` in a
+  terminal…").
 - While a cycle runs, the thinking line carries `.rt-progress` ("round 2 of ≤3"); Stop
   halts the auto-loop immediately, and a new user message reopens a concluded table.
 
