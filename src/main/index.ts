@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type {
   AttentionFocus,
@@ -105,8 +105,7 @@ import {
 } from './instructions'
 import { shareInstructions } from './instructions-share'
 import { getAccounts, setCopilotActiveUser } from './accounts'
-import { centeredIn, readDevWindowPrefs } from './dev-window'
-import { branchFromHead, parseGitdirPointer } from './repos'
+import { centeredIn, readDevWindowPrefs, type Rect } from './dev-window'
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from './secrets'
 import {
   previewOf,
@@ -117,7 +116,7 @@ import {
   type KeyStore
 } from './backup'
 import type { Bundle } from './backup-core'
-import { resolveRepo } from './repos'
+import { branchForCwd, resolveRepo } from './repos'
 import { fetchEndpointModels } from './endpoint-models'
 import { getUsage } from './usage'
 import { getProfile } from './profile'
@@ -293,10 +292,10 @@ function asAttentionFocus(raw: unknown): AttentionFocus {
 }
 
 /**
- * Dev-only: resolve COCKPIT_DEV_DISPLAY to concrete window bounds, and print
+ * Dev-only: resolve COCKPIT_DEV_DISPLAY to that display's work area, and print
  * the display table so the developer can see which index is which screen.
  */
-function pickDevDisplayBounds(index: number): ReturnType<typeof centeredIn> | null {
+function pickDevDisplayArea(index: number): Rect | null {
   const displays = screen.getAllDisplays()
   const primary = screen.getPrimaryDisplay()
   for (const [i, d] of displays.entries()) {
@@ -310,28 +309,18 @@ function pickDevDisplayBounds(index: number): ReturnType<typeof centeredIn> | nu
     console.warn(`[dev] COCKPIT_DEV_DISPLAY=${index} is out of range — using the OS default`)
     return null
   }
-  return centeredIn(chosen.workArea, 1100, 760)
+  return chosen.workArea
 }
 
 /**
- * Dev-only: the branch of the checkout `npm run dev` runs from, so parallel
- * dev instances from different worktrees are tellable apart. Best-effort —
- * anything unexpected (no repo, odd formats) quietly yields null.
+ * Unpackaged-only: the branch of the checkout this instance runs from, so parallel
+ * dev, e2e and ui-tour instances from different worktrees are tellable apart. The app
+ * path is the checkout under `npm run dev` but `out/main` under `electron out/main`,
+ * so the checkout is found by the same ancestor walk every session's cwd goes through.
+ * Best-effort — no repo, or an unreadable HEAD, quietly yields null.
  */
 function readDevBranch(): string | null {
-  try {
-    const root = app.getAppPath()
-    const dotGit = join(root, '.git')
-    let gitDir = dotGit
-    if (statSync(dotGit).isFile()) {
-      const target = parseGitdirPointer(readFileSync(dotGit, 'utf8'))
-      if (!target) return null
-      gitDir = resolve(root, target)
-    }
-    return branchFromHead(readFileSync(join(gitDir, 'HEAD'), 'utf8'))
-  } catch {
-    return null
-  }
+  return branchForCwd(app.getAppPath())
 }
 
 /**
@@ -365,18 +354,21 @@ function createWindow(): void {
   const devPrefs = app.isPackaged
     ? { background: false, displayIndex: null }
     : readDevWindowPrefs(process.env)
-  // dev-only: brand the window with the source branch (title + top banner)
+  // unpackaged only: brand the window with the source branch (title + top banner)
   const devBranch = app.isPackaged ? null : readDevBranch()
-  // placing via constructor x/y (not a post-hoc setBounds) is what reliably
-  // lands the window on another display under macOS separate-Spaces
-  const devBounds = devPrefs.displayIndex !== null ? pickDevDisplayBounds(devPrefs.displayIndex) : null
+  const devArea = devPrefs.displayIndex !== null ? pickDevDisplayArea(devPrefs.displayIndex) : null
 
   // Where it was last time, when the screens still allow it — an update replaces the
   // whole bundle, and reopening somewhere else is the one part of that the user feels.
-  // A dev display override outranks it: that flag exists to put the window elsewhere.
+  // A dev display override narrows the screens that count to the chosen one: a saved
+  // placement there is honoured (full screen included, so the e2e placement round trip
+  // runs the same with the override as without), anything else opens centred on it.
+  // Placing via constructor x/y (not a post-hoc setBounds) is what reliably lands the
+  // window on another display under macOS separate-Spaces.
   const saved = loadConfig().window
-  const placed = devBounds ?? restoredBounds(saved, screen.getAllDisplays().map((d) => d.workArea))
-  const openFullScreen = !devBounds && placed !== null && saved?.fullScreen === true
+  const restored = restoredBounds(saved, devArea ? [devArea] : screen.getAllDisplays().map((d) => d.workArea))
+  const placed = restored ?? (devArea ? centeredIn(devArea, 1100, 760) : null)
+  const openFullScreen = restored !== null && saved?.fullScreen === true
 
   win = new BrowserWindow({
     show: !devPrefs.background,
@@ -431,7 +423,7 @@ function createWindow(): void {
     const w = win
     w.once('ready-to-show', () => w.showInactive())
   }
-  if (devPrefs.background || devBounds) {
+  if (devPrefs.background || devArea) {
     const w = win
     w.once('show', () => console.log(`[dev] window shown at ${JSON.stringify(w.getBounds())}`))
   }
@@ -459,7 +451,9 @@ function createWindow(): void {
     if (devBranch) url.searchParams.set('devBranch', devBranch)
     void win.loadURL(url.toString())
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'))
+    // a built but unpackaged run (e2e, the ui-tour, `electron out/main`) is still a dev
+    // instance someone has to tell apart — the branch rides in the same way
+    void win.loadFile(join(__dirname, '../renderer/index.html'), devBranch ? { query: { devBranch } } : {})
   }
 
   // the zoomed floor is bounded by the display, so a window dragged to a smaller one

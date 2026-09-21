@@ -90,6 +90,8 @@ Don't rewrite the lock with npm 10 to make it fit: that re-adds the entries, and
 
 Display order is OS-assigned and won't necessarily match your mental "first/second screen" — when `COCKPIT_DEV_DISPLAY` is set, the dev console prints the display table so you can pick the right index.
 
+The e2e tier and `npm run ui:tour` follow `COCKPIT_DEV_DISPLAY` too, and never take focus. Two full-screen e2e cases would (macOS fronts a window entering full screen), so they are skipped unless `COCKPIT_E2E_TAKE_FOCUS=1` is set.
+
 ## PR features don't work
 
 Cockpit shells out to the [GitHub CLI](https://cli.github.com) for everything PR-shaped. Check that `gh` is installed and authenticated (`gh auth status`) — Settings shows the detected `gh` user.
