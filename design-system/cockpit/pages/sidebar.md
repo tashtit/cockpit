@@ -83,7 +83,17 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     `groupFamilies`); a row whose parent isn't the family above it stays flush. The
     elbow is the only visual signal, so each gets an `sr-only` reason
     ("(continued by the session above)", "(started by <title>)"), and a child's tooltip
-    names its parent. Rows stay `aria-level={2}`.
+    names its parent. A child is `aria-level` 3 and deeper; handoff rows stay at 2.
+  - Folding a family: a parent carries `.family-toggle` after its title — the `.chev`
+    and how many rows hang under it, the count being what tells a folded row from a
+    leaf. It trails rather than leads so the parent's logo stays in line with its
+    siblings and the elbows stay under it. The row is `aria-expanded`; → unfolds, ←
+    folds, and ← on a child moves to its parent. The toggle is `tabIndex={-1}` like
+    every row control. Families start open; folds persist per machine
+    (`families.ts`, localStorage). A fold never hides the open session. A folded
+    parent lends its meta slot (`.folded-news`) to the most urgent hidden row that
+    outranks its own state (asks, then running, then finished or red PR), named after
+    that row.
   - Chats section — split off the repo tree by a full-bleed hairline divider + extra gap
     (`.chats-section`, suppressed when it's the only section): a `.section-row` header
     (comment icon, per-provider logos, session count as plain text) whose

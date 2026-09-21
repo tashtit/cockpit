@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  Landing,
   PrStatus,
   Provider,
   RepoGroup,
   RoundtableMeta,
-  SessionMeta
+  SessionMeta,
+  TimeFormat
 } from '../../shared/types'
 import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
-import { useSessionBusy } from './busy'
-import { useSessionLanded } from './landed'
+import { useBusyMap, useSessionBusy } from './busy'
+import { toggleFamily, useFoldedFamilies } from './families'
+import { useLandedMap, useSessionLanded } from './landed'
 import type { SettingsSection } from './Settings'
 import { fmtTime, useTimeFormat } from './time'
 import { UsageMeters } from './UsageMeters'
@@ -1067,20 +1070,55 @@ function ChatsSection({
   )
 }
 
+type Nest = {
+  readonly s: SessionMeta
+  /** How many sessions up the family this row hangs from — 0 for a top-level row */
+  readonly depth: number
+  /** The session that started this one, when that is the family the row sits in */
+  readonly parent?: SessionMeta
+  /** Every row under this one in its family — mutable: nesting() fills it in */
+  descendants: SessionMeta[]
+  /** This row's family is folded, so its descendants are not rendered — mutable:
+   *  nesting() decides it on a second pass, once every family is known */
+  folded: boolean
+  /** A folded ancestor hides this row — mutable for the same second pass */
+  hidden: boolean
+}
+
 /**
- * How deep each row sits in a family of sessions one session started (`parentId`),
- * and under whom. A row nests only under the family the rows above it are still in:
- * the indexer emits a family contiguously (`groupFamilies`), so a parent anywhere
- * else in the list is not what the row hangs from.
+ * How each row sits in a family of sessions one session started (`parentId`): how
+ * deep, under whom, what hangs below it, and whether a fold hides it. A row nests
+ * only under the family the rows above it are still in — the indexer emits a family
+ * contiguously (`groupFamilies`), so a parent anywhere else in the list is not what
+ * the row hangs from. A fold never hides the open session: while one of its
+ * descendants is selected, a folded family renders open (the fold itself is kept).
  */
-function nesting(items: readonly SessionMeta[]): ReadonlyArray<{ depth: number; parent?: SessionMeta }> {
-  const path: SessionMeta[] = []
-  return items.map((s) => {
-    while (path.length > 0 && path[path.length - 1].id !== s.parentId) path.pop()
-    const parent = path[path.length - 1]
-    path.push(s)
-    return { depth: path.length - 1, parent }
-  })
+function nesting(
+  items: readonly SessionMeta[],
+  folds: ReadonlySet<string>,
+  selectedId: string | null
+): readonly Nest[] {
+  const out: Nest[] = []
+  const path: Nest[] = []
+  for (const s of items) {
+    while (path.length > 0 && path[path.length - 1].s.id !== s.parentId) path.pop()
+    const row: Nest = { s, depth: path.length, parent: path[path.length - 1]?.s, descendants: [], folded: false, hidden: false }
+    for (const up of path) up.descendants.push(s)
+    out.push(row)
+    path.push(row)
+  }
+  let foldedAt = Infinity
+  for (const row of out) {
+    row.hidden = row.depth > foldedAt
+    if (row.hidden) continue
+    foldedAt = Infinity
+    row.folded =
+      row.descendants.length > 0 &&
+      folds.has(row.s.id) &&
+      !row.descendants.some((d) => d.id === selectedId)
+    if (row.folded) foldedAt = row.depth
+  }
+  return out
 }
 
 function SessionList({
@@ -1122,28 +1160,31 @@ function SessionList({
     }
   }, [repoKey, archived, pages, indexVersion])
 
-  const nested = useMemo(() => nesting(items ?? []), [items])
+  const folds = useFoldedFamilies()
+  const rows = useMemo(() => nesting(items ?? [], folds, selectedId), [items, folds, selectedId])
 
   if (items === null) return <div className="tree-empty">loading…</div>
 
   return (
     <>
-      {items.map((s, i) => (
-        <SessionRow
-          key={s.id}
-          s={s}
-          pr={s.gitBranch ? prs.find((p) => p.headRefName === s.gitBranch) : undefined}
-          accounts={accounts}
-          selected={selectedId === s.id}
-          // the indexer emits handoff chains contiguously, newest first: a row whose
-          // id is the previous row's `continuedFrom` renders as that row's ancestor
-          chained={items[i - 1]?.continuedFrom === s.id}
-          depth={nested[i]?.depth}
-          parent={nested[i]?.parent}
-          onSelect={onSelect}
-          onOpenUrl={onOpenUrl}
-        />
-      ))}
+      {rows.map(
+        (r, i) =>
+          !r.hidden && (
+            <SessionRow
+              key={r.s.id}
+              s={r.s}
+              pr={r.s.gitBranch ? prs.find((p) => p.headRefName === r.s.gitBranch) : undefined}
+              accounts={accounts}
+              selected={selectedId === r.s.id}
+              // the indexer emits handoff chains contiguously, newest first: a row whose
+              // id is the previous row's `continuedFrom` renders as that row's ancestor
+              chained={items[i - 1]?.continuedFrom === r.s.id}
+              family={r}
+              onSelect={onSelect}
+              onOpenUrl={onOpenUrl}
+            />
+          )
+      )}
       {/* an active list only comes up empty when every session is archived —
           the Archived toggle right below is the way back in */}
       {items.length === 0 && <div className="tree-empty">no active sessions</div>}
@@ -1163,8 +1204,7 @@ function SessionRow({
   selected,
   level = 2,
   chained = false,
-  depth = 0,
-  parent,
+  family,
   onSelect,
   onOpenUrl
 }: {
@@ -1176,10 +1216,8 @@ function SessionRow({
   level?: number
   /** This session was continued by the row above it (handoff thread ancestor) */
   chained?: boolean
-  /** How many sessions up the family this row hangs from — 0 for a top-level row */
-  depth?: number
-  /** The session that started this one, when its row is the one this nests under */
-  parent?: SessionMeta
+  /** Where the row sits in a family of sessions one session started, if in one */
+  family?: Nest
   onSelect: (s: SessionMeta) => void
   onOpenUrl: (url: string) => void
 }): JSX.Element {
@@ -1190,12 +1228,21 @@ function SessionRow({
   const acct = accounts?.accounts.find((a) => a.provider === s.provider && a.label === s.source)
   const multiAccount =
     (accounts?.accounts.filter((a) => a.provider === s.provider).length ?? 0) > 1
+  const depth = family?.depth ?? 0
+  const parent = family?.parent
+  const under = family?.descendants.length ?? 0
+  const folded = family?.folded ?? false
+  const foldLabel = `${folded ? 'Show' : 'Hide'} the ${under} ${under === 1 ? 'session' : 'sessions'} under it`
+  // the row's own claim on its meta slot, in the slot's order of urgency
+  const ownRank = landed?.kind === 'asks' ? 3 : working ? 2 : landed ? 1 : 0
   return (
     <div
       className={`session-row ${selected ? 'selected' : ''} ${s.archived ? 'archived' : ''} ${chained ? 'chained' : ''}`}
       role="treeitem"
       aria-selected={selected}
-      aria-level={level}
+      aria-level={level + depth}
+      aria-expanded={under > 0 ? !folded : undefined}
+      data-session-id={s.id}
       tabIndex={-1}
       title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${parent ? `\nstarted by ${parent.title}` : ''}\n~${s.messageCount} messages${landed ? `\n${landingLabel(landed)}` : ''}`}
       onClick={() => onSelect(s)}
@@ -1203,6 +1250,17 @@ function SessionRow({
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           onSelect(s)
+        } else if (e.key === 'ArrowRight' && under > 0 && folded) {
+          toggleFamily(s.id)
+        } else if (e.key === 'ArrowLeft') {
+          // an open family folds; anything else steps up to the session that started it
+          if (under > 0 && !folded) toggleFamily(s.id)
+          else if (parent) {
+            e.currentTarget
+              .closest('[role="tree"]')
+              ?.querySelector<HTMLElement>(`[data-session-id="${parent.id}"]`)
+              ?.focus()
+          }
         }
       }}
     >
@@ -1236,6 +1294,26 @@ function SessionRow({
           {acct.label.startsWith(`${s.provider}-`) ? acct.label.slice(s.provider.length + 1) : acct.label}
         </span>
       )}
+      {/* the fold trails the title rather than leading the row: a leading chevron would
+          push the parent's logo off its siblings' and the elbows below off its logo.
+          Not a Tab stop — like every row control, the keys are the row's own (→ / ←) */}
+      {under > 0 && (
+        <button
+          className="family-toggle"
+          aria-label={foldLabel}
+          title={foldLabel}
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation()
+            toggleFamily(s.id)
+          }}
+        >
+          <span className={`chev ${folded ? '' : 'open'}`} aria-hidden="true">
+            ▸
+          </span>
+          {under}
+        </button>
+      )}
       <span className="row-actions">
         <button
           className="icon-btn small"
@@ -1251,19 +1329,82 @@ function SessionRow({
       </span>
       {/* the row's one meta slot, in order of urgency: an agent waiting on you, then
           running, then a red PR or finished-while-you-were-away, then the branch's PR,
-          then when it last moved */}
-      {landed?.kind === 'asks' ? (
-        <LandingMark landing={landed} p={s.provider} />
-      ) : working ? (
-        <LiveDot p={s.provider} />
-      ) : landed ? (
-        <LandingMark landing={landed} p={s.provider} />
-      ) : pr ? (
-        <PrBadge pr={pr} onOpen={onOpenUrl} compact />
+          then when it last moved — and a folded family lends the slot to a hidden row
+          that outranks this one, so folding never hides an agent that needs you */}
+      {folded ? (
+        <FoldedNews hidden={family?.descendants ?? []} outranks={ownRank}>
+          <RowMeta s={s} pr={pr} working={working} landed={landed} timeFormat={timeFormat} onOpenUrl={onOpenUrl} />
+        </FoldedNews>
       ) : (
-        <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtTime(s.updatedAt, timeFormat)}</time>
+        <RowMeta s={s} pr={pr} working={working} landed={landed} timeFormat={timeFormat} onOpenUrl={onOpenUrl} />
       )}
     </div>
+  )
+}
+
+/** A row's exclusive meta slot, filled from its own state (see SessionRow). */
+function RowMeta({
+  s,
+  pr,
+  working,
+  landed,
+  timeFormat,
+  onOpenUrl
+}: {
+  s: SessionMeta
+  pr?: PrStatus
+  working: boolean
+  landed: Landing | null
+  timeFormat: TimeFormat
+  onOpenUrl: (url: string) => void
+}): JSX.Element {
+  return landed?.kind === 'asks' ? (
+    <LandingMark landing={landed} p={s.provider} />
+  ) : working ? (
+    <LiveDot p={s.provider} />
+  ) : landed ? (
+    <LandingMark landing={landed} p={s.provider} />
+  ) : pr ? (
+    <PrBadge pr={pr} onOpen={onOpenUrl} compact />
+  ) : (
+    <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtTime(s.updatedAt, timeFormat)}</time>
+  )
+}
+
+/**
+ * The meta slot of a folded family's parent: the most urgent state among the rows the
+ * fold hides — asking you, then running, then finished or a red PR — when it outranks
+ * the parent's own, named after the session it belongs to; otherwise the parent's own
+ * slot (`children`). Only folded parents subscribe to the whole busy and landed maps.
+ */
+function FoldedNews({
+  hidden,
+  outranks,
+  children
+}: {
+  hidden: readonly SessionMeta[]
+  outranks: number
+  children: JSX.Element
+}): JSX.Element {
+  const busy = useBusyMap()
+  const landings = useLandedMap()
+  let best: { readonly s: SessionMeta; readonly rank: number; readonly landing: Landing | null } | null = null
+  for (const h of hidden) {
+    const landing = landings.get(h.id) ?? null
+    const rank = landing?.kind === 'asks' ? 3 : busy.has(h.id) ? 2 : landing ? 1 : 0
+    if (rank > (best?.rank ?? outranks)) best = { s: h, rank, landing }
+  }
+  if (!best) return children
+  const why = best.rank === 2 || !best.landing ? `${PROVIDER_LABEL[best.s.provider]} is working` : landingLabel(best.landing)
+  const label = `${best.s.title} — ${why}`
+  return (
+    <span className="folded-news" role="img" aria-label={label} title={label}>
+      {best.rank === 2 || !best.landing ? (
+        <span className={`pulse pulse-${best.s.provider}`} aria-hidden="true" />
+      ) : (
+        <LandingMark landing={best.landing} p={best.s.provider} mute />
+      )}
+    </span>
   )
 }
 

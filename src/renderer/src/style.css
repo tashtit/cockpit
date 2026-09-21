@@ -395,6 +395,15 @@ summary::-webkit-details-marker { display: none; }
 .session-row .chain-elbow { display: inline-flex; flex-shrink: 0;
   color: var(--border-strong);
   margin-left: calc(var(--s1) + (var(--depth, 1) - 1) * var(--indent-1)); }
+/* a family's fold trails the parent's title — the chevron and how many rows hang under
+   it, the count being what tells a folded row from a leaf. Trailing, so the parent's
+   logo stays in line with its siblings' and the elbows below stay under it */
+.family-toggle { display: inline-flex; align-items: center; justify-content: center;
+  gap: 3px; flex-shrink: 0; min-width: 24px; min-height: 24px; padding: 0 var(--s1);
+  color: var(--fg-dim); font-size: var(--fs-xs); border-radius: var(--radius-sm); }
+.family-toggle:hover { color: var(--fg); background: var(--surface); }
+/* a folded parent's slot lent to a hidden row that needs you more (FoldedNews) */
+.folded-news { display: inline-flex; align-items: center; flex-shrink: 0; }
 
 .archived-toggle { display: flex; align-items: center; gap: var(--s2);
   padding: 2px var(--s2) 2px var(--s1); color: var(--fg-dim); font-size: var(--fs-xs);

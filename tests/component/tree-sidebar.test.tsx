@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
 import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
 import { openPr, usageFixture } from './stub-api'
+import { initBusySessions } from '../../src/renderer/src/busy'
+import { clearLanded, initLanded } from '../../src/renderer/src/landed'
 
 const repo: RepoGroup = {
   key: '/home/dev/rocket',
@@ -292,6 +294,112 @@ describe('child sessions', () => {
     const child = await screen.findByRole('treeitem', { name: /Account usage foundation/ })
     expect(child.querySelector('.chain-elbow')).toBeNull()
     expect(child).not.toHaveAccessibleName(/started by/)
+  })
+
+  const family = (): SessionMeta[] => [
+    copilot('p', 'Free plan limits'),
+    copilot('c1', 'Account usage foundation', 'copilot:p'),
+    copilot('c2', 'Free trial retention', 'copilot:p'),
+    copilot('x', 'unrelated work')
+  ]
+
+  it('folds a family from its parent, and the fold outlives the sidebar', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 4, items: family() })
+    renderSidebar()
+
+    const parent = await screen.findByRole('treeitem', { name: /^Free plan limits/ })
+    expect(parent).toHaveAttribute('aria-expanded', 'true')
+    // rows under a parent sit a level deeper; a row with nothing under it has no fold
+    expect(screen.getByRole('treeitem', { name: /Account usage foundation/ })).toHaveAttribute('aria-level', '3')
+    expect(screen.getByRole('treeitem', { name: /unrelated work/ })).not.toHaveAttribute('aria-expanded')
+
+    await userEvent.click(within(parent).getByRole('button', { name: 'Hide the 2 sessions under it' }))
+    expect(parent).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('treeitem', { name: /Account usage foundation/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('treeitem', { name: /Free trial retention/ })).not.toBeInTheDocument()
+    // folding the family is not opening the session
+    expect(screen.getByRole('treeitem', { name: /unrelated work/ })).toBeInTheDocument()
+
+    cleanup()
+    renderSidebar()
+    const again = await screen.findByRole('treeitem', { name: /^Free plan limits/ })
+    expect(again).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(within(again).getByRole('button', { name: 'Show the 2 sessions under it' }))
+    expect(await screen.findByRole('treeitem', { name: /Account usage foundation/ })).toBeInTheDocument()
+  })
+
+  it('folds and unfolds with the arrow keys, and ← on a child goes up to its parent', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 4, items: family() })
+    const { onSelect } = renderSidebar()
+
+    const child = await screen.findByRole('treeitem', { name: /Free trial retention/ })
+    child.focus()
+    fireEvent.keyDown(child, { key: 'ArrowLeft' })
+    const parent = screen.getByRole('treeitem', { name: /^Free plan limits/ })
+    expect(parent).toHaveFocus()
+
+    fireEvent.keyDown(parent, { key: 'ArrowLeft' })
+    expect(parent).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('treeitem', { name: /Free trial retention/ })).not.toBeInTheDocument()
+    fireEvent.keyDown(parent, { key: 'ArrowRight' })
+    expect(parent).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('treeitem', { name: /Free trial retention/ })).toBeInTheDocument()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('never folds away the open session', async () => {
+    window.localStorage.setItem('cockpit:folded-families', JSON.stringify(['copilot:p']))
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 4, items: family() })
+    render(
+      <TreeSidebar
+        {...{
+          repos: [repo],
+          indexVersion: 0,
+          accounts: null,
+          zoom: 1,
+          onResetZoom: vi.fn(),
+          selectedId: 'copilot:c2',
+          onSelect: vi.fn(),
+          onNewSession: vi.fn(),
+          onRepoSetup: vi.fn(),
+          selectedRoundtableId: null,
+          onOpenRoundtable: vi.fn(),
+          onNewTask: vi.fn(),
+          onGoHome: vi.fn(),
+          onNav: vi.fn(),
+          onOpenSettings: vi.fn(),
+          onOpenUrl: vi.fn(),
+          activeView: 'chat'
+        }}
+      />
+    )
+
+    expect(await screen.findByRole('treeitem', { name: /Free trial retention/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('treeitem', { name: /^Free plan limits/ })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('a folded parent shows what a hidden row needs, named after that row', async () => {
+    window.localStorage.setItem('cockpit:folded-families', JSON.stringify(['copilot:p']))
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 4, items: family() })
+    vi.mocked(window.cockpit.getBusySessions).mockResolvedValue([{ id: 'copilot:c1', startedAt: Date.now(), source: 'observed' }])
+    vi.mocked(window.cockpit.getLandings).mockResolvedValue([
+      { id: 'copilot:c2', at: Date.now(), kind: 'asks', asks: { kind: 'question', detail: 'which plan limit?' } }
+    ])
+    const stopBusy = initBusySessions()
+    const stopLanded = initLanded()
+    try {
+      renderSidebar()
+      const parent = await screen.findByRole('treeitem', { name: /^Free plan limits/ })
+      // asking you outranks running, and the parent's own quiet timestamp gives way
+      expect(
+        await within(parent).findByRole('img', { name: 'Free trial retention — asks you: which plan limit?' })
+      ).toBeInTheDocument()
+      expect(parent.querySelector('time')).toBeNull()
+    } finally {
+      stopBusy()
+      stopLanded()
+      clearLanded()
+    }
   })
 })
 
