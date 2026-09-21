@@ -84,7 +84,7 @@ describe('RoundtableView', () => {
     await userEvent.type(screen.getByRole('textbox'), 'what about CI time?')
     await userEvent.click(screen.getByRole('button', { name: 'Send' }))
     // no seats named: the whole table
-    expect(window.cockpit.sendRoundtableMessage).toHaveBeenCalledWith('rt-1', 'what about CI time?', undefined)
+    expect(window.cockpit.sendRoundtableMessage).toHaveBeenCalledWith('rt-1', 'what about CI time?', { seats: undefined, whenBusy: 'queue' })
 
     await userEvent.click(screen.getByRole('button', { name: 'One more round' }))
     expect(window.cockpit.continueRoundtable).toHaveBeenCalledWith('rt-1', undefined)
@@ -270,7 +270,7 @@ describe('RoundtableView spending limits', () => {
   it('shows what the table has spent and raises its ceiling in place', async () => {
     // two replies on record against a ceiling of three: a two-seat round no longer fits
     vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
-      fixture({ limits: { maxTurnsPerMessage: 16, maxTurnsPerTable: 3 } })
+      fixture({ limits: { maxTurnsPerMessage: 16, maxTurnsPerTable: 3, maxTurnMinutes: 15 } })
     )
     vi.mocked(window.cockpit.setRoundtableLimits).mockImplementation(async (_id, limits) =>
       fixture({ limits })
@@ -286,12 +286,13 @@ describe('RoundtableView spending limits', () => {
     const editor = screen.getByRole('group', { name: 'Roundtable spending limits' })
     await userEvent.click(within(editor).getByRole('button', { name: /^Agent turns for the table/ }))
     await userEvent.click(await screen.findByRole('option', { name: '80 turns' }))
-    await userEvent.click(within(editor).getByRole('button', { name: 'Save limits' }))
+    await userEvent.click(within(editor).getByRole('button', { name: 'Save' }))
 
-    expect(window.cockpit.setRoundtableLimits).toHaveBeenCalledWith('rt-1', {
-      maxTurnsPerMessage: 16,
-      maxTurnsPerTable: 80
-    })
+    expect(window.cockpit.setRoundtableLimits).toHaveBeenCalledWith(
+      'rt-1',
+      { maxTurnsPerMessage: 16, maxTurnsPerTable: 80, maxTurnMinutes: 15 },
+      undefined
+    )
     expect(await screen.findByRole('button', { name: '2 of 80 agent turns' })).not.toHaveClass('spent')
     expect(screen.queryByText(/another round would pass its ceiling/)).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Roundtable spending limits' })).not.toBeInTheDocument()
@@ -362,11 +363,11 @@ describe('RoundtableView addressing seats', () => {
     // the last seat on can't be switched off too — a message always reaches someone
     expect(within(toRow).getByRole('button', { name: 'Codex' })).toBeDisabled()
     await userEvent.type(screen.getByRole('textbox', { name: 'Message the roundtable' }), 'your turn{Enter}')
-    expect(window.cockpit.sendRoundtableMessage).toHaveBeenCalledWith('rt-1', 'your turn', [1])
+    expect(window.cockpit.sendRoundtableMessage).toHaveBeenCalledWith('rt-1', 'your turn', { seats: [1], whenBusy: 'queue' })
 
     await userEvent.click(within(toRow).getByRole('button', { name: 'everyone' }))
     await userEvent.type(screen.getByRole('textbox', { name: 'Message the roundtable' }), 'all{Enter}')
-    expect(window.cockpit.sendRoundtableMessage).toHaveBeenLastCalledWith('rt-1', 'all', undefined)
+    expect(window.cockpit.sendRoundtableMessage).toHaveBeenLastCalledWith('rt-1', 'all', { seats: undefined, whenBusy: 'queue' })
   })
 
   it('a table stopped by a failed seat offers to carry on without it', async () => {
@@ -388,5 +389,63 @@ describe('RoundtableView addressing seats', () => {
     expect(
       within(screen.getByRole('group', { name: 'Send to' })).getByRole('button', { name: 'Claude' })
     ).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+describe('RoundtableView while a round runs', () => {
+  it('a message typed mid-round waits for the round, or stops it and goes now', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({ running: true, speaking: [0], speakingSince: { 0: Date.now() - 180_000 } })
+    )
+    render(<RoundtableView id="rt-1" />)
+    const box = await screen.findByRole('textbox', { name: 'Message the roundtable' })
+    expect(box).toBeEnabled()
+    // the stuck seat shows how long it has been at it, and can be skipped
+    expect(await screen.findByText('Claude · 3m')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Skip Claude — go on without it' }))
+    expect(window.cockpit.skipRoundtableSeat).toHaveBeenCalledWith('rt-1', 0)
+
+    await userEvent.type(box, 'and CI?')
+    await userEvent.click(screen.getByRole('button', { name: 'Send after round' }))
+    expect(window.cockpit.sendRoundtableMessage).toHaveBeenLastCalledWith('rt-1', 'and CI?', {
+      seats: undefined,
+      whenBusy: 'queue'
+    })
+    await userEvent.type(box, 'stop, new idea')
+    await userEvent.click(screen.getByRole('button', { name: 'Send now' }))
+    expect(window.cockpit.sendRoundtableMessage).toHaveBeenLastCalledWith('rt-1', 'stop, new idea', {
+      seats: undefined,
+      whenBusy: 'interrupt'
+    })
+  })
+
+  it('shows the waiting message as not sent yet, and cancels it', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({ running: true, speaking: [1], queued: { text: 'and CI?', to: [1] } })
+    )
+    render(<RoundtableView id="rt-1" />)
+    expect(await screen.findByText(/waiting — goes out when this round ends · to Codex/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'cancel' }))
+    expect(window.cockpit.unqueueRoundtableMessage).toHaveBeenCalledWith('rt-1')
+  })
+
+  it('changes the round cap and the time limit mid-cycle', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({ mode: 'consensus', maxRounds: 5, running: true, speaking: [0] })
+    )
+    render(<RoundtableView id="rt-1" />)
+    await userEvent.click(await screen.findByRole('button', { name: /agent turns$/ }))
+    const editor = screen.getByRole('group', { name: 'Roundtable spending limits' })
+    expect(within(editor).getByText(/Applies from the next round/)).toBeInTheDocument()
+    await userEvent.click(within(editor).getByRole('button', { name: /^Round cap/ }))
+    await userEvent.click(await screen.findByRole('option', { name: '2 rounds' }))
+    await userEvent.click(within(editor).getByRole('button', { name: /^Longest a seat may take/ }))
+    await userEvent.click(await screen.findByRole('option', { name: '5 min' }))
+    await userEvent.click(within(editor).getByRole('button', { name: 'Save' }))
+    expect(window.cockpit.setRoundtableLimits).toHaveBeenLastCalledWith(
+      'rt-1',
+      { maxTurnsPerMessage: 16, maxTurnsPerTable: 80, maxTurnMinutes: 5 },
+      2
+    )
   })
 })

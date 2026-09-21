@@ -759,6 +759,20 @@ export function NewRoundtable({
               onChange={(v) => setLimits((l) => ({ ...l, maxTurnsPerTable: Number(v) }))}
             />
           </div>
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="rt-limit-minutes">Longest a seat may take</label>
+            <Select
+              id="rt-limit-minutes"
+              ariaLabel="Longest a seat may take"
+              value={String(limits.maxTurnMinutes)}
+              options={[5, 10, 15, 30, 60, 0].map((n) => ({
+                value: String(n),
+                label: n === 0 ? 'no limit' : `${n} min`,
+                title: 'a seat still going after this is skipped — the round carries on without it'
+              }))}
+              onChange={(v) => setLimits((l) => ({ ...l, maxTurnMinutes: Number(v) }))}
+            />
+          </div>
         </div>
         {/* the bill, before it is run up: every seat's reply is a full agent turn */}
         <div className="ns-hint">

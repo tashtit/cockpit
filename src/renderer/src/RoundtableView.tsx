@@ -5,6 +5,8 @@ import type {
   RoundtableEvent,
   RoundtableLimits,
   RoundtableParticipant,
+  RoundtableQueued,
+  RoundtableWhenBusy,
   RoundtableSnapshot,
   SessionMessage
 } from '../../shared/types'
@@ -30,7 +32,12 @@ const RENDER_LAST = 200
 
 type LiveTool = { readonly toolName: string; readonly detail: string; readonly preview?: string }
 /** One seat's in-flight turn as the view sees it. */
-type LiveTurn = { readonly text: string; readonly tools: readonly LiveTool[] }
+type LiveTurn = {
+  readonly text: string
+  readonly tools: readonly LiveTool[]
+  /** Epoch ms the turn started — how long the seat has been at it */
+  readonly since?: number
+}
 /** Keyed by participant index — several seats may share a provider. */
 type LiveMap = Partial<Record<number, LiveTurn>>
 
@@ -65,6 +72,12 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   const [to, setTo] = useState<readonly number[] | null>(null)
   /** The table's limits being edited in place; null = the editor is closed */
   const [limitsDraft, setLimitsDraft] = useState<RoundtableLimits | null>(null)
+  /** The consensus round cap in the same editor */
+  const [roundsDraft, setRoundsDraft] = useState(3)
+  /** A message sent mid-round, waiting for the round to end (main owns it) */
+  const [queued, setQueued] = useState<RoundtableQueued | null>(null)
+  /** Ticks while a round runs, so a seat's elapsed time counts up */
+  const [now, setNow] = useState(() => Date.now())
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
@@ -117,7 +130,10 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         }
       } else if (ev.type === 'turn') {
         clearPendingText(ev.seat)
-        setLive((prev) => ({ ...prev, [ev.seat]: { text: '', tools: [] } }))
+        setLive((prev) => ({ ...prev, [ev.seat]: { text: '', tools: [], since: ev.at } }))
+      } else if (ev.type === 'queued') {
+        setQueued(ev.queued)
+        if (ev.error) setNote(`Your waiting message didn’t go out: ${ev.error}`)
       } else if (ev.type === 'turn-end') {
         clearPendingText(ev.seat)
         setLive((prev) => {
@@ -178,7 +194,11 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         setRunning(snap.running)
         setCycle({ roundsRun: snap.roundsRun, concluded: snap.concluded })
         const liveNow: LiveMap = {}
-        for (const seat of snap.speaking) liveNow[seat] = { text: '', tools: [] }
+        for (const seat of snap.speaking) {
+          liveNow[seat] = { text: '', tools: [], since: snap.speakingSince?.[seat] }
+        }
+        setQueued(snap.queued ?? null)
+        setRoundsDraft(snap.maxRounds)
         setLive(liveNow)
         readyRef.current = true
         const pending = pendingRef.current
@@ -201,18 +221,25 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   }, [entries, live, running])
 
   useEffect(() => {
+    if (!running) return
+    const t = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(t)
+  }, [running])
+
+  useEffect(() => {
     if (!cwdCopied) return
     const t = setTimeout(() => setCwdCopied(false), 1500)
     return () => clearTimeout(t)
   }, [cwdCopied])
 
-  const send = async (): Promise<void> => {
+  /** Mid-round, a message waits for the round (`queue`) or stops it and goes now. */
+  const send = async (whenBusy: RoundtableWhenBusy = 'queue'): Promise<void> => {
     const p = draft.trim()
-    if (!p || running || !rt) return
+    if (!p || !rt) return
     setDraft('')
     setNote(null)
     try {
-      await api.sendRoundtableMessage(id, p, to ?? undefined)
+      await api.sendRoundtableMessage(id, p, { seats: to ?? undefined, whenBusy })
     } catch (err) {
       setNote(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
       setDraft(p) // a rejected send must not eat the typed message
@@ -229,10 +256,14 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   }
 
   const saveLimits = async (): Promise<void> => {
-    if (!limitsDraft) return
+    if (!limitsDraft || !rt) return
     try {
-      const snap = await api.setRoundtableLimits(id, limitsDraft)
-      setRt((prev) => (prev ? { ...prev, limits: snap.limits } : prev))
+      const snap = await api.setRoundtableLimits(
+        id,
+        limitsDraft,
+        rt.mode === 'consensus' ? roundsDraft : undefined
+      )
+      setRt((prev) => (prev ? { ...prev, limits: snap.limits, maxRounds: snap.maxRounds } : prev))
       setLimitsDraft(null)
       setNote(null)
     } catch (err) {
@@ -317,7 +348,10 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
               // only while the editor exists — an id that isn't on the page is a dead link
               aria-controls={limitsDraft ? 'rt-limits' : undefined}
               title={`Roundtable spending limits — up to ${rt.limits.maxTurnsPerMessage} agent turns per message`}
-              onClick={() => setLimitsDraft(limitsDraft ? null : rt.limits)}
+              onClick={() => {
+                setRoundsDraft(rt.maxRounds)
+                setLimitsDraft(limitsDraft ? null : rt.limits)
+              }}
             >
               {rt.limits.maxTurnsPerTable === 0
                 ? `${spent} agent turns · no ceiling`
@@ -349,9 +383,39 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
               onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerTable: Number(v) })}
             />
           </div>
+          <div className="ns-opt">
+            <label className="ns-label" htmlFor="rt-edit-minutes">Longest a seat may take</label>
+            <Select
+              id="rt-edit-minutes"
+              ariaLabel="Longest a seat may take"
+              value={String(limitsDraft.maxTurnMinutes)}
+              options={minuteOptions(limitsDraft.maxTurnMinutes)}
+              onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnMinutes: Number(v) })}
+            />
+          </div>
+          {rt.mode === 'consensus' && (
+            <div className="ns-opt">
+              <label className="ns-label" htmlFor="rt-edit-rounds">Round cap</label>
+              <Select
+                id="rt-edit-rounds"
+                ariaLabel="Round cap"
+                value={String(roundsDraft)}
+                options={[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({
+                  value: String(n),
+                  label: n === 1 ? '1 round' : `${n} rounds`
+                }))}
+                onChange={(v) => setRoundsDraft(Number(v))}
+              />
+            </div>
+          )}
+          {running && (
+            <span className="ns-hint rt-limits-note">
+              Applies from the next round — or the next turn, for the time limit.
+            </span>
+          )}
           <div className="rt-limits-actions">
             <button className="btn-ghost" onClick={() => setLimitsDraft(null)}>Cancel</button>
-            <button className="btn-primary" onClick={() => void saveLimits()}>Save limits</button>
+            <button className="btn-primary" onClick={() => void saveLimits()}>Save</button>
           </div>
         </div>
       )}
@@ -450,6 +514,43 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                 ≤{rt.maxRounds}
               </span>
             )}
+            {/* one chip per seat still at it: how long, and a way to stop waiting for it —
+                the rest of the round carries on without that seat */}
+            {speaking.length > 0 && (
+              <span className="rt-waiting">
+                {speaking.map((i) => (
+                  <span key={i} className="rt-waiting-seat">
+                    <span className="rt-waiting-time">
+                      {uiSeatName(rt.participants, i)} · {elapsed(now, live[i]?.since)}
+                    </span>
+                    <button
+                      className="link-btn"
+                      aria-label={`Skip ${uiSeatName(rt.participants, i)} — go on without it`}
+                      title="Stop waiting: end this seat's turn and carry on without it"
+                      onClick={() => void api.skipRoundtableSeat(id, i).catch(() => {})}
+                    >
+                      skip
+                    </button>
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
+        )}
+        {/* the message sent mid-round, waiting its turn — visibly not sent yet */}
+        {queued && (
+          <div className="msg msg-user">
+            <div className="bubble bubble-user rt-queued">
+              <div className="rt-to-caption">
+                waiting — goes out when this round ends
+                {queued.to ? ` · to ${joinNames(queued.to.map((j) => uiSeatName(rt.participants, j)))}` : ''}
+                {' · '}
+                <button className="link-btn" onClick={() => void api.unqueueRoundtableMessage(id)}>
+                  cancel
+                </button>
+              </div>
+              <pre>{queued.text}</pre>
+            </div>
           </div>
         )}
         {!running && rt.mode === 'consensus' && cycle.concluded && (
@@ -536,9 +637,11 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
           ref={composerRef}
           aria-label="Message the roundtable"
           placeholder={
-            to
-              ? `Message ${joinNames(to.map((i) => uiSeatName(rt.participants, i)))}…  (Enter to send)`
-              : 'Message the roundtable…  (Enter to send, Shift+Enter for newline)'
+            running
+              ? 'Add a message — it goes out when this round ends (Enter)…'
+              : to
+                ? `Message ${joinNames(to.map((i) => uiSeatName(rt.participants, i)))}…  (Enter to send)`
+                : 'Message the roundtable…  (Enter to send, Shift+Enter for newline)'
           }
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -559,9 +662,35 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
           </button>
         )}
         {running ? (
-          <button className="btn-danger" onClick={() => void api.stopRoundtable(id)}>
-            Stop
-          </button>
+          <>
+            {/* mid-round, a message can wait for the round or cut it short */}
+            {draft.trim() && (
+              <button
+                className="btn-ghost"
+                title="Stop the round and send this now"
+                onClick={() => void send('interrupt')}
+              >
+                Send now
+              </button>
+            )}
+            {draft.trim() ? (
+              <button
+                className="btn-primary"
+                title="Sends the moment this round ends — a consensus cycle ends early for it"
+                onClick={() => void send('queue')}
+              >
+                Send after round
+              </button>
+            ) : (
+              <button
+                className="btn-danger"
+                title={queued ? 'Stop the round — the waiting message then goes out' : 'Stop the round'}
+                onClick={() => void api.stopRoundtable(id)}
+              >
+                Stop
+              </button>
+            )}
+          </>
         ) : (
           <button className="btn-primary" disabled={!draft.trim()} onClick={() => void send()}>
             Send
@@ -570,6 +699,22 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
       </footer>
     </main>
   )
+}
+
+/** "42s", "3m", "1h 5m" since a turn started; blank until the start is known. */
+function elapsed(now: number, since: number | undefined): string {
+  if (since === undefined) return 'just now'
+  const sec = Math.max(0, Math.round((now - since) / 1000))
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  return min < 60 ? `${min}m` : `${Math.floor(min / 60)}h ${min % 60}m`
+}
+
+/** The time-limit presets, plus a hand-edited value shown as itself; 0 = no limit. */
+function minuteOptions(current: number): Array<{ value: string; label: string }> {
+  const presets = [5, 10, 15, 30, 60, 0]
+  const values = presets.includes(current) ? presets : [...presets, current].sort((a, b) => (a || 1e9) - (b || 1e9))
+  return values.map((n) => ({ value: String(n), label: n === 0 ? 'no limit' : `${n} min` }))
 }
 
 /** One line naming how a seat was set up: model, thinking, and the knobs it has on. */
@@ -772,6 +917,9 @@ const EntryRow = memo(function EntryRow({
         </div>
       </div>
     )
+  }
+  if (e.skipped) {
+    return <div className="sys-row">{`${label}: ${e.text}`}</div>
   }
   if (e.error) {
     return (

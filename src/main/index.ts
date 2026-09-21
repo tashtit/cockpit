@@ -1319,15 +1319,27 @@ app.whenReady().then(() => {
     return tables.create({ topic, seats, mode: tableMode, maxRounds, limits }, place)
   })
   // limits are renderer input: every field clamped to its range
-  ipcMain.handle(CH.roundtableSetLimits, (_e, id: string, limits: unknown) =>
-    tables.setLimits(String(id), sanitizeRoundtableLimits(limits))
+  ipcMain.handle(CH.roundtableSetLimits, (_e, id: string, limits: unknown, maxRounds: unknown) =>
+    tables.setLimits(
+      String(id),
+      sanitizeRoundtableLimits(limits),
+      typeof maxRounds === 'number' ? maxRounds : undefined
+    )
   )
   // the addressed seats are renderer input — the manager keeps only real seat indexes
   const seatList = (raw: unknown): number[] | undefined =>
     raw === undefined || raw === null ? undefined : Array.isArray(raw) ? raw.map(Number) : []
-  ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string, seats: unknown) =>
-    tables.sendMessage(String(id), String(text), seatList(seats))
+  ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string, opts: unknown) => {
+    const o = (opts && typeof opts === 'object' ? opts : {}) as Record<string, unknown>
+    return tables.sendMessage(String(id), String(text), {
+      seats: seatList(o['seats']),
+      whenBusy: o['whenBusy'] === 'interrupt' ? 'interrupt' : 'queue'
+    })
+  })
+  ipcMain.handle(CH.roundtableSkip, (_e, id: string, seat: unknown) =>
+    tables.skipSeat(String(id), Number(seat))
   )
+  ipcMain.handle(CH.roundtableUnqueue, (_e, id: string) => tables.unqueue(String(id)))
   ipcMain.handle(CH.roundtableContinue, (_e, id: string, seats: unknown) =>
     tables.continueRound(String(id), seatList(seats))
   )

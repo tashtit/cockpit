@@ -709,6 +709,8 @@ summary::-webkit-details-marker { display: none; }
 .rt-table-status { font-family: var(--mono); font-size: 9px; letter-spacing: 0.4px;
   text-transform: uppercase; color: var(--fg-dim); }
 .rt-table-setup { font-family: var(--mono); font-size: 10px; color: var(--fg-dim);
+  /* a model id is a machine identifier: its own case, whatever voice the seat is in */
+  text-transform: none; letter-spacing: normal;
   max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rt-table-seat.status-agree .rt-table-status { color: var(--ok); }
 .rt-table-seat.thinking .rt-table-status { color: var(--accent); }
@@ -786,6 +788,15 @@ summary::-webkit-details-marker { display: none; }
   overflow-wrap: anywhere; }
 /* the fix a failed turn names (a lapsed sign-in): brighter than the failure around it */
 .rt-fail-hint { color: var(--fg); }
+/* the thinking line's per-seat chips: how long each has been at it, and skip */
+.rt-waiting { display: inline-flex; flex-wrap: wrap; gap: var(--s3); margin-left: var(--s3);
+  text-transform: none; letter-spacing: normal; font-family: var(--sans); }
+.rt-waiting-seat { display: inline-flex; align-items: center; gap: var(--s1); }
+.rt-waiting-time { color: var(--fg-dim); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.rt-waiting .link-btn { font-size: var(--fs-xs); min-height: 24px; }
+/* a message sent mid-round, waiting: dashed, so it reads as not sent yet */
+.bubble-user.rt-queued { border-style: dashed; opacity: 0.85; }
+.rt-limits-note { flex-basis: 100%; }
 /* who the next message goes to: one toggle per seat above the composer, on = included */
 .rt-to { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
 .rt-to-label { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;

@@ -15,6 +15,7 @@ import type {
   Provider,
   RoundtableEvent,
   RoundtableLimits,
+  RoundtableSendOptions,
   Landing,
   PanelTarget,
   ProcessTarget,
@@ -163,13 +164,15 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.roundtableArchive, id, archived),
   getRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableGet, id),
   createRoundtable: (req: NewRoundtableRequest) => ipcRenderer.invoke(CH.roundtableCreate, req),
-  sendRoundtableMessage: (id: string, text: string, seats?: readonly number[]) =>
-    ipcRenderer.invoke(CH.roundtableSend, id, text, seats),
+  sendRoundtableMessage: (id: string, text: string, opts?: RoundtableSendOptions) =>
+    ipcRenderer.invoke(CH.roundtableSend, id, text, opts),
+  unqueueRoundtableMessage: (id: string) => ipcRenderer.invoke(CH.roundtableUnqueue, id),
+  skipRoundtableSeat: (id: string, seat: number) => ipcRenderer.invoke(CH.roundtableSkip, id, seat),
   continueRoundtable: (id: string, seats?: readonly number[]) =>
     ipcRenderer.invoke(CH.roundtableContinue, id, seats),
   stopRoundtable: (id: string) => ipcRenderer.invoke(CH.roundtableStop, id),
-  setRoundtableLimits: (id: string, limits: RoundtableLimits) =>
-    ipcRenderer.invoke(CH.roundtableSetLimits, id, limits),
+  setRoundtableLimits: (id: string, limits: RoundtableLimits, maxRounds?: number) =>
+    ipcRenderer.invoke(CH.roundtableSetLimits, id, limits, maxRounds),
   onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => {
     const handler = (_e: unknown, ev: RoundtableEvent): void => cb(ev)
     ipcRenderer.on(PUSH.roundtableEvent, handler)

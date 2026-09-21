@@ -53,6 +53,7 @@ import type {
   RestoreSummary,
   RoundtableEvent,
   RoundtableLimits,
+  RoundtableSendOptions,
   RoundtableMeta,
   RoundtableSnapshot,
   SignInState,
@@ -285,14 +286,24 @@ export type CockpitApi = {
   /** Creates the table (a shared worktree when a repo is chosen) and runs the opening round */
   readonly createRoundtable: (req: NewRoundtableRequest) => Promise<RoundtableSnapshot>
   /** Append a user message and run one round of replies — from every seat, or only the
-   *  seats named (participant indexes) */
-  readonly sendRoundtableMessage: (id: string, text: string, seats?: readonly number[]) => Promise<void>
+   *  seats named. While a round runs it waits for the round to end, or stops it
+   *  (`whenBusy: 'interrupt'`) */
+  readonly sendRoundtableMessage: (id: string, text: string, opts?: RoundtableSendOptions) => Promise<void>
+  /** Drop the message waiting for the round in flight */
+  readonly unqueueRoundtableMessage: (id: string) => Promise<void>
+  /** Stop waiting for one seat: its turn ends and the round goes on without it */
+  readonly skipRoundtableSeat: (id: string, seat: number) => Promise<void>
   /** One more round with no new user message — every seat, or only the ones named */
   readonly continueRoundtable: (id: string, seats?: readonly number[]) => Promise<void>
   readonly stopRoundtable: (id: string) => Promise<void>
   /** Change what one table may spend (main clamps every field) — how a table that hit
    *  its ceiling goes on */
-  readonly setRoundtableLimits: (id: string, limits: RoundtableLimits) => Promise<RoundtableSnapshot>
+  readonly setRoundtableLimits: (
+    id: string,
+    limits: RoundtableLimits,
+    /** Consensus round cap, when it changes too (main clamps) */
+    maxRounds?: number
+  ) => Promise<RoundtableSnapshot>
   readonly onRoundtableEvent: (cb: (ev: RoundtableEvent) => void) => () => void
 
   /* ---------- the window and the app shell ---------- */
@@ -433,6 +444,8 @@ export const CH = {
   roundtableGet: 'roundtable:get',
   roundtableList: 'roundtable:list',
   roundtableSend: 'roundtable:send',
+  roundtableSkip: 'roundtable:skip',
+  roundtableUnqueue: 'roundtable:unqueue',
   roundtableSetLimits: 'roundtable:set-limits',
   roundtableStop: 'roundtable:stop',
 

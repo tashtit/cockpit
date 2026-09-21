@@ -146,14 +146,15 @@ describe('NewRoundtable', () => {
         expect.objectContaining({
           mode: 'consensus',
           maxRounds: 2,
-          limits: { maxTurnsPerMessage: 8, maxTurnsPerTable: 0 }
+          limits: { maxTurnsPerMessage: 8, maxTurnsPerTable: 0, maxTurnMinutes: 15 }
         })
       )
     )
     // the next table starts from what was chosen here
     expect(JSON.parse(window.localStorage.getItem('cockpit:rt-limits')!)).toEqual({
       maxTurnsPerMessage: 8,
-      maxTurnsPerTable: 0
+      maxTurnsPerTable: 0,
+      maxTurnMinutes: 15
     })
   })
 
