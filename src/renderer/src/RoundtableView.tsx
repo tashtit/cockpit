@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import type {
+  Provider,
   RoundtableEntry,
   RoundtableEvent,
   RoundtableLimits,
@@ -18,6 +19,8 @@ import { api } from './api'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { Message } from './ChatView'
 import { Markdown } from './Markdown'
+import { looksSignedOut } from '../../shared/agent-auth'
+import { SignInFix } from './SignInFix'
 import { limitOptions, MESSAGE_LIMITS, TABLE_LIMITS } from './NewRoundtable'
 import { Select } from './Select'
 import { BranchChip, ChatIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -58,6 +61,8 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   const [draft, setDraft] = useState('')
   const [note, setNote] = useState<string | null>(null)
   const [cwdCopied, setCwdCopied] = useState(false)
+  /** Seats the next message or round goes to; null = the whole table */
+  const [to, setTo] = useState<readonly number[] | null>(null)
   /** The table's limits being edited in place; null = the editor is closed */
   const [limitsDraft, setLimitsDraft] = useState<RoundtableLimits | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -207,17 +212,17 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     setDraft('')
     setNote(null)
     try {
-      await api.sendRoundtableMessage(id, p)
+      await api.sendRoundtableMessage(id, p, to ?? undefined)
     } catch (err) {
       setNote(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
       setDraft(p) // a rejected send must not eat the typed message
     }
   }
 
-  const oneMoreRound = async (): Promise<void> => {
+  const oneMoreRound = async (seats: readonly number[] | null = to): Promise<void> => {
     setNote(null)
     try {
-      await api.continueRoundtable(id)
+      await api.continueRoundtable(id, seats ?? undefined)
     } catch (err) {
       setNote(err instanceof Error ? err.message : String(err))
     }
@@ -246,6 +251,26 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   }
 
   const spent = turnsSpent(entries)
+  // the seats that failed in the latest round: a consensus table stops its auto-rounds
+  // on one (main's roundComplete), and says so here rather than looking merely idle
+  const lastRoundFailures: number[] = []
+  for (let j = entries.length - 1, seen = 0; j >= 0 && seen < rt.participants.length; j--) {
+    const e = entries[j]
+    if (e.speaker === 'user') break
+    seen++
+    if (e.error) lastRoundFailures.push(entrySeatIndex(rt.participants, e))
+  }
+  const stoppedOnFailure =
+    !running && rt.mode === 'consensus' && !cycle.concluded && lastRoundFailures.length > 0
+  /** The seats that can still carry on when some failed — the one-click way forward */
+  const working = rt.participants.map((_, i) => i).filter((i) => !lastRoundFailures.includes(i))
+  const addressed = to ?? rt.participants.map((_, i) => i)
+  const toggleSeat = (i: number): void => {
+    const next = addressed.includes(i) ? addressed.filter((x) => x !== i) : [...addressed, i].sort((a, b) => a - b)
+    // back to "everyone" when all are on again; never down to nobody
+    if (next.length === 0) return
+    setTo(next.length === rt.participants.length ? null : next)
+  }
   // the table cannot afford another round — said before the user tries, with the way on
   const outOfTurns = !running && roundRefusal(rt.limits, { participants: rt.participants, entries }) !== null
   const sliced = entries.length > RENDER_LAST ? entries.slice(-RENDER_LAST) : entries
@@ -353,6 +378,19 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                 ? 'User'
                 : uiSeatName(rt.participants, entrySeatIndex(rt.participants, e))
             }
+            toNames={
+              e.speaker === 'user' && e.to
+                ? joinNames(e.to.map((j) => uiSeatName(rt.participants, j)))
+                : undefined
+            }
+            hint={
+              e.speaker !== 'user' && e.error && looksSignedOut(e.text)
+                ? {
+                    provider: e.speaker,
+                    configHome: rt.participants[entrySeatIndex(rt.participants, e)]?.configDir
+                  }
+                : undefined
+            }
           />
         ))}
         {/* the wave: one live block per seat currently streaming, in seat order */}
@@ -417,6 +455,30 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         {!running && rt.mode === 'consensus' && cycle.concluded && (
           <ConsensusOutcome rt={rt} entries={entries} rounds={cycle.roundsRun} />
         )}
+        {stoppedOnFailure && (
+          <div className="sys-row">
+            Stopped reaching an understanding —{' '}
+            {joinNames([...new Set(lastRoundFailures)].map((i) => uiSeatName(rt.participants, i)))}{' '}
+            couldn’t answer, so another round would only bill the others. Fix it, then send a
+            message or run one more round
+            {working.length > 0 && working.length < rt.participants.length && (
+              <>
+                {' '}— or{' '}
+                <button
+                  className="link-btn"
+                  onClick={() => {
+                    setTo(working)
+                    void oneMoreRound(working)
+                  }}
+                >
+                  continue without{' '}
+                  {joinNames([...new Set(lastRoundFailures)].map((i) => uiSeatName(rt.participants, i)))}
+                </button>
+              </>
+            )}
+            .
+          </div>
+        )}
         {outOfTurns && !note && (
           <div className="sys-row">
             This table has spent {spent} of its {rt.limits.maxTurnsPerTable} agent turns — another
@@ -445,10 +507,39 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
       </div>
 
       <footer className="composer">
+        {/* who the next message goes to — the whole table by default; a seat can be left
+            out (one that can't answer, or one you want to hear from alone) */}
+        {rt.participants.length > 1 && (
+          <div className="rt-to" role="group" aria-label="Send to">
+            <span className="rt-to-label">To</span>
+            {rt.participants.map((p, i) => (
+              <button
+                key={i}
+                className={`rt-to-seat plogo-${p.provider}${addressed.includes(i) ? ' on' : ''}`}
+                aria-pressed={addressed.includes(i)}
+                disabled={addressed.length === 1 && addressed.includes(i)}
+                title={addressed.includes(i) ? 'Leave this seat out of the next message' : 'Include this seat'}
+                onClick={() => toggleSeat(i)}
+              >
+                <ProviderLogo p={p.provider} size={12} />
+                <span>{uiSeatName(rt.participants, i)}</span>
+              </button>
+            ))}
+            {to && (
+              <button className="link-btn rt-to-all" onClick={() => setTo(null)}>
+                everyone
+              </button>
+            )}
+          </div>
+        )}
         <textarea
           ref={composerRef}
           aria-label="Message the roundtable"
-          placeholder="Message the roundtable…  (Enter to send, Shift+Enter for newline)"
+          placeholder={
+            to
+              ? `Message ${joinNames(to.map((i) => uiSeatName(rt.participants, i)))}…  (Enter to send)`
+              : 'Message the roundtable…  (Enter to send, Shift+Enter for newline)'
+          }
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -661,22 +752,39 @@ function ConsensusOutcome({
 /** Memoized: the transcript is append-only, so settled rows never re-render. */
 const EntryRow = memo(function EntryRow({
   e,
-  label
+  label,
+  hint,
+  toNames
 }: {
   e: RoundtableEntry
   label: string
+  /** A message to part of the table: whom it went to */
+  toNames?: string
+  /** What fixes a failed turn, when the failure says (a lapsed sign-in) */
+  hint?: { readonly provider: Provider; readonly configHome?: string }
 }): JSX.Element {
   if (e.speaker === 'user') {
     return (
       <div className="msg msg-user">
         <div className="bubble bubble-user">
+          {toNames && <div className="rt-to-caption">to {toNames}</div>}
           <pre>{e.text}</pre>
         </div>
       </div>
     )
   }
   if (e.error) {
-    return <div className="sys-row">{`${label} turn failed: ${e.text}`}</div>
+    return (
+      <div className="sys-row">
+        {`${label} turn failed: ${e.text}`}
+        {hint && (
+          <span className="rt-fail-hint">
+            {' '}
+            <SignInFix provider={hint.provider} configHome={hint.configHome} />
+          </span>
+        )}
+      </div>
+    )
   }
   return (
     <div className="msg msg-assistant">

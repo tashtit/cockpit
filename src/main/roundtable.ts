@@ -89,6 +89,9 @@ type TurnState = {
 
 /** Live state of a round in flight — mutable turn bookkeeping on purpose. */
 type Round = {
+  /** The seats this round addresses — the whole table, or the ones a message named;
+   *  a consensus cycle keeps running with the same set */
+  readonly seats: readonly number[]
   /** Seat indexes not yet launched: a wave drains this at once, a relay one at a time */
   queue: number[]
   /** ChatManager turn id → live turn (several at once during a wave) */
@@ -170,9 +173,24 @@ export class RoundtableManager {
   }
 
   /** A round the table cannot afford never starts — the user hears why, up front. */
-  private assertAffordable(t: Table): void {
-    const refusal = roundRefusal(t.limits, t)
+  private assertAffordable(t: Table, seats: readonly number[]): void {
+    const refusal = roundRefusal(t.limits, { participants: seats, entries: t.entries })
     if (refusal) throw new Error(refusal)
+  }
+
+  /**
+   * The seats a message or round addresses. Renderer input: absent is the whole table;
+   * otherwise real seat indexes only, each once, in seat order — and at least one.
+   */
+  private pickSeats(t: Table, seats?: readonly number[]): number[] {
+    const all = t.participants.map((_, i) => i)
+    if (seats === undefined) return all
+    const wanted = new Set(
+      (Array.isArray(seats) ? seats : []).filter((i) => Number.isInteger(i) && i >= 0 && i < all.length)
+    )
+    const picked = all.filter((i) => wanted.has(i))
+    if (picked.length === 0) throw new Error('Pick at least one seat to answer.')
+    return picked
   }
 
   private mustGet(id: string): Table {
@@ -343,18 +361,20 @@ export class RoundtableManager {
   }
 
   /** Append a user message and run one wave of replies — every seat at once. */
-  sendMessage(id: string, text: string): void {
+  sendMessage(id: string, text: string, seats?: readonly number[]): void {
     const t = this.mustGet(id)
     if (this.rounds.has(id)) throw new Error('A round is already running — stop it first.')
     const msg = text.trim()
     if (!msg) throw new Error('Empty message.')
-    this.assertAffordable(t)
+    const to = this.pickSeats(t, seats)
+    this.assertAffordable(t, to)
     // each user message opens a fresh consensus cycle — the cap counts from here
     t.roundsRun = 0
     t.concluded = false
-    this.appendEntry(t, { speaker: 'user', text: msg, at: Date.now() })
+    const partial = to.length < t.participants.length
+    this.appendEntry(t, { speaker: 'user', text: msg, at: Date.now(), ...(partial ? { to } : {}) })
     this.save(t)
-    this.startRound(t, true)
+    this.startRound(t, true, to)
   }
 
   /**
@@ -362,14 +382,15 @@ export class RoundtableManager {
    * sees what the earlier seats said this round, so they answer each other instead of
    * re-answering the user in parallel.
    */
-  continueRound(id: string): void {
+  continueRound(id: string, seats?: readonly number[]): void {
     const t = this.mustGet(id)
     if (this.rounds.has(id)) throw new Error('A round is already running — stop it first.')
     if (t.entries.length === 0) throw new Error('Nothing to continue yet.')
-    this.assertAffordable(t)
+    const to = this.pickSeats(t, seats)
+    this.assertAffordable(t, to)
     // a manual round after a conclusion reopens the cycle for a fresh evaluation
     t.concluded = false
-    this.startRound(t, false)
+    this.startRound(t, false, to)
   }
 
   /**
@@ -411,9 +432,11 @@ export class RoundtableManager {
     this.hooks.emit({ id: t.id, type: 'entry', index: t.entries.length - 1, entry: capped })
   }
 
-  private startRound(t: Table, parallel: boolean): void {
+  private startRound(t: Table, parallel: boolean, seats?: readonly number[]): void {
+    const addressed = seats ?? t.participants.map((_, i) => i)
     const round: Round = {
-      queue: t.participants.map((_, i) => i),
+      seats: addressed,
+      queue: [...addressed],
       turns: new Map(),
       cancelled: false,
       entriesAtStart: t.entries.length
@@ -445,23 +468,36 @@ export class RoundtableManager {
       return
     }
     t.roundsRun++
-    // everyone must have been heard this round (errors are not agreement) and agree
-    const stances = new Map<number, RoundtableEntry['stance']>()
-    for (const e of t.entries.slice(round.entriesAtStart)) {
-      if (e.speaker !== 'user' && !e.error) stances.set(entrySeatIndex(t.participants, e), e.stance)
+    // a seat whose turn failed cannot agree, and retrying it by itself fixes nothing (a
+    // lapsed sign-in, a gone model): another auto-round would only bill the others for
+    // answering an empty chair. Stop — not concluded, so no outcome claims a result —
+    // and let the person fix it and carry on.
+    const roundEntries = t.entries.slice(round.entriesAtStart)
+    if (roundEntries.some((e) => e.speaker !== 'user' && e.error)) {
+      this.save(t)
+      this.endRound(t.id)
+      return
     }
-    const allAgree = t.participants.every((_, i) => stances.get(i) === 'agree')
+    // everyone must have been heard this round and agree
+    const stances = new Map<number, RoundtableEntry['stance']>()
+    for (const e of roundEntries) {
+      if (e.speaker !== 'user') stances.set(entrySeatIndex(t.participants, e), e.stance)
+    }
+    // agreement among the seats this cycle addresses: a table carrying on without a seat
+    // can still reach an understanding among the rest
+    const allAgree = round.seats.every((i) => stances.get(i) === 'agree')
     // the table's own cap, then the user's ceilings: a round it cannot afford closes
     // the cycle exactly as the cap does — a split table is shown as split
     const limits = t.limits
-    const rounds = Math.min(t.maxRounds, roundsAllowed(limits, t.participants.length))
-    if (allAgree || t.roundsRun >= rounds || roundRefusal(limits, t) !== null) {
+    const rounds = Math.min(t.maxRounds, roundsAllowed(limits, round.seats.length))
+    const next = { participants: round.seats, entries: t.entries }
+    if (allAgree || t.roundsRun >= rounds || roundRefusal(limits, next) !== null) {
       t.concluded = true
       this.save(t)
       this.endRound(t.id)
     } else {
       this.save(t)
-      this.startRound(t, false)
+      this.startRound(t, false, round.seats)
     }
   }
 

@@ -531,6 +531,42 @@ export type AccountInfo = {
   readonly isDefault: boolean
 }
 
+/**
+ * Whether an agent CLI can run under one config home, as the CLI itself answers
+ * (`claude auth status`, `codex login status`): `missing` when the CLI isn't installed
+ * at all, `unknown` when it cannot say (copilot has no status command, or the output
+ * drifted) — and unknown is never treated as signed out.
+ */
+export type SignInState = 'signed-in' | 'signed-out' | 'missing' | 'unknown'
+
+/** How an agent CLI got onto this Mac — it decides the command that updates it. */
+export type CliInstall = 'brew-cask' | 'brew-formula' | 'npm' | 'native'
+
+/** One agent CLI as installed here, against its latest release. */
+export type CliStatus = {
+  readonly provider: Provider
+  /** false when the command isn't on the PATH Cockpit spawns with */
+  readonly installed: boolean
+  /** Semver read off `--version`; null when it couldn't be read */
+  readonly version: string | null
+  /** Where the command really lives (symlinks resolved), `~`-free absolute path */
+  readonly path: string | null
+  readonly install: CliInstall | null
+  /**
+   * The newest version this install can actually get — what Homebrew has packaged for
+   * a brew install, the newest release otherwise. null when it couldn't be read.
+   */
+  readonly latest: string | null
+  /** The newest release anywhere. Ahead of `latest` while a channel lags behind it. */
+  readonly upstream: string | null
+  /** Where `latest` comes from, as the row says it: "Homebrew", "npm", … */
+  readonly channel: string | null
+  /** `latest` is newer than what is installed — the only case with something to run */
+  readonly updateAvailable: boolean
+  /** What Update runs in a terminal — shown before it is run */
+  readonly updateCommand: string | null
+}
+
 export type AccountsSnapshot = {
   readonly accounts: AccountInfo[]
   /** `gh` CLI user — the identity used for PR creation and status */
@@ -1040,6 +1076,9 @@ export type RoundtableEntry = {
   /** Participant index that spoke — several seats may share a provider (old files
    *  lack it; resolvers fall back to the provider's first seat) */
   readonly seat?: number
+  /** A user message addressed to some seats only: their participant indexes (absent =
+   *  the whole table). Every seat still reads it; only these were asked to answer. */
+  readonly to?: readonly number[]
 }
 
 /** How a table runs its rounds: user-driven, or auto-rounds until the seats agree. */

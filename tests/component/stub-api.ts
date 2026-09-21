@@ -4,10 +4,12 @@ import type { CockpitApi } from '../../src/shared/contract'
 import { DEFAULT_ROUNDTABLE_LIMITS } from '../../src/shared/roundtable'
 import { BUILTIN_MODELS } from '../../src/shared/agent-models'
 import type {
+  CliStatus,
   PrStatus,
   Provider,
   RoundtableLimits,
   RoundtableSnapshot,
+  SignInState,
   UsageSnapshot
 } from '../../src/shared/types'
 
@@ -239,6 +241,11 @@ export function freshApi(): CockpitApi {
     adoptInstructionsFrom: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     shareInstructions: vi.fn(async () => ({ status: 'unchanged' as const })),
     getAccounts: vi.fn(async () => ({ accounts: [], githubUser: null })),
+    signInState: vi.fn(async (): Promise<SignInState> => 'signed-in'),
+    openSignIn: vi.fn(async () => {}),
+    listCliStatus: vi.fn(async (): Promise<CliStatus[]> => []),
+    openCliUpdate: vi.fn(async () => {}),
+    openCliChannelRefresh: vi.fn(async () => {}),
     listAgentModels: vi.fn(async (provider: Provider) =>
       provider === 'codex'
         ? [

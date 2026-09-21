@@ -70,6 +70,65 @@ function replayTurn(
 }
 
 describe('RoundtableManager', () => {
+  it('a message can go to some seats only — the rest read it but are not asked', () => {
+    const h = makeManager(newDir())
+    const snap = h.manager.create(TWO_SEATS, null)
+    replayTurn(h, h.turnIdOf(1), { error: 'Failed to authenticate' })
+    replayTurn(h, h.turnIdOf(2), { text: ['first take'] })
+
+    // carry on without claude: only codex is launched, and the entry says whom it was to
+    h.manager.sendMessage(snap.id, 'go on without claude', [1])
+    expect(h.sent.slice(2).map((r) => r.provider)).toEqual(['codex'])
+    expect(h.sent[2].prompt).toContain('[User (to you)]: go on without claude')
+    const entry = h.manager.get(snap.id).entries.at(-1)!
+    expect(entry).toMatchObject({ speaker: 'user', to: [1] })
+    replayTurn(h, h.turnIdOf(3), { text: ['second take'] })
+
+    // a round, too; and nobody at all is refused rather than run as everyone
+    h.manager.continueRound(snap.id, [1])
+    expect(h.sent.at(-1)!.provider).toBe('codex')
+    replayTurn(h, h.turnIdOf(4), { text: ['third'] })
+    expect(() => h.manager.sendMessage(snap.id, 'x', [])).toThrow(/at least one seat/)
+    expect(() => h.manager.sendMessage(snap.id, 'x', [7])).toThrow(/at least one seat/)
+    // the whole table is not recorded as a partial address
+    h.manager.sendMessage(snap.id, 'everyone', [0, 1])
+    expect(h.manager.get(snap.id).entries.at(-1)!.to).toBeUndefined()
+  })
+
+  it('a consensus cycle among some seats concludes when those seats agree', () => {
+    const h = makeManager(newDir())
+    const snap = h.manager.create(
+      { topic: 't', mode: 'consensus', maxRounds: 3, seats: [{ provider: 'claude' }, { provider: 'codex' }, { provider: 'copilot' }] },
+      null
+    )
+    for (const n of [1, 2, 3]) replayTurn(h, h.turnIdOf(n), { text: ['ok\nCONSENSUS: continue — not yet'] })
+    // round 2 relays one seat at a time; answer each as it launches
+    while (h.manager.get(snap.id).running) replayTurn(h, `turn-${h.sent.length}`, { text: ['x\nCONSENSUS: continue — no'] })
+    const before = h.sent.length
+    h.manager.sendMessage(snap.id, 'just you two', [1, 2])
+    replayTurn(h, `turn-${before + 1}`, { text: ['y\nCONSENSUS: agree — fine'] })
+    replayTurn(h, `turn-${before + 2}`, { text: ['z\nCONSENSUS: agree — fine'] })
+    const after = h.manager.get(snap.id)
+    // claude was never asked, and its silence does not hold the two back
+    expect(h.sent.slice(before).map((r) => r.provider)).toEqual(['codex', 'copilot'])
+    expect(after.concluded).toBe(true)
+    expect(after.running).toBe(false)
+  })
+
+  it('a consensus table stops its auto-rounds when a seat’s turn fails', () => {
+    // claude cannot sign in; codex agrees. Another round would bill codex to answer an
+    // empty chair, so the cycle ends — unconcluded, so no outcome claims a result
+    const h = makeManager(newDir())
+    const snap = h.manager.create({ ...TWO_SEATS, mode: 'consensus', maxRounds: 5 }, null)
+    replayTurn(h, h.turnIdOf(1), { error: 'Failed to authenticate: OAuth session expired' })
+    replayTurn(h, h.turnIdOf(2), { text: ['Orrery.\nCONSENSUS: agree — Orrery'] })
+    const after = h.manager.get(snap.id)
+    expect(h.sent).toHaveLength(2)
+    expect(after.running).toBe(false)
+    expect(after.concluded).toBe(false)
+    expect(after.entries.filter((e) => e.error)).toHaveLength(1)
+  })
+
   it('a consensus table stops at what one message may spend, not only at its own cap', () => {
     // 2 seats, 4 turns a message: two rounds, though the table asked for five
     const h = makeManager(newDir())

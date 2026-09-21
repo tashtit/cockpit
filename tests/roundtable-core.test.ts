@@ -387,6 +387,29 @@ describe('seatOptions', () => {
   })
 })
 
+describe('a message to part of the table', () => {
+  it('reads as addressed, and as "you" to the seat it names', () => {
+    const participants = [seat(), seat({ provider: 'codex' })]
+    const e: RoundtableEntry = { speaker: 'user', text: 'q', at: 1, to: [1] }
+    expect(entryLabel(participants, e)).toBe('User (to Codex)')
+    expect(entryLabel(participants, e, 1)).toBe('User (to you)')
+    expect(entryLabel(participants, { ...e, to: undefined })).toBe('User')
+  })
+
+  it('survives a reload; anything that is not a list of seat indexes is dropped', () => {
+    const load = (to: unknown) =>
+      sanitizeRoundtable({
+        id: 'x',
+        cwd: '/r',
+        participants: [seat()],
+        entries: [{ speaker: 'user', text: 'q', at: 1, to }]
+      })?.entries[0].to
+    expect(load([0])).toEqual([0])
+    expect(load(['0'])).toBeUndefined()
+    expect(load([])).toBeUndefined()
+  })
+})
+
 describe('roundtable limits', () => {
   it('anything out of range is the default, field by field', () => {
     expect(sanitizeRoundtableLimits(undefined)).toEqual(DEFAULT_ROUNDTABLE_LIMITS)

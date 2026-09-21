@@ -88,10 +88,15 @@ import { asPrNumber, getPrFeedback, getPrFixBriefing } from './pr-feedback'
 import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
 import { clampRounds, seatOptions } from './roundtable-core'
 import { listAgentModels } from './agent-models'
+import { signInState } from './agent-auth'
+import { cliStatus, listCliStatus, writeTerminalScript } from './agent-cli'
+import { loginLine, terminalScript } from './agent-cli-core'
+import { signInHint } from '../shared/agent-auth'
 import {
   ROUNDTABLE_MAX_SEATS,
   roundsAllowed,
-  sanitizeRoundtableLimits
+  sanitizeRoundtableLimits,
+  SEAT_NAME
 } from '../shared/roundtable'
 import {
   assertClaudeProjectServer,
@@ -770,6 +775,62 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.accountsGet, () => getAccounts(loadConfig().sources))
   // the provider and config home are renderer input: a known provider, and a home the
   // indexer derived — the lister reads files under it
+  // sign-in and updates run in Terminal, where the person can answer a browser, a
+  // device code or a password prompt. The script is built from fixed commands; the
+  // provider is whitelisted and the config home must be one the indexer derived.
+  const terminalDir = join(app.getPath('userData'), 'terminal')
+  const openInTerminal = async (name: string, title: string, line: string): Promise<void> => {
+    const file = writeTerminalScript(terminalDir, name, terminalScript(title, line))
+    const failure = await shell.openPath(file)
+    if (failure) throw new Error(`Couldn't open Terminal: ${failure}`)
+  }
+  ipcMain.handle(CH.accountsLogin, (_e, agent: unknown, configDir: unknown) => {
+    const provider = asProvider(agent)
+    const home =
+      configDir === undefined || configDir === null ? undefined : assertKnownConfigDir(configDir, provider)
+    return openInTerminal(
+      `sign-in-${provider}`,
+      `Cockpit — sign in to ${SEAT_NAME[provider]}${home ? ` (${home})` : ''}`,
+      loginLine(provider, home)
+    )
+  })
+  ipcMain.handle(CH.cliStatus, (_e, force: unknown) => listCliStatus({ force: force === true }))
+  ipcMain.handle(CH.cliUpdate, async (_e, agent: unknown) => {
+    const provider = asProvider(agent)
+    // the command comes from main's own reading of how the CLI is installed, never
+    // from the renderer
+    const status = await cliStatus(provider)
+    if (!status.installed || !status.updateCommand) {
+      throw new Error(`${SEAT_NAME[provider]} isn't installed, so there is nothing to update.`)
+    }
+    return openInTerminal(`update-${provider}`, `Cockpit — update ${SEAT_NAME[provider]}`, status.updateCommand)
+  })
+  // Homebrew only knows the releases its last `brew update` fetched, so a row whose
+  // channel is behind the release can refresh it — the update itself stays a separate,
+  // deliberate step
+  ipcMain.handle(CH.cliRefreshChannel, async (_e, agent: unknown) => {
+    const provider = asProvider(agent)
+    const status = await cliStatus(provider)
+    if (status.install !== 'brew-cask' && status.install !== 'brew-formula') {
+      throw new Error(
+        `${SEAT_NAME[provider]} doesn't get its updates from Homebrew, so there is nothing to refresh.`
+      )
+    }
+    return openInTerminal(
+      `refresh-${provider}`,
+      `Cockpit — refresh what Homebrew knows (for ${SEAT_NAME[provider]})`,
+      'brew update'
+    )
+  })
+  // same validation: a known provider, and a config home the indexer derived — the
+  // CLI's status command runs against it
+  ipcMain.handle(CH.accountsSignIn, (_e, agent: unknown, configDir: unknown) => {
+    const provider = asProvider(agent)
+    return signInState(
+      provider,
+      configDir === undefined || configDir === null ? undefined : assertKnownConfigDir(configDir, provider)
+    )
+  })
   ipcMain.handle(CH.accountsModels, (_e, agent: unknown, configDir: unknown) => {
     const provider = asProvider(agent)
     return listAgentModels(
@@ -1231,6 +1292,24 @@ app.whenReady().then(() => {
     // what one message may spend with this many seats
     const tableMode = req?.mode === 'consensus' ? 'consensus' : 'open'
     const maxRounds = Math.min(clampRounds(req?.maxRounds), roundsAllowed(limits, seats.length))
+    // a seat whose CLI is signed out would fail every turn while the others spent
+    // theirs answering it — refuse before anything runs, with the command that fixes it
+    const homes = [...new Map(seats.map((s) => [`${s.provider}|${s.configDir ?? ''}`, s])).values()]
+    const states = await Promise.all(homes.map((s) => signInState(s.provider, s.configDir)))
+    const broken = homes
+      .map((s, i) => ({ s, state: states[i] }))
+      .filter(({ state }) => state === 'signed-out' || state === 'missing')
+    if (broken.length > 0) {
+      throw new Error(
+        broken
+          .map(({ s, state }) =>
+            state === 'missing'
+              ? `${SEAT_NAME[s.provider]} isn't installed — Cockpit can't find its \`${s.provider}\` command.`
+              : `${SEAT_NAME[s.provider]} isn't signed in${s.accountLabel ? ` (${s.accountLabel})` : ''}. ${signInHint(s.provider, s.configDir)}`
+          )
+          .join('\n')
+      )
+    }
     let place: TablePlace | null = null
     if (req.repoRoot !== null && req.repoRoot !== undefined) {
       const root = assertKnownRepoRoot(req.repoRoot)
@@ -1243,10 +1322,15 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.roundtableSetLimits, (_e, id: string, limits: unknown) =>
     tables.setLimits(String(id), sanitizeRoundtableLimits(limits))
   )
-  ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string) =>
-    tables.sendMessage(String(id), String(text))
+  // the addressed seats are renderer input — the manager keeps only real seat indexes
+  const seatList = (raw: unknown): number[] | undefined =>
+    raw === undefined || raw === null ? undefined : Array.isArray(raw) ? raw.map(Number) : []
+  ipcMain.handle(CH.roundtableSend, (_e, id: string, text: string, seats: unknown) =>
+    tables.sendMessage(String(id), String(text), seatList(seats))
   )
-  ipcMain.handle(CH.roundtableContinue, (_e, id: string) => tables.continueRound(String(id)))
+  ipcMain.handle(CH.roundtableContinue, (_e, id: string, seats: unknown) =>
+    tables.continueRound(String(id), seatList(seats))
+  )
   ipcMain.handle(CH.roundtableStop, (_e, id: string) => tables.stop(String(id)))
 
   /*

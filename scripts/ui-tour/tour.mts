@@ -114,6 +114,18 @@ const STATIC: readonly Shot[] = [
   },
   { view: 'sidebar', name: 'sidebar-project-filter', go: async (w) => { await home(w); await w.getByRole('button', { name: 'Choose projects to display' }).click(); await pause(w, 300) } },
   { view: 'settings', name: 'settings', go: (w) => nav(w, 'Settings') },
+  // the agent CLIs against their latest releases — one behind, with its Update
+  {
+    view: 'settings',
+    name: 'settings-clis',
+    go: async (w) => {
+      await nav(w, 'Settings')
+      const behind = w.getByText('2.1.278 available')
+      await behind.waitFor()
+      await behind.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pause(w, 300)
+    }
+  },
   // one shot per tab: each is its own page now, and a tab nobody opens is a tab
   // nobody sees break
   ...['View', 'Notifications', 'Providers', 'Backup', 'About'].map(
@@ -222,6 +234,25 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'roundtable', name: 'roundtable-consensus', go: (w) => open(w, /Should usage polling move/) },
+  // a seat on an account whose CLI session has expired: said on the card, before the
+  // table starts, with the command that fixes it — and Open held until it is
+  {
+    view: 'roundtable',
+    name: 'new-roundtable-signed-out',
+    tall: 1000,
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('button', { name: /Start a roundtable/ }).click()
+      // by keyboard: at the floor the pinned footer can sit over the picker
+      const account = w.getByRole('button', { name: /^Claude account / })
+      await account.focus()
+      await w.keyboard.press('Enter')
+      await w.keyboard.press('ArrowDown')
+      await w.keyboard.press('Enter')
+      await w.getByRole('group', { name: 'Claude seat' }).scrollIntoViewIfNeeded()
+      await pause(w, 800)
+    }
+  },
   // the model picker open on a codex seat: every model the CLI's own catalog lists
   {
     view: 'roundtable',
@@ -278,7 +309,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'new-roundtable-seats', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   {
@@ -325,7 +356,12 @@ const FIRST_RUN: readonly Shot[] = [
  * that screen rather than the one they are working on. Mirrors tests/e2e/launch-env.ts;
  * kept separate because tests import from scripts/, never the other way.
  */
-const PINNED = { COCKPIT_DEV_BACKGROUND: '1' }
+const PINNED = {
+  COCKPIT_DEV_BACKGROUND: '1',
+  // the agent-CLI update check's "latest" releases, so the tour never reaches the
+  // network — and shows one CLI behind (the stubs report 2.1.236 / 0.155.1 / 1.0.87)
+  COCKPIT_CLI_LATEST: JSON.stringify({ claude: '2.1.278', codex: '0.155.1', copilot: '1.0.87' })
+}
 
 async function launch(world: World, extraEnv: NodeJS.ProcessEnv = {}): Promise<{ app: ElectronApplication; win: Page }> {
   const app = await electron.launch({

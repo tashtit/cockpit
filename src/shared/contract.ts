@@ -18,6 +18,7 @@ import type {
   AcpAgent,
   AcpAgentProbe,
   AgentModel,
+  CliStatus,
   AppInfo,
   AttentionFocus,
   AttentionPrefs,
@@ -54,6 +55,7 @@ import type {
   RoundtableLimits,
   RoundtableMeta,
   RoundtableSnapshot,
+  SignInState,
   SessionMessage,
   SessionMeta,
   SessionPage,
@@ -232,6 +234,19 @@ export type CockpitApi = {
 
   /* ---------- who each agent is signed in as, and what it has spent ---------- */
   readonly getAccounts: () => Promise<AccountsSnapshot>
+  /** Whether an agent CLI is signed in under one config home, asked of the CLI itself —
+   *  an account's remembered identity outlives an expired session (undefined = the default home) */
+  readonly signInState: (provider: Provider, configDir?: string) => Promise<SignInState>
+  /** Open Terminal on the agent's own sign-in command for one config home — the person
+   *  signs in there (browser, device code); Cockpit never sees the credentials */
+  readonly openSignIn: (provider: Provider, configDir?: string) => Promise<void>
+  /** Each agent CLI as installed here, against its latest release (`force` skips the hour's cache) */
+  readonly listCliStatus: (force?: boolean) => Promise<CliStatus[]>
+  /** Open Terminal on the command that updates one CLI the way it was installed */
+  readonly openCliUpdate: (provider: Provider) => Promise<void>
+  /** Open Terminal on `brew update` — refreshes what Homebrew knows, for a CLI whose
+   *  channel is behind the release. Only for a Homebrew install. */
+  readonly openCliChannelRefresh: (provider: Provider) => Promise<void>
   /** Every model an agent offers under one config home — the model pickers list these */
   readonly listAgentModels: (provider: Provider, configDir?: string) => Promise<AgentModel[]>
   /** Current subscription usage per configured provider account */
@@ -269,10 +284,11 @@ export type CockpitApi = {
   readonly getRoundtable: (id: string) => Promise<RoundtableSnapshot>
   /** Creates the table (a shared worktree when a repo is chosen) and runs the opening round */
   readonly createRoundtable: (req: NewRoundtableRequest) => Promise<RoundtableSnapshot>
-  /** Append a user message and run one full round of replies */
-  readonly sendRoundtableMessage: (id: string, text: string) => Promise<void>
-  /** One more round with no new user message — the seats keep talking */
-  readonly continueRoundtable: (id: string) => Promise<void>
+  /** Append a user message and run one round of replies — from every seat, or only the
+   *  seats named (participant indexes) */
+  readonly sendRoundtableMessage: (id: string, text: string, seats?: readonly number[]) => Promise<void>
+  /** One more round with no new user message — every seat, or only the ones named */
+  readonly continueRoundtable: (id: string, seats?: readonly number[]) => Promise<void>
   readonly stopRoundtable: (id: string) => Promise<void>
   /** Change what one table may spend (main clamps every field) — how a table that hit
    *  its ceiling goes on */
@@ -326,6 +342,11 @@ export type CockpitApi = {
 export const CH = {
   accountsGet: 'accounts:get',
   accountsModels: 'accounts:models',
+  accountsSignIn: 'accounts:sign-in',
+  accountsLogin: 'accounts:login',
+  cliStatus: 'cli:status',
+  cliUpdate: 'cli:update',
+  cliRefreshChannel: 'cli:refresh-channel',
 
   acpAdd: 'acp:add',
   acpGet: 'acp:get',
