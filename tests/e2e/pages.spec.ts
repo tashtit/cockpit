@@ -753,6 +753,9 @@ test('the rail holds its own top row at every zoom, not just at 100%', async () 
   // at every width, which is the layout every screenshot and every audit above is of
   await win.evaluate(() => window.cockpit.setZoomFactor(1))
   await win.setViewportSize({ width: 560, height: 420 })
+  // the chip leaves on the renderer's next zoom report, not with the call: measured
+  // before it goes, the row is still the chip-up row and reads as wrapped
+  await expect(win.locator('.zoom-chip')).toHaveCount(0)
   const oneLine = await rowHeight()
   expect(await wrapped()).toBe(false)
 
