@@ -1,4 +1,12 @@
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -86,6 +94,19 @@ type Round = {
 const STREAM_CAP = 512_000
 /** Persisted entries stay bounded — the transcript file crosses the IPC bridge whole. */
 const ENTRY_SAVE_CAP = 64_000
+
+/**
+ * The path as the filesystem spells it — symlinks followed and, on a case-insensitive
+ * volume, the stored case. `realpathSync.native` is the one that corrects case; the
+ * JS implementation echoes whatever spelling it was handed.
+ */
+function onDisk(path: string): string | null {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return null
+  }
+}
 
 /**
  * Orchestrates multi-agent roundtables: one shared transcript per table, agents speak
@@ -227,21 +248,44 @@ export class RoundtableManager {
    * Resolved cwd → table id. The indexer asks this for every session in every page()
    * and listRepos() call, so the table side is resolved once and cached; tables change
    * only on create/load, which clear it.
+   *
+   * Each table is filed under the path it was given *and* the path the disk answers to.
+   * A seat's log records the cwd its CLI resolved for itself, which on macOS is the
+   * on-disk spelling: Electron hands out `Application Support/Cockpit` for a directory
+   * that is really `cockpit`, and `/var` is really `/private/var`. Compared as given,
+   * a repo table's seats never matched and surfaced as ordinary sessions.
    */
   private cwdIndex: Map<string, string> | null = null
+
+  /** Queried cwd → its on-disk spelling. Paths only, so table changes never stale it. */
+  private readonly realCwds = new Map<string, string>()
 
   private roomIndex(): Map<string, string> {
     this.ensureLoaded()
     if (!this.cwdIndex) {
       this.cwdIndex = new Map()
-      for (const t of this.tables.values()) this.cwdIndex.set(resolve(t.cwd), t.id)
+      for (const t of this.tables.values()) {
+        this.cwdIndex.set(resolve(t.cwd), t.id)
+        this.cwdIndex.set(onDisk(t.cwd) ?? resolve(t.cwd), t.id)
+      }
     }
     return this.cwdIndex
   }
 
   /** The table whose room/worktree this cwd is, if any — the indexer's seat-session filter. */
   tableIdForCwd(cwd: string): string | null {
-    return this.roomIndex().get(resolve(cwd)) ?? null
+    const rooms = this.roomIndex()
+    const given = resolve(cwd)
+    const exact = rooms.get(given)
+    if (exact !== undefined || rooms.size === 0) return exact ?? null
+    let real = this.realCwds.get(given)
+    if (real === undefined) {
+      // a miss is not remembered: a room that does not exist yet will
+      real = onDisk(given) ?? undefined
+      if (real === undefined) return null
+      this.realCwds.set(given, real)
+    }
+    return rooms.get(real) ?? null
   }
 
   /** Create the table and run the opening round on the topic. */
