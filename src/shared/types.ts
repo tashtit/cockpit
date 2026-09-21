@@ -468,6 +468,15 @@ export type AgentOptions = {
   readonly acpAgent?: string
 }
 
+/** One model an agent CLI can run, as the model picker lists it. */
+export type AgentModel = {
+  /** What goes to the CLI's --model */
+  readonly id: string
+  /** Picker label; the id when the source names nothing better */
+  readonly label: string
+  readonly description?: string
+}
+
 export type ChatRequest = {
   readonly provider: Provider
   readonly cwd: string

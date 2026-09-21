@@ -133,6 +133,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.instructionsAdoptFile, repoRoot, path),
   shareInstructions: (repoRoot: string) => ipcRenderer.invoke(CH.instructionsShare, repoRoot),
   getAccounts: () => ipcRenderer.invoke(CH.accountsGet),
+  listAgentModels: (provider: Provider, configDir?: string) =>
+    ipcRenderer.invoke(CH.accountsModels, provider, configDir),
   getUsage: () => ipcRenderer.invoke(CH.usageGet),
   getModelEndpoints: () => ipcRenderer.invoke(CH.endpointsGet),
   addModelEndpoint: (ep: NewModelEndpoint) => ipcRenderer.invoke(CH.endpointsAdd, ep),

@@ -5,7 +5,7 @@ import { NewRoundtable } from '../../src/renderer/src/NewRoundtable'
 import type { ModelEndpoint } from '../../src/shared/types'
 
 /** Pick an option from the app's own Select (a button + listbox, never a native select). */
-async function choose(trigger: HTMLElement, option: string): Promise<void> {
+async function choose(trigger: HTMLElement, option: string | RegExp): Promise<void> {
   await userEvent.click(trigger)
   await userEvent.click(await screen.findByRole('option', { name: option }))
 }
@@ -32,26 +32,38 @@ describe('NewRoundtable', () => {
         expect(within(card).getByText(label)).toBeInTheDocument()
       }
     }
-    // the model is a real picker over the agent's usual models, not a hidden hint list
-    await choose(control('Claude', 'model'), 'opus')
+    // the model is a picker over every model the agent offers — never a text field
+    expect(screen.queryByRole('textbox', { name: /model/i })).not.toBeInTheDocument()
+    await userEvent.click(control('Codex', 'model'))
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'default model',
+      expect.stringContaining('GPT-5.6-Sol'),
+      expect.stringContaining('GPT-5.5')
+    ])
+    await userEvent.keyboard('{Escape}')
+    await choose(control('Claude', 'model'), /^opus/)
     expect(control('Claude', 'model')).toHaveTextContent('opus')
+    // the listing is asked for per agent and account home
+    expect(window.cockpit.listAgentModels).toHaveBeenCalledWith('codex', undefined)
     // the account stays a read-only field when there is one — same shape as a Select
     await waitFor(() => expect(within(seat('Claude')).getByText('not signed in')).toHaveClass('ns-account-single'))
   })
 
-  it('switches a seat to a different agent, and types a model the list lacks', async () => {
+  it('switches a seat to a different agent, and picks from that agent’s models', async () => {
     render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    await choose(control('Codex', 'model'), /^GPT-5\.5/)
     await choose(control('Codex', 'agent'), 'Copilot')
     expect(screen.queryByRole('group', { name: 'Codex seat' })).not.toBeInTheDocument()
 
-    await choose(control('Copilot', 'model'), 'other model…')
-    await userEvent.type(within(seat('Copilot')).getByLabelText('Model'), 'gpt-5.1')
+    // the codex model did not follow the seat to another agent
+    expect(control('Copilot', 'model')).toHaveTextContent('default model')
+    await choose(control('Copilot', 'model'), /^auto/)
     await userEvent.type(screen.getByLabelText('Topic'), 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
     await waitFor(() => expect(window.cockpit.createRoundtable).toHaveBeenCalled())
     expect(createdSeats()).toEqual([
       expect.objectContaining({ provider: 'claude', model: undefined }),
-      expect.objectContaining({ provider: 'copilot', model: 'gpt-5.1' })
+      expect.objectContaining({ provider: 'copilot', model: 'auto' })
     ])
   })
 
@@ -100,7 +112,7 @@ describe('NewRoundtable', () => {
     expect(open).toBeEnabled()
 
     // a different model makes it a different voice — no mark, nothing to confirm
-    await choose(control('Claude #2', 'model'), 'haiku')
+    await choose(control('Claude #2', 'model'), /^haiku/)
     expect(screen.queryByText('duplicate')).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
 

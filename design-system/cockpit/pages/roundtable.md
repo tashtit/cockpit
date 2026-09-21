@@ -108,8 +108,11 @@ attribution, never a parallel message grammar.
   Account, Model provider, Model. Nothing about a seat is a hidden default: the Model
   provider column exists even when no custom provider is configured (an inert
   `.ns-account-single` reading "<Agent> (own)", its tooltip saying why and where to add
-  one), and the model is a `Select` over the agent's usual models or the provider's
-  catalog, with "other model…" swapping in a text field. Switching a seat's agent resets
+  one), and the model is a `Select` over *every* model the agent offers under the seat's
+  account (`listAgentModels`) or the custom provider's catalog — **never a text field**: a
+  model is chosen from what the CLI can run, not typed. Each option shows the source's
+  display name with the `--model` id as its hint; "loading models…" while the list is in
+  flight. Switching a seat's agent resets
   the seat — accounts, providers and models are all per agent.
 - **An exact repeat is allowed, marked and confirmed.** A seat equal to an earlier one in
   agent, account, model provider and model carries the warn chip (`.acct-chip.missing`,

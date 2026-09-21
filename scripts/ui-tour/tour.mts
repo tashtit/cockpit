@@ -222,6 +222,18 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'roundtable', name: 'roundtable-consensus', go: (w) => open(w, /Should usage polling move/) },
+  // the model picker open on a codex seat: every model the CLI's own catalog lists
+  {
+    view: 'roundtable',
+    name: 'new-roundtable-models',
+    // no `tall`: growing the viewport before the capture would close the open listbox
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('button', { name: /Start a roundtable/ }).click()
+      await w.getByRole('button', { name: /^Codex model / }).click()
+      await pause(w, 400)
+    }
+  },
   // a table's spend in its header, and the in-place editor it opens
   {
     view: 'roundtable',

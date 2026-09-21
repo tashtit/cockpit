@@ -17,6 +17,7 @@ import type {
   AccountsSnapshot,
   AcpAgent,
   AcpAgentProbe,
+  AgentModel,
   AppInfo,
   AttentionFocus,
   AttentionPrefs,
@@ -231,6 +232,8 @@ export type CockpitApi = {
 
   /* ---------- who each agent is signed in as, and what it has spent ---------- */
   readonly getAccounts: () => Promise<AccountsSnapshot>
+  /** Every model an agent offers under one config home — the model pickers list these */
+  readonly listAgentModels: (provider: Provider, configDir?: string) => Promise<AgentModel[]>
   /** Current subscription usage per configured provider account */
   readonly getUsage: () => Promise<UsageSnapshot>
   /** Aggregate cross-agent work profile (heatmap, per-agent totals, languages) */
@@ -322,6 +325,7 @@ export type CockpitApi = {
  */
 export const CH = {
   accountsGet: 'accounts:get',
+  accountsModels: 'accounts:models',
 
   acpAdd: 'acp:add',
   acpGet: 'acp:get',

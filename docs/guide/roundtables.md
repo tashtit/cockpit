@@ -29,7 +29,11 @@ Each seat is a card with its own four choices, all visible on the form:
 - **Agent** — Claude Code, Codex or Copilot. Change it on the card; switching resets that seat's other choices, which are all per agent.
 - **Account** — which signed-in identity the seat runs as (a read-only field when there is only one).
 - **Model provider** — the agent's own backend, or one of your [custom providers](./custom-providers.md). Only providers that agent can use are offered: Codex has none, Claude takes anthropic-type providers. A Copilot seat on a custom provider needs an explicit model.
-- **Model** — a picker over the agent's usual models, or over the custom provider's own catalog when it lists one; **other model…** takes any name the CLI accepts.
+- **Model** — picked from every model that agent offers under the seat's account, never typed:
+  - **Claude Code**: its aliases (`fable`, `opus`, `sonnet`, `haiku` — each the latest of its line) and the current full model names. The CLI keeps no catalog of its own.
+  - **Codex**: the models Codex's own picker lists, read from its cached catalog, plus the default in its `config.toml`.
+  - **Copilot**: `auto`, plus every model your recent Copilot sessions show it serving. Copilot keeps no catalog on disk, so a model you have never run through it won't appear until you have.
+  - On a custom provider, that provider's own model list.
 
 The same agent can sit more than once with different models — "Claude · opus" against "Claude · haiku" — which is how you settle a model-tier question on your own repository instead of on benchmarks.
 

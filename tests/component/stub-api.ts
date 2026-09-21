@@ -2,8 +2,10 @@ import { vi } from 'vitest'
 import type { PanelReport } from '../../src/shared/library'
 import type { CockpitApi } from '../../src/shared/contract'
 import { DEFAULT_ROUNDTABLE_LIMITS } from '../../src/shared/roundtable'
+import { BUILTIN_MODELS } from '../../src/shared/agent-models'
 import type {
   PrStatus,
+  Provider,
   RoundtableLimits,
   RoundtableSnapshot,
   UsageSnapshot
@@ -237,6 +239,14 @@ export function freshApi(): CockpitApi {
     adoptInstructionsFrom: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     shareInstructions: vi.fn(async () => ({ status: 'unchanged' as const })),
     getAccounts: vi.fn(async () => ({ accounts: [], githubUser: null })),
+    listAgentModels: vi.fn(async (provider: Provider) =>
+      provider === 'codex'
+        ? [
+            { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
+            { id: 'gpt-5.5', label: 'GPT-5.5' }
+          ]
+        : [...BUILTIN_MODELS[provider]]
+    ),
     getUsage: vi.fn(async () => ({ at: 0, providers: [] })),
     getModelEndpoints: vi.fn(async () => []),
     addModelEndpoint: vi.fn(async () => []),

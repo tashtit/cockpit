@@ -87,6 +87,7 @@ import { asDiffScope, getWorkspaceDiff } from './diff'
 import { asPrNumber, getPrFeedback, getPrFixBriefing } from './pr-feedback'
 import { RoundtableManager, type SeatInit, type TablePlace } from './roundtable'
 import { clampRounds, seatOptions } from './roundtable-core'
+import { listAgentModels } from './agent-models'
 import {
   ROUNDTABLE_MAX_SEATS,
   roundsAllowed,
@@ -767,6 +768,15 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.windowZoom, (_e, factor: number) => setZoom(applyWindowFloor(Number(factor))))
 
   ipcMain.handle(CH.accountsGet, () => getAccounts(loadConfig().sources))
+  // the provider and config home are renderer input: a known provider, and a home the
+  // indexer derived — the lister reads files under it
+  ipcMain.handle(CH.accountsModels, (_e, agent: unknown, configDir: unknown) => {
+    const provider = asProvider(agent)
+    return listAgentModels(
+      provider,
+      configDir === undefined || configDir === null ? undefined : assertKnownConfigDir(configDir, provider)
+    )
+  })
   ipcMain.handle(CH.usageGet, () => getUsage(loadConfig().sources))
   ipcMain.handle(CH.profileGet, () => getProfile(indexer.allSessions(), loadConfig().sources))
 
