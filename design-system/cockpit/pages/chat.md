@@ -99,6 +99,11 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
 - Consecutive duplicate system notices are filtered — providers repeat them.
 - `Message` is memoized; keys are absolute log offsets (`log.length - visible.length + i`),
   stable because the log is append-only. Don't "fix" this to item ids or bare indexes.
+- A session flying **elsewhere** (`busy.ts`: the observed entry, never Cockpit's own turn)
+  is the same annunciator with different words — `.thinking` + `.pulse`, "Claude is working
+  elsewhere…", `title` explaining why — and the transcript re-reads from disk as the index
+  sees each write (App's `diskLogRef`), so the log grows under the reader as a turn of
+  Cockpit's own would. Cockpit's own turn outranks it: one line, never two.
 - Auto-scroll pins to bottom on new messages/busy; busy shows `.pulse` +
   "<Agent> is working…" — the `.thinking` line renders in the placard register
   (mono uppercase annunciator; the transform is CSS, the DOM text stays sentence
@@ -236,7 +241,10 @@ threads have no line and live in the strip's list only.
   `task-names.ts`: first meaningful words → `cockpit/add-changelog-entry-retry-fix`,
   never an opaque `cockpit/ws-…` unless the task has no words).
 - The action button swaps in place: `.btn-primary` Send ↔ `.btn-danger` Stop while busy —
-  same slot, no layout shift.
+  same slot, no layout shift. While the session flies elsewhere, Send stays and is
+  **disabled** (`title` says who is working and that Send waits): there is nothing of ours
+  to stop, and a turn resumed under a running one would write a second turn on the same
+  log. The textarea keeps taking the draft; Enter does nothing until the log goes quiet.
 - Pasting an image attaches it: a full-width `.composer-attach` chip row appears above
   the textarea, one `.attach-chip` (24px thumbnail + name + × remove) per image, save
   failures as an inline `.attach-error`. Chips clear on send and on session switch; a

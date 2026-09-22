@@ -9,6 +9,8 @@ import { api } from './api'
  * component (same pattern as time.ts).
  */
 let busy: ReadonlyMap<string, number> = new Map()
+/** How main knows each one is running (`BusySession.source`), same keys as `busy`. */
+let sources: ReadonlyMap<string, BusySession['source']> = new Map()
 const listeners = new Set<() => void>()
 
 function subscribe(cb: () => void): () => void {
@@ -21,6 +23,7 @@ function subscribe(cb: () => void): () => void {
 function set(sessions: BusySession[]): void {
   // a turn ending is main's to judge (landed.ts mirrors what it decides)
   busy = new Map(sessions.map((s) => [s.id, s.startedAt]))
+  sources = new Map(sessions.map((s) => [s.id, s.source]))
   listeners.forEach((l) => l())
 }
 
@@ -33,6 +36,15 @@ export function initBusySessions(): () => void {
 /** True while a provider process is running for this session id. */
 export function useSessionBusy(id: string): boolean {
   return useSyncExternalStore(subscribe, () => busy.has(id))
+}
+
+/**
+ * True while the session's agent runs somewhere Cockpit did not start it — a terminal
+ * or the provider's own app — as main's liveness tracker reads off its log. Never true
+ * for a turn Cockpit is running itself: the spawned entry wins a shared id.
+ */
+export function useSessionRunsElsewhere(id: string | null): boolean {
+  return useSyncExternalStore(subscribe, () => id !== null && sources.get(id) === 'observed')
 }
 
 /** The whole busy map (id → turn start ms) — the board sorts and counts with it.

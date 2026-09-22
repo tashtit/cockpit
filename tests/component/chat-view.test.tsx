@@ -18,7 +18,7 @@ const binding: ChatBinding = {
 
 function renderChat(
   onSend = vi.fn(),
-  over: { binding?: ChatBinding; busy?: boolean; prs?: PrStatus[] } = {}
+  over: { binding?: ChatBinding; busy?: boolean; elsewhere?: boolean; prs?: PrStatus[] } = {}
 ): { onSend: ReturnType<typeof vi.fn>; onOpenHandoff: ReturnType<typeof vi.fn>; onOpenLineage: ReturnType<typeof vi.fn> } {
   const onOpenHandoff = vi.fn()
   const onOpenLineage = vi.fn()
@@ -27,6 +27,7 @@ function renderChat(
       binding={over.binding ?? binding}
       prs={over.prs ?? []}
       busy={over.busy ?? false}
+      elsewhere={over.elsewhere ?? false}
       prBusy={false}
       onSend={onSend}
       onCancel={() => {}}
@@ -62,6 +63,28 @@ describe('ChatView handoff affordances', () => {
   it('disables the handoff button while a turn is streaming', () => {
     renderChat(vi.fn(), { binding: started, busy: true })
     expect(screen.getByRole('button', { name: /Continue in/ })).toBeDisabled()
+  })
+
+  it('holds Send while the session runs elsewhere, and says so', async () => {
+    const { onSend } = renderChat(vi.fn(), { binding: started, elsewhere: true })
+    // the annunciator names the agent, not Cockpit's own turn — on screen and for a reader
+    expect(screen.getByText(/Claude is working elsewhere/, { ignore: '.sr-only' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Claude is working elsewhere…')
+    expect(screen.queryByText(/Send a prompt to start this session/)).not.toBeInTheDocument()
+    const send = screen.getByRole('button', { name: 'Send' })
+    expect(send).toBeDisabled()
+    expect(send).toHaveAttribute('title', expect.stringMatching(/waits for that turn/))
+    // a draft can be typed, but Enter does not send it
+    await userEvent.type(screen.getByRole('textbox', { name: 'Message Claude' }), 'wait for me{Enter}')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(send).toBeDisabled()
+  })
+
+  it('shows one annunciator at a time: a turn of its own outranks elsewhere', () => {
+    renderChat(vi.fn(), { binding: started, busy: true, elsewhere: true })
+    expect(screen.getByText(/Claude is working…/, { ignore: '.sr-only' })).toBeInTheDocument()
+    expect(screen.queryByText(/Claude is working elsewhere/, { ignore: '.sr-only' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
   })
 
   it('renders the lineage chip and navigates to the source session', async () => {

@@ -36,6 +36,7 @@ function renderChat(permissions: PendingPermission[]): ReturnType<typeof vi.fn> 
       binding={binding}
       prs={[]}
       busy={true}
+      elsewhere={false}
       prBusy={false}
       onSend={vi.fn()}
       onCancel={() => {}}

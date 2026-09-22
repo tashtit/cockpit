@@ -483,6 +483,7 @@ describe('ChatView → review panel', () => {
         binding={{ provider: 'codex', cwd: '/tmp/wt', nativeSessionId: 'n1', title: 't', branch: 'cockpit/test', repoRoot: '/tmp/repo' }}
         prs={[pr({ headRefName: 'cockpit/test', number: 7 })]}
         busy={false}
+        elsewhere={false}
         prBusy={false}
         onSend={() => {}}
         onCancel={() => {}}

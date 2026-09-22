@@ -20,6 +20,7 @@ export function ChatView({
   binding,
   prs,
   busy,
+  elsewhere,
   prBusy,
   onSend,
   onCancel,
@@ -33,6 +34,10 @@ export function ChatView({
   binding: ChatBinding | null
   prs: PrStatus[]
   busy: boolean
+  /** The session's agent is running outside Cockpit right now — a terminal or its
+   *  own app, judged from its log (busy.ts) — so the transcript is a live tail of
+   *  someone else's turn and a message now would run a second turn on it */
+  elsewhere: boolean
   prBusy: boolean
   onSend: (prompt: string, mode: PermissionMode, images?: readonly string[]) => void
   onCancel: () => void
@@ -62,7 +67,7 @@ export function ChatView({
 
   useEffect(() => {
     if (atBottomRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [log, busy])
+  }, [log, busy, elsewhere])
 
   useEffect(() => {
     if (!cwdCopied) return
@@ -161,7 +166,7 @@ export function ChatView({
   // a long stretch of tool calls is one piece of work, not twenty rows of it: four or
   // more in a row fold into a work-log block that says what happened. The run a turn
   // is still producing never folds — watching it is the point while it runs.
-  const blocks = foldToolRuns(visible, busy)
+  const blocks = foldToolRuns(visible, busy || elsewhere)
 
   // a blocked agent is the most important thing on the screen — it speaks over
   // whatever the turn last said. Otherwise chat-log.ts owns the announcements, and
@@ -170,18 +175,26 @@ export function ChatView({
   // be the one thing a reader never hears.
   const status =
     (permissions.length ? `Permission needed: ${permissions[0].preview}` : announced) ||
-    (busy && binding ? `${PROVIDER_LABEL[binding.provider]} is working…` : '')
+    (busy && binding ? `${PROVIDER_LABEL[binding.provider]} is working…` : '') ||
+    (elsewhere && binding ? `${PROVIDER_LABEL[binding.provider]} is working elsewhere…` : '')
+
+  // a turn running in a terminal is not Cockpit's to interrupt, and resuming the
+  // session under it would run a second turn on the same log — Send waits for it
+  const sendBlocked = busy || elsewhere
+  const elsewhereHint = binding
+    ? `${PROVIDER_LABEL[binding.provider]} is working on this session in a terminal or its own app — Send waits for that turn to finish`
+    : undefined
 
   /** A pick from the agent's own options: the same send path a typed message takes. */
   const sendAnswer = (text: string): void => {
-    if (!text.trim() || busy || !binding) return
+    if (!text.trim() || sendBlocked || !binding) return
     onSend(text, mode)
   }
 
 
   const submit = (): void => {
     const p = draft.trim()
-    if ((!p && atts.attachments.length === 0) || busy || !binding) return
+    if ((!p && atts.attachments.length === 0) || sendBlocked || !binding) return
     setDraft('')
     const images = atts.paths()
     atts.clear()
@@ -344,7 +357,7 @@ export function ChatView({
                 key={b.row.key}
                 prompts={b.row.m.asks}
                 provider={binding.provider}
-                disabled={busy}
+                disabled={sendBlocked}
                 onAnswer={sendAnswer}
               />
             ) : (
@@ -362,7 +375,14 @@ export function ChatView({
               <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working…
             </div>
           )}
-          {log.length === 0 && !busy && (
+          {/* the same annunciator for a turn someone else is running: the log grows
+              under this view (App re-reads it as the index sees each write) */}
+          {!busy && elsewhere && (
+            <div className="thinking" title={elsewhereHint}>
+              <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working elsewhere…
+            </div>
+          )}
+          {log.length === 0 && !sendBlocked && (
             <div className="empty-chat small">Send a prompt to start this session.</div>
           )}
         </div>
@@ -422,7 +442,8 @@ export function ChatView({
             ) : (
               <button
                 className="btn-primary"
-                disabled={!draft.trim() && atts.attachments.length === 0}
+                disabled={elsewhere || (!draft.trim() && atts.attachments.length === 0)}
+                title={elsewhere ? elsewhereHint : undefined}
                 onClick={submit}
               >
                 Send
