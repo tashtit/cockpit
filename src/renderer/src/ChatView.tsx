@@ -74,11 +74,12 @@ export function ChatView({
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
   const atBottomRef = useRef(true)
+  /** What a reader is looking at, stable across the binding objects App makes for it */
+  const conversation = binding ? `${binding.provider}|${binding.cwd}|${binding.nativeSessionId ?? ''}` : null
   // the DOM window over the log, and the way down for a reader who scrolled up. The
   // window resets per conversation, not per binding object: App re-makes the binding
   // when a parent chip or a native id arrives, and that must not shrink the window an
   // anchor just raised
-  const conversation = binding ? `${binding.provider}|${binding.cwd}|${binding.nativeSessionId ?? ''}` : null
   const { limit, showEarlier, raise } = useTranscriptWindow(scrollRef, RENDER_LAST, conversation)
   const below = useUnseenBelow(scrollRef, atBottomRef, log)
 
@@ -134,10 +135,13 @@ export function ChatView({
     if (binding) composerRef.current?.focus()
   }, [binding?.cwd, binding?.nativeSessionId === null])
 
-  // a freshly opened session always starts pinned to the bottom
+  // a freshly opened session always starts pinned to the bottom — per conversation,
+  // not per binding object: App re-makes the binding mid-turn (the native id from the
+  // CLI's first event, a parent chip), and re-pinning then yanked a reader who had
+  // scrolled up back to the bottom on the next row
   useEffect(() => {
     atBottomRef.current = true
-  }, [binding])
+  }, [conversation])
 
   // attachments belong to the conversation they were pasted into — drop them on switch
   useEffect(() => {

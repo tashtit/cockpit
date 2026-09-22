@@ -139,6 +139,12 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   Reaching the bottom by hand clears it. Hidden it is `visibility: hidden` and out of
   the tab order; the status region already announced the turn, so the key is the way
   there, not the announcement. Shared with the roundtable — never rebuild it per view.
+- **The pin is per conversation, never per binding object.** App re-makes the binding
+  mid-turn (the native id from the CLI's first event, a parent chip arriving), and a
+  reset keyed on the object re-pinned the transcript to the bottom — so a reader who had
+  scrolled up was yanked back on the next row, exactly the hijack the rule forbids.
+  `atBottomRef` and the DOM window reset on `conversation` (provider · cwd · native id)
+  instead; the probe in the tour's `chat-new-below` shot is what caught it.
 - Auto-scroll pins to bottom on new messages/busy; busy shows `.pulse` +
   "<Agent> is working…" — the `.thinking` line renders in the placard register
   (mono uppercase annunciator; the transform is CSS, the DOM text stays sentence
