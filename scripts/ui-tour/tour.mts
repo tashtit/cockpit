@@ -41,6 +41,8 @@ type Shot = {
   /** grow the viewport before capturing, for card views that scroll inside themselves */
   readonly tall?: number
   readonly go: (win: Page) => Promise<void>
+  /** undo what `go` left in the app's own memory (a dragged rail), so later shots start clean */
+  readonly after?: (win: Page) => Promise<void>
 }
 /** How a pass is shot: the window, and the zoom the person is at inside it. */
 type Pass = { readonly size: Size; readonly suffix: string; readonly zoom?: number }
@@ -113,6 +115,20 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'sidebar', name: 'sidebar-project-filter', go: async (w) => { await home(w); await w.getByRole('button', { name: 'Choose projects to display' }).click(); await pause(w, 300) } },
+  // the rail dragged out to its ceiling — a width no window size reaches on its own,
+  // with the deck reflowing behind it; the sash itself is the lit hairline on the border
+  {
+    view: 'sidebar',
+    name: 'sidebar-wide',
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('separator', { name: 'Sidebar width' }).focus()
+      await w.keyboard.press('End')
+      await pause(w, 400)
+    },
+    // a double-click on the sash forgets the width; on the rail's side of the border
+    after: (w) => w.getByRole('separator', { name: 'Sidebar width' }).dblclick({ position: { x: 2, y: 300 } })
+  },
   { view: 'settings', name: 'settings', go: (w) => nav(w, 'Settings') },
   // the agent CLIs against their latest releases — one behind, with its Update
   {
@@ -416,6 +432,7 @@ async function capture(win: Page, shots: readonly Shot[], pass: Pass): Promise<O
       await win.screenshot({ path: join(OUT, file) })
       out.push({ shot, file, size, zoom })
       console.log(`  ✓ ${file}`)
+      if (shot.after) await shot.after(win)
     } catch (err) {
       const reason = (err instanceof Error ? err.message : String(err)).split('\n')[0] ?? 'unreachable'
       out.push({ shot, missing: reason, size, zoom })

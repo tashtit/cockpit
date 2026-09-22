@@ -141,12 +141,21 @@ button, input, select, textarea, details { transition: background var(--dur) var
   * { animation: none !important; transition: none !important; }
 }
 
-.app { display: grid; grid-template-columns: clamp(240px, 26vw, 320px) 1fr; height: 100vh; }
+/* The rail's track is the person's: `--rail` is the width they dragged it to (App sets
+   it here while one is stored — rail.ts) and, until they ever have, the stylesheet's own
+   share of the viewport. Either way it is held between the rail's floor — 200px, the
+   narrowest rail the `@container rail` rules at the end of the file are written for —
+   and what the deck can spare: the 360px it keeps at the 560px window every view is
+   audited at, so no drag shows the deck narrower than the floor already does; and 600px,
+   past which the rail is the window. A stored width past this window is held back, not
+   rewritten — widen the window and it is back. The numbers mirror rail.ts. */
+.app { display: grid; height: 100vh; --rail-default: clamp(240px, 26vw, 320px);
+  grid-template-columns: clamp(200px, var(--rail, var(--rail-default)), max(200px, min(600px, 100vw - 360px))) 1fr; }
 /* grid items default to min-width auto — without this the chat pane's min-content
    (header badges + buttons) can push the 1fr column wider than the window */
 .app > * { min-width: 0; }
 @media (max-width: 700px) {
-  .app { grid-template-columns: clamp(200px, 34vw, 240px) 1fr; }
+  .app { --rail-default: clamp(200px, 34vw, 240px); }
 }
 
 /* native chrome: sidebar top + chat header double as the window drag region */
@@ -241,6 +250,29 @@ summary::-webkit-details-marker { display: none; }
      backdrop-filter above already makes this a containing block, so the containment
      inline-size adds moves nothing that was positioned against it. */
   container: rail / inline-size; }
+/* The sash (RailResizer.tsx): an 8px grab strip astride the rail's right border — 5px on
+   the rail, 3px onto the deck — invisible at rest, an accent hairline once the pointer
+   has rested on it and for as long as a drag or focus holds it. The delay is a delay,
+   not a duration: a pointer crossing the border on its way into the tree must not
+   flash it. Positioned against the rail (the containment above makes it the containing
+   block), so it lives in the rail's own stacking context: above the sticky Chats header
+   (z 2) and the drop marks (z 1), while a deck element with a z-index of its own may
+   paint over the 3px it reaches across — the 5px on this side always answer. Narrower
+   than the 24px target floor on purpose: a sash *is* the edge it moves, and the keyboard
+   (← → in 16px steps, Home/End to the bounds) is the wide target. */
+.rail-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 8px; z-index: 3;
+  cursor: col-resize; touch-action: none; -webkit-app-region: no-drag; }
+.rail-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px;
+  background: transparent; transition: background var(--dur) var(--ease) 240ms; }
+.rail-resizer:hover::after, .rail-resizer.dragging::after,
+.rail-resizer:focus-visible::after { background: var(--accent); transition-delay: 0s; }
+/* the global ring on an 8px strip would be a hollow slot: the lit hairline and the
+   input glow are the focus indicator here, the way an input's accent border is */
+.rail-resizer:focus-visible { outline: none; }
+.rail-resizer:focus-visible::after, .rail-resizer.dragging::after { box-shadow: 0 0 0 3px var(--accent-glow); }
+/* while a drag runs the whole window is the sash: the cursor holds across the deck and
+   the text under it is not selected on the way */
+body.rail-dragging { cursor: col-resize; user-select: none; }
 .tree-top { display: flex; align-items: center; gap: var(--s1);
   /* clears the macOS traffic lights (hiddenInset) — see --traffic-clear */
   padding: var(--traffic-clear) var(--s4) var(--s3); }
@@ -2185,16 +2217,12 @@ button.pnl-flag:hover { text-decoration: underline; }
    would silently win if these blocks sat earlier in the cascade. */
 @media (max-width: 780px) {
   /* board rows shed the repo pill first — the branch chip carries more identity */
-  .repo-providers, .session-row .acct-chip, .board-repo,
+  .board-repo,
   /* an open PR's badge is a label too: it sheds its state word and keeps the number
      (the accessible name still says it), which hands those ~34px back to the title —
      with the word in, the header fits at 560px only by squeezing the title instead */
   .chat-header .acct-chip, .btn-review .lbl, .btn-handoff .lbl,
-  .chat-header .pr-badge .pr-word,
-  /* a sidebar row's compact badge sheds the thread count and keeps the glyph: with the
-     checks glyph, a two-digit count and the review mark it took half the row and left
-     the title four letters — "reviewers are waiting" still shows, the number is in the name */
-  .session-row .pr-threads-n { display: none; }
+  .chat-header .pr-badge .pr-word { display: none; }
   /* the review and handoff keys fold to 28px squares (an icon-btn's footprint) so
      the header's row still holds at the 560px floor — both keep an aria-label */
   .btn-review, .btn-handoff { width: 28px; height: 28px; padding: 0; justify-content: center; }
@@ -2273,11 +2301,6 @@ button.pnl-flag:hover { text-decoration: underline; }
   .board-head { padding-block: var(--s2); }
   .ns-card { margin: var(--s3) auto; }
 }
-@media (max-width: 700px) {
-  /* the 200px rail can't hold three meter bars next to their numbers — the bars
-     shed, the percentages (the actual reading) stay */
-  .usage-mini { display: none; }
-}
 @media (max-width: 620px) {
   /* a blocked agent's question and its answers can't share a line in a ~360px pane —
      the headline takes the row, the buttons take the next one and split it evenly.
@@ -2312,7 +2335,7 @@ button.pnl-flag:hover { text-decoration: underline; }
    `.tree-top` fits in, by what it is carrying — 238 with the wordmark alone, 283 with
    the chip beside it, 211 with the chip and the wordmark shed to its mark. All of them
    are `cqi`, the rail's content box, which is one less than its grid track. That track
-   bottoms out at 200 (`clamp(200px, 34vw, 240px)`), i.e. 199cqi, which the third of
+   bottoms out at 200 (the rail's floor, `.app`), i.e. 199cqi, which the third of
    those misses by 12 — so the narrowest rail with a chip in it reflows. Re-derive the
    three if the wordmark, the chip or the keys change. */
 
@@ -2335,6 +2358,25 @@ button.pnl-flag:hover { text-decoration: underline; }
 @container rail (max-width: 210px) {
   .tree-top:has(.zoom-chip) { flex-wrap: wrap; }
   .tree-top:has(.zoom-chip) .tree-nav { flex-basis: 100%; justify-content: flex-end; }
+}
+
+/* ---------- and what the rail's rows can hold: asked of the rail too ----------
+   These rode on the window's width while the rail was only ever clamp()ed off it. Now
+   the rail is dragged, a 200px rail in a 1200px window is an ordinary sight, and a
+   400px one at 700 — so the rail is the question here as well. */
+
+/* 4. under the 240px the default rail never leaves — the 700px window's own tier, and
+      any rail dragged in past it — the rows shed their chips: the repo row's
+      per-provider logos, a session row's account chip, and its compact PR badge's
+      thread count (with the checks glyph, a two-digit count and the review mark it
+      took half the row and left the title four letters — "reviewers are waiting" still
+      shows, the number is in the badge's name). The footer's meter bars go with them:
+      the row itself fits down to a 205px track (measured in the tour world, the bar at
+      its 12px floor; three bars at theirs come to the same), but by 239 a bar is 23px
+      and from there down a sliver, not a meter — the percentages, the actual reading,
+      stay. 238: the 240px track is 239 of content, and 240 is the width that keeps them. */
+@container rail (max-width: 238px) {
+  .repo-providers, .session-row .acct-chip, .session-row .pr-threads-n, .usage-mini { display: none; }
 }
 
 /* ---------- the chat subtitle's own width ----------
