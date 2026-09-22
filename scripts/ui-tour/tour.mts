@@ -374,12 +374,25 @@ const LIVE: readonly Shot[] = [
     name: 'chat-new-below',
     go: async (w) => {
       if (!(await w.locator('.chat-title').isVisible())) await open(w, /Fix the login flake/)
-      await w.getByRole('button', { name: 'Send', exact: true }).waitFor({ timeout: 40_000 })
       const box = w.locator('.composer textarea')
       await box.fill('And the slow DNS case?')
+      // Send comes back when the turn above ends — and stays held a beat longer while the
+      // log's own liveness settles ("working elsewhere"), so wait for it to be pressable
+      await w.waitForFunction(
+        () => {
+          const send = [...document.querySelectorAll<HTMLButtonElement>('.composer button')].find(
+            (b) => b.textContent?.trim() === 'Send'
+          )
+          return !!send && !send.disabled
+        },
+        undefined,
+        { timeout: 40_000 }
+      )
       await box.press('Enter')
       await w.locator('.messages').evaluate((el) => el.scrollTo({ top: 0 }))
-      await w.locator('.jump-latest.on').waitFor({ timeout: 15_000 })
+      // the key's line is zero-height on purpose (Playwright reads that as hidden), so
+      // wait for the key itself
+      await w.locator('.jump-latest.on button').waitFor({ timeout: 15_000 })
       await pause(w, 300)
     }
   },
