@@ -497,7 +497,7 @@ function populate(world: World): void {
       { speaker: 'user', text: 'Monorepo or one repo per SDK?', at: t1 },
       { speaker: 'claude', seat: 0, text: 'Monorepo: shared spec, one CI, atomic changes.', at: t1 + 60_000 },
       { speaker: 'codex', seat: 1, text: 'Polyrepo keeps each ecosystem idiomatic.', at: t1 + 120_000 },
-      { speaker: 'codex', seat: 1, text: 'turn failed: process exited with code 1', at: t1 + 1_200_000, error: true }
+      { speaker: 'codex', seat: 1, text: 'codex exited with code 1', at: t1 + 1_200_000, error: true }
     ]
   })
 
