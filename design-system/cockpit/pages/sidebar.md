@@ -107,7 +107,11 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   The eye popover's header carries a quiet `sort A→Z` button only while the order differs
   from A→Z — it clears the saved order.
 - Hover/focus-within actions (`+` new session, archive) float in `.row-actions` over the
-  row's right edge — nothing reflows.
+  row's right edge — nothing reflows. On a session row they take the meta slot's place:
+  `.row-meta` (the time, PR badge, live dot or landing mark) fades to `opacity: 0` with
+  `pointer-events: none` while the actions are up, the mail-list convention — a 24px key
+  floating over a 38px timestamp left a stray digit beside it. Opacity, not visibility,
+  so a focused row still announces what its slot carries.
 - `.sidebar-footer`: two quiet bar controls, 26px each, never taller. `.footer-usage`
   (`UsageMeters.tsx`) rides on top only while a subscription reports numbers: one
   `.usage-cell` per provider in livery order — 12px logo, a `.usage-mini` fill bar in

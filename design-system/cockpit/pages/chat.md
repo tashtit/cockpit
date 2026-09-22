@@ -30,6 +30,14 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   tooltip; ≤700px the agent badge drops
   `.badge-text` to its titled mark. The title is the one thing the header exists to
   say; it must survive the minimum window.
+- **The branch chip gives way before the path, but never below six characters** —
+  `.chat-sub .branch-chip` shrinks first (the full branch stays in its tooltip) with a
+  floor of `calc(6ch + 27px)`, the 27px being the chip's own paddings, icon and gap:
+  a floor measured on the chip alone left two characters, so `main` read `m…` beside a
+  long path. In the header the chip may also grow to forty characters
+  (`calc(40ch + 27px)`) — the 180px cap it wears in the board and the palette is a
+  column width, and the header has no column, so a whole worktree branch shows where
+  the row has the room.
 
 - The PR slot is exclusive: a `PrBadge` when the branch has a PR, else green `.btn-pr`
   "Create PR" (GitHub merge-button semantics), else nothing. Never both.
@@ -67,6 +75,11 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     and expanding shows the raw input over the full output (`.tool-full` then
     `.tool-full.tool-out`, 260px max each). A call and its result are one event — two
     rows per tool call doubled the noise. Only an orphan result gets its own `↳` row.
+    **In a narrow row the verdict gives way to the command**: `.tool-row` is a
+    `container: tool`, and under 400px of row (the floor, 200% zoom, a rail dragged
+    wide) a peek longer than twelve characters collapses to zero width while a short
+    one (`.tool-peek-short` — `ok`, `20 passed`) keeps its place; at 40% each, the
+    command and the verdict were both twelve characters and neither could be read.
   - paths under the session's cwd render relative to it (`Message`'s `cwd` prop) — the
     header already names the directory
   - **four or more tool rows in a row fold into one `.tool-run`** — `⚙︎ work · 5 steps ·

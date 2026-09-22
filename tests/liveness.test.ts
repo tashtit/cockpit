@@ -466,10 +466,13 @@ describe('LivenessTracker — the tool window', () => {
     })
 
     it(`${provider}: the tool window is longer, not unbounded — a killed CLI mid-tool still expires`, async () => {
-      const t = tracker(() => {}, { windowMs: 100, toolWindowMs: 700, sweepMs: 40 })
+      // the plain window is also the arrival gate, judged by the wall clock against the
+      // file's mtime: at 100ms a loaded CI runner fell through it between the write and
+      // the observe, and the entry was never made at all
+      const t = tracker(() => {}, { windowMs: 250, toolWindowMs: 1_200, sweepMs: 40 })
       const file = writeFixture(provider, [...sil.thinking, sil.inTool])
       t.observe(file, meta(provider, nativeId, file), mtime(file))
-      await new Promise((r) => setTimeout(r, 300))
+      await new Promise((r) => setTimeout(r, 600))
       expect(t.sessions().map((s) => s.id)).toEqual([id]) // past the plain window
       await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
     })

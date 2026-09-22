@@ -117,7 +117,7 @@ export function usageFixture(now = Date.now()): UsageSnapshot {
         identity: 'octocat',
         source: 'provider',
         measuredAt: now,
-        windows: [{ label: 'premium requests this month', requests: 310, requestsBilled: 0 }]
+        windows: [{ label: 'premium requests', requests: 310, requestsBilled: 0 }]
       }
     ]
   }

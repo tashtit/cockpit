@@ -944,13 +944,15 @@ function RoundtableNode({
             <ArchiveIcon />
           </button>
         </span>
-        {t.running ? (
-          <span className="pulse" role="img" aria-label="round in progress" />
-        ) : (
-          <time dateTime={new Date(t.updatedAt).toISOString()}>
-            {fmtTime(t.updatedAt, timeFormat)}
-          </time>
-        )}
+        <span className="row-meta">
+          {t.running ? (
+            <span className="pulse" role="img" aria-label="round in progress" />
+          ) : (
+            <time dateTime={new Date(t.updatedAt).toISOString()}>
+              {fmtTime(t.updatedAt, timeFormat)}
+            </time>
+          )}
+        </span>
       </div>
       {seatsOpen && (
         <SeatSessionList
@@ -1335,13 +1337,15 @@ function SessionRow({
           running, then a red PR or finished-while-you-were-away, then the branch's PR,
           then when it last moved — and a folded family lends the slot to a hidden row
           that outranks this one, so folding never hides an agent that needs you */}
-      {folded ? (
-        <FoldedNews hidden={family?.descendants ?? []} outranks={ownRank}>
+      <span className="row-meta">
+        {folded ? (
+          <FoldedNews hidden={family?.descendants ?? []} outranks={ownRank}>
+            <RowMeta s={s} pr={pr} working={working} landed={landed} timeFormat={timeFormat} onOpenUrl={onOpenUrl} />
+          </FoldedNews>
+        ) : (
           <RowMeta s={s} pr={pr} working={working} landed={landed} timeFormat={timeFormat} onOpenUrl={onOpenUrl} />
-        </FoldedNews>
-      ) : (
-        <RowMeta s={s} pr={pr} working={working} landed={landed} timeFormat={timeFormat} onOpenUrl={onOpenUrl} />
-      )}
+        )}
+      </span>
     </div>
   )
 }

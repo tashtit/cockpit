@@ -631,7 +631,7 @@ export function NewRoundtable({
                     ) : (
                       <SignInFix provider={seat.provider} configHome={acct?.configDir} />
                     )}
-                    <span className="rt-seat-signin-actions">
+                    <span className="signin-actions">
                       <button className="btn-ghost small" onClick={() => void openSignIn(seat)}>
                         {signingIn.includes(agentKey(seat)) ? 'Open Terminal again' : 'Sign in…'}
                       </button>

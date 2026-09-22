@@ -27,7 +27,7 @@ The same rows in **Settings › Accounts** show what each subscription is consum
 
 - **Claude Code** — measured locally from the session JSONLs: the current 5-hour block plus the trailing 7 days.
 - **Codex** — read from the rate-limit snapshots the CLI itself persists.
-- **Copilot** — premium request counts via the GitHub billing API (fails soft if unavailable).
+- **Copilot** — premium request counts for the calendar month via the GitHub billing API, with the reset on the first of the next month (fails soft if unavailable).
 
 ::: tip Why credential-free matters
 Cockpit never proxies your accounts and never holds tokens for them — it observes what the CLIs record locally, plus public APIs where available. Your authentication stays exactly where the providers put it.

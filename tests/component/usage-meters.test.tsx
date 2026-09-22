@@ -40,7 +40,7 @@ describe('footer usage meters', () => {
     expect(cell('claude')?.querySelector('.usage-mini')).toBeNull()
     expect(cell('claude')?.title).toContain('current 5h block: 1.2M tokens · 42 requests · resets in 2h 0m')
     expect(cell('copilot')).toHaveTextContent('310')
-    expect(cell('copilot')?.title).toContain('premium requests this month: 310 used')
+    expect(cell('copilot')?.title).toContain('premium requests: 310 used')
     expect(row).toHaveAccessibleName(/Codex 5h window: 42% used/)
     expect(document.querySelector('.usage-warn')).toBeNull()
   })
@@ -86,7 +86,7 @@ describe('footer usage meters', () => {
     const copilot = usageFixture().providers.find((p) => p.provider === 'copilot')!
     const m = usageMeter({
       ...copilot,
-      windows: [{ label: 'premium requests this month', requests: 312, requestsBilled: 12 }]
+      windows: [{ label: 'premium requests', requests: 312, requestsBilled: 12 }]
     })
     expect(m?.warn).toBe(true)
     expect(m?.text).toBe('312')

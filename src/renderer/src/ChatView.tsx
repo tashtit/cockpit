@@ -574,7 +574,9 @@ export const Message = memo(function Message({
           </span>
           <code className="tool-preview">{relative(m.preview ?? m.text, cwd).slice(0, 120)}</code>
           {peek && (
-            <span className="tool-peek">
+            // a short verdict ("ok", "20 passed") keeps its place in a narrow row; a long
+            // first line gives the width back to the command (see `@container tool`)
+            <span className={`tool-peek${peek.length <= 12 ? ' tool-peek-short' : ''}`}>
               <span className="sr-only">result: </span>
               {peek.slice(0, 60)}
             </span>
