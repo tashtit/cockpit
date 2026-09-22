@@ -273,6 +273,15 @@ export function parsePremiumRequests(
   return { requests, requestsBilled: Math.round(requestsBilled) }
 }
 
+/**
+ * When the premium-request allowance next resets: GitHub counts it per calendar month,
+ * from the first at 00:00 UTC. Exported for tests.
+ */
+export function premiumRequestsResetAt(now = Date.now()): number {
+  const d = new Date(now)
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)
+}
+
 async function ghApi(path: string): Promise<{ out: string | null; err: string | null }> {
   const r = await execText('gh', ['api', path])
   if (!r.ok) return { out: null, err: r.stderr.trim() || r.error || 'gh failed' }
@@ -306,11 +315,14 @@ async function copilotUsage(login: string): Promise<ProviderUsage> {
     return base
   }
   base.measuredAt = Date.now()
+  // the label is a column in Settings: "premium requests this month" wrapped to two
+  // lines and made the row taller than every other — the month is what the reset says
   base.windows = [
     {
-      label: 'premium requests this month',
+      label: 'premium requests',
       requests: Math.round(parsed.requests),
-      requestsBilled: parsed.requestsBilled
+      requestsBilled: parsed.requestsBilled,
+      resetsAt: premiumRequestsResetAt(base.measuredAt)
     }
   ]
   return base

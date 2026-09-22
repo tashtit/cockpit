@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeUsage, codexUsage, getUsage, parsePremiumRequests, throttled } from '../src/main/usage'
+import { claudeUsage, codexUsage, getUsage, parsePremiumRequests, premiumRequestsResetAt, throttled } from '../src/main/usage'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-usage-fixtures-'))
 const claudeHome = join(root, 'claude')
@@ -162,6 +162,13 @@ describe('parsePremiumRequests', () => {
         ]
       })
     ).toEqual({ requests: 150.5, requestsBilled: 12 })
+  })
+
+  it('resets on the first of the next month, 00:00 UTC — across a year end too', () => {
+    expect(premiumRequestsResetAt(Date.UTC(2026, 8, 22, 13, 0))).toBe(Date.UTC(2026, 9, 1))
+    expect(premiumRequestsResetAt(Date.UTC(2026, 11, 31, 23, 59))).toBe(Date.UTC(2027, 0, 1))
+    // measured on the first itself: the reset is the next one, never the moment itself
+    expect(premiumRequestsResetAt(Date.UTC(2026, 9, 1, 0, 0))).toBe(Date.UTC(2026, 10, 1))
   })
 
   it('rejects reports without a usageItems array', () => {
