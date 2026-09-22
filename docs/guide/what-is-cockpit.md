@@ -38,6 +38,14 @@ The window can be dragged down to 560×420, and every view is checked at exactly
 As it narrows, rows shed decorative chips and labels — one at a time, in the order that costs
 you least — so nothing truncates and nothing escapes the window.
 
+The sidebar's width is yours. Drag its right edge — the cursor changes over it — anywhere
+between 200px and what the view beside it can spare: the sidebar never leaves that view
+narrower than it is at the smallest window, so on a small window the edge simply stops
+sooner. The edge is in the Tab order too, after the sidebar's footer: <kbd>←</kbd> /
+<kbd>→</kbd> move it a step, <kbd>Home</kbd> / <kbd>End</kbd> take it to either end.
+Double-click the edge to go back to the default width. The width is remembered on this Mac;
+a narrower window holds it back and hands it back when you widen again.
+
 ⌘+ and ⌘− zoom the whole interface between 70% and 200%; ⌘0 returns to 100%, as does clicking
 the percentage beside the wordmark, which appears whenever you are not at 100%. The level is
 remembered — set it once and every later launch opens there.

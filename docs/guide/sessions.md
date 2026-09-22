@@ -12,6 +12,7 @@ Each session's working directory is resolved to its **git repository**, worktree
 
 One row per repository, ordered by last activity, with that repo's sessions underneath:
 
+- **Width** — drag the sidebar's right edge, or focus it and use the arrow keys; double-click it to reset. See [Resizing and zoom](/guide/what-is-cockpit#resizing-and-zoom).
 - **Pagination** — long histories load behind a "more…" row; the full index is never shipped to the UI at once.
 - **Search** — global, across all providers and repos, by title, branch, path or id.
 - **Names** — sessions carry their agent-generated titles where the provider records one.

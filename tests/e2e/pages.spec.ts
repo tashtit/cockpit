@@ -776,3 +776,72 @@ test('the rail holds its own top row at every zoom, not just at 100%', async () 
 
   await zoomTo(1, { width: 1100, height: 728 })
 })
+
+test("the rail is the person's to drag — held to what the deck can spare, and remembered", async () => {
+  await win.evaluate(() => window.cockpit.setZoomFactor(1))
+  await win.setViewportSize({ width: 1100, height: 760 })
+  const sash = win.getByRole('separator', { name: 'Sidebar width' })
+  const rail = (): Promise<number> =>
+    win.evaluate(() => Math.round(document.querySelector('.tree-sidebar')!.getBoundingClientRect().width))
+  const stored = (): Promise<string | null> => win.evaluate(() => localStorage.getItem('cockpit:rail-width'))
+  // the sash straddles the rail's border: a drag starts on the rail's side of it, where
+  // nothing on the deck can be painted over it
+  const grab = async (): Promise<{ x: number; y: number }> => {
+    const box = (await sash.boundingBox())!
+    return { x: box.x + 2, y: box.y + box.height / 2 }
+  }
+  const drag = async (dx: number): Promise<void> => {
+    const { x, y } = await grab()
+    await win.mouse.move(x, y)
+    await win.mouse.down()
+    await win.mouse.move(x + dx, y, { steps: 4 })
+    await win.mouse.up()
+  }
+
+  const before = await rail()
+  expect(await stored()).toBeNull()
+  await expect(sash).toHaveAttribute('aria-valuenow', String(before))
+
+  // a drag moves the rail by what the pointer moved, and writes it down
+  await drag(100)
+  await expect.poll(rail).toBe(before + 100)
+  await expect(sash).toHaveAttribute('aria-valuenow', String(before + 100))
+  expect(await stored()).toBe(String(before + 100))
+
+  // dragged toward the right edge it stops at the ceiling, 600: the deck keeps 500
+  await drag(700)
+  await expect.poll(rail).toBe(600)
+  await expect(sash).toHaveAttribute('aria-valuemax', '600')
+
+  // the floor is the floor: at 560 the stored width yields to the 200px rail every audit
+  // above is taken of, the deck keeps its 360, and nothing escapes the window
+  await win.setViewportSize({ width: 560, height: 420 })
+  await expect.poll(rail).toBe(200)
+  await expect(sash).toHaveAttribute('aria-valuenow', '200')
+  await expect(sash).toHaveAttribute('aria-valuemax', '200')
+  expect(await win.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(560)
+  // in between, the deck's 360 is what bounds it
+  await win.setViewportSize({ width: 800, height: 600 })
+  await expect.poll(rail).toBe(440)
+  await expect(sash).toHaveAttribute('aria-valuemax', '440')
+  // and wider again, the width the person chose is still theirs
+  await win.setViewportSize({ width: 1100, height: 760 })
+  await expect.poll(rail).toBe(600)
+
+  // the keyboard reaches every width the pointer does
+  await sash.focus()
+  await win.keyboard.press('ArrowLeft')
+  await expect.poll(rail).toBe(584)
+  await win.keyboard.press('Shift+ArrowLeft')
+  await expect.poll(rail).toBe(520)
+  await win.keyboard.press('Home')
+  await expect.poll(rail).toBe(200)
+  await win.keyboard.press('End')
+  await expect.poll(rail).toBe(600)
+
+  // a double-click hands the width back to the stylesheet, and forgets it
+  const { x, y } = await grab()
+  await win.mouse.dblclick(x, y)
+  await expect.poll(rail).toBe(before)
+  expect(await stored()).toBeNull()
+})

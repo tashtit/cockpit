@@ -122,6 +122,33 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   per-account detail in the tooltip, click opens Settings. Don't grow either back into
   per-account rows — the footer is a glance, Settings is the manager.
 
+## Width
+
+- The rail is the person's to size. `.rail-resizer` (`RailResizer.tsx`) is an 8px sash astride
+  the rail's right border — 5px on the rail, 3px onto the deck — invisible at rest, an accent
+  hairline once the pointer has rested on it and while a drag or focus holds it. Drag it; or,
+  focused, ← → move it 16px (64 with ⇧) and Home/End reach the bounds; a double-click forgets
+  the width. It is the rail's last child, so Tab reaches it after the footer and before the deck.
+- The bounds live in `rail.ts` and are mirrored by `.app`'s `clamp()` in style.css: never under
+  200px (the floor every `@container rail` tier is written for — the 700px window's own rail),
+  never wider than the deck can spare (it keeps the 360px it holds at the 560px window every
+  view is audited at) and never past 600px. A stored width past what this window can spare is
+  held back by the stylesheet, not rewritten: widen the window and it is back.
+- Remembered per machine (`cockpit:rail-width` in localStorage, like the folds), never in
+  config. Nothing stored means the stylesheet's own share of the viewport — which is the
+  layout every audit and every screenshot is taken of; `sidebar-wide` in the tour is the one
+  shot of a dragged rail.
+- Its value (`aria-valuenow`) is what the rail *measures*, not what was stored: the number a
+  screen reader hears has to be the one on screen.
+- Consequence for rules: anything that sheds inside the rail asks the rail (`@container rail`,
+  the tiers at the end of style.css), never the window. The rows' chips (`.repo-providers`, a
+  session row's `.acct-chip` and its badge's `.pr-threads-n`) go under 240px of rail — the
+  700px window's tier, and any rail dragged in past it — and the footer's usage bars at the
+  width the row measurably stops fitting. A `@media` width would be true of the default rail
+  only.
+- The one control under the 24px target floor, on purpose: a sash is the edge it moves, and
+  the keyboard path is the wide target.
+
 ## Pagination (product rule: always paginate)
 
 - Sessions load `PAGE` (20) at a time via `pageSessions`; `.tree-more` shows

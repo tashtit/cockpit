@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type {
   AcpPermissionOption,
   AttentionFocus,
@@ -31,6 +31,7 @@ import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
 import { DevBanner } from './DevBanner'
 import { initBusySessions, useSessionRunsElsewhere } from './busy'
+import { useRailWidth } from './rail'
 import {
   addChatMessage,
   addChatNotice,
@@ -44,6 +45,9 @@ import { initTimeFormat } from './time'
 import type { StartSessionRequest } from './NewSession'
 import type { ChatBinding, PendingPermission } from './chat-binding'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
+
+/** `--rail` on the grid: the width the rail was dragged to, in CSS pixels. */
+const railStyle = (px: number): CSSProperties => ({ '--rail': `${px}px` }) as CSSProperties
 
 /** `provider:nativeId` → the chip's {id, provider}; null for anything malformed
  *  (the lineage map lives in a hand-editable config file). */
@@ -219,6 +223,10 @@ export function App(): JSX.Element {
     window.addEventListener('resize', syncZoom)
     return () => window.removeEventListener('resize', syncZoom)
   }, [syncZoom])
+
+  // the rail's width once it has been dragged: it reaches the grid as `--rail`, which
+  // the stylesheet holds to the bounds (`.app`) — nothing stored, nothing set
+  const rail = useRailWidth()
 
   const bindingRef = useRef<ChatBinding | null>(null)
   bindingRef.current = binding
@@ -798,7 +806,7 @@ export function App(): JSX.Element {
   }, [view, binding, repos])
 
   return (
-    <div className="app">
+    <div className="app" style={rail === null ? undefined : railStyle(rail)}>
       <DevBanner />
       {/* the app is one page and this is its name: every view needs a level-one
           heading to sit under, and the view's own title is the h2 beneath it.

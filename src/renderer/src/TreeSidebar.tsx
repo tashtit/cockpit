@@ -13,6 +13,7 @@ import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
 import { useBusyMap, useSessionBusy } from './busy'
 import { toggleFamily, useFoldedFamilies } from './families'
+import { RailResizer } from './RailResizer'
 import { useLandedMap, useSessionLanded } from './landed'
 import type { SettingsSection } from './Settings'
 import { fmtTime, useTimeFormat } from './time'
@@ -439,6 +440,9 @@ export function TreeSidebar({
           ) : null}
         </button>
       </footer>
+      {/* the rail's width is the person's: the sash on its right edge, last so Tab
+          reaches it after the footer and before the deck */}
+      <RailResizer />
     </aside>
   )
 }
