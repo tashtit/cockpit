@@ -8,6 +8,7 @@ import type {
   TranscriptSearchResult
 } from '../../shared/types'
 import { api } from './api'
+import type { TranscriptAnchor } from './chat-binding'
 import { useBusyMap } from './busy'
 import { useLandedMap } from './landed'
 import {
@@ -153,7 +154,8 @@ export function CommandPalette({
   repos: RepoGroup[]
   /** The repo the window is looking at — transcript search starts scoped to it */
   scopeRepo: RepoGroup | null
-  onOpenSession: (s: SessionMeta) => void
+  /** A transcript hit opens its session *at* the message: the hit rides along as the anchor */
+  onOpenSession: (s: SessionMeta, anchor?: TranscriptAnchor) => void
   onNewSession: (repo: RepoGroup) => void
   onRepoSetup: (repoRoot: string) => void
   onGoto: (view: PaletteViewKey) => void
@@ -346,7 +348,7 @@ export function CommandPalette({
     }
     onClose()
     if (it.kind === 'session') onOpenSession(it.s)
-    else if (it.kind === 'hit') onOpenSession(it.s)
+    else if (it.kind === 'hit') onOpenSession(it.s, it.h)
     else if (it.kind === 'repo') onNewSession(it.r)
     else if (it.kind === 'repo-setup') onRepoSetup(it.r.root as string)
     else onGoto(it.v.key)

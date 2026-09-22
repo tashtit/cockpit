@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import type { ChatBinding } from '../../src/renderer/src/chat-binding'
-import type { PrStatus } from '../../src/shared/types'
+import type { PrStatus, SessionMessage } from '../../src/shared/types'
+import { addChatMessage, setChatLog } from '../../src/renderer/src/chat-log'
+import type { TranscriptAnchor } from '../../src/renderer/src/chat-binding'
 import { pasteImage, stubObjectUrls } from './paste'
 import { openPr } from './stub-api'
 
@@ -18,7 +20,7 @@ const binding: ChatBinding = {
 
 function renderChat(
   onSend = vi.fn(),
-  over: { binding?: ChatBinding; busy?: boolean; elsewhere?: boolean; prs?: PrStatus[] } = {}
+  over: { binding?: ChatBinding; busy?: boolean; elsewhere?: boolean; prs?: PrStatus[]; anchor?: TranscriptAnchor } = {}
 ): { onSend: ReturnType<typeof vi.fn>; onOpenHandoff: ReturnType<typeof vi.fn>; onOpenLineage: ReturnType<typeof vi.fn> } {
   const onOpenHandoff = vi.fn()
   const onOpenLineage = vi.fn()
@@ -37,9 +39,28 @@ function renderChat(
       onOpenLineage={onOpenLineage}
       permissions={[]}
       onAnswerPermission={vi.fn()}
+      anchor={over.anchor ?? null}
     />
   )
   return { onSend, onOpenHandoff, onOpenLineage }
+}
+
+/** A transcript of `n` numbered assistant lines, the newest last */
+function longLog(n: number): SessionMessage[] {
+  return Array.from({ length: n }, (_, i) => ({
+    role: 'assistant' as const,
+    kind: 'text' as const,
+    text: `line ${i} of the transcript`,
+    ts: 1_000 + i
+  }))
+}
+
+/** jsdom has no layout: give the scroller a height so "at the bottom" can be false */
+function scrollAway(el: HTMLElement, { top = 0 }: { top?: number } = {}): void {
+  Object.defineProperty(el, 'scrollHeight', { value: 5000, configurable: true })
+  Object.defineProperty(el, 'clientHeight', { value: 600, configurable: true })
+  Object.defineProperty(el, 'scrollTop', { value: top, writable: true, configurable: true })
+  fireEvent.scroll(el)
 }
 
 beforeEach(() => {
@@ -316,5 +337,68 @@ describe('ChatView pull-request affordance', () => {
     vi.mocked(window.cockpit.getDefaultBranch).mockResolvedValue(null)
     renderChat(vi.fn(), { binding: { ...inRepo, branch: 'main' } })
     expect(await screen.findByRole('button', { name: 'Create PR' })).toBeInTheDocument()
+  })
+})
+
+describe('ChatView transcript window', () => {
+  it('renders the newest rows and shows the next batch on request, keeping the offset', async () => {
+    setChatLog(longLog(500))
+    renderChat()
+    const messages = document.querySelector<HTMLElement>('.messages')!
+    expect(screen.getByText(/showing the last 400 of 500 messages/)).toBeInTheDocument()
+    expect(screen.queryByText('line 99 of the transcript')).not.toBeInTheDocument()
+    expect(screen.getByText('line 100 of the transcript')).toBeInTheDocument()
+    // the reader is at the top of the window; the rows land above and the offset moves
+    // with them, so the row they were looking at stays where it was
+    scrollAway(messages, { top: 40 })
+    await userEvent.click(screen.getByRole('button', { name: 'show 100 earlier' }))
+    Object.defineProperty(messages, 'scrollHeight', { value: 6200, configurable: true })
+    expect(screen.getByText('line 0 of the transcript')).toBeInTheDocument()
+    expect(screen.queryByText(/showing the last/)).not.toBeInTheDocument()
+  })
+
+  it('a transcript hit opens at its message, rings it, and brings it into the window', () => {
+    const spy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+    setChatLog(longLog(500))
+    renderChat(vi.fn(), {
+      anchor: { role: 'assistant', snippet: '…line 12 of the transcript', timestamp: 1_012 }
+    })
+    // row 12 is 488 from the end — past the 400 the window opens with
+    const row = document.querySelector('[data-log-key="12"]')!
+    expect(row).toHaveClass('anchored')
+    expect(spy).toHaveBeenCalledOnce()
+    expect(spy.mock.instances[0]).toBe(row)
+    expect(screen.getByRole('status')).toHaveTextContent('Showing the message that matched your search')
+    spy.mockRestore()
+  })
+
+  it('a hit whose words are gone from the log opens at the bottom as before', () => {
+    const spy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+    setChatLog(longLog(5))
+    renderChat(vi.fn(), { anchor: { role: 'user', snippet: 'not in this transcript', timestamp: null } })
+    expect(document.querySelector('.anchored')).toBeNull()
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('offers "New messages" only to a reader who scrolled up while rows arrived, and takes them down', async () => {
+    setChatLog(longLog(3))
+    renderChat()
+    const messages = document.querySelector<HTMLElement>('.messages')!
+    const key = screen.getByRole('button', { name: 'New messages' })
+    expect(key.parentElement).not.toHaveClass('on')
+    // pinned to the bottom: a new row is auto-scrolled to, nothing to offer
+    act(() => addChatMessage({ role: 'assistant', kind: 'text', text: 'four' }))
+    expect(key.parentElement).not.toHaveClass('on')
+    // scrolled up: the next row is news
+    scrollAway(messages, { top: 0 })
+    act(() => addChatMessage({ role: 'assistant', kind: 'text', text: 'five' }))
+    expect(key.parentElement).toHaveClass('on')
+    expect(key).toHaveAttribute('tabindex', '0')
+    const scrollTo = vi.spyOn(messages, 'scrollTo').mockImplementation(() => {})
+    await userEvent.click(key)
+    expect(scrollTo).toHaveBeenCalledWith({ top: 5000 })
+    expect(key.parentElement).not.toHaveClass('on')
+    expect(key).toHaveAttribute('tabindex', '-1')
   })
 })

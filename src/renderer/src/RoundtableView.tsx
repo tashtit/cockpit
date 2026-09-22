@@ -25,6 +25,7 @@ import { looksSignedOut } from '../../shared/agent-auth'
 import { SignInFix } from './SignInFix'
 import { limitOptions, MESSAGE_LIMITS, TABLE_LIMITS } from './NewRoundtable'
 import { Select } from './Select'
+import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
 import { BranchChip, ChatIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 
 /** Same DOM bound as ChatView, scaled to discussion-length transcripts. */
@@ -219,6 +220,14 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   useEffect(() => {
     if (atBottomRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [entries, live, running])
+  // the DOM window over the entries, and the way down for a reader who scrolled up
+  const { limit, showEarlier } = useTranscriptWindow(scrollRef, RENDER_LAST, id)
+  const below = useUnseenBelow(scrollRef, atBottomRef, entries)
+  const { markUnseen } = below
+  useEffect(() => {
+    // a seat streaming into its live block while the reader is scrolled up counts too
+    markUnseen()
+  }, [live, markUnseen])
 
   useEffect(() => {
     if (!running) return
@@ -304,7 +313,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   }
   // the table cannot afford another round — said before the user tries, with the way on
   const outOfTurns = !running && roundRefusal(rt.limits, { participants: rt.participants, entries }) !== null
-  const sliced = entries.length > RENDER_LAST ? entries.slice(-RENDER_LAST) : entries
+  const sliced = entries.length > limit ? entries.slice(-limit) : entries
   const base = entries.length - sliced.length
   /** Seat indexes streaming right now, in seat order. */
   const speaking = rt.participants.map((_, i) => i).filter((i) => live[i] !== undefined)
@@ -428,10 +437,11 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         onScroll={(e) => {
           const el = e.currentTarget
           atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+          if (atBottomRef.current) below.settle()
         }}
       >
         {base > 0 && (
-          <div className="sys-row">(showing the last {RENDER_LAST} of {entries.length} messages)</div>
+          <EarlierRow shown={sliced.length} total={entries.length} step={RENDER_LAST} onShow={showEarlier} />
         )}
         {sliced.map((e, i) => (
           <EntryRow
@@ -602,6 +612,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
             )}
           </div>
         )}
+        <JumpToLatest on={below.unseen} onJump={below.jump} />
       </div>
       <div className="sr-only" role="status" aria-live="polite">
         {status}

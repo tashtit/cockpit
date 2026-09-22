@@ -204,7 +204,8 @@ describe('CommandPalette', () => {
       expect(onClose).not.toHaveBeenCalled()
 
       await userEvent.click(row)
-      expect(onOpenSession).toHaveBeenCalledWith(hit().sessions[0])
+      // the hit rides along as the anchor: the chat opens at that message
+      expect(onOpenSession).toHaveBeenCalledWith(hit().sessions[0], hit().hits[0])
       expect(onClose).toHaveBeenCalled()
     })
 

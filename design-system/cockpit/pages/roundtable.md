@@ -42,7 +42,11 @@ attribution, never a parallel message grammar.
   failed turns → `.sys-row` annotations ("<Agent> turn failed: …"), never bubbles; live
   tool calls → the shared `Message` tool rows, transient (cleared when the entry lands).
 - Streaming renders plain text (`.streaming-plain`) like chat — markdownify on entry.
-- DOM bound: the last 200 entries, with the explicit "(showing the last N of M)" sys-row.
+- DOM bound: the last 200 entries, with the chat's `EarlierRow` ("showing the last 200
+  of 250 messages · show 50 earlier") and its `JumpToLatest` key for a reader who
+  scrolled up while a seat wrote — both from `transcript-window.tsx`, shared with
+  the chat (see `pages/chat.md`); a seat streaming into its live block counts as
+  news the same as an entry landing.
 - Auto-scroll pins to bottom unless the user scrolled up (same 48px rule as chat).
 
 ## Composer / rounds
