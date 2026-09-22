@@ -374,6 +374,17 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .repo-row:hover .row-actions, .session-row:hover .row-actions,
 .repo-row:focus-within .row-actions,
 .session-row:focus-within .row-actions { display: inline-flex; }
+/* a session row's meta slot (time, PR badge, live dot, landing mark). While the row's
+   actions are up they take its place — the mail-list convention — because one 24px
+   archive key floating over a 38px timestamp left a stray digit beside it, and over a
+   PR badge half a number. It fades rather than hides: the slot stays in the
+   accessibility tree, so a focused row still announces what it carries; pointer-events
+   off, so the badge under the key can't be clicked without being seen. */
+.row-meta { display: inline-flex; align-items: center; flex-shrink: 0; }
+.session-row:hover .row-meta, .session-row:focus-within .row-meta { opacity: 0; pointer-events: none; }
+/* …unless focus is *in* the slot: Tab from the archive key reaches the PR badge, and a
+   focused control has to be seen */
+.session-row .row-meta:focus-within { opacity: 1; pointer-events: auto; }
 
 /* an indent guide makes containment unambiguous: sessions hang off their repo.
    11px centers the guide under the repo row's chevron (6px pad + half of 10px). */
