@@ -312,6 +312,21 @@ const STATIC: readonly Shot[] = [
 const AT_FLOOR = new Set(['home', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
+  // a table mid-round: each seat still at it with its time and skip, and a follow-up
+  // typed while it runs — the composer offers to send it after the round, or now
+  {
+    view: 'live',
+    name: 'roundtable-running',
+    go: async (w) => {
+      await open(w, /Monorepo or polyrepo/)
+      const box = w.getByRole('textbox', { name: 'Message the roundtable' })
+      await box.fill('Which one is cheaper to run in CI?')
+      await box.press('Enter')
+      await pause(w, 1500)
+      await box.fill('And how do releases work?')
+      await pause(w, 400)
+    }
+  },
   {
     view: 'live',
     name: 'chat-streaming',

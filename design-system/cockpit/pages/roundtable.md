@@ -57,6 +57,16 @@ attribution, never a parallel message grammar.
   one on can't be switched off, and "everyone" resets. A message to part of the table
   carries `.rt-to-caption` ("to Codex") on its bubble, and the prompt labels it
   "User (to Codex)" so the seats not asked know it wasn't theirs.
+- **The composer stays open mid-round.** A draft typed while seats run offers **Send
+  after round** (primary; Enter) and **Send now** (ghost — stops the round and sends);
+  with no draft the slot is Stop. A waiting message renders as a user bubble with
+  `.rt-queued` (dashed, dimmed) and a "waiting — goes out when this round ends · cancel"
+  caption; main owns it (`RoundtableSnapshot.queued`, the `queued` event), so it survives
+  the view being closed.
+- **Nobody holds up the table.** The thinking line carries `.rt-waiting`: one chip per seat
+  still at it — name, elapsed time (ticking, tabular), and a **skip** `.link-btn` — back
+  in the sans voice inside the placard line. A skipped turn (or one past the table's time
+  limit) leaves a `.sys-row` "Claude: Skipped — the table went on without it."
 - Enter sends; the action slot swaps Send ↔ Stop in place. "One more round" is a ghost
   button, idle-only: it runs a **sequential discussion round** with no new user message —
   each seat sees what the earlier seats said this round, so they answer each other.
@@ -166,6 +176,8 @@ attribution, never a parallel message grammar.
   ceiling buys) — the footer carries its short form; the round-cap picker only offers what the per-message ceiling allows. Last
   choice is remembered for the next table. Never in Settings: Settings is app-wide, and
   these belong to a table.
+- **The table's editor works mid-round** — spending limits, "Longest a seat may take",
+  and (consensus) the round cap; a hint says changes apply from the next round.
 - **On the table**, each seat on the arc carries `.rt-table-setup` — its model, thinking
   level and knobs in one mono line (tooltip only in the flat row below 640px). `.rt-budget` in the header reads "N of M agent turns" (warn once
   another round would not fit) and opens `.rt-limits`, the in-place editor. A table out

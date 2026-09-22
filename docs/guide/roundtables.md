@@ -11,6 +11,8 @@ Open one from the home composer ("Start a roundtable") or the sidebar. Write the
 - **Your message opens a wave.** Every seat receives it at once and streams simultaneously, each in its own attributed block — the seats think in parallel, not in a queue.
 - **"One more round" is the discussion pass.** It runs a sequential round with no new message from you: each seat sees what the earlier seats just said, so they push back, agree, or build on it.
 - **You choose who answers.** The **To** row above the composer has one toggle per seat, all on by default. Switch a seat off and your next message — and "One more round" — goes only to the seats left on. Every seat still reads the message later; the ones left out simply weren't asked, and the message is marked "to Codex" in the transcript.
+- **You can write while a round runs.** A message typed mid-round waits — it shows as a dashed "waiting" bubble you can cancel — and goes out the moment the round ends; a table reaching an understanding ends its cycle early for it rather than making you sit through its remaining rounds. **Send now** stops the round and sends it straight away. (Stop with a message waiting also sends it.)
+- **Nobody holds up the table.** The thinking line shows each seat still at it and for how long ("Claude · 3m"). **skip** ends that seat's turn and the round carries on without it — its half-finished reply is dropped, the transcript notes the table went on without it, and it sits out the rest of that cycle; a table reaching an understanding then agrees among the seats still there. It rejoins with your next message, and its next prompt carries everything it missed.
 - **Each seat keeps its own provider session.** Later turns are resumed with only the delta since that seat last spoke, so a long table doesn't re-send the whole transcript to every agent.
 
 The table at the top of the view shows each seat's live state: thinking, agrees, not yet.
@@ -63,10 +65,11 @@ Every reply at a table is a full agent turn on that seat's account, and a table 
 | --- | --- | --- |
 | Agent turns per message | 16 | The opening wave plus every automatic round after it. Six seats on 16 turns is two rounds, whatever round cap the table asked for. |
 | Agent turns for the table | 80 (or no ceiling) | Every reply the table has on record, failed ones included. |
+| Longest a seat may take | 15 min (or no limit) | A seat still going after this is skipped on its own, exactly as if you had pressed skip. |
 
 The form's footer stays pinned to the bottom with the bill ("4 seats · 4 agent turns a message") beside **Open roundtable**, and under the limits it spells the bill out — what one message costs at this size, and roughly how many messages the table ceiling allows. The next table starts from the limits you last chose.
 
-On an open table, the header shows what it has spent ("12 of 80 agent turns"). Click it to change that table's limits. When another round would pass the ceiling, the table says so before you try and offers **Raise the limit**; a round that doesn't fit never starts. Seats are capped at eight regardless.
+On an open table, the header shows what it has spent ("12 of 80 agent turns"). Click it to change that table's limits — and, for a table reaching an understanding, its round cap — **even while a round runs**: raise the cap to let it keep going, or lower it to end the cycle sooner. Changes apply from the next round (the time limit, from the next turn). When another round would pass the ceiling, the table says so before you try and offers **Raise the limit**; a round that doesn't fit never starts. Seats are capped at eight regardless.
 
 ## Discussion-only, enforced
 

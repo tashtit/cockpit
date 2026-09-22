@@ -43,7 +43,9 @@ export function emptyRoundtable(): RoundtableSnapshot {
     participants: [],
     entries: [],
     running: false,
-    speaking: []
+    speaking: [],
+    speakingSince: {},
+    queued: null
   }
 }
 
@@ -285,6 +287,8 @@ export function freshApi(): CockpitApi {
     deleteRoundtables: vi.fn(async () => ({ cleaned: 0, freedBytes: 0, failed: [] })),
     getRoundtable: vi.fn(async () => emptyRoundtable()),
     createRoundtable: vi.fn(async () => emptyRoundtable()),
+    unqueueRoundtableMessage: vi.fn(async () => {}),
+    skipRoundtableSeat: vi.fn(async () => {}),
     setRoundtableLimits: vi.fn(async (_id: string, limits: RoundtableLimits) => ({
       ...emptyRoundtable(),
       limits
