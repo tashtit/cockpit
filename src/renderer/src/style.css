@@ -636,9 +636,14 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
   min-width: 9ch; }
 .chat-cwd:hover { color: var(--fg); }
 /* in this row the chip gives way first: it ellipsizes itself (`.chip-text`) and keeps
-   the full branch in its tooltip, while the path beside it has no second copy to fall
-   back on. Everywhere else the chip stays rigid — a board row sizes its own column. */
-.chat-sub .branch-chip { flex-shrink: 1; min-width: 6ch; }
+   the full branch in its tooltip. But never below six characters of the branch — the
+   floor used to be measured on the chip, whose 7px paddings, 10px icon and 3px gap ate
+   all but two of them, so beside a long path even `main` read as `m…`; the 27px is that
+   chrome. And where the header has the room, the chip may show a whole branch: the
+   180px cap the chip wears everywhere else is a column width, and a header has no
+   column — forty characters covers every branch a task name cuts. Everywhere else the
+   chip stays rigid — a board row sizes its own column. */
+.chat-sub .branch-chip { flex-shrink: 1; min-width: calc(6ch + 27px); max-width: calc(40ch + 27px); }
 /* the parent chip carries a whole session title, and the tree already shows the parent
    right above the row — so it is the first thing in this row to give way: it shrinks
    before the branch chip and the path do, keeps a readable stretch of title, and sheds
