@@ -32,6 +32,7 @@ function renderChat(log: SessionMessage[], busy = false): void {
       binding={binding}
       prs={[]}
       busy={busy}
+      elsewhere={false}
       prBusy={false}
       onSend={vi.fn()}
       onCancel={vi.fn()}

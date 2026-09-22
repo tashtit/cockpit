@@ -30,7 +30,7 @@ import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
 import { DevBanner } from './DevBanner'
-import { initBusySessions } from './busy'
+import { initBusySessions, useSessionRunsElsewhere } from './busy'
 import {
   addChatMessage,
   addChatNotice,
@@ -136,8 +136,22 @@ export function App(): JSX.Element {
   const openSeqRef = useRef(0)
   /** Did this turn report an error? "finished" would be a lie if it did. */
   const turnFailedRef = useRef(false)
+  /**
+   * The transcript on screen as read from disk: which session, and when. A session
+   * run in a terminal keeps writing under this view, so on every index update the
+   * log is re-read when the index says it moved past this stamp. Null while the
+   * view holds something disk does not — a turn Cockpit is streaming — and for a
+   * conversation with no indexed session yet.
+   */
+  const diskLogRef = useRef<{ readonly id: string; readonly at: number } | null>(null)
+  const armDiskLog = (id: string | null): void => {
+    diskLogRef.current = id === null ? null : { id, at: Date.now() }
+  }
 
   useEffect(() => initBusySessions(), [])
+  // the open session's agent is running in a terminal or its own app — its log is
+  // the live thing, and Send waits (a spawned turn of ours never reads as this)
+  const elsewhere = useSessionRunsElsewhere(selectedSessionId)
   useEffect(() => initLanded(), [])
   // the transcript's markdown pipeline is its own chunk — warm it once the window
   // is up, so the first session opened renders formatted with no plain-text flash
@@ -145,10 +159,28 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     void initTimeFormat()
+    // the open transcript follows its log: when the index says the session moved
+    // past the read on screen, read it again (a session run elsewhere keeps writing)
+    const refreshOpenLog = (): void => {
+      const stamp = diskLogRef.current
+      if (!stamp || activeTurnRef.current !== null || stamp.id !== selectedSessionIdRef.current) return
+      void api
+        .getSession(stamp.id)
+        .then(async (meta) => {
+          if (!meta || meta.updatedAt <= stamp.at) return
+          const messages = await api.getSessionMessages(stamp.id)
+          // the view moved on meanwhile: another session, or a turn of ours
+          if (diskLogRef.current !== stamp || activeTurnRef.current !== null) return
+          setChatLog(messages)
+          armDiskLog(stamp.id)
+        })
+        .catch(() => {})
+    }
     const load = (): void => {
       void api.listRepos().then(setRepos)
       void api.getAccounts().then(setAccounts)
       setIndexVersion((v) => v + 1)
+      refreshOpenLog()
     }
     load()
     // repos and the flag land in one render, so the home never sees "scanned" beside a
@@ -310,6 +342,9 @@ export function App(): JSX.Element {
       } else if (ev.type === 'done') {
         endChatStream({ keepText: true })
         setActiveTurn(null)
+        // the log on disk is the conversation again — a terminal turn after this
+        // one shows up here as it lands
+        armDiskLog(selectedSessionIdRef.current)
         // the turn is over; anything it was still asking has been answered or abandoned
         setPermissions([])
         announceChat(
@@ -353,6 +388,7 @@ export function App(): JSX.Element {
     async (s: SessionMeta) => {
       const seq = ++openSeqRef.current
       setChatLog([])
+      diskLogRef.current = null
       setActiveTurn(null)
       setSelectedSessionId(s.id)
       // restore the account this session's source dir belongs to — otherwise a
@@ -386,7 +422,9 @@ export function App(): JSX.Element {
       }
       const messages = await api.getSessionMessages(s.id)
       // a slower load for a previously clicked session must not clobber this one
-      if (seq === openSeqRef.current) setChatLog(messages)
+      if (seq !== openSeqRef.current) return
+      setChatLog(messages)
+      armDiskLog(s.id)
     },
     [accounts]
   )
@@ -407,6 +445,7 @@ export function App(): JSX.Element {
       if (!sameChat) {
         const seq = ++openSeqRef.current
         setChatLog([])
+        diskLogRef.current = null
         setActiveTurn(null)
         setSelectedSessionId(entry.sessionId)
         setBinding(entry.binding)
@@ -414,7 +453,9 @@ export function App(): JSX.Element {
           void api
             .getSessionMessages(entry.sessionId)
             .then((messages) => {
-              if (seq === openSeqRef.current) setChatLog(messages)
+              if (seq !== openSeqRef.current) return
+              setChatLog(messages)
+              armDiskLog(entry.sessionId)
             })
             // the transcript may be gone from disk — an empty log, not a crash
             .catch(() => {})
@@ -493,7 +534,9 @@ export function App(): JSX.Element {
 
   const send = useCallback(
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
-      if (!binding || activeTurn || binding.readOnly) return
+      if (!binding || activeTurn || binding.readOnly || elsewhere) return
+      // from here the view holds what disk does not — no re-read may land on it
+      diskLogRef.current = null
       // the transcript shows attachments as one marker line per image
       addChatMessage({ role: 'user', kind: 'text', text: withImageMarks(prompt, images) })
       try {
@@ -515,7 +558,7 @@ export function App(): JSX.Element {
         addChatNotice(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
       }
     },
-    [binding, activeTurn, beginTurn]
+    [binding, activeTurn, elsewhere, beginTurn]
   )
 
   /** New session flow: create worktree, bind chat, fire the first prompt. */
@@ -865,6 +908,7 @@ export function App(): JSX.Element {
           binding={binding}
           prs={prs}
           busy={activeTurn !== null}
+          elsewhere={activeTurn === null && elsewhere}
           prBusy={creatingPr}
           onSend={send}
           onCancel={cancel}

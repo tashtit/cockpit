@@ -18,6 +18,24 @@ The structured event stream (where the provider has one) is parsed into messages
 
 Open any session from the sidebar and type: Cockpit resumes that conversation with the same provider, in the same working directory. There's no separate "import" — the index *is* the chat history.
 
+### A session that is running somewhere else
+
+Most sessions are not Cockpit's: they run in a terminal or in the provider's own app, and
+what Cockpit shows is their log. While such a session is [flying](/guide/sessions#flying-and-landed),
+the transcript follows the log — every write the index notices re-reads it, so the
+conversation grows on screen as the agent works — and the chat carries the same pulsing
+line the board does, *Claude is working elsewhere…*.
+
+**Send waits for it.** Cockpit cannot stop a turn it did not start, and resuming a session
+under one would run a second turn on the same log (Claude forks the conversation; Codex
+and Copilot append to the same file). The button lifts on its own once the log goes
+quiet — the windows are the ones in [Flying and landed](/guide/sessions#flying-and-landed):
+a minute and a half after the last write, ten minutes while a tool call is still waiting
+for its result. Your draft stays in the composer meanwhile.
+
+Once you send from Cockpit, the turn streams in as usual and the transcript is Cockpit's
+until it ends; a turn typed in the terminal after that shows up here again as it lands.
+
 The permission mode sits beside **Send** and applies to the next turn you send. Tool activity reads one row per call: the command or file it touched, and its result's first line on the right — expand the row for the full input and output.
 
 Replies render as markdown: code blocks carry a **Copy** button, and a link opens in your

@@ -44,6 +44,7 @@ function renderChat(
       binding={over.binding ?? binding}
       prs={[]}
       busy={over.busy ?? false}
+      elsewhere={false}
       prBusy={false}
       onSend={onSend}
       onCancel={() => {}}

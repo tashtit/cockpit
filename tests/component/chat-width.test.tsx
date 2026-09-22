@@ -19,6 +19,7 @@ function renderChat() {
       binding={binding}
       prs={[]}
       busy={false}
+      elsewhere={false}
       prBusy={false}
       onSend={vi.fn()}
       onCancel={vi.fn()}
