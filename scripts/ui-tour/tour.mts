@@ -293,6 +293,20 @@ const STATIC: readonly Shot[] = [
   },
   { view: 'roundtable', name: 'roundtable-open', go: (w) => open(w, /Monorepo or polyrepo/) },
   { view: 'chat', name: 'chat-claude', go: (w) => open(w, /Fix the login flake/) },
+  // a transcript-search hit opens its session at the message: ringed, mid-viewport
+  {
+    view: 'chat',
+    name: 'chat-from-search',
+    go: async (w) => {
+      await home(w)
+      await w.keyboard.press('ControlOrMeta+k')
+      await w.keyboard.type('spans')
+      await w.getByRole('option', { name: /Search transcripts for/ }).click()
+      await w.getByRole('option', { name: /agent:/ }).first().click()
+      await w.locator('.messages .anchored').waitFor()
+      await pause(w, 400)
+    }
+  },
   {
     view: 'chat',
     name: 'chat-work-log-open',
@@ -349,6 +363,24 @@ const LIVE: readonly Shot[] = [
     go: async (w) => {
       await send(w, /Fix the login flake/, 'Run the whole suite once more.')
       await pause(w, 1500)
+    }
+  },
+  // a turn read from the top: the reply keeps arriving below, and the key says so. The
+  // chat stays open from the shot above (re-opening a session detaches the view from
+  // the turn Cockpit is running in it), and this turn waits for that one's Send to be
+  // back before it starts
+  {
+    view: 'live',
+    name: 'chat-new-below',
+    go: async (w) => {
+      if (!(await w.locator('.chat-title').isVisible())) await open(w, /Fix the login flake/)
+      await w.getByRole('button', { name: 'Send', exact: true }).waitFor({ timeout: 40_000 })
+      const box = w.locator('.composer textarea')
+      await box.fill('And the slow DNS case?')
+      await box.press('Enter')
+      await w.locator('.messages').evaluate((el) => el.scrollTo({ top: 0 }))
+      await w.locator('.jump-latest.on').waitFor({ timeout: 15_000 })
+      await pause(w, 300)
     }
   },
   {

@@ -29,7 +29,8 @@ answer. Press <kbd>⌘K</kbd>, type the words, and pick **search transcripts for
 the session matches. Cockpit streams through the transcripts on demand (nothing is
 indexed or uploaded), scoped to the repo you are looking at — a row in the results widens
 the search to every repo. Each hit shows the message around the match, marked, with who
-said it; picking one opens that session.
+said it; picking one opens that session **at that message** — scrolled into view and
+briefly highlighted, however far back it is.
 
 Only what you and the agents *said* is searched: tool calls and their output stay out,
 so a file that every session read doesn't match every session. Large transcripts are
