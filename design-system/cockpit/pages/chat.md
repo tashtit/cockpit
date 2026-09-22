@@ -75,6 +75,11 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     and expanding shows the raw input over the full output (`.tool-full` then
     `.tool-full.tool-out`, 260px max each). A call and its result are one event — two
     rows per tool call doubled the noise. Only an orphan result gets its own `↳` row.
+    **In a narrow row the verdict gives way to the command**: `.tool-row` is a
+    `container: tool`, and under 400px of row (the floor, 200% zoom, a rail dragged
+    wide) a peek longer than twelve characters collapses to zero width while a short
+    one (`.tool-peek-short` — `ok`, `20 passed`) keeps its place; at 40% each, the
+    command and the verdict were both twelve characters and neither could be read.
   - paths under the session's cwd render relative to it (`Message`'s `cwd` prop) — the
     header already names the directory
   - **four or more tool rows in a row fold into one `.tool-run`** — `⚙︎ work · 5 steps ·

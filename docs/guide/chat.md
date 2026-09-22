@@ -36,7 +36,7 @@ for its result. Your draft stays in the composer meanwhile.
 Once you send from Cockpit, the turn streams in as usual and the transcript is Cockpit's
 until it ends; a turn typed in the terminal after that shows up here again as it lands.
 
-The permission mode sits beside **Send** and applies to the next turn you send. Tool activity reads one row per call: the command or file it touched, and its result's first line on the right — expand the row for the full input and output.
+The permission mode sits beside **Send** and applies to the next turn you send. Tool activity reads one row per call: the command or file it touched, and its result's first line on the right — expand the row for the full input and output. In a narrow window a long first line steps aside so the command stays readable; a short verdict such as `ok` or `20 passed` keeps its place.
 
 Replies render as markdown: code blocks carry a **Copy** button, and a link opens in your
 default browser rather than inside Cockpit — the window itself never navigates away from

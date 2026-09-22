@@ -977,7 +977,9 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 /* tool rows: collapsed one-liners that expand to full detail */
 .tool-row { align-self: stretch; margin-left: 32px; max-width: min(85%, 860px);
   font-size: var(--fs-xs); border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--surface); overflow: hidden; }
+  background: var(--surface); overflow: hidden;
+  /* its width is the chat column less a dragged rail, so the peek asks the row */
+  container: tool / inline-size; }
 .tool-row summary { display: flex; gap: var(--s2); align-items: baseline; cursor: pointer;
   padding: 3px var(--s3); list-style: none; }
 .tool-row summary::-webkit-details-marker { display: none; }
@@ -1015,6 +1017,16 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .tool-peek { color: var(--fg-dim); font-family: var(--mono); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; max-width: 40%;
   padding-left: var(--s2); border-left: 1px solid var(--border); }
+/* under 400px of row the 40% left the command twelve characters and the verdict as
+   many — neither readable. A short verdict (`.tool-peek-short`, ≤12 characters: "ok",
+   "20 passed") keeps its place; a long first line collapses to nothing on screen and
+   gives the command the row. Zero width rather than display: none, so the sr-only
+   "result:" and the text stay in the accessibility tree; the full output is one click
+   down either way. */
+@container tool (max-width: 400px) {
+  .tool-peek:not(.tool-peek-short) { max-width: 0; padding-left: 0; border-left: 0;
+    margin-left: calc(-1 * var(--s2)); }
+}
 .tool-out { background: var(--bg-deep); color: var(--fg); }
 .tool-out-label { color: var(--fg-dim); }
 
