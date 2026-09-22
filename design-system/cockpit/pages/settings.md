@@ -252,8 +252,10 @@ seventh.
 
 - A config home's row carries the CLI's own sign-in answer beside the remembered
   identity: **signed out** as an `.acct-chip.missing`, and a `.source-note.source-signin`
-  line with the fix (`SignInFix`) and a `.btn-ghost.small` **Sign in…** that opens
-  Terminal on the agent's sign-in (`accounts:login`). While it is pending the line says
+  line with the fix (`SignInFix`) over a `.signin-actions` line holding the
+  `.btn-ghost.small` **Sign in…** that opens Terminal on the agent's sign-in
+  (`accounts:login`) — the key never trails the sentence, whose command wraps wherever
+  the row is narrow (the roundtable seat uses the same line). While it is pending the line says
   to finish in Terminal, and the row re-asks every few seconds and on window focus
   (`useWatchUntil`) — nothing to press when the person comes back.
 - **Agent CLIs** is its own group (`h3`) between the accounts and GitHub: one

@@ -309,10 +309,12 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
                         : 'Nobody is signed in on this home. '}
                       <SignInFix provider={s.provider} configHome={isDefault(s.path) ? undefined : s.path} />
                     </>
-                  )}{' '}
-                  <button className="btn-ghost small" onClick={() => void signIn(s)}>
-                    {signingIn.includes(`${s.provider}|${s.path}`) ? 'Open Terminal again' : 'Sign in…'}
-                  </button>
+                  )}
+                  <span className="signin-actions">
+                    <button className="btn-ghost small" onClick={() => void signIn(s)}>
+                      {signingIn.includes(`${s.provider}|${s.path}`) ? 'Open Terminal again' : 'Sign in…'}
+                    </button>
+                  </span>
                 </div>
               )}
               {/* the subscription this home spends — the identity above is whose it is */}
