@@ -183,12 +183,27 @@ const PROCESS_SCAN_TIMEOUT_MS = 10_000
 /** How long a stopped process gets to exit before it is reported as still running. */
 const STOP_GRACE_MS = 2_000
 
+type ProcessSnapshot = {
+  readonly procs: ProcessFacts[]
+  /**
+   * False when lsof or ps did not give a full answer — lsof missing, or cut short by
+   * its timeout or its buffer, which leaves the processes it never reached out of the
+   * list. The scan can show a partial answer; nothing may be removed on one, or a
+   * worktree with a dev server still in it reads as empty.
+   */
+  readonly complete: boolean
+}
+
+/** Why a removal was held back when the process check came back partial. */
+const UNCHECKED = 'couldn’t check for processes running in it — try again'
+
 /**
  * Every process the user owns that has a working directory, minus Cockpit's own
  * tree. Fails soft to an empty list: without lsof or ps there is simply nothing
- * to report, and the worktree scan must not fail over it.
+ * to report, and the worktree scan must not fail over it — but it says so
+ * (`complete`), because removing on an empty list is not failing soft.
  */
-async function processSnapshot(deps: CleanupDeps): Promise<ProcessFacts[]> {
+async function processSnapshot(deps: CleanupDeps): Promise<ProcessSnapshot> {
   const uid = typeof process.getuid === 'function' ? process.getuid() : null
   const [lsof, ps] = await Promise.all([
     execText('lsof', ['-a', '-d', 'cwd', ...(uid === null ? [] : ['-u', String(uid)]), '-F', 'pn'], {
@@ -200,8 +215,9 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessFacts[]> {
     execText('ps', ['-Ao', 'pid=,ppid=,etime=,command='], { timeoutMs: PROCESS_SCAN_TIMEOUT_MS })
   ])
   // lsof exits 1 when some process could not be read, with the readable ones on
-  // stdout — the output is what counts, not the status
-  if (!lsof.stdout || !ps.ok) return []
+  // stdout — the output is what counts, not the status. Unless it was cut short.
+  const complete = ps.ok && !lsof.cutShort && lsof.stdout !== ''
+  if (!lsof.stdout || !ps.ok) return { procs: [], complete }
   const cwds = parseLsofCwds(lsof.stdout)
   const rows = parsePs(ps.stdout, Date.now())
   const own = ownProcessTree(rows, deps.selfPid)
@@ -211,7 +227,7 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessFacts[]> {
     if (!cwd || own.has(r.pid) || cwd === '/') continue
     out.push({ ...r, cwd })
   }
-  return out
+  return { procs: out, complete }
 }
 
 /* ---------- worktrees ---------- */
@@ -219,6 +235,17 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessFacts[]> {
 async function git(repoRoot: string, args: readonly string[]): Promise<string | null> {
   const r = await execText('git', ['-C', repoRoot, ...args], { timeoutMs: 20_000 })
   return r.ok ? r.stdout : null
+}
+
+/**
+ * True when HEAD is detached on commits nothing else holds — no branch, tag or
+ * remote. Removing the worktree would drop its reflog, the last thing pointing at
+ * them. A git call that fails answers true: unsure is not safe to remove.
+ */
+async function unanchoredCommits(dir: string): Promise<boolean> {
+  if ((await git(dir, ['symbolic-ref', '-q', 'HEAD'])) !== null) return false
+  const out = await git(dir, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--tags', '--remotes'])
+  return out === null || Number(out.trim()) > 0
 }
 
 /** `du -sk` in bytes; null when it fails or takes too long to be worth waiting for. */
@@ -324,7 +351,8 @@ async function judgeWorktrees(
       busy: !missing && [...busyCwds].some((c) => isUnder(c, path)),
       roundtable: deps.tableForCwd(path) !== null,
       // nothing is left to protect in a directory that is already gone
-      processes: !missing && processIn.has(path)
+      processes: !missing && processIn.has(path),
+      unanchored: !missing && !isMain && entry.detached && (await unanchoredCommits(path))
     })
     out.push({
       path,
@@ -419,7 +447,7 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
   const all = deps.sessions()
   const busy = deps.busyIds()
 
-  const procs = await processSnapshot(deps)
+  const { procs } = await processSnapshot(deps)
   const judged = await judgeWorktrees(deps, procs)
   const linked = judged.filter((w) => !w.blocks.includes('main'))
   const staleTrees = linked
@@ -556,7 +584,7 @@ export async function deleteSessions(
   deps: CleanupDeps,
   ids: readonly string[],
   staleDays: number
-): Promise<CleanupResult> {
+): Promise<CleanupResult & { readonly deletedIds: readonly string[] }> {
   const all = deps.sessions()
   const byId = new Map(all.map((s) => [s.id, s]))
   const roots = deps.sourceDirs().map((d) => resolve(d))
@@ -566,6 +594,7 @@ export async function deleteSessions(
   const deleted = new Set<string>()
   let cleaned = 0
   let freedBytes = 0
+  const cutoff = staleCutoff(staleDays, Date.now())
 
   for (const raw of ids) {
     const id = String(raw)
@@ -576,6 +605,13 @@ export async function deleteSessions(
     }
     if (busy.has(id)) {
       failed.push({ target: meta.title || id, reason: 'an agent is running in it' })
+      continue
+    }
+    // Only stale sessions are listed. One used since the scan — resumed in a
+    // terminal, sitting at its prompt, so not "busy" — is live work again, and its
+    // transcript is no longer the one the user chose to delete.
+    if (!isStale(meta.updatedAt, cutoff)) {
+      failed.push({ target: meta.title || id, reason: 'it was used again since the scan' })
       continue
     }
     const targets = deleteTargets(meta)
@@ -603,8 +639,8 @@ export async function deleteSessions(
   }
 
   if (deleted.size > 0) {
-    const cutoff = staleCutoff(staleDays, Date.now())
-    for (const w of await judgeWorktrees(deps, await processSnapshot(deps))) {
+    const snapshot = await processSnapshot(deps)
+    for (const w of await judgeWorktrees(deps, snapshot.procs)) {
       if (w.blocks.length > 0 || w.missing) continue
       if (!isStale(w.lastActivity, cutoff)) continue
       const inside = all.filter((s) => s.cwd && isUnder(realish(s.cwd), w.path))
@@ -612,6 +648,10 @@ export async function deleteSessions(
       // and orphans are cleaned from the worktrees list, deliberately by hand
       if (inside.length === 0) continue
       if (!inside.every((s) => deleted.has(s.id))) continue
+      if (!snapshot.complete) {
+        failed.push({ target: w.path, reason: UNCHECKED })
+        continue
+      }
       const bytes = (await measureDir(w.path)) ?? 0
       const removed = await execText(
         'git',
@@ -637,7 +677,7 @@ export async function deleteSessions(
     }
   }
 
-  return { cleaned, freedBytes, failed, branchesDeleted }
+  return { cleaned, freedBytes, failed, branchesDeleted, deletedIds: [...deleted] }
 }
 
 /**
@@ -652,8 +692,9 @@ export async function deleteSessions(
  */
 export async function deleteRoundtables(
   deps: CleanupDeps,
-  ids: readonly string[]
-): Promise<CleanupResult> {
+  ids: readonly string[],
+  staleDays: number
+): Promise<CleanupResult & { readonly deletedIds: readonly string[] }> {
   const byId = new Map(deps.tables().map((t) => [t.id, t]))
   const seats = deps.seatSessions()
   const sourceRoots = deps.sourceDirs().map((d) => resolve(d))
@@ -662,6 +703,8 @@ export async function deleteRoundtables(
   const branchesDeleted: string[] = []
   let cleaned = 0
   let freedBytes = 0
+  const deletedIds: string[] = []
+  const cutoff = staleCutoff(staleDays, Date.now())
 
   for (const raw of ids) {
     const id = String(raw)
@@ -674,6 +717,27 @@ export async function deleteRoundtables(
     if (t.running) {
       failed.push({ target: name, reason: 'a round is running — stop it first' })
       continue
+    }
+    // the same rule the scan listed it by: archived, or idle past the threshold
+    if (!t.archived && !isStale(t.updatedAt, cutoff)) {
+      failed.push({ target: name, reason: 'it was used again since the scan' })
+      continue
+    }
+
+    // A room git will refuse to remove is checked before anything goes: the seat
+    // logs used to be unlinked first, and a dirty room then kept the table, its
+    // record and its worktree — with transcripts its seats can no longer resume.
+    const room = realish(t.cwd)
+    if (t.repoRoot && existsSync(room)) {
+      const status = await git(room, ['status', '--porcelain'])
+      if (status === null || status.trim() !== '') {
+        failed.push({ target: name, reason: 'its worktree has uncommitted changes' })
+        continue
+      }
+      if (await unanchoredCommits(room)) {
+        failed.push({ target: name, reason: 'its worktree’s detached HEAD has commits no branch holds' })
+        continue
+      }
     }
 
     // the seats first: their logs are provider files like any other session's
@@ -702,7 +766,7 @@ export async function deleteRoundtables(
     }
 
     // then the directory the table ran in
-    const dir = realish(t.cwd)
+    const dir = room
     const bytes = (await measureDir(dir)) ?? 0
     if (t.repoRoot) {
       const removed = await execText('git', ['-C', t.repoRoot, 'worktree', 'remove', dir], {
@@ -741,12 +805,19 @@ export async function deleteRoundtables(
       }
     }
 
-    deps.forgetTable(id)
+    try {
+      deps.forgetTable(id)
+    } catch (err) {
+      // a round started since the check above: the table stays, the rest go on
+      failed.push({ target: name, reason: err instanceof Error ? err.message : String(err) })
+      continue
+    }
     cleaned++
+    deletedIds.push(id)
     audit(`removed table ${id} (${name})`)
   }
 
-  return { cleaned, freedBytes, failed, branchesDeleted }
+  return { cleaned, freedBytes, failed, branchesDeleted, deletedIds }
 }
 
 /**
@@ -758,9 +829,8 @@ export async function removeWorktrees(
   deps: CleanupDeps,
   paths: readonly string[]
 ): Promise<CleanupResult> {
-  const judged = new Map(
-    (await judgeWorktrees(deps, await processSnapshot(deps))).map((w) => [w.path, w])
-  )
+  const snapshot = await processSnapshot(deps)
+  const judged = new Map((await judgeWorktrees(deps, snapshot.procs)).map((w) => [w.path, w]))
   const failed: { target: string; reason: string }[] = []
   const branchesDeleted: string[] = []
   const pruned = new Set<string>()
@@ -775,6 +845,10 @@ export async function removeWorktrees(
     }
     if (w.blocks.length > 0) {
       failed.push({ target: path, reason: blockReason(w.blocks) })
+      continue
+    }
+    if (!w.missing && !snapshot.complete) {
+      failed.push({ target: path, reason: UNCHECKED })
       continue
     }
     if (w.missing) {
@@ -819,6 +893,7 @@ function blockReason(blocks: readonly CleanupBlock[]): string {
     busy: 'an agent is running in it',
     process: 'a process is still running in it — stop it first',
     dirty: 'it has uncommitted changes',
+    detached: 'its detached HEAD has commits no branch holds — branch them first',
     locked: 'the worktree is locked'
   }
   return REASONS[blocks[0]] ?? 'it cannot be removed'
@@ -842,7 +917,7 @@ export async function stopProcesses(
   // close to the signal as it can be. Worktree blocks play no part in which
   // processes are left behind, so the walk needs no process list of its own.
   const trees = await judgeWorktrees(deps, [])
-  const procs = await processSnapshot(deps)
+  const { procs } = await processSnapshot(deps)
   const orphans = new Map(
     orphanProcesses(deps, { trees, procs, cutoff: staleCutoff(staleDays, Date.now()) }).map((p) => [
       p.pid,

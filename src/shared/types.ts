@@ -1333,6 +1333,11 @@ export type CleanupBlock =
   | 'roundtable'
   /** A process (a dev server, a watcher, a shell) still runs inside it */
   | 'process'
+  /**
+   * A detached HEAD holding commits no branch, tag or remote has. `git worktree
+   * remove` takes the worktree's reflog with it, and those commits become unreachable
+   */
+  | 'detached'
 
 /**
  * The worktree a session ran in, carried on the session itself: deleting the

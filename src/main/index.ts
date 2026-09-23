@@ -1408,22 +1408,28 @@ app.whenReady().then(() => {
     const wanted = asIdList(ids)
     // the same threshold the scan used, so the cascade can only take worktrees the
     // user was actually shown as going with these sessions
-    const result = await deleteSessions(
+    const { deletedIds, ...result } = await deleteSessions(
       cleanupDeps(),
       wanted,
       loadConfig().staleDays ?? DEFAULT_STALE_DAYS
     )
     // an archived id whose file is gone is dead config — drop it, then re-index so
-    // the tree stops offering sessions that no longer exist
-    indexer.setArchived(setSessionsArchived(wanted, false))
+    // the tree stops offering sessions that no longer exist. Only those: a session
+    // the delete refused (running, outside a source) is still there, still archived.
+    indexer.setArchived(setSessionsArchived(deletedIds, false))
     await indexer.rescan()
     return result
   })
   ipcMain.handle(CH.cleanupDeleteRoundtables, async (_e, ids: string[]) => {
     const wanted = asIdList(ids)
-    const result = await deleteRoundtables(cleanupDeps(), wanted)
-    // the archived flags of tables that no longer exist are dead config
-    for (const id of wanted) setRoundtableArchived(id, false)
+    const { deletedIds, ...result } = await deleteRoundtables(
+      cleanupDeps(),
+      wanted,
+      loadConfig().staleDays ?? DEFAULT_STALE_DAYS
+    )
+    // the archived flags of tables that no longer exist are dead config — and only
+    // theirs: a table the delete refused is still there, still archived
+    for (const id of deletedIds) setRoundtableArchived(id, false)
     roundtables?.setArchived(loadConfig().archivedRoundtables ?? [])
     // seat logs went with them — the tree must stop offering those sessions
     await indexer.rescan()

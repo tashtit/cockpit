@@ -601,6 +601,24 @@ describe('CleanupView — acting', () => {
     await waitFor(() => expect(window.cockpit.deleteRoundtables).toHaveBeenCalledWith(['rt-1']))
   })
 
+  it('forgets a table picked at the old threshold, so it can never ride into a delete unseen', async () => {
+    // picked at 30 days, gone from the list at 365 — a pick left behind was sent with
+    // the next delete of another table, and main deleted both
+    const user = userEvent.setup()
+    mount(report({ tables: [table()] }))
+    await openTab('Roundtables')
+    await user.click(await screen.findByLabelText('Select roundtable adopt biome?'))
+    vi.mocked(window.cockpit.scanCleanup).mockResolvedValue(
+      report({ staleDays: 365, tables: [table({ id: 'rt-2', title: 'older one', updatedAt: NOW - 400 * DAY })] })
+    )
+    await user.click(screen.getByRole('button', { name: /^Idle threshold/ }))
+    await user.click(screen.getByRole('option', { name: 'Idle over a year' }))
+    await user.click(await screen.findByLabelText('Select roundtable older one'))
+    await user.click(screen.getByRole('button', { name: 'Delete 1…' }))
+    await user.click(screen.getByRole('button', { name: 'Delete 1 roundtable?' }))
+    await waitFor(() => expect(window.cockpit.deleteRoundtables).toHaveBeenCalledWith(['rt-2']))
+  })
+
   it('shows a table with nothing to free as —, never 0 B', async () => {
     mount(report({ tables: [table({ bytes: 0 })] }))
     await openTab('Roundtables')

@@ -114,6 +114,7 @@ const BLOCK_LABEL: Record<CleanupBlock, string> = {
   busy: 'an agent is running',
   process: 'a process is running',
   dirty: 'uncommitted changes',
+  detached: 'commits on no branch',
   locked: 'locked'
 }
 
@@ -850,19 +851,25 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   const tableBlocked = useCallback((t: StaleTable) => t.blocks.length > 0, [])
   const tPicks = usePicks(shownTables, tableKey, tableBlocked)
 
+  // Scans overlap — the threshold can change while one runs — and finish in any
+  // order: a report measured at the old threshold landing last would show the wrong
+  // rows and flip the picker back. Only the newest scan's answer is applied.
+  const scanSeq = useRef(0)
   const scan = useCallback(async (): Promise<void> => {
+    const seq = ++scanSeq.current
     setScanning(true)
     setError(null)
     try {
       const r = await api.scanCleanup()
+      if (seq !== scanSeq.current) return
       setReport(r)
       setStaleDays(String(r.staleDays))
       const counts = sectionCounts(r)
       setTab((t) => t ?? CLEANUP_SECTIONS.find((s) => counts[s.id] > 0)?.id ?? 'sessions')
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (seq === scanSeq.current) setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setScanning(false)
+      if (seq === scanSeq.current) setScanning(false)
     }
   }, [])
 
@@ -877,6 +884,9 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
     sPicks.clear()
     wPicks.clear()
     pPicks.clear()
+    // a table picked at the old threshold may not be listed at the new one — a
+    // pick left behind rode along, unseen, into the next delete
+    tPicks.clear()
     await scan()
   }
 
@@ -892,6 +902,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       sPicks.clear()
       wPicks.clear()
       pPicks.clear()
+      tPicks.clear()
       await scan()
       const failed = res.failed.length
       const freed = res.freedBytes > 0 ? ` · ${fmtBytes(res.freedBytes)} freed` : ''
