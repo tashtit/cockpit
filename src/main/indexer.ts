@@ -733,14 +733,23 @@ export class SessionIndexer {
     let meta: SessionMeta | null = null
     try {
       meta = META_PARSERS[source.provider](file, source.label)
+      // inside the try: a throw here escaped as far as the scan, which then failed
+      // the same way on every rescan — and out of a watcher callback, uncaught
+      if (meta) this.annotate(meta)
     } catch (err) {
       console.error(`[indexer] parse failed for ${file}:`, err)
+      meta = null
     }
-    if (meta) this.annotate(meta)
     this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, meta })
     this.cacheDirty = true
     // a fresh parse means the file changed — the only time its tail can say something new
-    if (meta) this.liveness.observe(file, meta, st.mtimeMs)
+    if (meta) {
+      try {
+        this.liveness.observe(file, meta, st.mtimeMs)
+      } catch (err) {
+        console.error(`[indexer] live status failed for ${file}:`, err)
+      }
+    }
     return meta
   }
 

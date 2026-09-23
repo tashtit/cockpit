@@ -81,8 +81,10 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
 
   const scan = (l: any): void => {
     if (sidechain === null && typeof l.isSidechain === 'boolean') sidechain = l.isSidechain
-    if (l.cwd && !cwd) cwd = l.cwd
-    if (l.gitBranch && !logBranch) logBranch = l.gitBranch
+    // strings only: a cwd of another type reached the repo resolver and threw there,
+    // outside the parser's own failure tolerance, on every scan
+    if (typeof l.cwd === 'string' && l.cwd && !cwd) cwd = l.cwd
+    if (typeof l.gitBranch === 'string' && l.gitBranch && !logBranch) logBranch = l.gitBranch
     const ts = toMs(l.timestamp)
     if (ts) {
       if (!firstTs) firstTs = ts
