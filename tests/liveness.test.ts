@@ -478,6 +478,25 @@ describe('LivenessTracker — the tool window', () => {
     })
   }
 
+  it('a re-read of an unchanged log keeps a turn that is deep in a tool call', () => {
+    // the indexer re-reads a log when a file beside it changes (Codex's name index,
+    // whenever another session starts) — past the plain window, that re-read used to
+    // drop the entry, so the turn showed idle and its ending was never announced
+    const events: import('../src/main/liveness').ObservedTurn[] = []
+    let clock = Date.now()
+    const t = tracker(() => {}, { windowMs: 90_000, toolWindowMs: 10 * 60_000, now: () => clock, onTurn: (ev) => events.push(ev) })
+    const file = writeFixture('codex', [...SILENCE.codex.thinking, SILENCE.codex.inTool])
+    const written = clock
+    t.observe(file, meta('codex', 'x1', file, written), written)
+    clock += 5 * 60_000
+    t.observe(file, meta('codex', 'x1', file, written), written)
+    expect(t.sessions().map((s) => s.id)).toEqual(['codex:x1'])
+    // …and when the tool finishes and the turn ends, that is an ending, not a settle
+    appendFileSync(file, jsonl([SILENCE.codex.toolDone, FIXTURES.codex.final]))
+    t.observe(file, meta('codex', 'x1', file, clock), clock)
+    expect(events.map((e) => e.type)).toEqual(['running', 'ended'])
+  })
+
   it('the arrival gate is the plain window: an old tool call is not picked up late', () => {
     const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 60_000 })
     const file = writeFixture('claude', FIXTURES.claude.midTurn)

@@ -188,12 +188,19 @@ export class LivenessTracker {
    */
   observe(file: string, meta: SessionMeta, mtimeMs: number): void {
     const written = Math.min(mtimeMs, meta.updatedAt)
-    if (this.now() - written > this.windowMs) {
+    const prev = this.entries.get(meta.id)
+    // an older page of a Codex thread shares the live page's id: nothing it says is news
+    if (prev && file !== prev.file && written <= prev.lastWriteAt) return
+    // The gate is for arrivals. The indexer also re-reads a log that has not changed,
+    // when a file beside it did (Codex's name index, whenever another session starts;
+    // Copilot's workspace.yaml) — and at the 90s gate that re-read dropped a turn ten
+    // minutes into a tool call: shown idle while it ran, its real ending never
+    // announced. A running entry is kept by the rule the sweep keeps it by.
+    if (this.now() - written > this.windowMs && !(prev && this.holds(prev, this.now()))) {
       this.drop(meta.id)
       return
     }
     const verdict = readTurnState(file, meta.provider)
-    const prev = this.entries.get(meta.id)
     if (verdict === null) {
       // the tail is silent (a run of huge records): a turn that was running still is —
       // its end always writes a small decisive record — and one that wasn't is not invented
@@ -294,13 +301,17 @@ export class LivenessTracker {
     const now = this.now()
     let changed = false
     for (const [id, e] of this.entries) {
-      if (now - e.lastWriteAt <= e.windowMs) continue
-      if (e.provider === 'copilot' && copilotHolderAlive(e.file)) continue
+      if (this.holds(e, now)) continue
       this.entries.delete(id)
       changed = true
     }
     if (this.entries.size === 0) this.stopSweep()
     if (changed) this.emit()
+  }
+
+  /** Inside its window — or a copilot turn whose CLI still holds the session's lock. */
+  private holds(e: LiveEntry, now: number): boolean {
+    return now - e.lastWriteAt <= e.windowMs || (e.provider === 'copilot' && copilotHolderAlive(e.file))
   }
 
   private ensureSweep(): void {

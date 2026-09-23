@@ -240,6 +240,18 @@ describe('judgeCopilotTail', () => {
   it('shutdown ends it', () => {
     expect(judgeCopilotTail([cp('user.message'), cp('assistant.turn_start'), cp('session.shutdown', T2)])).toEqual(IDLE)
   })
+  it('Esc ends it, mid-tool or not — copilot writes `abort` and no turn_end', () => {
+    // the shape real logs have: the tool never completes, a usage checkpoint follows.
+    // Read as mid-tool, the CLI's lock kept it "running" for as long as the CLI sat open
+    const midTool = [cp('user.message', T0), cp('assistant.turn_start', T1), cp('tool.execution_start', T1)]
+    expect(judgeCopilotTail([...midTool, cp('abort', T2), cp('session.usage_checkpoint', T2)])).toEqual(IDLE)
+    expect(judgeCopilotTail([cp('user.message', T0), cp('assistant.turn_start', T1), cp('abort', T2)])).toEqual(IDLE)
+    // and the next prompt is a turn again
+    expect(judgeCopilotTail([...midTool, cp('abort', T2), cp('user.message', T2)])).toEqual({
+      live: true,
+      startedAt: ms(T2)
+    })
+  })
   it('compaction sits inside a turn', () => {
     const recs = [cp('user.message', T0), cp('assistant.turn_start'), cp('session.compaction_start'), cp('session.compaction_complete', T2)]
     expect(judgeCopilotTail(recs)).toEqual({ live: true, startedAt: ms(T0) })
