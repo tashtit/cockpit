@@ -65,7 +65,7 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 7
+const CACHE_VERSION = 8
 /** Yield to the event loop every N files so scans never starve IPC. */
 const YIELD_EVERY = 50
 /** Publish partial results during a cold scan so the tree fills in progressively. */

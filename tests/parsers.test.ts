@@ -176,6 +176,53 @@ beforeAll(() => {
       }
     ])
   )
+  // Guardian auto-reviews: their own thread_source, the parent's session id (so the
+  // parent's thread name), and a subagent `source` — the shape Codex Desktop writes
+  writeFileSync(
+    join(codexDir, 'rollout-2026-08-01-gggg.jsonl'),
+    jsonl([
+      {
+        timestamp: '2026-08-01T11:40:00Z',
+        type: 'session_meta',
+        payload: {
+          session_id: 'ssss-9999',
+          id: 'gggg-7777',
+          parent_thread_id: 'ssss-9999',
+          thread_source: 'guardian_review',
+          source: { subagent: { other: 'guardian' } },
+          cwd: '/Users/titan/dev/other',
+          originator: 'Codex Desktop'
+        }
+      },
+      {
+        timestamp: '2026-08-01T11:40:01Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Review this action' }] }
+      }
+    ])
+  )
+  // a thread_source Codex has not shipped yet, known only by its subagent `source`
+  writeFileSync(
+    join(codexDir, 'rollout-2026-08-01-hhhh.jsonl'),
+    jsonl([
+      {
+        timestamp: '2026-08-01T11:45:00Z',
+        type: 'session_meta',
+        payload: {
+          session_id: 'ssss-9999',
+          id: 'hhhh-8888',
+          thread_source: 'some_future_helper',
+          source: { subagent: 'review' },
+          cwd: '/Users/titan/dev/other'
+        }
+      },
+      {
+        timestamp: '2026-08-01T11:45:01Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'helper prompt' }] }
+      }
+    ])
+  )
   // codex-rs persists a turn twice: as a ResponseItem AND as its event_msg echo
   writeFileSync(
     join(codexDir, 'rollout-2026-08-01-dddd.jsonl'),
@@ -462,6 +509,12 @@ describe('codex parser', () => {
   it('never lists subagent rollouts as sessions', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')
     expect(s.find((x) => x.nativeId === 'ffff-6666')).toBeUndefined()
+  })
+  it('never lists guardian reviews or other thread parts, which borrow the parent thread name', () => {
+    const s = listCodexSessions(join(root, 'codex'), 'codex-test')
+    expect(s.find((x) => x.nativeId === 'gggg-7777')).toBeUndefined()
+    expect(s.find((x) => x.nativeId === 'hhhh-8888')).toBeUndefined()
+    expect(s.filter((x) => x.title === 'Add unit tests properly')).toHaveLength(1)
   })
   it('parses messages and function calls', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')
