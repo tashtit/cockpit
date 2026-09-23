@@ -15,7 +15,7 @@ import type {
   SourceDir
 } from '../shared/types'
 import { claudeIdentity, codexIdentity, copilotUsers, ghUser } from './accounts'
-import { readHead } from './parsers/util'
+import { readHead, sessionLogFiles } from './parsers/util'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals, built
@@ -461,18 +461,19 @@ export async function buildProfile(
   let sinceYield = 0
   for (const s of sessions) {
     attempts.set(s.provider, (attempts.get(s.provider) ?? 0) + 1)
-    const stats = deepForFile(s.sourcePath, s.provider)
+    // a thread kept across several files counts every page of it
+    const pages = sessionLogFiles(s).map((f) => deepForFile(f, s.provider))
     if (++sinceYield >= YIELD_EVERY) {
       sinceYield = 0
       await new Promise<void>((r) => setImmediate(r))
     }
-    if (!stats) {
+    if (pages[pages.length - 1] === null) {
       failures.set(s.provider, (failures.get(s.provider) ?? 0) + 1)
       continue
     }
     let agg = perProviderDeep.get(s.provider)
     if (!agg) perProviderDeep.set(s.provider, (agg = emptyDeep()))
-    mergeDeep(agg, stats)
+    for (const stats of pages) if (stats) mergeDeep(agg, stats)
   }
 
   const providers: ProviderProfile[] = [...perProvider.entries()]

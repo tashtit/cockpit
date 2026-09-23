@@ -31,6 +31,7 @@ import {
   type WorktreeHome
 } from './cleanup-core'
 import { execText } from './env'
+import { sessionLogFiles } from './parsers/util'
 import { isUnder } from './paths'
 
 /**
@@ -136,9 +137,9 @@ function copilotSessionDir(sourcePath: string): string | null {
     : null
 }
 
-/** The path(s) deleting this session would remove. */
-function deleteTarget(sourcePath: string): string {
-  return copilotSessionDir(sourcePath) ?? sourcePath
+/** The paths deleting this session would remove — every page of a thread kept across several files. */
+function deleteTargets(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): string[] {
+  return sessionLogFiles(meta).map((f) => resolve(copilotSessionDir(f) ?? f))
 }
 
 function dirBytes(dir: string): number {
@@ -160,7 +161,11 @@ function dirBytes(dir: string): number {
   return total
 }
 
-function sessionBytes(sourcePath: string): number {
+function sessionBytes(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): number {
+  return sessionLogFiles(meta).reduce((n, f) => n + logBytes(f), 0)
+}
+
+function logBytes(sourcePath: string): number {
   const dir = copilotSessionDir(sourcePath)
   if (dir) return dirBytes(dir)
   try {
@@ -445,7 +450,7 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
       repoName: s.repo?.name ?? null,
       cwd: s.cwd,
       updatedAt: s.updatedAt,
-      bytes: sessionBytes(s.sourcePath),
+      bytes: sessionBytes(s),
       archived: s.archived === true,
       worktree: w
         ? {
@@ -470,7 +475,7 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
   for (const t of listable) {
     const mine = seats.filter((s) => s.roundtableId === t.id)
     const dirBytes = (await measureDir(t.cwd)) ?? null
-    const logBytes = mine.reduce((n, s) => n + sessionBytes(s.sourcePath), 0)
+    const logBytes = mine.reduce((n, s) => n + sessionBytes(s), 0)
     const w = staleTrees.find((tree) => tree.path === realish(t.cwd))
     staleTables.push({
       id: t.id,
@@ -573,19 +578,22 @@ export async function deleteSessions(
       failed.push({ target: meta.title || id, reason: 'an agent is running in it' })
       continue
     }
-    const target = resolve(deleteTarget(meta.sourcePath))
-    if (!roots.some((r) => isUnder(target, r))) {
-      audit(`refused session ${id}: ${target} is outside every configured source`)
+    const targets = deleteTargets(meta)
+    const outside = targets.find((t) => !roots.some((r) => isUnder(t, r)))
+    if (outside) {
+      audit(`refused session ${id}: ${outside} is outside every configured source`)
       failed.push({ target: meta.title || id, reason: 'outside every configured source' })
       continue
     }
-    const bytes = sessionBytes(meta.sourcePath)
+    const bytes = sessionBytes(meta)
     try {
-      rmSync(target, { recursive: true, force: false })
+      // earlier pages first: a failure part-way leaves the session listed on its
+      // newest file, never an old page left behind to pose as the whole thread
+      for (const target of targets) rmSync(target, { recursive: true, force: false })
       cleaned++
       deleted.add(id)
       freedBytes += bytes
-      audit(`removed session ${id}: ${target} (${bytes} bytes)`)
+      audit(`removed session ${id}: ${targets.join(', ')} (${bytes} bytes)`)
     } catch (err) {
       failed.push({
         target: meta.title || id,
@@ -671,17 +679,18 @@ export async function deleteRoundtables(
     // the seats first: their logs are provider files like any other session's
     let seatTrouble: string | null = null
     for (const s of seats.filter((s) => s.roundtableId === id)) {
-      const target = resolve(deleteTarget(s.sourcePath))
-      if (!sourceRoots.some((r) => isUnder(target, r))) {
-        audit(`refused seat ${s.id} of table ${id}: ${target} is outside every configured source`)
+      const targets = deleteTargets(s)
+      const outside = targets.find((t) => !sourceRoots.some((r) => isUnder(t, r)))
+      if (outside) {
+        audit(`refused seat ${s.id} of table ${id}: ${outside} is outside every configured source`)
         seatTrouble = 'a seat session sits outside every configured source'
         break
       }
-      const bytes = sessionBytes(s.sourcePath)
+      const bytes = sessionBytes(s)
       try {
-        rmSync(target, { recursive: true, force: false })
+        for (const target of targets) rmSync(target, { recursive: true, force: false })
         freedBytes += bytes
-        audit(`removed seat ${s.id} of table ${id}: ${target} (${bytes} bytes)`)
+        audit(`removed seat ${s.id} of table ${id}: ${targets.join(', ')} (${bytes} bytes)`)
       } catch (err) {
         seatTrouble = err instanceof Error ? err.message : String(err)
         break

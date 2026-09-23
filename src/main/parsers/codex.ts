@@ -1,6 +1,6 @@
 import { basename, dirname, join } from 'node:path'
 import { statSync } from 'node:fs'
-import type { SessionMeta, SessionMessage } from '../../shared/types'
+import type { SessionMeta, SessionMessage, SessionSegment } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
 import {
   capText,
@@ -10,6 +10,7 @@ import {
   readHead,
   readJsonl,
   readJsonlTail,
+  TRANSCRIPT_TAIL_BYTES,
   toMs,
   toolPreview,
   truncate,
@@ -134,6 +135,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
   let firstTs: number | null = null
   let lastTs: number | null = null
   let messageCount = 0
+  let historyBase: SessionMeta['historyBase']
   const countEchoes = usesEventEchoes(lines)
 
   for (const l of lines) {
@@ -155,6 +157,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       // often absent — plenty of rollouts carry no `git` block at all, or one with
       // only a commit hash. The indexer reads the checkout itself when it's missing.
       if (p.git?.branch) logBranch = p.git.branch
+      if (!historyBase && threadId) historyBase = continuesThread(p.history_base, threadId)
     }
     const isMessage =
       isItemMessage(l) ||
@@ -192,16 +195,56 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
     startedAt: firstTs ?? ft.start,
     updatedAt: head.truncated ? ft.end : (lastTs ?? ft.end),
     messageCount,
-    sourcePath: file
+    sourcePath: file,
+    ...(historyBase ? { historyBase } : {})
   }
 }
 
-export function parseCodexMessages(file: string): SessionMessage[] {
-  const { lines, truncated } = readJsonlTail(file)
-  const out: SessionMessage[] = []
-  if (truncated) {
-    out.push({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
+/**
+ * A paginated thread's next rollout names the one before it: its history is that
+ * file up to `end_byte_offset`, then its own lines. Only a base in the *same* thread
+ * is a continuation — a fork carries one too, naming the thread it forked from, and
+ * a fork is a thread of its own.
+ */
+function continuesThread(base: any, threadId: string): SessionMeta['historyBase'] {
+  if (!base || typeof base !== 'object' || String(base.thread_id ?? '') !== threadId) return undefined
+  const endByte = base.end_byte_offset
+  return Number.isSafeInteger(endByte) && endByte > 0 ? { endByte } : undefined
+}
+
+/**
+ * A thread's transcript: its newest rollout's tail, and — while the tail budget
+ * lasts — the earlier segments it continues (`SessionMeta.segments`), each read
+ * only up to where the thread's history in it ends.
+ */
+export function parseCodexMessages(file: string, segments: readonly SessionSegment[] = []): SessionMessage[] {
+  const parts: SessionMessage[][] = []
+  let budget = TRANSCRIPT_TAIL_BYTES
+  let truncated = false
+  const reads = [{ path: file, endByte: undefined as number | undefined }, ...[...segments].reverse()]
+  for (const r of reads) {
+    if (budget <= 0) {
+      truncated = true
+      break
+    }
+    const tail = readJsonlTail(r.path, { maxBytes: budget, end: r.endByte })
+    parts.unshift(renderLines(tail.lines))
+    budget -= tail.bytes
+    if (tail.truncated) {
+      truncated = true
+      break
+    }
   }
+  const out = parts.flat()
+  if (truncated) {
+    out.unshift({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
+  }
+  return out
+}
+
+/** One rollout's lines as messages — echoes are judged per file, as they are written. */
+function renderLines(lines: readonly any[]): SessionMessage[] {
+  const out: SessionMessage[] = []
   const renderEchoes = usesEventEchoes(lines)
   for (const l of lines) {
     const ts = toMs(l.timestamp) ?? undefined

@@ -3,9 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { listClaudeSessions, parseClaudeMessages } from '../src/main/parsers/claude'
-import { listCodexSessions, parseCodexMessages } from '../src/main/parsers/codex'
+import { listCodexSessions, parseCodexMessages, parseCodexMeta } from '../src/main/parsers/codex'
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
 import { toolPreview } from '../src/main/parsers/util'
+import { writePagedThread } from './codex-paged-thread'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-test-fixtures-'))
 
@@ -515,6 +516,47 @@ describe('codex parser', () => {
     expect(s.find((x) => x.nativeId === 'gggg-7777')).toBeUndefined()
     expect(s.find((x) => x.nativeId === 'hhhh-8888')).toBeUndefined()
     expect(s.filter((x) => x.title === 'Add unit tests properly')).toHaveLength(1)
+  })
+  it('reads where a paginated thread continues from, and nothing from a fork', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cockpit-codex-paged-'))
+    try {
+      const t = writePagedThread(dir, '/Users/titan/dev/other')
+      expect(parseCodexMeta(t.page1, 'x')?.historyBase).toBeUndefined()
+      expect(parseCodexMeta(t.page2, 'x')).toMatchObject({ id: `codex:${t.threadId}`, historyBase: { endByte: t.endByte } })
+      // a fork's history_base names the thread it forked from: its own thread, not a page
+      const fork = join(dir, 'sessions', '2026', '09', '02', 'rollout-fork.jsonl')
+      writeFileSync(
+        fork,
+        jsonl([
+          {
+            timestamp: '2026-09-02T12:00:00Z',
+            type: 'session_meta',
+            payload: {
+              id: 'fork-1',
+              session_id: 'fork-1',
+              forked_from_id: t.threadId,
+              history_base: { thread_id: t.threadId, end_byte_offset: t.endByte }
+            }
+          },
+          { timestamp: '2026-09-02T12:00:01Z', type: 'event_msg', payload: { type: 'user_message', message: 'fork' } }
+        ])
+      )
+      expect(parseCodexMeta(fork, 'x')?.historyBase).toBeUndefined()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+  it('renders a paginated thread across its pages, without the turn it abandoned', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cockpit-codex-paged-'))
+    try {
+      const t = writePagedThread(dir, '/Users/titan/dev/other')
+      const texts = parseCodexMessages(t.page2, [{ path: t.page1, endByte: t.endByte }]).map((m) => m.text)
+      expect(texts).toEqual(['first question about pagination', 'first answer', 'second question', 'second answer'])
+      // alone, the newest page is only its own turns
+      expect(parseCodexMessages(t.page2).map((m) => m.text)).toEqual(['second question', 'second answer'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
   it('parses messages and function calls', () => {
     const s = listCodexSessions(join(root, 'codex'), 'codex-test')

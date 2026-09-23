@@ -1,5 +1,6 @@
 import { readFileSync, statSync, readdirSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
+import type { SessionMeta } from '../../shared/types'
 
 /**
  * Read at most maxBytes from the start of a file. Session logs put their metadata
@@ -43,26 +44,37 @@ export function parseJsonlText(text: string, dropLast: boolean): any[] {
   return out
 }
 
-/** Read at most maxBytes from the END of a file (for transcript tails). */
+/**
+ * Read at most maxBytes from the END of a file (for transcript tails) — or from the
+ * end of its first `end` bytes, for a file whose meaningful content stops there.
+ */
 export function readTail(
   file: string,
-  maxBytes: number
+  maxBytes: number,
+  end?: number
 ): { text: string; truncated: boolean; size: number } {
   let fd: number | null = null
   try {
-    const size = statSync(file).size
-    if (size <= maxBytes) {
+    const size = Math.min(statSync(file).size, end ?? Infinity)
+    if (size === 0) return { text: '', truncated: false, size }
+    if (size <= maxBytes && end === undefined) {
       return { text: readFileSync(file, 'utf8'), truncated: false, size }
     }
+    const want = Math.min(size, maxBytes)
     fd = openSync(file, 'r')
-    const buf = Buffer.alloc(maxBytes)
-    const n = readSync(fd, buf, 0, maxBytes, size - maxBytes)
-    return { text: buf.toString('utf8', 0, n), truncated: true, size }
+    const buf = Buffer.alloc(want)
+    const n = readSync(fd, buf, 0, want, size - want)
+    return { text: buf.toString('utf8', 0, n), truncated: size > maxBytes, size }
   } catch {
     return { text: '', truncated: false, size: 0 }
   } finally {
     if (fd !== null) closeSync(fd)
   }
+}
+
+/** Every file a session's log spans, oldest first: a thread's earlier pages, then `sourcePath`. */
+export function sessionLogFiles(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): string[] {
+  return [...(meta.segments ?? []).map((s) => s.path), meta.sourcePath]
 }
 
 /**
@@ -72,15 +84,24 @@ export function readTail(
  */
 export const TRANSCRIPT_TAIL_BYTES = 4 * 1024 * 1024
 
-export function readJsonlTail(file: string): { lines: any[]; truncated: boolean } {
-  const tail = readTail(file, TRANSCRIPT_TAIL_BYTES)
-  if (!tail.text) return { lines: [], truncated: false }
+/** `bytes` is how much of the budget the read spent — what a multi-file read has left. */
+export function readJsonlTail(
+  file: string,
+  opts: { readonly maxBytes?: number; readonly end?: number } = {}
+): { lines: any[]; truncated: boolean; bytes: number } {
+  const maxBytes = opts.maxBytes ?? TRANSCRIPT_TAIL_BYTES
+  const tail = readTail(file, maxBytes, opts.end)
+  if (!tail.text) return { lines: [], truncated: false, bytes: 0 }
   let text = tail.text
   if (tail.truncated) {
     const nl = text.indexOf('\n')
     text = nl >= 0 ? text.slice(nl + 1) : ''
   }
-  return { lines: parseJsonlText(text, false), truncated: tail.truncated }
+  return {
+    lines: parseJsonlText(text, false),
+    truncated: tail.truncated,
+    bytes: Math.min(tail.size, maxBytes)
+  }
 }
 
 /**
