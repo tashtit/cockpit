@@ -107,8 +107,22 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     `request_user_input`), never from the raw JSON in the renderer.
 - Tool/system glyphs are text-presentation unicode (`⚙︎` with U+FE0E, `↳`) — if these
   ever grow, switch to SVGs from `logos.tsx`; never bare emoji-presentation glyphs.
-- **DOM bound:** only the last `RENDER_LAST` (400) messages render, with an explicit
-  `(showing the last N of M messages)` sys-row. Keep both when touching this.
+- **DOM bound, with a way up:** only the last `RENDER_LAST` (400) messages render, and
+  the sys-row that says so (`EarlierRow`, `transcript-window.tsx`: "showing the last
+  400 of 1,200 messages · show 400 earlier") is the control that shows the next batch.
+  Rows prepend above the viewport, so `useTranscriptWindow` re-adds the height that
+  landed above the reader in a layout effect and `.messages` carries
+  `overflow-anchor: none` — one adjustment, not the browser's and ours. The window
+  resets when the conversation changes. Keep all of it when touching this.
+- **A transcript-search hit opens at its message.** The palette hands the hit over as
+  the chat's `anchor` (`TranscriptAnchor`, `chat-binding.ts`); once the log is in,
+  `findAnchor` (`transcript-anchor.ts`) names the row by its words, speaker and time —
+  never by index, since the searcher and the parser count messages differently — the
+  window is raised to hold it with `ANCHOR_CONTEXT` rows above, it scrolls to the
+  middle (`data-log-key` on every row is what finds it), wears `.anchored` — an accent
+  halo, `ANCHOR_RING_MS` — and the `role=status` region says so. Applied once per
+  anchor: the log keeps growing under a live session and must not re-scroll. Words the
+  log no longer says open at the bottom as before.
 - Consecutive duplicate system notices are filtered — providers repeat them.
 - `Message` is memoized; keys are absolute log offsets (`log.length - visible.length + i`),
   stable because the log is append-only. Don't "fix" this to item ids or bare indexes.
@@ -117,6 +131,20 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   elsewhere…", `title` explaining why — and the transcript re-reads from disk as the index
   sees each write (App's `diskLogRef`), so the log grows under the reader as a turn of
   Cockpit's own would. Cockpit's own turn outranks it: one line, never two.
+- **A way down for a reader who scrolled up:** the auto-scroll never hijacks a
+  scroll-up, so rows arriving below are news — `useUnseenBelow` marks them the moment
+  the log grows while the scroller is off the bottom, and `JumpToLatest` (`.jump-latest`,
+  the transcript's last child: a sticky zero-height line whose `.btn-ghost.small` "New
+  messages" key hangs above the bottom edge without moving a row) takes them there.
+  Reaching the bottom by hand clears it. Hidden it is `visibility: hidden` and out of
+  the tab order; the status region already announced the turn, so the key is the way
+  there, not the announcement. Shared with the roundtable — never rebuild it per view.
+- **The pin is per conversation, never per binding object.** App re-makes the binding
+  mid-turn (the native id from the CLI's first event, a parent chip arriving), and a
+  reset keyed on the object re-pinned the transcript to the bottom — so a reader who had
+  scrolled up was yanked back on the next row, exactly the hijack the rule forbids.
+  `atBottomRef` and the DOM window reset on `conversation` (provider · cwd · native id)
+  instead; the probe in the tour's `chat-new-below` shot is what caught it.
 - Auto-scroll pins to bottom on new messages/busy; busy shows `.pulse` +
   "<Agent> is working…" — the `.thinking` line renders in the placard register
   (mono uppercase annunciator; the transform is CSS, the DOM text stays sentence

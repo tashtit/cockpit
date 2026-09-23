@@ -81,9 +81,10 @@ Two lines in one `.palette-opt`: the session it came from in the session-row gra
 time in `.palette-meta`), then `.palette-snippet` — the message windowed around its first
 match, `--fs-sm`, clamped to two lines, led by a mono `.palette-role` micro-label (`you` /
 `agent` / `tool`) and with the match in a `<mark>` re-voiced as an accent wash under
-`--fg` (the UA's yellow-on-black never shows). Picking a hit opens its session; the
-transcript view has no per-message anchor yet, so it opens at the bottom like any
-session. Row `aria-label` = `<Agent> session: <title> — <role>: <snippet>`.
+`--fg` (the UA's yellow-on-black never shows). Picking a hit opens its session **at
+that message**: the hit itself rides `onOpenSession` as the chat's `anchor`, and the
+chat finds the row by its words (see `pages/chat.md`), rings it and says so. Row
+`aria-label` = `<Agent> session: <title> — <role>: <snippet>`.
 
 ## Keyboard & ARIA
 

@@ -1,20 +1,27 @@
-import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import { api } from './api'
 import { AskPicker } from './AskPicker'
-import type { ChatBinding, PendingPermission } from './chat-binding'
+import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
-import { useChatLog, useChatStatus } from './chat-log'
+import { announceChat, useChatLog, useChatStatus } from './chat-log'
 import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
 import { cwdLabel } from '../../shared/library'
 import { BranchChip, CockpitLogo, DiffIcon, HandoffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
+import { findAnchor } from './transcript-anchor'
+import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
 
-/** Big transcripts are already tail-capped in main; this bounds the DOM too. */
+/** Big transcripts are already tail-capped in main; this bounds the DOM too — the
+ *  newest rows first, and "show earlier" brings the next batch of this size. */
 const RENDER_LAST = 400
+/** Rows kept above a message a search landed on, so it reads in its context */
+const ANCHOR_CONTEXT = 8
+/** How long the ring stays on a message a search landed on */
+const ANCHOR_RING_MS = 3_000
 
 export function ChatView({
   binding,
@@ -29,7 +36,8 @@ export function ChatView({
   onOpenHandoff,
   onOpenLineage,
   permissions,
-  onAnswerPermission
+  onAnswerPermission,
+  anchor = null
 }: {
   binding: ChatBinding | null
   prs: PrStatus[]
@@ -47,6 +55,8 @@ export function ChatView({
   onOpenLineage: (sourceId: string) => void
   permissions: readonly PendingPermission[]
   onAnswerPermission: (ask: PendingPermission, optionId: string) => void
+  /** The message to open on, from a transcript-search hit; null opens at the bottom */
+  anchor?: TranscriptAnchor | null
 }): JSX.Element {
   // the transcript is the app's hottest state and this is its only reader —
   // subscribing here keeps a streaming turn out of every other view (chat-log.ts)
@@ -64,10 +74,55 @@ export function ChatView({
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
   const atBottomRef = useRef(true)
+  /** What a reader is looking at, stable across the binding objects App makes for it */
+  const conversation = binding ? `${binding.provider}|${binding.cwd}|${binding.nativeSessionId ?? ''}` : null
+  // the DOM window over the log, and the way down for a reader who scrolled up. The
+  // window resets per conversation, not per binding object: App re-makes the binding
+  // when a parent chip or a native id arrives, and that must not shrink the window an
+  // anchor just raised
+  const { limit, showEarlier, raise } = useTranscriptWindow(scrollRef, RENDER_LAST, conversation)
+  const below = useUnseenBelow(scrollRef, atBottomRef, log)
 
   useEffect(() => {
     if (atBottomRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [log, busy, elsewhere])
+
+  // a transcript-search hit: find the message it meant once the log is in, bring it
+  // into the DOM window, scroll it to the middle and ring it for a moment. Applied once
+  // per anchor — the log keeps growing under a live session and must not re-scroll.
+  const [anchoredKey, setAnchoredKey] = useState<number | null>(null)
+  const appliedAnchor = useRef<TranscriptAnchor | null>(null)
+  const scrolledKey = useRef<number | null>(null)
+  useEffect(() => {
+    // a new anchor, or none (every open sets one): the old ring and scroll are forgotten
+    // first, so the apply below — same commit, declared after — is what a new one gets
+    setAnchoredKey(null)
+    scrolledKey.current = null
+    appliedAnchor.current = null
+  }, [anchor])
+  useEffect(() => {
+    // the log lands after the binding and the anchor do, so this waits for it
+    if (!anchor || anchor === appliedAnchor.current || log.length === 0) return
+    appliedAnchor.current = anchor
+    const idx = findAnchor(log, anchor)
+    if (idx < 0) return
+    raise(log.length - idx + ANCHOR_CONTEXT)
+    setAnchoredKey(idx)
+  }, [anchor, log, raise])
+  useLayoutEffect(() => {
+    if (anchoredKey === null || scrolledKey.current === anchoredKey) return
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-log-key="${anchoredKey}"]`)
+    if (!el) return
+    scrolledKey.current = anchoredKey
+    atBottomRef.current = false
+    el.scrollIntoView({ block: 'center' })
+    announceChat('Showing the message that matched your search')
+  }, [anchoredKey, limit])
+  useEffect(() => {
+    if (anchoredKey === null) return
+    const t = setTimeout(() => setAnchoredKey(null), ANCHOR_RING_MS)
+    return () => clearTimeout(t)
+  }, [anchoredKey])
 
   useEffect(() => {
     if (!cwdCopied) return
@@ -80,10 +135,13 @@ export function ChatView({
     if (binding) composerRef.current?.focus()
   }, [binding?.cwd, binding?.nativeSessionId === null])
 
-  // a freshly opened session always starts pinned to the bottom
+  // a freshly opened session always starts pinned to the bottom — per conversation,
+  // not per binding object: App re-makes the binding mid-turn (the native id from the
+  // CLI's first event, a parent chip), and re-pinning then yanked a reader who had
+  // scrolled up back to the bottom on the next row
   useEffect(() => {
     atBottomRef.current = true
-  }, [binding])
+  }, [conversation])
 
   // attachments belong to the conversation they were pasted into — drop them on switch
   useEffect(() => {
@@ -137,7 +195,7 @@ export function ChatView({
   }, [binding?.repoRoot])
   const onDefaultBranch = !!binding?.branch && binding.branch === defaultBranch
 
-  const sliced = log.length > RENDER_LAST ? log.slice(-RENDER_LAST) : log
+  const sliced = log.length > limit ? log.slice(-limit) : log
   const base = log.length - sliced.length
   // providers repeat identical system notices; consecutive duplicates add nothing.
   // each row keeps its absolute log offset as the key — stable because the log is
@@ -344,9 +402,12 @@ export function ChatView({
           onScroll={(e) => {
             const el = e.currentTarget
             atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+            if (atBottomRef.current) below.settle()
           }}
         >
-          {hidden > 0 && <div className="sys-row">(showing the last {RENDER_LAST} of {log.length} messages)</div>}
+          {hidden > 0 && (
+            <EarlierRow shown={sliced.length} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
+          )}
           {blocks.map((b) =>
             b.kind === 'run' ? (
               <ToolRun key={b.rows[0].key} rows={b.rows} provider={binding.provider} cwd={binding.cwd} />
@@ -367,6 +428,8 @@ export function ChatView({
                 provider={binding.provider}
                 result={b.row.result}
                 cwd={binding.cwd}
+                logKey={b.row.key}
+                anchored={b.row.key === anchoredKey}
               />
             )
           )}
@@ -385,6 +448,7 @@ export function ChatView({
           {log.length === 0 && !sendBlocked && (
             <div className="empty-chat small">Send a prompt to start this session.</div>
           )}
+          <JumpToLatest on={below.unseen} onJump={below.jump} />
         </div>
       )}
       <div className="sr-only" role="status" aria-live="polite">
@@ -551,7 +615,9 @@ export const Message = memo(function Message({
   m,
   provider,
   result,
-  cwd
+  cwd,
+  logKey,
+  anchored = false
 }: {
   m: SessionMessage
   provider: Provider
@@ -559,12 +625,17 @@ export const Message = memo(function Message({
   result?: SessionMessage
   /** The session's directory — paths under it render relative */
   cwd?: string
+  /** The row's absolute log offset, on the element so a search anchor can find it */
+  logKey?: number
+  /** The message a transcript search landed on — rings for a moment */
+  anchored?: boolean
 }): JSX.Element {
+  const ring = anchored ? ' anchored' : ''
   if (m.kind === 'tool_call' || m.kind === 'tool_result') {
     const call = m.kind === 'tool_call'
     const peek = result ? firstLine(result.text) : ''
     return (
-      <details className="tool-row">
+      <details className={`tool-row${ring}`} data-log-key={logKey}>
         <summary>
           <span className="tool-chip">
             {/* ︎ forces text presentation — the bare gear renders as color emoji on some
@@ -593,11 +664,15 @@ export const Message = memo(function Message({
     )
   }
   if (m.kind === 'system') {
-    return <div className="sys-row">{m.text}</div>
+    return (
+      <div className={`sys-row${ring}`} data-log-key={logKey}>
+        {m.text}
+      </div>
+    )
   }
   if (m.role === 'user') {
     return (
-      <div className="msg msg-user">
+      <div className={`msg msg-user${ring}`} data-log-key={logKey}>
         <div className="bubble bubble-user">
           <pre>{m.text}</pre>
         </div>
@@ -605,7 +680,10 @@ export const Message = memo(function Message({
     )
   }
   return (
-    <div className={`msg msg-assistant ${m.streaming ? 'streaming' : ''} ${m.kind === 'reasoning' ? 'reasoning' : ''}`}>
+    <div
+      className={`msg msg-assistant ${m.streaming ? 'streaming' : ''} ${m.kind === 'reasoning' ? 'reasoning' : ''}${ring}`}
+      data-log-key={logKey}
+    >
       <span className={`avatar plogo-${provider}`} aria-hidden="true">
         <ProviderLogo p={provider} size={14} />
       </span>

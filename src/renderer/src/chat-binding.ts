@@ -1,4 +1,4 @@
-import type { AcpPermissionOption, AgentOptions, Provider } from '../../shared/types'
+import type { AcpPermissionOption, AgentOptions, Provider, TranscriptHit } from '../../shared/types'
 
 /**
  * What a chat view is bound to — which agent, in which directory, as whom — and what
@@ -27,6 +27,14 @@ export type PendingPermission = {
   readonly detail: string
   readonly options: readonly AcpPermissionOption[]
 }
+
+/**
+ * Where a chat opens when it is reached from a transcript-search hit: the message the
+ * palette showed, named by what it said, who said it and when (`findAnchor` in
+ * transcript-anchor.ts turns it into a row). A `TranscriptHit` is one, so the palette
+ * hands its hit straight over.
+ */
+export type TranscriptAnchor = Pick<TranscriptHit, 'role' | 'snippet' | 'timestamp'>
 
 export type ChatBinding = {
   readonly provider: Provider

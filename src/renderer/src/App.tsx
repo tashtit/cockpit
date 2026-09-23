@@ -43,7 +43,7 @@ import {
 import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
 import type { StartSessionRequest } from './NewSession'
-import type { ChatBinding, PendingPermission } from './chat-binding'
+import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
 
 /** `--rail` on the grid: the width the rail was dragged to, in CSS pixels. */
@@ -120,6 +120,8 @@ export function App(): JSX.Element {
   const [prs, setPrs] = useState<PrStatus[]>([])
   const [binding, setBinding] = useState<ChatBinding | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  /** Where the open chat should land: the message a transcript-search hit named */
+  const [anchor, setAnchor] = useState<TranscriptAnchor | null>(null)
   const [activeTurn, setActiveTurn] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [creatingPr, setCreatingPr] = useState(false)
@@ -393,12 +395,13 @@ export function App(): JSX.Element {
   )
 
   const openSession = useCallback(
-    async (s: SessionMeta) => {
+    async (s: SessionMeta, opts: { readonly anchor?: TranscriptAnchor } = {}) => {
       const seq = ++openSeqRef.current
       setChatLog([])
       diskLogRef.current = null
       setActiveTurn(null)
       setSelectedSessionId(s.id)
+      setAnchor(opts.anchor ?? null)
       // restore the account this session's source dir belongs to — otherwise a
       // reopened session would silently continue on the default account.
       // (SessionMeta.source is the source LABEL; copilot's historical user is
@@ -456,6 +459,7 @@ export function App(): JSX.Element {
         diskLogRef.current = null
         setActiveTurn(null)
         setSelectedSessionId(entry.sessionId)
+        setAnchor(null)
         setBinding(entry.binding)
         if (entry.sessionId) {
           void api
@@ -926,13 +930,14 @@ export function App(): JSX.Element {
           onOpenLineage={(id) => void openLineage(id)}
           permissions={permissions}
           onAnswerPermission={answerPermission}
+          anchor={anchor}
         />
       )}
       {paletteOpen && (
         <CommandPalette
           repos={visibleRepos}
           scopeRepo={scopeRepo}
-          onOpenSession={(s) => void openSession(s)}
+          onOpenSession={(s, at) => void openSession(s, at ? { anchor: at } : {})}
           onNewSession={(repo) => setView({ kind: 'new', repo })}
           onGoto={(v: PaletteViewKey) =>
             setView(v === 'extensions' ? { kind: v, repoRoot: null } : { kind: v })

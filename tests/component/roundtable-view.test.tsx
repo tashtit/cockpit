@@ -449,3 +449,21 @@ describe('RoundtableView while a round runs', () => {
     )
   })
 })
+
+describe('RoundtableView transcript window', () => {
+  it('renders the newest entries and shows the next batch on request', async () => {
+    const entries = Array.from({ length: 250 }, (_, i) => ({
+      speaker: (i % 2 === 0 ? 'user' : 'claude') as 'user' | 'claude',
+      seat: i % 2 === 0 ? undefined : 0,
+      text: `entry ${i}`,
+      at: i + 1
+    }))
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(fixture({ entries }))
+    render(<RoundtableView id="rt-1" />)
+    expect(await screen.findByText(/showing the last 200 of 250 messages/)).toBeInTheDocument()
+    expect(screen.queryByText('entry 49')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'show 50 earlier' }))
+    expect(screen.getByText('entry 0')).toBeInTheDocument()
+    expect(screen.queryByText(/showing the last/)).not.toBeInTheDocument()
+  })
+})

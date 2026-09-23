@@ -909,10 +909,32 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
      user's preferred width — user bubbles stay right, but near the replies */
   padding-inline: max(var(--s6), calc((100% - var(--chat-col)) / 2));
   /* the transcript must not shift sideways the moment it grows enough to scroll */
-  scrollbar-gutter: stable; }
+  scrollbar-gutter: stable;
+  /* "show earlier" prepends rows and keeps the offset itself (useTranscriptWindow);
+     the browser's own anchoring would add the same height a second time */
+  overflow-anchor: none; }
 /* rows must never shrink to fit the viewport — overflow scrolls instead; without this,
    tool-rows (overflow:hidden → tiny min-content) compress to slivers in long transcripts */
 .messages > * { flex-shrink: 0; }
+/* "New messages" for a reader who scrolled up while the agent wrote: the transcript's
+   last child is a sticky, zero-height line (the negative margin cancels the gap it
+   would add), and the key hangs above it — absolute, so it takes no room, and centred
+   without a transform. Hidden it is visibility: hidden, out of the tab order and the
+   accessibility tree; the opacity fades and visibility waits for it. */
+.jump-latest { position: sticky; bottom: var(--s3); height: 0; margin-top: calc(-1 * var(--s4));
+  z-index: 1; visibility: hidden; opacity: 0;
+  transition: opacity var(--dur) var(--ease), visibility 0s var(--dur); }
+.jump-latest.on { visibility: visible; opacity: 1; transition: opacity var(--dur) var(--ease); }
+.jump-latest .btn-ghost { position: absolute; bottom: 0; left: 0; right: 0; width: max-content;
+  margin: 0 auto; display: inline-flex; align-items: center; gap: var(--s1);
+  color: var(--fg); background: var(--bg2); border-color: var(--border-strong);
+  box-shadow: var(--shadow-pop); }
+/* the message a transcript search landed on: an accent halo for a few seconds, so the
+   eye finds it in a long transcript; the sr-only status says so for everyone else */
+.bubble-user, .assistant-body, .sys-row, .tool-row {
+  transition: box-shadow var(--dur) var(--ease); }
+.msg.anchored .bubble-user, .msg.anchored .assistant-body, .sys-row.anchored, .tool-row.anchored {
+  box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0.28); border-radius: var(--radius); }
 
 .msg { display: flex; gap: var(--s3); max-width: 100%; }
 .msg-user { justify-content: flex-end; }
