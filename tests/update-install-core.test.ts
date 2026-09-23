@@ -148,10 +148,20 @@ describe('swapScript', () => {
   it('waits for the app, clears quarantine and keeps a way back', () => {
     const sh = swapScript(plan)
     expect(sh).toMatch(/kill -0 "\$PID"/)
-    expect(sh).toMatch(/xattr -dr com\.apple\.quarantine "\$TARGET"/)
-    // the old bundle is renamed aside, not deleted, until the copy has landed
-    expect(sh.indexOf('mv "$TARGET" "$BACKUP"')).toBeLessThan(sh.indexOf('ditto "$NEW" "$TARGET"'))
+    expect(sh).toMatch(/xattr -dr com\.apple\.quarantine "\$NEXT"/)
+    // the new bundle is copied in beside the old one, which is only moved aside once
+    // the copy is whole — an interrupted copy leaves the app you had where it was
+    expect(sh.indexOf('ditto "$NEW" "$NEXT"')).toBeLessThan(sh.indexOf('mv "$TARGET" "$BACKUP"'))
+    expect(sh).not.toContain('ditto "$NEW" "$TARGET"')
     expect(sh).toMatch(/mv "\$BACKUP" "\$TARGET"/)
+  })
+
+  it('ignores a logout’s SIGTERM only across the two renames', () => {
+    const sh = swapScript(plan)
+    const ignore = sh.indexOf("trap '' TERM HUP INT")
+    expect(ignore).toBeGreaterThan(sh.indexOf('ditto "$NEW" "$NEXT"'))
+    expect(ignore).toBeLessThan(sh.indexOf('mv "$TARGET" "$BACKUP"'))
+    expect(sh.indexOf('trap - TERM HUP INT')).toBeGreaterThan(sh.indexOf('mv "$NEXT" "$TARGET"'))
   })
 
   it('quotes every path it was given', () => {

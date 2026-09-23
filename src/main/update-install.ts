@@ -234,6 +234,9 @@ export function armSwap(staged: Staged, target: string, relaunch: boolean): numb
   )
   chmodSync(script, 0o755)
   const child = spawn('/bin/sh', [script], { detached: true, stdio: 'ignore' })
+  // a spawn that fails reports through 'error' — unheard, that is main's error
+  // dialog in the middle of quitting; a missing pid (0) already says it didn't run
+  child.on('error', (err) => console.error('[updates] could not start the install script:', err))
   child.unref()
   return child.pid ?? 0
 }

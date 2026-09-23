@@ -238,6 +238,7 @@ describe.skipIf(!onMac)('the swap script', () => {
     expect(readFileSync(result, 'utf8').trim()).toBe('ok')
     // nothing left behind: neither the way back nor the download
     expect(existsSync(`${target}.cockpit-previous`)).toBe(false)
+    expect(existsSync(`${target}.cockpit-next`)).toBe(false)
     expect(existsSync(join(world, 'stage'))).toBe(false)
     const attrs = await execText('/usr/bin/xattr', [target])
     expect(attrs.stdout).not.toContain('com.apple.quarantine')
@@ -264,7 +265,10 @@ describe.skipIf(!onMac)('the swap script', () => {
 
     // the app still runs, and the next launch is told why it is still the old one
     expect((await bundleFacts(target)).version).toBe('0.11.0')
-    expect(readFileSync(result, 'utf8')).toMatch(/back in place/)
+    expect(readFileSync(result, 'utf8')).toMatch(/still in place/)
+    // and nothing is left beside it: no half copy, no second bundle
+    expect(existsSync(`${target}.cockpit-next`)).toBe(false)
+    expect(existsSync(`${target}.cockpit-previous`)).toBe(false)
   })
 })
 
