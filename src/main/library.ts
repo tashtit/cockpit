@@ -493,9 +493,14 @@ export async function setPanelSwitch(
   assertTarget(target)
   const { entries, inv } = ensureScope(target.repoRoot)
   const entry = findEntry(entries, target)
+  // a skill the agent already has (added outside Cockpit, or through a folder it
+  // shares with another agent) is switched on by recording it: writing Cockpit's
+  // copy over it would replace the agent's folder with whatever was kept last
+  const alreadyThere =
+    on && entry.kind === 'skill' && inv.skills.some((sk) => sk.name === entry.name && sk.agent === agent)
   // turning the last copy off would leave nothing to switch back on, so take the
   // backup first; turning one on needs a source, which is the backup or a peer
-  if (entry.kind === 'skill') {
+  if (entry.kind === 'skill' && !alreadyThere) {
     if (!on) keepBackup(entry, inv, target.repoRoot)
     else if (!existsSync(libSkillDir(entry.name, target.repoRoot))) {
       keepBackup(entry, inv, target.repoRoot)
@@ -504,10 +509,12 @@ export async function setPanelSwitch(
       }
     }
   }
-  await writeSwitch(entry, agent, on, target.repoRoot)
+  if (!alreadyThere) await writeSwitch(entry, agent, on, target.repoRoot)
+  // re-read after the write, which can take minutes for a plugin CLI: saving the
+  // list read before it would undo any change made to another entry meanwhile
   saveEntries(
     target.repoRoot,
-    replaceEntry(entries, {
+    replaceEntry(loadEntries(target.repoRoot), {
       // an agent switched off has nothing left to differ with; switching one on
       // leaves every difference the user kept exactly as it was
       ...(on ? entry : withoutKept(entry, [agent])),
@@ -622,7 +629,7 @@ export async function removePanelEntry(target: PanelTarget): Promise<PanelReport
     }
   }
   if (failed.length > 0) throw new Error(`couldn't remove it everywhere — ${failed.join(' · ')}`)
-  saveEntries(target.repoRoot, replaceEntry(entries, { ...entry, removed: true }))
+  saveEntries(target.repoRoot, replaceEntry(loadEntries(target.repoRoot), { ...entry, removed: true }))
   return getPanel(target.repoRoot)
 }
 
@@ -730,7 +737,7 @@ export async function restorePanelEntry(target: PanelTarget): Promise<PanelRepor
       failed.push(`${agent}: ${err instanceof Error ? err.message : err}`)
     }
   }
-  saveEntries(target.repoRoot, replaceEntry(entries, back))
+  saveEntries(target.repoRoot, replaceEntry(loadEntries(target.repoRoot), back))
   if (failed.length > 0) throw new Error(`put back, but not everywhere — ${failed.join(' · ')}`)
   return getPanel(target.repoRoot)
 }

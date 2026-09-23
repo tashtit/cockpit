@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -13,7 +13,8 @@ import type {
   Provider,
   SkillInfo
 } from '../shared/types'
-import { readJsoncFile } from './parsers/util'
+import { parseJsonc, readJsoncFile } from './parsers/util'
+import { replaceFile } from './replace-file'
 
 /*
  * Each agent stores MCP servers in its own format:
@@ -69,13 +70,26 @@ type FoundServer = {
   readonly scopes: FoundScope[]
 }
 
+/**
+ * One server as the agent wrote it, keeping only fields of the shape Cockpit reads.
+ * These files are hand-edited: a `command` written as an array or an `env` that is a
+ * string would otherwise reach code that calls string methods on them, and one such
+ * entry used to take the whole Agents panel down with it.
+ */
 function normalizeMcp(cfg: any): McpConfig {
+  const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+  const env =
+    cfg?.env && typeof cfg.env === 'object' && !Array.isArray(cfg.env)
+      ? Object.fromEntries(
+          Object.entries<unknown>(cfg.env).filter((kv): kv is [string, string] => typeof kv[1] === 'string')
+        )
+      : undefined
   return {
-    command: cfg?.command,
-    args: Array.isArray(cfg?.args) ? cfg.args : undefined,
-    env: cfg?.env,
-    url: cfg?.url,
-    type: cfg?.type
+    command: str(cfg?.command),
+    args: Array.isArray(cfg?.args) ? cfg.args.filter((a: unknown) => typeof a === 'string') : undefined,
+    env,
+    url: str(cfg?.url),
+    type: str(cfg?.type)
   }
 }
 
@@ -136,6 +150,16 @@ function mcpSectionName(header: string): { name: string; isEnv: boolean } | null
   return { name: m[1] ?? m[2].replace(/\\(.)/g, '$1'), isEnv: Boolean(m[3]) }
 }
 
+/** The escapes of a TOML basic string, undone — the reader's half of `tomlString`. */
+function tomlUnescape(s: string): string {
+  return s.replace(/\\(u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)/g, (_, e: string) => {
+    if (e.length > 1) return String.fromCodePoint(parseInt(e.slice(1), 16))
+    return TOML_UNESCAPES[e] ?? e
+  })
+}
+
+const TOML_UNESCAPES: Record<string, string> = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' }
+
 /** Minimal TOML reader for the [mcp_servers.*] sections codex writes. */
 export function parseCodexMcpToml(raw: string): Map<string, McpConfig> {
   // entries are assembled across multiple TOML sections, so they stay mutable here
@@ -153,17 +177,19 @@ export function parseCodexMcpToml(raw: string): Map<string, McpConfig> {
       // env subtable
       const env: Record<string, string> = { ...entry.env }
       for (const m of body.matchAll(/^([A-Za-z0-9_]+)\s*=\s*"((?:[^"\\]|\\.)*)"/gm)) {
-        env[m[1]] = m[2]
+        env[m[1]] = tomlUnescape(m[2])
       }
       entry.env = env
     } else {
-      const str = (key: string): string | undefined =>
-        body.match(new RegExp(`^${key}\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"`, 'm'))?.[1]
+      const str = (key: string): string | undefined => {
+        const m = body.match(new RegExp(`^${key}\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"`, 'm'))
+        return m ? tomlUnescape(m[1]) : undefined
+      }
       entry.command = str('command') ?? entry.command
       entry.url = str('url') ?? entry.url
       const argsRaw = body.match(/^args\s*=\s*\[([\s\S]*?)\]/m)?.[1]
       if (argsRaw !== undefined) {
-        entry.args = [...argsRaw.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1])
+        entry.args = [...argsRaw.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => tomlUnescape(m[1]))
       }
     }
     out.set(name, entry)
@@ -184,15 +210,7 @@ function readCopilotMcp(): Map<string, McpConfig> {
   const j = readJsonFile(copilotJsonPath())
   const servers = j?.mcpServers
   if (servers && typeof servers === 'object') {
-    for (const [name, cfg] of Object.entries<any>(servers)) {
-      out.set(name, {
-        command: cfg?.command,
-        args: Array.isArray(cfg?.args) ? cfg.args : undefined,
-        env: cfg?.env,
-        url: cfg?.url,
-        type: cfg?.type
-      })
-    }
+    for (const [name, cfg] of Object.entries<any>(servers)) out.set(name, normalizeMcp(cfg))
   }
   return out
 }
@@ -219,12 +237,17 @@ export function readSkillFingerprint(dir: string): { description: string; finger
   }
 }
 
-/** Copy a skill folder somewhere, replacing whatever was there. */
+/**
+ * Copy a skill folder somewhere, replacing whatever was there. Links are followed:
+ * an agent's skill is often a symlink into another agent's folder, and a copy of the
+ * link is no copy at all — when Cockpit then removed the skill everywhere, it took
+ * the only real folder with it and kept a link to nothing.
+ */
 export function adoptSkillInto(src: string, dst: string): void {
   if (!existsSync(src)) throw new Error(`skill not found: ${src}`)
   rmSync(dst, { recursive: true, force: true })
   mkdirSync(join(dst, '..'), { recursive: true })
-  cpSync(src, dst, { recursive: true })
+  cpSync(src, dst, { recursive: true, dereference: true })
 }
 
 function readSkills(): SkillInfo[] {
@@ -432,7 +455,7 @@ export function claudeProjectMcp(repoRoot: string): McpServerInfo[] {
 
 export function writeClaudeProjectMcp(repoRoot: string, name: string, cfg: McpConfig): void {
   const path = claudeJsonPath()
-  const j = readJsonFile(path) ?? {}
+  const j = readJsonForWrite(path)
   j.projects = j.projects ?? {}
   j.projects[repoRoot] = j.projects[repoRoot] ?? {}
   j.projects[repoRoot].mcpServers = j.projects[repoRoot].mcpServers ?? {}
@@ -508,20 +531,61 @@ function mcpForClaude(cfg: McpConfig): Record<string, unknown> {
 
 /** Write a config file, creating the agent's config home if this is its first one. */
 function writeJsonFile(path: string, value: unknown): void {
-  mkdirSync(join(path, '..'), { recursive: true })
-  writeFileSync(path, JSON.stringify(value, null, 2))
+  replaceFile(path, JSON.stringify(value, null, 2))
+}
+
+/**
+ * An agent's JSON config, read to be rewritten: `{}` only when there is no file yet.
+ * A file that is there but does not parse — a trailing comma, a block comment, a
+ * crash mid-write — is refused. Reading it as empty and writing back one server
+ * would replace the whole file, and for ~/.claude.json that is the sign-in and
+ * every project Claude Code knows.
+ */
+function readJsonForWrite(path: string): any {
+  let raw: string
+  try {
+    raw = readFileSync(path, 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    throw new Error(`cannot read ${path}: ${err instanceof Error ? err.message : err}`)
+  }
+  if (raw.trim() === '') return {}
+  const j = parseJsonc(raw)
+  if (j === null || typeof j !== 'object' || Array.isArray(j)) {
+    throw new Error(`${path} isn't valid JSON — Cockpit won't rewrite a file it can't read; fix it first`)
+  }
+  return j
 }
 
 function shareToClaude(name: string, cfg: McpConfig): void {
   const path = claudeJsonPath()
-  const j = readJsonFile(path) ?? {}
+  const j = readJsonForWrite(path)
   j.mcpServers = j.mcpServers ?? {}
   j.mcpServers[name] = mcpForClaude(cfg)
   writeJsonFile(path, j)
 }
 
+/**
+ * A TOML basic string. Control characters must be escaped too — a raw newline in an
+ * env value (a PEM key, a service-account JSON) makes the whole config.toml one Codex
+ * refuses to load, and Codex then won't start at all.
+ */
 function tomlString(s: string): string {
-  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  const body = s.replace(/[\\"\u0000-\u001f\u007f]/g, (c) => {
+    const named = TOML_ESCAPES[c]
+    return named ?? `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`
+  })
+  return `"${body}"`
+}
+
+const TOML_ESCAPES: Record<string, string> = {
+  '\\': '\\\\',
+  '"': '\\"',
+  '\b': '\\b',
+  '\t': '\\t',
+  '\n': '\\n',
+  '\f': '\\f',
+  '\r': '\\r'
 }
 
 /** Quote a server name unless it is a valid bare TOML key (dotted names must be quoted). */
@@ -554,7 +618,7 @@ function shareToCodex(name: string, cfg: McpConfig, overwrite = false): void {
       if (/^[A-Za-z0-9_]+$/.test(k)) block += `${k} = ${tomlString(v)}\n`
     }
   }
-  writeFileSync(path, raw.endsWith('\n') || raw === '' ? raw + block : raw + '\n' + block)
+  replaceFile(path, raw.endsWith('\n') || raw === '' ? raw + block : raw + '\n' + block)
 }
 
 /* ---------- skill sharing ---------- */
@@ -577,7 +641,7 @@ export function shareSkill(name: string, to: Provider, opts: SyncOptions = {}): 
 
 function shareToCopilot(name: string, cfg: McpConfig): void {
   const path = copilotJsonPath()
-  const j = readJsonFile(path) ?? {}
+  const j = readJsonForWrite(path)
   j.mcpServers = j.mcpServers ?? {}
   j.mcpServers[name] = cfg.url
     ? { type: cfg.type ?? 'http', url: cfg.url, tools: ['*'] }
@@ -642,15 +706,15 @@ export function removeMcp(name: string, agent: Provider, projectPath?: string): 
   if (!NAME_RE.test(name)) throw new Error('invalid server name')
   if (agent === 'codex') {
     const path = codexTomlPath()
-    const raw = existsSync(path) ? readFileSync(path, 'utf8') : ''
-    writeFileSync(path, removeCodexMcpToml(raw, name))
+    if (!existsSync(path)) return
+    replaceFile(path, removeCodexMcpToml(readFileSync(path, 'utf8'), name))
     return
   }
   const path = agent === 'claude' ? claudeJsonPath() : copilotJsonPath()
-  const j = readJsonFile(path)
-  if (!j) throw new Error(`cannot read ${path}`)
+  if (!existsSync(path)) throw new Error(`cannot read ${path}`)
+  const j = readJsonForWrite(path)
   removeMcpFromJson(j, name, agent === 'claude' ? projectPath : undefined)
-  writeFileSync(path, JSON.stringify(j, null, 2))
+  writeJsonFile(path, j)
 }
 
 /** An agent that already has the skill — a copy needs a source, not just a target. */
