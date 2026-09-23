@@ -10,6 +10,7 @@ import type {
   SessionMessage,
   SessionPage,
   SessionQuery,
+  SessionSegment,
   SourceDir,
   SourceStats
 } from '../shared/types'
@@ -65,7 +66,7 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 8
+const CACHE_VERSION = 9
 /** Yield to the event loop every N files so scans never starve IPC. */
 const YIELD_EVERY = 50
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -136,6 +137,55 @@ function watchIgnored(p: string): boolean {
 export function subagentParent(path: string): string | null {
   const m = path.match(/\/([^/]+)\/subagents\/[^/]+\.jsonl$/)
   return m ? `claude:${m[1]}` : null
+}
+
+/** Add one file's meta to the files already found for its session id; returns them all. */
+function collect(files: Map<string, SessionMeta[]>, meta: SessionMeta): SessionMeta[] {
+  const found = files.get(meta.id)
+  if (found) {
+    found.push(meta)
+    return found
+  }
+  const fresh = [meta]
+  files.set(meta.id, fresh)
+  return fresh
+}
+
+/**
+ * One session from every file that carries its id. Usually that is one file, or the
+ * same log found under two sources — the most recently updated copy wins. A Codex
+ * thread paginated into a new rollout (`historyBase`) is several files: they fold
+ * into one session on the newest file (what liveness tails and a resume continues),
+ * with the earlier ones as `segments` so its start, title, count and transcript are
+ * the whole thread's.
+ */
+export function foldThread(metas: readonly SessionMeta[]): SessionMeta {
+  const newest = metas.reduce((a, b) => (b.updatedAt >= a.updatedAt ? b : a))
+  if (metas.length === 1 || !metas.some((m) => m.historyBase)) return newest
+  const order = [...metas].sort((a, b) => a.startedAt - b.startedAt || a.updatedAt - b.updatedAt)
+  const tip = order[order.length - 1]
+  const chain = [tip]
+  const segments: SessionSegment[] = []
+  for (let i = order.length - 2; i >= 0; i--) {
+    const base = chain[0].historyBase
+    if (!base) break
+    const prev = order[i]
+    // the same rollout found under a second source is a copy, not an earlier page
+    if (prev.startedAt === chain[0].startedAt) continue
+    segments.unshift({ path: prev.sourcePath, endByte: base.endByte })
+    chain.unshift(prev)
+  }
+  if (segments.length === 0) return newest
+  const first = chain[0]
+  return {
+    ...tip,
+    // a named thread names every page alike; unnamed, the first prompt is on page one
+    title: first.title !== '(untitled)' ? first.title : tip.title,
+    startedAt: first.startedAt,
+    updatedAt: Math.max(...chain.map((m) => m.updatedAt)),
+    messageCount: chain.reduce((n, m) => n + m.messageCount, 0),
+    segments
+  }
 }
 
 /** A watch we want installed; kept pending while its directory doesn't exist yet. */
@@ -294,6 +344,7 @@ export class SessionIndexer {
   private seedFromCache(): void {
     if (this.sessions.size > 0 || this.fileCache.size === 0) return
     const seeded = new Map<string, SessionMeta>()
+    const files = new Map<string, SessionMeta[]>()
     const source = new Map<string, SourceDir>()
     for (const [file, entry] of this.fileCache) {
       if (!entry.meta) continue
@@ -303,8 +354,7 @@ export class SessionIndexer {
       // a source removed since last run: its cached files are not ours to show
       if (!from) continue
       source.set(file, from)
-      const existing = seeded.get(entry.meta.id)
-      if (!existing || entry.meta.updatedAt >= existing.updatedAt) seeded.set(entry.meta.id, entry.meta)
+      seeded.set(entry.meta.id, foldThread(collect(files, entry.meta)))
     }
     if (seeded.size === 0) return
     this.sessions = seeded
@@ -499,8 +549,7 @@ export class SessionIndexer {
           if (meta) {
             // a real session born after the last enumeration — index it in place
             this.fileSource.set(path, source)
-            const existing = this.sessions.get(meta.id)
-            if (!existing || meta.updatedAt >= existing.updatedAt) this.sessions.set(meta.id, meta)
+            this.sessions.set(meta.id, this.foldFiles(meta.id) ?? meta)
             this.emitUpdate()
             this.scheduleSaveCache()
           } else {
@@ -556,9 +605,14 @@ export class SessionIndexer {
       const after = this.metaFor(file, source)
       if (before === after) continue
       changed = true
-      if (before && before.id !== after?.id) this.sessions.delete(before.id)
-      if (after) this.sessions.set(after.id, after)
-      else if (before) this.sessions.delete(before.id)
+      // re-fold every session this file was or is part of — a thread kept across
+      // several files is all of them, never just the one that moved
+      for (const id of new Set([before?.id, after?.id])) {
+        if (!id) continue
+        const folded = this.foldFiles(id)
+        if (folded) this.sessions.set(id, folded)
+        else this.sessions.delete(id)
+      }
     }
     if (changed) {
       this.emitUpdate()
@@ -597,6 +651,7 @@ export class SessionIndexer {
       // repo remotes can change between scans — resolution is cheap cached fs reads
       clearRepoCache()
       const next = new Map<string, SessionMeta>()
+      const nextFiles = new Map<string, SessionMeta[]>()
       const nextSource = new Map<string, SourceDir>()
       const seenFiles = new Set<string>()
       let processed = 0
@@ -612,11 +667,7 @@ export class SessionIndexer {
           seenFiles.add(file)
           nextSource.set(file, s)
           const meta = this.metaFor(file, s)
-          if (meta) {
-            const existing = next.get(meta.id)
-            // same session id in two sources: keep the most recently updated copy
-            if (!existing || meta.updatedAt >= existing.updatedAt) next.set(meta.id, meta)
-          }
+          if (meta) next.set(meta.id, foldThread(collect(nextFiles, meta)))
           processed++
           if (processed % YIELD_EVERY === 0) await new Promise((r) => setImmediate(r))
           if (processed % PUBLISH_EVERY === 0) {
@@ -645,6 +696,15 @@ export class SessionIndexer {
         void this.rescan()
       }
     }
+  }
+
+  /** The session `id` is, from every indexed file that says it is part of it. */
+  private foldFiles(id: string): SessionMeta | null {
+    const metas: SessionMeta[] = []
+    for (const [file, e] of this.fileCache) {
+      if (e.meta?.id === id && this.fileSource.has(file)) metas.push(e.meta)
+    }
+    return metas.length > 0 ? foldThread(metas) : null
   }
 
   private metaFor(file: string, source: SourceDir): SessionMeta | null {
@@ -996,7 +1056,9 @@ export class SessionIndexer {
     const meta = this.sessions.get(id)
     if (!meta) return []
     try {
-      return MESSAGE_PARSERS[meta.provider](meta.sourcePath)
+      return meta.provider === 'codex'
+        ? parseCodexMessages(meta.sourcePath, meta.segments)
+        : MESSAGE_PARSERS[meta.provider](meta.sourcePath)
     } catch (err) {
       console.error(`[indexer] message parse failed for ${id}:`, err)
       return []

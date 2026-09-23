@@ -3,7 +3,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSy
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { SessionIndexer, groupFamilies, subagentParent } from '../src/main/indexer'
+import { SessionIndexer, foldThread, groupFamilies, subagentParent } from '../src/main/indexer'
+import { writePagedThread, type PagedThread } from './codex-paged-thread'
 import type { BusySession, SessionMeta } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
@@ -1092,6 +1093,102 @@ describe('live status from logs', () => {
     idx.stopWatchers()
     expect(idx.liveSessions()).toEqual([])
     expect(pushes.at(-1)).toEqual([])
+  })
+})
+
+describe('a Codex thread paginated across rollouts', () => {
+  const dir = join(root, 'codex-paged')
+  let t: PagedThread
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    t = writePagedThread(dir, '/nowhere/paged')
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: dir, provider: 'codex', label: 'cx' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('is one session over its newest file, started when the thread started', () => {
+    const items = idx.page({}).items.filter((s) => s.id === `codex:${t.threadId}`)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      sourcePath: t.page2,
+      segments: [{ path: t.page1, endByte: t.endByte }],
+      title: 'first question about pagination',
+      startedAt: Date.parse('2026-09-01T10:00:00Z'),
+      updatedAt: Date.parse('2026-09-02T09:00:05Z')
+    })
+    expect(items[0].messageCount).toBeGreaterThanOrEqual(4)
+  })
+
+  it('opens as the whole thread', () => {
+    expect(idx.getMessages(`codex:${t.threadId}`).map((m) => m.text)).toEqual([
+      'first question about pagination',
+      'first answer',
+      'second question',
+      'second answer'
+    ])
+  })
+
+  it('stays one thread while its newest page is written', () => {
+    const anyIdx = idx as any
+    appendFileSync(
+      t.page2,
+      JSON.stringify({
+        timestamp: '2026-09-02T09:10:00Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'third question' }] }
+      }) + '\n'
+    )
+    anyIdx.dirty.add(t.page2)
+    anyIdx.applyDirty()
+    const s = idx.getSession(`codex:${t.threadId}`)
+    expect(s?.segments).toEqual([{ path: t.page1, endByte: t.endByte }])
+    expect(s?.startedAt).toBe(Date.parse('2026-09-01T10:00:00Z'))
+    expect(idx.getMessages(`codex:${t.threadId}`).at(-1)?.text).toBe('third question')
+  })
+})
+
+describe('foldThread', () => {
+  const meta = (over: Partial<SessionMeta>): SessionMeta => ({
+    id: 'codex:t',
+    provider: 'codex',
+    nativeId: 't',
+    source: 'cx',
+    title: 't',
+    cwd: null,
+    logBranch: null,
+    startedAt: 1,
+    updatedAt: 1,
+    messageCount: 1,
+    sourcePath: '/a',
+    ...over
+  })
+
+  it('keeps the most recently updated copy of one log found under two sources', () => {
+    const older = meta({ sourcePath: '/one/a', updatedAt: 5 })
+    const newer = meta({ sourcePath: '/two/a', updatedAt: 9 })
+    expect(foldThread([newer, older])).toBe(newer)
+    expect(foldThread([older, newer])).toBe(newer)
+  })
+
+  it('chains pages oldest first, and a copy of a page is not a page of its own', () => {
+    const p1 = meta({ sourcePath: '/s/p1', startedAt: 10, updatedAt: 20, messageCount: 4, title: 'the question' })
+    const p1copy = meta({ ...p1, sourcePath: '/other/p1' })
+    const p2 = meta({ sourcePath: '/s/p2', startedAt: 30, updatedAt: 40, messageCount: 2, historyBase: { endByte: 100 } })
+    const p3 = meta({ sourcePath: '/s/p3', startedAt: 50, updatedAt: 60, messageCount: 1, historyBase: { endByte: 7 } })
+    const folded = foldThread([p3, p1, p2, p1copy])
+    expect(folded).toMatchObject({
+      sourcePath: '/s/p3',
+      title: 'the question',
+      startedAt: 10,
+      updatedAt: 60,
+      messageCount: 7
+    })
+    expect(folded.segments?.map((s) => s.endByte)).toEqual([100, 7])
+    expect(folded.segments?.[1].path).toBe('/s/p2')
   })
 })
 

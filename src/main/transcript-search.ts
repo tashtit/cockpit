@@ -164,19 +164,20 @@ function handleLine(raw: string, onLine: (line: unknown) => boolean): boolean {
  * Stream a JSONL file in fixed chunks, at most `cap` bytes of it, handing each parsed
  * line to `onLine`; a false return stops the read. Malformed lines are skipped and a
  * line longer than a chunk is still assembled. Never throws — an unreadable file reads
- * as empty, the way every parser here treats one.
+ * as empty, the way every parser here treats one. `end` is where the file's content
+ * stops counting (an earlier page of a thread); being cut there is not truncation.
  */
 async function streamJsonl(
   file: string,
-  cap: number,
+  limits: { readonly cap: number; readonly end?: number },
   onLine: (line: unknown) => boolean
 ): Promise<ReadOutcome> {
   const fh = await openQuietly(file)
   if (!fh) return { truncated: false }
   try {
-    const size = (await fh.stat()).size
-    const truncated = size > cap
-    const stop = Math.min(size, cap)
+    const size = Math.min((await fh.stat()).size, limits.end ?? Infinity)
+    const truncated = size > limits.cap
+    const stop = Math.min(size, limits.cap)
     // a multi-byte character split across two chunks must not become two U+FFFDs
     const decoder = new StringDecoder('utf8')
     const buf = Buffer.allocUnsafe(CHUNK_BYTES)
@@ -412,11 +413,19 @@ export class TranscriptSearcher {
       return { hits, truncated }
     }
     const extract = EXTRACTORS[meta.provider]
-    const { truncated } = await streamJsonl(meta.sourcePath, this.maxBytes, (line) => {
-      if (!alive()) return false
-      for (const r of extract(line, q.tools)) if (!take(r)) return false
-      return true
-    })
+    // a thread kept across several files is searched page by page, oldest first,
+    // each earlier page only as far as the thread's history in it goes
+    const pages = [...(meta.segments ?? []), { path: meta.sourcePath, endByte: undefined }]
+    let truncated = false
+    for (const page of pages) {
+      const read = await streamJsonl(page.path, { cap: this.maxBytes, end: page.endByte }, (line) => {
+        if (!alive()) return false
+        for (const r of extract(line, q.tools)) if (!take(r)) return false
+        return true
+      })
+      truncated ||= read.truncated
+      if (!alive() || hits.length >= q.perSession) break
+    }
     return { hits, truncated }
   }
 }

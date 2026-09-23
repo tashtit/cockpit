@@ -53,8 +53,18 @@ export type SessionMeta = {
   readonly startedAt: number
   readonly updatedAt: number
   readonly messageCount: number
-  /** Absolute path of the backing file/dir, for on-demand full parse */
+  /** Absolute path of the backing file/dir, for on-demand full parse. For a thread
+   *  kept across several files (`segments`), the newest — the one being written. */
   readonly sourcePath: string
+  /** This log continues the same thread's previous log, whose history counts up to
+   *  `endByte` of it (Codex's `session_meta.history_base`: a thread paginated into a
+   *  new rollout starts it there, and anything the old file holds past that byte is
+   *  not part of the thread). Set by the parser; the indexer folds the chain. */
+  readonly historyBase?: { readonly endByte: number }
+  /** The earlier logs of this thread, oldest first, each read up to its `endByte` —
+   *  set by the indexer when one thread spans several files. Everything that reads or
+   *  removes a session's log (transcript, search, cleanup) reads these, then `sourcePath`. */
+  readonly segments?: readonly SessionSegment[]
   /** Stable id of the session that started this one, as this session's own log states
    *  it — a Copilot session another session created with its `create_session` tool
    *  (the kickoff's `<copilot_tauri_workspace>` block names the creator). The tree
@@ -77,6 +87,13 @@ export type SessionMeta = {
   /** Set when this is a roundtable seat-session (cwd is a table's room/worktree) —
    *  such sessions page only under their table and open read-only */
   roundtableId?: string
+}
+
+/** One earlier file of a thread kept across several (`SessionMeta.segments`). */
+export type SessionSegment = {
+  readonly path: string
+  /** Where the thread's history in this file ends; the rest was superseded */
+  readonly endByte: number
 }
 
 export type MessageKind = 'text' | 'tool_call' | 'tool_result' | 'reasoning' | 'system' | 'unknown'

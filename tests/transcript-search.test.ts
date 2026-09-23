@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { SessionIndexer } from '../src/main/indexer'
 import { clearRepoCache } from '../src/main/repos'
 import { TranscriptSearcher } from '../src/main/transcript-search'
+import { writePagedThread } from './codex-paged-thread'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-transcript-search-fixtures-'))
 const claudeDir = join(root, 'claude')
@@ -246,5 +247,31 @@ describe('TranscriptSearcher', () => {
     expect(res.stoppedBy).toBe('time')
     expect(res.scanned).toBe(0)
     expect(res.candidates).toBe(6)
+  })
+})
+
+describe('a Codex thread paginated across rollouts', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cockpit-transcript-search-paged-'))
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    writePagedThread(join(dir, 'codex'), dir)
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: join(dir, 'codex'), provider: 'codex', label: 'codex' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => {
+    idx?.stopWatchers()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('searches the earlier page as part of the thread, but not the turn it abandoned', async () => {
+    const s = new TranscriptSearcher(idx)
+    const early = await s.search({ text: 'first question' })
+    expect(early.hits.map((h) => h.sessionId)).toEqual(['codex:thr-paged'])
+    expect(early.truncated).toBe(0)
+    expect((await s.search({ text: 'second answer' })).hits).toHaveLength(1)
+    expect((await s.search({ text: 'abandoned turn' })).hits).toHaveLength(0)
   })
 })

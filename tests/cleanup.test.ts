@@ -409,6 +409,44 @@ describe('deleteSessions', () => {
     sessions = []
   })
 
+  it('deletes every page of a thread kept across several files, and counts them all', async () => {
+    const page1 = join(sourceDir, 'rollout-thr.jsonl')
+    const page2 = join(sourceDir, 'rollout-thr_next.jsonl')
+    writeFileSync(page1, 'a'.repeat(40))
+    writeFileSync(page2, 'b'.repeat(24))
+    sessions = [
+      session({
+        id: 'codex:thr',
+        provider: 'codex',
+        sourcePath: page2,
+        segments: [{ path: page1, endByte: 30 }]
+      })
+    ]
+    const res = await deleteSessions(deps, ['codex:thr'], 30)
+    expect(res.cleaned).toBe(1)
+    expect(res.freedBytes).toBe(64)
+    // an earlier page left behind would be listed as the whole thread on the next scan
+    expect(existsSync(page1)).toBe(false)
+    expect(existsSync(page2)).toBe(false)
+    sessions = []
+  })
+
+  it('refuses the whole thread when any page of it is outside every configured source', async () => {
+    const outside = join(root, 'not-a-source-page.jsonl')
+    const inside = join(sourceDir, 'rollout-thr2.jsonl')
+    writeFileSync(outside, 'important')
+    writeFileSync(inside, 'x')
+    sessions = [
+      session({ id: 'codex:thr2', provider: 'codex', sourcePath: inside, segments: [{ path: outside, endByte: 3 }] })
+    ]
+    const res = await deleteSessions(deps, ['codex:thr2'], 30)
+    expect(res.cleaned).toBe(0)
+    expect(res.failed[0].reason).toMatch(/outside every configured source/)
+    expect(existsSync(outside)).toBe(true)
+    expect(existsSync(inside)).toBe(true)
+    sessions = []
+  })
+
   it('refuses an id the indexer does not know', async () => {
     sessions = []
     const res = await deleteSessions(deps, ['claude:../../etc/passwd'], 30)
