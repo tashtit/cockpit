@@ -106,6 +106,20 @@ function usesEventEchoes(lines: readonly any[]): boolean {
   return !lines.some(isItemMessage)
 }
 
+/**
+ * A rollout that is a part of another thread rather than a thread of its own.
+ * `thread_source` names the kind and has grown new ones (`subagent`, then
+ * `guardian_review` for the auto-reviews) — each shares the parent's session id,
+ * so it inherits the parent's thread name and cwd and lists as a duplicate. The
+ * structural marks outlive the naming: a subagent `source` and a `parent_thread_id`.
+ * A fork (`forked_from_id`) is a thread of its own and stays.
+ */
+function isThreadPart(p: any): boolean {
+  if (p.thread_source === 'subagent' || p.thread_source === 'guardian_review') return true
+  if (p.source && typeof p.source === 'object' && 'subagent' in p.source) return true
+  return typeof p.parent_thread_id === 'string' && p.parent_thread_id !== ''
+}
+
 export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta | null {
   const head = readHead(file, META_HEAD_BYTES)
   if (!head.text) return null
@@ -133,7 +147,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       // subagent rollouts (guardian etc.) live in the same sessions/ dirs but are
       // parts of a thread, never sessions — and archiving the parent thread moves
       // only the parent's rollout, so these would surface as phantom sessions
-      if (p.thread_source === 'subagent') return null
+      if (isThreadPart(p)) return null
       if (p.id) nativeId = String(p.id)
       // The name index is keyed by thread id (continuation rollouts share it)
       if (p.session_id || p.id) threadId = String(p.session_id ?? p.id)
