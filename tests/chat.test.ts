@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest'
+import { tmpdir } from 'node:os'
 import {
   buildCommand,
+  ChatManager,
   parseClaudeStreamLine,
   parseCodexStreamLine,
   promptWithImages,
   withTurnFlags
 } from '../src/main/chat'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
-import type { ChatRequest } from '../src/shared/types'
+import type { ChatEvent, ChatRequest } from '../src/shared/types'
 
 describe('buildCommand', () => {
   it('claude new chat, auto-edit', () => {
@@ -282,5 +284,50 @@ describe('thinking level, speed and context', () => {
     const custom = { id: 'mine', label: 'Mine', command: 'my-agent', args: ['--stdio'], provider: 'copilot' as const }
     expect(withTurnFlags(custom, r)).toBe(custom)
     expect(withTurnFlags(undefined, r)).toBeUndefined()
+  })
+})
+
+describe('ChatManager — a turn that cannot start', () => {
+  /** Every event a turn emits, collected until its done. */
+  async function run(
+    hooks: ConstructorParameters<typeof ChatManager>[1],
+    req: Partial<ChatRequest> = {}
+  ): Promise<{ events: ChatEvent[]; started: string[] }> {
+    const events: ChatEvent[] = []
+    const started: string[] = []
+    let finish: () => void = () => {}
+    const finished = new Promise<void>((r) => (finish = r))
+    const chat = new ChatManager(
+      (ev) => {
+        events.push(ev)
+        if (ev.type === 'done') finish()
+      },
+      { ...hooks, onTurnStart: (turnId) => started.push(turnId) }
+    )
+    const turnId = chat.send({ provider: 'claude', cwd: tmpdir(), prompt: 'hi', permissionMode: 'safe', ...req })
+    await finished
+    expect(events.every((e) => e.turnId === turnId)).toBe(true)
+    expect(chat.busySessions()).toEqual([])
+    return { events, started }
+  }
+
+  // Thrown out of send(), the turn the attention desk had just been told about never
+  // ended, and every observed ending of that session was muted until a restart
+  it('ends as error then done when the ACP agent it was bound to is gone', async () => {
+    const { events, started } = await run({
+      resolveAcpAgent: () => {
+        throw new Error('that agent was removed')
+      }
+    })
+    expect(started).toHaveLength(1)
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect(events[0]).toMatchObject({ message: 'that agent was removed' })
+  })
+
+  it('ends as error then done when spawn itself throws', async () => {
+    // a NUL byte is refused by spawn synchronously, as E2BIG is for a prompt past the
+    // OS argument limit
+    const { events } = await run({}, { prompt: 'a\u0000b' })
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
   })
 })

@@ -48,6 +48,9 @@ default browser rather than inside Cockpit — the window itself never navigates
 the app. Relative paths and `mailto:` links are shown as plain text, since there is
 nowhere for them to go.
 
+Quitting Cockpit stops the turns it started, tools and all; closing the window stops them
+too, but on macOS Cockpit keeps running in the Dock and keeps watching everything else.
+
 ## When the agent asks you something
 
 An agent that stops to ask — Claude Code's `AskUserQuestion` or its plan gate, Codex's

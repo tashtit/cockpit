@@ -176,12 +176,23 @@ export class RoundtableManager {
     }
   }
 
+  /**
+   * Never throws: saves run inside a turn's done handler, and a full disk thrown out
+   * of there skipped the rest of it — the round never moved on, its seat stayed busy,
+   * and main showed its error dialog. The table in memory stays right; the next save
+   * that works catches the file up.
+   */
   private save(t: Table): void {
-    mkdirSync(this.dir, { recursive: true })
     // write-then-rename: a crash mid-write must never leave a truncated table
-    const tmp = join(this.dir, `${t.id}.json.tmp`)
-    writeFileSync(tmp, JSON.stringify(t, null, 2))
-    renameSync(tmp, join(this.dir, `${t.id}.json`))
+    const tmp = join(this.dir, `${t.id}.json.${process.pid}.tmp`)
+    try {
+      mkdirSync(this.dir, { recursive: true })
+      writeFileSync(tmp, JSON.stringify(t, null, 2))
+      renameSync(tmp, join(this.dir, `${t.id}.json`))
+    } catch (err) {
+      console.error(`[roundtable] failed to save ${t.id}:`, err)
+      rmSync(tmp, { force: true })
+    }
   }
 
   /** A round the table cannot afford never starts — the user hears why, up front. */
@@ -480,9 +491,9 @@ export class RoundtableManager {
     for (const turnId of round.turns.keys()) this.hooks.cancelTurn(turnId)
   }
 
-  /** True when any table still has a turn in flight (quit-time cleanup asks). */
-  anyRunning(): boolean {
-    return this.rounds.size > 0
+  /** Stop every running table — the window closed, or the app is quitting. */
+  stopAll(): void {
+    for (const id of [...this.rounds.keys()]) this.stop(id)
   }
 
   private appendEntry(t: Table, entry: RoundtableEntry): void {

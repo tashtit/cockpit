@@ -357,6 +357,8 @@ function applyWindowFloor(zoom: number, { grow = true }: { grow?: boolean } = {}
 
 /** How long a drag or a resize settles before the placement is written. */
 const PLACEMENT_SAVE_MS = 800
+/** A renderer that dies again this soon after a reload is left alone rather than reloaded in a loop */
+const RENDERER_RECOVERY_MS = 10_000
 
 function createWindow(): void {
   // dev-only: `npm run dev` relaunches never steal focus (COCKPIT_DEV_BACKGROUND=0
@@ -430,6 +432,19 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  // A renderer that dies (out of memory, a GPU reset, killed from Activity Monitor)
+  // leaves a blank window whose only way back was closing it. Main's state is intact,
+  // so a reload is a full recovery — but never in a loop, if it dies again at once.
+  let recoveredAt = 0
+  win.webContents.on('render-process-gone', (_e, details) => {
+    const w = win
+    if (details.reason === 'clean-exit' || !w || w.isDestroyed()) return
+    console.error(`[window] renderer gone (${details.reason}, exit ${details.exitCode})`)
+    if (Date.now() - recoveredAt < RENDERER_RECOVERY_MS) return
+    recoveredAt = Date.now()
+    w.webContents.reload()
+  })
+
   if (devPrefs.background) {
     const w = win
     w.once('ready-to-show', () => w.showInactive())
@@ -483,7 +498,13 @@ function createWindow(): void {
     if (!w || w.isDestroyed()) return
     // getNormalBounds, not getBounds: in full screen the latter is the whole display,
     // and what has to be saved is the window to fall back to when it leaves
-    setWindowPlacement({ ...w.getNormalBounds(), fullScreen: w.isFullScreen() })
+    try {
+      setWindowPlacement({ ...w.getNormalBounds(), fullScreen: w.isFullScreen() })
+    } catch (err) {
+      // a full disk or an unreadable config — on a timer and in 'close', so a throw
+      // here would be the main-process error dialog, for a window position
+      console.error('[window] failed to remember the placement:', err)
+    }
   }
   let rememberSoon: NodeJS.Timeout | null = null
   const rememberLater = (): void => {
@@ -1450,12 +1471,37 @@ app.whenReady().then(() => {
   })
 })
 
+// The window is gone, not the app: on macOS Cockpit stays in the Dock, and the
+// watchers are what still tells the user a turn in a terminal ended or stopped to
+// ask — news that matters most while no window is up. Stopping them here left the
+// tree, live status and those notifications dead after the window came back, until
+// a relaunch. Only the work this window started stops with it.
 app.on('window-all-closed', () => {
-  indexer?.stopWatchers()
+  stopSpawnedWork()
   indexer?.saveCache()
-  chat?.cancelAll()
   if (process.platform !== 'darwin') app.quit()
 })
+
+// ⌘Q, Quit in the menu and an update's restart all go through app.quit(), which
+// closes the windows without emitting window-all-closed. Every turn runs in a
+// process group of its own (so a cancel reaches its tools), which is also what lets
+// it outlive Cockpit — still editing a worktree, still spending — unless it is
+// stopped here. SIGTERM only: the SIGKILL a cancel escalates to later needs a timer
+// this process won't be alive to run.
+app.on('will-quit', () => {
+  stopSpawnedWork()
+  indexer?.stopWatchers()
+  indexer?.saveCache()
+})
+
+/**
+ * Tables first: a seat whose turn is cancelled underneath a running round reads as
+ * a seat that failed, and the round would carry on and start the next one.
+ */
+function stopSpawnedWork(): void {
+  roundtables?.stopAll()
+  chat?.cancelAll()
+}
 
 // A downloaded update swaps itself in behind the quit the user already asked for:
 // the script waits for this process to go, so nothing is interrupted that wasn't

@@ -81,11 +81,18 @@ function probeStdio(cfg: McpConfig, timeoutMs: number): Promise<McpProbeResult> 
       if (done) return
       done = true
       clearTimeout(timer)
+      // EOF first: a stdio server's usual way out. Then SIGTERM, and SIGKILL for one
+      // that ignores it — `docker run -i` forwards the signal to a PID 1 with no
+      // handler for it, and each Check used to leave one such server running.
+      child.stdin?.end()
       try {
         child.kill()
       } catch {
         /* already gone */
       }
+      setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      }, 2_000).unref()
       resolvePromise(result)
     }
     const timer = setTimeout(() => finish({ status: 'error', detail: 'timed out' }), timeoutMs)
