@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
   CliStatus,
@@ -544,27 +544,37 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
     forMs: 10 * 60_000
   })
 
-  const refreshChannel = async (c: CliStatus): Promise<void> => {
+  // One Terminal per click, never two from one double click: two `npm install -g` of
+  // the same package at once can leave the CLI half-installed, and a second
+  // `brew upgrade` only fights the first for Homebrew's lock. "Open Terminal again"
+  // after the first one has opened stays a deliberate second click.
+  const opening = useRef(new Set<string>())
+  const once = async (key: string, open: () => Promise<void>): Promise<void> => {
+    if (opening.current.has(key)) return
+    opening.current.add(key)
     setError(null)
     try {
-      await api.openCliChannelRefresh(c.provider)
-      setRefreshing((r) => ({ ...r, [c.provider]: c.latest }))
-      onStatus(`Opened Terminal to refresh what ${c.channel ?? 'the channel'} knows`)
+      await open()
     } catch (err) {
       setError(ipcErrorText(err))
+    } finally {
+      opening.current.delete(key)
     }
   }
 
-  const update = async (c: CliStatus): Promise<void> => {
-    setError(null)
-    try {
+  const refreshChannel = (c: CliStatus): Promise<void> =>
+    once(`refresh:${c.provider}`, async () => {
+      await api.openCliChannelRefresh(c.provider)
+      setRefreshing((r) => ({ ...r, [c.provider]: c.latest }))
+      onStatus(`Opened Terminal to refresh what ${c.channel ?? 'the channel'} knows`)
+    })
+
+  const update = (c: CliStatus): Promise<void> =>
+    once(`update:${c.provider}`, async () => {
       await api.openCliUpdate(c.provider)
       setUpdating((u) => ({ ...u, [c.provider]: c.version }))
       onStatus(`Opened Terminal to update ${PROVIDER_LABEL[c.provider]}`)
-    } catch (err) {
-      setError(ipcErrorText(err))
-    }
-  }
+    })
 
   return (
     <>

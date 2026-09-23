@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { AcpAgent, AcpAgentProbe, Provider } from '../../shared/types'
 import { acpAgentRefusal } from '../../shared/acp'
 import { api } from './api'
@@ -68,10 +68,15 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
     }
   }
 
+  // main mints an id per add: a second submit in flight was a second agent
+  const adding = useRef(false)
+  const [addBusy, setAddBusy] = useState(false)
   const add = async (): Promise<void> => {
     setError(null)
     const d = draft()
-    if (!d) return
+    if (!d || adding.current) return
+    adding.current = true
+    setAddBusy(true)
     try {
       setAgents(await api.addAcpAgent(d))
       setLabel('')
@@ -82,6 +87,9 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
       say(`Added ${d.label}. New ${PROVIDER_LABEL[d.provider]} sessions will run through it.`)
     } catch (err) {
       setError(ipcErrorText(err))
+    } finally {
+      adding.current = false
+      setAddBusy(false)
     }
   }
 
@@ -234,7 +242,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
             <button type="button" className="btn-ghost" onClick={() => void runProbe()} disabled={probing}>
               {probing ? 'Testing…' : 'Test'}
             </button>
-            <button type="submit" className="btn-primary">
+            <button type="submit" className="btn-primary" disabled={addBusy}>
               Add agent
             </button>
             <button
