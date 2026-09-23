@@ -13,10 +13,21 @@ import { Component, type ErrorInfo, type JSX, type ReactNode } from 'react'
  * So the app keeps its window. The turns that are running are main's, not the
  * renderer's, and they carry on through this — reloading rejoins them.
  *
+ * It also comes smaller: with a `fallback`, a boundary keeps one part of the window
+ * — a single message — to itself, and draws the fallback in that part's place
+ * instead of taking every other view down with it. `resetKey` changing is a new
+ * chance: the next render tries the children again.
+ *
  * The one allowed class component: `getDerivedStateFromError` has no hook form.
  */
 
-type Props = { readonly children: ReactNode }
+type Props = {
+  readonly children: ReactNode
+  /** Drawn in the children's place after a throw; without one the whole window is replaced */
+  readonly fallback?: ReactNode
+  /** Changing it clears a caught error, so new content gets a fresh try */
+  readonly resetKey?: unknown
+}
 type State = { readonly error: Error | null }
 
 /** Message plus stack, the shape a bug report wants. */
@@ -39,9 +50,14 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('[renderer] crashed:', error, info.componentStack)
   }
 
+  override componentDidUpdate(prev: Props): void {
+    if (this.state.error && prev.resetKey !== this.props.resetKey) this.setState({ error: null })
+  }
+
   override render(): ReactNode {
     const { error } = this.state
     if (!error) return this.props.children
+    if (this.props.fallback !== undefined) return this.props.fallback
     return (
       <main className="ns-card" role="alert">
         <div className="ns-head">

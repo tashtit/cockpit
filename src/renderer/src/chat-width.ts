@@ -28,8 +28,18 @@ export const CHAT_WIDTH_OPTIONS: ReadonlyArray<{ value: ChatWidth; label: string
   { value: 'full', label: 'Full width', hint: 'no limit' }
 ]
 
+/**
+ * Guarded like rail.ts: this runs when the module loads, before any error boundary
+ * exists, so storage refusing access would leave a blank window rather than a
+ * default width.
+ */
 function load(): ChatWidth {
-  const v = window.localStorage.getItem(KEY)
+  let v: string | null = null
+  try {
+    v = window.localStorage.getItem(KEY)
+  } catch {
+    // storage unavailable — the default is a fine width
+  }
   return v && v in CHAT_WIDTH_CSS ? (v as ChatWidth) : DEFAULT
 }
 
@@ -50,7 +60,11 @@ export function useChatWidth(): ChatWidth {
 
 export function setChatWidth(w: ChatWidth): void {
   width = w
-  window.localStorage.setItem(KEY, w)
+  try {
+    window.localStorage.setItem(KEY, w)
+  } catch {
+    // not remembered past this run — the open chat still takes the width
+  }
   listeners.forEach((l) => l())
 }
 
