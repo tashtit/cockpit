@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { EndpointAuth, ModelEndpoint, NewModelEndpoint, WireApi } from '../../shared/types'
 import { ENDPOINT_PRESETS, endpointAgents, type EndpointPreset } from '../../shared/endpoints'
 import { api } from './api'
@@ -78,7 +78,14 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
     onStatus(msg)
   }
 
+  // a double click or a second Enter while the first add is in flight added the
+  // provider twice — two rows, two keychain entries — since main mints an id per call
+  const adding = useRef(false)
+  const [addBusy, setAddBusy] = useState(false)
   const addEndpoint = async (): Promise<void> => {
+    if (adding.current) return
+    adding.current = true
+    setAddBusy(true)
     setEpError(null)
     try {
       let headers: Record<string, string> | undefined
@@ -122,6 +129,9 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
       }
     } catch (err) {
       setEpError(ipcErrorText(err))
+    } finally {
+      adding.current = false
+      setAddBusy(false)
     }
   }
 
@@ -405,7 +415,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
             className="btn-primary"
             // a hosted API refuses every request without a key — adding one without it
             // would only store a provider no session can start on
-            disabled={!epLabel.trim() || !epUrl.trim() || (!preset.keyOptional && !epKey.trim())}
+            disabled={addBusy || !epLabel.trim() || !epUrl.trim() || (!preset.keyOptional && !epKey.trim())}
           >
             Add provider
           </button>

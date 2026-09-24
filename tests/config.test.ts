@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -14,7 +14,9 @@ import {
   sessionLineage,
   sessionLineageFor,
   setAttentionPrefs,
+  setHistoryDays,
   setUpdatePrefs,
+  setWindowPlacement,
   setZoom,
   updateModelEndpoint,
   updatePrefs
@@ -80,8 +82,54 @@ describe('loadConfig / saveConfig', () => {
 
   it('leaves no .tmp file behind after a save', () => {
     saveConfig({ sources: [] })
-    expect(existsSync(cfgPath() + '.tmp')).toBe(false)
+    expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
     expect(existsSync(cfgPath())).toBe(true)
+  })
+
+  it('refuses to write over a config it cannot read — even for a window move', () => {
+    // every setter builds on loadConfig(), which runs on defaults while the file is
+    // unreadable: the first save used to replace the user's config with them
+    writeFileSync(cfgPath(), '{ "sources": [ half a file')
+    expect(() => setWindowPlacement({ x: 1, y: 2, width: 900, height: 700, fullScreen: false })).toThrow(
+      /unreadable/
+    )
+    expect(() => setHistoryDays(7)).toThrow(/unreadable/)
+    expect(readFileSync(cfgPath(), 'utf8')).toBe('{ "sources": [ half a file')
+    // fixed by hand, it saves again
+    writeFileSync(cfgPath(), JSON.stringify({ sources: [], archived: ['keep-me'] }))
+    setHistoryDays(7)
+    expect(loadConfig()).toMatchObject({ historyDays: 7, archived: ['keep-me'] })
+  })
+
+  it('drops what this build cannot use instead of failing startup on it', () => {
+    // a provider from a newer build, a hand-edited source with no path, and lists that
+    // aren't lists — startup builds sets and indexes sources from these before the
+    // window opens, and one throw there meant no window at all
+    writeFileSync(
+      cfgPath(),
+      JSON.stringify({
+        sources: [
+          { path: '/tmp/claude-home', provider: 'claude', label: 'main' },
+          { path: '/tmp/gemini-home', provider: 'gemini', label: 'new' },
+          { provider: 'codex', label: 'no path' },
+          { path: '/tmp/copilot-home', provider: 'copilot' }
+        ],
+        archived: 'claude:one',
+        hiddenRepos: ['gh:a/b', 7],
+        repoOrder: null,
+        archivedRoundtables: { id: 'x' }
+      })
+    )
+    const cfg = loadConfig()
+    expect(cfg.sources).toEqual([
+      { path: '/tmp/claude-home', provider: 'claude', label: 'main' },
+      { path: '/tmp/copilot-home', provider: 'copilot', label: 'copilot' }
+    ])
+    expect(cfg.archived).toBeUndefined()
+    expect(cfg.hiddenRepos).toEqual(['gh:a/b'])
+    expect(cfg.repoOrder).toBeUndefined()
+    expect(cfg.archivedRoundtables).toBeUndefined()
+    expect(() => new Set(cfg.archived ?? [])).not.toThrow()
   })
 })
 

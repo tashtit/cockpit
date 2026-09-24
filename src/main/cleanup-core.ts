@@ -106,6 +106,8 @@ export type WorktreeFacts = {
   readonly roundtable: boolean
   /** A process outside Cockpit still has its working directory in it */
   readonly processes: boolean
+  /** HEAD is detached on commits that no branch, tag or remote holds */
+  readonly unanchored: boolean
 }
 
 /**
@@ -114,7 +116,9 @@ export type WorktreeFacts = {
  *
  * Unpushed commits are deliberately absent: removing a worktree leaves its branch
  * in the repository, so no commit is lost. They only gate deleting the branch,
- * which cleanup.ts hands to `git branch -d` — git's own merged check.
+ * which cleanup.ts hands to `git branch -d` — git's own merged check. The exception
+ * is a detached HEAD, which has no branch to leave behind: commits only it holds
+ * are lost with the worktree, so they block it.
  */
 export function worktreeBlocks(facts: WorktreeFacts): CleanupBlock[] {
   const blocks: CleanupBlock[] = []
@@ -123,6 +127,7 @@ export function worktreeBlocks(facts: WorktreeFacts): CleanupBlock[] {
   if (facts.busy) blocks.push('busy')
   if (facts.processes) blocks.push('process')
   if (facts.dirty) blocks.push('dirty')
+  if (facts.unanchored) blocks.push('detached')
   if (facts.locked) blocks.push('locked')
   return blocks
 }

@@ -151,10 +151,15 @@ function q(value: string): string {
 
 /**
  * The swap, as a detached script: a running bundle cannot replace itself, so this
- * outlives the app and does the work once the process is gone. Every step is
- * reversible until the last one — the old bundle is renamed aside within the same
- * folder (a rename, so it is instant and cannot half-finish) and put back if the
- * copy fails, which is why a failed update leaves a working app rather than none.
+ * outlives the app and does the work once the process is gone.
+ *
+ * The new bundle is copied in *beside* the old one, which stays where it is until
+ * the copy is whole. The script runs behind a quit — often a logout's or a
+ * shutdown's, which then SIGTERMs whatever is left — and the copy takes seconds:
+ * when the old bundle was moved aside first, an interruption there left no app at
+ * the target at all, with nothing left running that could put it back. Now all an
+ * interruption can cost is the half copy, which the next run clears. What remains
+ * is two renames in the same folder, instant, with TERM/HUP/INT ignored across them.
  */
 export function swapScript(plan: SwapPlan): string {
   return `#!/bin/sh
@@ -167,9 +172,14 @@ STAGE=${q(plan.stageDir)}
 RESULT=${q(plan.resultFile)}
 RELAUNCH=${plan.relaunch ? 1 : 0}
 BACKUP="$TARGET.cockpit-previous"
+NEXT="$TARGET.cockpit-next"
 
 fail() {
   printf '%s\\n' "$1" > "$RESULT"
+  # "Restart now" asked for a restart: it gets one, into the version that is there
+  if [ "$RELAUNCH" = 1 ] && [ -d "$TARGET" ]; then
+    open "$TARGET"
+  fi
   exit 1
 }
 
@@ -181,20 +191,29 @@ while kill -0 "$PID" 2>/dev/null; do
   sleep 0.1
 done
 
-rm -rf "$BACKUP"
-mv "$TARGET" "$BACKUP" 2>/dev/null || fail "Could not move $TARGET aside — check that you can write to the folder holding it."
-if ditto "$NEW" "$TARGET"; then
-  # nothing downloaded here carries a quarantine flag — Cockpit fetched it, not a
-  # browser — but clearing it costs nothing and is what would otherwise make
-  # Gatekeeper block a build you already allowed
-  xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null
-  rm -rf "$BACKUP"
-  printf 'ok\\n' > "$RESULT"
-else
-  rm -rf "$TARGET"
-  mv "$BACKUP" "$TARGET" 2>/dev/null
-  fail "Copying the new version into $TARGET failed; the one you had is back in place."
+rm -rf "$NEXT" "$BACKUP"
+if ! ditto "$NEW" "$NEXT"; then
+  rm -rf "$NEXT"
+  fail "Copying the new version next to $TARGET failed; the one you had is still in place."
 fi
+# nothing downloaded here carries a quarantine flag — Cockpit fetched it, not a
+# browser — but clearing it costs nothing and is what would otherwise make
+# Gatekeeper block a build you already allowed
+xattr -dr com.apple.quarantine "$NEXT" 2>/dev/null
+
+trap '' TERM HUP INT
+if ! mv "$TARGET" "$BACKUP" 2>/dev/null; then
+  rm -rf "$NEXT"
+  fail "Could not move $TARGET aside — check that you can write to the folder holding it."
+fi
+if ! mv "$NEXT" "$TARGET" 2>/dev/null; then
+  mv "$BACKUP" "$TARGET" 2>/dev/null
+  rm -rf "$NEXT"
+  fail "Could not put the new version in place at $TARGET; the one you had is back in place."
+fi
+trap - TERM HUP INT
+rm -rf "$BACKUP"
+printf 'ok\\n' > "$RESULT"
 
 rm -rf "$STAGE"
 if [ "$RELAUNCH" = 1 ]; then

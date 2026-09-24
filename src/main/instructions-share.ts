@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import type { ShareResult } from '../shared/types'
 import { execText } from './env'
@@ -84,6 +84,11 @@ export function writeShareFiles(cwd: string, baseline: string): string[] {
   // would read every file in it as pointing somewhere else
   const base = existsSync(cwd) ? realpathSync(cwd) : cwd
   const reads = instructionTargets(cwd).map((target) => {
+    // a link to nothing reads as "no file yet", and writing it would create whatever
+    // it names — wherever that is
+    if (!existsSync(target.path) && isSymlink(target.path)) {
+      throw new Error(`${target.path} is a link to nothing — refusing to write through it`)
+    }
     const real = existsSync(target.path) ? realpathSync(target.path) : join(base, relative(cwd, target.path))
     if (real === base || !isUnder(real, base)) {
       throw new Error(`${target.path} points outside the worktree — refusing to write through it`)
@@ -161,5 +166,13 @@ export async function shareInstructions(repoRoot: string): Promise<ShareResult> 
     // on every path, including a refused push: the branch is what carries the
     // work, and a leftover worktree would only show up later as cleanup
     await removeWorkspace(repoRoot, ws.cwd)
+  }
+}
+
+function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink()
+  } catch {
+    return false
   }
 }

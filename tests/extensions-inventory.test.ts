@@ -1,8 +1,25 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  lstatSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { getExtensions, parseCodexSections, shareSkill } from '../src/main/extensions'
+import {
+  adoptSkillInto,
+  getExtensions,
+  parseCodexMcpToml,
+  parseCodexSections,
+  shareMcp,
+  shareSkill
+} from '../src/main/extensions'
 
 /*
  * Real fixtures on disk, like the indexer tests: each agent's own layout is written
@@ -186,5 +203,73 @@ describe('shareSkill', () => {
   it('rejects a name that would escape the skills directory', () => {
     fakeHome()
     expect(() => shareSkill('../../.ssh', 'codex', { from: 'claude' })).toThrow(/invalid skill name/)
+  })
+})
+
+describe('writing into an agent’s own config', () => {
+  it('refuses a config that does not parse, instead of replacing it with one server', () => {
+    // one trailing comma: read as empty, ~/.claude.json used to be rewritten as
+    // `{ mcpServers: { <new> } }` — the sign-in and every project gone with it
+    const home = fakeHome()
+    const broken = '{\n  "oauthAccount": { "emailAddress": "me@example.test" },\n  "projects": {},\n}\n'
+    write(join(home, '.claude.json'), broken)
+    write(join(home, '.copilot', 'mcp-config.json'), '{ "mcpServers": { "keep": { "command": "x" } }, }')
+    const cfg = { command: 'npx', args: ['-y', 'some-server'] }
+    expect(() => shareMcp('fresh', 'claude', { config: cfg })).toThrow(/isn't valid JSON/)
+    expect(() => shareMcp('fresh', 'copilot', { config: cfg })).toThrow(/isn't valid JSON/)
+    expect(readFileSync(join(home, '.claude.json'), 'utf8')).toBe(broken)
+  })
+
+  it('writes through a symlinked config and keeps its mode', () => {
+    const home = fakeHome()
+    const real = join(home, 'dotfiles', 'claude.json')
+    write(real, JSON.stringify({ oauthAccount: { emailAddress: 'me@example.test' } }))
+    chmodSync(real, 0o600)
+    symlinkSync(real, join(home, '.claude.json'))
+    shareMcp('fresh', 'claude', { config: { command: 'npx', args: ['-y', 'x'] } })
+    expect(lstatSync(join(home, '.claude.json')).isSymbolicLink()).toBe(true)
+    expect(statSync(real).mode & 0o777).toBe(0o600)
+    const j = JSON.parse(readFileSync(real, 'utf8'))
+    expect(j.oauthAccount.emailAddress).toBe('me@example.test')
+    expect(j.mcpServers.fresh).toMatchObject({ command: 'npx' })
+  })
+
+  it('writes a Codex env value with a newline as TOML Codex can load, and reads it back whole', () => {
+    // a raw newline inside a basic string makes the whole config.toml invalid, and
+    // Codex refuses to start until it is fixed by hand
+    const home = fakeHome()
+    const pem = '-----BEGIN KEY-----\nabc\n-----END KEY-----'
+    shareMcp('signer', 'codex', { config: { command: 'signer', args: ['a "quoted" \\ arg'], env: { KEY: pem } } })
+    const raw = readFileSync(join(home, '.codex', 'config.toml'), 'utf8')
+    expect(raw).not.toContain('abc\n-----END')
+    const read = parseCodexMcpToml(raw).get('signer')
+    expect(read?.env?.KEY).toBe(pem)
+    expect(read?.args).toEqual(['a "quoted" \\ arg'])
+  })
+
+  it('reads a server whose fields have the wrong type without breaking the inventory', () => {
+    const home = fakeHome()
+    write(
+      join(home, '.claude.json'),
+      JSON.stringify({ mcpServers: { odd: { command: ['npx', 'x'], args: 'nope', env: 'A=1' }, ok: { command: 'npx' } } })
+    )
+    const inv = getExtensions()
+    const odd = inv.mcp.find((s) => s.name === 'odd')?.presences[0]?.config
+    expect(odd).toMatchObject({ command: undefined, args: undefined, env: undefined })
+    expect(inv.mcp.find((s) => s.name === 'ok')?.presences[0]?.config.command).toBe('npx')
+  })
+
+  it('backs a symlinked skill up as a real folder, not as another link', () => {
+    // removing a skill everywhere keeps this copy as the only one left — a copied
+    // link pointed at the folder the removal was about to delete
+    const home = fakeHome()
+    skill(home, '.codex', 'shared', 'one folder, two agents')
+    mkdirSync(join(home, '.claude', 'skills'), { recursive: true })
+    symlinkSync(join(home, '.codex', 'skills', 'shared'), join(home, '.claude', 'skills', 'shared'))
+    const backup = join(home, 'backup', 'shared')
+    adoptSkillInto(join(home, '.claude', 'skills', 'shared'), backup)
+    rmSync(join(home, '.codex', 'skills', 'shared'), { recursive: true })
+    expect(lstatSync(backup).isSymbolicLink()).toBe(false)
+    expect(readFileSync(join(backup, 'SKILL.md'), 'utf8')).toContain('one folder, two agents')
   })
 })

@@ -40,6 +40,9 @@ type TurnOptions = {
 /** Stops one runaway line from growing the heap without bound. */
 const MAX_LINE_BYTES = 8 * 1024 * 1024
 
+/** How long an agent has to exit on its own once its turn is over */
+const EXIT_GRACE_MS = 2_000
+
 type Pending = {
   readonly resolve: (value: unknown) => void
   readonly reject: (err: Error) => void
@@ -62,8 +65,11 @@ class JsonRpc {
   }
 
   private feed(chunk: string): void {
+    // failed: nothing more will be read, and holding on to it would grow without bound
+    if (this.closed) return
     this.buf += chunk
     if (this.buf.length > MAX_LINE_BYTES) {
+      this.buf = ''
       this.fail(new Error('the agent sent a single message larger than 8MB'))
       return
     }
@@ -174,6 +180,10 @@ export class AcpTurn {
     this.child.stderr!.on('data', (c: string) => {
       this.stderr = (this.stderr + c).slice(-4000)
     })
+    // A write to an agent that has just exited fails later, as an 'error' on the
+    // stream — past write()'s try/catch — and with no listener that is an uncaught
+    // exception: main's error dialog. The close handler settles the turn either way.
+    this.child.stdin!.on('error', () => {})
     this.rpc = new JsonRpc(
       this.child,
       (method, params) => this.onNotify(method, params),
@@ -295,7 +305,28 @@ export class AcpTurn {
       } catch {
         /* already closed */
       }
+      this.reap()
     }
+  }
+
+  /**
+   * The turn is over and the agent has been sent EOF, which a well-behaved one exits
+   * on. One that doesn't — it failed mid-turn and is still working, or it just keeps
+   * running — is stopped, its group with it, rather than left editing a worktree
+   * where nothing shows it and nothing will ever cancel it.
+   */
+  private reap(): void {
+    const pid = this.child.pid
+    if (!pid || this.child.exitCode !== null || this.child.signalCode !== null) return
+    const timer = setTimeout(() => {
+      try {
+        process.kill(-pid, 'SIGTERM')
+      } catch {
+        /* the group has gone */
+      }
+    }, EXIT_GRACE_MS)
+    timer.unref()
+    this.child.once('close', () => clearTimeout(timer))
   }
 
   /** Resume the conversation when we can, start a fresh one when we can't. */
@@ -401,6 +432,9 @@ export function probeAcpAgent(agent: AcpAgent, cwd: string): Promise<AcpAgentPro
     child.stderr!.on('data', (c: string) => {
       stderr = (stderr + c).slice(-2000)
     })
+    // a handshake written to an agent that exits at once fails as a stream 'error'
+    // (EPIPE) — unheard, that is main's error dialog; 'close' reports the exit
+    child.stdin!.on('error', () => {})
     child.on('error', (err) => {
       const e = err as NodeJS.ErrnoException
       done({

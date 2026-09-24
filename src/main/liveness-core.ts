@@ -419,7 +419,8 @@ function copilotAsk(data: unknown): AttentionAsk {
 /**
  * Copilot CLI brackets each model round-trip with `assistant.turn_start` /
  * `assistant.turn_end` (a prompt runs several, back to back), closes a session with
- * `session.shutdown`, and writes `user.message` the instant a prompt is sent. Tool
+ * `session.shutdown`, writes `abort` when Esc stops a turn, and writes `user.message`
+ * the instant a prompt is sent. Tool
  * and hook events, assistant messages and compaction all sit inside a bracket — and
  * so does a `permission.requested`, answered by a `permission.completed` with the
  * same `requestId` once the person decides (or the session is aborted).
@@ -465,6 +466,11 @@ export function judgeCopilotTail(records: readonly any[]): TurnVerdict | null {
       case 'session.shutdown':
       case 'session.start':
       case 'session.resume':
+      // Esc: the turn stops with no `turn_end`, and a tool it was in never completes.
+      // Unread, the tail judged it mid-tool, and the CLI's lock — held for as long as
+      // it sits open — kept that "running" for hours, then announced the shutdown as
+      // the turn finishing.
+      case 'abort':
         return IDLE
       case 'permission.completed': {
         const id = r.data?.requestId

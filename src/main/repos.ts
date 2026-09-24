@@ -28,7 +28,7 @@ export function clearRepoCache(): void {
  * (e.g. removed worktrees) by walking ancestors that still exist.
  */
 export function resolveRepo(cwd: string | null): ResolvedRepo | null {
-  if (!cwd || !cwd.startsWith('/')) return null
+  if (typeof cwd !== 'string' || !cwd.startsWith('/')) return null
   const cached = cwdCache.get(cwd)
   if (cached !== undefined) return cached
   const res = resolveUncached(resolve(cwd))

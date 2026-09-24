@@ -46,7 +46,12 @@ The permission mode sits beside **Send** and applies to the next turn you send. 
 Replies render as markdown: code blocks carry a **Copy** button, and a link opens in your
 default browser rather than inside Cockpit — the window itself never navigates away from
 the app. Relative paths and `mailto:` links are shown as plain text, since there is
-nowhere for them to go.
+nowhere for them to go. A reply longer than 64 KB, or one the markdown renderer cannot
+draw, is shown as its plain text instead — in its own row, with the rest of the
+transcript formatted as usual.
+
+Quitting Cockpit stops the turns it started, tools and all; closing the window stops them
+too, but on macOS Cockpit keeps running in the Dock and keeps watching everything else.
 
 ## When the agent asks you something
 

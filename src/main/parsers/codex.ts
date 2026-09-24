@@ -153,10 +153,10 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       if (p.id) nativeId = String(p.id)
       // The name index is keyed by thread id (continuation rollouts share it)
       if (p.session_id || p.id) threadId = String(p.session_id ?? p.id)
-      if (p.cwd) cwd = p.cwd
+      if (typeof p.cwd === 'string' && p.cwd) cwd = p.cwd
       // often absent — plenty of rollouts carry no `git` block at all, or one with
       // only a commit hash. The indexer reads the checkout itself when it's missing.
-      if (p.git?.branch) logBranch = p.git.branch
+      if (typeof p.git?.branch === 'string' && p.git.branch) logBranch = p.git.branch
       if (!historyBase && threadId) historyBase = continuesThread(p.history_base, threadId)
     }
     const isMessage =

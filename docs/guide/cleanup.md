@@ -40,7 +40,7 @@ Dev servers, watchers and shells still running inside a stale worktree, or insid
 
 ## Roundtables
 
-Tables nobody has spoken to in a while, plus every table you archived — archiving one is already the decision, so it is listed at once. A table is one row: deleting it takes its seat sessions and the directory it ran in (its room, or its worktree and the branch when git reports it fully merged). A table mid-round is never selectable.
+Tables nobody has spoken to in a while, plus every table you archived — archiving one is already the decision, so it is listed at once. A table is one row: deleting it takes its seat sessions and the directory it ran in (its room, or its worktree and the branch when git reports it fully merged). A table mid-round is never selectable, and one whose worktree has uncommitted changes is refused before anything of it is deleted — seats included.
 
 ## Worktrees
 
@@ -60,6 +60,7 @@ Rows that can't be cleaned stay visible with the reason spelled out, and their c
 | Reason | Why |
 |---|---|
 | uncommitted changes | the work isn't saved anywhere else |
+| commits on no branch | its HEAD is detached on commits no branch, tag or remote holds — removing the worktree would lose them, so check out a branch there first |
 | an agent is running | a live turn is using the directory |
 | a process is running | a dev server, watcher or shell still works in it — stop it on the **Processes** tab first |
 | the repo's own checkout | Cockpit never touches your main working copy |

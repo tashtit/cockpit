@@ -317,7 +317,7 @@ describe('roundtables — the table is the unit', () => {
     const report = await scanCleanup(deps, 30)
     expect(report.tables[0]?.blocks).toEqual(['busy'])
 
-    const result = await deleteRoundtables(deps, ['rt-old'])
+    const result = await deleteRoundtables(deps, ['rt-old'], 30)
     expect(result.cleaned).toBe(0)
     expect(result.failed[0]?.reason).toMatch(/stop it first/)
     expect(existsSync(room)).toBe(true)
@@ -327,7 +327,7 @@ describe('roundtables — the table is the unit', () => {
   it('takes the room, the seat logs and the record together', async () => {
     const a = seat('seat-a')
     seats = [a]
-    const result = await deleteRoundtables(deps, ['rt-old'])
+    const result = await deleteRoundtables(deps, ['rt-old'], 30)
     expect(result.cleaned).toBe(1)
     expect(result.freedBytes).toBeGreaterThan(0)
     expect(existsSync(room)).toBe(false)
@@ -339,7 +339,7 @@ describe('roundtables — the table is the unit', () => {
     const outside = join(root, 'not-a-room')
     mkdirSync(outside, { recursive: true })
     tables = [table({ cwd: outside })]
-    const result = await deleteRoundtables(deps, ['rt-old'])
+    const result = await deleteRoundtables(deps, ['rt-old'], 30)
     expect(result.failed[0]?.reason).toMatch(/outside the roundtable directory/)
     expect(existsSync(outside)).toBe(true)
     expect(forgotten).toEqual([])
@@ -358,16 +358,41 @@ describe('roundtables — the table is the unit', () => {
     expect(report.worktrees.some((w) => w.path === tree)).toBe(false)
     expect(report.tables[0]?.worktree?.path).toBe(tree)
 
-    const result = await deleteRoundtables(deps, ['rt-old'])
+    const result = await deleteRoundtables(deps, ['rt-old'], 30)
     expect(result.cleaned).toBe(1)
     expect(existsSync(tree)).toBe(false)
     expect(result.branchesDeleted).toEqual(['cockpit/rt-layout'])
     rooms = new Set()
   })
 
+  it('refuses a table whose worktree git would refuse, before any seat log goes', async () => {
+    // the seat logs used to be unlinked first: the dirty worktree then kept the table,
+    // and its seats had lost the transcripts they resume from
+    const tree = join(cockpitWorktrees, 'app', 'rt-dirty')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/rt-dirty', tree])
+    writeFileSync(join(tree, 'draft.md'), 'a seat was mid-edit\n')
+    const a = seat('seat-a')
+    seats = [a]
+    tables = [table({ cwd: tree, repoRoot: mainRepo, repoName: 'app', branch: 'cockpit/rt-dirty' })]
+    const result = await deleteRoundtables(deps, ['rt-old'], 30)
+    expect(result.cleaned).toBe(0)
+    expect(result.failed[0]?.reason).toMatch(/uncommitted/)
+    expect(existsSync(a.sourcePath)).toBe(true)
+    expect(existsSync(tree)).toBe(true)
+    expect(forgotten).toEqual([])
+  })
+
+  it('refuses a table used again since the scan', async () => {
+    tables = [table({ updatedAt: Date.now() - 60_000 })]
+    const result = await deleteRoundtables(deps, ['rt-old'], 30)
+    expect(result.cleaned).toBe(0)
+    expect(result.failed[0]?.reason).toMatch(/used again/)
+    expect(existsSync(room)).toBe(true)
+  })
+
   it('refuses a table Cockpit no longer keeps', async () => {
     tables = []
-    const result = await deleteRoundtables(deps, ['rt-gone'])
+    const result = await deleteRoundtables(deps, ['rt-gone'], 30)
     expect(result.cleaned).toBe(0)
     expect(result.failed[0]?.reason).toMatch(/no longer a roundtable/)
   })
@@ -454,6 +479,20 @@ describe('deleteSessions', () => {
     expect(res.failed[0].reason).toMatch(/no longer indexed/)
   })
 
+  it('refuses a session used again since the scan', async () => {
+    // resumed in a terminal and sitting at its prompt: not busy, but not stale either,
+    // and its transcript is no longer the one the user chose to delete
+    const file = join(sourceDir, 'resumed.jsonl')
+    writeFileSync(file, 'r')
+    sessions = [session({ id: 'claude:resumed', sourcePath: file, updatedAt: Date.now() - 60_000 })]
+    const res = await deleteSessions(deps, ['claude:resumed'], 30)
+    expect(res.cleaned).toBe(0)
+    expect(res.deletedIds).toEqual([])
+    expect(res.failed[0].reason).toMatch(/used again/)
+    expect(existsSync(file)).toBe(true)
+    sessions = []
+  })
+
   it('refuses a session an agent is running in', async () => {
     const file = join(sourceDir, 'busy.jsonl')
     writeFileSync(file, 'b')
@@ -506,6 +545,27 @@ describe('removeWorktrees', () => {
     expect(existsSync(externalTree)).toBe(false)
     expect(res.branchesDeleted).toEqual([])
     expect(git(mainRepo, ['branch', '--list'])).toMatch(/spike/)
+  })
+
+  it('refuses a detached worktree whose commits no branch holds, and removes one whose commits are safe', async () => {
+    // no branch to leave behind: `git worktree remove` would take the only ref to
+    // this commit with it (the worktree's own reflog), and gc would prune it
+    const detached = join(cockpitWorktrees, 'app', 'bisecting')
+    git(mainRepo, ['worktree', 'add', '-q', '--detach', detached])
+    writeFileSync(join(detached, 'found.txt'), 'the bad commit\n')
+    git(detached, ['add', '.'])
+    git(detached, ['commit', '-q', '-m', 'only here'])
+    backdate(detached)
+    const report = await scanCleanup(deps, 30)
+    expect(report.worktrees.find((w) => w.path === detached)?.blocks).toEqual(['detached'])
+    const res = await removeWorktrees(deps, [detached])
+    expect(res.cleaned).toBe(0)
+    expect(res.failed[0].reason).toMatch(/detached HEAD/)
+    expect(existsSync(detached)).toBe(true)
+    // once a branch holds the commit, nothing is lost by removing the directory
+    git(detached, ['branch', 'keep-bisect'])
+    expect((await removeWorktrees(deps, [detached])).cleaned).toBe(1)
+    expect(git(mainRepo, ['log', '-1', '--format=%s', 'keep-bisect']).trim()).toBe('only here')
   })
 
   it('clears a registration whose directory is already gone', async () => {

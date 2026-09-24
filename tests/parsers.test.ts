@@ -2,7 +2,7 @@ import { afterAll, describe, it, expect, beforeAll } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { listClaudeSessions, parseClaudeMessages } from '../src/main/parsers/claude'
+import { listClaudeSessions, parseClaudeMessages, parseClaudeMeta } from '../src/main/parsers/claude'
 import { listCodexSessions, parseCodexMessages, parseCodexMeta } from '../src/main/parsers/codex'
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
 import { toolPreview } from '../src/main/parsers/util'
@@ -741,6 +741,30 @@ describe('copilot child sessions', () => {
 })
 
 describe('robustness', () => {
+  it('takes a cwd or a branch only when it is a string', () => {
+    // a cwd of another type reached the repo resolver and threw there — outside the
+    // parser's own failure tolerance — failing every scan that met the file
+    const dir = join(root, 'odd-types')
+    mkdirSync(dir, { recursive: true })
+    const claude = join(dir, 'claude-odd.jsonl')
+    writeFileSync(
+      claude,
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'hi' }, timestamp: '2026-08-01T10:00:00Z', sessionId: 'odd', cwd: { path: '/x' }, gitBranch: 42 }
+      ])
+    )
+    expect(parseClaudeMeta(claude, 'x')).toMatchObject({ cwd: null, logBranch: null })
+    const codex = join(dir, 'rollout-odd.jsonl')
+    writeFileSync(
+      codex,
+      jsonl([
+        { timestamp: '2026-08-01T10:00:00Z', type: 'session_meta', payload: { id: 'odd', cwd: ['/x'], git: { branch: {} } } },
+        { timestamp: '2026-08-01T10:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] } }
+      ])
+    )
+    expect(parseCodexMeta(codex, 'x')).toMatchObject({ cwd: null, logBranch: null })
+  })
+
   it('empty/missing dirs return no sessions', () => {
     expect(listClaudeSessions(join(root, 'nope'), 'x')).toEqual([])
     expect(listCodexSessions(join(root, 'nope'), 'x')).toEqual([])

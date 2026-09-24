@@ -335,12 +335,28 @@ export class ChatManager {
     const turnId = randomUUID()
     // synchronous, so it runs before the microtask a refused turn emits its events in
     this.hooks.onTurnStart?.(turnId, req)
+    try {
+      this.start(turnId, req)
+    } catch (err) {
+      // a refusal below ends as events; so must a throw — a removed ACP agent, or a
+      // prompt past the OS argument limit, which spawn throws synchronously (E2BIG).
+      // Rethrown, the turn the attention desk was just told about never ended, and it
+      // muted every observed ending of that session until a restart.
+      queueMicrotask(() => {
+        this.emit({ turnId, type: 'error', message: startFailure(err) })
+        this.emit({ turnId, type: 'done' })
+      })
+    }
+    return turnId
+  }
+
+  private start(turnId: string, req: ChatRequest): void {
     if (req.resumeNativeId && !isValidNativeId(req.resumeNativeId)) {
       queueMicrotask(() => {
         this.emit({ turnId, type: 'error', message: 'Refusing to resume: session id in the log looks malformed.' })
         this.emit({ turnId, type: 'done' })
       })
-      return turnId
+      return
     }
     try {
       if (!statSync(req.cwd).isDirectory()) throw new Error('not a directory')
@@ -349,7 +365,7 @@ export class ChatManager {
         this.emit({ turnId, type: 'error', message: `Working directory no longer exists: ${req.cwd}` })
         this.emit({ turnId, type: 'done' })
       })
-      return turnId
+      return
     }
     const { cmd, args } = buildCommand(req)
     const env = cliEnv()
@@ -365,7 +381,7 @@ export class ChatManager {
         this.emit({ turnId, type: 'error', message: refusal })
         this.emit({ turnId, type: 'done' })
       })
-      return turnId
+      return
     }
     if (ep) Object.assign(env, endpointEnv(req.provider, ep, apiKey))
     // per-account config homes: each provider has its own env var for this
@@ -380,7 +396,7 @@ export class ChatManager {
     const acpAgent = withTurnFlags(this.hooks.resolveAcpAgent?.(req), req)
     if (acpAgent) {
       this.startAcpTurn(turnId, req, acpAgent, env)
-      return turnId
+      return
     }
 
     const child = spawn(cmd, args, {
@@ -489,12 +505,14 @@ export class ChatManager {
       if (!sawStructured && req.provider !== 'copilot' && code === 0 && buf.trim()) {
         this.emit({ turnId, type: 'text', text: buf.trim() })
       }
-      sendDone()
-      this.turns.delete(turnId)
-      this.notifyBusy()
+      // a throw from a listener must not leave the turn on the busy board forever
+      try {
+        sendDone()
+      } finally {
+        this.turns.delete(turnId)
+        this.notifyBusy()
+      }
     })
-
-    return turnId
   }
 
   /**
@@ -576,15 +594,23 @@ export class ChatManager {
       }
     }
     signal('SIGTERM')
-    const hardKill = setTimeout(() => {
-      // `killed` only records that a signal was SENT (the fallback path above sets
-      // it) — a SIGTERM-trapping CLI must still be escalated, so check liveness
-      if (t.child.exitCode === null && t.child.signalCode === null) signal('SIGKILL')
-    }, 3000)
-    t.child.once('close', () => clearTimeout(hardKill))
+    // The escalation goes to the group whether or not the CLI itself has gone: it
+    // usually exits on SIGTERM at once, while a tool it started that ignores the
+    // signal (a dev server, a test runner) is still in the group — and keyed to the
+    // leader's exit, the SIGKILL was cancelled and that tool kept running, orphaned.
+    // A group that is already empty makes this a no-op.
+    setTimeout(() => signal('SIGKILL'), 3000).unref()
   }
 
   cancelAll(): void {
     for (const [id] of this.turns) this.cancel(id)
   }
+}
+
+/** Why a turn could not start, in words — a bare `spawn E2BIG` tells the user nothing. */
+function startFailure(err: unknown): string {
+  if ((err as NodeJS.ErrnoException | null)?.code === 'E2BIG') {
+    return 'This message is too long to hand to the agent (past the system’s argument limit) — shorten it.'
+  }
+  return err instanceof Error ? err.message : String(err)
 }

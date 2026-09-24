@@ -151,7 +151,8 @@ describe('worktreeBlocks', () => {
     dirty: false,
     busy: false,
     roundtable: false,
-    processes: false
+    processes: false,
+    unanchored: false
   }
 
   it('clears a quiet, clean worktree', () => {
@@ -168,6 +169,8 @@ describe('worktreeBlocks', () => {
     expect(worktreeBlocks({ ...clean, roundtable: true })).toEqual(['roundtable'])
     expect(worktreeBlocks({ ...clean, locked: true })).toEqual(['locked'])
     expect(worktreeBlocks({ ...clean, processes: true })).toEqual(['process'])
+    // a detached HEAD has no branch to leave behind — its own commits go with it
+    expect(worktreeBlocks({ ...clean, unanchored: true })).toEqual(['detached'])
   })
 
   it('orders several blocks most-fundamental first', () => {
@@ -178,9 +181,10 @@ describe('worktreeBlocks', () => {
         dirty: true,
         busy: true,
         roundtable: true,
-        processes: true
+        processes: true,
+        unanchored: true
       })
-    ).toEqual(['main', 'roundtable', 'busy', 'process', 'dirty', 'locked'])
+    ).toEqual(['main', 'roundtable', 'busy', 'process', 'dirty', 'detached', 'locked'])
   })
 })
 

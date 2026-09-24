@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type {
@@ -118,8 +118,36 @@ function detectDefaults(): SourceDir[] {
 /** The one parse both readers share, so "valid config" can never mean two things. */
 function parseConfig(raw: string): AppConfig {
   const cfg = JSON.parse(raw) as AppConfig
-  if (!Array.isArray(cfg.sources)) throw new Error('config has no sources[]')
-  return cfg
+  if (!cfg || typeof cfg !== 'object' || !Array.isArray(cfg.sources)) {
+    throw new Error('config has no sources[]')
+  }
+  // A hand edit, or a build that knew a provider this one doesn't, meets startup
+  // here — and startup indexes the sources and builds sets from these lists before
+  // the window opens. One wrong-typed field used to throw there, which left the app
+  // in the Dock with no window and no error. Drop what this build can't use instead.
+  return {
+    ...cfg,
+    sources: cfg.sources.filter(isSource).map((s) => ({
+      path: s.path,
+      provider: s.provider,
+      label: typeof s.label === 'string' ? s.label : s.provider
+    })),
+    archived: stringList(cfg.archived),
+    archivedRoundtables: stringList(cfg.archivedRoundtables),
+    hiddenRepos: stringList(cfg.hiddenRepos),
+    repoOrder: stringList(cfg.repoOrder)
+  }
+}
+
+const PROVIDER_NAMES: ReadonlySet<unknown> = new Set(['claude', 'codex', 'copilot'])
+
+function isSource(s: unknown): s is SourceDir {
+  const o = s as Partial<SourceDir> | null
+  return !!o && typeof o.path === 'string' && o.path !== '' && PROVIDER_NAMES.has(o.provider)
+}
+
+function stringList(v: unknown): string[] | undefined {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined
 }
 
 /**
@@ -474,9 +502,40 @@ export function sessionLineage(): Record<string, string> {
 }
 
 export function saveConfig(cfg: AppConfig): void {
+  assertOverwritable()
   mkdirSync(userDataDir(), { recursive: true })
-  // write-then-rename: a crash mid-write must never leave a truncated config
-  const tmp = configPath() + '.tmp'
-  writeFileSync(tmp, JSON.stringify(cfg, null, 2))
-  renameSync(tmp, configPath())
+  // write-then-rename: a crash mid-write must never leave a truncated config. The
+  // temp name is per write, so a second instance on the same userData (dev beside
+  // the installed app) can't rename this one's half-written file into place.
+  const tmp = `${configPath()}.${process.pid}.${++saveSeq}.tmp`
+  try {
+    writeFileSync(tmp, JSON.stringify(cfg, null, 2))
+    renameSync(tmp, configPath())
+  } catch (err) {
+    rmSync(tmp, { force: true })
+    throw err
+  }
+}
+
+let saveSeq = 0
+
+/**
+ * Every write passes here. A config that exists and cannot be read is the user's,
+ * not a blank slate: loadConfig runs on defaults then, and every setter builds on
+ * loadConfig — so the first one to save (moving the window is enough) would write
+ * those defaults over it. Refuse instead, until the file is fixed or moved.
+ */
+function assertOverwritable(): void {
+  let raw: string
+  try {
+    raw = readFileSync(configPath(), 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw new Error(`cannot read ${configPath()} (${(err as Error).message}) — not overwriting it`)
+  }
+  try {
+    parseConfig(raw)
+  } catch (err) {
+    throw new Error(`${configPath()} is unreadable (${(err as Error).message}) — fix or move it first`)
+  }
 }

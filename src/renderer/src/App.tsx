@@ -281,9 +281,18 @@ export function App(): JSX.Element {
    */
   const [permissions, setPermissions] = useState<PendingPermission[]>([])
 
+  // A card belongs to the turn that asked. One left behind by a turn that was stopped,
+  // or by a session the window has since moved away from, sat there for good — that
+  // turn's events no longer reach this view — and answering it wrote the answer into
+  // whichever transcript was open. Request ids are the agent's own counter, so two
+  // turns' cards could also share one and replace each other.
+  useEffect(() => {
+    setPermissions((list) => (list.every((a) => a.turnId === activeTurn) ? list : list.filter((a) => a.turnId === activeTurn)))
+  }, [activeTurn])
+
   const answerPermission = useCallback((ask: PendingPermission, optionId: string) => {
     const label = ask.options.find((o) => o.optionId === optionId)?.name ?? optionId
-    setPermissions((list) => list.filter((a) => a.requestId !== ask.requestId))
+    setPermissions((list) => list.filter((a) => a.turnId !== ask.turnId || a.requestId !== ask.requestId))
     void api.respondPermission(ask.turnId, ask.requestId, optionId)
     // the answer belongs in the transcript even though the question did not — it is
     // what the rest of the turn was conditioned on, and a reader should hear it once
@@ -335,7 +344,7 @@ export function App(): JSX.Element {
         // the prompt is not a transcript row, but it must land after what came before it
         endChatStream({ keepText: true })
         setPermissions((list) => [
-          ...list.filter((a) => a.requestId !== ev.requestId),
+          ...list.filter((a) => a.turnId !== ev.turnId || a.requestId !== ev.requestId),
           {
             turnId: ev.turnId,
             requestId: ev.requestId,
@@ -716,6 +725,9 @@ export function App(): JSX.Element {
       // its cleanup locally: stop the shimmer and drop any not-yet-flushed text
       setActiveTurn(null)
       endChatStream({ keepText: false })
+      // as a turn's own end does: the log on disk is the conversation again, or the
+      // transcript stops following it until the session is reopened
+      armDiskLog(selectedSessionIdRef.current)
       announceChat(`${speaker()} stopped`)
     }
   }, [activeTurn, speaker])
@@ -901,7 +913,9 @@ export function App(): JSX.Element {
           onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
         />
       ) : view.kind === 'roundtable' ? (
-        <RoundtableView id={view.id} />
+        // keyed: one table's seat picks, open limits editor and draft must never
+        // carry over to the next — Save there wrote table A's limits onto table B
+        <RoundtableView key={view.id} id={view.id} />
       ) : view.kind === 'welcome' ? (
         <HomeView
           repos={visibleRepos}

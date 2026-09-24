@@ -1,4 +1,5 @@
-import { Suspense, lazy, type JSX } from 'react'
+import { Suspense, lazy, memo, type JSX } from 'react'
+import { ErrorBoundary } from './ErrorBoundary'
 
 /**
  * Markdown, everywhere the app renders it — chat replies, the instructions
@@ -20,10 +21,30 @@ export function preloadMarkdown(): void {
   void import('./MarkdownPipeline')
 }
 
-export function Markdown({ text }: { text: string }): JSX.Element {
+/**
+ * Past this, a message renders as plain text. The pipeline runs synchronously in
+ * render, and its cost grows faster than the text: a 100KB table held the window for
+ * about three seconds, a 50-column one for nine. Replies this long are logs and dumps,
+ * which read fine unformatted — a frozen window reads as a crash.
+ */
+const MARKDOWN_MAX_CHARS = 64 * 1024
+
+/**
+ * Memoized on the text: following a live log swaps in fresh message objects every
+ * refresh (~0.8s), which re-renders every row — and without this, re-ran the whole
+ * pipeline for every visible reply each time, enough to make typing lag.
+ */
+export const Markdown = memo(function Markdown({ text }: { text: string }): JSX.Element {
+  const plain = <pre className="md-plain">{text}</pre>
+  if (text.length > MARKDOWN_MAX_CHARS) return plain
+  // A reply the pipeline can't draw falls back to its own text, in its own row: three
+  // thousand nested `>` overflow the stack inside it, and without this boundary that
+  // throw took the whole window down — again every time that session was opened.
   return (
-    <Suspense fallback={<pre className="md-plain">{text}</pre>}>
-      <Pipeline text={text} />
-    </Suspense>
+    <ErrorBoundary fallback={plain} resetKey={text}>
+      <Suspense fallback={plain}>
+        <Pipeline text={text} />
+      </Suspense>
+    </ErrorBoundary>
   )
-}
+})

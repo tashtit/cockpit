@@ -439,6 +439,16 @@ describe('LivenessTracker — what it tells the attention desk', () => {
   })
 })
 
+/**
+ * The stamp of a file the test has only just written. The trackers below shrink the
+ * plain window to a few hundred ms to keep the suite fast, and that window is also
+ * the arrival gate — judged by the wall clock against this stamp. With the real
+ * mtime, a CI runner that stalled between the write and the observe fell through the
+ * gate and the entry was never made: a test about windows, failing on the gate
+ * (which `the arrival gate is the plain window` below tests on purpose).
+ */
+const justWritten = (): number => Date.now()
+
 describe('LivenessTracker — the tool window', () => {
   for (const provider of ['claude', 'codex', 'copilot'] as const) {
     const sil = SILENCE[provider]
@@ -448,35 +458,52 @@ describe('LivenessTracker — the tool window', () => {
     it(`${provider}: a turn inside a tool call outlives the plain window, and drops back to it once the result is written`, async () => {
       const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 3_000, sweepMs: 40 })
       const file = writeFixture(provider, [...sil.thinking, sil.inTool])
-      t.observe(file, meta(provider, nativeId, file), mtime(file))
+      t.observe(file, meta(provider, nativeId, file), justWritten())
       await new Promise((r) => setTimeout(r, 600))
       expect(t.sessions().map((s) => s.id)).toEqual([id])
       // the result arrives: the model is thinking again, and silence means what it usually means
       appendFileSync(file, jsonl([sil.toolDone]))
-      t.observe(file, meta(provider, nativeId, file), mtime(file))
+      t.observe(file, meta(provider, nativeId, file), justWritten())
       await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
     })
 
     it(`${provider}: a turn waiting on the model gets the plain window, tool window or not`, async () => {
       const t = tracker(() => {}, { windowMs: 150, toolWindowMs: 60_000, sweepMs: 40 })
       const file = writeFixture(provider, [...sil.thinking])
-      t.observe(file, meta(provider, nativeId, file), mtime(file))
+      t.observe(file, meta(provider, nativeId, file), justWritten())
       expect(t.sessions().map((s) => s.id)).toEqual([id])
       await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
     })
 
     it(`${provider}: the tool window is longer, not unbounded — a killed CLI mid-tool still expires`, async () => {
-      // the plain window is also the arrival gate, judged by the wall clock against the
-      // file's mtime: at 100ms a loaded CI runner fell through it between the write and
-      // the observe, and the entry was never made at all
-      const t = tracker(() => {}, { windowMs: 250, toolWindowMs: 1_200, sweepMs: 40 })
+      // room on both sides of the 600ms check: past the plain window, well inside the tool one
+      const t = tracker(() => {}, { windowMs: 250, toolWindowMs: 2_000, sweepMs: 40 })
       const file = writeFixture(provider, [...sil.thinking, sil.inTool])
-      t.observe(file, meta(provider, nativeId, file), mtime(file))
+      t.observe(file, meta(provider, nativeId, file), justWritten())
       await new Promise((r) => setTimeout(r, 600))
       expect(t.sessions().map((s) => s.id)).toEqual([id]) // past the plain window
       await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
     })
   }
+
+  it('a re-read of an unchanged log keeps a turn that is deep in a tool call', () => {
+    // the indexer re-reads a log when a file beside it changes (Codex's name index,
+    // whenever another session starts) — past the plain window, that re-read used to
+    // drop the entry, so the turn showed idle and its ending was never announced
+    const events: import('../src/main/liveness').ObservedTurn[] = []
+    let clock = Date.now()
+    const t = tracker(() => {}, { windowMs: 90_000, toolWindowMs: 10 * 60_000, now: () => clock, onTurn: (ev) => events.push(ev) })
+    const file = writeFixture('codex', [...SILENCE.codex.thinking, SILENCE.codex.inTool])
+    const written = clock
+    t.observe(file, meta('codex', 'x1', file, written), written)
+    clock += 5 * 60_000
+    t.observe(file, meta('codex', 'x1', file, written), written)
+    expect(t.sessions().map((s) => s.id)).toEqual(['codex:x1'])
+    // …and when the tool finishes and the turn ends, that is an ending, not a settle
+    appendFileSync(file, jsonl([SILENCE.codex.toolDone, FIXTURES.codex.final]))
+    t.observe(file, meta('codex', 'x1', file, clock), clock)
+    expect(events.map((e) => e.type)).toEqual(['running', 'ended'])
+  })
 
   it('the arrival gate is the plain window: an old tool call is not picked up late', () => {
     const t = tracker(() => {}, { windowMs: 200, toolWindowMs: 60_000 })
@@ -501,7 +528,7 @@ describe("LivenessTracker — copilot's own lock", () => {
   const deadPid = (): number => spawnSync('/usr/bin/true').pid
   const midTool = [...SILENCE.copilot.thinking, SILENCE.copilot.inTool]
   const observe = (t: LivenessTracker, file: string, nativeId: string): void =>
-    t.observe(file, meta('copilot', nativeId, file), mtime(file))
+    t.observe(file, meta('copilot', nativeId, file), justWritten())
 
   it('a lock held by a living process keeps a running turn past both windows', async () => {
     const t = tracker(() => {}, { windowMs: 100, toolWindowMs: 200, sweepMs: 40 })

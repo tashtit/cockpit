@@ -434,7 +434,8 @@ export function NewSession({
   }, [provider])
 
   const start = async (): Promise<void> => {
-    if (busy || (!prompt.trim() && atts.attachments.length === 0)) return
+    // the button is held for a missing model; ⌘Enter in the task field must be too
+    if (busy || agent.modelMissing || (!prompt.trim() && atts.attachments.length === 0)) return
     setError(null)
     window.localStorage.setItem('cockpit:provider', provider)
     window.localStorage.setItem('cockpit:mode', mode)

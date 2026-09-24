@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { InstructionFile, InstructionsState } from '../shared/types'
 import {
@@ -15,6 +15,7 @@ import {
   type FoldedTarget
 } from './instructions-core'
 import { loadConfig, saveConfig } from './config'
+import { replaceFile } from './replace-file'
 
 /* IO around instructions-core: baseline storage (cockpit config) + file fan-out. */
 
@@ -133,7 +134,7 @@ export function applyInstructions(repoRoot: string | null, onlyPath?: string): I
   for (const { target, raw } of targets) {
     if (onlyPath && target.path !== onlyPath) continue
     mkdirSync(dirname(target.path), { recursive: true })
-    writeFileSync(target.path, upsertSharedBlock(raw ?? '', baseline))
+    replaceFile(target.path, upsertSharedBlock(raw ?? '', baseline))
   }
   return getInstructions(repoRoot)
 }
@@ -143,7 +144,7 @@ export function unapplyInstructions(repoRoot: string | null, path: string): Inst
   const target = instructionTargets(repoRoot).find((t) => t.path === path)
   if (!target) throw new Error(`not an instruction file for this scope: ${path}`)
   const raw = readTarget(path)
-  if (raw !== null) writeFileSync(path, removeSharedBlock(raw))
+  if (raw !== null) replaceFile(path, removeSharedBlock(raw))
   return getInstructions(repoRoot)
 }
 
@@ -172,6 +173,6 @@ export function saveInstructionFile(
   const target = instructionTargets(repoRoot).find((t) => t.path === path)
   if (!target) throw new Error(`not an instruction file for this scope: ${path}`)
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, content)
+  replaceFile(path, content)
   return getInstructions(repoRoot)
 }
