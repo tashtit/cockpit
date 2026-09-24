@@ -9,7 +9,7 @@ images as `initialImages`) or the sidebar repo-row "+".
 
 ## Form grammar
 
-- **Task first.** The field order is Task · Project · Agent · account/model/permissions ·
+- **Task first.** The field order is Task · Project · Agent · account/model/thinking/permissions ·
   Branch · actions — the same priority as Home's composer, where the task is the card and
   the rest is a strip underneath. What you want done is the reason the form is open; where
   it runs and who runs it are its settings. Focus lands in Task on mount.
@@ -26,11 +26,20 @@ images as `initialImages`) or the sidebar repo-row "+".
 - Account: single account renders as static `.ns-account-single` (mono); multiple render
   a mono `<select>`. Same `savedAccount` resolution rule as Home — saved choice, else
   first configured.
-- Model field is a free `<input>` with `<datalist>` suggestions (`MODEL_SUGGESTIONS`) —
-  suggestions only, the field accepts anything the CLI accepts. Don't harden into a
-  select. The one exception: when a BYOK model provider is selected and its catalog is
-  known (cached or freshly listed from the provider), Model renders as a mono `Select`
-  of that catalog — picking from what the provider actually serves beats free text there.
+- Model is a mono `Select` of every model the agent offers under the chosen account
+  (`listAgentModels`, the list roundtable seats pick from; each option's hint is its
+  description, or its id when the label differs), or of the BYOK provider's catalog when
+  one is chosen — models are picked, not typed, so a stale guess can't reach the CLI.
+  "loading models…" holds the empty value while the listing is in flight. The one
+  exception is a catalog known to be empty (an Azure provider serves deployments and lists
+  none): there Model is a plain `<input>`, since the name is only the person's to know.
+- The account/model/thinking/permissions cells are `.ns-options.ns-agent-options`, a grid
+  of `auto-fit` 130px-minimum columns: with a model provider or Codex's sandbox there are
+  five, and the fifth wraps into the first column rather than stretching across the card.
+- Thinking sits beside Model: `default` (or `default · <level>` when the model names its
+  own) plus the levels that model takes (`effortsFor`). A model or level the current list
+  doesn't offer — another agent, another account, another provider — is dropped rather
+  than shown as `default` while it still runs.
 - Model provider: a `Select` ("default" + each configured BYOK provider the active agent
   can use) that appears only when at least one fits — progressive disclosure, like the
   Codex sandbox. Picking one shows an `.ns-hint` naming the base URL; Copilot + provider

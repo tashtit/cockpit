@@ -1541,6 +1541,10 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .ns-provider.active .acct-chip { color: inherit; }
 .ns-options { display: flex; gap: var(--s4); flex-wrap: wrap; }
 .ns-opt { display: flex; flex-direction: column; gap: var(--s1); flex: 1; min-width: 130px; }
+/* an agent's options run to five cells (account, model provider or sandbox, model,
+   thinking, permissions) — a grid keeps a wrapped one in its column, where the flex row
+   stretched a lone Permissions across the whole card */
+.ns-agent-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 /* the one text-input recipe, level with Selects and .ns-account-single. Height is
    explicit: inputs don't inherit the body's 1.5 line-height, so padding alone left
    them at ~24px — ragged beside a 28px Select in the same row */

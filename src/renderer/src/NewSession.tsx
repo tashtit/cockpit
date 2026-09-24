@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
+  AgentModel,
   AgentOptions,
   CodexSandbox,
   ModelEndpoint,
@@ -8,6 +9,7 @@ import type {
   Provider,
   RepoGroup
 } from '../../shared/types'
+import { effortsFor } from '../../shared/agent-models'
 import { endpointSupports } from '../../shared/endpoints'
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
@@ -88,24 +90,25 @@ export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = 
   { v: 'yolo', label: 'YOLO', hint: 'bypass all approvals — trusted repos only' }
 ]
 
-/** Suggestions only — the field accepts any model the CLI accepts. */
-export const MODEL_SUGGESTIONS: Record<Provider, string[]> = {
-  claude: ['sonnet', 'opus', 'haiku'],
-  codex: ['gpt-5-codex', 'o4-mini'],
-  copilot: ['claude-sonnet-4.5', 'gpt-5']
-}
-
 export const AGENT_BLURB: Record<Provider, string> = {
   claude: 'Deep multi-step coding, hooks & skills',
   codex: 'Fast sandboxed execution',
   copilot: 'GitHub-native, PR-focused'
 }
 
-/** Per-agent option state (model / BYOK endpoint / codex sandbox) shared by the
+/** Per-agent option state (model / thinking / BYOK endpoint / codex sandbox) shared by the
  *  New-session and Handoff forms, so the option plumbing can never drift apart. */
 export type AgentOptionsState = {
+  /** The model that would run — one the catalog offers, or typed where none is known */
   readonly model: string
   readonly setModel: (m: string) => void
+  /** The thinking level that would run — one the model takes, or '' for its default */
+  readonly effort: string
+  readonly setEffort: (e: string) => void
+  /** Thinking levels on offer: the chosen model's own, else the agent's */
+  readonly efforts: readonly string[]
+  /** The level the chosen model runs at when none is picked, when its source says */
+  readonly defaultEffort: string | undefined
   readonly codexSandbox: CodexSandbox | ''
   readonly setCodexSandbox: (s: CodexSandbox | '') => void
   readonly endpointId: string
@@ -113,37 +116,42 @@ export type AgentOptionsState = {
   readonly endpoints: ModelEndpoint[]
   readonly usableEndpoints: ModelEndpoint[]
   readonly endpoint: ModelEndpoint | undefined
-  /** Models to pick from: live listing when it arrived, else the cached list. */
-  readonly modelChoices: string[]
+  /** Every model to pick from: the custom provider's catalog, else what the agent offers
+   *  under the chosen account. Null while that listing loads; empty when nothing lists
+   *  what the backend serves (an Azure deployment) — the one case a model is typed. */
+  readonly catalog: readonly AgentModel[] | null
   /** Copilot never learns a custom provider's catalog on its own — it needs an explicit model. */
   readonly modelMissing: boolean
   /** The composed per-agent options for ChatRequest */
   readonly options: AgentOptions
 }
 
-export function useAgentOptions(provider: Provider): AgentOptionsState {
+/** `configDir` is the chosen account's home: each one lists its own models. */
+export function useAgentOptions(provider: Provider, configDir: string | undefined): AgentOptionsState {
   const [model, setModel] = useState('')
+  const [effort, setEffort] = useState('')
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
   const [endpointId, setEndpointId] = useState('')
   /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
+  /** Every model each agent offers, per config home (`agentKey`) — main reads the CLIs' own lists */
+  const [agentModels, setAgentModels] = useState<Record<string, AgentModel[]>>({})
 
   useEffect(() => {
     // optional call: a preload from before this method must not crash the form (dev HMR)
     void api.getModelEndpoints?.().then(setEndpoints)
   }, [])
 
-  // model suggestions and endpoints differ per agent — reset stale choices on switch
+  // models, levels and endpoints differ per agent — reset stale choices on switch
   useEffect(() => {
     setModel('')
+    setEffort('')
     setEndpointId('')
   }, [provider])
 
   const usableEndpoints = endpoints.filter((e) => endpointSupports(provider, e))
   const endpoint = usableEndpoints.find((e) => e.id === endpointId)
-  const modelMissing = provider === 'copilot' && !!endpoint && !model.trim()
-  const modelChoices = endpoint ? (endpointModels[endpoint.id] ?? endpoint.models ?? []) : []
 
   // ask the provider itself which models it serves; the cached list covers the meantime
   useEffect(() => {
@@ -152,23 +160,38 @@ export function useAgentOptions(provider: Provider): AgentOptionsState {
     void api
       .listEndpointModels?.(id)
       .then((m) => m.length > 0 && setEndpointModels((prev) => ({ ...prev, [id]: m })))
-      .catch(() => {}) // unreachable provider → free-text model entry still works
+      .catch(() => {}) // unreachable provider → its cached list, or free text, still works
   }, [endpoint?.id])
 
-  // a model typed as free text must not silently survive once a catalog arrives
-  // that doesn't serve it — the picker would show "choose…" while the stale value runs.
-  // Keyed on the catalog's contents: a live listing with the same count but different
-  // names must also clear the choice.
-  const modelChoicesKey = modelChoices.join('\n')
+  // one listing per agent and account home, fetched once
+  const agentKey = `${provider}|${configDir ?? ''}`
   useEffect(() => {
-    if (endpoint && modelChoices.length > 0 && model && !modelChoices.includes(model)) {
-      setModel('')
-    }
-  }, [endpoint?.id, modelChoicesKey])
+    if (agentModels[agentKey]) return
+    const key = agentKey
+    void Promise.resolve(api.listAgentModels?.(provider, configDir) ?? [])
+      .then((m) => setAgentModels((prev) => ({ ...prev, [key]: m })))
+      .catch(() => setAgentModels((prev) => ({ ...prev, [key]: [] })))
+  }, [agentKey])
+
+  const catalog: readonly AgentModel[] | null = endpoint
+    ? (endpointModels[endpoint.id] ?? endpoint.models ?? []).map((id) => ({ id, label: id }))
+    : (agentModels[agentKey] ?? null)
+  // a choice the current list doesn't offer (another account, another provider, a
+  // catalog that arrived without it) is dropped, never run behind a picker showing default
+  const chosen =
+    catalog === null ? '' : catalog.length === 0 ? model : catalog.some((m) => m.id === model) ? model : ''
+  const info = catalog?.find((m) => m.id === chosen)
+  const efforts = effortsFor(provider, info)
+  const chosenEffort = effort && efforts.includes(effort) ? effort : ''
+  const modelMissing = provider === 'copilot' && !!endpoint && !chosen.trim()
 
   return {
-    model,
+    model: chosen,
     setModel,
+    effort: chosenEffort,
+    setEffort,
+    efforts,
+    defaultEffort: info?.defaultEffort,
     codexSandbox,
     setCodexSandbox,
     endpointId,
@@ -176,10 +199,11 @@ export function useAgentOptions(provider: Provider): AgentOptionsState {
     endpoints,
     usableEndpoints,
     endpoint,
-    modelChoices,
+    catalog,
     modelMissing,
     options: {
-      model: model.trim() || undefined,
+      model: chosen.trim() || undefined,
+      effort: chosenEffort || undefined,
       codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
       modelEndpoint: endpoint?.id
     }
@@ -235,7 +259,7 @@ export function AccountField({
   )
 }
 
-/** The agent-option `.ns-opt` cells (model provider / model / codex sandbox). */
+/** The agent-option `.ns-opt` cells (model provider / model / thinking / codex sandbox). */
 export function AgentOptionsFields({
   provider,
   o
@@ -262,38 +286,48 @@ export function AgentOptionsFields({
       )}
       <div className="ns-opt">
         <label className="ns-label" htmlFor="ns-model">Model</label>
-        {o.endpoint && o.modelChoices.length > 0 ? (
-          // the provider told us what it serves — pick from its own catalog
+        {o.catalog?.length === 0 ? (
+          // nothing lists what this backend serves — the one place a model is typed
+          <input
+            id="ns-model"
+            placeholder={o.modelMissing ? 'required' : 'default'}
+            value={o.model}
+            onChange={(e) => o.setModel(e.target.value)}
+          />
+        ) : (
           <Select
             id="ns-model"
             ariaLabel="Model"
             mono
-            value={o.modelChoices.includes(o.model) ? o.model : ''}
+            value={o.model}
             options={[
               {
                 value: '',
-                label: provider === 'copilot' ? 'choose a model…' : 'default'
+                label: o.catalog === null ? 'loading models…' : o.modelMissing ? 'choose a model…' : 'default'
               },
-              ...o.modelChoices.map((m) => ({ value: m, label: m }))
+              ...(o.catalog ?? []).map((m) => ({
+                value: m.id,
+                label: m.label,
+                hint: m.label === m.id ? m.description : m.id,
+                title: m.description
+              }))
             ]}
             onChange={o.setModel}
           />
-        ) : (
-          <>
-            <input
-              id="ns-model"
-              list="ns-models"
-              placeholder={o.modelMissing ? 'required' : 'default'}
-              value={o.model}
-              onChange={(e) => o.setModel(e.target.value)}
-            />
-            <datalist id="ns-models">
-              {MODEL_SUGGESTIONS[provider].map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </>
         )}
+      </div>
+      <div className="ns-opt">
+        <label className="ns-label" htmlFor="ns-effort">Thinking</label>
+        <Select
+          id="ns-effort"
+          ariaLabel="Thinking"
+          value={o.effort}
+          options={[
+            { value: '', label: o.defaultEffort ? `default · ${o.defaultEffort}` : 'default' },
+            ...o.efforts.map((e) => ({ value: e, label: e }))
+          ]}
+          onChange={o.setEffort}
+        />
       </div>
       {provider === 'codex' && (
         <div className="ns-opt">
@@ -330,7 +364,7 @@ export function AgentOptionsHints({
       {o.endpoint && (
         <div className="ns-hint">
           Runs on {o.endpoint.baseUrl}
-          {o.modelChoices.length === 0 &&
+          {o.catalog?.length === 0 &&
             (provider === 'copilot'
               ? ' — a model this provider serves is required.'
               : ' — set a model this provider serves.')}
@@ -373,7 +407,6 @@ export function NewSession({
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const atts = useImageAttachments(initialImages)
-  const agent = useAgentOptions(provider)
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -387,6 +420,7 @@ export function NewSession({
 
   const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
   const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider)
+  const agent = useAgentOptions(provider, account?.configDir)
 
   // keyboard users land in the task field instead of tabbing through the sidebar
   useEffect(() => {
@@ -483,7 +517,7 @@ export function NewSession({
           })}
         </div>
 
-        <div className="ns-options">
+        <div className="ns-options ns-agent-options">
           <AccountField
             opts={opts}
             account={account}
