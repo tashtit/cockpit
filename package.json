@@ -72,6 +72,11 @@
   "optionalDependencies": {
     "fsevents": "^2.3.3"
   },
+  "overrides": {
+    "vitepress": {
+      "vite": "$vite"
+    }
+  },
   "allowScripts": {
     "esbuild": true,
     "fsevents": true,
