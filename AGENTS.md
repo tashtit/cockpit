@@ -183,6 +183,10 @@ full-screen specs; don't set it unasked.
 The user guide is a VitePress site in `docs/` (`docs/guide/`, one page per feature). It is
 **deliberately not deployed** — there is no Pages workflow and none is wanted yet. It is read
 locally with `npm run docs:dev`, so treat it as part of the repo rather than as a published site.
+VitePress 1.x pins its own `vite` 5 (and `esbuild` 0.21), both past their security fixes, so
+`overrides` in `package.json` hands it the root `vite` instead — drop the override once VitePress 2
+is stable. Pages are compiled as Vue templates: a bare `<placeholder>` outside a code span is an
+unclosed element that fails `docs:build`, so write it `&lt;placeholder&gt;`.
 
 Keep it current in the same commit as the change: anything that alters what a user sees or does —
 a new view, a renamed control, a changed default, a new setting — updates its page under
