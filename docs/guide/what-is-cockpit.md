@@ -2,6 +2,8 @@
 
 Cockpit is a macOS desktop hub for the three big coding agents — **Claude Code**, **Codex**, and **GitHub Copilot CLI**. If you use more than one of them, your work is scattered across three home directories, three session formats, and three configuration systems. Cockpit puts all of it in one window: browse every session across providers, continue any conversation, start new agent runs in isolated worktrees, and manage the shared AI setup once instead of three times.
 
+![Cockpit at work: a task typed on Home starts Claude in its own worktree, the board shows two sessions flying and then landing, and ⌘K searches every agent's transcripts](/readme/hero.gif)
+
 ## The problem it solves
 
 Each agent CLI keeps its own world:

@@ -17,6 +17,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 - `npm run package` — macOS disk images + zips into `dist/` via electron-builder (unsigned without Apple credentials; version `0.0.0` outside a release)
 - `npm run test:packaged` — Playwright smoke test against the `.app` from `npm run package` (`tests/e2e/packaged.spec.ts`; opt-in, uses the real userData dir)
 - `npm run docs:dev` — the user guide (VitePress, `docs/`) with hot reload; `docs:build` / `docs:preview` for the built site
+- `npm run stats` — adoption and outside feedback from read-only `gh api` calls (no telemetry): traffic, stars, release downloads by meaning (dmg = new install, zip = update, `latest-mac.yml` = update check → active-install estimate), non-team issues/comments/discussions. Folds GitHub's 14-day traffic and one counter snapshot per UTC day into `~/.local/share/cockpit-stats/history.json` (`--history <file>`, `--json`); logic in `scripts/stats-core.mts`
 - `npm run ui:tour` — builds, then screenshots every view and state against a hermetic fixture world (`scripts/ui-tour/`): desktop, an ordinary 900×700 window, the 560×420 floor and 200% zoom, sessions actually flying and landing (stub agent CLIs stream slowly), and a first launch. Writes `test-results/ui-tour/` with an `index.html` contact sheet; a shot it can't reach is marked missing and fails the run. `-- --only chat,settings` narrows it, `-- --no-live` skips the ~40s of live turns
 
 Both `npm run typecheck` and `npm test` must pass before delivering.
@@ -180,9 +181,11 @@ full-screen specs; don't set it unasked.
 
 ## Documentation
 
-The user guide is a VitePress site in `docs/` (`docs/guide/`, one page per feature). It is
-**deliberately not deployed** — there is no Pages workflow and none is wanted yet. It is read
-locally with `npm run docs:dev`, so treat it as part of the repo rather than as a published site.
+The user guide is a VitePress site in `docs/` (`docs/guide/`, one page per feature), published
+to GitHub Pages at https://tashtit.github.io/cockpit/ by `.github/workflows/docs.yml` on every
+push to `main` that touches it; pull requests only build it, which fails on a dead link. It has
+no analytics and none is wanted. `npm run docs:dev` serves it under the same `/cockpit/` base —
+a `head` tag's URL must carry that base itself, since only themeConfig and markdown links get it.
 VitePress 1.x pins its own `vite` 5 (and `esbuild` 0.21), both past their security fixes, so
 `overrides` in `package.json` hands it the root `vite` instead — drop the override once VitePress 2
 is stable. Pages are compiled as Vue templates: a bare `<placeholder>` outside a code span is an
