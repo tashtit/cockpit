@@ -1,6 +1,7 @@
 import { basename, dirname, join } from 'node:path'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
+import { toolArtifact } from './artifacts'
 import {
   capText,
   readJson,
@@ -309,6 +310,8 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
     if (truncated) {
       out.push({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
     }
+    // where each call's row sits, so a failed completion can mark it
+    const callRows = new Map<string, number>()
     for (const ev of lines) {
       const ts = toMs(ev.timestamp) ?? undefined
       if (ev.type === 'user.message' || ev.type === 'assistant.message') {
@@ -321,14 +324,21 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
         const args = ev.data?.arguments ?? ev.data?.input ?? ''
         // the same humanized headline Claude and Codex rows get — raw JSON stays in the detail
         const preview = toolPreview(toolName, args)
+        const artifact = toolArtifact(toolName, args)
+        if (typeof ev.data?.toolCallId === 'string') callRows.set(ev.data.toolCallId, out.length)
         out.push({
           role: 'assistant',
           kind: 'tool_call',
           toolName,
           text: truncate(JSON.stringify(args), 400),
           ...(preview ? { preview: truncate(preview, 200) } : {}),
+          ...(artifact ? { artifact } : {}),
           ts
         })
+      } else if (ev.type === 'tool.execution_complete' && ev.data?.success === false) {
+        // an edit that never landed must not read as one
+        const at = typeof ev.data.toolCallId === 'string' ? callRows.get(ev.data.toolCallId) : undefined
+        if (at !== undefined) out[at] = { ...out[at]!, failed: true }
       } else if (ev.type === 'system.message') {
         const text = typeof ev.data?.content === 'string' ? ev.data.content : ''
         if (text) out.push({ role: 'system', kind: 'system', text: truncate(text, 200), ts })

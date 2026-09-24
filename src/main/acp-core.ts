@@ -1,6 +1,7 @@
 import type { AcpPermissionOption, ChatEvent, PermissionMode } from '../shared/types'
 import { ACP_PROTOCOL_VERSION } from '../shared/acp'
 import { shellPreview, truncate } from './parsers/util'
+import { acpDiffArtifact, acpPlanArtifact } from './parsers/artifacts'
 
 /**
  * The IO-free half of the ACP client: everything that turns protocol JSON into Cockpit's
@@ -75,8 +76,13 @@ function blockText(content: unknown): string {
  * an agent introduce a call with either `tool_call` or a first `tool_call_update`, so
  * the id is what decides whether a line is new, not the update kind.
  *
+ * `plan` is the agent's whole to-do list each time, so it becomes a row carrying the
+ * list for the Work panel; a call announced with `diff` content carries the edit the
+ * same way. A diff that only arrives in a later update for a call already on screen
+ * is not carried yet (the row has nowhere to put it) — the session's log still has it.
+ *
  * Deliberately unmapped, because each would need a renderer concept Cockpit does not
- * have yet: `agent_thought_chunk` and `plan` (the Codex parser drops reasoning too),
+ * have yet: `agent_thought_chunk` (the Codex parser drops reasoning too),
  * `usage_update` (a live context-window meter — the one worth building next),
  * `available_commands_update`, `config_option_update`, `current_mode_update`.
  */
@@ -93,6 +99,24 @@ export function acpUpdateToEvents(
     return text ? [{ turnId, type: 'text', text }] : []
   }
 
+  if (kind === 'plan') {
+    const artifact = acpPlanArtifact(u.entries)
+    // an empty plan is the agent's opening state more often than a cleared list — a
+    // "0 steps" row would only be noise
+    if (!artifact || artifact.kind !== 'todos' || artifact.items.length === 0) return []
+    const n = artifact.items.length
+    return [
+      {
+        turnId,
+        type: 'tool',
+        toolName: 'plan',
+        detail: truncate(JSON.stringify(u.entries ?? []), 200),
+        preview: `${n} ${n === 1 ? 'step' : 'steps'}`,
+        artifact
+      }
+    ]
+  }
+
   if (kind === 'tool_call' || kind === 'tool_call_update') {
     const id = typeof u.toolCallId === 'string' ? u.toolCallId : ''
     // an update for a call already on screen carries only its output and status, and
@@ -103,13 +127,15 @@ export function acpUpdateToEvents(
     if (kind === 'tool_call_update' && typeof u.title !== 'string') return []
     seenToolCalls.add(id)
     const preview = previewFor(u.kind, u.title, u.rawInput)
+    const artifact = acpDiffArtifact(u.content)
     return [
       {
         turnId,
         type: 'tool',
         toolName: toolNameFor(u.kind),
         detail: truncate(JSON.stringify(u.rawInput ?? u.title ?? {}), 200),
-        ...(preview ? { preview: truncate(preview, 200) } : {})
+        ...(preview ? { preview: truncate(preview, 200) } : {}),
+        ...(artifact ? { artifact } : {})
       }
     ]
   }

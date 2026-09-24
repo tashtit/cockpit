@@ -1,6 +1,7 @@
 import { basename, join, sep } from 'node:path'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
+import { toolArtifact } from './artifacts'
 import {
   capText,
   contentToText,
@@ -146,12 +147,29 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
   }
 }
 
+/**
+ * What a call's result says about the call itself: a refused or failed call is marked
+ * (an edit that never landed must not read as one), and a created task learns the
+ * number Claude gave it — `Task #3 created successfully` — which is what later
+ * TaskUpdate calls name it by.
+ */
+function answered(call: SessionMessage, result: string, isError: boolean): SessionMessage {
+  if (isError) return { ...call, failed: true }
+  const a = call.artifact
+  if (a?.kind !== 'task-add') return call
+  const ids = [...result.matchAll(/Task #(\w+)/g)].map((m) => m[1]!)
+  return ids.length === a.items.length ? { ...call, artifact: { ...a, ids } } : call
+}
+
 export function parseClaudeMessages(file: string): SessionMessage[] {
   const { lines, truncated } = readJsonlTail(file)
   const out: SessionMessage[] = []
   if (truncated) {
     out.push({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
   }
+  // where each call's row sits: a result answers its call by id, and parallel calls
+  // put several results after several calls, so adjacency would pair them wrong
+  const callRows = new Map<string, number>()
   for (const l of lines) {
     const ts = toMs(l.timestamp) ?? undefined
     if (l.type === 'user' || l.type === 'assistant') {
@@ -163,6 +181,8 @@ export function parseClaudeMessages(file: string): SessionMessage[] {
           if (b?.type === 'tool_use') {
             const preview = toolPreview(b.name ?? 'tool', b.input)
             const asks = parseAsks(b.name ?? '', b.input)
+            const artifact = toolArtifact(b.name ?? '', b.input)
+            if (typeof b.id === 'string') callRows.set(b.id, out.length)
             out.push({
               role: 'assistant',
               kind: 'tool_call',
@@ -170,16 +190,16 @@ export function parseClaudeMessages(file: string): SessionMessage[] {
               text: truncate(JSON.stringify(b.input ?? {}), 400),
               ...(preview ? { preview: truncate(preview, 200) } : {}),
               ...(asks ? { asks } : {}),
+              ...(artifact ? { artifact } : {}),
               ts
             })
           }
-          if (b?.type === 'tool_result')
-            out.push({
-              role: 'tool',
-              kind: 'tool_result',
-              text: truncate(contentToText(b.content) || '(result)', 400),
-              ts
-            })
+          if (b?.type === 'tool_result') {
+            const text = contentToText(b.content)
+            const at = typeof b.tool_use_id === 'string' ? callRows.get(b.tool_use_id) : undefined
+            if (at !== undefined) out[at] = answered(out[at]!, text, b.is_error === true)
+            out.push({ role: 'tool', kind: 'tool_result', text: truncate(text || '(result)', 400), ts })
+          }
         }
       }
     } else if (l.type === 'system' && typeof l.content === 'string') {

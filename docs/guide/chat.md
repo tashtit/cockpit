@@ -73,6 +73,11 @@ question, its options with the agent's own one-line descriptions, and **Send ans
 Multi-select questions take several picks; a question the conversation has moved past
 stays a plain tool row.
 
+When the question is Claude's plan gate, the card shows the plan itself above
+**Approve the plan** and **Keep planning**, so you approve what you have read, not a
+title. A long plan scrolls inside the card, or **Open in the Work panel** gives it the
+whole side of the window.
+
 The pick is sent as your next message, worded from the question (`Answering your
 question: - Which layout…? → packages/<runtime>`), so it stands on its own in the
 transcript the agent resumes from — and you can always ignore the card and type your
@@ -83,6 +88,44 @@ The same stopped-to-ask state puts `asks you` on the session's row, on the home 
 and in the Dock badge, whether the session runs in Cockpit or in a terminal; see
 [Notifications](/guide/notifications).
 :::
+
+## Plans, to-dos and edits: the Work panel
+
+Agents hand you things to look at while they work: a plan to approve, a to-do list they
+tick off, and edits to your files. Cockpit reads each of them from the agent's own tool
+calls and opens them in the **Work** panel beside the conversation. The panel has three
+tabs:
+
+- **Plan**: the plan the agent proposed (Claude Code's plan mode, Copilot CLI's
+  `exit_plan_mode`), rendered as a document. If the agent revised it, **Earlier** and
+  **Later** step through each version. While the plan is waiting for your approval, the
+  tab says so.
+- **To-dos**: the agent's list as it stands now: Claude Code's tasks (or its older
+  `TodoWrite` list), Codex's plan, or an ACP agent's plan. Each step shows as not
+  started, in progress or done.
+- **Edits**: every file the agent changed, in the order it first touched them. Each change
+  appears the way the call described it: a Claude `Edit` or `Write`, a Codex or Copilot
+  patch, a Copilot `edit` or `create`. An edit whose call failed is still listed, marked
+  **didn't apply**.
+
+A tool row that carries one of these is a single click: the row names the plan, the list's
+progress or the files and their `+`/`−` counts, and clicking it opens the panel at that
+item. The header's **Work** key (⌘J) appears once the conversation holds any of them. It
+opens the panel on whatever matters now: a plan waiting for you, else a list still in
+progress, else the edits. Escape closes the panel and returns you to where you were.
+
+When the window is too narrow to hold the conversation and the panel side by side, the
+panel covers the conversation until you close it, the same way **Changes** does.
+
+::: tip What the agent said, and what is on disk
+The Edits tab shows what each call *said* it changed. [**Changes**](/guide/worktrees-and-prs)
+(⌘D) is the worktree's own diff, which is the record of what is actually on disk. A Codex
+turn that Cockpit is streaming reports which files it changed but not the lines; reopen
+the session once the turn ends to read the lines from its log.
+:::
+
+Copilot CLI keeps its to-dos in a database of its own rather than in its log, so a
+Copilot session's To-dos tab stays empty. Its plans and edits are shown.
 
 ## Provider quirks
 

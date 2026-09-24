@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, Provider } from '../../shared/types'
+import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, Provider, TodoStatus } from '../../shared/types'
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude',
@@ -285,6 +285,52 @@ const OCTICON_QUESTION =
 export const CheckIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_CHECK} size={size} />
 )
+
+/** GitHub's x on its own: closing a panel. */
+export const XIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
+  <Octicon d={OCTICON_X} size={size} />
+)
+
+/** A checklist: the chat header's Work key — the agent's plan, to-dos and edits. */
+export const WorkIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M1.75 3.5 3 4.75 5.25 2.5M1.75 10.5 3 11.75l2.25-2.25M7.75 3.75h6.5M7.75 8h6.5M7.75 12.25h6.5" />
+  </svg>
+)
+
+/**
+ * Where one to-do stands, as a shape, never only a colour: an empty ring (not
+ * started), a ring around a dot (under way), a ring around a check (done).
+ */
+export function TodoMark({ status, size = 12 }: { status: TodoStatus; size?: number }): JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="6.25" />
+      {status === 'in_progress' && <circle cx="8" cy="8" r="2.5" fill="currentColor" stroke="none" />}
+      {status === 'completed' && <path d="M5.25 8.25 7.1 10.1 10.75 6.25" />}
+    </svg>
+  )
+}
 
 /** The same question mark, on its own: the chat's card for a question awaiting a pick. */
 export const QuestionIcon = ({ size = 12 }: { size?: number }): JSX.Element => (

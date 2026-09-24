@@ -355,6 +355,39 @@ const STATIC: readonly Shot[] = [
   { view: 'chat', name: 'chat-worktree', go: (w) => open(w, /Add pagination to the sessions list/) },
   // the agent stopped to ask: its options, answerable in place
   { view: 'chat', name: 'chat-asks', go: (w) => open(w, /Split the SDK into a monorepo/) },
+  // the agent's work beside the conversation: a row opens the panel at its own edit
+  {
+    view: 'chat',
+    name: 'chat-work-edits',
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.locator('.messages').evaluate((el) => el.scrollTo({ top: 0 }))
+      await w.locator('.tool-run summary').first().click()
+      await w.locator('.tool-open', { hasText: 'src/auth/login.ts' }).first().click()
+      await pause(w, 500)
+    }
+  },
+  // ⌘J opens on what matters now — here the task list still under way
+  {
+    view: 'chat',
+    name: 'chat-work-todos',
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await pause(w, 400)
+    }
+  },
+  // a plan waiting for approval is read in its card, and opens in the panel
+  { view: 'chat', name: 'chat-plan', go: (w) => open(w, /Plan rate limiting for the public API/) },
+  {
+    view: 'chat',
+    name: 'chat-work-plan',
+    go: async (w) => {
+      await open(w, /Plan rate limiting for the public API/)
+      await w.getByRole('button', { name: 'Open in the Work panel' }).click()
+      await pause(w, 500)
+    }
+  },
   { view: 'chat', name: 'chat-codex', go: (w) => open(w, /Add a fallback when the billing API/) },
   { view: 'chat', name: 'chat-copilot', go: (w) => open(w, /Tidy the usage panel spacing/) },
   {
@@ -374,7 +407,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

@@ -178,6 +178,20 @@ describe('parseClaudeStreamLine', () => {
     })
     expect(mcp.type === 'tool' && mcp.preview).toBeFalsy()
   })
+  it('carries a plan or an edit whole, where the detail is cut to 200 characters', () => {
+    const plan = '# Plan\n\n' + 'step. '.repeat(100)
+    const [ev] = parseClaudeStreamLine('t', {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'ExitPlanMode', input: { plan } }] }
+    })
+    expect(ev).toMatchObject({ type: 'tool', artifact: { kind: 'plan', text: plan.trim() } })
+    if (ev.type === 'tool') expect(ev.asks?.length).toBe(1)
+    const [edit] = parseClaudeStreamLine('t', {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/r/a.ts', old_string: 'x', new_string: 'y' } }] }
+    })
+    expect(edit).toMatchObject({ type: 'tool', artifact: { kind: 'edits', files: [{ path: '/r/a.ts' }] } })
+  })
   it('result emits done with cost', () => {
     const ev = parseClaudeStreamLine('t', { type: 'result', session_id: 's1', total_cost_usd: 0.12 })
     expect(ev.find((e) => e.type === 'done')).toMatchObject({ costUsd: 0.12 })
@@ -232,9 +246,30 @@ describe('parseCodexStreamLine', () => {
       type: 'item.completed',
       item: { type: 'file_change', changes: [{ path: 'src/a.ts', kind: 'update' }, { path: 'src/b.ts', kind: 'add' }] }
     })
-    expect(edit).toMatchObject({ type: 'tool', toolName: 'edit', preview: 'src/a.ts, src/b.ts' })
+    // named as the rollout's FileChange row is, so a rejoined turn matches the two
+    expect(edit).toMatchObject({ type: 'tool', toolName: 'apply_patch', preview: 'apply_patch src/a.ts, src/b.ts' })
     const [old] = parseCodexStreamLine('t', { msg: { type: 'exec_command_begin', command: ['bash', '-lc', 'npm test'] } })
     expect(old).toMatchObject({ type: 'tool', preview: 'npm test' })
+  })
+  it('carries what the Work panel shows: a file change names its files, a todo list is the plan', () => {
+    const [edit] = parseCodexStreamLine('t', {
+      type: 'item.completed',
+      item: { type: 'file_change', changes: [{ path: 'src/a.ts', kind: 'update' }] }
+    })
+    expect(edit).toMatchObject({
+      type: 'tool',
+      artifact: { kind: 'edits', files: [{ path: 'src/a.ts', change: 'edit', hunks: [] }] }
+    })
+    const [plan] = parseCodexStreamLine('t', {
+      type: 'item.completed',
+      item: { type: 'todo_list', items: [{ text: 'Read', completed: true }, { text: 'Write', completed: false }] }
+    })
+    expect(plan).toMatchObject({
+      type: 'tool',
+      toolName: 'update_plan',
+      preview: '2 steps',
+      artifact: { kind: 'todos', items: [{ text: 'Read', status: 'completed' }, { text: 'Write', status: 'pending' }] }
+    })
   })
 })
 

@@ -174,11 +174,29 @@ function populate(world: World): void {
       {
         say: 'Let me reproduce it first.',
         tools: [
+          // Claude's task tools: the Work panel's to-do list, numbered by their results
+          ...['Reproduce the flake', 'Fix the login timeout', 'Add a regression test', 'Open the pull request'].map((subject, i) => ({
+            name: 'TaskCreate',
+            input: { subject, description: subject, activeForm: subject },
+            result: `Task #${i + 1} created successfully: ${subject}`
+          })),
+          { name: 'TaskUpdate', input: { taskId: '1', status: 'in_progress' }, result: 'Updated task #1 status' },
           { name: 'Bash', input: { command: 'npm run test:e2e -- --grep login --repeat-each 20' }, result: '14 passed, 6 failed\n  ✘ login › retries on transient failure (TimeoutError: 800ms exceeded)' },
+          { name: 'TaskUpdate', input: { taskId: '1', status: 'completed' }, result: 'Updated task #1 status' },
+          { name: 'TaskUpdate', input: { taskId: '2', status: 'in_progress' }, result: 'Updated task #2 status' },
           { name: 'Read', input: { file_path: `${flake}/src/auth/login.ts` }, result: 'export async function login(creds) {\n  return client.post("/session", creds, { timeout: 800 })\n}' },
           { name: 'Grep', input: { pattern: 'timeout', path: 'src/auth' }, result: 'src/auth/login.ts:2' },
-          { name: 'Edit', input: { file_path: `${flake}/src/auth/login.ts`, old_string: 'timeout: 800', new_string: 'timeout: TIMEOUT' } },
-          { name: 'Bash', input: { command: 'npm run test:e2e -- --grep login --repeat-each 20' }, result: '20 passed' }
+          {
+            name: 'Edit',
+            input: {
+              file_path: `${flake}/src/auth/login.ts`,
+              old_string: 'export async function login(creds) {\n  return client.post("/session", creds, { timeout: 800 })\n}',
+              new_string:
+                'const TIMEOUT = 5_000\n\nexport async function login(creds) {\n  return withRetry(() => client.post("/session", creds, { timeout: TIMEOUT }), { attempts: 3 })\n}'
+            }
+          },
+          { name: 'Bash', input: { command: 'npm run test:e2e -- --grep login --repeat-each 20' }, result: '20 passed' },
+          { name: 'TaskUpdate', input: { taskId: '2', status: 'completed' }, result: 'Updated task #2 status' }
         ]
       },
       { say: RICH_REPLY },
@@ -186,9 +204,17 @@ function populate(world: World): void {
       {
         say: 'Adding a test that stubs a slow DNS resolver.',
         tools: [
-          { name: 'Write', input: { file_path: `${flake}/tests/login-slow-dns.test.ts`, content: 'test("survives a slow first lookup", async () => {})\n' } },
+          { name: 'TaskUpdate', input: { taskId: '3', status: 'in_progress' }, result: 'Updated task #3 status' },
+          {
+            name: 'Write',
+            input: {
+              file_path: `${flake}/tests/login-slow-dns.test.ts`,
+              content: 'import { login } from "../src/auth/login"\n\ntest("survives a slow first lookup", async () => {\n  stubDns({ firstLookupMs: 1_200 })\n  await expect(login(creds)).resolves.toBeDefined()\n})\n'
+            }
+          },
           { name: 'Bash', input: { command: 'npx vitest run tests/login-slow-dns.test.ts' }, result: '✓ survives a slow first lookup (1.3s)' },
-          { name: 'Bash', input: { command: 'git commit -am "fix(auth): retry transient login failures"' }, result: '[cockpit/login-retry-flake 4e1a2c9] fix(auth): retry transient login failures' }
+          { name: 'Bash', input: { command: 'git commit -am "fix(auth): retry transient login failures"' }, result: '[cockpit/login-retry-flake 4e1a2c9] fix(auth): retry transient login failures' },
+          { name: 'TaskUpdate', input: { taskId: '3', status: 'completed' }, result: 'Updated task #3 status' }
         ]
       },
       { say: 'Committed as `4e1a2c9`. The branch is ready for a PR.' }
@@ -210,6 +236,46 @@ function populate(world: World): void {
           {
             name: 'AskUserQuestion',
             input: { questions: [{ question: 'Which layout should the SDK packages use?', header: 'Layout', options: [{ label: 'packages/<runtime>' }, { label: 'sdk/<runtime>' }] }] },
+            pending: true
+          }
+        ]
+      }
+    ]
+  })
+  // a plan waiting for approval, read in its card — old enough that nothing is live
+  claude({
+    cwd: code('atlas'),
+    branch: 'main',
+    title: 'Plan rate limiting for the public API',
+    hoursAgo: 2,
+    turns: [
+      { user: 'Plan how we add rate limiting to the public API. Plan only — no code yet.' },
+      {
+        say: 'I read the gateway and its middleware chain. Here is the plan.',
+        tools: [
+          { name: 'Read', input: { file_path: `${code('atlas')}/src/gateway/middleware.ts` }, result: 'export const chain = [auth, cors, route]' },
+          {
+            name: 'ExitPlanMode',
+            input: {
+              plan: [
+                '# Rate limiting for the public API',
+                '',
+                'A token bucket per API key, enforced in the gateway before routing.',
+                '',
+                '## Steps',
+                '',
+                '1. **Bucket store** — a Redis-backed bucket keyed by `key:route-group`, 100 requests a minute, burst of 20.',
+                '2. **Middleware** — `rateLimit()` between `auth` and `route` in `src/gateway/middleware.ts`; answers `429` with `Retry-After`.',
+                '3. **Headers** — `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` on every response.',
+                '4. **Tests** — a burst test and a refill test against a fake clock.',
+                '',
+                '## Out of scope',
+                '',
+                '- Per-user limits inside an organization',
+                '- A dashboard for usage'
+              ].join('\n'),
+              planFilePath: join(world.home, '.claude', 'plans', 'rate-limiting.md')
+            },
             pending: true
           }
         ]
