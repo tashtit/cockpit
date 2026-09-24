@@ -120,6 +120,19 @@ describe('flipping a switch', () => {
     expect(claudeJson().mcpServers.linear.url).toBe('https://mcp.linear.app/sse')
   })
 
+  // switching off takes the server out of the agent's config; what switching back on
+  // writes used to be the compared fields alone, and the header is the sign-in
+  it('gives an http server its headers back when it is switched off and on again', async () => {
+    const api = { type: 'http', url: 'https://mcp.example.dev/mcp', headers: { Authorization: 'Bearer tok-123' } }
+    seedClaudeMcp('api', api)
+    getPanel(null)
+    await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'api' }, 'claude', false)
+    expect(claudeJson().mcpServers.api).toBeUndefined()
+    const on = await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'api' }, 'claude', true)
+    expect(claudeJson().mcpServers.api).toEqual(api)
+    expect(cell(on, 'api', 'claude').state).toBe('on')
+  })
+
   it('copies a skill folder into the agent it is switched on for', async () => {
     seedSkill('.claude', 'review', 'review a diff')
     getPanel(null)
@@ -235,6 +248,41 @@ describe('when the agents disagree with each other', () => {
     const report = await matchPanelEntry({ repoRoot: null, kind: 'mcp', name: 'gh' }, 'copilot')
     expect(claudeJson().mcpServers.gh.command).toBe('npx')
     expect(report.rows.find((r) => r.name === 'gh')?.disagree).toBe(false)
+  })
+})
+
+describe('what each agent keeps of its own', () => {
+  it('copies only the fields that differ when the agents are made to agree', async () => {
+    seedClaudeMcp('gh', { command: 'gh-mcp', args: ['--stdio'] })
+    const copilot = { command: 'gh-mcp', args: ['--legacy'], tools: ['issues'], cwd: '/srv' }
+    write(join(home, '.copilot', 'mcp-config.json'), JSON.stringify({ mcpServers: { gh: copilot } }))
+    getPanel(null)
+    await matchPanelEntry({ repoRoot: null, kind: 'mcp', name: 'gh' }, 'claude')
+    const after = JSON.parse(readFileSync(join(home, '.copilot', 'mcp-config.json'), 'utf8'))
+    expect(after.mcpServers.gh).toEqual({ ...copilot, args: ['--stdio'] })
+  })
+
+  it('puts a removed server back as each agent had it', async () => {
+    const api = { type: 'http', url: 'https://mcp.example.dev/mcp', headers: { Authorization: 'Bearer tok-123' } }
+    seedClaudeMcp('api', api)
+    const codex = '[mcp_servers.api]\nurl = "https://mcp.example.dev/mcp"\nbearer_token_env_var = "API_TOKEN"\n'
+    write(join(home, '.codex', 'config.toml'), codex)
+    getPanel(null)
+    const target = { repoRoot: null, kind: 'mcp' as const, name: 'api' }
+    await removePanelEntry(target)
+    expect(claudeJson().mcpServers.api).toBeUndefined()
+    expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).not.toContain('api')
+    await restorePanelEntry(target)
+    expect(claudeJson().mcpServers.api).toEqual(api)
+    expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(codex)
+  })
+
+  it('remembers each agent’s own definition in Cockpit’s copy', () => {
+    const api = { type: 'http', url: 'https://mcp.example.dev/mcp', headers: { Authorization: 'Bearer tok-123' } }
+    seedClaudeMcp('api', api)
+    getPanel(null)
+    const stored = JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8'))
+    expect(stored.library.global.find((e: any) => e.name === 'api').raw).toEqual({ claude: api })
   })
 })
 
@@ -392,6 +440,62 @@ describe('pinning a server to a newer version', () => {
     expect(copilot.mcpServers.shots.args).toEqual(['-y', 'shots-mcp@0.0.82', '--headless'])
     // the agents still agree, so the row is quiet
     expect(cell(report, 'shots', 'claude').state).toBe('on')
+  })
+
+  // “only the version moves” used to hold for the claude line alone: every other
+  // agent was handed Cockpit's copy, losing whatever that copy doesn't carry
+  it('moves only the version in each agent’s own definition', async () => {
+    seedClaudeMcp('search', { command: 'npx', args: ['-y', 'search-mcp@1.2.0'], env: { API_KEY: 'sk-live-1' } })
+    const codex = [
+      '[mcp_servers.search]',
+      'command = "npx"',
+      'args = ["--yes", "search-mcp@1.2.0"]',
+      'env = { "API_KEY" = "sk-live-1" }',
+      'startup_timeout_sec = 30',
+      'enabled_tools = ["query", "fetch"]',
+      '',
+      '[profiles.work]',
+      'model = "o3"',
+      ''
+    ].join('\n')
+    write(join(home, '.codex', 'config.toml'), codex)
+    const copilot = {
+      type: 'local',
+      command: 'npx',
+      args: ['-y', 'search-mcp@1.2.0'],
+      env: { API_KEY: 'sk-live-1' },
+      tools: ['query']
+    }
+    write(join(home, '.copilot', 'mcp-config.json'), JSON.stringify({ mcpServers: { search: copilot } }))
+    getPanel(null)
+    serve('1.3.0')
+    await setMcpVersion({ repoRoot: null, kind: 'mcp', name: 'search' }, '1.3.0')
+    expect(claudeJson().mcpServers.search).toEqual({
+      command: 'npx',
+      args: ['-y', 'search-mcp@1.3.0'],
+      env: { API_KEY: 'sk-live-1' }
+    })
+    // codex's own flag spelling, its inline env token, its timeout and tool filter
+    expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(
+      codex.replace('search-mcp@1.2.0', 'search-mcp@1.3.0')
+    )
+    // copilot's env, and its allowlist rather than every tool
+    const after = JSON.parse(readFileSync(join(home, '.copilot', 'mcp-config.json'), 'utf8'))
+    expect(after.mcpServers.search).toEqual({ ...copilot, args: ['-y', 'search-mcp@1.3.0'] })
+  })
+
+  it('leaves an agent that runs the package unpinned as it is, and says so', async () => {
+    seedClaudeMcp('shots', { command: 'npx', args: ['-y', 'shots-mcp@0.0.78'] })
+    const floating = { command: 'npx', args: ['-y', 'shots-mcp'], tools: ['*'] }
+    write(join(home, '.copilot', 'mcp-config.json'), JSON.stringify({ mcpServers: { shots: floating } }))
+    getPanel(null)
+    serve('0.0.82')
+    await expect(
+      setMcpVersion({ repoRoot: null, kind: 'mcp', name: 'shots' }, '0.0.82')
+    ).rejects.toThrow(/not everywhere — copilot: runs npm · shots-mcp latest — left as it is/)
+    expect(claudeJson().mcpServers.shots.args).toEqual(['-y', 'shots-mcp@0.0.82'])
+    const after = JSON.parse(readFileSync(join(home, '.copilot', 'mcp-config.json'), 'utf8'))
+    expect(after.mcpServers.shots).toEqual(floating)
   })
 
   it('refuses a version the registry didn’t offer', async () => {

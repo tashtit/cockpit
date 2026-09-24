@@ -614,6 +614,19 @@ export type McpConfig = {
 }
 
 /**
+ * Each agent's own definition of one server, exactly as its config holds it: the JSON
+ * object Claude Code and Copilot keep, the TOML text of Codex's `[mcp_servers.<name>]`
+ * table and its subtables. `McpConfig` is the view the agents are compared on; this is
+ * what a write starts from, so what that view leaves out — an http server's headers,
+ * Copilot's tools allowlist, Codex's timeouts — survives being written back.
+ */
+export type McpRawDefinitions = {
+  readonly claude?: Readonly<Record<string, unknown>>
+  readonly codex?: string
+  readonly copilot?: Readonly<Record<string, unknown>>
+}
+
+/**
  * One place a server definition lives: an agent's global config ('user') or a
  * claude per-project entry in ~/.claude.json ('project', with the project path).
  */
@@ -712,6 +725,12 @@ export type LibraryEntry = {
   readonly enabled: Partial<Record<Provider, boolean>>
   /** mcp: the definition to write, kept in step with what the agents run */
   readonly config?: McpConfig
+  /**
+   * mcp: each agent's own definition, as it last held it — what switching that agent
+   * back on patches `config` into, so its headers or tool filters come back with it.
+   * Kept only on this machine: a backup leaves it out, since it holds tokens in the clear.
+   */
+  readonly raw?: McpRawDefinitions
   /** marketplace: where to clone it from · plugin: the marketplace it comes from */
   readonly source?: string
   /**

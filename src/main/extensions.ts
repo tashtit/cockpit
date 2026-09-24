@@ -7,12 +7,25 @@ import type {
   MarketplaceInfo,
   McpConfig,
   McpPresence,
+  McpRawDefinitions,
   McpServerInfo,
-  Mutable,
   PluginInfo,
   Provider,
   SkillInfo
 } from '../shared/types'
+import {
+  codexMcpServers,
+  codexServerText,
+  freshCodexServer,
+  isPlainObject,
+  mcpJsonFor,
+  normalizeMcp,
+  patchCodexServer,
+  putCodexServer,
+  removeCodexMcpToml,
+  removeMcpFromJson,
+  type JsonAgent
+} from './extensions-core'
 import { parseJsonc, readJsoncFile } from './parsers/util'
 import { replaceFile } from './replace-file'
 
@@ -21,7 +34,8 @@ import { replaceFile } from './replace-file'
  *   claude  — ~/.claude.json                { "mcpServers": { name: {command,args,env,type,url} } }
  *   codex   — ~/.codex/config.toml          [mcp_servers.name] command/args/url (+ .env subtable)
  *   copilot — ~/.copilot/mcp-config.json    { "mcpServers": { name: {command,args,tools,type,url} } }
- * Sharing = translating one definition into the target agent's format.
+ * Sharing = translating one definition into the target agent's format — patched into
+ * what that agent already holds, so the fields only it knows about stay (extensions-core.ts).
  */
 
 const claudeJsonPath = (): string => join(homedir(), '.claude.json')
@@ -62,44 +76,26 @@ const readJsonFile = readJsoncFile
 
 /* ---------- readers ---------- */
 
-/** Scope without the agent — the agent is attached when inventories merge. */
-type FoundScope = Omit<McpPresence, 'agent'>
+/**
+ * Scope without the agent — the agent is attached when inventories merge — and the
+ * agent's own definition, which never leaves main (see `readExtensions`).
+ */
+type FoundScope = Omit<McpPresence, 'agent'> & { readonly raw: McpRawDefinitions }
 
 type FoundServer = {
   /** every place this agent defines the server, each with its own definition */
   readonly scopes: FoundScope[]
 }
 
-/**
- * One server as the agent wrote it, keeping only fields of the shape Cockpit reads.
- * These files are hand-edited: a `command` written as an array or an `env` that is a
- * string would otherwise reach code that calls string methods on them, and one such
- * entry used to take the whole Agents panel down with it.
- */
-function normalizeMcp(cfg: any): McpConfig {
-  const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
-  const env =
-    cfg?.env && typeof cfg.env === 'object' && !Array.isArray(cfg.env)
-      ? Object.fromEntries(
-          Object.entries<unknown>(cfg.env).filter((kv): kv is [string, string] => typeof kv[1] === 'string')
-        )
-      : undefined
-  return {
-    command: str(cfg?.command),
-    args: Array.isArray(cfg?.args) ? cfg.args.filter((a: unknown) => typeof a === 'string') : undefined,
-    env,
-    url: str(cfg?.url),
-    type: str(cfg?.type)
-  }
-}
-
 function addFound(
   out: Map<string, FoundServer>,
   name: string,
-  found: { readonly cfg: any; readonly scope: Omit<FoundScope, 'config'> }
+  found: { readonly agent: JsonAgent; readonly cfg: any; readonly scope: Omit<FoundScope, 'config' | 'raw'> }
 ): void {
-  const { cfg, scope } = found
-  const entry: FoundScope = { ...scope, config: normalizeMcp(cfg) }
+  const { agent, cfg, scope } = found
+  const own = isPlainObject(cfg) ? cfg : undefined
+  const raw: McpRawDefinitions = own === undefined ? {} : agent === 'claude' ? { claude: own } : { copilot: own }
+  const entry: FoundScope = { ...scope, config: normalizeMcp(cfg), raw }
   const existing = out.get(name)
   if (!existing) {
     out.set(name, { scopes: [entry] })
@@ -120,7 +116,7 @@ function readClaudeMcp(): Map<string, FoundServer> {
   const servers = j?.mcpServers
   if (servers && typeof servers === 'object') {
     for (const [name, cfg] of Object.entries<any>(servers)) {
-      addFound(out, name, { cfg, scope: { scope: 'user' } })
+      addFound(out, name, { agent: 'claude', cfg, scope: { scope: 'user' } })
     }
   }
   const projects = j?.projects
@@ -129,88 +125,29 @@ function readClaudeMcp(): Map<string, FoundServer> {
       const ps = proj?.mcpServers
       if (!ps || typeof ps !== 'object') continue
       for (const [name, cfg] of Object.entries<any>(ps)) {
-        addFound(out, name, { cfg, scope: { scope: 'project', projectPath: projPath } })
+        addFound(out, name, { agent: 'claude', cfg, scope: { scope: 'project', projectPath: projPath } })
       }
     }
   }
   return out
 }
 
-/** A TOML key can only be bare if it matches this — anything else must be quoted. */
-const BARE_TOML_KEY = /^[A-Za-z0-9_-]+$/
-
-/**
- * Server name out of an `mcp_servers.<key>` section header (brackets stripped).
- * Names with dots must be quoted, or TOML reads `a.b` as a nested table — which
- * both renames the server for codex and hides it from this parser.
- */
-function mcpSectionName(header: string): { name: string; isEnv: boolean } | null {
-  const m = header.match(/^mcp_servers\.(?:([A-Za-z0-9_-]+)|"((?:[^"\\]|\\.)*)")(\.env)?$/)
-  if (!m) return null
-  return { name: m[1] ?? m[2].replace(/\\(.)/g, '$1'), isEnv: Boolean(m[3]) }
-}
-
-/** The escapes of a TOML basic string, undone — the reader's half of `tomlString`. */
-function tomlUnescape(s: string): string {
-  return s.replace(/\\(u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)/g, (_, e: string) => {
-    if (e.length > 1) return String.fromCodePoint(parseInt(e.slice(1), 16))
-    return TOML_UNESCAPES[e] ?? e
-  })
-}
-
-const TOML_UNESCAPES: Record<string, string> = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' }
-
-/** Minimal TOML reader for the [mcp_servers.*] sections codex writes. */
-export function parseCodexMcpToml(raw: string): Map<string, McpConfig> {
-  // entries are assembled across multiple TOML sections, so they stay mutable here
-  const out = new Map<string, Mutable<McpConfig>>()
-  const sections = raw.split(/^\[/m)
-  for (const section of sections) {
-    const close = section.indexOf(']')
-    if (close === -1) continue
-    const header = mcpSectionName(section.slice(0, close).trim())
-    if (!header) continue
-    const name = header.name
-    const body = section.slice(close + 1)
-    const entry = out.get(name) ?? {}
-    if (header.isEnv) {
-      // env subtable
-      const env: Record<string, string> = { ...entry.env }
-      for (const m of body.matchAll(/^([A-Za-z0-9_]+)\s*=\s*"((?:[^"\\]|\\.)*)"/gm)) {
-        env[m[1]] = tomlUnescape(m[2])
-      }
-      entry.env = env
-    } else {
-      const str = (key: string): string | undefined => {
-        const m = body.match(new RegExp(`^${key}\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"`, 'm'))
-        return m ? tomlUnescape(m[1]) : undefined
-      }
-      entry.command = str('command') ?? entry.command
-      entry.url = str('url') ?? entry.url
-      const argsRaw = body.match(/^args\s*=\s*\[([\s\S]*?)\]/m)?.[1]
-      if (argsRaw !== undefined) {
-        entry.args = [...argsRaw.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => tomlUnescape(m[1]))
-      }
-    }
-    out.set(name, entry)
+function readCodexMcp(): Map<string, FoundServer> {
+  const out = new Map<string, FoundServer>()
+  for (const [name, { config, raw }] of codexMcpServers(readCodexToml())) {
+    out.set(name, { scopes: [{ scope: 'user', config, raw: { codex: raw } }] })
   }
   return out
 }
 
-function readCodexMcp(): Map<string, McpConfig> {
-  try {
-    return parseCodexMcpToml(readFileSync(codexTomlPath(), 'utf8'))
-  } catch {
-    return new Map()
-  }
-}
-
-function readCopilotMcp(): Map<string, McpConfig> {
-  const out = new Map<string, McpConfig>()
+function readCopilotMcp(): Map<string, FoundServer> {
+  const out = new Map<string, FoundServer>()
   const j = readJsonFile(copilotJsonPath())
   const servers = j?.mcpServers
   if (servers && typeof servers === 'object') {
-    for (const [name, cfg] of Object.entries<any>(servers)) out.set(name, normalizeMcp(cfg))
+    for (const [name, cfg] of Object.entries<any>(servers)) {
+      addFound(out, name, { agent: 'copilot', cfg, scope: { scope: 'user' } })
+    }
   }
   return out
 }
@@ -403,18 +340,28 @@ function readMarketplaces(): MarketplaceInfo[] {
 
 /* ---------- inventory ---------- */
 
-export function getExtensions(): ExtensionsInventory {
-  const asFound = (servers: Map<string, McpConfig>): Map<string, FoundServer> =>
-    new Map([...servers].map(([n, config]) => [n, { scopes: [{ scope: 'user' as const, config }] }]))
-  const byAgent: Array<{ agent: Provider; servers: Map<string, FoundServer> }> = [
-    { agent: 'claude', servers: readClaudeMcp() },
-    { agent: 'codex', servers: asFound(readCodexMcp()) },
-    { agent: 'copilot', servers: asFound(readCopilotMcp()) }
-  ]
+/**
+ * The inventory as main reads it: each server's comparable view in the presences,
+ * and beside it every agent's own definition — what a write patches, so the fields
+ * Cockpit doesn't compare survive being written back. The renderer is sent
+ * `getExtensions()`, which leaves that text out: it holds tokens (an http server's
+ * `Authorization` header) the UI never needs.
+ */
+export type ExtensionsRead = ExtensionsInventory & {
+  /** by server name; for each agent, the definition its presence was read from */
+  readonly mcpRaw: ReadonlyMap<string, McpRawDefinitions>
+}
+
+function mergeServers(
+  byAgent: ReadonlyArray<{ readonly agent: Provider; readonly servers: Map<string, FoundServer> }>
+): Pick<ExtensionsRead, 'mcp' | 'mcpRaw'> {
   const merged = new Map<string, McpServerInfo>()
+  const mcpRaw = new Map<string, McpRawDefinitions>()
   for (const { agent, servers } of byAgent) {
     for (const [name, found] of servers) {
-      const presences = found.scopes.map((s) => ({ agent, ...s }))
+      const presences = found.scopes.map(({ raw, ...s }) => ({ agent, ...s }))
+      // the panel compares an agent's first presence, so that is the definition kept
+      mcpRaw.set(name, { ...mcpRaw.get(name), ...found.scopes[0]?.raw })
       const existing = merged.get(name)
       if (existing) {
         existing.agents.push(agent)
@@ -424,12 +371,25 @@ export function getExtensions(): ExtensionsInventory {
       }
     }
   }
+  return { mcp: [...merged.values()].sort((a, b) => a.name.localeCompare(b.name)), mcpRaw }
+}
+
+export function readExtensions(): ExtensionsRead {
   return {
-    mcp: [...merged.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    ...mergeServers([
+      { agent: 'claude', servers: readClaudeMcp() },
+      { agent: 'codex', servers: readCodexMcp() },
+      { agent: 'copilot', servers: readCopilotMcp() }
+    ]),
     skills: readSkills(),
     plugins: readPlugins(),
     marketplaces: readMarketplaces()
   }
+}
+
+export function getExtensions(): ExtensionsInventory {
+  const { mcpRaw, ...inventory } = readExtensions()
+  return inventory
 }
 
 /**
@@ -437,29 +397,31 @@ export function getExtensions(): ExtensionsInventory {
  * projects[<root>] in ~/.claude.json) — the panel says as much for the other two
  * rather than pretending a repo can carry them.
  */
-export function claudeProjectMcp(repoRoot: string): McpServerInfo[] {
+export function claudeProjectMcp(repoRoot: string): Pick<ExtensionsRead, 'mcp' | 'mcpRaw'> {
   const table = readJsonFile(claudeJsonPath())?.projects?.[repoRoot]?.mcpServers
-  if (!table || typeof table !== 'object') return []
-  return Object.entries<any>(table)
-    .map(([name, cfg]) => {
-      const config = normalizeMcp(cfg)
-      return {
-        name,
-        config,
-        agents: ['claude' as Provider],
-        presences: [{ agent: 'claude' as Provider, scope: 'project' as const, projectPath: repoRoot, config }]
-      }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const servers = new Map<string, FoundServer>()
+  if (table && typeof table === 'object') {
+    for (const [name, cfg] of Object.entries<any>(table)) {
+      addFound(servers, name, { agent: 'claude', cfg, scope: { scope: 'project', projectPath: repoRoot } })
+    }
+  }
+  return mergeServers([{ agent: 'claude', servers }])
 }
 
-export function writeClaudeProjectMcp(repoRoot: string, name: string, cfg: McpConfig): void {
+/** A definition to write: the compared view, and each agent's own text to patch it into. */
+export type McpWrite = {
+  readonly config: McpConfig
+  readonly raw?: McpRawDefinitions
+}
+
+export function writeClaudeProjectMcp(repoRoot: string, name: string, def: McpWrite): void {
   const path = claudeJsonPath()
   const j = readJsonForWrite(path)
   j.projects = j.projects ?? {}
   j.projects[repoRoot] = j.projects[repoRoot] ?? {}
   j.projects[repoRoot].mcpServers = j.projects[repoRoot].mcpServers ?? {}
-  j.projects[repoRoot].mcpServers[name] = mcpForClaude(cfg)
+  const table = j.projects[repoRoot].mcpServers
+  table[name] = mcpJsonFor('claude', def.config, table[name] ?? def.raw?.claude)
   writeJsonFile(path, j)
 }
 
@@ -473,8 +435,12 @@ export type SyncOptions = {
   readonly overwrite?: boolean
   /** Write this definition rather than looking one up (the library's own copy) */
   readonly config?: McpConfig
+  /**
+   * Each agent's own definition from the library's copy: what a write patches when
+   * the target no longer holds one — switched off, it still gets its own back.
+   */
+  readonly raw?: McpRawDefinitions
 }
-
 
 function findMcp(name: string, from?: Provider): McpConfig {
   const inv = getExtensions()
@@ -515,18 +481,10 @@ const NAME_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/
  */
 export function shareMcp(name: string, to: Provider, opts: SyncOptions = {}): void {
   if (!NAME_RE.test(name)) throw new Error('invalid server name')
-  const cfg = opts.config ?? findMcp(name, opts.from)
+  const def: McpWrite = { config: opts.config ?? findMcp(name, opts.from), raw: opts.raw }
   if (opts.from === to) throw new Error('source and target are the same agent')
-  if (to === 'claude') return shareToClaude(name, cfg)
-  if (to === 'codex') return shareToCodex(name, cfg, opts.overwrite)
-  return shareToCopilot(name, cfg)
-}
-
-/** The shape claude stores a server in — the same at user and project scope. */
-function mcpForClaude(cfg: McpConfig): Record<string, unknown> {
-  return cfg.url
-    ? { type: cfg.type === 'sse' ? 'sse' : 'http', url: cfg.url }
-    : { command: cfg.command, args: cfg.args ?? [], ...(cfg.env ? { env: cfg.env } : {}) }
+  if (to === 'codex') return shareToCodex(name, def, opts.overwrite)
+  return shareToJson(to, name, def)
 }
 
 /** Write a config file, creating the agent's config home if this is its first one. */
@@ -557,68 +515,32 @@ function readJsonForWrite(path: string): any {
   return j
 }
 
-function shareToClaude(name: string, cfg: McpConfig): void {
-  const path = claudeJsonPath()
+/**
+ * Claude Code and Copilot key servers by name in one JSON object. What the agent
+ * holds now — or held before it was switched off — is patched rather than replaced:
+ * an http server's `headers` are its sign-in, and Copilot's `tools` is an allowlist
+ * someone narrowed on purpose.
+ */
+function shareToJson(agent: JsonAgent, name: string, def: McpWrite): void {
+  const path = agent === 'claude' ? claudeJsonPath() : copilotJsonPath()
   const j = readJsonForWrite(path)
   j.mcpServers = j.mcpServers ?? {}
-  j.mcpServers[name] = mcpForClaude(cfg)
+  j.mcpServers[name] = mcpJsonFor(agent, def.config, j.mcpServers[name] ?? def.raw?.[agent])
   writeJsonFile(path, j)
 }
 
-/**
- * A TOML basic string. Control characters must be escaped too — a raw newline in an
- * env value (a PEM key, a service-account JSON) makes the whole config.toml one Codex
- * refuses to load, and Codex then won't start at all.
- */
-function tomlString(s: string): string {
-  const body = s.replace(/[\\"\u0000-\u001f\u007f]/g, (c) => {
-    const named = TOML_ESCAPES[c]
-    return named ?? `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`
-  })
-  return `"${body}"`
-}
-
-const TOML_ESCAPES: Record<string, string> = {
-  '\\': '\\\\',
-  '"': '\\"',
-  '\b': '\\b',
-  '\t': '\\t',
-  '\n': '\\n',
-  '\f': '\\f',
-  '\r': '\\r'
-}
-
-/** Quote a server name unless it is a valid bare TOML key (dotted names must be quoted). */
-function tomlKey(name: string): string {
-  return BARE_TOML_KEY.test(name) ? name : tomlString(name)
-}
-
-function shareToCodex(name: string, cfg: McpConfig, overwrite = false): void {
+function shareToCodex(name: string, def: McpWrite, overwrite = false): void {
   const path = codexTomlPath()
   mkdirSync(join(path, '..'), { recursive: true })
-  let raw = existsSync(path) ? readFileSync(path, 'utf8') : ''
-  if (parseCodexMcpToml(raw).has(name)) {
-    if (!overwrite) throw new Error(`codex already has "${name}"`)
-    // claude/copilot rewrite their JSON key in place; codex appends, so the old
-    // section (and its subtables) has to go first or the file would define it twice
-    raw = removeCodexMcpToml(raw, name)
-  }
-  let block = `\n[mcp_servers.${tomlKey(name)}]\n`
-  if (cfg.url) {
-    block += `url = ${tomlString(cfg.url)}\n`
-  } else if (cfg.command) {
-    block += `command = ${tomlString(cfg.command)}\n`
-    block += `args = [${(cfg.args ?? []).map(tomlString).join(', ')}]\n`
-  } else {
-    throw new Error('server has neither command nor url')
-  }
-  if (cfg.env && Object.keys(cfg.env).length > 0) {
-    block += `\n[mcp_servers.${tomlKey(name)}.env]\n`
-    for (const [k, v] of Object.entries(cfg.env)) {
-      if (/^[A-Za-z0-9_]+$/.test(k)) block += `${k} = ${tomlString(v)}\n`
-    }
-  }
-  replaceFile(path, raw.endsWith('\n') || raw === '' ? raw + block : raw + '\n' + block)
+  const text = existsSync(path) ? readFileSync(path, 'utf8') : ''
+  const current = codexServerText(text, name)
+  if (current !== null && !overwrite) throw new Error(`codex already has "${name}"`)
+  if (!def.config.url && !def.config.command) throw new Error('server has neither command nor url')
+  // the same rule as the JSON agents: what codex has, or had, is patched in place —
+  // its timeouts, tool filters and inline env are Cockpit's to keep, not to drop
+  const base = current ?? def.raw?.codex
+  const server = base === undefined ? freshCodexServer(name, def.config) : patchCodexServer(base, name, def.config)
+  replaceFile(path, putCodexServer(text, name, server))
 }
 
 /* ---------- skill sharing ---------- */
@@ -639,68 +561,7 @@ export function shareSkill(name: string, to: Provider, opts: SyncOptions = {}): 
   cpSync(src, dst, { recursive: true })
 }
 
-function shareToCopilot(name: string, cfg: McpConfig): void {
-  const path = copilotJsonPath()
-  const j = readJsonForWrite(path)
-  j.mcpServers = j.mcpServers ?? {}
-  j.mcpServers[name] = cfg.url
-    ? { type: cfg.type ?? 'http', url: cfg.url, tools: ['*'] }
-    : {
-        command: cfg.command,
-        args: cfg.args ?? [],
-        tools: ['*'],
-        ...(cfg.env ? { env: cfg.env } : {})
-      }
-  writeJsonFile(path, j)
-}
-
 /* ---------- removal ---------- */
-
-/**
- * IO-free core of claude/copilot removal: delete the server from a parsed
- * config object. projectPath targets claude's projects[<path>].mcpServers.
- */
-export function removeMcpFromJson(j: any, name: string, projectPath?: string): void {
-  const table = projectPath ? j?.projects?.[projectPath]?.mcpServers : j?.mcpServers
-  if (!table || typeof table !== 'object' || !(name in table)) {
-    throw new Error(
-      projectPath ? `"${name}" not configured for project ${projectPath}` : `"${name}" not found`
-    )
-  }
-  delete table[name]
-}
-
-/**
- * Is this section header the server's own table or one of its subtables? Covers
- * both key spellings (bare and quoted) and every subtable, not just `.env` —
- * leaving `[mcp_servers.x.headers]` behind would hand codex a half-server.
- */
-function sectionBelongsTo(section: string, name: string): boolean {
-  return [name, tomlString(name)].some((key) => {
-    const own = `mcp_servers.${key}`
-    return section === own || section.startsWith(own + '.')
-  })
-}
-
-/**
- * IO-free core of codex removal: drop [mcp_servers.<name>] and its subtables
- * (e.g. .env) from the TOML, leaving every other section byte-identical.
- */
-export function removeCodexMcpToml(raw: string, name: string): string {
-  if (!parseCodexMcpToml(raw).has(name)) throw new Error(`"${name}" not found in codex config`)
-  const lines = raw.split('\n')
-  const out: string[] = []
-  let dropping = false
-  for (const line of lines) {
-    // capture up to the first ] and ignore anything after it: a header can carry a
-    // trailing inline comment, and a regex anchored at end-of-line would fail to
-    // match it, leaving `dropping` stuck and eating the next unrelated section
-    const header = line.match(/^\s*\[([^\]]+)\]/)
-    if (header) dropping = sectionBelongsTo(header[1].trim(), name)
-    if (!dropping) out.push(line)
-  }
-  return out.join('\n').replace(/\n{3,}/g, '\n\n')
-}
 
 export function removeMcp(name: string, agent: Provider, projectPath?: string): void {
   if (!NAME_RE.test(name)) throw new Error('invalid server name')
