@@ -466,15 +466,33 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
   font-size: var(--fs-sm); display: flex; flex-direction: column; align-items: center;
   gap: var(--s3); }
 
-/* footer: two quiet bar controls, each 26px min — usage meters (only while a
-   subscription reports numbers) over the identity bar (agent logos + GitHub login).
-   Details live in the tooltips, full management one click away in Settings */
+/* footer: quiet bar controls, each 26px min — the update bar (only while an update
+   needs you) and usage meters (only while a subscription reports numbers) over the
+   identity bar (agent logos + GitHub login). Details live in the tooltips, full
+   management one click away in Settings */
 .sidebar-footer { display: flex; flex-direction: column; align-items: stretch; gap: 2px;
   padding: var(--s2) var(--s3); border-top: 1px solid var(--border); font-size: var(--fs-xs); }
-.footer-ids, .footer-usage { display: flex; align-items: center; gap: var(--s2); min-width: 0;
-  min-height: 26px; padding: 2px var(--s2); border-radius: var(--radius-sm);
+.footer-ids, .footer-usage, .footer-update { display: flex; align-items: center; gap: var(--s2);
+  min-width: 0; min-height: 26px; padding: 2px var(--s2); border-radius: var(--radius-sm);
   color: var(--fg-dim); }
 .footer-ids:hover, .footer-usage:hover { background: var(--bg3); color: var(--fg); }
+/* the one footer row that acts rather than reports, so it speaks in the accent: a faint
+   wash and accent text, never a fill — the rail's only filled control is New task */
+.footer-update { background: rgba(var(--accent-rgb), 0.16); color: var(--accent); font-weight: 500;
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.5); }
+.footer-update:hover { background: rgba(var(--accent-rgb), 0.26); }
+.footer-update svg { flex-shrink: 0; }
+.footer-update-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.footer-update-ver { margin-left: auto; flex-shrink: 0; font-family: var(--mono);
+  font-variant-numeric: tabular-nums; color: var(--fg-dim); }
+/* the words carry both states ("Stop 2 turns and restart?", "Update failed"); the
+   color only repeats them */
+.footer-update.armed { background: rgba(var(--danger-rgb), 0.14); color: var(--danger);
+  box-shadow: inset 0 0 0 1px rgba(var(--danger-rgb), 0.5); }
+.footer-update.armed:hover { background: rgba(var(--danger-rgb), 0.22); }
+.footer-update.failed { background: rgba(var(--warn-rgb), 0.12); color: var(--warn);
+  box-shadow: inset 0 0 0 1px rgba(var(--warn-rgb), 0.45); }
+.footer-update.failed:hover { background: rgba(var(--warn-rgb), 0.2); }
 .footer-ids .plogo, .footer-usage .plogo { opacity: 0.8; }
 /* one cell per provider, sharing the row evenly; the bar is the first thing to give
    (it can shrink to a sliver) — the number is the reading, the bar the decoration */
@@ -543,6 +561,9 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
   border-radius: var(--radius); padding: 6px var(--s4); font-size: var(--fs-sm); }
 .btn-ghost:hover { color: var(--fg); background: var(--bg3); border-color: var(--border-strong); }
 .btn-ghost.danger:hover { color: var(--danger); border-color: var(--danger); }
+/* an armed confirm that keeps the row's height (About's "Stop 2 turns and restart?"):
+   red at rest, not only on hover — the words say what the second click does */
+.btn-ghost.danger.armed { color: var(--danger); border-color: var(--danger); }
 .btn-ghost.small { padding: 2px var(--s3); font-size: var(--fs-xs);
   border-radius: var(--radius-sm); min-height: 24px; }
 .btn-pr { color: var(--white); border-radius: var(--radius);

@@ -112,7 +112,20 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   `pointer-events: none` while the actions are up, the mail-list convention — a 24px key
   floating over a 38px timestamp left a stray digit beside it. Opacity, not visibility,
   so a focused row still announces what its slot carries.
-- `.sidebar-footer`: two quiet bar controls, 26px each, never taller. `.footer-usage`
+- `.sidebar-footer`: quiet bar controls, 26px each, never taller. On top, and only while
+  an update needs you, `.footer-update` (`UpdateBar.tsx`): the updater's one-click reach
+  from anywhere. It is the one footer row that acts rather than reports, so it speaks in
+  the accent (accent text on a faint `--accent-rgb` wash with an inset hairline), never a
+  fill: the rail's only filled control stays New task. It reads, left to right, the
+  download octicon, a phrase and the version in mono: *Update available* (downloads it),
+  *Downloading update* with the percent (opens About), *Restart to update* (restarts
+  into it). A restart that would stop Cockpit's own running turns arms instead of
+  restarting: `.armed`, `--danger`, reading *Stop 2 turns and restart?*. It backs out on
+  blur, Escape or after 4s, the `useArmedConfirm` rules. *Update failed* is `.failed` in
+  `--warn` and opens About, where the reason is. The words carry every state, and the
+  color only repeats them. A check that fails with nothing downloaded never gets a bar,
+  and a check running with a build downloaded keeps the bar as it was. Its sr-only status
+  region announces a change of kind, never a progress tick. `.footer-usage`
   (`UsageMeters.tsx`) rides on top only while a subscription reports numbers: one
   `.usage-cell` per provider in livery order — 12px logo, a `.usage-mini` fill bar in
   the agent color when the provider reports a percentage, the reading (`42%`, or a

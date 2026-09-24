@@ -347,6 +347,15 @@ export class ChatManager {
     return null
   }
 
+  /**
+   * Every turn this manager has in flight, roundtable seats included — unlike
+   * `busySessions()`, which can only name the ones whose session id is known (a
+   * Copilot turn never announces one). What quitting would stop.
+   */
+  runningTurns(): number {
+    return this.turns.size
+  }
+
   private notifyBusy(): void {
     this.hooks.onBusyChange?.(this.busySessions())
   }

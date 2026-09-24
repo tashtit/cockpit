@@ -1531,6 +1531,25 @@ export type UpdateState = {
   readonly installFailure?: string
 }
 
+/** Restart to update: how the request is made. */
+export type UpdateInstallRequest = {
+  /** Restart even though Cockpit's own agent turns are running — it stops them */
+  readonly stopRunning?: boolean
+}
+
+/**
+ * What asking to restart into a downloaded build did. It is refused while agent
+ * turns Cockpit spawned are running, unless the request says to stop them:
+ * restarting ends every one, and a click on an update prompt must not do that
+ * unannounced.
+ */
+export type UpdateInstallOutcome = {
+  /** true once the app is on its way out to swap the new build in */
+  readonly restarting: boolean
+  /** The turns restarting would stop — set only when that is why it did not */
+  readonly runningTurns?: number
+}
+
 /** Settings › About — how much of updating Cockpit does without being asked. */
 export type UpdatePrefs = {
   /** Fetch a newer build as soon as a check finds one */

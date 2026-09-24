@@ -334,7 +334,7 @@ export function freshApi(): CockpitApi {
     })),
     checkForUpdates: vi.fn(async () => ({ status: 'up-to-date' as const, checkedAt: 0 })),
     downloadUpdate: vi.fn(async () => ({ status: 'ready' as const, version: '0.0.0' })),
-    installUpdate: vi.fn(async () => {}),
+    installUpdate: vi.fn(async () => ({ restarting: true })),
     getUpdatePrefs: vi.fn(async () => ({ download: true, install: true })),
     setUpdatePrefs: vi.fn(async (prefs) => prefs),
     onUpdateState: vi.fn(() => () => {})

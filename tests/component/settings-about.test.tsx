@@ -99,6 +99,17 @@ describe('Settings › About', () => {
     expect(screen.getByRole('button', { name: 'Restart now' })).toBeEnabled()
   })
 
+  it('asks before Restart now stops the turns Cockpit is running', async () => {
+    vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
+    vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'ready', version: '1.5.0' })
+    vi.mocked(window.cockpit.installUpdate).mockResolvedValueOnce({ restarting: false, runningTurns: 3 })
+    render(<Settings onClose={vi.fn()} section="about" />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Restart now' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop 3 turns and restart?' }))
+    expect(window.cockpit.installUpdate).toHaveBeenLastCalledWith({ stopRunning: true })
+  })
+
   it('offers the two automatic steps as switches, and saves a flip', async () => {
     vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
     vi.mocked(window.cockpit.getUpdateState).mockResolvedValue({ status: 'idle' })

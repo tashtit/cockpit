@@ -230,6 +230,10 @@ seventh.
   one first — and a check that came back with nothing usable (`UpdateState.message` on
   `ready`) is appended to that line rather than replacing it, because the build is still
   installable and losing Restart now to an offline moment would be the worse answer.
+  Restart now shares the sidebar update bar's armed step (`useRestartToUpdate`). When
+  Cockpit's own turns are running, the first press turns the button into
+  `.btn-ghost.danger.small.armed` reading "Stop N turns and restart?", the same height
+  and red at rest. The second press restarts; blur, Escape or 4s back it out.
   Under that row, two `.source-row.attn-switch` rows on the Notifications recipe exactly
   (whole row a `<label>`, `aria-labelledby` the label span alone, `aria-describedby` the
   note): Download updates automatically · Install when I quit. A flip saves at once,

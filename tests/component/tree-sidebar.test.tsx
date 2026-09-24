@@ -582,7 +582,8 @@ describe('project order', () => {
       'gh:acme/apple',
       'gh:acme/zebra'
     ])
-    expect(screen.getByRole('status')).toHaveTextContent('acme/apple moved to position 2 of 3')
+    // the tree's own region — the footer's update bar keeps one of its own
+    expect(screen.getAllByRole('status').map((r) => r.textContent)).toContain('acme/apple moved to position 2 of 3')
   })
 
   it('drops a dragged project after the one it lands on, and ignores foreign drags', () => {

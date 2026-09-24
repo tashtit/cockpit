@@ -27,7 +27,7 @@ Signed and notarized releases open without any of this.
 
 Cockpit installs updates itself: it downloads the release zip, checks it against the checksum the release publishes, confirms the bundle inside is the same app at the version that was offered, clears the quarantine flag and swaps it in once Cockpit quits. Every step before the swap is reversible, and the swap puts the old bundle back if the copy fails — a failed update always leaves you with a working app.
 
-**Settings › About** then says so, verbatim, and nothing downloads on its own until you press **Check for updates** (which is also how you retry: the build stays downloaded, so it costs no second fetch).
+The sidebar's update bar then reads **Update failed**, and clicking it opens **Settings › About**, which says why, verbatim, and nothing downloads on its own until you press **Check for updates** (which is also how you retry: the build stays downloaded, so it costs no second fetch).
 
 Two causes are worth knowing:
 
