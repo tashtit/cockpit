@@ -5,7 +5,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex, GitHub Copi
 ## Commands
 
 - `npm run dev` — Electron app with HMR
-- `npm run typecheck` — `tsc --noEmit` (there is no linter; this is the static gate)
+- `npm run typecheck` — `tsc --noEmit` (there is no linter; this is the static gate, and `noUnusedLocals` makes an unused import or local fail it)
 - `npm test` — all vitest tests (unit + component tiers)
 - `npm run test:unit` / `npm run test:component` — one tier
 - `npm run test:coverage` — unit + component with a combined v8 coverage report in `coverage/`

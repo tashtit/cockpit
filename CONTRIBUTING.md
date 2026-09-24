@@ -36,7 +36,7 @@ Common causes:
 | Command | What |
 | --- | --- |
 | `npm run dev` | Electron app with HMR |
-| `npm run typecheck` | `tsc --noEmit` — the static gate (there is no linter) |
+| `npm run typecheck` | `tsc --noEmit` — the static gate (there is no linter); an unused import or local fails it (`noUnusedLocals`) |
 | `npm test` | vitest: unit + component tiers |
 | `npm run test:e2e` | Playwright against the built app — run `npm run build` first |
 | `npm run package` | macOS disk images and zips into `dist/` — unsigned unless Apple credentials are in the env |

@@ -13,7 +13,6 @@ import type {
   ChatEvent,
   ChatRequest,
   Mutable,
-  PermissionMode,
   Provider,
   Roundtable,
   RoundtableEntry,

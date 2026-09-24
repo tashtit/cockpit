@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
+import { join, relative } from 'node:path'
 import type { ShareResult } from '../shared/types'
 import { execText } from './env'
 import { getInstructions } from './instructions'
