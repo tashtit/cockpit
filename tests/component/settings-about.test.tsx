@@ -1,13 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings } from '../../src/renderer/src/Settings'
-import type { AppInfo, UpdateState } from '../../src/shared/types'
+import type { AppInfo, CliStatus, UpdateState } from '../../src/shared/types'
 
 const installed: AppInfo = {
   version: '1.4.2',
   packaged: true,
   platform: 'darwin',
+  osVersion: '26.0',
   arch: 'arm64',
   electron: '44.2.0',
   releasesUrl: 'https://github.com/tashtit/cockpit/releases'
@@ -190,5 +191,64 @@ describe('Settings › About', () => {
     vi.mocked(window.cockpit.openLicenseNotices).mockResolvedValueOnce('No application can open this file.')
     await userEvent.click(link)
     expect(await screen.findByRole('alert')).toHaveTextContent('No application can open this file.')
+  })
+
+  const cli = (over: Partial<CliStatus> & Pick<CliStatus, 'provider'>): CliStatus => ({
+    installed: true,
+    version: null,
+    path: null,
+    install: null,
+    latest: null,
+    upstream: null,
+    channel: null,
+    updateAvailable: false,
+    updateCommand: null,
+    ...over
+  })
+
+  it('opens each kind of feedback on GitHub, the reports prefilled with versions only', async () => {
+    vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+      cli({ provider: 'claude', version: '2.1.236', install: 'brew-cask', path: '/Users/someone/claude' }),
+      cli({ provider: 'codex', version: '0.154.0', install: 'npm' }),
+      cli({ provider: 'copilot', installed: false })
+    ])
+    render(<Settings onClose={vi.fn()} section="about" />)
+    await screen.findByText('v1.4.2')
+
+    expect(screen.getByRole('heading', { name: 'Feedback' })).toBeInTheDocument()
+    expect(screen.getByText(/versions filled in — nothing else/)).toBeInTheDocument()
+
+    const facts =
+      '&version=1.4.2&macos=26.0%20(arm64)' +
+      '&agents=Claude%20Code%3A%202.1.236%20(Homebrew%20cask)%0ACodex%3A%200.154.0%20(npm)%0ACopilot%3A%20not%20installed'
+    const expected: ReadonlyArray<readonly [string, string]> = [
+      ['Report a problem', `https://github.com/tashtit/cockpit/issues/new?template=bug.yml${facts}`],
+      ['Sessions missing or wrong', `https://github.com/tashtit/cockpit/issues/new?template=sessions.yml${facts}`],
+      ['Suggest an idea', 'https://github.com/tashtit/cockpit/issues/new?template=idea.yml'],
+      ['Questions & discussion', 'https://github.com/tashtit/cockpit/discussions']
+    ]
+    for (const [name, url] of expected) {
+      await userEvent.click(screen.getByRole('button', { name }))
+      await waitFor(() => expect(window.cockpit.openExternal).toHaveBeenLastCalledWith(url))
+      expect(await screen.findByRole('button', { name })).toBeEnabled()
+    }
+    // the CLIs are asked for the two reports only, and on the click — not when the tab opened
+    expect(window.cockpit.listCliStatus).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('status')).toHaveTextContent('Questions & discussion opened on GitHub')
+  })
+
+  it('still opens a report when the agent CLIs cannot be read, leaving that field to the person', async () => {
+    vi.mocked(window.cockpit.getAppInfo).mockResolvedValue(installed)
+    vi.mocked(window.cockpit.listCliStatus).mockRejectedValue(new Error('which failed'))
+    render(<Settings onClose={vi.fn()} section="about" />)
+    await screen.findByText('v1.4.2')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Report a problem' }))
+    await waitFor(() =>
+      expect(window.cockpit.openExternal).toHaveBeenCalledWith(
+        'https://github.com/tashtit/cockpit/issues/new?template=bug.yml&version=1.4.2&macos=26.0%20(arm64)'
+      )
+    )
   })
 })

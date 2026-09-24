@@ -29,7 +29,8 @@ seventh.
   leading `<h3>` — repeating the pill directly under it is noise, and the panel is already
   named by its tab (`aria-labelledby`). A panel holding more than one group keeps an `h3`
   per group (Accounts: "Agent accounts & usage", then "GitHub"; View: "History", then
-  "Display"; Providers: "Model providers", then "ACP agents").
+  "Display"; Providers: "Model providers", then "ACP agents"; About: "Updates", then
+  "Feedback").
 - **The tab row is one tab stop.** Roving `tabIndex` (0 on the selected tab, -1 on the
   rest); ←/→ wrap, Home/End jump to the ends, and moving selects — `TabList` does this for
   every card view. The card's `h2` still takes focus on mount; picking a tab leaves
@@ -249,6 +250,16 @@ seventh.
   (`openLicenseNotices`); the reason it could not open shows verbatim in a `.new-error
   role="alert"` under the hint. A development run shows the `unsupported` reason as prose
   and neither the action nor the switches — this build could not act on them.
+  Last, the **Feedback** group: one `.feedback-actions` line of four `.btn-ghost.small`
+  keys that wraps on its own — Report a problem · Sessions missing or wrong · Suggest an
+  idea · Questions & discussion — opening the repository's issue forms and Discussions
+  through `openExternal`. The URLs are `feedbackUrl` in `src/shared/feedback.ts`, never
+  built in the component. The two reports are prefilled with versions only (Cockpit,
+  macOS + architecture, each agent CLI's version and install method); the CLIs are read
+  on the click, not when the tab opens, and a read that fails or takes more than a few
+  seconds opens the form without that field. The pressed key reads "Opening…" and all
+  four are disabled meanwhile. One `.ns-hint.ns-prose` line under the keys must keep
+  saying what the form is filled with and that nothing else is.
 - App-level: the global Escape handler blurs a focused field first and only closes the
   view on a second press — a habitual Escape must never discard a half-typed path.
 

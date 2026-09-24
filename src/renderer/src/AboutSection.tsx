@@ -1,4 +1,10 @@
 import { useEffect, useState, type JSX } from 'react'
+import {
+  feedbackPrefills,
+  feedbackUrl,
+  type FeedbackCli,
+  type FeedbackKind
+} from '../../shared/feedback'
 import type { AppInfo, UpdatePrefs, UpdateState } from '../../shared/types'
 import { api } from './api'
 import { fmtAgo } from './format'
@@ -22,6 +28,82 @@ const UPDATE_SWITCHES: ReadonlyArray<{
     note: 'Swap the downloaded build in on the way out, so the next launch is the new one. Never under a running session — and “Restart now” installs it sooner.'
   }
 ]
+
+const FEEDBACK_ACTIONS: ReadonlyArray<{ readonly kind: FeedbackKind; readonly label: string }> = [
+  { kind: 'bug', label: 'Report a problem' },
+  { kind: 'sessions', label: 'Sessions missing or wrong' },
+  { kind: 'idea', label: 'Suggest an idea' },
+  { kind: 'discussion', label: 'Questions & discussion' }
+]
+
+/** How long a report waits on the CLI versions before it opens without them. */
+const CLI_WAIT_MS = 4_000
+
+/**
+ * The agent CLIs as the Accounts tab reads them, for a report's prefill — or null
+ * when they can't be read in time, which leaves that field to the person rather than
+ * holding the click on a slow `brew` or an offline registry.
+ */
+function cliFacts(): Promise<readonly FeedbackCli[] | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), CLI_WAIT_MS)
+    api
+      .listCliStatus(false)
+      .then(resolve, () => resolve(null))
+      .finally(() => clearTimeout(timer))
+  })
+}
+
+/**
+ * Feedback: the repository's issue forms and discussions, one click away. The two
+ * reports open prefilled with versions only (`src/shared/feedback.ts` decides what
+ * that is); the CLIs are asked on the click, never when the tab opens.
+ */
+function FeedbackGroup({
+  appInfo,
+  onStatus
+}: {
+  appInfo: AppInfo | null
+  onStatus: (s: string) => void
+}): JSX.Element {
+  const [opening, setOpening] = useState<FeedbackKind | null>(null)
+
+  const open = async (kind: FeedbackKind, label: string): Promise<void> => {
+    if (opening) return
+    setOpening(kind)
+    try {
+      const clis = feedbackPrefills(kind) ? await cliFacts() : null
+      await api.openExternal(feedbackUrl(kind, { app: appInfo, clis }))
+      onStatus(`${label} opened on GitHub`)
+    } catch (err) {
+      onStatus(`Could not open GitHub: ${ipcErrorText(err)}`)
+    } finally {
+      setOpening(null)
+    }
+  }
+
+  return (
+    <>
+      <h3 className="ns-label">Feedback</h3>
+      <div className="feedback-actions">
+        {FEEDBACK_ACTIONS.map((a) => (
+          <button
+            key={a.kind}
+            className="btn-ghost small"
+            disabled={opening !== null}
+            onClick={() => void open(a.kind, a.label)}
+          >
+            {opening === a.kind ? 'Opening…' : a.label}
+          </button>
+        ))}
+      </div>
+      <p className="ns-hint ns-prose">
+        Opens GitHub. Reports come with your Cockpit, macOS and agent CLI versions filled in —
+        nothing else.
+      </p>
+    </>
+  )
+}
 
 /** The About row's one-line readout of where the updater stands. */
 export function updateLine(u: UpdateState | null, prefs: UpdatePrefs | null): string {
@@ -53,7 +135,8 @@ export function updateLine(u: UpdateState | null, prefs: UpdatePrefs | null): st
 }
 
 /**
- * The About tab: what this build is, and the whole of the updater's control surface.
+ * The About tab: what this build is, the whole of the updater's control surface, and
+ * where feedback goes.
  *
  * The update state itself is the shell's, not this tab's — main pushes transitions
  * whether or not About is the tab on screen, and the card's status region has to
@@ -170,6 +253,7 @@ export function AboutSection({
 
   return (
     <>
+      <h3 className="ns-label">Updates</h3>
       <ul className="source-list">
         <li className="source-row">
           <span className="plogo" aria-hidden="true">
@@ -253,6 +337,7 @@ export function AboutSection({
           {licensesError}
         </div>
       )}
+      <FeedbackGroup appInfo={appInfo} onStatus={onStatus} />
     </>
   )
 }

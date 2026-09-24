@@ -11,6 +11,7 @@ coverage/
 
 # VitePress (build output is covered by dist/)
 docs/.vitepress/cache/
+docs/.vitepress/dist/
 
 # Editor / local tooling
 .idea/

@@ -324,6 +324,7 @@ export function freshApi(): CockpitApi {
       version: '0.0.0',
       packaged: false,
       platform: 'darwin',
+      osVersion: '26.0',
       arch: 'arm64',
       electron: '44.0.0',
       releasesUrl: 'https://github.com/tashtit/cockpit/releases'

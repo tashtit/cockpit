@@ -32,6 +32,8 @@
     "test:e2e": "playwright test",
     "test:packaged": "node scripts/test-packaged.mts",
     "ui:tour": "npm run build && node scripts/ui-tour/tour.mts",
+    "ui:readme": "npm run build && node scripts/ui-tour/readme-media.mts",
+    "stats": "node scripts/stats.mts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",

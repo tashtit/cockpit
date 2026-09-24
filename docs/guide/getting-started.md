@@ -2,8 +2,38 @@
 
 ## Install the app
 
+Paste this into Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tashtit/cockpit/main/scripts/install.sh | sh
+```
+
+It downloads the latest release for your Mac (Apple silicon or Intel), checks the file against the SHA-256 digest GitHub lists for it, confirms the app inside is Cockpit at that release's version, and puts it in `/Applications`, or in `~/Applications` if you can't write to `/Applications`. Then open it:
+
+```bash
+open -a Cockpit
+```
+
+That is the whole install: no password, no `sudo`, and no trip to Privacy & Security. macOS only holds back an app a browser downloaded, and this one came from `curl`.
+
+Running the same line again reinstalls or updates in place. The copy you have is replaced only once the new one is verified and beside it, and put back if anything fails on the way; the installer stops if Cockpit is running.
+
+- **See what it would do first**: `... | sh -s -- --dry-run` prints the version, the download address, its checksum and where it would go, and downloads nothing.
+- **Install somewhere else**: `... | COCKPIT_INSTALL_DIR=~/Apps sh`.
+- **Read it before you run it**: the script is [`scripts/install.sh`](https://github.com/tashtit/cockpit/blob/main/scripts/install.sh), plain `sh` using only tools macOS ships with.
+
+### Or with Homebrew
+
+```bash
+brew install --cask tashtit/tap/cockpit
+```
+
+The cask installs the same release, checked against the same digest, and clears the quarantine flag Homebrew's download leaves on it, so it opens straight away too. Cockpit updates itself from then on, so `brew upgrade` leaves it alone; `brew uninstall --zap --cask cockpit` also removes its settings.
+
+### Or download the disk image
+
 ::: warning Early access
-Cockpit is pre-1.0, and its releases are not yet signed with an Apple Developer ID, so macOS blocks the first launch. The steps below get past that once; nothing about the download is wrong.
+Cockpit is pre-1.0, and its releases are not yet signed with an Apple Developer ID, so macOS blocks the first launch of an app downloaded in a browser. The steps below get past that once; nothing about the download is wrong.
 :::
 
 1. **Download** the disk image for your Mac from the [latest release](https://github.com/tashtit/cockpit/releases/latest) — `Cockpit-<version>-arm64.dmg` on Apple silicon, `Cockpit-<version>-x64.dmg` on Intel (About This Mac says which). Open it and drag Cockpit into Applications.
@@ -22,6 +52,8 @@ Every release asset carries a build-provenance attestation. To confirm a disk im
 ```bash
 gh attestation verify ~/Downloads/Cockpit-<version>-arm64.dmg --owner tashtit
 ```
+
+The installer ends by printing the same check for the zip it installed.
 :::
 
 ## Updating
@@ -37,6 +69,17 @@ The new version opens where the old one was: the same size, the same screen, and
 Cockpit installs its own updates rather than handing them to macOS. macOS only swaps in a bundle whose Developer ID signature matches the running one, which an early-access release does not have — so this is also what lets Cockpit clear the quarantine flag itself and hand you an app that opens without a second trip to Privacy & Security. Nothing you did once at install has to be done again.
 
 If an update cannot be installed, the version you had is put back and About says why; nothing downloads on its own again until you press **Check for updates**. Your settings in `~/Library/Application Support/Cockpit` are untouched by any of this.
+
+## Feedback
+
+**Settings › About › Feedback** opens the project on GitHub in your browser:
+
+- **Report a problem** — something broke, or behaved in a way it shouldn't.
+- **Sessions missing or wrong** — a session isn't listed, or shows the wrong title, project, branch or time.
+- **Suggest an idea** — something Cockpit should do.
+- **Questions & discussion** — the project's Discussions, for anything that isn't a bug.
+
+The two reports open with your Cockpit version, macOS version and architecture, and each agent CLI's version and how it was installed already filled in. Nothing else goes into the form — no paths, usernames, accounts or session content — and nothing is filed until you have read it and pressed **Submit** on GitHub yourself.
 
 ## Run from source
 

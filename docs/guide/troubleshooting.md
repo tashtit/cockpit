@@ -1,5 +1,7 @@
 # Troubleshooting
 
+If nothing here fixes it, report it from the app: **Settings › About › Report a problem** (or **Sessions missing or wrong**) opens a GitHub issue with your Cockpit, macOS and agent CLI versions already filled in, and nothing else. See [Feedback](/guide/getting-started#feedback).
+
 ## "Electron failed to install correctly"
 
 This message means the first-run Electron binary download failed. Run the downloader directly to see the underlying error:
@@ -21,7 +23,7 @@ macOS says this — or "from an unidentified developer", or on macOS 15 and late
 xattr -d com.apple.quarantine /Applications/Cockpit.app
 ```
 
-Signed and notarized releases open without any of this.
+Signed and notarized releases open without any of this, and so does a copy installed with the [one-line installer](/guide/getting-started#install-the-app), which downloads with `curl` and so never gets the flag.
 
 ## An update did not install
 
@@ -46,9 +48,9 @@ Work through these in order:
 
 1. **History window** — if **Settings › View** has a history window set, sessions idle longer than N days are hidden (not deleted). Widen or clear the window.
 2. **Archived in the provider's own app** — sessions archived or deleted in Copilot (`data.db`), Codex (`archived_sessions/`), or the Claude desktop app are hidden entirely, by design.
-3. **Copilot specifically** — its session format is the least documented, and the parser is best-effort. If your Copilot sessions don't appear, grab one file from `~/.copilot` and [open an issue](https://github.com/tashtit/cockpit/issues) with it (redact anything sensitive); the parser lives in `src/main/parsers/copilot.ts`.
+3. **Copilot specifically** — its session format is the least documented, and the parser is best-effort. If your Copilot sessions don't appear, report it with **Settings › About › Sessions missing or wrong** and attach one file from `~/.copilot` if you can (redact anything sensitive); the parser lives in `src/main/parsers/copilot.ts`.
 
-Session log formats are provider-internal and drift between releases — Cockpit's parsers deliberately skip what they can't read rather than fail the whole scan, so a parser gap shows up as missing sessions, never a broken app.
+Session log formats are provider-internal and drift between releases — Cockpit's parsers deliberately skip what they can't read rather than fail the whole scan, so a parser gap shows up as missing sessions, never a broken app. Still missing, or listed with the wrong title, project, branch or time? **Sessions missing or wrong** is for that too, whichever agent the session came from.
 
 ## The agent says it can't use tools
 

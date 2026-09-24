@@ -1,0 +1,53 @@
+name: Sessions missing or wrong
+description: A session doesn't show up, or shows the wrong title, repo, branch or transcript.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Each agent writes its own session log format, and the formats change between CLI
+        releases — so the agent and its version are what tell us where to look.
+        Please don't attach a session log: it holds your conversation. Describe what is
+        wrong and we'll ask for anything specific.
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - Claude Code
+        - Codex
+        - Copilot CLI
+        - Another agent over ACP
+    validations:
+      required: true
+  - type: textarea
+    id: what-is-wrong
+    attributes:
+      label: What is missing or wrong
+      description: For example "sessions from the last two days don't appear", or "the branch shows main but the session ran on a worktree branch".
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Cockpit version
+      description: Settings › About shows it.
+      placeholder: "0.31.1"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS
+      placeholder: "26.0 (arm64)"
+  - type: textarea
+    id: agents
+    attributes:
+      label: Agent CLIs
+      description: Which agent CLIs you have, and their versions.
+      placeholder: |
+        Claude Code: 2.1.236 (Homebrew cask)
+        Codex: 0.154.0 (npm)
+        Copilot: not installed
+    validations:
+      required: true

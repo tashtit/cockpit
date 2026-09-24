@@ -1585,6 +1585,8 @@ export type AppInfo = {
   /** false under `npm run dev` and the e2e runs against out/ — the About row says so */
   readonly packaged: boolean
   readonly platform: string
+  /** The OS's own product version — macOS's "26.0", not the Darwin kernel's "25.0.0" */
+  readonly osVersion: string
   readonly arch: string
   readonly electron: string
   /** The GitHub Releases page — release notes live there, not in the app */
