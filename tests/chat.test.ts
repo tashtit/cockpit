@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import { mkdtempSync } from 'node:fs'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import {
   buildCommand,
   ChatManager,
@@ -9,7 +12,7 @@ import {
   withTurnFlags
 } from '../src/main/chat'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
-import type { ChatEvent, ChatRequest } from '../src/shared/types'
+import type { AcpAgent, BusySession, ChatEvent, ChatRequest } from '../src/shared/types'
 
 describe('buildCommand', () => {
   it('claude new chat, auto-edit', () => {
@@ -329,5 +332,86 @@ describe('ChatManager — a turn that cannot start', () => {
     // OS argument limit
     const { events } = await run({}, { prompt: 'a\u0000b' })
     expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+  })
+})
+
+describe('ChatManager: one turn per session', () => {
+  // the stub ACP agent asks permission mid-turn and waits for the answer — a real turn,
+  // held open for as long as the test needs it (tests/fixtures/stub-acp-agent.mjs)
+  const stub: AcpAgent = {
+    id: 'stub',
+    label: 'Stub',
+    command: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/stub-acp-agent.mjs', import.meta.url))],
+    provider: 'copilot',
+    env: { STUB_MODE: 'permission' }
+  }
+  const cwd = mkdtempSync(join(tmpdir(), 'cockpit-chat-'))
+  const resume = (id: string): ChatRequest => ({
+    provider: 'copilot',
+    cwd,
+    prompt: 'hello',
+    resumeNativeId: id,
+    permissionMode: 'safe'
+  })
+
+  type Ask = Extract<ChatEvent, { type: 'permission' }>
+
+  /** Start a turn resuming `id` and wait until it is blocked on its permission question. */
+  async function midTurn(id: string): Promise<{
+    readonly chat: ChatManager
+    readonly turnId: string
+    readonly ask: Ask
+    /** What main answered at the moment the turn said done, and when it did */
+    readonly atDone: Promise<{ readonly busy: BusySession[]; readonly running: string | null }>
+  }> {
+    let onAsk!: (ev: Ask) => void
+    const asked = new Promise<Ask>((r) => (onAsk = r))
+    let onDone!: (v: { busy: BusySession[]; running: string | null }) => void
+    const atDone = new Promise<{ busy: BusySession[]; running: string | null }>((r) => (onDone = r))
+    const chat: ChatManager = new ChatManager(
+      (ev) => {
+        if (ev.type === 'permission') onAsk(ev)
+        if (ev.type === 'done') onDone({ busy: chat.busySessions(), running: chat.turnFor('copilot', id) })
+      },
+      { resolveAcpAgent: () => stub }
+    )
+    const turnId = chat.send(resume(id))
+    return { chat, turnId, ask: await asked, atDone }
+  }
+
+  it('refuses to resume a session it is already running, and names the turn to rejoin', async () => {
+    const { chat, turnId, ask, atDone } = await midTurn('sess-7')
+    expect(chat.busySessions()).toEqual([
+      { id: 'copilot:sess-7', startedAt: expect.any(Number), source: 'spawned', turnId }
+    ])
+    expect(chat.turnFor('copilot', 'sess-7')).toBe(turnId)
+    // chat:send asks before touching anything; send() refuses on its own for every other caller
+    expect(() => chat.assertNotRunning(resume('sess-7'))).toThrow(/already has a turn running/)
+    expect(() => chat.send(resume('sess-7'))).toThrow(/already has a turn running/)
+    expect(chat.busySessions()).toHaveLength(1)
+    // only that conversation is held: another session, the same id under another agent
+    // and a brand-new session all start as before
+    expect(() => chat.assertNotRunning(resume('sess-8'))).not.toThrow()
+    expect(() => chat.assertNotRunning({ ...resume('sess-7'), provider: 'claude' })).not.toThrow()
+    expect(() => chat.assertNotRunning({ ...resume('sess-7'), resumeNativeId: undefined })).not.toThrow()
+
+    chat.respondPermission(turnId, ask.requestId, 'allow_once')
+    // once the turn says done there is nothing to rejoin and nothing for a follow-up to
+    // wait on, though its process may take a moment more to exit
+    expect(await atDone).toEqual({
+      busy: [{ id: 'copilot:sess-7', startedAt: expect.any(Number), source: 'spawned', turnId: null }],
+      running: null
+    })
+    expect(() => chat.assertNotRunning(resume('sess-7'))).not.toThrow()
+    await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
+  })
+
+  it('frees the session the moment its turn is stopped', async () => {
+    const { chat, turnId } = await midTurn('sess-9')
+    chat.cancel(turnId)
+    expect(chat.turnFor('copilot', 'sess-9')).toBeNull()
+    expect(chat.busySessions()).toEqual([])
+    expect(() => chat.assertNotRunning(resume('sess-9'))).not.toThrow()
   })
 })

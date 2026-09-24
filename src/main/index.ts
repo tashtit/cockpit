@@ -1210,6 +1210,9 @@ app.whenReady().then(() => {
     if (roundtables?.tableIdForCwd(req.cwd)) {
       throw new Error('This session belongs to a roundtable — talk to it at the table instead.')
     }
+    // a session already mid-turn gets no second CLI — refused before anything below
+    // switches the active Copilot user for a turn that will never run
+    chat.assertNotRunning(req)
     // copilot multi-account: activate the chosen logged-in user before spawning
     if (req.provider === 'copilot' && req.copilotUser) {
       setCopilotActiveUser(req.configDir ?? join(homedir(), '.copilot'), req.copilotUser)

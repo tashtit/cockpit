@@ -8,6 +8,7 @@ import type {
   Provider,
   PrStatus,
   RepoGroup,
+  SessionMessage,
   SessionMeta
 } from '../../shared/types'
 import { clampZoom } from '../../shared/window'
@@ -30,7 +31,8 @@ import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
 import { DevBanner } from './DevBanner'
-import { initBusySessions, useSessionRunsElsewhere } from './busy'
+import { initBusySessions, spawnedTurn, useSessionRunsElsewhere } from './busy'
+import { rejoinStream, type Rejoin } from './rejoin'
 import { useRailWidth } from './rail'
 import {
   addChatMessage,
@@ -138,6 +140,9 @@ export function App(): JSX.Element {
   activeTurnRef.current = activeTurn
   /** Events can beat the sendChat() reply for fast-failing spawns — hold them briefly. */
   const pendingEventsRef = useRef<ChatEvent[]>([])
+  /** The active turn was running before its session was opened: its stream waits on the
+   *  log being read, then skips the rows the log already holds (rejoin.ts). */
+  const rejoinRef = useRef<Rejoin | null>(null)
   /** Guards against a slow transcript load landing after the user switched sessions. */
   const openSeqRef = useRef(0)
   /** Did this turn report an error? "finished" would be a lie if it did. */
@@ -281,18 +286,33 @@ export function App(): JSX.Element {
    */
   const [permissions, setPermissions] = useState<PendingPermission[]>([])
 
-  // A card belongs to the turn that asked. One left behind by a turn that was stopped,
-  // or by a session the window has since moved away from, sat there for good — that
-  // turn's events no longer reach this view — and answering it wrote the answer into
-  // whichever transcript was open. Request ids are the agent's own counter, so two
-  // turns' cards could also share one and replace each other.
-  useEffect(() => {
-    setPermissions((list) => (list.every((a) => a.turnId === activeTurn) ? list : list.filter((a) => a.turnId === activeTurn)))
-  }, [activeTurn])
+  /**
+   * A question a turn is now blocked on. A card belongs to the turn that asked: the chat
+   * shows only the active turn's (`turnPermissions`), so an answer can never land in
+   * another conversation's transcript, and one asked by a turn off screen waits for its
+   * own chat — a rejoined turn must still find it. It goes when its turn ends or is
+   * stopped. Request ids are the agent's own counter, so only turn and id together name
+   * one; a repeat replaces the earlier copy.
+   */
+  const askPermission = useCallback((ev: Extract<ChatEvent, { type: 'permission' }>) => {
+    setPermissions((list) => [
+      ...list.filter((a) => a.turnId !== ev.turnId || a.requestId !== ev.requestId),
+      {
+        turnId: ev.turnId,
+        requestId: ev.requestId,
+        toolName: ev.toolName,
+        preview: ev.preview ?? ev.detail,
+        detail: ev.detail,
+        options: ev.options
+      }
+    ])
+  }, [])
 
   const answerPermission = useCallback((ask: PendingPermission, optionId: string) => {
     const label = ask.options.find((o) => o.optionId === optionId)?.name ?? optionId
-    setPermissions((list) => list.filter((a) => a.turnId !== ask.turnId || a.requestId !== ask.requestId))
+    setPermissions((list) =>
+      list.filter((a) => a.turnId !== ask.turnId || a.requestId !== ask.requestId)
+    )
     void api.respondPermission(ask.turnId, ask.requestId, optionId)
     // the answer belongs in the transcript even though the question did not — it is
     // what the rest of the turn was conditioned on, and a reader should hear it once
@@ -343,17 +363,7 @@ export function App(): JSX.Element {
       } else if (ev.type === 'permission') {
         // the prompt is not a transcript row, but it must land after what came before it
         endChatStream({ keepText: true })
-        setPermissions((list) => [
-          ...list.filter((a) => a.turnId !== ev.turnId || a.requestId !== ev.requestId),
-          {
-            turnId: ev.turnId,
-            requestId: ev.requestId,
-            toolName: ev.toolName,
-            preview: ev.preview ?? ev.detail,
-            detail: ev.detail,
-            options: ev.options
-          }
-        ])
+        askPermission(ev)
       } else if (ev.type === 'error') {
         // said as it happens, even mid-turn: an error nobody hears is the bug
         turnFailedRef.current = true
@@ -361,22 +371,28 @@ export function App(): JSX.Element {
       } else if (ev.type === 'done') {
         endChatStream({ keepText: true })
         setActiveTurn(null)
+        rejoinRef.current = null
         // the log on disk is the conversation again — a terminal turn after this
         // one shows up here as it lands
         armDiskLog(selectedSessionIdRef.current)
         // the turn is over; anything it was still asking has been answered or abandoned
-        setPermissions([])
+        setPermissions((list) => list.filter((a) => a.turnId !== ev.turnId))
         announceChat(
           turnFailedRef.current ? `${speaker()} finished with errors` : `${speaker()} finished`
         )
       }
     },
-    [speaker]
+    [speaker, askPermission]
   )
 
   useEffect(() => {
     return api.onChatEvent((ev: ChatEvent) => {
       if (ev.turnId !== activeTurnRef.current) {
+        // a question is the one thing a turn off screen can't be allowed to lose: it
+        // waits for its conversation, and goes when the turn does
+        if (ev.type === 'permission') askPermission(ev)
+        else if (ev.type === 'done')
+          setPermissions((list) => list.filter((a) => a.turnId !== ev.turnId))
         // spawn failures can emit before sendChat() resolves with the turn id
         if (activeTurnRef.current === null) {
           pendingEventsRef.current.push(ev)
@@ -384,31 +400,98 @@ export function App(): JSX.Element {
         }
         return
       }
-      applyEvent(ev)
+      const rejoin = rejoinRef.current
+      for (const e of rejoin?.turnId === ev.turnId ? rejoin.offer(ev) : [ev]) applyEvent(e)
     })
-  }, [applyEvent])
+  }, [applyEvent, askPermission])
 
-  /** Adopt a turn id and replay any events that arrived before we knew it. */
+  /**
+   * Adopt a turn id and replay any events that arrived before we knew it.
+   *
+   * `rejoin` is a turn that was already running when its session was opened. Its rows
+   * are in the log being read, so the replay keeps only what a log never holds (session
+   * ids, permission questions, errors), and all of it waits on that read with whatever
+   * streams in meanwhile (`landLog`). One that ended while the window was away is left
+   * alone: the log is the whole story.
+   */
   const beginTurn = useCallback(
-    (turnId: string) => {
+    (turnId: string, { rejoin = false }: { readonly rejoin?: boolean } = {}) => {
       const buffered = pendingEventsRef.current.filter((e) => e.turnId === turnId)
       pendingEventsRef.current = []
       const stillLive = !buffered.some((e) => e.type === 'done')
+      if (rejoin && !stillLive) return
       activeTurnRef.current = turnId
       turnFailedRef.current = false
+      rejoinRef.current = null
       setActiveTurn(stillLive ? turnId : null)
+      if (rejoin) {
+        const joined = rejoinStream(turnId)
+        for (const ev of buffered) if (ev.type !== 'text' && ev.type !== 'tool') joined.offer(ev)
+        rejoinRef.current = joined
+        return
+      }
       announceChat(`${speaker()} is working…`)
       for (const ev of buffered) applyEvent(ev)
     },
     [applyEvent, speaker]
   )
 
+  /**
+   * A conversation is being opened: a turn of ours still running on it is rejoined —
+   * its stream and its Stop — rather than shown idle with Send open beside it. Anything
+   * else leaves the chat idle.
+   */
+  const joinTurn = useCallback(
+    (turnId: string | null) => {
+      // synchronously: the previous conversation's turn must not stream into this one
+      activeTurnRef.current = null
+      rejoinRef.current = null
+      setActiveTurn(null)
+      if (turnId !== null) beginTurn(turnId, { rejoin: true })
+    },
+    [beginTurn]
+  )
+
+  /**
+   * The opened session's log, once read: on screen, with a rejoined turn's stream let in
+   * behind it. A read that fails leaves the log empty rather than crash — the transcript
+   * may be gone from disk — and a rejoined turn streams on regardless.
+   */
+  const landLog = useCallback(
+    async (seq: number, id: string) => {
+      let messages: readonly SessionMessage[] | null = null
+      try {
+        messages = await api.getSessionMessages(id)
+      } catch {
+        /* an empty log, not a crash */
+      }
+      // a slower load for a previously opened session must not clobber this one
+      if (seq !== openSeqRef.current) return
+      if (messages) setChatLog(messages)
+      const rejoin = rejoinRef.current
+      if (!rejoin) {
+        if (messages) armDiskLog(id)
+        return
+      }
+      // said now, not as the turn was adopted: putting the log on screen resets the line
+      announceChat(`${speaker()} is working…`)
+      for (const ev of rejoin.logRead(messages ?? [])) applyEvent(ev)
+    },
+    [applyEvent, speaker]
+  )
+
   const openSession = useCallback(
     async (s: SessionMeta, opts: { readonly anchor?: TranscriptAnchor } = {}) => {
+      // the conversation already on screen, its turn still streaming: the live log (and
+      // any notice it carries that no log file does) stays as it is
+      if (s.id === selectedSessionIdRef.current && activeTurnRef.current !== null && bindingRef.current) {
+        setAnchor(opts.anchor ?? null)
+        setView({ kind: 'chat' })
+        return
+      }
       const seq = ++openSeqRef.current
       setChatLog([])
       diskLogRef.current = null
-      setActiveTurn(null)
       setSelectedSessionId(s.id)
       setAnchor(opts.anchor ?? null)
       // restore the account this session's source dir belongs to — otherwise a
@@ -431,6 +514,8 @@ export function App(): JSX.Element {
         readOnly: s.roundtableId ? true : undefined
       })
       setView({ kind: 'chat' })
+      // a seat's turn is its table's, and streams there — the seat's chat only reads
+      joinTurn(s.roundtableId ? null : spawnedTurn(s.id))
       // the parent chip names the session, so it waits for the lookup — and a parent
       // the index no longer holds gets no chip at all rather than one that can't open
       if (s.parentId) {
@@ -440,13 +525,9 @@ export function App(): JSX.Element {
           setBinding((b) => (b && b.nativeSessionId === s.nativeId ? { ...b, startedBy } : b))
         })
       }
-      const messages = await api.getSessionMessages(s.id)
-      // a slower load for a previously clicked session must not clobber this one
-      if (seq !== openSeqRef.current) return
-      setChatLog(messages)
-      armDiskLog(s.id)
+      await landLog(seq, s.id)
     },
-    [accounts]
+    [accounts, joinTurn, landLog]
   )
 
   /** Land on a history entry. A chat entry that is still the bound conversation
@@ -466,25 +547,18 @@ export function App(): JSX.Element {
         const seq = ++openSeqRef.current
         setChatLog([])
         diskLogRef.current = null
-        setActiveTurn(null)
         setSelectedSessionId(entry.sessionId)
         setAnchor(null)
         setBinding(entry.binding)
-        if (entry.sessionId) {
-          void api
-            .getSessionMessages(entry.sessionId)
-            .then((messages) => {
-              if (seq !== openSeqRef.current) return
-              setChatLog(messages)
-              armDiskLog(entry.sessionId)
-            })
-            // the transcript may be gone from disk — an empty log, not a crash
-            .catch(() => {})
-        }
+        // an entry with no id is a new chat that never announced one: nothing to rejoin
+        // and no log to read
+        const id = entry.sessionId
+        joinTurn(id !== null && !entry.binding.readOnly ? spawnedTurn(id) : null)
+        if (id !== null) void landLog(seq, id)
       }
       setView({ kind: 'chat' })
     },
-    []
+    [joinTurn, landLog]
   )
 
   const goBack = useCallback(() => {
@@ -724,6 +798,8 @@ export function App(): JSX.Element {
       // the killed turn's terminal `done` no longer matches activeTurnRef, so do
       // its cleanup locally: stop the shimmer and drop any not-yet-flushed text
       setActiveTurn(null)
+      rejoinRef.current = null
+      setPermissions((list) => list.filter((a) => a.turnId !== activeTurn))
       endChatStream({ keepText: false })
       // as a turn's own end does: the log on disk is the conversation again, or the
       // transcript stops following it until the session is reopened
@@ -809,6 +885,13 @@ export function App(): JSX.Element {
     void api.takeAttentionOpen().then((target) => target && open(target))
     return off
   }, [])
+
+  // the questions the turn on screen is blocked on; another conversation's turn keeps
+  // its own, for when that conversation is opened and its turn rejoined
+  const turnPermissions = useMemo(
+    () => permissions.filter((p) => p.turnId === activeTurn),
+    [permissions, activeTurn]
+  )
 
   // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
@@ -942,7 +1025,7 @@ export function App(): JSX.Element {
           onOpenUrl={openUrl}
           onOpenHandoff={openHandoff}
           onOpenLineage={(id) => void openLineage(id)}
-          permissions={permissions}
+          permissions={turnPermissions}
           onAnswerPermission={answerPermission}
           anchor={anchor}
         />
