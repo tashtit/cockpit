@@ -685,6 +685,7 @@ export function App(): JSX.Element {
             kind: 'system',
             text: `Worktree ready on ${ws.branch} — running isolated from your main checkout.`
           },
+          ...(ws.warning ? [{ role: 'system', kind: 'system', text: ws.warning } as const] : []),
           { role: 'user', kind: 'text', text: withImageMarks(prompt, images) }
         ])
         const turnId = await api.sendChat({

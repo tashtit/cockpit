@@ -14,6 +14,8 @@ Cockpit then:
 
 Your working copy stays untouched no matter what the agent does. Uncommitted work in your checkout can't be clobbered, and parallel tasks on the same repo can't collide with each other.
 
+If the repository has a `post-checkout` hook that fails (husky is the usual one, when `node` is only on your shell's PATH and not the app's), the task still starts: git has finished the checkout before the hook runs. The chat opens with what the hook printed, since whatever it sets up is missing from that worktree. Any other failure removes the half-made worktree and its branch, so trying again doesn't leave extra `cockpit/*` branches behind.
+
 ## Reviewing before you ship
 
 **Changes** in the chat header (⌘D) swaps the transcript for the worktree's diff, so you read what the agent did before it becomes a pull request:
