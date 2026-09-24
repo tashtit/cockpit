@@ -935,8 +935,10 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
      the browser's own anchoring would add the same height a second time */
   overflow-anchor: none; }
 /* rows must never shrink to fit the viewport — overflow scrolls instead; without this,
-   tool-rows (overflow:hidden → tiny min-content) compress to slivers in long transcripts */
-.messages > * { flex-shrink: 0; }
+   tool-rows (overflow:hidden → tiny min-content) compress to slivers in long transcripts.
+   A roundtable's live block is `display: contents`, so its rows are flex items here
+   too without being children — a seat's tool calls were drawn as bare border lines. */
+.messages > *, .messages > .rt-live > * { flex-shrink: 0; }
 /* "New messages" for a reader who scrolled up while the agent wrote: the transcript's
    last child is a sticky, zero-height line (the negative margin cancels the gap it
    would add), and the key hangs above it — absolute, so it takes no room, and centred

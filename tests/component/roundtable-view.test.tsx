@@ -179,6 +179,40 @@ describe('RoundtableView', () => {
     expect(screen.getByText('Codex is thinking…')).toBeInTheDocument()
   })
 
+  it("a seat's live block keeps its text and tool calls in the order they happened", async () => {
+    let handler: ((ev: RoundtableEvent) => void) | null = null
+    vi.mocked(window.cockpit.onRoundtableEvent).mockImplementation((cb) => {
+      handler = cb
+      return () => {}
+    })
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(fixture({ running: true, speaking: [0] }))
+    render(<RoundtableView id="rt-1" />)
+    await waitFor(() => expect(screen.getByText('Claude is thinking…')).toBeInTheDocument())
+
+    // one burst: the first passage is still in the text batch when the tool call arrives
+    act(() => {
+      handler!({ id: 'rt-1', type: 'delta', speaker: 'claude', seat: 0, text: 'Checking the ' })
+      handler!({ id: 'rt-1', type: 'delta', speaker: 'claude', seat: 0, text: 'registry first.' })
+      handler!({ id: 'rt-1', type: 'tool', speaker: 'claude', seat: 0, toolName: 'Bash', detail: 'npm view takt' })
+      handler!({ id: 'rt-1', type: 'tool', speaker: 'claude', seat: 0, toolName: 'WebSearch', detail: 'takt software' })
+      handler!({ id: 'rt-1', type: 'delta', speaker: 'claude', seat: 0, text: 'Takt is taken.' })
+    })
+    await waitFor(() => expect(screen.getByText('Takt is taken.')).toBeInTheDocument())
+
+    const block = document.querySelector('.rt-live')!
+    const order = [...block.children].map((el) =>
+      el.classList.contains('tool-row')
+        ? `tool: ${el.querySelector('summary')!.textContent}`
+        : `text: ${el.querySelector('.streaming-plain')!.textContent}`
+    )
+    expect(order).toEqual([
+      'text: Checking the registry first.',
+      expect.stringMatching(/^tool: .*Bash.*npm view takt/),
+      expect.stringMatching(/^tool: .*WebSearch.*takt software/),
+      'text: Takt is taken.'
+    ])
+  })
+
   it('a concluded cycle renders the app-assembled outcome from the seats\' own lines', async () => {
     vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
       fixture({
