@@ -133,7 +133,8 @@ export async function stageUpdate(req: StageRequest, fetch: UpdateFetch = electr
   if (!file.sha512) throw new Error('the release feed carries no checksum for this build')
 
   const dir = stageDir()
-  await rm(dir, { recursive: true, force: true })
+  const stuck = await removeTree(dir)
+  if (stuck) throw new Error(`could not clear the previous download (${stuck})`)
   await mkdir(dir, { recursive: true })
 
   const zip = join(dir, file.url)
@@ -285,7 +286,25 @@ async function readStaged(currentVersion: string): Promise<Staged | null> {
   }
 }
 
-/** Forget a staged build and everything downloaded for it. */
+/**
+ * Forget a staged build and everything downloaded for it. Never rejects: every
+ * caller is a sweep nobody waits on, and a stage that will not go is reported by
+ * the next download, which has to clear the same dir before it can start.
+ */
 export async function discardStaged(): Promise<void> {
-  await rm(stageDir(), { recursive: true, force: true })
+  await removeTree(stageDir())
+}
+
+/**
+ * Remove a tree that holds an app bundle — with `rm`, never `fs.rm`. Electron's fs
+ * reads every `.asar` as a directory, so a recursive `fs.rm` walks into the bundle's
+ * `Contents/Resources/app.asar` rather than unlinking it, and then fails on
+ * `Resources` with ENOTEMPTY. It has already removed everything else by then, so
+ * what it leaves is a stage no later download could clear either. Null when the
+ * tree is gone, else why it is not.
+ */
+async function removeTree(dir: string): Promise<string | null> {
+  const out = await execText('/bin/rm', ['-rf', dir], { timeoutMs: 60_000 })
+  // rm names every entry it could not remove, up to the root — the first is the cause
+  return out.ok ? null : out.stderr.trim().split('\n')[0] || out.error
 }

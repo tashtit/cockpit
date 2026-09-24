@@ -10,6 +10,7 @@ import { swapScript } from '../src/main/update-install-core'
 import {
   armSwap,
   bundleFacts,
+  discardStaged,
   readInstallResult,
   resumeStaged,
   stageUpdate,
@@ -150,6 +151,62 @@ describe.skipIf(!onMac)('stageUpdate', () => {
 
     expect(await resumeStaged('0.11.0')).toBeNull()
     expect(existsSync(half)).toBe(false)
+  })
+
+  it('gets past a stage an earlier build could not clear, down to the app.asar it left', async () => {
+    // What removing a stage with fs.rm used to leave: Electron's fs reads app.asar as
+    // a directory, so the rest of the bundle went and Resources did not — and every
+    // download after that failed on the same rmdir. Here, on plain Node, app.asar is
+    // only a file; what this pins is that the next download clears a stage like that.
+    const stuck = mkdirAt(join(updatesDir(), 'staged', 'app', 'Cockpit.app', 'Contents'), 'Resources')
+    writeFileSync(join(stuck, 'app.asar'), 'an archive Electron reads as a directory', 'utf8')
+
+    const world = scratch()
+    const running = makeApp(mkdirAt(world, 'installed'), '0.11.0')
+    const release = makeApp(mkdirAt(world, 'release'), '0.12.0')
+    const zip = join(world, 'Cockpit-0.12.0-arm64.zip')
+    const { sha512, size } = await zipApp(release, zip)
+
+    const staged = await stageUpdate(
+      {
+        version: '0.12.0',
+        file: { url: 'Cockpit-0.12.0-arm64.zip', sha512, size },
+        releasesUrl: 'https://github.com/tashtit/cockpit/releases',
+        bundle: running,
+        onProgress: () => {}
+      },
+      servesFile(zip)
+    )
+
+    expect((await bundleFacts(staged.app)).version).toBe('0.12.0')
+    // expanded over the old one, a leftover would still be inside the new bundle
+    expect(existsSync(join(staged.app, 'Contents', 'Resources', 'app.asar'))).toBe(false)
+  })
+
+  it('says why an old stage will not go, and sweeping it never throws', async () => {
+    const stage = mkdirAt(updatesDir(), 'staged')
+    writeFileSync(join(stage, 'Cockpit-0.11.0-arm64.zip'), 'an older download', 'utf8')
+    chmodSync(stage, 0o555)
+    try {
+      await expect(
+        stageUpdate(
+          {
+            version: '0.12.0',
+            file: { url: 'Cockpit-0.12.0-arm64.zip', sha512: 'x' },
+            releasesUrl: 'https://github.com/tashtit/cockpit/releases',
+            bundle: '/Applications/Cockpit.app',
+            onProgress: () => {}
+          },
+          servesFile('/dev/null')
+        )
+      ).rejects.toThrow(/could not clear the previous download \(.*Permission denied\)/)
+      // the sweeps run unawaited (and at launch, ahead of restoring state): a rejection
+      // there is unhandled, and the next download reports the same stage anyway
+      await expect(discardStaged()).resolves.toBeUndefined()
+      await expect(resumeStaged('0.11.0')).resolves.toBeNull()
+    } finally {
+      chmodSync(stage, 0o755)
+    }
   })
 
   it('refuses a download that does not match the checksum the release publishes', async () => {
