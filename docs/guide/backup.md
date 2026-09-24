@@ -27,6 +27,8 @@ There is no reset and no escrow. If you lose it, the rest of the file still rest
 
 MCP commands, arguments and URLs are written as they are unless a passphrase seals them, so a token embedded in a command line ends up in the file. Set a passphrase if that applies to you.
 
+Each agent's own copy of a server's definition — an http server's headers, Copilot's tools allowlist, Codex's timeouts — never goes in the file, passphrase or not: it is read back from the agents on this Mac. A server restored on another machine is written from the command, arguments, env and url alone.
+
 ## Restoring
 
 Choosing a file shows what it holds before anything is written: when it was made, how much is in it, which MCP commands it would introduce, and any repo it mentions that this Mac doesn't have.

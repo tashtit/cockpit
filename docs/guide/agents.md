@@ -148,6 +148,18 @@ A server's switch translates one definition into each agent's own config format:
 
 Define a server once, run it everywhere.
 
+Cockpit compares the parts every agent shares — the command and its arguments, the env
+variable names, the url and its transport — but a definition often holds more: an http
+server's `headers`, Copilot's `tools` allowlist, Codex's `startup_timeout_sec` or
+`enabled_tools`. Those are left alone. A write changes only the compared fields that
+differ, in the agent's own definition, and keeps every other key as it was. Switching an
+agent off keeps its definition in Cockpit's copy, so switching it back on — or *Put it
+back* after removing everywhere — gives it back exactly what it had. Only an agent that
+never had the server gets one built from the compared fields.
+
+Codex's `env` is read whether it is written as its own `[mcp_servers.<name>.env]` table or
+inline (`env = { "API_KEY" = "…" }`), and a changed one is written back in the same form.
+
 ### What a row says it is
 
 A row names the server by **what it is**, not by the command line that launches it —
@@ -170,8 +182,10 @@ confidence stays `local · <command>` rather than being guessed at.
 A **pinned** server runs exactly the release it names, so it is the one kind that can fall
 behind. Cockpit asks npm or PyPI — once, when you open the section, never on a schedule —
 and marks the row `update 0.0.81`. Open it and one button, **Update to 0.0.81**, rewrites
-the pin wherever that server is switched on; nothing else in the command changes. Restart
-those CLIs to pick it up.
+the pin wherever that server is switched on — in each agent's own launch line, so flags
+that differ between agents stay theirs, and nothing else in the definition changes. An
+agent that runs the same package unpinned, or a different one, is left as it is, and the
+result names it. Restart those CLIs to pick it up.
 
 Nothing else is asked about: an unpinned server already installs the newest release at
 every launch, and a remote server has no version to compare. If a registry can't be

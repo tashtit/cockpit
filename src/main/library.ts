@@ -34,12 +34,15 @@ import {
   claudeProjectMcp,
   getExtensions,
   projectSkillDir,
+  readExtensions,
   readSkillFingerprint,
   removeMcp,
   shareMcp,
   skillDir,
-  writeClaudeProjectMcp
+  writeClaudeProjectMcp,
+  type ExtensionsRead
 } from './extensions'
+import { rawMcpConfig } from './extensions-core'
 import { applyInstructions, getInstructions, unapplyInstructions } from './instructions'
 import { mcpVersions } from './mcp-versions'
 import { adoptInventory } from '../shared/library'
@@ -105,11 +108,10 @@ function replaceEntry(entries: readonly LibraryEntry[], next: LibraryEntry): Lib
  * actually carry. Plugins and marketplaces are installed per machine, so a repo
  * scope has none at all — the panel says so rather than showing empty rows.
  */
-function scopedInventory(repoRoot: string | null): ExtensionsInventory {
-  const global = getExtensions()
-  if (repoRoot === null) return global
+function scopedInventory(repoRoot: string | null): ExtensionsRead {
+  if (repoRoot === null) return readExtensions()
   return {
-    mcp: claudeProjectMcp(repoRoot),
+    ...claudeProjectMcp(repoRoot),
     skills: PROVIDERS.flatMap((agent) => {
       const dir = projectSkillDir(repoRoot, agent)
       if (!existsSync(dir)) return []
@@ -300,7 +302,7 @@ function actualOf(
  */
 function ensureScope(repoRoot: string | null): {
   entries: LibraryEntry[]
-  inv: ExtensionsInventory
+  inv: ExtensionsRead
 } {
   const inv = scopedInventory(repoRoot)
   const before = loadEntries(repoRoot)
@@ -314,13 +316,19 @@ function ensureScope(repoRoot: string | null): {
  * Keep Cockpit's copy current with what the agents run. The copy exists so a switch
  * has something to write and a removed entry can come back — it is a backup, so it
  * follows the agents rather than the other way round.
+ *
+ * Each agent's own definition is kept alongside, and an agent that no longer has the
+ * server keeps the one it had last: switching it back on then gives it exactly that
+ * back — headers, tool filters, timeouts — rather than the compared fields alone.
  */
-function refreshSaved(entry: LibraryEntry, inv: ExtensionsInventory): LibraryEntry {
+function refreshSaved(entry: LibraryEntry, inv: ExtensionsRead): LibraryEntry {
   if (entry.kind !== 'mcp') return entry
   const config = inv.mcp.find((srv) => srv.name === entry.name)?.presences[0]?.config
+  const own = inv.mcpRaw.get(entry.name)
+  const next = own ? { ...entry, raw: { ...entry.raw, ...own } } : entry
   // an agent's own definition carries the values a passphrase-less restore left
   // out, so adopting it is exactly what clears the "needs values" state
-  return config ? withoutWithheld({ ...entry, config }) : entry
+  return config ? withoutWithheld({ ...next, config }) : next
 }
 
 /**
@@ -423,17 +431,19 @@ async function writeSwitch(
         )
       }
       // entry.config is kept refreshed from the agents on every read, so writing it
-      // spreads what your agents actually run rather than something Cockpit invented
+      // spreads what your agents actually run rather than something Cockpit invented;
+      // entry.raw is what each agent itself holds, which the write patches it into
+      const def = { config: entry.config, raw: entry.raw }
       if (repoRoot !== null) {
         if (agent !== 'claude') throw new Error('only Claude Code scopes MCP servers to a project')
-        if (on) return writeClaudeProjectMcp(repoRoot, entry.name, entry.config)
+        if (on) return writeClaudeProjectMcp(repoRoot, entry.name, def)
         try {
           return removeMcp(entry.name, 'claude', repoRoot)
         } catch {
           return
         }
       }
-      if (on) return shareMcp(entry.name, agent, { overwrite: true, config: entry.config })
+      if (on) return shareMcp(entry.name, agent, { ...def, overwrite: true })
       // taking out what was never there is what the user asked for either way
       try {
         return removeMcp(entry.name, agent)
@@ -654,9 +664,11 @@ export async function mcpVersionsFor(repoRoot: string | null): Promise<readonly 
  *
  * Only the version moves: `withVersion` rewrites the package spec and leaves the
  * rest of the launch line byte-identical, so a bump can't quietly become a rewrite
- * of what the user runs. The version itself arrives from the renderer, which makes
- * it untrusted input on its way into a command line — it is checked against the
- * registry's own answer for this server before anything is written.
+ * of what the user runs — and it does that in each agent's own line, whose other
+ * fields the write leaves alone (`pinnedFor`). The version itself arrives from the
+ * renderer, which makes it untrusted input on its way into a command line — it is
+ * checked against the registry's own answer for this server before anything is
+ * written.
  */
 export async function setMcpVersion(target: PanelTarget, version: string): Promise<PanelReport> {
   assertTarget(target)
@@ -674,18 +686,46 @@ export async function setMcpVersion(target: PanelTarget, version: string): Promi
       `${version} isn’t what ${offered?.registry ?? 'the registry'} offers for ${described.what}`
     )
   }
-  const next: LibraryEntry = { ...entry, config: withVersion(entry.config, version) }
+  const next = { ...entry, config: withVersion(entry.config, version) }
   saveEntries(target.repoRoot, replaceEntry(entries, next))
+  // read again now the registry has answered, which can take a while
+  const inv = scopedInventory(target.repoRoot)
   const failed: string[] = []
   for (const agent of PROVIDERS.filter((p) => next.enabled[p] === true)) {
     try {
-      await writeSwitch(next, agent, true, target.repoRoot)
+      await writeSwitch({ ...next, config: pinnedFor(next, agent, inv) }, agent, true, target.repoRoot)
     } catch (err) {
       failed.push(`${agent}: ${err instanceof Error ? err.message : err}`)
     }
   }
   if (failed.length > 0) throw new Error(`pinned to ${version}, but not everywhere — ${failed.join(' · ')}`)
   return getPanel(target.repoRoot)
+}
+
+/**
+ * What one agent runs, with only the version moved to the one `entry` now pins.
+ * Agents can launch the same package with different flags, and a pin is a version
+ * bump, not a rewrite: each keeps its own line. An agent running something else —
+ * another package, or this one unpinned, which already installs the newest at every
+ * launch — is left as it is, and said so. One with nothing of its own yet (switched
+ * on, never written) gets Cockpit's copy.
+ */
+function pinnedFor(
+  entry: LibraryEntry & { readonly config: McpConfig },
+  agent: Provider,
+  inv: ExtensionsInventory
+): McpConfig {
+  const own =
+    inv.mcp.find((s) => s.name === entry.name)?.presences.find((p) => p.agent === agent)?.config ??
+    rawMcpConfig(entry.raw, agent, entry.name)
+  if (!own) return entry.config
+  const mine = describeMcp(own)
+  const pinned = describeMcp(entry.config)
+  const same = registryOf(mine) === registryOf(pinned) && mine.what === pinned.what
+  if (!same || mine.version === undefined || pinned.version === undefined) {
+    throw new Error(`runs ${mcpLabel(own)} — left as it is`)
+  }
+  return withVersion(own, pinned.version)
 }
 
 /* ---------- what a backup needs ---------- */

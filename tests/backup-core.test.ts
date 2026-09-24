@@ -124,6 +124,20 @@ describe('splitSecrets', () => {
     expect(JSON.stringify(out.scopes)).not.toContain('ghp_secret')
   })
 
+  // each agent's own definition is what a switch writes back — headers and all —
+  // and nothing in the backup's secret handling knows which of its keys are tokens
+  it('never puts an agent’s own definition in the file, sealed or not', () => {
+    const withRaw: LibraryEntry = {
+      ...mcp,
+      raw: { claude: { command: 'npx', headers: { Authorization: 'Bearer tok-123' } }, codex: 'token = "tok-456"' }
+    }
+    for (const sealed of [false, true]) {
+      const out = splitSecrets([scope({ library: [withRaw] })], [], { sealed, keyFor: () => undefined })
+      expect(out.scopes[0].library[0].raw).toBeUndefined()
+      expect(JSON.stringify(out)).not.toMatch(/tok-123|tok-456/)
+    }
+  })
+
   it('moves everything secret into the sealed half when there is one', () => {
     const out = splitSecrets([scope({ library: [mcp] })], [endpoint], {
       sealed: true,

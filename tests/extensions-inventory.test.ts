@@ -15,11 +15,13 @@ import { join } from 'node:path'
 import {
   adoptSkillInto,
   getExtensions,
-  parseCodexMcpToml,
   parseCodexSections,
+  readExtensions,
+  removeMcp,
   shareMcp,
   shareSkill
 } from '../src/main/extensions'
+import { parseCodexMcpToml } from '../src/main/extensions-core'
 
 /*
  * Real fixtures on disk, like the indexer tests: each agent's own layout is written
@@ -271,5 +273,102 @@ describe('writing into an agent’s own config', () => {
     rmSync(join(home, '.codex', 'skills', 'shared'), { recursive: true })
     expect(lstatSync(backup).isSymbolicLink()).toBe(false)
     expect(readFileSync(join(backup, 'SKILL.md'), 'utf8')).toContain('one folder, two agents')
+  })
+})
+
+describe('writing back what an agent already holds', () => {
+  // Cockpit compares command, args, env, url and transport; everything else in a
+  // definition is the agent's own, and used to be dropped by every write-back
+  const claudeApi = {
+    type: 'http',
+    url: 'https://mcp.example.dev/v1',
+    headers: { Authorization: 'Bearer tok-123' }
+  }
+  const codexConfig = [
+    'model = "gpt-5"',
+    '',
+    '[mcp_servers.search]',
+    'command = "npx"',
+    'args = ["-y", "search-mcp@1.2.0"]',
+    'env = { "API_KEY" = "sk-live-1" }',
+    'startup_timeout_sec = 30',
+    'enabled_tools = ["query", "fetch"]',
+    '',
+    '[profiles.work]',
+    'model = "o3"',
+    ''
+  ].join('\n')
+  const copilotSearch = {
+    type: 'local',
+    command: 'npx',
+    args: ['-y', 'search-mcp@1.2.0'],
+    env: { API_KEY: 'sk-live-1' },
+    tools: ['query']
+  }
+  const bumped = { command: 'npx', args: ['-y', 'search-mcp@1.3.0'], env: { API_KEY: 'sk-live-1' } }
+
+  function seed(home: string): void {
+    write(join(home, '.claude.json'), JSON.stringify({ oauthAccount: {}, mcpServers: { api: claudeApi } }))
+    write(join(home, '.codex', 'config.toml'), codexConfig)
+    write(join(home, '.copilot', 'mcp-config.json'), JSON.stringify({ mcpServers: { search: copilotSearch } }))
+  }
+
+  const claudeJson = (home: string): any => JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8'))
+  const copilotJson = (home: string): any =>
+    JSON.parse(readFileSync(join(home, '.copilot', 'mcp-config.json'), 'utf8'))
+
+  it('gives a Claude http server its headers back after it was taken out', () => {
+    const home = fakeHome()
+    seed(home)
+    const read = readExtensions()
+    const config = read.mcp.find((s) => s.name === 'api')!.presences[0].config
+    const raw = read.mcpRaw.get('api')
+    removeMcp('api', 'claude')
+    expect(claudeJson(home).mcpServers.api).toBeUndefined()
+    shareMcp('api', 'claude', { config, raw, overwrite: true })
+    expect(claudeJson(home).mcpServers.api).toEqual(claudeApi)
+    expect(claudeJson(home).oauthAccount).toEqual({})
+  })
+
+  it('moves only the version in Codex’s inline env server, in place', () => {
+    const home = fakeHome()
+    seed(home)
+    shareMcp('search', 'codex', { config: bumped, overwrite: true })
+    const after = readFileSync(join(home, '.codex', 'config.toml'), 'utf8')
+    expect(after).toBe(codexConfig.replace('search-mcp@1.2.0', 'search-mcp@1.3.0'))
+    expect(parseCodexMcpToml(after).get('search')?.env).toEqual({ API_KEY: 'sk-live-1' })
+  })
+
+  it('gives Codex its own table back after it was taken out, extra keys and all', () => {
+    const home = fakeHome()
+    seed(home)
+    const read = readExtensions()
+    const config = read.mcp.find((s) => s.name === 'search')!.presences.find((p) => p.agent === 'codex')!.config
+    const raw = read.mcpRaw.get('search')
+    removeMcp('search', 'codex')
+    expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).not.toContain('search')
+    shareMcp('search', 'codex', { config, raw })
+    const after = readFileSync(join(home, '.codex', 'config.toml'), 'utf8')
+    expect(after).toContain('env = { "API_KEY" = "sk-live-1" }\nstartup_timeout_sec = 30\nenabled_tools = ["query", "fetch"]')
+    expect(after).toContain('[profiles.work]\nmodel = "o3"')
+  })
+
+  it('keeps Copilot’s env and its narrowed tools allowlist', () => {
+    const home = fakeHome()
+    seed(home)
+    shareMcp('search', 'copilot', { config: bumped, overwrite: true })
+    expect(copilotJson(home).mcpServers.search).toEqual({ ...copilotSearch, args: ['-y', 'search-mcp@1.3.0'] })
+  })
+
+  it('reads each agent’s own definition, but never sends it to the renderer', () => {
+    const home = fakeHome()
+    seed(home)
+    const raw = readExtensions().mcpRaw
+    expect(raw.get('api')?.claude).toEqual(claudeApi)
+    expect(raw.get('search')?.copilot).toEqual(copilotSearch)
+    expect(raw.get('search')?.codex).toContain('startup_timeout_sec = 30')
+    const sent = JSON.stringify(getExtensions())
+    expect(sent).not.toContain('tok-123')
+    expect(sent).not.toContain('startup_timeout_sec')
   })
 })
