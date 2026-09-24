@@ -31,16 +31,28 @@ import { BranchChip, ChatIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 /** Same DOM bound as ChatView, scaled to discussion-length transcripts. */
 const RENDER_LAST = 200
 
-type LiveTool = { readonly toolName: string; readonly detail: string; readonly preview?: string }
+type LivePart =
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'tool'; readonly toolName: string; readonly detail: string; readonly preview?: string }
 /** One seat's in-flight turn as the view sees it. */
 type LiveTurn = {
-  readonly text: string
-  readonly tools: readonly LiveTool[]
+  /** What the seat has said and run so far, in the order it happened */
+  readonly parts: readonly LivePart[]
   /** Epoch ms the turn started — how long the seat has been at it */
   readonly since?: number
 }
 /** Keyed by participant index — several seats may share a provider. */
 type LiveMap = Partial<Record<number, LiveTurn>>
+
+/** Streamed text grows the passage it continues; after a tool call it starts a new one. */
+function withText(turn: LiveTurn | undefined, text: string): LiveTurn {
+  const cur = turn ?? { parts: [] }
+  if (text === '') return cur
+  const last = cur.parts[cur.parts.length - 1]
+  return last?.kind === 'text'
+    ? { ...cur, parts: [...cur.parts.slice(0, -1), { kind: 'text', text: last.text + text }] }
+    : { ...cur, parts: [...cur.parts, { kind: 'text', text }] }
+}
 
 /** UI seat name: "Claude", or "Claude · opus" / "Claude #2" when a provider repeats. */
 function uiSeatName(participants: readonly RoundtableParticipant[], index: number): string {
@@ -107,10 +119,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     if (drained.length === 0) return
     setLive((prev) => {
       const next: LiveMap = { ...prev }
-      for (const [seat, chunk] of drained) {
-        const cur = next[seat] ?? { text: '', tools: [] }
-        next[seat] = { ...cur, text: cur.text + chunk }
-      }
+      for (const [seat, chunk] of drained) next[seat] = withText(next[seat], chunk)
       return next
     })
   }, [])
@@ -131,7 +140,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         }
       } else if (ev.type === 'turn') {
         clearPendingText(ev.seat)
-        setLive((prev) => ({ ...prev, [ev.seat]: { text: '', tools: [], since: ev.at } }))
+        setLive((prev) => ({ ...prev, [ev.seat]: { parts: [], since: ev.at } }))
       } else if (ev.type === 'queued') {
         setQueued(ev.queued)
         if (ev.error) setNote(`Your waiting message didn’t go out: ${ev.error}`)
@@ -145,15 +154,13 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         bufRef.current.set(ev.seat, (bufRef.current.get(ev.seat) ?? '') + ev.text)
         if (!flushRef.current) flushRef.current = setTimeout(flushDelta, 40)
       } else if (ev.type === 'tool') {
+        // text still waiting in the batch was said before this call, so it lands first
+        const said = bufRef.current.get(ev.seat) ?? ''
+        clearPendingText(ev.seat)
         setLive((prev) => {
-          const cur = prev[ev.seat] ?? { text: '', tools: [] }
-          return {
-            ...prev,
-            [ev.seat]: {
-              ...cur,
-              tools: [...cur.tools, { toolName: ev.toolName, detail: ev.detail, preview: ev.preview }]
-            }
-          }
+          const cur = withText(prev[ev.seat], said)
+          const tool: LivePart = { kind: 'tool', toolName: ev.toolName, detail: ev.detail, preview: ev.preview }
+          return { ...prev, [ev.seat]: { ...cur, parts: [...cur.parts, tool] } }
         })
       } else if (ev.type === 'entry') {
         if (ev.entry.speaker !== 'user' && ev.entry.seat !== undefined) {
@@ -196,7 +203,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         setCycle({ roundsRun: snap.roundsRun, concluded: snap.concluded })
         const liveNow: LiveMap = {}
         for (const seat of snap.speaking) {
-          liveNow[seat] = { text: '', tools: [], since: snap.speakingSince?.[seat] }
+          liveNow[seat] = { parts: [], since: snap.speakingSince?.[seat] }
         }
         setQueued(snap.queued ?? null)
         setRoundsDraft(snap.maxRounds)
@@ -471,36 +478,38 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         {speaking.map((seatIdx) => {
           const turn = live[seatIdx]
           const seat = rt.participants[seatIdx]
-          if (!turn || !seat || (turn.text === '' && turn.tools.length === 0)) return null
+          if (!turn || !seat || turn.parts.length === 0) return null
           return (
             <div key={seatIdx} className="rt-live">
-              {turn.tools.map((tool, i) => (
-                <Message
-                  key={`tool-${i}`}
-                  m={
-                    {
-                      role: 'assistant',
-                      kind: 'tool_call',
-                      toolName: tool.toolName,
-                      text: tool.detail,
-                      preview: tool.preview
-                    } as SessionMessage
-                  }
-                  provider={seat.provider}
-                />
-              ))}
-              {turn.text && (
-                <div className="msg msg-assistant streaming">
-                  <span className={`avatar plogo-${seat.provider}`} aria-hidden="true">
-                    <ProviderLogo p={seat.provider} size={14} />
-                  </span>
-                  <div className="assistant-body markdown">
-                    <div className={`rt-speaker rt-speaker-${seat.provider}`}>
-                      {uiSeatName(rt.participants, seatIdx)}
+              {/* parts only ever append, so an index is a stable key */}
+              {turn.parts.map((part, i) =>
+                part.kind === 'tool' ? (
+                  <Message
+                    key={i}
+                    m={
+                      {
+                        role: 'assistant',
+                        kind: 'tool_call',
+                        toolName: part.toolName,
+                        text: part.detail,
+                        preview: part.preview
+                      } as SessionMessage
+                    }
+                    provider={seat.provider}
+                  />
+                ) : (
+                  <div key={i} className="msg msg-assistant streaming">
+                    <span className={`avatar plogo-${seat.provider}`} aria-hidden="true">
+                      <ProviderLogo p={seat.provider} size={14} />
+                    </span>
+                    <div className="assistant-body markdown">
+                      <div className={`rt-speaker rt-speaker-${seat.provider}`}>
+                        {uiSeatName(rt.participants, seatIdx)}
+                      </div>
+                      <p className="streaming-plain">{part.text}</p>
                     </div>
-                    <p className="streaming-plain">{turn.text}</p>
                   </div>
-                </div>
+                )
               )}
             </div>
           )
