@@ -18,6 +18,17 @@ The structured event stream (where the provider has one) is parsed into messages
 
 Open any session from the sidebar and type: Cockpit resumes that conversation with the same provider, in the same working directory. There's no separate "import" — the index *is* the chat history.
 
+### Coming back to a turn in flight
+
+A turn Cockpit started keeps running while you look elsewhere — another session, the
+board, ⌘[ back through your history, even a reload of the window. Open its session again
+and you are back in the turn: the transcript is read from the log, the reply streams in
+from there without repeating a line, and **Stop** stands where **Send** was. A permission
+question the agent asked while you were in another chat is waiting for you.
+
+A session runs one turn at a time. Cockpit won't start a second one beside a turn that is
+still going; stop it, or wait for it to finish.
+
 ### A session that is running somewhere else
 
 Most sessions are not Cockpit's: they run in a terminal or in the provider's own app, and

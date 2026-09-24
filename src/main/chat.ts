@@ -314,24 +314,58 @@ export class ChatManager {
     this.hooks = hooks
   }
 
-  /** Sessions with a provider process currently running (earliest start wins on overlap). */
+  /**
+   * Sessions with a provider process currently running, each with the turn still live
+   * on it — the one a window can rejoin. Two processes on one session (a finished turn's
+   * still exiting as the next starts): the live turn speaks for it, else the earlier.
+   */
   busySessions(): BusySession[] {
-    const byId = new Map<string, number>()
-    for (const t of this.turns.values()) {
+    type Entry = { readonly startedAt: number; readonly turnId: string | null }
+    const wins = (a: Entry, b: Entry): boolean =>
+      (a.turnId === null) !== (b.turnId === null) ? a.turnId !== null : a.startedAt < b.startedAt
+    const byId = new Map<string, Entry>()
+    for (const [turnId, t] of this.turns) {
+      const entry: Entry = { startedAt: t.startedAt, turnId: t.doneSent ? null : turnId }
       for (const nativeId of t.sessionIds) {
         const id = `${t.provider}:${nativeId}`
         const prev = byId.get(id)
-        if (prev === undefined || t.startedAt < prev) byId.set(id, t.startedAt)
+        if (prev === undefined || wins(entry, prev)) byId.set(id, entry)
       }
     }
-    return [...byId].map(([id, startedAt]) => ({ id, startedAt, source: 'spawned' as const }))
+    return [...byId].map(([id, e]) => ({ id, ...e, source: 'spawned' as const }))
+  }
+
+  /**
+   * The turn in flight on this session, if there is one: known under the id it resumed
+   * and every id its stream announced. A turn that has said it is done no longer counts
+   * — its process may take a moment to exit, and a follow-up must not wait on that.
+   */
+  turnFor(provider: Provider, nativeId: string): string | null {
+    for (const [turnId, t] of this.turns) {
+      if (!t.doneSent && t.provider === provider && t.sessionIds.has(nativeId)) return turnId
+    }
+    return null
   }
 
   private notifyBusy(): void {
     this.hooks.onBusyChange?.(this.busySessions())
   }
 
+  /**
+   * One conversation, one turn: a second CLI resuming a session that is mid-turn would
+   * write two turns into one log at once. A window that comes back to a running session
+   * rejoins its turn (BusySession.turnId); this is the backstop for one that didn't.
+   * Thrown, not emitted — no turn exists to carry the events.
+   */
+  assertNotRunning(req: ChatRequest): void {
+    if (req.resumeNativeId && this.turnFor(req.provider, req.resumeNativeId)) {
+      throw new Error('This session already has a turn running — wait for it to finish, or stop it.')
+    }
+  }
+
   send(req: ChatRequest): string {
+    // before a turn exists, so the attention desk is never told of one that won't run
+    this.assertNotRunning(req)
     const turnId = randomUUID()
     // synchronous, so it runs before the microtask a refused turn emits its events in
     this.hooks.onTurnStart?.(turnId, req)
@@ -518,10 +552,14 @@ export class ChatManager {
   /**
    * Emit one event and keep the turn's bookkeeping with it: a session id the stream
    * announces is a new id this turn is busy under, and a `done` is what stops the close
-   * handler from reporting a failure on top of it.
+   * handler from reporting a failure on top of it — and leaves nothing to rejoin while
+   * the process exits.
    */
   private deliver(turn: RunningTurn, ev: ChatEvent): void {
-    if (ev.type === 'done') turn.doneSent = true
+    if (ev.type === 'done' && !turn.doneSent) {
+      turn.doneSent = true
+      this.notifyBusy()
+    }
     if (ev.type === 'session' && !turn.sessionIds.has(ev.nativeSessionId)) {
       turn.sessionIds.add(ev.nativeSessionId)
       this.notifyBusy()

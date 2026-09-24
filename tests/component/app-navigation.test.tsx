@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../src/renderer/src/App'
-import type { ChatEvent, RepoGroup, SessionMeta } from '../../src/shared/types'
+import type { BusySession, ChatEvent, RepoGroup, SessionMessage, SessionMeta } from '../../src/shared/types'
 
 const repo: RepoGroup = {
   key: '/home/dev/rocket',
@@ -141,6 +141,56 @@ describe('App back/forward navigation (⌘[ / ⌘])', () => {
     await userEvent.type(chatComposer(), 'again{Enter}')
     await waitFor(() => expect(window.cockpit.sendChat).toHaveBeenCalledTimes(2))
     expect(vi.mocked(window.cockpit.sendChat).mock.calls[1][0].resumeNativeId).toBe('a2')
+  })
+
+  it('backing into a chat whose turn is still running rejoins it', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 2,
+      items: [session('a', 'fix the login flake'), session('b', 'add pagination')]
+    })
+    const logA: SessionMessage[] = [{ role: 'user', kind: 'text', text: 'transcript of a' }]
+    vi.mocked(window.cockpit.getSessionMessages).mockImplementation(async (id) =>
+      id === 'claude:a' ? [...logA] : [{ role: 'user', kind: 'text', text: 'transcript of b' }]
+    )
+    let emit: ((ev: ChatEvent) => void) | undefined
+    vi.mocked(window.cockpit.onChatEvent).mockImplementation((cb) => {
+      emit = cb
+      return () => {}
+    })
+    let pushBusy: ((sessions: BusySession[]) => void) | undefined
+    vi.mocked(window.cockpit.onBusySessions).mockImplementation((cb) => {
+      pushBusy = cb
+      return () => {}
+    })
+    const stop = (): HTMLElement | null => screen.queryByRole('button', { name: 'Stop' })
+    render(<App />)
+
+    await userEvent.click(await boardRow(/fix the login flake/))
+    await screen.findByText('transcript of a')
+    await userEvent.type(chatComposer(), 'hi{Enter}')
+    await waitFor(() => expect(window.cockpit.sendChat).toHaveBeenCalledTimes(1))
+    act(() => pushBusy?.([{ id: 'claude:a', startedAt: Date.now(), source: 'spawned', turnId: 'turn-1' }]))
+    expect(stop()).toBeInTheDocument()
+
+    // over to another conversation while the turn runs: that one is idle
+    cmd('n')
+    await userEvent.click(await boardRow(/add pagination/))
+    await screen.findByText('transcript of b')
+    expect(stop()).not.toBeInTheDocument()
+    // the turn goes on writing its log meanwhile
+    logA.push({ role: 'assistant', kind: 'text', text: 'written while away' })
+    act(() => emit?.({ turnId: 'turn-1', type: 'text', text: 'written while away' }))
+
+    cmd('[')
+    await homeHero()
+    cmd('[')
+    await screen.findByText('written while away')
+    expect(stop()).toBeInTheDocument()
+    expect(screen.getAllByText('written while away')).toHaveLength(1)
+    act(() => emit?.({ turnId: 'turn-1', type: 'text', text: 'after coming back' }))
+    await screen.findByText('after coming back')
+    await userEvent.click(stop()!)
+    expect(window.cockpit.cancelChat).toHaveBeenCalledWith('turn-1')
   })
 })
 

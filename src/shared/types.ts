@@ -964,23 +964,35 @@ export type ProfileStats = {
   readonly hourCounts: number[]
 }
 
-/** One session with a turn in progress, for status displays (the board, LiveDots). */
+/**
+ * One session with a turn in progress, for status displays (the board, LiveDots).
+ *
+ * `source` is how Cockpit knows. `spawned`: a provider process it runs itself — the
+ * start is exact and the entry ends the moment the process does. `observed`: a session
+ * driven from a terminal or the provider's own app, judged from the tail of its log by
+ * main's liveness tracker — the start is the turn's opening record (or the log's last
+ * write when that has scrolled out), and the entry expires when the log stops growing.
+ * Same id space either way; a spawned session's log is observed too, and the spawned
+ * entry wins.
+ */
 export type BusySession = {
   /** Session id: `${provider}:${nativeId}` */
   readonly id: string
   /** Epoch ms the running turn was started — elapsed time derives from this */
   readonly startedAt: number
-  /**
-   * How Cockpit knows. `spawned`: a provider process it runs itself — the start is
-   * exact and the entry ends the moment the process does. `observed`: a session driven
-   * from a terminal or the provider's own app, judged from the tail of its log by
-   * main's liveness tracker — the start is the turn's opening record (or the log's
-   * last write when that has scrolled out), and the entry expires when the log stops
-   * growing. Same id space either way; a spawned session's log is observed too, and
-   * the spawned entry wins.
-   */
-  readonly source: 'spawned' | 'observed'
-}
+} & (
+  | {
+      readonly source: 'spawned'
+      /**
+       * The turn Cockpit runs it under: what a window that left the conversation
+       * mid-turn (another session, back/forward, a reload) rejoins — its stream and its
+       * Stop. Null once the turn has said it is done and only its process is still
+       * exiting, when there is nothing left to rejoin.
+       */
+      readonly turnId: string | null
+    }
+  | { readonly source: 'observed' }
+)
 
 /* ---------- attention: notifications, sounds and the Dock badge ---------- */
 

@@ -278,14 +278,14 @@ describe('judgeTail', () => {
 describe('mergeBusy', () => {
   it('keeps both sides, spawned first and winning on a shared id', () => {
     const merged = mergeBusy(
-      [{ id: 'claude:a', startedAt: 100, source: 'spawned' }],
+      [{ id: 'claude:a', startedAt: 100, source: 'spawned', turnId: 't1' }],
       [
         { id: 'claude:a', startedAt: 150, source: 'observed' },
         { id: 'codex:b', startedAt: 200, source: 'observed' }
       ]
     )
     expect(merged).toEqual([
-      { id: 'claude:a', startedAt: 100, source: 'spawned' },
+      { id: 'claude:a', startedAt: 100, source: 'spawned', turnId: 't1' },
       { id: 'codex:b', startedAt: 200, source: 'observed' }
     ])
   })

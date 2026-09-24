@@ -10,7 +10,7 @@ import { getHandoffBriefing } from '../src/main/handoff'
 /**
  * Deterministic briefing path over real fixtures: a claude session log indexed by
  * the real indexer, whose cwd is a real (tiny) git repository. The AI-improve path
- * shells out to provider CLIs and stays untested, like ChatManager itself.
+ * shells out to provider CLIs and stays untested, like ChatManager's CLI spawns.
  */
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-handoff-fixtures-'))

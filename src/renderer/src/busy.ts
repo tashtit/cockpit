@@ -11,6 +11,8 @@ import { api } from './api'
 let busy: ReadonlyMap<string, number> = new Map()
 /** How main knows each one is running (`BusySession.source`), same keys as `busy`. */
 let sources: ReadonlyMap<string, BusySession['source']> = new Map()
+/** The live turn behind each spawned entry (`BusySession.turnId`) — spawned keys only. */
+let turns: ReadonlyMap<string, string> = new Map()
 const listeners = new Set<() => void>()
 
 function subscribe(cb: () => void): () => void {
@@ -24,6 +26,11 @@ function set(sessions: BusySession[]): void {
   // a turn ending is main's to judge (landed.ts mirrors what it decides)
   busy = new Map(sessions.map((s) => [s.id, s.startedAt]))
   sources = new Map(sessions.map((s) => [s.id, s.source]))
+  turns = new Map(
+    sessions.flatMap((s): [string, string][] =>
+      s.source === 'spawned' && s.turnId !== null ? [[s.id, s.turnId]] : []
+    )
+  )
   listeners.forEach((l) => l())
 }
 
@@ -45,6 +52,16 @@ export function useSessionBusy(id: string): boolean {
  */
 export function useSessionRunsElsewhere(id: string | null): boolean {
   return useSyncExternalStore(subscribe, () => id !== null && sources.get(id) === 'observed')
+}
+
+/**
+ * The turn Cockpit is running for this session right now, or null. Read once, as a
+ * session opens — not a hook: a window that left the conversation mid-turn (another
+ * session, back/forward, a reload) rejoins the turn under this id rather than showing
+ * the chat idle, and one that never left has the turn already.
+ */
+export function spawnedTurn(id: string): string | null {
+  return turns.get(id) ?? null
 }
 
 /** The whole busy map (id → turn start ms) — the board sorts and counts with it.
