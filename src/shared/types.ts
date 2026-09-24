@@ -250,6 +250,9 @@ export type PrStatus = {
 export type WorkspaceInfo = {
   readonly cwd: string
   readonly branch: string
+  /** The worktree is complete but something around it went wrong — today, the
+   *  repository's post-checkout hook failed. Shown to the person as is. */
+  readonly warning?: string
 }
 
 /**
