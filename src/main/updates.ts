@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { COCKPIT_REPO_URL } from '../shared/feedback'
 import type { AppInfo, UpdateInstallOutcome, UpdatePrefs, UpdateState } from '../shared/types'
 import { updatePrefs } from './config'
 import {
@@ -15,7 +16,7 @@ import {
 import { checkOutcome, pickZip, type CheckResult, type FeedFile } from './update-install-core'
 
 /** Where releases live — the updater's feed and the only place release notes are kept. */
-export const RELEASES_URL = 'https://github.com/tashtit/cockpit/releases'
+export const RELEASES_URL = `${COCKPIT_REPO_URL}/releases`
 
 /** The launch check waits for the index to settle; afterwards a quiet periodic one. */
 const FIRST_CHECK_DELAY_MS = 20_000
@@ -284,6 +285,8 @@ export function appInfo(): AppInfo {
     version: app.getVersion(),
     packaged: app.isPackaged,
     platform: process.platform,
+    // Electron's own reading of the product version; os.release() is Darwin's
+    osVersion: process.getSystemVersion(),
     arch: process.arch,
     electron: process.versions.electron ?? '',
     releasesUrl: RELEASES_URL

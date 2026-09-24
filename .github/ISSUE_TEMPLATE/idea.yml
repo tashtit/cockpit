@@ -1,0 +1,16 @@
+name: Suggest an idea
+description: Something Cockpit could do, or do better.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The situation, and what gets in the way today. This matters more than the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: How you imagine it working, if you have an idea.

@@ -1,0 +1,54 @@
+name: Report a problem
+description: Something in Cockpit is broken, stuck or wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. **Settings › About › Report a problem** opens this form
+        with the version fields already filled in.
+        Sessions that are missing or show the wrong title, branch or transcript have
+        [their own form](https://github.com/tashtit/cockpit/issues/new?template=sessions.yml).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      description: The steps, if you know them. "It happened once" is useful too.
+      placeholder: |
+        1. Open a Codex session
+        2. Send a message while the agent is working
+        3. …
+  - type: input
+    id: version
+    attributes:
+      label: Cockpit version
+      description: Settings › About shows it.
+      placeholder: "0.31.1"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS
+      placeholder: "26.0 (arm64)"
+  - type: textarea
+    id: agents
+    attributes:
+      label: Agent CLIs
+      description: Which agent CLIs you have, and their versions.
+      placeholder: |
+        Claude Code: 2.1.236 (Homebrew cask)
+        Codex: 0.154.0 (npm)
+        Copilot: not installed
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, or the error text. Please leave out anything private — this issue is public.

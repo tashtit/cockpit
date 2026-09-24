@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Ask a question
+    url: https://github.com/tashtit/cockpit/discussions/categories/q-a
+    about: How do I…? Does Cockpit…? Ask in Discussions.
+  - name: Show what you use it for
+    url: https://github.com/tashtit/cockpit/discussions/categories/show-and-tell
+    about: Your setup, your workflow, a screenshot — we read every one.
+  - name: Report a security vulnerability
+    url: https://github.com/tashtit/cockpit/security/advisories/new
+    about: Privately, please — not in a public issue.

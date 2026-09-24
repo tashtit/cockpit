@@ -1648,6 +1648,9 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .attn-switch input { width: 14px; height: 14px; margin: 5px; flex-shrink: 0; cursor: pointer; }
 .attn-switch input:disabled { cursor: default; opacity: 0.4; }
 .attn-switch .source-note { display: block; }
+/* About's feedback keys: one line of ghost buttons that wraps on its own, never a
+   breakpoint — the card is the window minus a sidebar the user drags */
+.feedback-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 /* ---------- settings subscription usage ---------- */
 .usage-windows { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s1); }
 /* wraps between its parts, never inside them: each reading is a phrase, and a phrase
