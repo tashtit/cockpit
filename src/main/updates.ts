@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import type { AppInfo, UpdatePrefs, UpdateState } from '../shared/types'
+import type { AppInfo, UpdateInstallOutcome, UpdatePrefs, UpdateState } from '../shared/types'
 import { updatePrefs } from './config'
 import {
   armSwap,
@@ -153,20 +153,30 @@ export class UpdateManager {
     return this.state
   }
 
-  /** Quit, swap the new build in and reopen it — only once one is downloaded. */
-  install(): boolean {
-    if (this.state.status !== 'ready' || !this.staged || this.armed) return false
+  /**
+   * Quit, swap the new build in and reopen it — only once one is downloaded, and
+   * never under running agent turns unless the request says to stop them: this is
+   * one click on a prompt that stays up for as long as the build waits, and the
+   * quit takes every turn Cockpit is running down with it.
+   *
+   * What decides is the build on disk, not the status: a check run with it already
+   * downloaded reports `checking` for a moment, and a restart asked for in that
+   * moment is still a restart into that build.
+   */
+  install(req: { readonly runningTurns: number; readonly stopRunning: boolean }): UpdateInstallOutcome {
+    if (!this.staged || this.armed) return { restarting: false }
+    if (req.runningTurns > 0 && !req.stopRunning) return { restarting: false, runningTurns: req.runningTurns }
     const target = runningBundle()
-    if (!target) return false
+    if (!target) return { restarting: false }
     try {
       armSwap(this.staged, target, true)
       this.armed = true
     } catch (err) {
       this.fail(err)
-      return false
+      return { restarting: false }
     }
     app.quit()
-    return true
+    return { restarting: true }
   }
 
   /**

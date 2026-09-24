@@ -4,6 +4,7 @@ import { api } from './api'
 import { fmtAgo } from './format'
 import { ipcErrorText } from './ipc-error'
 import { CockpitLogo } from './logos'
+import { turnsWord, useRestartToUpdate } from './update-prompt'
 
 const UPDATE_SWITCHES: ReadonlyArray<{
   readonly key: keyof UpdatePrefs
@@ -71,6 +72,7 @@ export function AboutSection({
 }): JSX.Element {
   const [prefs, setPrefs] = useState<UpdatePrefs | null>(null)
   const [licensesError, setLicensesError] = useState<string | null>(null)
+  const restart = useRestartToUpdate()
 
   useEffect(() => {
     void api.getUpdatePrefs().then(setPrefs)
@@ -137,9 +139,28 @@ export function AboutSection({
             <button className="btn-ghost small" onClick={() => void checkUpdates()}>
               Check again
             </button>
-            <button className="btn-ghost small" onClick={() => void api.installUpdate()}>
-              Restart now
-            </button>
+            {restart.armed === null ? (
+              <button className="btn-ghost small" onClick={restart.restart}>
+                Restart now
+              </button>
+            ) : (
+              // the restart stops the turns Cockpit is running, so it asks first — the
+              // same armed step as the sidebar's update bar (useRestartToUpdate)
+              <button
+                className="btn-ghost danger small armed"
+                onClick={restart.restart}
+                onBlur={restart.disarm}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.stopPropagation()
+                    restart.disarm()
+                  }
+                }}
+                title={`Cockpit is running ${turnsWord(restart.armed)}, and restarting stops them. Click again to restart now, or let them finish first.`}
+              >
+                Stop {turnsWord(restart.armed)} and restart?
+              </button>
+            )}
           </>
         )
       case 'unsupported':

@@ -67,6 +67,8 @@ import type {
   TimeFormat,
   TranscriptSearchQuery,
   TranscriptSearchResult,
+  UpdateInstallOutcome,
+  UpdateInstallRequest,
   UpdatePrefs,
   UpdateState,
   UsageSnapshot,
@@ -330,8 +332,11 @@ export type CockpitApi = {
   readonly checkForUpdates: () => Promise<UpdateState>
   /** Fetch the offered build; state streams through `downloading` into `ready` */
   readonly downloadUpdate: () => Promise<UpdateState>
-  /** Quit, swap the downloaded build in and reopen — only meaningful in the `ready` state */
-  readonly installUpdate: () => Promise<void>
+  /**
+   * Quit, swap the downloaded build in and reopen — only once a build is downloaded,
+   * and not under running agent turns unless the request says to stop them
+   */
+  readonly installUpdate: (req?: UpdateInstallRequest) => Promise<UpdateInstallOutcome>
   readonly getUpdatePrefs: () => Promise<UpdatePrefs>
   readonly setUpdatePrefs: (prefs: UpdatePrefs) => Promise<UpdatePrefs>
   /** Push: every transition of the update state */

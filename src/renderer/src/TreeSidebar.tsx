@@ -17,6 +17,7 @@ import { RailResizer } from './RailResizer'
 import { useLandedMap, useSessionLanded } from './landed'
 import type { SettingsSection } from './Settings'
 import { fmtTime, useTimeFormat } from './time'
+import { UpdateBar } from './UpdateBar'
 import { UsageMeters } from './UsageMeters'
 import {
   AgentIcon,
@@ -400,6 +401,9 @@ export function TreeSidebar({
         {orderNote}
       </div>
       <footer className="sidebar-footer">
+        {/* a newer Cockpit rides on top while it needs you — fetch it, restart into it,
+            or (when a step failed) open About for why */}
+        <UpdateBar onOpenAbout={() => onOpenSettings('about')} />
         {/* subscription meters ride above the identity bar — one cell per provider
             that reports numbers; the row opens Settings at the usage section */}
         <UsageMeters onOpen={() => onOpenSettings('accounts')} />

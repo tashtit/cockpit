@@ -879,12 +879,13 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.updatesGet, () => updates.current)
   ipcMain.handle(CH.updatesCheck, () => updates.check())
   ipcMain.handle(CH.updatesDownload, () => updates.download())
-  ipcMain.handle(CH.updatesInstall, () => {
-    // the installer quits the app — persist the index first, as window-all-closed does
-    if (updates.current.status !== 'ready') return
-    indexer.saveCache()
-    updates.install()
-  })
+  // the restart is an app.quit(): will-quit stops the turns and saves the index
+  ipcMain.handle(CH.updatesInstall, (_e, req: unknown) =>
+    updates.install({
+      runningTurns: chat?.runningTurns() ?? 0,
+      stopRunning: (req as { stopRunning?: unknown } | undefined)?.stopRunning === true
+    })
+  )
   ipcMain.handle(CH.updatesPrefs, () => updates.currentPrefs)
   ipcMain.handle(CH.updatesSetPrefs, (_e, prefs: UpdatePrefs) => updates.setPrefs(setUpdatePrefs(prefs)))
 

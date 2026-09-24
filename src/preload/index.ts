@@ -23,6 +23,7 @@ import type {
   TimeFormat,
   TranscriptSearchQuery,
   NewAcpAgent,
+  UpdateInstallRequest,
   UpdatePrefs,
   UpdateState
 } from '../shared/types'
@@ -193,7 +194,7 @@ const api: CockpitApi = {
   getUpdateState: () => ipcRenderer.invoke(CH.updatesGet),
   checkForUpdates: () => ipcRenderer.invoke(CH.updatesCheck),
   downloadUpdate: () => ipcRenderer.invoke(CH.updatesDownload),
-  installUpdate: () => ipcRenderer.invoke(CH.updatesInstall),
+  installUpdate: (req?: UpdateInstallRequest) => ipcRenderer.invoke(CH.updatesInstall, req),
   getUpdatePrefs: () => ipcRenderer.invoke(CH.updatesPrefs),
   setUpdatePrefs: (prefs) => ipcRenderer.invoke(CH.updatesSetPrefs, prefs),
   onUpdateState: (cb: (state: UpdateState) => void) => {
