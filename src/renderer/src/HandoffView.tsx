@@ -62,7 +62,6 @@ export function HandoffView({
   const [provider, setProvider] = useState<Provider>(
     () => PROVIDERS.find((p) => p !== source.provider) ?? 'claude'
   )
-  const agent = useAgentOptions(provider)
   const [mode, setMode] = useState<PermissionMode>(
     () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
   )
@@ -81,6 +80,7 @@ export function HandoffView({
 
   const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
   const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider)
+  const agent = useAgentOptions(provider, account?.configDir)
 
   useEffect(() => {
     void api.getAccounts().then(setAccounts)
@@ -196,7 +196,7 @@ export function HandoffView({
           })}
         </div>
 
-        <div className="ns-options">
+        <div className="ns-options ns-agent-options">
           <AccountField
             opts={opts}
             account={account}

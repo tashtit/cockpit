@@ -77,5 +77,5 @@ Cockpit smooths over the differences it can, and is honest about the ones it can
 - **Safe mode can block tools** — in headless mode, provider defaults may refuse tool use entirely. If an agent reports it can't run tools, that's the permission mode, not a bug; see [permission modes](/guide/worktrees-and-prs#permission-modes).
 
 ::: tip Which model?
-The task composer's per-agent options let you override the model for any provider — and if you've configured [custom providers](/guide/custom-providers), the model picker lists their catalogs too.
+**New session**'s per-agent options pick the model and thinking level for any agent, from the models that agent offers under your account — and if you've configured [custom providers](/guide/custom-providers), the model picker lists their catalogs too.
 :::
