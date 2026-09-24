@@ -257,9 +257,23 @@ export function toolPreview(name: string, input: unknown): string | null {
     case 'Bash':
       return str(i.command)
     case 'Edit':
+    case 'MultiEdit':
     case 'Write':
     case 'Read':
       return str(i.file_path)
+    // the to-do tools: what the list became, not the list as JSON
+    case 'TodoWrite':
+    case 'update_plan': {
+      const list = Array.isArray(i.todos) ? i.todos : Array.isArray(i.plan) ? i.plan : null
+      return list ? `${list.length} ${list.length === 1 ? 'step' : 'steps'}` : null
+    }
+    case 'TaskCreate':
+      return str(i.subject)
+    case 'TaskUpdate': {
+      const id = typeof i.taskId === 'string' || typeof i.taskId === 'number' ? String(i.taskId) : null
+      const status = str(i.status)
+      return id ? `#${id}${status ? ` → ${status.replace(/_/g, ' ')}` : ''}` : null
+    }
     case 'NotebookEdit':
       return str(i.notebook_path)
     case 'Grep': {
@@ -286,6 +300,7 @@ export function toolPreview(name: string, input: unknown): string | null {
       return str(q?.question) ?? str(q?.title) ?? str(q?.header) ?? 'waiting for your answer'
     }
     case 'ExitPlanMode':
+    case 'exit_plan_mode':
       return 'waiting for the plan to be approved'
     // Codex: the command array (or string) it hands a shell, and apply_patch bodies
     case 'shell':

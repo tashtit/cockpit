@@ -2,6 +2,7 @@ import { basename, dirname, join } from 'node:path'
 import { statSync } from 'node:fs'
 import type { SessionMeta, SessionMessage, SessionSegment } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
+import { fileChangeArtifact, toolArtifact } from './artifacts'
 import {
   capText,
   contentToText,
@@ -13,6 +14,7 @@ import {
   TRANSCRIPT_TAIL_BYTES,
   toMs,
   toolPreview,
+  patchPreview,
   truncate,
   walkFiles
 } from './util'
@@ -105,6 +107,47 @@ function isItemMessage(l: any): boolean {
  */
 function usesEventEchoes(lines: readonly any[]): boolean {
   return !lines.some(isItemMessage)
+}
+
+/** A patch applied as its own tool call, rather than from inside a code-mode `exec` script. */
+function isPatchCall(l: any): boolean {
+  const p = l?.payload ?? l
+  return (
+    lineKind(l) === 'response_item' &&
+    (p?.type === 'function_call' || p?.type === 'custom_tool_call') &&
+    p?.name === 'apply_patch'
+  )
+}
+
+/**
+ * Newer Codex applies patches from inside a code-mode `exec` script, so the only
+ * record of what a patch changed is the typed `FileChange` item it completes with —
+ * paths, and the content or a unified diff. A rollout that applies patches as calls
+ * of their own renders those instead, so the one change is never shown twice.
+ */
+function usesFileChangeItems(lines: readonly any[]): boolean {
+  return !lines.some(isPatchCall)
+}
+
+/** One `FileChange` item as the tool row a patch call would have been. */
+function fileChangeRow(item: any, ts: number | undefined): SessionMessage | null {
+  const artifact = fileChangeArtifact(item?.changes)
+  if (!artifact || artifact.kind !== 'edits') return null
+  // the headline a patch call gets (`patchPreview`): the files it touches
+  const preview = `apply_patch ${artifact.files.map((f) => f.path).join(', ')}`
+  // a patch that failed or was declined still names the files; it didn't change them
+  const failed = typeof item?.status === 'string' && item.status !== 'completed'
+  const stdout = typeof item?.stdout === 'string' ? item.stdout : ''
+  return {
+    role: 'assistant',
+    kind: 'tool_call',
+    toolName: 'apply_patch',
+    text: truncate(stdout || preview, 400),
+    preview: truncate(preview, 200),
+    artifact,
+    ...(failed ? { failed: true } : {}),
+    ts
+  }
 }
 
 /**
@@ -246,6 +289,9 @@ export function parseCodexMessages(file: string, segments: readonly SessionSegme
 function renderLines(lines: readonly any[]): SessionMessage[] {
   const out: SessionMessage[] = []
   const renderEchoes = usesEventEchoes(lines)
+  const renderFileChanges = usesFileChangeItems(lines)
+  // an apply_patch custom call's output is rendered only after the call it answers
+  const patchCalls = new Set<string>()
   for (const l of lines) {
     const ts = toMs(l.timestamp) ?? undefined
     const p = l.payload ?? l
@@ -263,6 +309,7 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
           const args = parseArguments(p.arguments)
           const preview = toolPreview(p.name ?? 'tool', args)
           const asks = parseAsks(p.name ?? '', args)
+          const artifact = toolArtifact(p.name ?? '', args)
           out.push({
             role: 'assistant',
             kind: 'tool_call',
@@ -270,10 +317,38 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
             text: truncate(String(p.arguments ?? ''), 400),
             ...(preview ? { preview: truncate(preview, 200) } : {}),
             ...(asks ? { asks } : {}),
+            ...(artifact ? { artifact } : {}),
             ts
           })
           break
         }
+        case 'custom_tool_call': {
+          // freeform tools take raw text rather than JSON; the patch tool is the one
+          // whose input is worth a row (code-mode `exec` scripts are not rendered yet)
+          if (p.name !== 'apply_patch' || typeof p.input !== 'string') break
+          const artifact = toolArtifact('apply_patch', p.input)
+          const preview = patchPreview(p.input)
+          if (typeof p.call_id === 'string') patchCalls.add(p.call_id)
+          out.push({
+            role: 'assistant',
+            kind: 'tool_call',
+            toolName: 'apply_patch',
+            text: truncate(p.input, 400),
+            ...(preview ? { preview: truncate(preview, 200) } : {}),
+            ...(artifact ? { artifact } : {}),
+            ts
+          })
+          break
+        }
+        case 'custom_tool_call_output':
+          if (typeof p.call_id !== 'string' || !patchCalls.has(p.call_id)) break
+          out.push({
+            role: 'tool',
+            kind: 'tool_result',
+            text: truncate(typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? ''), 400),
+            ts
+          })
+          break
         case 'function_call_output':
           out.push({
             role: 'tool',
@@ -287,6 +362,11 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
           if (t) out.push({ role: 'assistant', kind: 'reasoning', text: truncate(t, 400), ts })
           break
         }
+      }
+    } else if (lineKind(l) === 'event_msg' && p?.type === 'item_completed') {
+      if (renderFileChanges && p.item?.type === 'FileChange') {
+        const row = fileChangeRow(p.item, ts)
+        if (row) out.push(row)
       }
     } else if (lineKind(l) === 'event_msg' && renderEchoes) {
       if (p?.type === 'user_message' && p.message)

@@ -1,0 +1,187 @@
+import { describe, it, expect, vi } from 'vitest'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { ChatView, foldToolRuns } from '../../src/renderer/src/ChatView'
+import { setChatLog } from '../../src/renderer/src/chat-log'
+import type { ChatBinding } from '../../src/renderer/src/chat-binding'
+import type { SessionMessage, WorkArtifact } from '../../src/shared/types'
+import { parseAsks } from '../../src/shared/asks'
+
+const binding: ChatBinding = {
+  provider: 'claude',
+  cwd: '/tmp/wt',
+  nativeSessionId: 'abc',
+  title: 'fix the flake',
+  branch: 'cockpit/fix',
+  repoRoot: '/tmp/repo'
+}
+
+const say = (text: string): SessionMessage => ({ role: 'assistant', kind: 'text', text })
+const user = (text: string): SessionMessage => ({ role: 'user', kind: 'text', text })
+const call = (toolName: string, artifact: WorkArtifact, extra: Partial<SessionMessage> = {}): SessionMessage => ({
+  role: 'assistant',
+  kind: 'tool_call',
+  toolName,
+  text: '{}',
+  artifact,
+  ...extra
+})
+const edit = (path: string): WorkArtifact => ({
+  kind: 'edits',
+  files: [
+    {
+      path,
+      change: 'edit',
+      hunks: [
+        [
+          { op: 'same', text: 'const a = 1' },
+          { op: 'del', text: 'const b = 2' },
+          { op: 'add', text: 'const b = 3' }
+        ]
+      ]
+    }
+  ]
+})
+const PLAN = '# Add rate limiting\n\n1. A token bucket per key'
+
+function renderChat(log: SessionMessage[], over: Partial<ChatBinding> = {}): void {
+  setChatLog(log)
+  render(
+    <ChatView
+      binding={{ ...binding, ...over }}
+      prs={[]}
+      busy={false}
+      elsewhere={false}
+      prBusy={false}
+      onSend={vi.fn()}
+      onCancel={vi.fn()}
+      onCreatePr={vi.fn()}
+      onOpenUrl={vi.fn()}
+      onOpenHandoff={vi.fn()}
+      onOpenLineage={vi.fn()}
+      permissions={[]}
+      onAnswerPermission={vi.fn()}
+    />
+  )
+}
+
+const panel = (): HTMLElement => screen.getByRole('complementary', { name: 'Work' })
+
+describe('the Work key', () => {
+  it('is offered only once the transcript holds a plan, a to-do list or an edit', () => {
+    renderChat([user('hi'), say('hello'), { role: 'assistant', kind: 'tool_call', toolName: 'Bash', text: 'ls' }])
+    expect(screen.queryByRole('button', { name: 'Work' })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'j', metaKey: true })
+    expect(screen.queryByRole('complementary', { name: 'Work' })).not.toBeInTheDocument()
+  })
+
+  it('opens beside the transcript on the list under way, and closes by key, ⌘J and Escape', async () => {
+    renderChat([
+      user('fix it'),
+      call('TodoWrite', {
+        kind: 'todos',
+        items: [
+          { text: 'Reproduce', status: 'completed' },
+          { text: 'Fix the parser', status: 'in_progress' }
+        ]
+      }),
+      call('Edit', edit('/tmp/wt/src/a.ts'))
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(panel()).getByRole('tab', { name: /To-dos/ })).toHaveAttribute('aria-selected', 'true')
+    expect(within(panel()).getByText('1 of 2 done')).toBeInTheDocument()
+    // the state rides a word, never the mark's colour alone
+    expect(within(panel()).getByText('in progress:')).toBeInTheDocument()
+    // the transcript stays: the panel is beside it, not instead of it
+    expect(screen.getByText('fix it')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'j', metaKey: true })
+    expect(screen.queryByRole('complementary', { name: 'Work' })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'j', metaKey: true })
+    fireEvent.keyDown(panel(), { key: 'Escape' })
+    expect(screen.queryByRole('complementary', { name: 'Work' })).not.toBeInTheDocument()
+  })
+})
+
+describe('a row that carries work', () => {
+  it('is one click from its edit: the panel opens on Edits with that file open', async () => {
+    renderChat([user('fix it'), call('Edit', edit('/tmp/wt/src/a.ts'), { preview: '/tmp/wt/src/a.ts' })])
+    const row = screen.getByRole('button', { name: /src\/a\.ts.*open in the Work panel/ })
+    // the row says what changed before it is opened
+    expect(within(row).getByText('+1')).toBeInTheDocument()
+    await userEvent.click(row)
+    expect(within(panel()).getByRole('tab', { name: /Edits/ })).toHaveAttribute('aria-selected', 'true')
+    expect(within(panel()).getByText('src/a.ts')).toBeInTheDocument()
+    expect(within(panel()).getByText('const b = 3')).toBeInTheDocument()
+
+    fireEvent.keyDown(panel(), { key: 'Escape' })
+    // closing hands focus back to the row that opened it
+    expect(screen.getByRole('button', { name: /src\/a\.ts.*open in the Work panel/ })).toHaveFocus()
+  })
+
+  it('says when an edit never landed', async () => {
+    renderChat([user('fix it'), call('Edit', edit('/tmp/wt/src/a.ts'), { failed: true })])
+    const row = screen.getByRole('button', { name: /open in the Work panel/ })
+    expect(within(row).getByText("didn't apply")).toBeInTheDocument()
+    await userEvent.click(row)
+    expect(within(panel()).getAllByText("didn't apply").length).toBeGreaterThan(0)
+  })
+
+  it('keeps an ordinary tool row for everything else', () => {
+    renderChat([user('go'), { role: 'assistant', kind: 'tool_call', toolName: 'Bash', text: 'ls', preview: 'ls' }])
+    expect(screen.queryByRole('button', { name: /open in the Work panel/ })).not.toBeInTheDocument()
+    // the collapsed ⚙︎ row: headline in the summary, raw input behind it
+    expect(document.querySelector('details.tool-row')).toBeInTheDocument()
+  })
+
+  it('never folds a plan into a run of tool rows', () => {
+    const tool = (i: number): SessionMessage => ({ role: 'assistant', kind: 'tool_call', toolName: 'Bash', text: `s${i}` })
+    const rows = [tool(0), tool(1), call('ExitPlanMode', { kind: 'plan', text: PLAN }), tool(2), tool(3)].map((m, key) => ({ m, key }))
+    expect(foldToolRuns(rows, false).map((b) => b.kind)).toEqual(['row', 'row', 'row', 'row', 'row'])
+  })
+})
+
+describe('a plan waiting for approval', () => {
+  const pending = (): SessionMessage[] => [
+    user('plan it'),
+    call('ExitPlanMode', { kind: 'plan', text: PLAN }, { asks: parseAsks('ExitPlanMode', { plan: PLAN }) })
+  ]
+
+  it('is read in the approval card, above its two answers', async () => {
+    renderChat(pending())
+    const card = screen.getByRole('region', { name: 'Claude is asking you' })
+    const plan = within(card).getByRole('region', { name: 'The plan' })
+    expect(await within(plan).findByText(/A token bucket per key/)).toBeInTheDocument()
+    expect(within(card).getByRole('radio', { name: /Approve the plan/ })).toBeInTheDocument()
+  })
+
+  it('opens in the panel, which says it is waiting on you', async () => {
+    renderChat(pending())
+    await userEvent.click(screen.getByRole('button', { name: 'Open in the Work panel' }))
+    expect(within(panel()).getByRole('tab', { name: /Plan/ })).toHaveAttribute('aria-selected', 'true')
+    expect(within(panel()).getByText('waiting for your approval')).toBeInTheDocument()
+    expect(await within(panel()).findByText(/A token bucket per key/)).toBeInTheDocument()
+  })
+
+  it('the Work key opens on the plan while one waits', async () => {
+    renderChat([call('Edit', edit('/tmp/wt/a.ts')), ...pending()])
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(within(panel()).getByRole('tab', { name: /Plan/ })).toHaveAttribute('aria-selected', 'true')
+  })
+})
+
+describe('the Edits tab', () => {
+  it('points at Changes for what is on disk, where there is a worktree to diff', async () => {
+    renderChat([call('Edit', edit('/tmp/wt/a.ts'))])
+    await userEvent.click(screen.getByRole('button', { name: /open in the Work panel/ }))
+    await userEvent.click(within(panel()).getByRole('button', { name: 'Changes' }))
+    expect(screen.getByRole('region', { name: 'Changes to review' })).toBeInTheDocument()
+  })
+
+  it('has no Changes link outside a repository', async () => {
+    renderChat([call('Edit', edit('/tmp/wt/a.ts'))], { repoRoot: null })
+    await userEvent.click(screen.getByRole('button', { name: /open in the Work panel/ }))
+    expect(within(panel()).queryByRole('button', { name: 'Changes' })).not.toBeInTheDocument()
+  })
+})

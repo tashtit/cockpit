@@ -772,4 +772,160 @@ describe('robustness', () => {
   })
 })
 
+// What a tool call hands the person to look at — a plan, a to-do list, an edit — rides
+// the call's row as a structured artifact (the Work panel's input), read from the real
+// log shapes each CLI writes.
+describe('work artifacts on tool rows', () => {
+  const dir = join(root, 'work')
+
+  it('claude: an edit, its failed retry, and tasks numbered by their results', () => {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'claude-work.jsonl')
+    const at = (s: number): string => `2026-09-01T10:00:${String(s).padStart(2, '0')}Z`
+    writeFileSync(
+      file,
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'fix it' }, timestamp: at(0) },
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              // parallel calls: their results arrive together, after both
+              { type: 'tool_use', id: 'tu1', name: 'TaskCreate', input: { subject: 'Reproduce', description: 'd', activeForm: 'x' } },
+              { type: 'tool_use', id: 'tu2', name: 'Edit', input: { file_path: '/r/a.ts', old_string: 'a', new_string: 'b' } }
+            ]
+          },
+          timestamp: at(1)
+        },
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'tu1', content: 'Task #7 created successfully: Reproduce' },
+              { type: 'tool_result', tool_use_id: 'tu2', content: 'String to replace not found in file.', is_error: true }
+            ]
+          },
+          timestamp: at(2)
+        },
+        {
+          type: 'assistant',
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu3', name: 'TaskUpdate', input: { taskId: '7', status: 'completed' } }] },
+          timestamp: at(3)
+        }
+      ])
+    )
+    const msgs = parseClaudeMessages(file)
+    const calls = msgs.filter((m) => m.kind === 'tool_call')
+    expect(calls[0]).toMatchObject({ toolName: 'TaskCreate', preview: 'Reproduce', artifact: { kind: 'task-add', items: ['Reproduce'], ids: ['7'] } })
+    expect(calls[0].failed).toBeUndefined()
+    // the error answered the Edit, not the call next to it
+    expect(calls[1]).toMatchObject({ toolName: 'Edit', failed: true, artifact: { kind: 'edits' } })
+    expect(calls[2]).toMatchObject({ preview: '#7 → completed', artifact: { kind: 'task-update', id: '7', status: 'completed' } })
+    // the result rows stay as they were — the verdict is the call's
+    expect(msgs.filter((m) => m.kind === 'tool_result').every((m) => m.failed === undefined)).toBe(true)
+  })
+
+  it('codex: a FileChange item is the patch row when the patch ran inside a code-mode script', () => {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'rollout-work.jsonl')
+    writeFileSync(
+      file,
+      jsonl([
+        { timestamp: '2026-09-01T10:00:00Z', type: 'session_meta', payload: { id: 'work-1', cwd: '/r' } },
+        { timestamp: '2026-09-01T10:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'go' }] } },
+        {
+          timestamp: '2026-09-01T10:00:02Z',
+          type: 'response_item',
+          payload: { type: 'function_call', name: 'update_plan', arguments: JSON.stringify({ plan: [{ step: 'Patch it', status: 'in_progress' }] }), call_id: 'c0' }
+        },
+        {
+          timestamp: '2026-09-01T10:00:03Z',
+          type: 'response_item',
+          payload: { type: 'custom_tool_call', name: 'exec', input: 'text(await tools.apply_patch("..."))', call_id: 'c1' }
+        },
+        {
+          timestamp: '2026-09-01T10:00:04Z',
+          type: 'event_msg',
+          payload: {
+            type: 'item_completed',
+            item: {
+              type: 'FileChange',
+              id: 'fc1',
+              status: 'completed',
+              stdout: 'Success. Updated the following files:\nM /r/a.ts\n',
+              changes: { '/r/a.ts': { type: 'update', unified_diff: '@@ -1 +1 @@\n-a\n+b\n', move_path: null } }
+            }
+          }
+        }
+      ])
+    )
+    const calls = parseCodexMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      toolName: 'update_plan',
+      preview: '1 step',
+      artifact: { kind: 'todos', items: [{ text: 'Patch it', status: 'in_progress' }] }
+    })
+    expect(calls[1]).toMatchObject({ toolName: 'apply_patch', preview: 'apply_patch /r/a.ts', artifact: { kind: 'edits' } })
+  })
+
+  it('codex: an apply_patch call is the row, and its FileChange item is not shown twice', () => {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'rollout-patch.jsonl')
+    const patch = '*** Begin Patch\n*** Update File: /r/a.ts\n@@\n-a\n+b\n*** End Patch'
+    writeFileSync(
+      file,
+      jsonl([
+        { timestamp: '2026-09-01T10:00:00Z', type: 'session_meta', payload: { id: 'work-2', cwd: '/r' } },
+        { timestamp: '2026-09-01T10:00:01Z', type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', input: patch, call_id: 'p1' } },
+        {
+          timestamp: '2026-09-01T10:00:02Z',
+          type: 'event_msg',
+          payload: { type: 'item_completed', item: { type: 'FileChange', status: 'completed', changes: { '/r/a.ts': { type: 'update', unified_diff: '@@\n-a\n+b\n' } } } }
+        },
+        { timestamp: '2026-09-01T10:00:03Z', type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'p1', output: 'Done!' } }
+      ])
+    )
+    const msgs = parseCodexMessages(file)
+    expect(msgs.map((m) => m.kind)).toEqual(['tool_call', 'tool_result'])
+    expect(msgs[0]).toMatchObject({ toolName: 'apply_patch', preview: 'apply_patch /r/a.ts', artifact: { kind: 'edits' } })
+  })
+
+  it('copilot: a plan, an edit, and an edit whose execution failed', () => {
+    const sdir = join(dir, 'copilot', 'session-state', 'work-3')
+    mkdirSync(sdir, { recursive: true })
+    const file = join(sdir, 'events.jsonl')
+    writeFileSync(
+      file,
+      jsonl([
+        { type: 'user.message', data: { content: 'plan it' }, timestamp: '2026-09-01T10:00:00Z' },
+        {
+          type: 'tool.execution_start',
+          data: { toolCallId: 'k1', toolName: 'exit_plan_mode', arguments: { summary: '## Plan\n- one', recommendedAction: 'autopilot' } },
+          timestamp: '2026-09-01T10:00:01Z'
+        },
+        {
+          type: 'tool.execution_start',
+          data: { toolCallId: 'k2', toolName: 'edit', arguments: { path: '/r/a.ts', old_str: 'a', new_str: 'b' } },
+          timestamp: '2026-09-01T10:00:02Z'
+        },
+        { type: 'tool.execution_complete', data: { toolCallId: 'k2', success: false, result: { content: 'no match' } }, timestamp: '2026-09-01T10:00:03Z' },
+        {
+          type: 'tool.execution_start',
+          data: { toolCallId: 'k3', toolName: 'create', arguments: { path: '/r/b.ts', file_text: 'x' } },
+          timestamp: '2026-09-01T10:00:04Z'
+        },
+        { type: 'tool.execution_complete', data: { toolCallId: 'k3', success: true, result: { content: 'ok' } }, timestamp: '2026-09-01T10:00:05Z' }
+      ])
+    )
+    const calls = parseCopilotMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[0]).toMatchObject({ toolName: 'exit_plan_mode', artifact: { kind: 'plan', text: '## Plan\n- one' } })
+    expect(calls[1]).toMatchObject({ toolName: 'edit', failed: true, artifact: { kind: 'edits' } })
+    expect(calls[2]).toMatchObject({ toolName: 'create', artifact: { kind: 'edits' } })
+    expect(calls[2].failed).toBeUndefined()
+  })
+})
+
 afterAll(() => rmSync(root, { recursive: true, force: true }))

@@ -119,6 +119,55 @@ export type AskPrompt = {
   readonly options: readonly AskOption[]
 }
 
+/* ---------- work an agent reports: its plan, its to-dos, its edits ---------- */
+
+/** Where one step of an agent's to-do list stands, in the three words every CLI uses. */
+export type TodoStatus = 'pending' | 'in_progress' | 'completed'
+
+export type TodoItem = { readonly text: string; readonly status: TodoStatus }
+
+/** One line of an edit, GitHub's grammar: kept, added or removed. */
+export type EditLine = { readonly op: 'same' | 'add' | 'del'; readonly text: string }
+
+/** One file a tool call said it changed, as the call itself described the change. */
+export type FileEdit = {
+  readonly path: string
+  /** `write` replaced the whole file (Claude's Write — new or overwritten, the call can't say) */
+  readonly change: 'add' | 'edit' | 'write' | 'delete'
+  /** A patch that also renamed the file: where it went */
+  readonly movedTo?: string
+  /** One run of lines per place the call touched — an Edit's one replacement, a
+   *  patch's `@@` hunks. Empty when the call named the file but not the lines. */
+  readonly hunks: readonly (readonly EditLine[])[]
+  /** Lines were left out to keep the transcript bounded */
+  readonly truncated?: boolean
+}
+
+/**
+ * What a tool call hands the person to look at rather than a result to read: a plan
+ * to approve, a to-do list, an edit. Read off the call's input in main
+ * (`src/main/parsers/artifacts.ts`) so the chat can open it in the Work panel instead
+ * of showing 400 characters of JSON. `todos` is a whole list that replaces the last
+ * one; `task-add`/`task-update` are Claude's one-step-at-a-time task tools, which the
+ * renderer folds into the same list.
+ */
+export type WorkArtifact =
+  | { readonly kind: 'plan'; readonly text: string }
+  | { readonly kind: 'todos'; readonly items: readonly TodoItem[] }
+  | {
+      readonly kind: 'task-add'
+      readonly items: readonly string[]
+      /** The numbers the CLI gave them, once its result is read; absent mid-stream */
+      readonly ids?: readonly string[]
+    }
+  | {
+      readonly kind: 'task-update'
+      readonly id: string
+      readonly status?: TodoStatus | 'deleted'
+      readonly text?: string
+    }
+  | { readonly kind: 'edits'; readonly files: readonly FileEdit[] }
+
 export type SessionMessage = {
   readonly role: 'user' | 'assistant' | 'system' | 'tool'
   readonly kind: MessageKind
@@ -133,6 +182,11 @@ export type SessionMessage = {
    *  Unanswered (no tool_result folded onto the row) and last in the transcript,
    *  the chat renders it as an answerable card. */
   readonly asks?: readonly AskPrompt[]
+  /** A tool_call's plan, to-dos or edit, structured — see WorkArtifact */
+  readonly artifact?: WorkArtifact
+  /** A tool_call that did not do what it asked — its result was an error, or a patch
+   *  didn't apply. Set on the call's own row, matched to its result by id in main. */
+  readonly failed?: boolean
 }
 
 export type SourceDir = {
@@ -1099,6 +1153,8 @@ export type ChatEvent =
       readonly preview?: string
       /** The tool is a question waiting on the user — its options (see AskPrompt) */
       readonly asks?: readonly AskPrompt[]
+      /** The call's plan, to-dos or edit (see WorkArtifact) */
+      readonly artifact?: WorkArtifact
     }
   | { readonly turnId: string; readonly type: 'done'; readonly costUsd?: number }
   | { readonly turnId: string; readonly type: 'error'; readonly message: string }

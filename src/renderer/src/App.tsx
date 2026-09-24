@@ -357,7 +357,9 @@ export function App(): JSX.Element {
           text: ev.detail,
           preview: ev.preview,
           // a question with options reaches the transcript as an answerable card
-          ...(ev.asks ? { asks: ev.asks } : {})
+          ...(ev.asks ? { asks: ev.asks } : {}),
+          // a plan, to-dos or an edit opens in the Work panel as it streams
+          ...(ev.artifact ? { artifact: ev.artifact } : {})
         })
       } else if (ev.type === 'permission') {
         // the prompt is not a transcript row, but it must land after what came before it

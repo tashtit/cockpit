@@ -18,6 +18,7 @@ import {
 } from '../shared/endpoints'
 import { parseAsks } from '../shared/asks'
 import { contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
+import { fileChangeArtifact, todoListArtifact, toolArtifact } from './parsers/artifacts'
 import { cliEnv } from './env'
 
 type Emit = (ev: ChatEvent) => void
@@ -152,13 +153,15 @@ export function parseClaudeStreamLine(turnId: string, line: any): ChatEvent[] {
           // a question the CLI can't answer itself rides along with its options, so
           // the chat can offer them as picks rather than a JSON blob
           const asks = parseAsks(b.name ?? '', b.input)
+          const artifact = toolArtifact(b.name ?? '', b.input)
           out.push({
             turnId,
             type: 'tool',
             toolName: b.name ?? 'tool',
             detail: truncate(JSON.stringify(b.input ?? {}), 200),
             ...(preview ? { preview: truncate(preview, 200) } : {}),
-            ...(asks ? { asks } : {})
+            ...(asks ? { asks } : {}),
+            ...(artifact ? { artifact } : {})
           })
         }
       }
@@ -204,13 +207,32 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
       const paths = Array.isArray(it.changes)
         ? it.changes.map((c: { path?: unknown }) => c?.path).filter((p: unknown): p is string => typeof p === 'string')
         : []
+      // the stream names the files and what happened to each, never the lines. Named
+      // the way the rollout's FileChange row is (`apply_patch`, the files it touches),
+      // so a rejoined turn can tell the streamed row and the logged one are the same
+      const artifact = fileChangeArtifact(it.changes)
       out.push({
         turnId,
         type: 'tool',
-        toolName: 'edit',
+        toolName: 'apply_patch',
         detail: truncate(JSON.stringify(it.changes ?? ''), 200),
-        ...(paths.length > 0 ? { preview: truncate(paths.join(', '), 200) } : {})
+        ...(paths.length > 0 ? { preview: truncate(`apply_patch ${paths.join(', ')}`, 200) } : {}),
+        ...(artifact ? { artifact } : {})
       })
+    }
+    if (it.type === 'todo_list') {
+      // the agent's running plan, always the whole list — it replaces the last one
+      const artifact = todoListArtifact(it.items)
+      const items = Array.isArray(it.items) ? it.items.length : 0
+      if (artifact)
+        out.push({
+          turnId,
+          type: 'tool',
+          toolName: 'update_plan',
+          detail: truncate(JSON.stringify(it.items ?? []), 200),
+          preview: `${items} ${items === 1 ? 'step' : 'steps'}`,
+          artifact
+        })
     }
   } else if (line?.type === 'turn.completed') {
     out.push({ turnId, type: 'done' })

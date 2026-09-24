@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import { api } from './api'
 import { AskPicker } from './AskPicker'
@@ -9,11 +9,14 @@ import { announceChat, useChatLog, useChatStatus } from './chat-log'
 import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
 import { cwdLabel } from '../../shared/library'
-import { BranchChip, CockpitLogo, DiffIcon, HandoffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { BranchChip, CockpitLogo, DiffIcon, HandoffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL, WorkIcon } from './logos'
+import { DiffStat } from './InstructionDiff'
 import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
 import { findAnchor } from './transcript-anchor'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
+import { artifactStat, buildWork, hasWork, planTitle, tabFor, type WorkModel, type WorkTab } from './work'
+import { WorkPanel, type WorkFocus } from './WorkPanel'
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too — the
  *  newest rows first, and "show earlier" brings the next batch of this size. */
@@ -70,6 +73,10 @@ export function ChatView({
   const [cwdCopied, setCwdCopied] = useState(false)
   /** Review mode: the worktree's changes take the transcript's place */
   const [review, setReview] = useState(false)
+  /** The Work panel beside the transcript: which tab, and the row that opened it */
+  const [work, setWork] = useState<WorkFocus | null>(null)
+  /** What had focus when the panel opened — closing hands it back */
+  const workOpener = useRef<HTMLElement | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
@@ -152,7 +159,33 @@ export function ChatView({
   const reviewable = !!binding?.repoRoot && !binding.readOnly
   useEffect(() => {
     setReview(false)
+    setWork(null)
   }, [binding?.cwd])
+
+  // the Work panel is offered once the transcript holds something to put in it — a
+  // plan, a to-do list, an edit — and built only while it is open
+  const workable = useMemo(() => hasWork(log), [log])
+  const model = useMemo(() => (work && binding ? buildWork(log, binding.cwd) : null), [work !== null, log, binding?.cwd])
+  const openWork = useCallback((key: number | null, tab: WorkTab) => {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && !active.closest('.work-panel')) workOpener.current = active
+    setWork({ tab, key, at: Date.now() })
+  }, [])
+  const closeWork = useCallback(() => {
+    setWork(null)
+    // focus goes back where it came from — unless that row has since left the DOM
+    const back = workOpener.current
+    workOpener.current = null
+    if (back?.isConnected) back.focus()
+  }, [])
+  /** Changes, from the header, ⌘D or the Edits tab. Where the panel covers the
+   *  conversation (a narrow deck), the review would open unseen behind it — so it
+   *  gives way first; beside the conversation it stays, to read the two together. */
+  const toggleReview = useCallback(() => {
+    const panel = document.getElementById('work-panel')
+    if (panel && getComputedStyle(panel).position === 'absolute') closeWork()
+    setReview((v) => !v)
+  }, [closeWork])
 
   // ⌘D flips between the conversation and its changes (the palette owns the
   // keyboard while it is open — a dialog on screen means leave it alone)
@@ -161,11 +194,29 @@ export function ChatView({
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey) || e.key !== 'd' || document.querySelector('[role="dialog"]')) return
       e.preventDefault()
-      setReview((v) => !v)
+      toggleReview()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [reviewable])
+  }, [reviewable, toggleReview])
+
+  /** The header key and ⌘J: open on the tab that matters most right now, or close. */
+  const toggleWork = (): void => {
+    if (work) closeWork()
+    else if (binding) openWork(null, defaultTab(buildWork(log, binding.cwd), pendingPlanKey))
+  }
+  const toggleWorkRef = useRef(toggleWork)
+  toggleWorkRef.current = toggleWork
+  useEffect(() => {
+    if (!workable && !work) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== 'j' || document.querySelector('[role="dialog"]')) return
+      e.preventDefault()
+      toggleWorkRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [workable, work !== null])
 
   /** Review notes and fix prompts land in the composer, ready to send — the reviewer gets the last word. */
   const compose = (text: string): void => {
@@ -220,6 +271,7 @@ export function ChatView({
   // conversation belongs to its table
   const lastRow = visible[visible.length - 1]
   const pendingAsk = lastRow && isPendingAsk(lastRow) && !binding?.readOnly ? lastRow : undefined
+  const pendingPlanKey = pendingAsk?.m.artifact?.kind === 'plan' ? pendingAsk.key : null
 
   // a long stretch of tool calls is one piece of work, not twenty rows of it: four or
   // more in a row fold into a work-log block that says what happened. The run a turn
@@ -361,10 +413,25 @@ export function ChatView({
                 ? 'Back to the conversation (⌘D)'
                 : "Review the worktree's changes before they ship (⌘D)"
             }
-            onClick={() => setReview((v) => !v)}
+            onClick={toggleReview}
           >
             <DiffIcon />
             <span className="lbl">Changes</span>
+          </button>
+        )}
+        {/* the agent's plan, to-dos and edits beside the conversation — offered once
+            the transcript holds any of them. Its mark alone at every width: the rows
+            are the way in, and a fourth label took the title's room at 900px */}
+        {(workable || work) && (
+          <button
+            className="btn-review btn-work"
+            aria-label="Work"
+            aria-pressed={work !== null}
+            aria-controls={work ? 'work-panel' : undefined}
+            title={work ? 'Close the Work panel (⌘J)' : "Work — the agent's plan, to-dos and edits, beside the conversation (⌘J)"}
+            onClick={toggleWork}
+          >
+            <WorkIcon />
           </button>
         )}
         {/* progressive disclosure: only a started session can be handed off; a
@@ -385,139 +452,174 @@ export function ChatView({
         )}
       </header>
 
-      {review && reviewable ? (
-        <ReviewPanel
-          cwd={binding.cwd}
-          provider={binding.provider}
-          busy={busy}
-          onCompose={compose}
-          pr={branchPr}
-          repoRoot={binding.repoRoot}
-          onOpenUrl={onOpenUrl}
-        />
-      ) : (
-        <div
-          className="messages"
-          ref={scrollRef}
-          onScroll={(e) => {
-            const el = e.currentTarget
-            atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-            if (atBottomRef.current) below.settle()
-          }}
-        >
-          {hidden > 0 && (
-            <EarlierRow shown={sliced.length} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
-          )}
-          {blocks.map((b) =>
-            b.kind === 'run' ? (
-              <ToolRun key={b.rows[0].key} rows={b.rows} provider={binding.provider} cwd={binding.cwd} />
-            ) : b.row === pendingAsk && b.row.m.asks ? (
-              // the question takes the tool row's place: its options are the point,
-              // and a collapsed ⚙︎ row hid them behind the raw JSON
-              <AskPicker
-                key={b.row.key}
-                prompts={b.row.m.asks}
-                provider={binding.provider}
-                disabled={sendBlocked}
-                onAnswer={sendAnswer}
-              />
-            ) : (
-              <Message
-                key={b.row.key}
-                m={b.row.m}
-                provider={binding.provider}
-                result={b.row.result}
-                cwd={binding.cwd}
-                logKey={b.row.key}
-                anchored={b.row.key === anchoredKey}
-              />
-            )
-          )}
-          {busy && (
-            <div className="thinking">
-              <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working…
+      <div className="chat-deck">
+        <div className="chat-main">
+          {review && reviewable ? (
+            <ReviewPanel
+              cwd={binding.cwd}
+              provider={binding.provider}
+              busy={busy}
+              onCompose={compose}
+              pr={branchPr}
+              repoRoot={binding.repoRoot}
+              onOpenUrl={onOpenUrl}
+            />
+          ) : (
+            <div
+              className="messages"
+              ref={scrollRef}
+              onScroll={(e) => {
+                const el = e.currentTarget
+                atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+                if (atBottomRef.current) below.settle()
+              }}
+            >
+              {hidden > 0 && (
+                <EarlierRow shown={sliced.length} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
+              )}
+              {blocks.map((b) =>
+                b.kind === 'run' ? (
+                  <ToolRun
+                    key={b.rows[0].key}
+                    rows={b.rows}
+                    provider={binding.provider}
+                    cwd={binding.cwd}
+                    onOpenWork={openWork}
+                  />
+                ) : b.row === pendingAsk && b.row.m.asks ? (
+                  // the question takes the tool row's place: its options are the point,
+                  // and a collapsed ⚙︎ row hid them behind the raw JSON
+                  <AskPicker
+                    key={b.row.key}
+                    prompts={b.row.m.asks}
+                    provider={binding.provider}
+                    disabled={sendBlocked}
+                    onAnswer={sendAnswer}
+                    // a plan is approved with the plan in view, never on its title alone
+                    plan={b.row.m.artifact?.kind === 'plan' ? b.row.m.artifact.text : undefined}
+                    onOpenPlan={() => openWork(b.row.key, 'plan')}
+                  />
+                ) : (
+                  <Message
+                    key={b.row.key}
+                    m={b.row.m}
+                    provider={binding.provider}
+                    result={b.row.result}
+                    cwd={binding.cwd}
+                    logKey={b.row.key}
+                    anchored={b.row.key === anchoredKey}
+                    onOpenWork={openWork}
+                  />
+                )
+              )}
+              {busy && (
+                <div className="thinking">
+                  <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working…
+                </div>
+              )}
+              {/* the same annunciator for a turn someone else is running: the log grows
+                  under this view (App re-reads it as the index sees each write) */}
+              {!busy && elsewhere && (
+                <div className="thinking" title={elsewhereHint}>
+                  <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working elsewhere…
+                </div>
+              )}
+              {log.length === 0 && !sendBlocked && (
+                <div className="empty-chat small">Send a prompt to start this session.</div>
+              )}
+              <JumpToLatest on={below.unseen} onJump={below.jump} />
             </div>
           )}
-          {/* the same annunciator for a turn someone else is running: the log grows
-              under this view (App re-reads it as the index sees each write) */}
-          {!busy && elsewhere && (
-            <div className="thinking" title={elsewhereHint}>
-              <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working elsewhere…
-            </div>
-          )}
-          {log.length === 0 && !sendBlocked && (
-            <div className="empty-chat small">Send a prompt to start this session.</div>
-          )}
-          <JumpToLatest on={below.unseen} onJump={below.jump} />
-        </div>
-      )}
-      <div className="sr-only" role="status" aria-live="polite">
-        {status}
-      </div>
-
-      {permissions.map((ask) => (
-        <PermissionAsk
-          key={ask.requestId}
-          ask={ask}
-          provider={binding.provider}
-          onAnswer={(optionId) => onAnswerPermission(ask, optionId)}
-        />
-      ))}
-
-      <footer className="composer">
-        {binding.readOnly ? (
-          // roundtable seat-session: the table's round loop owns this conversation
-          <div className="composer-readonly">
-            Seat session of a roundtable — read-only. Talk to it at the table.
+          <div className="sr-only" role="status" aria-live="polite">
+            {status}
           </div>
-        ) : (
-          <>
-            <AttachRow atts={atts} />
-            <textarea
-              ref={composerRef}
-              aria-label={`Message ${PROVIDER_LABEL[binding.provider]}`}
-              placeholder={`Message ${PROVIDER_LABEL[binding.provider]}…  (Enter to send, Shift+Enter for newline)`}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onPaste={atts.onPaste}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  submit()
-                }
-              }}
+
+          {permissions.map((ask) => (
+            <PermissionAsk
+              key={ask.requestId}
+              ask={ask}
+              provider={binding.provider}
+              onAnswer={(optionId) => onAnswerPermission(ask, optionId)}
             />
-            {/* the mode governs the next turn, so it sits beside the button that sends
-                it — the same grammar as Home's composer bar, and the header stays identity */}
-            <Select
-              className="mode-select-wrap"
-              value={mode}
-              ariaLabel="Permission mode"
-              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-              onChange={(v) => {
-                setMode(v as PermissionMode)
-                window.localStorage.setItem('cockpit:mode', v)
-              }}
-            />
-            {busy ? (
-              <button className="btn-danger" onClick={onCancel}>
-                Stop
-              </button>
+          ))}
+
+          <footer className="composer">
+            {binding.readOnly ? (
+              // roundtable seat-session: the table's round loop owns this conversation
+              <div className="composer-readonly">
+                Seat session of a roundtable — read-only. Talk to it at the table.
+              </div>
             ) : (
-              <button
-                className="btn-primary"
-                disabled={elsewhere || (!draft.trim() && atts.attachments.length === 0)}
-                title={elsewhere ? elsewhereHint : undefined}
-                onClick={submit}
-              >
-                Send
-              </button>
+              <>
+                <AttachRow atts={atts} />
+                <textarea
+                  ref={composerRef}
+                  aria-label={`Message ${PROVIDER_LABEL[binding.provider]}`}
+                  placeholder={`Message ${PROVIDER_LABEL[binding.provider]}…  (Enter to send, Shift+Enter for newline)`}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onPaste={atts.onPaste}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      submit()
+                    }
+                  }}
+                />
+                {/* the mode governs the next turn, so it sits beside the button that sends
+                    it — the same grammar as Home's composer bar, and the header stays identity */}
+                <Select
+                  className="mode-select-wrap"
+                  value={mode}
+                  ariaLabel="Permission mode"
+                  options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+                  onChange={(v) => {
+                    setMode(v as PermissionMode)
+                    window.localStorage.setItem('cockpit:mode', v)
+                  }}
+                />
+                {busy ? (
+                  <button className="btn-danger" onClick={onCancel}>
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    className="btn-primary"
+                    disabled={elsewhere || (!draft.trim() && atts.attachments.length === 0)}
+                    title={elsewhere ? elsewhereHint : undefined}
+                    onClick={submit}
+                  >
+                    Send
+                  </button>
+                )}
+              </>
             )}
-          </>
+          </footer>
+        </div>
+        {work && model && (
+          <WorkPanel
+            model={model}
+            focus={work}
+            onTab={(tab) => setWork((w) => (w ? { ...w, tab, key: null } : w))}
+            onClose={closeWork}
+            cwd={binding.cwd}
+            provider={binding.provider}
+            pendingPlanKey={pendingPlanKey}
+            onOpenChanges={reviewable ? () => !review && toggleReview() : undefined}
+          />
         )}
-      </footer>
+      </div>
     </main>
   )
+}
+
+/** Where the Work key opens: a plan waiting on you, else the list under way, else the edits. */
+export function defaultTab(model: WorkModel, pendingPlanKey: number | null): WorkTab {
+  if (pendingPlanKey !== null) return 'plan'
+  if (model.todos.some((t) => t.status !== 'completed')) return 'todos'
+  if (model.files.length > 0) return 'edits'
+  if (model.plans.length > 0) return 'plan'
+  return 'todos'
 }
 
 
@@ -543,7 +645,9 @@ export function foldToolRuns(rows: readonly Row[], busy: boolean): Block[] {
     run = []
   }
   for (const row of rows) {
-    if ((row.m.kind === 'tool_call' || row.m.kind === 'tool_result') && !isPendingAsk(row)) run.push(row)
+    // a plan is a message of its own, like the agent's prose: it is never folded away
+    const foldable = !isPendingAsk(row) && row.m.artifact?.kind !== 'plan'
+    if ((row.m.kind === 'tool_call' || row.m.kind === 'tool_result') && foldable) run.push(row)
     else {
       flush(false)
       out.push({ kind: 'row', row })
@@ -575,11 +679,13 @@ export function runSummary(rows: readonly Row[]): string {
 function ToolRun({
   rows,
   provider,
-  cwd
+  cwd,
+  onOpenWork
 }: {
   rows: Row[]
   provider: Provider
   cwd: string
+  onOpenWork?: (key: number, tab: WorkTab) => void
 }): JSX.Element {
   return (
     <details className="tool-run">
@@ -592,11 +698,40 @@ function ToolRun({
       </summary>
       <div className="tool-run-rows">
         {rows.map((r) => (
-          <Message key={r.key} m={r.m} provider={provider} result={r.result} cwd={cwd} />
+          <Message
+            key={r.key}
+            m={r.m}
+            provider={provider}
+            result={r.result}
+            cwd={cwd}
+            workKey={r.key}
+            onOpenWork={onOpenWork}
+          />
         ))}
       </div>
     </details>
   )
+}
+
+/** A row's one-liner for what it hands the panel: the plan's title, where the list
+ *  stands, the task it adds, the files an edit touched. */
+function artifactHeadline(m: SessionMessage, cwd: string | undefined): string {
+  const a = m.artifact
+  if (!a) return m.preview ?? m.text
+  switch (a.kind) {
+    case 'plan':
+      return planTitle(a.text)
+    case 'todos': {
+      const done = a.items.filter((t) => t.status === 'completed').length
+      return a.items.length === 0 ? 'cleared the list' : `${done} of ${a.items.length} done`
+    }
+    case 'task-add':
+      return a.items.join(' · ')
+    case 'task-update':
+      return m.preview ?? `#${a.id}`
+    case 'edits':
+      return relative(a.files.map((f) => f.path).join(', '), cwd).slice(0, 120)
+  }
 }
 
 /** Paths inside the session's own directory read relative to it — the header already
@@ -617,7 +752,9 @@ export const Message = memo(function Message({
   result,
   cwd,
   logKey,
-  anchored = false
+  anchored = false,
+  workKey,
+  onOpenWork
 }: {
   m: SessionMessage
   provider: Provider
@@ -629,8 +766,38 @@ export const Message = memo(function Message({
   logKey?: number
   /** The message a transcript search landed on — rings for a moment */
   anchored?: boolean
+  /** The row's log offset for the Work panel, where `logKey` is left off (a folded run) */
+  workKey?: number
+  /** Opens the Work panel at this row — a row carrying a plan, to-dos or an edit is
+   *  one click from it. Absent (a roundtable) keeps the ordinary tool row. */
+  onOpenWork?: (key: number, tab: WorkTab) => void
 }): JSX.Element {
   const ring = anchored ? ' anchored' : ''
+  const key = logKey ?? workKey
+  if (m.kind === 'tool_call' && m.artifact && onOpenWork && key !== undefined) {
+    const a = m.artifact
+    const headline = artifactHeadline(m, cwd)
+    return (
+      <button
+        className={`tool-row tool-open${ring}`}
+        data-log-key={logKey}
+        title="Open in the Work panel"
+        onClick={() => onOpenWork(key, tabFor(a))}
+      >
+        <span className="tool-chip">
+          <span aria-hidden="true">⚙︎ </span>
+          {m.toolName ?? 'tool'}
+        </span>
+        <code className="tool-preview">{headline}</code>
+        {a.kind === 'edits' && !m.failed && <DiffStat {...artifactStat(a)} />}
+        {m.failed && <span className="tool-failed">didn't apply</span>}
+        <span className="tool-open-go" aria-hidden="true">
+          <WorkIcon size={11} />
+        </span>
+        <span className="sr-only"> — open in the Work panel</span>
+      </button>
+    )
+  }
   if (m.kind === 'tool_call' || m.kind === 'tool_result') {
     const call = m.kind === 'tool_call'
     const peek = result ? firstLine(result.text) : ''

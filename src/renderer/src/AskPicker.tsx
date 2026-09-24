@@ -2,6 +2,7 @@ import { useId, useState, type JSX } from 'react'
 import type { AskPrompt, Provider } from '../../shared/types'
 import { formatAskAnswer } from '../../shared/asks'
 import { PROVIDER_LABEL, QuestionIcon } from './logos'
+import { Markdown } from './Markdown'
 
 /**
  * The agent stopped to ask: its questions, with the answers it offered as picks.
@@ -15,13 +16,19 @@ export function AskPicker({
   prompts,
   provider,
   disabled,
-  onAnswer
+  onAnswer,
+  plan,
+  onOpenPlan
 }: {
   prompts: readonly AskPrompt[]
   provider: Provider
   /** A turn is running (or the session takes no input) — the answer can't go yet */
   disabled: boolean
   onAnswer: (text: string) => void
+  /** The plan an approval question is about: read here, before the pick */
+  plan?: string
+  /** Opens the plan in the Work panel, for a long one */
+  onOpenPlan?: () => void
 }): JSX.Element {
   const id = useId()
   // one entry per question, in the order asked; a single-select question holds at most one
@@ -50,6 +57,19 @@ export function AskPicker({
         </span>
         asks you
       </div>
+      {plan && (
+        <div className="ask-plan">
+          {/* the card's own scroller: reachable by keyboard, named for what it holds */}
+          <div className="ask-plan-body markdown" role="region" aria-label="The plan" tabIndex={0}>
+            <Markdown text={plan} />
+          </div>
+          {onOpenPlan && (
+            <button className="btn-ghost small ask-plan-open" onClick={onOpenPlan}>
+              Open in the Work panel
+            </button>
+          )}
+        </div>
+      )}
       {prompts.map((p, qi) => (
         <fieldset className="ask-q" key={`${qi}-${p.question}`}>
           <legend className="ask-legend">

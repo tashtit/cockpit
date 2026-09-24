@@ -203,6 +203,60 @@ describe('acpUpdateToEvents', () => {
     ).toEqual([])
   })
 
+  it('turns a plan update into a row carrying the whole list', () => {
+    const [ev] = acpUpdateToEvents(
+      't1',
+      {
+        sessionUpdate: 'plan',
+        entries: [
+          { content: 'Read the parser', status: 'completed', priority: 'high' },
+          { content: 'Fix it', status: 'in_progress', priority: 'high' }
+        ]
+      },
+      seen()
+    ) as [Extract<ChatEvent, { type: 'tool' }>]
+    expect(ev).toMatchObject({
+      toolName: 'plan',
+      preview: '2 steps',
+      artifact: {
+        kind: 'todos',
+        items: [
+          { text: 'Read the parser', status: 'completed' },
+          { text: 'Fix it', status: 'in_progress' }
+        ]
+      }
+    })
+  })
+
+  it('carries the diff a call is announced with', () => {
+    const [ev] = acpUpdateToEvents(
+      't1',
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'c1',
+        title: 'Edit src/a.ts',
+        kind: 'edit',
+        content: [{ type: 'diff', path: '/r/src/a.ts', oldText: 'a\n', newText: 'b\n' }]
+      },
+      seen()
+    ) as [Extract<ChatEvent, { type: 'tool' }>]
+    expect(ev.artifact).toEqual({
+      kind: 'edits',
+      files: [
+        {
+          path: '/r/src/a.ts',
+          change: 'edit',
+          hunks: [
+            [
+              { op: 'del', text: 'a' },
+              { op: 'add', text: 'b' }
+            ]
+          ]
+        }
+      ]
+    })
+  })
+
   it('ignores the updates Cockpit has nowhere to put, and anything unrecognised', () => {
     for (const u of [
       { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hmm' } },

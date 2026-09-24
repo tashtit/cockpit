@@ -143,7 +143,7 @@ export function InstructionDiff({
         <div className="idiff-body">
           {file.own.above > 0 && <Band n={file.own.above} />}
           <div className="idiff-rail">{START}</div>
-          <Lines lines={change.lines} layout={layout} />
+          <DiffLines lines={change.lines} layout={layout} />
           <div className="idiff-rail">{END}</div>
           {file.duplicates > 0 && <Dropped n={file.duplicates} />}
           {file.own.below > 0 && <Band n={file.own.below} />}
@@ -179,7 +179,8 @@ function Dropped({ n }: { n: number }): JSX.Element {
   )
 }
 
-function Lines({ lines, layout }: { lines: readonly DiffLine[]; layout: DiffLayout }): JSX.Element {
+/** Lines in GitHub's grammar with the quiet stretches folded — shared with the Work panel's edits. */
+export function DiffLines({ lines, layout }: { lines: readonly DiffLine[]; layout: DiffLayout }): JSX.Element {
   const rows = useMemo(() => foldUnchanged(lines), [lines])
   // fold rows are addressed by position: the rows are rebuilt whole whenever the
   // text changes, so an expansion only ever means "this row, in this diff"
