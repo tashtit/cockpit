@@ -23,7 +23,7 @@ If the repository has a `post-checkout` hook that fails (husky is the usual one,
 - **Branch** — everything since the base branch (commits plus the working tree): what the PR would carry. The summary says how many commits the branch is ahead of and behind `origin/main`, and flags uncommitted changes, which Create PR refuses.
 - **Staged** / **Unstaged** — the two sides of the index. Untracked files the agent created appear under Unstaged and Branch, marked *untracked*.
 
-Files read the way GitHub shows them — unified or side by side, both line numbers, renames and binaries called out. Hover a line and press **+** to pin a note to it; **Send notes to <Agent>** drops them into the composer as one message (path, line, the line itself, your note), so the agent's next turn answers your review. The view reloads by itself once the turn finishes.
+Files read the way GitHub shows them — unified or side by side, both line numbers, renames and binaries called out. Hover a line and press **+** to pin a note to it; **Send notes to &lt;Agent&gt;** drops them into the composer as one message (path, line, the line itself, your note), so the agent's next turn answers your review. The view reloads by itself once the turn finishes.
 
 ## Shipping
 
@@ -39,7 +39,7 @@ PR features need the [GitHub CLI](https://cli.github.com) (`gh`) installed and a
 
 Once the branch has an open PR, **Changes** (⌘D) leads with it: how many checks fail or are still running, whether a reviewer asked for changes, how many review threads are unresolved, and whether the branch conflicts with its base. Each failing check, change request and thread has a row that opens it on GitHub, and in the **Branch** view the reviewers' threads sit right under the lines they're about.
 
-**Fix with <Agent>** gathers all of it into one prompt in the composer: the merge conflict, each failing check with the output of its failed step (read with `gh run view --log-failed`, for GitHub Actions), the requested changes and every unresolved thread with its file and line. It asks the agent to fix everything, commit and push so the PR updates. Nothing is sent until you press Enter — edit the prompt first if you want to leave something out.
+**Fix with &lt;Agent&gt;** gathers all of it into one prompt in the composer: the merge conflict, each failing check with the output of its failed step (read with `gh run view --log-failed`, for GitHub Actions), the requested changes and every unresolved thread with its file and line. It asks the agent to fix everything, commit and push so the PR updates. Nothing is sent until you press Enter — edit the prompt first if you want to leave something out.
 
 Checks from external CI have no log `gh` can read; the prompt links to them instead. The PR is read when you open the view and again after each turn — it is never polled in the background.
 
