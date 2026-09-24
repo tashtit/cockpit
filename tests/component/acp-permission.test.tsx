@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
-import { setChatLog } from '../../src/renderer/src/chat-log'
 import type { ChatBinding, PendingPermission } from '../../src/renderer/src/chat-binding'
 import { stubObjectUrls } from './paste'
 

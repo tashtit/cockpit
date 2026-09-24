@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   BRIEFING_MAX_CHARS,
-  buildGitSection,
   buildHandoffBriefing,
   buildSummarizeCommand,
   composeImprovedBriefing,

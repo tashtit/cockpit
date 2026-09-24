@@ -24,7 +24,6 @@ import type {
   TranscriptSearchQuery,
   NewAcpAgent,
   UpdateInstallRequest,
-  UpdatePrefs,
   UpdateState
 } from '../shared/types'
 

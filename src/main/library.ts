@@ -23,7 +23,6 @@ import type {
   LibraryEntry,
   McpConfig,
   McpVersion,
-  PanelKind,
   PanelTarget,
   Provider
 } from '../shared/types'

@@ -10,7 +10,6 @@ import type {
   PrStatus,
   ChatRequest,
   NewRoundtableRequest,
-  PermissionMode,
   Provider,
   PanelKind,
   SourceDir,
@@ -101,10 +100,7 @@ import {
 import {
   assertClaudeProjectServer,
   getExtensions,
-  getMcpConfig,
-  removeMcp,
-  shareMcp,
-  shareSkill
+  getMcpConfig
 } from './extensions'
 import { loginMcp, probeMcp } from './mcp'
 import {

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type {
-  AcpPermissionOption,
   AttentionFocus,
   AttentionTarget,
   ChatEvent,
@@ -46,7 +45,7 @@ import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
 import type { StartSessionRequest } from './NewSession'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
-import type { AccountsSnapshot, AgentOptions } from '../../shared/types'
+import type { AccountsSnapshot } from '../../shared/types'
 
 /** `--rail` on the grid: the width the rail was dragged to, in CSS pixels. */
 const railStyle = (px: number): CSSProperties => ({ '--rail': `${px}px` }) as CSSProperties
