@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { deflateSync } from 'node:zlib'
 import { DatabaseSync } from 'node:sqlite'
 
 export type World = {
@@ -44,7 +45,7 @@ const STUB = resolve(import.meta.dirname, 'stub-cli.mjs')
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
 
-function write(path: string, text: string): void {
+function write(path: string, text: string | Buffer): void {
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, text)
 }
@@ -343,7 +344,33 @@ function populate(world: World): void {
     ]
   })
   claude({ cwd: wt('rocket', 'dark-mode-tokens'), branch: 'cockpit/dark-mode-tokens', title: 'Extract dark-mode color tokens into a single :root block', hoursAgo: 5, turns: [{ user: 'Pull every hard-coded color into custom properties.' }, { say: 'Found 143 literals across 22 files.' }] })
-  claude({ cwd: code('rocket'), branch: 'main', title: 'Why is the bundle 2MB? Audit the imports', hoursAgo: 26, turns: [{ user: 'Why is the production bundle 2MB?' }, { say: 'Moment.js with all locales is 600KB of it.' }] })
+  // what an agent hands over: a report, a chart, and a page it opened — the Files tab
+  const audit = join(world.home, 'audit')
+  write(
+    join(audit, 'bundle-report.md'),
+    '# Bundle audit\n\nThe production bundle is **2.1 MB**. Three imports carry most of it:\n\n| Import | Size |\n| --- | --- |\n| moment + every locale | 600 KB |\n| lodash (whole) | 530 KB |\n| chart.js | 410 KB |\n\nSwapping moment for `date-fns` and importing lodash per function saves about 1 MB.\n'
+  )
+  write(join(audit, 'bundle-sizes.png'), barChart([600, 530, 410, 160, 90]))
+  claude({
+    cwd: code('rocket'),
+    branch: 'main',
+    title: 'Why is the bundle 2MB? Audit the imports',
+    hoursAgo: 26,
+    turns: [
+      { user: 'Why is the production bundle 2MB?' },
+      {
+        say: 'Moment.js with all locales is 600KB of it. The report and a chart of the biggest imports:',
+        tools: [
+          {
+            name: 'SendUserFile',
+            input: { files: [join(audit, 'bundle-report.md'), join(audit, 'bundle-sizes.png')], caption: 'The five biggest imports, by size', status: 'normal' },
+            result: '2 files delivered to user.'
+          },
+          { name: 'mcp__Claude_Browser__preview_start', input: { url: 'http://localhost:4173/stats.html' }, result: 'Browser pane opened.' }
+        ]
+      }
+    ]
+  })
   claude({ cwd: wt('atlas', 'billing-webhook-retries'), branch: 'cockpit/billing-webhook-retries', title: 'Retry failed billing webhooks with idempotency keys', hoursAgo: 1.4, turns: [{ user: 'Retry webhooks with idempotency keys.' }, { say: 'Implemented a retry queue keyed by event id.' }] })
   claude({ cwd: code('lumen-docs'), branch: 'main', title: 'Rewrite the quickstart for the v3 SDK', hoursAgo: 30, turns: [{ user: 'Rewrite the quickstart for v3.' }, { say: 'Rewrote it around the new client constructor.' }] })
   claude({ cwd: code('scratchpad-local'), branch: 'main', title: 'Sketch a CLI for tailing logs', hoursAgo: 70, turns: [{ user: 'Sketch a CLI to tail JSON logs.' }, { say: 'Here is a 40-line Node script.' }] })
@@ -694,3 +721,57 @@ export async function login(creds: Credentials, opts: RetryOpts = {}): Promise<S
 > The one remaining failure under throttling is a genuine 30s timeout from the mock server — not the retry loop.
 
 Want me to also add a regression test that simulates the slow DNS path?`
+
+/**
+ * A small PNG bar chart, encoded by hand (zlib is all a PNG needs), so the Files tab has a
+ * real image to draw without a dependency or a binary checked in.
+ */
+function barChart(values: readonly number[]): Buffer {
+  const width = 360
+  const height = 200
+  const max = Math.max(...values)
+  const bar = Math.floor(width / values.length)
+  const rows: Buffer[] = []
+  for (let y = 0; y < height; y++) {
+    const row = Buffer.alloc(1 + width * 3)
+    for (let x = 0; x < width; x++) {
+      const i = Math.floor(x / bar)
+      const top = height - Math.round(((values[i] ?? 0) / max) * (height - 20))
+      const inBar = i < values.length && x % bar > 6 && x % bar < bar - 6 && y >= top
+      const [r, g, b] = inBar ? [99, 102, 241] : [19, 26, 35]
+      row.writeUInt8(r, 1 + x * 3)
+      row.writeUInt8(g, 2 + x * 3)
+      row.writeUInt8(b, 3 + x * 3)
+    }
+    rows.push(row)
+  }
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    return c >>> 0
+  })
+  const crc = (buf: Buffer): number => {
+    let c = 0xffffffff
+    for (const byte of buf) c = crcTable[(c ^ byte) & 0xff]! ^ (c >>> 8)
+    return (c ^ 0xffffffff) >>> 0
+  }
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const sum = Buffer.alloc(4)
+    sum.writeUInt32BE(crc(body))
+    return Buffer.concat([len, body, sum])
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header.writeUInt8(8, 8) // bit depth
+  header.writeUInt8(2, 9) // RGB
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(Buffer.concat(rows))),
+    chunk('IEND', Buffer.alloc(0))
+  ])
+}

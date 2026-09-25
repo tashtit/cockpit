@@ -1259,6 +1259,65 @@ describe('checks: how each agent’s runs of its tests, typecheck and linter end
   })
 })
 
+describe('what agents share with the person', () => {
+  const dir = join(root, 'shared')
+  const at = (s: number): string => `2026-09-04T10:00:${String(s).padStart(2, '0')}Z`
+
+  it('claude: files it sends, and the address of a page it publishes, read off the result', () => {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'claude-shared.jsonl')
+    const call = (id: string, name: string, input: object): object => ({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
+      timestamp: at(1)
+    })
+    const result = (id: string, content: string): object => ({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] },
+      timestamp: at(2)
+    })
+    writeFileSync(
+      file,
+      jsonl([
+        call('s1', 'SendUserFile', { files: ['/tmp/s/1-home.png', '/tmp/s/2-chat.png'], caption: 'Both views', status: 'normal' }),
+        result('s1', '2 files delivered to user.'),
+        call('s2', 'Artifact', { file_path: '/tmp/s/review.html', description: 'The review' }),
+        result('s2', 'Published /tmp/s/review.html at https://claude.ai/code/artifact/abc-123. Watching it.')
+      ])
+    )
+    const calls = parseClaudeMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[0]).toMatchObject({ artifact: { kind: 'shared', files: ['/tmp/s/1-home.png', '/tmp/s/2-chat.png'], caption: 'Both views' } })
+    expect(calls[1]).toMatchObject({
+      artifact: { kind: 'shared', files: ['/tmp/s/review.html'], links: [{ url: 'https://claude.ai/code/artifact/abc-123' }] }
+    })
+  })
+
+  it('copilot: what it writes to its session’s files/ is shared, not an edit of the repo; a preview it opens is a page', () => {
+    const sdir = join(dir, 'copilot', 'session-state', 'shared-1')
+    mkdirSync(sdir, { recursive: true })
+    const file = join(sdir, 'events.jsonl')
+    const call = (id: string, toolName: string, args: object, s: number): object => ({
+      type: 'tool.execution_start',
+      data: { toolCallId: id, toolName, arguments: args },
+      timestamp: at(s)
+    })
+    writeFileSync(
+      file,
+      jsonl([
+        call('c1', 'create', { path: join(sdir, 'files', 'pr-body.md'), file_text: '## Summary' }, 1),
+        call('c2', 'edit', { path: join(sdir, 'files', 'pr-body.md'), old_str: 'Summary', new_str: 'Summary\n- one' }, 2),
+        call('c3', 'create', { path: '/r/src/a.ts', file_text: 'x' }, 3),
+        call('c4', 'open_canvas', { canvasId: 'browser', instanceId: 'p', input: { url: 'http://localhost:3345/', title: 'Preview' } }, 4)
+      ])
+    )
+    const calls = parseCopilotMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[0]).toMatchObject({ artifact: { kind: 'shared', files: [join(sdir, 'files', 'pr-body.md')] } })
+    expect(calls[1]).toMatchObject({ artifact: { kind: 'shared' } })
+    expect(calls[2]).toMatchObject({ artifact: { kind: 'edits' } })
+    expect(calls[3]).toMatchObject({ artifact: { kind: 'shared', links: [{ url: 'http://localhost:3345/', title: 'Preview' }] } })
+  })
+})
+
 describe('work agents keep outside their own log', () => {
   const dir = join(root, 'beside')
   const at = (s: number): string => `2026-09-02T10:00:${String(s).padStart(2, '0')}Z`

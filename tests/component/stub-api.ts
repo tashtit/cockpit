@@ -144,6 +144,8 @@ export function freshApi(): CockpitApi {
     pageSessions: vi.fn(async () => ({ total: 0, items: [] })),
     getSession: vi.fn(async () => null),
     getSessionMessages: vi.fn(async () => []),
+    readSessionFile: vi.fn(async () => ({ kind: 'missing' as const })),
+    openSessionFile: vi.fn(async () => null),
     searchTranscripts: vi.fn(async (q) => ({
       query: q.text,
       hits: [],

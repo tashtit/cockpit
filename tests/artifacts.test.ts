@@ -6,6 +6,8 @@ import {
   pairHunks,
   parsePatch,
   parseUnifiedDiff,
+  publishedUrl,
+  sharedArtifact,
   todoListArtifact,
   todoStatus,
   todoTableArtifact,
@@ -315,6 +317,42 @@ describe('parsePatch', () => {
       ownExit: true
     })
     expect(toolArtifact('shell', { command: ['bash', '-lc', 'git status'] })).toBeUndefined()
+  })
+
+  it('reads what an agent shares: files it sends, pages it publishes or opens', () => {
+    expect(toolArtifact('SendUserFile', { files: ['/tmp/a.png', '', 7, 'b.md'], caption: 'Before and after', status: 'normal' })).toEqual({
+      kind: 'shared',
+      files: ['/tmp/a.png', 'b.md'],
+      links: [],
+      caption: 'Before and after'
+    })
+    expect(toolArtifact('Artifact', { file_path: '/tmp/r/index.html', description: 'The review' })).toEqual({
+      kind: 'shared',
+      files: ['/tmp/r/index.html'],
+      links: [],
+      caption: 'The review'
+    })
+    // the tool's other actions share nothing
+    expect(toolArtifact('Artifact', { action: 'quickstart', intent: 'other' })).toBeUndefined()
+    expect(toolArtifact('mcp__Claude_Browser__preview_start', { url: 'http://localhost:5173/' })).toEqual({
+      kind: 'shared',
+      files: [],
+      links: [{ url: 'http://localhost:5173/' }]
+    })
+    expect(toolArtifact('mcp__Claude_Browser__preview_start', { name: 'dev' })).toBeUndefined()
+    expect(toolArtifact('open_canvas', { canvasId: 'browser', input: { url: 'http://localhost:3345/x', title: 'Preview' } })).toEqual({
+      kind: 'shared',
+      files: [],
+      links: [{ url: 'http://localhost:3345/x', title: 'Preview' }]
+    })
+    expect(toolArtifact('SendUserFile', { files: [] })).toBeUndefined()
+  })
+
+  it('never makes a page of an address that is not the web', () => {
+    for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'vscode://open', 'http://a b', ''])
+      expect(sharedArtifact({ links: [{ url }] })).toBeUndefined()
+    expect(publishedUrl('Published /tmp/x.html at https://claude.ai/artifact/AbC.')).toBe('https://claude.ai/artifact/AbC')
+    expect(publishedUrl('Nothing published')).toBeNull()
   })
 
   it('makes every agent’s shell call a check where it runs one', () => {

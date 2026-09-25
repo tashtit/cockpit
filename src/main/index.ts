@@ -40,6 +40,7 @@ import {
   setPanelSwitch
 } from './library'
 import { assertChatImages, saveChatImage } from './chat-images'
+import { assertSharedFile, openSharedFile, readSharedFile } from './session-files'
 import { probeAcpAgent } from './acp'
 import { BUILTIN_ACP_AGENTS, builtinAgentFor, sanitizeAcpAgent } from '../shared/acp'
 import {
@@ -650,6 +651,13 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.sessionsPage, (_e, query: SessionQuery) => indexer.page(query))
   ipcMain.handle(CH.sessionsGet, (_e, id: string) => indexer.getSession(String(id)))
   ipcMain.handle(CH.sessionsMessages, (_e, id: string) => indexer.getMessages(id))
+  // a file an agent shared: only one the session's own log names (assertSharedFile)
+  ipcMain.handle(CH.sessionsFile, (_e, id: unknown, path: unknown) =>
+    readSharedFile(assertSharedFile(indexer, id, path))
+  )
+  ipcMain.handle(CH.sessionsOpenFile, (_e, id: unknown, path: unknown, how: unknown) =>
+    openSharedFile(assertSharedFile(indexer, id, path), how === 'reveal' ? 'reveal' : 'open', shell)
+  )
   ipcMain.handle(CH.transcriptsSearch, (_e, query: TranscriptSearchQuery) =>
     transcripts.search(query)
   )

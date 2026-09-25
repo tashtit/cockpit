@@ -1380,6 +1380,25 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
   padding: 2px var(--s2); border-radius: var(--radius-sm); }
 .work-check-run .work-check-cmd { flex: 1; font-size: var(--fs-xs); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
+/* files: what the agent sent, newest first — each a review file block that opens onto the
+   file itself (the image, the head of the text) and the two things to do with it */
+.work-shared, .work-links { list-style: none; margin: 0; padding: 0; display: flex;
+  flex-direction: column; gap: var(--s3); }
+.work-shared-file { border-radius: var(--radius); transition: box-shadow var(--dur) var(--ease); }
+.work-shared-file.ringed { box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.55); }
+.work-shared-body { display: flex; flex-direction: column; gap: var(--s2); min-width: 0;
+  padding: var(--s2) var(--s3) var(--s3); }
+.work-shared-where { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+/* a temporary folder's path is long and says little: one line, the whole of it in the tooltip */
+.work-shared-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.work-shared-image { display: block; max-width: 100%; height: auto; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg-deep); }
+.work-shared-md { max-height: 360px; overflow-y: auto; font-size: var(--fs-base); }
+.work-shared-text { max-height: 360px; }
+.work-shared-actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.work-link { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; min-width: 0; }
+.work-link .link-btn { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.work-link-url { min-width: 0; overflow-wrap: anywhere; }
 
 /* a transcript row that opens the Work panel: the tool row's grammar as one button —
    the blank lead keeps its chip in line with the ▸ of the rows around it */

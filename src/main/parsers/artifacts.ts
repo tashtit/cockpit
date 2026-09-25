@@ -73,6 +73,39 @@ function todos(list: unknown, read: (item: Rec) => { text: unknown; status: unkn
   return { kind: 'todos', items }
 }
 
+/** Files one call may hand over */
+const MAX_SHARED_FILES = 24
+const MAX_CAPTION_CHARS = 300
+
+/** A page a person can be sent to: http(s) only — never `file:`, `javascript:` or an app scheme */
+function webUrl(v: unknown): string | null {
+  const s = str(v)?.trim()
+  return s && /^https?:\/\/[^\s]+$/i.test(s) ? s : null
+}
+
+/** What a call handed the person to look at: files it sent, pages it opened for them. */
+export function sharedArtifact(parts: {
+  readonly files?: readonly unknown[]
+  readonly links?: readonly { readonly url: unknown; readonly title?: unknown }[]
+  readonly caption?: unknown
+}): WorkArtifact | undefined {
+  const files = (parts.files ?? []).flatMap((f) => (str(f) ? [str(f)!.trim()] : [])).slice(0, MAX_SHARED_FILES)
+  const links = (parts.links ?? []).flatMap((l) => {
+    const url = webUrl(l.url)
+    const title = str(l.title)
+    return url ? [{ url, ...(title ? { title: truncate(title, MAX_CAPTION_CHARS) } : {}) }] : []
+  })
+  const caption = str(parts.caption)
+  if (files.length === 0 && links.length === 0) return undefined
+  return { kind: 'shared', files, links, ...(caption ? { caption: truncate(caption, MAX_CAPTION_CHARS) } : {}) }
+}
+
+/** The page a publish's result names: `Published <file> at https://…` */
+export function publishedUrl(result: string): string | null {
+  const m = /\bat (https?:\/\/\S+)/.exec(result)
+  return m ? webUrl(m[1]!.replace(/[.,)]+$/, '')) : null
+}
+
 export function planArtifact(text: unknown): WorkArtifact | undefined {
   const t = str(text)
   return t ? { kind: 'plan', text: capText(t.trim(), MAX_PLAN_CHARS) } : undefined
@@ -286,6 +319,20 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
     case 'local_shell': {
       const cmd = i?.command ?? i?.cmd
       return patchArtifact(Array.isArray(cmd) ? cmd.map(String).join('\n') : cmd) ?? checkArtifact(shellScript(cmd))
+    }
+    // what an agent hands the person: files it sends, a page it publishes (its address
+    // is in the result), a preview it opens
+    case 'SendUserFile':
+      return sharedArtifact({ files: Array.isArray(i?.files) ? i.files : [], caption: i?.caption })
+    case 'Artifact':
+      return i?.action === undefined || i?.action === 'publish'
+        ? sharedArtifact({ files: [i?.file_path], caption: i?.description })
+        : undefined
+    case 'mcp__Claude_Browser__preview_start':
+      return sharedArtifact({ links: [{ url: i?.url }] })
+    case 'open_canvas': {
+      const canvas = record(i?.input)
+      return i?.canvasId === 'browser' ? sharedArtifact({ links: [{ url: canvas?.url, title: canvas?.title }] }) : undefined
     }
     // every agent's shell: a command that runs tests, a typecheck, a linter or a build
     case 'Bash':

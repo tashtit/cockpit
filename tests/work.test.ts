@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { absolutePath, buildWork, checkSummary, fileChange, hasWork, needsLook, planTitle, tabFor, todoSummary } from '../src/shared/work'
+import { absolutePath, buildWork, checkSummary, fileChange, hasWork, needsLook, planTitle, sharedSummary, tabFor, todoSummary } from '../src/shared/work'
 import type { CheckKind, FileEdit, SessionMessage, WorkArtifact } from '../src/shared/types'
 
 const call = (toolName: string, artifact: WorkArtifact, extra: Partial<SessionMessage> = {}): SessionMessage => ({
@@ -208,5 +208,33 @@ describe('buildWork: checks', () => {
 
   it('opens a check row on the Checks tab', () => {
     expect(tabFor(check(['tests'], 'npm test'))).toBe('checks')
+  })
+})
+
+describe('buildWork: what the agent shared', () => {
+  const shared = (files: string[], links: { url: string; title?: string }[] = [], caption?: string): WorkArtifact => ({
+    kind: 'shared',
+    files,
+    links,
+    ...(caption ? { caption } : {})
+  })
+
+  it('lists each file and page once, newest hand-off first, paths made absolute', () => {
+    const log = [
+      call('SendUserFile', shared(['shot.png', '/tmp/report.md'], [], 'first'), { ts: 1 }),
+      call('mcp__Claude_Browser__preview_start', shared([], [{ url: 'http://localhost:5173/' }]), { ts: 2 }),
+      // sent again: moves to the top, with what was said this time
+      call('SendUserFile', shared(['/r/shot.png'], [], 'again'), { ts: 3 }),
+      // a write that failed handed nothing over
+      call('create', shared(['/tmp/never.md']), { failed: true })
+    ]
+    const { shared: s } = buildWork(log, '/r')
+    expect(s.files.map((f) => [f.path, f.caption, f.key])).toEqual([
+      ['/r/shot.png', 'again', 2],
+      ['/tmp/report.md', 'first', 0]
+    ])
+    expect(s.links).toEqual([{ url: 'http://localhost:5173/', key: 1, ts: 2, toolName: 'mcp__Claude_Browser__preview_start' }])
+    expect(sharedSummary(s)).toBe('2 files · 1 page')
+    expect(tabFor(shared(['a']))).toBe('files')
   })
 })

@@ -2,7 +2,7 @@ import { basename, dirname, join, sep } from 'node:path'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
-import { planArtifact, todoTableArtifact, toolArtifact } from './artifacts'
+import { planArtifact, sharedArtifact, todoTableArtifact, toolArtifact } from './artifacts'
 import { checkOutcome, exitCodeIn } from './checks'
 import {
   capText,
@@ -327,6 +327,18 @@ function planFileWritten(sessionDir: string, toolName: string, args: unknown): s
 }
 
 /**
+ * A file Copilot wrote to the session's own `files/` folder — what its app lists as the
+ * session's files: a PR body drafted, a report, a screenshot. Handed to the person, not
+ * an edit of the repo.
+ */
+function sessionFileWritten(sessionDir: string, toolName: string, args: unknown): string | null {
+  if (!['create', 'edit', 'str_replace', 'str_replace_editor'].includes(toolName)) return null
+  const path = args && typeof args === 'object' ? (args as Record<string, unknown>).path : null
+  if (typeof path !== 'string') return null
+  return path.includes(`${sep}${basename(sessionDir)}${sep}files${sep}`) ? path : null
+}
+
+/**
  * The plan's text after a write to it: a `create` replaces it whole, an `edit` swaps
  * one passage. Null when the write can't be followed — an edit to a plan never seen,
  * or a passage that isn't there — so a version is never guessed.
@@ -423,6 +435,7 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
         // the same humanized headline Claude and Codex rows get — raw JSON stays in the detail
         const preview = toolPreview(toolName, args)
         const written = planFileWritten(sessionDir, toolName, args)
+        const shared = written ? null : sessionFileWritten(sessionDir, toolName, args)
         let artifact = toolArtifact(toolName, args)
         if (written) {
           // the plan is not the work: a write to it is never an edit of the repo's
@@ -430,6 +443,8 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
           planPath = written
           planWriteRow = out.length
           artifact = undefined
+        } else if (shared) {
+          artifact = sharedArtifact({ files: [shared] })
         } else if (toolName === 'exit_plan_mode') {
           // what it asked approval for is the plan as written then, not the summary
           exitRow = { at: out.length, replayed: plan !== null }
