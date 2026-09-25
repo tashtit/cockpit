@@ -4,6 +4,7 @@ import {
   MAX_STALE_DAYS,
   MIN_STALE_DAYS,
   clampStaleDays,
+  isDirty,
   isStale,
   judgeProcesses,
   lastWorktreeActivity,
@@ -141,6 +142,19 @@ describe('worktreeOrigin', () => {
     // Claude Code cuts its own worktrees inside the repo — found, but never ours
     expect(worktreeOrigin('/repos/app/.claude/worktrees/spike', root)).toBe('external')
     expect(worktreeOrigin('/userData/worktrees-old/app', root)).toBe('external')
+  })
+})
+
+describe('isDirty', () => {
+  it('reads any status line as uncommitted work, and an empty status as clean', () => {
+    expect(isDirty(' M src/app.ts\n')).toBe(true)
+    expect(isDirty('?? scratch.txt\n')).toBe(true)
+    expect(isDirty('')).toBe(false)
+    expect(isDirty('\n')).toBe(false)
+  })
+
+  it('never reads a status git could not give as clean', () => {
+    expect(isDirty(null)).toBe(true)
   })
 })
 

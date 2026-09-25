@@ -98,7 +98,7 @@ export type WorktreeFacts = {
   /** The repository's primary checkout (first entry of the listing) */
   readonly isMain: boolean
   readonly locked: boolean
-  /** `git status --porcelain` returned something */
+  /** `git status --porcelain` returned something, or could not be read (`isDirty`) */
   readonly dirty: boolean
   /** An agent turn is running in this directory right now */
   readonly busy: boolean
@@ -108,6 +108,15 @@ export type WorktreeFacts = {
   readonly processes: boolean
   /** HEAD is detached on commits that no branch, tag or remote holds */
   readonly unanchored: boolean
+}
+
+/**
+ * Whether `git status --porcelain` output (null: it failed or timed out) stands for
+ * uncommitted work. A status git could not give is no proof of a clean checkout — it
+ * used to read as clean, and the worktree as ready to remove.
+ */
+export function isDirty(status: string | null): boolean {
+  return status === null || status.trim().length > 0
 }
 
 /**

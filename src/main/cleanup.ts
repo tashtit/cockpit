@@ -14,6 +14,7 @@ import type {
 } from '../shared/types'
 import {
   clampStaleDays,
+  isDirty,
   isStale,
   judgeProcesses,
   lastWorktreeActivity,
@@ -338,9 +339,7 @@ async function judgeWorktrees(
     const activity = sessionActivityIn(sessions, path)
     const tip = missing ? null : await git(path, ['log', '-1', '--format=%ct', 'HEAD'])
     const tipMs = tip === null ? 0 : Number(tip.trim()) * 1000
-    const dirty = missing
-      ? false
-      : ((await git(path, ['status', '--porcelain'])) ?? '').trim().length > 0
+    const dirty = missing ? false : isDirty(await git(path, ['status', '--porcelain']))
     const unpushedOut = missing
       ? null
       : await git(path, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
@@ -763,8 +762,7 @@ export async function deleteRoundtables(
     // record and its worktree — with transcripts its seats can no longer resume.
     const room = realish(t.cwd)
     if (t.repoRoot && existsSync(room)) {
-      const status = await git(room, ['status', '--porcelain'])
-      if (status === null || status.trim() !== '') {
+      if (isDirty(await git(room, ['status', '--porcelain']))) {
         failed.push({ target: name, reason: 'its worktree has uncommitted changes' })
         continue
       }

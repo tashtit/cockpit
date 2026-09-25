@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   statSync,
@@ -213,6 +214,25 @@ describe('scanCleanup — worktrees', () => {
     // it stays visible as a leftover, with its reason
     expect(report.worktrees.find((w) => w.path === dirtyTree)?.blocks).toEqual(['dirty'])
     sessions = []
+  })
+
+  it('blocks a worktree whose status git cannot read, rather than calling it clean', async () => {
+    // a status that failed or timed out used to read as clean — and the report, and
+    // the daily reminder, then called the worktree ready to go
+    const broken = join(cockpitWorktrees, 'app', 'unreadable')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/unreadable', broken])
+    const dotGit = join(broken, '.git')
+    const pointer = readFileSync(dotGit, 'utf8')
+    writeFileSync(dotGit, `gitdir: ${join(root, 'nowhere')}\n`)
+    backdate(broken)
+    try {
+      const { report, ready } = await surveyCleanup(deps, 30)
+      expect(report.worktrees.find((w) => w.path === broken)?.blocks).toEqual(['dirty'])
+      expect(ready.worktrees).not.toContain(broken)
+    } finally {
+      writeFileSync(dotGit, pointer)
+      git(mainRepo, ['worktree', 'remove', broken])
+    }
   })
 })
 
