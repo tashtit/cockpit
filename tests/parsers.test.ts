@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { listClaudeSessions, parseClaudeMessages, parseClaudeMeta } from '../src/main/parsers/claude'
 import { listCodexSessions, parseCodexMessages, parseCodexMeta } from '../src/main/parsers/codex'
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
+import { parseCodexStreamLine } from '../src/main/chat'
+import type { SessionMessage } from '../src/shared/types'
 import { toolPreview } from '../src/main/parsers/util'
 import { writePagedThread } from './codex-paged-thread'
 
@@ -481,6 +483,9 @@ describe('toolPreview', () => {
     expect(toolPreview('AskUserQuestion', { questions: [{ question: 'Which owner?' }] })).toBe('Which owner?')
     expect(toolPreview('AskUserQuestion', { questions: [] })).toBe('waiting for your answer')
     expect(toolPreview('ExitPlanMode', { plan: '# Plan' })).toBe('waiting for the plan to be approved')
+    // Codex's own names for a search and a look at an image
+    expect(toolPreview('web_search', { query: 'nx remote cache' })).toBe('nx remote cache')
+    expect(toolPreview('view_image', { path: '/r/shot.png' })).toBe('/r/shot.png')
   })
   it('returns null for unknown tools and malformed input', () => {
     expect(toolPreview('mcp__server__tool', { a: 1 })).toBeNull()
@@ -775,6 +780,224 @@ describe('robustness', () => {
 // What a tool call hands the person to look at — a plan, a to-do list, an edit — rides
 // the call's row as a structured artifact (the Work panel's input), read from the real
 // log shapes each CLI writes.
+describe('codex code mode: exec cells and the items their tool runs complete with', () => {
+  const dir = join(root, 'code-mode')
+  const at = (s: number): string => `2026-09-24T10:00:${String(s).padStart(2, '0')}.000Z`
+  const head = (id: string): unknown[] => [
+    { timestamp: at(0), type: 'session_meta', payload: { id, cwd: '/r', originator: 'Codex Desktop', cli_version: '0.155.0' } },
+    { timestamp: at(0), type: 'event_msg', payload: { type: 'task_started', turn_id: 't1' } },
+    { timestamp: at(1), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'look around' }] } }
+  ]
+  const cell = (s: number, callId: string, input: string): unknown => ({
+    timestamp: at(s),
+    type: 'response_item',
+    payload: { type: 'custom_tool_call', id: `ctc_${callId}`, status: 'completed', call_id: callId, name: 'exec', input }
+  })
+  const cellOut = (s: number, callId: string, verdict: string, text: string): unknown => ({
+    timestamp: at(s),
+    type: 'response_item',
+    payload: {
+      type: 'custom_tool_call_output',
+      call_id: callId,
+      output: [
+        { type: 'input_text', text: `${verdict}\nWall time 0.2 seconds\nOutput:\n` },
+        { type: 'input_text', text }
+      ]
+    }
+  })
+  const done = (s: number, item: object): unknown => ({
+    timestamp: at(s),
+    type: 'event_msg',
+    payload: { type: 'item_completed', thread_id: 'th', turn_id: 't1', item, started_at_ms: 1, completed_at_ms: 2 }
+  })
+  const command = (id: string, script: string, rest: object): object => ({
+    type: 'CommandExecution',
+    id,
+    process_id: '88692',
+    command: ['/bin/zsh', '-lc', script],
+    cwd: 'file:///r',
+    parsed_cmd: [{ type: 'unknown', cmd: script }],
+    source: 'unified_exec_startup',
+    duration: { secs: 0, nanos: 5 },
+    ...rest
+  })
+  const write = (name: string, records: unknown[]): string => {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, name)
+    writeFileSync(file, jsonl(records))
+    return file
+  }
+  const calls = (msgs: SessionMessage[]): SessionMessage[] => msgs.filter((m) => m.kind === 'tool_call')
+
+  it('renders each tool run from its typed item, and not the cell that ran it', () => {
+    const file = write('rollout-items.jsonl', [
+      ...head('items-1'),
+      cell(2, 'call_a', 'const r = await Promise.allSettled([\n  tools.exec_command({cmd:"rg -n \'unknowns?\' projects",workdir:"/r"}),\n  tools.exec_command({cmd:"git status --short --branch",workdir:"/r"})\n]); r.forEach((x) => text(x.value.output))\n'),
+      done(3, command('exec-1', "rg -n 'unknowns?' projects", { status: 'failed', stdout: '', stderr: '', aggregated_output: '', exit_code: 1 })),
+      done(3, command('exec-2', 'git status --short --branch', { status: 'completed', stdout: '## main\n', stderr: '', aggregated_output: '## main\n', exit_code: 0 })),
+      cellOut(4, 'call_a', 'Script completed', '## main\n'),
+      cell(5, 'call_b', "const r = await tools.mcp__node_repl__js({code:'await cua.getState()',title:'Check the console session'}); text(r)"),
+      done(6, {
+        type: 'McpToolCall',
+        id: 'exec-3',
+        server: 'node_repl',
+        tool: 'js',
+        arguments: { code: 'await cua.getState()', title: 'Check the console session' },
+        status: 'completed',
+        result: { content: [{ type: 'text', text: 'Browser tab: 1' }] }
+      }),
+      cellOut(6, 'call_b', 'Script completed', 'Browser tab: 1'),
+      cell(7, 'call_c', "text(await tools.web__run({search_query:[{q:'\"Tavrek\"'},{q:'\"Tovren\"'},{q:'\"Tazlek\"'}],response_length:\"short\"}));\n"),
+      done(8, {
+        type: 'Extension',
+        kind: 'web.search',
+        id: 'exec-4',
+        query: '"Tavrek" ...',
+        action: { type: 'search', query: null, queries: ['"Tavrek"', '"Tovren"', '"Tazlek"'] },
+        results: [{ type: 'text_result', domain: 'tavrek.dev', title: 'Tavrek', url: 'https://tavrek.dev/', snippet: '…' }]
+      }),
+      cellOut(8, 'call_c', 'Script completed', 'Tavrek (https://tavrek.dev/)'),
+      cell(9, 'call_d', 'const t = await tools.chrome_extension__getTabContext({tabId: 1610293432}); text(t)'),
+      done(10, {
+        type: 'DynamicToolCall',
+        id: 'exec-5',
+        namespace: 'chrome_extension',
+        tool: 'getTabContext',
+        arguments: { tabId: 1610293432 },
+        status: 'completed',
+        content_items: [{ type: 'inputText', text: 'Ads Manager' }],
+        success: true
+      }),
+      done(10, { type: 'ImageView', id: 'exec-6', path: 'file:///r/My%20Shots/preview.png' }),
+      cellOut(11, 'call_d', 'Script completed', 'Ads Manager'),
+      // a tool called directly completes with an item under the call's own id: said once
+      { timestamp: at(12), type: 'response_item', payload: { type: 'function_call', name: 'sleep', arguments: '{"duration_ms":30000}', call_id: 'call_s' } },
+      done(13, { type: 'Extension', kind: 'clock.sleep', id: 'call_s', durationMs: 30000 }),
+      { timestamp: at(13), type: 'response_item', payload: { type: 'function_call_output', call_id: 'call_s', output: 'Wall time: 30.0 seconds\nSleep completed.' } },
+      // the answer to a direct `js` call is content blocks, not a string
+      { timestamp: at(14), type: 'response_item', payload: { type: 'function_call', name: 'js', arguments: '{"code":"await tab.reload()","title":"Reload the preview"}', call_id: 'call_j' } },
+      done(15, { type: 'McpToolCall', id: 'call_j', server: 'cua_repl', tool: 'js', arguments: {}, status: 'completed', result: { content: [] } }),
+      {
+        timestamp: at(15),
+        type: 'response_item',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'call_j',
+          output: [
+            { type: 'input_text', text: 'Wall time: 0.9 seconds\nOutput: reloaded' },
+            { type: 'input_image', image_url: 'data:image/png;base64,AAAA' }
+          ]
+        }
+      },
+      { timestamp: at(16), type: 'event_msg', payload: { type: 'task_complete', turn_id: 't1', last_agent_message: 'done' } }
+    ])
+    const msgs = parseCodexMessages(file)
+    const rows = calls(msgs)
+    expect(rows.map((m) => m.toolName)).toEqual([
+      'shell',
+      'shell',
+      'mcp__node_repl__js',
+      'web_search',
+      'chrome_extension__getTabContext',
+      'view_image',
+      'sleep',
+      'js'
+    ])
+    // the command a run executed, unwrapped from its shell, is the headline
+    expect(rows[0]).toMatchObject({ preview: "rg -n 'unknowns?' projects", text: "rg -n 'unknowns?' projects", failed: true })
+    expect(rows[1]).toMatchObject({ preview: 'git status --short --branch' })
+    expect(rows[1].failed).toBeUndefined()
+    expect(rows[2]).toMatchObject({ preview: 'Check the console session' })
+    expect(rows[3]).toMatchObject({ preview: '"Tavrek" (+2 more)', text: '"Tavrek" "Tovren" "Tazlek"' })
+    expect(rows[4].preview).toBeUndefined()
+    expect(rows[5]).toMatchObject({ preview: '/r/My Shots/preview.png' })
+    expect(rows[7]).toMatchObject({ preview: 'Reload the preview' })
+    // every result sits right under its call, where the chat folds it into the row
+    const resultOf = (row: SessionMessage): string | undefined => {
+      const next = msgs[msgs.indexOf(row) + 1]
+      return next?.kind === 'tool_result' ? next.text : undefined
+    }
+    expect(rows.map(resultOf)).toEqual([
+      'exit 1',
+      '## main',
+      'Browser tab: 1',
+      'Tavrek — https://tavrek.dev/',
+      'Ads Manager',
+      undefined,
+      'Wall time: 30.0 seconds Sleep completed.',
+      'Wall time: 0.9 seconds Output: reloaded'
+    ])
+  })
+
+  it('names a logged command the way the live stream does, so a rejoined turn matches it', () => {
+    const file = write('rollout-rejoin.jsonl', [
+      ...head('items-2'),
+      cell(2, 'call_a', 'await tools.exec_command({cmd:"npm test -- --run",workdir:"/r"})'),
+      done(3, command('exec-1', 'npm test -- --run', { status: 'completed', aggregated_output: 'ok', exit_code: 0 }))
+    ])
+    const [row] = calls(parseCodexMessages(file))
+    const [streamed] = parseCodexStreamLine('turn-1', {
+      type: 'item.completed',
+      item: { id: 'item_1', type: 'command_execution', command: '/bin/zsh -lc "npm test -- --run"', status: 'completed' }
+    })
+    expect(streamed).toMatchObject({ type: 'tool', toolName: row!.toolName, preview: row!.preview })
+  })
+
+  it('renders cells as rows of their own where no item speaks for their runs', () => {
+    const patch = 'const p = "/r";\ntext(await tools.apply_patch(`*** Begin Patch\\n*** Update File: ${p}/src/a.ts\\n@@\\n-a\\n+b\\n*** End Patch`))'
+    const file = write('rollout-cells.jsonl', [
+      ...head('cells-1'),
+      cell(2, 'call_a', "const r = await tools.exec_command({cmd:\"sed -n '1,220p' README.md\", workdir: \"/r\"}); text(r.output)\n"),
+      cellOut(3, 'call_a', 'Script completed', '# README'),
+      cell(4, 'call_b', 'await Promise.all([\n  tools.exec_command({cmd:"wc -l a.ts"}),\n  tools.exec_command({cmd:"wc -l b.ts"}),\n  tools.web__run({search_query:[{q:"x"}]})\n])'),
+      cellOut(5, 'call_b', 'Script completed', '1 a.ts'),
+      cell(6, 'call_c', patch),
+      cellOut(7, 'call_c', 'Script failed', 'Script error:\napply_patch verification failed'),
+      cell(8, 'call_d', 'text(await tools.write_stdin({session_id:91432,chars:"",yield_time_ms:20000}))'),
+      cell(9, 'call_e', 'text(ALL_TOOLS.filter((x) => /search/.test(x.name)).map((x) => x.name))'),
+      // a direct call's own item is only its echo: it does not make the cells' runs typed
+      { timestamp: at(10), type: 'response_item', payload: { type: 'function_call', name: 'sleep', arguments: '{"duration_ms":10}', call_id: 'call_s' } },
+      done(11, { type: 'Extension', kind: 'clock.sleep', id: 'call_s', durationMs: 10 })
+    ])
+    const msgs = parseCodexMessages(file)
+    const rows = calls(msgs)
+    expect(rows.map((m) => [m.toolName, m.preview])).toEqual([
+      ['exec', "sed -n '1,220p' README.md"],
+      ['exec', 'wc -l a.ts (+2 more)'],
+      ['exec', 'apply_patch ${p}/src/a.ts'],
+      ['exec', 'write_stdin'],
+      ['exec', undefined],
+      ['sleep', undefined]
+    ])
+    // the cell's output (its content blocks, as text) is its result
+    expect(msgs[msgs.indexOf(rows[0]!) + 1]).toMatchObject({ kind: 'tool_result', text: 'Script completed Wall time 0.2 seconds Output: # README' })
+    // a cell that only patches carries the edit, and one that threw says it did not apply
+    expect(rows[2]).toMatchObject({ artifact: { kind: 'edits', files: [{ path: '${p}/src/a.ts' }] }, failed: true })
+    expect(rows[0].failed).toBeUndefined()
+    expect(rows[4].text).toContain('ALL_TOOLS.filter')
+  })
+
+  it('skips a malformed item and a torn last line rather than failing the transcript', () => {
+    const file = write('rollout-torn.jsonl', [
+      ...head('torn-1'),
+      cell(2, 'call_a', 'await tools.exec_command({cmd:"ls"})'),
+      done(3, { type: 'CommandExecution', id: 'exec-1' }),
+      done(3, { type: 'McpToolCall', id: 'exec-2', tool: 'js' }),
+      done(3, { type: 'Extension', id: 'exec-3' }),
+      done(3, { type: 'WebSearch', id: 'exec-4', action: { type: 'search' } }),
+      done(3, { type: 'ImageView', id: 'exec-5', path: 42 }),
+      done(3, { type: 'DynamicToolCall', id: 'exec-6', namespace: 'x' }),
+      done(4, command('exec-7', 'ls', { status: 'completed', exit_code: 0, aggregated_output: '' }))
+    ])
+    writeFileSync(file, `${jsonl([])}{"timestamp":"${at(5)}","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExec`, { flag: 'a' })
+    const msgs = parseCodexMessages(file)
+    // the malformed items still say the rollout carries items, so the cell stays hidden
+    expect(calls(msgs).map((m) => [m.toolName, m.preview])).toEqual([['shell', 'ls']])
+    // a run that printed nothing still says it finished
+    expect(msgs.at(-1)).toMatchObject({ kind: 'tool_result', text: 'exit 0' })
+  })
+})
+
 describe('work artifacts on tool rows', () => {
   const dir = join(root, 'work')
 

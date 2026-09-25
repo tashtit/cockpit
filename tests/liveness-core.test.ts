@@ -411,6 +411,12 @@ describe('inTool: the newest record is a tool call waiting for its result', () =
   it('codex: a call item is inside a tool, its output is not, and markers bound the turn', () => {
     expect(judgeCodexTail([started, item({ type: 'custom_tool_call', name: 'exec' })])?.inTool).toBe(true)
     expect(judgeCodexTail([started, item({ type: 'custom_tool_call', name: 'exec' }), item({ type: 'custom_tool_call_output', output: 'ok' })])?.inTool).toBeUndefined()
+    // a code-mode cell's runs complete as items while the cell is still running: each is
+    // a run finishing, not the cell, which is in its tool until its own output
+    const ran = (type: string): unknown => ev('item_completed', { item: { type, id: `exec-${type}`, status: 'completed' } })
+    const cell = [started, item({ type: 'custom_tool_call', name: 'exec', call_id: 'c1' }), ran('CommandExecution'), ran('McpToolCall')]
+    expect(judgeCodexTail(cell)?.inTool).toBe(true)
+    expect(judgeCodexTail([...cell, item({ type: 'custom_tool_call_output', call_id: 'c1', output: [] })])?.inTool).toBeUndefined()
     expect(judgeCodexTail([item({ type: 'function_call', name: 'shell' }), started])?.inTool).toBeUndefined()
     expect(judgeCodexTail([item({ type: 'function_call', name: 'shell' })])).toEqual({ live: true, startedAt: null, inTool: true })
   })

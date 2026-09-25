@@ -286,6 +286,7 @@ export function toolPreview(name: string, input: unknown): string | null {
     case 'WebFetch':
       return str(i.url)
     case 'WebSearch':
+    case 'web_search':
       return str(i.query)
     case 'Task':
       return str(i.description) ?? str(i.prompt)
@@ -309,6 +310,8 @@ export function toolPreview(name: string, input: unknown): string | null {
       return shellPreview(i.command ?? i.cmd)
     case 'apply_patch':
       return patchPreview(String(i.input ?? i.patch ?? ''))
+    case 'view_image':
+      return str(i.path)
     // Copilot CLI's own tool names (lowercase, `path` rather than `file_path`)
     case 'bash':
       return str(i.command) ?? str(i.cmd)
@@ -330,24 +333,28 @@ export function toolPreview(name: string, input: unknown): string | null {
  * by the files it touches rather than printed as a heredoc.
  */
 export function shellPreview(command: unknown): string | null {
-  let script: string
-  if (Array.isArray(command)) {
-    const parts = command.map(String)
-    const shell = parts[0]?.split('/').pop() ?? ''
-    script =
-      parts.length >= 3 && /^(ba|z|da)?sh$/.test(shell) && /^-l?c$/.test(parts[1] ?? '')
-        ? parts.slice(2).join(' ')
-        : parts.join(' ')
-  } else if (typeof command === 'string') {
-    const wrapped = command.match(/^(?:\S*\/)?(?:ba|z|da)?sh\s+-l?c\s+(['"])([\s\S]*)\1\s*$/)
-    script = wrapped ? (wrapped[2] ?? '') : command
-  } else {
-    return null
-  }
+  const script = shellScript(command)
+  if (script === null) return null
   const patch = patchPreview(script)
   if (patch) return patch
   const first = script.trim().split('\n', 1)[0]?.trim()
   return first || null
+}
+
+/** The whole script inside a Codex shell command, unwrapped as `shellPreview` reads it. */
+export function shellScript(command: unknown): string | null {
+  if (Array.isArray(command)) {
+    const parts = command.map(String)
+    const shell = parts[0]?.split('/').pop() ?? ''
+    return parts.length >= 3 && /^(ba|z|da)?sh$/.test(shell) && /^-l?c$/.test(parts[1] ?? '')
+      ? parts.slice(2).join(' ')
+      : parts.join(' ')
+  }
+  if (typeof command === 'string') {
+    const wrapped = command.match(/^(?:\S*\/)?(?:ba|z|da)?sh\s+-l?c\s+(['"])([\s\S]*)\1\s*$/)
+    return wrapped ? (wrapped[2] ?? '') : command
+  }
+  return null
 }
 
 /** `apply_patch src/a.ts, src/b.ts` — the paths a patch body adds, updates or deletes. */
