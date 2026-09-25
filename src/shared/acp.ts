@@ -43,33 +43,67 @@ export function builtinAgentFor(provider: Provider): AcpAgent | undefined {
  * looks harmless and isn't: every name here turns some benign `command` into a loader
  * for code the definition never names. PATH re-points the binary; the interpreter
  * hooks (NODE_OPTIONS, PYTHONSTARTUP, BASH_ENV, RUBYOPT…) run a file before the
- * program's own first line; the linker ones inject a library into it; and
- * ELECTRON_RUN_AS_NODE would turn our own binary into a script host. The app's fuses
- * already refuse the last two for Cockpit itself — a child it spawns gets the same rule.
+ * program's own first line; the linker ones inject a library into it; HOME, ZDOTDIR
+ * and XDG_CONFIG_HOME re-point every dotfile a shell or git then reads; EDITOR, PAGER
+ * and the askpass helpers are commands git and ssh run; a package index URL decides
+ * what an `npx` agent downloads; and ELECTRON_RUN_AS_NODE would turn our own binary
+ * into a script host. The app's fuses already refuse the last for Cockpit itself — a
+ * child it spawns gets the same rule.
+ *
+ * Names are compared upper-cased: npm reads `npm_config_*` in any case, and a
+ * lower-case spelling of the rest is never what a definition legitimately means.
  */
 export const BLOCKED_AGENT_ENV: readonly string[] = [
   'BASH_ENV',
-  'DYLD_FRAMEWORK_PATH',
-  'DYLD_INSERT_LIBRARIES',
-  'DYLD_LIBRARY_PATH',
+  'COPILOT_PROVIDER_API_KEY_COMMAND',
+  'EDITOR',
   'ELECTRON_RUN_AS_NODE',
   'ENV',
-  'GIT_EXTERNAL_DIFF',
-  'GIT_SSH_COMMAND',
+  'HOME',
   'IFS',
-  'LD_AUDIT',
-  'LD_LIBRARY_PATH',
-  'LD_PRELOAD',
-  'NODE_OPTIONS',
+  'OPENSSL_CONF',
+  'OPENSSL_MODULES',
+  'PAGER',
   'PATH',
-  'PERL5OPT',
-  'PYTHONPATH',
-  'PYTHONSTARTUP',
-  'RUBYOPT',
-  'SHELL'
+  'SHELL',
+  'SSH_ASKPASS',
+  'VISUAL',
+  'XDG_CONFIG_HOME',
+  'ZDOTDIR'
 ]
 
+/**
+ * Whole families, where naming each member would always leave one out: git reads
+ * dozens of `GIT_*` (GIT_CONFIG_COUNT/KEY/VALUE alone set any config, hooks and
+ * sshCommand included), and each interpreter keeps growing its own.
+ */
+export const BLOCKED_AGENT_ENV_PREFIXES: readonly string[] = [
+  'DYLD_',
+  'GIT_',
+  'JAVA_TOOL_OPTIONS',
+  'JDK_JAVA_OPTIONS',
+  'LD_',
+  'NODE_',
+  'NPM_CONFIG_',
+  'PERL5',
+  'PIP_',
+  'PYTHON',
+  'RUBY',
+  'UV_',
+  '_JAVA_OPTIONS'
+]
+
+/** Inside a blocked family, but only ever a mode switch. */
+const ALLOWED_AGENT_ENV: ReadonlySet<string> = new Set(['NODE_ENV'])
+
 const BLOCKED = new Set(BLOCKED_AGENT_ENV)
+
+export function isBlockedAgentEnv(name: string): boolean {
+  const upper = name.toUpperCase()
+  if (ALLOWED_AGENT_ENV.has(upper)) return false
+  return BLOCKED.has(upper) || BLOCKED_AGENT_ENV_PREFIXES.some((p) => upper.startsWith(p))
+}
+
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 const BARE_COMMAND = /^[A-Za-z0-9._+-]{1,64}$/
 
@@ -119,7 +153,7 @@ export function sanitizeAcpAgent(input: unknown, id: string): AcpAgent | null {
     const env: Record<string, string> = {}
     for (const [k, v] of Object.entries(o.env as Record<string, unknown>)) {
       if (typeof v !== 'string') return null
-      if (!ENV_NAME.test(k) || BLOCKED.has(k)) return null
+      if (!ENV_NAME.test(k) || isBlockedAgentEnv(k)) return null
       if (/[\r\n\0]/.test(v) || v.length > 2048) return null
       env[k] = v
     }
@@ -147,7 +181,7 @@ export function acpAgentRefusal(agent: NewAcpAgent): string | null {
       : 'That command name is not usable. Use an executable name or an absolute path.'
   }
   for (const k of Object.keys(agent.env ?? {})) {
-    if (BLOCKED.has(k)) return `${k} can redirect what actually runs, so it can't be set here.`
+    if (isBlockedAgentEnv(k)) return `${k} can redirect what actually runs, so it can't be set here.`
     if (!ENV_NAME.test(k)) return `"${k.slice(0, 32)}" is not a valid environment variable name.`
   }
   return null

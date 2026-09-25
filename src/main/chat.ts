@@ -330,6 +330,13 @@ type ChatManagerHooks = {
   readonly resolveAcpAgent?: (req: ChatRequest) => AcpAgent | undefined
 }
 
+/** What an ACP turn is started with: the agent, the inherited env, and what the turn itself sets. */
+type AcpLaunch = {
+  readonly agent: AcpAgent
+  readonly env: NodeJS.ProcessEnv
+  readonly pinned: Readonly<Record<string, string>>
+}
+
 export class ChatManager {
   private turns = new Map<string, RunningTurn>()
   private readonly emit: Emit
@@ -452,21 +459,23 @@ export class ChatManager {
       })
       return
     }
-    if (ep) Object.assign(env, endpointEnv(req.provider, ep, apiKey))
+    // what this turn itself decides: the BYOK endpoint and the account's config home
+    const pinned: Record<string, string> = ep ? { ...endpointEnv(req.provider, ep, apiKey) } : {}
     // per-account config homes: each provider has its own env var for this
     if (req.configDir) {
-      if (req.provider === 'claude') env.CLAUDE_CONFIG_DIR = req.configDir
-      else if (req.provider === 'codex') env.CODEX_HOME = req.configDir
-      else env.COPILOT_HOME = req.configDir
+      if (req.provider === 'claude') pinned.CLAUDE_CONFIG_DIR = req.configDir
+      else if (req.provider === 'codex') pinned.CODEX_HOME = req.configDir
+      else pinned.COPILOT_HOME = req.configDir
     }
     // ACP: the same turn, driven over the agent's protocol instead of its headless
     // flags. Everything above — cwd checks, BYOK env, the config home — has already
     // been applied, and the agent inherits it as its environment.
     const acpAgent = withTurnFlags(this.hooks.resolveAcpAgent?.(req), req)
     if (acpAgent) {
-      this.startAcpTurn(turnId, req, acpAgent, env)
+      this.startAcpTurn(turnId, req, { agent: acpAgent, env, pinned })
       return
     }
+    Object.assign(env, pinned)
 
     const child = spawn(cmd, args, {
       cwd: req.cwd,
@@ -606,13 +615,14 @@ export class ChatManager {
   private startAcpTurn(
     turnId: string,
     req: ChatRequest,
-    agent: AcpAgent,
-    env: NodeJS.ProcessEnv
+    launch: AcpLaunch
   ): void {
+    const { agent, env, pinned } = launch
     const acp = new AcpTurn(agent, {
       turnId,
       cwd: req.cwd,
       env,
+      pinned,
       permissionMode: req.permissionMode,
       emit: (ev) => {
         const turn = this.turns.get(turnId)

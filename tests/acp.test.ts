@@ -191,6 +191,22 @@ describe('AcpTurn', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done' })
   })
 
+  it('lets what the turn pins win over the definition’s own env', async () => {
+    // the definition asks for one behaviour, the turn pins another: the turn's (a custom
+    // provider's base URL and key, the config home) is what the agent must see
+    const events: ChatEvent[] = []
+    const turn = new AcpTurn(stubAgent('crash'), {
+      turnId: 't1',
+      cwd,
+      env: process.env,
+      pinned: { STUB_MODE: 'basic' },
+      permissionMode: 'safe',
+      emit: (ev) => events.push(ev)
+    })
+    await turn.run('hello')
+    expect(events.map((e) => e.type)).toEqual(['session', 'tool', 'done'])
+  })
+
   it('sends the prompt as an ACP text block', async () => {
     const { events, done } = start('echo-prompt')
     await done

@@ -33,6 +33,13 @@ type TurnOptions = {
   readonly turnId: string
   readonly cwd: string
   readonly env: NodeJS.ProcessEnv
+  /**
+   * What the turn itself sets — a custom provider's base URL and key, the account's
+   * config home. Applied over the definition's own env, which otherwise could send
+   * the provider's key to a host of its choosing (ANTHROPIC_BASE_URL), or its own key
+   * to the provider.
+   */
+  readonly pinned?: Readonly<Record<string, string>>
   readonly permissionMode: PermissionMode
   readonly emit: (ev: ChatEvent) => void
 }
@@ -170,7 +177,7 @@ export class AcpTurn {
     this.opts = opts
     this.child = spawn(agent.command, [...(agent.args ?? [])], {
       cwd: opts.cwd,
-      env: { ...opts.env, ...(agent.env ?? {}) },
+      env: { ...opts.env, ...(agent.env ?? {}), ...(opts.pinned ?? {}) },
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
       // own process group, so cancelling reaches the tools the agent spawned

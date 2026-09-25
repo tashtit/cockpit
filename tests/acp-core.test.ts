@@ -3,6 +3,7 @@ import type { AcpPermissionOption, ChatEvent } from '../src/shared/types'
 import {
   acpAgentRefusal,
   BLOCKED_AGENT_ENV,
+  isBlockedAgentEnv,
   BUILTIN_ACP_AGENTS,
   builtinAgentFor,
   isValidAcpCommand,
@@ -56,6 +57,17 @@ describe('sanitizeAcpAgent', () => {
     for (const name of BLOCKED_AGENT_ENV) {
       expect(sanitizeAcpAgent({ ...ok, env: { [name]: 'x' } }, 'a1')).toBeNull()
     }
+  })
+
+  it('refuses whole families and other spellings, not just the names listed', () => {
+    for (const name of ['GIT_CONFIG_COUNT', 'npm_config_registry', 'DYLD_FALLBACK_LIBRARY_PATH', 'NODE_EXTRA_CA_CERTS', 'ZDOTDIR', 'path']) {
+      expect(sanitizeAcpAgent({ ...ok, env: { [name]: 'x' } }, 'a1'), name).toBeNull()
+      expect(isBlockedAgentEnv(name), name).toBe(true)
+    }
+  })
+
+  it('keeps a mode switch inside a blocked family', () => {
+    expect(sanitizeAcpAgent({ ...ok, env: { NODE_ENV: 'production' } }, 'a1')?.env).toEqual({ NODE_ENV: 'production' })
   })
 
   it('keeps ordinary env', () => {
