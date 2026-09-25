@@ -20,6 +20,9 @@ export function fmtResetIn(at: number, now = Date.now()): string {
   return `resets in ${Math.floor(h / 24)}d ${h % 24}h`
 }
 
+/** One formatter, not one per call — see time.ts */
+const DATE_FORMAT = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
+
 /** "just now" / "42m ago" / "3h ago", falling back to a date past a day */
 export function fmtAgo(ms: number, now = Date.now()): string {
   const mins = Math.round((now - ms) / 60000)
@@ -27,5 +30,5 @@ export function fmtAgo(ms: number, now = Date.now()): string {
   if (mins < 60) return `${mins}m ago`
   const h = Math.round(mins / 60)
   if (h < 24) return `${h}h ago`
-  return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' })
+  return DATE_FORMAT.format(ms)
 }

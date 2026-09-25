@@ -40,6 +40,24 @@ describe('fmtTime', () => {
   })
 })
 
+describe('fmtTime across midnight', () => {
+  it('says a time until the day is over, and the date once it is', () => {
+    vi.useFakeTimers()
+    try {
+      const late = new Date()
+      late.setHours(23, 58, 0, 0)
+      vi.setSystemTime(late)
+      expect(fmtTime(late.getTime(), '24h')).toContain('23')
+      // "today" is worked out once and reused — it must still end at midnight
+      vi.setSystemTime(late.getTime() + 5 * 60_000)
+      const date = new Date(late).toLocaleDateString([], { month: 'short', day: 'numeric' })
+      expect(fmtTime(late.getTime(), '24h')).toBe(date)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('fmtElapsed', () => {
   it('steps from seconds to minutes to hours with padded remainders', () => {
     expect(fmtElapsed(41_000)).toBe('41s')

@@ -35,17 +35,18 @@ function fmtNum(n: number): string {
   return n.toLocaleString()
 }
 
+/** Built once: a formatter per call is a new ICU object for each of the heatmap's ~370 days */
+const DAY_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+const SINCE_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' })
+const MONTH_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'short' })
+
 function fmtDay(day: string): string {
   const [y, m, d] = day.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  })
+  return DAY_FORMAT.format(new Date(y, m - 1, d))
 }
 
 function fmtSince(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  return SINCE_FORMAT.format(ms)
 }
 
 /** The agent that ran most that day — decides the square's hue. */
@@ -117,7 +118,7 @@ function Heatmap({ days, busiest }: { days: ActivityDay[]; busiest: number }): J
       const col = Math.floor(i / 7)
       if (months.some((x) => x.col === col)) continue
       const [yy, mm] = day.day.split('-').map(Number)
-      const label = new Date(yy, mm - 1, 1).toLocaleDateString(undefined, { month: 'short' })
+      const label = MONTH_FORMAT.format(new Date(yy, mm - 1, 1))
       if (months[months.length - 1]?.label === label) continue
       months.push({ col, label })
     }
