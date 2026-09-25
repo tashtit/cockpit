@@ -100,7 +100,9 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
-      args.push(promptWithImages(req))
+      // after `--`: a message that starts with "-" (a pasted list, or typed flags) is
+      // otherwise parsed as options — claude refuses "- fix this" as an unknown one
+      args.push('--', promptWithImages(req))
       return { cmd: 'claude', args }
     }
     case 'codex': {
@@ -126,11 +128,13 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
         else args.push('--sandbox', sandbox)
       }
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
-      args.push(promptWithImages(req))
+      args.push('--', promptWithImages(req))
       return { cmd: 'codex', args }
     }
     case 'copilot': {
-      const args = ['-p', promptWithImages(req), ...copilotFlags(req)]
+      // joined to its flag: `-p "- fix this"` reads the prompt as an option, and
+      // copilot takes no `--` before an option's value
+      const args = [`--prompt=${promptWithImages(req)}`, ...copilotFlags(req)]
       if (req.permissionMode !== 'safe') args.push('--allow-all-tools')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
       return { cmd: 'copilot', args }

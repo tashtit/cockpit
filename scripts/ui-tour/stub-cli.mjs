@@ -168,8 +168,10 @@ async function codex() {
 }
 
 async function copilot() {
-  if (args[0] !== '-p') return console.log('ok')
-  const prompt = flag('-p') ?? ''
+  // Cockpit joins the prompt to its flag (`--prompt=…`), so a prompt starting with "-" stays one
+  const joined = args[0]?.startsWith('--prompt=') ? args[0].slice('--prompt='.length) : undefined
+  if (joined === undefined && args[0] !== '-p') return console.log('ok')
+  const prompt = joined ?? flag('-p') ?? ''
   const id = flag('--resume') ?? randomUUID()
   const dir = join(process.env.COPILOT_HOME ?? join(HOME, '.copilot'), 'session-state', id)
   const file = join(dir, 'events.jsonl')

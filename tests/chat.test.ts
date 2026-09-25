@@ -89,6 +89,19 @@ describe('buildCommand', () => {
     })
     expect(args).toContain('--allow-all-tools')
   })
+  it('keeps a prompt that starts with "-" a prompt, not an option', () => {
+    // a pasted markdown list: claude refused it as `unknown option '- fix this'`,
+    // codex as an unexpected argument, copilot as an invalid command format
+    const prompt = '- fix this\n- and that'
+    for (const provider of ['claude', 'codex'] as const) {
+      const { args } = buildCommand({ provider, cwd: '/x', prompt, permissionMode: 'safe' })
+      expect(args.slice(-2), provider).toEqual(['--', prompt])
+    }
+    const { args } = buildCommand({ provider: 'copilot', cwd: '/x', prompt, permissionMode: 'safe' })
+    expect(args[0]).toBe(`--prompt=${prompt}`)
+    expect(args).not.toContain('-p')
+  })
+
   it('attached images become prompt file references for every provider', () => {
     for (const provider of ['claude', 'codex', 'copilot'] as const) {
       const { args } = buildCommand({
@@ -98,7 +111,8 @@ describe('buildCommand', () => {
         permissionMode: 'safe',
         images: ['/data/chat-images/a.png', '/data/chat-images/b.jpg']
       })
-      const prompt = provider === 'copilot' ? args[args.indexOf('-p') + 1] : args[args.length - 1]
+      const prompt =
+        provider === 'copilot' ? (args.find((a) => a.startsWith('--prompt=')) ?? '') : args[args.length - 1]
       expect(prompt).toContain('what is this?')
       expect(prompt).toContain('/data/chat-images/a.png')
       expect(prompt).toContain('/data/chat-images/b.jpg')
