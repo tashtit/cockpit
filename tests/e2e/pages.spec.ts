@@ -27,6 +27,7 @@ const codexSrc = join(root, 'codex-home')
 const repoDir = join(root, 'rocket')
 const noRepoCwd = join(root, 'no-repo')
 const fakeBin = join(root, 'bin')
+const home = join(root, 'home')
 
 /**
  * A stand-in `gh`, first on the app's PATH: the fixtures' branch carries an open
@@ -73,6 +74,32 @@ function writeFakeGh(): void {
       `  *) exit 1 ;;\nesac\n`
   )
   chmodSync(gh, 0o755)
+}
+
+/**
+ * The agents' own state under the app's HOME: one of each thing the Agents panel has a
+ * section for — an MCP server, a skill, and a plugin with the marketplace it came from —
+ * so the panel carries all five sections, and the narrow-window audit below measures
+ * five tabs rather than whatever this machine happens to have installed. No agent has
+ * tashtit, so the panel's recommendation is on screen too.
+ */
+function writeAgentHome(): void {
+  const claude = join(home, '.claude')
+  mkdirSync(join(claude, 'skills', 'review'), { recursive: true })
+  mkdirSync(join(claude, 'plugins'), { recursive: true })
+  writeFileSync(
+    join(home, '.claude.json'),
+    JSON.stringify({ mcpServers: { docs: { command: 'docs-mcp', args: ['--stdio'] } } })
+  )
+  writeFileSync(join(claude, 'skills', 'review', 'SKILL.md'), '---\nname: review\ndescription: review a diff\n---\n')
+  writeFileSync(
+    join(claude, 'plugins', 'installed_plugins.json'),
+    JSON.stringify({ plugins: { 'review@acme-market': [{ version: '1.2.0' }] } })
+  )
+  writeFileSync(
+    join(claude, 'plugins', 'known_marketplaces.json'),
+    JSON.stringify({ 'acme-market': { source: { source: 'github', repo: 'acme/agent-plugins' } } })
+  )
 }
 
 function jsonl(objs: unknown[]): string {
@@ -149,6 +176,7 @@ test.beforeAll(async () => {
   )
 
   writeFakeGh()
+  writeAgentHome()
   mkdirSync(userData, { recursive: true })
   writeFileSync(
     join(userData, 'cockpit-config.json'),
@@ -164,6 +192,7 @@ test.beforeAll(async () => {
   app = await electron.launch({
     args: [mainEntry],
     env: launchEnv({
+      HOME: home,
       PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
       COCKPIT_USER_DATA: userData
     })
@@ -340,10 +369,14 @@ test('cleanup opens on a completed scan of sessions and worktrees', async () => 
 test('agents view opens on the panel, with sections as its only navigation', async () => {
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(win.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
-  // the panel reads the fixture agent homes — it must render, not sit on its
+  // the panel reads the fixture agent home — it must render, not sit on its
   // loading line or throw (the sections only appear once a scope has loaded)
   const sections = win.getByRole('tablist', { name: 'Agents sections' })
-  await expect(sections.getByRole('tab', { name: /^Instructions/ })).toBeVisible()
+  for (const name of ['Instructions', 'MCP servers', 'Skills', 'Plugins', 'Marketplaces']) {
+    await expect(sections.getByRole('tab', { name: new RegExp(`^${name}`) })).toBeVisible()
+  }
+  // no agent has the recommended marketplace, so it is offered above the sections
+  await expect(win.getByRole('region', { name: /Tashtit/ })).toBeVisible()
   // scope is the one control above the panel; the sections are the only tab bar
   await expect(win.getByRole('tablist')).toHaveCount(1)
   // Escape backs out of secondary views — no chat is open yet, so back home

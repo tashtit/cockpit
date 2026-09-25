@@ -16,12 +16,9 @@ test.beforeAll(async () => {
   app = await electron.launch({
     args: [mainEntry],
     // hermetic run: config, index cache, and worktrees land in a throwaway dir, and
-    // agent homes resolve under an empty HOME — no agent signed in, nothing to index —
-    // so the home settles on the same screen on a laptop as on a CI runner
-    env: launchEnv({
-      HOME: mkdtempSync(join(tmpdir(), 'cockpit-e2e-home-')),
-      COCKPIT_USER_DATA: mkdtempSync(join(tmpdir(), 'cockpit-e2e-'))
-    })
+    // launchEnv's empty HOME means no agent signed in and nothing to index — so the
+    // home settles on the same screen on a laptop as on a CI runner
+    env: launchEnv({ COCKPIT_USER_DATA: mkdtempSync(join(tmpdir(), 'cockpit-e2e-')) })
   })
 })
 
