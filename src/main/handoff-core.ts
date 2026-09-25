@@ -1,4 +1,5 @@
-import type { Provider, SessionMessage } from '../shared/types'
+import type { Provider, SessionMessage, TodoStatus } from '../shared/types'
+import { buildWork, todoSummary } from '../shared/work'
 import { capText, truncate } from './parsers/util'
 import { isValidNativeId } from './chat'
 
@@ -38,6 +39,9 @@ const ACTIONS = 15
 const ACTION_EACH = 120
 const STATUS_LINES = 40
 const DIFFSTAT_LINES = 21
+const PLAN_CAP = 4_000
+const TODOS_SHOWN = 30
+const TODO_EACH = 160
 
 const AGENT_NAME: Record<Provider, string> = {
   claude: 'Claude Code',
@@ -157,6 +161,43 @@ function digest(messages: readonly SessionMessage[], convoCount: number, actionC
   }
 }
 
+/** A step as a task-list line: the box says done, the words say anything else. */
+const TODO_LINE: Record<TodoStatus, (text: string) => string> = {
+  completed: (t) => `- [x] ${t}`,
+  in_progress: (t) => `- [ ] ${t} (in progress)`,
+  pending: (t) => `- [ ] ${t}`,
+  blocked: (t) => `- [ ] ${t} (blocked)`
+}
+
+/**
+ * The agent's own account of the work — the plan it last proposed and where its to-do
+ * list stands, folded the way the Work panel folds them. The conversation's tail says
+ * what was said last; this says what was agreed and what is left, which is what the
+ * next agent needs first. Null when the agent kept neither.
+ */
+function workSection(messages: readonly SessionMessage[]): string | null {
+  const work = buildWork(messages)
+  const plan = work.plans[work.plans.length - 1]
+  const parts: string[] = []
+  if (plan) parts.push('## Plan (the latest the agent proposed)\n\n' + capText(plan.text.trim(), PLAN_CAP))
+  if (work.todos.length > 0) {
+    // over the cap, the finished steps give way: what is left is the handoff
+    const shown =
+      work.todos.length <= TODOS_SHOWN
+        ? work.todos
+        : work.todos.filter((t) => t.status !== 'completed').slice(0, TODOS_SHOWN)
+    const lines = shown.map((t) => TODO_LINE[t.status](truncate(t.text, TODO_EACH)))
+    const hidden = work.todos.length - shown.length
+    if (hidden > 0) lines.push(`(${hidden} more not listed — finished steps are left out first)`)
+    parts.push(
+      `## To-dos (${todoSummary(work.todos)})\n\n` +
+        'Checked steps are done — verify them, don’t redo them.\n\n' +
+        lines.join('\n')
+    )
+  }
+  return parts.length > 0 ? parts.join('\n\n') : null
+}
+
 function conversationSection(d: Digest): string {
   const parts: string[] = ['## Recent conversation (oldest first)', '']
   if (d.omittedConversation > 0) parts.push(`(${d.omittedConversation} earlier messages omitted)`, '')
@@ -175,7 +216,11 @@ function actionsSection(d: Digest): string {
   return parts.join('\n')
 }
 
-function assemble(source: HandoffSourceInfo, d: Digest, gitSection: string): string {
+function assemble(
+  source: HandoffSourceInfo,
+  d: Digest,
+  sections: { readonly work: string | null; readonly git: string }
+): string {
   const parts: string[] = [preamble(source.provider), sessionSection(source)]
   parts.push(
     '## Original request\n\n' +
@@ -183,9 +228,10 @@ function assemble(source: HandoffSourceInfo, d: Digest, gitSection: string): str
         ? '(no transcript could be read for this session)'
         : capText(d.original.text.trim(), TASK_CAP))
   )
+  if (sections.work !== null) parts.push(sections.work)
   if (d.conversation.length > 0) parts.push(conversationSection(d))
   if (d.actions.length > 0) parts.push(actionsSection(d))
-  parts.push(gitSection, INSTRUCTIONS)
+  parts.push(sections.git, INSTRUCTIONS)
   return parts.join('\n\n')
 }
 
@@ -205,17 +251,19 @@ export function buildHandoffBriefing(
     warnings.push('Transcript is very large — the digest covers only its most recent part.')
   }
 
-  // over budget: drop conversation oldest-first, then actions, then hard-cap
+  // over budget: drop conversation oldest-first, then actions, then hard-cap — the
+  // plan and the to-dos stay: they are capped on their own and matter more than either
+  const sections = { work: workSection(messages), git: gitPart.section }
   let convoCount = CONVO_MESSAGES
   let actionCount = ACTIONS
-  let briefing = assemble(source, digest(messages, convoCount, actionCount), gitPart.section)
+  let briefing = assemble(source, digest(messages, convoCount, actionCount), sections)
   while (briefing.length > BRIEFING_MAX_CHARS && convoCount > 0) {
     convoCount--
-    briefing = assemble(source, digest(messages, convoCount, actionCount), gitPart.section)
+    briefing = assemble(source, digest(messages, convoCount, actionCount), sections)
   }
   while (briefing.length > BRIEFING_MAX_CHARS && actionCount > 0) {
     actionCount--
-    briefing = assemble(source, digest(messages, convoCount, actionCount), gitPart.section)
+    briefing = assemble(source, digest(messages, convoCount, actionCount), sections)
   }
   if (briefing.length > BRIEFING_MAX_CHARS) briefing = capText(briefing, BRIEFING_MAX_CHARS)
   if (convoCount < CONVO_MESSAGES || actionCount < ACTIONS) {

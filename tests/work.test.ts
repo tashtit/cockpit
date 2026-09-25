@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { absolutePath, buildWork, fileChange, hasWork, planTitle, todoSummary } from '../src/renderer/src/work'
+import { absolutePath, buildWork, fileChange, hasWork, planTitle, todoSummary } from '../src/shared/work'
 import type { FileEdit, SessionMessage, WorkArtifact } from '../src/shared/types'
 
 const call = (toolName: string, artifact: WorkArtifact, extra: Partial<SessionMessage> = {}): SessionMessage => ({

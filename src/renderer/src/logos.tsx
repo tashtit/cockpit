@@ -310,7 +310,8 @@ export const WorkIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
 
 /**
  * Where one to-do stands, as a shape, never only a colour: an empty ring (not
- * started), a ring around a dot (under way), a ring around a check (done).
+ * started), a ring around a dot (under way), a ring around a check (done), a ring
+ * barred across (blocked).
  */
 export function TodoMark({ status, size = 12 }: { status: TodoStatus; size?: number }): JSX.Element {
   return (
@@ -328,6 +329,7 @@ export function TodoMark({ status, size = 12 }: { status: TodoStatus; size?: num
       <circle cx="8" cy="8" r="6.25" />
       {status === 'in_progress' && <circle cx="8" cy="8" r="2.5" fill="currentColor" stroke="none" />}
       {status === 'completed' && <path d="M5.25 8.25 7.1 10.1 10.75 6.25" />}
+      {status === 'blocked' && <path d="M5 8h6" />}
     </svg>
   )
 }

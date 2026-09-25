@@ -5,7 +5,7 @@ import { PROVIDER_LABEL, TodoMark, XIcon } from './logos'
 import { Markdown } from './Markdown'
 import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
-import { fileChange, todoSummary, type EditEntry, type FileWork, type WorkModel, type WorkTab } from './work'
+import { fileChange, todoSummary, type EditEntry, type FileWork, type WorkModel, type WorkTab } from '../../shared/work'
 
 /**
  * The Work panel: what the agent handed you to look at, beside the conversation —
@@ -26,7 +26,8 @@ const OPEN_FILES = 3
 const TODO_WORD: Record<TodoStatus, string> = {
   pending: 'not started',
   in_progress: 'in progress',
-  completed: 'done'
+  completed: 'done',
+  blocked: 'blocked'
 }
 
 const CHANGE_WORD: Record<FileEdit['change'], string | null> = {

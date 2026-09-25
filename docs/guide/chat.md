@@ -99,14 +99,17 @@ tabs:
 - **Plan**: the plan the agent proposed (Claude Code's plan mode, Copilot CLI's
   `exit_plan_mode`), rendered as a document. If the agent revised it, **Earlier** and
   **Later** step through each version. While the plan is waiting for your approval, the
-  tab says so.
+  tab says so. Copilot writes its plan to a file (`plan.md`) and asks for approval with
+  only a summary, so the tab shows the file as it stood when Copilot asked.
 - **To-dos**: the agent's list as it stands now: Claude Code's tasks (or its older
-  `TodoWrite` list), Codex's plan, or an ACP agent's plan. Each step shows as not
-  started, in progress or done.
-- **Edits**: every file the agent changed, in the order it first touched them. Each change
-  appears the way the call described it: a Claude `Edit` or `Write`, a Codex or Copilot
-  patch, a Copilot `edit` or `create`. An edit whose call failed is still listed, marked
-  **didn't apply**.
+  `TodoWrite` list), Codex's plan, Copilot's to-do table, or an ACP agent's plan. Each
+  step shows as not started, in progress, done or, for Copilot, blocked.
+- **Edits**: every file the agent changed, in the order it first touched them, including
+  the edits of any subagent Claude Code handed work to. Each change appears the way the
+  call described it: a Claude `Edit` or `Write`, a Codex or Copilot patch, a Copilot
+  `edit` or `create`. An edit whose call failed is still listed, marked **didn't
+  apply**. Copilot's writes to its own plan file are the plan, not edits, so they are not
+  listed.
 
 A tool row that carries one of these is a single click: the row names the plan, the list's
 progress or the files and their `+`/`−` counts, and clicking it opens the panel at that
@@ -124,8 +127,21 @@ turn that Cockpit is streaming reports which files it changed but not the lines;
 the session once the turn ends to read the lines from its log.
 :::
 
-Copilot CLI keeps its to-dos in a database of its own rather than in its log, so a
-Copilot session's To-dos tab stays empty. Its plans and edits are shown.
+A subagent's edits appear in the conversation too, right after the call that started
+it, so you can see where the work was handed off.
+
+Copilot CLI keeps its to-dos in a table of the session's own database rather than in
+its log. Cockpit reads that table as it stands now, so the list appears on the last
+call that changed it; earlier versions of the list aren't kept anywhere.
+
+## Continuing in another agent
+
+**Continue in…** in the header starts a new session with another agent (or a fresh one
+with the same agent) in the same directory and on the same branch. The new agent's first
+message is a **Briefing** you can read and edit before sending: the original request,
+the agent's latest plan and its to-do list (finished steps checked), the recent
+conversation and tool calls, and the git state of the directory. **Improve with AI**
+asks the original agent to write the briefing itself instead.
 
 ## Provider quirks
 

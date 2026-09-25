@@ -178,7 +178,10 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
 What the agent handed the person to look at — a plan, a to-do list, edits — beside the
 conversation. Everything in it comes from the agents' own tool calls, parsed in main
 (`src/main/parsers/artifacts.ts` → `SessionMessage.artifact`, bounded there) and folded
-in the renderer (`work.ts`), never from raw JSON in the renderer.
+by `src/shared/work.ts` (the handoff briefing folds the same way), never from raw JSON
+in the renderer. What an agent keeps beside its log is read in main onto a row too:
+a Claude subagent's edits arrive as rows after its `Agent` call's result, Copilot's plan
+file rides its `exit_plan_mode` row and its to-do table the `sql` call that last changed it.
 
 - **Beside, not instead of.** Under the header the chat is a row, `.chat-deck`: the
   conversation (`.chat-main` — transcript or review, the permission card, the composer)
@@ -206,8 +209,9 @@ in the renderer (`work.ts`), never from raw JSON in the renderer.
   (`Earlier` / `version 2 of 3` / `Later`, `.btn-ghost.small`); a row opens its own
   version. `waiting for your approval` (`.work-flag`, warn) while it is the pending ask.
 - **To-dos**: an `<ol>` of `.work-todo` rows, the state as a shape (`TodoMark`: ring,
-  ring with a dot, ring with a check) *and* an `sr-only` word; the step under way wears
-  an accent tint, done steps dim their text. `todos` artifacts replace the list; Claude's
+  ring with a dot, ring with a check, ring barred across for Copilot's `blocked`, in
+  `--warn`) *and* an `sr-only` word; the step under way wears an accent tint, done steps
+  dim their text. `todos` artifacts replace the list; Claude's
   `TaskCreate`/`TaskUpdate` fold into it by task number.
 - **Edits**: `N edits · M files` + `DiffStat`, then a `.work-note` that the edits are as
   the calls described them — with a `Changes` link to the worktree's real diff where

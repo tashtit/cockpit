@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 
 export type World = {
   readonly root: string
@@ -23,11 +24,20 @@ export type World = {
   readonly bin: string
 }
 
+type Tool = {
+  readonly name: string
+  readonly input: object
+  readonly result?: string
+  /** The call is written and nothing answers it — the agent is waiting on the person */
+  readonly pending?: boolean
+  /** An `Agent` call's subagent: the calls it made, written to its own log as Claude does */
+  readonly subagent?: readonly Tool[]
+}
+
 type Turn = {
   readonly user?: string
   readonly say?: string
-  /** `pending`: the call is written and nothing answers it — the agent is waiting on the person */
-  readonly tools?: readonly { readonly name: string; readonly input: object; readonly result?: string; readonly pending?: boolean }[]
+  readonly tools?: readonly Tool[]
 }
 
 const STUB = resolve(import.meta.dirname, 'stub-cli.mjs')
@@ -156,7 +166,25 @@ function populate(world: World): void {
         const toolId = `toolu_${++seq}`
         assistant([{ type: 'tool_use', id: toolId, name: tool.name, input: tool.input }], 80)
         if (tool.pending) continue
-        lines.push({ type: 'user', timestamp: at(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: tool.result ?? 'ok' }] } })
+        // a subagent logs beside the session, named by the id its call's result carries
+        const agentId = tool.subagent ? `a${seq}` : null
+        if (tool.subagent && agentId) {
+          const sub: object[] = []
+          for (const call of tool.subagent) {
+            const callId = `toolu_${++seq}`
+            sub.push({ type: 'assistant', isSidechain: true, agentId, timestamp: at(), message: { role: 'assistant', content: [{ type: 'tool_use', id: callId, name: call.name, input: call.input }] } })
+            sub.push({ type: 'user', isSidechain: true, agentId, timestamp: at(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: callId, content: call.result ?? 'ok' }] } })
+          }
+          const subDir = join(o.home ?? join(world.home, '.claude'), 'projects', o.cwd.replace(/[/.]/g, '-'), id, 'subagents')
+          write(join(subDir, `agent-${agentId}.jsonl`), jsonl(sub))
+          write(join(subDir, `agent-${agentId}.meta.json`), JSON.stringify({ agentType: 'general-purpose', toolUseId: toolId, spawnDepth: 1 }))
+        }
+        lines.push({
+          type: 'user',
+          timestamp: at(),
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: tool.result ?? 'ok' }] },
+          ...(agentId ? { toolUseResult: { status: 'completed', agentId } } : {})
+        })
       }
     }
     lines.push({ type: 'ai-title', aiTitle: o.title })
@@ -220,7 +248,39 @@ function populate(world: World): void {
       { say: 'Committed as `4e1a2c9`. The branch is ready for a PR.' }
     ]
   })
-  claude({ cwd: wt('rocket', 'paginate-sessions-list'), branch: 'cockpit/paginate-sessions-list', title: 'Add pagination to the sessions list', hoursAgo: 3, turns: [{ user: 'Add cursor pagination to the sessions list.' }, { say: 'Done — 20 per page with a "more…" row.' }] })
+  // the work handed to a subagent: its edits show after the call, and in the Work panel
+  const paginate = wt('rocket', 'paginate-sessions-list')
+  claude({
+    cwd: paginate,
+    branch: 'cockpit/paginate-sessions-list',
+    title: 'Add pagination to the sessions list',
+    hoursAgo: 3,
+    turns: [
+      { user: 'Add cursor pagination to the sessions list.' },
+      {
+        say: 'I’ll hand the query change to a subagent.',
+        tools: [
+          {
+            name: 'Agent',
+            input: { description: 'Paginate the sessions query', prompt: 'Add a cursor to listSessions.', subagent_type: 'general-purpose' },
+            result: 'listSessions takes a cursor and returns 20 rows with the next cursor.',
+            subagent: [
+              { name: 'Read', input: { file_path: `${paginate}/src/sessions.ts` } },
+              {
+                name: 'Edit',
+                input: {
+                  file_path: `${paginate}/src/sessions.ts`,
+                  old_string: 'export function listSessions() {\n  return db.all()\n}',
+                  new_string: 'export function listSessions(cursor?: string) {\n  return db.page({ after: cursor, limit: 20 })\n}'
+                }
+              }
+            ]
+          }
+        ]
+      },
+      { say: 'Done — 20 per page with a "more…" row.' }
+    ]
+  })
   // a terminal session that has just stopped to ask — written moments ago, so the
   // liveness tracker reads its tail and the board shows it waiting on you
   claude({
@@ -370,18 +430,27 @@ function populate(world: World): void {
     utimesSync(join(dir, 'events.jsonl'), t, t)
     return id
   }
-  copilot({
+  const tidy = copilot({
     cwd: code('rocket'),
     repository: 'acme/rocket',
     title: 'Tidy the usage panel spacing',
     hoursAgo: 1.1,
     events: [
       ['user.message', { content: 'Tidy the usage panel spacing, it feels cramped.' }],
+      ['tool.execution_start', { toolName: 'sql', arguments: { description: 'Plan the spacing pass', query: "INSERT INTO todos (id, title) VALUES ('lint', 'Lint the usage panel'), ('gap', 'Widen the grid gap'), ('shot', 'Screenshot for the design review')" } }],
       ['tool.execution_start', { toolName: 'bash', arguments: { command: 'npm run lint -- src/usage' } }],
       ['tool.execution_start', { toolName: 'edit', arguments: { path: `${code('rocket')}/src/usage.tsx`, old_str: 'gap: 4px', new_str: 'gap: 8px' } }],
-      ['assistant.message', { content: 'Increased the grid gap and padded the meters.', model: 'claude-sonnet-4.5' }]
+      ['tool.execution_start', { toolName: 'sql', arguments: { description: 'Advance the spacing pass', query: "UPDATE todos SET status = CASE id WHEN 'shot' THEN 'blocked' ELSE 'done' END" } }],
+      ['assistant.message', { content: 'Increased the grid gap and padded the meters. The screenshot waits on the design tokens landing.', model: 'claude-sonnet-4.5' }]
     ]
   })
+  // Copilot keeps its to-dos in the session's own database, not its log
+  const todos = new DatabaseSync(join(world.home, '.copilot', 'session-state', tidy, 'session.db'))
+  todos.exec(
+    "CREATE TABLE todos (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'done', 'blocked')));" +
+      "INSERT INTO todos (id, title, status) VALUES ('lint', 'Lint the usage panel', 'done'), ('gap', 'Widen the grid gap', 'done'), ('shot', 'Screenshot for the design review', 'blocked');"
+  )
+  todos.close()
   const spans = copilot({ cwd: code('atlas'), repository: 'acme/atlas', title: 'Add OpenTelemetry spans to the job runner', hoursAgo: 7, events: [['user.message', { content: 'Add spans around each job.' }], ['assistant.message', { content: 'Wrapped runJob in a span.' }]] })
   // a session that one started for a piece of its work: the Copilot app names it after
   // its kickoff prompt, as a block scalar, and the kickoff states who created it — the

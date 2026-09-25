@@ -390,6 +390,26 @@ const STATIC: readonly Shot[] = [
   },
   { view: 'chat', name: 'chat-codex', go: (w) => open(w, /Add a fallback when the billing API/) },
   { view: 'chat', name: 'chat-copilot', go: (w) => open(w, /Tidy the usage panel spacing/) },
+  // Copilot's to-do table, read from its session database — one step blocked
+  {
+    view: 'chat',
+    name: 'chat-work-copilot-todos',
+    go: async (w) => {
+      await open(w, /Tidy the usage panel spacing/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await pause(w, 400)
+    }
+  },
+  // a subagent's edit, from its own log, after the call that handed the work off
+  {
+    view: 'chat',
+    name: 'chat-work-subagent',
+    go: async (w) => {
+      await open(w, /Add pagination to the sessions list/)
+      await w.locator('.tool-open', { hasText: 'src/sessions.ts' }).first().click()
+      await pause(w, 500)
+    }
+  },
   {
     view: 'chat',
     name: 'handoff',
