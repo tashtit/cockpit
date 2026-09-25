@@ -4,8 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
 import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
 import { openPr, usageFixture } from './stub-api'
-import { initBusySessions } from '../../src/renderer/src/busy'
+import { initBusySessions, useSessionBusy } from '../../src/renderer/src/busy'
 import { clearLanded, initLanded } from '../../src/renderer/src/landed'
+
+// counted, not changed: every session row asks once per render whether its agent is
+// running, so the calls say how many rows an index push redrew
+vi.mock('../../src/renderer/src/busy', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/renderer/src/busy')>()
+  return { ...real, useSessionBusy: vi.fn(real.useSessionBusy) }
+})
 
 const repo: RepoGroup = {
   key: '/home/dev/rocket',
@@ -666,5 +673,53 @@ describe('project order', () => {
     await userEvent.click(screen.getByRole('button', { name: /sort A→Z/ }))
     expect(window.cockpit.setRepoOrder).toHaveBeenCalledWith([])
     expect(rowNames()).toEqual(['acme/apple', 'acme/zebra'])
+  })
+})
+
+/**
+ * Every index push re-asks main for what the rail shows, and every answer is a fresh
+ * copy. The rows must redraw for what changed and nothing else.
+ */
+describe('an index push', () => {
+  function sidebarProps(indexVersion: number) {
+    return {
+      repos: [repo],
+      indexVersion,
+      accounts: null,
+      zoom: 1,
+      onResetZoom: noop,
+      selectedId: null,
+      onSelect: noop,
+      onNewSession: noop,
+      onRepoSetup: noop,
+      selectedRoundtableId: null,
+      onOpenRoundtable: noop,
+      onNewTask: noop,
+      onGoHome: noop,
+      onNav: noop,
+      onOpenSettings: noop,
+      onOpenUrl: noop,
+      activeView: 'welcome'
+    }
+  }
+  const noop = (): void => {}
+
+  it('redraws no session row when nothing about the sessions changed', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockImplementation(async () => ({ total: 1, items: [session()] }))
+    const { rerender } = render(<TreeSidebar {...sidebarProps(0)} />)
+    await screen.findByRole('treeitem', { name: /fix the login flake/ })
+    vi.mocked(useSessionBusy).mockClear()
+    rerender(<TreeSidebar {...sidebarProps(1)} />)
+    await waitFor(() => expect(window.cockpit.pageSessions).toHaveBeenCalledTimes(2))
+    await act(async () => {})
+    expect(useSessionBusy).not.toHaveBeenCalled()
+  })
+
+  it('listens for roundtable rounds once, however many pushes arrive', async () => {
+    const { rerender } = render(<TreeSidebar {...sidebarProps(0)} />)
+    rerender(<TreeSidebar {...sidebarProps(1)} />)
+    rerender(<TreeSidebar {...sidebarProps(2)} />)
+    await waitFor(() => expect(window.cockpit.listRoundtables).toHaveBeenCalledTimes(3))
+    expect(window.cockpit.onRoundtableEvent).toHaveBeenCalledTimes(1)
   })
 })

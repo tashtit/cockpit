@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type {
   AccountsSnapshot,
   Landing,
@@ -16,6 +16,7 @@ import { useBusyMap, useSessionBusy } from './busy'
 import { useCleanupNotice } from './cleanup-notice'
 import { toggleFamily, useFoldedFamilies } from './families'
 import { RailResizer } from './RailResizer'
+import { keepSame } from './same'
 import { useLandedMap, useSessionLanded } from './landed'
 import type { SettingsSection } from './Settings'
 import { fmtTime, useTimeFormat } from './time'
@@ -159,21 +160,34 @@ export function TreeSidebar({
   // roundtables are tree items like sessions: grounded ones sit under their project,
   // repo-less ones under Chats — never a category of their own
   const [tables, setTables] = useState<RoundtableMeta[]>([])
+  /** Only the newest answer lands: a slow list must not overwrite a later one */
+  const tablesSeq = useRef(0)
+  const loadTables = useCallback((): void => {
+    const seq = ++tablesSeq.current
+    void api.listRoundtables?.().then((r) => {
+      if (seq === tablesSeq.current) setTables((prev) => keepSame(prev, r))
+    })
+  }, [])
+  useEffect(() => loadTables(), [indexVersion, loadTables])
+  // subscribed once: an index push is a reason to read the list again, not to drop
+  // the listener and add it back
   useEffect(() => {
-    let dead = false
-    const load = (): void => {
-      void api.listRoundtables?.().then((r) => !dead && setTables(r))
-    }
-    load()
     const unsub = api.onRoundtableEvent?.((ev) => {
-      if (ev.type === 'round') load()
+      if (ev.type === 'round') loadTables()
     })
     return () => {
-      dead = true
+      tablesSeq.current++
       unsub?.()
     }
-  }, [indexVersion])
+  }, [loadTables])
   const chatTables = useMemo(() => tables.filter((t) => t.repoRoot === null), [tables])
+  // each project's own tables, one array per project and the same one until the list
+  // changes — a filter per row per render handed every memoized project a new prop
+  const repoTables = useMemo(() => {
+    const byRoot = new Map<string, RoundtableMeta[]>()
+    for (const t of tables) if (t.repoRoot !== null) byRoot.set(t.repoRoot, [...(byRoot.get(t.repoRoot) ?? []), t])
+    return byRoot
+  }, [tables])
 
   // non-repo sessions get their own flat Chats section instead of a faux repo row;
   // a repo-less roundtable needs that section even when no plain chats exist yet
@@ -207,13 +221,40 @@ export function TreeSidebar({
     }
   }, [repoList])
 
-  const toggle = (key: string): void =>
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+  const toggle = useCallback(
+    (key: string): void =>
+      setExpanded((prev) => {
+        const next = new Set(prev)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      }),
+    []
+  )
+
+  // one set of drag handlers for every project row, named by the project's key and
+  // reading the drag as it is now — a fresh object per row per render re-drew them all
+  const dragRef = useRef({ dragKey, dropAt, moveTo, nudge })
+  dragRef.current = { dragKey, dropAt, moveTo, nudge }
+  const reorder = useMemo(
+    (): RepoReorder => ({
+      onDragStart: (key) => setDragKey(key),
+      onDragOver: (key, place) =>
+        setDropAt((prev) => (prev?.target === key && prev.place === place ? prev : { target: key, place })),
+      onDrop: () => {
+        const { dragKey: from, dropAt: to, moveTo: move } = dragRef.current
+        if (from && to) move(from, to)
+        setDragKey(null)
+        setDropAt(null)
+      },
+      onDragEnd: () => {
+        setDragKey(null)
+        setDropAt(null)
+      },
+      onNudge: (key, delta) => dragRef.current.nudge(key, delta)
+    }),
+    []
+  )
 
   return (
     <aside className="tree-sidebar">
@@ -347,33 +388,17 @@ export function TreeSidebar({
               indexVersion={indexVersion}
               accounts={accounts}
               selectedId={selectedId}
-              tables={tables.filter((t) => t.repoRoot !== null && t.repoRoot === r.root)}
+              tables={(r.root !== null && repoTables.get(r.root)) || NO_TABLES}
               selectedRoundtableId={selectedRoundtableId}
               onOpenRoundtable={onOpenRoundtable}
-              onToggle={() => toggle(r.key)}
+              onToggle={toggle}
               onSelect={onSelect}
               onNewSession={onNewSession}
               onRepoSetup={onRepoSetup}
               onOpenUrl={onOpenUrl}
-              reorder={{
-                dragging: dragKey === r.key,
-                drop: dragKey !== null && dropAt?.target === r.key ? dropAt.place : null,
-                onDragStart: () => setDragKey(r.key),
-                onDragOver: (place) =>
-                  setDropAt((prev) =>
-                    prev?.target === r.key && prev.place === place ? prev : { target: r.key, place }
-                  ),
-                onDrop: () => {
-                  if (dragKey && dropAt) moveTo(dragKey, dropAt)
-                  setDragKey(null)
-                  setDropAt(null)
-                },
-                onDragEnd: () => {
-                  setDragKey(null)
-                  setDropAt(null)
-                },
-                onNudge: (delta) => nudge(r.key, delta)
-              }}
+              dragging={dragKey === r.key}
+              drop={dragKey !== null && dropAt?.target === r.key ? dropAt.place : null}
+              reorder={reorder}
             />
           ))
         )}
@@ -564,7 +589,8 @@ function ProjectFilter({
   )
 }
 
-function RepoNode({
+/** Memoized, with every prop stable across a render that did not touch this project. */
+const RepoNode = memo(function RepoNode({
   repo,
   open,
   indexVersion,
@@ -578,6 +604,8 @@ function RepoNode({
   onNewSession,
   onRepoSetup,
   onOpenUrl,
+  dragging,
+  drop,
   reorder
 }: {
   repo: RepoGroup
@@ -588,20 +616,26 @@ function RepoNode({
   tables: RoundtableMeta[]
   selectedRoundtableId: string | null
   onOpenRoundtable: (id: string) => void
-  onToggle: () => void
+  /** Called with this project's key */
+  onToggle: (key: string) => void
   onSelect: (s: SessionMeta) => void
   onNewSession: (repo: RepoGroup) => void
   onRepoSetup: (repoRoot: string) => void
   onOpenUrl: (url: string) => void
+  /** This project is the one being dragged */
+  dragging: boolean
+  /** Where a drop on this project would land, while something is dragged over it */
+  drop: 'before' | 'after' | null
   reorder: RepoReorder
 }): JSX.Element {
   const [prs, setPrs] = useState<PrStatus[]>([])
   const [showArchived, setShowArchived] = useState(false)
+  const toggleThis = (): void => onToggle(repo.key)
 
   useEffect(() => {
     if (!open || !repo.root) return
     let dead = false
-    void api.getPrs(repo.root).then((p) => !dead && setPrs(p))
+    void api.getPrs(repo.root).then((p) => !dead && setPrs((prev) => keepSame(prev, p)))
     return () => {
       dead = true
     }
@@ -609,7 +643,7 @@ function RepoNode({
 
   return (
     <div
-      className={`repo-node${reorder.dragging ? ' dragging' : ''}${reorder.drop ? ` drop-${reorder.drop}` : ''}`}
+      className={`repo-node${dragging ? ' dragging' : ''}${drop ? ` drop-${drop}` : ''}`}
       role="presentation"
       // the whole node is the drop target, so an expanded project's sessions count as
       // its lower half — dropping there lands after the project, not inside it
@@ -618,7 +652,7 @@ function RepoNode({
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
         const box = e.currentTarget.getBoundingClientRect()
-        reorder.onDragOver(e.clientY < box.top + Math.min(box.height / 2, 15) ? 'before' : 'after')
+        reorder.onDragOver(repo.key, e.clientY < box.top + Math.min(box.height / 2, 15) ? 'before' : 'after')
       }}
       onDrop={(e) => {
         if (!e.dataTransfer.types.includes(REPO_DRAG_TYPE)) return
@@ -638,19 +672,19 @@ function RepoNode({
         onDragStart={(e) => {
           e.dataTransfer.setData(REPO_DRAG_TYPE, repo.key)
           e.dataTransfer.effectAllowed = 'move'
-          reorder.onDragStart()
+          reorder.onDragStart(repo.key)
         }}
         onDragEnd={reorder.onDragEnd}
-        onClick={onToggle}
+        onClick={toggleThis}
         onKeyDown={(e) => {
           if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
             // the tree's own arrow handling would move focus instead — this moves the row
             e.preventDefault()
             e.stopPropagation()
-            reorder.onNudge(e.key === 'ArrowUp' ? -1 : 1)
+            reorder.onNudge(repo.key, e.key === 'ArrowUp' ? -1 : 1)
             return
           }
-          expandKeys(open, onToggle)(e)
+          expandKeys(open, toggleThis)(e)
         }}
       >
         <span className={`chev ${open ? 'open' : ''}`} aria-hidden="true">▸</span>
@@ -729,24 +763,23 @@ function RepoNode({
       )}
     </div>
   )
-}
+})
 
 /** Private drag payload — a session row or a file dropped on the tree is not a reorder. */
 const REPO_DRAG_TYPE = 'application/x-cockpit-repo'
 
+/** The drag handlers every project row shares — each names the project it is about. */
 type RepoReorder = {
-  readonly dragging: boolean
-  /** Where a drop on this project would land, while something is dragged over it */
-  readonly drop: 'before' | 'after' | null
-  readonly onDragStart: () => void
-  readonly onDragOver: (place: 'before' | 'after') => void
+  readonly onDragStart: (key: string) => void
+  readonly onDragOver: (key: string, place: 'before' | 'after') => void
   readonly onDrop: () => void
   readonly onDragEnd: () => void
-  readonly onNudge: (delta: -1 | 1) => void
+  readonly onNudge: (key: string, delta: -1 | 1) => void
 }
 
 /** Stable identities: new [] / () => {} each render would re-trigger memoized children. */
 const NO_PRS: PrStatus[] = []
+const NO_TABLES: RoundtableMeta[] = []
 const noop = (): void => {}
 
 /** Enter/Space toggles; ArrowRight/ArrowLeft expand and collapse (WAI-ARIA tree pattern). */
@@ -1217,7 +1250,8 @@ function SessionList({
   )
 }
 
-function SessionRow({
+/** Memoized: an index push that left this session alone must not redraw its row. */
+const SessionRow = memo(function SessionRow({
   s,
   pr,
   accounts,
@@ -1362,7 +1396,7 @@ function SessionRow({
       </span>
     </div>
   )
-}
+})
 
 /** A row's exclusive meta slot, filled from its own state (see SessionRow). */
 function RowMeta({
@@ -1478,7 +1512,7 @@ function SearchResults({
               selected={selectedId === s.id}
               level={1}
               onSelect={onSelect}
-              onOpenUrl={() => {}}
+              onOpenUrl={noop}
             />
           ))}
         </div>

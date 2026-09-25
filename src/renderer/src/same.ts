@@ -21,3 +21,8 @@ export function samePlain(a: unknown, b: unknown): boolean {
   for (const k of ka) if (!Object.hasOwn(rb, k) || !samePlain(ra[k], rb[k])) return false
   return true
 }
+
+/** `next`, unless it says what `prev` already does — then `prev`, so React sees no change. */
+export function keepSame<T>(prev: T, next: T): T {
+  return samePlain(prev, next) ? prev : next
+}

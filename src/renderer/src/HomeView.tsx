@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
   Landing,
@@ -24,6 +24,7 @@ import {
   PROVIDER_LABEL,
   RepoIcon
 } from './logos'
+import { keepSame } from './same'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
@@ -114,7 +115,8 @@ export function HomeView({
     let dead = false
     void api.pageSessions({ limit: BOARD_ROWS }).then((p) => {
       if (dead) return
-      setRecent(p.items)
+      // a push that left the recent sessions as they were must not redraw the board
+      setRecent((prev) => keepSame(prev, p.items))
       setRecentTotal(p.total)
     })
     return () => {
@@ -122,23 +124,26 @@ export function HomeView({
     }
   }, [indexVersion])
 
-  // roundtable strip: reload on mount and whenever a round starts/ends elsewhere
+  // roundtable strip: reload on mount, on every index push and whenever a round starts
+  // or ends elsewhere — listening once: a push is a reason to read the list again, not
+  // to drop the listener and add it back. Only the newest answer lands.
+  const tablesSeq = useRef(0)
+  const loadTables = useCallback((): void => {
+    const seq = ++tablesSeq.current
+    void api.listRoundtables?.().then((r) => {
+      if (seq === tablesSeq.current) setTables((prev) => keepSame(prev, r.filter((t) => !t.archived)))
+    })
+  }, [])
+  useEffect(() => loadTables(), [indexVersion, loadTables])
   useEffect(() => {
-    let dead = false
-    const load = (): void => {
-      void api
-        .listRoundtables?.()
-        .then((r) => !dead && setTables(r.filter((t) => !t.archived)))
-    }
-    load()
     const unsub = api.onRoundtableEvent?.((ev) => {
-      if (ev.type === 'round') load()
+      if (ev.type === 'round') loadTables()
     })
     return () => {
-      dead = true
+      tablesSeq.current++
       unsub?.()
     }
-  }, [indexVersion])
+  }, [loadTables])
 
   const start = async (): Promise<void> => {
     // same guard the Start button enforces — ⌘Enter must not start a session

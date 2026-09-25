@@ -276,6 +276,27 @@ describe('HomeView recent activity', () => {
   })
 })
 
+describe('HomeView on an index push', () => {
+  it('reads the tables again but listens for their rounds once', async () => {
+    const props = {
+      repos: [repo],
+      indexed: true,
+      busy: false,
+      onStart: vi.fn().mockResolvedValue(null),
+      onOpenSession: vi.fn(),
+      onOpenFull: vi.fn(),
+      onNewRoundtable: vi.fn(),
+      onOpenRoundtable: vi.fn(),
+      onOpenSettings: vi.fn()
+    }
+    const { rerender } = render(<HomeView {...props} indexVersion={0} />)
+    rerender(<HomeView {...props} indexVersion={1} />)
+    rerender(<HomeView {...props} indexVersion={2} />)
+    await waitFor(() => expect(window.cockpit.listRoundtables).toHaveBeenCalledTimes(3))
+    expect(window.cockpit.onRoundtableEvent).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('HomeView board with roundtables', () => {
   const table = (id: string, over: Partial<RoundtableMeta> = {}): RoundtableMeta => ({
     id,
