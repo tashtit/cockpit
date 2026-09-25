@@ -210,6 +210,38 @@ function usesToolItems(lines: readonly any[], direct: ReadonlySet<string>): bool
   })
 }
 
+/**
+ * Which of a rollout's records each tool run is read from — one per run, decided once
+ * for the whole rollout, so the transcript never shows a run twice and the profile never
+ * counts one twice.
+ */
+export type ToolRecords = {
+  /** Call ids of the tools called directly: an item under one of them is its echo */
+  readonly direct: ReadonlySet<string>
+  /** Whether the code-mode cells stand for their runs (no typed item does) */
+  readonly cells: boolean
+  /** Whether FileChange items stand for the patches (none was applied as a call) */
+  readonly fileChanges: boolean
+}
+
+export function toolRecords(lines: readonly any[]): ToolRecords {
+  const direct = directCallIds(lines)
+  return { direct, cells: !usesToolItems(lines, direct), fileChanges: usesFileChangeItems(lines) }
+}
+
+/** The typed tool item a line carries, when that item is the record its run is read from. */
+export function toolItemFor(l: any, records: ToolRecords): any | null {
+  const item = toolItemOf(l)
+  if (!item) return null
+  if (item.type === 'FileChange') return records.fileChanges ? item : null
+  return echoesDirectCall(item, records.direct) ? null : item
+}
+
+/** The name a typed item's run is shown and counted under; null for one too malformed to show. */
+export function toolItemName(item: any): string | null {
+  return itemCall(item)?.name ?? null
+}
+
 /** One code-mode `exec` cell as a tool row, headlined by the first tool it calls. */
 function execCellRow(cell: string, ts: number | undefined): SessionMessage {
   const calls = cellToolCalls(cell)
@@ -527,9 +559,7 @@ export function parseCodexMessages(file: string, segments: readonly SessionSegme
 function renderLines(lines: readonly any[]): SessionMessage[] {
   const out: SessionMessage[] = []
   const renderEchoes = usesEventEchoes(lines)
-  const renderFileChanges = usesFileChangeItems(lines)
-  const direct = directCallIds(lines)
-  const renderCells = !usesToolItems(lines, direct)
+  const records = toolRecords(lines)
   // where each rendered custom call's row sits: its output is rendered only after the
   // call it answers, and a cell that threw marks its own row
   const customCalls = new Map<string, number>()
@@ -567,7 +597,7 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
           // freeform tools take raw text rather than JSON: a code-mode cell (rendered only
           // where no items speak for its runs — see usesToolItems) or a patch
           if (p.name === 'exec' && typeof p.input === 'string') {
-            if (!renderCells) break
+            if (!records.cells) break
             if (typeof p.call_id === 'string') customCalls.set(p.call_id, out.length)
             out.push(execCellRow(p.input, ts))
             break
@@ -606,12 +636,11 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
         }
       }
     } else if (lineKind(l) === 'event_msg' && p?.type === 'item_completed') {
-      const item = toolItemOf(l)
+      const item = toolItemFor(l, records)
       if (item?.type === 'FileChange') {
-        if (!renderFileChanges) continue
         const row = fileChangeRow(item, ts)
         if (row) out.push(row)
-      } else if (item && !echoesDirectCall(item, direct)) {
+      } else if (item) {
         out.push(...toolItemRows(item, ts))
       }
     } else if (lineKind(l) === 'event_msg' && renderEchoes) {
