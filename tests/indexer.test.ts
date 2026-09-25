@@ -469,6 +469,50 @@ describe('watcher-event probing (codex subagent rollouts)', () => {
   })
 })
 
+describe('known repo roots', () => {
+  const dir = join(root, 'claude-roots')
+  const projDir = join(dir, 'projects', 'p')
+  function repo(name: string): string {
+    const r = join(root, 'roots', name)
+    mkdirSync(join(r, '.git'), { recursive: true })
+    writeFileSync(join(r, '.git', 'config'), `[remote "origin"]\n\turl = https://github.com/acme/${name}.git\n`)
+    return r
+  }
+  function session(name: string, cwd: string): string {
+    mkdirSync(projDir, { recursive: true })
+    const f = join(projDir, `${name}.jsonl`)
+    writeFileSync(
+      f,
+      jsonl([{ type: 'user', message: { role: 'user', content: name }, timestamp: '2026-09-20T10:00:00Z', sessionId: name, cwd }])
+    )
+    return f
+  }
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    session('r1', repo('one'))
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: dir, provider: 'claude', label: 'roots' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('are kept between questions and re-derived once the index changes', () => {
+    const roots = idx.knownRepoRoots()
+    expect([...roots]).toEqual([join(root, 'roots', 'one')])
+    // asked on every IPC call that names a root: the same answer, not a fresh listRepos()
+    expect(idx.knownRepoRoots()).toBe(roots)
+    // a session in a repo never seen before, picked up by the watcher's probe
+    const two = repo('two')
+    ;(idx as any).markDirty('change', session('r2', two))
+    expect(idx.knownRepoRoots().has(two)).toBe(true)
+    // and one archived by the user is still a root the app may work in
+    idx.setArchived(['claude:r2'])
+    expect(idx.knownRepoRoots().has(two)).toBe(true)
+  })
+})
+
 // Several agents writing at once is the ordinary case: the watcher's pacing must keep
 // the index moving while their combined write rate never pauses.
 describe('watcher pacing under parallel writers', () => {

@@ -267,6 +267,8 @@ export class SessionIndexer {
    * are its pacing too; it reads a bounded tail of fresh files only.
    */
   private liveness: LivenessTracker
+  /** knownRepoRoots(), until the next emitUpdate */
+  private repoRoots: ReadonlySet<string> | null = null
 
   constructor(
     onUpdate: () => void,
@@ -804,6 +806,8 @@ export class SessionIndexer {
   }
 
   private emitUpdate(): void {
+    // every change to what listRepos() is derived from announces itself here
+    this.repoRoots = null
     if (this.updateTimer) return
     this.updateTimer = setTimeout(() => {
       this.updateTimer = null
@@ -873,11 +877,19 @@ export class SessionIndexer {
     return orderRepos([...groups.values()], this.repoOrder)
   }
 
-  /** Roots the app may spawn git/gh in — IPC handlers validate against this. */
-  knownRepoRoots(): Set<string> {
-    const roots = new Set<string>()
-    for (const g of this.listRepos()) if (g.root) roots.add(g.root)
-    return roots
+  /**
+   * Roots the app may spawn git/gh in — IPC handlers validate against this. Asked on
+   * every PR badge and repo operation, so it is kept until the index next changes
+   * rather than rebuilt from a full listRepos() each time (a session ageing out of the
+   * history window takes its root with it at the next change, not the minute it does).
+   */
+  knownRepoRoots(): ReadonlySet<string> {
+    if (!this.repoRoots) {
+      const roots = new Set<string>()
+      for (const g of this.listRepos()) if (g.root) roots.add(g.root)
+      this.repoRoots = roots
+    }
+    return this.repoRoots
   }
 
   /**
@@ -896,6 +908,7 @@ export class SessionIndexer {
 
   setRoundtableResolver(fn: (cwd: string) => string | null): void {
     this.roundtableForCwd = fn
+    this.repoRoots = null
   }
 
   /**
