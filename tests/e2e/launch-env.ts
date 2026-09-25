@@ -1,6 +1,11 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 /**
  * The environment an app under test is launched with: this process's, with the window
- * pinned to the background, plus the caller's own overrides.
+ * pinned to the background and HOME swapped for an empty one, plus the caller's own
+ * overrides.
  *
  * `COCKPIT_DEV_DISPLAY` is inherited on purpose: a developer who exports it wants every
  * window a run opens on that screen, not on the one they are working on. It no longer
@@ -14,6 +19,16 @@
  * `COCKPIT_DEV_BACKGROUND` is pinned on rather than inherited: an app under test never
  * fronts itself or takes focus from whoever is typing while it runs, and a spec that
  * depends on focus says so in its own overrides.
+ *
+ * `HOME` is a fresh empty directory per launch unless the spec names its own. Main
+ * resolves every agent path through `os.homedir()` — the config homes and their
+ * sessions, sign-ins, MCP servers, skills, plugins and marketplaces, and the `gh` and
+ * git config beside them — so an inherited HOME hands the app this machine's real
+ * agents. A spec then passes on what one developer happens to have installed and fails
+ * on a runner that has none: the Agents panel's recommendation, which only shows to
+ * someone whose agents lack it, was on screen in CI and never locally. A spec that
+ * needs agent state writes it into a HOME of its own (`a11y.spec.ts` uses the ui-tour
+ * world's).
  */
 const PINNED: Readonly<Record<string, string>> = {
   COCKPIT_DEV_BACKGROUND: '1',
@@ -33,5 +48,7 @@ export function launchEnv(overrides: Readonly<Record<string, string>> = {}): Rec
   }
   // CI linux runners restrict unprivileged user namespaces; no SUID helper either
   if (process.env['CI']) env['ELECTRON_DISABLE_SANDBOX'] = '1'
+  // made only when the spec names none: a HOME it seeded is the one its app gets
+  if (overrides['HOME'] === undefined) env['HOME'] = mkdtempSync(join(tmpdir(), 'cockpit-e2e-home-'))
   return { ...env, ...PINNED, ...overrides }
 }

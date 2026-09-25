@@ -40,9 +40,9 @@ let open: ElectronApplication | null = null
 async function launch(userData: string): Promise<ElectronApplication> {
   const app = await electron.launch({
     args: [mainEntry],
-    // an empty HOME keeps the index empty, so nothing about the person running this
-    // decides how long the window takes to settle
-    env: launchEnv({ HOME: mkdtempSync(join(tmpdir(), 'cockpit-window-home-')), COCKPIT_USER_DATA: userData })
+    // launchEnv's empty HOME keeps the index empty, so nothing about the person running
+    // this decides how long the window takes to settle
+    env: launchEnv({ COCKPIT_USER_DATA: userData })
   })
   open = app
   await app.firstWindow()
