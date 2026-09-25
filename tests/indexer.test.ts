@@ -639,17 +639,17 @@ describe('watcher pacing under parallel writers', () => {
     vi.useFakeTimers()
     const rescan = vi.spyOn(idx, 'rescan').mockResolvedValue()
     try {
-      // a freshly created file on macOS: every append arrives as 'rename'
+      // a file not indexed yet, created and written on macOS: every append arrives as 'rename'
       for (let t = 0; t < 2750; t += 250) {
-        ;(idx as any).markDirty('rename', file('w1'))
+        ;(idx as any).markDirty('rename', file('fresh'))
         vi.advanceTimersByTime(250)
       }
       expect(rescan).not.toHaveBeenCalled()
-      ;(idx as any).markDirty('rename', file('w1'))
+      ;(idx as any).markDirty('rename', file('fresh'))
       vi.advanceTimersByTime(250)
       expect(rescan).toHaveBeenCalledTimes(1)
       // the next burst gets a fresh deadline, and a quiet one still settles first
-      ;(idx as any).markDirty('rename', file('w1'))
+      ;(idx as any).markDirty('rename', file('fresh'))
       vi.advanceTimersByTime(700)
       expect(rescan).toHaveBeenCalledTimes(1)
       vi.advanceTimersByTime(100)
@@ -658,6 +658,25 @@ describe('watcher pacing under parallel writers', () => {
       rescan.mockRestore()
       idx.stopWatchers()
       vi.useRealTimers()
+    }
+  })
+
+  it('refreshes a known file on rename alone while it is still there, and rescans once it is gone', () => {
+    const anyIdx = idx as any
+    const rescan = vi.spyOn(idx, 'rescan').mockResolvedValue()
+    try {
+      const before = idx.getSession('claude:w2')?.messageCount ?? 0
+      appendFileSync(file('w2'), line('w2', 'appended while fresh'))
+      anyIdx.markDirty('rename', file('w2'))
+      expect(anyIdx.rescanTimer).toBeNull()
+      anyIdx.applyDirty()
+      expect(idx.getSession('claude:w2')?.messageCount).toBe(before + 1)
+      rmSync(file('w2'))
+      anyIdx.markDirty('rename', file('w2'))
+      expect(anyIdx.rescanTimer).not.toBeNull()
+    } finally {
+      rescan.mockRestore()
+      idx.stopWatchers()
     }
   })
 })

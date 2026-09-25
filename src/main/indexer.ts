@@ -28,7 +28,7 @@ import type {
 import { orderRepos } from '../shared/repo-order'
 import { isUnder } from './paths'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
-import { timeSlicer } from './parsers/util'
+import { isRegularFile, timeSlicer } from './parsers/util'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
 import {
@@ -559,6 +559,10 @@ export class SessionIndexer {
       else return
       event = 'change'
     }
+    // 'rename' on a file already indexed and still there: macOS reports every append to
+    // a freshly created file as a rename for its first seconds, and an atomic replace is
+    // one too — either way that one file changed, not the structure around it
+    if (event === 'rename' && this.fileSource.has(path) && isRegularFile(path)) event = 'change'
     if (event === 'change') {
       // A file already judged not-a-session (codex subagent rollout) streaming appends —
       // ignore until it grows enough to be worth re-judging, or the next full rescan.
