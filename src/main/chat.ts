@@ -136,6 +136,9 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       // copilot takes no `--` before an option's value
       const args = [`--prompt=${promptWithImages(req)}`, ...copilotFlags(req)]
       if (req.permissionMode !== 'safe') args.push('--allow-all-tools')
+      // headless, nothing can ask — so auto-edit's "anything that executes still asks"
+      // means shell is refused here, as it is for claude's acceptEdits under -p
+      if (req.permissionMode === 'auto-edit') args.push('--deny-tool', 'shell')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
       return { cmd: 'copilot', args }
     }

@@ -88,6 +88,12 @@ describe('buildCommand', () => {
       permissionMode: 'yolo'
     })
     expect(args).toContain('--allow-all-tools')
+    expect(args).not.toContain('--deny-tool')
+  })
+  it('copilot auto-edit edits files but never runs a shell it cannot ask about', () => {
+    const { args } = buildCommand({ provider: 'copilot', cwd: '/x', prompt: 'p', permissionMode: 'auto-edit' })
+    expect(args).toContain('--allow-all-tools')
+    expect(args[args.indexOf('--deny-tool') + 1]).toBe('shell')
   })
   it('keeps a prompt that starts with "-" a prompt, not an option', () => {
     // a pasted markdown list: claude refused it as `unknown option '- fix this'`,
