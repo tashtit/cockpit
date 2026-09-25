@@ -25,7 +25,9 @@ import {
   adoptInstructionsFrom,
   applyInstructions,
   getInstructions,
-  saveBaseline
+  saveBaseline,
+  saveInstructionFile,
+  unapplyInstructions
 } from '../src/main/instructions'
 
 const BASE = 'Always use worktrees.\nNever commit unless asked.'
@@ -584,6 +586,47 @@ describe('saveBaseline / applyInstructions (real files)', () => {
     ])
     expect(readFileSync(claudeMd(), 'utf8')).toBe(`${own}\n${START}\n${BASE}\n${END}\n`)
     expect(readFileSync(agentsMd(), 'utf8')).toBe(`${START}\n${BASE}\n${END}\n`)
+  })
+
+  /*
+   * A clone decides what its files are. An AGENTS.md committed as a link out of the
+   * repo — to the user's global ~/.codex/AGENTS.md, or a shell profile — must not
+   * turn "apply to this repo" into a write there.
+   */
+  describe('a repo file that is a link out of the repo', () => {
+    const outside = (): string => join(repo, '..', 'global-AGENTS.md')
+
+    beforeEach(() => {
+      writeFileSync(outside(), '# the user\'s own global file\n')
+      writeFileSync(claudeMd(), '# repo\n')
+      symlinkSync(join('..', 'global-AGENTS.md'), agentsMd())
+      saveBaseline(repo, BASE)
+    })
+
+    it('is refused by apply, and nothing in the scope is written', () => {
+      expect(() => applyInstructions(repo)).toThrow(/points outside the repository/)
+      expect(readFileSync(outside(), 'utf8')).toBe("# the user's own global file\n")
+      // judged before anything was written: the file inside the repo is untouched too
+      expect(readFileSync(claudeMd(), 'utf8')).toBe('# repo\n')
+    })
+
+    it('is refused by a direct save and by unapply', () => {
+      expect(() => saveInstructionFile(repo, agentsMd(), 'x')).toThrow(/points outside the repository/)
+      writeFileSync(outside(), upsertSharedBlock('# mine\n', BASE))
+      const before = readFileSync(outside(), 'utf8')
+      expect(() => unapplyInstructions(repo, agentsMd())).toThrow(/points outside the repository/)
+      expect(readFileSync(outside(), 'utf8')).toBe(before)
+    })
+
+    it('still lets apply write the file that stays inside', () => {
+      applyInstructions(repo, claudeMd())
+      expect(extractSharedBlock(readFileSync(claudeMd(), 'utf8'))).toBe(BASE)
+    })
+
+    it('refuses a link to nothing, which a write would create wherever it names', () => {
+      rmSync(outside())
+      expect(() => applyInstructions(repo, agentsMd())).toThrow(/link to nothing/)
+    })
   })
 
   function applyAfterSaving(text: string): ReturnType<typeof applyInstructions> {
