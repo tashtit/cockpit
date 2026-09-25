@@ -28,7 +28,15 @@ Running the same line again reinstalls or updates in place. The copy you have is
 brew install --cask tashtit/tap/cockpit
 ```
 
-The cask installs the same release, checked against the same digest, and clears the quarantine flag Homebrew's download leaves on it, so it opens straight away too. Cockpit updates itself from then on, so `brew upgrade` leaves it alone; `brew uninstall --zap --cask cockpit` also removes its settings.
+The cask installs a release checked against the same digest, and clears the quarantine flag Homebrew's download leaves on it, so it opens straight away too. It can trail the newest release by a few hours; Cockpit updates itself from its first launch on, so `brew upgrade` leaves it alone; `brew uninstall --zap --cask cockpit` also removes its settings.
+
+Already have Cockpit from the installer or the disk image? Homebrew won't overwrite an app it didn't put there, so add `--adopt` and it takes over the copy you have, whatever version it is at, settings and all:
+
+```bash
+brew install --cask --adopt tashtit/tap/cockpit
+```
+
+Homebrew saying something else? See [Homebrew won't install Cockpit](/guide/troubleshooting#homebrew-won-t-install-cockpit).
 
 ### Or download the disk image
 
