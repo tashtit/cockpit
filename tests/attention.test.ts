@@ -265,6 +265,19 @@ describe('AttentionDesk — observed turns and pull requests', () => {
     second.desk.dispose()
   })
 
+  it('a session archived in its own app leaves the Dock, the board and the file, and its banner is withdrawn', async () => {
+    const { desk, seen, pushed } = makeDesk(file)
+    desk.observedTurn({ type: 'ended', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT, startedAt: 0, endedAt: 300_000, closing: 'All green now.' })
+    await vi.runAllTimersAsync()
+    expect(seen.badges).toEqual([1])
+    desk.forget({ session: (id) => id === 'claude:abc', table: () => false })
+    expect(seen.badges).toEqual([1, 0])
+    expect(pushed.at(-1)).toEqual([])
+    expect(seen.withdrawn).toEqual([['cockpit:claude:abc']])
+    expect(JSON.parse(readFileSync(file, 'utf8')).unseen).toEqual([])
+    desk.dispose()
+  })
+
   it('after the first scan, a saved question is re-read from its log: answered while closed is dropped, still open is kept', async () => {
     const dir = join(file, '..')
     const jsonl = (records: unknown[]): string => records.map((r) => JSON.stringify(r)).join('\n') + '\n'
