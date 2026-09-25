@@ -45,7 +45,7 @@ Click any of them to bring Cockpit forward on that session (a cleanup reminder o
 
 **The sound** is a macOS system sound: *Glass* when a turn finishes or an agent asks you something, *Basso* when a turn fails (Claude stopping on an API error or usage limit included) or a pull request goes red. Several endings at once play one sound, the graver one. A cleanup reminder never plays a sound.
 
-**The Dock badge** counts sessions that need you and you haven't opened yet — the same sessions the home board and the sidebar mark **landed**, **asks you** or with the red PR mark, plus roundtables that concluded. Cleanup reminders aren't counted, because no agent is waiting on them. A session with several reasons counts once and shows its most urgent one: a question, then a red PR, then an ended turn. Opening it takes it off the count, clears every reason, and takes its notification out of Notification Center.
+**The Dock badge** counts sessions that need you and you haven't opened yet — the same sessions the home board and the sidebar mark **landed**, **asks you** or with the red PR mark, plus roundtables that concluded. Cleanup reminders aren't counted, because no agent is waiting on them. A session with several reasons counts once and shows its most urgent one: a question, then a red PR, then an ended turn. Opening it takes it off the count, clears every reason, and takes its notification out of Notification Center. Archiving it does the same, whether in Cockpit or in the agent's own app — the Claude desktop app, Copilot or Codex — and so does archiving a roundtable.
 
 ## Settings
 

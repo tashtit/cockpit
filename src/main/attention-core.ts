@@ -113,6 +113,12 @@ export type TurnStart = {
   readonly resumeNativeId?: string
 }
 
+/** Whether the person threw a session or a table away, by id — main asks the index and the table list. */
+export type ThrownAway = {
+  readonly session: (id: string) => boolean
+  readonly table: (id: string) => boolean
+}
+
 /** How a roundtable's run ended, in words a notification can carry. */
 export type TableOutcome = {
   readonly kind: 'consensus' | 'no-consensus' | 'replied' | 'failed'
@@ -668,6 +674,20 @@ export class AttentionTracker {
   settleAsks(stillWaiting: (u: Unseen) => boolean): void {
     for (const u of [...this.unseen.values()]) {
       if (u.kind === 'asks' && !stillWaiting(u)) this.drop(u.key)
+    }
+  }
+
+  /**
+   * Nothing the person threw away is waiting on them. A session archived or deleted — in
+   * Cockpit, or in its provider's own app, where most are archived without ever being
+   * opened here — takes its landing, its question and the red PR it carries with it; an
+   * archived table takes its own. Left alone, each sat on the board and in the Dock badge
+   * until its week ran out. A landing no session has been named for yet is `resolve`'s.
+   */
+  forget(gone: ThrownAway): void {
+    for (const u of [...this.unseen.values()]) {
+      if (u.id === null || u.kind === 'cleanup') continue
+      if (u.kind === 'roundtable' ? gone.table(u.id) : gone.session(u.id)) this.drop(u.key)
     }
   }
 

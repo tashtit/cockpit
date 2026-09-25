@@ -268,6 +268,17 @@ function resolveAttention(): void {
   })
 }
 
+/**
+ * Archived or deleted — here, or in the provider's own app, which Cockpit only learns
+ * from the index: nothing about it is news any more.
+ */
+function forgetThrownAway(): void {
+  attention?.forget({
+    session: (id) => indexer.thrownAway(id),
+    table: (id) => roundtables?.isArchived(id) ?? false
+  })
+}
+
 /** A notification was clicked: bring the window forward and open what it was about (if anything). */
 function openAttentionTarget(target: AttentionTarget | null): void {
   if (!win || win.isDestroyed()) {
@@ -630,6 +641,7 @@ app.whenReady().then(() => {
     () => {
       resolveCopilotHandoffs()
       resolveAttention()
+      forgetThrownAway()
       sendToWin(PUSH.indexUpdated)
     },
     {
@@ -1371,6 +1383,7 @@ app.whenReady().then(() => {
       throw new Error('That roundtable is mid-round. Stop it first.')
     }
     tables.setArchived(setRoundtableArchived(String(id), Boolean(archived)))
+    forgetThrownAway()
     // the tree, the board and the palette all read the table list on an index update
     sendToWin(PUSH.indexUpdated)
   })

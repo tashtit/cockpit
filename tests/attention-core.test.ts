@@ -820,6 +820,50 @@ describe('AttentionTracker — red pull requests', () => {
   })
 })
 
+describe('AttentionTracker — what the person threw away', () => {
+  const kept = { session: () => false, table: () => false }
+
+  it('a session archived in its own app leaves the board and the badge, and its banner is withdrawn', () => {
+    const h = harness()
+    observed(h, { type: 'ended' })
+    h.flush()
+    h.clock.now += 60_000
+    observed(h, { type: 'ended', id: 'claude:other' })
+    h.flush()
+    h.t.forget(kept)
+    expect(h.t.badgeCount(ALL_ON)).toBe(2)
+    h.t.forget({ ...kept, session: (id) => id === 'claude:obs' })
+    expect(h.t.landings().map((l) => l.id)).toEqual(['claude:other'])
+    expect(h.t.badgeCount(ALL_ON)).toBe(1)
+    expect(h.t.takeWithdrawn()).toEqual(['cockpit:claude:obs'])
+  })
+
+  it('its question and the red PR it carries go with it, and that push is not raised again', () => {
+    const h = harness()
+    observed(h, { type: 'asks', id: 'claude:abc' })
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.entries().map((u) => u.kind).sort()).toEqual(['asks', 'pr'])
+    h.flush()
+    h.t.forget({ ...kept, session: (id) => id === 'claude:abc' })
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    // the badges keep refreshing: the same red commit has been told already
+    h.t.prsUpdated(ROCKET, [pr()], carrier)
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.flushAt()).toBeNull()
+  })
+
+  it('an archived table goes too; a turn no session is named for yet and the cleanup reminder stay', () => {
+    const h = harness()
+    h.t.tableEnded({ id: 'rt1', title: 'Adopt incremental indexing?', outcome: { kind: 'consensus', detail: 'All agree.' } })
+    h.t.tableEnded({ id: 'rt2', title: 'Keep the stat cache?', outcome: { kind: 'consensus', detail: 'All agree.' } })
+    runTurn(h, { turnId: 't1', provider: 'copilot', cwd: WORKTREE, text: 'Done.' })
+    h.t.cleanupReady({ at: 1, staleDays: 30, sessions: 4, worktrees: 0, tables: 1, processes: 0, bytes: 0 })
+    h.t.forget({ session: () => true, table: (id) => id === 'rt1' })
+    expect(h.t.entries().map((u) => u.key)).toEqual(['table:rt2', 'turn:t1', CLEANUP_KEY])
+  })
+})
+
 describe('AttentionTracker — one row per session, and mixed bursts', () => {
   it('a session with several reasons carries the most urgent: a question over a red PR over a landing', () => {
     const h = harness()

@@ -1161,6 +1161,15 @@ export class SessionIndexer {
   }
 
   /**
+   * Archived or deleted — in Cockpit or in its provider's own app: what `allSessions`
+   * leaves out. False for an id the index doesn't hold, which may just not be read yet.
+   */
+  thrownAway(id: string): boolean {
+    const s = this.sessions.get(id)
+    return s !== undefined && (this.hiddenByProvider(s) || this.archived.has(s.id))
+  }
+
+  /**
    * The user's own work, for the profile's aggregates. Archived sessions are in —
    * Cockpit's and the providers' own: archiving is how a session ends (the desktop app
    * archives one when its PR closes), and the work in it happened; only a session

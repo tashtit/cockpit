@@ -119,6 +119,21 @@ describe('SessionIndexer', () => {
     }
   })
 
+  it('says a session archived here or in its app was thrown away — never one it has not read', () => {
+    const any = indexer as unknown as { providerArchived: Set<string> }
+    const [s1, s2, s3] = ['s1', 's2', 's3'].map((n) => indexer.allSessions().find((s) => s.nativeId === n)!.id)
+    any.providerArchived = new Set([s1])
+    indexer.setArchived([s2])
+    try {
+      expect([s1, s2, s3].map((id) => indexer.thrownAway(id))).toEqual([true, true, false])
+      // a brand-new session the scan hasn't reached is not gone, just not read yet
+      expect(indexer.thrownAway('claude:not-read-yet')).toBe(false)
+    } finally {
+      any.providerArchived = new Set()
+      indexer.setArchived([])
+    }
+  })
+
   it('groups sessions by GitHub fullName, general bucket last', () => {
     const repos = indexer.listRepos()
     expect(repos.map((r) => r.key)).toEqual(['gh:acme/repo-a', 'general'])
@@ -416,6 +431,7 @@ describe('codex archived rollouts', () => {
     expect(idx.page({}).items.map((s) => s.nativeId)).toEqual(['live'])
     expect(idx.allSessions().map((s) => s.nativeId)).toEqual(['live'])
     expect(idx.cleanupSessions().map((s) => s.nativeId)).toEqual(['live'])
+    expect([idx.thrownAway('codex:done'), idx.thrownAway('codex:live')]).toEqual([true, false])
   })
 
   it("counts it as the user's own work", () => {
