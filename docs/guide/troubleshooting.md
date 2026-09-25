@@ -35,6 +35,7 @@ Two causes are worth knowing:
 
 - **"Could not move /Applications/Cockpit.app aside"** — the folder holding the app is not writable by you. Move Cockpit somewhere you own, or install it with an admin account.
 - **"the download does not match the checksum the release publishes"** — the fetch was corrupted or intercepted. Retrying is safe; nothing from a mismatched download is ever unpacked.
+- **"the download stalled (nothing arrived for 60s)"** — the connection stopped delivering without ever failing, usually because the Mac went to sleep mid-download or a proxy dropped it. The partial download is thrown away. Press **Check for updates** to start again, or leave it to the next automatic check.
 
 Whatever the cause, replacing the app by hand always works: download the disk image from the [releases page](https://github.com/tashtit/cockpit/releases) and drag it into Applications. Your settings live in `~/Library/Application Support/Cockpit` and survive.
 
