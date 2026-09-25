@@ -229,11 +229,13 @@ export function ChatView({
     return () => window.removeEventListener('keydown', onKey)
   }, [workable, work !== null])
 
-  /** Review notes and fix prompts land in the composer, ready to send — the reviewer gets the last word. */
-  const compose = (text: string): void => {
+  /** Review notes and fix prompts land in the composer, ready to send — the reviewer
+   *  gets the last word. Stable, so the memoized review is not redrawn by this view's
+   *  every stream flush and keystroke. */
+  const compose = useCallback((text: string): void => {
     setDraft((d) => (d.trim() ? `${d.trimEnd()}\n\n${text}` : text))
     composerRef.current?.focus()
-  }
+  }, [])
 
   const branchPr = useMemo(
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
@@ -257,26 +259,10 @@ export function ChatView({
   }, [binding?.repoRoot])
   const onDefaultBranch = !!binding?.branch && binding.branch === defaultBranch
 
-  const sliced = log.length > limit ? log.slice(-limit) : log
-  const base = log.length - sliced.length
-  // providers repeat identical system notices; consecutive duplicates add nothing.
-  // each row renders under the key chat-log.ts minted for it — stable across a re-read
-  // of the log, even one that starts further in, and when the dedup filter drops rows
-  // in the middle.
-  // a tool call and the result that answers it are one event: the result folds into
-  // the call's row (its key stays the call's) instead of a second ↳ row
-  const visible: Array<{ m: SessionMessage; key: number; result?: SessionMessage }> = []
-  sliced.forEach((m, i) => {
-    if (m.kind === 'system' && sliced[i - 1]?.kind === 'system' && sliced[i - 1].text === m.text)
-      return
-    const prev = visible[visible.length - 1]
-    if (m.kind === 'tool_result' && prev?.m.kind === 'tool_call' && !prev.result) {
-      prev.result = m
-      return
-    }
-    visible.push({ m, key: keys[base + i] ?? base + i })
-  })
-  const hidden = log.length - sliced.length
+  // what the transcript draws: worked out when the log or its window moves, not on
+  // every keystroke in the composer
+  const { shown, visible } = useMemo(() => transcriptRows(log, keys, limit), [log, keys, limit])
+  const hidden = log.length - shown
 
   // the agent's question is answerable while it is the last thing in the transcript
   // and nothing has answered it — an older one is history, and a seat session's
@@ -289,7 +275,8 @@ export function ChatView({
   // a long stretch of tool calls is one piece of work, not twenty rows of it: four or
   // more in a row fold into a work-log block that says what happened. The run a turn
   // is still producing never folds — watching it is the point while it runs.
-  const blocks = foldToolRuns(visible, busy || elsewhere)
+  const live = busy || elsewhere
+  const blocks = useMemo(() => foldToolRuns(visible, live), [visible, live])
 
   // a blocked agent is the most important thing on the screen — it speaks over
   // whatever the turn last said. Otherwise chat-log.ts owns the announcements, and
@@ -488,7 +475,7 @@ export function ChatView({
               }}
             >
               {hidden > 0 && (
-                <EarlierRow shown={sliced.length} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
+                <EarlierRow shown={shown} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
               )}
               {blocks.map((b) =>
                 b.kind === 'run' ? (
@@ -664,6 +651,35 @@ export function defaultTab(model: WorkModel, pendingPlanKey: number | null): Wor
 
 /** A transcript row, or a folded run of consecutive tool rows. */
 type Row = { m: SessionMessage; key: number; result?: SessionMessage }
+
+/**
+ * The newest `limit` rows as the transcript draws them. Providers repeat identical
+ * system notices; consecutive duplicates add nothing. Each row renders under the key
+ * chat-log.ts minted for it — stable across a re-read of the log, even one that starts
+ * further in, and when the dedup filter drops rows in the middle. A tool call and the
+ * result that answers it are one event: the result folds into the call's row (its key
+ * stays the call's) instead of a second ↳ row.
+ */
+function transcriptRows(
+  log: readonly SessionMessage[],
+  keys: readonly number[],
+  limit: number
+): { readonly shown: number; readonly visible: readonly Row[] } {
+  const sliced = log.length > limit ? log.slice(-limit) : log
+  const base = log.length - sliced.length
+  const visible: Row[] = []
+  sliced.forEach((m, i) => {
+    if (m.kind === 'system' && sliced[i - 1]?.kind === 'system' && sliced[i - 1].text === m.text)
+      return
+    const prev = visible[visible.length - 1]
+    if (m.kind === 'tool_result' && prev?.m.kind === 'tool_call' && !prev.result) {
+      prev.result = m
+      return
+    }
+    visible.push({ m, key: keys[base + i] ?? base + i })
+  })
+  return { shown: sliced.length, visible }
+}
 type Block = { kind: 'row'; row: Row } | { kind: 'run'; rows: Row[] }
 
 /** Four is where a run stops reading as "a couple of steps" and starts as a wall. */

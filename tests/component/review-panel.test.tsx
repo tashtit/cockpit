@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import type { JSX } from 'react'
 import userEvent from '@testing-library/user-event'
 import { formatNotes, pairLines, ReviewPanel } from '../../src/renderer/src/ReviewPanel'
-import { reloadDiffLayout, setDiffLayout } from '../../src/renderer/src/diff-layout'
+import { reloadDiffLayout, setDiffLayout, useDiffLayout } from '../../src/renderer/src/diff-layout'
 import { ChatView } from '../../src/renderer/src/ChatView'
+import { addChatMessage } from '../../src/renderer/src/chat-log'
 import type { DiffFile, DiffHunkLine, PrFeedback, PrStatus, WorkspaceDiff } from '../../src/shared/types'
 import { openPr } from './stub-api'
+
+// counted, not changed: every render of the panel reads the layout once, so the calls
+// say how often the chat beside it redrew it
+vi.mock('../../src/renderer/src/diff-layout', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/renderer/src/diff-layout')>()
+  return { ...real, useDiffLayout: vi.fn(real.useDiffLayout) }
+})
 
 const line = (op: DiffHunkLine['op'], text: string, oldNo: number | null, newNo: number | null): DiffHunkLine => ({
   op,
@@ -499,5 +507,32 @@ describe('ChatView → review panel', () => {
     expect(await screen.findByRole('region', { name: 'Pull request #7' })).toBeInTheDocument()
     expect(window.cockpit.getPrFeedback).toHaveBeenCalledWith('/tmp/repo', 7)
     expect(await screen.findByRole('button', { name: 'Fix with Codex' })).toBeInTheDocument()
+  })
+
+  it('is not redrawn by the transcript streaming under it or by typing in the composer', async () => {
+    render(
+      <ChatView
+        binding={{ provider: 'codex', cwd: '/tmp/wt', nativeSessionId: 'n1', title: 't', branch: 'cockpit/test', repoRoot: '/tmp/repo' }}
+        prs={[]}
+        busy={false}
+        elsewhere={false}
+        prBusy={false}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onCreatePr={() => {}}
+        onOpenUrl={() => {}}
+        onOpenHandoff={() => {}}
+        onOpenLineage={() => {}}
+        permissions={[]}
+        onAnswerPermission={() => {}}
+      />
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Changes' }))
+    await screen.findByText('two changed')
+    vi.mocked(useDiffLayout).mockClear()
+    act(() => addChatMessage({ role: 'assistant', kind: 'text', text: 'still going' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Message Codex' }), 'looks good')
+    expect(screen.getByRole('textbox', { name: 'Message Codex' })).toHaveValue('looks good')
+    expect(useDiffLayout).not.toHaveBeenCalled()
   })
 })

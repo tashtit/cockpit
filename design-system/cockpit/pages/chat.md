@@ -337,6 +337,9 @@ review is open and sheds its word (`.lbl`) ≤780px, keeping the diff glyph
 - Reloads on scope change, on refresh, and whenever a running turn settles (never
   mid-turn — the tree is changing under the reader). Errors from main render as a
   `.review-error` alert, unwrapped.
+- The panel, its file blocks, hunks and lines are memoized, and everything ChatView
+  hands it is stable (`compose` is a callback): the chat renders on every stream flush
+  and every composer keystroke, and a diff runs to 20,000 lines.
 
 ### The open PR (`PrStrip.tsx`, `.review-pr`)
 
