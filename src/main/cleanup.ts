@@ -344,11 +344,12 @@ async function judgeWorktrees(
     const unpushedOut = missing
       ? null
       : await git(path, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
-    // a registration whose directory is gone has nothing left to protect —
-    // the disk-derived facts are all false, so only `main` can still block it
+    // a registration whose directory is gone has nothing left to protect — the
+    // disk-derived facts are all false. git's own lock still counts: it is how a
+    // worktree on a drive that comes and goes says it will be back
     const blocks = worktreeBlocks({
       isMain,
-      locked: entry.locked && !missing,
+      locked: entry.locked,
       dirty,
       busy: !missing && [...busyCwds].some((c) => isUnder(c, path)),
       roundtable: deps.tableForCwd(path) !== null,
@@ -854,6 +855,37 @@ export async function deleteRoundtables(
 }
 
 /**
+ * The registration `repoRoot` holds at `path` (resolved), whether or not its directory
+ * is still there; undefined when git could not list its worktrees at all.
+ */
+async function registrationAt(repoRoot: string, path: string): Promise<WorktreeEntry | null | undefined> {
+  const listing = await git(repoRoot, ['worktree', 'list', '--porcelain'])
+  if (listing === null) return undefined
+  return parseWorktreeList(listing).find((e) => realish(e.path) === path) ?? null
+}
+
+/**
+ * Clear the registration of one worktree whose directory is gone — that one alone.
+ * `git worktree prune` would drop every registration whose directory is missing, a
+ * worktree on a drive that is only unmounted among them, picked or not. Only a
+ * registration git itself calls prunable, and nothing has locked, is asked for; the
+ * listing is read again afterwards, because one still there is a failure whatever
+ * git's exit status said. Resolves with why it was kept, or null once it is gone.
+ */
+async function dropRegistration(repoRoot: string, path: string): Promise<string | null> {
+  const held = await registrationAt(repoRoot, path)
+  if (held === null) return null
+  if (held === undefined) return 'git could not list the repository’s worktrees — try again'
+  if (held.locked) return blockReason(['locked'])
+  if (!held.prunable || existsSync(path)) return 'git still sees its directory — rescan'
+  const removed = await execText('git', ['-C', repoRoot, 'worktree', 'remove', held.path], {
+    timeoutMs: 60_000
+  })
+  if ((await registrationAt(repoRoot, path)) === null) return null
+  return removed.stderr.trim() || 'git kept the worktree’s registration'
+}
+
+/**
  * `git worktree remove` each path, then drop the branch when git says it is fully
  * merged. Deliberately never passes --force: the listing is re-derived here, and a
  * worktree that has picked up a block since the scan is refused rather than forced.
@@ -866,7 +898,6 @@ export async function removeWorktrees(
   const judged = new Map((await judgeWorktrees(deps, snapshot.procs)).map((w) => [w.path, w]))
   const failed: { target: string; reason: string }[] = []
   const branchesDeleted: string[] = []
-  const pruned = new Set<string>()
   let cleaned = 0
   let freedBytes = 0
   for (const raw of paths) {
@@ -886,11 +917,12 @@ export async function removeWorktrees(
     }
     if (w.missing) {
       // nothing on disk: the registration is the only thing left to clear
-      if (!pruned.has(w.repoRootForGit)) {
-        await git(w.repoRootForGit, ['worktree', 'prune'])
-        pruned.add(w.repoRootForGit)
+      const kept = await dropRegistration(w.repoRootForGit, path)
+      if (kept) {
+        failed.push({ target: path, reason: kept })
+        continue
       }
-      audit(`pruned missing worktree ${path} from ${w.repoRootForGit}`)
+      audit(`cleared the registration of missing worktree ${path} from ${w.repoRootForGit}`)
       cleaned++
       continue
     }

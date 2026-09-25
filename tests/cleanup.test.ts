@@ -602,6 +602,39 @@ describe('removeWorktrees', () => {
     expect(res.cleaned).toBe(1)
     expect(git(mainRepo, ['worktree', 'list'])).not.toMatch(/ghost/)
   })
+
+  it('clears only the missing registration it was asked to, never every missing one', async () => {
+    // a worktree on a drive that is only unmounted reads as missing too — `git worktree
+    // prune` used to take it along with the one picked
+    const picked = join(cockpitWorktrees, 'app', 'gone-picked')
+    const unmounted = join(cockpitWorktrees, 'app', 'gone-unmounted')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/gone-picked', picked])
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/gone-unmounted', unmounted])
+    rmSync(picked, { recursive: true, force: true })
+    rmSync(unmounted, { recursive: true, force: true })
+    const res = await removeWorktrees(deps, [picked])
+    expect(res).toMatchObject({ cleaned: 1, failed: [] })
+    const listing = git(mainRepo, ['worktree', 'list', '--porcelain'])
+    expect(listing).not.toContain(`worktree ${picked}\n`)
+    expect(listing).toContain(`worktree ${unmounted}\n`)
+    // and it goes the same way once it is the one picked
+    expect((await removeWorktrees(deps, [unmounted])).cleaned).toBe(1)
+    expect(git(mainRepo, ['worktree', 'list', '--porcelain'])).not.toContain(`worktree ${unmounted}\n`)
+  })
+
+  it('keeps a missing registration git has locked, and says so', async () => {
+    // a lock is how a worktree on a removable drive says it will be back
+    const away = join(cockpitWorktrees, 'app', 'on-a-drive')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/on-a-drive', away])
+    git(mainRepo, ['worktree', 'lock', away])
+    rmSync(away, { recursive: true, force: true })
+    const report = await scanCleanup(deps, 30)
+    expect(report.worktrees.find((w) => w.path === away)?.blocks).toEqual(['locked'])
+    const res = await removeWorktrees(deps, [away])
+    expect(res.cleaned).toBe(0)
+    expect(res.failed[0]?.reason).toMatch(/locked/)
+    expect(git(mainRepo, ['worktree', 'list', '--porcelain'])).toContain(`worktree ${away}\n`)
+  })
 })
 
 describe('scan sizing', () => {
