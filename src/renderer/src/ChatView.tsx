@@ -163,11 +163,11 @@ export function ChatView({
 
   // the Work panel is offered once the transcript holds something to put in it — a
   // plan, a to-do list, an edit — and built only while it is open, from the rows that
-  // carry one. It names them by their place among those rows; the row keys the
-  // transcript names them by are translated at its edge (`workFocus`, `pendingPlanAt`)
-  // a stream flush rewrites the text row, never one of these: the rows come back as the
-  // same object until one carrying work arrives, changes or leaves, so the model below
-  // is folded again then and not on every flush
+  // carry one. A stream flush rewrites the text row, never one of these, so the rows
+  // come back as the same object until one carrying work arrives, changes or leaves,
+  // and the model is folded again then rather than on every flush. It names the rows by
+  // their place among themselves; the transcript's row keys are translated at the
+  // panel's edge (`workFocus`, `pendingPlanAt`)
   const artifactsRef = useRef<ArtifactRows>(NO_ARTIFACTS)
   const artifacts = useMemo(() => {
     const next = artifactRows(log, keys)
