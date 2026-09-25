@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -115,35 +115,80 @@ function addFound(
   }
 }
 
+/** The MCP tables of ~/.claude.json: its top-level servers, and each project's. */
+type ClaudeMcpTables = {
+  readonly user: unknown
+  readonly projects: ReadonlyMap<string, unknown>
+}
+
+/**
+ * ~/.claude.json is often multi-MB — Claude Code keeps per-project history in it — and
+ * one library action reads the inventory several times over. The MCP tables are a
+ * small part of it, so only they are kept, for as long as the file's inode, mtime and
+ * size stay put (the inode too: a rename-over write inside one coarse mtime tick is
+ * still a new file). Writers never read from here — `readJsonForWrite` reads fresh.
+ */
+let claudeTables: {
+  readonly path: string
+  readonly ino: number
+  readonly mtimeMs: number
+  readonly size: number
+  readonly tables: ClaudeMcpTables
+} | null = null
+
+function claudeMcpTables(): ClaudeMcpTables {
+  const path = claudeJsonPath()
+  let st
+  try {
+    st = statSync(path)
+  } catch {
+    return { user: undefined, projects: new Map() }
+  }
+  const hit = claudeTables
+  if (hit && hit.path === path && hit.ino === st.ino && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    return hit.tables
+  }
+  const j = readJsonFile(path)
+  const projects = new Map<string, unknown>()
+  if (j?.projects && typeof j.projects === 'object') {
+    for (const [projPath, proj] of Object.entries<any>(j.projects)) {
+      if (proj?.mcpServers !== undefined) projects.set(projPath, proj.mcpServers)
+    }
+  }
+  const tables = { user: j?.mcpServers, projects }
+  claudeTables = { path, ino: st.ino, mtimeMs: st.mtimeMs, size: st.size, tables }
+  return tables
+}
+
+/**
+ * One table's servers, copied: a definition read from here rides the inventory into
+ * the library's own copy, and an edit there must not reach the kept tables.
+ */
+function serversIn(table: unknown): Array<[string, any]> {
+  return table && typeof table === 'object' ? Object.entries<any>(structuredClone(table)) : []
+}
+
 /**
  * Claude keeps user-level servers at the top of ~/.claude.json AND per-project
  * ones under projects[<path>].mcpServers — most real setups only have the latter.
  */
 function readClaudeMcp(): Map<string, FoundServer> {
   const out = new Map<string, FoundServer>()
-  const j = readJsonFile(claudeJsonPath())
-  const servers = j?.mcpServers
-  if (servers && typeof servers === 'object') {
-    for (const [name, cfg] of Object.entries<any>(servers)) {
-      addFound(out, name, { agent: 'claude', cfg, scope: { scope: 'user' } })
-    }
+  const { user, projects } = claudeMcpTables()
+  for (const [name, cfg] of serversIn(user)) {
+    addFound(out, name, { agent: 'claude', cfg, scope: { scope: 'user' } })
   }
-  const projects = j?.projects
-  if (projects && typeof projects === 'object') {
-    for (const [projPath, proj] of Object.entries<any>(projects)) {
-      const ps = proj?.mcpServers
-      if (!ps || typeof ps !== 'object') continue
-      for (const [name, cfg] of Object.entries<any>(ps)) {
-        addFound(out, name, { agent: 'claude', cfg, scope: { scope: 'project', projectPath: projPath } })
-      }
+  for (const [projPath, ps] of projects) {
+    for (const [name, cfg] of serversIn(ps)) {
+      addFound(out, name, { agent: 'claude', cfg, scope: { scope: 'project', projectPath: projPath } })
     }
   }
   return out
 }
 
-function readCodexMcp(): Map<string, FoundServer> {
+function readCodexMcp(codexToml: string): Map<string, FoundServer> {
   const out = new Map<string, FoundServer>()
-  for (const [name, { config, raw }] of codexMcpServers(readCodexToml())) {
+  for (const [name, { config, raw }] of codexMcpServers(codexToml)) {
     out.set(name, { scopes: [{ scope: 'user', config, raw: { codex: raw } }] })
   }
   return out
@@ -291,7 +336,7 @@ function readDirNames(dir: string): string[] {
   }
 }
 
-function readPlugins(): PluginInfo[] {
+function readPlugins(codexToml: string): PluginInfo[] {
   const out: PluginInfo[] = []
   const installed = readJsonFile(join(homedir(), '.claude', 'plugins', 'installed_plugins.json'))
   const plugins = installed?.plugins ?? installed
@@ -310,7 +355,7 @@ function readPlugins(): PluginInfo[] {
       })
     }
   }
-  for (const [id, fields] of parseCodexSections(readCodexToml(), 'plugins')) {
+  for (const [id, fields] of parseCodexSections(codexToml, 'plugins')) {
     // codex records no version, only whether the plugin is switched on
     if (fields.enabled === 'false') continue
     const { name, marketplace } = splitPluginId(id)
@@ -333,7 +378,7 @@ function readPlugins(): PluginInfo[] {
   return out
 }
 
-function readMarketplaces(): MarketplaceInfo[] {
+function readMarketplaces(codexToml: string): MarketplaceInfo[] {
   const out: MarketplaceInfo[] = []
   const known = readJsonFile(join(homedir(), '.claude', 'plugins', 'known_marketplaces.json'))
   const entries = known?.marketplaces ?? known
@@ -343,7 +388,7 @@ function readMarketplaces(): MarketplaceInfo[] {
       out.push({ name, agent: 'claude', source })
     }
   }
-  for (const [name, fields] of parseCodexSections(readCodexToml(), 'marketplaces')) {
+  for (const [name, fields] of parseCodexSections(codexToml, 'marketplaces')) {
     out.push({ name, agent: 'codex', source: fields.source })
   }
   // copilot records the marketplaces it was given in its settings — an added one with
@@ -403,15 +448,17 @@ function mergeServers(
 }
 
 export function readExtensions(): ExtensionsRead {
+  // servers, plugins and marketplaces all live in codex's one config: read it once
+  const codexToml = readCodexToml()
   return {
     ...mergeServers([
       { agent: 'claude', servers: readClaudeMcp() },
-      { agent: 'codex', servers: readCodexMcp() },
+      { agent: 'codex', servers: readCodexMcp(codexToml) },
       { agent: 'copilot', servers: readCopilotMcp() }
     ]),
     skills: readSkills(),
-    plugins: readPlugins(),
-    marketplaces: readMarketplaces()
+    plugins: readPlugins(codexToml),
+    marketplaces: readMarketplaces(codexToml)
   }
 }
 
@@ -426,12 +473,9 @@ export function getExtensions(): ExtensionsInventory {
  * rather than pretending a repo can carry them.
  */
 export function claudeProjectMcp(repoRoot: string): Pick<ExtensionsRead, 'mcp' | 'mcpRaw'> {
-  const table = readJsonFile(claudeJsonPath())?.projects?.[repoRoot]?.mcpServers
   const servers = new Map<string, FoundServer>()
-  if (table && typeof table === 'object') {
-    for (const [name, cfg] of Object.entries<any>(table)) {
-      addFound(servers, name, { agent: 'claude', cfg, scope: { scope: 'project', projectPath: repoRoot } })
-    }
+  for (const [name, cfg] of serversIn(claudeMcpTables().projects.get(repoRoot))) {
+    addFound(servers, name, { agent: 'claude', cfg, scope: { scope: 'project', projectPath: repoRoot } })
   }
   return mergeServers([{ agent: 'claude', servers }])
 }
@@ -492,8 +536,8 @@ export function getMcpConfig(name: string): McpConfig {
  * entry this module itself read from ~/.claude.json.
  */
 export function assertClaudeProjectServer(name: string, projectPath: string): string {
-  const j = readJsonFile(claudeJsonPath())
-  const cfg = j?.projects?.[projectPath]?.mcpServers?.[name]
+  const table: any = claudeMcpTables().projects.get(projectPath)
+  const cfg = isPlainObject(table) && Object.hasOwn(table, name) ? table[name] : undefined
   if (!cfg) throw new Error(`no project-scoped server "${name}" in ${projectPath}`)
   return projectPath
 }

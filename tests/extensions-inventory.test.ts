@@ -8,6 +8,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -415,5 +416,45 @@ describe('writing back what an agent already holds', () => {
     const sent = JSON.stringify(getExtensions())
     expect(sent).not.toContain('tok-123')
     expect(sent).not.toContain('startup_timeout_sec')
+  })
+})
+
+describe('reading ~/.claude.json while it is unchanged', () => {
+  const at = new Date('2026-09-01T00:00:00Z')
+
+  /** Rewrite the file under the same inode, size and mtime — invisible to a stat. */
+  function swapUnseen(path: string, body: string): void {
+    writeFileSync(path, body)
+    utimesSync(path, at, at)
+  }
+
+  function seeded(): string {
+    const cfg = join(fakeHome(), '.claude.json')
+    write(cfg, JSON.stringify({ oauthAccount: {}, mcpServers: { alpha: { command: 'a' } } }))
+    utimesSync(cfg, at, at)
+    return cfg
+  }
+
+  it('parses it once, and hands out copies of what it kept', () => {
+    const cfg = seeded()
+    const first = readExtensions()
+    ;(first.mcpRaw.get('alpha')!.claude as any).command = 'edited'
+    swapUnseen(cfg, JSON.stringify({ oauthAccount: {}, mcpServers: { bravo: { command: 'b' } } }))
+    const again = readExtensions()
+    expect(again.mcp.map((s) => s.name)).toEqual(['alpha'])
+    expect(again.mcpRaw.get('alpha')?.claude).toEqual({ command: 'a' })
+
+    const later = new Date(at.getTime() + 1000)
+    utimesSync(cfg, later, later)
+    expect(readExtensions().mcp.map((s) => s.name)).toEqual(['bravo'])
+  })
+
+  it('writes into what the file holds now, never what the reader kept', () => {
+    const cfg = seeded()
+    readExtensions()
+    swapUnseen(cfg, JSON.stringify({ oauthAccount: {}, mcpServers: { bravo: { command: 'b' } } }))
+    shareMcp('gamma', 'claude', { config: { command: 'g' } })
+    expect(Object.keys(JSON.parse(readFileSync(cfg, 'utf8')).mcpServers).sort()).toEqual(['bravo', 'gamma'])
+    expect(readExtensions().mcp.map((s) => s.name)).toEqual(['bravo', 'gamma'])
   })
 })
