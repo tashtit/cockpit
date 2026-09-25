@@ -470,6 +470,24 @@ describe('watcher-event probing (codex subagent rollouts)', () => {
   })
 })
 
+describe('leftovers of interrupted cache saves', () => {
+  it('are swept at launch once old, while a save that may still be running is left alone', () => {
+    const dir = join(root, 'userdata-tmps')
+    mkdirSync(dir, { recursive: true })
+    const cacheFile = join(dir, 'index-cache.json')
+    const hourAgo = new Date(Date.now() - 3_600_000)
+    const old = join(dir, 'index-cache.json.4242.7.tmp')
+    const fresh = join(dir, 'index-cache.json.4243.1.tmp')
+    const unrelated = join(dir, 'index-cache.json.bak')
+    for (const f of [old, fresh, unrelated]) writeFileSync(f, '{}')
+    utimesSync(old, hourAgo, hourAgo)
+    utimesSync(unrelated, hourAgo, hourAgo)
+    const idx = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    idx.stopWatchers()
+    expect(readdirSync(dir).sort()).toEqual(['index-cache.json.4243.1.tmp', 'index-cache.json.bak'])
+  })
+})
+
 describe('a Codex thread renamed in session_index.jsonl', () => {
   const home = join(root, 'codex-names')
   const day = join(home, 'sessions', '2026', '09', '20')

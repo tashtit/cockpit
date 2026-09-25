@@ -2,6 +2,7 @@ import {
   existsSync,
   lstatSync,
   readFileSync,
+  readdirSync,
   statSync,
   writeFileSync,
   mkdirSync,
@@ -11,7 +12,7 @@ import {
   type FSWatcher
 } from 'node:fs'
 import { writeFile, rename, rm } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type {
   BusySession,
   Mutable,
@@ -113,6 +114,37 @@ let cacheSaveSeq = 0
  */
 function nextCacheTmp(cacheFile: string): string {
   return `${cacheFile}.${process.pid}.${++cacheSaveSeq}.tmp`
+}
+
+/** A save's tmp file this old belongs to no save still running, whichever instance wrote it. */
+const STALE_CACHE_TMP_MS = 10 * 60_000
+
+/**
+ * A save interrupted between its write and its rename — a crash, a force quit — leaves
+ * its tmp file behind, a whole copy of the cache, and nothing else ever removes one.
+ * Only files named the way nextCacheTmp names them are touched, and only old ones: a
+ * second instance sharing userData may be mid-save right now.
+ */
+function sweepCacheTmps(cacheFile: string): void {
+  const dir = dirname(cacheFile)
+  const prefix = `${basename(cacheFile)}.`
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return // no userData dir yet
+  }
+  const cutoff = Date.now() - STALE_CACHE_TMP_MS
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !/^\d+\.\d+\.tmp$/.test(name.slice(prefix.length))) continue
+    const p = join(dir, name)
+    try {
+      const st = lstatSync(p)
+      if (st.isFile() && st.mtimeMs < cutoff) rmSync(p, { force: true })
+    } catch {
+      // removed by someone else between the listing and here
+    }
+  }
 }
 
 type CacheEntry = {
@@ -1178,6 +1210,7 @@ export class SessionIndexer {
    */
   private loadCache(): void {
     if (!this.cacheFile) return
+    sweepCacheTmps(this.cacheFile)
     try {
       const raw = JSON.parse(readFileSync(this.cacheFile, 'utf8'))
       if (raw?.v !== CACHE_VERSION || !Array.isArray(raw.entries)) return
