@@ -18,6 +18,7 @@ import {
   type DiffLayout
 } from './diff-layout'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { useSame } from './same'
 
 /**
  * One agent file, drawn the way the contract reads: the agent's own lines folded
@@ -181,11 +182,15 @@ function Dropped({ n }: { n: number }): JSX.Element {
 
 /** Lines in GitHub's grammar with the quiet stretches folded — shared with the Work panel's edits. */
 export function DiffLines({ lines, layout }: { lines: readonly DiffLine[]; layout: DiffLayout }): JSX.Element {
-  const rows = useMemo(() => foldUnchanged(lines), [lines])
   // fold rows are addressed by position: the rows are rebuilt whole whenever the
-  // text changes, so an expansion only ever means "this row, in this diff"
+  // text changes, so an expansion only ever means "this row, in this diff". The text is
+  // judged by what it says, not by the array it arrives in: the Work panel hands its
+  // edits over afresh each time its model is folded again, and a fold the reader had
+  // opened snapped shut with them
+  const same = useSame(lines)
+  const rows = useMemo(() => foldUnchanged(same), [same])
   const [opened, setOpened] = useState<ReadonlySet<number>>(new Set())
-  useEffect(() => setOpened(new Set()), [lines])
+  useEffect(() => setOpened(new Set()), [same])
 
   // what is on screen: opened folds become their lines, closed ones keep their
   // position so the button knows which fold it opens

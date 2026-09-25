@@ -265,6 +265,10 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
     the browser through `onOpenUrl`.
   - Main acts only on a path the session's own log shared (`assertSharedFile`), and opens
     only by the extension of the file the path resolves to.
+- The model is folded again only when a row carrying work arrives, changes or leaves —
+  never on a stream flush — and the panel, its file blocks and edits are memoized, the
+  blocks by what they say. `DiffLines` resets an opened fold when its lines change, judged
+  by content: each fold of the model hands the same edits over in fresh arrays.
 
 ## Permission prompt (`PermissionAsk`, `.perm-card`)
 

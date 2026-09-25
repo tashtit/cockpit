@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+
 /**
  * Whether two values say the same thing: primitives by value, arrays and plain objects
  * by content. For what arrives over IPC — every answer is a fresh structured clone, so
@@ -25,4 +27,14 @@ export function samePlain(a: unknown, b: unknown): boolean {
 /** `next`, unless it says what `prev` already does — then `prev`, so React sees no change. */
 export function keepSame<T>(prev: T, next: T): T {
   return samePlain(prev, next) ? prev : next
+}
+
+/**
+ * The value, held at its first identity for as long as its content stays the same —
+ * for a memo or an effect that must follow what a value says, not the array it came in.
+ */
+export function useSame<T>(value: T): T {
+  const ref = useRef(value)
+  if (ref.current !== value && !samePlain(ref.current, value)) ref.current = value
+  return ref.current
 }

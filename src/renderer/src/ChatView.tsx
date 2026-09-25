@@ -167,7 +167,16 @@ export function ChatView({
   // plan, a to-do list, an edit — and built only while it is open, from the rows that
   // carry one. It names them by their place among those rows; the row keys the
   // transcript names them by are translated at its edge (`workFocus`, `pendingPlanAt`)
-  const artifacts = useMemo(() => artifactRows(log, keys), [log, keys])
+  // a stream flush rewrites the text row, never one of these: the rows come back as the
+  // same object until one carrying work arrives, changes or leaves, so the model below
+  // is folded again then and not on every flush
+  const artifactsRef = useRef<ArtifactRows>(NO_ARTIFACTS)
+  const artifacts = useMemo(() => {
+    const next = artifactRows(log, keys)
+    if (sameArtifacts(artifactsRef.current, next)) return artifactsRef.current
+    artifactsRef.current = next
+    return next
+  }, [log, keys])
   const workable = artifacts.rows.length > 0
   const model = useMemo(
     () => (work && binding ? buildWork(artifacts.rows, binding.cwd) : null),
@@ -197,6 +206,13 @@ export function ChatView({
     if (panel && getComputedStyle(panel).position === 'absolute') closeWork()
     setReview((v) => !v)
   }, [closeWork])
+  const reviewRef = useRef(review)
+  reviewRef.current = review
+  /** The Edits tab's way to the real diff: opens it, never closes it */
+  const openChanges = useCallback(() => {
+    if (!reviewRef.current) toggleReview()
+  }, [toggleReview])
+  const workTab = useCallback((tab: WorkTab) => setWork((w) => (w ? { ...w, tab, key: null } : w)), [])
 
   // ⌘D flips between the conversation and its changes (the palette owns the
   // keyboard while it is open — a dialog on screen means leave it alone)
@@ -600,12 +616,12 @@ export function ChatView({
           <WorkPanel
             model={model}
             focus={workFocus}
-            onTab={(tab) => setWork((w) => (w ? { ...w, tab, key: null } : w))}
+            onTab={workTab}
             onClose={closeWork}
             cwd={binding.cwd}
             provider={binding.provider}
             pendingPlanKey={pendingPlanAt}
-            onOpenChanges={reviewable ? () => !review && toggleReview() : undefined}
+            onOpenChanges={reviewable ? openChanges : undefined}
             sessionId={binding.nativeSessionId ? `${binding.provider}:${binding.nativeSessionId}` : null}
             onOpenUrl={onOpenUrl}
           />
@@ -617,6 +633,13 @@ export function ChatView({
 
 /** The rows that carry a plan, to-dos, an edit or a check — all the Work panel folds — with their keys. */
 type ArtifactRows = { readonly rows: readonly SessionMessage[]; readonly keys: readonly number[] }
+
+const NO_ARTIFACTS: ArtifactRows = { rows: [], keys: [] }
+
+/** The same rows under the same keys — nothing the Work panel folds has moved. */
+function sameArtifacts(a: ArtifactRows, b: ArtifactRows): boolean {
+  return a.rows.length === b.rows.length && a.rows.every((m, i) => m === b.rows[i] && a.keys[i] === b.keys[i])
+}
 
 function artifactRows(log: readonly SessionMessage[], keys: readonly number[]): ArtifactRows {
   const rows: SessionMessage[] = []
