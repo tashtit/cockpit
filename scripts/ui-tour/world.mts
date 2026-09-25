@@ -634,6 +634,50 @@ function populate(world: World): void {
       { speaker: 'copilot', seat: 2, text: 'Agreed.', at: t0 + 700_000, stance: 'agree', stanceNote: 'pull + TTL in main' }
     ]
   })
+  // what the seats looked up behind their replies — each one's own log, in the room
+  const room = join(world.userData, 'roundtables', 'rt-consensus', 'room')
+  claude({
+    cwd: room,
+    branch: null,
+    title: 'Should usage polling move to the main process?',
+    hoursAgo: 4,
+    turns: [
+      { user: 'You are Claude at a roundtable with Codex and Copilot. Should usage polling move to the main process?' },
+      {
+        tools: [
+          { name: 'Grep', input: { pattern: 'setInterval', path: 'src/renderer' }, result: 'src/renderer/src/usage.tsx:41' },
+          { name: 'Read', input: { file_path: `${room}/src/renderer/src/usage.tsx` }, result: 'const POLL_MS = 60_000' },
+          { name: 'Bash', input: { command: 'rg -n "usage:get" src' }, result: 'src/main/index.ts:512' }
+        ]
+      },
+      { say: 'Main owns every other IO path; the open question is cache lifetime.' },
+      { user: 'Codex: add a 60s TTL. Copilot: pull with a TTL is simpler. Your reply?' },
+      { tools: [{ name: 'WebSearch', input: { query: 'electron ipc invoke cache ttl main process' }, result: '5 results' }] },
+      { say: 'Pull + a 60s TTL in main settles it.' }
+    ]
+  })
+  codex({
+    cwd: room,
+    hoursAgo: 3.95,
+    items: [
+      message('user', 'You are Codex at a roundtable with Claude and Copilot. Should usage polling move to the main process?'),
+      { type: 'function_call', name: 'shell', call_id: 'r1', arguments: JSON.stringify({ command: ['bash', '-lc', 'rg -n "fetchUsage" src'] }) },
+      { type: 'function_call_output', call_id: 'r1', output: 'src/renderer/src/usage.tsx:57\nsrc/main/usage.ts:12' },
+      message('assistant', 'Moving it is right; add a **60s TTL**.')
+    ]
+  })
+  copilot({
+    cwd: room,
+    repository: '',
+    title: 'Should usage polling move to the main process?',
+    hoursAgo: 3.9,
+    events: [
+      ['user.message', { content: 'You are Copilot at a roundtable with Claude and Codex. Should usage polling move to the main process?' }],
+      ['tool.execution_start', { toolCallId: 'p1', toolName: 'bash', arguments: { command: 'curl -s -o /dev/null -w "%{http_code}" https://api.github.com/copilot/usage' } }],
+      ['tool.execution_complete', { toolCallId: 'p1', success: true, shellExecution: { exitCode: 22 }, result: { content: '404\n<exited with exit code 22>' } }],
+      ['assistant.message', { content: 'Pull with a TTL is simpler.' }]
+    ]
+  })
   // an archived table: out of the tree's children and off the board, reachable from
   // the group's Archived disclosure (see the archivedRoundtables id below)
   // stale as well as archived: it is what Cleanup's Roundtables section lists

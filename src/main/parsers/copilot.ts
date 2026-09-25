@@ -476,14 +476,16 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
         let row = out[at]!
         // an edit that never landed must not read as one
         if (ev.data.success === false) row = { ...row, failed: true }
-        // a check learns how it ended: the exit code Copilot states (`success` is true
-        // whatever the command exited with), else the marker at the end of its output
-        if (row.artifact?.kind === 'check') {
-          const result = ev.data.result
-          const text = String(result?.detailedContent || result?.content || '')
-          const stated = ev.data.shellExecution?.exitCode
-          row = { ...row, artifact: checkOutcome(row.artifact, { text, exitCode: typeof stated === 'number' ? stated : exitCodeIn(text) }) }
-        }
+        // a shell command's exit code: the one Copilot states, else the marker at the end
+        // of its output — `success` is true whatever the command exited with
+        const result = ev.data.result
+        const text = String(result?.detailedContent || result?.content || '')
+        const stated = ev.data.shellExecution?.exitCode
+        const exitCode = typeof stated === 'number' ? stated : row.toolName === 'bash' ? exitCodeIn(text) : null
+        // a command that exited non-zero failed, as Claude's log says of its own
+        if (exitCode !== null && exitCode !== 0) row = { ...row, failed: true }
+        // and a check learns how it ended
+        if (row.artifact?.kind === 'check') row = { ...row, artifact: checkOutcome(row.artifact, { text, exitCode }) }
         out[at] = row
       } else if (ev.type === 'system.message') {
         const text = typeof ev.data?.content === 'string' ? ev.data.content : ''

@@ -49,6 +49,37 @@ attribution, never a parallel message grammar.
   news the same as an entry landing.
 - Auto-scroll pins to bottom unless the user scrolled up (same 48px rule as chat).
 
+## Evidence (`SeatEvidencePanel.tsx`, `evidence.ts`)
+
+What each seat's replies rest on, beside the table. The table keeps only reply text; the
+calls behind it streamed past and were gone. This panel is the Work panel's frame, not
+a new one:
+
+- **Header key:** the header's last key, a square `.btn-review.btn-work` with `SearchIcon`,
+  `aria-label="Evidence"`, `aria-pressed`, and `aria-controls="evidence-panel"` while
+  open.
+- **Layout:** the body is ChatView's deck (`.chat-deck` › `.chat-main` + the panel), so
+  the panel sits beside the transcript and composer and covers them under 720px of deck,
+  exactly like the Work panel.
+- **Tabs:** `TabList` tabs, one per seat (`seatDisplayName`), each counting its calls.
+  Escape closes the panel.
+- **A seat's tab:** `N turns · M calls` in `.work-meta`, a `.work-note`, then an `<ol>` of
+  `.ev-turn`s, newest first. Each turn has:
+  - a head: the time and the reply's first line, dim and on one line;
+  - `.ev-item` rows: the verb in the mono voice (`ran` / `searched` / `fetched` / `read` /
+    `called <tool>`), the headline in mono (two lines, whole in the tooltip), the result's
+    first line dim below it, then `failed` (`.review-kind.tone-danger`) when it ran and
+    failed, or `not run` (`.review-kind.tone-warn`) when the harness refused it — the
+    readout adds `N not run` in `.work-flag`, since a claim resting on refused calls rests
+    on nothing.
+- **Empty states, each one sentence:** the seat's log isn't indexed yet, or the seat
+  answered from what it already knew.
+- **Shared sessions:** seats matched by agent that can't be told apart get a `.work-note`
+  saying so.
+- **Freshness:** logs are read through `pageSessions({ roundtableId })` +
+  `getSessionMessages`, again whenever `running` turns false. Rows are built from each
+  row's own tool name, headline and result (`buildEvidence`), never from tool JSON.
+
 ## Composer / rounds
 
 - A user message opens a **parallel wave**: every seat streams at once, each in its own

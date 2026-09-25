@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { listClaudeSessions, parseClaudeMessages } from '../src/main/parsers/claude'
-import { listCodexSessions } from '../src/main/parsers/codex'
+import { listCodexSessions, parseCodexMessages } from '../src/main/parsers/codex'
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
 import { sanitizeRoundtable } from '../src/main/roundtable-core'
 import { buildWork } from '../src/shared/work'
+import { buildEvidence } from '../src/renderer/src/evidence'
 import { buildWorld, type World } from '../scripts/ui-tour/world.mts'
 
 /**
@@ -67,6 +68,14 @@ describe('ui-tour fixture world', () => {
     const png = readFileSync(shared.files[1]!.path)
     expect(png.subarray(1, 4).toString('ascii')).toBe('PNG')
     const copilot = listCopilotSessions(join(world.home, '.copilot'), 'copilot-default')
+    // the consensus table's seats each looked something up, in their own logs in the room
+    const room = join(world.userData, 'roundtables', 'rt-consensus', 'room')
+    const seatLogs = [
+      ...claude.filter((s) => s.cwd === room).map((s) => parseClaudeMessages(s.sourcePath)),
+      ...listCodexSessions(join(world.home, '.codex'), 'codex-default').filter((s) => s.cwd === room).map((s) => parseCodexMessages(s.sourcePath)),
+      ...copilot.filter((s) => s.cwd === room).map((s) => parseCopilotMessages(s.sourcePath))
+    ]
+    expect(seatLogs.map((log) => buildEvidence(log).reduce((n, t) => n + t.items.length, 0))).toEqual([4, 1, 1])
     const tidy = copilot.find((s) => s.title === 'Tidy the usage panel spacing')!
     const list = parseCopilotMessages(tidy.sourcePath).find((m) => m.artifact?.kind === 'todos')
     expect(list?.artifact).toMatchObject({ kind: 'todos', items: [{ status: 'completed' }, { status: 'completed' }, { status: 'blocked' }] })

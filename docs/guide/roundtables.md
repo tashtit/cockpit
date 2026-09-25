@@ -80,6 +80,23 @@ Roundtables have no permission mode. Every turn runs in the safest mode the prov
 
 The provider sessions the seats spawn are the table's internals, not work of yours: they never appear in the board, tree, or search, they can't be handed off, and opening one (behind the table row's chevron) is read-only.
 
+## What each seat looked up
+
+While a seat answers, its tool calls stream into the table: the commands it runs, the
+searches it makes, the pages it fetches, the files it reads. Once its reply lands, only
+the reply's words stay. **Evidence** (the magnifier key in the table's header) opens a
+panel beside the table with one tab per seat, listing what that seat gathered before each
+reply, newest first. Each entry shows the command or address and the start of what came
+back. It's marked **failed** when the call failed or the command exited non-zero, and
+**not run** when the seat's safe mode held it for an approval a table can't give. A seat
+whose checks were never run backed its claim with nothing it could verify; the tab counts
+those calls. This is how to check what a claim like "that name is taken" rests on.
+
+It reads each seat's own log, so a seat that never names its session (Copilot often
+doesn't) is matched by agent. If two such seats run the same agent, each is shown the
+sessions of both, and the panel says the logs can't tell them apart. The panel reads the
+logs again whenever a round ends.
+
 ## When a roundtable earns its cost
 
 A roundtable is several full agent turns per round instead of one. It's worth that when the *disagreement* is the product:
