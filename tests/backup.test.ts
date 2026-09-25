@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -108,7 +108,7 @@ describe('export', () => {
     expect(res.path).toBe(path)
     expect(statSync(path).mode & 0o777).toBe(0o600)
     expect(readBackup(path).settings.timeFormat).toBe('12h')
-    expect(existsSync(path + '.tmp')).toBe(false)
+    expect(readdirSync(fileDir).filter((f) => f.endsWith('.tmp'))).toEqual([])
   })
 
   it('carries a skill’s files, executable bits and all', () => {

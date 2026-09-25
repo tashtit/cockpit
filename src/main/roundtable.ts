@@ -1,12 +1,4 @@
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -39,6 +31,7 @@ import {
   roundsAllowed
 } from '../shared/roundtable'
 import type { CleanupTable } from './cleanup'
+import { writeFileAtomic } from './replace-file'
 
 /** In-memory working copy — the round loop mutates it, persisting after every entry. */
 type Table = Omit<Mutable<Roundtable>, 'participants' | 'entries'> & {
@@ -182,15 +175,10 @@ export class RoundtableManager {
    * that works catches the file up.
    */
   private save(t: Table): void {
-    // write-then-rename: a crash mid-write must never leave a truncated table
-    const tmp = join(this.dir, `${t.id}.json.${process.pid}.tmp`)
     try {
-      mkdirSync(this.dir, { recursive: true })
-      writeFileSync(tmp, JSON.stringify(t, null, 2))
-      renameSync(tmp, join(this.dir, `${t.id}.json`))
+      writeFileAtomic(join(this.dir, `${t.id}.json`), JSON.stringify(t, null, 2))
     } catch (err) {
       console.error(`[roundtable] failed to save ${t.id}:`, err)
-      rmSync(tmp, { force: true })
     }
   }
 

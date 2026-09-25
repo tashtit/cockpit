@@ -1,6 +1,5 @@
 import { app, Notification } from 'electron'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readFileSync } from 'node:fs'
 import type {
   AttentionFocus,
   AttentionPrefs,
@@ -25,6 +24,7 @@ import {
 import { execText } from './env'
 import { readTurnState } from './liveness'
 import type { ObservedTurn } from './liveness-core'
+import { writeFileAtomic } from './replace-file'
 
 /**
  * Attention, the IO half: carries out what `attention-core.ts` decides. The desk
@@ -263,11 +263,7 @@ export class AttentionDesk {
 
   private save(json: string): void {
     try {
-      mkdirSync(dirname(this.deps.file), { recursive: true })
-      // write-then-rename: a crash mid-write must never leave a truncated file
-      const tmp = `${this.deps.file}.tmp`
-      writeFileSync(tmp, json)
-      renameSync(tmp, this.deps.file)
+      writeFileAtomic(this.deps.file, json)
     } catch (err) {
       console.error('[attention] could not save landings:', err)
     }
