@@ -92,9 +92,9 @@ and in the Dock badge, whether the session runs in Cockpit or in a terminal; see
 ## Plans, to-dos and edits: the Work panel
 
 Agents hand you things to look at while they work: a plan to approve, a to-do list they
-tick off, and edits to your files. Cockpit reads each of them from the agent's own tool
-calls and opens them in the **Work** panel beside the conversation. The panel has three
-tabs:
+tick off, edits to your files, and the checks they ran on them. Cockpit reads each of them
+from the agent's own tool calls and opens them in the **Work** panel beside the
+conversation. The panel has four tabs:
 
 - **Plan**: the plan the agent proposed (Claude Code's plan mode, Copilot CLI's
   `exit_plan_mode`), rendered as a document. If the agent revised it, **Earlier** and
@@ -110,12 +110,25 @@ tabs:
   `edit` or `create`. An edit whose call failed is still listed, marked **didn't
   apply**. Copilot's writes to its own plan file are the plan, not edits, so they are not
   listed.
+- **Checks**: how the agent's tests, typecheck, linter, end-to-end tests and build last
+  ended, whichever of them it ran. Each shows **passed** or **failed**, the command, the
+  end of what it printed and the exit code. A check is marked **edited since** when the
+  agent changed files after it ran, since it no longer covers them. Earlier runs of the
+  same check are one click away. Cockpit recognizes a check by the tool it runs
+  (`vitest`, `tsc`, `eslint`, `cargo test`, …) or by the script it hands `npm`, `pnpm`,
+  `yarn`, `bun`, `nx` or `turbo` (`npm run typecheck`). It reads how the run ended from
+  the test runner's own summary, since a test run piped through `tail` exits with
+  `tail`'s status, and from the exit code when nothing else in the command could have
+  set it. A `git rebase` that fails before the tests run isn't blamed on the tests. A
+  run the agent sent to the background has no result until it finishes, and one you
+  refused has none at all.
 
 A tool row that carries one of these is a single click: the row names the plan, the list's
 progress or the files and their `+`/`−` counts, and clicking it opens the panel at that
-item. The header's **Work** key (⌘J) appears once the conversation holds any of them. It
-opens the panel on whatever matters now: a plan waiting for you, else a list still in
-progress, else the edits. Escape closes the panel and returns you to where you were.
+item; a check's row also says whether it passed or failed. The header's **Work** key (⌘J)
+appears once the conversation holds any of them. It opens the panel on whatever matters
+now: a plan waiting for you, else a list still in progress, else a check that failed,
+else the edits. Escape closes the panel and returns you to where you were.
 
 When the window is too narrow to hold the conversation and the panel side by side, the
 panel covers the conversation until you close it, the same way **Changes** does.
@@ -139,8 +152,8 @@ call that changed it; earlier versions of the list aren't kept anywhere.
 **Continue in…** in the header starts a new session with another agent (or a fresh one
 with the same agent) in the same directory and on the same branch. The new agent's first
 message is a **Briefing** you can read and edit before sending: the original request,
-the agent's latest plan and its to-do list (finished steps checked), the recent
-conversation and tool calls, and the git state of the directory. **Improve with AI**
+the agent's latest plan, its to-do list (finished steps checked), how each of its checks
+last ended, the recent conversation and tool calls, and the git state of the directory. **Improve with AI**
 asks the original agent to write the briefing itself instead.
 
 ## Provider quirks

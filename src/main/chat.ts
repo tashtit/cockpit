@@ -19,6 +19,7 @@ import {
 import { parseAsks } from '../shared/asks'
 import { contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
 import { fileChangeArtifact, todoListArtifact, toolArtifact } from './parsers/artifacts'
+import { commandItemCheck } from './parsers/checks'
 import { cliEnv } from './env'
 
 type Emit = (ev: ChatEvent) => void
@@ -194,12 +195,15 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
       out.push({ turnId, type: 'text', text: String(it.text ?? it.message) })
     if (it.type === 'command_execution') {
       const preview = shellPreview(it.command)
+      // a check streams in finished, its exit code with it
+      const artifact = commandItemCheck(it)
       out.push({
         turnId,
         type: 'tool',
         toolName: 'shell',
         detail: truncate(String(it.command ?? ''), 200),
-        ...(preview ? { preview: truncate(preview, 200) } : {})
+        ...(preview ? { preview: truncate(preview, 200) } : {}),
+        ...(artifact ? { artifact } : {})
       })
     }
     if (it.type === 'file_change') {

@@ -3,6 +3,7 @@ import { basename, dirname, join, sep } from 'node:path'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
 import { toolArtifact } from './artifacts'
+import { checkOutcome, exitCodeIn } from './checks'
 import {
   capText,
   contentToText,
@@ -151,13 +152,21 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
 
 /**
  * What a call's result says about the call itself: a refused or failed call is marked
- * (an edit that never landed must not read as one), and a created task learns the
- * number Claude gave it — `Task #3 created successfully` — which is what later
- * TaskUpdate calls name it by.
+ * (an edit that never landed must not read as one), a check learns how it ended, and a
+ * created task learns the number Claude gave it — `Task #3 created successfully` —
+ * which is what later TaskUpdate calls name it by.
  */
 function answered(call: SessionMessage, result: string, isError: boolean): SessionMessage {
-  if (isError) return { ...call, failed: true }
   const a = call.artifact
+  if (a?.kind === 'check') {
+    // an error states the exit code (`Exit code 1`) — one that states none was refused
+    // or blocked and never ran; a success is a zero exit, unless the command only
+    // went to the background, where its end is not in this result
+    const exitCode = isError ? exitCodeIn(result) : /^Command running in background/.test(result) ? null : 0
+    const artifact = isError && exitCode === null ? a : checkOutcome(a, { text: result, exitCode })
+    return { ...call, artifact, ...(isError ? { failed: true } : {}) }
+  }
+  if (isError) return { ...call, failed: true }
   if (a?.kind !== 'task-add') return call
   const ids = [...result.matchAll(/Task #(\w+)/g)].map((m) => m[1]!)
   return ids.length === a.items.length ? { ...call, artifact: { ...a, ids } } : call

@@ -3,6 +3,7 @@ import { statSync } from 'node:fs'
 import type { SessionMeta, SessionMessage, SessionSegment } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
 import { fileChangeArtifact, toolArtifact } from './artifacts'
+import { checkOutcome, commandItemCheck, exitCodeIn } from './checks'
 import { cellToolCalls } from './code-mode'
 import {
   capText,
@@ -277,6 +278,8 @@ function toolItemRows(item: any, ts: number | undefined): SessionMessage[] {
   const call = itemCall(item)
   if (!call) return []
   const failed = call.failed || (typeof item.status === 'string' && item.status !== 'completed')
+  // a command that was a check carries how it ended, off the item's own exit code
+  const check = item.type === 'CommandExecution' ? commandItemCheck(item) : undefined
   return [
     {
       role: 'assistant',
@@ -284,6 +287,7 @@ function toolItemRows(item: any, ts: number | undefined): SessionMessage[] {
       toolName: call.name,
       text: truncate(call.detail, 400),
       ...(call.preview ? { preview: truncate(call.preview, 200) } : {}),
+      ...(check ? { artifact: check } : {}),
       ...(failed ? { failed: true } : {}),
       ts
     },
@@ -563,6 +567,8 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
   // where each rendered custom call's row sits: its output is rendered only after the
   // call it answers, and a cell that threw marks its own row
   const customCalls = new Map<string, number>()
+  // where each direct call's row sits, for a check its output says the end of
+  const directCalls = new Map<string, number>()
   for (const l of lines) {
     const ts = toMs(l.timestamp) ?? undefined
     const p = l.payload ?? l
@@ -581,6 +587,7 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
           const preview = toolPreview(p.name ?? 'tool', args) ?? callTitle(args)
           const asks = parseAsks(p.name ?? '', args)
           const artifact = toolArtifact(p.name ?? '', args)
+          if (typeof p.call_id === 'string') directCalls.set(p.call_id, out.length)
           out.push({
             role: 'assistant',
             kind: 'tool_call',
@@ -626,9 +633,16 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
           out.push({ role: 'tool', kind: 'tool_result', text: truncate(text, 400), ts })
           break
         }
-        case 'function_call_output':
-          out.push({ role: 'tool', kind: 'tool_result', text: truncate(outputText(p.output), 400), ts })
+        case 'function_call_output': {
+          const text = outputText(p.output)
+          const at = typeof p.call_id === 'string' ? directCalls.get(p.call_id) : undefined
+          const call = at === undefined ? undefined : out[at]
+          // a shell call's output states its exit code (`Process exited with code 1`)
+          if (at !== undefined && call?.artifact?.kind === 'check')
+            out[at] = { ...call, artifact: checkOutcome(call.artifact, { text, exitCode: exitCodeIn(text) }) }
+          out.push({ role: 'tool', kind: 'tool_result', text: truncate(text, 400), ts })
           break
+        }
         case 'reasoning': {
           const t = contentToText(p.summary) || contentToText(p.content)
           if (t) out.push({ role: 'assistant', kind: 'reasoning', text: truncate(t, 400), ts })

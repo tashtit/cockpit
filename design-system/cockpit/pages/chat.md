@@ -84,9 +84,11 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     command and the verdict were both twelve characters and neither could be read.
   - **a tool call that carries work → `.tool-row.tool-open`**, the same one-line
     grammar as one `<button>` instead of a `<details>`: chip · headline · `DiffStat` for
-    an edit · `didn't apply` (warn, the word itself) for a failed call · the `WorkIcon`
-    at the right edge, accent on hover. The headline is the artifact's own: a plan's
-    title, `3 of 7 done`, the task it adds, the files an edit touched. A click opens the
+    an edit · `passed` / `failed` for a check (`.tool-verdict`, ok / danger, the word
+    itself) · `didn't apply` (warn, the word itself) for any other failed call · the
+    `WorkIcon` at the right edge, accent on hover. The headline is the artifact's own: a
+    plan's title, `3 of 7 done`, the task it adds, the files an edit touched, the command
+    a check ran. A click opens the
     Work panel at that row (below); there is no raw JSON to expand — the panel is the
     detail. A blank 10px lead keeps its chip in line with the ▸ of the rows around it.
     Roundtables pass no `onOpenWork`, so their rows stay ordinary `.tool-row`s.
@@ -201,7 +203,8 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
   when the session's directory changes, like review.
 - **Tabs** are the card tabs (`TabList`, `.pnl-pill`) without the card's rule under
   them: **Plan** (amber dot while a plan waits for approval), **To-dos** (count = steps
-  not done), **Edits** (count = files). The body (`.work-body`) is the panel's one
+  not done), **Edits** (count = files), **Checks** (count = checks that want a look:
+  failed, or files edited since). The body (`.work-body`) is the panel's one
   scroller, `tabIndex=0` so a keyboard reaches it, and goes back to the top on a tab
   switch. Each tab leads with a `.work-meta` readout in the mono voice; an empty tab
   says, in one sentence, what would appear there (`.work-empty`).
@@ -221,6 +224,20 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
   `.idiff-rail` (time · tool, `didn't apply` in warn when the call failed), its hunks in
   the shared `DiffLines` grammar, unified only. A row that opened the panel opens its
   file and rings its edit (`.work-edit.ringed`, an accent inset) for two seconds.
+- **Checks**: `N checks · M failing · K out of date` (`checkSummary`) + a `.work-note`
+  that the verdicts are read off exit codes and output. One framed `.work-check` per
+  check kind, in `CHECK_ORDER` (Typecheck, Lint, Tests, End-to-end tests, Build): the
+  state word as a `.review-kind` pill (`passed` tone-ok / `failed` tone-danger / `no
+  result` tone-dim) · the check's name · `exit N` (mono, dim, non-zero only) ·
+  `N files edited since` (`.work-flag`, warn) · time; then the command (mono, dim) and
+  the end of what it printed (`.work-check-out`, `--bg-deep`, 12 lines at most). The
+  state is the newest run *with a verdict* — a run still in the background, one the
+  person refused, or one whose non-zero exit another command in the script could have
+  set, never decides it. Earlier runs fold under `N earlier runs · M failed`
+  (`.work-check-runs`), newest first, one line each. A row that opened the panel rings
+  its run; an earlier one opens the fold. The transcript's check rows are `.tool-open`
+  rows whose verdict is the word itself (`.tool-verdict`, tone-ok / tone-danger) — never
+  "didn't apply", which is an edit's word.
 
 ## Permission prompt (`PermissionAsk`, `.perm-card`)
 

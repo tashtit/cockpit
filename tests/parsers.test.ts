@@ -1157,6 +1157,108 @@ describe('work artifacts on tool rows', () => {
   })
 })
 
+describe('checks: how each agent’s runs of its tests, typecheck and linter ended', () => {
+  const dir = join(root, 'checks')
+  const at = (s: number): string => `2026-09-03T10:00:${String(s).padStart(2, '0')}Z`
+
+  it('claude: an exit code on an error, a zero exit on a success, nothing for a refusal or the background', () => {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'claude-checks.jsonl')
+    const call = (id: string, command: string, extra: object = {}): object => ({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command, ...extra } }] },
+      timestamp: at(1)
+    })
+    const result = (id: string, content: string, isError = false): object => ({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, ...(isError ? { is_error: true } : {}) }] },
+      timestamp: at(2)
+    })
+    writeFileSync(
+      file,
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'check it' }, timestamp: at(0) },
+        call('b1', 'npm run typecheck'),
+        result('b1', 'Exit code 2\nsrc/a.ts(1,7): error TS2322: nope', true),
+        call('b2', 'npm test 2>&1 | tail -3'),
+        // the pipe exited 0; the runner's summary says otherwise
+        result('b2', ' Tests  1 failed | 9 passed (10)'),
+        call('b3', 'npx vitest run'),
+        result('b3', ' Tests  10 passed (10)'),
+        call('b4', 'npm run lint'),
+        result('b4', 'Permission for this action was denied by the user.', true),
+        call('b5', 'npm run test:e2e', { run_in_background: true }),
+        result('b5', 'Command running in background with ID: bx1. Output is being written to: /tmp/x'),
+        call('b6', 'ls -la'),
+        result('b6', 'total 0')
+      ])
+    )
+    const calls = parseClaudeMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[0]).toMatchObject({ failed: true, artifact: { kind: 'check', checks: ['types'], status: 'failed', exitCode: 2 } })
+    expect(calls[0].artifact).toMatchObject({ output: ['src/a.ts(1,7): error TS2322: nope'] })
+    expect(calls[1]).toMatchObject({ artifact: { checks: ['tests'], status: 'failed', exitCode: 0 } })
+    expect(calls[1].failed).toBeUndefined()
+    expect(calls[2]).toMatchObject({ artifact: { status: 'passed', exitCode: 0 } })
+    // denied: it never ran, so it has no verdict — the row still says the call failed
+    expect(calls[3]).toMatchObject({ failed: true, artifact: { kind: 'check', checks: ['lint'] } })
+    expect(calls[3].artifact).not.toHaveProperty('status')
+    expect(calls[4].artifact).toMatchObject({ kind: 'check', checks: ['e2e'] })
+    expect(calls[4].artifact).not.toHaveProperty('status')
+    expect(calls[5].artifact).toBeUndefined()
+  })
+
+  it('copilot: the exit code it states, or the marker its output ends with — whatever `success` says', () => {
+    const sdir = join(dir, 'copilot', 'session-state', 'checks-1')
+    mkdirSync(sdir, { recursive: true })
+    const file = join(sdir, 'events.jsonl')
+    const call = (id: string, command: string): object => ({
+      type: 'tool.execution_start',
+      data: { toolCallId: id, toolName: 'bash', arguments: { command, description: 'run', mode: 'sync' } },
+      timestamp: at(1)
+    })
+    const done = (id: string, data: object): object => ({
+      type: 'tool.execution_complete',
+      data: { toolCallId: id, success: true, ...data },
+      timestamp: at(2)
+    })
+    writeFileSync(
+      file,
+      jsonl([
+        call('c1', 'npm test'),
+        done('c1', { shellExecution: { exitCode: 1 }, result: { content: 'FAIL a.test.ts\n<exited with exit code 1>' } }),
+        call('c2', 'npm run lint'),
+        done('c2', { result: { content: 'clean\n<shellId: 7 completed with exit code 0>', detailedContent: '' } }),
+        call('c3', 'npm run build'),
+        done('c3', { result: { content: '<shellId: 9>' } })
+      ])
+    )
+    const calls = parseCopilotMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[0]).toMatchObject({ artifact: { checks: ['tests'], status: 'failed', exitCode: 1, output: ['FAIL a.test.ts'] } })
+    expect(calls[0].failed).toBeUndefined()
+    expect(calls[1]).toMatchObject({ artifact: { checks: ['lint'], status: 'passed', exitCode: 0, output: ['clean'] } })
+    // started in the background: its end is in a later read, not here
+    expect(calls[2].artifact).not.toHaveProperty('status')
+  })
+
+  it('codex: a command item’s own exit code, and a direct call’s output', () => {
+    const file = join(dir, 'rollout-checks.jsonl')
+    writeFileSync(
+      file,
+      jsonl([
+        { timestamp: at(0), type: 'session_meta', payload: { id: 'checks-2', cwd: '/r' } },
+        { timestamp: at(1), type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'npm test' }), call_id: 'f1' } },
+        {
+          timestamp: at(2),
+          type: 'response_item',
+          payload: { type: 'function_call_output', call_id: 'f1', output: 'Chunk ID: 1\nWall time: 2.0 seconds\nProcess exited with code 1\nOutput:\n2 failed\n' }
+        }
+      ])
+    )
+    const direct = parseCodexMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(direct[0]).toMatchObject({ artifact: { checks: ['tests'], status: 'failed', exitCode: 1, output: ['2 failed'] } })
+  })
+})
+
 describe('work agents keep outside their own log', () => {
   const dir = join(root, 'beside')
   const at = (s: number): string => `2026-09-02T10:00:${String(s).padStart(2, '0')}Z`

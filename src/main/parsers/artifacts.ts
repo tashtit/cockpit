@@ -1,9 +1,11 @@
 import { diffLines } from '../../shared/line-diff'
 import type { EditLine, FileEdit, TodoItem, TodoStatus, WorkArtifact } from '../../shared/types'
-import { capText, truncate } from './util'
+import { checkArtifact } from './checks'
+import { capText, shellScript, truncate } from './util'
 
 /**
- * What a tool call hands the person to look at — a plan, a to-do list, an edit —
+ * What a tool call hands the person to look at — a plan, a to-do list, an edit, a
+ * check it ran (`checks.ts`) —
  * read off the call's own input, for every agent and both paths a call arrives by
  * (the log on disk and the live stream). The Work panel renders these; without them
  * a plan was 400 characters of JSON behind a collapsed row.
@@ -283,8 +285,12 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
     case 'exec_command':
     case 'local_shell': {
       const cmd = i?.command ?? i?.cmd
-      return patchArtifact(Array.isArray(cmd) ? cmd.map(String).join('\n') : cmd)
+      return patchArtifact(Array.isArray(cmd) ? cmd.map(String).join('\n') : cmd) ?? checkArtifact(shellScript(cmd))
     }
+    // every agent's shell: a command that runs tests, a typecheck, a linter or a build
+    case 'Bash':
+    case 'bash':
+      return checkArtifact(i?.command)
     // Codex and Copilot: the input is the patch, bare or under `input`/`patch`
     case 'apply_patch':
       return patchArtifact(typeof input === 'string' ? input : (i?.input ?? i?.patch))

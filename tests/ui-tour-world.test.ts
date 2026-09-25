@@ -7,6 +7,7 @@ import { listClaudeSessions, parseClaudeMessages } from '../src/main/parsers/cla
 import { listCodexSessions } from '../src/main/parsers/codex'
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
 import { sanitizeRoundtable } from '../src/main/roundtable-core'
+import { buildWork } from '../src/shared/work'
 import { buildWorld, type World } from '../scripts/ui-tour/world.mts'
 
 /**
@@ -44,6 +45,14 @@ describe('ui-tour fixture world', () => {
     const rows = parseClaudeMessages(paginate.sourcePath)
     expect(rows.map((m) => m.toolName).filter(Boolean)).toEqual(['Agent', 'Edit'])
     expect(rows.find((m) => m.toolName === 'Edit')?.artifact?.kind).toBe('edits')
+    // the flake's checks: e2e failed, then passed; vitest passed
+    const flake = claude.find((s) => s.title === 'Fix the login flake in CI')!
+    const checks = buildWork(parseClaudeMessages(flake.sourcePath)).checks
+    expect(checks.map((c) => [c.kind, c.runs.map((r) => r.status)])).toEqual([
+      ['tests', ['passed']],
+      ['e2e', ['failed', 'passed']]
+    ])
+    expect(checks.find((c) => c.kind === 'e2e')?.editedSince).toBe(1)
     const copilot = listCopilotSessions(join(world.home, '.copilot'), 'copilot-default')
     const tidy = copilot.find((s) => s.title === 'Tidy the usage panel spacing')!
     const list = parseCopilotMessages(tidy.sourcePath).find((m) => m.artifact?.kind === 'todos')

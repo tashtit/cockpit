@@ -197,6 +197,22 @@ describe('buildHandoffBriefing', () => {
     expect(briefing.indexOf('## To-dos')).toBeLessThan(briefing.indexOf('## Recent conversation'))
   })
 
+  it('says how each check last ended, and which ones edits have outrun', () => {
+    const edit: SessionMessage = msg({
+      role: 'assistant',
+      kind: 'tool_call',
+      toolName: 'Edit',
+      text: '{}',
+      artifact: { kind: 'edits', files: [{ path: '/r/a.ts', change: 'edit', hunks: [[{ op: 'add', text: 'x' }]] }] }
+    })
+    const check = (checks: ('types' | 'tests')[], command: string, status: 'passed' | 'failed', exitCode: number): SessionMessage =>
+      msg({ role: 'assistant', kind: 'tool_call', toolName: 'Bash', text: '{}', artifact: { kind: 'check', checks, command, status, exitCode } })
+    const work = [...transcript, check(['tests'], 'npm test', 'passed', 0), edit, check(['types'], 'npm run typecheck', 'failed', 2)]
+    const { briefing } = buildHandoffBriefing(source, work, git)
+    expect(briefing).toContain('## Checks (how each last ended)')
+    expect(briefing).toContain('- Typecheck: failed (exit 2) — `npm run typecheck`\n- Tests: passed — `npm test`; 1 file edited since')
+  })
+
   it('has no plan or to-do sections when the agent kept neither', () => {
     const { briefing } = buildHandoffBriefing(source, transcript, git)
     expect(briefing).not.toContain('## Plan')

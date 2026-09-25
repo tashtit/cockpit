@@ -5,12 +5,24 @@ import { PROVIDER_LABEL, TodoMark, XIcon } from './logos'
 import { Markdown } from './Markdown'
 import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
-import { fileChange, todoSummary, type EditEntry, type FileWork, type WorkModel, type WorkTab } from '../../shared/work'
+import {
+  CHECK_LABEL,
+  checkSummary,
+  fileChange,
+  needsLook,
+  todoSummary,
+  type CheckRun,
+  type CheckWork,
+  type EditEntry,
+  type FileWork,
+  type WorkModel,
+  type WorkTab
+} from '../../shared/work'
 
 /**
  * The Work panel: what the agent handed you to look at, beside the conversation —
- * the plan it proposed, where its to-do list stands, and every edit it made, file by
- * file. Built from the agents' own tool calls (`work.ts`), so it is what the agent
+ * the plan it proposed, where its to-do list stands, every edit it made, file by
+ * file, and how the checks it ran ended. Built from the agents' own tool calls (`work.ts`), so it is what the agent
  * *said*: the edits are each call's own description of its change, and **Changes**
  * (the worktree's diff, ⌘D) stays the word on what is actually on disk.
  *
@@ -28,6 +40,13 @@ const TODO_WORD: Record<TodoStatus, string> = {
   in_progress: 'in progress',
   completed: 'done',
   blocked: 'blocked'
+}
+
+/** A run's state as its word and tone — the word always, so the colour never carries it alone */
+function verdict(run: CheckRun | null): { word: string; tone: string } {
+  if (run?.status === 'passed') return { word: 'passed', tone: 'tone-ok' }
+  if (run?.status === 'failed') return { word: 'failed', tone: 'tone-danger' }
+  return { word: 'no result', tone: 'tone-dim' }
 }
 
 const CHANGE_WORD: Record<FileEdit['change'], string | null> = {
@@ -89,7 +108,9 @@ export function WorkPanel({
   const tabs: readonly TabDef<WorkTab>[] = [
     { id: 'plan', label: 'Plan', dot: pendingPlanKey !== null },
     { id: 'todos', label: 'To-dos', count: openTodos },
-    { id: 'edits', label: 'Edits', count: model.files.length }
+    { id: 'edits', label: 'Edits', count: model.files.length },
+    // the checks that want a look: failed, or out of date since an edit
+    { id: 'checks', label: 'Checks', count: model.checks.filter(needsLook).length }
   ]
 
   return (
@@ -122,6 +143,8 @@ export function WorkPanel({
           <PlanTab model={model} focus={focus} pendingPlanKey={pendingPlanKey} provider={provider} />
         ) : focus.tab === 'todos' ? (
           <TodosTab model={model} provider={provider} />
+        ) : focus.tab === 'checks' ? (
+          <ChecksTab model={model} focus={focus} provider={provider} scroller={bodyRef} />
         ) : (
           <EditsTab model={model} focus={focus} cwd={cwd} scroller={bodyRef} onOpenChanges={onOpenChanges} />
         )}
@@ -390,5 +413,125 @@ function EditBlock({ entry, ringed }: { entry: EditEntry; ringed: boolean }): JS
         </div>
       )}
     </div>
+  )
+}
+
+function ChecksTab({
+  model,
+  focus,
+  provider,
+  scroller
+}: {
+  model: WorkModel
+  focus: WorkFocus
+  provider: Provider
+  scroller: RefObject<HTMLDivElement | null>
+}): JSX.Element {
+  const { checks } = model
+  const [ringed, setRinged] = useState<number | null>(null)
+
+  // a row opened the panel at its run: bring that run into view and ring it
+  useEffect(() => {
+    if (focus.key !== null && checks.some((c) => c.runs.some((r) => r.key === focus.key))) setRinged(focus.key)
+  }, [focus.at])
+  useLayoutEffect(() => {
+    if (ringed === null) return
+    scroller.current?.querySelector(`[data-work-key="${ringed}"]`)?.scrollIntoView({ block: 'nearest' })
+    const t = setTimeout(() => setRinged(null), RING_MS)
+    return () => clearTimeout(t)
+  }, [ringed])
+
+  if (checks.length === 0) {
+    return (
+      <p className="work-empty">
+        No checks yet. When {PROVIDER_LABEL[provider]} runs its tests, a typecheck, a linter or a build, how each one
+        last ended shows here.
+      </p>
+    )
+  }
+  return (
+    <>
+      <div className="work-meta">
+        <span>{checkSummary(checks)}</span>
+      </div>
+      <p className="work-note">
+        Read off each command's exit code and what it printed. A check is out of date once the agent edits files after
+        it.
+      </p>
+      <ul className="work-checks">
+        {checks.map((c) => (
+          <CheckBlock key={c.kind} check={c} ringed={ringed} />
+        ))}
+      </ul>
+    </>
+  )
+}
+
+function CheckBlock({ check, ringed }: { check: CheckWork; ringed: number | null }): JSX.Element {
+  const fmt = useTimeFormat()
+  // the run that decides the state, else the newest, which has no verdict yet
+  const shown = check.last ?? check.runs[check.runs.length - 1]!
+  const state = verdict(check.last)
+  const earlier = check.runs.filter((r) => r !== shown).reverse()
+  const failedEarlier = earlier.filter((r) => r.status === 'failed').length
+  // a row that opened the panel at an earlier run opens the fold; the ring clearing doesn't close it
+  const ringsEarlier = earlier.some((r) => r.key === ringed)
+  const [runsOpen, setRunsOpen] = useState(ringsEarlier)
+  useEffect(() => {
+    if (ringsEarlier) setRunsOpen(true)
+  }, [ringsEarlier])
+  return (
+    <li className={`work-check${ringed === shown.key ? ' ringed' : ''}`} data-work-key={shown.key}>
+      <div className="work-check-head">
+        <span className={`review-kind ${state.tone}`}>{state.word}</span>
+        <span className="work-check-name">{CHECK_LABEL[check.kind]}</span>
+        {shown.exitCode !== undefined && shown.exitCode !== 0 && (
+          <span className="work-check-meta">exit {shown.exitCode}</span>
+        )}
+        {check.editedSince > 0 && (
+          <span className="work-flag">
+            {check.editedSince === 1 ? '1 file' : `${check.editedSince} files`} edited since
+          </span>
+        )}
+        {shown.ts && <span className="work-check-meta work-check-time">{fmtTime(shown.ts, fmt)}</span>}
+      </div>
+      <code className="work-check-cmd" title={shown.command}>
+        {shown.command}
+      </code>
+      {shown.output && <pre className="work-check-out">{shown.output.join('\n')}</pre>}
+      {earlier.length > 0 && (
+        <details
+          className="work-check-runs"
+          open={runsOpen}
+          onToggle={(e) => {
+            // a details element reports its first paint too: only a change is a choice
+            if (e.currentTarget.open !== runsOpen) setRunsOpen(e.currentTarget.open)
+          }}
+        >
+          <summary>
+            {earlier.length === 1 ? '1 earlier run' : `${earlier.length} earlier runs`}
+            {failedEarlier > 0 && ` · ${failedEarlier} failed`}
+          </summary>
+          <ol className="work-check-list">
+            {earlier.map((r, i) => {
+              const v = verdict(r)
+              return (
+                <li
+                  key={`${r.key}-${i}`}
+                  className={`work-check-run${ringed === r.key ? ' ringed' : ''}`}
+                  data-work-key={r.key}
+                >
+                  {r.ts && <span className="work-check-meta">{fmtTime(r.ts, fmt)}</span>}
+                  <span className={`review-kind ${v.tone}`}>{v.word}</span>
+                  <code className="work-check-cmd" title={r.command}>
+                    {r.command}
+                  </code>
+                </li>
+              )
+            })}
+          </ol>
+        </details>
+      )}
+    </li>
   )
 }

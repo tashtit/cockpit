@@ -127,6 +127,9 @@ export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'blocked'
 
 export type TodoItem = { readonly text: string; readonly status: TodoStatus }
 
+/** What an agent's shell command checked — the groups the Work panel's Checks tab keeps. */
+export type CheckKind = 'types' | 'lint' | 'tests' | 'e2e' | 'build'
+
 /** One line of an edit, GitHub's grammar: kept, added or removed. */
 export type EditLine = { readonly op: 'same' | 'add' | 'del'; readonly text: string }
 
@@ -168,6 +171,23 @@ export type WorkArtifact =
       readonly text?: string
     }
   | { readonly kind: 'edits'; readonly files: readonly FileEdit[] }
+  | {
+      readonly kind: 'check'
+      /** Every check the command runs, in its order: `tsc && vitest` is two */
+      readonly checks: readonly CheckKind[]
+      /** The script as the agent ran it, bounded */
+      readonly command: string
+      /** Nothing but its checks could have set the script's exit status — no other
+       *  command, no pipe — so a non-zero exit is theirs (main reads it; see checks.ts) */
+      readonly ownExit?: boolean
+      /** How it ended, read off its exit code and what it printed. Absent until a result
+       *  is read, and for a run that never finished in the call (refused, sent to the
+       *  background) — the fold never lets such a run decide a check's state */
+      readonly status?: 'passed' | 'failed'
+      readonly exitCode?: number
+      /** The last lines it printed, where a runner puts its verdict */
+      readonly output?: readonly string[]
+    }
 
 export type SessionMessage = {
   readonly role: 'user' | 'assistant' | 'system' | 'tool'
