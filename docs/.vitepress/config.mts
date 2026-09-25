@@ -45,6 +45,7 @@ export default defineConfig({
           { text: 'Chat', link: '/guide/chat' },
           { text: 'Roundtables', link: '/guide/roundtables' },
           { text: 'Notifications', link: '/guide/notifications' },
+          { text: 'Profile', link: '/guide/profile' },
           { text: 'Cleanup', link: '/guide/cleanup' }
         ]
       },

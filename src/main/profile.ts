@@ -3,6 +3,7 @@ import { extname } from 'node:path'
 import type {
   AccountStat,
   ActivityDay,
+  AgentSplit,
   LanguageStat,
   ModelStat,
   Mutable,
@@ -12,13 +13,14 @@ import type {
   ProviderProfile,
   RepoStat,
   SessionMeta,
+  SessionTally,
   SourceDir
 } from '../shared/types'
 import { claudeIdentity, codexIdentity, copilotUsers, ghUser } from './accounts'
 import { parseUnifiedDiff } from './parsers/artifacts'
 import { cellToolCalls } from './parsers/code-mode'
 import { toolItemFor, toolItemName, toolRecords } from './parsers/codex'
-import { readHead, sessionLogFiles } from './parsers/util'
+import { contentToText, readHead, sessionLogFiles } from './parsers/util'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals, built
@@ -26,11 +28,11 @@ import { readHead, sessionLogFiles } from './parsers/util'
  * aggregate crosses the IPC bridge — never the sessions behind it.
  *
  * Two passes with very different costs:
- *   cheap — heatmap, streaks, repo and per-agent session counts, straight off the
- *           index (no file IO at all)
- *   deep  — lines edited, languages, tool mix and models, which require reading
- *           each transcript; cached on (mtime,size) so a rescan re-reads only
- *           what changed, mirroring usage.ts and the indexer's own stat cache
+ *   cheap — heatmap, hours, streaks, repo and per-agent session counts, straight
+ *           off the index (no file IO at all)
+ *   deep  — prompts, lines edited, languages, tool mix and models, which require
+ *           reading each transcript; cached on (mtime,size) so a rescan re-reads
+ *           only what changed, mirroring usage.ts and the indexer's own stat cache
  *
  * The deep pass is bounded per file (DEEP_READ_BYTES) and failure-tolerant by
  * design: provider log formats are internal and drift between releases, so an
@@ -48,6 +50,21 @@ const YIELD_EVERY = 20
 /** Tallying counterparts of the readonly wire types (see buildProfile). */
 type MutableDay = Mutable<ActivityDay>
 type MutableRepoStat = Mutable<RepoStat>
+type MutableTally = Mutable<SessionTally>
+
+function emptyTally(): MutableTally {
+  return { sessions: 0, byProvider: {} }
+}
+
+/** One more session in a bucket, credited to the agent that ran it. */
+function tally(t: MutableTally, provider: Provider): void {
+  t.sessions++
+  t.byProvider[provider] = (t.byProvider[provider] ?? 0) + 1
+}
+
+function split(into: AgentSplit, provider: Provider, by: number): void {
+  into[provider] = (into[provider] ?? 0) + by
+}
 
 /** Extensions that are code we want to attribute; everything else is ignored. */
 const CODE_EXTENSIONS = new Set([
@@ -88,6 +105,8 @@ function addDays(key: string, n: number): string {
 /** What one transcript contributed; cached so unchanged files are never re-read.
  *  Mutable on purpose — this is the per-file accumulator the deep pass fills in. */
 type DeepStats = {
+  /** What the person sent, never tool results or injected context (see ProviderProfile.prompts) */
+  prompts: number
   linesAdded: number
   linesRemoved: number
   files: Set<string>
@@ -99,6 +118,7 @@ type DeepStats = {
 
 function emptyDeep(): DeepStats {
   return {
+    prompts: 0,
     linesAdded: 0,
     linesRemoved: 0,
     files: new Set(),
@@ -146,12 +166,27 @@ function parseJsonlLines(text: string): any[] {
 }
 
 /**
+ * A Claude `user` entry the person typed. The same entry type carries every tool
+ * result, the CLI's own notes (`isMeta`), a compaction summary and the markup
+ * around a local command — only a slash command is input among the `<…>` ones.
+ */
+function isClaudePrompt(entry: any): boolean {
+  if (entry?.type !== 'user' || entry.isMeta || entry.isSidechain || entry.isCompactSummary) return false
+  const content = entry.message?.content
+  if (Array.isArray(content) && content.some((b: any) => b?.type === 'tool_result')) return false
+  const text = contentToText(content).trimStart()
+  if (!text || text.startsWith('[Request interrupted')) return false
+  return !text.startsWith('<') || text.startsWith('<command-')
+}
+
+/**
  * Claude transcripts: assistant entries carry `message.content[]` with `tool_use`
  * blocks. Edit inputs hold old_string/new_string, Write holds the whole content.
  */
 function deepClaude(text: string): DeepStats {
   const d = emptyDeep()
   for (const entry of parseJsonlLines(text)) {
+    if (isClaudePrompt(entry)) d.prompts++
     const msg = entry?.message
     if (!msg) continue
     if (typeof msg.model === 'string') bump(d.models, msg.model)
@@ -187,14 +222,26 @@ function deepClaude(text: string): DeepStats {
  * transcript reads it from (`toolRecords`), never twice. Codex has no edit tool: lines
  * come from `apply_patch` bodies (a call's own, or a cell's) and from the `FileChange`
  * items a patch run inside a cell completes with.
+ *
+ * Prompts come from the `user_message` events, which carry exactly what was typed. A
+ * rollout without them has only its `message` items, where the user role also holds
+ * the context Codex injects (`<environment_context>`, AGENTS.md) — skipped the way
+ * the parser skips it for a title.
  */
 function deepCodex(text: string): DeepStats {
   const d = emptyDeep()
   const lines = parseJsonlLines(text)
   const records = toolRecords(lines)
+  let typed = 0
+  let userItems = 0
   for (const entry of lines) {
     const p = entry?.payload ?? entry
     if (typeof p?.model === 'string') bump(d.models, p.model)
+    if (entry?.type === 'event_msg' && p?.type === 'user_message') typed++
+    else if (entry?.type !== 'event_msg' && p?.type === 'message' && p.role === 'user') {
+      const t = contentToText(p.content).trimStart()
+      if (t && !t.startsWith('<') && !t.startsWith('# AGENTS.md')) userItems++
+    }
     const item = toolItemFor(entry, records)
     if (item?.type === 'FileChange') {
       if (countFileChange(d, item)) bump(d.tools, 'apply_patch')
@@ -217,6 +264,7 @@ function deepCodex(text: string): DeepStats {
       }
     }
   }
+  d.prompts = typed > 0 ? typed : userItems
   return d
 }
 
@@ -287,11 +335,13 @@ function countPatch(d: DeepStats, args: string): void {
 /**
  * Copilot sessions: `tool.execution_start` events with `data.toolName` and
  * `data.arguments`. `create` writes `file_text`; `edit` carries old/new strings.
+ * Every `user.message` is a prompt: Copilot logs its injected context elsewhere.
  */
 function deepCopilot(text: string): DeepStats {
   const d = emptyDeep()
   for (const entry of parseJsonlLines(text)) {
     if (typeof entry?.data?.model === 'string') bump(d.models, entry.data.model)
+    if (entry?.type === 'user.message') d.prompts++
     if (entry?.type !== 'tool.execution_start') continue
     const data = entry.data ?? {}
     const name = typeof data.toolName === 'string' ? data.toolName : null
@@ -345,6 +395,7 @@ function deepForFile(file: string, provider: Provider): DeepStats | null {
 }
 
 function mergeDeep(into: DeepStats, from: DeepStats): void {
+  into.prompts += from.prompts
   into.linesAdded += from.linesAdded
   into.linesRemoved += from.linesRemoved
   for (const f of from.files) into.files.add(f)
@@ -394,15 +445,6 @@ export function streaks(
 
 /* ---------- assembly ---------- */
 
-/**
- * Build the profile. `now` and `login` are injectable so tests stay deterministic
- * and never shell out to `gh`.
- *
- * Async because the deep pass reads every transcript: on a cold cache that is
- * seconds of IO, and this runs on the main process where a synchronous stall
- * would freeze the UI and every other IPC call. It yields between files (see
- * `yieldEvery`), matching the indexer's own scan discipline.
- */
 /** Identity of one signed-in account, injectable so buildProfile stays IO-free here. */
 export type AccountIdentity = {
   readonly provider: Provider
@@ -410,6 +452,15 @@ export type AccountIdentity = {
   readonly identity: string | null
 }
 
+/**
+ * Build the profile. `now` and `login` are injectable so tests stay deterministic
+ * and never shell out to `gh`.
+ *
+ * Async because the deep pass reads every transcript: on a cold cache that is
+ * seconds of IO, and this runs on the main process where a synchronous stall
+ * would freeze the UI and every other IPC call. It yields between files (see
+ * `YIELD_EVERY`), matching the indexer's own scan discipline.
+ */
 export async function buildProfile(
   sessions: SessionMeta[],
   opts: {
@@ -440,7 +491,7 @@ export async function buildProfile(
       repos: [],
       models: [],
       accounts: [],
-      hourCounts: new Array(24).fill(0)
+      hours: Array.from({ length: 24 }, emptyTally)
     }
   }
 
@@ -449,10 +500,10 @@ export async function buildProfile(
   // deeply readonly (that's the contract the renderer gets), which is exactly
   // what a tallying loop can't use.
   const byDay = new Map<string, MutableDay>()
-  const perProvider = new Map<Provider, { sessions: number; days: Set<string>; turns: number }>()
+  const perProvider = new Map<Provider, { sessions: number; days: Set<string> }>()
   const repos = new Map<string, MutableRepoStat>()
   const bySource = new Map<string, Mutable<AccountStat>>()
-  const hourCounts = new Array<number>(24).fill(0)
+  const hours = Array.from({ length: 24 }, emptyTally)
   let since = Infinity
 
   for (const s of sessions) {
@@ -462,17 +513,15 @@ export async function buildProfile(
     const key = dayKey(ts)
 
     let day = byDay.get(key)
-    if (!day) byDay.set(key, (day = { day: key, sessions: 0, byProvider: {} }))
-    day.sessions++
-    day.byProvider[s.provider] = (day.byProvider[s.provider] ?? 0) + 1
+    if (!day) byDay.set(key, (day = { day: key, ...emptyTally() }))
+    tally(day, s.provider)
 
     let p = perProvider.get(s.provider)
-    if (!p) perProvider.set(s.provider, (p = { sessions: 0, days: new Set(), turns: 0 }))
+    if (!p) perProvider.set(s.provider, (p = { sessions: 0, days: new Set() }))
     p.sessions++
     p.days.add(key)
-    p.turns += s.messageCount || 0
 
-    hourCounts[new Date(ts).getHours()]++
+    tally(hours[new Date(ts).getHours()], s.provider)
 
     const srcKey = `${s.provider}:${s.source}`
     let acct = bySource.get(srcKey)
@@ -491,10 +540,16 @@ export async function buildProfile(
     if (!r) {
       repos.set(
         repoKey,
-        (r = { key: repoKey, name: info?.name ?? 'General', sessions: 0, lastActivity: 0 })
+        (r = {
+          key: repoKey,
+          name: info?.name ?? 'General',
+          fullName: info?.fullName ?? null,
+          ...emptyTally(),
+          lastActivity: 0
+        })
       )
     }
-    r.sessions++
+    tally(r, s.provider)
     if (s.updatedAt > r.lastActivity) r.lastActivity = s.updatedAt
   }
 
@@ -515,6 +570,7 @@ export async function buildProfile(
   const perProviderDeep = new Map<Provider, DeepStats>()
   const failures = new Map<Provider, number>()
   const attempts = new Map<Provider, number>()
+  const reads = new Map<Provider, number>()
   let sinceYield = 0
   for (const s of sessions) {
     attempts.set(s.provider, (attempts.get(s.provider) ?? 0) + 1)
@@ -528,6 +584,7 @@ export async function buildProfile(
       failures.set(s.provider, (failures.get(s.provider) ?? 0) + 1)
       continue
     }
+    reads.set(s.provider, (reads.get(s.provider) ?? 0) + 1)
     let agg = perProviderDeep.get(s.provider)
     if (!agg) perProviderDeep.set(s.provider, (agg = emptyDeep()))
     for (const stats of pages) if (stats) mergeDeep(agg, stats)
@@ -538,11 +595,15 @@ export async function buildProfile(
       const deep = perProviderDeep.get(provider) ?? emptyDeep()
       const tried = attempts.get(provider) ?? 0
       const failed = failures.get(provider) ?? 0
+      let toolCalls = 0
+      for (const n of deep.tools.values()) toolCalls += n
       return {
         provider,
         sessions: counts.sessions,
         activeDays: counts.days.size,
-        avgTurns: counts.sessions > 0 ? Math.round(counts.turns / counts.sessions) : 0,
+        readSessions: reads.get(provider) ?? 0,
+        prompts: deep.prompts,
+        toolCalls,
         linesAdded: deep.linesAdded,
         linesRemoved: deep.linesRemoved,
         filesTouched: deep.files.size,
@@ -553,31 +614,33 @@ export async function buildProfile(
     })
     .sort((a, b) => b.sessions - a.sessions)
 
-  const allLanguages = new Map<string, { files: Set<string>; linesAdded: number }>()
-  for (const deep of perProviderDeep.values()) {
+  // Languages merged across agents, split like models: which agent writes the Swift
+  const allLanguages = new Map<string, { files: Set<string>; linesAdded: number; byProvider: AgentSplit }>()
+  for (const [provider, deep] of perProviderDeep) {
     for (const [ext, lang] of deep.languages) {
       let cur = allLanguages.get(ext)
-      if (!cur) allLanguages.set(ext, (cur = { files: new Set(), linesAdded: 0 }))
+      if (!cur) allLanguages.set(ext, (cur = { files: new Set(), linesAdded: 0, byProvider: {} }))
       for (const f of lang.files) cur.files.add(f)
       cur.linesAdded += lang.linesAdded
+      if (lang.linesAdded > 0) split(cur.byProvider, provider, lang.linesAdded)
     }
   }
   const languages: LanguageStat[] = [...allLanguages.entries()]
-    .map(([ext, l]) => ({ ext, files: l.files.size, linesAdded: l.linesAdded }))
+    .map(([ext, l]) => ({ ext, files: l.files.size, linesAdded: l.linesAdded, byProvider: l.byProvider }))
     .sort((a, b) => b.linesAdded - a.linesAdded || a.ext.localeCompare(b.ext))
     .slice(0, 8)
 
   // Models merged across agents, keeping the per-agent split — the same model
   // family crosses agent boundaries (Copilot serves claude-opus), and that
   // split is what the profile's segmented bars exist to show.
-  const allModels = new Map<string, Mutable<ModelStat> & { byProvider: Partial<Record<Provider, number>> }>()
+  const allModels = new Map<string, Mutable<ModelStat>>()
   for (const [provider, deep] of perProviderDeep) {
     for (const [name, count] of deep.models) {
       if (name === '<synthetic>') continue // claude's placeholder for injected turns, not a model
       let m = allModels.get(name)
       if (!m) allModels.set(name, (m = { name, count: 0, byProvider: {} }))
       m.count += count
-      m.byProvider[provider] = (m.byProvider[provider] ?? 0) + count
+      split(m.byProvider, provider, count)
     }
   }
   const models: ModelStat[] = [...allModels.values()]
@@ -607,7 +670,7 @@ export async function buildProfile(
     repos: [...repos.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8),
     models,
     accounts,
-    hourCounts
+    hours
   }
 }
 

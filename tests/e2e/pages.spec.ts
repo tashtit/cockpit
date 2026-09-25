@@ -332,7 +332,7 @@ test('profile aggregates the fixture sessions into a heatmap', async () => {
   // the per-agent breakdown is the view's reason to exist — one tab over, a page of its own
   const tabs = win.getByRole('tablist', { name: 'Profile sections' })
   await tabs.getByRole('tab', { name: 'Agents' }).click()
-  await expect(win.locator('.pv-agent')).not.toHaveCount(0)
+  await expect(win.getByRole('table').getByRole('columnheader')).not.toHaveCount(0)
   await expect(win.getByRole('img', { name: /activity over the last \d+ days/i })).toHaveCount(0)
   // the headline numbers are the glance every tab keeps
   await expect(stats).toBeVisible()
