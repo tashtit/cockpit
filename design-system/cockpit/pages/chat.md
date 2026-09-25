@@ -88,7 +88,7 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     itself) · `didn't apply` (warn, the word itself) for any other failed call · the
     `WorkIcon` at the right edge, accent on hover. The headline is the artifact's own: a
     plan's title, `3 of 7 done`, the task it adds, the files an edit touched, the command
-    a check ran, the names of the files and pages a call shared. A click opens the
+    a check ran, the names of the files and pages a call shared, a follow-up's title. A click opens the
     Work panel at that row (below); there is no raw JSON to expand — the panel is the
     detail. A blank 10px lead keeps its chip in line with the ▸ of the rows around it.
     Roundtables pass no `onOpenWork`, so their rows stay ordinary `.tool-row`s.
@@ -204,7 +204,8 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
 - **Tabs** are the card tabs (`TabList`, `.pnl-pill`) without the card's rule under
   them: **Plan** (amber dot while a plan waits for approval), **To-dos** (count = steps
   not done), **Edits** (count = files), **Checks** (count = checks that want a look:
-  failed, or files edited since), **Files** (count = files and pages shared). The body (`.work-body`) is the panel's one
+  failed, or files edited since), **Files** (count = files and pages shared),
+  **Follow-ups** (count = suggestions not withdrawn). The body (`.work-body`) is the panel's one
   scroller, `tabIndex=0` so a keyboard reaches it, and goes back to the top on a tab
   switch. Each tab leads with a `.work-meta` readout in the mono voice; an empty tab
   says, in one sentence, what would appear there (`.work-empty`).
@@ -259,6 +260,21 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
     the browser through `onOpenUrl`.
   - Main acts only on a path the session's own log shared (`assertSharedFile`), and opens
     only by the extension of the file the path resolves to.
+- **Follow-ups**: `N suggested · M withdrawn` (`followUpSummary`) + a `.work-note`
+  saying what they are. Newest first, one `.work-follow` frame each (the check's frame):
+  - the title (`.work-follow-title`), `withdrawn` (`.review-kind.tone-dim`) when the agent
+    took it back, and the time;
+  - the agent's reason for it, then `Withdrawn: <reason>` where there is one;
+  - `in <shortPath>` for a project the suggestion names;
+  - the prompt folded (`.work-follow-prompt`, "the prompt it starts with");
+  - one `.btn-ghost.small` key, **Start a session…**, which fills in New session with
+    the title as the task's first line — it names the branch and the session — then the
+    prompt (`followUpRepo`: the project its cwd names, else the session's repo, else the no-repo
+    bucket — never the session's repo for a suggestion that named elsewhere). It becomes
+    **Start another session…** with `started <time>` beside it once started on this
+    machine (`localStorage`, a convenience). Withdrawn suggestions and roundtables (no
+    `onStartFollowUp`) have no key.
+  - A withdrawn row in the transcript says `withdrawn` (`.tool-verdict.tone-dim`).
 
 ## Permission prompt (`PermissionAsk`, `.perm-card`)
 

@@ -37,6 +37,7 @@ export function ChatView({
   onCreatePr,
   onOpenUrl,
   onOpenHandoff,
+  onStartFollowUp,
   onOpenLineage,
   permissions,
   onAnswerPermission,
@@ -55,6 +56,8 @@ export function ChatView({
   onCreatePr: () => void
   onOpenUrl: (url: string) => void
   onOpenHandoff: () => void
+  /** Start a session on work this one's agent suggested: the new-session form, filled in */
+  onStartFollowUp?: (followUp: { readonly title: string; readonly prompt: string; readonly cwd?: string }) => void
   onOpenLineage: (sourceId: string) => void
   permissions: readonly PendingPermission[]
   onAnswerPermission: (ask: PendingPermission, optionId: string) => void
@@ -608,6 +611,7 @@ export function ChatView({
             onOpenChanges={reviewable ? () => !review && toggleReview() : undefined}
             sessionId={binding.nativeSessionId ? `${binding.provider}:${binding.nativeSessionId}` : null}
             onOpenUrl={onOpenUrl}
+            onStartFollowUp={onStartFollowUp}
           />
         )}
       </div>
@@ -625,6 +629,7 @@ export function defaultTab(model: WorkModel, pendingPlanKey: number | null): Wor
   if (model.files.length > 0) return 'edits'
   if (model.plans.length > 0) return 'plan'
   if (model.checks.length > 0) return 'checks'
+  if (model.followUps.length > 0) return 'follow-ups'
   return 'todos'
 }
 
@@ -739,6 +744,8 @@ function artifactHeadline(m: SessionMessage, cwd: string | undefined): string {
       return relative(a.files.map((f) => f.path).join(', '), cwd).slice(0, 120)
     case 'check':
       return relative(m.preview ?? a.command, cwd).slice(0, 120)
+    case 'follow-up':
+      return a.title
     case 'shared': {
       // the names it handed over, then the pages — what a person looks for in the row
       const names = a.files.map((f) => f.split('/').pop() ?? f)
@@ -808,6 +815,7 @@ export const Message = memo(function Message({
         {a.kind === 'check' && a.status && (
           <span className={`tool-verdict ${a.status === 'passed' ? 'tone-ok' : 'tone-danger'}`}>{a.status}</span>
         )}
+        {a.kind === 'follow-up' && a.dismissed && <span className="tool-verdict tone-dim">withdrawn</span>}
         {m.failed && a.kind !== 'check' && <span className="tool-failed">didn't apply</span>}
         <span className="tool-open-go" aria-hidden="true">
           <WorkIcon size={11} />

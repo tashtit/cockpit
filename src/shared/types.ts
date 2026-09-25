@@ -203,6 +203,21 @@ export type WorkArtifact =
     }
   | { readonly kind: 'edits'; readonly files: readonly FileEdit[] }
   | {
+      readonly kind: 'follow-up'
+      /** What the new session would be for */
+      readonly title: string
+      /** Why the agent suggests it now, in a sentence or two */
+      readonly summary?: string
+      /** The self-contained prompt it would start with, bounded */
+      readonly prompt: string
+      /** Another project's root the agent named for it; absent: the session's own */
+      readonly cwd?: string
+      /** The id its app gave it (`task_…`), once the result is read */
+      readonly taskId?: string
+      /** The agent withdrew it (`dismiss_task`), and why */
+      readonly dismissed?: string
+    }
+  | {
       readonly kind: 'shared'
       /** Files it handed the person, as the call named them */
       readonly files: readonly string[]

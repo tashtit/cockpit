@@ -246,7 +246,32 @@ function populate(world: World): void {
           { name: 'TaskUpdate', input: { taskId: '3', status: 'completed' }, result: 'Updated task #3 status' }
         ]
       },
-      { say: 'Committed as `4e1a2c9`. The branch is ready for a PR.' }
+      { say: 'Committed as `4e1a2c9`. The branch is ready for a PR.' },
+      {
+        say: 'Two things I noticed outside this fix, suggested as sessions of their own:',
+        tools: [
+          {
+            name: 'mcp__ccd_session__spawn_task',
+            input: {
+              title: 'Make the e2e retry budget configurable',
+              tldr: 'The login fix raised the timeout by hand; three other specs hard-code 800ms too.',
+              prompt: `In ${flake}, the e2e specs hard-code an 800ms request timeout in four places (src/auth/login.ts was fixed on cockpit/login-retry-flake). Move it to one E2E_TIMEOUT_MS setting read from the environment, default 5000, and use it in every spec. Run npm run test:e2e before opening a PR.`
+            },
+            result: 'Noted (position 1, task_id: task_4f2a91c0). A chip is showing for the user.'
+          },
+          {
+            name: 'mcp__ccd_session__spawn_task',
+            input: { title: 'Remove the unused retry helper', prompt: 'Delete src/util/retry-old.ts; nothing imports it.' },
+            result: 'Noted (position 2, task_id: task_77b0e1d3). A chip is showing for the user.'
+          },
+          {
+            name: 'mcp__ccd_session__dismiss_task',
+            input: { task_id: 'task_77b0e1d3', reason: 'Already deleted on main in #54.' },
+            result: 'Withdrawn.'
+          }
+        ]
+      },
+      { say: 'The first is worth doing soon; the second turned out to be done on main already.' }
     ]
   })
   // the work handed to a subagent: its edits show after the call, and in the Work panel

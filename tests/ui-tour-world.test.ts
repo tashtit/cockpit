@@ -53,6 +53,12 @@ describe('ui-tour fixture world', () => {
       ['e2e', ['failed', 'passed']]
     ])
     expect(checks.find((c) => c.kind === 'e2e')?.editedSince).toBe(1)
+    // and the work it spotted outside the task: one suggested, one withdrawn
+    const followUps = buildWork(parseClaudeMessages(flake.sourcePath)).followUps
+    expect(followUps.map((f) => [f.title, f.dismissed ?? null])).toEqual([
+      ['Make the e2e retry budget configurable', null],
+      ['Remove the unused retry helper', 'Already deleted on main in #54.']
+    ])
     // the bundle audit shared a report, a chart that is a real PNG, and a page
     const audit = claude.find((s) => s.title === 'Why is the bundle 2MB? Audit the imports')!
     const shared = buildWork(parseClaudeMessages(audit.sourcePath)).shared

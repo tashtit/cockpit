@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { absolutePath, buildWork, checkSummary, fileChange, hasWork, needsLook, planTitle, sharedSummary, tabFor, todoSummary } from '../src/shared/work'
+import { absolutePath, buildWork, checkSummary, fileChange, followUpSummary, hasWork, needsLook, planTitle, sharedSummary, tabFor, todoSummary } from '../src/shared/work'
 import type { CheckKind, FileEdit, SessionMessage, WorkArtifact } from '../src/shared/types'
 
 const call = (toolName: string, artifact: WorkArtifact, extra: Partial<SessionMessage> = {}): SessionMessage => ({
@@ -236,5 +236,28 @@ describe('buildWork: what the agent shared', () => {
     expect(s.links).toEqual([{ url: 'http://localhost:5173/', key: 1, ts: 2, toolName: 'mcp__Claude_Browser__preview_start' }])
     expect(sharedSummary(s)).toBe('2 files · 1 page')
     expect(tabFor(shared(['a']))).toBe('files')
+  })
+})
+
+describe('buildWork: follow-ups', () => {
+  it('lists the suggestions still on offer first, each group newest first, failed calls left out', () => {
+    const log = [
+      call('mcp__ccd_session__spawn_task', { kind: 'follow-up', title: 'One', prompt: 'p1', taskId: 'task_1', dismissed: 'Fixed.' }, { ts: 1 }),
+      call('mcp__ccd_session__spawn_task', { kind: 'follow-up', title: 'Two', prompt: 'p2', cwd: '/r/other' }, { ts: 2 }),
+      call('mcp__ccd_session__spawn_task', { kind: 'follow-up', title: 'Never made', prompt: 'p3' }, { failed: true })
+    ]
+    const { followUps } = buildWork(log)
+    expect(followUps).toEqual([
+      { key: 1, ts: 2, title: 'Two', prompt: 'p2', cwd: '/r/other' },
+      { key: 0, ts: 1, title: 'One', prompt: 'p1', taskId: 'task_1', dismissed: 'Fixed.' }
+    ])
+    expect(followUpSummary(followUps)).toBe('1 suggested · 1 withdrawn')
+    // a newer one taken back still sorts after an older one on offer
+    const later = buildWork([
+      call('mcp__ccd_session__spawn_task', { kind: 'follow-up', title: 'Old, open', prompt: 'p' }),
+      call('mcp__ccd_session__spawn_task', { kind: 'follow-up', title: 'New, withdrawn', prompt: 'p', dismissed: 'x' })
+    ]).followUps
+    expect(later.map((f) => f.title)).toEqual(['Old, open', 'New, withdrawn'])
+    expect(tabFor({ kind: 'follow-up', title: 't', prompt: 'p' })).toBe('follow-ups')
   })
 })

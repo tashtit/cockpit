@@ -315,6 +315,68 @@ describe('files', () => {
   })
 })
 
+describe('follow-ups', () => {
+  const follow = (title: string, extra: Partial<Extract<WorkArtifact, { kind: 'follow-up' }>> = {}): WorkArtifact => ({
+    kind: 'follow-up',
+    title,
+    prompt: `Do ${title}.`,
+    ...extra
+  })
+
+  function renderWith(log: SessionMessage[], onStartFollowUp = vi.fn()): typeof onStartFollowUp {
+    setChatLog(log)
+    render(
+      <ChatView
+        binding={binding}
+        prs={[]}
+        busy={false}
+        elsewhere={false}
+        prBusy={false}
+        onSend={vi.fn()}
+        onCancel={vi.fn()}
+        onCreatePr={vi.fn()}
+        onOpenUrl={vi.fn()}
+        onOpenHandoff={vi.fn()}
+        onStartFollowUp={onStartFollowUp}
+        onOpenLineage={vi.fn()}
+        permissions={[]}
+        onAnswerPermission={vi.fn()}
+      />
+    )
+    return onStartFollowUp
+  }
+
+  it('starts a suggestion as a new session with its prompt, and remembers it was started', async () => {
+    window.localStorage.clear()
+    const start = renderWith([
+      user('go'),
+      call('mcp__ccd_session__spawn_task', follow('Fix the cache race', { summary: 'Seen in the logs.', taskId: 'task_1', cwd: '/r/other' }))
+    ])
+    expect(screen.getByRole('button', { name: /Fix the cache race/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(within(panel()).getByRole('tab', { name: /Follow-ups/ })).toHaveAttribute('aria-selected', 'true')
+    expect(within(panel()).getByText('1 suggested')).toBeInTheDocument()
+    expect(within(panel()).getByText('Seen in the logs.')).toBeInTheDocument()
+    await userEvent.click(within(panel()).getByRole('button', { name: 'Start a session…' }))
+    expect(start).toHaveBeenCalledWith({ title: 'Fix the cache race', prompt: 'Do Fix the cache race.', cwd: '/r/other' })
+    expect(within(panel()).getByRole('button', { name: 'Start another session…' })).toBeInTheDocument()
+    expect(within(panel()).getByText(/^started /)).toBeInTheDocument()
+  })
+
+  it('says a withdrawn suggestion was withdrawn, and why, and offers no start', async () => {
+    renderWith([
+      user('go'),
+      call('mcp__ccd_session__spawn_task', follow('Old idea', { dismissed: 'Fixed on main.' }))
+    ])
+    // the row says so too
+    expect(within(screen.getByRole('button', { name: /Old idea/ })).getByText('withdrawn')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(within(panel()).getByText('0 suggested · 1 withdrawn')).toBeInTheDocument()
+    expect(within(panel()).getByText('Withdrawn: Fixed on main.')).toBeInTheDocument()
+    expect(within(panel()).queryByRole('button', { name: /Start/ })).not.toBeInTheDocument()
+  })
+})
+
 describe('the Edits tab', () => {
   it('points at Changes for what is on disk, where there is a worktree to diff', async () => {
     renderChat([call('Edit', edit('/tmp/wt/a.ts'))])

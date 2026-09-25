@@ -1398,6 +1398,26 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .work-shared-actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
 .work-link { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; min-width: 0; }
 .work-link .link-btn { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+/* follow-ups: work the agent suggested for a session of its own — framed like a check,
+   the prompt folded under it, one key that fills in the new-session form */
+.work-follows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  gap: var(--s3); }
+.work-follow { display: flex; flex-direction: column; gap: var(--s2); min-width: 0;
+  padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); transition: box-shadow var(--dur) var(--ease); }
+.work-follow.ringed { box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.55); }
+.work-follow.dismissed .work-follow-title { color: var(--fg-dim); }
+.work-follow-head { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.work-follow-title { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.work-follow-prompt > summary { display: flex; align-items: center; gap: var(--s2); min-height: 24px;
+  cursor: pointer; list-style: none; color: var(--fg-dim); font-size: var(--fs-xs);
+  font-family: var(--mono); }
+.work-follow-prompt > summary::-webkit-details-marker { display: none; }
+.work-follow-prompt > summary::before { content: '▸'; width: 10px; flex-shrink: 0; font-size: 10px;
+  transition: transform var(--dur) var(--ease); }
+.work-follow-prompt[open] > summary::before { transform: rotate(90deg); }
+.work-follow-prompt > pre { margin-top: var(--s1); }
+.work-follow-actions { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
 .work-link-url { min-width: 0; overflow-wrap: anywhere; }
 
 /* a transcript row that opens the Work panel: the tool row's grammar as one button —
@@ -1414,6 +1434,7 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .tool-verdict { flex-shrink: 0; white-space: nowrap; }
 .tool-verdict.tone-ok { color: var(--ok); }
 .tool-verdict.tone-danger { color: var(--danger); }
+.tool-verdict.tone-dim { color: var(--fg-dim); }
 
 /* a plan waiting for approval is read in the card, above its two answers */
 .ask-plan { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }

@@ -12,6 +12,7 @@ import type {
 } from '../../shared/types'
 import { clampZoom } from '../../shared/window'
 import { api } from './api'
+import { followUpRepo } from './follow-up'
 import { withImageMarks, type ImageAttachment } from './attachments'
 import { TreeSidebar } from './TreeSidebar'
 import { ChatView } from './ChatView'
@@ -727,6 +728,20 @@ export function App(): JSX.Element {
     })
   }, [])
 
+  /**
+   * A suggestion the open session's agent made, started as a session of its own: the
+   * new-session form, filled in, on the repo it names (its `cwd`), else the session's
+   * own — so any agent can take it, in a worktree of its own. Its title leads the task:
+   * the first line is what names the branch and the session.
+   */
+  const startFollowUp = useCallback(
+    (followUp: { readonly title: string; readonly prompt: string; readonly cwd?: string }) => {
+      const repo = followUpRepo(repos, followUp, bindingRef.current)
+      if (repo) setView({ kind: 'new', repo, draft: `${followUp.title}\n\n${followUp.prompt}` })
+    },
+    [repos]
+  )
+
   /** Handoff flow: same shape as startSession minus the worktree — the source
    *  session's directory IS the workspace, and the briefing is the first prompt. */
   const startHandoff = useCallback(
@@ -1031,6 +1046,7 @@ export function App(): JSX.Element {
           onCreatePr={createPr}
           onOpenUrl={openUrl}
           onOpenHandoff={openHandoff}
+          onStartFollowUp={startFollowUp}
           onOpenLineage={(id) => void openLineage(id)}
           permissions={turnPermissions}
           onAnswerPermission={answerPermission}
