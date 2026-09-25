@@ -339,7 +339,7 @@ test('cleanup opens on a completed scan of sessions and worktrees', async () => 
 
 test('agents view opens on the panel, with sections as its only navigation', async () => {
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
-  await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  await expect(win.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
   // the panel reads the fixture agent homes — it must render, not sit on its
   // loading line or throw (the sections only appear once a scope has loaded)
   const sections = win.getByRole('tablist', { name: 'Agents sections' })
@@ -525,7 +525,7 @@ test('the window minimum is enforced and every surface holds at exactly that siz
 
   // five tabs must wrap inside the narrow card, never overflow it
   await win.getByRole('button', { name: 'Agents', exact: true }).click()
-  await expect(win.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  await expect(win.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
   expect(await audit()).toEqual([])
   // fitting is not the same as usable: beside the scope switch the search box once
   // squeezed to a 16px sliver without overflowing anything
