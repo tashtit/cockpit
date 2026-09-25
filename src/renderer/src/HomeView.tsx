@@ -199,26 +199,41 @@ export function HomeView({
   // the fleet: sessions and roundtables on one board, under the composer
   const landedMap = useLandedMap()
   // main raises news on any session, not just the recent ten: the row the banner and the
-  // Dock badge promised is fetched by id when the page doesn't hold it
+  // Dock badge promised is fetched by id when the page doesn't hold it. Once per piece of
+  // news — the answer, a session or nothing (a landing the index holds no session for),
+  // is kept until that landing changes, rather than asked again on every index push
   const [older, setOlder] = useState<SessionMeta[]>([])
+  const fetched = useRef(new Map<string, SessionMeta | null>())
   const missing = useMemo(() => {
     const paged = new Set(recent.map((s) => s.id))
-    return JSON.stringify([...landedMap.keys()].filter((id) => !paged.has(id)).slice(0, NEEDS_FETCH_MAX))
+    const wanted = [...landedMap.values()].filter((l) => !paged.has(l.id)).slice(0, NEEDS_FETCH_MAX)
+    return JSON.stringify(wanted.map((l): [string, number] => [l.id, l.at]))
   }, [recent, landedMap])
   useEffect(() => {
-    const ids = JSON.parse(missing) as string[]
-    if (ids.length === 0) {
-      setOlder([])
+    const wanted = JSON.parse(missing) as Array<[string, number]>
+    const known = fetched.current
+    const keyOf = ([id, at]: [string, number]): string => `${id}\n${at}`
+    // only what the board still needs is remembered
+    const keys = new Set(wanted.map(keyOf))
+    for (const k of known.keys()) if (!keys.has(k)) known.delete(k)
+    const show = (): void => {
+      const next = wanted.map((w) => known.get(keyOf(w))).filter((s): s is SessionMeta => !!s)
+      setOlder((prev) => (prev.length === next.length && prev.every((s, i) => s === next[i]) ? prev : next))
+    }
+    const ask = wanted.filter((w) => !known.has(keyOf(w)))
+    if (ask.length === 0) {
+      show()
       return
     }
     let dead = false
-    void Promise.all(ids.map((id) => api.getSession(id))).then((found) => {
-      if (!dead) setOlder(found.filter((s): s is SessionMeta => s !== null))
+    void Promise.all(ask.map(([id]) => api.getSession(id))).then((found) => {
+      ask.forEach((w, i) => known.set(keyOf(w), found[i] ?? null))
+      if (!dead) show()
     })
     return () => {
       dead = true
     }
-  }, [missing, indexVersion])
+  }, [missing])
   const sessions = useMemo(() => {
     const paged = new Set(recent.map((s) => s.id))
     // a fetched row stays only while it still needs you — it never joins the ground
