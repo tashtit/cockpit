@@ -203,6 +203,44 @@ export function isBlockedEndpointHost(hostname: string): boolean {
 }
 
 /**
+ * A host a key can reach without crossing the internet: this machine, a private
+ * network (RFC 1918, CGNAT's 100.64/10 — where Tailscale lives — IPv6 ULA), or a
+ * name only a local resolver answers (`.local`, `.lan`, `.internal`, `.home.arpa`,
+ * a bare single-label name). Plain http is fine there — Ollama and LM Studio only
+ * speak it — and nowhere else: a typo of `http://api.openai.com` would send the
+ * key, and every prompt, in the clear to anyone on the path.
+ */
+export function isLocalEndpointHost(hostname: string): boolean {
+  const raw = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  const h = mappedIpv4(raw) ?? raw
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '::1') return true
+  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
+  }
+  if (h.includes(':')) return /^f[cd][0-9a-f]{0,2}:/.test(h)
+  if (!h.includes('.')) return true
+  return ['.local', '.lan', '.internal', '.home.arpa', '.localdomain'].some((suffix) => h.endsWith(suffix))
+}
+
+/** Why a base URL can't be used, in words the add form can show — null when it can. */
+export function endpointUrlRefusal(baseUrl: string): string | null {
+  let u: URL
+  try {
+    u = new URL(baseUrl.trim())
+  } catch {
+    return 'Enter the base URL, starting with https://.'
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'The base URL has to start with https://.'
+  if (isBlockedEndpointHost(u.hostname)) return `${u.hostname} is a link-local or metadata address — not a model provider.`
+  if (u.protocol === 'http:' && !isLocalEndpointHost(u.hostname)) {
+    return `Use https:// for ${u.hostname} — plain http would send the key and every prompt unencrypted. (http is fine for this machine or a private network.)`
+  }
+  return null
+}
+
+/**
  * Renderer input is untrusted — normalize and validate every field. The API key is NOT
  * part of the definition handled here: main strips it off and stores it encrypted.
  * Returns null when the definition is unusable.
@@ -215,13 +253,7 @@ export function sanitizeEndpoint(input: unknown, id: string): ModelEndpoint | nu
   const baseUrl = typeof o.baseUrl === 'string' ? o.baseUrl.trim() : ''
   const type = ENDPOINT_TYPES.find((t) => t === o.type)
   if (!label || !type) return null
-  try {
-    const u = new URL(baseUrl)
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
-    if (isBlockedEndpointHost(u.hostname)) return null
-  } catch {
-    return null
-  }
+  if (endpointUrlRefusal(baseUrl) !== null) return null
   const ep: Mutable<ModelEndpoint> = { id, label, type, baseUrl }
   if (o.wireApi !== undefined && o.wireApi !== '') {
     const wire = WIRE_APIS.find((w) => w === o.wireApi)

@@ -23,7 +23,7 @@ import type {
 } from '../shared/types'
 import { CH, PUSH, type PushChannel } from '../shared/contract'
 import { clampZoom, restoredBounds, WINDOW_FLOOR, zoomedFloor } from '../shared/window'
-import { sanitizeEndpoint } from '../shared/endpoints'
+import { endpointUrlRefusal, sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { isUnder } from './paths'
 import { TranscriptSearcher } from './transcript-search'
@@ -912,7 +912,9 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.endpointsGet, () => listModelEndpoints())
   ipcMain.handle(CH.endpointsAdd, (_e, input: unknown) => {
     // the key never enters the endpoint definition — strip it, encrypt it separately
-    const { apiKey, ...def } = (input ?? {}) as { apiKey?: unknown }
+    const { apiKey, ...def } = (input ?? {}) as { apiKey?: unknown; baseUrl?: unknown }
+    const urlRefusal = endpointUrlRefusal(typeof def.baseUrl === 'string' ? def.baseUrl : '')
+    if (urlRefusal) throw new Error(urlRefusal)
     const ep = sanitizeEndpoint(def, randomUUID())
     if (!ep) {
       throw new Error('Invalid provider: a name, a type, an http(s) base URL, and well-formed headers are required.')

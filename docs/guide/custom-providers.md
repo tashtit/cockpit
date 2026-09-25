@@ -30,6 +30,8 @@ Claude Code only speaks its own API shape, so it pairs with Anthropic-compatible
 
 Every filled-in field stays editable: point Anthropic at a regional proxy, or run Ollama on another port. **Add provider** stays off until a hosted API has its key, because those APIs refuse every request without one.
 
+A base URL has to start with `https://` unless it is on this Mac or a private network — `localhost`, a `10.`, `172.16–31.`, `192.168.` or Tailscale `100.64–127.` address, a `.local` / `.lan` / `.internal` name, or a bare machine name like `gpu-box`. Over plain `http://` to anywhere else, the key and every prompt would cross the internet unencrypted.
+
 Only the two **-compatible** entries ask for more, because only a gateway can differ:
 
 - **Wire API** (`completions` or `responses`) for OpenAI-compatible endpoints; GPT-5 models need `responses`. The OpenAI entry asks too, starting on `responses`.
