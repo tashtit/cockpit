@@ -17,7 +17,7 @@ import {
   isValidModel
 } from '../shared/endpoints'
 import { parseAsks } from '../shared/asks'
-import { contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
+import { LineSplitter, capText, contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
 import { fileChangeArtifact, todoListArtifact, toolArtifact } from './parsers/artifacts'
 import { commandItemCheck } from './parsers/checks'
 import { cliEnv } from './env'
@@ -509,7 +509,8 @@ export class ChatManager {
       }
     }
 
-    let buf = ''
+    // bounded and linear however long a line runs (see LineSplitter)
+    const stdout = new LineSplitter()
     let sawStructured = false
     child.stdout!.setEncoding('utf8')
     child.stdout!.on('data', (chunk: string) => {
@@ -518,24 +519,32 @@ export class ChatManager {
         this.emit({ turnId, type: 'text', text: chunk })
         return
       }
-      buf += chunk
-      let nl: number
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const raw = buf.slice(0, nl).trim()
-        buf = buf.slice(nl + 1)
+      const { lines, dropped } = stdout.push(chunk)
+      if (dropped > 0) console.warn(`[chat] ${cmd}: dropped ${dropped} stream line(s) over the size cap`)
+      for (const line of lines) {
+        const raw = line.trim()
         if (!raw) continue
         let parsed: any
         try {
           parsed = JSON.parse(raw)
         } catch {
-          this.emit({ turnId, type: 'text', text: raw })
+          // a banner or a warning, not an event — shown, but no bigger than any message
+          this.emit({ turnId, type: 'text', text: capText(raw) })
           continue
         }
         sawStructured = true
-        const events =
-          req.provider === 'claude'
-            ? parseClaudeStreamLine(turnId, parsed)
-            : parseCodexStreamLine(turnId, parsed)
+        let events: ChatEvent[]
+        try {
+          events =
+            req.provider === 'claude'
+              ? parseClaudeStreamLine(turnId, parsed)
+              : parseCodexStreamLine(turnId, parsed)
+        } catch (err) {
+          // one event the parser cannot read (an input nested past what it can
+          // serialise) is skipped; thrown out of a stream handler it took down main
+          console.error(`[chat] ${cmd}: unreadable stream event skipped:`, err)
+          continue
+        }
         for (const ev of events) this.deliver(turn, ev)
       }
     })
@@ -563,7 +572,7 @@ export class ChatManager {
     child.on('close', (code) => {
       // flush a final line that arrived without a trailing newline — it can carry the
       // session_id / result event, without which resume breaks
-      const rest = buf.trim()
+      let rest = stdout.rest().trim()
       if (rest && sawStructured) {
         try {
           const parsed = JSON.parse(rest)
@@ -575,7 +584,7 @@ export class ChatManager {
             if (ev.type === 'done') turn.doneSent = true
             this.emit(ev)
           }
-          buf = ''
+          rest = ''
         } catch {
           /* not a complete JSON line */
         }
@@ -587,8 +596,8 @@ export class ChatManager {
           message: `${cmd} exited with code ${code}${errBuf ? `:\n${errBuf.trim()}` : ''}`
         })
       }
-      if (!sawStructured && req.provider !== 'copilot' && code === 0 && buf.trim()) {
-        this.emit({ turnId, type: 'text', text: buf.trim() })
+      if (!sawStructured && req.provider !== 'copilot' && code === 0 && rest) {
+        this.emit({ turnId, type: 'text', text: capText(rest) })
       }
       // a throw from a listener must not leave the turn on the busy board forever
       try {

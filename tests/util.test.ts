@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { makeFifo } from './fifo'
 import {
+  LineSplitter,
   capText,
   isRegularFile,
   parseJsonc,
@@ -98,6 +99,44 @@ describe('reading only regular files', () => {
     symlinkSync(target, link)
     expect(isRegularFile(target)).toBe(true)
     expect(isRegularFile(link)).toBe(false)
+  })
+})
+
+describe('LineSplitter', () => {
+  it('hands back each line once it ends, however the stream was chunked', () => {
+    const s = new LineSplitter()
+    expect(s.push('{"a":1}\n{"b"')).toEqual({ lines: ['{"a":1}'], dropped: 0 })
+    expect(s.push(':2')).toEqual({ lines: [], dropped: 0 })
+    expect(s.push('}\n\nlast')).toEqual({ lines: ['{"b":2}', ''], dropped: 0 })
+    // a stream's final record often has no newline
+    expect(s.rest()).toBe('last')
+    expect(s.rest()).toBe('')
+  })
+
+  it('drops a line past its cap whole, and carries on with the next', () => {
+    const s = new LineSplitter(10)
+    expect(s.push('0123456789')).toEqual({ lines: [], dropped: 0 })
+    expect(s.push('abc')).toEqual({ lines: [], dropped: 0 })
+    expect(s.push('def\nok\n')).toEqual({ lines: ['ok'], dropped: 1 })
+    // ended inside a single chunk, the same bound holds
+    expect(s.push('0123456789abc\nfine\n')).toEqual({ lines: ['fine'], dropped: 1 })
+    s.push('0123456789abc')
+    expect(s.rest()).toBe('')
+  })
+
+  // the newline was searched for across everything held, on every chunk: 50MB took ~4s
+  it('stays linear in a long line arriving in pipe-sized chunks', () => {
+    const s = new LineSplitter()
+    const chunk = 'x'.repeat(64 * 1024)
+    const started = Date.now()
+    // 6MB kept, then 24MB dropped at the cap
+    for (let i = 0; i < 96; i++) s.push(chunk)
+    const kept = s.push('\n')
+    for (let i = 0; i < 384; i++) s.push(chunk)
+    const over = s.push('\nnext\n')
+    expect(Date.now() - started).toBeLessThan(1500)
+    expect(kept.lines[0]?.length).toBe(96 * chunk.length)
+    expect(over).toEqual({ lines: ['next'], dropped: 1 })
   })
 })
 

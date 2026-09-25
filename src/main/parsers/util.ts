@@ -171,6 +171,75 @@ export function readJsonlTail(
   }
 }
 
+/** A stream record longer than this is dropped, not held — the bound ACP keeps too. */
+export const MAX_STREAM_LINE_CHARS = 8 * 1024 * 1024
+
+/**
+ * Newline-delimited records out of a stream that arrives in chunks (a CLI's stdout).
+ * Each chunk is searched once: looking for the newline across the whole held buffer
+ * on every chunk made one long line quadratic — 50MB took ~4s of main-thread time.
+ * A line past the cap is dropped whole, at its end, so a runaway one can't grow the
+ * heap without bound.
+ */
+export class LineSplitter {
+  /** The line not ended yet, in the pieces it arrived in — joined once, when it ends */
+  private pending: string[] = []
+  private pendingChars = 0
+  /** The line being received already went past the cap; its rest is dropped too */
+  private overflowing = false
+  private readonly maxChars: number
+
+  constructor(maxChars: number = MAX_STREAM_LINE_CHARS) {
+    this.maxChars = maxChars
+  }
+
+  /** The lines this chunk ends, and how many of the ended ones were too long to keep. */
+  push(chunk: string): { readonly lines: string[]; readonly dropped: number } {
+    const lines: string[] = []
+    let dropped = 0
+    let start = 0
+    for (let nl = chunk.indexOf('\n'); nl >= 0; nl = chunk.indexOf('\n', start)) {
+      const line = this.end(chunk.slice(start, nl))
+      if (line === null) dropped++
+      else lines.push(line)
+      start = nl + 1
+    }
+    if (start < chunk.length) this.hold(chunk.slice(start))
+    return { lines, dropped }
+  }
+
+  /** What the stream ended on without a newline (a last record often has none); '' when it overflowed. */
+  rest(): string {
+    const line = this.overflowing ? '' : this.pending.join('')
+    this.reset()
+    return line
+  }
+
+  private hold(piece: string): void {
+    if (this.overflowing) return
+    this.pendingChars += piece.length
+    if (this.pendingChars <= this.maxChars) {
+      this.pending.push(piece)
+      return
+    }
+    this.reset()
+    this.overflowing = true
+  }
+
+  private end(piece: string): string | null {
+    const kept = !this.overflowing && this.pendingChars + piece.length <= this.maxChars
+    const line = kept ? this.pending.join('') + piece : null
+    this.reset()
+    return line
+  }
+
+  private reset(): void {
+    this.pending = []
+    this.pendingChars = 0
+    this.overflowing = false
+  }
+}
+
 /**
  * Slice without splitting a surrogate pair — `.slice()` counts UTF-16 code units,
  * so cutting mid-emoji leaves a lone surrogate that renders as U+FFFD.
