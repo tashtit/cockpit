@@ -146,6 +146,68 @@ describe('ProviderArchivedReader', () => {
     rmSync(`${db}-wal`, { force: true })
   })
 
+  it.runIf(hasSqlite3())('hides a project chat archived or deleted as its workspace', async () => {
+    // the app's current layout, trimmed to the columns the read uses
+    const home = join(root, 'copilot-app')
+    mkdirSync(home, { recursive: true })
+    execFileSync('sqlite3', [join(home, 'data.db')], {
+      input: `
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, session_type TEXT NOT NULL, archived_at TEXT);
+        CREATE TABLE workspaces (id TEXT PRIMARY KEY, session_id TEXT, archived_at TEXT);
+        CREATE TABLE workspace_session_aliases (session_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL);
+        CREATE TABLE workspace_side_chats (workspace_id TEXT NOT NULL, session_id TEXT PRIMARY KEY);
+        CREATE TABLE session_side_chats (parent_session_id TEXT NOT NULL, session_id TEXT PRIMARY KEY);
+        INSERT INTO sessions VALUES
+          ('general-archived', 'general_chat', '2026-09-23'), ('general-live', 'general_chat', NULL),
+          ('project-archived', 'project', NULL), ('project-earlier', 'project', NULL),
+          ('project-live', 'project', NULL), ('project-deleted', 'project', NULL),
+          ('side-archived-ws', 'side_chat', NULL), ('side-live-ws', 'side_chat', NULL),
+          ('side-archived-chat', 'side_chat', NULL), ('cli', 'cli_session', NULL);
+        INSERT INTO workspaces VALUES ('ws-a', 'project-archived', '2026-09-25'), ('ws-l', 'project-live', NULL);
+        INSERT INTO workspace_session_aliases VALUES
+          ('project-archived', 'ws-a'), ('project-earlier', 'ws-a'), ('project-live', 'ws-l');
+        INSERT INTO workspace_side_chats VALUES ('ws-a', 'side-archived-ws'), ('ws-l', 'side-live-ws');
+        INSERT INTO session_side_chats VALUES ('general-archived', 'side-archived-chat');
+      `
+    })
+    const ids = await new ProviderArchivedReader(null).list(
+      [{ path: home, provider: 'copilot', label: 'app' }],
+      new Set()
+    )
+    expect([...ids].sort()).toEqual(
+      [
+        'general-archived',
+        'project-archived',
+        // its workspace row is gone: deleting a workspace keeps the session row
+        'project-deleted',
+        'project-earlier',
+        'side-archived-chat',
+        'side-archived-ws'
+      ].map((id) => `copilot:${id}`)
+    )
+  })
+
+  it.runIf(hasSqlite3())('reads what a db from an older app can say, and no more', async () => {
+    // workspaces but no aliases table: an archived workspace still counts, but a
+    // workspace-less project chat can't be told deleted without knowing its aliases
+    const home = join(root, 'copilot-older')
+    mkdirSync(home, { recursive: true })
+    execFileSync('sqlite3', [join(home, 'data.db')], {
+      input: `
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, session_type TEXT NOT NULL, archived_at TEXT);
+        CREATE TABLE workspaces (id TEXT PRIMARY KEY, session_id TEXT, archived_at TEXT);
+        INSERT INTO sessions VALUES ('in-archived-ws', 'project', NULL), ('no-ws', 'project', NULL);
+        INSERT INTO workspaces VALUES ('ws', 'in-archived-ws', '2026-09-25');
+      `
+    })
+    const ids = await new ProviderArchivedReader(null).list(
+      [{ path: home, provider: 'copilot', label: 'older' }],
+      new Set(['copilot:from-prev'])
+    )
+    // a read that worked: the answer is the db's, not the remembered set
+    expect([...ids]).toEqual(['copilot:in-archived-ws'])
+  })
+
   it.runIf(hasSqlite3())('keeps what it knew when the db cannot be read at all', async () => {
     writeDb([{ id: 'cop-x', archived: true }])
     corruptInPlace(db)
