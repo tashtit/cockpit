@@ -68,12 +68,13 @@ function profile(over: Partial<ProfileStats> = {}): ProfileStats {
       { provider: 'codex', label: 'codex', identity: null, sessions: 12, lastActivity: Date.now() }
     ],
     hours: (() => {
-      const h = Array.from({ length: 24 }, () => ({ sessions: 0, byProvider: {} }))
-      h[9] = { sessions: 4, byProvider: { claude: 4 } }
-      h[14] = { sessions: 7, byProvider: { claude: 5, codex: 2 } }
-      h[23] = { sessions: 1, byProvider: { codex: 1 } }
+      const h = Array.from({ length: 24 }, () => ({ prompts: 0, byProvider: {} }))
+      h[9] = { prompts: 4, byProvider: { claude: 4 } }
+      h[14] = { prompts: 7, byProvider: { claude: 5, codex: 2 } }
+      h[23] = { prompts: 1, byProvider: { codex: 1 } }
       return h
     })(),
+    roundtables: null,
     ...over
   }
 }
@@ -202,6 +203,30 @@ describe('ProfileView', () => {
     expect(swatches[4].style.background).toContain('--claude-rgb')
   })
 
+  it('marks a long grid, which sheds its labels in a narrow card, and never lets a month overhang', async () => {
+    // a year to the day before a Wednesday the 3rd: the last month label has 1 week of room
+    const start = new Date(2025, 8, 3)
+    const days = Array.from({ length: 366 }, (_, i) => {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      return day(key, i % 9 === 0 ? 1 : 0, i % 9 === 0 ? { claude: 1 } : {})
+    })
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile({ days }))
+    const { container } = render(<ProfileView onClose={() => {}} />)
+    await screen.findByText('octocat')
+    expect(container.querySelector('.pv-heat-scroll')?.classList.contains('pv-heat-long')).toBe(true)
+    // Sep 3 2026 falls in the grid's last week: no room for "Sep" there
+    const months = [...container.querySelectorAll('.pv-months span')].map((s) => s.textContent)
+    expect(months[months.length - 1]).toBe('Aug')
+  })
+
+  it('leaves a short grid its labels at every width', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
+    const { container } = render(<ProfileView onClose={() => {}} />)
+    await screen.findByText('octocat')
+    expect(container.querySelector('.pv-heat-scroll')?.classList.contains('pv-heat-long')).toBe(false)
+  })
+
   it('tints a day with the agent that ran most', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
     const { container } = render(<ProfileView onClose={() => {}} />)
@@ -211,6 +236,25 @@ describe('ProfileView', () => {
     )
     // claude led that day (5 vs 2), so the square carries the claude hue
     expect(busy?.getAttribute('style')).toContain('--claude-rgb')
+  })
+
+  it("reports roundtable seats apart, since a seat's prompts are not the person's", async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(
+      profile({ roundtables: { tables: 2, sessions: 5, byProvider: { claude: 2, codex: 3 } } })
+    )
+    render(<ProfileView onClose={() => {}} />)
+    await openTab('Agents')
+    const note = screen.getByRole('heading', { name: 'Roundtables' }).nextElementSibling
+    expect(note?.textContent?.replace(/\s+/g, ' ')).toMatch(
+      /^2 tables ran 5 seat sessions \(Claude 2 · Codex 3\)\. They are counted apart/
+    )
+  })
+
+  it('shows no roundtables group when no table has run a seat', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
+    render(<ProfileView onClose={() => {}} />)
+    await openTab('Agents')
+    expect(screen.queryByRole('heading', { name: 'Roundtables' })).toBeNull()
   })
 
   it('explains a zero-edit agent instead of showing a bare +0', async () => {
@@ -256,7 +300,8 @@ describe('ProfileView', () => {
     expect(screen.getByText(/Busiest around 14:00/)).toBeTruthy()
     const hours = container.querySelectorAll('.pv-hour')
     expect(hours).toHaveLength(24)
-    expect(hours[14].getAttribute('title')).toBe('14:00 — 7\u00a0sessions (Claude 5 · Codex 2)')
+    // prompts, not session starts: when you were actually at it
+    expect(hours[14].getAttribute('title')).toBe('14:00 — 7\u00a0prompts (Claude 5 · Codex 2)')
     expect(hours[14].querySelectorAll('.pv-hour-fill i')).toHaveLength(2)
     // an empty hour keeps its slot but paints nothing
     expect(hours[0].querySelector('.pv-hour-fill')).toBeNull()

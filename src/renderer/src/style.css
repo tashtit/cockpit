@@ -2325,22 +2325,25 @@ button.pnl-flag:hover { text-decoration: underline; }
 
 /* The year of squares sizes itself to the card: a container query scales --pv-sq
    so all weeks fit the available width. A week's pitch (square + gap) is the width
-   past the 28px weekday column and its 6px gap, over the weeks; the gap takes about a
-   quarter of it, between 2px and 4px, so small squares are not swamped by fixed gaps.
-   The 32px constant is that 34 less the smallest gap (the last week has none), so the
-   grid never outgrows its box. No inner scrollbars in normal use — overflow-x stays as
-   a floor-fallback for a full year in a tiny window, and overflow-y is pinned shut so
-   a horizontal bar can never breed the redundant vertical one. */
-.pv-heat-scroll { container-type: inline-size; overflow-x: auto; overflow-y: hidden;
+   past the lead — the 28px weekday column and its 6px gap — over the weeks; the gap
+   takes about a quarter of it, between 1px and 4px, so small squares are not swamped
+   by fixed gaps. --pv-lead is that 34 less the smallest gap (the last week has none),
+   so the grid never outgrows its box: a full year fits the 286px card at the window
+   floor. overflow-x stays only as a fallback below the floor, and overflow-y is pinned
+   shut so a horizontal bar can never breed the redundant vertical one. */
+.pv-heat-scroll { container: pv-heat / inline-size; overflow-x: auto; overflow-y: hidden;
   padding-bottom: var(--s2); }
-.pv-heat { --pv-pitch: calc((100cqi - 32px) / var(--pv-weeks, 53));
-  --pv-gap: clamp(2px, calc(var(--pv-pitch) * 0.27), 4px);
-  --pv-sq: clamp(5px, calc(var(--pv-pitch) - var(--pv-gap)), 11px);
+.pv-heat { --pv-lead: 33px; --pv-pitch: calc((100cqi - var(--pv-lead)) / var(--pv-weeks, 53));
+  --pv-gap: clamp(1px, calc(var(--pv-pitch) * 0.27), 4px);
+  --pv-sq: clamp(3px, calc(var(--pv-pitch) - var(--pv-gap)), 11px);
   display: inline-grid; grid-template-columns: auto auto;
   column-gap: var(--s2); row-gap: var(--s1); }
 .pv-months { grid-column: 2; grid-row: 1; display: grid; gap: var(--pv-gap);
   grid-template-columns: repeat(var(--pv-weeks), var(--pv-sq));
   color: var(--fg-dim); font-size: var(--fs-xs); }
+/* a label runs on past its week's column; the row clips at the grid's edge rather than
+   let the last one widen the scroller (the component also drops a label that close) */
+.pv-months { overflow: hidden; }
 .pv-months span { white-space: nowrap; }
 /* fixed width: the container-query formula above treats this column as a constant */
 .pv-weekdays { grid-column: 1; grid-row: 2; display: grid; gap: var(--pv-gap);
@@ -2694,4 +2697,17 @@ button.pnl-flag:hover { text-decoration: underline; }
    time is the row's decoration, so it goes first and gives the name back ~48px. */
 @container pv-accounts (max-width: 303px) {
   .pv-acct-last { display: none; }
+}
+
+/* ---------- the heatmap's labels, at a narrow card ----------
+   A long grid (over 44 weeks, `.pv-heat-long`) at a narrow card is squares a few pixels
+   apart, and its labels are what stop fitting: measured over a full year, the month
+   names close to 3px apart below a 320px box and touch at 286, and Mon / Wed / Fri sit
+   on top of each other. Under 352px of grid the weekday column goes — its 34px go to
+   the squares (--pv-lead falls to the smallest gap) — and so does every other month
+   name, which leaves a year's labels two months apart. */
+@container pv-heat (max-width: 351px) {
+  .pv-heat-long .pv-heat { --pv-lead: -1px; column-gap: 0; }
+  .pv-heat-long .pv-weekdays { display: none; }
+  .pv-heat-long .pv-months span:nth-child(even) { visibility: hidden; }
 }

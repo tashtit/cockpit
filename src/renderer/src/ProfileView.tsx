@@ -3,9 +3,9 @@ import type {
   ActivityDay,
   AgentSplit,
   ProfileStats,
+  PromptTally,
   Provider,
-  ProviderProfile,
-  SessionTally
+  ProviderProfile
 } from '../../shared/types'
 import { api } from './api'
 import { fmtAgo } from './format'
@@ -37,6 +37,15 @@ const LEVEL_ALPHA = [0, 0.3, 0.5, 0.72, 0.95]
 const FILL_ALPHA = 0.85
 
 const WEEKDAY_LABELS = ['Mon', 'Wed', 'Fri']
+
+/**
+ * Past this many weeks a grid in a narrow card sheds its weekday labels and every other
+ * month (`.pv-heat-long`, see the end of style.css): the labels are what stop fitting.
+ */
+const LONG_WEEKS = 44
+
+/** A month label needs this many weeks of room before the grid's edge, or it would overhang. */
+const TAIL_WEEKS = 4
 
 /** The hours the rhythm strip names under its bars. */
 const HOUR_MARKS = [0, 6, 12, 18]
@@ -269,6 +278,10 @@ function Heatmap({
       if (months[months.length - 1]?.label === label) continue
       months.push({ col, label })
     }
+    const weeks = Math.ceil(cells.length / 7)
+    // a month begun in the last few weeks has no room for its name: past the grid's edge
+    // it bred a scrollbar under a grid that otherwise fit
+    if (months.length > 0 && weeks - months[months.length - 1].col < TAIL_WEEKS) months.pop()
     return { cells, months }
   }, [days])
 
@@ -286,7 +299,7 @@ function Heatmap({
   const label = `Activity over the last ${days.length} days: ${counted(active.length, 'active day')}`
 
   return (
-    <div className="pv-heat-scroll">
+    <div className={weeks > LONG_WEEKS ? 'pv-heat-scroll pv-heat-long' : 'pv-heat-scroll'}>
       <div className="pv-heat" style={{ '--pv-weeks': weeks } as CSSProperties}>
         <div className="pv-months" aria-hidden="true">
           {months.map((mo) => (
@@ -321,17 +334,18 @@ function Heatmap({
 }
 
 /**
- * Sessions started per hour, midnight→23, each bar stacked by the agents that ran
- * them. A quiet strip — the tallest hour is named in the line under it, the bars just
- * show the shape of the day. Bars and marks share one 24-column grid, so "18" sits
- * under the 18:00 bar rather than wherever even spacing happened to put it.
+ * Prompts sent per hour, midnight→23, each bar stacked by the agents they went to —
+ * when you are actually at it, where session starts only said when each one began. A
+ * quiet strip — the tallest hour is named in the line under it, the bars just show the
+ * shape of the day. Bars and marks share one 24-column grid, so "18" sits under the
+ * 18:00 bar rather than wherever even spacing happened to put it.
  */
-function Rhythm({ hours, order }: { hours: SessionTally[]; order: readonly Provider[] }): JSX.Element {
-  const totals = hours.map((h) => h.sessions)
+function Rhythm({ hours, order }: { hours: PromptTally[]; order: readonly Provider[] }): JSX.Element {
+  const totals = hours.map((h) => h.prompts)
   const max = Math.max(1, ...totals)
   const peak = totals.indexOf(Math.max(...totals))
   const total = totals.reduce((a, b) => a + b, 0)
-  const label = `Sessions by hour of day; busiest around ${hh(peak)}:00`
+  const label = `Prompts by hour of day; busiest around ${hh(peak)}:00`
   return (
     <div className="pv-rhythm-wrap">
       <div className="pv-rhythm" role="img" aria-label={label}>
@@ -339,12 +353,12 @@ function Rhythm({ hours, order }: { hours: SessionTally[]; order: readonly Provi
           <span
             key={i}
             className="pv-hour"
-            title={reading(`${hh(i)}:00`, counted(h.sessions, 'session'), splitText(h.byProvider, order))}
+            title={reading(`${hh(i)}:00`, counted(h.prompts, 'prompt'), splitText(h.byProvider, order))}
           >
-            {h.sessions > 0 && (
+            {h.prompts > 0 && (
               <span
                 className="pv-hour-fill"
-                style={{ height: `${Math.max(8, Math.round((h.sessions / max) * 100))}%` }}
+                style={{ height: `${Math.max(8, Math.round((h.prompts / max) * 100))}%` }}
               >
                 {ordered(h.byProvider, order).map(([p, n]) => (
                   <i key={p} style={{ flexGrow: n, background: fill(p) }} />
@@ -363,8 +377,7 @@ function Rhythm({ hours, order }: { hours: SessionTally[]; order: readonly Provi
       </div>
       {total > 0 && (
         <p className="ns-hint">
-          Busiest around {hh(peak)}:00 — {counted(hours[peak].sessions, 'session')} started in that
-          hour.
+          Busiest around {hh(peak)}:00 — {counted(hours[peak].prompts, 'prompt')} sent in that hour.
         </p>
       )}
     </div>
@@ -555,6 +568,7 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
   const order = providers.map((p) => p.provider)
   const lead = order[0] ?? null
   const busiestDay = profile?.busiestDay ?? null
+  const roundtables = profile?.roundtables ?? null
   const linesAdded = providers.reduce((n, p) => n + p.linesAdded, 0)
   const linesRemoved = providers.reduce((n, p) => n + p.linesRemoved, 0)
 
@@ -595,6 +609,19 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
           tools — they measure edits made, not diff that survived to a commit.
         </p>
         <Compare providers={providers} />
+
+        {roundtables && (
+          <>
+            <h3 className="ns-label">Roundtables</h3>
+            <p className="ns-hint ns-prose">
+              {counted(roundtables.tables, 'table')} ran{' '}
+              {counted(roundtables.sessions, 'seat session')} (
+              {splitText(roundtables.byProvider, order)}). They are counted apart: a seat is
+              prompted by its table rather than by you, so no seat is in this page&apos;s other
+              numbers.
+            </p>
+          </>
+        )}
 
         {profile.models.length > 0 && (
           <>

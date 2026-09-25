@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildProfile, dayKey, streaks } from '../src/main/profile'
+import { buildProfile, dayKey, forgetDeepCache, streaks } from '../src/main/profile'
 import type { ProfileStats, Provider, SessionMeta } from '../src/shared/types'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-profile-fixtures-'))
@@ -474,21 +474,81 @@ describe('buildProfile — insights', () => {
     ])
   })
 
-  it('buckets session starts into local hours, split by agent', async () => {
-    const file = claudeLog('hours.jsonl', [])
-    const at = (h: number): number => new Date(2026, 7, 10, h, 30).getTime()
+  it('buckets prompts into the local hour they were sent, split by agent', async () => {
+    const at = (h: number): string => new Date(2026, 7, 10, h, 30).toISOString()
+    const claudeFile = join(root, 'hours-claude.jsonl')
+    writeFileSync(
+      claudeFile,
+      [at(9), at(22), at(22)]
+        .map((timestamp) => JSON.stringify({ type: 'user', timestamp, message: { role: 'user', content: 'go' } }))
+        .join('\n')
+    )
+    const copilotFile = copilotLog('hours-copilot.jsonl', [
+      { type: 'user.message', timestamp: at(9), data: { content: 'go' } }
+    ])
+    // started at 8: when a session began says little about when you were at it
+    const started = new Date(2026, 7, 10, 8).getTime()
     const p = await buildProfile(
       [
-        meta({ provider: 'claude', sourcePath: file, startedAt: at(9) }),
-        meta({ provider: 'codex', sourcePath: file, startedAt: at(9) }),
-        meta({ provider: 'claude', sourcePath: file, startedAt: at(22) })
+        meta({ provider: 'claude', sourcePath: claudeFile, startedAt: started }),
+        meta({ provider: 'copilot', sourcePath: copilotFile, startedAt: started })
       ],
       { now: NOW, login: null }
     )
     expect(p.hours).toHaveLength(24)
-    expect(p.hours[9]).toEqual({ sessions: 2, byProvider: { claude: 1, codex: 1 } })
-    expect(p.hours[22]).toEqual({ sessions: 1, byProvider: { claude: 1 } })
-    expect(p.hours.reduce((a, h) => a + h.sessions, 0)).toBe(3)
+    expect(p.hours[8]).toEqual({ prompts: 0, byProvider: {} })
+    expect(p.hours[9]).toEqual({ prompts: 2, byProvider: { claude: 1, copilot: 1 } })
+    expect(p.hours[22]).toEqual({ prompts: 2, byProvider: { claude: 2 } })
+  })
+
+  it('counts a session on every day it was worked in, not just the day it started', async () => {
+    // started three days ago, resumed yesterday and today: three days of work
+    const file = join(root, 'resumed.jsonl')
+    writeFileSync(
+      file,
+      [3, 1, 0]
+        .map((n) =>
+          JSON.stringify({
+            type: 'user',
+            timestamp: new Date(NOW - n * DAY).toISOString(),
+            message: { role: 'user', content: 'keep going' }
+          })
+        )
+        .join('\n')
+    )
+    const p = await buildProfile([meta({ provider: 'claude', sourcePath: file, startedAt: NOW - 3 * DAY })], {
+      now: NOW,
+      login: null
+    })
+    const lit = p.days.filter((d) => d.sessions > 0).map((d) => d.day)
+    expect(lit).toEqual([daysAgo(3), daysAgo(1), daysAgo(0)])
+    expect(p.activeDays).toBe(3)
+    expect(p.providers[0].activeDays).toBe(3)
+    // yesterday and today: the streak is the work, not the start
+    expect(p.currentStreak).toBe(2)
+  })
+
+  it('still counts a session whose log cannot be read on the day it started', async () => {
+    const p = await buildProfile(
+      [meta({ provider: 'claude', sourcePath: join(root, 'gone.jsonl'), startedAt: NOW - DAY })],
+      { now: NOW, login: null }
+    )
+    expect(p.days.filter((d) => d.sessions > 0).map((d) => d.day)).toEqual([daysAgo(1)])
+  })
+
+  it('reads a transcript whole, past the first megabytes of it', async () => {
+    // a screenshot is a megabyte of base64: a long session's later edits sat past the
+    // old 2MB head read and were never counted
+    const file = join(root, 'long.jsonl')
+    const filler = JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'x'.repeat(3 * 1024 * 1024) }] } })
+    const edit = JSON.stringify({
+      type: 'assistant',
+      message: { model: 'claude-opus-5', content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/r/late.ts', content: 'a\nb' } }] }
+    })
+    writeFileSync(file, [filler, edit].join('\n'))
+    const p = await buildProfile([meta({ provider: 'claude', sourcePath: file })], { now: NOW, login: null })
+    expect(p.providers[0].linesAdded).toBe(2)
+    expect(p.languages.map((l) => l.ext)).toEqual(['ts'])
   })
 
   it('splits languages by the agent that wrote the lines', async () => {
@@ -647,6 +707,25 @@ describe('buildProfile — aggregation', () => {
     expect(p.repos[0]).toMatchObject({ name: 'atlas', fullName: 'acme/atlas' })
   })
 
+  it('reports roundtable seats apart, never in the numbers of the person\'s own work', async () => {
+    const file = claudeLog('seat.jsonl', [])
+    const seat = (provider: Provider, roundtableId: string): SessionMeta =>
+      ({ ...meta({ provider, sourcePath: file }), roundtableId }) as SessionMeta
+    const p = await buildProfile([meta({ provider: 'claude', sourcePath: file })], {
+      now: NOW,
+      login: null,
+      seats: [seat('claude', 'rt-1'), seat('codex', 'rt-1'), seat('codex', 'rt-2')]
+    })
+    expect(p.totalSessions).toBe(1)
+    expect(p.providers.map((x) => [x.provider, x.sessions])).toEqual([['claude', 1]])
+    expect(p.roundtables).toEqual({ tables: 2, sessions: 3, byProvider: { claude: 1, codex: 2 } })
+  })
+
+  it('has no roundtables to report when no table ran a seat', async () => {
+    const p = await buildProfile([], { now: NOW, login: null })
+    expect(p.roundtables).toBeNull()
+  })
+
   it('groups sessions with no repo under General', async () => {
     const file = claudeLog('general.jsonl', [])
     const p = await buildProfile([meta({ provider: 'claude', sourcePath: file })], {
@@ -663,6 +742,70 @@ describe('buildProfile — aggregation', () => {
         lastActivity: NOW
       }
     ])
+  })
+})
+
+// Reading every log whole costs seconds on a real machine, so what each file said is kept
+// in userData between launches, keyed on its mtime and size like the indexer's stat cache.
+describe('buildProfile — the persisted cache', () => {
+  const write = (file: string, content: string): void =>
+    writeFileSync(
+      file,
+      JSON.stringify({
+        type: 'assistant',
+        message: { model: 'claude-opus-5', content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/r/a.ts', content } }] }
+      })
+    )
+
+  it('reuses what an earlier launch read, while the file is unchanged', async () => {
+    const file = join(root, 'cached.jsonl')
+    const cacheFile = join(root, 'userdata', 'profile-cache.json')
+    write(file, 'a\nb\nc')
+    forgetDeepCache()
+    const first = await buildProfile([meta({ provider: 'claude', sourcePath: file })], { now: NOW, login: null, cacheFile })
+    expect(first.providers[0].linesAdded).toBe(3)
+    expect(existsSync(cacheFile)).toBe(true)
+
+    // a new launch: nothing in memory, and the log rewritten with its stamp kept — only
+    // the persisted verdict can still say 3
+    forgetDeepCache()
+    const st = statSync(file)
+    write(file, 'x\ny\nz')
+    utimesSync(file, st.atimeMs / 1000, st.mtimeMs / 1000)
+    const again = await buildProfile([meta({ provider: 'claude', sourcePath: file })], { now: NOW, login: null, cacheFile })
+    expect(again.providers[0].linesAdded).toBe(3)
+
+    // a real write moves the stamp, and the log is read fresh
+    forgetDeepCache()
+    write(file, 'one line')
+    utimesSync(file, st.atimeMs / 1000, st.mtimeMs / 1000 + 5)
+    const fresh = await buildProfile([meta({ provider: 'claude', sourcePath: file })], { now: NOW, login: null, cacheFile })
+    expect(fresh.providers[0].linesAdded).toBe(1)
+  })
+
+  it('keeps only the logs the last build read', async () => {
+    const [a, b] = ['keep.jsonl', 'drop.jsonl'].map((n) => join(root, n))
+    const cacheFile = join(root, 'userdata', 'prune-cache.json')
+    write(a, 'x')
+    write(b, 'y')
+    forgetDeepCache()
+    await buildProfile(
+      [meta({ provider: 'claude', sourcePath: a }), meta({ provider: 'claude', sourcePath: b })],
+      { now: NOW, login: null, cacheFile }
+    )
+    await buildProfile([meta({ provider: 'claude', sourcePath: a })], { now: NOW, login: null, cacheFile })
+    expect(Object.keys(JSON.parse(readFileSync(cacheFile, 'utf8')).entries)).toEqual([a])
+  })
+
+  it('reads fresh past a cache it cannot use', async () => {
+    const file = join(root, 'uncached.jsonl')
+    const cacheFile = join(root, 'userdata', 'junk-cache.json')
+    mkdirSync(join(root, 'userdata'), { recursive: true })
+    writeFileSync(cacheFile, JSON.stringify({ v: 1, entries: { [file]: { mtimeMs: 1, size: 1, stats: { prompts: 'many' } } } }))
+    write(file, 'a\nb')
+    forgetDeepCache()
+    const p = await buildProfile([meta({ provider: 'claude', sourcePath: file })], { now: NOW, login: null, cacheFile })
+    expect(p.providers[0].linesAdded).toBe(2)
   })
 })
 
