@@ -54,7 +54,7 @@ Also in the box:
 curl -fsSL https://raw.githubusercontent.com/tashtit/cockpit/main/scripts/install.sh | sh
 ```
 
-or with Homebrew:
+or with Homebrew (add `--adopt` if Cockpit is already installed):
 
 ```bash
 brew install --cask tashtit/tap/cockpit

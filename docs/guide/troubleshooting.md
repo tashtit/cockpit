@@ -25,6 +25,24 @@ xattr -d com.apple.quarantine /Applications/Cockpit.app
 
 Signed and notarized releases open without any of this, and so does a copy installed with the [one-line installer](/guide/getting-started#install-the-app), which downloads with `curl` and so never gets the flag.
 
+## Homebrew won't install Cockpit
+
+Two messages, both about a Cockpit Homebrew didn't expect to find — or expected and didn't:
+
+- **"It seems there is already an App at '/Applications/Cockpit.app'"** — Cockpit is already installed, from the installer or the disk image, and Homebrew won't overwrite an app it didn't put there. Let it take over the one you have; because Cockpit updates itself, Homebrew adopts it at whatever version it is:
+
+  ```bash
+  brew install --cask --adopt tashtit/tap/cockpit
+  ```
+
+- **"Not upgrading cockpit, the latest version is already installed"**, and no Cockpit in Applications — the app was deleted by hand (dragged to the Trash, say), but Homebrew still has it on its books, so `brew install` does nothing. Reinstall puts it back:
+
+  ```bash
+  brew reinstall --cask tashtit/tap/cockpit
+  ```
+
+Either way your settings in `~/Library/Application Support/Cockpit` stay where they are. The cask can trail the newest release by a few hours, so Homebrew may install a version you have already seen; Cockpit fetches the newer one itself once it opens.
+
 ## An update did not install
 
 Cockpit installs updates itself: it downloads the release zip, checks it against the checksum the release publishes, confirms the bundle inside is the same app at the version that was offered, clears the quarantine flag and swaps it in once Cockpit quits. Every step before the swap is reversible, and the swap puts the old bundle back if the copy fails — a failed update always leaves you with a working app.
