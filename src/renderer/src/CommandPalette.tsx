@@ -18,12 +18,12 @@ import {
   GearIcon,
   GraphIcon,
   LandingMark,
-  LiveDot,
   ProviderLogo,
   PROVIDER_LABEL,
   RepoIcon,
   SearchIcon,
   SlidersIcon,
+  Spinner,
   TrashIcon
 } from './logos'
 import { fmtTime, useTimeFormat } from './time'
@@ -132,8 +132,9 @@ const ROLE_LABEL: Record<TranscriptHit['role'], string> = {
 /**
  * ⌘K palette: one input that reaches any session, starts a session in any repo,
  * or opens any view. With an empty query it opens as a miniature of the board —
- * flying sessions first, livery dots and all — so the keyboard door shows the
- * same fleet the home view does. Deliberately not an action executor.
+ * flying sessions first — so the keyboard door shows the same fleet the home view
+ * does, in the sidebar's quieter marks: its rows lead with the agent's logo, so the
+ * running and landed marks don't repeat the livery. Deliberately not an action executor.
  *
  * Its second mode searches *inside* the transcripts, across all three agents at
  * once: a query offers "search transcripts for …" under the session hits, picking
@@ -627,9 +628,9 @@ function PaletteOption({
           {landing?.kind === 'asks' ? (
             <LandingMark landing={landing} p={it.s.provider} />
           ) : flying ? (
-            <LiveDot p={it.s.provider} />
+            <Spinner label={`${PROVIDER_LABEL[it.s.provider]} is working`} />
           ) : landing ? (
-            <LandingMark landing={landing} p={it.s.provider} />
+            <LandingMark landing={landing} p={it.s.provider} plainDot />
           ) : (
             <time className="palette-meta" dateTime={new Date(it.s.updatedAt).toISOString()}>
               {fmtTime(it.s.updatedAt, timeFormat)}

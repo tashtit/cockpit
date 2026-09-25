@@ -74,8 +74,9 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     beats running, because the process is up but going nowhere), else the neutral
     `Spinner` while the session's provider process runs, else the rest of `LandingMark`
     while the session has something unseen — GitHub's x `.fix-mark` in `--danger` for a red
-    pull request on its branch, a solid `.landed-dot` in the agent's color for a turn that
-    ended — each with the full reason as its `aria-label` ("asks you: <question>",
+    pull request on its branch, a solid `.landed-dot` in the accent for a turn that ended
+    (`plainDot` — one "unread" color for every agent, where the board wears the livery) —
+    each with the full reason as its `aria-label` ("asks you: <question>",
     "PR #57 checks failing", "finished — not opened yet") and in the row's tooltip,
     else compact `PrBadge` (number, then an open PR's checks glyph,
     unresolved-thread count and changes-requested mark — each spelled out in its

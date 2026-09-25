@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { act } from 'react'
+import { CommandPalette } from '../../src/renderer/src/CommandPalette'
 import { HomeView } from '../../src/renderer/src/HomeView'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
 import { initBusySessions } from '../../src/renderer/src/busy'
@@ -293,18 +294,57 @@ describe('needs you: questions and red pull requests', () => {
     stop()
   })
 
-  it('a running sidebar row turns a neutral spinner — the row\'s logo already names the agent', async () => {
+  it('running and landed sidebar rows wear no livery — the row\'s logo already names the agent', async () => {
     const stopBusy = initBusySessions()
+    const stop = initLanded()
     renderSidebar()
     await screen.findByText('fix the login flake')
 
     pushBusy([{ id: 'claude:one', startedAt: Date.now() - 5000, source: 'observed' }])
-    const mark = await screen.findByRole('img', { name: 'Claude is working' })
-    expect(mark).toHaveClass('spinner')
-    expect(mark.closest('.session-row')).toHaveTextContent('fix the login flake')
-    // no livery on the rail: the agent-colored pulse stays the board's
+    pushLandings([{ id: 'claude:two', at: Date.now() - 1000, kind: 'landed' }])
+    const running = await screen.findByRole('img', { name: 'Claude is working' })
+    expect(running).toHaveClass('spinner')
+    expect(running.closest('.session-row')).toHaveTextContent('fix the login flake')
+    const landed = await screen.findByRole('img', { name: 'finished — not opened yet' })
+    expect(landed).toHaveClass('landed-dot', 'landed-dot-plain')
+    expect(landed).not.toHaveClass('plogo-claude')
+    expect(landed.closest('.session-row')).toHaveTextContent('add pagination')
+    // the agent-colored pulse stays the board's
     expect(document.querySelector('.tree-sidebar [class*="pulse"]')).toBeNull()
     pushBusy([])
+    stop()
+    stopBusy()
+  })
+
+  it('the palette\'s flying and landed rows use the sidebar\'s marks, not the board\'s livery', async () => {
+    const stopBusy = initBusySessions()
+    const stop = initLanded()
+    render(
+      <CommandPalette
+        repos={[repo]}
+        scopeRepo={null}
+        onOpenSession={vi.fn()}
+        onNewSession={vi.fn()}
+        onRepoSetup={vi.fn()}
+        onGoto={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByRole('option', { name: /fix the login flake/ })
+
+    pushBusy([{ id: 'claude:one', startedAt: Date.now() - 5000, source: 'observed' }])
+    pushLandings([{ id: 'claude:two', at: Date.now() - 1000, kind: 'landed' }])
+    const flying = within(await screen.findByRole('group', { name: 'flying now' })).getByRole('option', {
+      name: /fix the login flake/
+    })
+    expect(flying.querySelector('.spinner')).toHaveAttribute('aria-label', 'Claude is working')
+    const arrived = within(await screen.findByRole('group', { name: 'needs you' })).getByRole('option', {
+      name: /add pagination/
+    })
+    expect(arrived.querySelector('.landed-dot')).toHaveClass('landed-dot-plain')
+    expect(document.querySelector('.palette [class*="pulse"], .palette .landed-dot[class*="plogo-"]')).toBeNull()
+    pushBusy([])
+    stop()
     stopBusy()
   })
 })
