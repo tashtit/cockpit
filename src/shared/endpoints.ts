@@ -349,10 +349,17 @@ export function endpointEnv(
     ANTHROPIC_API_KEY: '',
     ANTHROPIC_AUTH_TOKEN: ''
   }
-  if (apiKey) env[bearer ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY'] = apiKey
+  // A keyless endpoint still gets a credential, a placeholder: with both variables
+  // empty Claude Code falls back to its own sign-in and sends the person's claude.ai
+  // OAuth token to this base URL — a gateway would receive their subscription's key.
+  // (Checked against a header-logging stub; Copilot sends nothing in the same spot.)
+  env[bearer ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY'] = apiKey || NO_KEY_PLACEHOLDER
   if (headerLines) env.ANTHROPIC_CUSTOM_HEADERS = headerLines
   return env
 }
+
+/** What a keyless endpoint is sent in place of a key — anything but the person's own sign-in. */
+export const NO_KEY_PLACEHOLDER = 'cockpit-no-key'
 
 /**
  * The request that lists an endpoint's models, provider-shape aware, carrying the key

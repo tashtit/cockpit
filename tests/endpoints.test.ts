@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  NO_KEY_PLACEHOLDER,
   endpointUrlRefusal,
   isLocalEndpointHost,
   ENDPOINT_PRESETS,
@@ -227,11 +228,17 @@ describe('endpointEnv', () => {
   })
 
   // the shell's own ANTHROPIC_API_KEY would otherwise ride along: Claude sends both
-  // headers when both variables are set
-  it('blanks every credential the endpoint does not supply, so none is inherited', () => {
+  // headers when both variables are set — and with both empty it sends its own
+  // sign-in's OAuth token instead, so a keyless endpoint gets a placeholder
+  it('blanks every credential the endpoint does not supply, and never leaves Claude keyless', () => {
     expect(endpointEnv('claude', ep({ type: 'anthropic', auth: 'bearer' }))).toEqual({
       ANTHROPIC_BASE_URL: 'https://gw.example.com/v1',
-      ...noClaudeKey
+      ...noClaudeKey,
+      ANTHROPIC_AUTH_TOKEN: NO_KEY_PLACEHOLDER
+    })
+    expect(endpointEnv('claude', ep({ type: 'anthropic', auth: 'key' }))).toMatchObject({
+      ANTHROPIC_API_KEY: NO_KEY_PLACEHOLDER,
+      ANTHROPIC_AUTH_TOKEN: ''
     })
   })
 
