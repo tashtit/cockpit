@@ -38,7 +38,9 @@ function dirExists(cwd: string): boolean {
 /** Four independent probes, each fail-soft — a session cwd may be a deleted worktree. */
 async function gitSnapshot(cwd: string): Promise<GitSnapshot> {
   const run = async (args: string[]): Promise<string | null> => {
-    const r = await execText('git', args, { cwd, timeoutMs: 5_000 })
+    // read-only: a plain status refreshes the index under index.lock, in a worktree
+    // whose agent may be committing right now
+    const r = await execText('git', ['--no-optional-locks', ...args], { cwd, timeoutMs: 5_000 })
     return r.ok ? r.stdout : null
   }
   const [branch, status, diffStat, log] = await Promise.all([
@@ -115,6 +117,9 @@ function textFromStream(provider: Provider, stdout: string): string {
   return texts.join('\n').trim()
 }
 
+/** Sessions an "Improve with AI" resume is running against right now. */
+const improving = new Set<string>()
+
 /**
  * "Improve with AI": resume the source session read-only and let its own agent —
  * which still has full native context — write the briefing narrative. Git facts
@@ -126,6 +131,18 @@ export async function improveHandoffBriefing(
   indexer: SessionIndexer,
   sessionId: string
 ): Promise<string> {
+  // one resume at a time per session: a second click would be a second writer on
+  // the same log, which is what ChatManager's one-turn rule exists to prevent
+  if (improving.has(sessionId)) throw new Error('Already asking this session for a briefing.')
+  improving.add(sessionId)
+  try {
+    return await improve(indexer, sessionId)
+  } finally {
+    improving.delete(sessionId)
+  }
+}
+
+async function improve(indexer: SessionIndexer, sessionId: string): Promise<string> {
   const meta = indexer.getSession(sessionId)
   if (!meta) throw new Error('Unknown session — it may not be indexed yet.')
   const cwd = meta.cwd

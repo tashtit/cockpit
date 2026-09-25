@@ -664,7 +664,15 @@ app.whenReady().then(() => {
   )
   ipcMain.handle(CH.transcriptsCancel, () => transcripts.cancel())
   ipcMain.handle(CH.handoffBriefing, (_e, id: string) => getHandoffBriefing(indexer, String(id)))
-  ipcMain.handle(CH.handoffImprove, (_e, id: string) => improveHandoffBriefing(indexer, String(id)))
+  ipcMain.handle(CH.handoffImprove, (_e, id: string) => {
+    const sid = String(id)
+    // improving resumes the session outside ChatManager — a second writer on a log a
+    // turn is still writing, whether Cockpit runs that turn or a terminal does
+    if (busySessions().some((b) => b.id === sid)) {
+      throw new Error('This session has a turn running — let it finish, then improve the briefing.')
+    }
+    return improveHandoffBriefing(indexer, sid)
+  })
   ipcMain.handle(CH.sessionsArchive, (_e, id: string, archived: boolean) => {
     indexer.setArchived(setSessionArchived(id, archived))
   })

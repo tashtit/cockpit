@@ -322,9 +322,16 @@ export function buildSummarizeCommand(
   if (!isValidNativeId(nativeId)) throw new Error('malformed session id')
   switch (provider) {
     case 'claude':
+      // no tools at all: the resumed session already holds everything a summary
+      // needs, and without these the run could use any tool the person's or the
+      // repo's settings allow — a `defaultMode` or an allow rule reaches `-p` too
       return {
         cmd: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--verbose', '--resume', nativeId, SUMMARIZE_PROMPT]
+        args: [
+          '-p', '--output-format', 'stream-json', '--verbose',
+          '--tools', '', '--strict-mcp-config',
+          '--resume', nativeId, SUMMARIZE_PROMPT
+        ]
       }
     case 'codex':
       return {
