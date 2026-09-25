@@ -67,7 +67,7 @@ Rows that can't be cleaned stay visible with the reason spelled out, and their c
 | a roundtable's room | it belongs to the table, not to one session |
 | locked | you ran `git worktree lock` on it |
 
-A worktree whose directory is already gone shows as **directory gone** — cleaning it just clears the dead registration (`git worktree prune`).
+A worktree whose directory is already gone shows as **directory gone** — cleaning it clears that one dead registration (`git worktree remove <path>`), never the repo's others: a worktree on a drive that is only unmounted is left registered. One you locked with `git worktree lock` stays blocked as **locked**.
 
 ## Finding things
 
