@@ -1,5 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  renameSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+  writeSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { claudeUsage, codexUsage, getUsage, parsePremiumRequests, premiumRequestsResetAt, throttled } from '../src/main/usage'
@@ -123,6 +134,108 @@ describe('claudeUsage', () => {
     const [block, week] = await claudeUsage(empty, NOW)
     expect(block.requests).toBe(0)
     expect(week.requests).toBe(0)
+  })
+})
+
+describe('claudeUsage on a log being written', () => {
+  let homes = 0
+  /** A home of its own for `content`, so its log is read once, from byte 0. */
+  function home(content: string): { dir: string; log: string } {
+    const dir = join(root, `claude-grow-${++homes}`)
+    const proj = join(dir, 'projects', '-Users-me-dev-app')
+    mkdirSync(proj, { recursive: true })
+    const log = join(proj, 'session.jsonl')
+    writeFileSync(log, content)
+    return { dir, log }
+  }
+  const fresh = (content: string) => claudeUsage(home(content).dir, NOW)
+  const anonymous = (ts: string, tokens: number) =>
+    JSON.stringify({ type: 'assistant', timestamp: ts, message: { usage: { input_tokens: tokens, output_tokens: 1 } } })
+
+  const first = [
+    claudeEntry('2026-08-10T11:10:00Z', 'r1', { in: 100, out: 50 }),
+    // streamed: r2 is written again below with its final totals
+    claudeEntry('2026-08-10T12:01:00Z', 'r2', { in: 10, out: 1 }),
+    anonymous('2026-08-10T12:02:00Z', 7)
+  ].join('\n') + '\n'
+  const more = [
+    claudeEntry('2026-08-10T12:01:00Z', 'r2', { in: 10, out: 90 }),
+    anonymous('2026-08-10T12:03:00Z', 3)
+  ].join('\n') + '\n'
+  const lastLine = claudeEntry('2026-08-10T12:04:00Z', 'r3', { in: 1, out: 2, cr: 3, cc: 4 }) + '\n'
+
+  it('gives the same totals as a fresh read after every append, a half-written line included', async () => {
+    const { dir, log } = home(first)
+    expect(await claudeUsage(dir, NOW)).toEqual(await fresh(first))
+
+    appendFileSync(log, more)
+    const grown = await claudeUsage(dir, NOW)
+    expect(grown).toEqual(await fresh(first + more))
+    // r2 once, with its final output; both anonymous entries
+    expect(grown[0].requests).toBe(4)
+    expect(grown[0].tokens).toEqual({ input: 120, output: 142, cacheRead: 0, cacheCreate: 0 })
+
+    // mid-write, cut anywhere: half a line counts for nothing, a whole one still without
+    // its line break counts as it stands — and neither counts twice once it is finished
+    const entry = lastLine.trimEnd()
+    appendFileSync(log, entry.slice(0, 80))
+    expect(await claudeUsage(dir, NOW)).toEqual(await fresh(first + more + entry.slice(0, 80)))
+    appendFileSync(log, entry.slice(80))
+    const whole = await claudeUsage(dir, NOW)
+    expect(whole).toEqual(await fresh(first + more + entry))
+    expect(whole[0].requests).toBe(5)
+    appendFileSync(log, '\n')
+    expect(await claudeUsage(dir, NOW)).toEqual(whole)
+
+    const unnamed = anonymous('2026-08-10T12:05:00Z', 5)
+    appendFileSync(log, unnamed)
+    expect((await claudeUsage(dir, NOW))[0].requests).toBe(6)
+    appendFileSync(log, '\n')
+    const done = await claudeUsage(dir, NOW)
+    expect(done).toEqual(await fresh(first + more + lastLine + unnamed + '\n'))
+    expect(done[0].requests).toBe(6)
+  })
+
+  it('reads on from where it stopped rather than from byte 0', async () => {
+    const { dir, log } = home(first)
+    await claudeUsage(dir, NOW)
+    // rewrite r2's already-read line in place (same length, past the head), then
+    // append: an append-only reader never looks back at it
+    const at = first.indexOf('"output_tokens":1,')
+    expect(at).toBeGreaterThan(256)
+    const fd = openSync(log, 'r+')
+    writeSync(fd, '"output_tokens":9,', at)
+    closeSync(fd)
+    appendFileSync(log, lastLine)
+    const [block] = await claudeUsage(dir, NOW)
+    expect(block.tokens?.output).toBe(50 + 1 + 1 + 2)
+  })
+
+  it('starts over when the log is cut short, rewritten in place or replaced', async () => {
+    const { dir, log } = home(first + more)
+    await claudeUsage(dir, NOW)
+
+    writeFileSync(log, first)
+    expect(await claudeUsage(dir, NOW)).toEqual(await fresh(first))
+
+    // same inode, longer than before, but not the same log
+    const other = [lastLine, more, more].join('')
+    writeFileSync(log, other)
+    expect(await claudeUsage(dir, NOW)).toEqual(await fresh(other))
+
+    const tmp = `${log}.tmp`
+    writeFileSync(tmp, first + more + lastLine)
+    renameSync(tmp, log)
+    expect(await claudeUsage(dir, NOW)).toEqual(await fresh(first + more + lastLine))
+  })
+
+  it('reads a log that went quiet from the start once it grows again', async () => {
+    const { dir, log } = home(first)
+    // quiet for longer than it stays resumable: only its totals are kept
+    utimesSync(log, new Date(NOW - 7_200_000), new Date(NOW - 7_200_000))
+    expect(await claudeUsage(dir, NOW)).toEqual(await fresh(first))
+    appendFileSync(log, more)
+    expect(await claudeUsage(dir, NOW)).toEqual(await fresh(first + more))
   })
 })
 
