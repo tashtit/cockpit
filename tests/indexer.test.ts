@@ -469,6 +469,76 @@ describe('watcher-event probing (codex subagent rollouts)', () => {
   })
 })
 
+// Several agents writing at once is the ordinary case: the watcher's pacing must keep
+// the index moving while their combined write rate never pauses.
+describe('watcher pacing under parallel writers', () => {
+  const dir = join(root, 'claude-parallel')
+  const projDir = join(dir, 'projects', 'p')
+  const names = ['w1', 'w2', 'w3']
+  const file = (name: string): string => join(projDir, `${name}.jsonl`)
+  const line = (name: string, text: string): string =>
+    jsonl([{ type: 'user', message: { role: 'user', content: text }, timestamp: '2026-09-20T10:00:00Z', sessionId: name, cwd: '/nowhere/p' }])
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    mkdirSync(projDir, { recursive: true })
+    for (const n of names) writeFileSync(file(n), line(n, `start ${n}`))
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: dir, provider: 'claude', label: 'par' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => {
+    vi.useRealTimers()
+    idx?.stopWatchers()
+  })
+
+  it('flushes every written file within the refresh window, however often any of them is written', () => {
+    vi.useFakeTimers()
+    try {
+      const counts = (): number[] => names.map((n) => idx.getSession(`claude:${n}`)?.messageCount ?? 0)
+      expect(counts()).toEqual([1, 1, 1])
+      // three logs appended in rotation every 200ms: no 500ms of quiet, ever
+      for (let i = 0; i < 9; i++) {
+        const n = names[i % names.length]
+        appendFileSync(file(n), line(n, `write ${i}`))
+        ;(idx as any).markDirty('change', file(n))
+        vi.advanceTimersByTime(200)
+      }
+      // by now each file was written three times, and every write had its flush
+      expect(counts()).toEqual([4, 4, 4])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('starts a full rescan within its maximum wait while structural events keep arriving', () => {
+    vi.useFakeTimers()
+    const rescan = vi.spyOn(idx, 'rescan').mockResolvedValue()
+    try {
+      // a freshly created file on macOS: every append arrives as 'rename'
+      for (let t = 0; t < 2750; t += 250) {
+        ;(idx as any).markDirty('rename', file('w1'))
+        vi.advanceTimersByTime(250)
+      }
+      expect(rescan).not.toHaveBeenCalled()
+      ;(idx as any).markDirty('rename', file('w1'))
+      vi.advanceTimersByTime(250)
+      expect(rescan).toHaveBeenCalledTimes(1)
+      // the next burst gets a fresh deadline, and a quiet one still settles first
+      ;(idx as any).markDirty('rename', file('w1'))
+      vi.advanceTimersByTime(700)
+      expect(rescan).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(100)
+      expect(rescan).toHaveBeenCalledTimes(2)
+    } finally {
+      rescan.mockRestore()
+      idx.stopWatchers()
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe.skipIf(!hasSqlite3())('provider-archived persistence across launches', () => {
   const cpDir = join(root, 'copilot-persist')
   const cacheFile = join(root, 'cache', 'stat-cache.json')

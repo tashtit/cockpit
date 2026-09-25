@@ -80,6 +80,17 @@ const WATCH_RETRY_INTERVAL_MS = 30_000
 /** Floor for re-judging a not-a-session verdict (see knownNonSessions). */
 const PROBE_REGROW_BYTES = 4096
 
+/** A changed session file is re-read no later than this after its first write. */
+const DIRTY_FLUSH_MS = 500
+/** Structural events settle this long before a full rescan… */
+const RESCAN_QUIET_MS = 750
+/**
+ * …but never wait longer than this for the quiet: macOS reports every append to a
+ * freshly created file as `rename` for its first seconds, so a new session streaming
+ * its opening turn would otherwise hold the rescan off for as long as it writes.
+ */
+const RESCAN_MAX_WAIT_MS = 3000
+
 let cacheSaveSeq = 0
 /**
  * A fixed tmp name races when saves overlap (slow disk, quit flush during an
@@ -208,6 +219,8 @@ export class SessionIndexer {
   private dirty = new Set<string>()
   private dirtyTimer: NodeJS.Timeout | null = null
   private rescanTimer: NodeJS.Timeout | null = null
+  /** When the pending rescan must start however busy the watcher is (RESCAN_MAX_WAIT_MS) */
+  private rescanDeadline = 0
   /**
    * Session-shaped files whose parse came back null (e.g. codex subagent rollouts,
    * which live in the same sessions/YYYY/MM/DD dirs as real rollouts). They stream
@@ -532,11 +545,15 @@ export class SessionIndexer {
       if (this.fileSource.has(path)) {
         if (this.rescanTimer) return // a pending full rescan already covers it
         this.dirty.add(path)
-        if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
-        this.dirtyTimer = setTimeout(() => {
-          this.dirtyTimer = null
-          this.applyDirty()
-        }, 500)
+        // a throttle, not a debounce: restarted on every write, the timer never fired
+        // while several agents wrote at once — their combined rate beats any quiet
+        // period — and the index, live status and turn-ended news all froze with it
+        if (!this.dirtyTimer) {
+          this.dirtyTimer = setTimeout(() => {
+            this.dirtyTimer = null
+            this.applyDirty()
+          }, DIRTY_FLUSH_MS)
+        }
         return
       }
       // 'change' on a session-shaped file we never enumerated: probe just that file
@@ -627,11 +644,17 @@ export class SessionIndexer {
       this.dirtyTimer = null
     }
     this.dirty.clear()
+    const now = Date.now()
     if (this.rescanTimer) clearTimeout(this.rescanTimer)
-    this.rescanTimer = setTimeout(() => {
-      this.rescanTimer = null
-      void this.rescan()
-    }, 750)
+    else this.rescanDeadline = now + RESCAN_MAX_WAIT_MS
+    // debounced for the quiet a burst of structural events ends in, up to the deadline
+    this.rescanTimer = setTimeout(
+      () => {
+        this.rescanTimer = null
+        void this.rescan()
+      },
+      Math.max(0, Math.min(RESCAN_QUIET_MS, this.rescanDeadline - now))
+    )
   }
 
   /**
