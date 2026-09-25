@@ -7,6 +7,7 @@ import {
   isSafeAssetName,
   isSafeVersion,
   pickZip,
+  signingRequirement,
   swapRefusal,
   swapScript,
   teamIdentifier,
@@ -85,6 +86,19 @@ describe('teamIdentifier', () => {
     // what a released Cockpit actually prints today
     expect(teamIdentifier('Signature=adhoc\nTeamIdentifier=not set\n')).toBe('')
     expect(teamIdentifier('code object is not signed at all')).toBe('')
+  })
+})
+
+describe('signingRequirement', () => {
+  it('holds a download to an Apple-anchored signature from the same team', () => {
+    expect(signingRequirement('ABCDE12345')).toBe(
+      '=anchor apple generic and certificate leaf[subject.OU] = "ABCDE12345"'
+    )
+  })
+
+  it('refuses to build one from anything that is not a team id', () => {
+    expect(signingRequirement('')).toBeNull()
+    expect(signingRequirement('ABC" or anchor apple')).toBeNull()
   })
 })
 

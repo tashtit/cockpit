@@ -15,6 +15,7 @@ import {
   isNewer,
   isSafeAssetName,
   isSafeVersion,
+  signingRequirement,
   swapRefusal,
   swapScript,
   teamIdentifier,
@@ -183,12 +184,31 @@ export async function stageUpdate(req: StageRequest, io: StageIo = {}): Promise<
   if (!name) throw new Error('the download holds no application')
   const staged = join(expanded, name)
 
-  // Cockpit fetched this itself, so macOS never flagged it; clearing the flag anyway
-  // is what keeps the installed copy from being the one Gatekeeper blocks
-  await execText('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', staged], { timeoutMs: 60_000 })
-
-  const refusal = swapRefusal(await bundleFacts(staged), await bundleFacts(bundle), version)
+  const running = await bundleFacts(bundle)
+  const refusal = swapRefusal(await bundleFacts(staged), running, version)
   if (refusal) throw new Error(`refusing to install ${version}: ${refusal}`)
+  if (running.team) {
+    // the team above is what the signature claims; this is whether it holds — sealed,
+    // unmodified, and issued to the same team. An ad-hoc build has no team to hold a
+    // download to, and there the feed's checksum is what stands behind it.
+    const requirement = signingRequirement(running.team)
+    const verified = requirement
+      ? await execText(
+          '/usr/bin/codesign',
+          ['--verify', '--deep', '--strict', `--test-requirement=${requirement}`, staged],
+          { timeoutMs: 120_000 }
+        )
+      : null
+    if (!verified?.ok) {
+      const why = verified?.stderr.trim().split('\n').at(-1) || `the running build's team (${running.team}) is unreadable`
+      throw new Error(`refusing to install ${version}: its signature does not verify — ${why}`)
+    }
+  }
+
+  // Cockpit fetched this itself, so macOS never flagged it; clearing the flag anyway
+  // is what keeps the installed copy from being the one Gatekeeper blocks — and only
+  // now, once the bundle has been judged to be the one that was offered
+  await execText('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', staged], { timeoutMs: 60_000 })
 
   await writeFile(manifestFile(), JSON.stringify({ version, app: staged }), 'utf8')
   return { version, app: staged }

@@ -78,6 +78,18 @@ export function teamIdentifier(codesignOutput: string): string {
   return id === 'not set' ? '' : id
 }
 
+/**
+ * The code requirement a download must satisfy once the running build has a team:
+ * Apple-anchored and issued to that team. `codesign -dv` only reports what a
+ * signature *claims* — a bundle whose seal was broken after signing still names its
+ * team — so the claim is checked by `codesign --verify` against this. Null for a
+ * team that isn't Apple's ten-character form: nothing sane to hold a download to.
+ */
+export function signingRequirement(team: string): string | null {
+  if (!/^[A-Z0-9]{10}$/.test(team)) return null
+  return `=anchor apple generic and certificate leaf[subject.OU] = "${team}"`
+}
+
 /** What an app bundle says about itself: its Info.plist, plus who signed it. */
 export type BundleFacts = {
   readonly identifier: string
