@@ -40,6 +40,15 @@ export function installMethodOf(realPath: string): CliInstall {
 }
 
 /**
+ * Whether a Terminal command line runs Homebrew. Homebrew does one thing at a time and
+ * refuses a second `brew update` outright, so these take turns: main queues their
+ * scripts on one lock, and a row says when its run is taking turns with another's.
+ */
+export function runsHomebrew(line: string): boolean {
+  return /^brew\s/.test(line)
+}
+
+/**
  * The command that updates one CLI the way it was installed. Copilot updates itself in
  * place whatever put it there (its cask declares auto-updates, and a stale cask would
  * roll it back), so it always gets its own `copilot update`. Homebrew refreshes its

@@ -52,3 +52,5 @@ A CLI is compared against **the channel it can actually update from**, not again
 When a newer version exists that your channel hasn't packaged yet, the row says so — "2.1.278 is out, but Homebrew hasn't packaged it yet" — and stays **up to date**, because there is nothing to run.
 
 Homebrew only knows the releases its last `brew update` fetched, so such a row also offers **Refresh Homebrew**: it opens Terminal on `brew update` alone, which changes nothing that is installed. When Homebrew comes back with the newer version, the row turns into an **Update…** by itself. (A CLI that updates itself, like Copilot, has nothing to refresh, so it isn't offered.)
+
+Homebrew runs one thing at a time, so you can update Claude and Codex back to back: the second Terminal window waits for the first to finish, then carries on by itself, and both rows say they are taking turns. A window also waits out a Homebrew run Cockpit didn't start, like one in another terminal. Closing a window lets the next one go.
