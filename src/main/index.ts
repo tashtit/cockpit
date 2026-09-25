@@ -1275,9 +1275,10 @@ app.whenReady().then(() => {
     saveChatImage(chatImagesDir(), data, mime)
   )
   ipcMain.handle(CH.chatSend, (_e, req: ChatRequest) => {
-    // pasted-image paths are renderer input — only accept files chat:save-image wrote
+    // pasted-image paths are renderer input — only accept files chat:save-image wrote;
+    // and a seat's research allowance is the roundtable manager's alone to give
     {
-      const { images: rawImages, ...rest } = req
+      const { images: rawImages, research: _research, ...rest } = req
       const images = assertChatImages(chatImagesDir(), rawImages)
       req = images ? { ...rest, images } : rest
     }

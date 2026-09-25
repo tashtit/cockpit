@@ -73,7 +73,7 @@ On an open table, the header shows what it has spent ("12 of 80 agent turns"). C
 
 ## Discussion-only, enforced
 
-Roundtables have no permission mode. Every turn runs in the safest mode the provider offers, Codex is sandboxed read-only, and the seats are told the workspace is read-only:
+Roundtables have no permission mode. Every turn runs in the safest mode the provider offers, Codex is sandboxed read-only, and the seats are told the workspace is read-only. So a seat can back its claims, a Claude seat may also search the web and fetch pages without an approval nobody is there to give. It still has no shell and can't edit anything, and it's told so, so it looks things up instead of trying commands that would be refused:
 
 - **With a project attached**, the seats read it from an isolated worktree on a `cockpit/` branch. They can ground their arguments in the actual code; they cannot change it.
 - **With no project**, the table runs in a scratch room — a pure discussion.
