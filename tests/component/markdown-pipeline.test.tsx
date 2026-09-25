@@ -1,6 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import rehypeHighlight from 'rehype-highlight'
+import remarkGfm from 'remark-gfm'
 import { MarkdownPipeline } from '../../src/renderer/src/MarkdownPipeline'
+
+// counted, not changed: the highlighter's attacher builds a lowlight (every grammar)
+// each time it runs, and remark-gfm's runs once per document the pipeline parses
+vi.mock('rehype-highlight', async (importOriginal) => {
+  const real = await importOriginal<typeof import('rehype-highlight')>()
+  return { default: vi.fn(real.default) }
+})
+vi.mock('remark-gfm', async (importOriginal) => {
+  const real = await importOriginal<typeof import('remark-gfm')>()
+  return { default: vi.fn(real.default) }
+})
 
 /*
  * Links in a transcript. The window is not allowed to navigate — main's
@@ -50,5 +63,27 @@ describe('a link in rendered markdown', () => {
   it('still renders a code block with its copy button', () => {
     render(<MarkdownPipeline text={'```js\nconst a = 1\n```'} />)
     expect(screen.getByRole('button', { name: 'Copy code' })).toBeInTheDocument()
+  })
+})
+
+describe('the pipeline’s own cost', () => {
+  it('highlights every reply with the one highlighter built when the pipeline loaded', () => {
+    render(<MarkdownPipeline text={'```ts\nconst one = 1\n```'} />)
+    render(<MarkdownPipeline text={'```ts\nconst two = 2\n```'} />)
+    render(<MarkdownPipeline text={'```js\nlet three = 3\n```'} />)
+    expect(document.querySelectorAll('.hljs-keyword').length).toBeGreaterThanOrEqual(3)
+    expect(rehypeHighlight).not.toHaveBeenCalled()
+  })
+
+  it('draws a reply it drew lately without parsing it again', () => {
+    const text = 'a reply that is **drawn** twice, from a transcript opened twice'
+    const first = render(<MarkdownPipeline text={text} />)
+    const parsed = vi.mocked(remarkGfm).mock.calls.length
+    first.unmount()
+    render(<MarkdownPipeline text={text} />)
+    expect(screen.getByText('drawn').tagName).toBe('STRONG')
+    expect(vi.mocked(remarkGfm).mock.calls.length).toBe(parsed)
+    render(<MarkdownPipeline text="something it has not drawn" />)
+    expect(vi.mocked(remarkGfm).mock.calls.length).toBe(parsed + 1)
   })
 })
