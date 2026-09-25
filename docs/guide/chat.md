@@ -92,9 +92,10 @@ and in the Dock badge, whether the session runs in Cockpit or in a terminal; see
 ## Plans, to-dos and edits: the Work panel
 
 Agents hand you things to look at while they work: a plan to approve, a to-do list they
-tick off, edits to your files, the checks they ran on them, and files and pages they
-share with you. Cockpit reads each of them from the agent's own tool calls and opens them
-in the **Work** panel beside the conversation. The panel has five tabs:
+tick off, edits to your files, the checks they ran on them, files and pages they share
+with you, and work they suggest for later. Cockpit reads each of them from the agent's own
+tool calls and opens them in the **Work** panel beside the conversation. The panel has six
+tabs:
 
 - **Plan**: the plan the agent proposed (Claude Code's plan mode, Copilot CLI's
   `exit_plan_mode`), rendered as a document. If the agent revised it, **Earlier** and
@@ -136,12 +137,21 @@ in the **Work** panel beside the conversation. The panel has five tabs:
   look; the tab says so. Copilot's writes to its `files/` folder are listed here rather
   than under Edits, since they aren't changes to your repository.
 
+- **Follow-ups**: work the agent noticed outside the task and suggested for a session of
+  its own. In the Claude desktop app these appear as suggestion chips. Each one shows its
+  title, why the agent suggested it, and the prompt it was written to start with.
+  **Start a session…** opens New session with the suggestion's title and prompt filled
+  in, on the project the suggestion names or else this session's own. The title becomes
+  the branch name and the session's name. Pick any agent to take it. Cockpit notes
+  on this Mac which suggestions you've started. A suggestion the agent later withdrew is
+  marked **withdrawn**, with its reason, and can't be started.
+
 A tool row that carries one of these is a single click: the row names the plan, the list's
 progress or the files and their `+`/`−` counts, and clicking it opens the panel at that
 item; a check's row also says whether it passed or failed. The header's **Work** key (⌘J)
 appears once the conversation holds any of them. It opens the panel on whatever matters
 now: a plan waiting for you, else a list still in progress, else a check that failed,
-else what the agent shared, else the edits. Escape closes the panel and returns you to where you were.
+else what the agent shared, else the edits, else its follow-ups. Escape closes the panel and returns you to where you were.
 
 When the window is too narrow to hold the conversation and the panel side by side, the
 panel covers the conversation until you close it, the same way **Changes** does.
@@ -166,8 +176,8 @@ call that changed it; earlier versions of the list aren't kept anywhere.
 with the same agent) in the same directory and on the same branch. The new agent's first
 message is a **Briefing** you can read and edit before sending: the original request,
 the agent's latest plan, its to-do list (finished steps checked), the files and pages it
-shared, how each of its checks last ended, the recent conversation and tool calls, and
-the git state of the directory. **Improve with AI**
+shared, the follow-ups it suggested (marked as outside the task), how each of its checks
+last ended, the recent conversation and tool calls, and the git state of the directory. **Improve with AI**
 asks the original agent to write the briefing itself instead.
 
 ## Provider quirks

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join, sep } from 'node:path'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
-import { publishedUrl, toolArtifact } from './artifacts'
+import { followUpTaskId, publishedUrl, toolArtifact } from './artifacts'
 import { checkOutcome, exitCodeIn } from './checks'
 import {
   capText,
@@ -167,6 +167,11 @@ function answered(call: SessionMessage, result: string, isError: boolean): Sessi
     return { ...call, artifact, ...(isError ? { failed: true } : {}) }
   }
   if (isError) return { ...call, failed: true }
+  // a suggestion's id is only in the result, and is what a later withdrawal names
+  if (a?.kind === 'follow-up') {
+    const taskId = followUpTaskId(result)
+    return taskId ? { ...call, artifact: { ...a, taskId } } : call
+  }
   // a published page's address is only in the result: `Published <file> at https://…`
   if (a?.kind === 'shared' && call.toolName === 'Artifact') {
     const url = publishedUrl(result)
@@ -306,6 +311,8 @@ function transcriptRows(lines: readonly any[]): { rows: SessionMessage[]; agents
   // put several results after several calls, so adjacency would pair them wrong
   const callRows = new Map<string, number>()
   const agents = new Map<string, AgentCall>()
+  // a suggestion's row by the id its result gave it: a withdrawal names only that
+  const followUps = new Map<string, number>()
   for (const l of lines) {
     const ts = toMs(l.timestamp) ?? undefined
     if (l.type === 'user' || l.type === 'assistant') {
@@ -319,6 +326,15 @@ function transcriptRows(lines: readonly any[]): { rows: SessionMessage[]; agents
             const asks = parseAsks(b.name ?? '', b.input)
             const artifact = toolArtifact(b.name ?? '', b.input)
             if (typeof b.id === 'string') callRows.set(b.id, out.length)
+            // the agent took a suggestion back: its own row says so, and why
+            if (b.name === 'mcp__ccd_session__dismiss_task' && typeof b.input?.task_id === 'string') {
+              const at = followUps.get(b.input.task_id)
+              const row = at === undefined ? undefined : out[at]
+              if (at !== undefined && row?.artifact?.kind === 'follow-up') {
+                const reason = typeof b.input.reason === 'string' && b.input.reason.trim() ? b.input.reason.trim() : 'withdrawn'
+                out[at] = { ...row, artifact: { ...row.artifact, dismissed: truncate(reason, 300) } }
+              }
+            }
             if (typeof b.id === 'string' && (b.name === 'Agent' || b.name === 'Task'))
               agents.set(b.id, { after: out.length })
             out.push({
@@ -336,6 +352,9 @@ function transcriptRows(lines: readonly any[]): { rows: SessionMessage[]; agents
             const text = contentToText(b.content)
             const at = typeof b.tool_use_id === 'string' ? callRows.get(b.tool_use_id) : undefined
             if (at !== undefined) out[at] = answered(out[at]!, text, b.is_error === true)
+            const answeredArtifact = at === undefined ? undefined : out[at]!.artifact
+            if (at !== undefined && answeredArtifact?.kind === 'follow-up' && answeredArtifact.taskId)
+              followUps.set(answeredArtifact.taskId, at)
             const agent = typeof b.tool_use_id === 'string' ? agents.get(b.tool_use_id) : undefined
             if (agent) {
               agent.after = out.length

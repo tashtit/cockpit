@@ -100,6 +100,34 @@ export function sharedArtifact(parts: {
   return { kind: 'shared', files, links, ...(caption ? { caption: truncate(caption, MAX_CAPTION_CHARS) } : {}) }
 }
 
+const MAX_FOLLOW_UP_PROMPT = 8_000
+const MAX_FOLLOW_UP_TITLE = 160
+
+/**
+ * A piece of work the agent suggests for a session of its own — the Claude app's
+ * `spawn_task`: a title, why now, and a prompt written to stand alone.
+ */
+export function followUpArtifact(input: unknown): WorkArtifact | undefined {
+  const i = record(input)
+  const title = str(i?.title)
+  const prompt = str(i?.prompt)
+  if (!title || !prompt) return undefined
+  const summary = str(i?.tldr)
+  const cwd = str(i?.cwd)
+  return {
+    kind: 'follow-up',
+    title: truncate(title, MAX_FOLLOW_UP_TITLE),
+    prompt: capText(prompt.trim(), MAX_FOLLOW_UP_PROMPT),
+    ...(summary ? { summary: truncate(summary, MAX_CAPTION_CHARS * 2) } : {}),
+    ...(cwd && cwd.startsWith('/') ? { cwd } : {})
+  }
+}
+
+/** The id the app gave a suggestion: `Noted (position 1, task_id: task_40d57447)…` */
+export function followUpTaskId(result: string): string | null {
+  return /\btask_id: (task_[\w-]+)/.exec(result)?.[1] ?? null
+}
+
 /** The page a publish's result names: `Published <file> at https://…` */
 export function publishedUrl(result: string): string | null {
   const m = /\bat (https?:\/\/\S+)/.exec(result)
@@ -328,6 +356,9 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
       return i?.action === undefined || i?.action === 'publish'
         ? sharedArtifact({ files: [i?.file_path], caption: i?.description })
         : undefined
+    // the Claude app's suggestion of work for a session of its own
+    case 'mcp__ccd_session__spawn_task':
+      return followUpArtifact(input)
     case 'mcp__Claude_Browser__preview_start':
       return sharedArtifact({ links: [{ url: i?.url }] })
     case 'open_canvas': {

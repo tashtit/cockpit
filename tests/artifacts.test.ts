@@ -3,6 +3,8 @@ import {
   acpDiffArtifact,
   acpPlanArtifact,
   fileChangeArtifact,
+  followUpArtifact,
+  followUpTaskId,
   pairHunks,
   parsePatch,
   parseUnifiedDiff,
@@ -346,6 +348,32 @@ describe('parsePatch', () => {
       links: [{ url: 'http://localhost:3345/x', title: 'Preview' }]
     })
     expect(toolArtifact('SendUserFile', { files: [] })).toBeUndefined()
+  })
+
+  it('reads a follow-up the agent suggests: its title, why now, the prompt, and a project it names', () => {
+    expect(
+      toolArtifact('mcp__ccd_session__spawn_task', {
+        title: 'Fix the flaky spec',
+        tldr: 'Found while validating.',
+        prompt: '  In /r/x, fix tests/e2e/a.spec.ts  ',
+        cwd: '/r/other'
+      })
+    ).toEqual({
+      kind: 'follow-up',
+      title: 'Fix the flaky spec',
+      summary: 'Found while validating.',
+      prompt: 'In /r/x, fix tests/e2e/a.spec.ts',
+      cwd: '/r/other'
+    })
+    // a relative directory is no project; a suggestion needs a title and a prompt
+    expect(followUpArtifact({ title: 't', prompt: 'p', cwd: 'relative' })).toEqual({ kind: 'follow-up', title: 't', prompt: 'p' })
+    expect(followUpArtifact({ title: 't' })).toBeUndefined()
+    expect(followUpArtifact({ prompt: 'p' })).toBeUndefined()
+    const long = followUpArtifact({ title: 'x'.repeat(500), prompt: 'y'.repeat(20_000) }) as Extract<WorkArtifact, { kind: 'follow-up' }>
+    expect(long.title.length).toBeLessThanOrEqual(160)
+    expect(long.prompt.length).toBeLessThan(8_100)
+    expect(followUpTaskId('Noted (position 1, task_id: task_40d57447). A chip is showing')).toBe('task_40d57447')
+    expect(followUpTaskId('Noted.')).toBeNull()
   })
 
   it('never makes a page of an address that is not the web', () => {

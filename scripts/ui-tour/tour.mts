@@ -280,6 +280,19 @@ const STATIC: readonly Shot[] = [
       }
     })
   ),
+  // a follow-up the agent suggested, started: the form filled in with its prompt
+  {
+    view: 'new session',
+    name: 'new-session-follow-up',
+    tall: 1100,
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await w.getByRole('tab', { name: /Follow-ups/ }).click()
+      await w.getByRole('button', { name: 'Start a session…' }).click()
+      await pause(w, 500)
+    }
+  },
   {
     view: 'new session',
     name: 'new-session',
@@ -419,6 +432,17 @@ const STATIC: readonly Shot[] = [
       await open(w, /Why is the bundle 2MB/)
       await w.keyboard.press('ControlOrMeta+j')
       await w.locator('.work-shared-image').waitFor()
+      await pause(w, 400)
+    }
+  },
+  // work it spotted outside the task, one step from a session of its own
+  {
+    view: 'chat',
+    name: 'chat-work-follow-ups',
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await w.getByRole('tab', { name: /Follow-ups/ }).click()
       await pause(w, 400)
     }
   },
