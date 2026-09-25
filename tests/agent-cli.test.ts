@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   compareVersions,
+  homebrewUpdateCommand,
   installMethodOf,
   parseVersion,
   runsHomebrew,
@@ -60,6 +61,34 @@ describe('reading a CLI’s version and how it was installed', () => {
     expect(runsHomebrew(updateCommandFor('codex', 'npm'))).toBe(false)
     expect(runsHomebrew(updateCommandFor('copilot', 'brew-cask'))).toBe(false)
     expect(runsHomebrew('claude auth login')).toBe(false)
+  })
+
+  it('updates several Homebrew CLIs in one run, casks and formulae kept apart', () => {
+    expect(
+      homebrewUpdateCommand([
+        { provider: 'claude', install: 'brew-cask' },
+        { provider: 'codex', install: 'brew-cask' }
+      ])
+    ).toBe('brew update && brew upgrade --cask claude-code codex')
+    // `codex` is both a formula and a cask, so each kind is upgraded by its own call
+    expect(
+      homebrewUpdateCommand([
+        { provider: 'claude', install: 'brew-cask' },
+        { provider: 'codex', install: 'brew-formula' }
+      ])
+    ).toBe('brew update && brew upgrade --cask claude-code && brew upgrade codex')
+    // copilot updates itself; npm and native installs are not Homebrew's
+    expect(
+      homebrewUpdateCommand([
+        { provider: 'copilot', install: 'brew-cask' },
+        { provider: 'codex', install: 'npm' },
+        { provider: 'claude', install: 'native' }
+      ])
+    ).toBeNull()
+    // for one CLI it is the same command its own Update runs
+    for (const install of ['brew-cask', 'brew-formula'] as const) {
+      expect(homebrewUpdateCommand([{ provider: 'codex', install }])).toBe(updateCommandFor('codex', install))
+    }
   })
 })
 
@@ -130,7 +159,7 @@ describe.skipIf(!onMac)('the Terminal hand-off, run', () => {
         '    /usr/bin/lockf -t 0 200 || { echo "Error: Another brew update process is already running."; exit 1; }',
         '    echo "update start" >> "$log"; sleep 0.4; echo "update end" >> "$log" ;;',
         '  upgrade)',
-        '    echo "upgrade ${!#} start" >> "$log"; sleep 0.4; echo "upgrade ${!#} end" >> "$log" ;;',
+        '    echo "upgrade ${*:2} start" >> "$log"; sleep 0.4; echo "upgrade ${*:2} end" >> "$log" ;;',
         'esac',
         ''
       ].join('\n'),
@@ -190,6 +219,19 @@ describe.skipIf(!onMac)('the Terminal hand-off, run', () => {
       'update',
       'upgrade'
     ])
+  }, 20_000)
+
+  it('updates two CLIs in one window: one `brew update`, one upgrade of both', async () => {
+    const w = world()
+    const line = homebrewUpdateCommand([
+      { provider: 'claude', install: 'brew-cask' },
+      { provider: 'codex', install: 'brew-cask' }
+    ])!
+    const out = await run(script(w, 'update-homebrew', line), w.env)
+    expect(out).toContain('Done — return to Cockpit')
+    expect(readFileSync(w.log, 'utf8')).toBe(
+      'update start\nupdate end\nupgrade --cask claude-code codex start\nupgrade --cask claude-code codex end\n'
+    )
   }, 20_000)
 
   it('waits out a Homebrew run it did not open, rather than fail on its lock', async () => {

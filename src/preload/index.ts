@@ -148,6 +148,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.accountsLogin, provider, configDir),
   listCliStatus: (force?: boolean) => ipcRenderer.invoke(CH.cliStatus, force),
   openCliUpdate: (provider: Provider) => ipcRenderer.invoke(CH.cliUpdate, provider),
+  openCliUpdateHomebrew: (providers: readonly Provider[]) =>
+    ipcRenderer.invoke(CH.cliUpdateHomebrew, providers),
   openCliChannelRefresh: (provider: Provider) =>
     ipcRenderer.invoke(CH.cliRefreshChannel, provider),
   signInState: (provider: Provider, configDir?: string) =>

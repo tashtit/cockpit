@@ -11,7 +11,7 @@ import type {
   UsageTokens,
   UsageWindow
 } from '../../shared/types'
-import { compareVersions, runsHomebrew } from '../../shared/agent-cli'
+import { compareVersions, homebrewUpdateCommand, runsHomebrew } from '../../shared/agent-cli'
 import { shortPath } from '../../shared/library'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
@@ -507,11 +507,17 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
  * (the latest release is cached for an hour), and watched after an update until the
  * new version shows.
  */
+/** An update opened in Terminal: the version the CLI had then, and the window it runs in —
+ *  its own (`update:<provider>`), or the one window that updates several Homebrew CLIs */
+type OpenedUpdate = { readonly was: string | null; readonly run: string }
+
+const TOGETHER_RUN = 'update:homebrew'
+
 function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
   const [clis, setClis] = useState<CliStatus[] | null>(null)
   const [checking, setChecking] = useState(false)
-  /** CLIs whose update was opened in Terminal, with the version they had then */
-  const [updating, setUpdating] = useState<Readonly<Record<string, string | null>>>({})
+  /** CLIs whose update was opened in Terminal */
+  const [updating, setUpdating] = useState<Readonly<Record<string, OpenedUpdate>>>({})
   /** CLIs whose channel is being refreshed, with what it offered then */
   const [refreshing, setRefreshing] = useState<Readonly<Record<string, string | null>>>({})
   const [error, setError] = useState<string | null>(null)
@@ -525,7 +531,7 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
         // an update landed once the version moved on; a refresh, once the channel did
         setUpdating((u) =>
           Object.fromEntries(
-            Object.entries(u).filter(([p, was]) => next.find((c) => c.provider === p)?.version === was)
+            Object.entries(u).filter(([p, o]) => next.find((c) => c.provider === p)?.version === o.was)
           )
         )
         setRefreshing((r) =>
@@ -545,16 +551,22 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
   })
 
   // Homebrew runs one at a time, so main queues its Terminal windows on one lock; a row
-  // whose run shares that queue says so, rather than leave a waiting window looking stuck
-  const brewRuns = (clis ?? [])
-    .filter(
-      (c) =>
-        refreshing[c.provider] !== undefined ||
-        (updating[c.provider] !== undefined && c.updateCommand !== null && runsHomebrew(c.updateCommand))
-    )
-    .map((c) => c.provider)
+  // whose window shares that queue with another says so, rather than leave a waiting
+  // window looking stuck. The rows one window updates together take no turns.
+  const brewRuns = new Map<string, Provider[]>()
+  const joinRun = (run: string, p: Provider): void => {
+    brewRuns.set(run, [...(brewRuns.get(run) ?? []), p])
+  }
+  for (const c of clis ?? []) {
+    if (refreshing[c.provider] !== undefined) joinRun(`refresh:${c.provider}`, c.provider)
+    const opened = updating[c.provider]
+    if (opened && c.updateCommand !== null && runsHomebrew(c.updateCommand)) joinRun(opened.run, c.provider)
+  }
   const inTerminal = (lead: string, p: Provider): string => {
-    const others = brewRuns.includes(p) ? brewRuns.filter((o) => o !== p) : []
+    const runs = [...brewRuns.values()]
+    const others = runs.some((r) => r.includes(p))
+      ? [...new Set(runs.filter((r) => !r.includes(p)).flat())]
+      : []
     if (others.length === 0) return `${lead} — this row updates by itself.`
     const names = others.map((o) => `${PROVIDER_LABEL[o]}’s`).join(' and ')
     return `${lead} — it takes turns with ${names}, since Homebrew runs one at a time. This row updates by itself.`
@@ -588,8 +600,28 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
   const update = (c: CliStatus): Promise<void> =>
     once(`update:${c.provider}`, async () => {
       await api.openCliUpdate(c.provider)
-      setUpdating((u) => ({ ...u, [c.provider]: c.version }))
+      setUpdating((u) => ({ ...u, [c.provider]: { was: c.version, run: `update:${c.provider}` } }))
       onStatus(`Opened Terminal to update ${PROVIDER_LABEL[c.provider]}`)
+    })
+
+  // Two Homebrew CLIs behind: one window can update both — one `brew update`, no turns
+  // to take. Not one already opened on its own; that window has it.
+  const together = (clis ?? []).filter(
+    (c) =>
+      c.updateAvailable &&
+      c.updateCommand !== null &&
+      runsHomebrew(c.updateCommand) &&
+      updating[c.provider] === undefined
+  )
+  const togetherNames = together.map((c) => PROVIDER_LABEL[c.provider]).join(' and ')
+  const updateTogether = (): Promise<void> =>
+    once(TOGETHER_RUN, async () => {
+      await api.openCliUpdateHomebrew(together.map((c) => c.provider))
+      setUpdating((u) => ({
+        ...u,
+        ...Object.fromEntries(together.map((c) => [c.provider, { was: c.version, run: TOGETHER_RUN }]))
+      }))
+      onStatus(`Opened Terminal to update ${togetherNames}`)
     })
 
   return (
@@ -601,6 +633,18 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
         <button className="link-btn" disabled={checking} onClick={() => load(true)}>
           {checking ? 'Checking…' : 'Check for updates'}
         </button>
+        {together.length > 1 && (
+          <>
+            <span className="link-sep" aria-hidden="true">·</span>
+            <button
+              className="link-btn"
+              title={homebrewUpdateCommand(together) ?? undefined}
+              onClick={() => void updateTogether()}
+            >
+              Update {togetherNames} together…
+            </button>
+          </>
+        )}
       </p>
       {error && <div className="new-error" role="alert">{error}</div>}
       <ul className="source-list">

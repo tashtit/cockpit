@@ -53,4 +53,6 @@ When a newer version exists that your channel hasn't packaged yet, the row says 
 
 Homebrew only knows the releases its last `brew update` fetched, so such a row also offers **Refresh Homebrew**: it opens Terminal on `brew update` alone, which changes nothing that is installed. When Homebrew comes back with the newer version, the row turns into an **Update…** by itself. (A CLI that updates itself, like Copilot, has nothing to refresh, so it isn't offered.)
 
-Homebrew runs one thing at a time, so you can update Claude and Codex back to back: the second Terminal window waits for the first to finish, then carries on by itself, and both rows say they are taking turns. A window also waits out a Homebrew run Cockpit didn't start, like one in another terminal. Closing a window lets the next one go.
+When Claude and Codex both have a Homebrew update, the group also offers **Update Claude and Codex together…**: one Terminal window, one `brew update`, then one upgrade of both (`brew update && brew upgrade --cask claude-code codex` — hover it to see the command).
+
+Homebrew runs one thing at a time, so you can also update them back to back: the second Terminal window waits for the first to finish, then carries on by itself, and both rows say they are taking turns. A window also waits out a Homebrew run Cockpit didn't start, like one in another terminal. Closing a window lets the next one go.

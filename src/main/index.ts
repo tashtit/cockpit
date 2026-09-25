@@ -93,7 +93,7 @@ import { signInState } from './agent-auth'
 import { cliStatus, listCliStatus, writeTerminalScript } from './agent-cli'
 import { loginLine, terminalScript } from './agent-cli-core'
 import { signInHint } from '../shared/agent-auth'
-import { runsHomebrew } from '../shared/agent-cli'
+import { homebrewUpdateCommand, runsHomebrew } from '../shared/agent-cli'
 import {
   ROUNDTABLE_MAX_SEATS,
   roundsAllowed,
@@ -837,6 +837,23 @@ app.whenReady().then(() => {
       throw new Error(`${SEAT_NAME[provider]} isn't installed, so there is nothing to update.`)
     }
     return openInTerminal(`update-${provider}`, `Cockpit — update ${SEAT_NAME[provider]}`, status.updateCommand)
+  })
+  // several Homebrew CLIs in one run: one `brew update` and one window rather than a
+  // window each taking turns. Which CLIs is renderer input, so each is re-read here and
+  // only those main itself finds behind on Homebrew go in
+  ipcMain.handle(CH.cliUpdateHomebrew, async (_e, agents: unknown) => {
+    if (!Array.isArray(agents)) throw new Error('expected a list of agents')
+    const providers = [...new Set(agents.map(asProvider))]
+    const behind = (await Promise.all(providers.map((p) => cliStatus(p)))).filter(
+      (s) => s.updateAvailable && s.updateCommand !== null && runsHomebrew(s.updateCommand)
+    )
+    const line = homebrewUpdateCommand(behind)
+    if (line === null) throw new Error('None of these has a Homebrew update waiting any more.')
+    return openInTerminal(
+      'update-homebrew',
+      `Cockpit — update ${behind.map((s) => SEAT_NAME[s.provider]).join(' and ')}`,
+      line
+    )
   })
   // Homebrew only knows the releases its last `brew update` fetched, so a row whose
   // channel is behind the release can refresh it — the update itself stays a separate,

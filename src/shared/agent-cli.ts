@@ -49,6 +49,31 @@ export function runsHomebrew(line: string): boolean {
 }
 
 /**
+ * One Homebrew run that updates several CLIs: a single `brew update`, then each kind
+ * upgraded in one call (`brew upgrade --cask claude-code codex`). Casks and formulae stay
+ * apart because a name can be both — `codex` is a formula and a cask. Copilot never goes
+ * in: it updates itself whatever installed it. null when none of them updates through
+ * Homebrew. For one CLI this is exactly `updateCommandFor`'s Homebrew command.
+ */
+export function homebrewUpdateCommand(
+  clis: readonly { readonly provider: Provider; readonly install: CliInstall | null }[]
+): string | null {
+  const names = (kind: CliInstall): string[] => [
+    ...new Set(
+      clis.filter((c) => c.provider !== 'copilot' && c.install === kind).map((c) => CLI_PACKAGE[c.provider].brew)
+    )
+  ]
+  const casks = names('brew-cask')
+  const formulae = names('brew-formula')
+  if (casks.length + formulae.length === 0) return null
+  return [
+    'brew update',
+    ...(casks.length > 0 ? [`brew upgrade --cask ${casks.join(' ')}`] : []),
+    ...(formulae.length > 0 ? [`brew upgrade ${formulae.join(' ')}`] : [])
+  ].join(' && ')
+}
+
+/**
  * The command that updates one CLI the way it was installed. Copilot updates itself in
  * place whatever put it there (its cask declares auto-updates, and a stale cask would
  * roll it back), so it always gets its own `copilot update`. Homebrew refreshes its
