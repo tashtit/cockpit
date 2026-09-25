@@ -197,11 +197,13 @@ export function HomeView({
   // the fleet: sessions and roundtables on one board, under the composer
   const landedMap = useLandedMap()
   // main raises news on any session, not just the recent ten: the row the banner and the
-  // Dock badge promised is fetched by id when the page doesn't hold it. Once per piece of
-  // news — the answer, a session or nothing (a landing the index holds no session for),
-  // is kept until that landing changes, rather than asked again on every index push
+  // Dock badge promised is fetched by id when the page doesn't hold it. A session found is
+  // kept until that landing changes, rather than asked for again on every index push. An
+  // answer of nothing is only as fresh as the index it came from — on a cold start every
+  // landing is one the first scan hasn't reached yet — so it is asked again once the
+  // index moves on, and only then
   const [older, setOlder] = useState<SessionMeta[]>([])
-  const fetched = useRef(new Map<string, SessionMeta | null>())
+  const fetched = useRef(new Map<string, { readonly session: SessionMeta | null; readonly asOf: number }>())
   const missing = useMemo(() => {
     const paged = new Set(recent.map((s) => s.id))
     const wanted = [...landedMap.values()].filter((l) => !paged.has(l.id)).slice(0, NEEDS_FETCH_MAX)
@@ -215,23 +217,32 @@ export function HomeView({
     const keys = new Set(wanted.map(keyOf))
     for (const k of known.keys()) if (!keys.has(k)) known.delete(k)
     const show = (): void => {
-      const next = wanted.map((w) => known.get(keyOf(w))).filter((s): s is SessionMeta => !!s)
+      const next = wanted.map((w) => known.get(keyOf(w))?.session).filter((s): s is SessionMeta => !!s)
       setOlder((prev) => (prev.length === next.length && prev.every((s, i) => s === next[i]) ? prev : next))
     }
-    const ask = wanted.filter((w) => !known.has(keyOf(w)))
+    const ask = wanted.filter((w) => {
+      const had = known.get(keyOf(w))
+      return !had || (!had.session && had.asOf !== indexVersion)
+    })
     if (ask.length === 0) {
       show()
       return
     }
     let dead = false
     void Promise.all(ask.map(([id]) => api.getSession(id))).then((found) => {
-      ask.forEach((w, i) => known.set(keyOf(w), found[i] ?? null))
+      ask.forEach((w, i) => {
+        const had = known.get(keyOf(w))
+        // a question still in flight from an older index never overwrites a session
+        // found since, nor a newer answer of nothing
+        if (had && (had.session || had.asOf > indexVersion)) return
+        known.set(keyOf(w), { session: found[i] ?? null, asOf: indexVersion })
+      })
       if (!dead) show()
     })
     return () => {
       dead = true
     }
-  }, [missing])
+  }, [missing, indexVersion])
   const sessions = useMemo(() => {
     const paged = new Set(recent.map((s) => s.id))
     // a fetched row stays only while it still needs you — it never joins the ground
