@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync, statSync } from 'node:fs'
+import { closeSync, constants, fstatSync, lstatSync, openSync, readlinkSync, readSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { DiffFile, DiffScope, WorkspaceDiff } from '../shared/types'
 import {
@@ -40,8 +40,19 @@ export function asDiffScope(scope: unknown): DiffScope {
   throw new Error('unknown diff scope')
 }
 
+/**
+ * Every call here reads, and says so: without `--no-optional-locks` a `git status`
+ * or `git diff` refreshes the index as a side effect and holds `index.lock` while it
+ * does — and the worktree under review is usually one an agent is committing in.
+ */
+const READ_ONLY = ['--no-optional-locks']
+
 async function git(cwd: string, args: readonly string[], maxBuffer?: number): Promise<string | null> {
-  const r = await execText('git', args, { cwd, timeoutMs: 20_000, ...(maxBuffer ? { maxBuffer } : {}) })
+  const r = await execText('git', [...READ_ONLY, ...args], {
+    cwd,
+    timeoutMs: 20_000,
+    ...(maxBuffer ? { maxBuffer } : {})
+  })
   return r.ok ? r.stdout : null
 }
 
@@ -52,12 +63,24 @@ async function findBase(cwd: string): Promise<string | null> {
   return pickBase(originHead || null, existing)
 }
 
-/** Bounded read: the first `UNTRACKED_MAX_BYTES` of a file and whether that was all of it. */
+/**
+ * Bounded read: the first `UNTRACKED_MAX_BYTES` of a file and whether that was all
+ * of it. A symlink is shown as git would commit it — the path it names — rather
+ * than followed: an untracked link to a FIFO would block main on the open, and one
+ * to `~/.ssh/id_rsa` would put that file in the review. Anything else that isn't a
+ * regular file is skipped.
+ */
 function readHead(path: string): { bytes: Uint8Array; truncated: boolean } | null {
   try {
-    const size = statSync(path).size
-    const fd = openSync(path, 'r')
+    const st = lstatSync(path)
+    if (st.isSymbolicLink()) return { bytes: Buffer.from(`${readlinkSync(path)}\n`), truncated: false }
+    if (!st.isFile()) return null
+    // O_NONBLOCK and the fstat close the gap between the lstat and the open
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     try {
+      const opened = fstatSync(fd)
+      if (!opened.isFile()) return null
+      const size = opened.size
       const buf = Buffer.alloc(Math.min(size, UNTRACKED_MAX_BYTES))
       const n = readSync(fd, buf, 0, buf.length, 0)
       return { bytes: buf.subarray(0, n), truncated: size > buf.length }
@@ -119,7 +142,7 @@ export async function getWorkspaceDiff(cwd: string, scope: DiffScope): Promise<W
   // HEAD when there is no base); staged / unstaged: the index's two sides
   const target =
     scope === 'staged' ? ['--cached'] : scope === 'unstaged' ? [] : [mergeBase ?? 'HEAD']
-  const patch = await execText('git', ['diff', ...DIFF_ARGS, ...target, '--'], {
+  const patch = await execText('git', [...READ_ONLY, 'diff', ...DIFF_ARGS, ...target, '--'], {
     cwd: c,
     timeoutMs: 30_000,
     maxBuffer: PATCH_MAX_BYTES
