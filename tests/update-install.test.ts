@@ -5,6 +5,7 @@ import { once } from 'node:events'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { execText } from '../src/main/env'
 import { swapScript } from '../src/main/update-install-core'
 import {
@@ -15,6 +16,7 @@ import {
   resumeStaged,
   stageUpdate,
   updatesDir,
+  type StageRequest,
   type UpdateFetch
 } from '../src/main/update-install'
 
@@ -81,12 +83,14 @@ function servesFile(file: string): UpdateFetch {
   return async () => ({
     ok: true,
     status: 200,
-    body: (async function* () {
-      const bytes = readFileSync(file)
-      for (let at = 0; at < bytes.length; at += 64 * 1024) {
-        yield new Uint8Array(bytes.subarray(at, at + 64 * 1024))
-      }
-    })()
+    body: Readable.from(
+      (async function* () {
+        const bytes = readFileSync(file)
+        for (let at = 0; at < bytes.length; at += 64 * 1024) {
+          yield new Uint8Array(bytes.subarray(at, at + 64 * 1024))
+        }
+      })()
+    )
   })
 }
 
@@ -125,7 +129,7 @@ describe.skipIf(!onMac)('stageUpdate', () => {
         bundle: running,
         onProgress: (p) => seen.push(p)
       },
-      servesFile(zip)
+      { fetch: servesFile(zip) }
     )
 
     expect(staged.version).toBe('0.12.0')
@@ -142,6 +146,41 @@ describe.skipIf(!onMac)('stageUpdate', () => {
     // there until some later update happens to overwrite it
     expect(await resumeStaged('0.12.0')).toBeNull()
     expect(existsSync(join(updatesDir(), 'staged'))).toBe(false)
+  })
+
+  it('lets a slow download finish for as long as it keeps arriving', async () => {
+    const world = scratch()
+    const running = makeApp(mkdirAt(world, 'installed'), '0.11.0')
+    const release = makeApp(mkdirAt(world, 'release'), '0.12.0')
+    const zip = join(world, 'Cockpit-0.12.0-arm64.zip')
+    const { sha512, size } = await zipApp(release, zip)
+    // sixteen pieces 25ms apart: twice the stall window in all, never an eighth of it without a byte
+    const trickles: UpdateFetch = async () => ({
+      ok: true,
+      status: 200,
+      body: Readable.from(
+        (async function* () {
+          const bytes = readFileSync(zip)
+          const piece = Math.ceil(bytes.length / 16)
+          for (let at = 0; at < bytes.length; at += piece) {
+            await new Promise((resolve) => setTimeout(resolve, 25))
+            yield new Uint8Array(bytes.subarray(at, at + piece))
+          }
+        })()
+      )
+    })
+
+    const staged = await stageUpdate(
+      {
+        version: '0.12.0',
+        file: { url: 'Cockpit-0.12.0-arm64.zip', sha512, size },
+        releasesUrl: 'https://github.com/tashtit/cockpit/releases',
+        bundle: running,
+        onProgress: () => {}
+      },
+      { fetch: trickles, stallMs: 200 }
+    )
+    expect(staged.version).toBe('0.12.0')
   })
 
   it('sweeps a download a quit interrupted, which has no manifest to resume from', async () => {
@@ -175,7 +214,7 @@ describe.skipIf(!onMac)('stageUpdate', () => {
         bundle: running,
         onProgress: () => {}
       },
-      servesFile(zip)
+      { fetch: servesFile(zip) }
     )
 
     expect((await bundleFacts(staged.app)).version).toBe('0.12.0')
@@ -197,7 +236,7 @@ describe.skipIf(!onMac)('stageUpdate', () => {
             bundle: '/Applications/Cockpit.app',
             onProgress: () => {}
           },
-          servesFile('/dev/null')
+          { fetch: servesFile('/dev/null') }
         )
       ).rejects.toThrow(/could not clear the previous download \(.*Permission denied\)/)
       // the sweeps run unawaited (and at launch, ahead of restoring state): a rejection
@@ -225,7 +264,7 @@ describe.skipIf(!onMac)('stageUpdate', () => {
           bundle: running,
           onProgress: () => {}
         },
-        servesFile(zip)
+        { fetch: servesFile(zip) }
       )
     ).rejects.toThrow(/checksum/)
   })
@@ -246,7 +285,7 @@ describe.skipIf(!onMac)('stageUpdate', () => {
           bundle: running,
           onProgress: () => {}
         },
-        servesFile(zip)
+        { fetch: servesFile(zip) }
       )
     ).rejects.toThrow(/com\.example\.other/)
   })
@@ -261,9 +300,43 @@ describe.skipIf(!onMac)('stageUpdate', () => {
           bundle: '/Applications/Cockpit.app',
           onProgress: () => {}
         },
-        servesFile('/dev/null')
+        { fetch: servesFile('/dev/null') }
       )
     ).rejects.toThrow(/unusable version/)
+  })
+})
+
+/**
+ * No check runs while a download is in flight, so one that never finishes holds
+ * the updater at "Downloading · 0%" until Cockpit quits. It fails before anything
+ * needs ditto, so these run everywhere.
+ */
+describe('a download that stops arriving', () => {
+  const request: StageRequest = {
+    version: '0.12.0',
+    file: { url: 'Cockpit-0.12.0-arm64.zip', sha512: 'x', size: 1024 },
+    releasesUrl: 'https://github.com/tashtit/cockpit/releases',
+    bundle: '/Applications/Cockpit.app',
+    onProgress: () => {}
+  }
+
+  it('is given up when the answer never comes', async () => {
+    // net.fetch on a request the Mac slept through: no answer and no error, until its signal fires
+    const silent: UpdateFetch = (_url, signal) =>
+      new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)))
+    await expect(stageUpdate(request, { fetch: silent, stallMs: 50 })).rejects.toThrow(/stalled/)
+  })
+
+  it('is given up when the bytes stop mid-way, even from a fetch that ignores the signal', async () => {
+    const seen: number[] = []
+    // half the file, then nothing: no more bytes, no end and no error, ever
+    const quiet = new Readable({ read() {} })
+    quiet.push(new Uint8Array(512))
+    const stops: UpdateFetch = async () => ({ ok: true, status: 200, body: quiet })
+    await expect(
+      stageUpdate({ ...request, onProgress: (p) => seen.push(p) }, { fetch: stops, stallMs: 50 })
+    ).rejects.toThrow(/stalled/)
+    expect(seen).toEqual([50])
   })
 })
 

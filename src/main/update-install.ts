@@ -65,21 +65,46 @@ export type Staged = {
 /**
  * How the zip is fetched. Chromium's network stack by default — system proxies,
  * the OS trust store, redirects followed (GitHub sends every asset to a CDN) —
- * and a plain async iterable so tests can hand over bytes without a server.
+ * and a plain stream so tests can hand over bytes without a server. The signal
+ * fires when the download stalls: a fetch still waiting for its answer has to
+ * reject on it, the way `net.fetch` does. A body that goes quiet after that is
+ * ended by destroying its stream, whatever the fetch makes of the signal — which
+ * is why it is a stream: a bare async iterable stuck mid-read cannot be woken.
  */
-export type UpdateFetch = (url: string) => Promise<{
+export type UpdateFetch = (
+  url: string,
+  signal: AbortSignal
+) => Promise<{
   readonly ok: boolean
   readonly status: number
-  readonly body: AsyncIterable<Uint8Array> | null
+  readonly body: Readable | null
 }>
 
-const electronFetch: UpdateFetch = async (url) => {
-  const res = await net.fetch(url)
+const electronFetch: UpdateFetch = async (url, signal) => {
+  const res = await net.fetch(url, { signal })
   return {
     ok: res.ok,
     status: res.status,
     body: res.body ? Readable.fromWeb(res.body as WebReadableStream<Uint8Array>) : null
   }
+}
+
+/**
+ * How long a download may go without receiving anything before it is given up.
+ * `net.fetch` has no timeout of its own, and a request the Mac slept through, or
+ * one a proxy dropped without closing, never answers and never fails. No check
+ * runs while a download is in flight, so without this the row read "Downloading
+ * · 0%" until Cockpit quit. Counted between arrivals rather than over the whole
+ * download, so a slow connection that keeps delivering is never cut off, and in
+ * awake time only: macOS pauses timers while the Mac sleeps.
+ */
+export const STALL_MS = 60_000
+
+/** What `stageUpdate` reaches outside itself through — replaced by the tests. */
+export type StageIo = {
+  readonly fetch?: UpdateFetch
+  /** `STALL_MS` unless a test needs a stall sooner */
+  readonly stallMs?: number
 }
 
 /** What a bundle says about itself, read from its Info.plist and its signature. */
@@ -126,7 +151,7 @@ export type StageRequest = {
  * a sentence the About row can show — every failure here is one the user may have
  * to act on (no space, no write access, a download that does not match the feed).
  */
-export async function stageUpdate(req: StageRequest, fetch: UpdateFetch = electronFetch): Promise<Staged> {
+export async function stageUpdate(req: StageRequest, io: StageIo = {}): Promise<Staged> {
   const { bundle, version, file } = req
   if (!isSafeVersion(version)) throw new Error(`the release feed offered an unusable version (${version})`)
   if (!isSafeAssetName(file.url)) throw new Error(`the release feed offered an unusable file name (${file.url})`)
@@ -142,7 +167,8 @@ export async function stageUpdate(req: StageRequest, fetch: UpdateFetch = electr
     sha512: file.sha512,
     size: file.size,
     onProgress: req.onProgress,
-    fetch
+    fetch: io.fetch ?? electronFetch,
+    stallMs: io.stallMs ?? STALL_MS
   })
 
   const expanded = join(dir, 'app')
@@ -173,36 +199,59 @@ type DownloadOptions = {
   readonly size?: number
   readonly onProgress: (percent: number) => void
   readonly fetch: UpdateFetch
+  readonly stallMs: number
 }
 
 /** Stream the asset to disk, hashing as it goes — a mismatch never reaches the expander. */
 async function downloadTo(url: string, file: string, opts: DownloadOptions): Promise<void> {
-  const res = await opts.fetch(url)
-  if (!res.ok || !res.body) throw new Error(`the download failed (HTTP ${res.status})`)
+  // one timer for the whole request, pushed back by everything that arrives:
+  // the headers, then every chunk
+  const stall = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const heard = (): void => {
+    clearTimeout(timer)
+    timer = setTimeout(() => stall.abort(), opts.stallMs)
+  }
 
   const hash = createHash('sha512')
-  let done = 0
-  let shown = -1
-  // pipeline, not a hand-rolled write loop: a full disk or a dropped connection
-  // has to reject here, not surface as an unhandled 'error' on the write stream
-  await pipeline(
-    res.body,
-    async function* (chunks: AsyncIterable<Uint8Array>) {
-      for await (const chunk of chunks) {
-        hash.update(chunk)
-        done += chunk.length
-        if (opts.size) {
-          const percent = Math.min(99, Math.floor((done / opts.size) * 100))
-          if (percent !== shown) {
-            shown = percent
-            opts.onProgress(percent)
+  try {
+    heard()
+    const res = await opts.fetch(url, stall.signal)
+    if (!res.ok || !res.body) throw new Error(`the download failed (HTTP ${res.status})`)
+    heard()
+
+    let done = 0
+    let shown = -1
+    // pipeline, not a hand-rolled write loop: a full disk or a dropped connection
+    // has to reject here, not surface as an unhandled 'error' on the write stream.
+    // Its signal destroys the body stream, which ends one that goes quiet mid-way.
+    await pipeline(
+      res.body,
+      async function* (chunks: AsyncIterable<Uint8Array>) {
+        for await (const chunk of chunks) {
+          heard()
+          hash.update(chunk)
+          done += chunk.length
+          if (opts.size) {
+            const percent = Math.min(99, Math.floor((done / opts.size) * 100))
+            if (percent !== shown) {
+              shown = percent
+              opts.onProgress(percent)
+            }
           }
+          yield chunk
         }
-        yield chunk
-      }
-    },
-    createWriteStream(file)
-  )
+      },
+      createWriteStream(file),
+      { signal: stall.signal }
+    )
+  } catch (err) {
+    if (!stall.signal.aborted) throw err
+    // the caller discards the stage dir on any failure, the partial zip with it
+    throw new Error(`the download stalled (nothing arrived for ${Math.round(opts.stallMs / 1000)}s)`)
+  } finally {
+    clearTimeout(timer)
+  }
 
   const got = hash.digest('base64')
   if (got !== opts.sha512) {
