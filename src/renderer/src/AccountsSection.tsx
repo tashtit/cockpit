@@ -11,7 +11,7 @@ import type {
   UsageTokens,
   UsageWindow
 } from '../../shared/types'
-import { compareVersions } from '../../shared/agent-cli'
+import { compareVersions, runsHomebrew } from '../../shared/agent-cli'
 import { shortPath } from '../../shared/library'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
@@ -544,10 +544,26 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
     forMs: 10 * 60_000
   })
 
+  // Homebrew runs one at a time, so main queues its Terminal windows on one lock; a row
+  // whose run shares that queue says so, rather than leave a waiting window looking stuck
+  const brewRuns = (clis ?? [])
+    .filter(
+      (c) =>
+        refreshing[c.provider] !== undefined ||
+        (updating[c.provider] !== undefined && c.updateCommand !== null && runsHomebrew(c.updateCommand))
+    )
+    .map((c) => c.provider)
+  const inTerminal = (lead: string, p: Provider): string => {
+    const others = brewRuns.includes(p) ? brewRuns.filter((o) => o !== p) : []
+    if (others.length === 0) return `${lead} — this row updates by itself.`
+    const names = others.map((o) => `${PROVIDER_LABEL[o]}’s`).join(' and ')
+    return `${lead} — it takes turns with ${names}, since Homebrew runs one at a time. This row updates by itself.`
+  }
+
   // One Terminal per click, never two from one double click: two `npm install -g` of
   // the same package at once can leave the CLI half-installed, and a second
-  // `brew upgrade` only fights the first for Homebrew's lock. "Open Terminal again"
-  // after the first one has opened stays a deliberate second click.
+  // `brew upgrade` would only queue behind the first. "Open Terminal again" after the
+  // first one has opened stays a deliberate second click.
   const opening = useRef(new Set<string>())
   const once = async (key: string, open: () => Promise<void>): Promise<void> => {
     if (opening.current.has(key)) return
@@ -605,7 +621,7 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
                 {c.path && <div className="source-path" title={c.path}>{shortPath(c.path)}</div>}
                 {updating[c.provider] !== undefined && (
                   <div className="source-note">
-                    Finish the update in the Terminal window — this row updates by itself.
+                    {inTerminal('Finish the update in the Terminal window', c.provider)}
                   </div>
                 )}
                 {/* a channel can lag the release: say so, rather than offer an update
@@ -618,7 +634,7 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
                   compareVersions(c.upstream, c.version) > 0 && (
                     <div className="source-note">
                       {refreshing[c.provider] !== undefined ? (
-                        'Refreshing in the Terminal window — this row updates by itself.'
+                        inTerminal('Refreshing in the Terminal window', c.provider)
                       ) : (
                         <>
                           {c.upstream} is out, but {c.channel} hasn’t packaged it yet — this is as

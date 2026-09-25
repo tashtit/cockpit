@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings } from '../../src/renderer/src/Settings'
 import { usageFixture } from './stub-api'
-import type { AccountsSnapshot, SourceStats } from '../../src/shared/types'
+import type { AccountsSnapshot, CliStatus, SourceStats } from '../../src/shared/types'
 
 const sources: SourceStats[] = [
   {
@@ -225,6 +225,43 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
 
     expect(within(screen.getByText('0.155.1').closest('li')!).getByText('up to date')).toBeInTheDocument()
     expect(screen.getByText('not installed')).toBeInTheDocument()
+  })
+
+  it('two Homebrew updates say they take turns; a self-updating CLI runs on its own', async () => {
+    const behind = (provider: 'claude' | 'codex' | 'copilot', updateCommand: string): CliStatus => ({
+      provider,
+      installed: true,
+      version: '1.0.0',
+      path: `/opt/homebrew/Caskroom/${provider}/1.0.0/${provider}`,
+      install: 'brew-cask',
+      latest: '1.1.0',
+      upstream: '1.1.0',
+      channel: 'Homebrew',
+      updateAvailable: true,
+      updateCommand
+    })
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+      behind('claude', 'brew update && brew upgrade --cask claude-code'),
+      behind('codex', 'brew update && brew upgrade --cask codex'),
+      {
+        ...behind('copilot', 'copilot update'),
+        path: '/Users/dev/.local/bin/copilot',
+        install: 'native',
+        channel: 'its own updater'
+      }
+    ])
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Agent CLIs' })
+    const [claude, codex, copilot] = (await screen.findAllByText('1.0.0')).map((v) => v.closest('li')!)
+    await userEvent.click(within(claude).getByRole('button', { name: 'Update…' }))
+    // alone, nothing to wait for
+    expect(within(claude).getByText('Finish the update in the Terminal window — this row updates by itself.')).toBeInTheDocument()
+
+    await userEvent.click(within(codex).getByRole('button', { name: 'Update…' }))
+    await userEvent.click(within(copilot).getByRole('button', { name: 'Update…' }))
+    expect(within(codex).getByText(/takes turns with Claude’s, since Homebrew runs one at a time/)).toBeInTheDocument()
+    expect(within(claude).getByText(/takes turns with Codex’s, since Homebrew runs one at a time/)).toBeInTheDocument()
+    expect(within(copilot).getByText('Finish the update in the Terminal window — this row updates by itself.')).toBeInTheDocument()
   })
 
   it('never offers an update its channel cannot deliver — it says the channel is behind', async () => {

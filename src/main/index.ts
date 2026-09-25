@@ -92,6 +92,7 @@ import { signInState } from './agent-auth'
 import { cliStatus, listCliStatus, writeTerminalScript } from './agent-cli'
 import { loginLine, terminalScript } from './agent-cli-core'
 import { signInHint } from '../shared/agent-auth'
+import { runsHomebrew } from '../shared/agent-cli'
 import {
   ROUNDTABLE_MAX_SEATS,
   roundsAllowed,
@@ -799,8 +800,12 @@ app.whenReady().then(() => {
   // device code or a password prompt. The script is built from fixed commands; the
   // provider is whitelisted and the config home must be one the indexer derived.
   const terminalDir = join(app.getPath('userData'), 'terminal')
+  // Homebrew refuses a second run while one is going, so every Homebrew script takes
+  // turns on this one lock — updating Claude Code and Codex back to back just queues
+  const homebrewQueue = join(terminalDir, 'homebrew.lock')
   const openInTerminal = async (name: string, title: string, line: string): Promise<void> => {
-    const file = writeTerminalScript(terminalDir, name, terminalScript(title, line))
+    const script = terminalScript(title, line, runsHomebrew(line) ? { homebrewQueue } : {})
+    const file = writeTerminalScript(terminalDir, name, script)
     const failure = await shell.openPath(file)
     if (failure) throw new Error(`Couldn't open Terminal: ${failure}`)
   }
