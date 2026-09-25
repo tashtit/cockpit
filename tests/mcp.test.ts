@@ -30,6 +30,20 @@ describe('probeMcp stdio', () => {
     expect(r).toEqual({ status: 'ok' })
   })
 
+  // every chunk used to re-split and re-parse everything printed so far
+  it('reads a reply that follows a flood of noise and arrives split across writes', async () => {
+    const server = `
+      process.stdout.write(('noise '.repeat(200) + '\\n').repeat(5000))
+      const reply = JSON.stringify({ jsonrpc: '2.0', id: 1, result: { capabilities: {} } }) + '\\n'
+      process.stdout.write(reply.slice(0, 10))
+      setTimeout(() => process.stdout.write(reply.slice(10)), 50)
+      setInterval(() => {}, 1000)
+    `
+    const started = Date.now()
+    expect(await probeMcp({ command: process.execPath, args: ['-e', server] })).toEqual({ status: 'ok' })
+    expect(Date.now() - started).toBeLessThan(5000)
+  })
+
   it('reports error when the process exits before responding', async () => {
     const r = await probeMcp({
       command: process.execPath,
