@@ -235,8 +235,21 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessSnapshot> {
 
 /* ---------- worktrees ---------- */
 
-async function git(repoRoot: string, args: readonly string[]): Promise<string | null> {
-  const r = await execText('git', ['-C', repoRoot, ...args], { timeoutMs: 20_000 })
+/**
+ * Every git call cleanup makes to *read* goes through here; what changes a repository
+ * (`worktree remove`, `branch -d`) is spelled out where it happens. Without
+ * `--no-optional-locks`, `git status` refreshes a stale index and writes it back under
+ * `index.lock` — in worktrees agents are working in, whose own `git commit` then fails
+ * on the lock this scan holds. fsmonitor is off because a survey must not start a
+ * watcher daemon in every repository it looks at; it only ever speeds status up, so
+ * the answer is the same without it.
+ */
+async function gitRead(dir: string, args: readonly string[]): Promise<string | null> {
+  const r = await execText(
+    'git',
+    ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', dir, ...args],
+    { timeoutMs: 20_000 }
+  )
   return r.ok ? r.stdout : null
 }
 
@@ -246,8 +259,8 @@ async function git(repoRoot: string, args: readonly string[]): Promise<string | 
  * them. A git call that fails answers true: unsure is not safe to remove.
  */
 async function unanchoredCommits(dir: string): Promise<boolean> {
-  if ((await git(dir, ['symbolic-ref', '-q', 'HEAD'])) !== null) return false
-  const out = await git(dir, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--tags', '--remotes'])
+  if ((await gitRead(dir, ['symbolic-ref', '-q', 'HEAD'])) !== null) return false
+  const out = await gitRead(dir, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--tags', '--remotes'])
   return out === null || Number(out.trim()) > 0
 }
 
@@ -313,7 +326,7 @@ async function judgeWorktrees(
   const listed: { root: string; entry: WorktreeEntry; path: string; isMain: boolean }[] = []
   const seen = new Set<string>()
   for (const root of deps.repoRoots()) {
-    const listing = await git(root, ['worktree', 'list', '--porcelain'])
+    const listing = await gitRead(root, ['worktree', 'list', '--porcelain'])
     if (listing === null) continue
     for (const [i, entry] of parseWorktreeList(listing).entries()) {
       const path = realish(entry.path)
@@ -337,12 +350,12 @@ async function judgeWorktrees(
   for (const { root, entry, path, isMain } of listed) {
     const missing = entry.prunable || !existsSync(path)
     const activity = sessionActivityIn(sessions, path)
-    const tip = missing ? null : await git(path, ['log', '-1', '--format=%ct', 'HEAD'])
+    const tip = missing ? null : await gitRead(path, ['log', '-1', '--format=%ct', 'HEAD'])
     const tipMs = tip === null ? 0 : Number(tip.trim()) * 1000
-    const dirty = missing ? false : isDirty(await git(path, ['status', '--porcelain']))
+    const dirty = missing ? false : isDirty(await gitRead(path, ['status', '--porcelain']))
     const unpushedOut = missing
       ? null
-      : await git(path, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
+      : await gitRead(path, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
     // a registration whose directory is gone has nothing left to protect — the
     // disk-derived facts are all false. git's own lock still counts: it is how a
     // worktree on a drive that comes and goes says it will be back
@@ -762,7 +775,7 @@ export async function deleteRoundtables(
     // record and its worktree — with transcripts its seats can no longer resume.
     const room = realish(t.cwd)
     if (t.repoRoot && existsSync(room)) {
-      if (isDirty(await git(room, ['status', '--porcelain']))) {
+      if (isDirty(await gitRead(room, ['status', '--porcelain']))) {
         failed.push({ target: name, reason: 'its worktree has uncommitted changes' })
         continue
       }
@@ -857,7 +870,7 @@ export async function deleteRoundtables(
  * is still there; undefined when git could not list its worktrees at all.
  */
 async function registrationAt(repoRoot: string, path: string): Promise<WorktreeEntry | null | undefined> {
-  const listing = await git(repoRoot, ['worktree', 'list', '--porcelain'])
+  const listing = await gitRead(repoRoot, ['worktree', 'list', '--porcelain'])
   if (listing === null) return undefined
   return parseWorktreeList(listing).find((e) => realish(e.path) === path) ?? null
 }

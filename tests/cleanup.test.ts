@@ -234,6 +234,29 @@ describe('scanCleanup — worktrees', () => {
       git(mainRepo, ['worktree', 'remove', broken])
     }
   })
+
+  it('reads a worktree without writing its index', async () => {
+    // `git status` refreshes a stale index and writes it back under index.lock — in a
+    // worktree an agent is working in, the agent's own `git commit` then fails on it
+    const tree = join(cockpitWorktrees, 'app', 'quiet-read')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/quiet-read', tree])
+    const index = git(tree, ['rev-parse', '--path-format=absolute', '--git-path', 'index']).trim()
+    // the same content with a new mtime: the stat data the index holds no longer matches
+    const t = (OLD - DAY) / 1000
+    utimesSync(join(tree, 'README.md'), t, t)
+    backdate(tree)
+    const before = readFileSync(index)
+    const mtime = statSync(index).mtimeMs
+    try {
+      const report = await scanCleanup(deps, 30)
+      // it was looked at: stale, clean, listed
+      expect(report.worktrees.find((w) => w.path === tree)?.blocks).toEqual([])
+      expect(statSync(index).mtimeMs).toBe(mtime)
+      expect(readFileSync(index).equals(before)).toBe(true)
+    } finally {
+      git(mainRepo, ['worktree', 'remove', tree])
+    }
+  })
 })
 
 describe('scanCleanup — sessions', () => {
