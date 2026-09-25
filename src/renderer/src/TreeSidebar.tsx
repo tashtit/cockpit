@@ -1306,9 +1306,11 @@ const SessionRow = memo(function SessionRow({
           // an open family folds; anything else steps up to the session that started it
           if (under > 0 && !folded) toggleFamily(s.id)
           else if (parent) {
+            // escaped: an id is the provider's own, and a quote or bracket in one made
+            // this selector throw inside the key handler
             e.currentTarget
               .closest('[role="tree"]')
-              ?.querySelector<HTMLElement>(`[data-session-id="${parent.id}"]`)
+              ?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(parent.id)}"]`)
               ?.focus()
           }
         }

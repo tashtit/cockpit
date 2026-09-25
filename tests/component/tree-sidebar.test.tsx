@@ -354,6 +354,20 @@ describe('child sessions', () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 
+  it('goes up to a parent whose id would break a selector', async () => {
+    // ids are the providers' own: nothing stops one carrying a quote or a bracket
+    const odd = 'we"ird]id'
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 2,
+      items: [copilot(odd, 'An oddly named parent'), copilot('kid', 'Its child', `copilot:${odd}`)]
+    })
+    renderSidebar()
+    const child = await screen.findByRole('treeitem', { name: /Its child/ })
+    child.focus()
+    fireEvent.keyDown(child, { key: 'ArrowLeft' })
+    expect(screen.getByRole('treeitem', { name: /^An oddly named parent/ })).toHaveFocus()
+  })
+
   it('never folds away the open session', async () => {
     window.localStorage.setItem('cockpit:folded-families', JSON.stringify(['copilot:p']))
     vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 4, items: family() })
