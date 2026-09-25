@@ -306,45 +306,62 @@ describe('HomeView on an index push', () => {
     expect(window.cockpit.onRoundtableEvent).toHaveBeenCalledTimes(1)
   })
 
-  it('looks a session that needs you up once per piece of news, even when the index has none', async () => {
-    const idle: SessionMeta = {
-      id: 'claude:old',
-      provider: 'claude',
-      nativeId: 'old',
-      source: '/home/dev/.claude',
-      title: 'An idle session that landed',
-      cwd: repo.root,
-      logBranch: null,
-      startedAt: 1700000000000,
-      updatedAt: 1700000100000,
-      messageCount: 3,
-      sourcePath: '/home/dev/.claude/projects/x/old.jsonl'
+  const idle: SessionMeta = {
+    id: 'claude:old',
+    provider: 'claude',
+    nativeId: 'old',
+    source: '/home/dev/.claude',
+    title: 'An idle session that landed',
+    cwd: repo.root,
+    logBranch: null,
+    startedAt: 1700000000000,
+    updatedAt: 1700000100000,
+    messageCount: 3,
+    sourcePath: '/home/dev/.claude/projects/x/old.jsonl'
+  }
+
+  function boardProps() {
+    return {
+      repos: [repo],
+      indexed: true,
+      busy: false,
+      onStart: vi.fn().mockResolvedValue(null),
+      onOpenSession: vi.fn(),
+      onOpenFull: vi.fn(),
+      onNewRoundtable: vi.fn(),
+      onOpenRoundtable: vi.fn(),
+      onOpenSettings: vi.fn()
     }
+  }
+
+  /** Main's attention desk raising `list`: returns its push for later news, and the teardown. */
+  function landings(list: Landing[]): { push: (list: Landing[]) => void; stop: () => void } {
     let push: (list: Landing[]) => void = () => {}
     vi.mocked(window.cockpit.onLandings).mockImplementation((cb) => {
       push = cb
       return () => {}
     })
-    vi.mocked(window.cockpit.getSession).mockImplementation(async (id) => (id === idle.id ? idle : null))
-    const stop = initLanded()
-    try {
-      act(() =>
-        push([
-          { id: idle.id, at: 1, kind: 'landed' },
-          { id: 'claude:gone', at: 1, kind: 'landed' }
-        ])
-      )
-      const props = {
-        repos: [repo],
-        indexed: true,
-        busy: false,
-        onStart: vi.fn().mockResolvedValue(null),
-        onOpenSession: vi.fn(),
-        onOpenFull: vi.fn(),
-        onNewRoundtable: vi.fn(),
-        onOpenRoundtable: vi.fn(),
-        onOpenSettings: vi.fn()
+    const off = initLanded()
+    act(() => push(list))
+    return {
+      push: (next) => act(() => push(next)),
+      stop: () => {
+        off()
+        clearLanded()
       }
+    }
+  }
+
+  it('looks a session that needs you up once per piece of news, and one the index lacks once per push', async () => {
+    vi.mocked(window.cockpit.getSession).mockImplementation(async (id) => (id === idle.id ? idle : null))
+    const desk = landings([
+      { id: idle.id, at: 1, kind: 'landed' },
+      { id: 'claude:gone', at: 1, kind: 'landed' }
+    ])
+    try {
+      const props = boardProps()
+      const asked = (id: string): number =>
+        vi.mocked(window.cockpit.getSession).mock.calls.filter(([s]) => s === id).length
       const { rerender } = render(<HomeView {...props} indexVersion={0} />)
       await screen.findByRole('button', { name: /An idle session that landed/ })
       expect(window.cockpit.getSession).toHaveBeenCalledTimes(2)
@@ -352,21 +369,43 @@ describe('HomeView on an index push', () => {
       rerender(<HomeView {...props} indexVersion={2} />)
       await waitFor(() => expect(window.cockpit.pageSessions).toHaveBeenCalledTimes(3))
       await act(async () => {})
-      // neither the one it found nor the one it didn't is asked for again
-      expect(window.cockpit.getSession).toHaveBeenCalledTimes(2)
+      // the one it found is never asked for again; the one it didn't, once per push
+      expect(asked(idle.id)).toBe(1)
+      expect(asked('claude:gone')).toBe(3)
       expect(screen.getByRole('button', { name: /An idle session that landed/ })).toBeInTheDocument()
       // news again for the one it could not find: that is a reason to look again
-      act(() =>
-        push([
-          { id: idle.id, at: 1, kind: 'landed' },
-          { id: 'claude:gone', at: 2, kind: 'landed' }
-        ])
-      )
-      await waitFor(() => expect(window.cockpit.getSession).toHaveBeenCalledTimes(3))
+      desk.push([
+        { id: idle.id, at: 1, kind: 'landed' },
+        { id: 'claude:gone', at: 2, kind: 'landed' }
+      ])
+      await waitFor(() => expect(window.cockpit.getSession).toHaveBeenCalledTimes(5))
       expect(window.cockpit.getSession).toHaveBeenLastCalledWith('claude:gone')
+      expect(asked(idle.id)).toBe(1)
     } finally {
-      stop()
-      clearLanded()
+      desk.stop()
+    }
+  })
+
+  it('puts a landing on the board once the index holds it, though a cold index had none', async () => {
+    // a cold start: the landing is asked for before the first scan has reached its log
+    let scanned = false
+    vi.mocked(window.cockpit.getSession).mockImplementation(async (id) =>
+      scanned && id === idle.id ? idle : null
+    )
+    const desk = landings([{ id: idle.id, at: 1, kind: 'landed' }])
+    try {
+      const props = boardProps()
+      const { rerender } = render(<HomeView {...props} indexVersion={0} />)
+      await waitFor(() => expect(window.cockpit.getSession).toHaveBeenCalledTimes(1))
+      await act(async () => {})
+      expect(screen.queryByRole('button', { name: /An idle session that landed/ })).not.toBeInTheDocument()
+      // the scan lands and the index pushes
+      scanned = true
+      rerender(<HomeView {...props} indexVersion={1} />)
+      await screen.findByRole('button', { name: /An idle session that landed/ })
+      expect(window.cockpit.getSession).toHaveBeenCalledTimes(2)
+    } finally {
+      desk.stop()
     }
   })
 })
