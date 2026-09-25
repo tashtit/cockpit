@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildProfile, dayKey, streaks } from '../src/main/profile'
-import type { Provider, SessionMeta } from '../src/shared/types'
+import type { ProfileStats, Provider, SessionMeta } from '../src/shared/types'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-profile-fixtures-'))
 
@@ -285,6 +285,137 @@ describe('buildProfile — deep pass', () => {
     })
     expect(p.providers[0].linesAdded).toBe(1)
     expect(p.providers[0].deepUnavailable).toBeUndefined()
+  })
+})
+
+// Newer Codex runs its tools from a code-mode `exec` cell and records each run again as
+// a typed `item_completed` item; the profile counts every run once, from the record the
+// transcript reads it from.
+describe('buildProfile — codex code mode', () => {
+  const at = (s: number): string => `2026-09-24T10:00:${String(s).padStart(2, '0')}.000Z`
+  const rollout = (name: string, records: unknown[]): string => {
+    const file = join(root, name)
+    const head = [
+      { timestamp: at(0), type: 'session_meta', payload: { id: name, cwd: '/r', originator: 'Codex Desktop', cli_version: '0.155.0' } },
+      { timestamp: at(0), type: 'turn_context', payload: { turn_id: 't1', cwd: '/r', model: 'gpt-6-sol', effort: 'medium' } }
+    ]
+    writeFileSync(file, [...head, ...records].map((r) => JSON.stringify(r)).join('\n'))
+    return file
+  }
+  const cell = (s: number, callId: string, input: string): unknown => ({
+    timestamp: at(s),
+    type: 'response_item',
+    payload: { type: 'custom_tool_call', id: `ctc_${callId}`, status: 'completed', call_id: callId, name: 'exec', input }
+  })
+  const cellOut = (s: number, callId: string): unknown => ({
+    timestamp: at(s),
+    type: 'response_item',
+    payload: { type: 'custom_tool_call_output', call_id: callId, output: [{ type: 'input_text', text: 'Script completed\nWall time 0.2 seconds\nOutput:\n' }] }
+  })
+  const direct = (s: number, name: string, callId: string, args: object): unknown => ({
+    timestamp: at(s),
+    type: 'response_item',
+    payload: { type: 'function_call', name, arguments: JSON.stringify(args), call_id: callId }
+  })
+  const done = (s: number, item: object): unknown => ({
+    timestamp: at(s),
+    type: 'event_msg',
+    payload: { type: 'item_completed', thread_id: 'th', turn_id: 't1', item, started_at_ms: 1, completed_at_ms: 2 }
+  })
+  const command = (id: string, script: string): object => ({
+    type: 'CommandExecution',
+    id,
+    command: ['/bin/zsh', '-lc', script],
+    cwd: 'file:///r',
+    status: 'completed',
+    aggregated_output: '',
+    exit_code: 0
+  })
+  const deep = async (file: string): Promise<ProfileStats['providers'][number]> =>
+    (await buildProfile([meta({ provider: 'codex', sourcePath: file })], { now: NOW, login: null })).providers[0]!
+  const tally = (agent: ProfileStats['providers'][number]): Record<string, number> =>
+    Object.fromEntries(agent.tools.map((t) => [t.name, t.count]))
+
+  it("counts each run from its typed item and each patch from its FileChange, not the cell's", async () => {
+    const file = rollout('rollout-items.jsonl', [
+      cell(1, 'call_a', 'await Promise.all([tools.exec_command({cmd:"npm test"}), tools.exec_command({cmd:"git status"})])'),
+      done(2, command('exec-1', 'npm test')),
+      done(2, command('exec-2', 'git status')),
+      cellOut(2, 'call_a'),
+      cell(3, 'call_b', "text(await tools.mcp__node_repl__js({code:'1',title:'Probe'}))"),
+      done(4, { type: 'McpToolCall', id: 'exec-3', server: 'node_repl', tool: 'js', arguments: { code: '1' }, status: 'completed', result: { content: [] } }),
+      cellOut(4, 'call_b'),
+      cell(5, 'call_c', "text(await tools.web__run({search_query:[{q:'nx cache'}]}))"),
+      done(6, { type: 'Extension', kind: 'web.search', id: 'exec-4', action: { type: 'search', queries: ['nx cache'] }, results: [] }),
+      cellOut(6, 'call_c'),
+      // the patch is in the cell too, but the FileChange items are what it did
+      cell(7, 'call_d', 'text(await tools.apply_patch("*** Begin Patch\\n*** Update File: /r/src/s.ts\\n@@\\n-a\\n+b\\n*** End Patch"))'),
+      done(8, {
+        type: 'FileChange',
+        id: 'exec-5',
+        changes: {
+          '/r/src/s.ts': { type: 'update', unified_diff: '@@ -1,3 +1,4 @@\n keep\n-old one\n-old two\n+new one\n+new two\n+new three\n', move_path: null },
+          '/r/src/new.ts': { type: 'add', content: 'export const a = 1\nexport const b = 2\n' },
+          '/r/src/gone.ts': { type: 'delete', content: 'x\ny\nz\n' }
+        },
+        status: 'completed',
+        stdout: 'Success.'
+      }),
+      cellOut(8, 'call_d'),
+      // a declined patch still ran the tool, but changed nothing
+      done(9, { type: 'FileChange', id: 'exec-6', changes: { '/r/src/no.ts': { type: 'add', content: 'no\n' } }, status: 'declined' }),
+      // a tool called directly completes with an item under its own call id: counted once
+      direct(10, 'sleep', 'call_s', { duration_ms: 10 }),
+      done(11, { type: 'Extension', kind: 'clock.sleep', id: 'call_s', durationMs: 10 }),
+      direct(12, 'js', 'call_j', { code: 'await tab.reload()' }),
+      done(13, { type: 'McpToolCall', id: 'call_j', server: 'cua_repl', tool: 'js', arguments: {}, status: 'completed', result: { content: [] } })
+    ])
+    const agent = await deep(file)
+    expect(tally(agent)).toEqual({
+      shell: 2,
+      apply_patch: 2,
+      mcp__node_repl__js: 1,
+      web_search: 1,
+      sleep: 1,
+      js: 1
+    })
+    expect(agent.linesAdded).toBe(5) // 3 in the diff + the 2 lines of the added file
+    expect(agent.linesRemoved).toBe(5) // 2 in the diff + the 3 lines of the deleted file
+    expect(agent.filesTouched).toBe(3)
+    expect(agent.models).toEqual([{ name: 'gpt-6-sol', count: 1 }])
+  })
+
+  it('counts the tools a cell calls, and the patches in it, where no item speaks for them', async () => {
+    const file = rollout('rollout-cells.jsonl', [
+      cell(1, 'call_a', 'await Promise.all([tools.exec_command({cmd:"wc -l a.ts"}), tools.exec_command({cmd:"wc -l b.ts"})])'),
+      cellOut(2, 'call_a'),
+      cell(3, 'call_b', 'text(await tools.apply_patch(`*** Begin Patch\n*** Update File: /r/src/a.ts\n@@\n-a\n+b\n+c\n*** End Patch`))'),
+      cellOut(4, 'call_b'),
+      cell(5, 'call_c', "text(await tools.web__run({search_query:[{q:'x'}]})); text(ALL_TOOLS.length)"),
+      cellOut(6, 'call_c'),
+      // a direct call's own item is only its echo: it does not make the cells' runs typed
+      direct(7, 'sleep', 'call_s', { duration_ms: 10 }),
+      done(8, { type: 'Extension', kind: 'clock.sleep', id: 'call_s', durationMs: 10 })
+    ])
+    const agent = await deep(file)
+    expect(tally(agent)).toEqual({ exec_command: 2, apply_patch: 1, web__run: 1, sleep: 1 })
+    expect(agent.linesAdded).toBe(2)
+    expect(agent.linesRemoved).toBe(1)
+    expect(agent.filesTouched).toBe(1)
+  })
+
+  it('counts a patch applied as a call once, not again from its FileChange item', async () => {
+    const patch = '*** Begin Patch\n*** Update File: /r/src/a.ts\n@@\n-a\n+b\n*** End Patch'
+    const file = rollout('rollout-direct-patch.jsonl', [
+      { timestamp: at(1), type: 'response_item', payload: { type: 'custom_tool_call', status: 'completed', call_id: 'call_p', name: 'apply_patch', input: patch } },
+      done(2, { type: 'FileChange', id: 'call_p', changes: { '/r/src/a.ts': { type: 'update', unified_diff: '@@ -1 +1 @@\n-a\n+b\n' } }, status: 'completed' }),
+      { timestamp: at(2), type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'call_p', output: 'Success.' } }
+    ])
+    const agent = await deep(file)
+    expect(tally(agent)).toEqual({ apply_patch: 1 })
+    expect(agent.linesAdded).toBe(1)
+    expect(agent.linesRemoved).toBe(1)
+    expect(agent.filesTouched).toBe(1)
   })
 })
 

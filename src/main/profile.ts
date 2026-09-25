@@ -15,6 +15,9 @@ import type {
   SourceDir
 } from '../shared/types'
 import { claudeIdentity, codexIdentity, copilotUsers, ghUser } from './accounts'
+import { parseUnifiedDiff } from './parsers/artifacts'
+import { cellToolCalls } from './parsers/code-mode'
+import { toolItemFor, toolItemName, toolRecords } from './parsers/codex'
 import { readHead, sessionLogFiles } from './parsers/util'
 
 /**
@@ -110,9 +113,10 @@ function bump(m: Map<string, number>, key: string | undefined | null, by = 1): v
   m.set(key, (m.get(key) ?? 0) + by)
 }
 
+/** Lines as written: a trailing newline ends the last line, it doesn't add one. */
 function countLines(s: unknown): number {
   if (typeof s !== 'string' || !s) return 0
-  return s.split('\n').length
+  return s.split('\n').length - (s.endsWith('\n') ? 1 : 0)
 }
 
 /** Attribute an edited file to its language and record the lines it gained. */
@@ -177,22 +181,75 @@ function deepClaude(text: string): DeepStats {
 }
 
 /**
- * Codex rollouts: `function_call` items (under `payload` in the current shape,
- * flat in pre-2026 logs). Codex has no edit tool — it patches through shell
- * `apply_patch` heredocs, so lines come from the patch body's +/- markers.
+ * Codex rollouts (under `payload` in the current shape, flat in pre-2026 logs). One
+ * tool run can be recorded three times — a direct call, a line of a code-mode `exec`
+ * cell, the typed item it completes with — so each is counted from the one record the
+ * transcript reads it from (`toolRecords`), never twice. Codex has no edit tool: lines
+ * come from `apply_patch` bodies (a call's own, or a cell's) and from the `FileChange`
+ * items a patch run inside a cell completes with.
  */
 function deepCodex(text: string): DeepStats {
   const d = emptyDeep()
-  for (const entry of parseJsonlLines(text)) {
+  const lines = parseJsonlLines(text)
+  const records = toolRecords(lines)
+  for (const entry of lines) {
     const p = entry?.payload ?? entry
     if (typeof p?.model === 'string') bump(d.models, p.model)
-    if (p?.type !== 'function_call' || typeof p.name !== 'string') continue
-    bump(d.tools, p.name)
-    const args = typeof p.arguments === 'string' ? p.arguments : ''
-    if (!args.includes('apply_patch')) continue
-    countPatch(d, args)
+    const item = toolItemFor(entry, records)
+    if (item?.type === 'FileChange') {
+      if (countFileChange(d, item)) bump(d.tools, 'apply_patch')
+    } else if (item) {
+      bump(d.tools, toolItemName(item))
+    } else if (p?.type === 'function_call' && typeof p.name === 'string') {
+      bump(d.tools, p.name)
+      const args = typeof p.arguments === 'string' ? p.arguments : ''
+      if (args.includes('apply_patch')) countPatch(d, args)
+    } else if (p?.type === 'custom_tool_call' && typeof p.name === 'string' && typeof p.input === 'string') {
+      if (p.name !== 'exec') {
+        bump(d.tools, p.name)
+        if (p.name === 'apply_patch') countPatch(d, p.input)
+      } else if (records.cells) {
+        // a cell is not a run of its own: the tools it calls are
+        for (const call of cellToolCalls(p.input)) {
+          bump(d.tools, call.name)
+          if (call.name === 'apply_patch' && typeof call.input === 'string') countPatch(d, call.input)
+        }
+      }
+    }
   }
   return d
+}
+
+/**
+ * A `FileChange` item's `changes`, path → `{type: 'add' | 'delete', content}` or
+ * `{type: 'update', unified_diff}`. One that failed or was declined still names its
+ * files but edited none of them. Says whether it named any file (the transcript shows
+ * no row for one that names none).
+ */
+function countFileChange(d: DeepStats, item: any): boolean {
+  const changes = item?.changes
+  if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return false
+  const applied = typeof item.status !== 'string' || item.status === 'completed'
+  let named = false
+  for (const [path, change] of Object.entries<any>(changes)) {
+    named = true
+    if (!applied) continue
+    const kind = change?.type ?? change?.kind
+    let added = 0
+    if (kind === 'add') added = countLines(change.content)
+    else if (kind === 'delete') d.linesRemoved += countLines(change.content)
+    else if (typeof change?.unified_diff === 'string') {
+      for (const hunk of parseUnifiedDiff(change.unified_diff)) {
+        for (const line of hunk) {
+          if (line.op === 'add') added++
+          else if (line.op === 'del') d.linesRemoved++
+        }
+      }
+    }
+    d.linesAdded += added
+    recordFile(d, path, added)
+  }
+  return named
 }
 
 /**
