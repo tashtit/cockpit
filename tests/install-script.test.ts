@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -322,11 +321,13 @@ describe.skipIf(!onMac)('install.sh', () => {
   it('stops while the installed copy is running', async () => {
     await publish('0.12.0')
     const { dest, app } = installed('0.11.0')
-    // a real process whose executable is the installed bundle's, as ps lists Cockpit's
+    // a real process that ps lists the way it lists Cockpit's: the installed bundle's
+    // executable as its command. Only the command line is what the script reads, so
+    // /bin/sleep runs from where it lives under that argv0. A copy of it inside the
+    // bundle is killed on launch (Code Signature Invalid) and macOS answers that with
+    // a crash report and a "Cockpit.app is damaged" alert on every test run.
     const exe = join(app, 'Contents', 'MacOS', 'Cockpit')
-    copyFileSync('/bin/sleep', exe)
-    chmodSync(exe, 0o755)
-    const running: ChildProcess = spawn(exe, ['30'], { stdio: 'ignore' })
+    const running: ChildProcess = spawn('/bin/sleep', ['30'], { argv0: exe, stdio: 'ignore' })
     try {
       await once(running, 'spawn')
       const run = await install(dest)
