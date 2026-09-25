@@ -338,6 +338,31 @@ describe('surveyCleanup — what could go right now', () => {
   })
 })
 
+describe('surveyCleanup — one at a time', () => {
+  it('hands a second ask the survey already running, and only that', async () => {
+    // the view's scan and the daily reminder landing together ran two full surveys
+    const first = surveyCleanup(deps, 30)
+    expect(surveyCleanup(deps, 30)).toBe(first)
+    // another threshold is another question
+    const other = surveyCleanup(deps, 90)
+    expect(other).not.toBe(first)
+    await Promise.all([first, other])
+    // once it has answered, the next ask runs its own
+    const next = surveyCleanup(deps, 30)
+    expect(next).not.toBe(first)
+    await next
+  })
+
+  it('never hands out a survey begun before a cleanup action ended', async () => {
+    // it could list what the action just removed — and the view rescans right after
+    const before = surveyCleanup(deps, 30)
+    await deleteSessions(deps, [], 30)
+    const after = surveyCleanup(deps, 30)
+    expect(after).not.toBe(before)
+    await Promise.all([before, after])
+  })
+})
+
 describe('roundtables — the table is the unit', () => {
   const room = join(roundtableRoot, 'rt-old', 'room')
 

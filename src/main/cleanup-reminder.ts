@@ -21,7 +21,10 @@ import {
 export type CleanupReminderDeps = {
   /** Where the last check and what was shown survive a restart */
   readonly file: string
-  /** The Cleanup view's own scan, reduced to what could go right now */
+  /**
+   * The Cleanup view's own scan, reduced to what could go right now. When the view is
+   * scanning at the same moment, both get the one survey (`surveyCleanup`).
+   */
   readonly survey: () => Promise<CleanupReady>
   /** The Settings switch — off means no scan at all */
   readonly enabled: () => boolean

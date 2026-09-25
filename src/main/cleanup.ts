@@ -600,8 +600,45 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
   return (await surveyCleanup(deps, staleDays)).report
 }
 
-export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promise<CleanupSurvey> {
+/**
+ * Surveys in flight, by what makes two asks the same question: the same Cockpit (its
+ * roots and pid) and the same threshold. The view's scan and the daily reminder can
+ * land together, and a second full survey beside the first doubles every git, lsof and
+ * du for the same answer.
+ */
+const surveys = new Map<string, Promise<CleanupSurvey>>()
+
+/**
+ * A cleanup action that, once it ends, forgets every survey still in flight: begun
+ * before the end, one may show what the action has just removed — and the view
+ * rescans the moment an action returns.
+ */
+function retiringSurveys<A extends readonly unknown[], R>(
+  action: (...args: A) => Promise<R>
+): (...args: A) => Promise<R> {
+  return async (...args) => {
+    try {
+      return await action(...args)
+    } finally {
+      surveys.clear()
+    }
+  }
+}
+
+/** One survey at a time per question: a second ask while one runs gets that one's answer. */
+export function surveyCleanup(deps: CleanupDeps, staleDays: number): Promise<CleanupSurvey> {
   const days = clampStaleDays(staleDays)
+  const key = [deps.cockpitWorktreeRoot, deps.roundtableRoot, deps.selfPid, days].join('\0')
+  const running = surveys.get(key)
+  if (running) return running
+  const survey = runSurvey(deps, days).finally(() => {
+    if (surveys.get(key) === survey) surveys.delete(key)
+  })
+  surveys.set(key, survey)
+  return survey
+}
+
+async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey> {
   const scannedAt = Date.now()
   const cutoff = staleCutoff(days, scannedAt)
   const all = deps.sessions()
@@ -774,7 +811,7 @@ async function deleteMergedBranch(repoRoot: string, branch: string): Promise<boo
  * it is stale and unblocked, which is exactly the set the scan showed attached to
  * these rows. The listing is re-derived here rather than trusted from the scan.
  */
-export async function deleteSessions(
+export const deleteSessions = retiringSurveys(async function deleteSessions(
   deps: CleanupDeps,
   ids: readonly string[],
   staleDays: number
@@ -844,7 +881,7 @@ export async function deleteSessions(
   }
 
   return { cleaned, freedBytes, failed, branchesDeleted, deletedIds: [...deleted] }
-}
+})
 
 /**
  * The worktrees going with `deleted`: each only when every session indexed in it is
@@ -927,7 +964,7 @@ async function takeWorktreesWith(
  * give up (never --force). A table's room is only ever removed *with* its table,
  * which is why the worktrees list keeps refusing it on its own.
  */
-export async function deleteRoundtables(
+export const deleteRoundtables = retiringSurveys(async function deleteRoundtables(
   deps: CleanupDeps,
   ids: readonly string[],
   staleDays: number
@@ -1051,7 +1088,7 @@ export async function deleteRoundtables(
   }
 
   return { cleaned, freedBytes, failed, branchesDeleted, deletedIds }
-}
+})
 
 /**
  * The registration `repoRoot` holds at `path` (resolved), whether or not its directory
@@ -1090,7 +1127,7 @@ async function dropRegistration(repoRoot: string, path: string): Promise<string 
  * worktree that has picked up a block since the scan is refused rather than forced.
  * Only the picked worktrees are inspected, each just before it goes.
  */
-export async function removeWorktrees(
+export const removeWorktrees = retiringSurveys(async function removeWorktrees(
   deps: CleanupDeps,
   paths: readonly string[]
 ): Promise<CleanupResult> {
@@ -1154,7 +1191,7 @@ export async function removeWorktrees(
     }
   }
   return { cleaned, freedBytes, failed, branchesDeleted }
-}
+})
 
 /** The first block is the one worth showing — they are ordered by weight. */
 function blockReason(blocks: readonly CleanupBlock[]): string {
@@ -1179,7 +1216,7 @@ function blockReason(blocks: readonly CleanupBlock[]): string {
  * started at the same moment. Never SIGKILL: a process that ignores the polite
  * signal is reported, not forced.
  */
-export async function stopProcesses(
+export const stopProcesses = retiringSurveys(async function stopProcesses(
   deps: CleanupDeps,
   targets: readonly ProcessTarget[],
   staleDays: number
@@ -1231,7 +1268,7 @@ export async function stopProcesses(
     failed.push({ target: label(p), reason: 'still running — it did not exit on SIGTERM' })
   }
   return { cleaned: signalled.length - alive.length, freedBytes: 0, failed }
-}
+})
 
 function isAlive(pid: number): boolean {
   try {
