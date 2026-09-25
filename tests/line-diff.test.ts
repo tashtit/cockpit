@@ -93,6 +93,16 @@ describe('diffLines', () => {
     expect(d[0].op).toBe('del')
     expect(d[1100].op).toBe('add')
   })
+
+  it('takes a file-sized input without spreading it into call arguments', () => {
+    // a spread passes each line as an argument: this many threw RangeError
+    const a = Array.from({ length: 200_000 }, (_, i) => `a${i}`)
+    const b = [...a.slice(0, 50_000), ...Array.from({ length: 150_000 }, (_, i) => `b${i}`)]
+    const d = diffLines(a, b)
+    expect(diffStat(d)).toEqual({ added: 150_000, removed: 150_000 })
+    expect(d).toHaveLength(350_000)
+    expect(foldUnchanged(d)).toHaveLength(300_000 + 2 + 1)
+  })
 })
 
 describe('splitLines', () => {

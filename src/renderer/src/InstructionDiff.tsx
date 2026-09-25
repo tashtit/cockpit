@@ -198,7 +198,8 @@ export function DiffLines({ lines, layout }: { lines: readonly DiffLine[]; layou
   const shown: DiffRow[] = []
   rows.forEach((row, i) => {
     if (row.op !== 'fold') shown.push(row)
-    else if (opened.has(i)) shown.push(...row.lines)
+    // a loop, not a spread: an opened fold can hold a file's worth of lines
+    else if (opened.has(i)) for (const line of row.lines) shown.push(line)
     else {
       foldAt.set(row, i)
       shown.push(row)
