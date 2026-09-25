@@ -69,6 +69,30 @@ function renderHome(): void {
   )
 }
 
+function renderSidebar(): void {
+  render(
+    <TreeSidebar
+      repos={[repo]}
+      indexVersion={0}
+      accounts={null}
+      zoom={1}
+      onResetZoom={vi.fn()}
+      selectedId={null}
+      onSelect={vi.fn()}
+      onNewSession={vi.fn()}
+      onRepoSetup={vi.fn()}
+      selectedRoundtableId={null}
+      onOpenRoundtable={vi.fn()}
+      onNewTask={vi.fn()}
+      onGoHome={vi.fn()}
+      onNav={vi.fn()}
+      onOpenSettings={vi.fn()}
+      onOpenUrl={vi.fn()}
+      activeView="welcome"
+    />
+  )
+}
+
 beforeEach(() => {
   clearLanded()
   vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 2, items: rows })
@@ -255,27 +279,7 @@ describe('needs you: questions and red pull requests', () => {
 
   it('sidebar rows carry the same marks with the reason as their accessible name', async () => {
     const stop = initLanded()
-    render(
-      <TreeSidebar
-        repos={[repo]}
-        indexVersion={0}
-        accounts={null}
-        zoom={1}
-        onResetZoom={vi.fn()}
-        selectedId={null}
-        onSelect={vi.fn()}
-        onNewSession={vi.fn()}
-        onRepoSetup={vi.fn()}
-        selectedRoundtableId={null}
-        onOpenRoundtable={vi.fn()}
-        onNewTask={vi.fn()}
-        onGoHome={vi.fn()}
-        onNav={vi.fn()}
-        onOpenSettings={vi.fn()}
-        onOpenUrl={vi.fn()}
-        activeView="welcome"
-      />
-    )
+    renderSidebar()
     await screen.findByText('fix the login flake')
     pushLandings([ASKS, RED])
     const asks = await screen.findByRole('img', { name: 'asks you: Which owner should the repo live under?' })
@@ -287,5 +291,20 @@ describe('needs you: questions and red pull requests', () => {
       expect.stringContaining('PR #57 checks failing')
     )
     stop()
+  })
+
+  it('a running sidebar row turns a neutral spinner — the row\'s logo already names the agent', async () => {
+    const stopBusy = initBusySessions()
+    renderSidebar()
+    await screen.findByText('fix the login flake')
+
+    pushBusy([{ id: 'claude:one', startedAt: Date.now() - 5000, source: 'observed' }])
+    const mark = await screen.findByRole('img', { name: 'Claude is working' })
+    expect(mark).toHaveClass('spinner')
+    expect(mark.closest('.session-row')).toHaveTextContent('fix the login flake')
+    // no livery on the rail: the agent-colored pulse stays the board's
+    expect(document.querySelector('.tree-sidebar [class*="pulse"]')).toBeNull()
+    pushBusy([])
+    stopBusy()
   })
 })

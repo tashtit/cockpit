@@ -83,7 +83,7 @@ attribution, never a parallel message grammar.
 
 - A roundtable is an **item, not a category**: grounded tables render inside their
   project's children, repo-less ones inside Chats (which materializes if needed).
-  Rows are `.session-row.rt-row` — seat cluster, title, time/pulse; selection uses the
+  Rows are `.session-row.rt-row` — seat cluster, title, time/`Spinner`; selection uses the
   accent treatment, never one agent's color.
 - The row's chevron expands the **seat-sessions** the table spawned (a debug view).
   Those sessions are excluded from every normal listing (board, tree, search) and open

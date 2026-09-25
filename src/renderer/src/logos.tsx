@@ -235,6 +235,19 @@ export function LiveDot({ p }: { p: Provider }): JSX.Element {
 }
 
 /**
+ * The sidebar's running mark: a neutral ring turning. The row's logo already names the
+ * agent, so the rail doesn't repeat its color — several agents at work read as a scatter
+ * of orange, teal and violet lights. No label = decorative (the caller names it).
+ */
+export function Spinner({ label }: { label?: string }): JSX.Element {
+  return label ? (
+    <span className="spinner" role="img" aria-label={label} title={label} />
+  ) : (
+    <span className="spinner" aria-hidden="true" />
+  )
+}
+
+/**
  * Branch pill. Cockpit worktree branches all share the `cockpit/` prefix, so it
  * carries no information — abbreviate it to a dimmed `c/` and spend the chip's
  * width on the part that distinguishes branches. Full name stays in the tooltip.
