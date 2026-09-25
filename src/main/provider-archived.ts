@@ -10,13 +10,16 @@ import { execText } from './env'
  * Cockpit: not as active, not under Cockpit's own Archived toggle.
  *
  * Where each provider keeps that state:
- * - copilot: data.db (sessions table) is the app's source of truth.
- *   - archived: the row gets an `archived_at` timestamp; the transcript under
- *     session-state/ is left untouched, so the flag has to be read from the db.
- *   - deleted: the row is removed outright (the db has a session_deletion_intents
- *     table and no deleted_at column), again leaving session-state/<id>/events.jsonl
- *     behind. A row-less dir is treated as deleted only when its events.jsonl mtime
- *     falls inside the era the db demonstrably covers — see copilotDeletedIds.
+ * - copilot: data.db is the app's source of truth, and the transcript under
+ *   session-state/ is left untouched either way, so the state has to be read from the db.
+ *   - archived: a general chat's own `sessions` row gets an `archived_at` timestamp; a
+ *     project chat is archived as its *workspace* — the `workspaces` row gets the
+ *     timestamp and the session row keeps none. See COPILOT_HIDDEN_WHEN.
+ *   - deleted: a session row is removed outright (the db has a session_deletion_intents
+ *     table and no deleted_at column), leaving session-state/<id>/events.jsonl behind.
+ *     A row-less dir is treated as deleted only when its events.jsonl mtime falls
+ *     inside the era the db demonstrably covers — see copilotDeletedIds. Deleting a
+ *     project chat's workspace removes the workspace row and keeps the session's.
  * - codex: archiving physically moves the rollout file to <home>/archived_sessions/,
  *   which the indexer never walks — nothing extra to read.
  * - claude: the CLI persists nothing, but the Claude desktop app keeps one JSON
@@ -35,7 +38,72 @@ const RECORD_READERS = 32
 
 type CopilotRow = {
   readonly id: string
-  readonly archived: boolean
+  /** Archived or deleted in the app, by any of COPILOT_HIDDEN_WHEN. */
+  readonly hidden: boolean
+}
+
+/**
+ * Every way data.db says a session `s` is gone from the Copilot app, each with the
+ * `table.column`s it reads. The app has grown these in stages (workspaces and side
+ * chats are newer than `sessions.archived_at`), so a clause the db has no columns for
+ * is left out rather than failing the read: that db simply can't say that thing yet.
+ */
+const COPILOT_HIDDEN_WHEN: readonly { readonly reads: readonly string[]; readonly sql: string }[] = [
+  // a general chat, archived on its own row
+  { reads: ['sessions.archived_at'], sql: 's.archived_at IS NOT NULL' },
+  // a project chat is archived as its workspace — the session row keeps no timestamp
+  {
+    reads: ['workspaces.session_id', 'workspaces.archived_at'],
+    sql: 'EXISTS (SELECT 1 FROM workspaces w WHERE w.session_id = s.id AND w.archived_at IS NOT NULL)'
+  },
+  // ...and so is a session the workspace ran before its current one
+  {
+    reads: [
+      'workspace_session_aliases.session_id',
+      'workspace_session_aliases.workspace_id',
+      'workspaces.id',
+      'workspaces.archived_at'
+    ],
+    sql:
+      'EXISTS (SELECT 1 FROM workspace_session_aliases a JOIN workspaces w ON w.id = a.workspace_id' +
+      ' WHERE a.session_id = s.id AND w.archived_at IS NOT NULL)'
+  },
+  // a side chat goes with what it was opened from
+  {
+    reads: [
+      'workspace_side_chats.session_id',
+      'workspace_side_chats.workspace_id',
+      'workspaces.id',
+      'workspaces.archived_at'
+    ],
+    sql:
+      'EXISTS (SELECT 1 FROM workspace_side_chats c JOIN workspaces w ON w.id = c.workspace_id' +
+      ' WHERE c.session_id = s.id AND w.archived_at IS NOT NULL)'
+  },
+  {
+    reads: ['session_side_chats.session_id', 'session_side_chats.parent_session_id', 'sessions.archived_at'],
+    sql:
+      'EXISTS (SELECT 1 FROM session_side_chats c JOIN sessions p ON p.id = c.parent_session_id' +
+      ' WHERE c.session_id = s.id AND p.archived_at IS NOT NULL)'
+  },
+  // A project chat always lives in a workspace, and deleting the workspace drops its
+  // row (and its aliases) but keeps the session's: one with neither was deleted.
+  {
+    reads: ['sessions.session_type', 'workspaces.session_id', 'workspace_session_aliases.session_id'],
+    sql:
+      "s.session_type = 'project'" +
+      ' AND NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.session_id = s.id)' +
+      ' AND NOT EXISTS (SELECT 1 FROM workspace_session_aliases a WHERE a.session_id = s.id)'
+  }
+]
+
+const COPILOT_TABLES = [...new Set(COPILOT_HIDDEN_WHEN.flatMap((c) => c.reads.map((r) => r.split('.')[0])))]
+
+/** The one statement that reads every session and whether the app still shows it. */
+function copilotSessionsSql(columns: ReadonlySet<string>): string {
+  const clauses = COPILOT_HIDDEN_WHEN.filter((c) => c.reads.every((r) => columns.has(r)))
+  const hidden = clauses.length ? clauses.map((c) => `(${c.sql})`).join(' OR ') : '0'
+  return `SELECT s.id, ${hidden} FROM sessions s`
 }
 
 /** What the last read of one desktop record said, and the stamp it said it about. */
@@ -50,7 +118,7 @@ type RecordVerdict = {
  * Reads each provider's own archived state, remembering what it read.
  *
  * The indexer sweeps before every rescan — which fires on every new session file —
- * and a sweep with nothing remembered costs a `sqlite3` spawn plus a full re-read and
+ * and a sweep with nothing remembered costs two `sqlite3` spawns plus a full re-read and
  * re-parse of every desktop record (~100ms at a few thousand of them). Neither input
  * changes often, and both say when they changed: records carry an mtime and a size,
  * and the copilot db carries them too, across its WAL sidecars. So a sweep re-reads
@@ -79,7 +147,7 @@ export class ProviderArchivedReader {
           for (const id of prev) if (id.startsWith('copilot:')) out.add(id)
           return
         }
-        for (const r of rows) if (r.archived) out.add(`copilot:${r.id}`)
+        for (const r of rows) if (r.hidden) out.add(`copilot:${r.id}`)
         for (const id of copilotDeletedIds(s.path, rows)) out.add(`copilot:${id}`)
       })
     if (this.claudeStoreDir && sources.some((s) => s.provider === 'claude')) {
@@ -150,26 +218,42 @@ export class ProviderArchivedReader {
     const stamp = dbStamp(db)
     const hit = this.dbs.get(db)
     if (hit && stamp !== null && hit.stamp === stamp) return hit.rows
-    const r = await execText(
-      'sqlite3',
-      ['-readonly', db, 'SELECT id, archived_at IS NOT NULL FROM sessions'],
-      { timeoutMs: 5000 }
+    // what this db's schema can answer, asked first: SQL can't name a table conditionally
+    const probe = await sqlite(
+      db,
+      "SELECT m.name || '.' || p.name FROM sqlite_master m JOIN pragma_table_info(m.name) p" +
+        ` WHERE m.type = 'table' AND m.name IN (${COPILOT_TABLES.map((t) => `'${t}'`).join(', ')})`
     )
-    if (!r.ok) {
-      console.error(`[indexer] copilot session read failed for ${db}:`, r.stderr.trim() || r.error)
+    if (probe === null) return null
+    const columns = new Set(probe)
+    if (!columns.has('sessions.id')) {
+      console.error(`[indexer] copilot session read failed for ${db}: no sessions table`)
       return null
     }
-    const rows = r.stdout
-      .split('\n')
-      .map((l) => l.trim())
+    const lines = await sqlite(db, copilotSessionsSql(columns))
+    if (lines === null) return null
+    const rows = lines
       .filter((l) => l.includes('|'))
       .map((l) => {
         const sep = l.lastIndexOf('|')
-        return { id: l.slice(0, sep), archived: l.slice(sep + 1) === '1' }
+        return { id: l.slice(0, sep), hidden: l.slice(sep + 1) === '1' }
       })
     if (stamp !== null) this.dbs.set(db, { stamp, rows })
     return rows
   }
+}
+
+/** One read-only query's output lines, or null (logged) when sqlite3 could not answer. */
+async function sqlite(db: string, sql: string): Promise<string[] | null> {
+  const r = await execText('sqlite3', ['-readonly', db, sql], { timeoutMs: 5000 })
+  if (!r.ok) {
+    console.error(`[indexer] copilot session read failed for ${db}:`, r.stderr.trim() || r.error)
+    return null
+  }
+  return r.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
 }
 
 /**
