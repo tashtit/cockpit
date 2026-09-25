@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -417,6 +417,101 @@ describe('a plugin an agent has no way to install', () => {
     expect(cell(report, 'git-workflow@tashtit', 'claude').state).toBe('off')
     expect(cell(report, 'tashtit', 'claude').state).toBe('off')
     expect(cell(report, 'openai-bundled', 'claude').state).toBe('na')
+  })
+})
+
+describe('the recommended marketplace', () => {
+  const offered = (report: Awaited<ReturnType<typeof getPanel>>) =>
+    report.rows.find((r) => r.id === 'marketplace:tashtit')
+  const stored = (): any[] =>
+    JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8')).library?.global ?? []
+
+  it('is offered in Global, switched off and switchable for every agent', () => {
+    const row = offered(getPanel(null))
+    expect(row).toBeDefined()
+    for (const agent of ['claude', 'codex', 'copilot'] as const) {
+      expect(row!.cells[agent].state).toBe('off')
+    }
+    expect(row!.drift).toEqual([])
+  })
+
+  // opening a view is not a decision: nothing reaches Cockpit's config, a backup, or
+  // an agent until the person acts on the row
+  it('writes nothing just for being offered', () => {
+    getPanel(null)
+    expect(stored().some((e) => e.name === 'tashtit')).toBe(false)
+  })
+
+  it('is not offered in a project — marketplaces are per machine', () => {
+    const repo = join(home, 'repo')
+    mkdirSync(repo, { recursive: true })
+    expect(offered(getPanel(repo))).toBeUndefined()
+  })
+
+  // Claude Code and Codex keep the git URL, Copilot the URL without .git — the same
+  // repository, so the agents agree and the row is simply on
+  it('takes the agents’ own tashtit as it is, and reads one repository spelled three ways as one', () => {
+    write(
+      join(home, '.claude', 'plugins', 'known_marketplaces.json'),
+      JSON.stringify({ tashtit: { source: { source: 'git', url: 'https://github.com/tashtit/marketplace.git' } } })
+    )
+    write(
+      join(home, '.codex', 'config.toml'),
+      '[marketplaces.tashtit]\nsource_type = "git"\nsource = "https://github.com/tashtit/marketplace.git"\n'
+    )
+    write(
+      join(home, '.copilot', 'settings.json'),
+      JSON.stringify({ extraKnownMarketplaces: { tashtit: { source: { source: 'git', url: 'https://github.com/tashtit/marketplace' } } } })
+    )
+    const row = offered(getPanel(null))!
+    for (const agent of ['claude', 'codex', 'copilot'] as const) {
+      expect(row.cells[agent].state).toBe('on')
+    }
+    expect(row.drift).toEqual([])
+    expect(row.disagree).toBe(false)
+    expect(stored().filter((e) => e.name === 'tashtit')).toHaveLength(1)
+  })
+
+  it('stays gone once removed everywhere, and nothing is spawned to remove it', async () => {
+    getPanel(null)
+    const report = await removePanelEntry({ repoRoot: null, kind: 'marketplace', name: 'tashtit' })
+    expect(offered(report)).toBeUndefined()
+    expect(report.removed.map((r) => r.name)).toEqual(['tashtit'])
+    expect(offered(getPanel(null))).toBeUndefined()
+  })
+
+  it('is added by the agent’s own CLI on the first switch, which is also what records it', async () => {
+    const bin = join(home, 'bin')
+    const log = join(home, 'claude-calls.log')
+    // answers the way Claude Code does: by recording the marketplace it was given
+    write(
+      join(bin, 'claude'),
+      [
+        '#!/bin/sh',
+        `echo "$@" >> '${log}'`,
+        'if [ "$1 $2 $3" = "plugin marketplace add" ]; then',
+        '  mkdir -p "$HOME/.claude/plugins"',
+        `  printf '{"tashtit":{"source":{"source":"git","url":"%s"}}}' "$4" > "$HOME/.claude/plugins/known_marketplaces.json"`,
+        'fi'
+      ].join('\n')
+    )
+    chmodSync(join(bin, 'claude'), 0o755)
+    const savedPath = process.env.PATH
+    process.env.PATH = `${bin}:${savedPath}`
+    try {
+      getPanel(null)
+      const report = await setPanelSwitch({ repoRoot: null, kind: 'marketplace', name: 'tashtit' }, 'claude', true)
+      expect(readFileSync(log, 'utf8').trim()).toBe('plugin marketplace add https://github.com/tashtit/marketplace.git')
+      expect(cell(report, 'tashtit', 'claude').state).toBe('on')
+      expect(cell(report, 'tashtit', 'codex').state).toBe('off')
+      expect(stored().find((e) => e.name === 'tashtit')).toMatchObject({
+        kind: 'marketplace',
+        enabled: { claude: true },
+        source: 'https://github.com/tashtit/marketplace.git'
+      })
+    } finally {
+      process.env.PATH = savedPath
+    }
   })
 })
 

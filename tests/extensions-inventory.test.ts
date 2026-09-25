@@ -177,6 +177,51 @@ describe('getExtensions — plugins and marketplaces', () => {
     expect(claude?.source).toBe('https://github.com/tashtit/marketplace.git')
   })
 
+  // an added marketplace with nothing installed from it yet has no directory under
+  // installed-plugins — copilot's settings are the only place it is recorded
+  it('reads the marketplaces copilot was given from its settings', () => {
+    const home = fakeHome()
+    write(
+      join(home, '.copilot', 'settings.json'),
+      JSON.stringify({
+        extraKnownMarketplaces: {
+          tashtit: { source: { source: 'git', url: 'https://github.com/tashtit/marketplace' } },
+          acme: { source: { source: 'github', repo: 'acme/agent-plugins' } }
+        }
+      })
+    )
+    const copilot = getExtensions().marketplaces.filter((m) => m.agent === 'copilot')
+    expect(copilot).toEqual([
+      { name: 'tashtit', agent: 'copilot', source: 'https://github.com/tashtit/marketplace' },
+      { name: 'acme', agent: 'copilot', source: 'acme/agent-plugins' }
+    ])
+  })
+
+  it('lists a marketplace copilot ships with once, from its plugins, beside the added ones', () => {
+    const home = fakeHome()
+    write(
+      join(home, '.copilot', 'settings.json'),
+      JSON.stringify({ extraKnownMarketplaces: { tashtit: { source: { source: 'git', url: 'https://github.com/tashtit/marketplace' } } } })
+    )
+    write(join(home, '.copilot', 'installed-plugins', 'tashtit', 'git-workflow', '.claude-plugin', 'plugin.json'), '{}')
+    write(join(home, '.copilot', 'installed-plugins', 'awesome-copilot', 'chrome', '.claude-plugin', 'plugin.json'), '{}')
+    const copilot = getExtensions().marketplaces.filter((m) => m.agent === 'copilot')
+    expect(copilot.map((m) => m.name).sort()).toEqual(['awesome-copilot', 'tashtit'])
+    expect(copilot.find((m) => m.name === 'awesome-copilot')?.source).toBeUndefined()
+  })
+
+  // config.json carries // comments and held the settings before they moved out of it
+  it('falls back to the settings copilot kept in its commented config.json', () => {
+    const home = fakeHome()
+    write(
+      join(home, '.copilot', 'config.json'),
+      '// managed automatically\n{ "extraKnownMarketplaces": { "acme": { "source": { "source": "github", "repo": "acme/agent-plugins" } } } }\n'
+    )
+    expect(getExtensions().marketplaces).toEqual([
+      { name: 'acme', agent: 'copilot', source: 'acme/agent-plugins' }
+    ])
+  })
+
   it('drops a codex plugin the user switched off', () => {
     const home = fakeHome()
     write(join(home, '.codex', 'config.toml'), '[plugins."off@mp"]\nenabled = false\n')

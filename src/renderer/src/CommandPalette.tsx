@@ -52,7 +52,7 @@ const VIEWS: readonly ViewTarget[] = [
   {
     key: 'extensions',
     label: 'Agents',
-    keywords: ['agents', 'instructions', 'mcp', 'skills', 'plugins', 'marketplace', 'extensions'],
+    keywords: ['agents', 'instructions', 'mcp', 'skills', 'plugins', 'marketplace', 'extensions', 'tashtit'],
     icon: <AgentIcon size={13} />
   },
   {

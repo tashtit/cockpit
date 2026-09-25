@@ -6,9 +6,13 @@ import {
   cwdLabel,
   fieldsKey,
   instructionRow,
+  isRecommended,
   kindsForScope,
+  marketSourceKey,
   mcpFields,
+  RECOMMENDED_MARKETPLACE,
   sameFields,
+  withRecommended,
   type Actual
 } from '../src/shared/library'
 import type { ExtensionsInventory, LibraryEntry, McpConfig, Provider } from '../src/shared/types'
@@ -234,6 +238,76 @@ describe('adoptInventory', () => {
     })
     expect(entries).toHaveLength(1)
     expect(entries[0].enabled).toEqual({ claude: true, codex: true })
+  })
+})
+
+describe('the recommended marketplace', () => {
+  it('is offered switched off everywhere when the library has no entry for it', () => {
+    const entries = withRecommended([{ kind: 'skill', name: 'review', enabled: { claude: true } }])
+    expect(entries).toHaveLength(2)
+    expect(entries[1]).toEqual({
+      kind: 'marketplace',
+      name: 'tashtit',
+      enabled: {},
+      source: RECOMMENDED_MARKETPLACE.source
+    })
+  })
+
+  // an entry already there is either adopted from an agent or the person's own answer —
+  // a removed one in particular has to stay removed
+  it('leaves an entry it already has exactly as it is', () => {
+    const removed: LibraryEntry = {
+      kind: 'marketplace',
+      name: 'tashtit',
+      enabled: { claude: true },
+      source: 'git@github.com:fork/marketplace.git',
+      removed: true
+    }
+    expect(withRecommended([removed])).toEqual([removed])
+  })
+
+  it('does not take a plugin or skill of the same name for it', () => {
+    const entries = withRecommended([{ kind: 'skill', name: 'tashtit', enabled: {} }])
+    expect(entries.filter((e) => e.kind === 'marketplace')).toHaveLength(1)
+  })
+
+  it('knows its own row, and only that one', () => {
+    expect(isRecommended({ kind: 'marketplace', name: 'tashtit' })).toBe(true)
+    expect(isRecommended({ kind: 'plugin', name: 'tashtit' })).toBe(false)
+    expect(isRecommended({ kind: 'marketplace', name: 'acme-market' })).toBe(false)
+  })
+
+  it('points at a source every agent can add, and a page a person can read', () => {
+    expect(RECOMMENDED_MARKETPLACE.source).toMatch(/^https:\/\//)
+    expect(RECOMMENDED_MARKETPLACE.page).toMatch(/^https:\/\/github\.com\/tashtit\/marketplace/)
+  })
+})
+
+describe('marketSourceKey', () => {
+  // Claude Code and Codex keep the git URL, Copilot the URL without .git, any of them
+  // the owner/repo they were handed — one repository, never a disagreement
+  it('spells every form of one GitHub repository the same', () => {
+    const forms = [
+      'https://github.com/tashtit/marketplace.git',
+      'https://github.com/tashtit/marketplace',
+      'https://github.com/tashtit/marketplace/',
+      'http://www.github.com/Tashtit/Marketplace',
+      'git@github.com:tashtit/marketplace.git',
+      'ssh://git@github.com/tashtit/marketplace.git',
+      'tashtit/marketplace'
+    ]
+    expect(new Set(forms.map(marketSourceKey))).toEqual(new Set(['github.com/tashtit/marketplace']))
+  })
+
+  it('keeps two different repositories apart', () => {
+    expect(marketSourceKey('tashtit/marketplace')).not.toBe(marketSourceKey('fork/marketplace'))
+  })
+
+  it('leaves a local path or another host as it was, bar a trailing slash or .git', () => {
+    expect(marketSourceKey('/Users/me/.codex/.tmp/bundled/openai-bundled/')).toBe(
+      '/Users/me/.codex/.tmp/bundled/openai-bundled'
+    )
+    expect(marketSourceKey('https://gitlab.com/acme/plugins.git')).toBe('https://gitlab.com/acme/plugins')
   })
 })
 

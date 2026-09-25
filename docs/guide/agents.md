@@ -201,7 +201,20 @@ when it reports *needs login* you can run the agent's own OAuth flow from there.
 
 All three agents read personal skills from the same `SKILL.md` format — `~/.claude/skills`, `~/.codex/skills` and `~/.copilot/skills` — so a skill copies to any other agent as-is.
 
-Plugins and marketplaces are read from wherever each agent keeps them (`installed_plugins.json` and `known_marketplaces.json` for Claude Code, `[plugins]` / `[marketplaces]` sections in `~/.codex/config.toml` for Codex, the `~/.copilot/installed-plugins/<marketplace>/<plugin>` tree for Copilot) and keyed by the `<name>@<marketplace>` id all three use — so the same plugin lines up across agents in Compare.
+Plugins and marketplaces are read from wherever each agent keeps them (`installed_plugins.json` and `known_marketplaces.json` for Claude Code, `[plugins]` / `[marketplaces]` sections in `~/.codex/config.toml` for Codex, the `~/.copilot/installed-plugins/<marketplace>/<plugin>` tree and the marketplaces listed in `~/.copilot/settings.json` for Copilot) and keyed by the `<name>@<marketplace>` id all three use — so the same plugin lines up across agents in Compare.
+
+A marketplace's source counts as the same when only its spelling differs. Claude Code and Codex record `https://github.com/tashtit/marketplace.git`, Copilot drops the `.git`, and any agent may keep `tashtit/marketplace`. All of these are one repository, so the row doesn't read *differs*.
+
+### The recommended marketplace
+
+Cockpit recommends one marketplace: [Tashtit](https://github.com/tashtit/marketplace), a set of open-source engineering standards for Claude Code, Codex and Copilot. Its plugins cover focused commits and pull requests, secure CI, structured logging, API design and evidence-backed review.
+
+Cockpit **offers it but never installs it**:
+
+- If no agent has Tashtit yet, the **Global** panel opens with a *Recommended* callout above the sections. The callout shows the three agent chips. Click one to run that agent's own `plugin marketplace add`, and add it to as many agents as you like. *What's in it* opens the plugin list on GitHub.
+- *Not now* (or *Done*, once you've added it somewhere) puts the callout away for good. After that, Tashtit stays under **Marketplaces** as a row tagged *recommended*, switched off, so you can add it later.
+- Adding the marketplace installs no plugins. Once it's added, pick the plugins you want in that agent: `/plugin` in Claude Code, `copilot plugin install <name>@tashtit`, `codex plugin add <name>`.
+- Nothing is written anywhere just because the row is offered, including Cockpit's own config and your backups. **Remove everywhere** on the row is a lasting answer: it moves to **Removed** and isn't offered again.
 
 ### Not everything can go everywhere
 

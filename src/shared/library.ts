@@ -213,6 +213,53 @@ export function canReach(reach: MarketReach, agent: Provider): boolean {
   return reach.has.includes(agent) || reach.source !== undefined
 }
 
+/**
+ * A marketplace source spelled one way, for comparing what two agents record. Each agent
+ * keeps the source in the form it was handed — Claude Code and Codex the git URL, Copilot
+ * the URL without `.git`, any of them a GitHub `owner/repo` — and three spellings of one
+ * repository are not a disagreement.
+ */
+export function marketSourceKey(source: string): string {
+  const s = source.trim().replace(/\/+$/, '').replace(/\.git$/, '')
+  const repo =
+    s.match(/^(?:https?:\/\/(?:www\.)?github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])([^/]+\/[^/]+)$/i)?.[1] ??
+    (isAddableSource(s) && !s.includes(':') ? s : undefined)
+  return repo ? `github.com/${repo.toLowerCase()}` : s
+}
+
+/* ---------- the marketplace Cockpit recommends ---------- */
+
+/**
+ * Tashtit: opinionated engineering standards — commits and PRs, CI, logging, API design,
+ * review — published as plugins for all three agents. Recommended, never installed: it
+ * is offered as an entry switched off everywhere (`withRecommended`), so adding it is
+ * always the person's own click on an agent, and removing the entry is an answer that
+ * sticks.
+ */
+export const RECOMMENDED_MARKETPLACE = {
+  name: 'tashtit',
+  /** the git URL, the spelling Claude Code and Codex record when given one */
+  source: 'https://github.com/tashtit/marketplace.git',
+  /** where a person reads what is in it before adding anything */
+  page: 'https://github.com/tashtit/marketplace#available-plugins'
+} as const
+
+export function isRecommended(row: { readonly kind: PanelKind; readonly name: string }): boolean {
+  return row.kind === 'marketplace' && row.name === RECOMMENDED_MARKETPLACE.name
+}
+
+/**
+ * The global library with the recommended marketplace in it — as an entry no agent is
+ * switched on for, so it has a row to be found on and a switch to be added from. Only
+ * ever added when the library has no entry by that name: one the agents already have
+ * was adopted as it is, and one the person removed stays removed.
+ */
+export function withRecommended(entries: readonly LibraryEntry[]): LibraryEntry[] {
+  const { name, source } = RECOMMENDED_MARKETPLACE
+  if (entries.some((e) => e.kind === 'marketplace' && e.name === name)) return [...entries]
+  return [...entries, { kind: 'marketplace', name, enabled: {}, source }]
+}
+
 /* ---------- what an agent actually holds ---------- */
 
 /** One agent's reality for one entry, as read back from its own config. */

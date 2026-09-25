@@ -7,10 +7,13 @@ import {
   canReach,
   fieldsKey,
   instructionRow,
+  isAddableSource,
   kindsForScope,
   marketReach,
+  marketSourceKey,
   mcpFields,
   PROVIDERS,
+  withRecommended,
   type Actual,
   type Desired,
   type MarketReach,
@@ -96,8 +99,14 @@ function findEntry(entries: readonly LibraryEntry[], target: PanelTarget): Libra
   return found
 }
 
+/**
+ * The list with `next` in place of its old self — or added, when the list never held it:
+ * the recommended marketplace is offered without being recorded (`ensureScope`), so the
+ * first thing the person does to it is what writes it down.
+ */
 function replaceEntry(entries: readonly LibraryEntry[], next: LibraryEntry): LibraryEntry[] {
-  return entries.map((e) => (e.kind === next.kind && e.name === next.name ? next : e))
+  const same = (e: LibraryEntry): boolean => e.kind === next.kind && e.name === next.name
+  return entries.some(same) ? entries.map((e) => (same(e) ? next : e)) : [...entries, next]
 }
 
 /* ---------- what the agents actually have, per scope ---------- */
@@ -167,6 +176,19 @@ function reachReason(entry: LibraryEntry, reach: MarketReach): string {
   return reach.has.length > 0
     ? `${market} ships with ${who} — there’s no source another agent could add it from.`
     : `Cockpit can’t tell where ${market} comes from, so it can’t ${verb} in another agent.`
+}
+
+/**
+ * Where the entry's marketplace can be reached from. A marketplace entry carries a source
+ * of its own — the one recommended to everyone, or one kept after being removed from
+ * every agent — and a real one is as good as any agent's for adding it somewhere new.
+ */
+function marketplaceReach(entry: LibraryEntry, inv: ExtensionsInventory): MarketReach {
+  const reach = marketReach(marketOf(entry), inv.marketplaces)
+  if (entry.kind !== 'marketplace' || reach.source !== undefined || !isAddableSource(entry.source)) {
+    return reach
+  }
+  return { ...reach, source: entry.source }
 }
 
 function skillFields(fingerprint: string, description: string): Record<string, string> {
@@ -258,7 +280,7 @@ function actualOf(
   }
   if (entry.kind === 'plugin' || entry.kind === 'marketplace') {
     const key = entry.kind === 'plugin' ? 'marketplace' : 'source'
-    const reach = marketReach(marketOf(entry), inv.marketplaces)
+    const reach = marketplaceReach(entry, inv)
     for (const agent of PROVIDERS) {
       const plugin =
         entry.kind === 'plugin'
@@ -281,7 +303,7 @@ function actualOf(
         present: true,
         detail: plugin?.version ? `v${plugin.version}` : (source ?? ''),
         // an agent that records no source contributes no field: unknown is not a difference
-        fields: source ? { [key]: source } : {}
+        fields: source ? { [key]: market ? marketSourceKey(source) : source } : {}
       }
     }
     return out
@@ -296,8 +318,11 @@ function actualOf(
  *
  * Anything the agents already have is adopted, switched on for the agents that have
  * it — otherwise an existing setup would open as a wall of "extra" and Cockpit would
- * spend its first run arguing with reality. Every action goes through here too, so
- * acting on a scope the user hasn't opened yet still finds its entries.
+ * spend its first run arguing with reality. The recommended marketplace joins Global
+ * switched off everywhere, which is an offer rather than a change: nothing is written
+ * — into an agent or into Cockpit's config — until the person acts on it. Every action
+ * goes through here too, so acting on a scope the user hasn't opened yet still finds
+ * its entries.
  */
 function ensureScope(repoRoot: string | null): {
   entries: LibraryEntry[]
@@ -308,7 +333,10 @@ function ensureScope(repoRoot: string | null): {
   const adopted = adoptInventory(before, inv)
   const refreshed = adopted.map((entry) => refreshSaved(entry, inv))
   if (JSON.stringify(refreshed) !== JSON.stringify(before)) saveEntries(repoRoot, refreshed)
-  return { entries: refreshed, inv }
+  // offered, not recorded: the recommended marketplace joins what the panel reads but
+  // not Cockpit's config — opening a view is not a decision. Marketplaces are per
+  // machine, so it is offered in Global only.
+  return { entries: repoRoot === null ? withRecommended(refreshed) : refreshed, inv }
 }
 
 /**
