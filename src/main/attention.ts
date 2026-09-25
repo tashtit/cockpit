@@ -18,6 +18,7 @@ import {
   sanitizeUnseen,
   type Notice,
   type TableEnd,
+  type ThrownAway,
   type TurnStart,
   type Unseen
 } from './attention-core'
@@ -182,6 +183,12 @@ export class AttentionDesk {
 
   resolve(find: (u: Unseen) => string | null): void {
     this.tracker.resolve(find)
+    this.sync()
+  }
+
+  /** Archived or deleted since it landed: off the board and the badge, its banners withdrawn. */
+  forget(gone: ThrownAway): void {
+    this.tracker.forget(gone)
     this.sync()
   }
 

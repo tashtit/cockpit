@@ -266,6 +266,10 @@ export class RoundtableManager {
     this.archived = new Set(ids)
   }
 
+  isArchived(id: string): boolean {
+    return this.archived.has(id)
+  }
+
   list(): RoundtableMeta[] {
     this.ensureLoaded()
     return [...this.tables.values()]
