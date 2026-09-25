@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -92,7 +92,8 @@ describe('the Terminal hand-off', () => {
     expect(brew).toContain(`exec {queue}>>'/it'\\''s/homebrew.lock'`)
   })
 
-  it('runs to the end under zsh and prints a path in the title as it is', () => {
+  // the script is only ever run by macOS Terminal; CI's Linux runners have no zsh
+  it.skipIf(!existsSync('/bin/zsh'))('runs to the end under zsh and prints a path in the title as it is', () => {
     const d = mkdtempSync(join(tmpdir(), 'cockpit-term-'))
     dirs.push(d)
     // a config home is a directory name the person chose; nothing in it is markup
