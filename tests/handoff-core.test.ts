@@ -213,6 +213,20 @@ describe('buildHandoffBriefing', () => {
     expect(briefing).toContain('- Typecheck: failed (exit 2) — `npm run typecheck`\n- Tests: passed — `npm test`; 1 file edited since')
   })
 
+  it('names the files and pages it shared, so the next agent can find them', () => {
+    const shared = msg({
+      role: 'assistant',
+      kind: 'tool_call',
+      toolName: 'SendUserFile',
+      text: '{}',
+      artifact: { kind: 'shared', files: ['/tmp/s/shot.png'], links: [{ url: 'http://localhost:5173/', title: 'Preview' }], caption: 'The home view' }
+    })
+    const { briefing } = buildHandoffBriefing(source, [...transcript, shared], git)
+    expect(briefing).toContain(
+      '## Files and pages it shared with the user (newest first)\n\n- /tmp/s/shot.png — The home view\n- http://localhost:5173/ — Preview'
+    )
+  })
+
   it('has no plan or to-do sections when the agent kept neither', () => {
     const { briefing } = buildHandoffBriefing(source, transcript, git)
     expect(briefing).not.toContain('## Plan')

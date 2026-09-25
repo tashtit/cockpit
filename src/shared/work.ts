@@ -11,7 +11,7 @@ import type { CheckKind, EditLine, FileEdit, SessionMessage, TodoStatus, WorkArt
  * under, so a row can open the panel at itself.
  */
 
-export type WorkTab = 'plan' | 'todos' | 'edits' | 'checks'
+export type WorkTab = 'plan' | 'todos' | 'edits' | 'checks' | 'files'
 
 /** The order the Checks tab lists them in: quickest first, the order an agent runs them */
 export const CHECK_ORDER: readonly CheckKind[] = ['types', 'lint', 'tests', 'e2e', 'build']
@@ -34,6 +34,25 @@ export type CheckRun = {
   readonly status?: 'passed' | 'failed'
   readonly exitCode?: number
   readonly output?: readonly string[]
+}
+
+/** A file an agent handed the person — the newest hand-off of it. */
+export type SharedFileEntry = {
+  /** Absolute when the session's directory is known, so `a.png` and `/repo/a.png` are one file */
+  readonly path: string
+  readonly key: number
+  readonly ts?: number
+  readonly toolName: string
+  readonly caption?: string
+}
+
+/** A page an agent opened or published for the person — the newest time it did. */
+export type SharedLinkEntry = {
+  readonly url: string
+  readonly title?: string
+  readonly key: number
+  readonly ts?: number
+  readonly toolName: string
 }
 
 export type CheckWork = {
@@ -80,6 +99,8 @@ export type WorkModel = {
   readonly editCount: number
   /** Every check the agent ran, in CHECK_ORDER */
   readonly checks: readonly CheckWork[]
+  /** What it handed the person, newest first, each file and page once */
+  readonly shared: { readonly files: readonly SharedFileEntry[]; readonly links: readonly SharedLinkEntry[] }
 }
 
 export function lineStat(lines: readonly EditLine[]): { added: number; removed: number } {
@@ -134,7 +155,11 @@ export function hasWork(log: readonly SessionMessage[]): boolean {
 
 /** Which tab a row's artifact belongs on. */
 export function tabFor(a: WorkArtifact): WorkTab {
-  return a.kind === 'plan' ? 'plan' : a.kind === 'edits' ? 'edits' : a.kind === 'check' ? 'checks' : 'todos'
+  if (a.kind === 'plan') return 'plan'
+  if (a.kind === 'edits') return 'edits'
+  if (a.kind === 'check') return 'checks'
+  if (a.kind === 'shared') return 'files'
+  return 'todos'
 }
 
 export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkModel {
@@ -144,6 +169,9 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
   const files = new Map<string, EditEntry[]>()
   let editCount = 0
   const runs = new Map<CheckKind, CheckRun[]>()
+  // each file and page at its newest hand-off, with its place in that call's own list
+  const sharedFiles = new Map<string, { readonly entry: SharedFileEntry; readonly i: number }>()
+  const sharedLinks = new Map<string, { readonly entry: SharedLinkEntry; readonly i: number }>()
   // Claude numbers tasks 1, 2, 3… — a create whose result was never read (the live
   // stream carries no results) takes the next number after the highest seen
   let nextTask = 1
@@ -208,6 +236,17 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
           editCount++
         }
         break
+      case 'shared': {
+        // a write that failed handed nothing over
+        if (m.failed) break
+        const at = { key, ...(m.ts ? { ts: m.ts } : {}), toolName: m.toolName ?? 'tool' }
+        a.files.forEach((file, i) => {
+          const path = absolutePath(file, cwd)
+          sharedFiles.set(path, { entry: { path, ...at, ...(a.caption ? { caption: a.caption } : {}) }, i })
+        })
+        a.links.forEach((link, i) => sharedLinks.set(link.url, { entry: { ...link, ...at }, i }))
+        break
+      }
       case 'check': {
         const { command, status, exitCode, output } = a
         const run: CheckRun = {
@@ -248,7 +287,8 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
       }
     }),
     editCount,
-    checks
+    checks,
+    shared: { files: newestFirst(sharedFiles), links: newestFirst(sharedLinks) }
   }
 }
 
@@ -267,6 +307,13 @@ export function fileChange(file: FileWork): FileEdit['change'] {
   return first === 'add' || first === 'write' ? first : 'edit'
 }
 
+/** The newest hand-off first; one call's files in the order it listed them. */
+function newestFirst<T extends { readonly key: number }>(
+  handed: ReadonlyMap<string, { readonly entry: T; readonly i: number }>
+): T[] {
+  return [...handed.values()].sort((a, b) => b.entry.key - a.entry.key || a.i - b.i).map((h) => h.entry)
+}
+
 /** A check that wants a look: its newest verdict failed, or files changed after it. */
 export function needsLook(c: CheckWork): boolean {
   return c.last?.status === 'failed' || c.editedSince > 0
@@ -281,4 +328,12 @@ export function checkSummary(checks: readonly CheckWork[]): string {
   if (stale > 0) parts.push(`${stale} out of date`)
   if (failing === 0 && stale === 0 && checks.every((c) => c.last?.status === 'passed')) parts.push('all passing')
   return parts.join(' · ')
+}
+
+/** "3 files · 1 page" — the Files tab's readout. */
+export function sharedSummary(shared: WorkModel['shared']): string {
+  const parts: string[] = []
+  if (shared.files.length > 0) parts.push(shared.files.length === 1 ? '1 file' : `${shared.files.length} files`)
+  if (shared.links.length > 0) parts.push(shared.links.length === 1 ? '1 page' : `${shared.links.length} pages`)
+  return parts.join(' · ') || 'nothing shared'
 }

@@ -127,6 +127,37 @@ export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'blocked'
 
 export type TodoItem = { readonly text: string; readonly status: TodoStatus }
 
+/** A page an agent opened or published for the person: a preview it started, a page it put online. */
+export type SharedLink = { readonly url: string; readonly title?: string }
+
+/** What reading a file an agent shared gives the Work panel — bounded, for a preview. */
+export type SessionFilePreview =
+  | { readonly kind: 'missing' }
+  | {
+      readonly kind: 'image'
+      readonly mime: string
+      readonly data: Uint8Array
+      readonly size: number
+      /** Its type is one the OS opens as a document (never anything that runs) */
+      readonly openable: boolean
+    }
+  | {
+      readonly kind: 'text'
+      /** The head of the file, when it is small enough to read */
+      readonly text: string
+      readonly truncated: boolean
+      readonly markdown: boolean
+      readonly size: number
+      readonly openable: boolean
+    }
+  | {
+      readonly kind: 'other'
+      readonly size: number
+      /** Why there is no preview: a kind the panel can't draw, or too large to read */
+      readonly reason: 'kind' | 'size'
+      readonly openable: boolean
+    }
+
 /** What an agent's shell command checked — the groups the Work panel's Checks tab keeps. */
 export type CheckKind = 'types' | 'lint' | 'tests' | 'e2e' | 'build'
 
@@ -171,6 +202,15 @@ export type WorkArtifact =
       readonly text?: string
     }
   | { readonly kind: 'edits'; readonly files: readonly FileEdit[] }
+  | {
+      readonly kind: 'shared'
+      /** Files it handed the person, as the call named them */
+      readonly files: readonly string[]
+      /** Pages it opened or published for them */
+      readonly links: readonly SharedLink[]
+      /** What the agent said about them */
+      readonly caption?: string
+    }
   | {
       readonly kind: 'check'
       /** Every check the command runs, in its order: `tsc && vitest` is two */

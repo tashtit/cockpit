@@ -43,6 +43,7 @@ const PLAN_CAP = 4_000
 const TODOS_SHOWN = 30
 const TODO_EACH = 160
 const CHECK_COMMAND = 160
+const SHARED_SHOWN = 10
 
 const AGENT_NAME: Record<Provider, string> = {
   claude: 'Claude Code',
@@ -181,7 +182,8 @@ function checkLine(c: CheckWork): string {
 
 /**
  * The agent's own account of the work — the plan it last proposed, where its to-do list
- * stands and how its checks last ended, folded the way the Work panel folds them. The
+ * stands, what it shared and how its checks last ended, folded the way the Work panel
+ * folds them. The
  * conversation's tail says what was said last; this says what was agreed, what is left
  * and what was verified, which is what the next agent needs first. Null when the agent
  * kept none of them.
@@ -205,6 +207,15 @@ function workSection(messages: readonly SessionMessage[]): string | null {
         'Checked steps are done — verify them, don’t redo them.\n\n' +
         lines.join('\n')
     )
+  }
+  const { files, links } = work.shared
+  if (files.length > 0 || links.length > 0) {
+    // the newest first, as many as are worth a line
+    const lines = [
+      ...files.slice(0, SHARED_SHOWN).map((f) => `- ${f.path}${f.caption ? ` — ${truncate(f.caption, TODO_EACH)}` : ''}`),
+      ...links.slice(0, SHARED_SHOWN).map((l) => `- ${l.url}${l.title ? ` — ${truncate(l.title, TODO_EACH)}` : ''}`)
+    ]
+    parts.push('## Files and pages it shared with the user (newest first)\n\n' + lines.join('\n'))
   }
   if (work.checks.length > 0) {
     parts.push(

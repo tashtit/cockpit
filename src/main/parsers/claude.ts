@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join, sep } from 'node:path'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
-import { toolArtifact } from './artifacts'
+import { publishedUrl, toolArtifact } from './artifacts'
 import { checkOutcome, exitCodeIn } from './checks'
 import {
   capText,
@@ -152,9 +152,9 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
 
 /**
  * What a call's result says about the call itself: a refused or failed call is marked
- * (an edit that never landed must not read as one), a check learns how it ended, and a
- * created task learns the number Claude gave it — `Task #3 created successfully` —
- * which is what later TaskUpdate calls name it by.
+ * (an edit that never landed must not read as one), a check learns how it ended, a
+ * published page its address, and a created task learns the number Claude gave it —
+ * `Task #3 created successfully` — which is what later TaskUpdate calls name it by.
  */
 function answered(call: SessionMessage, result: string, isError: boolean): SessionMessage {
   const a = call.artifact
@@ -167,6 +167,11 @@ function answered(call: SessionMessage, result: string, isError: boolean): Sessi
     return { ...call, artifact, ...(isError ? { failed: true } : {}) }
   }
   if (isError) return { ...call, failed: true }
+  // a published page's address is only in the result: `Published <file> at https://…`
+  if (a?.kind === 'shared' && call.toolName === 'Artifact') {
+    const url = publishedUrl(result)
+    return url && !a.links.some((l) => l.url === url) ? { ...call, artifact: { ...a, links: [...a.links, { url }] } } : call
+  }
   if (a?.kind !== 'task-add') return call
   const ids = [...result.matchAll(/Task #(\w+)/g)].map((m) => m[1]!)
   return ids.length === a.items.length ? { ...call, artifact: { ...a, ids } } : call

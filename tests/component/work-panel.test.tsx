@@ -241,6 +241,80 @@ describe('checks', () => {
   })
 })
 
+describe('files', () => {
+  const shared = (files: string[], links: { url: string; title?: string }[] = [], caption?: string): WorkArtifact => ({
+    kind: 'shared',
+    files,
+    links,
+    ...(caption ? { caption } : {})
+  })
+
+  it('the Work key opens on what it sent: each file read by main, with what to do with it', async () => {
+    vi.mocked(window.cockpit.readSessionFile).mockResolvedValue({
+      kind: 'text',
+      text: '# Report\n\nAll green.',
+      truncated: false,
+      markdown: true,
+      size: 21,
+      openable: true
+    })
+    const onOpenUrl = vi.fn()
+    setChatLog([
+      user('show me'),
+      call('SendUserFile', shared(['/tmp/wt/report.md'], [], 'The run'), { preview: undefined }),
+      call('open_canvas', shared([], [{ url: 'http://localhost:3345/', title: 'Preview' }]))
+    ])
+    render(
+      <ChatView
+        binding={binding}
+        prs={[]}
+        busy={false}
+        elsewhere={false}
+        prBusy={false}
+        onSend={vi.fn()}
+        onCancel={vi.fn()}
+        onCreatePr={vi.fn()}
+        onOpenUrl={onOpenUrl}
+        onOpenHandoff={vi.fn()}
+        onOpenLineage={vi.fn()}
+        permissions={[]}
+        onAnswerPermission={vi.fn()}
+      />
+    )
+    // the row names what it handed over
+    expect(screen.getByRole('button', { name: /report\.md/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(within(panel()).getByRole('tab', { name: /Files/ })).toHaveAttribute('aria-selected', 'true')
+    expect(within(panel()).getByText('1 file · 1 page')).toBeInTheDocument()
+    expect(await within(panel()).findByRole('heading', { name: 'Report' })).toBeInTheDocument()
+    expect(window.cockpit.readSessionFile).toHaveBeenCalledWith('claude:abc', '/tmp/wt/report.md')
+    expect(within(panel()).getByText('The run')).toBeInTheDocument()
+
+    await userEvent.click(within(panel()).getByRole('button', { name: 'Open' }))
+    expect(window.cockpit.openSessionFile).toHaveBeenCalledWith('claude:abc', '/tmp/wt/report.md', 'open')
+    await userEvent.click(within(panel()).getByRole('button', { name: 'Show in Finder' }))
+    expect(window.cockpit.openSessionFile).toHaveBeenCalledWith('claude:abc', '/tmp/wt/report.md', 'reveal')
+    await userEvent.click(within(panel()).getByRole('button', { name: 'Preview' }))
+    expect(onOpenUrl).toHaveBeenCalledWith('http://localhost:3345/')
+  })
+
+  it('says a file is gone, and offers nothing to do with it', async () => {
+    vi.mocked(window.cockpit.readSessionFile).mockResolvedValue({ kind: 'missing' })
+    renderChat([user('show me'), call('SendUserFile', shared(['/tmp/scratch/shot.png']))])
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(await within(panel()).findByText(/no longer on disk/)).toBeInTheDocument()
+    expect(within(panel()).getByText('gone')).toBeInTheDocument()
+    expect(within(panel()).queryByRole('button', { name: 'Show in Finder' })).not.toBeInTheDocument()
+  })
+
+  it('shows what main said when it would not read a file', async () => {
+    vi.mocked(window.cockpit.readSessionFile).mockRejectedValue(new Error("Error invoking remote method 'sessions:file': Error: This session did not share that file."))
+    renderChat([user('show me'), call('SendUserFile', shared(['/tmp/x.md']))])
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(await within(panel()).findByRole('alert')).toHaveTextContent('This session did not share that file.')
+  })
+})
+
 describe('the Edits tab', () => {
   it('points at Changes for what is on disk, where there is a worktree to diff', async () => {
     renderChat([call('Edit', edit('/tmp/wt/a.ts'))])

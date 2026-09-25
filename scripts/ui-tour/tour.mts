@@ -411,6 +411,17 @@ const STATIC: readonly Shot[] = [
       await pause(w, 400)
     }
   },
+  // what it sent: a report drawn as markdown, a chart drawn as itself, the page it opened
+  {
+    view: 'chat',
+    name: 'chat-work-files',
+    go: async (w) => {
+      await open(w, /Why is the bundle 2MB/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await w.locator('.work-shared-image').waitFor()
+      await pause(w, 400)
+    }
+  },
   // a plan waiting for approval is read in its card, and opens in the panel
   { view: 'chat', name: 'chat-plan', go: (w) => open(w, /Plan rate limiting for the public API/) },
   {
@@ -461,7 +472,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

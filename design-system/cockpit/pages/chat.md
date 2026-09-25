@@ -88,7 +88,7 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     itself) · `didn't apply` (warn, the word itself) for any other failed call · the
     `WorkIcon` at the right edge, accent on hover. The headline is the artifact's own: a
     plan's title, `3 of 7 done`, the task it adds, the files an edit touched, the command
-    a check ran. A click opens the
+    a check ran, the names of the files and pages a call shared. A click opens the
     Work panel at that row (below); there is no raw JSON to expand — the panel is the
     detail. A blank 10px lead keeps its chip in line with the ▸ of the rows around it.
     Roundtables pass no `onOpenWork`, so their rows stay ordinary `.tool-row`s.
@@ -204,7 +204,7 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
 - **Tabs** are the card tabs (`TabList`, `.pnl-pill`) without the card's rule under
   them: **Plan** (amber dot while a plan waits for approval), **To-dos** (count = steps
   not done), **Edits** (count = files), **Checks** (count = checks that want a look:
-  failed, or files edited since). The body (`.work-body`) is the panel's one
+  failed, or files edited since), **Files** (count = files and pages shared). The body (`.work-body`) is the panel's one
   scroller, `tabIndex=0` so a keyboard reaches it, and goes back to the top on a tab
   switch. Each tab leads with a `.work-meta` readout in the mono voice; an empty tab
   says, in one sentence, what would appear there (`.work-empty`).
@@ -238,6 +238,27 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
   its run; an earlier one opens the fold. The transcript's check rows are `.tool-open`
   rows whose verdict is the word itself (`.tool-verdict`, tone-ok / tone-danger) — never
   "didn't apply", which is an edit's word.
+- **Files**: `N files · M pages` (`sharedSummary`). Newest hand-off first, one call's
+  files in its own order. Two groups, each named by an `h3.ns-label` that doesn't repeat
+  the tab (`Sent to you`, `Pages it opened`); a tab with one group has no heading.
+  - Each file is a review file block (`.idiff.review-file.work-file` in a
+    `.work-shared-file`): the name, `gone` (`.review-kind.tone-dim`) once read missing,
+    its size, the time. It opens onto:
+    - where it is (relative under the cwd, else `shortPath`) · the tool that shared it;
+    - the caption;
+    - the file itself, read by main on opening (`readSessionFile`). An image arrives as
+      bytes and shows as a `blob:` image (`.work-shared-image` — the CSP allows `blob:`,
+      never `file:`), Markdown renders, other text shows its head in the output well,
+      and anything else says why there is no preview.
+    - `Open` (documents and images only — main's `openable`) and `Show in Finder`,
+      both `.btn-ghost.small`.
+  - Files open by default while there are three or fewer; otherwise only the newest opens
+    when the Work key opens the tab. A row that opened the panel opens its file and rings
+    it.
+  - Pages are `.link-btn`s (their title, else the address without the scheme), opened in
+    the browser through `onOpenUrl`.
+  - Main acts only on a path the session's own log shared (`assertSharedFile`), and opens
+    only by the extension of the file the path resolves to.
 
 ## Permission prompt (`PermissionAsk`, `.perm-card`)
 

@@ -58,6 +58,7 @@ import type {
   RoundtableMeta,
   RoundtableSnapshot,
   SignInState,
+  SessionFilePreview,
   SessionMessage,
   SessionMeta,
   SessionPage,
@@ -101,6 +102,12 @@ export type CockpitApi = {
   /** One indexed session by id (lineage navigation); null when unknown */
   readonly getSession: (sessionId: string) => Promise<SessionMeta | null>
   readonly getSessionMessages: (id: string) => Promise<SessionMessage[]>
+  /** A file the session's agent shared, read for the Work panel's preview. Main reads only
+   *  a path the session's own log says it shared */
+  readonly readSessionFile: (sessionId: string, path: string) => Promise<SessionFilePreview>
+  /** Open a file the session shared in its app (documents and images only) or show it in
+   *  Finder; resolves to what to tell the person when it can't, else null */
+  readonly openSessionFile: (sessionId: string, path: string, how: 'open' | 'reveal') => Promise<string | null>
 
   /* ---------- searching transcript contents ---------- */
   /** Full-text search over transcript contents; a newer call cancels the one in flight */
@@ -462,8 +469,10 @@ export const CH = {
 
   sessionsArchive: 'sessions:archive',
   sessionsBusy: 'sessions:busy',
+  sessionsFile: 'sessions:file',
   sessionsGet: 'sessions:get',
   sessionsMessages: 'sessions:messages',
+  sessionsOpenFile: 'sessions:open-file',
   sessionsPage: 'sessions:page',
 
   shellOpen: 'shell:open',

@@ -51,6 +51,9 @@ const api: CockpitApi = {
   pageSessions: (query: SessionQuery) => ipcRenderer.invoke(CH.sessionsPage, query),
   getSession: (sessionId: string) => ipcRenderer.invoke(CH.sessionsGet, sessionId),
   getSessionMessages: (id: string) => ipcRenderer.invoke(CH.sessionsMessages, id),
+  readSessionFile: (sessionId: string, path: string) => ipcRenderer.invoke(CH.sessionsFile, sessionId, path),
+  openSessionFile: (sessionId: string, path: string, how: 'open' | 'reveal') =>
+    ipcRenderer.invoke(CH.sessionsOpenFile, sessionId, path, how),
   searchTranscripts: (query: TranscriptSearchQuery) =>
     ipcRenderer.invoke(CH.transcriptsSearch, query),
   cancelTranscriptSearch: () => ipcRenderer.invoke(CH.transcriptsCancel),

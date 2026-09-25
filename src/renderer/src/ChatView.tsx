@@ -606,6 +606,8 @@ export function ChatView({
             provider={binding.provider}
             pendingPlanKey={pendingPlanKey}
             onOpenChanges={reviewable ? () => !review && toggleReview() : undefined}
+            sessionId={binding.nativeSessionId ? `${binding.provider}:${binding.nativeSessionId}` : null}
+            onOpenUrl={onOpenUrl}
           />
         )}
       </div>
@@ -614,11 +616,12 @@ export function ChatView({
 }
 
 /** Where the Work key opens: a plan waiting on you, else the list under way, else a check
- *  that failed, else the edits. */
+ *  that failed, else what it sent you, else the edits. */
 export function defaultTab(model: WorkModel, pendingPlanKey: number | null): WorkTab {
   if (pendingPlanKey !== null) return 'plan'
   if (model.todos.some((t) => t.status !== 'completed')) return 'todos'
   if (model.checks.some((c) => c.last?.status === 'failed')) return 'checks'
+  if (model.shared.files.length > 0 || model.shared.links.length > 0) return 'files'
   if (model.files.length > 0) return 'edits'
   if (model.plans.length > 0) return 'plan'
   if (model.checks.length > 0) return 'checks'
@@ -736,6 +739,12 @@ function artifactHeadline(m: SessionMessage, cwd: string | undefined): string {
       return relative(a.files.map((f) => f.path).join(', '), cwd).slice(0, 120)
     case 'check':
       return relative(m.preview ?? a.command, cwd).slice(0, 120)
+    case 'shared': {
+      // the names it handed over, then the pages — what a person looks for in the row
+      const names = a.files.map((f) => f.split('/').pop() ?? f)
+      const pages = a.links.map((l) => l.title ?? l.url)
+      return [...names, ...pages].join(', ').slice(0, 120)
+    }
   }
 }
 

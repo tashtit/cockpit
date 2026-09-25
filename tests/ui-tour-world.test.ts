@@ -53,6 +53,13 @@ describe('ui-tour fixture world', () => {
       ['e2e', ['failed', 'passed']]
     ])
     expect(checks.find((c) => c.kind === 'e2e')?.editedSince).toBe(1)
+    // the bundle audit shared a report, a chart that is a real PNG, and a page
+    const audit = claude.find((s) => s.title === 'Why is the bundle 2MB? Audit the imports')!
+    const shared = buildWork(parseClaudeMessages(audit.sourcePath)).shared
+    expect(shared.files.map((f) => f.path.split('/').pop())).toEqual(['bundle-report.md', 'bundle-sizes.png'])
+    expect(shared.links.map((l) => l.url)).toEqual(['http://localhost:4173/stats.html'])
+    const png = readFileSync(shared.files[1]!.path)
+    expect(png.subarray(1, 4).toString('ascii')).toBe('PNG')
     const copilot = listCopilotSessions(join(world.home, '.copilot'), 'copilot-default')
     const tidy = copilot.find((s) => s.title === 'Tidy the usage panel spacing')!
     const list = parseCopilotMessages(tidy.sourcePath).find((m) => m.artifact?.kind === 'todos')
