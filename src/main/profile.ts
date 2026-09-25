@@ -18,7 +18,7 @@ import { claudeIdentity, codexIdentity, copilotUsers, ghUser } from './accounts'
 import { parseUnifiedDiff } from './parsers/artifacts'
 import { cellToolCalls } from './parsers/code-mode'
 import { toolItemFor, toolItemName, toolRecords } from './parsers/codex'
-import { readHead, sessionLogFiles } from './parsers/util'
+import { readHead, sessionLogFiles, timeSlicer } from './parsers/util'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals, built
@@ -42,8 +42,11 @@ const DEEP_READ_BYTES = 2 * 1024 * 1024
 
 const DAY_MS = 86_400_000
 
-/** Deep pass hands the event loop back this often, so IPC never stalls behind it. */
-const YIELD_EVERY = 20
+/**
+ * Deep pass hands the event loop back after this much work, so IPC never stalls behind
+ * it — by time, since one session costs a cached lookup or a 2MB parse.
+ */
+const DEEP_SLICE_MS = 16
 
 /** Tallying counterparts of the readonly wire types (see buildProfile). */
 type MutableDay = Mutable<ActivityDay>
@@ -515,15 +518,12 @@ export async function buildProfile(
   const perProviderDeep = new Map<Provider, DeepStats>()
   const failures = new Map<Provider, number>()
   const attempts = new Map<Provider, number>()
-  let sinceYield = 0
+  const pace = timeSlicer(DEEP_SLICE_MS)
   for (const s of sessions) {
     attempts.set(s.provider, (attempts.get(s.provider) ?? 0) + 1)
     // a thread kept across several files counts every page of it
     const pages = sessionLogFiles(s).map((f) => deepForFile(f, s.provider))
-    if (++sinceYield >= YIELD_EVERY) {
-      sinceYield = 0
-      await new Promise<void>((r) => setImmediate(r))
-    }
+    await pace()
     if (pages[pages.length - 1] === null) {
       failures.set(s.provider, (failures.get(s.provider) ?? 0) + 1)
       continue
