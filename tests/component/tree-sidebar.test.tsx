@@ -715,6 +715,23 @@ describe('an index push', () => {
     expect(useSessionBusy).not.toHaveBeenCalled()
   })
 
+  it('reaches the row when the session moved to another branch, and finds that branch’s PR', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session()] })
+    vi.mocked(window.cockpit.getPrs).mockResolvedValue([openPr({ headRefName: 'cockpit/login-flake-2', number: 57 })])
+    const { rerender } = render(<TreeSidebar {...sidebarProps(0)} />)
+    const row = await screen.findByRole('treeitem', { name: /fix the login flake/ })
+    expect(row.title).toContain('⎇ cockpit/login-flake\n')
+    expect(within(row).queryByRole('button', { name: /pull request #57/ })).toBeNull()
+    // the branch is re-derived from the checkout on every scan; nothing else moved
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 1,
+      items: [session({ gitBranch: 'cockpit/login-flake-2' })]
+    })
+    rerender(<TreeSidebar {...sidebarProps(1)} />)
+    await waitFor(() => expect(row.title).toContain('⎇ cockpit/login-flake-2'))
+    expect(within(row).getByRole('button', { name: /pull request #57/ })).toBeInTheDocument()
+  })
+
   it('listens for roundtable rounds once, however many pushes arrive', async () => {
     const { rerender } = render(<TreeSidebar {...sidebarProps(0)} />)
     rerender(<TreeSidebar {...sidebarProps(1)} />)

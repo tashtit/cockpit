@@ -46,19 +46,15 @@ const PAGE = 20
 /** Server-side page clamp — hide "more" past this. */
 const MAX_LOADED = 1000
 
-/** Live-index refetches must not churn row identity when nothing visible changed. */
-function sameList(a: SessionMeta[], b: SessionMeta[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (
-      a[i].id !== b[i].id ||
-      a[i].updatedAt !== b[i].updatedAt ||
-      a[i].title !== b[i].title ||
-      a[i].archived !== b[i].archived
-    )
-      return false
-  }
-  return true
+/**
+ * A live-index refetch keeps the list it replaces when nothing in it changed, so the
+ * rows keep their identity — but by every field, not a chosen few: a row draws its
+ * branch (re-derived from the checkout on every scan) and the PR found by it, its place
+ * in a family and a handoff chain, its account, and hands the whole session to
+ * `onSelect`. A list compared on four of them left a moved branch on the old PR.
+ */
+function keepList(prev: SessionMeta[] | null, next: SessionMeta[]): SessionMeta[] {
+  return prev === null ? next : keepSame(prev, next)
 }
 
 export function TreeSidebar({
@@ -1031,7 +1027,7 @@ function SeatSessionList({
     let dead = false
     void api.pageSessions({ roundtableId: tableId, limit: PAGE }).then((p) => {
       if (dead) return
-      setItems((prev) => (prev && sameList(prev, p.items) ? prev : p.items))
+      setItems((prev) => keepList(prev, p.items))
     })
     return () => {
       dead = true
@@ -1206,7 +1202,7 @@ function SessionList({
         if (dead) return
         setTotal(p.total)
         // keep row identity stable across live-index refetches when nothing changed
-        setItems((prev) => (prev && sameList(prev, p.items) ? prev : p.items))
+        setItems((prev) => keepList(prev, p.items))
       })
     return () => {
       dead = true
