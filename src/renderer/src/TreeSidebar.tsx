@@ -9,9 +9,11 @@ import type {
   SessionMeta,
   TimeFormat
 } from '../../shared/types'
+import { cleanupCounts, cleanupHeadline } from '../../shared/cleanup'
 import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
 import { useBusyMap, useSessionBusy } from './busy'
+import { useCleanupNotice } from './cleanup-notice'
 import { toggleFamily, useFoldedFamilies } from './families'
 import { RailResizer } from './RailResizer'
 import { useLandedMap, useSessionLanded } from './landed'
@@ -105,6 +107,13 @@ export function TreeSidebar({
   const [debounced, setDebounced] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const autoExpanded = useRef(false)
+  // the daily cleanup check's reminder, until Cleanup is opened — in words for the
+  // name and the tooltip, since the dot alone would be colour carrying state
+  const cleanup = useCleanupNotice()
+  const cleanupNote =
+    cleanup && activeView !== 'cleanup'
+      ? `Cleanup ${cleanupHeadline(cleanup)} — ${cleanupCounts(cleanup)}`
+      : null
 
   // projects arrive in main's order (A→Z or the user's drag order, never by activity);
   // a drop reorders here at once and main's answer replaces it on the next index push
@@ -248,12 +257,13 @@ export function TreeSidebar({
           </button>
           <button
             className={`icon-btn nav-btn ${activeView === 'cleanup' ? 'active' : ''}`}
-            title="Cleanup — stale sessions and abandoned worktrees"
+            title={cleanupNote ?? 'Cleanup — stale sessions and abandoned worktrees'}
             onClick={() => onNav('cleanup')}
-            aria-label="Cleanup"
+            aria-label={cleanupNote ?? 'Cleanup'}
             aria-current={activeView === 'cleanup' ? 'page' : undefined}
           >
             <TrashIcon size={16} />
+            {cleanupNote && <i className="nav-dot" aria-hidden="true" />}
           </button>
           <button
             className={`icon-btn nav-btn ${activeView === 'settings' ? 'active' : ''}`}

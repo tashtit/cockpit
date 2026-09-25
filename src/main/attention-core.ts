@@ -6,6 +6,7 @@ import type {
   AttentionPrefs,
   AttentionTarget,
   ChatEvent,
+  CleanupNotice,
   Landing,
   PrChecks,
   PrReview,
@@ -14,6 +15,7 @@ import type {
   Roundtable,
   RoundtableEntry
 } from '../shared/types'
+import { cleanupCounts, cleanupHeadline } from '../shared/cleanup'
 import type { ObservedTurn } from './liveness-core'
 
 /**
@@ -33,6 +35,11 @@ import type { ObservedTurn } from './liveness-core'
  * stop to ask the person something; and the PR badges' own refreshes, when an open
  * pull request on a session's branch turns red. Every one lands under the same rule:
  * on screen in a focused window, it is not news.
+ *
+ * A fourth is housekeeping rather than an agent: the daily cleanup check, when
+ * something new is ready to clean (cleanup-reminder.ts decides that, and how rarely).
+ * It follows the same rule, but it can wait for the person — so it never plays a sound
+ * and never counts on the Dock badge.
  */
 
 /** Endings this close together share one notification. */
@@ -65,20 +72,23 @@ const DURATION_FLOOR_MS = 5_000
 export const OBSERVED_ECHO_MS = 15_000
 /** Pull requests already raised, by head commit — bounded like everything else here. */
 const SEEN_PRS_MAX = 200
+/** The one entry the cleanup reminder keeps: each reminder replaces the last. */
+export const CLEANUP_KEY = 'cleanup'
 
 const AGENT: Record<Provider, string> = { claude: 'Claude', codex: 'Codex', copilot: 'Copilot' }
 
 /**
  * Something that needs the user and hasn't been looked at — a session's ended turn, a
- * concluded table, an agent's question, a red pull request. Persisted.
+ * concluded table, an agent's question, a red pull request, a cleanup reminder. Persisted.
  */
 export type Unseen = {
   /**
    * The session id, `table:<id>`, `turn:<turnId>` until the agent names its session,
-   * `asks:<session id>` for a question, `pr:<repo root>#<number>` for a pull request
+   * `asks:<session id>` for a question, `pr:<repo root>#<number>` for a pull request,
+   * `cleanup` for the cleanup reminder
    */
   readonly key: string
-  readonly kind: 'session' | 'roundtable' | 'asks' | 'pr'
+  readonly kind: 'session' | 'roundtable' | 'asks' | 'pr' | 'cleanup'
   /** Session id (null until known — copilot never announces one) or table id */
   readonly id: string | null
   readonly provider?: Provider
@@ -91,6 +101,8 @@ export type Unseen = {
   readonly asks?: AttentionAsk
   /** `pr`: the pull request (the head commit it went red on is `seenPrs`' business) */
   readonly pr?: AttentionPr
+  /** `cleanup`: what the check found ready to clean */
+  readonly cleanup?: CleanupNotice
 }
 
 export type TurnStart = {
@@ -152,7 +164,7 @@ type Flight = {
 }
 
 /** What a burst counts: how each pending banner reads in a summary title. */
-type Group = 'finished' | 'failed' | 'asks' | 'pr'
+type Group = 'finished' | 'failed' | 'asks' | 'pr' | 'cleanup'
 
 /** A notification waiting out the burst window. */
 type Pending = {
@@ -169,8 +181,11 @@ type Pending = {
   /** The prompt, for a brand-new session the index hasn't seen yet */
   readonly fallbackTitle: string
   readonly failed: boolean
-  /** Which sound speaks for it — a red PR sounds like a failure without being one */
-  readonly tone: 'finish' | 'fail'
+  /**
+   * Which sound speaks for it — a red PR sounds like a failure without being one, and
+   * housekeeping makes none
+   */
+  readonly tone: 'finish' | 'fail' | null
   readonly group: Group
 }
 
@@ -266,7 +281,7 @@ const TABLE_VERB: Record<TableOutcome['kind'], string> = {
 }
 
 const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
-const KINDS: readonly Unseen['kind'][] = ['session', 'roundtable', 'asks', 'pr']
+const KINDS: readonly Unseen['kind'][] = ['session', 'roundtable', 'asks', 'pr', 'cleanup']
 const CHECKS: readonly PrChecks[] = ['passing', 'failing', 'pending', 'none']
 const REVIEWS: readonly PrReview[] = ['approved', 'changes_requested', 'review_required', 'none']
 
@@ -291,6 +306,22 @@ function sanitizePr(raw: unknown): AttentionPr | null {
   const review = REVIEWS.find((r) => r === o?.['review'])
   if (!checks || !review) return null
   return { number, title: str(o?.['title'], 512) ?? '', url: str(o?.['url'], 2048) ?? '', checks, review }
+}
+
+const whole = (v: unknown): number => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : 0)
+
+function sanitizeCleanup(raw: unknown): CleanupNotice | null {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  if (!o || typeof o['at'] !== 'number' || !Number.isFinite(o['at'])) return null
+  return {
+    at: o['at'],
+    staleDays: whole(o['staleDays']),
+    sessions: whole(o['sessions']),
+    worktrees: whole(o['worktrees']),
+    tables: whole(o['tables']),
+    processes: whole(o['processes']),
+    bytes: whole(o['bytes'])
+  }
 }
 
 /** The persisted file is untrusted input: keep only well-formed, fresh entries, newest last. */
@@ -324,6 +355,10 @@ export function sanitizeUnseen(raw: unknown, now: number): Unseen[] {
       const pr = sanitizePr(o['pr'])
       if (!pr || id === null) continue
       out.push({ ...base, pr })
+    } else if (kind === 'cleanup') {
+      const cleanup = sanitizeCleanup(o['cleanup'])
+      if (!cleanup || key !== CLEANUP_KEY) continue
+      out.push({ ...base, id: null, cleanup })
     } else {
       out.push(base)
     }
@@ -342,7 +377,7 @@ export function sanitizeSeenPrs(raw: unknown): Array<[string, string]> {
   return out
 }
 
-/** The "needs you" row a persisted entry makes, or null for a table or a still-unnamed session. */
+/** The "needs you" row a persisted entry makes, or null for a table, a reminder or a still-unnamed session. */
 function toLanding(u: Unseen): Landing | null {
   if (u.id === null) return null
   switch (u.kind) {
@@ -353,7 +388,23 @@ function toLanding(u: Unseen): Landing | null {
     case 'pr':
       return u.pr ? { id: u.id, at: u.at, kind: 'pr', pr: u.pr } : null
     case 'roundtable':
+    case 'cleanup':
       return null
+  }
+}
+
+/** Does this view show that unseen thing? Then opening it has seen it. */
+function shows(focus: AttentionFocus, u: Unseen): boolean {
+  switch (focus.kind) {
+    case 'none':
+      return false
+    case 'cleanup':
+      return u.kind === 'cleanup'
+    case 'roundtable':
+      return u.kind === 'roundtable' && u.id === focus.id
+    case 'session':
+      if (u.kind === 'roundtable' || u.kind === 'cleanup') return false
+      return u.id !== null ? u.id === focus.id : u.provider === focus.provider && samePath(u.cwd, focus.cwd)
   }
 }
 
@@ -721,6 +772,38 @@ export class AttentionTracker {
     this.trim()
   }
 
+  /* ---------- cleanup reminders (the daily check, never a turn) ---------- */
+
+  /**
+   * The daily cleanup check found something new to clean. One entry, replaced by the
+   * next: it marks Cleanup in the sidebar until the view is opened, and its banner is
+   * the only thing it makes — no sound, no Dock count.
+   */
+  cleanupReady(notice: CleanupNotice): void {
+    this.drop(CLEANUP_KEY)
+    if (this.windowFocused && this.focus.kind === 'cleanup') return
+    const at = this.now()
+    this.unseen.set(CLEANUP_KEY, { key: CLEANUP_KEY, kind: 'cleanup', id: null, startedAt: at, at, cleanup: notice })
+    this.enqueue({
+      key: CLEANUP_KEY,
+      who: 'Cleanup',
+      verb: cleanupHeadline(notice),
+      after: null,
+      detail: `Idle over ${notice.staleDays} days. Nothing goes until you pick it.`,
+      title: cleanupCounts(notice),
+      fallbackTitle: 'Cleanup',
+      failed: false,
+      tone: null,
+      group: 'cleanup'
+    })
+    this.trim()
+  }
+
+  /** What the sidebar's Cleanup key carries, or null when no reminder is unseen. */
+  cleanupNotice(): CleanupNotice | null {
+    return this.unseen.get(CLEANUP_KEY)?.cleanup ?? null
+  }
+
   /* ---------- id-less landings (copilot never names its session) ---------- */
 
   /** Give id-less session landings the session the index has since found for them. */
@@ -755,7 +838,8 @@ export class AttentionTracker {
     this.pending = []
     if (live.length === 0) return { notice: null, sound: null }
     const failed = live.some((p) => p.failed)
-    const sound = prefs.sound ? (live.some((p) => p.tone === 'fail') ? 'fail' : 'finish') : null
+    const tones = live.map((p) => p.tone)
+    const sound = !prefs.sound ? null : tones.includes('fail') ? 'fail' : tones.includes('finish') ? 'finish' : null
     if (!prefs.notifications) return { notice: null, sound }
     const nameOf = (p: Pending): string => {
       const u = this.unseen.get(p.key)
@@ -780,7 +864,8 @@ export class AttentionTracker {
         ok > 0 && `${ok} finished`,
         bad > 0 && `${bad} failed`,
         asks > 0 && `${asks} waiting on you`,
-        prs > 0 && `${prs} ${prs === 1 ? 'PR' : 'PRs'} red`
+        prs > 0 && `${prs} ${prs === 1 ? 'PR' : 'PRs'} red`,
+        count('cleanup') > 0 && 'cleanup ready'
       ].filter((s): s is string => typeof s === 'string')
       const title =
         ok === live.length
@@ -839,10 +924,15 @@ export class AttentionTracker {
     return [...best.values()].sort((a, b) => b.at - a.at)
   }
 
-  /** What the Dock badge shows: one per board row (however many reasons), tables and not-yet-named sessions included. */
+  /**
+   * What the Dock badge shows: one per board row (however many reasons), tables and
+   * not-yet-named sessions included. A cleanup reminder is not something an agent is
+   * waiting on, so it is never counted.
+   */
   badgeCount(prefs: AttentionPrefs): number {
     if (!prefs.badge) return 0
-    return new Set([...this.unseen.values()].map((u) => (u.kind === 'roundtable' || u.id === null ? u.key : u.id))).size
+    const counted = [...this.unseen.values()].filter((u) => u.kind !== 'cleanup')
+    return new Set(counted.map((u) => (u.kind === 'roundtable' || u.id === null ? u.key : u.id))).size
   }
 
   /** The state worth keeping across a restart, oldest first. */
@@ -903,16 +993,8 @@ export class AttentionTracker {
   }
 
   private see(focus: AttentionFocus): void {
-    if (focus.kind === 'none') return
     for (const u of [...this.unseen.values()]) {
-      const seen =
-        focus.kind === 'roundtable'
-          ? u.kind === 'roundtable' && u.id === focus.id
-          : u.kind !== 'roundtable' &&
-            (u.id !== null
-              ? u.id === focus.id
-              : u.provider === focus.provider && samePath(u.cwd, focus.cwd))
-      if (seen) this.drop(u.key)
+      if (shows(focus, u)) this.drop(u.key)
     }
   }
 
@@ -921,6 +1003,7 @@ export class AttentionTracker {
     let k = key
     for (let hops = 0; hops < 4 && this.aliases.has(k); hops++) k = this.aliases.get(k) as string
     if (k.startsWith('turn:')) return { kind: 'home' }
+    if (k === CLEANUP_KEY) return { kind: 'cleanup' }
     if (k.startsWith('table:')) return { kind: 'roundtable', id: k.slice('table:'.length) }
     if (k.startsWith('asks:')) return { kind: 'session', id: k.slice('asks:'.length) }
     if (k.startsWith('pr:')) {

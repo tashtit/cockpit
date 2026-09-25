@@ -74,11 +74,12 @@ import {
   deleteRoundtables,
   deleteSessions,
   removeWorktrees,
-  scanCleanup,
   stopProcesses,
+  surveyCleanup,
   type CleanupDeps
 } from './cleanup'
 import { DEFAULT_STALE_DAYS, providerWorktreeHomes } from './cleanup-core'
+import { CleanupReminder } from './cleanup-reminder'
 import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
 import { getDefaultBranch, getPrs } from './github'
 import { createPr, createWorkspace } from './workspace'
@@ -159,6 +160,7 @@ let transcripts: TranscriptSearcher
 let chat: ChatManager
 let roundtables: RoundtableManager | null = null
 let attention: AttentionDesk | null = null
+let cleanupReminder: CleanupReminder | null = null
 let updater: UpdateManager | null = null
 /** A notification clicked while no renderer could hear it — the next one takes it. */
 let pendingOpen: AttentionTarget | null = null
@@ -286,6 +288,7 @@ function asAttentionFocus(raw: unknown): AttentionFocus {
   if (f['kind'] === 'roundtable' && typeof f['id'] === 'string') {
     return { kind: 'roundtable', id: f['id'].slice(0, 512) }
   }
+  if (f['kind'] === 'cleanup') return { kind: 'cleanup' }
   const provider = (['claude', 'codex', 'copilot'] as const).find((p) => p === f['provider'])
   if (f['kind'] === 'session' && provider && typeof f['cwd'] === 'string') {
     return {
@@ -1054,6 +1057,7 @@ app.whenReady().then(() => {
     prefs: attentionPrefs(),
     titleFor: (u) => (u.id ? (indexer.getSession(u.id)?.title ?? null) : null),
     onLandings: (landings) => sendToWin(PUSH.landings, landings),
+    onCleanup: (notice) => sendToWin(PUSH.cleanupNotice, notice),
     onOpen: openAttentionTarget
   })
   attention = desk
@@ -1064,11 +1068,14 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.attentionSetPrefs, (_e, prefs: AttentionPrefs) => {
     const saved = setAttentionPrefs(prefs)
     desk.setPrefs(saved)
+    // the cleanup switch starts or stands down the daily check
+    cleanupReminder?.reschedule()
     return saved
   })
   ipcMain.handle(CH.attentionTest, () => desk.test())
   ipcMain.handle(CH.attentionFocus, (_e, focus: unknown) => desk.setFocus(asAttentionFocus(focus)))
   ipcMain.handle(CH.attentionLandings, () => desk.landings())
+  ipcMain.handle(CH.attentionCleanup, () => desk.cleanupNotice())
   ipcMain.handle(CH.attentionTakeOpen, () => {
     const target = pendingOpen
     pendingOpen = null
@@ -1394,9 +1401,28 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.cleanupSetStaleDays, (_e, days: number) => {
     setStaleDays(Number(days))
   })
-  ipcMain.handle(CH.cleanupScan, () =>
-    scanCleanup(cleanupDeps(), loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
-  )
+  /*
+   * Once a day, the same scan in the background. When something new is ready to clean
+   * (at most weekly — cleanup-reminder-core.ts), the attention desk marks Cleanup in the
+   * sidebar and says so. The view's own scans count as the person looking.
+   */
+  const reminder = new CleanupReminder({
+    file: join(app.getPath('userData'), 'cleanup-reminder.json'),
+    survey: async () =>
+      (await surveyCleanup(cleanupDeps(), loadConfig().staleDays ?? DEFAULT_STALE_DAYS)).ready,
+    enabled: () => desk.currentPrefs.cleanup,
+    remind: (notice) => desk.cleanupReady(notice)
+  })
+  cleanupReminder = reminder
+  void indexer.whenScanned().then(() => reminder.start())
+  ipcMain.handle(CH.cleanupScan, async () => {
+    const { report, ready } = await surveyCleanup(
+      cleanupDeps(),
+      loadConfig().staleDays ?? DEFAULT_STALE_DAYS
+    )
+    reminder.seen(ready)
+    return report
+  })
   ipcMain.handle(CH.cleanupArchiveSessions, (_e, ids: string[]) => {
     // the reversible tier: config only, nothing on disk is touched
     const known = new Set(indexer.cleanupSessions().map((s) => s.id))

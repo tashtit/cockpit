@@ -1082,6 +1082,11 @@ export type AttentionPrefs = {
   readonly sound: boolean
   /** The number of landed, unopened sessions on the Dock icon */
   readonly badge: boolean
+  /**
+   * A daily background cleanup scan, and a reminder — at most weekly, only for things not
+   * shown before — when something new is ready to clean. Off means no scan at all.
+   */
+  readonly cleanup: boolean
 }
 
 /** What the window shows. Main never notifies about it while the window is focused. */
@@ -1094,6 +1099,7 @@ export type AttentionFocus =
       readonly cwd: string
     }
   | { readonly kind: 'roundtable'; readonly id: string }
+  | { readonly kind: 'cleanup' }
   | { readonly kind: 'none' }
 
 /** What an agent is blocked on: a question it asked, or a permission it wants. */
@@ -1133,6 +1139,7 @@ export type Landing = {
 export type AttentionTarget =
   | { readonly kind: 'session'; readonly id: string }
   | { readonly kind: 'roundtable'; readonly id: string }
+  | { readonly kind: 'cleanup' }
   | { readonly kind: 'home' }
 
 /** What macOS did with a notification Cockpit asked it to show. */
@@ -1538,6 +1545,25 @@ export type CleanupReport = {
   /** Denominators behind "47 of 312" — everything known, stale or not */
   readonly totalSessions: number
   readonly totalWorktrees: number
+}
+
+/**
+ * What the background cleanup check found ready to clean — everything, not only what is
+ * new since the last reminder (newness decides whether to remind, not what to say). Counts
+ * are of what could go right now: blocked rows are left out.
+ */
+export type CleanupNotice = {
+  /** Epoch ms of the check */
+  readonly at: number
+  /** The idle threshold it applied */
+  readonly staleDays: number
+  readonly sessions: number
+  /** Leftover worktrees — the ones a session takes with it count under `sessions` */
+  readonly worktrees: number
+  readonly tables: number
+  readonly processes: number
+  /** What cleaning all of it would free, each worktree counted once; 0 when unmeasured */
+  readonly bytes: number
 }
 
 /** A process left running in an old worktree. */

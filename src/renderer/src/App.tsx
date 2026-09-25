@@ -846,25 +846,30 @@ export function App(): JSX.Element {
   // and opening one clears its landing, its Dock count and its banner (landed.ts)
   const roundtableOnScreen = view.kind === 'roundtable' ? view.id : null
   const chatOnScreen = view.kind === 'chat' ? binding : null
+  const cleanupOnScreen = view.kind === 'cleanup'
   useEffect(() => {
     const focus: AttentionFocus = roundtableOnScreen
       ? { kind: 'roundtable', id: roundtableOnScreen }
-      : chatOnScreen
-        ? {
-            kind: 'session',
-            id: selectedSessionId,
-            provider: chatOnScreen.provider,
-            cwd: chatOnScreen.cwd
-          }
-        : { kind: 'none' }
+      : cleanupOnScreen
+        ? { kind: 'cleanup' }
+        : chatOnScreen
+          ? {
+              kind: 'session',
+              id: selectedSessionId,
+              provider: chatOnScreen.provider,
+              cwd: chatOnScreen.cwd
+            }
+          : { kind: 'none' }
     void api.setAttentionFocus(focus)
-  }, [roundtableOnScreen, chatOnScreen?.provider, chatOnScreen?.cwd, selectedSessionId])
+  }, [roundtableOnScreen, cleanupOnScreen, chatOnScreen?.provider, chatOnScreen?.cwd, selectedSessionId])
 
   // a clicked notification: main has already brought the window forward
   const openTargetRef = useRef<(target: AttentionTarget) => void>(() => {})
   openTargetRef.current = (target) => {
     if (target.kind === 'roundtable') {
       openRoundtable(target.id)
+    } else if (target.kind === 'cleanup') {
+      setView({ kind: 'cleanup' })
     } else if (target.kind === 'session') {
       // the conversation already on screen keeps its live log
       if (target.id === selectedSessionIdRef.current && bindingRef.current) {

@@ -28,6 +28,7 @@ import type {
   BusySession,
   ChatEvent,
   ChatRequest,
+  CleanupNotice,
   CleanupReport,
   CleanupResult,
   DiffScope,
@@ -137,6 +138,10 @@ export type CockpitApi = {
   readonly onAttentionOpen: (cb: (target: AttentionTarget) => void) => () => void
   /** A click that came in while no window was listening; null when there is none */
   readonly takeAttentionOpen: () => Promise<AttentionTarget | null>
+  /** The daily cleanup check's unseen reminder — what it found ready — or null */
+  readonly getCleanupNotice: () => Promise<CleanupNotice | null>
+  /** Push: a cleanup reminder arrived, or opening Cleanup cleared it (null) */
+  readonly onCleanupNotice: (cb: (notice: CleanupNotice | null) => void) => () => void
 
   /* ---------- what the tree shows ---------- */
   readonly setArchived: (sessionId: string, archived: boolean) => Promise<void>
@@ -372,6 +377,7 @@ export const CH = {
   appInfo: 'app:info',
   appOpenLicenses: 'app:open-licenses',
 
+  attentionCleanup: 'attention:cleanup',
   attentionFocus: 'attention:focus',
   attentionLandings: 'attention:landings',
   attentionPrefs: 'attention:prefs',
@@ -495,6 +501,7 @@ export const PUSH = {
   attentionOpen: 'attention-open',
   busySessions: 'busy-sessions',
   chatEvent: 'chat-event',
+  cleanupNotice: 'cleanup-notice',
   indexUpdated: 'index-updated',
   landings: 'landings',
   roundtableEvent: 'roundtable-event',

@@ -4,14 +4,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AttentionDesk, type AttentionSurface } from '../src/main/attention'
 import type { Notice } from '../src/main/attention-core'
-import type { AttentionPrefs, AttentionTarget, Landing, NotificationDelivery, Provider } from '../src/shared/types'
+import type {
+  AttentionPrefs,
+  AttentionTarget,
+  CleanupNotice,
+  Landing,
+  NotificationDelivery,
+  Provider
+} from '../src/shared/types'
 
 const dirs: string[] = []
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true })
 })
 
-const ALL_ON: AttentionPrefs = { notifications: true, sound: true, badge: true }
+const ALL_ON: AttentionPrefs = { notifications: true, sound: true, badge: true, cleanup: true }
 const CHECKOUT = '/Users/dev/src/rocket'
 
 /** What the desk asked of the OS, in order — the test stands in for macOS. */
@@ -52,10 +59,12 @@ function makeDesk(
   desk: AttentionDesk
   seen: Recorded
   pushed: Landing[][]
+  cleanups: Array<CleanupNotice | null>
   opened: Array<AttentionTarget | null>
 } {
   const { surface, seen } = fakeSurface(opts.delivery)
   const pushed: Landing[][] = []
+  const cleanups: Array<CleanupNotice | null> = []
   const opened: Array<AttentionTarget | null> = []
   const desk = new AttentionDesk({
     file,
@@ -63,9 +72,10 @@ function makeDesk(
     prefs: opts.prefs ?? ALL_ON,
     titleFor: (u) => (u.id === 'claude:abc' ? 'Fix the login flake' : null),
     onLandings: (l) => pushed.push(l),
+    onCleanup: (c) => cleanups.push(c),
     onOpen: (t) => opened.push(t)
   })
-  return { desk, seen, pushed, opened }
+  return { desk, seen, pushed, cleanups, opened }
 }
 
 /** A resumed claude turn that finishes (or fails) without anyone watching. */
@@ -140,7 +150,7 @@ describe('AttentionDesk', () => {
 
   it('every switch off: nothing on the Dock, no sound, no banner — the landing still reaches the board', async () => {
     const { desk, seen, pushed } = makeDesk(file, {
-      prefs: { notifications: false, sound: false, badge: false }
+      prefs: { notifications: false, sound: false, badge: false, cleanup: false }
     })
     finish(desk, 't1', 'abc')
     await vi.runAllTimersAsync()
@@ -148,7 +158,7 @@ describe('AttentionDesk', () => {
     expect(pushed.at(-1)?.map((l) => l.id)).toEqual(['claude:abc'])
 
     // turning the badge on shows what is already waiting
-    desk.setPrefs({ notifications: false, sound: false, badge: true })
+    desk.setPrefs({ notifications: false, sound: false, badge: true, cleanup: true })
     expect(seen.badges).toEqual([1])
     desk.dispose()
   })
@@ -183,12 +193,12 @@ describe('AttentionDesk', () => {
 
   it('the Settings test posts a sample whatever the notification switch says, with the sound only when that is on', async () => {
     const { desk, seen, opened } = makeDesk(file, {
-      prefs: { notifications: false, sound: false, badge: false }
+      prefs: { notifications: false, sound: false, badge: false, cleanup: false }
     })
     await expect(desk.test()).resolves.toEqual({ status: 'shown' })
     expect(seen.banners).toHaveLength(1)
     expect(seen.sounds).toEqual([])
-    desk.setPrefs({ notifications: false, sound: true, badge: false })
+    desk.setPrefs({ notifications: false, sound: true, badge: false, cleanup: false })
     await desk.test()
     expect(seen.sounds).toEqual(['finish'])
     // clicking the sample brings the window forward without leaving Settings
@@ -290,5 +300,83 @@ describe('AttentionDesk — observed turns and pull requests', () => {
     expect(second.seen.badges.at(-1)).toBe(1)
     expect(JSON.parse(readFileSync(file, 'utf8')).unseen.map((u: { key: string }) => u.key)).toEqual(['asks:claude:open'])
     second.desk.dispose()
+  })
+})
+
+describe('AttentionDesk — cleanup reminders', () => {
+  const READY: CleanupNotice = {
+    at: 0,
+    staleDays: 30,
+    sessions: 12,
+    worktrees: 3,
+    tables: 0,
+    processes: 1,
+    bytes: 2_100_000_000
+  }
+
+  it('a reminder marks Cleanup and posts one quiet banner — no sound, nothing on the Dock', async () => {
+    const { desk, seen, cleanups, pushed } = makeDesk(file)
+    desk.cleanupReady(READY)
+    expect(cleanups).toEqual([READY])
+    // it is not a session row, and nothing an agent waits on
+    expect(pushed).toEqual([])
+    expect(seen.badges).toEqual([])
+
+    await vi.runAllTimersAsync()
+    expect(seen.banners.map((b) => [b.title, b.subtitle, b.body])).toEqual([
+      [
+        'Cleanup can free 2.1 GB',
+        '12 sessions · 3 worktrees · 1 process still running',
+        'Idle over 30 days. Nothing goes until you pick it.'
+      ]
+    ])
+    expect(seen.sounds).toEqual([])
+    desk.dispose()
+  })
+
+  it('a click opens Cleanup, and opening it clears the mark and withdraws the banner', async () => {
+    const { desk, seen, cleanups, opened } = makeDesk(file)
+    desk.cleanupReady(READY)
+    await vi.runAllTimersAsync()
+    seen.clicks[0]()
+    expect(opened).toEqual([{ kind: 'cleanup' }])
+
+    desk.setFocus({ kind: 'cleanup' })
+    expect(cleanups.at(-1)).toBeNull()
+    expect(seen.withdrawn).toEqual([['cockpit:cleanup']])
+    desk.dispose()
+  })
+
+  it('with Cleanup already in front of a focused window, it is not news', async () => {
+    const { desk, seen, cleanups } = makeDesk(file)
+    desk.setFocus({ kind: 'cleanup' })
+    desk.setWindowFocused(true)
+    desk.cleanupReady(READY)
+    await vi.runAllTimersAsync()
+    expect(cleanups).toEqual([])
+    expect(seen.banners).toEqual([])
+    desk.dispose()
+  })
+
+  it('an unopened reminder survives a restart', () => {
+    const first = makeDesk(file)
+    first.desk.cleanupReady(READY)
+    first.desk.dispose()
+
+    const second = makeDesk(file)
+    expect(second.desk.cleanupNotice()).toEqual(READY)
+    expect(second.seen.badges).toEqual([])
+    second.desk.dispose()
+  })
+
+  it('with notifications off it still marks Cleanup, but posts nothing', async () => {
+    const { desk, seen, cleanups } = makeDesk(file, {
+      prefs: { notifications: false, sound: true, badge: true, cleanup: true }
+    })
+    desk.cleanupReady(READY)
+    await vi.runAllTimersAsync()
+    expect(cleanups).toEqual([READY])
+    expect(seen).toMatchObject({ banners: [], sounds: [], badges: [], bounces: 0 })
+    desk.dispose()
   })
 })

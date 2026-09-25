@@ -89,16 +89,19 @@ async function open(win: Page, title: RegExp): Promise<void> {
   await pause(win, 900)
 }
 /**
- * Stand in for the updater. A build run from out/ reports `unsupported` and never
- * checks, so the tour pushes what an installed one would, from main, on the channel
- * main itself uses (`PUSH.updateState` — the tour cannot import the contract, so a
+ * Stand in for main where a fixture file can't: the updater (a build run from out/
+ * reports `unsupported` and never checks) and the daily cleanup check (it waits minutes
+ * after launch). The tour pushes what main would, on the channel main itself uses
+ * (`PUSH.updateState`, `PUSH.cleanupNotice` — the tour cannot import the contract, so a
  * renamed channel shows up here as a missing shot).
  */
-async function pushUpdate(app: ElectronApplication, state: Record<string, unknown>): Promise<void> {
-  await app.evaluate(({ BrowserWindow }, s) => {
-    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('update-state', s)
-  }, state)
+async function push(app: ElectronApplication, channel: string, payload: unknown): Promise<void> {
+  await app.evaluate(({ BrowserWindow }, [c, p]) => {
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send(c as string, p)
+  }, [channel, payload] as const)
 }
+const pushUpdate = (app: ElectronApplication, state: Record<string, unknown>): Promise<void> =>
+  push(app, 'update-state', state)
 async function send(win: Page, title: RegExp, text: string): Promise<void> {
   await open(win, title)
   const box = win.locator('.composer textarea')
@@ -163,6 +166,26 @@ const STATIC: readonly Shot[] = [
       await w.getByRole('button', { name: /0\.30\.0 could not be installed/ }).waitFor()
     },
     after: (_w, app) => pushUpdate(app, { status: 'unsupported', message: 'development run' })
+  },
+  // the daily cleanup check found something new: the Cleanup key's amber dot, and its name
+  // saying what is waiting
+  {
+    view: 'sidebar',
+    name: 'sidebar-cleanup-reminder',
+    go: async (w, app) => {
+      await home(w)
+      await push(app, 'cleanup-notice', {
+        at: Date.now(),
+        staleDays: 30,
+        sessions: 12,
+        worktrees: 3,
+        tables: 0,
+        processes: 1,
+        bytes: 2_100_000_000
+      })
+      await w.getByRole('button', { name: /^Cleanup can free 2\.1 GB/ }).waitFor()
+    },
+    after: (_w, app) => push(app, 'cleanup-notice', null)
   },
   { view: 'settings', name: 'settings', go: (w) => nav(w, 'Settings') },
   // the agent CLIs against their latest releases — one behind, with its Update

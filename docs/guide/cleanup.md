@@ -2,7 +2,7 @@
 
 Agent work leaves residue. Every task cuts a worktree, every conversation leaves a transcript, and both outlive the work that produced them — across three CLIs and every repository you touch. **Cleanup** is the one place that shows what has gone quiet and lets you throw it away.
 
-Open it from the trash icon in the sidebar rail, or with ⌘K → "Cleanup".
+Open it from the trash icon in the sidebar rail, with ⌘K → "Cleanup", or by clicking a [reminder](#reminders).
 
 The idle threshold and a one-line count of everything stale sit at the top. Under them, each list is its own tab — **Sessions**, **Processes**, **Roundtables** and **Worktrees** — and each tab shows how many rows it holds, so you can see where the work is without opening it. Picking a tab replaces the list below; nothing scrolls. The view opens on the first tab that has anything in it.
 
@@ -89,6 +89,25 @@ Click a pill to open it, then click values to include them. Every option also ca
 - **Shift-click** a second row to select the whole range between it and the last one you touched. Shift also works from the keyboard.
 - Selections survive a filter change, and switching tabs. If some of what you have selected is no longer on screen, the header says so (`3 not shown`) rather than acting on it silently.
 - The header adds up what the selection actually frees, worktrees included: `12 selected · 840 MB · 3 worktrees`.
+
+## Reminders
+
+You don't have to remember to come here. Once a day Cockpit runs the same scan in the background, using the same idle threshold. When it finds something **new** that is ready to clean:
+
+- the trash icon in the sidebar gets an amber dot, and its tooltip says what is waiting ("Cleanup can free 2.1 GB — 12 sessions · 3 worktrees");
+- you get a notification. Click it to open Cleanup.
+
+"Ready to clean" means you could select it right now. Rows that are blocked — uncommitted changes, an agent running, and the rest — don't count, since those are yours to deal with first. The reminder counts everything that is ready, and shows the space as the total all of it would free.
+
+Cockpit tries not to nag:
+
+- **At most once a week.** The check runs daily, so a reminder is never more than a day late once the week is up.
+- **Only for things you haven't seen.** Anything that was in the last reminder, or on screen the last time you opened Cleanup, never triggers another one. Say you decide to keep an old worktree: you won't hear about it again. Opening Cleanup also restarts the week.
+- **Quietly.** No sound, and nothing on the Dock badge. The dot goes away when you open Cleanup.
+
+The first check runs a few minutes after launch, not during it. A reminder never deletes anything: nothing goes until you pick it here.
+
+Turn reminders off with **Cleanup reminders** in Settings › Notifications. With the switch off, the background scan doesn't run at all.
 
 ## Safety
 

@@ -18,6 +18,7 @@ import {
   removeWorktrees,
   scanCleanup,
   stopProcesses,
+  surveyCleanup,
   type CleanupDeps,
   type CleanupTable
 } from '../src/main/cleanup'
@@ -244,6 +245,29 @@ describe('scanCleanup — sessions', () => {
     const report = await scanCleanup(deps, 30)
     expect(report.sessions[0].bytes).toBe(75)
     sessions = []
+  })
+})
+
+describe('surveyCleanup — what could go right now', () => {
+  it('keys what is ready — a session with the worktree it takes, the leftovers — and never a blocked row', async () => {
+    const log = join(sourceDir, 'ready.jsonl')
+    writeFileSync(log, 'r'.repeat(300))
+    sessions = [
+      session({ id: 'claude:ready', sourcePath: log, cwd: cockpitTree }),
+      session({ id: 'claude:live', sourcePath: join(sourceDir, 'live-now.jsonl') })
+    ]
+    busy = new Set(['claude:live'])
+    const { report, ready } = await surveyCleanup(deps, 30)
+    expect(ready.sessions).toEqual(['claude:ready'])
+    // the session's worktree goes with it; the dirty one is the person's to resolve first
+    expect(ready.worktrees).toEqual([externalTree])
+    expect(ready.processes).toEqual([])
+    // each worktree sized once, whichever row carries it
+    const carried = report.sessions.find((s) => s.id === 'claude:ready')?.worktree?.bytes ?? 0
+    const leftover = report.worktrees.find((w) => w.path === externalTree)?.bytes ?? 0
+    expect(ready.bytes).toBe(300 + carried + leftover)
+    sessions = []
+    busy = new Set()
   })
 })
 
