@@ -10,6 +10,7 @@ import {
   accountOptions,
   MODES,
   savedAccount,
+  savedMode,
   useAgentOptions
 } from './NewSession'
 import type { AccountChoice } from './NewSession'
@@ -62,9 +63,7 @@ export function HandoffView({
   const [provider, setProvider] = useState<Provider>(
     () => PROVIDERS.find((p) => p !== source.provider) ?? 'claude'
   )
-  const [mode, setMode] = useState<PermissionMode>(
-    () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
-  )
+  const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [accountKey, setAccountKey] = useState<string | null>(null)
   const [briefing, setBriefing] = useState('')

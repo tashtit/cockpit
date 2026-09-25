@@ -7,7 +7,7 @@ import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { announceChat, useChatKeys, useChatLog, useChatStatus } from './chat-log'
 import { Markdown } from './Markdown'
-import { MODES } from './NewSession'
+import { MODES, savedMode } from './NewSession'
 import { cwdLabel } from '../../shared/library'
 import { BranchChip, CockpitLogo, DiffIcon, HandoffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL, WorkIcon } from './logos'
 import { DiffStat } from './InstructionDiff'
@@ -68,9 +68,7 @@ export function ChatView({
   const announced = useChatStatus()
   const [draft, setDraft] = useState('')
   const atts = useImageAttachments()
-  const [mode, setMode] = useState<PermissionMode>(
-    () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
-  )
+  const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [cwdCopied, setCwdCopied] = useState(false)
   /** Review mode: the worktree's changes take the transcript's place */
   const [review, setReview] = useState(false)

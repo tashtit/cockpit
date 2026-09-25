@@ -12,7 +12,7 @@ import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
 import { useLandedMap } from './landed'
-import { accountOptions, MODES, savedAccount, type StartSessionRequest } from './NewSession'
+import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './NewSession'
 import {
   BranchChip,
   CheckIcon,
@@ -84,9 +84,7 @@ export function HomeView({
   const [provider, setProvider] = useState<Provider>(
     () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
   )
-  const [mode, setMode] = useState<PermissionMode>(
-    () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
-  )
+  const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [prompt, setPrompt] = useState('')
   const atts = useImageAttachments()
   const [error, setError] = useState<string | null>(null)

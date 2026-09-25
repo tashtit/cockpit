@@ -76,6 +76,15 @@ describe('HomeView composer', () => {
     })
   })
 
+  it('starts with Auto-edit when the remembered mode is not one', async () => {
+    window.localStorage.setItem('cockpit:mode', '"yolo"')
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    const { onStart } = renderHome()
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Task description' }), 'add dark mode')
+    await userEvent.click(screen.getByRole('button', { name: 'Start with Claude' }))
+    expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ mode: 'auto-edit' }))
+  })
+
   it('surfaces a start failure inline', async () => {
     vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
     renderHome({ onStart: vi.fn().mockResolvedValue('claude CLI not found on PATH') })
