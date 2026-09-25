@@ -510,7 +510,8 @@ export function saveConfig(cfg: AppConfig): void {
   // the installed app) can't rename this one's half-written file into place.
   const tmp = `${configPath()}.${process.pid}.${++saveSeq}.tmp`
   try {
-    writeFileSync(tmp, JSON.stringify(cfg, null, 2))
+    // owner-only: the config holds MCP servers' env values in plaintext
+    writeFileSync(tmp, JSON.stringify(cfg, null, 2), { mode: 0o600 })
     renameSync(tmp, configPath())
   } catch (err) {
     rmSync(tmp, { force: true })

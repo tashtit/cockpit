@@ -59,6 +59,9 @@ function setBaseline(repoRoot: string | null, baseline: string): void {
 
 const MAX_INSTRUCTION_BYTES = 1024 * 1024
 
+/** Instruction files are read by every agent and committed with the repo — ordinary files. */
+const SHARED_FILE = { newFileMode: 0o644 } as const
+
 /** Full contents, or null when unreadable. Never truncates — callers write this back. */
 function readTarget(path: string): string | null {
   try {
@@ -148,7 +151,7 @@ export function applyInstructions(repoRoot: string | null, onlyPath?: string): I
   for (const { target } of writing) assertWritable(repoRoot, target.path)
   for (const { target, raw } of writing) {
     mkdirSync(dirname(target.path), { recursive: true })
-    replaceFile(target.path, upsertSharedBlock(raw ?? '', baseline))
+    replaceFile(target.path, upsertSharedBlock(raw ?? '', baseline), SHARED_FILE)
   }
   return getInstructions(repoRoot)
 }
@@ -160,7 +163,7 @@ export function unapplyInstructions(repoRoot: string | null, path: string): Inst
   const raw = readTarget(path)
   if (raw !== null) {
     assertWritable(repoRoot, path)
-    replaceFile(path, removeSharedBlock(raw))
+    replaceFile(path, removeSharedBlock(raw), SHARED_FILE)
   }
   return getInstructions(repoRoot)
 }
@@ -191,6 +194,6 @@ export function saveInstructionFile(
   if (!target) throw new Error(`not an instruction file for this scope: ${path}`)
   assertWritable(repoRoot, path)
   mkdirSync(dirname(path), { recursive: true })
-  replaceFile(path, content)
+  replaceFile(path, content, SHARED_FILE)
   return getInstructions(repoRoot)
 }
