@@ -71,7 +71,7 @@ export const CLEANUP_ROW_CAP = 500
 /** Sizing a worktree walks a whole checkout — give up rather than stall the scan. */
 const DU_TIMEOUT_MS = 10_000
 
-/** Hand the event loop back this often while stat-ing session files. */
+/** Hand the event loop back this often while stat-ing or removing session files. */
 const YIELD_EVERY = 200
 
 const yieldToLoop = (): Promise<void> => new Promise((r) => setImmediate(r))
@@ -671,7 +671,11 @@ export async function deleteSessions(
   let freedBytes = 0
   const cutoff = staleCutoff(staleDays, Date.now())
 
+  let n = 0
   for (const raw of ids) {
+    // a selection can run to thousands of logs, each a synchronous rm — IPC must not
+    // wait on all of them
+    if (++n % YIELD_EVERY === 0) await yieldToLoop()
     const id = String(raw)
     const meta = byId.get(id)
     if (!meta) {
