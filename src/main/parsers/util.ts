@@ -288,7 +288,9 @@ export function toolPreview(name: string, input: unknown): string | null {
     case 'WebSearch':
     case 'web_search':
       return str(i.query)
+    // Claude's subagent tool: `Task` before it was renamed `Agent`
     case 'Task':
+    case 'Agent':
       return str(i.description) ?? str(i.prompt)
     case 'Skill':
       return str(i.skill)
@@ -321,6 +323,10 @@ export function toolPreview(name: string, input: unknown): string | null {
     case 'str_replace':
     case 'str_replace_editor':
       return str(i.path)
+    // Copilot's to-do list and scratch tables: the call says what it is doing, the
+    // query stays in the detail
+    case 'sql':
+      return str(i.description) ?? str(i.query)
     default:
       return null
   }

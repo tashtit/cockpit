@@ -1,4 +1,5 @@
-import { basename, join, sep } from 'node:path'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { basename, dirname, join, sep } from 'node:path'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
 import { toolArtifact } from './artifacts'
@@ -12,6 +13,7 @@ import {
   readTail,
   toMs,
   toolPreview,
+  TRANSCRIPT_TAIL_BYTES,
   truncate,
   walkFiles
 } from './util'
@@ -161,15 +163,135 @@ function answered(call: SessionMessage, result: string, isError: boolean): Sessi
   return ids.length === a.items.length ? { ...call, artifact: { ...a, ids } } : call
 }
 
+/** A subagent call (`Agent`, `Task` before the rename) and the row its edits follow.
+ *  Both fields are filled in as the transcript is read — the call's row first, then
+ *  its result's. */
+type AgentCall = {
+  /** The row the edits follow: the result's once there is one, so edits never split a
+   *  call from its result */
+  after: number
+  /** The subagent's id, as its result names it: `subagents/agent-<id>.jsonl` */
+  agentId?: string
+}
+
+/** Subagent logs one transcript read follows, newest calls first — each is a read of its own */
+const MAX_SUBAGENTS = 32
+/** `.meta.json` files read looking for a call's subagent before giving up */
+const MAX_SUBAGENT_METAS = 256
+
+/**
+ * Where each call's subagent wrote its log. The result names it (`toolUseResult.agentId`)
+ * once there is one; a subagent still running has only its `.meta.json`, which names
+ * the call that started it (`toolUseId`).
+ */
+function subagentLogs(dir: string, calls: ReadonlyMap<string, AgentCall>): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const [id, call] of calls) {
+    const file = call.agentId ? join(dir, `agent-${call.agentId}.jsonl`) : null
+    if (file && existsSync(file)) out.set(id, file)
+  }
+  if (out.size === calls.size) return out
+  let names: string[]
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith('.meta.json')).slice(0, MAX_SUBAGENT_METAS)
+  } catch {
+    return out
+  }
+  for (const name of names) {
+    let id: unknown
+    try {
+      id = JSON.parse(readHead(join(dir, name), 4096).text)?.toolUseId
+    } catch {
+      continue
+    }
+    const file = join(dir, `${name.slice(0, -'.meta.json'.length)}.jsonl`)
+    if (typeof id === 'string' && calls.has(id) && !out.has(id) && existsSync(file)) out.set(id, file)
+  }
+  return out
+}
+
+/**
+ * A subagent's edits, by its log's stamp: a live transcript is read again on every
+ * write, and a finished subagent's log never changes. Bounded like the rows it holds.
+ */
+const subagentCache = new Map<string, { readonly stamp: string; readonly rows: SessionMessage[] }>()
+const SUBAGENT_CACHE = 64
+/** The only lines of a subagent's log its edits can come from — an edit call, or a result
+ *  that refused one — tested on the raw text, so the rest (most of a log that reads and
+ *  runs things) is never parsed */
+const EDIT_LINE = /"name":\s*"(?:Edit|MultiEdit|Write)"|"is_error":\s*true/
+
+function subagentEdits(file: string): SessionMessage[] {
+  let stamp: string
+  try {
+    const st = statSync(file)
+    stamp = `${st.mtimeMs}:${st.size}`
+  } catch {
+    return []
+  }
+  const hit = subagentCache.get(file)
+  if (hit?.stamp === stamp) return hit.rows
+  const tail = readTail(file, TRANSCRIPT_TAIL_BYTES)
+  // a cut read starts mid-line: that line is not a line
+  const text = tail.truncated ? tail.text.slice(tail.text.indexOf('\n') + 1) : tail.text
+  const lines = parseJsonlText(
+    text
+      .split('\n')
+      .filter((l) => EDIT_LINE.test(l))
+      .join('\n'),
+    false
+  )
+  const rows = transcriptRows(lines).rows.filter((m) => m.kind === 'tool_call' && m.artifact?.kind === 'edits')
+  subagentCache.delete(file)
+  subagentCache.set(file, { stamp, rows })
+  if (subagentCache.size > SUBAGENT_CACHE) subagentCache.delete(subagentCache.keys().next().value!)
+  return rows
+}
+
+/**
+ * A subagent logs its edits in a file of its own (`<session-id>/subagents/agent-<id>.jsonl`),
+ * never in the session's: without them a session that delegated its work shows none.
+ * Each call's edits follow its result — the subagent's own rows, in its order and with
+ * its times — so the Work panel counts them and the transcript shows them where the
+ * work was handed off. Only edits: a subagent's own to-do list is not the session's.
+ */
+function withSubagentEdits(
+  rows: SessionMessage[],
+  calls: ReadonlyMap<string, AgentCall>,
+  file: string
+): SessionMessage[] {
+  if (calls.size === 0) return rows
+  const newest = new Map([...calls].slice(-MAX_SUBAGENTS))
+  const logs = subagentLogs(join(dirname(file), basename(file, '.jsonl'), 'subagents'), newest)
+  // from the last anchor back, so the earlier ones' offsets still hold
+  const inserts = [...newest]
+    .flatMap(([id, call]) => {
+      const log = logs.get(id)
+      const edits = log ? subagentEdits(log) : []
+      return edits.length > 0 ? [{ after: call.after, edits }] : []
+    })
+    .sort((a, b) => b.after - a.after)
+  if (inserts.length === 0) return rows
+  const out = [...rows]
+  for (const { after, edits } of inserts) out.splice(after + 1, 0, ...edits)
+  return out
+}
+
 export function parseClaudeMessages(file: string): SessionMessage[] {
   const { lines, truncated } = readJsonlTail(file)
+  const { rows, agents } = transcriptRows(lines)
+  const out = withSubagentEdits(rows, agents, file)
+  return truncated
+    ? [{ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' }, ...out]
+    : out
+}
+
+function transcriptRows(lines: readonly any[]): { rows: SessionMessage[]; agents: Map<string, AgentCall> } {
   const out: SessionMessage[] = []
-  if (truncated) {
-    out.push({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
-  }
   // where each call's row sits: a result answers its call by id, and parallel calls
   // put several results after several calls, so adjacency would pair them wrong
   const callRows = new Map<string, number>()
+  const agents = new Map<string, AgentCall>()
   for (const l of lines) {
     const ts = toMs(l.timestamp) ?? undefined
     if (l.type === 'user' || l.type === 'assistant') {
@@ -183,6 +305,8 @@ export function parseClaudeMessages(file: string): SessionMessage[] {
             const asks = parseAsks(b.name ?? '', b.input)
             const artifact = toolArtifact(b.name ?? '', b.input)
             if (typeof b.id === 'string') callRows.set(b.id, out.length)
+            if (typeof b.id === 'string' && (b.name === 'Agent' || b.name === 'Task'))
+              agents.set(b.id, { after: out.length })
             out.push({
               role: 'assistant',
               kind: 'tool_call',
@@ -198,6 +322,13 @@ export function parseClaudeMessages(file: string): SessionMessage[] {
             const text = contentToText(b.content)
             const at = typeof b.tool_use_id === 'string' ? callRows.get(b.tool_use_id) : undefined
             if (at !== undefined) out[at] = answered(out[at]!, text, b.is_error === true)
+            const agent = typeof b.tool_use_id === 'string' ? agents.get(b.tool_use_id) : undefined
+            if (agent) {
+              agent.after = out.length
+              const id = l.toolUseResult?.agentId
+              // it becomes part of a path: an id, never a way out of the directory
+              if (typeof id === 'string' && /^[\w-]+$/.test(id)) agent.agentId = id
+            }
             out.push({ role: 'tool', kind: 'tool_result', text: truncate(text || '(result)', 400), ts })
           }
         }
@@ -206,5 +337,5 @@ export function parseClaudeMessages(file: string): SessionMessage[] {
       out.push({ role: 'system', kind: 'system', text: truncate(l.content, 200), ts })
     }
   }
-  return out
+  return { rows: out, agents }
 }

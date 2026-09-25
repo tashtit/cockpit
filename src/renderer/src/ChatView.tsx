@@ -15,7 +15,7 @@ import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
 import { findAnchor } from './transcript-anchor'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
-import { artifactStat, buildWork, hasWork, planTitle, tabFor, type WorkModel, type WorkTab } from './work'
+import { artifactStat, buildWork, hasWork, planTitle, tabFor, type WorkModel, type WorkTab } from '../../shared/work'
 import { WorkPanel, type WorkFocus } from './WorkPanel'
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too — the

@@ -102,6 +102,22 @@ describe('the Work key', () => {
     fireEvent.keyDown(panel(), { key: 'Escape' })
     expect(screen.queryByRole('complementary', { name: 'Work' })).not.toBeInTheDocument()
   })
+  it('names a blocked step as one, and counts it as not done', async () => {
+    renderChat([
+      user('ship it'),
+      call('sql', {
+        kind: 'todos',
+        items: [
+          { text: 'Build', status: 'completed' },
+          { text: 'Publish', status: 'blocked' }
+        ]
+      })
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(within(panel()).getByText('1 of 2 done')).toBeInTheDocument()
+    expect(within(panel()).getByText('blocked:')).toBeInTheDocument()
+    expect(within(panel()).getByText('Publish').closest('li')).toHaveClass('work-todo', 'blocked')
+  })
 })
 
 describe('a row that carries work', () => {

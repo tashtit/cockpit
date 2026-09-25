@@ -166,6 +166,62 @@ describe('buildHandoffBriefing', () => {
     expect(briefing).toContain('reply 9')
   })
 
+  it('carries the latest plan and where the to-do list stands, ahead of the conversation', () => {
+    const work: SessionMessage[] = [
+      ...transcript,
+      msg({ role: 'assistant', kind: 'tool_call', toolName: 'ExitPlanMode', text: '{}', artifact: { kind: 'plan', text: '# Old plan' } }),
+      msg({ role: 'assistant', kind: 'tool_call', toolName: 'ExitPlanMode', text: '{}', artifact: { kind: 'plan', text: '# Debounce the watcher\n\n1. Unique tmp names' } }),
+      msg({
+        role: 'assistant',
+        kind: 'tool_call',
+        toolName: 'TodoWrite',
+        text: '{}',
+        artifact: {
+          kind: 'todos',
+          items: [
+            { text: 'Reproduce the race', status: 'completed' },
+            { text: 'Fix the tmp name', status: 'in_progress' },
+            { text: 'Run the suite', status: 'pending' },
+            { text: 'Release', status: 'blocked' }
+          ]
+        }
+      })
+    ]
+    const { briefing } = buildHandoffBriefing(source, work, git)
+    expect(briefing).toContain('## Plan (the latest the agent proposed)\n\n# Debounce the watcher\n\n1. Unique tmp names')
+    expect(briefing).not.toContain('# Old plan')
+    expect(briefing).toContain('## To-dos (1 of 4 done)')
+    expect(briefing).toContain(
+      '- [x] Reproduce the race\n- [ ] Fix the tmp name (in progress)\n- [ ] Run the suite\n- [ ] Release (blocked)'
+    )
+    expect(briefing.indexOf('## To-dos')).toBeLessThan(briefing.indexOf('## Recent conversation'))
+  })
+
+  it('has no plan or to-do sections when the agent kept neither', () => {
+    const { briefing } = buildHandoffBriefing(source, transcript, git)
+    expect(briefing).not.toContain('## Plan')
+    expect(briefing).not.toContain('## To-dos')
+  })
+
+  it('bounds the plan and, over the cap, leaves finished steps out first', () => {
+    const items = [
+      ...Array.from({ length: 20 }, (_, i) => ({ text: `done ${i}`, status: 'completed' as const })),
+      ...Array.from({ length: 35 }, (_, i) => ({ text: `open ${i}`, status: 'pending' as const }))
+    ]
+    const work: SessionMessage[] = [
+      msg({ role: 'user', text: 'go' }),
+      msg({ role: 'assistant', kind: 'tool_call', toolName: 'ExitPlanMode', text: '{}', artifact: { kind: 'plan', text: 'p'.repeat(9000) } }),
+      msg({ role: 'assistant', kind: 'tool_call', toolName: 'TodoWrite', text: '{}', artifact: { kind: 'todos', items } })
+    ]
+    const { briefing } = buildHandoffBriefing(source, work, git)
+    expect(briefing).not.toContain('p'.repeat(4001))
+    expect(briefing).not.toContain('done 0')
+    expect(briefing).toContain('- [ ] open 29')
+    expect(briefing).not.toContain('open 30')
+    expect(briefing).toContain('(25 more not listed — finished steps are left out first)')
+    expect(briefing.length).toBeLessThan(BRIEFING_MAX_CHARS)
+  })
+
   it('is deterministic', () => {
     const a = buildHandoffBriefing(source, transcript, git)
     const b = buildHandoffBriefing(source, transcript, git)

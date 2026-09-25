@@ -1,7 +1,8 @@
 import { afterAll, describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
 import { listClaudeSessions, parseClaudeMessages, parseClaudeMeta } from '../src/main/parsers/claude'
 import { listCodexSessions, parseCodexMessages, parseCodexMeta } from '../src/main/parsers/codex'
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
@@ -486,6 +487,11 @@ describe('toolPreview', () => {
     // Codex's own names for a search and a look at an image
     expect(toolPreview('web_search', { query: 'nx remote cache' })).toBe('nx remote cache')
     expect(toolPreview('view_image', { path: '/r/shot.png' })).toBe('/r/shot.png')
+    // Claude's subagent tool under both its names, and Copilot's to-do queries by what they do
+    expect(toolPreview('Agent', { description: 'Audit the renderer', prompt: 'long' })).toBe('Audit the renderer')
+    expect(toolPreview('Task', { prompt: 'Audit it' })).toBe('Audit it')
+    expect(toolPreview('sql', { description: 'Advance todos', query: 'UPDATE todos SET status = 1' })).toBe('Advance todos')
+    expect(toolPreview('sql', { query: 'SELECT 1' })).toBe('SELECT 1')
   })
   it('returns null for unknown tools and malformed input', () => {
     expect(toolPreview('mcp__server__tool', { a: 1 })).toBeNull()
@@ -1148,6 +1154,237 @@ describe('work artifacts on tool rows', () => {
     expect(calls[1]).toMatchObject({ toolName: 'edit', failed: true, artifact: { kind: 'edits' } })
     expect(calls[2]).toMatchObject({ toolName: 'create', artifact: { kind: 'edits' } })
     expect(calls[2].failed).toBeUndefined()
+  })
+})
+
+describe('work agents keep outside their own log', () => {
+  const dir = join(root, 'beside')
+  const at = (s: number): string => `2026-09-02T10:00:${String(s).padStart(2, '0')}Z`
+
+  /** A Claude session that hands work to a subagent, and the subagent's own log. */
+  function claudeWithSubagent(name: string, opts: { result: boolean; agentId?: string }): string {
+    const proj = join(dir, 'claude', name)
+    const sub = join(proj, 'sess-1', 'subagents')
+    mkdirSync(sub, { recursive: true })
+    const file = join(proj, 'sess-1.jsonl')
+    const agentCall = { type: 'tool_use', id: 'ag1', name: 'Agent', input: { description: 'Fix the parser', prompt: 'go', subagent_type: 'general-purpose' } }
+    writeFileSync(
+      file,
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'delegate it' }, timestamp: at(0) },
+        { type: 'assistant', message: { role: 'assistant', content: [agentCall] }, timestamp: at(1) },
+        ...(opts.result
+          ? [
+              {
+                type: 'user',
+                message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'ag1', content: 'Fixed both files.' }] },
+                toolUseResult: { status: 'completed', agentId: opts.agentId ?? 'a1b2', content: [] },
+                timestamp: at(9)
+              }
+            ]
+          : []),
+        { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'The subagent is done.' }] }, timestamp: at(10) }
+      ])
+    )
+    writeFileSync(join(sub, 'agent-a1b2.meta.json'), JSON.stringify({ agentType: 'general-purpose', description: 'Fix the parser', toolUseId: 'ag1', spawnDepth: 1 }))
+    writeFileSync(
+      join(sub, 'agent-a1b2.jsonl'),
+      jsonl([
+        { type: 'user', isSidechain: true, agentId: 'a1b2', message: { role: 'user', content: 'go' }, timestamp: at(2) },
+        {
+          type: 'assistant',
+          isSidechain: true,
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 's1', name: 'Read', input: { file_path: '/r/a.ts' } },
+              { type: 'tool_use', id: 's2', name: 'Edit', input: { file_path: '/r/a.ts', old_string: 'a', new_string: 'b' } },
+              { type: 'tool_use', id: 's3', name: 'TodoWrite', input: { todos: [{ content: 'its own list', status: 'pending' }] } }
+            ]
+          },
+          timestamp: at(3)
+        },
+        {
+          type: 'user',
+          isSidechain: true,
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 's2', content: 'ok' }] },
+          timestamp: at(4)
+        },
+        {
+          type: 'assistant',
+          isSidechain: true,
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 's4', name: 'Write', input: { file_path: '/r/b.ts', content: 'x\n' } }] },
+          timestamp: at(5)
+        },
+        {
+          type: 'user',
+          isSidechain: true,
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 's4', content: 'denied', is_error: true }] },
+          timestamp: at(6)
+        }
+      ])
+    )
+    return file
+  }
+
+  it('claude: a subagent’s edits follow the call’s result, in its order and with its times', () => {
+    const msgs = parseClaudeMessages(claudeWithSubagent('done', { result: true }))
+    expect(msgs.map((m) => `${m.kind}:${m.toolName ?? m.text}`)).toEqual([
+      'text:delegate it',
+      'tool_call:Agent',
+      'tool_result:Fixed both files.',
+      'tool_call:Edit',
+      'tool_call:Write',
+      'text:The subagent is done.'
+    ])
+    expect(msgs[1]).toMatchObject({ preview: 'Fix the parser' })
+    expect(msgs[1].artifact).toBeUndefined()
+    expect(msgs[3]).toMatchObject({ preview: '/r/a.ts', ts: Date.parse(at(3)), artifact: { kind: 'edits', files: [{ path: '/r/a.ts' }] } })
+    // refused inside the subagent: shown, and marked as never landing
+    expect(msgs[4]).toMatchObject({ failed: true, artifact: { kind: 'edits', files: [{ path: '/r/b.ts', change: 'write' }] } })
+  })
+
+  it('claude: a subagent still running is found by its meta file, its edits after the call', () => {
+    const msgs = parseClaudeMessages(claudeWithSubagent('running', { result: false }))
+    expect(msgs.map((m) => m.toolName ?? m.kind)).toEqual(['text', 'Agent', 'Edit', 'Write', 'text'])
+  })
+
+  it('claude: an agent id that would leave the directory is not followed', () => {
+    // `agent-../../x.jsonl` joins to `subagents/x.jsonl`: a log sits there to be found
+    const file = claudeWithSubagent('escape', { result: true, agentId: '../../x' })
+    const sub = join(dir, 'claude', 'escape', 'sess-1', 'subagents')
+    renameSync(join(sub, 'agent-a1b2.jsonl'), join(sub, 'x.jsonl'))
+    rmSync(join(sub, 'agent-a1b2.meta.json'))
+    expect(parseClaudeMessages(file).map((m) => m.toolName ?? m.kind)).toEqual(['text', 'Agent', 'tool_result', 'text'])
+  })
+
+  it('claude: a session without subagents reads as it did', () => {
+    const file = claudeWithSubagent('gone', { result: true })
+    rmSync(join(dir, 'claude', 'gone', 'sess-1'), { recursive: true })
+    expect(parseClaudeMessages(file).map((m) => m.toolName ?? m.kind)).toEqual(['text', 'Agent', 'tool_result', 'text'])
+  })
+
+  /** A Copilot session directory: its log, and whatever else the test puts beside it. */
+  function copilotSession(id: string, events: unknown[]): { sdir: string; file: string } {
+    const sdir = join(dir, 'copilot', 'session-state', id)
+    mkdirSync(join(sdir, 'files'), { recursive: true })
+    const file = join(sdir, 'events.jsonl')
+    writeFileSync(file, jsonl(events))
+    return { sdir, file }
+  }
+  const call = (id: string, toolName: string, args: unknown, s: number): unknown => ({
+    type: 'tool.execution_start',
+    data: { toolCallId: id, toolName, arguments: args },
+    timestamp: at(s)
+  })
+  const done = (id: string, success: boolean, s: number): unknown => ({
+    type: 'tool.execution_complete',
+    data: { toolCallId: id, success },
+    timestamp: at(s)
+  })
+
+  it('copilot: the plan asked for is its plan file as written then, not the summary', () => {
+    const sdir = join(dir, 'copilot', 'session-state', 'plan-1')
+    const plan = join(sdir, 'plan.md')
+    const { file } = copilotSession('plan-1', [
+      call('c1', 'create', { path: plan, file_text: '# Ship it\n\n1. one\n2. two\n' }, 1),
+      call('c2', 'exit_plan_mode', { summary: 'Two steps' }, 2),
+      call('c3', 'edit', { path: plan, old_str: '2. two', new_str: '2. two, tested' }, 3),
+      call('c4', 'exit_plan_mode', { summary: 'Two steps, tested' }, 4),
+      // a later check-off in the file is progress, not the plan that was approved
+      call('c5', 'edit', { path: plan, old_str: '1. one', new_str: '1. one ✅' }, 5),
+      call('c6', 'edit', { path: '/r/a.ts', old_str: 'a', new_str: 'b' }, 6)
+    ])
+    const calls = parseCopilotMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[1].artifact).toEqual({ kind: 'plan', text: '# Ship it\n\n1. one\n2. two' })
+    expect(calls[3].artifact).toEqual({ kind: 'plan', text: '# Ship it\n\n1. one\n2. two, tested' })
+    // writing the plan is not an edit of the repo
+    for (const i of [0, 2, 4]) expect(calls[i].artifact).toBeUndefined()
+    expect(calls[5]).toMatchObject({ artifact: { kind: 'edits', files: [{ path: '/r/a.ts' }] } })
+  })
+
+  it('copilot: a plan the log cannot follow is read from the file (files/plan.md too)', () => {
+    const { sdir, file } = copilotSession('plan-2', [
+      // the creation is older than what was read; this edit's passage isn't known
+      call('c1', 'edit', { path: '/elsewhere/session-state/plan-2/files/plan.md', old_str: 'x', new_str: 'y' }, 1),
+      call('c2', 'exit_plan_mode', { summary: 'The summary' }, 2)
+    ])
+    writeFileSync(join(sdir, 'files', 'plan.md'), '# From the file\n')
+    const calls = parseCopilotMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[1].artifact).toEqual({ kind: 'plan', text: '# From the file' })
+    expect(calls[0].artifact).toBeUndefined()
+  })
+
+  it('copilot: with no plan file anywhere, the summary is still the plan', () => {
+    const { file } = copilotSession('plan-3', [call('c1', 'exit_plan_mode', { summary: 'Only a summary' }, 1)])
+    expect(parseCopilotMessages(file)[0].artifact).toEqual({ kind: 'plan', text: 'Only a summary' })
+  })
+
+  it('copilot: a draft plan with no approval asked yet rides the row that wrote it', () => {
+    const sdir = join(dir, 'copilot', 'session-state', 'plan-4')
+    const { file } = copilotSession('plan-4', [
+      call('c1', 'create', { path: join(sdir, 'plan.md'), file_text: '# Draft\n' }, 1),
+      call('c2', 'view', { path: join(sdir, 'plan.md') }, 2)
+    ])
+    const calls = parseCopilotMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[0].artifact).toEqual({ kind: 'plan', text: '# Draft' })
+    expect(calls[1].artifact).toBeUndefined()
+  })
+
+  /** Copilot's own schema for the table, as its CLI creates it. */
+  function todoDb(sdir: string, rows: ReadonlyArray<readonly [string, string]>): void {
+    const db = new DatabaseSync(join(sdir, 'session.db'))
+    db.exec(
+      "CREATE TABLE todos (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'done', 'blocked')))"
+    )
+    const insert = db.prepare('INSERT INTO todos (id, title, status) VALUES (?, ?, ?)')
+    rows.forEach(([title, status], i) => insert.run(`t${i}`, title, status))
+    db.close()
+  }
+
+  it('copilot: the to-do table as it stands rides the call that last changed it', () => {
+    const { sdir, file } = copilotSession('todos-1', [
+      call('q1', 'sql', { description: 'Plan the work', query: "INSERT INTO todos (id, title) VALUES ('a', 'Read'), ('b', 'Write')" }, 1),
+      call('q2', 'sql', { description: 'Look', query: 'SELECT * FROM todos' }, 2),
+      call('q3', 'sql', { description: 'Advance', query: "UPDATE todos SET status = 'done' WHERE id = 'a'" }, 3),
+      done('q3', true, 4),
+      // a change that failed is not where the list stands
+      call('q4', 'sql', { description: 'Oops', query: 'UPDATE todos SET nope = 1' }, 5),
+      done('q4', false, 6),
+      call('q5', 'sql', { description: 'Scratch', query: 'INSERT INTO notes VALUES (1)' }, 7)
+    ])
+    todoDb(sdir, [
+      ['Read', 'done'],
+      ['Write', 'in_progress'],
+      ['Ship', 'blocked'],
+      ['Tell', 'pending']
+    ])
+    const calls = parseCopilotMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls.map((m) => m.preview)).toEqual(['Plan the work', 'Look', 'Advance', 'Oops', 'Scratch'])
+    expect(calls[2].artifact).toEqual({
+      kind: 'todos',
+      items: [
+        { text: 'Read', status: 'completed' },
+        { text: 'Write', status: 'in_progress' },
+        { text: 'Ship', status: 'blocked' },
+        { text: 'Tell', status: 'pending' }
+      ]
+    })
+    for (const i of [0, 1, 3, 4]) expect(calls[i].artifact).toBeUndefined()
+  })
+
+  it('copilot: a table that cannot be read leaves the queries plain', () => {
+    const { sdir, file } = copilotSession('todos-2', [
+      call('q1', 'sql', { description: 'Plan', query: "INSERT INTO todos (id, title) VALUES ('a', 'Read')" }, 1)
+    ])
+    // no db at all
+    expect(parseCopilotMessages(file)[0].artifact).toBeUndefined()
+    // a db without the table
+    new DatabaseSync(join(sdir, 'session.db')).close()
+    expect(parseCopilotMessages(file)[0].artifact).toBeUndefined()
+    // not a database
+    writeFileSync(join(sdir, 'session.db'), 'garbage')
+    expect(parseCopilotMessages(file)[0].artifact).toBeUndefined()
   })
 })
 

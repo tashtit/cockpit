@@ -8,6 +8,7 @@ import {
   parseUnifiedDiff,
   todoListArtifact,
   todoStatus,
+  todoTableArtifact,
   toolArtifact
 } from '../src/main/parsers/artifacts'
 import type { FileEdit, WorkArtifact } from '../src/shared/types'
@@ -96,13 +97,34 @@ describe('toolArtifact: to-do lists', () => {
     expect(toolArtifact('TaskUpdate', { status: 'completed' })).toBeUndefined()
   })
 
-  it('folds every CLI’s status words onto three, and anything unknown to not started', () => {
+  it('folds every CLI’s status words onto four, and anything unknown to not started', () => {
     expect(todoStatus('completed')).toBe('completed')
     expect(todoStatus('done')).toBe('completed')
     expect(todoStatus('in-progress')).toBe('in_progress')
     expect(todoStatus('IN_PROGRESS')).toBe('in_progress')
-    expect(todoStatus('blocked')).toBe('pending')
+    // Copilot's to-do table has a fourth state
+    expect(todoStatus('blocked')).toBe('blocked')
+    expect(todoStatus('waiting')).toBe('pending')
     expect(todoStatus(undefined)).toBe('pending')
+  })
+
+  it('reads Copilot’s to-do table rows by their title', () => {
+    expect(
+      todoTableArtifact([
+        { title: 'Read', status: 'done' },
+        { title: 'Ship', status: 'blocked' },
+        { title: '', status: 'pending' },
+        { status: 'pending' }
+      ])
+    ).toEqual({
+      kind: 'todos',
+      items: [
+        { text: 'Read', status: 'completed' },
+        { text: 'Ship', status: 'blocked' }
+      ]
+    })
+    expect(todoTableArtifact([])).toEqual({ kind: 'todos', items: [] })
+    expect(todoTableArtifact('not rows')).toBeUndefined()
   })
 
   it('skips steps with no words and keeps a list bounded', () => {

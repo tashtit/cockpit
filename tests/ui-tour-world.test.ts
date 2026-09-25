@@ -3,9 +3,9 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { listClaudeSessions } from '../src/main/parsers/claude'
+import { listClaudeSessions, parseClaudeMessages } from '../src/main/parsers/claude'
 import { listCodexSessions } from '../src/main/parsers/codex'
-import { listCopilotSessions } from '../src/main/parsers/copilot'
+import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
 import { sanitizeRoundtable } from '../src/main/roundtable-core'
 import { buildWorld, type World } from '../scripts/ui-tour/world.mts'
 
@@ -36,6 +36,18 @@ describe('ui-tour fixture world', () => {
     // the tour opens these by title — a parser that stops reading titles breaks it
     expect(claude.map((s) => s.title)).toContain('Fix the login flake in CI')
     expect(copilot.map((s) => s.title)).toContain('Tidy the usage panel spacing')
+  })
+
+  it('holds the work agents keep beside their logs: a subagent’s edit, a Copilot to-do table', () => {
+    const claude = listClaudeSessions(join(world.home, '.claude'), 'claude-default')
+    const paginate = claude.find((s) => s.title === 'Add pagination to the sessions list')!
+    const rows = parseClaudeMessages(paginate.sourcePath)
+    expect(rows.map((m) => m.toolName).filter(Boolean)).toEqual(['Agent', 'Edit'])
+    expect(rows.find((m) => m.toolName === 'Edit')?.artifact?.kind).toBe('edits')
+    const copilot = listCopilotSessions(join(world.home, '.copilot'), 'copilot-default')
+    const tidy = copilot.find((s) => s.title === 'Tidy the usage panel spacing')!
+    const list = parseCopilotMessages(tidy.sourcePath).find((m) => m.artifact?.kind === 'todos')
+    expect(list?.artifact).toMatchObject({ kind: 'todos', items: [{ status: 'completed' }, { status: 'completed' }, { status: 'blocked' }] })
   })
 
   it('has a Copilot session another one started, named by a block scalar', () => {

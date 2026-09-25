@@ -1,4 +1,4 @@
-import type { EditLine, FileEdit, SessionMessage, TodoStatus, WorkArtifact } from '../../shared/types'
+import type { EditLine, FileEdit, SessionMessage, TodoStatus, WorkArtifact } from './types'
 
 /**
  * The Work panel's model: what the agent's own tool calls say about its work, folded

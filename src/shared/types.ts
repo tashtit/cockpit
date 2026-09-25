@@ -121,8 +121,9 @@ export type AskPrompt = {
 
 /* ---------- work an agent reports: its plan, its to-dos, its edits ---------- */
 
-/** Where one step of an agent's to-do list stands, in the three words every CLI uses. */
-export type TodoStatus = 'pending' | 'in_progress' | 'completed'
+/** Where one step of an agent's to-do list stands: the three words every CLI uses, and
+ *  Copilot's `blocked` — a step that cannot move until something else does. */
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'blocked'
 
 export type TodoItem = { readonly text: string; readonly status: TodoStatus }
 

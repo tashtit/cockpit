@@ -47,11 +47,12 @@ function lines(text: string): string[] {
   return out
 }
 
-/** The words each CLI uses for a step's state, folded onto three. */
+/** The words each CLI uses for a step's state, folded onto four. */
 export function todoStatus(v: unknown): TodoStatus {
   const s = typeof v === 'string' ? v.toLowerCase().replace(/[\s-]/g, '_') : ''
   if (s === 'completed' || s === 'complete' || s === 'done') return 'completed'
   if (s === 'in_progress' || s === 'active' || s === 'running') return 'in_progress'
+  if (s === 'blocked') return 'blocked'
   return 'pending'
 }
 
@@ -70,7 +71,7 @@ function todos(list: unknown, read: (item: Rec) => { text: unknown; status: unkn
   return { kind: 'todos', items }
 }
 
-function plan(text: unknown): WorkArtifact | undefined {
+export function planArtifact(text: unknown): WorkArtifact | undefined {
   const t = str(text)
   return t ? { kind: 'plan', text: capText(t.trim(), MAX_PLAN_CHARS) } : undefined
 }
@@ -241,7 +242,7 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
   switch (name) {
     // Claude
     case 'ExitPlanMode':
-      return plan(i?.plan)
+      return planArtifact(i?.plan)
     case 'TodoWrite':
       return todos(i?.todos, (t) => ({ text: t.content ?? t.activeForm, status: t.status }))
     case 'TaskCreate': {
@@ -289,7 +290,7 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
       return patchArtifact(typeof input === 'string' ? input : (i?.input ?? i?.patch))
     // Copilot
     case 'exit_plan_mode':
-      return plan(i?.summary ?? i?.plan)
+      return planArtifact(i?.summary ?? i?.plan)
     case 'edit':
     case 'str_replace':
       return edits([replaceEdit(i?.path, [[i?.old_str, i?.new_str]])])
@@ -341,6 +342,11 @@ function changeKind(v: unknown): FileEdit['change'] {
 /** Codex's `todo_list` stream item: `{ items: [{ text, completed }] }`. */
 export function todoListArtifact(items: unknown): WorkArtifact | undefined {
   return todos(items, (t) => ({ text: t.text, status: t.completed === true ? 'completed' : 'pending' }))
+}
+
+/** Copilot's to-do table (`todos` in the session's own `session.db`): `{ title, status }` rows. */
+export function todoTableArtifact(rows: unknown): WorkArtifact | undefined {
+  return todos(rows, (t) => ({ text: t.title, status: t.status }))
 }
 
 /** ACP's `plan` update: `{ entries: [{ content, status, priority }] }`, always the whole list. */

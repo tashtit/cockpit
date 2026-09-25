@@ -1,7 +1,8 @@
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, sep } from 'node:path'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
-import { toolArtifact } from './artifacts'
+import { planArtifact, todoTableArtifact, toolArtifact } from './artifacts'
 import {
   capText,
   readJson,
@@ -303,15 +304,111 @@ function parseLegacyMeta(file: string, sourceLabel: string): SessionMeta | null 
   }
 }
 
+/**
+ * Copilot keeps the plan it asks approval for in a file of its own — `plan.md` in the
+ * session's directory, `files/plan.md` in some CLI releases — written with its ordinary
+ * file tools, and `exit_plan_mode` carries only a summary of it.
+ */
+const PLAN_FILES = ['plan.md', join('files', 'plan.md')]
+/** The plan artifact is capped well under this; a head read is enough */
+const PLAN_HEAD_BYTES = 128 * 1024
+
+/** Which of the session's plan files this call writes (one of PLAN_FILES); null for
+ *  everything else. */
+function planFileWritten(sessionDir: string, toolName: string, args: unknown): string | null {
+  if (!['create', 'edit', 'str_replace', 'str_replace_editor'].includes(toolName)) return null
+  const path = args && typeof args === 'object' ? (args as Record<string, unknown>).path : null
+  if (typeof path !== 'string') return null
+  // matched on the session's id, not the config home: a home that moved since still
+  // wrote this session's plan
+  const id = basename(sessionDir)
+  return PLAN_FILES.find((f) => path.endsWith(`${sep}${id}${sep}${f}`)) ?? null
+}
+
+/**
+ * The plan's text after a write to it: a `create` replaces it whole, an `edit` swaps
+ * one passage. Null when the write can't be followed — an edit to a plan never seen,
+ * or a passage that isn't there — so a version is never guessed.
+ */
+function replayPlanWrite(plan: string | null, toolName: string, args: unknown): string | null {
+  const i = args && typeof args === 'object' ? (args as Record<string, unknown>) : {}
+  const command = toolName === 'str_replace_editor' ? i.command : toolName
+  if (command === 'create') return typeof i.file_text === 'string' ? i.file_text : null
+  if (command !== 'edit' && command !== 'str_replace') return null
+  if (plan === null || typeof i.old_str !== 'string' || typeof i.new_str !== 'string') return null
+  const next = i.new_str
+  return plan.includes(i.old_str) ? plan.replace(i.old_str, () => next) : null
+}
+
+/**
+ * Copilot keeps its to-do list in a table of the session's own database — `todos` in
+ * `session.db` beside the log — and changes it through its `sql` tool, in every form
+ * SQL has (inserts, updates by id, CASE WHEN over the set). Replaying those statements
+ * would mean writing a SQL engine; the table already says where the list stands.
+ */
+const TODO_DB = 'session.db'
+/** More than the artifact keeps (it caps the list itself); bounds the read */
+const TODO_ROWS = 200
+
+/** A `sql` call that changed the to-do table — the row the list is shown on. */
+function changesTodos(toolName: string, args: unknown): boolean {
+  if (toolName !== 'sql' || !args || typeof args !== 'object') return false
+  const query = (args as Record<string, unknown>).query
+  return typeof query === 'string' && /\btodos\b/i.test(query) && /\b(insert|update|delete|replace)\b/i.test(query)
+}
+
+/**
+ * The to-do table as it stands, read-only and in the order the steps were added; null
+ * when it can't be read (no db, no table yet, a lock) — the row then stays a plain
+ * query, never an empty list that would read as "cleared".
+ */
+function todoTable(sessionDir: string): unknown[] | null {
+  const file = join(sessionDir, TODO_DB)
+  if (!existsSync(file)) return null
+  let db: DatabaseSync | null = null
+  try {
+    db = new DatabaseSync(file, { readOnly: true })
+    return db.prepare(`SELECT title, status FROM todos ORDER BY rowid LIMIT ${TODO_ROWS}`).all()
+  } catch {
+    return null
+  } finally {
+    db?.close()
+  }
+}
+
+/**
+ * The plan file as it is now: the one the log last wrote, else whichever exists —
+ * always inside the session's own directory, whatever path the log named.
+ */
+function planOnDisk(sessionDir: string, written: string | null): string | null {
+  const names = written ? [written, ...PLAN_FILES.filter((f) => f !== written)] : PLAN_FILES
+  for (const name of names) {
+    const f = join(sessionDir, name)
+    if (!existsSync(f)) continue
+    const text = readHead(f, PLAN_HEAD_BYTES).text
+    if (text.trim()) return text
+  }
+  return null
+}
+
 export function parseCopilotMessages(file: string): SessionMessage[] {
   if (file.endsWith('events.jsonl')) {
     const { lines, truncated } = readJsonlTail(file)
+    const sessionDir = dirname(file)
     const out: SessionMessage[] = []
     if (truncated) {
       out.push({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
     }
     // where each call's row sits, so a failed completion can mark it
     const callRows = new Map<string, number>()
+    // the plan file as the log has written it so far (null: not followed), which of
+    // PLAN_FILES it is, and the row that last asked for approval / last wrote it
+    let plan: string | null = null
+    let planPath: string | null = null
+    let exitRow: { at: number; replayed: boolean } | null = null
+    let planWriteRow: number | null = null
+    // the calls that changed the to-do table — see TODO_DB
+    const todoRows: number[] = []
     for (const ev of lines) {
       const ts = toMs(ev.timestamp) ?? undefined
       if (ev.type === 'user.message' || ev.type === 'assistant.message') {
@@ -324,7 +421,21 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
         const args = ev.data?.arguments ?? ev.data?.input ?? ''
         // the same humanized headline Claude and Codex rows get — raw JSON stays in the detail
         const preview = toolPreview(toolName, args)
-        const artifact = toolArtifact(toolName, args)
+        const written = planFileWritten(sessionDir, toolName, args)
+        let artifact = toolArtifact(toolName, args)
+        if (written) {
+          // the plan is not the work: a write to it is never an edit of the repo's
+          plan = replayPlanWrite(plan, toolName, args)
+          planPath = written
+          planWriteRow = out.length
+          artifact = undefined
+        } else if (toolName === 'exit_plan_mode') {
+          // what it asked approval for is the plan as written then, not the summary
+          exitRow = { at: out.length, replayed: plan !== null }
+          artifact = (plan !== null ? planArtifact(plan) : undefined) ?? artifact
+        } else if (changesTodos(toolName, args)) {
+          todoRows.push(out.length)
+        }
         if (typeof ev.data?.toolCallId === 'string') callRows.set(ev.data.toolCallId, out.length)
         out.push({
           role: 'assistant',
@@ -344,6 +455,24 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
         if (text) out.push({ role: 'system', kind: 'system', text: truncate(text, 200), ts })
       }
     }
+    const setPlan = (at: number, text: string | null): void => {
+      const artifact = planArtifact(text)
+      if (artifact) out[at] = { ...out[at]!, artifact }
+    }
+    if (exitRow && !exitRow.replayed) {
+      // the newest approval asked for a plan the log couldn't follow — created before
+      // the tail read, or edited where no passage matched: the file is the plan
+      setPlan(exitRow.at, planOnDisk(sessionDir, planPath))
+    } else if (!exitRow && planWriteRow !== null) {
+      // no approval asked yet: the draft rides the row that last wrote it
+      setPlan(planWriteRow, plan ?? planOnDisk(sessionDir, planPath))
+    }
+    // the list as it stands now rides the call that last changed it; earlier calls
+    // stay plain queries — the table keeps no history of what it said before
+    const todoRow = [...todoRows].reverse().find((at) => !out[at]!.failed)
+    const table = todoRow !== undefined ? todoTable(sessionDir) : null
+    const todos = table ? todoTableArtifact(table) : undefined
+    if (todoRow !== undefined && todos) out[todoRow] = { ...out[todoRow]!, artifact: todos }
     return out
   }
 

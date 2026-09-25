@@ -1330,6 +1330,7 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .work-todo.in_progress .work-todo-mark { color: var(--accent); }
 .work-todo.completed .work-todo-mark { color: var(--ok); }
 .work-todo.completed .work-todo-text { color: var(--fg-dim); }
+.work-todo.blocked .work-todo-mark { color: var(--warn); }
 /* edits: the review's file blocks, one per file, each edit under its own rail */
 .work-count { color: var(--fg-dim); font-size: var(--fs-xs); white-space: nowrap; }
 .work-edit { transition: box-shadow var(--dur) var(--ease); }
