@@ -88,22 +88,22 @@ describe('copilotModelsInLog', () => {
 })
 
 describe('listAgentModels', () => {
-  it('claude: the documented aliases and names — it keeps no catalog', () => {
-    expect(listAgentModels('claude', home())).toEqual(BUILTIN_MODELS.claude)
+  it('claude: the documented aliases and names — it keeps no catalog', async () => {
+    expect(await listAgentModels('claude', home())).toEqual(BUILTIN_MODELS.claude)
   })
 
-  it('codex: its own cached catalog, plus the configured default', () => {
+  it('codex: its own cached catalog, plus the configured default', async () => {
     const h = home()
     writeFileSync(join(h, 'models_cache.json'), CODEX_CACHE)
     writeFileSync(join(h, 'config.toml'), 'model = "gpt-5.4-legacy"\n')
-    expect(listAgentModels('codex', h).map((m) => m.id)).toEqual([
+    expect((await listAgentModels('codex', h)).map((m) => m.id)).toEqual([
       'gpt-6-astra',
       'gpt-5.5',
       'gpt-5.4-legacy'
     ])
   })
 
-  it('copilot: auto, then every model its session logs show it serving', () => {
+  it('copilot: auto, then every model its session logs show it serving', async () => {
     const h = home()
     const log = (id: string, text: string, mtime: number): void => {
       mkdirSync(join(h, 'session-state', id), { recursive: true })
@@ -114,16 +114,31 @@ describe('listAgentModels', () => {
     log('a', '{"data":{"model":"gpt-5.6-sol"}}\n', 1000)
     log('b', '{"data":{"currentModel":"claude-opus-5"}}\n', 2000)
     mkdirSync(join(h, 'session-state', 'no-log'))
-    expect(listAgentModels('copilot', h).map((m) => m.id)).toEqual([
+    expect((await listAgentModels('copilot', h)).map((m) => m.id)).toEqual([
       'auto',
       'claude-opus-5',
       'gpt-5.6-sol'
     ])
   })
 
-  it('a home with nothing in it still offers the built-ins', () => {
-    expect(listAgentModels('codex', home())).toEqual([])
-    expect(listAgentModels('copilot', home()).map((m) => m.id)).toEqual(['auto'])
+  it('copilot: the newest sixty logs of however many sessions, one scan for a burst of pickers', async () => {
+    const h = home()
+    for (let i = 0; i < 150; i++) {
+      const id = `s-${String(i).padStart(3, '0')}`
+      mkdirSync(join(h, 'session-state', id), { recursive: true })
+      const p = join(h, 'session-state', id, 'events.jsonl')
+      const model = i === 0 ? 'too-old-1' : i === 149 ? 'newest-1' : i === 100 ? 'recent-1' : null
+      writeFileSync(p, model ? `{"data":{"model":"${model}"}}\n` : '{}\n')
+      utimesSync(p, 1000 + i, 1000 + i)
+    }
+    const first = listAgentModels('copilot', h)
+    expect(listAgentModels('copilot', h)).toBe(first)
+    expect((await first).map((m) => m.id)).toEqual(['auto', 'newest-1', 'recent-1'])
+  })
+
+  it('a home with nothing in it still offers the built-ins', async () => {
+    expect(await listAgentModels('codex', home())).toEqual([])
+    expect((await listAgentModels('copilot', home())).map((m) => m.id)).toEqual(['auto'])
   })
 })
 

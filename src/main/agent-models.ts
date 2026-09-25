@@ -1,4 +1,5 @@
-import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentModel, Provider } from '../shared/types'
@@ -8,21 +9,28 @@ import { codexCatalog, codexConfiguredModel, copilotModelsInLog } from './agent-
 /** Copilot logs read for models: the newest few, the head of each — bounded like every scan. */
 const COPILOT_LOGS = 60
 const COPILOT_LOG_BYTES = 256 * 1024
+/**
+ * Stats in flight at once over session-state, which holds thousands of sessions: enough
+ * to be quick, few enough that the rest of main's file work isn't queued behind them.
+ */
+const STAT_BATCH = 64
 const CACHE_MS = 10 * 60_000
 
-const cache = new Map<string, { at: number; models: AgentModel[] }>()
+/** The answer in flight or found, so a burst of pickers opening shares one scan. */
+const cache = new Map<string, { readonly at: number; readonly models: Promise<AgentModel[]> }>()
 
-function readHead(path: string, bytes: number): string {
-  let fd: number | null = null
+async function readHead(path: string, bytes: number): Promise<string> {
   try {
-    fd = openSync(path, 'r')
-    const buf = Buffer.alloc(bytes)
-    const n = readSync(fd, buf, 0, bytes, 0)
-    return buf.subarray(0, n).toString('utf8')
+    const fh = await open(path, 'r')
+    try {
+      const buf = Buffer.alloc(bytes)
+      const { bytesRead } = await fh.read(buf, 0, bytes, 0)
+      return buf.subarray(0, bytesRead).toString('utf8')
+    } finally {
+      await fh.close()
+    }
   } catch {
     return ''
-  } finally {
-    if (fd !== null) closeSync(fd)
   }
 }
 
@@ -42,26 +50,35 @@ function codexModels(home: string): AgentModel[] {
   return configured ? mergeModels(catalog, [{ id: configured, label: configured }]) : catalog
 }
 
-function copilotModels(home: string): AgentModel[] {
+/**
+ * Asynchronous throughout: a picker opening walks every Copilot session there is, and
+ * done synchronously that held main's event loop — and every IPC call — for it.
+ */
+async function copilotModels(home: string): Promise<AgentModel[]> {
   const root = join(home, 'session-state')
-  let dirs: Array<{ path: string; mtime: number }> = []
+  let names: string[]
   try {
-    dirs = readdirSync(root)
-      .map((d) => {
+    names = await readdir(root)
+  } catch {
+    return []
+  }
+  const logs: Array<{ readonly path: string; readonly mtime: number }> = []
+  for (let i = 0; i < names.length; i += STAT_BATCH) {
+    const batch = await Promise.all(
+      names.slice(i, i + STAT_BATCH).map(async (d) => {
         const path = join(root, d, 'events.jsonl')
         try {
-          return { path, mtime: statSync(path).mtimeMs }
+          return { path, mtime: (await stat(path)).mtimeMs }
         } catch {
           return null
         }
       })
-      .filter((d): d is { path: string; mtime: number } => d !== null)
-  } catch {
-    return []
+    )
+    for (const log of batch) if (log) logs.push(log)
   }
   const seen = new Set<string>()
-  for (const d of dirs.sort((a, b) => b.mtime - a.mtime).slice(0, COPILOT_LOGS)) {
-    for (const id of copilotModelsInLog(readHead(d.path, COPILOT_LOG_BYTES))) seen.add(id)
+  for (const log of logs.sort((a, b) => b.mtime - a.mtime).slice(0, COPILOT_LOGS)) {
+    for (const id of copilotModelsInLog(await readHead(log.path, COPILOT_LOG_BYTES))) seen.add(id)
   }
   return [...seen].sort().map((id) => ({ id, label: id }))
 }
@@ -71,15 +88,20 @@ function copilotModels(home: string): AgentModel[] {
  * CLI documents, then what that home shows — Codex's own catalog, the models Copilot has
  * served. Claude keeps no catalog, so its built-ins are the list. Cached for ten minutes.
  */
-export function listAgentModels(provider: Provider, configDir?: string): AgentModel[] {
+export function listAgentModels(provider: Provider, configDir?: string): Promise<AgentModel[]> {
   const home =
     configDir ?? join(homedir(), provider === 'claude' ? '.claude' : provider === 'codex' ? '.codex' : '.copilot')
   const key = `${provider}|${home}`
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.models
   const found =
-    provider === 'codex' ? codexModels(home) : provider === 'copilot' ? copilotModels(home) : []
-  const models = mergeModels(BUILTIN_MODELS[provider], found)
+    provider === 'codex'
+      ? Promise.resolve(codexModels(home))
+      : provider === 'copilot'
+        ? copilotModels(home)
+        : Promise.resolve([])
+  // every read above fails soft, so what is cached here never rejects
+  const models = found.then((f) => mergeModels(BUILTIN_MODELS[provider], f))
   cache.set(key, { at: Date.now(), models })
   return models
 }
