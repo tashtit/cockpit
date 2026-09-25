@@ -1417,7 +1417,7 @@ function RowMeta({
   ) : working ? (
     <Spinner label={`${PROVIDER_LABEL[s.provider]} is working`} />
   ) : landed ? (
-    <LandingMark landing={landed} p={s.provider} />
+    <LandingMark landing={landed} p={s.provider} plainDot />
   ) : pr ? (
     <PrBadge pr={pr} onOpen={onOpenUrl} compact />
   ) : (
@@ -1456,7 +1456,7 @@ function FoldedNews({
       {best.rank === 2 || !best.landing ? (
         <Spinner />
       ) : (
-        <LandingMark landing={best.landing} p={best.s.provider} mute />
+        <LandingMark landing={best.landing} p={best.s.provider} mute plainDot />
       )}
     </span>
   )

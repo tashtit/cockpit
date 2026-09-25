@@ -1638,6 +1638,9 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
    not working — against flying's pulse and the ground's dim grey. */
 .landed-dot { width: 7px; height: 7px; border-radius: 50%;
   background: currentColor; flex-shrink: 0; }
+/* …except in the sidebar and the palette, whose rows lead with the agent's logo: there
+   one accent dot reads "unread" for every agent, beside the spinner's neutral grey */
+.landed-dot-plain { color: var(--accent); }
 .board-meta-landed { color: var(--fg); }
 .board-row .pulse { flex-shrink: 0; }
 .board-task { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;

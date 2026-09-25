@@ -403,15 +403,19 @@ export function landingLabel(l: Landing): string {
  * stopped to ask, GitHub's x in its red for a pull request that went red. Three
  * shapes, so the reason never rides on colour. `mute` hides it from assistive tech
  * where the row already says the reason in words (the board's meta column).
+ * `plainDot` paints the landed dot in the accent instead of the livery — for the
+ * sidebar and the palette, whose rows already lead with the agent's logo.
  */
 export function LandingMark({
   landing,
   p,
-  mute = false
+  mute = false,
+  plainDot = false
 }: {
   landing: Landing
   p: Provider
   mute?: boolean
+  plainDot?: boolean
 }): JSX.Element {
   const a11y = mute ? { 'aria-hidden': true as const } : { role: 'img', 'aria-label': landingLabel(landing) }
   if (landing.kind === 'asks') {
@@ -428,7 +432,7 @@ export function LandingMark({
       </span>
     )
   }
-  return <span className={`landed-dot plogo-${p}`} {...a11y} />
+  return <span className={plainDot ? 'landed-dot landed-dot-plain' : `landed-dot plogo-${p}`} {...a11y} />
 }
 
 export function PrBadge({

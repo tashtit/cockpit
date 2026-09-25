@@ -37,11 +37,13 @@ under them says how much was read and why a search stopped early.
 
 ## Sections
 
-- **Empty query — the board in miniature:** `flying now` (busy sessions, longest
-  airborne first, livery `LiveDot`s) · `landed` (turns that ended unseen, newest first,
-  solid livery dot) · `recent` (idle by recency, 8 total from one `pageSessions` call) ·
-  `go to` (all views). The palette inherits the app's signature
-  liveness; it adds no decoration of its own.
+- **Empty query — the board in miniature:** `waiting on you` (an agent asking, its
+  `.asks-mark`) · `flying now` (busy sessions, longest airborne first, the neutral
+  `Spinner`) · `needs you` (a red PR's `.fix-mark`, or a turn that ended unseen with the
+  plain accent `.landed-dot-plain`, newest first) · `recent` (idle by recency, 8 total
+  from one `pageSessions` call) · `go to` (all views). The board's order, in the
+  sidebar's marks rather than the board's livery: every row already leads with its
+  agent's logo, and the palette adds no decoration of its own.
 - **With a query:** `sessions` (server search, capped at 6; overflow states the count —
   "N more — keep typing to narrow") · `start a session in` (name-matched repos with a
   root, max 4) · `go to` (views matched on label *or* keywords — "skills" and "mcp"
@@ -68,7 +70,8 @@ under them says how much was read and why a search stopped early.
 ## Row grammar
 
 Session rows reuse the established vocabulary — agent `ProviderLogo` · title ·
-`BranchChip` · meta slot (`LiveDot` while flying, else timestamp; repo name appears as a
+`BranchChip` · meta slot (`LandingMark` while it asks, else `Spinner` while flying, else
+`LandingMark` for a red PR or a landing, else timestamp; repo name appears as a
 `.palette-hint` only in query mode). Repo rows: `RepoIcon` · dimmed-owner `owner/name` ·
 "new session" hint. View rows: shared icons from `logos.tsx` (`AgentIcon`, `GraphIcon`,
 `GearIcon`, `CockpitLogo`) — the same components the sidebar nav renders, so the two
