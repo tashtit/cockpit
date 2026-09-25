@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { RepoInfo } from '../shared/types'
-import { readHead, readSmallFile } from './parsers/util'
+import { MAX_CWD_CHARS, readHead, readSmallFile } from './parsers/util'
 
 export const GENERAL_REPO: RepoInfo = { key: 'general', name: 'General', fullName: null, root: null }
 
@@ -40,6 +40,9 @@ export function clearRepoCache(): void {
  */
 export function resolveRepo(cwd: string | null): ResolvedRepo | null {
   if (typeof cwd !== 'string' || !cwd.startsWith('/')) return null
+  // the walk below stats every ancestor, each nearly as long as the path — quadratic
+  // in its length — so a path no directory can have is refused before it starts
+  if (cwd.length > MAX_CWD_CHARS) return null
   const cached = cwdCache.get(cwd)
   if (cached !== undefined) return cached
   const res = resolveUncached(resolve(cwd))

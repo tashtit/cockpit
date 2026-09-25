@@ -16,6 +16,7 @@ import {
   toolPreview,
   TRANSCRIPT_TAIL_BYTES,
   truncate,
+  usableCwd,
   walkFiles
 } from './util'
 
@@ -86,8 +87,8 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
   const scan = (l: any): void => {
     if (sidechain === null && typeof l.isSidechain === 'boolean') sidechain = l.isSidechain
     // strings only: a cwd of another type reached the repo resolver and threw there,
-    // outside the parser's own failure tolerance, on every scan
-    if (typeof l.cwd === 'string' && l.cwd && !cwd) cwd = l.cwd
+    // outside the parser's own failure tolerance, on every scan — and path-sized ones
+    if (!cwd) cwd = usableCwd(l.cwd)
     if (typeof l.gitBranch === 'string' && l.gitBranch && !logBranch) logBranch = l.gitBranch
     const ts = toMs(l.timestamp)
     if (ts) {

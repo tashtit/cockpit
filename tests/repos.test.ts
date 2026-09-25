@@ -83,6 +83,17 @@ describe('resolveRepo', () => {
     expect(resolveRepo(join(root, 'plain'))).toBeNull()
     expect(resolveRepo(null)).toBeNull()
   })
+
+  // the ancestor walk is quadratic in the path's length: 16k components took seconds
+  it('refuses a path longer than any directory can have, without walking it', () => {
+    const long = mainRepo + '/a'.repeat(16_000)
+    const started = Date.now()
+    expect(resolveRepo(long)).toBeNull()
+    expect(branchForCwd(long)).toBeNull()
+    expect(Date.now() - started).toBeLessThan(500)
+    // a deep but possible path still resolves
+    expect(resolveRepo(mainRepo + '/a'.repeat(400))?.repo.key).toBe(mainRepo)
+  })
 })
 
 describe('fullNameFromUrl', () => {

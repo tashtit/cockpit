@@ -262,6 +262,19 @@ export function fileTimes(file: string): { start: number; end: number } {
   }
 }
 
+/**
+ * The longest path macOS will use as a directory (PATH_MAX). A log can claim any
+ * string as its cwd — a 256KB head holds a path of tens of thousands of components,
+ * and the repo resolver walks every ancestor of what it is given — so anything longer
+ * is no working directory at all.
+ */
+export const MAX_CWD_CHARS = 1024
+
+/** A log's cwd when it can be one: a non-empty string no longer than MAX_CWD_CHARS. */
+export function usableCwd(v: unknown): string | null {
+  return typeof v === 'string' && v !== '' && v.length <= MAX_CWD_CHARS ? v : null
+}
+
 export function toMs(v: unknown): number | null {
   if (typeof v === 'number') return v > 1e12 ? v : v * 1000
   if (typeof v === 'string') {

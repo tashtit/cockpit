@@ -16,6 +16,7 @@ import {
   contentToText,
   toolPreview,
   truncate,
+  usableCwd,
   walkFiles
 } from './util'
 
@@ -178,7 +179,7 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
       sawStart = true
       if (ev.data.sessionId) nativeId = String(ev.data.sessionId)
       const ctx = ev.data.context ?? {}
-      if (typeof ctx.cwd === 'string') cwd = ctx.cwd
+      cwd = usableCwd(ctx.cwd) ?? cwd
       // branch/repository stopped being written after CLI 1.0.80 — current sessions
       // carry a context of { cwd } alone. Still read here for older sessions; the
       // indexer derives the branch from the checkout when it's absent.
@@ -301,7 +302,7 @@ function parseLegacyMeta(file: string, sourceLabel: string): SessionMeta | null 
     nativeId,
     source: sourceLabel,
     title: title || '(untitled)',
-    cwd: typeof j.cwd === 'string' ? j.cwd : typeof j.workingDirectory === 'string' ? j.workingDirectory : null,
+    cwd: usableCwd(j.cwd) ?? usableCwd(j.workingDirectory),
     logBranch: typeof j.branch === 'string' ? j.branch : null,
     startedAt: toMs(j.startTime ?? j.createdAt) ?? ft.start,
     updatedAt: toMs(j.updatedAt ?? j.endTime) ?? ft.end,

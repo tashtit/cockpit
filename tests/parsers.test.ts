@@ -776,6 +776,42 @@ describe('robustness', () => {
     expect(parseCodexMeta(codex, 'x')).toMatchObject({ cwd: null, logBranch: null })
   })
 
+  // the repo resolver walks every ancestor of a cwd: a 16k-component "path" cost seconds
+  it('takes no cwd longer than a directory path can be', () => {
+    const dir = join(root, 'long-cwd')
+    const long = '/a'.repeat(16_000)
+    const ts = '2026-08-01T10:00:00Z'
+    const prompt = { type: 'user', message: { role: 'user', content: 'hi' }, timestamp: ts, sessionId: 'long' }
+    mkdirSync(join(dir, 'copilot', 'session-state', 'long'), { recursive: true })
+    const claude = join(dir, 'claude-long.jsonl')
+    // the first usable cwd wins, so a later sane one is still the session's
+    writeFileSync(claude, jsonl([{ ...prompt, cwd: long }, { ...prompt, cwd: '/Users/x/app' }]))
+    expect(parseClaudeMeta(claude, 'x')?.cwd).toBe('/Users/x/app')
+    writeFileSync(claude, jsonl([{ ...prompt, cwd: long }]))
+    expect(parseClaudeMeta(claude, 'x')?.cwd).toBeNull()
+    const codex = join(dir, 'rollout-long.jsonl')
+    writeFileSync(
+      codex,
+      jsonl([
+        { timestamp: ts, type: 'session_meta', payload: { id: 'long', cwd: long } },
+        { timestamp: ts, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] } }
+      ])
+    )
+    expect(parseCodexMeta(codex, 'x')?.cwd).toBeNull()
+    writeFileSync(
+      join(dir, 'copilot', 'session-state', 'long', 'events.jsonl'),
+      jsonl([
+        { type: 'session.start', timestamp: ts, data: { sessionId: 'long', context: { cwd: long } } },
+        { type: 'user.message', timestamp: ts, data: { content: 'hi' } }
+      ])
+    )
+    expect(listCopilotSessions(join(dir, 'copilot'), 'x').map((s) => s.cwd)).toEqual([null])
+    // a path at the limit is still one
+    const edge = `/${'b'.repeat(1023)}`
+    writeFileSync(claude, jsonl([{ ...prompt, cwd: edge }]))
+    expect(parseClaudeMeta(claude, 'x')?.cwd).toBe(edge)
+  })
+
   it('empty/missing dirs return no sessions', () => {
     expect(listClaudeSessions(join(root, 'nope'), 'x')).toEqual([])
     expect(listCodexSessions(join(root, 'nope'), 'x')).toEqual([])
