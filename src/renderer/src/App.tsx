@@ -38,6 +38,7 @@ import {
   addChatNotice,
   announceChat,
   endChatStream,
+  refreshChatLog,
   setChatLog,
   streamChatText
 } from './chat-log'
@@ -181,7 +182,8 @@ export function App(): JSX.Element {
           const messages = await api.getSessionMessages(stamp.id)
           // the view moved on meanwhile: another session, or a turn of ours
           if (diskLogRef.current !== stamp || activeTurnRef.current !== null) return
-          setChatLog(messages)
+          // the same conversation, further on: rows it already showed keep their place
+          refreshChatLog(messages)
           armDiskLog(stamp.id)
         })
         .catch(() => {})

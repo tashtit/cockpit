@@ -179,7 +179,7 @@ Nothing renders with stock Chromium chrome:
 - ❌ Removing focus rings or the reduced-motion block
 - ❌ New accent colors — agent colors + one steel-blue accent + GitHub semantic colors is the whole palette
 - ❌ Spinner-less async operations
-- ❌ Array-index keys for reorderable lists (append-only log offsets are the sanctioned exception in ChatView)
+- ❌ Array-index keys for reorderable lists (ChatView's row keys are minted per row by `chat-log.ts` and survive a re-read — not indexes)
 
 ## Pre-Delivery Checklist
 

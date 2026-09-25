@@ -68,7 +68,8 @@ function relative(path: string, cwd: string): string {
 
 export type WorkFocus = {
   readonly tab: WorkTab
-  /** The transcript row that opened the panel, if one did */
+  /** The row that opened the panel, if one did — by the key the model names it by
+   *  (ChatView keeps its own row keys and translates them at the panel's edge) */
   readonly key: number | null
   /** Bumped on every open, so opening the same row again scrolls to it again */
   readonly at: number

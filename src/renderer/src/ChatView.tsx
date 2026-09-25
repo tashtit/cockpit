@@ -5,7 +5,7 @@ import { AskPicker } from './AskPicker'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
-import { announceChat, useChatLog, useChatStatus } from './chat-log'
+import { announceChat, useChatKeys, useChatLog, useChatStatus } from './chat-log'
 import { Markdown } from './Markdown'
 import { MODES } from './NewSession'
 import { cwdLabel } from '../../shared/library'
@@ -15,7 +15,7 @@ import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
 import { findAnchor } from './transcript-anchor'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
-import { artifactStat, buildWork, hasWork, planTitle, tabFor, type WorkModel, type WorkTab } from '../../shared/work'
+import { artifactStat, buildWork, planTitle, tabFor, type WorkModel, type WorkTab } from '../../shared/work'
 import { WorkPanel, type WorkFocus } from './WorkPanel'
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too — the
@@ -64,6 +64,7 @@ export function ChatView({
   // the transcript is the app's hottest state and this is its only reader —
   // subscribing here keeps a streaming turn out of every other view (chat-log.ts)
   const log = useChatLog()
+  const keys = useChatKeys()
   const announced = useChatStatus()
   const [draft, setDraft] = useState('')
   const atts = useImageAttachments()
@@ -114,8 +115,8 @@ export function ChatView({
     const idx = findAnchor(log, anchor)
     if (idx < 0) return
     raise(log.length - idx + ANCHOR_CONTEXT)
-    setAnchoredKey(idx)
-  }, [anchor, log, raise])
+    setAnchoredKey(keys[idx] ?? null)
+  }, [anchor, log, keys, raise])
   useLayoutEffect(() => {
     if (anchoredKey === null || scrolledKey.current === anchoredKey) return
     const el = scrollRef.current?.querySelector<HTMLElement>(`[data-log-key="${anchoredKey}"]`)
@@ -163,9 +164,19 @@ export function ChatView({
   }, [binding?.cwd])
 
   // the Work panel is offered once the transcript holds something to put in it — a
-  // plan, a to-do list, an edit — and built only while it is open
-  const workable = useMemo(() => hasWork(log), [log])
-  const model = useMemo(() => (work && binding ? buildWork(log, binding.cwd) : null), [work !== null, log, binding?.cwd])
+  // plan, a to-do list, an edit — and built only while it is open, from the rows that
+  // carry one. It names them by their place among those rows; the row keys the
+  // transcript names them by are translated at its edge (`workFocus`, `pendingPlanAt`)
+  const artifacts = useMemo(() => artifactRows(log, keys), [log, keys])
+  const workable = artifacts.rows.length > 0
+  const model = useMemo(
+    () => (work && binding ? buildWork(artifacts.rows, binding.cwd) : null),
+    [work !== null, artifacts, binding?.cwd]
+  )
+  const workFocus = useMemo(
+    () => (work ? { ...work, key: work.key === null ? null : workIndex(artifacts, work.key) } : null),
+    [work, artifacts]
+  )
   const openWork = useCallback((key: number | null, tab: WorkTab) => {
     const active = document.activeElement
     if (active instanceof HTMLElement && !active.closest('.work-panel')) workOpener.current = active
@@ -203,7 +214,7 @@ export function ChatView({
   /** The header key and ⌘J: open on the tab that matters most right now, or close. */
   const toggleWork = (): void => {
     if (work) closeWork()
-    else if (binding) openWork(null, defaultTab(buildWork(log, binding.cwd), pendingPlanKey))
+    else if (binding) openWork(null, defaultTab(buildWork(artifacts.rows, binding.cwd), pendingPlanKey))
   }
   const toggleWorkRef = useRef(toggleWork)
   toggleWorkRef.current = toggleWork
@@ -249,10 +260,11 @@ export function ChatView({
   const sliced = log.length > limit ? log.slice(-limit) : log
   const base = log.length - sliced.length
   // providers repeat identical system notices; consecutive duplicates add nothing.
-  // each row keeps its absolute log offset as the key — stable because the log is
-  // append-only, even when the dedup filter drops rows in the middle.
+  // each row renders under the key chat-log.ts minted for it — stable across a re-read
+  // of the log, even one that starts further in, and when the dedup filter drops rows
+  // in the middle.
   // a tool call and the result that answers it are one event: the result folds into
-  // the call's row (its key stays the call's offset) instead of a second ↳ row
+  // the call's row (its key stays the call's) instead of a second ↳ row
   const visible: Array<{ m: SessionMessage; key: number; result?: SessionMessage }> = []
   sliced.forEach((m, i) => {
     if (m.kind === 'system' && sliced[i - 1]?.kind === 'system' && sliced[i - 1].text === m.text)
@@ -262,7 +274,7 @@ export function ChatView({
       prev.result = m
       return
     }
-    visible.push({ m, key: base + i })
+    visible.push({ m, key: keys[base + i] ?? base + i })
   })
   const hidden = log.length - sliced.length
 
@@ -272,6 +284,7 @@ export function ChatView({
   const lastRow = visible[visible.length - 1]
   const pendingAsk = lastRow && isPendingAsk(lastRow) && !binding?.readOnly ? lastRow : undefined
   const pendingPlanKey = pendingAsk?.m.artifact?.kind === 'plan' ? pendingAsk.key : null
+  const pendingPlanAt = pendingPlanKey === null ? null : workIndex(artifacts, pendingPlanKey)
 
   // a long stretch of tool calls is one piece of work, not twenty rows of it: four or
   // more in a row fold into a work-log block that says what happened. The run a turn
@@ -596,15 +609,15 @@ export function ChatView({
             )}
           </footer>
         </div>
-        {work && model && (
+        {workFocus && model && (
           <WorkPanel
             model={model}
-            focus={work}
+            focus={workFocus}
             onTab={(tab) => setWork((w) => (w ? { ...w, tab, key: null } : w))}
             onClose={closeWork}
             cwd={binding.cwd}
             provider={binding.provider}
-            pendingPlanKey={pendingPlanKey}
+            pendingPlanKey={pendingPlanAt}
             onOpenChanges={reviewable ? () => !review && toggleReview() : undefined}
             sessionId={binding.nativeSessionId ? `${binding.provider}:${binding.nativeSessionId}` : null}
             onOpenUrl={onOpenUrl}
@@ -613,6 +626,26 @@ export function ChatView({
       </div>
     </main>
   )
+}
+
+/** The rows that carry a plan, to-dos, an edit or a check — all the Work panel folds — with their keys. */
+type ArtifactRows = { readonly rows: readonly SessionMessage[]; readonly keys: readonly number[] }
+
+function artifactRows(log: readonly SessionMessage[], keys: readonly number[]): ArtifactRows {
+  const rows: SessionMessage[] = []
+  const rowKeys: number[] = []
+  log.forEach((m, i) => {
+    if (m.kind !== 'tool_call' || !m.artifact) return
+    rows.push(m)
+    rowKeys.push(keys[i] ?? i)
+  })
+  return { rows, keys: rowKeys }
+}
+
+/** A transcript row's key → its place among the rows the Work panel was folded over. */
+function workIndex(artifacts: ArtifactRows, key: number): number | null {
+  const i = artifacts.keys.indexOf(key)
+  return i < 0 ? null : i
 }
 
 /** Where the Work key opens: a plan waiting on you, else the list under way, else a check

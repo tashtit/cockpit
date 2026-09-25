@@ -141,8 +141,14 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   anchor: the log keeps growing under a live session and must not re-scroll. Words the
   log no longer says open at the bottom as before.
 - Consecutive duplicate system notices are filtered — providers repeat them.
-- `Message` is memoized; keys are absolute log offsets (`log.length - visible.length + i`),
-  stable because the log is append-only. Don't "fix" this to item ids or bare indexes.
+- `Message` is memoized; each row renders under the key `chat-log.ts` minted for it —
+  its offset in a log read fresh, the next key for a row appended or streamed, and
+  across a re-read from disk the key of the row it matches on screen (`reconcileLog`,
+  which also hands the old object back, so an unchanged row is never drawn again).
+  Messages carry no id, and an offset is not one: past main's 4MB tail window each read
+  starts further in, and offset keys pointed every row — its open `<details>`, an anchor,
+  the Work panel's focus — at a different message each second. Don't "fix" this to
+  bare indexes.
 - A session flying **elsewhere** (`busy.ts`: the observed entry, never Cockpit's own turn)
   is the same annunciator with different words — `.thinking` + `.pulse`, "Claude is working
   elsewhere…", `title` explaining why — and the transcript re-reads from disk as the index
