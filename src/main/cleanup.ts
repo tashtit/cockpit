@@ -611,6 +611,16 @@ function audit(line: string): void {
 }
 
 /**
+ * `git branch -d`, never -D: git's own merged check is the safety net for the commits
+ * worktree removal deliberately leaves behind. The name is read from git, and a ref
+ * made with plumbing can start with `-` — after `--` it can only ever be a name, never
+ * `-D` or `--force`.
+ */
+async function deleteMergedBranch(repoRoot: string, branch: string): Promise<boolean> {
+  return (await execText('git', ['-C', repoRoot, 'branch', '-d', '--', branch])).ok
+}
+
+/**
  * Delete the provider's own log files for these sessions, and the worktrees they
  * ran in. A session and its checkout are one piece of work — cleaning the log but
  * leaving a 400MB abandoned worktree behind is not a cleanup.
@@ -713,12 +723,9 @@ export async function deleteSessions(
       }
       freedBytes += bytes
       audit(`removed worktree ${w.path} (${bytes} bytes)`)
-      if (w.branch) {
-        const gone = await execText('git', ['-C', w.repoRootForGit, 'branch', '-d', w.branch])
-        if (gone.ok) {
-          branchesDeleted.push(w.branch)
-          audit(`deleted branch ${w.branch} in ${w.repoRootForGit}`)
-        }
+      if (w.branch && (await deleteMergedBranch(w.repoRootForGit, w.branch))) {
+        branchesDeleted.push(w.branch)
+        audit(`deleted branch ${w.branch} in ${w.repoRootForGit}`)
       }
     }
   }
@@ -826,12 +833,9 @@ export async function deleteRoundtables(
       }
       freedBytes += bytes
       audit(`removed table worktree ${dir} (${bytes} bytes)`)
-      if (t.branch) {
-        const gone = await execText('git', ['-C', t.repoRoot, 'branch', '-d', t.branch])
-        if (gone.ok) {
-          branchesDeleted.push(t.branch)
-          audit(`deleted branch ${t.branch} in ${t.repoRoot}`)
-        }
+      if (t.branch && (await deleteMergedBranch(t.repoRoot, t.branch))) {
+        branchesDeleted.push(t.branch)
+        audit(`deleted branch ${t.branch} in ${t.repoRoot}`)
       }
     } else {
       // a scratch room: main derived the path, and it must still sit under the root
@@ -948,14 +952,9 @@ export async function removeWorktrees(
     cleaned++
     freedBytes += bytes
     audit(`removed worktree ${path} (${bytes} bytes)`)
-    // -d, never -D: git's own merged check is the safety net for the commits that
-    // worktree removal deliberately left behind
-    if (w.branch) {
-      const gone = await execText('git', ['-C', w.repoRootForGit, 'branch', '-d', w.branch])
-      if (gone.ok) {
-        branchesDeleted.push(w.branch)
-        audit(`deleted branch ${w.branch} in ${w.repoRootForGit}`)
-      }
+    if (w.branch && (await deleteMergedBranch(w.repoRootForGit, w.branch))) {
+      branchesDeleted.push(w.branch)
+      audit(`deleted branch ${w.branch} in ${w.repoRootForGit}`)
     }
   }
   return { cleaned, freedBytes, failed, branchesDeleted }

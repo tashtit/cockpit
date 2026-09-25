@@ -601,6 +601,19 @@ describe('removeWorktrees', () => {
     expect(git(mainRepo, ['branch', '--list'])).not.toMatch(/cockpit\/fix-login/)
   })
 
+  it('deletes a merged branch whose name starts with a dash as a name, never an option', async () => {
+    // plumbing makes such a ref; as a bare argument git read it as switches
+    const tree = join(cockpitWorktrees, 'app', 'dashed')
+    git(mainRepo, ['worktree', 'add', '-q', '--detach', tree])
+    git(mainRepo, ['update-ref', 'refs/heads/-oops', 'HEAD'])
+    git(tree, ['symbolic-ref', 'HEAD', 'refs/heads/-oops'])
+    backdate(tree)
+    const res = await removeWorktrees(deps, [tree])
+    expect(res.cleaned).toBe(1)
+    expect(res.branchesDeleted).toEqual(['-oops'])
+    expect(git(mainRepo, ['branch', '--list'])).not.toMatch(/-oops/)
+  })
+
   it('removes the worktree but keeps a branch git will not part with', async () => {
     // an unmerged commit makes `git branch -d` refuse — the directory still goes,
     // and the work stays reachable on the branch
