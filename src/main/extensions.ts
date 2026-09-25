@@ -26,6 +26,7 @@ import {
   removeMcpFromJson,
   type JsonAgent
 } from './extensions-core'
+import { assertLinksWithin } from './link-guard'
 import { parseJsonc, readJsoncFile } from './parsers/util'
 import { replaceFile } from './replace-file'
 
@@ -187,9 +188,15 @@ export function readSkillFingerprint(dir: string): { description: string; finger
  * an agent's skill is often a symlink into another agent's folder, and a copy of the
  * link is no copy at all — when Cockpit then removed the skill everywhere, it took
  * the only real folder with it and kept a link to nothing.
+ *
+ * A repo's skill came with the clone, so its links are the clone's choice: one to
+ * `~/.codex/auth.json` would be copied as that file, and a switch then writes it
+ * into the working tree, one `git add` from being pushed. With `repoRoot` every link
+ * has to stay inside the repo.
  */
-export function adoptSkillInto(src: string, dst: string): void {
+export function adoptSkillInto(src: string, dst: string, repoRoot?: string): void {
   if (!existsSync(src)) throw new Error(`skill not found: ${src}`)
+  if (repoRoot !== undefined) assertLinksWithin(src, repoRoot, 'the repository')
   rmSync(dst, { recursive: true, force: true })
   mkdirSync(join(dst, '..'), { recursive: true })
   cpSync(src, dst, { recursive: true, dereference: true })
