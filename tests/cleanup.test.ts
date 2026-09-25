@@ -2,12 +2,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync
 } from 'node:fs'
@@ -288,6 +290,28 @@ describe('scanCleanup — sessions', () => {
     const report = await scanCleanup(deps, 30)
     expect(report.sessions[0].bytes).toBe(75)
     sessions = []
+  })
+
+  it('counts a link in a copilot session as itself, never what it points at', async () => {
+    // deleting takes the link, not its target — and a link back up the tree used to be
+    // walked until the path grew too long, counting the log again at every level
+    const dir = join(sourceDir, 'session-state', 'linked')
+    const elsewhere = join(root, 'big-elsewhere')
+    mkdirSync(dir, { recursive: true })
+    mkdirSync(elsewhere, { recursive: true })
+    writeFileSync(join(dir, 'events.jsonl'), 'z'.repeat(50))
+    writeFileSync(join(elsewhere, 'blob.bin'), 'b'.repeat(100_000))
+    symlinkSync(elsewhere, join(dir, 'out'))
+    symlinkSync('.', join(dir, 'loop'))
+    const links = lstatSync(join(dir, 'out')).size + lstatSync(join(dir, 'loop')).size
+    sessions = [
+      session({ id: 'copilot:linked', provider: 'copilot', sourcePath: join(dir, 'events.jsonl') })
+    ]
+    const report = await scanCleanup(deps, 30)
+    expect(report.sessions[0].bytes).toBe(50 + links)
+    sessions = []
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(elsewhere, { recursive: true, force: true })
   })
 })
 

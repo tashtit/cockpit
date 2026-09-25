@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type {
   CleanupBlock,
@@ -145,22 +145,41 @@ function deleteTargets(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): stri
   return sessionLogFiles(meta).map((f) => resolve(copilotSessionDir(f) ?? f))
 }
 
+/**
+ * A Copilot session directory is a handful of files a level or two deep. These bound
+ * the walk for one that is not — sizing runs synchronously for every stale session.
+ */
+const DIR_MAX_DEPTH = 8
+const DIR_MAX_ENTRIES = 10_000
+
+/**
+ * What removing `dir` would free. Links are counted as themselves and never followed:
+ * `rmSync` removes the link, not what it points at, and a link back up the tree would
+ * otherwise be walked until the path grew too long. Past the bounds the walk stops,
+ * and the answer is what it counted by then.
+ */
 function dirBytes(dir: string): number {
   let total = 0
-  let names: string[] = []
-  try {
-    names = readdirSync(dir)
-  } catch {
-    return 0
-  }
-  for (const n of names) {
+  let entries = 0
+  const walk = (at: string, depth: number): void => {
+    let names: string[]
     try {
-      const st = statSync(join(dir, n))
-      total += st.isDirectory() ? dirBytes(join(dir, n)) : st.size
+      names = readdirSync(at)
     } catch {
-      /* a file that vanished mid-scan simply doesn't count */
+      return
+    }
+    for (const n of names) {
+      if (++entries > DIR_MAX_ENTRIES) return
+      try {
+        const st = lstatSync(join(at, n))
+        if (!st.isDirectory()) total += st.size
+        else if (depth < DIR_MAX_DEPTH) walk(join(at, n), depth + 1)
+      } catch {
+        /* a file that vanished mid-scan simply doesn't count */
+      }
     }
   }
+  walk(dir, 0)
   return total
 }
 
