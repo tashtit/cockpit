@@ -8,6 +8,7 @@ import {
   isStale,
   judgeProcesses,
   lastWorktreeActivity,
+  mapLimit,
   ownProcessTree,
   parseElapsed,
   parseLsofCwds,
@@ -21,7 +22,8 @@ import {
   staleCutoff,
   sumBytes,
   worktreeBlocks,
-  worktreeOrigin
+  worktreeOrigin,
+  worktreesWithProcesses
 } from '../src/main/cleanup-core'
 
 const DAY = 86_400_000
@@ -252,6 +254,43 @@ describe('sessions by where they ran', () => {
     )
     expect(sessionsUnder(groups, '/wt/fix')).toEqual({ newest: 700, ids: ['top', 'deep'] })
     expect(sessionsUnder(groups, '/wt/other')).toEqual({ newest: 0, ids: [] })
+  })
+})
+
+describe('mapLimit', () => {
+  it('never runs more than the limit at once, and keeps the input order', async () => {
+    let running = 0
+    let most = 0
+    const out = await mapLimit(
+      [50, 10, 30, 0, 20, 40, 5],
+      async (ms) => {
+        running++
+        most = Math.max(most, running)
+        await new Promise((r) => setTimeout(r, ms))
+        running--
+        return ms * 2
+      },
+      3
+    )
+    expect(most).toBe(3)
+    expect(out).toEqual([100, 20, 60, 0, 40, 80, 10])
+  })
+
+  it('answers an empty list without calling anything', async () => {
+    expect(await mapLimit([], async () => 1, 4)).toEqual([])
+  })
+})
+
+describe('worktreesWithProcesses', () => {
+  it('counts a process against the deepest worktree around it, and nothing outside every one', () => {
+    const trees = ['/repos/app', '/repos/app/.claude/worktrees/spike', '/wt/app/fix']
+    const inside = worktreesWithProcesses(trees, [
+      { cwd: '/repos/app/.claude/worktrees/spike/web' },
+      { cwd: '/wt/app/fix' },
+      { cwd: '/wt/app/fix-2' },
+      { cwd: '/tmp' }
+    ])
+    expect([...inside].sort()).toEqual(['/repos/app/.claude/worktrees/spike', '/wt/app/fix'])
   })
 })
 
