@@ -1,6 +1,6 @@
 import type { AcpPermissionOption, ChatEvent, PermissionMode } from '../shared/types'
 import { ACP_PROTOCOL_VERSION } from '../shared/acp'
-import { capText, shellPreview, truncate } from './parsers/util'
+import { capText, jsonText, shellPreview, truncate } from './parsers/util'
 import { acpDiffArtifact, acpPlanArtifact } from './parsers/artifacts'
 
 /**
@@ -110,7 +110,7 @@ export function acpUpdateToEvents(
         turnId,
         type: 'tool',
         toolName: 'plan',
-        detail: truncate(JSON.stringify(u.entries ?? []), 200),
+        detail: truncate(jsonText(u.entries ?? []), 200),
         preview: `${n} ${n === 1 ? 'step' : 'steps'}`,
         artifact
       }
@@ -133,7 +133,7 @@ export function acpUpdateToEvents(
         turnId,
         type: 'tool',
         toolName: toolNameFor(u.kind),
-        detail: truncate(JSON.stringify(u.rawInput ?? u.title ?? {}), 200),
+        detail: truncate(jsonText(u.rawInput ?? u.title ?? {}), 200),
         ...(preview ? { preview: truncate(preview, 200) } : {}),
         ...(artifact ? { artifact } : {})
       }
@@ -182,7 +182,7 @@ export function permissionDetail(kind: string | undefined, rawInput: unknown, ti
     const command = commandLine(input.command ?? input.commands)
     if (command !== null) return capText(command, PERMISSION_COMMAND_MAX)
   }
-  return truncate(JSON.stringify(rawInput ?? title), 400)
+  return truncate(jsonText(rawInput ?? title), 400)
 }
 
 function commandLine(command: unknown): string | null {

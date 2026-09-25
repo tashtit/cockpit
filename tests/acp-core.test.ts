@@ -421,3 +421,13 @@ describe('modeIdFor', () => {
     expect(modeIdFor('yolo', [])).toBeNull()
   })
 })
+
+describe('an agent update nested too deep to serialise', () => {
+  it('becomes a row with a placeholder instead of throwing the turn away', () => {
+    let deep: unknown = 'x'
+    for (let i = 0; i < 100_000; i++) deep = [deep]
+    const events = acpUpdateToEvents('t1', { sessionUpdate: 'tool_call', toolCallId: 'c1', title: 'ls', rawInput: deep }, new Set())
+    expect(events[0]).toMatchObject({ type: 'tool' })
+    expect((events[0] as Extract<ChatEvent, { type: 'tool' }>).detail).toContain('nested too deeply')
+  })
+})
