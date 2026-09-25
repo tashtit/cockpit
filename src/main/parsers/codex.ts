@@ -3,6 +3,7 @@ import { statSync } from 'node:fs'
 import type { SessionMeta, SessionMessage, SessionSegment } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
 import { fileChangeArtifact, toolArtifact } from './artifacts'
+import { cellToolCalls } from './code-mode'
 import {
   capText,
   contentToText,
@@ -15,6 +16,8 @@ import {
   toMs,
   toolPreview,
   patchPreview,
+  shellPreview,
+  shellScript,
   truncate,
   walkFiles
 } from './util'
@@ -148,6 +151,241 @@ function fileChangeRow(item: any, ts: number | undefined): SessionMessage | null
     ...(failed ? { failed: true } : {}),
     ts
   }
+}
+
+/**
+ * The typed items Codex persists as each tool run completes (nothing is written as one
+ * starts). A code-mode `exec` cell's runs arrive this way — one item per command, MCP
+ * call or search — between the cell and its output.
+ */
+const TOOL_ITEMS: ReadonlySet<string> = new Set([
+  'CommandExecution',
+  'McpToolCall',
+  'DynamicToolCall',
+  'WebSearch',
+  'ImageView',
+  'Extension',
+  'FileChange'
+])
+
+/** Response items the model calls a tool with directly, each under its own `call_id`. */
+const DIRECT_CALLS: ReadonlySet<string> = new Set(['function_call', 'custom_tool_call', 'local_shell_call', 'web_search_call'])
+
+function toolItemOf(l: any): any | null {
+  if (lineKind(l) !== 'event_msg') return null
+  const p = l.payload ?? l
+  return p?.type === 'item_completed' && TOOL_ITEMS.has(p.item?.type) ? p.item : null
+}
+
+/**
+ * A tool called directly completes with an item carrying the call's own id (a `js` call
+ * as an McpToolCall, a `sleep` as an Extension), which is that call said again.
+ */
+function directCallIds(lines: readonly any[]): Set<string> {
+  const ids = new Set<string>()
+  for (const l of lines) {
+    const p = l?.payload ?? l
+    if (lineKind(l) === 'response_item' && DIRECT_CALLS.has(p?.type) && typeof p.call_id === 'string') ids.add(p.call_id)
+  }
+  return ids
+}
+
+function echoesDirectCall(item: any, direct: ReadonlySet<string>): boolean {
+  return typeof item?.id === 'string' && direct.has(item.id)
+}
+
+/**
+ * A code-mode cell and the items its tool runs complete with describe the same work —
+ * the cell once, as a script, and each run on its own, typed: the command it ran, its
+ * exit status and output. Where a rollout carries the items they are the rows, named as
+ * the live stream names them (`shell`), so a rejoined turn matches; the cells then add
+ * nothing but the few runs that never complete as items (a `write_stdin` poll, a cell
+ * that threw before calling anything). A cell renders as a row of its own only in a
+ * rollout with no tool items at all.
+ */
+function usesToolItems(lines: readonly any[], direct: ReadonlySet<string>): boolean {
+  return lines.some((l) => {
+    const item = toolItemOf(l)
+    return item !== null && !echoesDirectCall(item, direct)
+  })
+}
+
+/** One code-mode `exec` cell as a tool row, headlined by the first tool it calls. */
+function execCellRow(cell: string, ts: number | undefined): SessionMessage {
+  const calls = cellToolCalls(cell)
+  const first = calls[0]
+  // apply_patch takes its patch bare; every other tool, an object of fields
+  const input = typeof first?.input === 'string' ? { input: first.input } : first?.input
+  const head = first ? (toolPreview(first.name, input) ?? first.name) : null
+  const preview = head && calls.length > 1 ? `${head} (+${calls.length - 1} more)` : head
+  // a cell that only patches carries the edit, as the call it wraps would have
+  const artifact = first && calls.length === 1 ? toolArtifact(first.name, input) : undefined
+  return {
+    role: 'assistant',
+    kind: 'tool_call',
+    toolName: 'exec',
+    text: truncate(cell, 400),
+    ...(preview ? { preview: truncate(preview, 200) } : {}),
+    ...(artifact ? { artifact } : {}),
+    ts
+  }
+}
+
+/** What a typed item says about its run, before it becomes a call row and a result row. */
+type ItemCall = {
+  readonly name: string
+  readonly detail: string
+  readonly preview?: string | null
+  readonly result?: string
+  readonly failed?: boolean
+}
+
+/** One typed tool item as the call row and result row a direct call would have been. */
+function toolItemRows(item: any, ts: number | undefined): SessionMessage[] {
+  const call = itemCall(item)
+  if (!call) return []
+  const failed = call.failed || (typeof item.status === 'string' && item.status !== 'completed')
+  return [
+    {
+      role: 'assistant',
+      kind: 'tool_call',
+      toolName: call.name,
+      text: truncate(call.detail, 400),
+      ...(call.preview ? { preview: truncate(call.preview, 200) } : {}),
+      ...(failed ? { failed: true } : {}),
+      ts
+    },
+    ...(call.result ? [{ role: 'tool', kind: 'tool_result', text: truncate(call.result, 400), ts } as const] : [])
+  ]
+}
+
+function itemCall(item: any): ItemCall | null {
+  switch (item?.type) {
+    case 'CommandExecution': {
+      const script = shellScript(item.command)
+      if (!script) return null
+      return { name: 'shell', detail: script, preview: shellPreview(item.command), result: commandOutput(item) }
+    }
+    case 'McpToolCall': {
+      if (typeof item.server !== 'string' || typeof item.tool !== 'string') return null
+      const args = parseArguments(item.arguments)
+      return {
+        name: `mcp__${item.server}__${item.tool}`,
+        detail: JSON.stringify(item.arguments ?? {}),
+        preview: callTitle(args),
+        result: contentToText(item.result?.content) || errorText(item.error),
+        failed: item.result?.isError === true
+      }
+    }
+    case 'DynamicToolCall': {
+      if (typeof item.tool !== 'string') return null
+      const ns = typeof item.namespace === 'string' && item.namespace ? `${item.namespace}__` : ''
+      return {
+        name: `${ns}${item.tool}`,
+        detail: JSON.stringify(item.arguments ?? {}),
+        preview: callTitle(parseArguments(item.arguments)),
+        result: blocksText(item.content_items),
+        failed: item.success === false
+      }
+    }
+    case 'WebSearch':
+      return webSearchCall(item)
+    case 'ImageView': {
+      const path = localPath(item.path)
+      return path ? { name: 'view_image', detail: path, preview: toolPreview('view_image', { path }) } : null
+    }
+    case 'Extension':
+      // a kind of its own for each extension tool; a search is the one with a shape to read
+      if (item.kind === 'web.search') return webSearchCall(item)
+      if (typeof item.kind !== 'string' || !item.kind) return null
+      if (item.kind === 'image_gen.generation') {
+        const saved = typeof item.savedPath === 'string' ? item.savedPath : ''
+        const prompt = typeof item.revisedPrompt === 'string' ? item.revisedPrompt : ''
+        return { name: 'image_gen', detail: prompt || saved, preview: saved || null, result: saved, failed: !!item.failure }
+      }
+      return { name: item.kind, detail: JSON.stringify(item) }
+    default:
+      return null
+  }
+}
+
+/** A search's queries (a newer item runs several at once), and the pages it found. */
+function webSearchCall(item: any): ItemCall | null {
+  const action = item.action && typeof item.action === 'object' ? item.action : {}
+  const queries: string[] = Array.isArray(action.queries)
+    ? action.queries.filter((q: unknown): q is string => typeof q === 'string' && q.trim() !== '')
+    : []
+  const query = queries[0] ?? [action.query, item.query, action.url].find((q) => typeof q === 'string' && q.trim())
+  if (!query) return null
+  const head = toolPreview('web_search', { query })
+  const pages = Array.isArray(item.results) ? item.results : []
+  return {
+    name: 'web_search',
+    detail: queries.length > 0 ? queries.join('\n') : query,
+    preview: head && queries.length > 1 ? `${head} (+${queries.length - 1} more)` : head,
+    result: pages
+      .flatMap((r: any) => (typeof r?.url === 'string' ? [typeof r.title === 'string' ? `${r.title} — ${r.url}` : r.url] : []))
+      .join('\n')
+  }
+}
+
+/**
+ * A command's output, led by its exit status when that was a failure, so the row's
+ * glance at its result reads as the verdict. A silent success still says it finished.
+ */
+function commandOutput(item: any): string | undefined {
+  const output =
+    typeof item.aggregated_output === 'string'
+      ? item.aggregated_output
+      : [item.stdout, item.stderr].filter((s) => typeof s === 'string' && s).join('\n')
+  const code = typeof item.exit_code === 'number' ? item.exit_code : null
+  if (code !== null && code !== 0) return output.trim() ? `exit ${code}\n${output}` : `exit ${code}`
+  return output.trim() ? output : code === 0 ? 'exit 0' : undefined
+}
+
+/** The agent's own words for what a call is for, when its arguments carry them. */
+function callTitle(args: Record<string, unknown> | null): string | null {
+  for (const key of ['title', 'query', 'prompt']) {
+    const v = args?.[key]
+    if (typeof v === 'string' && v.trim()) return v.trim().split('\n', 1)[0]!
+  }
+  return null
+}
+
+/** Text blocks of any casing (`input_text`, `inputText`, `text`) — anything carrying a `text`. */
+function blocksText(blocks: unknown): string {
+  if (!Array.isArray(blocks)) return ''
+  return blocks
+    .map((b) => (b && typeof b === 'object' && typeof (b as { text?: unknown }).text === 'string' ? (b as { text: string }).text : ''))
+    .filter(Boolean)
+    .join('\n')
+}
+
+function errorText(error: unknown): string {
+  if (typeof error === 'string') return error
+  const message = error && typeof error === 'object' ? (error as { message?: unknown }).message : undefined
+  return typeof message === 'string' ? message : ''
+}
+
+/** Codex names local files as `file://` URLs in its items. */
+function localPath(path: unknown): string | null {
+  if (typeof path !== 'string' || !path) return null
+  if (!path.startsWith('file://')) return path
+  try {
+    return decodeURIComponent(new URL(path).pathname)
+  } catch {
+    return path
+  }
+}
+
+/** A call's output: a string, or — newer Codex — the content blocks it answered with. */
+function outputText(output: unknown): string {
+  if (typeof output === 'string') return output
+  if (Array.isArray(output)) {
+    const text = contentToText(output)
+    return text || (output.some((b) => b?.type === 'input_image') ? '(image)' : '')
+  }
+  return JSON.stringify(output ?? '')
 }
 
 /**
@@ -290,8 +528,11 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
   const out: SessionMessage[] = []
   const renderEchoes = usesEventEchoes(lines)
   const renderFileChanges = usesFileChangeItems(lines)
-  // an apply_patch custom call's output is rendered only after the call it answers
-  const patchCalls = new Set<string>()
+  const direct = directCallIds(lines)
+  const renderCells = !usesToolItems(lines, direct)
+  // where each rendered custom call's row sits: its output is rendered only after the
+  // call it answers, and a cell that threw marks its own row
+  const customCalls = new Map<string, number>()
   for (const l of lines) {
     const ts = toMs(l.timestamp) ?? undefined
     const p = l.payload ?? l
@@ -307,7 +548,7 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
           // the headline is the command or the patched files; the raw arguments stay in
           // the detail, as they do for every other agent's rows
           const args = parseArguments(p.arguments)
-          const preview = toolPreview(p.name ?? 'tool', args)
+          const preview = toolPreview(p.name ?? 'tool', args) ?? callTitle(args)
           const asks = parseAsks(p.name ?? '', args)
           const artifact = toolArtifact(p.name ?? '', args)
           out.push({
@@ -323,12 +564,18 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
           break
         }
         case 'custom_tool_call': {
-          // freeform tools take raw text rather than JSON; the patch tool is the one
-          // whose input is worth a row (code-mode `exec` scripts are not rendered yet)
+          // freeform tools take raw text rather than JSON: a code-mode cell (rendered only
+          // where no items speak for its runs — see usesToolItems) or a patch
+          if (p.name === 'exec' && typeof p.input === 'string') {
+            if (!renderCells) break
+            if (typeof p.call_id === 'string') customCalls.set(p.call_id, out.length)
+            out.push(execCellRow(p.input, ts))
+            break
+          }
           if (p.name !== 'apply_patch' || typeof p.input !== 'string') break
           const artifact = toolArtifact('apply_patch', p.input)
           const preview = patchPreview(p.input)
-          if (typeof p.call_id === 'string') patchCalls.add(p.call_id)
+          if (typeof p.call_id === 'string') customCalls.set(p.call_id, out.length)
           out.push({
             role: 'assistant',
             kind: 'tool_call',
@@ -340,22 +587,17 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
           })
           break
         }
-        case 'custom_tool_call_output':
-          if (typeof p.call_id !== 'string' || !patchCalls.has(p.call_id)) break
-          out.push({
-            role: 'tool',
-            kind: 'tool_result',
-            text: truncate(typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? ''), 400),
-            ts
-          })
+        case 'custom_tool_call_output': {
+          const at = typeof p.call_id === 'string' ? customCalls.get(p.call_id) : undefined
+          if (at === undefined) break
+          const text = outputText(p.output)
+          // a cell that threw did not do what it was written to do
+          if (out[at]?.toolName === 'exec' && text.startsWith('Script failed')) out[at] = { ...out[at]!, failed: true }
+          out.push({ role: 'tool', kind: 'tool_result', text: truncate(text, 400), ts })
           break
+        }
         case 'function_call_output':
-          out.push({
-            role: 'tool',
-            kind: 'tool_result',
-            text: truncate(typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? ''), 400),
-            ts
-          })
+          out.push({ role: 'tool', kind: 'tool_result', text: truncate(outputText(p.output), 400), ts })
           break
         case 'reasoning': {
           const t = contentToText(p.summary) || contentToText(p.content)
@@ -364,9 +606,13 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
         }
       }
     } else if (lineKind(l) === 'event_msg' && p?.type === 'item_completed') {
-      if (renderFileChanges && p.item?.type === 'FileChange') {
-        const row = fileChangeRow(p.item, ts)
+      const item = toolItemOf(l)
+      if (item?.type === 'FileChange') {
+        if (!renderFileChanges) continue
+        const row = fileChangeRow(item, ts)
         if (row) out.push(row)
+      } else if (item && !echoesDirectCall(item, direct)) {
+        out.push(...toolItemRows(item, ts))
       }
     } else if (lineKind(l) === 'event_msg' && renderEchoes) {
       if (p?.type === 'user_message' && p.message)

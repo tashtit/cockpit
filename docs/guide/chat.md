@@ -133,6 +133,7 @@ Cockpit smooths over the differences it can, and is honest about the ones it can
 
 - **Copilot streams plain text** — no structured events. A *new* Copilot chat can't learn its session id mid-conversation, so the session appears in the sidebar after the first turn; click it there to continue with proper resume. (Claude and Codex bind their session id from the first response.)
 - **Codex event shapes changed between releases** — both the old (`msg.type`) and new (`thread.started` / `item.completed`) stream formats are handled, so old and new CLI versions both work.
+- **Newer Codex runs its tools from a script** — rather than calling tools one at a time, it writes a short JavaScript cell that calls them. A transcript shows what the cell ran, one row per command, MCP call, web search or viewed image, with each command's exit status: the same rows a live turn streams, not the script itself. A session whose log records no individual runs shows each script as one `exec` row instead, named after the first tool it calls (`git status (+2 more)`).
 - **Safe mode can block tools** — in headless mode, provider defaults may refuse tool use entirely. If an agent reports it can't run tools, that's the permission mode, not a bug; see [permission modes](/guide/worktrees-and-prs#permission-modes).
 
 ::: tip Which model?
