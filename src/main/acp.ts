@@ -12,6 +12,7 @@ import {
   denyOption,
   initializeParams,
   modeIdFor,
+  permissionDetail,
   permissionOptions,
   promptResultEvents
 } from './acp-core'
@@ -241,7 +242,8 @@ export class AcpTurn {
       type: 'permission',
       requestId,
       toolName: kind === 'execute' ? 'shell' : (kind ?? 'tool'),
-      detail: truncate(JSON.stringify(call.rawInput ?? title), 400),
+      // a command reaches the card whole, not as a 400-character line of JSON
+      detail: permissionDetail(kind, call.rawInput, title),
       preview: truncate(title, 200),
       options
     })

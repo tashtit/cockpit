@@ -288,18 +288,30 @@ placed in the transcript. Same livery, different mechanism; keep both.
   suite"), since it is what the rest of the turn was conditioned on.
 - It carries the agent's livery via `.tint-{provider}` — the same signal the sidebar's
   asks-mark and `.ask-card` use for a session waiting on you. No new token.
-- **Allow is the only affirmative.** Options whose `kind` starts with `allow` render
-  `.btn-primary`; every other answer is `.btn-ghost`. The safe answer must never be the
-  one styled to be clicked without reading.
-- The headline is the agent's own `title` (`.perm-what`, one line, ellipsised); the raw
-  tool input rides the `title` attribute so a click is informed. The tool kind sits left
-  in the micro-label register (`.perm-tool`).
+- **One yes is the only affirmative.** The `allow_once` option renders `.btn-primary`;
+  every other answer — *Allow always* included, since it hands the agent every later call
+  of that kind unasked — is `.btn-ghost`. The answer styled to be clicked without reading
+  must never be the one that gives away the most.
+- **A command is what is being allowed, so it is the card's content** (`.perm-exec`): the
+  command itself, whole, in a `.perm-command` block (`--bg-deep`, mono at `--fs-base`,
+  wrapped rather than cut at the edge, 220px then it scrolls — a named, focusable
+  `role=region`). Main sends it exactly as it would run (`permissionDetail` in
+  `acp-core.ts`: every line and argument, the shell wrapper included, up to 16,000
+  characters); a longer one ends in a warn `.perm-cut` line saying how much was not
+  shown. Characters that would hide or reorder part of it — controls other than newline
+  and tab, bidi overrides and isolates, zero-width and other invisible format characters
+  — are drawn as their code point in a warn-bordered `.perm-ctl` mark, never passed
+  through. The agent's `title` (`.perm-what`) is the lesser line above it, in `--fg-dim`:
+  it is the agent's own account of the command, and the card is where it is checked.
+- Anything that does not execute keeps the one-line grammar: the agent's `title` as the
+  headline (`.perm-what`, ellipsised) with the raw tool input in its `title` attribute.
+  The tool kind sits left in the micro-label register (`.perm-tool`) either way.
 - It never autofocuses. A question that arrives while someone is typing must not steal
   the caret out of the composer.
 - The `aria-live` status announces the question over the generic working line — a blocked
   agent is the most important thing on the screen.
 - ≤620px the headline takes its own row and the answers split the next one evenly.
-  Nothing sheds: both halves are load-bearing while the agent waits.
+  Nothing sheds: every part is load-bearing while the agent waits.
 
 ## Review (`ReviewPanel.tsx`, `.review`)
 

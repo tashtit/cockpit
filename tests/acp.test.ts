@@ -79,7 +79,8 @@ describe('AcpTurn', () => {
     })
     await done
     const ask = events.find((e) => e.type === 'permission')
-    expect(ask).toMatchObject({ type: 'permission', toolName: 'shell', preview: 'Run ls -la' })
+    // the card shows the command itself, and the agent's title beside it
+    expect(ask).toMatchObject({ type: 'permission', toolName: 'shell', preview: 'Run ls -la', detail: 'ls -la' })
     expect((ask as Extract<ChatEvent, { type: 'permission' }>).options.map((o) => o.optionId)).toEqual([
       'allow_once',
       'reject_once'

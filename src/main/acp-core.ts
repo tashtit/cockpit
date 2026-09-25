@@ -1,6 +1,6 @@
 import type { AcpPermissionOption, ChatEvent, PermissionMode } from '../shared/types'
 import { ACP_PROTOCOL_VERSION } from '../shared/acp'
-import { shellPreview, truncate } from './parsers/util'
+import { capText, shellPreview, truncate } from './parsers/util'
 import { acpDiffArtifact, acpPlanArtifact } from './parsers/artifacts'
 
 /**
@@ -160,6 +160,42 @@ export function permissionOptions(raw: unknown): AcpPermissionOption[] {
     if (out.length >= 8) break
   }
   return out
+}
+
+/** How much of a command a permission card carries: far past any command a person
+ *  reads through, well inside what one event should put over IPC. */
+export const PERMISSION_COMMAND_MAX = 16_000
+
+/**
+ * What a permission request shows the person beside the agent's title. For a call that
+ * executes, the command itself, exactly as it would run: every argument and every
+ * character — the title is the agent's own account of the command, and the card is
+ * where the person checks it against the real thing. An argv stays the argv, the shell
+ * wrapper included (which binary runs the script is part of what runs), each argument
+ * quoted where a shell would need it to mean itself. Past the bound it is cut the way
+ * every long text is (`capText`'s note of what is missing), which the card shows as a
+ * mark of its own. Any other call keeps its raw input, one line, as the tooltip.
+ */
+export function permissionDetail(kind: string | undefined, rawInput: unknown, title: string): string {
+  if (kind === 'execute') {
+    const input = (rawInput ?? {}) as Record<string, unknown>
+    const command = commandLine(input.command ?? input.commands)
+    if (command !== null) return capText(command, PERMISSION_COMMAND_MAX)
+  }
+  return truncate(JSON.stringify(rawInput ?? title), 400)
+}
+
+function commandLine(command: unknown): string | null {
+  if (typeof command === 'string') return command
+  if (Array.isArray(command) && command.length > 0 && command.every((a) => typeof a === 'string')) {
+    return command.map(shellWord).join(' ')
+  }
+  return null
+}
+
+/** One argument as a shell would have to be given it: bare when it can be, quoted otherwise. */
+function shellWord(arg: string): string {
+  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, "'\\''")}'`
 }
 
 /** Tool-call kinds `auto-edit` answers by itself — the ones that only touch files. */

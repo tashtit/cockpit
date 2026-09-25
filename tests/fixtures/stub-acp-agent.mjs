@@ -110,7 +110,12 @@ async function runTurn(id, params) {
   if (mode === 'permission' || mode === 'permission-edit') {
     const outcome = await request('session/request_permission', {
       sessionId: sid,
-      toolCall: { toolCallId: 'c1', title: 'Run ls -la', kind: mode === 'permission-edit' ? 'edit' : 'execute' },
+      toolCall: {
+        toolCallId: 'c1',
+        title: 'Run ls -la',
+        kind: mode === 'permission-edit' ? 'edit' : 'execute',
+        rawInput: { command: 'ls -la' }
+      },
       options: [
         { optionId: 'allow_once', kind: 'allow_once', name: 'Allow once' },
         { optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }
