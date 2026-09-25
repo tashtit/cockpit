@@ -12,6 +12,7 @@ import {
   readHead,
   parseJsonlText,
   fileTimes,
+  jsonText,
   toMs,
   contentToText,
   toolPreview,
@@ -464,7 +465,7 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
           role: 'assistant',
           kind: 'tool_call',
           toolName,
-          text: truncate(JSON.stringify(args), 400),
+          text: truncate(jsonText(args), 400),
           ...(preview ? { preview: truncate(preview, 200) } : {}),
           ...(artifact ? { artifact } : {}),
           ts

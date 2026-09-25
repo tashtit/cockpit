@@ -180,6 +180,20 @@ function sliceCodePoints(s: string, end: number): string {
   return s.slice(0, cut)
 }
 
+/**
+ * A parsed log value as JSON text, for a row's detail. JSON.parse reads nesting of any
+ * depth but JSON.stringify recurses, so a log line holding a tool input 100k levels
+ * deep parsed fine and then threw here — which blanked the whole transcript. That one
+ * row gets a placeholder instead.
+ */
+export function jsonText(v: unknown): string {
+  try {
+    return JSON.stringify(v) ?? ''
+  } catch {
+    return '(nested too deeply to show)'
+  }
+}
+
 /** Cap a single message's text so one giant tool dump can't blow up the IPC payload. */
 export function capText(s: string, max = 20_000): string {
   if (s.length <= max) return s

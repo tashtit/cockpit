@@ -9,6 +9,7 @@ import {
   capText,
   contentToText,
   fileTimes,
+  jsonText,
   parseJsonlText,
   readHead,
   readJsonlTail,
@@ -313,7 +314,7 @@ function itemCall(item: any): ItemCall | null {
       const args = parseArguments(item.arguments)
       return {
         name: `mcp__${item.server}__${item.tool}`,
-        detail: JSON.stringify(item.arguments ?? {}),
+        detail: jsonText(item.arguments ?? {}),
         preview: callTitle(args),
         result: contentToText(item.result?.content) || errorText(item.error),
         failed: item.result?.isError === true
@@ -324,7 +325,7 @@ function itemCall(item: any): ItemCall | null {
       const ns = typeof item.namespace === 'string' && item.namespace ? `${item.namespace}__` : ''
       return {
         name: `${ns}${item.tool}`,
-        detail: JSON.stringify(item.arguments ?? {}),
+        detail: jsonText(item.arguments ?? {}),
         preview: callTitle(parseArguments(item.arguments)),
         result: blocksText(item.content_items),
         failed: item.success === false
@@ -345,7 +346,7 @@ function itemCall(item: any): ItemCall | null {
         const prompt = typeof item.revisedPrompt === 'string' ? item.revisedPrompt : ''
         return { name: 'image_gen', detail: prompt || saved, preview: saved || null, result: saved, failed: !!item.failure }
       }
-      return { name: item.kind, detail: JSON.stringify(item) }
+      return { name: item.kind, detail: jsonText(item) }
     default:
       return null
   }
@@ -427,7 +428,7 @@ function outputText(output: unknown): string {
     const text = contentToText(output)
     return text || (output.some((b) => b?.type === 'input_image') ? '(image)' : '')
   }
-  return JSON.stringify(output ?? '')
+  return jsonText(output ?? '')
 }
 
 /**
