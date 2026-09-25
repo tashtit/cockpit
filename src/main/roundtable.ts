@@ -167,7 +167,7 @@ export class RoundtableManager {
         const rt = sanitizeRoundtable(JSON.parse(readFileSync(join(this.dir, f), 'utf8')))
         if (rt) {
           this.tables.set(rt.id, structuredClone(rt) as Table)
-          this.cwdIndex = null
+          this.forgetRooms()
         }
       } catch {
         /* skip unreadable file */
@@ -253,7 +253,7 @@ export class RoundtableManager {
       /* already gone — the record is what matters, and it is about to be */
     }
     this.tables.delete(id)
-    this.cwdIndex = null
+    this.forgetRooms()
   }
 
   /** A round of this table is in flight right now. */
@@ -317,6 +317,20 @@ export class RoundtableManager {
   /** Queried cwd → its on-disk spelling. Paths only, so table changes never stale it. */
   private readonly realCwds = new Map<string, string>()
 
+  /**
+   * Queried cwds the disk has no spelling for (a deleted worktree, most of them). Asked
+   * again for every session on every page, each miss was a failing realpath call; they
+   * are remembered until the table set changes, since only a new table's room is a path
+   * that could come to exist and belong to one.
+   */
+  private readonly missedCwds = new Set<string>()
+
+  /** The table set changed: the room index, and every miss judged against it, are stale. */
+  private forgetRooms(): void {
+    this.cwdIndex = null
+    this.missedCwds.clear()
+  }
+
   private roomIndex(): Map<string, string> {
     this.ensureLoaded()
     if (!this.cwdIndex) {
@@ -337,9 +351,12 @@ export class RoundtableManager {
     if (exact !== undefined || rooms.size === 0) return exact ?? null
     let real = this.realCwds.get(given)
     if (real === undefined) {
-      // a miss is not remembered: a room that does not exist yet will
+      if (this.missedCwds.has(given)) return null
       real = onDisk(given) ?? undefined
-      if (real === undefined) return null
+      if (real === undefined) {
+        this.missedCwds.add(given)
+        return null
+      }
       this.realCwds.set(given, real)
     }
     return rooms.get(real) ?? null
@@ -378,7 +395,7 @@ export class RoundtableManager {
       entries: []
     }
     this.tables.set(id, t)
-    this.cwdIndex = null
+    this.forgetRooms()
     this.appendEntry(t, { speaker: 'user', text: input.topic, at: now })
     this.save(t)
     this.startRound(t, true)

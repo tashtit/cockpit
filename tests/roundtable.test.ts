@@ -705,6 +705,22 @@ describe('RoundtableManager', () => {
     expect(h.manager.tableIdForCwd('/somewhere/else')).toBeNull()
   })
 
+  // the indexer asks for every session on every page; a deleted cwd used to cost a
+  // failing realpath call each time
+  it('remembers a cwd the disk has no spelling for until the table set changes', () => {
+    const h = makeManager(newDir())
+    const first = h.manager.create(TWO_SEATS, null)
+    const gone = join(newDir(), 'later')
+    expect(h.manager.tableIdForCwd(gone)).toBeNull()
+    // the path comes to exist as a spelling of the room: the remembered miss still holds…
+    symlinkSync(first.cwd, gone)
+    expect(h.manager.tableIdForCwd(gone)).toBeNull()
+    // …until a table is added, the one change that can make a missing path a room
+    const second = h.manager.create({ ...TWO_SEATS, topic: 'another' }, null)
+    expect(h.manager.tableIdForCwd(gone)).toBe(first.id)
+    expect(h.manager.tableIdForCwd(second.cwd)).toBe(second.id)
+  })
+
   it('skips corrupt files on load instead of failing the scan', () => {
     const dir = newDir()
     const first = makeManager(dir)
