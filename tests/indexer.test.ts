@@ -470,6 +470,53 @@ describe('watcher-event probing (codex subagent rollouts)', () => {
   })
 })
 
+describe('a Codex thread renamed in session_index.jsonl', () => {
+  const home = join(root, 'codex-names')
+  const day = join(home, 'sessions', '2026', '09', '20')
+  const rollout = (id: string, prompt: string): string => {
+    mkdirSync(day, { recursive: true })
+    const f = join(day, `rollout-${id}.jsonl`)
+    writeFileSync(
+      f,
+      jsonl([
+        { timestamp: '2026-09-20T10:00:00Z', type: 'session_meta', payload: { id, cwd: '/nowhere/n' } },
+        { timestamp: '2026-09-20T10:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] } }
+      ])
+    )
+    return f
+  }
+  const index = join(home, 'session_index.jsonl')
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    rollout('t1', 'first prompt')
+    rollout('t2', 'second prompt')
+    writeFileSync(index, jsonl([{ id: 't1', thread_name: 'Named first' }]))
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: home, provider: 'codex', label: 'cx' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  // every new thread names itself there: the index's mtime used to be stamped into
+  // every Codex entry, so each write re-parsed every rollout after a full rescan
+  it('re-titles that thread alone, without a rescan or a re-parse of the others', () => {
+    const anyIdx = idx as any
+    expect(idx.getSession('codex:t1')?.title).toBe('Named first')
+    expect(idx.getSession('codex:t2')?.title).toBe('second prompt')
+    const untouched = anyIdx.fileCache.get(join(day, 'rollout-t1.jsonl'))
+    appendFileSync(index, jsonl([{ id: 't2', thread_name: 'Named second' }]))
+    anyIdx.markSourceDirty({ path: home, provider: 'codex', label: 'cx' })
+    expect(anyIdx.rescanTimer).toBeNull()
+    anyIdx.applyDirty()
+    expect(idx.getSession('codex:t2')?.title).toBe('Named second')
+    expect(idx.getSession('codex:t1')?.title).toBe('Named first')
+    // the other thread's entry is the very one cached before: judged, not re-read
+    expect(anyIdx.fileCache.get(join(day, 'rollout-t1.jsonl'))).toBe(untouched)
+  })
+})
+
 describe('files in a session root that are not regular files', () => {
   const cpDir = join(root, 'copilot-fifo')
   const clDir = join(root, 'claude-fifo')

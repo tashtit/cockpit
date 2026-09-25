@@ -38,11 +38,12 @@ import {
   parseClaudeMessages
 } from './parsers/claude'
 import {
-  codexIndexFile,
+  codexThreadName,
   listCodexSessionFiles,
   listCodexSessionRoots,
   parseCodexMeta,
-  parseCodexMessages
+  parseCodexMessages,
+  readCodexMeta
 } from './parsers/codex'
 import {
   copilotWorkspaceFile,
@@ -78,7 +79,7 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 9
+const CACHE_VERSION = 10
 /** Yield to the event loop after this much scanning so scans never starve IPC (a frame). */
 const SCAN_SLICE_MS = 16
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -117,27 +118,37 @@ function nextCacheTmp(cacheFile: string): string {
 type CacheEntry = {
   readonly mtimeMs: number
   readonly size: number
-  /** mtime of the out-of-band name source (codex session_index / copilot workspace.yaml) */
+  /** mtime of copilot's out-of-band name source, workspace.yaml (see auxStamp) */
   readonly aux?: number
+  /**
+   * Codex: the thread its title was looked up under in session_index.jsonl, and the
+   * name found. The index is one file for every rollout, so its mtime cannot stand for
+   * any one of them — the entry is stale only when its own thread's name changed.
+   */
+  readonly threadId?: string | null
+  readonly threadName?: string | null
   readonly meta: SessionMeta | null
 }
 
 /**
- * Codex and Copilot store generated session names outside the transcript file, so a
- * rename doesn't touch the transcript's (mtime,size). Stamp the side file's mtime into
- * the cache entry so name changes invalidate it.
+ * Copilot stores the generated session name beside the transcript, so a rename doesn't
+ * touch the transcript's (mtime,size). Stamp the side file's mtime into the cache entry
+ * so name changes invalidate it. (Codex keeps its names in one shared index instead —
+ * see CacheEntry.threadName.)
  */
 function auxStamp(file: string, source: SourceDir): number {
-  let p: string | null = null
-  if (source.provider === 'codex') p = codexIndexFile(source.path)
-  else if (source.provider === 'copilot' && file.endsWith('events.jsonl'))
-    p = copilotWorkspaceFile(file)
-  if (!p) return 0
+  if (source.provider !== 'copilot' || !file.endsWith('events.jsonl')) return 0
   try {
-    return statSync(p).mtimeMs
+    return statSync(copilotWorkspaceFile(file)).mtimeMs
   } catch {
     return 0
   }
+}
+
+/** Is a cached Codex entry still named what its thread is named now? */
+function sameThreadName(file: string, entry: CacheEntry): boolean {
+  if (!entry.threadId) return true
+  return codexThreadName(file, entry.threadId) === (entry.threadName ?? null)
 }
 
 /**
@@ -440,12 +451,13 @@ export class SessionIndexer {
         })
       }
       // Codex thread names live in <CODEX_HOME>/session_index.jsonl, outside the sessions
-      // root. Watch the home dir non-recursively and react to just that file.
+      // root. Watch the home dir non-recursively and react to just that file — by
+      // re-judging this source's rollouts, of which only a renamed one re-parses.
       if (s.provider === 'codex') {
         this.ensureWatch({
           dir: s.path,
           handler: (_event, filename) => {
-            if (filename?.toString() === 'session_index.jsonl') this.scheduleRescan()
+            if (filename?.toString() === 'session_index.jsonl') this.markSourceDirty(s)
           }
         })
       }
@@ -559,15 +571,7 @@ export class SessionIndexer {
       if (this.fileSource.has(path)) {
         if (this.rescanTimer) return // a pending full rescan already covers it
         this.dirty.add(path)
-        // a throttle, not a debounce: restarted on every write, the timer never fired
-        // while several agents wrote at once — their combined rate beats any quiet
-        // period — and the index, live status and turn-ended news all froze with it
-        if (!this.dirtyTimer) {
-          this.dirtyTimer = setTimeout(() => {
-            this.dirtyTimer = null
-            this.applyDirty()
-          }, DIRTY_FLUSH_MS)
-        }
+        this.scheduleDirtyFlush()
         return
       }
       // 'change' on a session-shaped file we never enumerated: probe just that file
@@ -623,6 +627,31 @@ export class SessionIndexer {
       }
     }
     return null
+  }
+
+  /**
+   * A throttle, not a debounce: restarted on every write, the timer never fired while
+   * several agents wrote at once — their combined rate beats any quiet period — and the
+   * index, live status and turn-ended news all froze with it.
+   */
+  private scheduleDirtyFlush(): void {
+    if (this.dirtyTimer) return
+    this.dirtyTimer = setTimeout(() => {
+      this.dirtyTimer = null
+      this.applyDirty()
+    }, DIRTY_FLUSH_MS)
+  }
+
+  /**
+   * Something every file of a source depends on changed (Codex's name index): re-judge
+   * them all through the stat cache, which re-parses only the ones it no longer holds.
+   */
+  private markSourceDirty(source: SourceDir): void {
+    if (this.rescanTimer) return // a pending full rescan already covers it
+    for (const [file, s] of this.fileSource) {
+      if (s.provider === source.provider && s.path === source.path) this.dirty.add(file)
+    }
+    if (this.dirty.size > 0) this.scheduleDirtyFlush()
   }
 
   private applyDirty(): void {
@@ -764,7 +793,8 @@ export class SessionIndexer {
       cached &&
       cached.mtimeMs === st.mtimeMs &&
       cached.size === st.size &&
-      (cached.aux ?? 0) === aux
+      (cached.aux ?? 0) === aux &&
+      sameThreadName(file, cached)
     ) {
       // the session file is unchanged, but its repo identity may not be (a renamed
       // origin remote) and neither may its branch (the worktree moved) — re-resolve,
@@ -775,8 +805,15 @@ export class SessionIndexer {
       return cached.meta
     }
     let meta: SessionMeta | null = null
+    let naming: Pick<CacheEntry, 'threadId' | 'threadName'> = {}
     try {
-      meta = META_PARSERS[source.provider](file, source.label)
+      if (source.provider === 'codex') {
+        const read = readCodexMeta(file, source.label)
+        meta = read.meta
+        if (read.threadId) naming = { threadId: read.threadId, threadName: read.threadName }
+      } else {
+        meta = META_PARSERS[source.provider](file, source.label)
+      }
       // inside the try: a throw here escaped as far as the scan, which then failed
       // the same way on every rescan — and out of a watcher callback, uncaught
       if (meta) this.annotate(meta)
@@ -784,7 +821,7 @@ export class SessionIndexer {
       console.error(`[indexer] parse failed for ${file}:`, err)
       meta = null
     }
-    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, meta })
+    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, ...naming, meta })
     this.cacheDirty = true
     // a fresh parse means the file changed — the only time its tail can say something new
     if (meta) {

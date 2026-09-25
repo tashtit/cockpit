@@ -186,7 +186,7 @@ export class LivenessTracker {
     // an older page of a Codex thread shares the live page's id: nothing it says is news
     if (prev && file !== prev.file && written <= prev.lastWriteAt) return
     // The gate is for arrivals. The indexer also re-reads a log that has not changed,
-    // when a file beside it did (Codex's name index, whenever another session starts;
+    // when a file beside it did (Codex's name index, when that thread is named;
     // Copilot's workspace.yaml) — and at the 90s gate that re-read dropped a turn ten
     // minutes into a tool call: shown idle while it ran, its real ending never
     // announced. A running entry is kept by the rule the sweep keeps it by.

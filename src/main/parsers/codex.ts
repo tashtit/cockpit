@@ -446,10 +446,35 @@ function isThreadPart(p: any): boolean {
 }
 
 export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta | null {
+  return readCodexMeta(file, sourceLabel).meta
+}
+
+/**
+ * A rollout's meta, and what its title was looked up under in the name index. The
+ * indexer keeps the pair so that a write to the index — every new thread names itself
+ * there — re-parses only the rollout whose name changed, not every rollout.
+ */
+export type CodexMetaRead = {
+  readonly meta: SessionMeta | null
+  /** The thread the index was asked about; null when it was not (no meta, no id) */
+  readonly threadId: string | null
+  /** What the index answered, which is then the title; null when it had no name */
+  readonly threadName: string | null
+}
+
+const NO_META: CodexMetaRead = { meta: null, threadId: null, threadName: null }
+
+/** The name the index gives a rollout's thread right now; null when it gives none. */
+export function codexThreadName(file: string, threadId: string): string | null {
+  const home = codexHomeOf(file)
+  return (home && threadNames(home).get(threadId)) || null
+}
+
+export function readCodexMeta(file: string, sourceLabel: string): CodexMetaRead {
   const head = readHead(file, META_HEAD_BYTES)
-  if (!head.text) return null
+  if (!head.text) return NO_META
   const lines = parseJsonlText(head.text, head.truncated)
-  if (lines.length === 0) return null
+  if (lines.length === 0) return NO_META
 
   let nativeId = basename(file, '.jsonl')
   let threadId: string | null = null
@@ -473,7 +498,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       // subagent rollouts (guardian etc.) live in the same sessions/ dirs but are
       // parts of a thread, never sessions — and archiving the parent thread moves
       // only the parent's rollout, so these would surface as phantom sessions
-      if (isThreadPart(p)) return null
+      if (isThreadPart(p)) return NO_META
       if (p.id) nativeId = String(p.id)
       // The name index is keyed by thread id (continuation rollouts share it)
       if (p.session_id || p.id) threadId = String(p.session_id ?? p.id)
@@ -498,17 +523,16 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
       }
     }
   }
-  if (messageCount === 0) return null
+  if (messageCount === 0) return NO_META
   if (head.truncated) {
     messageCount = Math.max(messageCount, Math.round((messageCount * head.size) / META_HEAD_BYTES))
   }
 
-  const home = codexHomeOf(file)
-  const threadName = home && threadId ? threadNames(home).get(threadId) : undefined
+  const threadName = threadId ? codexThreadName(file, threadId) : null
   if (threadName) title = truncate(threadName)
 
   const ft = fileTimes(file)
-  return {
+  const meta: SessionMeta = {
     id: `codex:${nativeId}`,
     provider: 'codex',
     nativeId,
@@ -522,6 +546,7 @@ export function parseCodexMeta(file: string, sourceLabel: string): SessionMeta |
     sourcePath: file,
     ...(historyBase ? { historyBase } : {})
   }
+  return { meta, threadId, threadName }
 }
 
 /**
