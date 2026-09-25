@@ -139,6 +139,22 @@ export function readTail(
   }
 }
 
+/**
+ * A long loop's pacing by time rather than by count. Its steps range from a cached stat
+ * to a multi-megabyte parse, so "yield every N steps" either yields for nothing or holds
+ * IPC for as long as N big steps take (166ms measured on a cold scan). Awaited after
+ * each step, the returned function hands the event loop back once `budgetMs` of work
+ * has run since it last did.
+ */
+export function timeSlicer(budgetMs: number): () => Promise<void> {
+  let since = performance.now()
+  return async () => {
+    if (performance.now() - since < budgetMs) return
+    await new Promise<void>((r) => setImmediate(r))
+    since = performance.now()
+  }
+}
+
 /** Every file a session's log spans, oldest first: a thread's earlier pages, then `sourcePath`. */
 export function sessionLogFiles(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): string[] {
   return [...(meta.segments ?? []).map((s) => s.path), meta.sourcePath]

@@ -15,6 +15,7 @@ import {
   patchPreview,
   readJsonlTail,
   shellPreview,
+  timeSlicer,
   toolPreview,
   truncate,
   TRANSCRIPT_TAIL_BYTES
@@ -137,6 +138,35 @@ describe('LineSplitter', () => {
     expect(Date.now() - started).toBeLessThan(1500)
     expect(kept.lines[0]?.length).toBe(96 * chunk.length)
     expect(over).toEqual({ lines: ['next'], dropped: 1 })
+  })
+})
+
+describe('timeSlicer', () => {
+  const busy = (ms: number): void => {
+    const until = performance.now() + ms
+    while (performance.now() < until) {
+      // a step of real work
+    }
+  }
+
+  // steps range from a cached stat to a 2MB parse: pacing by count held IPC for 166ms
+  it('hands the event loop back once a step has run the budget out, and not before', async () => {
+    // generous, so a loaded machine's scheduling can't pass for a slow step
+    const pace = timeSlicer(200)
+    let ran = 0
+    const others = (): void => void setImmediate(() => ran++)
+    // quick steps: nothing else gets a turn in between
+    others()
+    for (let i = 0; i < 5; i++) await pace()
+    expect(ran).toBe(0)
+    // one slow step: the next pace lets the waiting callback run
+    busy(250)
+    await pace()
+    expect(ran).toBe(1)
+    // and the budget starts over from there
+    others()
+    await pace()
+    expect(ran).toBe(1)
   })
 })
 

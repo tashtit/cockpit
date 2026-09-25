@@ -28,6 +28,7 @@ import type {
 import { orderRepos } from '../shared/repo-order'
 import { isUnder } from './paths'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
+import { timeSlicer } from './parsers/util'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
 import {
@@ -78,8 +79,8 @@ const MESSAGE_PARSERS = {
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
 const CACHE_VERSION = 9
-/** Yield to the event loop every N files so scans never starve IPC. */
-const YIELD_EVERY = 50
+/** Yield to the event loop after this much scanning so scans never starve IPC (a frame). */
+const SCAN_SLICE_MS = 16
 /** Publish partial results during a cold scan so the tree fills in progressively. */
 const PUBLISH_EVERY = 300
 /** Broadcasts and cache writes are throttled — an active chat appends every second. */
@@ -690,6 +691,7 @@ export class SessionIndexer {
       const nextFiles = new Map<string, SessionMeta[]>()
       const nextSource = new Map<string, SourceDir>()
       const seenFiles = new Set<string>()
+      const pace = timeSlicer(SCAN_SLICE_MS)
       let processed = 0
       for (const s of this.sources) {
         let files: string[]
@@ -705,7 +707,7 @@ export class SessionIndexer {
           const meta = this.metaFor(file, s)
           if (meta) next.set(meta.id, foldThread(collect(nextFiles, meta)))
           processed++
-          if (processed % YIELD_EVERY === 0) await new Promise((r) => setImmediate(r))
+          await pace()
           if (processed % PUBLISH_EVERY === 0) {
             this.sessions = new Map(next)
             this.emitUpdate()
