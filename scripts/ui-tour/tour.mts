@@ -472,7 +472,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

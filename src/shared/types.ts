@@ -988,16 +988,23 @@ export type UsageSnapshot = {
 
 /* ---------- profile ---------- */
 
+/** A count split by the agents behind it: the profile's one grammar, since the split is the point. */
+export type AgentSplit = Partial<Record<Provider, number>>
+
+/** Sessions started in one bucket (a day, an hour of the day), and which agents ran them. */
+export type SessionTally = {
+  readonly sessions: number
+  /** Sessions per provider — drives the tint of the square or the bar's segments */
+  readonly byProvider: AgentSplit
+}
+
 /**
  * One day of the activity heatmap. Days are local-time calendar days so the grid
  * matches the user's sense of "yesterday", not UTC's.
  */
-export type ActivityDay = {
+export type ActivityDay = SessionTally & {
   /** Local calendar day, `YYYY-MM-DD` */
   readonly day: string
-  readonly sessions: number
-  /** Sessions per provider that day — drives the square's tint */
-  readonly byProvider: Partial<Record<Provider, number>>
 }
 
 /** Per-agent totals. The comparison across these is the point of the profile. */
@@ -1006,8 +1013,20 @@ export type ProviderProfile = {
   readonly sessions: number
   /** Distinct local days with at least one session */
   readonly activeDays: number
-  /** Mean messages per session (index metadata, so it costs nothing) */
-  readonly avgTurns: number
+  /**
+   * Sessions whose logs the deep pass could read — the denominator for every
+   * per-session rate below, since a session it could not read contributed nothing.
+   */
+  readonly readSessions: number
+  /**
+   * Prompts the person sent, counted the same way for every agent: what they typed,
+   * never tool results, injected context or the CLI's own echoes. The index's
+   * `messageCount` can't stand in — it counts records, and Claude writes one per
+   * tool call and one per result, so it read as several times chattier than the others.
+   */
+  readonly prompts: number
+  /** Every tool call in the read sessions (not just the `tools` shown, which are capped) */
+  readonly toolCalls: number
   /**
    * Lines the agent wrote / removed via its edit tools. This counts edit *operations*,
    * not surviving diff: rewriting the same file twice counts twice, and nothing here
@@ -1042,7 +1061,7 @@ export type NameCount = {
 export type ModelStat = {
   readonly name: string
   readonly count: number
-  readonly byProvider: Partial<Record<Provider, number>>
+  readonly byProvider: AgentSplit
 }
 
 /** Sessions attributed to one signed-in account (config home), for multi-account setups. */
@@ -1062,12 +1081,18 @@ export type LanguageStat = {
   readonly ext: string
   readonly files: number
   readonly linesAdded: number
+  /** Lines added per agent */
+  readonly byProvider: AgentSplit
 }
 
 export type RepoStat = {
   readonly key: string
   readonly name: string
+  /** GitHub `owner/repo`, when the origin remote names one */
+  readonly fullName: string | null
   readonly sessions: number
+  /** Sessions per agent */
+  readonly byProvider: AgentSplit
   readonly lastActivity: number
 }
 
@@ -1098,7 +1123,7 @@ export type ProfileStats = {
   /** Signed-in accounts with their session share, most-used first */
   readonly accounts: AccountStat[]
   /** Sessions started per local hour of day — 24 buckets, index 0 = midnight */
-  readonly hourCounts: number[]
+  readonly hours: SessionTally[]
 }
 
 /**
