@@ -361,6 +361,39 @@ const PLACEMENT_SAVE_MS = 800
 /** A renderer that dies again this soon after a reload is left alone rather than reloaded in a loop */
 const RENDERER_RECOVERY_MS = 10_000
 
+/**
+ * The one page this app loads needs a single web permission: writing text to the
+ * clipboard (the copy buttons). Everything else — camera, microphone, location,
+ * notifications through the page, HID, serial — is refused rather than left to
+ * Electron's default, which grants every request. Notifications are main's
+ * (`Notification` in attention.ts), never the page's.
+ */
+const RENDERER_PERMISSIONS: ReadonlySet<string> = new Set(['clipboard-sanitized-write'])
+
+/**
+ * A link the renderer asks to open, as the URL to hand the OS — or null. Parsed,
+ * not pattern-matched: the parser lower-cases the scheme, so `HTTPS://` — which the
+ * transcript's own link filter accepts — opens rather than doing nothing, and
+ * nothing but http(s) ever reaches `openExternal`.
+ */
+function externalUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  try {
+    const u = new URL(raw)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null
+  } catch {
+    return null
+  }
+}
+
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    return false
+  }
+}
+
 function createWindow(): void {
   // dev-only: `npm run dev` relaunches never steal focus (COCKPIT_DEV_BACKGROUND=0
   // opts out), and the window can open on a chosen display — a packaged app
@@ -425,13 +458,19 @@ function createWindow(): void {
   // from the app, and dropped files must not become navigations
   win.webContents.on('will-navigate', (e, url) => {
     const devUrl = process.env['ELECTRON_RENDERER_URL']
-    if (!app.isPackaged && devUrl && url.startsWith(devUrl)) return
+    // the origin, not a prefix: `http://localhost:5173.evil.test` starts with the dev URL
+    if (!app.isPackaged && devUrl && sameOrigin(url, devUrl)) return
     e.preventDefault()
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+    const external = externalUrl(url)
+    if (external) void shell.openExternal(external)
     return { action: 'deny' }
   })
+  win.webContents.session.setPermissionRequestHandler((_wc, permission, callback) =>
+    callback(RENDERER_PERMISSIONS.has(permission))
+  )
+  win.webContents.session.setPermissionCheckHandler((_wc, permission) => RENDERER_PERMISSIONS.has(permission))
 
   // A renderer that dies (out of memory, a GPU reset, killed from Activity Monitor)
   // leaves a blank window whose only way back was closing it. Main's state is intact,
@@ -802,8 +841,8 @@ app.whenReady().then(() => {
     shareInstructions(assertKnownRepoRoot(repoRoot))
   )
   ipcMain.handle(CH.shellOpen, (_e, url: string) => {
-    if (/^https?:\/\//.test(url)) return shell.openExternal(url)
-    return Promise.resolve()
+    const external = externalUrl(url)
+    return external ? shell.openExternal(external) : Promise.resolve()
   })
   // the level is the user's, so it outlives the window: main restores it next launch
   // before the first paint, which is also when it needs it to size the window
