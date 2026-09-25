@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import type { WorkspaceInfo } from '../shared/types'
 import { parseWorktreeList, type WorktreeEntry } from './cleanup-core'
 import { execText, type ExecResult } from './env'
+import { getDefaultBranch } from './github'
 import { userDataDir } from './config'
 
 const TIMEOUT_MS = 120_000
@@ -180,14 +181,29 @@ export async function removeWorkspace(repoRoot: string, cwd: string): Promise<vo
   await run('git', ['worktree', 'remove', '--force', cwd], repoRoot).catch(() => '')
 }
 
-/** Push the workspace branch and open a PR; returns the PR URL. */
+/**
+ * Push the workspace branch and open a PR; returns the PR URL.
+ *
+ * The push comes first and `gh pr create` would only refuse after it, so the
+ * default branch is refused here: a session in the main checkout on `main` is one
+ * click from pushing its local commits straight to the remote's default branch, and
+ * the renderer hiding the button is not a check (it shows it whenever the default
+ * is unknown). An unknown default is refused too — there is no PR to open without one.
+ */
 export async function createPr(cwd: string): Promise<string> {
   const branch = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
   if (branch === 'HEAD') throw new Error('Detached HEAD — cannot create a PR from here.')
-  const dirty = await run('git', ['status', '--porcelain'], cwd)
+  const target = await getDefaultBranch(cwd)
+  if (!target) throw new Error("Couldn't work out the repository's default branch — is `origin` a GitHub remote?")
+  if (branch === target) {
+    throw new Error(`${branch} is the default branch — a PR needs a branch of its own. Start a new session to get one.`)
+  }
+  const dirty = await run('git', ['--no-optional-locks', 'status', '--porcelain'], cwd)
   if (dirty) throw new Error('Uncommitted changes in the worktree — ask the agent to commit first.')
-  await run('git', ['push', '-u', 'origin', branch], cwd)
-  const out = await run('gh', ['pr', 'create', '--fill', '--head', branch], cwd)
+  // spelled as a full refspec: a branch name is read from the repo, and one made with
+  // plumbing can start with `-`, which a bare positional would hand git as an option
+  await run('git', ['push', '-u', 'origin', `HEAD:refs/heads/${branch}`], cwd)
+  const out = await run('gh', ['pr', 'create', '--fill', `--head=${branch}`], cwd)
   const url = out.match(/https:\/\/\S+/)?.[0]
   if (!url) throw new Error(`PR created but no URL in output:\n${out}`)
   return url
