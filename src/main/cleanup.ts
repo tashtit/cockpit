@@ -77,6 +77,16 @@ export const CLEANUP_ROW_CAP = 500
 /** Sizing a worktree walks a whole checkout — give up rather than stall the scan. */
 const DU_TIMEOUT_MS = 10_000
 
+/** At most this many `du` at once: each one walks a whole checkout, node_modules and all. */
+const DU_PARALLEL = 4
+
+/**
+ * What sizing every stale worktree may take in all. The pool turns a disk thrashing
+ * under every walk at once into a queue, and a queue of big checkouts must not hold
+ * the scan: what is still waiting when this runs out reads as unmeasured.
+ */
+const DU_BUDGET_MS = 30_000
+
 /** Hand the event loop back this often while stat-ing or removing session files. */
 const YIELD_EVERY = 200
 
@@ -296,8 +306,9 @@ async function unanchoredCommits(dir: string): Promise<boolean> {
 }
 
 /** `du -sk` in bytes; null when it fails or takes too long to be worth waiting for. */
-async function measureDir(path: string): Promise<number | null> {
-  const r = await execText('du', ['-sk', path], { timeoutMs: DU_TIMEOUT_MS })
+async function measureDir(path: string, timeoutMs = DU_TIMEOUT_MS): Promise<number | null> {
+  if (timeoutMs <= 0) return null
+  const r = await execText('du', ['-sk', path], { timeoutMs: Math.min(timeoutMs, DU_TIMEOUT_MS) })
   if (!r.ok) return null
   const kb = Number(r.stdout.trim().split(/\s+/)[0])
   return Number.isFinite(kb) ? kb * 1024 : null
@@ -494,6 +505,23 @@ async function judgeWorktree(
   }
 }
 
+/**
+ * What each worktree occupies, a few `du` at a time: started all at once, the walks
+ * fought each other for the disk and most ran into their timeout. The step as a whole
+ * keeps to `DU_BUDGET_MS`.
+ */
+async function sizeWorktrees(
+  trees: readonly JudgedWorktree[]
+): Promise<ReadonlyMap<string, number | null>> {
+  const deadline = Date.now() + DU_BUDGET_MS
+  const sizes = await mapLimit(
+    trees,
+    async (w) => (w.missing ? 0 : await measureDir(w.path, deadline - Date.now())),
+    DU_PARALLEL
+  )
+  return new Map(trees.map((w, i) => [w.path, sizes[i]]))
+}
+
 /** Where worktrees get cut: Cockpit's root, each repo's `.claude/worktrees`, the extras. */
 function worktreeHomes(deps: CleanupDeps): WorktreeHome[] {
   // Cockpit cuts `<root>/<repo>/<name>` (workspace.ts)
@@ -597,13 +625,7 @@ export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promi
   ).sort((a, b) => a.lastActivity - b.lastActivity)
   // only stale worktrees are sized: walking every checkout in every repo would
   // cost far more than the answer is worth
-  const sizes = new Map<string, number | null>(
-    await Promise.all(
-      staleTrees.map(
-        async (w) => [w.path, w.missing ? 0 : await measureDir(w.path)] as [string, number | null]
-      )
-    )
-  )
+  const sizes = await sizeWorktrees(staleTrees)
 
   const staleMetas = all
     .filter((s) => isStale(s.updatedAt, cutoff))
