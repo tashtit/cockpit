@@ -22,7 +22,10 @@ import {
   parseLsofCwds,
   parsePs,
   parseWorktreeList,
+  resolvedOnce,
   sameProcess,
+  sessionsByCwd,
+  sessionsUnder,
   staleCutoff,
   sumBytes,
   worktreeBlocks,
@@ -305,20 +308,8 @@ function realish(path: string): string {
   }
 }
 
-/** Newest `updatedAt` among sessions running in (or under) a directory, plus how many. */
-function sessionActivityIn(
-  sessions: readonly SessionMeta[],
-  path: string
-): { readonly newest: number; readonly count: number } {
-  let newest = 0
-  let count = 0
-  for (const s of sessions) {
-    if (!s.cwd || !isUnder(realish(s.cwd), path)) continue
-    count++
-    if (s.updatedAt > newest) newest = s.updatedAt
-  }
-  return { newest, count }
-}
+/** `realish` for one survey or one action: each distinct path resolved once, then remembered. */
+type Resolve = (path: string) => string
 
 function dirMtime(path: string): number {
   try {
@@ -333,14 +324,16 @@ type JudgedWorktree = StaleWorktree & { readonly repoRootForGit: string }
 
 async function judgeWorktrees(
   deps: CleanupDeps,
-  procs: readonly ProcessFacts[]
+  input: { readonly procs: readonly ProcessFacts[]; readonly resolve: Resolve }
 ): Promise<JudgedWorktree[]> {
+  const { procs, resolve } = input
   const sessions = deps.sessions()
+  const groups = sessionsByCwd(sessions, resolve)
   const busy = deps.busyIds()
   const busyCwds = new Set(
-    sessions.filter((s) => busy.has(s.id) && s.cwd).map((s) => realish(s.cwd as string))
+    sessions.filter((s) => busy.has(s.id) && s.cwd).map((s) => resolve(s.cwd as string))
   )
-  const cockpitRoot = realish(deps.cockpitWorktreeRoot)
+  const cockpitRoot = resolve(deps.cockpitWorktreeRoot)
   const out: JudgedWorktree[] = []
   const listed: { root: string; entry: WorktreeEntry; path: string; isMain: boolean }[] = []
   const seen = new Set<string>()
@@ -348,7 +341,7 @@ async function judgeWorktrees(
     const listing = await gitRead(root, ['worktree', 'list', '--porcelain'])
     if (listing === null) continue
     for (const [i, entry] of parseWorktreeList(listing).entries()) {
-      const path = realish(entry.path)
+      const path = resolve(entry.path)
       if (seen.has(path)) continue
       seen.add(path)
       // the first record is the repository's own checkout; bare repos have no
@@ -368,7 +361,7 @@ async function judgeWorktrees(
   }
   for (const { root, entry, path, isMain } of listed) {
     const missing = entry.prunable || !existsSync(path)
-    const activity = sessionActivityIn(sessions, path)
+    const activity = sessionsUnder(groups, path)
     const tip = missing ? null : await gitRead(path, ['log', '-1', '--format=%ct', 'HEAD'])
     const tipMs = tip === null ? 0 : Number(tip.trim()) * 1000
     const dirty = missing ? false : isDirty(await gitRead(path, ['status', '--porcelain']))
@@ -400,7 +393,7 @@ async function judgeWorktrees(
         activity.newest,
         missing ? 0 : dirMtime(path)
       ]),
-      sessionCount: activity.count,
+      sessionCount: activity.ids.length,
       missing,
       unpushed: unpushedOut === null ? 0 : Number(unpushedOut.trim()) || 0,
       bytes: null,
@@ -461,11 +454,10 @@ function orphanProcesses(
  */
 function worktreeForCwd(
   trees: readonly JudgedWorktree[],
-  cwd: string | null,
+  here: string | null,
   cutoff: number
 ): JudgedWorktree | null {
-  if (!cwd) return null
-  const here = realish(cwd)
+  if (!here) return null
   for (const w of trees) {
     if (w.blocks.length > 0 || w.missing) continue
     if (!isStale(w.lastActivity, cutoff)) continue
@@ -491,9 +483,10 @@ export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promi
   const cutoff = staleCutoff(days, scannedAt)
   const all = deps.sessions()
   const busy = deps.busyIds()
+  const resolve = resolvedOnce(realish)
 
   const { procs } = await processSnapshot(deps)
-  const judged = await judgeWorktrees(deps, procs)
+  const judged = await judgeWorktrees(deps, { procs, resolve })
   const linked = judged.filter((w) => !w.blocks.includes('main'))
   const staleTrees = linked
     .filter((w) => isStale(w.lastActivity, cutoff))
@@ -515,7 +508,7 @@ export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promi
   let n = 0
   for (const s of staleMetas) {
     if (++n % YIELD_EVERY === 0) await yieldToLoop()
-    const w = worktreeForCwd(staleTrees, s.cwd, cutoff)
+    const w = worktreeForCwd(staleTrees, s.cwd ? resolve(s.cwd) : null, cutoff)
     sessions.push({
       id: s.id,
       provider: s.provider,
@@ -549,7 +542,7 @@ export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promi
     const mine = seats.filter((s) => s.roundtableId === t.id)
     const dirBytes = (await measureDir(t.cwd)) ?? null
     const logBytes = mine.reduce((n, s) => n + sessionBytes(s), 0)
-    const w = staleTrees.find((tree) => tree.path === realish(t.cwd))
+    const w = staleTrees.find((tree) => tree.path === resolve(t.cwd))
     staleTables.push({
       id: t.id,
       title: t.title,
@@ -718,15 +711,17 @@ export async function deleteSessions(
   }
 
   if (deleted.size > 0) {
+    const resolve = resolvedOnce(realish)
+    const groups = sessionsByCwd(all, resolve)
     const snapshot = await processSnapshot(deps)
-    for (const w of await judgeWorktrees(deps, snapshot.procs)) {
+    for (const w of await judgeWorktrees(deps, { procs: snapshot.procs, resolve })) {
       if (w.blocks.length > 0 || w.missing) continue
       if (!isStale(w.lastActivity, cutoff)) continue
-      const inside = all.filter((s) => s.cwd && isUnder(realish(s.cwd), w.path))
+      const inside = sessionsUnder(groups, w.path).ids
       // no session of its own is not this action's business — that is an orphan,
       // and orphans are cleaned from the worktrees list, deliberately by hand
       if (inside.length === 0) continue
-      if (!inside.every((s) => deleted.has(s.id))) continue
+      if (!inside.every((id) => deleted.has(id))) continue
       if (!snapshot.complete) {
         failed.push({ target: w.path, reason: UNCHECKED })
         continue
@@ -932,14 +927,17 @@ export async function removeWorktrees(
   deps: CleanupDeps,
   paths: readonly string[]
 ): Promise<CleanupResult> {
+  const resolve = resolvedOnce(realish)
   const snapshot = await processSnapshot(deps)
-  const judged = new Map((await judgeWorktrees(deps, snapshot.procs)).map((w) => [w.path, w]))
+  const judged = new Map(
+    (await judgeWorktrees(deps, { procs: snapshot.procs, resolve })).map((w) => [w.path, w])
+  )
   const failed: { target: string; reason: string }[] = []
   const branchesDeleted: string[] = []
   let cleaned = 0
   let freedBytes = 0
   for (const raw of paths) {
-    const path = realish(String(raw))
+    const path = resolve(String(raw))
     const w = judged.get(path)
     if (!w) {
       failed.push({ target: path, reason: 'not a worktree of any known repository' })
@@ -1014,7 +1012,7 @@ export async function stopProcesses(
   // the worktree walk first — it takes seconds — so the process table is read as
   // close to the signal as it can be. Worktree blocks play no part in which
   // processes are left behind, so the walk needs no process list of its own.
-  const trees = await judgeWorktrees(deps, [])
+  const trees = await judgeWorktrees(deps, { procs: [], resolve: resolvedOnce(realish) })
   const { procs } = await processSnapshot(deps)
   const orphans = new Map(
     orphanProcesses(deps, { trees, procs, cutoff: staleCutoff(staleDays, Date.now()) }).map((p) => [
