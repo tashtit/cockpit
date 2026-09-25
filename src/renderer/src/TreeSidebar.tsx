@@ -32,13 +32,13 @@ import {
   landingLabel,
   LandingMark,
   LinkExternalIcon,
-  LiveDot,
   OrgIcon,
   PrBadge,
   ProviderLogo,
   PROVIDER_LABEL,
   RepoIcon,
   SlidersIcon,
+  Spinner,
   TrashIcon
 } from './logos'
 
@@ -989,7 +989,7 @@ function RoundtableNode({
         </span>
         <span className="row-meta">
           {t.running ? (
-            <span className="pulse" role="img" aria-label="round in progress" />
+            <Spinner label="round in progress" />
           ) : (
             <time dateTime={new Date(t.updatedAt).toISOString()}>
               {fmtTime(t.updatedAt, timeFormat)}
@@ -1415,7 +1415,7 @@ function RowMeta({
   return landed?.kind === 'asks' ? (
     <LandingMark landing={landed} p={s.provider} />
   ) : working ? (
-    <LiveDot p={s.provider} />
+    <Spinner label={`${PROVIDER_LABEL[s.provider]} is working`} />
   ) : landed ? (
     <LandingMark landing={landed} p={s.provider} />
   ) : pr ? (
@@ -1454,7 +1454,7 @@ function FoldedNews({
   return (
     <span className="folded-news" role="img" aria-label={label} title={label}>
       {best.rank === 2 || !best.landing ? (
-        <span className={`pulse pulse-${best.s.provider}`} aria-hidden="true" />
+        <Spinner />
       ) : (
         <LandingMark landing={best.landing} p={best.s.provider} mute />
       )}

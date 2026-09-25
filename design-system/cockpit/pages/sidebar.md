@@ -71,8 +71,8 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     dropped, so `claude-work` reads `work`),
     then the exclusive meta slot, in order of urgency: the `.asks-mark` question glyph in
     the agent's color while its agent waits on you (`useSessionLanded` kind `asks` — it
-    beats running, because the process is up but going nowhere), else agent-colored
-    `LiveDot` while the session's provider process runs, else the rest of `LandingMark`
+    beats running, because the process is up but going nowhere), else the neutral
+    `Spinner` while the session's provider process runs, else the rest of `LandingMark`
     while the session has something unseen — GitHub's x `.fix-mark` in `--danger` for a red
     pull request on its branch, a solid `.landed-dot` in the agent's color for a turn that
     ended — each with the full reason as its `aria-label` ("asks you: <question>",
@@ -115,7 +115,7 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   from A→Z — it clears the saved order.
 - Hover/focus-within actions (`+` new session, archive) float in `.row-actions` over the
   row's right edge — nothing reflows. On a session row they take the meta slot's place:
-  `.row-meta` (the time, PR badge, live dot or landing mark) fades to `opacity: 0` with
+  `.row-meta` (the time, PR badge, spinner or landing mark) fades to `opacity: 0` with
   `pointer-events: none` while the actions are up, the mail-list convention — a 24px key
   floating over a 38px timestamp left a stray digit beside it. Opacity, not visibility,
   so a focused row still announces what its slot carries.

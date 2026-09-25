@@ -1126,12 +1126,18 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
   animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 0.3 } 50% { opacity: 1 } }
-/* live-status dots in list rows carry the agent's identity color and hold their
-   slot (the row's exclusive meta position — running beats PR beats timestamp) */
+/* live-status dots on the board and in the palette carry the agent's identity color and
+   hold their slot (the row's exclusive meta position — running beats PR beats timestamp) */
 .pulse-claude { background: var(--claude); }
 .pulse-codex { background: var(--codex); }
 .pulse-copilot { background: var(--copilot); }
-.session-row .pulse { flex-shrink: 0; }
+/* the sidebar's running mark (Spinner) is neutral: the row's logo already carries the
+   agent, and a rail of several at work lit up in three liveries at once. A turning ring
+   is shape and motion, never color; under reduced motion it holds still, one quarter lit */
+.spinner { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid var(--border-strong); border-top-color: var(--fg);
+  animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg) } }
 
 /* ---------- the permission card and the composer ----------
    The agent is blocked on a decision — docked above the composer, in the same column
