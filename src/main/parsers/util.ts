@@ -1,29 +1,99 @@
-import { readFileSync, statSync, readdirSync, openSync, readSync, closeSync } from 'node:fs'
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync
+} from 'node:fs'
 import { join } from 'node:path'
 import type { SessionMeta } from '../../shared/types'
 
 /**
+ * Open a file for reading only if it is a regular file, and say how big it is.
+ * Session roots and checkouts are written by other programs and anything can sit in
+ * them: a FIFO's size reads 0, which once sent it down a whole-file read that blocked
+ * main forever, and a link to /dev/zero read until the heap gave out. The open is
+ * non-blocking so a FIFO returns at once, and the fstat of what was opened decides —
+ * not a stat of the path, which a swap between the two would fool.
+ */
+function openRegular(file: string): { readonly fd: number; readonly size: number } | null {
+  let fd: number
+  try {
+    fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK)
+  } catch {
+    return null
+  }
+  try {
+    const st = fstatSync(fd)
+    if (st.isFile()) return { fd, size: st.size }
+  } catch {
+    // an fd we cannot stat is not one we read from
+  }
+  closeSync(fd)
+  return null
+}
+
+/** Up to `length` bytes at `position`; shorter when the file shrank since it was measured. */
+function readAt(fd: number, length: number, position: number): Buffer {
+  const buf = Buffer.alloc(length)
+  let n = 0
+  while (n < length) {
+    const got = readSync(fd, buf, n, length - n, position + n)
+    if (got === 0) break
+    n += got
+  }
+  return buf.subarray(0, n)
+}
+
+/** Is this path a regular file — itself, not whatever a link at it points to? */
+export function isRegularFile(path: string): boolean {
+  try {
+    return lstatSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
  * Read at most maxBytes from the start of a file. Session logs put their metadata
  * in the first lines — this lets meta parsing stay O(1) even for 50MB+ transcripts.
+ * Anything but a regular file reads as empty (see openRegular).
  */
 export function readHead(
   file: string,
   maxBytes: number
 ): { text: string; truncated: boolean; size: number } {
-  let fd: number | null = null
+  const f = openRegular(file)
+  if (!f) return { text: '', truncated: false, size: 0 }
   try {
-    const size = statSync(file).size
-    if (size <= maxBytes) {
-      return { text: readFileSync(file, 'utf8'), truncated: false, size }
-    }
-    fd = openSync(file, 'r')
-    const buf = Buffer.alloc(maxBytes)
-    const n = readSync(fd, buf, 0, maxBytes, 0)
-    return { text: buf.toString('utf8', 0, n), truncated: true, size }
+    const want = Math.min(f.size, maxBytes)
+    const text = want > 0 ? readAt(f.fd, want, 0).toString('utf8') : ''
+    return { text, truncated: f.size > maxBytes, size: f.size }
   } catch {
     return { text: '', truncated: false, size: 0 }
   } finally {
-    if (fd !== null) closeSync(fd)
+    closeSync(f.fd)
+  }
+}
+
+/**
+ * A small file whole — a pointer, a ref, a JSON document — or null when it is missing,
+ * not a regular file, or larger than maxBytes (a cut document would not parse anyway).
+ */
+export function readSmallFile(file: string, maxBytes: number): string | null {
+  const f = openRegular(file)
+  if (!f) return null
+  try {
+    if (f.size > maxBytes) return null
+    return f.size > 0 ? readAt(f.fd, f.size, 0).toString('utf8') : ''
+  } catch {
+    return null
+  } finally {
+    closeSync(f.fd)
   }
 }
 
@@ -47,28 +117,25 @@ export function parseJsonlText(text: string, dropLast: boolean): any[] {
 /**
  * Read at most maxBytes from the END of a file (for transcript tails) — or from the
  * end of its first `end` bytes, for a file whose meaningful content stops there.
+ * Anything but a regular file reads as empty (see openRegular).
  */
 export function readTail(
   file: string,
   maxBytes: number,
   end?: number
 ): { text: string; truncated: boolean; size: number } {
-  let fd: number | null = null
+  const f = openRegular(file)
+  if (!f) return { text: '', truncated: false, size: 0 }
   try {
-    const size = Math.min(statSync(file).size, end ?? Infinity)
+    const size = Math.min(f.size, end ?? Infinity)
     if (size === 0) return { text: '', truncated: false, size }
-    if (size <= maxBytes && end === undefined) {
-      return { text: readFileSync(file, 'utf8'), truncated: false, size }
-    }
     const want = Math.min(size, maxBytes)
-    fd = openSync(file, 'r')
-    const buf = Buffer.alloc(want)
-    const n = readSync(fd, buf, 0, want, size - want)
-    return { text: buf.toString('utf8', 0, n), truncated: size > maxBytes, size }
+    const text = readAt(f.fd, want, size - want).toString('utf8')
+    return { text, truncated: size > maxBytes, size }
   } catch {
     return { text: '', truncated: false, size: 0 }
   } finally {
-    if (fd !== null) closeSync(fd)
+    closeSync(f.fd)
   }
 }
 
@@ -152,30 +219,12 @@ export function walkFiles(
   return out
 }
 
-/** Parse a JSONL file into objects, skipping malformed lines (format drift tolerance). */
-export function readJsonl(file: string): any[] {
-  let raw: string
+/** A JSON document of at most maxBytes; null when missing, larger, or not JSON. */
+export function readJson(file: string, maxBytes: number): any | null {
+  const raw = readSmallFile(file, maxBytes)
+  if (raw === null) return null
   try {
-    raw = readFileSync(file, 'utf8')
-  } catch {
-    return []
-  }
-  const out: any[] = []
-  for (const line of raw.split('\n')) {
-    const t = line.trim()
-    if (!t) continue
-    try {
-      out.push(JSON.parse(t))
-    } catch {
-      /* tolerate partial/corrupt lines (file may be mid-write) */
-    }
-  }
-  return out
-}
-
-export function readJson(file: string): any | null {
-  try {
-    return JSON.parse(readFileSync(file, 'utf8'))
+    return JSON.parse(raw)
   } catch {
     return null
   }

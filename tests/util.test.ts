@@ -1,11 +1,16 @@
 import { afterAll, describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { makeFifo } from './fifo'
 import {
   capText,
+  isRegularFile,
   parseJsonc,
   readHead,
+  readJson,
+  readSmallFile,
+  readTail,
   patchPreview,
   readJsonlTail,
   shellPreview,
@@ -53,6 +58,46 @@ describe('readHead', () => {
     expect(r.truncated).toBe(true)
     expect(r.text.length).toBe(1000)
     expect(r.size).toBe(10_000)
+  })
+})
+
+describe('reading only regular files', () => {
+  const stops: Array<() => void> = []
+  afterAll(() => stops.forEach((stop) => stop()))
+
+  // a FIFO reports size 0, which used to route it to a whole-file read that never returned
+  it('skips a FIFO at once, whichever reader meets it', () => {
+    const pipe = join(root, 'events.jsonl')
+    stops.push(makeFifo(pipe))
+    const started = Date.now()
+    expect(readHead(pipe, 1000)).toEqual({ text: '', truncated: false, size: 0 })
+    expect(readTail(pipe, 1000)).toEqual({ text: '', truncated: false, size: 0 })
+    expect(readJsonlTail(pipe)).toEqual({ lines: [], truncated: false, bytes: 0 })
+    expect(readSmallFile(pipe, 1000)).toBeNull()
+    expect(readJson(pipe, 1000)).toBeNull()
+    expect(isRegularFile(pipe)).toBe(false)
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  it('reads a small file whole, and refuses one past its bound rather than cutting it', () => {
+    const f = join(root, 'doc.json')
+    writeFileSync(f, '{"a":1}')
+    expect(readSmallFile(f, 100)).toBe('{"a":1}')
+    expect(readJson(f, 100)).toEqual({ a: 1 })
+    expect(readSmallFile(f, 3)).toBeNull()
+    expect(readJson(f, 3)).toBeNull()
+    expect(readSmallFile(join(root, 'missing.json'), 100)).toBeNull()
+    writeFileSync(join(root, 'empty'), '')
+    expect(readSmallFile(join(root, 'empty'), 100)).toBe('')
+  })
+
+  it('judges a link by what it is, not by what it points at', () => {
+    const target = join(root, 'target.jsonl')
+    writeFileSync(target, '{}\n')
+    const link = join(root, 'link.jsonl')
+    symlinkSync(target, link)
+    expect(isRegularFile(target)).toBe(true)
+    expect(isRegularFile(link)).toBe(false)
   })
 })
 

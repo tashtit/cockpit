@@ -1,4 +1,15 @@
-import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSync, rmSync, watch, type FSWatcher } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  watch,
+  type FSWatcher
+} from 'node:fs'
 import { writeFile, rename, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import type {
@@ -574,7 +585,7 @@ export class SessionIndexer {
           } else {
             let size = 0
             try {
-              size = statSync(path).size
+              size = lstatSync(path).size
             } catch {
               /* vanished mid-probe — record 0 so any later content re-probes */
             }
@@ -597,7 +608,7 @@ export class SessionIndexer {
    */
   private outgrewVerdict(path: string, verdictSize: number): boolean {
     try {
-      return statSync(path).size >= Math.max(verdictSize * 2, verdictSize + PROBE_REGROW_BYTES)
+      return lstatSync(path).size >= Math.max(verdictSize * 2, verdictSize + PROBE_REGROW_BYTES)
     } catch {
       return false
     }
@@ -735,8 +746,14 @@ export class SessionIndexer {
   private metaFor(file: string, source: SourceDir): SessionMeta | null {
     let st
     try {
-      st = statSync(file)
+      // the file itself, never through a link: the listers only ever name regular files,
+      // but the watcher's probe names whatever appeared (see openRegular in parsers/util)
+      st = lstatSync(file)
     } catch {
+      return null
+    }
+    if (!st.isFile()) {
+      this.fileCache.delete(file)
       return null
     }
     const aux = auxStamp(file, source)

@@ -11,7 +11,6 @@ import {
   fileTimes,
   parseJsonlText,
   readHead,
-  readJsonl,
   readJsonlTail,
   TRANSCRIPT_TAIL_BYTES,
   toMs,
@@ -46,6 +45,12 @@ export function codexIndexFile(sourceDir: string): string {
 
 /** thread_name index, cached on the file's mtime so rescans don't re-read it per session. */
 const indexCache = new Map<string, { mtimeMs: number; names: Map<string, string> }>()
+/**
+ * The name index only grows (~130 bytes a line, a later line renaming an earlier
+ * thread), so a read is bounded to its newest lines — tens of thousands of names; a
+ * thread named before those falls back to its first prompt.
+ */
+const INDEX_TAIL_BYTES = 8 * 1024 * 1024
 
 function threadNames(sourceDir: string): Map<string, string> {
   const file = codexIndexFile(sourceDir)
@@ -59,7 +64,7 @@ function threadNames(sourceDir: string): Map<string, string> {
   if (cached && cached.mtimeMs === mtimeMs) return cached.names
   const names = new Map<string, string>()
   if (mtimeMs) {
-    for (const l of readJsonl(file)) {
+    for (const l of readJsonlTail(file, { maxBytes: INDEX_TAIL_BYTES }).lines) {
       if (l?.id && typeof l.thread_name === 'string' && l.thread_name) {
         names.set(String(l.id), l.thread_name)
       }

@@ -1,11 +1,12 @@
 import { basename, dirname, join, sep } from 'node:path'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { planArtifact, sharedArtifact, todoTableArtifact, toolArtifact } from './artifacts'
 import { checkOutcome, exitCodeIn } from './checks'
 import {
   capText,
+  isRegularFile,
   readJson,
   readJsonlTail,
   readHead,
@@ -38,6 +39,13 @@ export function listCopilotSessionRoots(sourceDir: string): string[] {
 
 /** Meta parsing reads at most this much of an events.jsonl (metadata lives up front). */
 const META_HEAD_BYTES = 256 * 1024
+/**
+ * A legacy session is one JSON document, so it is read whole or not at all — up to this
+ * much. The layout is no longer written; this only bounds what an odd file costs.
+ */
+const LEGACY_JSON_BYTES = 8 * 1024 * 1024
+/** workspace.yaml is a handful of keys; the name is among the first */
+const WORKSPACE_HEAD_BYTES = 64 * 1024
 
 export function listCopilotSessionFiles(sourceDir: string): string[] {
   const out: string[] = []
@@ -51,7 +59,8 @@ export function listCopilotSessionFiles(sourceDir: string): string[] {
     }
     for (const d of dirs) {
       const ev = join(stateRoot, d, 'events.jsonl')
-      if (existsSync(ev)) out.push(ev)
+      // the rule walkFiles keeps for the other layouts: a file, never a link or a FIFO
+      if (isRegularFile(ev)) out.push(ev)
     }
   }
   for (const legacy of [join(sourceDir, 'history-session-state'), join(sourceDir, 'sessions')]) {
@@ -91,12 +100,8 @@ export function copilotWorkspaceFile(eventsFile: string): string {
 const BLOCK_SCALAR = /^([|>])(?:[1-9][+-]?|[+-][1-9]?)?(?:[ \t]+#.*)?$/
 
 function workspaceName(eventsFile: string): string {
-  let raw: string
-  try {
-    raw = readFileSync(copilotWorkspaceFile(eventsFile), 'utf8')
-  } catch {
-    return ''
-  }
+  const raw = readHead(copilotWorkspaceFile(eventsFile), WORKSPACE_HEAD_BYTES).text
+  if (!raw) return ''
   const lines = raw.split(/\r?\n/)
   const at = lines.findIndex((l) => l.startsWith('name:'))
   if (at < 0) return ''
@@ -261,7 +266,7 @@ export function legacyTimelineTexts(
 }
 
 function parseLegacyMeta(file: string, sourceLabel: string): SessionMeta | null {
-  const j = readJson(file)
+  const j = readJson(file, LEGACY_JSON_BYTES)
   if (!j || typeof j !== 'object') return null
   const timeline = extractTimeline(j)
   // id-less files in the FLAT legacy roots must fall back to the file stem — the
@@ -377,7 +382,8 @@ function changesTodos(toolName: string, args: unknown): boolean {
  */
 function todoTable(sessionDir: string): unknown[] | null {
   const file = join(sessionDir, TODO_DB)
-  if (!existsSync(file)) return null
+  // sqlite's own open would block on a FIFO there, as a plain read did
+  if (!isRegularFile(file)) return null
   let db: DatabaseSync | null = null
   try {
     db = new DatabaseSync(file, { readOnly: true })
@@ -503,7 +509,7 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
     return out
   }
 
-  const j = readJson(file)
+  const j = readJson(file, LEGACY_JSON_BYTES)
   if (!j) return []
   const out: SessionMessage[] = []
   for (const m of extractTimeline(j)) {

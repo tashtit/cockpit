@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { SessionIndexer, foldThread, groupFamilies, subagentParent } from '../src/main/indexer'
 import { writePagedThread, type PagedThread } from './codex-paged-thread'
+import { makeFifo } from './fifo'
 import type { BusySession, SessionMeta } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
@@ -466,6 +467,37 @@ describe('watcher-event probing (codex subagent rollouts)', () => {
     expect(anyIdx.rescanTimer).not.toBeNull()
     expect(anyIdx.dirtyTimer).toBeNull()
     idx.stopWatchers() // clear the pending timer before the suite ends
+  })
+})
+
+describe('files in a session root that are not regular files', () => {
+  const cpDir = join(root, 'copilot-fifo')
+  const clDir = join(root, 'claude-fifo')
+  const stops: Array<() => void> = []
+  afterAll(() => stops.forEach((stop) => stop()))
+
+  it('are skipped by the scan and the watcher probe alike, without blocking', async () => {
+    writeCopilotSession(cpDir, 'real', '/nowhere/x', 'a real session', '2026-09-20T10:00:00Z')
+    mkdirSync(join(cpDir, 'session-state', 'piped'), { recursive: true })
+    stops.push(makeFifo(join(cpDir, 'session-state', 'piped', 'events.jsonl')))
+    // the real session's name file is a FIFO too: the title falls back to the prompt
+    stops.push(makeFifo(join(cpDir, 'session-state', 'real', 'workspace.yaml')))
+    mkdirSync(join(clDir, 'projects', 'p'), { recursive: true })
+    const piped = join(clDir, 'projects', 'p', 'piped.jsonl')
+    stops.push(makeFifo(piped))
+
+    const started = Date.now()
+    const idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([
+      { path: cpDir, provider: 'copilot', label: 'cp' },
+      { path: clDir, provider: 'claude', label: 'cl' }
+    ])
+    idx.stopWatchers()
+    // a pipe announced by the watcher is probed the same way
+    ;(idx as any).markDirty('change', piped)
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(idx.page({}).items.map((s) => [s.id, s.title])).toEqual([['copilot:real', 'a real session']])
+    expect((idx as any).rescanTimer).toBeNull()
   })
 })
 

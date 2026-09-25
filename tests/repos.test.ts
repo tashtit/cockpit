@@ -2,6 +2,7 @@ import { afterAll, describe, it, expect, beforeAll } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { makeFifo } from './fifo'
 import {
   branchForCwd,
   branchFromHead,
@@ -183,6 +184,28 @@ describe('branchForCwd', () => {
     } finally {
       writeFileSync(head, 'ref: refs/heads/cockpit/fix-login\n')
     }
+  })
+})
+
+// every cwd a log names is walked, so the git files found there are anyone's
+describe('git files that are not regular files', () => {
+  const stops: Array<() => void> = []
+  afterAll(() => stops.forEach((stop) => stop()))
+
+  it('are skipped without blocking: a FIFO .git is not a checkout, a FIFO HEAD names no branch', () => {
+    const outer = join(root, 'fifo-outer')
+    mkdirSync(join(outer, '.git'), { recursive: true })
+    writeFileSync(join(outer, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/acme/outer.git\n')
+    stops.push(makeFifo(join(outer, '.git', 'HEAD')))
+    const inner = join(outer, 'inner')
+    mkdirSync(inner, { recursive: true })
+    stops.push(makeFifo(join(inner, '.git')))
+
+    const started = Date.now()
+    // the pipe in inner/ is passed over; the walk goes on to the checkout above it
+    expect(resolveRepo(inner)?.repo.fullName).toBe('acme/outer')
+    expect(branchForCwd(inner)).toBeNull()
+    expect(Date.now() - started).toBeLessThan(1000)
   })
 })
 
