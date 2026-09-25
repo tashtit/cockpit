@@ -50,7 +50,8 @@ const copilotJsonPath = (): string => join(homedir(), '.copilot', 'mcp-config.js
  *                 copilot ~/.copilot/installed-plugins/<marketplace>/<name>/
  *   marketplaces  claude  ~/.claude/plugins/known_marketplaces.json
  *                 codex   ~/.codex/config.toml             [marketplaces.<name>]
- *                 copilot the top level of ~/.copilot/installed-plugins/
+ *                 copilot ~/.copilot/settings.json      extraKnownMarketplaces, plus the
+ *                         top level of ~/.copilot/installed-plugins/ for the ones it ships with
  * Plugin ids are `<name>@<marketplace>` everywhere, so the three inventories line up.
  */
 /** Resolved per call, like every other path here, so a test can point HOME elsewhere. */
@@ -66,6 +67,13 @@ export const projectSkillDir = (repoRoot: string, agent: Provider): string =>
   agent === 'claude' ? join(repoRoot, '.claude', 'skills') : join(repoRoot, '.agents', 'skills')
 
 const copilotPluginsDir = (): string => join(homedir(), '.copilot', 'installed-plugins')
+
+/**
+ * Where copilot records the marketplaces it was given: settings.json today, and
+ * config.json — which held the settings before they moved — as a fallback.
+ */
+const copilotSettingsPaths = (): string[] =>
+  ['settings.json', 'config.json'].map((f) => join(homedir(), '.copilot', f))
 
 /**
  * These are the same hand-editable configs accounts.ts reads, so they get the same
@@ -331,9 +339,22 @@ function readMarketplaces(): MarketplaceInfo[] {
   for (const [name, fields] of parseCodexSections(readCodexToml(), 'marketplaces')) {
     out.push({ name, agent: 'codex', source: fields.source })
   }
-  // copilot keeps no registry file: each marketplace is a directory of its plugins
+  // copilot records the marketplaces it was given in its settings — an added one with
+  // nothing installed from it yet is there and nowhere else. The ones it ships with
+  // (copilot-plugins, awesome-copilot) are recorded nowhere, and show only as a
+  // directory of the plugins installed from them.
+  const added = new Set<string>()
+  for (const file of copilotSettingsPaths()) {
+    const known = readJsonFile(file)?.extraKnownMarketplaces
+    if (!known || typeof known !== 'object') continue
+    for (const [name, v] of Object.entries<any>(known)) {
+      if (added.has(name)) continue
+      added.add(name)
+      out.push({ name, agent: 'copilot', source: sourceLabel(v?.source) || undefined })
+    }
+  }
   for (const name of readDirNames(copilotPluginsDir())) {
-    out.push({ name, agent: 'copilot' })
+    if (!added.has(name)) out.push({ name, agent: 'copilot' })
   }
   return out
 }

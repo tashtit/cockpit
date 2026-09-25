@@ -83,6 +83,26 @@ would open, so the panel is never named by a tab that is not there.
   clear, never one they can only silence. Matching every agent to one definition, or
   switching a kept agent off, forgets the kept difference.
 - **Remove everywhere is recoverable**, under a `Removed` section with *Put it back*.
+- **One recommendation, and it only offers** (`.pnl-rec`). Tashtit's marketplace
+  (`RECOMMENDED_MARKETPLACE`) is the one thing the panel vouches for. Its row is always
+  in Global's Marketplaces, switched off everywhere and tagged `recommended`
+  (`.pnl-rec-tag`, the placard voice in `--accent`). It is offered, not recorded: it
+  reaches Cockpit's config only when the person acts on it, and once removed everywhere
+  it is never offered again. Someone who runs it in no agent also gets an accent-edged
+  band above the tab row. It is the one band the card may carry beyond its three, and it
+  earns that by leaving:
+  - It is decided with the first report, in the same render, so it never pushes the rows
+    down a frame later.
+  - It carries the row's own `AgentSwitches` under an "Add it to" label. Adding is the
+    same reversible chip click as anywhere in the panel, one agent at a time, and never
+    an "add to all" button that picks for the person.
+  - *What's in it* is a `link-btn` to the catalogue. *Not now* becomes *Done* once an
+    agent holds it, and either answer puts the band away for good (localStorage,
+    `recommended.ts`); the row stays.
+  - It steps aside while a search shows results.
+  - Its copy says plainly that adding the marketplace installs no plugins. On short
+    windows (≤600px tall) the pitch sheds and the title, chips and actions stay: at the
+    floor it had filled the whole visible card.
 - Rows are a plain hairline-separated list on one surface (`.pnl-list`). No grid, no
   column rules, no lanes: with self-labelling controls there is nothing left to align to.
 - **Narrow windows (≤780px) reflow the row, they don't shrink it.** Three self-labelling

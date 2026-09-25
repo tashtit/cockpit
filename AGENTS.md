@@ -130,7 +130,7 @@ Pure and IO-free by construction: every module imports nothing but its own sibli
 - `asks.ts` — the question an agent stopped to ask, and what a pick turns into: the provider tool calls that are really questions (Claude's `AskUserQuestion` / `ExitPlanMode`, Codex's `request_user_input`). Copilot's permission prompts are deliberately out — answering one needs the blocked process.
 - `endpoints.ts` — custom model providers (BYOK): validation, env translation, the `/models` request/response shapes.
 - `acp.ts` — the Agent Client Protocol wire types and the agent-definition rules the sanitizer enforces.
-- `library.ts` — reconciling Cockpit's own config (what you asked for) against each agent's real config (what it has).
+- `library.ts` — reconciling Cockpit's own config (what you asked for) against each agent's real config (what it has). It also names the one marketplace Cockpit recommends (`RECOMMENDED_MARKETPLACE`, Tashtit). `withRecommended` offers it in Global switched off everywhere. It is never recorded just for being shown: main's `ensureScope` adds it after the config write, and `replaceEntry` records it on the first action taken on it. A removed entry is never offered again.
 - `instruction-markers.ts` — the managed-block markers, defined once so the writer and the review can never disagree. `instruction-changes.ts` — what applying a baseline would do to one agent file, the pre-apply review. `line-diff.ts` — the LCS line diff both of those draw with (pure, no DOM).
 - `repo-order.ts` — the order projects are listed in (A→Z, or the user's drag order; never session activity, which would move rows under the cursor).
 - `roundtable.ts` — seat identity: the names agents call each other in prompts and the UI shows on seats.

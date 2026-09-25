@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AiSetup } from '../../src/renderer/src/AiSetup'
 import {
@@ -8,6 +8,7 @@ import {
   fieldsKey,
   instructionRow,
   mcpFields,
+  RECOMMENDED_MARKETPLACE,
   type PanelReport
 } from '../../src/shared/library'
 import type {
@@ -592,5 +593,111 @@ describe('Agents › the instructions row', () => {
     // the switch still does what the row's did
     await userEvent.click(codex)
     expect(window.cockpit.setPanelSwitch).toHaveBeenCalled()
+  })
+})
+
+describe('Agents › the recommended marketplace', () => {
+  const SOURCE = RECOMMENDED_MARKETPLACE.source
+  const held = { present: true, detail: SOURCE, fields: { source: 'github.com/tashtit/marketplace' } }
+  const tashtit = (
+    enabled: Partial<Record<Provider, boolean>>,
+    actual: Partial<Record<Provider, typeof held | typeof absent>>
+  ): ReturnType<typeof buildRow> =>
+    buildRow(
+      { kind: 'marketplace', name: 'tashtit', enabled, source: SOURCE },
+      { detail: SOURCE, fields: { source: SOURCE } },
+      actual
+    )
+  /** nobody runs it: the row Cockpit offers every library */
+  const offered = buildReport(null, [...report.rows, tashtit({}, { claude: absent, codex: absent, copilot: absent })])
+  /** added to Claude, as the switch leaves it */
+  const inClaude = buildReport(null, [
+    ...report.rows,
+    tashtit({ claude: true }, { claude: held, codex: absent, copilot: absent })
+  ])
+
+  async function open(panel: PanelReport, after: PanelReport = panel): Promise<void> {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(panel)
+    vi.mocked(window.cockpit.setPanelSwitch).mockResolvedValue(after)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByText('github')
+  }
+
+  const callout = (): HTMLElement | null => screen.queryByRole('region', { name: /Tashtit/ })
+
+  it('offers it to someone who runs it in no agent, above every section', async () => {
+    await open(offered)
+    const region = callout()!
+    expect(region).toBeInTheDocument()
+    expect(within(region).getByText('recommended')).toBeInTheDocument()
+    // the row's own switches, all off: an offer, never a default already applied
+    for (const agent of ['Claude', 'Codex', 'Copilot']) {
+      expect(within(region).getByRole('switch', { name: `tashtit in ${agent}` })).toHaveAttribute(
+        'aria-checked',
+        'false'
+      )
+    }
+    // above the sections, so it shows whichever one the panel opens on
+    oneTabBar()
+    expect(region.compareDocumentPosition(screen.getByRole('tablist')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('adds it to one agent with that agent’s chip, and stays for the others', async () => {
+    await open(offered, inClaude)
+    await userEvent.click(within(callout()!).getByRole('switch', { name: 'tashtit in Claude' }))
+    expect(window.cockpit.setPanelSwitch).toHaveBeenCalledWith(
+      { repoRoot: null, kind: 'marketplace', name: 'tashtit' },
+      'claude',
+      true
+    )
+    expect(
+      await screen.findByText('tashtit is added to Claude — its plugins can be installed there now.')
+    ).toBeInTheDocument()
+    const region = callout()!
+    expect(within(region).getByRole('switch', { name: 'tashtit in Claude' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(region).getByRole('switch', { name: 'tashtit in Codex' })).toHaveAttribute('aria-checked', 'false')
+    // having acted, the way out says so
+    expect(within(region).getByRole('button', { name: 'Done' })).toBeInTheDocument()
+  })
+
+  it('puts it away for good on Not now, leaving the row under Marketplaces', async () => {
+    await open(offered)
+    await userEvent.click(within(callout()!).getByRole('button', { name: 'Not now' }))
+    expect(callout()).toBeNull()
+    expect(window.cockpit.setPanelSwitch).not.toHaveBeenCalled()
+    await section('Marketplaces')
+    expect(screen.getByRole('button', { name: /tashtit/ })).toHaveTextContent('recommended')
+
+    // the answer outlives the view
+    cleanup()
+    await open(offered)
+    expect(callout()).toBeNull()
+  })
+
+  it('does not pitch it to someone who already runs it', async () => {
+    await open(inClaude)
+    expect(callout()).toBeNull()
+    await section('Marketplaces')
+    expect(screen.getByRole('button', { name: /tashtit/ })).toHaveTextContent('recommended')
+  })
+
+  it('opens what is in it, without adding anything', async () => {
+    await open(offered)
+    await userEvent.click(within(callout()!).getByRole('button', { name: 'What’s in it' }))
+    expect(window.cockpit.openExternal).toHaveBeenCalledWith(RECOMMENDED_MARKETPLACE.page)
+    expect(window.cockpit.setPanelSwitch).not.toHaveBeenCalled()
+  })
+
+  it('says what it is on its own row, too', async () => {
+    await open(offered)
+    await section('Marketplaces')
+    await userEvent.click(screen.getByRole('button', { name: /tashtit/ }))
+    expect(screen.getByText(/Adding the marketplace installs none of them/, { selector: '.pnl-note' })).toBeInTheDocument()
+  })
+
+  it('steps aside while a search is showing results', async () => {
+    await open(offered)
+    await search('linear')
+    expect(callout()).toBeNull()
   })
 })

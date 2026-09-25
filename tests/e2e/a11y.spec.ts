@@ -191,7 +191,9 @@ async function home(): Promise<void> {
 async function nav(label: string): Promise<void> {
   await home()
   await win.getByRole('button', { name: label, exact: true }).click()
-  await expect(win.getByRole('heading', { name: label })).toBeVisible()
+  // exact: a view's own heading, not one of its panel's (Agents' recommendation is "…for
+  // your agents")
+  await expect(win.getByRole('heading', { name: label, exact: true })).toBeVisible()
 }
 
 /**

@@ -1983,6 +1983,26 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .pnl-note { color: var(--fg-dim); }
 .pnl-note code { font-family: var(--mono); }
 
+/* the panel's one recommendation: an accent-edged band above the sections, carrying the
+   row's own agent chips. It offers and never acts — and once answered it is gone for
+   good, leaving the row under Marketplaces */
+.pnl-rec { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3) var(--s4);
+  background: rgba(var(--accent-rgb), 0.07); border: 1px solid rgba(var(--accent-rgb), 0.32);
+  border-radius: var(--radius); }
+.pnl-rec-head { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.pnl-rec-title { font-size: var(--fs-base); font-weight: 600; color: var(--fg); }
+/* placard voice, like the section tag, but lit: it is the one thing here Cockpit vouches for */
+.pnl-rec-tag { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent);
+  border: 1px solid rgba(var(--accent-rgb), 0.5); border-radius: var(--radius-pill);
+  padding: 0 var(--s2); white-space: nowrap; flex-shrink: 0; }
+.pnl-rec-what { color: var(--fg-dim); }
+.pnl-rec-act { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+/* 0,2,0 so the narrow-window row rule (`.pnl-chips` to its own line, last) leaves this
+   strip where it is: here the chips wrap in place beside their label */
+.pnl-rec-act .pnl-chips { order: 0; flex-basis: auto; flex-wrap: wrap; }
+.pnl-rec-more { display: flex; align-items: center; gap: var(--s3); margin-left: auto; }
+
 /* the list: one surface, hairline-separated, no grid and no column rules */
 .pnl-list { display: flex; flex-direction: column; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -2435,6 +2455,10 @@ button.pnl-flag:hover { text-decoration: underline; }
 }
 @media (max-height: 600px) {
   .home-stack { padding-block: var(--s4); }
+  /* Agents' recommendation keeps its title, chips and actions: the pitch was the whole
+     visible card at the 560×420 floor, with every section pushed under it, and "What's
+     in it" still says the rest */
+  .pnl-rec-what { display: none; }
   /* the dock is where height is scarcest at the floor, and the composer's own
      placeholder and button already say what it is */
   .home-greet { display: none; }

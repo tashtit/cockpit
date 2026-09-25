@@ -4,8 +4,10 @@ import {
   KIND_LABEL,
   KIND_ORDER,
   PROVIDERS,
+  RECOMMENDED_MARKETPLACE,
   agentHasIt,
   isDrift,
+  isRecommended,
   type AgentState,
   type PanelReport,
   type PanelRow
@@ -24,6 +26,7 @@ import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, InstructionDiff } from './InstructionDiff'
 import { InstructionsEditor } from './InstructionsEditor'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { answerRecommendation, recommendationAnswered } from './recommended'
 import { TabList, TabPanel, type TabDef } from './Tabs'
 
 /**
@@ -127,11 +130,18 @@ export function AgentPanel({
   const [versions, setVersions] = useState<Readonly<Record<string, McpVersion>>>({})
   /** the scope whose registries have been asked — this costs the network, so once */
   const asked = useRef<string | null | undefined>(undefined)
+  /** whether this visit offers the recommended marketplace — decided on the first report */
+  const [offer, setOffer] = useState<boolean | null>(null)
 
   const load = useCallback(() => {
     void api
       .getPanel(repoRoot)
-      .then(setReport)
+      .then((next) => {
+        setReport(next)
+        // decided with the first report, in the same render — a callout that arrived a
+        // frame later would push every row under it down
+        setOffer((decided) => decided ?? offerFor(next))
+      })
       .catch((err) => setNotice({ text: ipcErrorText(err), kind: 'error' }))
   }, [repoRoot, setNotice])
 
@@ -148,6 +158,7 @@ export function AgentPanel({
 
   useEffect(() => {
     setReport(null)
+    setOffer(null)
     setSection(null)
     setVersions({})
     asked.current = undefined
@@ -206,7 +217,9 @@ export function AgentPanel({
       key,
       () => api.setPanelSwitch(target(row), agent, on),
       on
-        ? `${row.name} is on for ${PROVIDER_LABEL[agent]} — restart that CLI to pick it up.`
+        ? row.kind === 'marketplace'
+          ? `${row.name} is added to ${PROVIDER_LABEL[agent]} — its plugins can be installed there now.`
+          : `${row.name} is on for ${PROVIDER_LABEL[agent]} — restart that CLI to pick it up.`
         : `${row.name} is off for ${PROVIDER_LABEL[agent]}. Cockpit kept a copy, so you can put it back.`
     )
   }
@@ -256,6 +269,8 @@ export function AgentPanel({
   )
   const driftRows = report.rows.filter((r) => r.drift.length > 0)
   const q = query.trim().toLowerCase()
+  // gone the moment it is removed everywhere: that is an answer too
+  const recommended = offer ? report.rows.find(isRecommended) : undefined
   const tabs: TabDef<Section>[] = [
     ...(driftRows.length > 0
       ? [{ id: 'attention' as const, label: 'Needs you', count: driftRows.length, tone: 'warn' as const }]
@@ -293,6 +308,19 @@ export function AgentPanel({
 
   return (
     <>
+      {recommended && !q && (
+        <Recommendation
+          row={recommended}
+          armed={armed}
+          busy={busy}
+          onFlip={flip}
+          onArm={arm}
+          onAnswer={() => {
+            answerRecommendation()
+            setOffer(false)
+          }}
+        />
+      )}
       <TabList id="agents" label="Agents sections" tabs={tabs} selected={current} onSelect={setSection} />
       <TabPanel id="agents" selected={current}>
         {/* the instructions editor opens with its own explanation — a section blurb
@@ -395,6 +423,71 @@ export function AgentPanel({
         )}
       </TabPanel>
     </>
+  )
+}
+
+/**
+ * Whether this visit offers the recommended marketplace: to someone who runs it in no
+ * agent and hasn't answered the offer before. Decided once per visit, so the callout
+ * stays while they add it agent by agent, and is gone the next time the panel opens.
+ * Its row only exists in Global — marketplaces are per machine.
+ */
+function offerFor(report: PanelReport): boolean {
+  const row = report.rows.find(isRecommended)
+  return row !== undefined && row.holders.length === 0 && !recommendationAnswered()
+}
+
+/** What the recommended marketplace is, said once for the callout and its own row. */
+const RECOMMENDED_PITCH =
+  'Open-source plugins for focused commits and pull requests, secure CI, structured logging, API design and code review. Adding the marketplace installs none of them — you choose which, in each agent.'
+
+/**
+ * The panel's one recommendation: Tashtit's marketplace, offered to someone who runs it
+ * in no agent. It carries the row's own switches, so adding it is an agent's chip — the
+ * same reversible click as anywhere in the panel, and never more than the person picks.
+ * Answering it (Not now, or Done once added) puts it away for good; the row stays under
+ * Marketplaces either way.
+ */
+function Recommendation({
+  row,
+  armed,
+  busy,
+  onFlip,
+  onArm,
+  onAnswer
+}: {
+  row: PanelRow
+  armed: string | null
+  busy: string | null
+  onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
+  onArm: (key: string | null) => void
+  onAnswer: () => void
+}): JSX.Element {
+  return (
+    <section className="pnl-rec" aria-labelledby="pnl-rec-title">
+      <div className="pnl-rec-head">
+        <h3 id="pnl-rec-title" className="pnl-rec-title">
+          Tashtit — engineering standards for your agents
+        </h3>
+        <span className="pnl-rec-tag">recommended</span>
+      </div>
+      <p className="pnl-rec-what">{RECOMMENDED_PITCH}</p>
+      <div className="pnl-rec-act">
+        <span className="pnl-sync-label">Add it to</span>
+        <AgentSwitches row={row} armed={armed} busy={busy} onFlip={onFlip} onArm={onArm} />
+        {armed !== null && armed.startsWith(`${row.id}|`) && (
+          <em className="pnl-flag danger">click again to remove</em>
+        )}
+        <span className="pnl-rec-more">
+          <button className="link-btn" onClick={() => void api.openExternal(RECOMMENDED_MARKETPLACE.page)}>
+            What’s in it
+          </button>
+          <button className="btn-ghost small" disabled={busy !== null} onClick={onAnswer}>
+            {row.holders.length > 0 ? 'Done' : 'Not now'}
+          </button>
+        </span>
+      </div>
+    </section>
   )
 }
 
@@ -512,6 +605,7 @@ function Row({
             ▸
           </span>
           <span className="pnl-title">{row.name}</span>
+          {isRecommended(row) && <span className="pnl-rec-tag">recommended</span>}
           {version?.status === 'update' && (
             <span
               className="mcp-bump"
@@ -609,6 +703,15 @@ function Detail({
       {/* a chip that can't be switched explains itself here as well as in its title:
           a tooltip is not an explanation anyone can read with a keyboard */}
       {blocked.length > 0 && <p className="pnl-note">{blocked.join(' ')}</p>}
+
+      {isRecommended(row) && (
+        <p className="pnl-note">
+          {RECOMMENDED_PITCH}{' '}
+          <button className="link-btn" onClick={() => void api.openExternal(RECOMMENDED_MARKETPLACE.page)}>
+            What’s in it
+          </button>
+        </p>
+      )}
 
       {/* the field table would only list file paths here — the honest comparison for
           instructions is each file against the baseline, line by line */}

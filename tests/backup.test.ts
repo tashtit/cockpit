@@ -317,7 +317,10 @@ describe('undo', () => {
     expect(after.timeFormat).toBe('12h')
     expect(keys.all.size).toBe(0)
     expect(written).toBe(1)
-    expect(getPanel(null).rows).toEqual([])
+    // nothing restored is left — only the marketplace every library is offered, on nowhere
+    const rows = getPanel(null).rows
+    expect(rows.map((r) => r.id)).toEqual(['marketplace:tashtit'])
+    expect(rows[0].holders).toEqual([])
   })
 
   it('refuses once something else has written to the config', async () => {
