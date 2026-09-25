@@ -1,7 +1,7 @@
 import { opendirSync, type Dir } from 'node:fs'
 import { dirname } from 'node:path'
 import type { AttentionAsk, BusySession, Provider, SessionMeta } from '../shared/types'
-import { TRANSCRIPT_TAIL_BYTES, parseJsonlText, readTail } from './parsers/util'
+import { TRANSCRIPT_TAIL_BYTES, judgeJsonlTail } from './parsers/util'
 import {
   IDLE,
   copilotLockPids,
@@ -61,16 +61,10 @@ const SWEEP_MS = 10_000
 export function readTurnState(file: string, provider: Provider): TurnVerdict | null {
   // copilot's legacy JSON snapshots never stream a turn
   if (provider === 'copilot' && !file.endsWith('events.jsonl')) return IDLE
-  for (const bytes of LIVE_TAIL_STEPS) {
-    const tail = readTail(file, bytes)
-    if (!tail.text) return IDLE
-    // a truncated tail opens mid-record — drop the partial line
-    const text = tail.truncated ? tail.text.slice(tail.text.indexOf('\n') + 1) : tail.text
-    const verdict = judgeTail(provider, parseJsonlText(text, false))
-    if (verdict) return verdict
-    if (!tail.truncated) return null // that was the whole file
-  }
-  return null
+  // each wider window reads only what the narrower one did not: a buried record used
+  // to cost the 64KB, the 1MB and the 4MB read and parsed over again, one after another
+  const tail = judgeJsonlTail(file, LIVE_TAIL_STEPS, (records) => judgeTail(provider, records))
+  return tail.empty ? IDLE : tail.found
 }
 
 /**

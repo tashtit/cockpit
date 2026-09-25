@@ -7,6 +7,7 @@ import {
   LineSplitter,
   capText,
   isRegularFile,
+  judgeJsonlTail,
   parseJsonc,
   readHead,
   readJson,
@@ -138,6 +139,40 @@ describe('LineSplitter', () => {
     expect(Date.now() - started).toBeLessThan(1500)
     expect(kept.lines[0]?.length).toBe(96 * chunk.length)
     expect(over).toEqual({ lines: ['next'], dropped: 1 })
+  })
+})
+
+describe('judgeJsonlTail', () => {
+  it('widens window by window, reading each byte once and keeping a line the edge cut whole', () => {
+    const f = join(root, 'steps.jsonl')
+    // two-byte characters inside, so a window's edge can land mid-character
+    const rows = Array.from({ length: 10 }, (_, n) => JSON.stringify({ n, pad: 'é'.repeat(20) }) + '\n')
+    writeFileSync(f, rows.join(''))
+    const size = Buffer.byteLength(rows.join(''))
+    const lineBytes = Buffer.byteLength(rows[0])
+    const seen: number[][] = []
+    // the first window's edge falls mid-line (and mid-character); the second reaches the start
+    const tail = judgeJsonlTail(f, [Math.floor(lineBytes * 2.5), size + 10], (records) => {
+      seen.push(records.map((r) => r.n))
+      return null
+    })
+    expect(tail).toEqual({ found: null, empty: false })
+    expect(seen).toEqual([[8, 9], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]])
+  })
+
+  it('stops at the first answer, and says when there was nothing to read', () => {
+    const f = join(root, 'answer.jsonl')
+    writeFileSync(f, '{"n":1}\n{"n":2}\n')
+    let calls = 0
+    const tail = judgeJsonlTail(f, [12, 1000], (records) => {
+      calls++
+      return records.at(-1)?.n ?? null
+    })
+    expect(tail).toEqual({ found: 2, empty: false })
+    expect(calls).toBe(1)
+    expect(judgeJsonlTail(join(root, 'nothing.jsonl'), [8], () => 'x')).toEqual({ found: null, empty: true })
+    writeFileSync(join(root, 'blank.jsonl'), '')
+    expect(judgeJsonlTail(join(root, 'blank.jsonl'), [8], () => 'x')).toEqual({ found: null, empty: true })
   })
 })
 

@@ -155,6 +155,54 @@ export function timeSlicer(budgetMs: number): () => Promise<void> {
   }
 }
 
+/**
+ * The records at the end of a JSONL file, judged window by window outward: the complete
+ * lines of the last `steps[0]` bytes, then of the last `steps[1]`, and so on, until
+ * `judge` answers or the file or the steps run out. Each step reads and parses only the
+ * bytes the one before did not reach — plus the line its edge cut — so a tail judged at
+ * the last step costs one pass over it, not one per step. `empty` when there was nothing
+ * to read at all (missing, empty, not a regular file).
+ */
+export function judgeJsonlTail<T>(
+  file: string,
+  steps: readonly number[],
+  judge: (records: readonly any[]) => T | null
+): { readonly found: T | null; readonly empty: boolean } {
+  const f = openRegular(file)
+  if (!f) return { found: null, empty: true }
+  try {
+    if (f.size === 0) return { found: null, empty: true }
+    let records: any[] = []
+    // where what has been read begins, and the bytes up to its first newline — a line
+    // the window's edge cut, whole once the next step reads what comes before it
+    let start = f.size
+    let cut: Buffer = Buffer.alloc(0)
+    for (const bytes of steps) {
+      const from = Math.max(0, f.size - bytes)
+      if (from >= start) continue
+      const joined = Buffer.concat([readAt(f.fd, start - from, from), cut])
+      start = from
+      let whole = joined
+      if (from > 0) {
+        // 0x0a never occurs inside a multi-byte UTF-8 sequence, so bytes split there
+        // decode alike; with no newline at all the window is one cut line so far
+        const nl = joined.indexOf(0x0a)
+        cut = nl >= 0 ? joined.subarray(0, nl) : joined
+        whole = nl >= 0 ? joined.subarray(nl + 1) : Buffer.alloc(0)
+      }
+      records = [...parseJsonlText(whole.toString('utf8'), false), ...records]
+      const found = judge(records)
+      if (found !== null) return { found, empty: false }
+      if (from === 0) break // that was the whole file
+    }
+    return { found: null, empty: false }
+  } catch {
+    return { found: null, empty: true }
+  } finally {
+    closeSync(f.fd)
+  }
+}
+
 /** Every file a session's log spans, oldest first: a thread's earlier pages, then `sourcePath`. */
 export function sessionLogFiles(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): string[] {
   return [...(meta.segments ?? []).map((s) => s.path), meta.sourcePath]
