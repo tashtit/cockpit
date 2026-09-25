@@ -21,6 +21,65 @@ export const RELEASES_URL = `${COCKPIT_REPO_URL}/releases`
 /** The launch check waits for the index to settle; afterwards a quiet periodic one. */
 const FIRST_CHECK_DELAY_MS = 20_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60_000
+/** Longer than any answer GitHub Releases gives; past it the check is given up on. */
+const CHECK_TIMEOUT_MS = 60_000
+
+/**
+ * An update check with a deadline, and answers taken only while a check still waits
+ * for them. electron-updater's own request timeout never starts under Electron's
+ * `net` — builder-util-runtime arms it on a `'socket'` event that Electron's requests
+ * never emit — so a request that got no answer left the row at `checking` for good,
+ * and every later check returned early on `checking` until a restart.
+ */
+export class CheckGate {
+  private seq = 0
+  /** The check an answer arriving now belongs to; null once it settled or was given up on */
+  private current: number | null = null
+
+  constructor(private readonly timeoutMs: number) {}
+
+  /** Whether anything is still waiting for an answer — one given up on is not. */
+  get open(): boolean {
+    return this.current !== null
+  }
+
+  /**
+   * Run `check` against the deadline. Past it the check is given up on and `onTimeout`
+   * runs; the check settling later is ignored, as are the answers it brings with it.
+   * A rejection inside the deadline is the caller's to handle.
+   */
+  async run(check: () => Promise<unknown>, onTimeout: () => void): Promise<void> {
+    const id = ++this.seq
+    this.current = id
+    let timer: NodeJS.Timeout | undefined
+    const deadline = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), this.timeoutMs)
+      // a check still pending must never keep the process alive on its own
+      timer.unref()
+    })
+    try {
+      const outcome = await Promise.race([check().then(() => 'answered' as const), deadline])
+      if (outcome === 'timeout' && this.current === id) {
+        this.current = null
+        onTimeout()
+      }
+    } finally {
+      clearTimeout(timer)
+      if (this.current === id) this.current = null
+    }
+  }
+}
+
+/**
+ * electron-updater hands every check made while one is pending that same pending
+ * promise, so a request that never answers would answer no later check either: let go
+ * of it, and the next check sends a request of its own. The slot is private — renamed
+ * in some release, this does nothing, and each later check times out the same way.
+ */
+function abandonPendingCheck(): void {
+  const updater = autoUpdater as unknown as { checkForUpdatesPromise?: unknown }
+  if ('checkForUpdatesPromise' in updater) updater.checkForUpdatesPromise = null
+}
 
 /**
  * Only an installed macOS build can update itself: `npm run dev` and the e2e runs
@@ -72,6 +131,7 @@ export class UpdateManager {
   private failure: string | null = null
   /** The script is spawned once — quitting to install must not spawn a second */
   private armed = false
+  private readonly gate = new CheckGate(CHECK_TIMEOUT_MS)
 
   constructor(private readonly onChange: (state: UpdateState) => void) {
     this.state = initialState()
@@ -120,7 +180,13 @@ export class UpdateManager {
       return this.state
     }
     try {
-      await autoUpdater.checkForUpdates()
+      await this.gate.run(
+        () => autoUpdater.checkForUpdates(),
+        () => {
+          abandonPendingCheck()
+          this.checked({ kind: 'failed', message: 'GitHub Releases did not answer within a minute.' })
+        }
+      )
     } catch (err) {
       this.checked({ kind: 'failed', message: err instanceof Error ? err.message : String(err) })
     }
@@ -227,7 +293,10 @@ export class UpdateManager {
     autoUpdater.autoInstallOnAppQuit = false
     autoUpdater.allowPrerelease = false
     autoUpdater.on('checking-for-update', () => this.set({ status: 'checking' }))
+    // an answer to a check that was given up on comes after the row moved on — to
+    // the timeout's failure, or whatever followed it — and must not replace that
     autoUpdater.on('update-available', (info) => {
+      if (!this.gate.open) return
       this.offered = pickZip((info.files ?? []) as FeedFile[], process.arch)
       // a release with no zip for this Mac is nothing this build can act on, so
       // it is reported the way an unreachable feed is rather than as an offer
@@ -240,10 +309,14 @@ export class UpdateManager {
             }
       )
     })
-    autoUpdater.on('update-not-available', () => this.checked({ kind: 'none' }))
-    autoUpdater.on('error', (err) =>
+    autoUpdater.on('update-not-available', () => {
+      if (this.gate.open) this.checked({ kind: 'none' })
+    })
+    // still listened to when nothing waits: an 'error' with no listener throws
+    autoUpdater.on('error', (err) => {
+      if (!this.gate.open) return
       this.checked({ kind: 'failed', message: err instanceof Error ? err.message : String(err) })
-    )
+    })
 
     void this.restore()
 
