@@ -296,6 +296,11 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
    color, no underline bar; aria-current="page" carries it for AT */
 .icon-btn.nav-btn.active { color: var(--accent);
   background: rgba(var(--accent-rgb), 0.10); }
+/* something behind a nav key needs a look (Cleanup's reminder): the tab dot's amber,
+   in the corner where the eye keeps its filter dot. The key's name says it in words */
+.nav-btn { position: relative; }
+.nav-dot { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px;
+  border-radius: var(--radius-pill); background: var(--warn); }
 /* row hover actions: 24px is the floor — WCAG 2.5.8 minimum target, and these sit
    adjacent to each other in .row-actions so the spacing exception doesn't apply */
 .icon-btn.small { width: 24px; height: 24px; font-size: var(--fs-sm); line-height: 1; }

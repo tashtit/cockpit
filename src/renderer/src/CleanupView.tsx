@@ -27,6 +27,7 @@ import {
 } from './logos'
 import { Select } from './Select'
 import { TabList, TabPanel } from './Tabs'
+import { formatBytes } from '../../shared/cleanup'
 import { shortPath } from '../../shared/library'
 
 /**
@@ -61,12 +62,6 @@ const STALE_OPTIONS = [
 const NO_REPO = ' none'
 const DAY_MS = 86_400_000
 
-const UNITS = [
-  [1e9, 'GB'],
-  [1e6, 'MB'],
-  [1e3, 'KB']
-] as const
-
 /**
  * The card's tabs, in order — one list each. Four lists on one page read as a single
  * long scroll, so each is its own panel, and the counts on the tabs say where the work
@@ -88,15 +83,6 @@ function sectionCounts(r: CleanupReport | null): Record<CleanupSection, number> 
     tables: r?.tables.length ?? 0,
     worktrees: r?.worktrees.length ?? 0
   }
-}
-
-/** One decimal at most, and never a bare `.0` — "400 MB", not "400.0 MB". */
-function fmtBytes(n: number | null): string {
-  if (n === null) return '—'
-  for (const [scale, unit] of UNITS) {
-    if (n >= scale) return `${Number((n / scale).toFixed(1))} ${unit}`
-  }
-  return `${n} B`
 }
 
 /** "idle 47d" / "idle 8mo" — coarse on purpose; this view is about abandonment. */
@@ -369,7 +355,7 @@ function SessionRow({
               }
             >
               <BranchIcon size={10} />
-              takes its worktree · {fmtBytes(w.bytes)}
+              takes its worktree · {formatBytes(w.bytes)}
               {w.sessionCount > 1 && <span className="cl-shared"> · shared ×{w.sessionCount}</span>}
             </span>
           ) : (
@@ -388,7 +374,7 @@ function SessionRow({
             {BLOCK_LABEL[b]}
           </span>
         ))}
-        <span className="cl-size">{fmtBytes(s.bytes)}</span>
+        <span className="cl-size">{formatBytes(s.bytes)}</span>
         <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtIdle(s.updatedAt, now)}</time>
       </div>
     </li>
@@ -449,7 +435,7 @@ function TableRow({
         ))}
         {/* sizes are never a bare 0 (MASTER: "— when unmeasurable, never 0") — an
             empty room with its seats already gone has nothing to free */}
-        <span className="cl-size">{fmtBytes(t.bytes ? t.bytes : null)}</span>
+        <span className="cl-size">{formatBytes(t.bytes ? t.bytes : null)}</span>
         <span className="cl-age">{fmtIdle(t.updatedAt, now)}</span>
       </div>
     </li>
@@ -506,7 +492,7 @@ function WorktreeRow({
           </span>
         )}
         {w.sessionCount > 0 && <span className="repo-count">{w.sessionCount}</span>}
-        <span className="cl-size">{fmtBytes(w.bytes)}</span>
+        <span className="cl-size">{formatBytes(w.bytes)}</span>
         <time dateTime={new Date(w.lastActivity || now).toISOString()}>
           {fmtIdle(w.lastActivity, now)}
         </time>
@@ -905,7 +891,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       tPicks.clear()
       await scan()
       const failed = res.failed.length
-      const freed = res.freedBytes > 0 ? ` · ${fmtBytes(res.freedBytes)} freed` : ''
+      const freed = res.freedBytes > 0 ? ` · ${formatBytes(res.freedBytes)} freed` : ''
       const branches = res.branchesDeleted?.length
         ? ` · ${res.branchesDeleted.length} merged branch${
             res.branchesDeleted.length === 1 ? '' : 'es'
@@ -968,7 +954,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             summary={
               sPicked.size > 0 ? (
                 <>
-                  <strong>{sPicked.size}</strong> selected · {fmtBytes(gain.bytes)}
+                  <strong>{sPicked.size}</strong> selected · {formatBytes(gain.bytes)}
                   {gain.trees > 0 && ` · ${gain.trees} worktree${gain.trees === 1 ? '' : 's'}`}
                   {hiddenSessions > 0 && (
                     <span className="cl-hidden"> · {hiddenSessions} not shown</span>
@@ -1134,7 +1120,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             summary={
               tPicked.size > 0 ? (
                 <>
-                  <strong>{tPicked.size}</strong> selected · {fmtBytes(tableGain)}
+                  <strong>{tPicked.size}</strong> selected · {formatBytes(tableGain)}
                   {hiddenTables > 0 && (
                     <span className="cl-hidden"> · {hiddenTables} not shown</span>
                   )}
@@ -1212,7 +1198,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             summary={
               wPicked.size > 0 ? (
                 <>
-                  <strong>{wPicked.size}</strong> selected · {fmtBytes(treeGain)}
+                  <strong>{wPicked.size}</strong> selected · {formatBytes(treeGain)}
                   {hiddenTrees > 0 && <span className="cl-hidden"> · {hiddenTrees} not shown</span>}
                 </>
               ) : (
@@ -1304,7 +1290,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           ) : report ? (
             <>
               {report.staleSessionCount} of {report.totalSessions} sessions ·{' '}
-              {fmtBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
+              {formatBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
               {report.totalWorktrees} worktrees
               {report.totalTables > 0 &&
                 ` · ${report.staleTableCount} of ${report.totalTables} roundtables`}

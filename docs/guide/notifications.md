@@ -9,6 +9,7 @@ Agents run for minutes, often several at once, and most of them run outside Cock
 - **An agent stops to ask you something.** Claude Code's questions (`AskUserQuestion`) and plan approvals, Copilot CLI's permission prompts, and Codex's `request_user_input` and approval requests are all read off the log the same way. The session is marked **asks you** — or **needs permission** — with what was asked, until the log moves past it: you answer where the agent runs, or you open the session in Cockpit. A question answered while Cockpit was closed is cleared at the next launch, and one left unanswered for 12 hours is dropped. A permission prompt for an ordinary Claude tool leaves nothing in the log while it waits, so Cockpit can't tell that one from a long-running tool.
 - **A pull request goes red.** An open PR whose head branch a session is working on has failing checks, or a reviewer asked for changes. It is raised once per push: the PR badges refresh every minute, and a refresh never repeats it — a new head commit that goes red does, and so does the same commit going red again after it was green. Checks passing again, or the PR merging or closing, takes it off the list. Cockpit learns this from the same `gh` call that draws the badges; nothing polls GitHub separately.
 - **A roundtable concludes** — consensus reached, the round cap closed a split table, or a round of replies came back. A table speaks once, when its run ends, not once per seat.
+- **Something new is ready to clean up.** Once a day Cockpit runs the same scan as [Cleanup](./cleanup#reminders) in the background. When it finds something it hasn't shown you before, it tells you — at most once a week. See [Reminders](./cleanup#reminders).
 
 It never tells you about the session in front of you while the Cockpit window is focused — you watched it happen. Switch to another app and the same session *does* notify you; come back and it clears. A turn you stopped yourself is not news, and neither is closing the window. Closing it stops only the turns Cockpit started there: Cockpit stays in the Dock and keeps reading the logs of sessions running elsewhere, so one that finishes or stops to ask while no window is open still reaches you.
 
@@ -34,17 +35,25 @@ And a red pull request names the PR and the branch:
 > Fix login retry flake
 > cockpit/login-retry-flake
 
-Click any of them to bring Cockpit forward on that session. When several things land within a second or two of each other, they arrive as **one** notification ("2 finished · 1 waiting on you") listing them, and clicking it opens the home board where they all are.
+A cleanup reminder says what cleaning up would free, and what is waiting:
 
-**The sound** is a macOS system sound: *Glass* when a turn finishes or an agent asks you something, *Basso* when a turn fails (Claude stopping on an API error or usage limit included) or a pull request goes red. Several endings at once play one sound, the graver one.
+> **Cleanup can free 2.1 GB**
+> 12 sessions · 3 worktrees · 1 process still running
+> Idle over 30 days. Nothing goes until you pick it.
 
-**The Dock badge** counts sessions that need you and you haven't opened yet — the same sessions the home board and the sidebar mark **landed**, **asks you** or with the red PR mark, plus roundtables that concluded. A session with several reasons counts once and shows its most urgent one: a question, then a red PR, then an ended turn. Opening it takes it off the count, clears every reason, and takes its notification out of Notification Center.
+Click any of them to bring Cockpit forward on that session (a cleanup reminder opens Cleanup). When several things land within a second or two of each other, they arrive as **one** notification ("2 finished · 1 waiting on you") listing them, and clicking it opens the home board where they all are.
+
+**The sound** is a macOS system sound: *Glass* when a turn finishes or an agent asks you something, *Basso* when a turn fails (Claude stopping on an API error or usage limit included) or a pull request goes red. Several endings at once play one sound, the graver one. A cleanup reminder never plays a sound.
+
+**The Dock badge** counts sessions that need you and you haven't opened yet — the same sessions the home board and the sidebar mark **landed**, **asks you** or with the red PR mark, plus roundtables that concluded. Cleanup reminders aren't counted, because no agent is waiting on them. A session with several reasons counts once and shows its most urgent one: a question, then a red PR, then an ended turn. Opening it takes it off the count, clears every reason, and takes its notification out of Notification Center.
 
 ## Settings
 
-**Settings › Notifications** has a switch for each of the three and a **Send a test notification** button, which posts a sample and reports what macOS did with it. The switches cover every kind of news alike — there is no per-kind switch.
+**Settings › Notifications** has a switch for each of the three and a **Send a test notification** button, which posts a sample and reports what macOS did with it. These three cover every kind of news alike — there is no per-kind switch.
 
-In the installed app all three start on. In a development run (`npm run dev`) and in the test suites they start off, and stay off until you flip them.
+A fourth, **Cleanup reminders**, decides whether the daily cleanup check runs at all. With it off, Cockpit never scans in the background; with notifications off but reminders on, Cleanup still gets its dot in the sidebar.
+
+In the installed app all four start on. In a development run (`npm run dev`) and in the test suites they start off, and stay off until you flip them.
 
 ## Unsigned builds
 

@@ -22,6 +22,11 @@ const SWITCHES: ReadonlyArray<{
     key: 'badge',
     label: 'Dock badge',
     note: 'How many sessions need you that you haven’t opened yet.'
+  },
+  {
+    key: 'cleanup',
+    label: 'Cleanup reminders',
+    note: 'A daily look at what has gone idle past Cleanup’s threshold. When something new has, Cleanup gets a dot in the sidebar and you get a notification — at most once a week, never with a sound.'
   }
 ]
 

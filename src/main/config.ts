@@ -286,7 +286,7 @@ export function setTimeFormat(format: TimeFormat): TimeFormat {
   return f
 }
 
-const ATTENTION_KEYS = ['notifications', 'sound', 'badge'] as const
+const ATTENTION_KEYS = ['notifications', 'sound', 'badge', 'cleanup'] as const
 
 /**
  * A switch the user never touched is on in an installed app and off everywhere else,
@@ -298,7 +298,8 @@ export function attentionPrefs(): AttentionPrefs {
   return {
     notifications: typeof set.notifications === 'boolean' ? set.notifications : on,
     sound: typeof set.sound === 'boolean' ? set.sound : on,
-    badge: typeof set.badge === 'boolean' ? set.badge : on
+    badge: typeof set.badge === 'boolean' ? set.badge : on,
+    cleanup: typeof set.cleanup === 'boolean' ? set.cleanup : on
   }
 }
 

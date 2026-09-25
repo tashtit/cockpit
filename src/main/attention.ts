@@ -6,6 +6,7 @@ import type {
   AttentionPrefs,
   AttentionTarget,
   ChatEvent,
+  CleanupNotice,
   Landing,
   NotificationDelivery,
   PrStatus,
@@ -51,6 +52,8 @@ export type AttentionDeskDeps = {
   /** A session's title from the index, when it has one */
   readonly titleFor: (u: Unseen) => string | null
   readonly onLandings: (landings: Landing[]) => void
+  /** The sidebar's Cleanup key: a reminder arrived, or the view was opened (null) */
+  readonly onCleanup: (notice: CleanupNotice | null) => void
   /** A banner was clicked; null only brings the window forward (the Settings sample) */
   readonly onOpen: (target: AttentionTarget | null) => void
   readonly now?: () => number
@@ -87,6 +90,7 @@ export class AttentionDesk {
   private prefs: AttentionPrefs
   private timer: ReturnType<typeof setTimeout> | null = null
   private sentLandings: string
+  private sentCleanup: string
   private savedEntries: string
   /** What the Dock shows now — the OS is only called when it changes */
   private badge = 0
@@ -98,6 +102,7 @@ export class AttentionDesk {
     this.tracker = new AttentionTracker({ now, unseen: saved.unseen, seenPrs: saved.seenPrs })
     this.prefs = deps.prefs
     this.sentLandings = JSON.stringify(this.tracker.landings())
+    this.sentCleanup = JSON.stringify(this.tracker.cleanupNotice())
     this.savedEntries = this.serialize()
     this.sync()
   }
@@ -108,6 +113,10 @@ export class AttentionDesk {
 
   landings(): Landing[] {
     return this.tracker.landings()
+  }
+
+  cleanupNotice(): CleanupNotice | null {
+    return this.tracker.cleanupNotice()
   }
 
   /* stream-side calls are hot (every text chunk) — only an ending can change what shows */
@@ -139,6 +148,12 @@ export class AttentionDesk {
   /** One repo's PR list came back (github.ts): red ones on a session's branch are news once per push. */
   prsUpdated(repoRoot: string, prs: readonly PrStatus[], carrierFor: (pr: PrStatus) => string | null): void {
     this.tracker.prsUpdated(repoRoot, prs, carrierFor)
+    this.sync()
+  }
+
+  /** The daily cleanup check found something new to clean (cleanup-reminder.ts). */
+  cleanupReady(notice: CleanupNotice): void {
+    this.tracker.cleanupReady(notice)
     this.sync()
   }
 
@@ -194,6 +209,11 @@ export class AttentionDesk {
     if (landings !== this.sentLandings) {
       this.sentLandings = landings
       this.deps.onLandings(this.tracker.landings())
+    }
+    const cleanup = JSON.stringify(this.tracker.cleanupNotice())
+    if (cleanup !== this.sentCleanup) {
+      this.sentCleanup = cleanup
+      this.deps.onCleanup(this.tracker.cleanupNotice())
     }
     const entries = this.serialize()
     if (entries !== this.savedEntries) {

@@ -106,6 +106,14 @@ describe('App attention', () => {
     )
   })
 
+  it('a cleanup reminder opens Cleanup, and main hears that it is on screen', async () => {
+    render(<App />)
+    await homeHero()
+    click({ kind: 'cleanup' })
+    expect(await screen.findByRole('heading', { name: 'Cleanup' })).toBeInTheDocument()
+    await waitFor(() => expect(window.cockpit.setAttentionFocus).toHaveBeenLastCalledWith({ kind: 'cleanup' }))
+  })
+
   it('a click from before this window existed is picked up once it mounts', async () => {
     vi.mocked(window.cockpit.takeAttentionOpen).mockResolvedValue({ kind: 'session', id: 'claude:c' })
     vi.mocked(window.cockpit.getSession).mockResolvedValue(session('c', 'bump deps'))

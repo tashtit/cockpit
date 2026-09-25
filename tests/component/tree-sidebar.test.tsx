@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
 import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
@@ -38,7 +38,7 @@ function session(over: Partial<SessionMeta> = {}): SessionMeta {
   }
 }
 
-function renderSidebar(over: Partial<RepoGroup> = {}) {
+function renderSidebar(over: Partial<RepoGroup> = {}, activeView = 'welcome') {
   const props = {
     repos: [{ ...repo, ...over }],
     indexVersion: 0,
@@ -56,7 +56,7 @@ function renderSidebar(over: Partial<RepoGroup> = {}) {
     onNav: vi.fn(),
     onOpenSettings: vi.fn(),
     onOpenUrl: vi.fn(),
-    activeView: 'welcome'
+    activeView
   }
   render(<TreeSidebar {...props} />)
   return props
@@ -513,6 +513,43 @@ describe('roundtables as tree items', () => {
  * The footer is a glance: the usage row opens Settings at its own section, the
  * identity bar opens Settings plain — same affordance, different landing.
  */
+describe('the cleanup reminder', () => {
+  const notice = {
+    at: 1700000000000,
+    staleDays: 30,
+    sessions: 12,
+    worktrees: 3,
+    tables: 0,
+    processes: 0,
+    bytes: 2_100_000_000
+  }
+
+  it('dots the Cleanup key and says what is ready in its name, until main clears it', async () => {
+    vi.mocked(window.cockpit.getCleanupNotice).mockResolvedValue(notice)
+    renderSidebar()
+    const key = await screen.findByRole('button', {
+      name: 'Cleanup can free 2.1 GB — 12 sessions · 3 worktrees'
+    })
+    expect(key).toHaveAttribute('title', 'Cleanup can free 2.1 GB — 12 sessions · 3 worktrees')
+    expect(key.querySelector('.nav-dot')).not.toBeNull()
+
+    // opening Cleanup clears it in main, which pushes the null back
+    const push = vi.mocked(window.cockpit.onCleanupNotice).mock.calls.at(-1)?.[0]
+    act(() => push?.(null))
+    expect(screen.getByRole('button', { name: 'Cleanup' }).querySelector('.nav-dot')).toBeNull()
+  })
+
+  it('carries no dot on the Cleanup view itself', async () => {
+    vi.mocked(window.cockpit.getCleanupNotice).mockResolvedValue(notice)
+    renderSidebar({}, 'cleanup')
+    await waitFor(() => expect(window.cockpit.getCleanupNotice).toHaveBeenCalled())
+    // let the notice land, so the dot is absent because of the view and not the timing
+    await act(async () => {})
+    const key = screen.getByRole('button', { name: 'Cleanup' })
+    expect(key.querySelector('.nav-dot')).toBeNull()
+  })
+})
+
 describe('sidebar footer', () => {
   it('opens Settings at the usage section from the meters, plain from the identity bar', async () => {
     vi.mocked(window.cockpit.getUsage).mockResolvedValue(usageFixture())

@@ -11,11 +11,12 @@ async function switches(): Promise<HTMLElement> {
 }
 
 describe('Settings notifications', () => {
-  it('shows the three switches as main reports them, each described', async () => {
+  it('shows the four switches as main reports them, each described', async () => {
     vi.mocked(window.cockpit.getAttentionPrefs).mockResolvedValue({
       notifications: true,
       sound: false,
-      badge: true
+      badge: true,
+      cleanup: false
     })
     render(<Settings onClose={vi.fn()} section="notifications" />)
     const list = await switches()
@@ -25,13 +26,17 @@ describe('Settings notifications', () => {
     expect(within(list).getByRole('checkbox', { name: 'Sound' })).not.toBeChecked()
     expect(within(list).getByRole('checkbox', { name: 'Dock badge' })).toBeChecked()
     expect(banner).toHaveAccessibleDescription(/Click one to open that session/)
+    const reminders = within(list).getByRole('checkbox', { name: 'Cleanup reminders' })
+    expect(reminders).not.toBeChecked()
+    expect(reminders).toHaveAccessibleDescription(/at most once a week/)
   })
 
   it('flipping a switch saves the whole set and announces the change', async () => {
     vi.mocked(window.cockpit.getAttentionPrefs).mockResolvedValue({
       notifications: true,
       sound: true,
-      badge: true
+      badge: true,
+      cleanup: true
     })
     render(<Settings onClose={vi.fn()} section="notifications" />)
     const list = await switches()
@@ -42,7 +47,8 @@ describe('Settings notifications', () => {
     expect(window.cockpit.setAttentionPrefs).toHaveBeenCalledWith({
       notifications: true,
       sound: false,
-      badge: true
+      badge: true,
+      cleanup: true
     })
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Sound off'))
     expect(sound).not.toBeChecked()
@@ -52,7 +58,8 @@ describe('Settings notifications', () => {
     vi.mocked(window.cockpit.getAttentionPrefs).mockResolvedValue({
       notifications: true,
       sound: true,
-      badge: true
+      badge: true,
+      cleanup: true
     })
     vi.mocked(window.cockpit.setAttentionPrefs).mockRejectedValue(new Error('disk full'))
     render(<Settings onClose={vi.fn()} section="notifications" />)

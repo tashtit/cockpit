@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   AttentionTracker,
   BURST_MS,
+  CLEANUP_KEY,
   LANDING_MAX,
   LANDING_TTL_MS,
   OBSERVED_ECHO_MS,
@@ -16,9 +17,9 @@ import {
   type Unseen
 } from '../src/main/attention-core'
 import type { ObservedTurn } from '../src/main/liveness-core'
-import type { AttentionPrefs, PrStatus, Roundtable, RoundtableEntry } from '../src/shared/types'
+import type { AttentionPrefs, CleanupNotice, PrStatus, Roundtable, RoundtableEntry } from '../src/shared/types'
 
-const ALL_ON: AttentionPrefs = { notifications: true, sound: true, badge: true }
+const ALL_ON: AttentionPrefs = { notifications: true, sound: true, badge: true, cleanup: true }
 const WORKTREE = '/Users/dev/Library/Application Support/Cockpit/worktrees/login-flake'
 const CHECKOUT = '/Users/dev/src/rocket'
 
@@ -246,15 +247,15 @@ describe('AttentionTracker — opening and bursts', () => {
   it('switches: notifications off still plays the sound, sound off stays quiet, badge off shows nothing', () => {
     const h = harness()
     runTurn(h, { turnId: 't1', resume: 'a', text: 'Done.' })
-    expect(h.flush({ notifications: false, sound: true, badge: true })).toEqual({
+    expect(h.flush({ notifications: false, sound: true, badge: true, cleanup: true })).toEqual({
       notice: null,
       sound: 'finish'
     })
     runTurn(h, { turnId: 't2', resume: 'b', text: 'Done.' })
-    const quiet = h.flush({ notifications: true, sound: false, badge: false })
+    const quiet = h.flush({ notifications: true, sound: false, badge: false, cleanup: false })
     expect(quiet.sound).toBeNull()
     expect(quiet.notice).not.toBeNull()
-    expect(h.t.badgeCount({ notifications: true, sound: true, badge: false })).toBe(0)
+    expect(h.t.badgeCount({ notifications: true, sound: true, badge: false, cleanup: false })).toBe(0)
     expect(h.t.badgeCount(ALL_ON)).toBe(2)
   })
 })
@@ -887,5 +888,78 @@ describe('sanitizeUnseen — the new kinds', () => {
     restored.prsUpdated(ROCKET, [pr()], carrier)
     expect(restored.landings()).toEqual([])
     expect(restored.flushAt()).toBeNull()
+  })
+})
+
+describe('AttentionTracker — cleanup reminders', () => {
+  const ready = (over: Partial<CleanupNotice> = {}): CleanupNotice => ({
+    at: 1,
+    staleDays: 30,
+    sessions: 4,
+    worktrees: 0,
+    tables: 1,
+    processes: 0,
+    bytes: 0,
+    ...over
+  })
+
+  it('is one entry, replaced by the next — never a board row, never on the Dock', () => {
+    const h = harness()
+    h.t.cleanupReady(ready())
+    h.t.cleanupReady(ready({ sessions: 9 }))
+    expect(h.t.cleanupNotice()).toMatchObject({ sessions: 9 })
+    expect(h.t.entries().filter((u) => u.kind === 'cleanup')).toHaveLength(1)
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+  })
+
+  it('says what it found; without a size worth leading with, it says there is something', () => {
+    const h = harness()
+    h.t.cleanupReady(ready())
+    const { notice, sound } = h.flush()
+    expect(sound).toBeNull()
+    expect(notice).toMatchObject({
+      id: `cockpit:${CLEANUP_KEY}`,
+      title: 'Cleanup has something to clear',
+      subtitle: '4 sessions · 1 roundtable',
+      target: { kind: 'cleanup' }
+    })
+  })
+
+  it('opening a session never clears it; opening Cleanup does', () => {
+    const h = harness()
+    h.t.cleanupReady(ready())
+    h.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT })
+    expect(h.t.cleanupNotice()).not.toBeNull()
+    h.t.setFocus({ kind: 'cleanup' })
+    expect(h.t.cleanupNotice()).toBeNull()
+    // and a Cleanup view on screen clears no session's landing
+    runTurn(h, { turnId: 't1', resume: 'abc', text: 'Done.' })
+    expect(h.t.landings()).toHaveLength(1)
+  })
+
+  it('in a burst it is counted as its own kind and lends no sound of its own', () => {
+    const h = harness()
+    runTurn(h, { turnId: 't1', resume: 'one', text: 'Done.' })
+    h.t.cleanupReady(ready({ bytes: 450_000_000 }))
+    const { notice, sound } = h.flush()
+    expect(sound).toBe('finish')
+    expect(notice?.title).toBe('1 finished · cleanup ready')
+    expect(notice?.body.split('\n')).toContain('Cleanup can free 450 MB · 4 sessions · 1 roundtable')
+  })
+
+  it('survives the saved file, and a malformed one is dropped', () => {
+    const now = 1_700_000_000_000
+    const good = { key: CLEANUP_KEY, kind: 'cleanup', id: null, at: now, cleanup: ready({ at: now }) }
+    expect(
+      sanitizeUnseen(
+        [good, { ...good, key: 'cleanup:other' }, { ...good, cleanup: { sessions: 3 } }, { ...good, cleanup: 'x' }],
+        now
+      )
+    ).toEqual([{ ...good, startedAt: now }])
+    expect(sanitizeUnseen([{ ...good, cleanup: { ...ready(), sessions: -2, bytes: 'lots' } }], now)[0].cleanup).toMatchObject({
+      sessions: 0,
+      bytes: 0
+    })
   })
 })

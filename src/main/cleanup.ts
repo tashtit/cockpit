@@ -23,6 +23,7 @@ import {
   parseWorktreeList,
   sameProcess,
   staleCutoff,
+  sumBytes,
   worktreeBlocks,
   worktreeOrigin,
   type JudgedProcess,
@@ -30,6 +31,7 @@ import {
   type WorktreeEntry,
   type WorktreeHome
 } from './cleanup-core'
+import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText } from './env'
 import { sessionLogFiles } from './parsers/util'
 import { isUnder } from './paths'
@@ -440,7 +442,18 @@ function worktreeForCwd(
   return null
 }
 
+/** A scan's two readings: the report the view shows, and what could go right now. */
+export type CleanupSurvey = {
+  readonly report: CleanupReport
+  /** Uncapped — the report's rows stop at the oldest 500, and the newest are the news */
+  readonly ready: CleanupReady
+}
+
 export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise<CleanupReport> {
+  return (await surveyCleanup(deps, staleDays)).report
+}
+
+export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promise<CleanupSurvey> {
   const days = clampStaleDays(staleDays)
   const scannedAt = Date.now()
   const cutoff = staleCutoff(days, scannedAt)
@@ -533,11 +546,30 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
     .slice(0, CLEANUP_ROW_CAP)
     .map(({ repoRootForGit: _drop, ...w }) => ({ ...w, bytes: sizes.get(w.path) ?? null }))
 
-  const processes: OrphanProcess[] = orphanProcesses(deps, { trees: judged, procs, cutoff })
+  const left = orphanProcesses(deps, { trees: judged, procs, cutoff })
+  const processes: OrphanProcess[] = left
     .slice(0, CLEANUP_ROW_CAP)
     .map(({ ppid: _ppid, ...p }) => p)
 
-  return {
+  // what could go right now, uncapped: blocked rows are the person's to resolve first.
+  // A session's worktree goes with it, so it is sized once and not listed again
+  const readySessions = sessions.filter((s) => s.blocks.length === 0)
+  const readyTrees = staleTrees.filter((w) => w.blocks.length === 0)
+  const readyTables = staleTables.filter((t) => t.blocks.length === 0)
+  const takenWith = new Set(readySessions.map((s) => s.worktree?.path).filter((p): p is string => !!p))
+  const ready: CleanupReady = {
+    staleDays: days,
+    sessions: readySessions.map((s) => s.id),
+    worktrees: readyTrees.filter((w) => !takenWith.has(w.path)).map((w) => w.path),
+    tables: readyTables.map((t) => t.id),
+    processes: left.map(processKey),
+    bytes:
+      sumBytes(readySessions) +
+      readyTrees.reduce((n, w) => n + (sizes.get(w.path) ?? 0), 0) +
+      sumBytes(readyTables)
+  }
+
+  const report: CleanupReport = {
     staleDays: days,
     scannedAt,
     sessions: rows,
@@ -552,6 +584,7 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
     totalSessions: all.length,
     totalWorktrees: linked.length
   }
+  return { report, ready }
 }
 
 /* ---------- cleaning ---------- */

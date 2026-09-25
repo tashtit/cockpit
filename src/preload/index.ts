@@ -9,6 +9,7 @@ import type {
   BusySession,
   ChatEvent,
   ChatRequest,
+  CleanupNotice,
   DiffScope,
   NewModelEndpoint,
   NewRoundtableRequest,
@@ -77,6 +78,12 @@ const api: CockpitApi = {
     return () => ipcRenderer.removeListener(PUSH.attentionOpen, handler)
   },
   takeAttentionOpen: () => ipcRenderer.invoke(CH.attentionTakeOpen),
+  getCleanupNotice: () => ipcRenderer.invoke(CH.attentionCleanup),
+  onCleanupNotice: (cb: (notice: CleanupNotice | null) => void) => {
+    const handler = (_e: unknown, notice: CleanupNotice | null): void => cb(notice)
+    ipcRenderer.on(PUSH.cleanupNotice, handler)
+    return () => ipcRenderer.removeListener(PUSH.cleanupNotice, handler)
+  },
   setArchived: (sessionId: string, archived: boolean) =>
     ipcRenderer.invoke(CH.sessionsArchive, sessionId, archived),
   setRepoHidden: (repoKey: string, hidden: boolean) =>
