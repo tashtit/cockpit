@@ -3,8 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } f
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { ProviderArchivedReader } from '../src/main/provider-archived'
+import { ProviderArchivedReader, type ProviderHidden } from '../src/main/provider-archived'
 import type { SourceDir } from '../src/shared/types'
+
+/** Nothing remembered from an earlier sweep. */
+const NONE: ProviderHidden = { hidden: new Set(), deleted: new Set() }
+/** Remembered as hidden (archived, not deleted) by an earlier sweep. */
+const knew = (...ids: string[]): ProviderHidden => ({ hidden: new Set(ids), deleted: new Set() })
 
 /**
  * The sweep runs before every rescan, so what it remembers between sweeps is as much
@@ -88,7 +93,7 @@ describe('ProviderArchivedReader', () => {
     writeRecord('a', 'claude-archived', true)
     writeRecord('b', 'claude-live', false)
     if (hasSqlite3()) writeDb([{ id: 'cop-archived', archived: true }, { id: 'cop-live', archived: false }])
-    const ids = await new ProviderArchivedReader(store).list(sources, new Set())
+    const { hidden: ids } = await new ProviderArchivedReader(store).list(sources, NONE)
     expect(ids.has('claude:claude-archived')).toBe(true)
     expect(ids.has('claude:claude-live')).toBe(false)
     if (hasSqlite3()) {
@@ -100,47 +105,47 @@ describe('ProviderArchivedReader', () => {
   it('does not re-read a record whose mtime and size are unchanged', async () => {
     const file = writeRecord('c', 'claude-cached', true)
     const reader = new ProviderArchivedReader(store)
-    expect([...(await reader.list(sources, new Set()))]).toContain('claude:claude-cached')
+    expect([...(await reader.list(sources, NONE)).hidden]).toContain('claude:claude-cached')
 
     // the same stamp, different bytes: only a remembered verdict can still be right
     const mtimeMs = statSync(file).mtimeMs
     rewriteKeepingStamp(file, record('claude-cached', false))
-    expect([...(await reader.list(sources, new Set()))]).toContain('claude:claude-cached')
+    expect([...(await reader.list(sources, NONE)).hidden]).toContain('claude:claude-cached')
 
     // a real write moves the mtime, and the new answer lands
     utimesSync(file, mtimeMs / 1000, (mtimeMs + 5000) / 1000)
-    expect([...(await reader.list(sources, new Set()))]).not.toContain('claude:claude-cached')
+    expect([...(await reader.list(sources, NONE)).hidden]).not.toContain('claude:claude-cached')
   })
 
   it('forgets a record the store no longer has', async () => {
     const file = writeRecord('d', 'claude-gone', true)
     const reader = new ProviderArchivedReader(store)
-    expect([...(await reader.list(sources, new Set()))]).toContain('claude:claude-gone')
+    expect([...(await reader.list(sources, NONE)).hidden]).toContain('claude:claude-gone')
     rmSync(file)
-    expect([...(await reader.list(sources, new Set()))]).not.toContain('claude:claude-gone')
+    expect([...(await reader.list(sources, NONE)).hidden]).not.toContain('claude:claude-gone')
   })
 
   it.runIf(hasSqlite3())('does not open an unchanged copilot db', async () => {
     writeDb([{ id: 'cop-cached', archived: true }])
     const reader = new ProviderArchivedReader(null)
-    expect([...(await reader.list(sources, new Set()))]).toContain('copilot:cop-cached')
+    expect([...(await reader.list(sources, NONE)).hidden]).toContain('copilot:cop-cached')
 
     // unreadable as a database, same stamp: a sweep that opened it would fail and
     // fall back to `prev` (empty here), so the id can only come from memory
     corruptInPlace(db)
-    expect([...(await reader.list(sources, new Set()))]).toContain('copilot:cop-cached')
+    expect([...(await reader.list(sources, NONE)).hidden]).toContain('copilot:cop-cached')
   })
 
   it.runIf(hasSqlite3())('re-reads when only the WAL sidecar moved', async () => {
     writeDb([{ id: 'cop-wal', archived: true }])
     const reader = new ProviderArchivedReader(null)
-    expect([...(await reader.list(sources, new Set()))]).toContain('copilot:cop-wal')
+    expect([...(await reader.list(sources, NONE)).hidden]).toContain('copilot:cop-wal')
 
     // sqlite can commit into -wal without touching data.db: the sweep must notice.
     // With the db corrupted, noticing means the read fails and `prev` is what is kept.
     corruptInPlace(db)
     writeFileSync(`${db}-wal`, 'a fresh write-ahead log')
-    const ids = await reader.list(sources, new Set(['copilot:from-prev']))
+    const { hidden: ids } = await reader.list(sources, knew('copilot:from-prev'))
     expect([...ids]).toContain('copilot:from-prev')
     expect([...ids]).not.toContain('copilot:cop-wal')
     rmSync(`${db}-wal`, { force: true })
@@ -170,10 +175,12 @@ describe('ProviderArchivedReader', () => {
         INSERT INTO session_side_chats VALUES ('general-archived', 'side-archived-chat');
       `
     })
-    const ids = await new ProviderArchivedReader(null).list(
+    const { hidden: ids, deleted } = await new ProviderArchivedReader(null).list(
       [{ path: home, provider: 'copilot', label: 'app' }],
-      new Set()
+      NONE
     )
+    // archived is finished work (the profile counts it); deleted was thrown away
+    expect([...deleted]).toEqual(['copilot:project-deleted'])
     expect([...ids].sort()).toEqual(
       [
         'general-archived',
@@ -200,18 +207,50 @@ describe('ProviderArchivedReader', () => {
         INSERT INTO workspaces VALUES ('ws', 'in-archived-ws', '2026-09-25');
       `
     })
-    const ids = await new ProviderArchivedReader(null).list(
+    const { hidden: ids } = await new ProviderArchivedReader(null).list(
       [{ path: home, provider: 'copilot', label: 'older' }],
-      new Set(['copilot:from-prev'])
+      knew('copilot:from-prev')
     )
     // a read that worked: the answer is the db's, not the remembered set
     expect([...ids]).toEqual(['copilot:in-archived-ws'])
   })
 
+  it.runIf(hasSqlite3())('tells a session the app deleted from one it archived', async () => {
+    // deletion drops the db row and leaves the transcript: a row-less dir inside the era
+    // the db covers was deleted; an archived row is finished work the profile still counts
+    const home = join(root, 'copilot-deleting')
+    const log = (id: string, day: number): void => {
+      const dir = join(home, 'session-state', id)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'events.jsonl'), '{}\n')
+      const t = new Date(2026, 8, day).getTime() / 1000
+      utimesSync(join(dir, 'events.jsonl'), t, t)
+    }
+    mkdirSync(home, { recursive: true })
+    execFileSync('sqlite3', [join(home, 'data.db')], {
+      input: `
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, archived_at TEXT);
+        INSERT INTO sessions VALUES ('first', NULL), ('shelved', '2026-09-20'), ('last', NULL);
+      `
+    })
+    log('first', 1)
+    log('shelved', 10)
+    log('last', 20)
+    log('dropped', 12) // no row, and inside the db's era: deleted
+    log('older', 1) // no row, but the db cannot speak for the day before its first session
+    utimesSync(join(home, 'session-state', 'older', 'events.jsonl'), 0, 0)
+    const got = await new ProviderArchivedReader(null).list([{ path: home, provider: 'copilot', label: 'd' }], NONE)
+    expect([...got.hidden].sort()).toEqual(['copilot:dropped', 'copilot:shelved'])
+    expect([...got.deleted]).toEqual(['copilot:dropped'])
+  })
+
   it.runIf(hasSqlite3())('keeps what it knew when the db cannot be read at all', async () => {
     writeDb([{ id: 'cop-x', archived: true }])
     corruptInPlace(db)
-    const ids = await new ProviderArchivedReader(null).list(sources, new Set(['copilot:remembered']))
+    const prev = { hidden: new Set(['copilot:remembered', 'copilot:gone']), deleted: new Set(['copilot:gone']) }
+    const { hidden: ids, deleted } = await new ProviderArchivedReader(null).list(sources, prev)
     expect([...ids]).toContain('copilot:remembered')
+    // which of them were deletions is kept too, or the profile would count a thrown-away session
+    expect([...deleted]).toEqual(['copilot:gone'])
   })
 })

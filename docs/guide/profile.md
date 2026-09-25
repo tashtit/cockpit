@@ -2,7 +2,7 @@
 
 The **Profile** is your work across every agent Cockpit indexes, side by side: when you work, which agent did it, and what it touched. Open it from the chart icon in the sidebar rail, or with ⌘K → "Profile".
 
-Everything on it is computed on your machine from the session logs already on disk. Nothing is published, exported or fetched.
+Everything on it is computed on your machine from the session logs already on disk. Nothing is published, exported or fetched. The first time you open it, Cockpit reads every log once, which can take a few seconds; after that it only re-reads logs that have changed, even across restarts.
 
 ## The headline
 
@@ -12,8 +12,8 @@ Under them, one bar splits your sessions by agent — Claude, Codex and Copilot,
 
 ## Activity
 
-- **By day** — a year of days, one square each, in GitHub's week-column layout. A square's color is the agent that ran the most sessions that day, and its brightness is how busy the day was compared with your busiest day. Hover a square for the date and the split by agent.
-- **By hour** — sessions started in each hour of the day, local time, each bar split by agent. The line under it names your busiest hour.
+- **By day** — a year of days, one square each, in GitHub's week-column layout. A day counts every session you worked in: the day it started, and every day you sent it a prompt, so a session you resume all week lights up the whole week. A square's color is the agent that ran the most sessions that day, and its brightness is how busy the day was compared with your busiest day. Hover a square for the date and the split by agent. Active days and streaks are counted the same way.
+- **By hour** — the prompts you sent in each hour of the day, local time, each bar split by agent. The line under it names your busiest hour.
 
 ## Agents
 
@@ -22,6 +22,7 @@ Under them, one bar splits your sessions by agent — Claude, Codex and Copilot,
   - **Tool calls per prompt** — how much an agent does for each thing you ask.
   - **Lines edited** and **Files edited** — counted from each agent's own edit tools. They measure edits made, not the diff that ended up in a commit: rewriting a file twice counts twice. An agent that edits through shell commands leaves nothing countable, and shows **none measured** rather than a zero.
   - **Top tools** — its three most-used tools; hover for the rest.
+- **Roundtables** — how many [roundtables](/guide/roundtables) ran, and how many seat sessions they used. Seats are counted apart and left out of every other number on the page: a seat is prompted by its table, not by you.
 - **Models** — assistant messages per model, each bar split by the agent that served it. The same model can come from more than one agent (Copilot serves Claude models, for example), so this and the table answer different questions.
 - **Accounts** — each [config home](/guide/accounts-and-usage) that has sessions, with the account it is signed in as, when you last used it, and its session count.
 
@@ -34,6 +35,8 @@ The Code tab is hidden until something has been edited or a session has run in a
 
 ## What it covers
 
-The profile covers your **whole history**. Settings › View › History only shortens the sidebar; it doesn't trim the profile. Sessions you archived, and ones archived or deleted in the agent's own app, are left out.
+The profile covers your **whole history**. Settings › View › History only shortens the sidebar; it doesn't trim the profile.
+
+**Archived sessions are counted.** That covers sessions archived in Cockpit, in the Claude desktop app (which archives a session when its pull request closes), in the Copilot app and in Codex. Archiving is how a session ends, and the work in it still happened. Only sessions deleted in the agent's own app are left out.
 
 If Cockpit can't read an agent's logs, the table says **logs unreadable** in that agent's column. Its session counts come from the index, so they stay correct either way.

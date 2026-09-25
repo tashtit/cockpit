@@ -889,7 +889,13 @@ app.whenReady().then(() => {
     )
   })
   ipcMain.handle(CH.usageGet, () => getUsage(loadConfig().sources))
-  ipcMain.handle(CH.profileGet, () => getProfile(indexer.allSessions(), loadConfig().sources))
+  ipcMain.handle(CH.profileGet, () =>
+    getProfile(indexer.ownSessions(), {
+      sources: loadConfig().sources,
+      seats: indexer.roundtableSessions(),
+      cacheFile: join(app.getPath('userData'), 'profile-cache.json')
+    })
+  )
 
   // app updates from GitHub Releases — the manager refuses everything but an installed
   // macOS build, so dev runs and e2e never reach the network

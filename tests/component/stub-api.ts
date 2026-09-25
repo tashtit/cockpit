@@ -317,7 +317,8 @@ export function freshApi(): CockpitApi {
       repos: [],
       models: [],
       accounts: [],
-      hours: Array.from({ length: 24 }, () => ({ sessions: 0, byProvider: {} }))
+      hours: Array.from({ length: 24 }, () => ({ prompts: 0, byProvider: {} })),
+      roundtables: null
     })),
     getZoomFactor: vi.fn(() => 1),
     setZoomFactor: vi.fn(),

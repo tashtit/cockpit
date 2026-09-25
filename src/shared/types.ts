@@ -998,9 +998,22 @@ export type SessionTally = {
   readonly byProvider: AgentSplit
 }
 
+/** Prompts sent in one bucket (an hour of the day), and to which agents. */
+export type PromptTally = {
+  readonly prompts: number
+  readonly byProvider: AgentSplit
+}
+
+/** The roundtables' seat sessions, and how many tables they ran in. */
+export type RoundtableTally = SessionTally & {
+  readonly tables: number
+}
+
 /**
- * One day of the activity heatmap. Days are local-time calendar days so the grid
- * matches the user's sense of "yesterday", not UTC's.
+ * One day of the activity heatmap: the sessions worked in that day — started, or sent
+ * a prompt — so a session resumed all week lights every day of it, not just its first.
+ * Days are local-time calendar days so the grid matches the user's sense of
+ * "yesterday", not UTC's.
  */
 export type ActivityDay = SessionTally & {
   /** Local calendar day, `YYYY-MM-DD` */
@@ -1108,6 +1121,7 @@ export type ProfileStats = {
   /** Epoch ms of the earliest session seen; null when there are none */
   readonly since: number | null
   readonly totalSessions: number
+  /** Days a session was worked in (see ActivityDay) */
   readonly activeDays: number
   /** Consecutive active days ending today or yesterday; 0 once the chain breaks */
   readonly currentStreak: number
@@ -1122,8 +1136,14 @@ export type ProfileStats = {
   readonly models: ModelStat[]
   /** Signed-in accounts with their session share, most-used first */
   readonly accounts: AccountStat[]
-  /** Sessions started per local hour of day — 24 buckets, index 0 = midnight */
-  readonly hours: SessionTally[]
+  /** Prompts sent per local hour of day — 24 buckets, index 0 = midnight */
+  readonly hours: PromptTally[]
+  /**
+   * Roundtable seats, counted apart: every other number here is the person's own
+   * sessions, and a seat is prompted by its table rather than by them. Null when no
+   * table has run a seat.
+   */
+  readonly roundtables: RoundtableTally | null
 }
 
 /**

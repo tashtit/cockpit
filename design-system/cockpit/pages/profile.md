@@ -23,7 +23,8 @@ card tabs (`tablist` "Profile sections") over one panel.
 Tabs and order are fixed:
 
 - **Activity** — By day (the heatmap + legend) → By hour (rhythm): *when* you work.
-- **Agents** — By agent (the comparison table) → Models → Accounts: *who* did it, on what, as whom.
+- **Agents** — By agent (the comparison table) → Roundtables → Models → Accounts: *who* did it,
+  on what, as whom.
 - **Code** — Languages → Top repos: *what* it touched.
 
 The tab is the panel's name, so no group heading repeats it ("Activity" under Activity
@@ -56,6 +57,10 @@ must never be the only thing that says which agent.
 
 ## The heatmap (`.pv-heat`)
 
+- A day counts every session **worked in** that day: the day it started, and every day it was
+  sent a prompt (`DeepStats.promptTimes`). Counting start days alone left a session resumed all
+  week as one square — on a real machine half the sessions spanned several days, and the grid
+  showed 28 active days of 55. Active days and both streaks are counted the same way.
 - GitHub's grid geometry: 7 rows (Mon–Sun, `Mon`/`Wed`/`Fri` labelled), one column per week,
   oldest column left, capped at 53 weeks. Leading blanks (`.pv-sq-pad`) pad the first week so
   weekdays line up down every column.
@@ -71,12 +76,18 @@ must never be the only thing that says which agent.
   the other hues.
 - Empty days are `--surface` + `--border`, never absent: `profile.ts` returns a dense day
   range so the grid can never grow a hole.
-- Sizing: `.pv-heat-scroll` is an inline-size container and the grid fits it — a week's pitch
-  is `(100cqi − 32px) / --pv-weeks`, the gap takes ~27% of it (2–4px), the square the rest
-  (5–11px). The weekday column is a fixed 28px — it is a constant in that formula; widening it
-  means updating both. `overflow-x: auto` remains only for a full year in a tiny window, and
-  `overflow-y` is pinned `hidden` so a horizontal bar can never breed a vertical one. The
-  page itself must never scroll sideways (MASTER).
+- Sizing: `.pv-heat-scroll` is an inline-size container (`pv-heat`) and the grid fits it — a
+  week's pitch is `(100cqi − --pv-lead) / --pv-weeks`, the gap takes ~27% of it (1–4px), the
+  square the rest (3–11px). `--pv-lead` is the fixed 28px weekday column plus its 6px gap, less
+  the smallest gap; widening the column means updating both. A full year fits the 286px card
+  at the window floor, so `overflow-x: auto` is only a fallback below the floor, and
+  `overflow-y` is pinned `hidden` so a horizontal bar can never breed a vertical one. The page
+  itself must never scroll sideways (MASTER).
+- Labels are what stop fitting, not squares. A month label is dropped when its month starts
+  in the grid's last 4 weeks (it overhung the edge and bred a scrollbar), and `.pv-months`
+  clips. A long grid (`.pv-heat-long`, over 44 weeks) under 352px of box sheds its weekday
+  column — the 34px go to the squares — and every other month name. Measured, and written
+  beside the rule at the end of style.css.
 - Accessibility: the grid is one `role="img"` whose label counts the active days and says in
   words which agent led how many; every square carries a `title` naming the date, count and
   per-agent split. Don't make squares focusable — 371 tab stops would wreck keyboard
@@ -84,7 +95,8 @@ must never be the only thing that says which agent.
 
 ## By hour — rhythm (`.pv-rhythm`)
 
-Sessions started per local hour: 24 bars on a `--surface` strip, each stacked by agent
+**Prompts sent** per local hour — when you are at the keyboard; a session's start said only when
+it began, and a long one spans the day. 24 bars on a `--surface` strip, each stacked by agent
 (`.pv-hour-fill`, leading agent at the bottom). A quiet instrument readout, not a chart — no
 gridlines, no y-axis; the peak hour is named in the `.ns-hint` line below instead. Bars and
 the mono axis marks (00/06/12/18) share one 24-column grid, so a mark sits under its own
@@ -115,6 +127,15 @@ Active days, Prompts per session, Tool calls per prompt, Lines edited, Files edi
   - zero lines with no failure → `.pv-untracked` "none measured". Not a failure: an agent that
     edits through shell commands leaves nothing countable in its log. Never render a bare
     `+0 −0` or `0 files` — it reads as a bug. A rate with no denominator is "—", never 0.
+
+## Roundtables
+
+A roundtable's seats are agent sessions, but a seat is prompted by its table rather than by
+the person, so none of them are in any other number on the page — counting them made a
+three-seat table three sessions and its relays the person's prompts. They are reported apart,
+right under the comparison they would distort: one `.ns-hint.ns-prose` line with the tables,
+the seat sessions and the split in words (`ProfileStats.roundtables`), and the group is
+dropped when no table has run a seat.
 
 ## Bar lists (`.pv-bars`) — Models, Languages, Top repos
 
@@ -164,5 +185,19 @@ Claude as several times chattier than the others — a comparison that measured 
 
 The profile deliberately covers **all** history, ignoring the `historyDays` display window
 that trims the sidebar tree. A profile's job is the long view; that setting exists to keep the
-tree short. Archived sessions (user's or the provider's own) stay excluded — those were
-thrown away on purpose.
+tree short.
+
+**Archived sessions count** — Cockpit's own archive and each provider's (the Claude desktop
+app's `isArchived`, Copilot's archived rows and workspaces, Codex's `archived_sessions/`):
+archiving is how a session ends (the desktop app archives one when its PR closes), and the
+work in it happened. Excluding them hid 276 of 301 Claude sessions on a real machine. Only a
+session **deleted** in its provider's app stays out (`ProviderHidden.deleted`), and a log
+that is gone is gone. The indexer hands the profile its own list (`ownSessions`); every other
+listing still hides archived sessions as before.
+
+Each transcript is read **whole**, streamed a line at a time up to 256MB, Codex 64MB (the largest seen is
+~110MB). The old 2MB head read missed everything after a long session's first megabytes — a
+third of real Claude transcripts are bigger, a screenshot being a megabyte of base64. Reading
+a machine's logs cold takes seconds (7s over 1.4GB, measured), so what each file said is
+persisted to `userData/profile-cache.json` keyed on (mtime, size): a relaunch re-reads only
+what changed (11ms, measured). The loading line covers the first open.
