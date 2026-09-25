@@ -670,6 +670,10 @@ export type ChatRequest = {
   readonly images?: readonly string[]
   /** Session id (`provider:nativeId`) this new session continues from — main validates it against the index */
   readonly handoffFrom?: string
+  /** A roundtable seat's turn: in safe mode Claude may also search the web and fetch pages
+   *  (`CLAUDE_RESEARCH_TOOLS`) — research, never a shell or an edit. Only the roundtable
+   *  manager sets it; `chat:send` strips it, so no renderer request loosens a chat */
+  readonly research?: boolean
 }
 
 /** Context briefing for handing a session to another agent, built main-side. */

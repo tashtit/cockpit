@@ -87,9 +87,16 @@ function framing(table: TableInfo, seatIndex: number): string {
     'The user\'s messages go to every seat at once, so answer them without waiting for the others — their takes reach you next round. Never comment on another seat\'s absence, silence, or technical troubles; the moderator handles that.',
     workspace
   ]
+  // what this seat can do to check a claim — said so it doesn't spend its turn on calls
+  // that will be refused (the other agents' sandboxes say their own)
+  if (table.participants[seatIndex]?.provider === 'claude') lines.push(CLAUDE_RESEARCH)
   if (table.mode === 'consensus') lines.push(CONSENSUS_RULE)
   return lines.join('\n')
 }
+
+/** A Claude seat's reach (`CLAUDE_RESEARCH_TOOLS` in chat.ts): the web, and nothing that runs. */
+const CLAUDE_RESEARCH =
+  'To check a claim you can search the web and fetch pages; you have no shell, so rather than running commands, look things up — a registry or RDAP page answers whether a name is taken.'
 
 /** The goal contract for consensus tables — every seat closes with a stance line. */
 const CONSENSUS_RULE =

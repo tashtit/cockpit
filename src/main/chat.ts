@@ -89,6 +89,13 @@ export function withTurnFlags(agent: AcpAgent | undefined, req: ChatRequest): Ac
   return { ...agent, args: [...(agent.args ?? []), ...copilotFlags(req)] }
 }
 
+/**
+ * What a safe-mode Claude seat may use without an approval nobody is there to give: web
+ * search and page fetches. Research only — reading the workspace needs no allowance, and
+ * the shell stays refused because no rule can keep a command read-only.
+ */
+export const CLAUDE_RESEARCH_TOOLS: readonly string[] = ['WebSearch', 'WebFetch']
+
 export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } {
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
   const effort = effortOf(req)
@@ -99,6 +106,7 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       if (effort) args.push('--effort', effort)
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
+      if (req.research && req.permissionMode === 'safe') args.push('--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
       // after `--`: a message that starts with "-" (a pasted list, or typed flags) is
       // otherwise parsed as options — claude refuses "- fix this" as an unknown one

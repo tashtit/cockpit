@@ -96,6 +96,11 @@ describe('buildTurnPrompt', () => {
     expect(p).toContain('read-only for this discussion')
   })
 
+  it('tells a Claude seat it can search and fetch pages, and only a Claude seat', () => {
+    expect(buildTurnPrompt(table(), 0)).toContain('you can search the web and fetch pages; you have no shell')
+    expect(buildTurnPrompt(table(), 1)).not.toContain('search the web')
+  })
+
   it('repo-less tables say so instead of pointing at a directory', () => {
     const p = buildTurnPrompt(table({ repoRoot: null, branch: null }), 0)
     expect(p).toContain('free-standing discussion')

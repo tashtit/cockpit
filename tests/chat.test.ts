@@ -38,6 +38,22 @@ describe('buildCommand', () => {
     expect(args).toContain('--resume')
     expect(args).toContain('abc')
   })
+  it('a roundtable seat in safe mode may search and fetch pages — nothing that runs or edits', () => {
+    const seat = (permissionMode: ChatRequest['permissionMode'], research = true): string[] =>
+      buildCommand({ provider: 'claude', cwd: '/x', prompt: 'hi', permissionMode, ...(research ? { research } : {}) }).args
+    const safe = seat('safe')
+    expect(safe[safe.indexOf('--allowedTools') + 1]).toBe('WebSearch,WebFetch')
+    expect(safe.join(' ')).not.toMatch(/Bash|Edit|Write/)
+    // only a seat, and only in safe mode: the other modes already say what they allow
+    expect(seat('safe', false)).not.toContain('--allowedTools')
+    expect(seat('auto-edit')).not.toContain('--allowedTools')
+    expect(seat('yolo')).not.toContain('--allowedTools')
+    // the flag is Claude's alone
+    const codex = buildCommand({ provider: 'codex', cwd: '/x', prompt: 'hi', permissionMode: 'safe', research: true }).args
+    expect(codex).not.toContain('--allowedTools')
+    // and the prompt still comes last, after --
+    expect(safe.slice(-2)).toEqual(['--', 'hi'])
+  })
   it('codex resume inserts subcommand and passes sandbox as a config override', () => {
     // `codex exec resume` accepts neither --full-auto nor --sandbox — only -c
     const { cmd, args } = buildCommand({
