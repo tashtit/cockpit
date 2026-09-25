@@ -259,6 +259,10 @@ export type CockpitApi = {
   readonly listCliStatus: (force?: boolean) => Promise<CliStatus[]>
   /** Open Terminal on the command that updates one CLI the way it was installed */
   readonly openCliUpdate: (provider: Provider) => Promise<void>
+  /** Open one Terminal that updates several Homebrew CLIs together — one `brew update`, one
+   *  window, instead of a window each taking turns. Main re-reads each and keeps only
+   *  those it finds behind on Homebrew. */
+  readonly openCliUpdateHomebrew: (providers: readonly Provider[]) => Promise<void>
   /** Open Terminal on `brew update` — refreshes what Homebrew knows, for a CLI whose
    *  channel is behind the release. Only for a Homebrew install. */
   readonly openCliChannelRefresh: (provider: Provider) => Promise<void>
@@ -374,6 +378,7 @@ export const CH = {
   accountsLogin: 'accounts:login',
   cliStatus: 'cli:status',
   cliUpdate: 'cli:update',
+  cliUpdateHomebrew: 'cli:update-homebrew',
   cliRefreshChannel: 'cli:refresh-channel',
 
   acpAdd: 'acp:add',
