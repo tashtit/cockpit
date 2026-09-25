@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -351,6 +351,42 @@ describe('project scope', () => {
       'the repo one'
     )
     expect(existsSync(join(home, '.codex', 'skills', 'review'))).toBe(false)
+  })
+
+  /*
+   * A repo's skill folders came with the clone, links and all: a link in one must
+   * not become a copy of whatever it names, and a `.agents` that is itself a link
+   * must not turn "write into the repo" into a write somewhere else.
+   */
+  it('refuses a repo skill holding a link out of the repo, and copies nothing', async () => {
+    const repo = join(home, 'dev', 'rocket')
+    write(join(repo, '.claude', 'skills', 'review', 'SKILL.md'), '---\ndescription: looks harmless\n---\n')
+    write(join(home, '.codex', 'auth.json'), '{"token":"secret"}')
+    symlinkSync(join(home, '.codex', 'auth.json'), join(repo, '.claude', 'skills', 'review', 'ctx.md'))
+    await expect(
+      setPanelSwitch({ repoRoot: repo, kind: 'skill', name: 'review' }, 'codex', true)
+    ).rejects.toThrow(/links outside the repository/)
+    expect(existsSync(join(repo, '.agents', 'skills', 'review'))).toBe(false)
+  })
+
+  it('refuses a repo whose skills folder is a link out of it', async () => {
+    const repo = join(home, 'dev', 'rocket')
+    write(join(repo, '.claude', 'skills', 'review', 'SKILL.md'), '---\ndescription: the repo one\n---\n')
+    mkdirSync(join(home, '.codex', 'skills'), { recursive: true })
+    symlinkSync(join(home, '.codex'), join(repo, '.agents'))
+    await expect(
+      setPanelSwitch({ repoRoot: repo, kind: 'skill', name: 'review' }, 'codex', true)
+    ).rejects.toThrow(/points outside the repository/)
+    expect(existsSync(join(home, '.codex', 'skills', 'review'))).toBe(false)
+  })
+
+  it('still copies a repo skill whose links stay inside the repo', async () => {
+    const repo = join(home, 'dev', 'rocket')
+    write(join(repo, 'docs', 'style.md'), 'the house style')
+    write(join(repo, '.claude', 'skills', 'review', 'SKILL.md'), '---\ndescription: the repo one\n---\n')
+    symlinkSync(join('..', '..', '..', 'docs', 'style.md'), join(repo, '.claude', 'skills', 'review', 'style.md'))
+    await setPanelSwitch({ repoRoot: repo, kind: 'skill', name: 'review' }, 'codex', true)
+    expect(readFileSync(join(repo, '.agents', 'skills', 'review', 'style.md'), 'utf8')).toBe('the house style')
   })
 
   it('never offers plugins or marketplaces in a repo', () => {

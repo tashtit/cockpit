@@ -90,6 +90,22 @@ export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = 
   { v: 'yolo', label: 'YOLO', hint: 'bypass all approvals — trusted repos only' }
 ]
 
+/**
+ * The permission mode the person last sent with, read back from storage — or the default
+ * when what is stored is not one of the modes. Storage is anyone's to write (a devtools
+ * console, another build, a hand edit), and the mode is what decides what an agent may do
+ * unasked, so nothing but a known mode may come out of it.
+ */
+export function savedMode(): PermissionMode {
+  let stored: string | null = null
+  try {
+    stored = window.localStorage.getItem('cockpit:mode')
+  } catch {
+    // blocked storage: the default
+  }
+  return MODES.find((m) => m.v === stored)?.v ?? 'auto-edit'
+}
+
 export const AGENT_BLURB: Record<Provider, string> = {
   claude: 'Deep multi-step coding, hooks & skills',
   codex: 'Fast sandboxed execution',
@@ -407,9 +423,7 @@ export function NewSession({
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const atts = useImageAttachments(initialImages)
-  const [mode, setMode] = useState<PermissionMode>(
-    () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
-  )
+  const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [error, setError] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [accountKey, setAccountKey] = useState<string | null>(null)

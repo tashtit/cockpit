@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
   Landing,
@@ -12,7 +12,7 @@ import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
 import { useLandedMap } from './landed'
-import { accountOptions, MODES, savedAccount, type StartSessionRequest } from './NewSession'
+import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './NewSession'
 import {
   BranchChip,
   CheckIcon,
@@ -24,6 +24,7 @@ import {
   PROVIDER_LABEL,
   RepoIcon
 } from './logos'
+import { keepSame } from './same'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
@@ -83,9 +84,7 @@ export function HomeView({
   const [provider, setProvider] = useState<Provider>(
     () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
   )
-  const [mode, setMode] = useState<PermissionMode>(
-    () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
-  )
+  const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [prompt, setPrompt] = useState('')
   const atts = useImageAttachments()
   const [error, setError] = useState<string | null>(null)
@@ -114,7 +113,8 @@ export function HomeView({
     let dead = false
     void api.pageSessions({ limit: BOARD_ROWS }).then((p) => {
       if (dead) return
-      setRecent(p.items)
+      // a push that left the recent sessions as they were must not redraw the board
+      setRecent((prev) => keepSame(prev, p.items))
       setRecentTotal(p.total)
     })
     return () => {
@@ -122,23 +122,26 @@ export function HomeView({
     }
   }, [indexVersion])
 
-  // roundtable strip: reload on mount and whenever a round starts/ends elsewhere
+  // roundtable strip: reload on mount, on every index push and whenever a round starts
+  // or ends elsewhere — listening once: a push is a reason to read the list again, not
+  // to drop the listener and add it back. Only the newest answer lands.
+  const tablesSeq = useRef(0)
+  const loadTables = useCallback((): void => {
+    const seq = ++tablesSeq.current
+    void api.listRoundtables?.().then((r) => {
+      if (seq === tablesSeq.current) setTables((prev) => keepSame(prev, r.filter((t) => !t.archived)))
+    })
+  }, [])
+  useEffect(() => loadTables(), [indexVersion, loadTables])
   useEffect(() => {
-    let dead = false
-    const load = (): void => {
-      void api
-        .listRoundtables?.()
-        .then((r) => !dead && setTables(r.filter((t) => !t.archived)))
-    }
-    load()
     const unsub = api.onRoundtableEvent?.((ev) => {
-      if (ev.type === 'round') load()
+      if (ev.type === 'round') loadTables()
     })
     return () => {
-      dead = true
+      tablesSeq.current++
       unsub?.()
     }
-  }, [indexVersion])
+  }, [loadTables])
 
   const start = async (): Promise<void> => {
     // same guard the Start button enforces — ⌘Enter must not start a session
@@ -194,26 +197,41 @@ export function HomeView({
   // the fleet: sessions and roundtables on one board, under the composer
   const landedMap = useLandedMap()
   // main raises news on any session, not just the recent ten: the row the banner and the
-  // Dock badge promised is fetched by id when the page doesn't hold it
+  // Dock badge promised is fetched by id when the page doesn't hold it. Once per piece of
+  // news — the answer, a session or nothing (a landing the index holds no session for),
+  // is kept until that landing changes, rather than asked again on every index push
   const [older, setOlder] = useState<SessionMeta[]>([])
+  const fetched = useRef(new Map<string, SessionMeta | null>())
   const missing = useMemo(() => {
     const paged = new Set(recent.map((s) => s.id))
-    return JSON.stringify([...landedMap.keys()].filter((id) => !paged.has(id)).slice(0, NEEDS_FETCH_MAX))
+    const wanted = [...landedMap.values()].filter((l) => !paged.has(l.id)).slice(0, NEEDS_FETCH_MAX)
+    return JSON.stringify(wanted.map((l): [string, number] => [l.id, l.at]))
   }, [recent, landedMap])
   useEffect(() => {
-    const ids = JSON.parse(missing) as string[]
-    if (ids.length === 0) {
-      setOlder([])
+    const wanted = JSON.parse(missing) as Array<[string, number]>
+    const known = fetched.current
+    const keyOf = ([id, at]: [string, number]): string => `${id}\n${at}`
+    // only what the board still needs is remembered
+    const keys = new Set(wanted.map(keyOf))
+    for (const k of known.keys()) if (!keys.has(k)) known.delete(k)
+    const show = (): void => {
+      const next = wanted.map((w) => known.get(keyOf(w))).filter((s): s is SessionMeta => !!s)
+      setOlder((prev) => (prev.length === next.length && prev.every((s, i) => s === next[i]) ? prev : next))
+    }
+    const ask = wanted.filter((w) => !known.has(keyOf(w)))
+    if (ask.length === 0) {
+      show()
       return
     }
     let dead = false
-    void Promise.all(ids.map((id) => api.getSession(id))).then((found) => {
-      if (!dead) setOlder(found.filter((s): s is SessionMeta => s !== null))
+    void Promise.all(ask.map(([id]) => api.getSession(id))).then((found) => {
+      ask.forEach((w, i) => known.set(keyOf(w), found[i] ?? null))
+      if (!dead) show()
     })
     return () => {
       dead = true
     }
-  }, [missing, indexVersion])
+  }, [missing])
   const sessions = useMemo(() => {
     const paged = new Set(recent.map((s) => s.id))
     // a fetched row stays only while it still needs you — it never joins the ground

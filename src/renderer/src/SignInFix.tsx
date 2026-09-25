@@ -27,7 +27,8 @@ export function SignInFix({
  * While something the person is finishing in Terminal is pending (a sign-in, an
  * update), ask again every few seconds and whenever the window is focused — so
  * Cockpit notices the moment they come back, with no Recheck to press. Gives up
- * after `forMs`; `check` is read fresh each tick.
+ * after `forMs` — the timer and the focus listener go with it, rather than waking
+ * every few seconds for nothing until the view closes; `check` is read fresh each tick.
  */
 export function useWatchUntil(
   active: boolean,
@@ -39,14 +40,17 @@ export function useWatchUntil(
   useEffect(() => {
     if (!active) return
     const started = Date.now()
-    const tick = (): void => {
-      if (Date.now() - started <= (opts.forMs ?? 5 * 60_000)) ref.current()
-    }
-    const timer = setInterval(tick, opts.everyMs ?? 3_000)
-    window.addEventListener('focus', tick)
-    return () => {
+    const forMs = opts.forMs ?? 5 * 60_000
+    const stop = (): void => {
       clearInterval(timer)
       window.removeEventListener('focus', tick)
     }
+    const tick = (): void => {
+      if (Date.now() - started <= forMs) ref.current()
+      else stop()
+    }
+    const timer = setInterval(tick, opts.everyMs ?? 3_000)
+    window.addEventListener('focus', tick)
+    return stop
   }, [active])
 }

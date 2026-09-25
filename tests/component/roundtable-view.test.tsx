@@ -1,9 +1,26 @@
 import { describe, it, expect, vi } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
+import type { JSX } from 'react'
 import userEvent from '@testing-library/user-event'
 import { RoundtableView } from '../../src/renderer/src/RoundtableView'
 import { emptyRoundtable } from './stub-api'
 import type { RoundtableEvent, RoundtableSnapshot } from '../../src/shared/types'
+
+// counted, not changed: the transcript's own row, still memoized, with its renders
+// counted — so a test can say which rows a flush of the wave redrew
+const messageRenders = vi.hoisted(() => ({ calls: 0 }))
+vi.mock('../../src/renderer/src/ChatView', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/renderer/src/ChatView')>()
+  const { memo } = await import('react')
+  const inner = (real.Message as unknown as { type: (p: Parameters<typeof real.Message>[0]) => JSX.Element }).type
+  return {
+    ...real,
+    Message: memo((props: Parameters<typeof real.Message>[0]) => {
+      messageRenders.calls++
+      return inner(props)
+    })
+  }
+})
 
 function fixture(overrides: Partial<RoundtableSnapshot> = {}): RoundtableSnapshot {
   return {
@@ -211,6 +228,23 @@ describe('RoundtableView', () => {
       expect.stringMatching(/^tool: .*WebSearch.*takt software/),
       'text: Takt is taken.'
     ])
+  })
+
+  it('does not redraw a seat’s tool calls while its text streams on after them', async () => {
+    let handler: ((ev: RoundtableEvent) => void) | null = null
+    vi.mocked(window.cockpit.onRoundtableEvent).mockImplementation((cb) => {
+      handler = cb
+      return () => {}
+    })
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(fixture({ running: true, speaking: [0] }))
+    render(<RoundtableView id="rt-1" />)
+    await waitFor(() => expect(screen.getByText('Claude is thinking…')).toBeInTheDocument())
+    act(() => handler!({ id: 'rt-1', type: 'tool', speaker: 'claude', seat: 0, toolName: 'Bash', detail: 'npm view takt' }))
+    await screen.findByText('npm view takt', { selector: 'code' })
+    messageRenders.calls = 0
+    act(() => handler!({ id: 'rt-1', type: 'delta', speaker: 'claude', seat: 0, text: 'Takt is taken.' }))
+    await waitFor(() => expect(screen.getByText('Takt is taken.')).toBeInTheDocument())
+    expect(messageRenders.calls).toBe(0)
   })
 
   it('a concluded cycle renders the app-assembled outcome from the seats\' own lines', async () => {

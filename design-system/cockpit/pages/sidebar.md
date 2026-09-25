@@ -159,7 +159,9 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   view is audited at) and never past 600px. A stored width past what this window can spare is
   held back by the stylesheet, not rewritten: widen the window and it is back.
 - Remembered per machine (`cockpit:rail-width` in localStorage, like the folds), never in
-  config. Nothing stored means the stylesheet's own share of the viewport — which is the
+  config — written once, where a drag is let go: while the pointer moves the sash sets
+  `--rail` on `.app` itself, since a store write per move was a localStorage write and a
+  render of the whole app at the pointer's rate. Nothing stored means the stylesheet's own share of the viewport — which is the
   layout every audit and every screenshot is taken of; `sidebar-wide` in the tour is the one
   shot of a dragged rail.
 - Its value (`aria-valuenow`) is what the rail *measures*, not what was stored: the number a

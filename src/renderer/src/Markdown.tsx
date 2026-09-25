@@ -30,9 +30,10 @@ export function preloadMarkdown(): void {
 const MARKDOWN_MAX_CHARS = 64 * 1024
 
 /**
- * Memoized on the text: following a live log swaps in fresh message objects every
- * refresh (~0.8s), which re-renders every row — and without this, re-ran the whole
- * pipeline for every visible reply each time, enough to make typing lag.
+ * Memoized on the text: a row drawn again with the same words — the Work panel folded
+ * again, a table's transcript growing — must not run the pipeline; and one mounted
+ * again (a session reopened, earlier rows shown) finds what the pipeline drew lately
+ * in its own cache.
  */
 export const Markdown = memo(function Markdown({ text }: { text: string }): JSX.Element {
   const plain = <pre className="md-plain">{text}</pre>

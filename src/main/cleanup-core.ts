@@ -1,5 +1,5 @@
 import { join, sep } from 'node:path'
-import type { CleanupBlock, SourceDir, WorktreeOrigin } from '../shared/types'
+import type { CleanupBlock, SessionMeta, SourceDir, WorktreeOrigin } from '../shared/types'
 import { isUnder } from './paths'
 
 /**
@@ -98,7 +98,7 @@ export type WorktreeFacts = {
   /** The repository's primary checkout (first entry of the listing) */
   readonly isMain: boolean
   readonly locked: boolean
-  /** `git status --porcelain` returned something */
+  /** `git status --porcelain` returned something, or could not be read (`isDirty`) */
   readonly dirty: boolean
   /** An agent turn is running in this directory right now */
   readonly busy: boolean
@@ -108,6 +108,15 @@ export type WorktreeFacts = {
   readonly processes: boolean
   /** HEAD is detached on commits that no branch, tag or remote holds */
   readonly unanchored: boolean
+}
+
+/**
+ * Whether `git status --porcelain` output (null: it failed or timed out) stands for
+ * uncommitted work. A status git could not give is no proof of a clean checkout — it
+ * used to read as clean, and the worktree as ready to remove.
+ */
+export function isDirty(status: string | null): boolean {
+  return status === null || status.trim().length > 0
 }
 
 /**
@@ -150,8 +159,96 @@ export function isStale(lastActivity: number, cutoff: number): boolean {
   return lastActivity < cutoff
 }
 
+/* ---------- sessions, by where they ran ---------- */
+
+/**
+ * `resolve` answered once per distinct path. Resolving is a realpath — a syscall — and
+ * judging worktrees asked it of every session's cwd again for every worktree: 29,610
+ * calls for 423 sessions × 70 worktrees, in a scan that now runs daily unprompted.
+ */
+export function resolvedOnce(resolve: (path: string) => string): (path: string) => string {
+  const known = new Map<string, string>()
+  return (path) => {
+    let real = known.get(path)
+    if (real === undefined) {
+      real = resolve(path)
+      known.set(path, real)
+    }
+    return real
+  }
+}
+
+/** The sessions that ran in one directory — what a worktree is weighed against. */
+export type CwdSessions = {
+  /** Resolved, so it compares with the real paths git reports */
+  readonly cwd: string
+  /** Newest `updatedAt` among them */
+  readonly newest: number
+  readonly ids: readonly string[]
+}
+
+/**
+ * Sessions gathered by where they ran. Thousands of sessions share a few hundred
+ * cwds, so each worktree is weighed against the directories rather than against
+ * every session again.
+ */
+export function sessionsByCwd(
+  sessions: readonly Pick<SessionMeta, 'id' | 'cwd' | 'updatedAt'>[],
+  resolve: (path: string) => string
+): CwdSessions[] {
+  // accumulators, filled in place and handed out read-only
+  const byCwd = new Map<string, { cwd: string; newest: number; ids: string[] }>()
+  for (const s of sessions) {
+    if (!s.cwd) continue
+    const cwd = resolve(s.cwd)
+    const group = byCwd.get(cwd) ?? { cwd, newest: 0, ids: [] }
+    group.ids.push(s.id)
+    if (s.updatedAt > group.newest) group.newest = s.updatedAt
+    byCwd.set(cwd, group)
+  }
+  return [...byCwd.values()]
+}
+
+/** Every session that ran in `path` or anywhere below it, and the newest of them. */
+export function sessionsUnder(
+  groups: readonly CwdSessions[],
+  path: string
+): { readonly newest: number; readonly ids: readonly string[] } {
+  let newest = 0
+  const ids: string[] = []
+  for (const g of groups) {
+    if (!isUnder(g.cwd, path)) continue
+    ids.push(...g.ids)
+    if (g.newest > newest) newest = g.newest
+  }
+  return { newest, ids }
+}
+
 export function sumBytes(items: readonly { readonly bytes: number | null }[]): number {
   return items.reduce((n, i) => n + (i.bytes ?? 0), 0)
+}
+
+/**
+ * `work` over `items`, at most `limit` at a time, results in the input's order.
+ * Cleanup spawns git and du per worktree: all of them at once starve the machine the
+ * agents are working on, one at a time took ten seconds for seventy worktrees.
+ * Rejections are the caller's — every unit cleanup hands this resolves, failure included.
+ */
+export async function mapLimit<T, R>(
+  items: readonly T[],
+  work: (item: T) => Promise<R>,
+  limit: number
+): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await work(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker))
+  return out
 }
 
 /* ---------- processes left running in old worktrees ---------- */
@@ -330,6 +427,24 @@ export type JudgedProcess = ProcessFacts & {
   readonly branch: string | null
   /** Its worktree is gone: removed under it, or never listed and carrying no `.git` */
   readonly worktreeGone: boolean
+}
+
+/**
+ * The worktrees some process is still running in. A process belongs to the deepest
+ * listed worktree around it, so one running in a `.claude/worktrees/*` checkout never
+ * counts against the repository holding it.
+ */
+export function worktreesWithProcesses(
+  paths: readonly string[],
+  procs: readonly Pick<ProcessFacts, 'cwd'>[]
+): Set<string> {
+  const listed = paths.map((path) => ({ path }))
+  const out = new Set<string>()
+  for (const p of procs) {
+    const best = deepest(listed, p.cwd)
+    if (best) out.add(best.path)
+  }
+  return out
 }
 
 /** Deepest path in `candidates` containing `child`. */

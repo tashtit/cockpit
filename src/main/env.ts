@@ -3,20 +3,25 @@ import { homedir } from 'node:os'
 
 /** GUI apps on macOS get a minimal PATH; make sure common CLI install dirs are present. */
 export function cliEnv(): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    // empty segments are dropped on purpose: an empty PATH entry means "current
-    // directory" to exec, which would let a repo-local file named `git` win
-    PATH: [
-      process.env.PATH,
-      '/opt/homebrew/bin',
-      '/usr/local/bin',
-      `${homedir()}/.local/bin`,
-      `${homedir()}/bin`
-    ]
-      .filter((p): p is string => !!p)
-      .join(':')
-  }
+  return { ...process.env, PATH: cliPath(process.env.PATH) }
+}
+
+/**
+ * The inherited PATH with the common install dirs after it, keeping only absolute
+ * entries. An empty entry (a leading or trailing `:`, or `::`) or a relative one
+ * like `.` is resolved against the spawn's cwd — the repo being worked on — so a
+ * clone that ships an executable `gh` or `git` at its root would win every lookup.
+ * A Finder launch gets launchd's clean PATH; `npm run dev` from a shell may not.
+ */
+export function cliPath(inherited: string | undefined): string {
+  const entries = [
+    ...(inherited ?? '').split(':'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    `${homedir()}/.local/bin`,
+    `${homedir()}/bin`
+  ]
+  return [...new Set(entries.filter((p) => p.startsWith('/')))].join(':')
 }
 
 export type ExecResult = {

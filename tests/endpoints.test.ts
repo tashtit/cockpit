@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
+  NO_KEY_PLACEHOLDER,
+  endpointUrlRefusal,
+  isLocalEndpointHost,
   ENDPOINT_PRESETS,
   endpointAgents,
   endpointAuth,
@@ -73,6 +76,28 @@ describe('sanitizeEndpoint', () => {
     // running Ollama/LM Studio locally or on the LAN stays a first-class setup
     expect(sanitizeEndpoint({ ...base, baseUrl: 'http://localhost:11434/v1' }, 'i')).not.toBeNull()
     expect(sanitizeEndpoint({ ...base, baseUrl: 'http://192.168.1.20:4000' }, 'i')).not.toBeNull()
+  })
+
+  it('takes plain http only for this machine and private networks', () => {
+    const base = { label: 'x', type: 'openai' }
+    for (const url of ['http://api.openai.com/v1', 'http://gateway.example.com', 'http://8.8.8.8/v1', 'http://[2001:db8::1]/v1']) {
+      expect(sanitizeEndpoint({ ...base, baseUrl: url }, 'i'), url).toBeNull()
+      expect(endpointUrlRefusal(url), url).toMatch(/Use https:\/\//)
+    }
+    for (const url of [
+      'http://127.0.0.1:8080',
+      'http://10.0.0.5/v1',
+      'http://172.20.1.1',
+      'http://100.101.102.103:11434',
+      'http://[fd12:3456::1]/v1',
+      'http://gpu-box:8000/v1',
+      'http://studio.local:1234/v1',
+      'https://gateway.example.com/v1'
+    ]) {
+      expect(sanitizeEndpoint({ ...base, baseUrl: url }, 'i'), url).not.toBeNull()
+      expect(endpointUrlRefusal(url), url).toBeNull()
+    }
+    expect(isLocalEndpointHost('172.32.0.1')).toBe(false)
   })
 
   // the URL parser rewrites a mapped address to ::ffff:a9fe:a9fe, which matches
@@ -203,11 +228,17 @@ describe('endpointEnv', () => {
   })
 
   // the shell's own ANTHROPIC_API_KEY would otherwise ride along: Claude sends both
-  // headers when both variables are set
-  it('blanks every credential the endpoint does not supply, so none is inherited', () => {
+  // headers when both variables are set — and with both empty it sends its own
+  // sign-in's OAuth token instead, so a keyless endpoint gets a placeholder
+  it('blanks every credential the endpoint does not supply, and never leaves Claude keyless', () => {
     expect(endpointEnv('claude', ep({ type: 'anthropic', auth: 'bearer' }))).toEqual({
       ANTHROPIC_BASE_URL: 'https://gw.example.com/v1',
-      ...noClaudeKey
+      ...noClaudeKey,
+      ANTHROPIC_AUTH_TOKEN: NO_KEY_PLACEHOLDER
+    })
+    expect(endpointEnv('claude', ep({ type: 'anthropic', auth: 'key' }))).toMatchObject({
+      ANTHROPIC_API_KEY: NO_KEY_PLACEHOLDER,
+      ANTHROPIC_AUTH_TOKEN: ''
     })
   })
 

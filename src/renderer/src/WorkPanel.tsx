@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type JSX, type RefObject } from 'react'
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX, type RefObject } from 'react'
 import type { FileEdit, Provider, SessionFilePreview, TodoStatus } from '../../shared/types'
 import { shortPath } from '../../shared/library'
 import { api } from './api'
@@ -8,6 +8,7 @@ import { PROVIDER_LABEL, TodoMark, XIcon } from './logos'
 import { Markdown } from './Markdown'
 import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
+import { samePlain } from './same'
 import {
   CHECK_LABEL,
   checkSummary,
@@ -71,13 +72,18 @@ function relative(path: string, cwd: string): string {
 
 export type WorkFocus = {
   readonly tab: WorkTab
-  /** The transcript row that opened the panel, if one did */
+  /** The row that opened the panel, if one did — by the key the model names it by
+   *  (ChatView keeps its own row keys and translates them at the panel's edge) */
   readonly key: number | null
   /** Bumped on every open, so opening the same row again scrolls to it again */
   readonly at: number
 }
 
-export function WorkPanel({
+/**
+ * Memoized, as its blocks are: the chat renders on every stream flush and keystroke, and
+ * the model it is handed is folded again only when a row carrying work changed.
+ */
+export const WorkPanel = memo(function WorkPanel({
   model,
   focus,
   onTab,
@@ -187,7 +193,7 @@ export function WorkPanel({
       </div>
     </aside>
   )
-}
+})
 
 function PlanTab({
   model,
@@ -300,8 +306,16 @@ function EditsTab({
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(
     () => new Map(focusFile ? [[focusFile.path, true]] : [])
   )
-  const isOpen = (path: string): boolean => toggled.get(path) ?? files.length <= OPEN_FILES
+  const openByDefault = files.length <= OPEN_FILES
+  const isOpen = (path: string): boolean => toggled.get(path) ?? openByDefault
   const [ringed, setRinged] = useState<number | null>(null)
+  // one handler for every file, so a memoized block is not redrawn for a new closure
+  const onToggle = useCallback(
+    (path: string, on: boolean): void =>
+      // a details element reports its first paint too: only a change is a choice
+      setToggled((m) => (on === (m.get(path) ?? openByDefault) ? m : new Map([...m, [path, on]]))),
+    [openByDefault]
+  )
 
   // a row opened the panel at its edit: open that file, bring the edit into view, ring it
   useEffect(() => {
@@ -356,10 +370,7 @@ function EditsTab({
             cwd={cwd}
             open={isOpen(f.path)}
             ringed={ringed}
-            onToggle={(on) => {
-              // a details element reports its first paint too: only a change is a choice
-              if (on !== isOpen(f.path)) setToggled((m) => new Map([...m, [f.path, on]]))
-            }}
+            onToggle={onToggle}
           />
         ))}
       </div>
@@ -367,25 +378,26 @@ function EditsTab({
   )
 }
 
-function FileBlock({
-  file,
-  cwd,
-  open,
-  ringed,
-  onToggle
-}: {
-  file: FileWork
-  cwd: string
-  open: boolean
-  ringed: number | null
-  onToggle: (open: boolean) => void
-}): JSX.Element {
+type FileBlockProps = {
+  readonly file: FileWork
+  readonly cwd: string
+  readonly open: boolean
+  readonly ringed: number | null
+  readonly onToggle: (path: string, open: boolean) => void
+}
+
+/**
+ * Memoized by what the file says, not its object: every fold of the model builds fresh
+ * entries, but an edit already on screen keeps its own lines — so a new edit arriving
+ * mid-turn redraws only the file it touched.
+ */
+const FileBlock = memo(function FileBlock({ file, cwd, open, ringed, onToggle }: FileBlockProps): JSX.Element {
   const shown = relative(file.path, cwd)
   const moved = [...file.edits].reverse().find((e) => e.edit.movedTo)?.edit.movedTo
   const kind = fileChange(file)
   const failed = file.edits.every((e) => e.failed)
   return (
-    <details className="idiff review-file work-file" open={open} onToggle={(e) => onToggle(e.currentTarget.open)}>
+    <details className="idiff review-file work-file" open={open} onToggle={(e) => onToggle(file.path, e.currentTarget.open)}>
       <summary className="idiff-head plain">
         <span className="idiff-path">{moved ? `${shown} → ${relative(moved, cwd)}` : shown}</span>
         {CHANGE_WORD[kind] && (
@@ -406,7 +418,9 @@ function FileBlock({
       )}
     </details>
   )
-}
+},
+(a, b) =>
+  a.cwd === b.cwd && a.open === b.open && a.ringed === b.ringed && a.onToggle === b.onToggle && samePlain(a.file, b.file))
 
 /** What to say where a call named a file but carried no lines to draw. */
 function noLines(edit: FileEdit): string {
@@ -415,7 +429,10 @@ function noLines(edit: FileEdit): string {
   return 'the call named this file but not the lines it changed'
 }
 
-function EditBlock({ entry, ringed }: { entry: EditEntry; ringed: boolean }): JSX.Element {
+type EditBlockProps = { readonly entry: EditEntry; readonly ringed: boolean }
+
+/** Memoized by what the edit says — see FileBlock */
+const EditBlock = memo(function EditBlock({ entry, ringed }: EditBlockProps): JSX.Element {
   const fmt = useTimeFormat()
   const { edit } = entry
   return (
@@ -450,7 +467,8 @@ function EditBlock({ entry, ringed }: { entry: EditEntry; ringed: boolean }): JS
       )}
     </div>
   )
-}
+},
+(a, b) => a.ringed === b.ringed && samePlain(a.entry, b.entry))
 
 function ChecksTab({
   model,

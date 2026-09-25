@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import type { McpConfig, McpProbeResult, Provider } from '../shared/types'
 import { cliEnv } from './env'
+import { LineSplitter } from './parsers/util'
 
 /*
  * Runtime side of MCP management:
@@ -74,7 +75,7 @@ function probeStdio(cfg: McpConfig, timeoutMs: number): Promise<McpProbeResult> 
       env: { ...cliEnv(), ...cfg.env },
       stdio: ['pipe', 'pipe', 'pipe']
     })
-    let stdout = ''
+    const stdout = new LineSplitter()
     let stderr = ''
     let done = false
     const finish = (result: McpProbeResult): void => {
@@ -107,10 +108,12 @@ function probeStdio(cfg: McpConfig, timeoutMs: number): Promise<McpProbeResult> 
     child.stderr?.on('data', (d: Buffer) => {
       stderr = (stderr + d.toString()).slice(-2000)
     })
-    child.stdout?.on('data', (d: Buffer) => {
-      stdout += d.toString()
-      // newline-delimited JSON-RPC; servers may interleave non-JSON noise
-      for (const line of stdout.split('\n')) {
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => {
+      // newline-delimited JSON-RPC (the transport requires the newline); servers may
+      // interleave non-JSON noise. Only the lines each chunk ends are parsed — re-splitting
+      // everything received on every chunk was quadratic in what a chatty server printed.
+      for (const line of stdout.push(chunk).lines) {
         try {
           const msg = JSON.parse(line)
           if (msg?.id !== 1) continue
@@ -119,7 +122,7 @@ function probeStdio(cfg: McpConfig, timeoutMs: number): Promise<McpProbeResult> 
             return finish({ status: 'error', detail: String(msg.error.message ?? 'server error') })
           }
         } catch {
-          /* partial or non-JSON line */
+          /* a non-JSON line */
         }
       }
     })

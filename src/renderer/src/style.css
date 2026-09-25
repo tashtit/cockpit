@@ -1146,6 +1146,18 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .perm-what { font-size: var(--fs-sm); color: var(--fg); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .perm-actions { display: flex; gap: var(--s2); flex: none; }
+/* a command asking to run: the command is the card's content, the agent's title the lesser
+   line above it, and the answers take their own row at the right */
+.perm-exec .perm-what { color: var(--fg-dim); }
+.perm-exec .perm-actions { margin-left: auto; }
+.perm-command { flex-basis: 100%; min-width: 0; max-height: 220px; overflow-y: auto; margin: 0;
+  padding: var(--s3) var(--s4); background: var(--bg-deep); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-family: var(--mono); font-size: var(--fs-base);
+  line-height: 1.5; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere;
+  user-select: text; }
+.perm-ctl { font-size: var(--fs-xs); color: var(--warn); padding: 0 var(--s1); margin-inline: 1px;
+  border: 1px solid rgba(var(--warn-rgb), 0.5); border-radius: var(--radius-sm); }
+.perm-cut { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); color: var(--warn); }
 .composer { display: flex; flex-wrap: wrap; gap: var(--s3);
   padding-block: var(--s4);
   /* the composer types inside the same column the transcript reads in */

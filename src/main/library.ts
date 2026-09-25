@@ -46,6 +46,7 @@ import {
 } from './extensions'
 import { rawMcpConfig } from './extensions-core'
 import { applyInstructions, getInstructions, unapplyInstructions } from './instructions'
+import { resolveWithin } from './link-guard'
 import { mcpVersions } from './mcp-versions'
 import { adoptInventory } from '../shared/library'
 
@@ -205,7 +206,7 @@ function skillFields(fingerprint: string, description: string): Record<string, s
 function keepBackup(entry: LibraryEntry, inv: ExtensionsInventory, repoRoot: string | null): void {
   if (entry.kind !== 'skill') return
   const source = inv.skills.find((sk) => sk.name === entry.name)
-  if (source) adoptSkillInto(source.path, libSkillDir(entry.name, repoRoot))
+  if (source) adoptSkillInto(source.path, libSkillDir(entry.name, repoRoot), repoRoot ?? undefined)
 }
 
 function savedOf(entry: LibraryEntry, repoRoot: string | null, inv: ExtensionsInventory): Desired {
@@ -480,6 +481,9 @@ async function writeSwitch(
     }
     case 'skill': {
       const dst = join(skillTarget(repoRoot, agent), entry.name)
+      // a repo's `.agents` or `.claude/skills` can itself be a link the clone made —
+      // to `~/.codex`, say — and the remove and the copy below would both land there
+      if (repoRoot !== null) resolveWithin(dst, repoRoot, 'the repository')
       if (!on) {
         rmSync(dst, { recursive: true, force: true })
         return
@@ -628,7 +632,7 @@ function takeFrom(
     case 'skill': {
       const found = inv.skills.find((sk) => sk.name === entry.name && sk.agent === agent)
       if (!found) throw new Error(`${agent} has no skill "${entry.name}" to copy`)
-      adoptSkillInto(found.path, libSkillDir(entry.name, repoRoot))
+      adoptSkillInto(found.path, libSkillDir(entry.name, repoRoot), repoRoot ?? undefined)
       return entry
     }
     default: {

@@ -1,6 +1,18 @@
-import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSync, rmSync, watch, type FSWatcher } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  watch,
+  type FSWatcher
+} from 'node:fs'
 import { writeFile, rename, rm } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type {
   BusySession,
   Mutable,
@@ -17,6 +29,7 @@ import type {
 import { orderRepos } from '../shared/repo-order'
 import { isUnder } from './paths'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
+import { isRegularFile, timeSlicer } from './parsers/util'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
 import {
@@ -26,12 +39,13 @@ import {
   parseClaudeMessages
 } from './parsers/claude'
 import {
-  codexIndexFile,
+  codexThreadName,
   isArchivedRollout,
   listCodexSessionFiles,
   listCodexSessionRoots,
   parseCodexMeta,
-  parseCodexMessages
+  parseCodexMessages,
+  readCodexMeta
 } from './parsers/codex'
 import {
   copilotWorkspaceFile,
@@ -67,9 +81,9 @@ const MESSAGE_PARSERS = {
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 9
-/** Yield to the event loop every N files so scans never starve IPC. */
-const YIELD_EVERY = 50
+const CACHE_VERSION = 10
+/** Yield to the event loop after this much scanning so scans never starve IPC (a frame). */
+const SCAN_SLICE_MS = 16
 /** Publish partial results during a cold scan so the tree fills in progressively. */
 const PUBLISH_EVERY = 300
 /** Broadcasts and cache writes are throttled — an active chat appends every second. */
@@ -80,6 +94,17 @@ const WATCH_RETRY_INTERVAL_MS = 30_000
 
 /** Floor for re-judging a not-a-session verdict (see knownNonSessions). */
 const PROBE_REGROW_BYTES = 4096
+
+/** A changed session file is re-read no later than this after its first write. */
+const DIRTY_FLUSH_MS = 500
+/** Structural events settle this long before a full rescan… */
+const RESCAN_QUIET_MS = 750
+/**
+ * …but never wait longer than this for the quiet: macOS reports every append to a
+ * freshly created file as `rename` for its first seconds, so a new session streaming
+ * its opening turn would otherwise hold the rescan off for as long as it writes.
+ */
+const RESCAN_MAX_WAIT_MS = 3000
 
 let cacheSaveSeq = 0
 /**
@@ -92,30 +117,71 @@ function nextCacheTmp(cacheFile: string): string {
   return `${cacheFile}.${process.pid}.${++cacheSaveSeq}.tmp`
 }
 
+/** A save's tmp file this old belongs to no save still running, whichever instance wrote it. */
+const STALE_CACHE_TMP_MS = 10 * 60_000
+
+/**
+ * A save interrupted between its write and its rename — a crash, a force quit — leaves
+ * its tmp file behind, a whole copy of the cache, and nothing else ever removes one.
+ * Only files named the way nextCacheTmp names them are touched, and only old ones: a
+ * second instance sharing userData may be mid-save right now.
+ */
+function sweepCacheTmps(cacheFile: string): void {
+  const dir = dirname(cacheFile)
+  const prefix = `${basename(cacheFile)}.`
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return // no userData dir yet
+  }
+  const cutoff = Date.now() - STALE_CACHE_TMP_MS
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !/^\d+\.\d+\.tmp$/.test(name.slice(prefix.length))) continue
+    const p = join(dir, name)
+    try {
+      const st = lstatSync(p)
+      if (st.isFile() && st.mtimeMs < cutoff) rmSync(p, { force: true })
+    } catch {
+      // removed by someone else between the listing and here
+    }
+  }
+}
+
 type CacheEntry = {
   readonly mtimeMs: number
   readonly size: number
-  /** mtime of the out-of-band name source (codex session_index / copilot workspace.yaml) */
+  /** mtime of copilot's out-of-band name source, workspace.yaml (see auxStamp) */
   readonly aux?: number
+  /**
+   * Codex: the thread its title was looked up under in session_index.jsonl, and the
+   * name found. The index is one file for every rollout, so its mtime cannot stand for
+   * any one of them — the entry is stale only when its own thread's name changed.
+   */
+  readonly threadId?: string | null
+  readonly threadName?: string | null
   readonly meta: SessionMeta | null
 }
 
 /**
- * Codex and Copilot store generated session names outside the transcript file, so a
- * rename doesn't touch the transcript's (mtime,size). Stamp the side file's mtime into
- * the cache entry so name changes invalidate it.
+ * Copilot stores the generated session name beside the transcript, so a rename doesn't
+ * touch the transcript's (mtime,size). Stamp the side file's mtime into the cache entry
+ * so name changes invalidate it. (Codex keeps its names in one shared index instead —
+ * see CacheEntry.threadName.)
  */
 function auxStamp(file: string, source: SourceDir): number {
-  let p: string | null = null
-  if (source.provider === 'codex') p = codexIndexFile(source.path)
-  else if (source.provider === 'copilot' && file.endsWith('events.jsonl'))
-    p = copilotWorkspaceFile(file)
-  if (!p) return 0
+  if (source.provider !== 'copilot' || !file.endsWith('events.jsonl')) return 0
   try {
-    return statSync(p).mtimeMs
+    return statSync(copilotWorkspaceFile(file)).mtimeMs
   } catch {
     return 0
   }
+}
+
+/** Is a cached Codex entry still named what its thread is named now? */
+function sameThreadName(file: string, entry: CacheEntry): boolean {
+  if (!entry.threadId) return true
+  return codexThreadName(file, entry.threadId) === (entry.threadName ?? null)
 }
 
 /**
@@ -209,6 +275,8 @@ export class SessionIndexer {
   private dirty = new Set<string>()
   private dirtyTimer: NodeJS.Timeout | null = null
   private rescanTimer: NodeJS.Timeout | null = null
+  /** When the pending rescan must start however busy the watcher is (RESCAN_MAX_WAIT_MS) */
+  private rescanDeadline = 0
   /**
    * Session-shaped files whose parse came back null (e.g. codex subagent rollouts,
    * which live in the same sessions/YYYY/MM/DD dirs as real rollouts). They stream
@@ -257,6 +325,8 @@ export class SessionIndexer {
    * are its pacing too; it reads a bounded tail of fresh files only.
    */
   private liveness: LivenessTracker
+  /** knownRepoRoots(), until the next emitUpdate */
+  private repoRoots: ReadonlySet<string> | null = null
 
   constructor(
     onUpdate: () => void,
@@ -421,12 +491,13 @@ export class SessionIndexer {
         })
       }
       // Codex thread names live in <CODEX_HOME>/session_index.jsonl, outside the sessions
-      // root. Watch the home dir non-recursively and react to just that file.
+      // root. Watch the home dir non-recursively and react to just that file — by
+      // re-judging this source's rollouts, of which only a renamed one re-parses.
       if (s.provider === 'codex') {
         this.ensureWatch({
           dir: s.path,
           handler: (_event, filename) => {
-            if (filename?.toString() === 'session_index.jsonl') this.scheduleRescan()
+            if (filename?.toString() === 'session_index.jsonl') this.markSourceDirty(s)
           }
         })
       }
@@ -528,6 +599,10 @@ export class SessionIndexer {
       else return
       event = 'change'
     }
+    // 'rename' on a file already indexed and still there: macOS reports every append to
+    // a freshly created file as a rename for its first seconds, and an atomic replace is
+    // one too — either way that one file changed, not the structure around it
+    if (event === 'rename' && this.fileSource.has(path) && isRegularFile(path)) event = 'change'
     if (event === 'change') {
       // A file already judged not-a-session (codex subagent rollout) streaming appends —
       // ignore until it grows enough to be worth re-judging, or the next full rescan.
@@ -540,11 +615,7 @@ export class SessionIndexer {
       if (this.fileSource.has(path)) {
         if (this.rescanTimer) return // a pending full rescan already covers it
         this.dirty.add(path)
-        if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
-        this.dirtyTimer = setTimeout(() => {
-          this.dirtyTimer = null
-          this.applyDirty()
-        }, 500)
+        this.scheduleDirtyFlush()
         return
       }
       // 'change' on a session-shaped file we never enumerated: probe just that file
@@ -563,7 +634,7 @@ export class SessionIndexer {
           } else {
             let size = 0
             try {
-              size = statSync(path).size
+              size = lstatSync(path).size
             } catch {
               /* vanished mid-probe — record 0 so any later content re-probes */
             }
@@ -586,7 +657,7 @@ export class SessionIndexer {
    */
   private outgrewVerdict(path: string, verdictSize: number): boolean {
     try {
-      return statSync(path).size >= Math.max(verdictSize * 2, verdictSize + PROBE_REGROW_BYTES)
+      return lstatSync(path).size >= Math.max(verdictSize * 2, verdictSize + PROBE_REGROW_BYTES)
     } catch {
       return false
     }
@@ -600,6 +671,31 @@ export class SessionIndexer {
       }
     }
     return null
+  }
+
+  /**
+   * A throttle, not a debounce: restarted on every write, the timer never fired while
+   * several agents wrote at once — their combined rate beats any quiet period — and the
+   * index, live status and turn-ended news all froze with it.
+   */
+  private scheduleDirtyFlush(): void {
+    if (this.dirtyTimer) return
+    this.dirtyTimer = setTimeout(() => {
+      this.dirtyTimer = null
+      this.applyDirty()
+    }, DIRTY_FLUSH_MS)
+  }
+
+  /**
+   * Something every file of a source depends on changed (Codex's name index): re-judge
+   * them all through the stat cache, which re-parses only the ones it no longer holds.
+   */
+  private markSourceDirty(source: SourceDir): void {
+    if (this.rescanTimer) return // a pending full rescan already covers it
+    for (const [file, s] of this.fileSource) {
+      if (s.provider === source.provider && s.path === source.path) this.dirty.add(file)
+    }
+    if (this.dirty.size > 0) this.scheduleDirtyFlush()
   }
 
   private applyDirty(): void {
@@ -635,11 +731,17 @@ export class SessionIndexer {
       this.dirtyTimer = null
     }
     this.dirty.clear()
+    const now = Date.now()
     if (this.rescanTimer) clearTimeout(this.rescanTimer)
-    this.rescanTimer = setTimeout(() => {
-      this.rescanTimer = null
-      void this.rescan()
-    }, 750)
+    else this.rescanDeadline = now + RESCAN_MAX_WAIT_MS
+    // debounced for the quiet a burst of structural events ends in, up to the deadline
+    this.rescanTimer = setTimeout(
+      () => {
+        this.rescanTimer = null
+        void this.rescan()
+      },
+      Math.max(0, Math.min(RESCAN_QUIET_MS, this.rescanDeadline - now))
+    )
   }
 
   /**
@@ -662,6 +764,7 @@ export class SessionIndexer {
       const nextFiles = new Map<string, SessionMeta[]>()
       const nextSource = new Map<string, SourceDir>()
       const seenFiles = new Set<string>()
+      const pace = timeSlicer(SCAN_SLICE_MS)
       let processed = 0
       for (const s of this.sources) {
         let files: string[]
@@ -677,7 +780,7 @@ export class SessionIndexer {
           const meta = this.metaFor(file, s)
           if (meta) next.set(meta.id, foldThread(collect(nextFiles, meta)))
           processed++
-          if (processed % YIELD_EVERY === 0) await new Promise((r) => setImmediate(r))
+          await pace()
           if (processed % PUBLISH_EVERY === 0) {
             this.sessions = new Map(next)
             this.emitUpdate()
@@ -718,8 +821,14 @@ export class SessionIndexer {
   private metaFor(file: string, source: SourceDir): SessionMeta | null {
     let st
     try {
-      st = statSync(file)
+      // the file itself, never through a link: the listers only ever name regular files,
+      // but the watcher's probe names whatever appeared (see openRegular in parsers/util)
+      st = lstatSync(file)
     } catch {
+      return null
+    }
+    if (!st.isFile()) {
+      this.fileCache.delete(file)
       return null
     }
     const aux = auxStamp(file, source)
@@ -728,7 +837,8 @@ export class SessionIndexer {
       cached &&
       cached.mtimeMs === st.mtimeMs &&
       cached.size === st.size &&
-      (cached.aux ?? 0) === aux
+      (cached.aux ?? 0) === aux &&
+      sameThreadName(file, cached)
     ) {
       // the session file is unchanged, but its repo identity may not be (a renamed
       // origin remote) and neither may its branch (the worktree moved) — re-resolve,
@@ -739,8 +849,15 @@ export class SessionIndexer {
       return cached.meta
     }
     let meta: SessionMeta | null = null
+    let naming: Pick<CacheEntry, 'threadId' | 'threadName'> = {}
     try {
-      meta = META_PARSERS[source.provider](file, source.label)
+      if (source.provider === 'codex') {
+        const read = readCodexMeta(file, source.label)
+        meta = read.meta
+        if (read.threadId) naming = { threadId: read.threadId, threadName: read.threadName }
+      } else {
+        meta = META_PARSERS[source.provider](file, source.label)
+      }
       // inside the try: a throw here escaped as far as the scan, which then failed
       // the same way on every rescan — and out of a watcher callback, uncaught
       if (meta) this.annotate(meta)
@@ -748,7 +865,7 @@ export class SessionIndexer {
       console.error(`[indexer] parse failed for ${file}:`, err)
       meta = null
     }
-    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, meta })
+    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, ...naming, meta })
     this.cacheDirty = true
     // a fresh parse means the file changed — the only time its tail can say something new
     if (meta) {
@@ -789,6 +906,8 @@ export class SessionIndexer {
   }
 
   private emitUpdate(): void {
+    // every change to what listRepos() is derived from announces itself here
+    this.repoRoots = null
     if (this.updateTimer) return
     this.updateTimer = setTimeout(() => {
       this.updateTimer = null
@@ -858,11 +977,19 @@ export class SessionIndexer {
     return orderRepos([...groups.values()], this.repoOrder)
   }
 
-  /** Roots the app may spawn git/gh in — IPC handlers validate against this. */
-  knownRepoRoots(): Set<string> {
-    const roots = new Set<string>()
-    for (const g of this.listRepos()) if (g.root) roots.add(g.root)
-    return roots
+  /**
+   * Roots the app may spawn git/gh in — IPC handlers validate against this. Asked on
+   * every PR badge and repo operation, so it is kept until the index next changes
+   * rather than rebuilt from a full listRepos() each time (a session ageing out of the
+   * history window takes its root with it at the next change, not the minute it does).
+   */
+  knownRepoRoots(): ReadonlySet<string> {
+    if (!this.repoRoots) {
+      const roots = new Set<string>()
+      for (const g of this.listRepos()) if (g.root) roots.add(g.root)
+      this.repoRoots = roots
+    }
+    return this.repoRoots
   }
 
   /**
@@ -891,6 +1018,7 @@ export class SessionIndexer {
 
   setRoundtableResolver(fn: (cwd: string) => string | null): void {
     this.roundtableForCwd = fn
+    this.repoRoots = null
   }
 
   /**
@@ -1118,6 +1246,7 @@ export class SessionIndexer {
    */
   private loadCache(): void {
     if (!this.cacheFile) return
+    sweepCacheTmps(this.cacheFile)
     try {
       const raw = JSON.parse(readFileSync(this.cacheFile, 'utf8'))
       if (raw?.v !== CACHE_VERSION || !Array.isArray(raw.entries)) return

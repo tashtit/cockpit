@@ -1,29 +1,99 @@
-import { readFileSync, statSync, readdirSync, openSync, readSync, closeSync } from 'node:fs'
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync
+} from 'node:fs'
 import { join } from 'node:path'
 import type { SessionMeta } from '../../shared/types'
 
 /**
+ * Open a file for reading only if it is a regular file, and say how big it is.
+ * Session roots and checkouts are written by other programs and anything can sit in
+ * them: a FIFO's size reads 0, which once sent it down a whole-file read that blocked
+ * main forever, and a link to /dev/zero read until the heap gave out. The open is
+ * non-blocking so a FIFO returns at once, and the fstat of what was opened decides —
+ * not a stat of the path, which a swap between the two would fool.
+ */
+function openRegular(file: string): { readonly fd: number; readonly size: number } | null {
+  let fd: number
+  try {
+    fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK)
+  } catch {
+    return null
+  }
+  try {
+    const st = fstatSync(fd)
+    if (st.isFile()) return { fd, size: st.size }
+  } catch {
+    // an fd we cannot stat is not one we read from
+  }
+  closeSync(fd)
+  return null
+}
+
+/** Up to `length` bytes at `position`; shorter when the file shrank since it was measured. */
+function readAt(fd: number, length: number, position: number): Buffer {
+  const buf = Buffer.alloc(length)
+  let n = 0
+  while (n < length) {
+    const got = readSync(fd, buf, n, length - n, position + n)
+    if (got === 0) break
+    n += got
+  }
+  return buf.subarray(0, n)
+}
+
+/** Is this path a regular file — itself, not whatever a link at it points to? */
+export function isRegularFile(path: string): boolean {
+  try {
+    return lstatSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
  * Read at most maxBytes from the start of a file. Session logs put their metadata
  * in the first lines — this lets meta parsing stay O(1) even for 50MB+ transcripts.
+ * Anything but a regular file reads as empty (see openRegular).
  */
 export function readHead(
   file: string,
   maxBytes: number
 ): { text: string; truncated: boolean; size: number } {
-  let fd: number | null = null
+  const f = openRegular(file)
+  if (!f) return { text: '', truncated: false, size: 0 }
   try {
-    const size = statSync(file).size
-    if (size <= maxBytes) {
-      return { text: readFileSync(file, 'utf8'), truncated: false, size }
-    }
-    fd = openSync(file, 'r')
-    const buf = Buffer.alloc(maxBytes)
-    const n = readSync(fd, buf, 0, maxBytes, 0)
-    return { text: buf.toString('utf8', 0, n), truncated: true, size }
+    const want = Math.min(f.size, maxBytes)
+    const text = want > 0 ? readAt(f.fd, want, 0).toString('utf8') : ''
+    return { text, truncated: f.size > maxBytes, size: f.size }
   } catch {
     return { text: '', truncated: false, size: 0 }
   } finally {
-    if (fd !== null) closeSync(fd)
+    closeSync(f.fd)
+  }
+}
+
+/**
+ * A small file whole — a pointer, a ref, a JSON document — or null when it is missing,
+ * not a regular file, or larger than maxBytes (a cut document would not parse anyway).
+ */
+export function readSmallFile(file: string, maxBytes: number): string | null {
+  const f = openRegular(file)
+  if (!f) return null
+  try {
+    if (f.size > maxBytes) return null
+    return f.size > 0 ? readAt(f.fd, f.size, 0).toString('utf8') : ''
+  } catch {
+    return null
+  } finally {
+    closeSync(f.fd)
   }
 }
 
@@ -47,28 +117,89 @@ export function parseJsonlText(text: string, dropLast: boolean): any[] {
 /**
  * Read at most maxBytes from the END of a file (for transcript tails) — or from the
  * end of its first `end` bytes, for a file whose meaningful content stops there.
+ * Anything but a regular file reads as empty (see openRegular).
  */
 export function readTail(
   file: string,
   maxBytes: number,
   end?: number
 ): { text: string; truncated: boolean; size: number } {
-  let fd: number | null = null
+  const f = openRegular(file)
+  if (!f) return { text: '', truncated: false, size: 0 }
   try {
-    const size = Math.min(statSync(file).size, end ?? Infinity)
+    const size = Math.min(f.size, end ?? Infinity)
     if (size === 0) return { text: '', truncated: false, size }
-    if (size <= maxBytes && end === undefined) {
-      return { text: readFileSync(file, 'utf8'), truncated: false, size }
-    }
     const want = Math.min(size, maxBytes)
-    fd = openSync(file, 'r')
-    const buf = Buffer.alloc(want)
-    const n = readSync(fd, buf, 0, want, size - want)
-    return { text: buf.toString('utf8', 0, n), truncated: size > maxBytes, size }
+    const text = readAt(f.fd, want, size - want).toString('utf8')
+    return { text, truncated: size > maxBytes, size }
   } catch {
     return { text: '', truncated: false, size: 0 }
   } finally {
-    if (fd !== null) closeSync(fd)
+    closeSync(f.fd)
+  }
+}
+
+/**
+ * A long loop's pacing by time rather than by count. Its steps range from a cached stat
+ * to a multi-megabyte parse, so "yield every N steps" either yields for nothing or holds
+ * IPC for as long as N big steps take (166ms measured on a cold scan). Awaited after
+ * each step, the returned function hands the event loop back once `budgetMs` of work
+ * has run since it last did.
+ */
+export function timeSlicer(budgetMs: number): () => Promise<void> {
+  let since = performance.now()
+  return async () => {
+    if (performance.now() - since < budgetMs) return
+    await new Promise<void>((r) => setImmediate(r))
+    since = performance.now()
+  }
+}
+
+/**
+ * The records at the end of a JSONL file, judged window by window outward: the complete
+ * lines of the last `steps[0]` bytes, then of the last `steps[1]`, and so on, until
+ * `judge` answers or the file or the steps run out. Each step reads and parses only the
+ * bytes the one before did not reach — plus the line its edge cut — so a tail judged at
+ * the last step costs one pass over it, not one per step. `empty` when there was nothing
+ * to read at all (missing, empty, not a regular file).
+ */
+export function judgeJsonlTail<T>(
+  file: string,
+  steps: readonly number[],
+  judge: (records: readonly any[]) => T | null
+): { readonly found: T | null; readonly empty: boolean } {
+  const f = openRegular(file)
+  if (!f) return { found: null, empty: true }
+  try {
+    if (f.size === 0) return { found: null, empty: true }
+    let records: any[] = []
+    // where what has been read begins, and the bytes up to its first newline — a line
+    // the window's edge cut, whole once the next step reads what comes before it
+    let start = f.size
+    let cut: Buffer = Buffer.alloc(0)
+    for (const bytes of steps) {
+      const from = Math.max(0, f.size - bytes)
+      if (from >= start) continue
+      const joined = Buffer.concat([readAt(f.fd, start - from, from), cut])
+      start = from
+      let whole = joined
+      if (from > 0) {
+        // 0x0a never occurs inside a multi-byte UTF-8 sequence, so bytes split there
+        // decode alike; with no newline at all the window is one cut line so far
+        const nl = joined.indexOf(0x0a)
+        cut = nl >= 0 ? joined.subarray(0, nl) : joined
+        whole = nl >= 0 ? joined.subarray(nl + 1) : Buffer.alloc(0)
+      }
+      records = [...parseJsonlText(whole.toString('utf8'), false), ...records]
+      const found = judge(records)
+      if (found !== null) return { found, empty: false }
+      if (from === 0) break // that was the whole file
+    }
+    return { found: null, empty: false }
+  } catch {
+    return { found: null, empty: true }
+  } finally {
+    closeSync(f.fd)
   }
 }
 
@@ -104,6 +235,75 @@ export function readJsonlTail(
   }
 }
 
+/** A stream record longer than this is dropped, not held — the bound ACP keeps too. */
+export const MAX_STREAM_LINE_CHARS = 8 * 1024 * 1024
+
+/**
+ * Newline-delimited records out of a stream that arrives in chunks (a CLI's stdout).
+ * Each chunk is searched once: looking for the newline across the whole held buffer
+ * on every chunk made one long line quadratic — 50MB took ~4s of main-thread time.
+ * A line past the cap is dropped whole, at its end, so a runaway one can't grow the
+ * heap without bound.
+ */
+export class LineSplitter {
+  /** The line not ended yet, in the pieces it arrived in — joined once, when it ends */
+  private pending: string[] = []
+  private pendingChars = 0
+  /** The line being received already went past the cap; its rest is dropped too */
+  private overflowing = false
+  private readonly maxChars: number
+
+  constructor(maxChars: number = MAX_STREAM_LINE_CHARS) {
+    this.maxChars = maxChars
+  }
+
+  /** The lines this chunk ends, and how many of the ended ones were too long to keep. */
+  push(chunk: string): { readonly lines: string[]; readonly dropped: number } {
+    const lines: string[] = []
+    let dropped = 0
+    let start = 0
+    for (let nl = chunk.indexOf('\n'); nl >= 0; nl = chunk.indexOf('\n', start)) {
+      const line = this.end(chunk.slice(start, nl))
+      if (line === null) dropped++
+      else lines.push(line)
+      start = nl + 1
+    }
+    if (start < chunk.length) this.hold(chunk.slice(start))
+    return { lines, dropped }
+  }
+
+  /** What the stream ended on without a newline (a last record often has none); '' when it overflowed. */
+  rest(): string {
+    const line = this.overflowing ? '' : this.pending.join('')
+    this.reset()
+    return line
+  }
+
+  private hold(piece: string): void {
+    if (this.overflowing) return
+    this.pendingChars += piece.length
+    if (this.pendingChars <= this.maxChars) {
+      this.pending.push(piece)
+      return
+    }
+    this.reset()
+    this.overflowing = true
+  }
+
+  private end(piece: string): string | null {
+    const kept = !this.overflowing && this.pendingChars + piece.length <= this.maxChars
+    const line = kept ? this.pending.join('') + piece : null
+    this.reset()
+    return line
+  }
+
+  private reset(): void {
+    this.pending = []
+    this.pendingChars = 0
+    this.overflowing = false
+  }
+}
+
 /**
  * Slice without splitting a surrogate pair — `.slice()` counts UTF-16 code units,
  * so cutting mid-emoji leaves a lone surrogate that renders as U+FFFD.
@@ -111,6 +311,20 @@ export function readJsonlTail(
 function sliceCodePoints(s: string, end: number): string {
   const cut = end > 0 && end < s.length && /[\uD800-\uDBFF]/.test(s[end - 1]) ? end - 1 : end
   return s.slice(0, cut)
+}
+
+/**
+ * A parsed log value as JSON text, for a row's detail. JSON.parse reads nesting of any
+ * depth but JSON.stringify recurses, so a log line holding a tool input 100k levels
+ * deep parsed fine and then threw here — which blanked the whole transcript. That one
+ * row gets a placeholder instead.
+ */
+export function jsonText(v: unknown): string {
+  try {
+    return JSON.stringify(v) ?? ''
+  } catch {
+    return '(nested too deeply to show)'
+  }
 }
 
 /** Cap a single message's text so one giant tool dump can't blow up the IPC payload. */
@@ -152,30 +366,12 @@ export function walkFiles(
   return out
 }
 
-/** Parse a JSONL file into objects, skipping malformed lines (format drift tolerance). */
-export function readJsonl(file: string): any[] {
-  let raw: string
+/** A JSON document of at most maxBytes; null when missing, larger, or not JSON. */
+export function readJson(file: string, maxBytes: number): any | null {
+  const raw = readSmallFile(file, maxBytes)
+  if (raw === null) return null
   try {
-    raw = readFileSync(file, 'utf8')
-  } catch {
-    return []
-  }
-  const out: any[] = []
-  for (const line of raw.split('\n')) {
-    const t = line.trim()
-    if (!t) continue
-    try {
-      out.push(JSON.parse(t))
-    } catch {
-      /* tolerate partial/corrupt lines (file may be mid-write) */
-    }
-  }
-  return out
-}
-
-export function readJson(file: string): any | null {
-  try {
-    return JSON.parse(readFileSync(file, 'utf8'))
+    return JSON.parse(raw)
   } catch {
     return null
   }
@@ -211,6 +407,19 @@ export function fileTimes(file: string): { start: number; end: number } {
     const now = Date.now()
     return { start: now, end: now }
   }
+}
+
+/**
+ * The longest path macOS will use as a directory (PATH_MAX). A log can claim any
+ * string as its cwd — a 256KB head holds a path of tens of thousands of components,
+ * and the repo resolver walks every ancestor of what it is given — so anything longer
+ * is no working directory at all.
+ */
+export const MAX_CWD_CHARS = 1024
+
+/** A log's cwd when it can be one: a non-empty string no longer than MAX_CWD_CHARS. */
+export function usableCwd(v: unknown): string | null {
+  return typeof v === 'string' && v !== '' && v.length <= MAX_CWD_CHARS ? v : null
 }
 
 export function toMs(v: unknown): number | null {

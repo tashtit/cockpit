@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asDiffScope, getWorkspaceDiff } from '../src/main/diff'
@@ -114,6 +114,26 @@ describe('getWorkspaceDiff', () => {
     expect(d.base).toBeNull()
     expect(d.branch).toBe('trunk')
     expect(d.files.map((f) => f.path)).toEqual(['f.txt'])
+  })
+
+  it('shows an untracked link as the path it names, never what is behind it', async () => {
+    const linked = join(root, 'linked')
+    git(root, ['init', '-q', '--initial-branch=main', linked])
+    writeFileSync(join(linked, 'f.txt'), 'a\n')
+    git(linked, ['add', '.'])
+    git(linked, ['commit', '-q', '-m', 'first'])
+    const secret = join(root, 'secret.txt')
+    writeFileSync(secret, 'do not show\n')
+    symlinkSync(secret, join(linked, 'peek'))
+    // a link to a FIFO: following it, the open would block main until a writer came
+    const fifo = join(root, 'pipe')
+    execFileSync('mkfifo', [fifo])
+    symlinkSync(fifo, join(linked, 'stuck'))
+
+    const d = await getWorkspaceDiff(linked, 'unstaged')
+    const byPath = Object.fromEntries(d.files.map((f) => [f.path, f.hunks.flatMap((h) => h.lines.map((l) => l.text))]))
+    expect(byPath['peek']).toEqual([secret])
+    expect(byPath['stuck']).toEqual([fifo])
   })
 
   it('refuses a directory that is not a repository', async () => {

@@ -31,6 +31,13 @@ just above the composer with the agent's own options — *Allow once*, *Always a
 *Deny* — and the turn stays stopped until you pick one. The answer is recorded in the
 transcript, since it is what the rest of the turn was conditioned on.
 
+When what it wants to run is a command, the card shows the command itself — every line,
+exactly as it would run — with the agent's own description of it above. A command too long
+to show whole says how much is missing, and characters that would hide or reorder part of
+it (a right-to-left override, a carriage return, a zero-width space) are shown as their
+code, such as `U+202E`, rather than passed through. Only *Allow once* is highlighted:
+*Always allow* lets every later call of that kind through without asking.
+
 This is also what finally makes the **Auto-edit** permission mode mean what it says: file
 work goes ahead without asking, and anything that *executes* still stops for you. Safe
 asks about everything; Yolo asks about nothing.

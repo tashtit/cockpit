@@ -17,7 +17,7 @@ import {
   isValidModel
 } from '../shared/endpoints'
 import { parseAsks } from '../shared/asks'
-import { contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
+import { LineSplitter, capText, contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
 import { fileChangeArtifact, todoListArtifact, toolArtifact } from './parsers/artifacts'
 import { commandItemCheck } from './parsers/checks'
 import { cliEnv } from './env'
@@ -100,7 +100,9 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
-      args.push(promptWithImages(req))
+      // after `--`: a message that starts with "-" (a pasted list, or typed flags) is
+      // otherwise parsed as options — claude refuses "- fix this" as an unknown one
+      args.push('--', promptWithImages(req))
       return { cmd: 'claude', args }
     }
     case 'codex': {
@@ -126,12 +128,17 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
         else args.push('--sandbox', sandbox)
       }
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
-      args.push(promptWithImages(req))
+      args.push('--', promptWithImages(req))
       return { cmd: 'codex', args }
     }
     case 'copilot': {
-      const args = ['-p', promptWithImages(req), ...copilotFlags(req)]
+      // joined to its flag: `-p "- fix this"` reads the prompt as an option, and
+      // copilot takes no `--` before an option's value
+      const args = [`--prompt=${promptWithImages(req)}`, ...copilotFlags(req)]
       if (req.permissionMode !== 'safe') args.push('--allow-all-tools')
+      // headless, nothing can ask — so auto-edit's "anything that executes still asks"
+      // means shell is refused here, as it is for claude's acceptEdits under -p
+      if (req.permissionMode === 'auto-edit') args.push('--deny-tool', 'shell')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
       return { cmd: 'copilot', args }
     }
@@ -330,6 +337,13 @@ type ChatManagerHooks = {
   readonly resolveAcpAgent?: (req: ChatRequest) => AcpAgent | undefined
 }
 
+/** What an ACP turn is started with: the agent, the inherited env, and what the turn itself sets. */
+type AcpLaunch = {
+  readonly agent: AcpAgent
+  readonly env: NodeJS.ProcessEnv
+  readonly pinned: Readonly<Record<string, string>>
+}
+
 export class ChatManager {
   private turns = new Map<string, RunningTurn>()
   private readonly emit: Emit
@@ -452,21 +466,23 @@ export class ChatManager {
       })
       return
     }
-    if (ep) Object.assign(env, endpointEnv(req.provider, ep, apiKey))
+    // what this turn itself decides: the BYOK endpoint and the account's config home
+    const pinned: Record<string, string> = ep ? { ...endpointEnv(req.provider, ep, apiKey) } : {}
     // per-account config homes: each provider has its own env var for this
     if (req.configDir) {
-      if (req.provider === 'claude') env.CLAUDE_CONFIG_DIR = req.configDir
-      else if (req.provider === 'codex') env.CODEX_HOME = req.configDir
-      else env.COPILOT_HOME = req.configDir
+      if (req.provider === 'claude') pinned.CLAUDE_CONFIG_DIR = req.configDir
+      else if (req.provider === 'codex') pinned.CODEX_HOME = req.configDir
+      else pinned.COPILOT_HOME = req.configDir
     }
     // ACP: the same turn, driven over the agent's protocol instead of its headless
     // flags. Everything above — cwd checks, BYOK env, the config home — has already
     // been applied, and the agent inherits it as its environment.
     const acpAgent = withTurnFlags(this.hooks.resolveAcpAgent?.(req), req)
     if (acpAgent) {
-      this.startAcpTurn(turnId, req, acpAgent, env)
+      this.startAcpTurn(turnId, req, { agent: acpAgent, env, pinned })
       return
     }
+    Object.assign(env, pinned)
 
     const child = spawn(cmd, args, {
       cwd: req.cwd,
@@ -493,7 +509,8 @@ export class ChatManager {
       }
     }
 
-    let buf = ''
+    // bounded and linear however long a line runs (see LineSplitter)
+    const stdout = new LineSplitter()
     let sawStructured = false
     child.stdout!.setEncoding('utf8')
     child.stdout!.on('data', (chunk: string) => {
@@ -502,24 +519,32 @@ export class ChatManager {
         this.emit({ turnId, type: 'text', text: chunk })
         return
       }
-      buf += chunk
-      let nl: number
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const raw = buf.slice(0, nl).trim()
-        buf = buf.slice(nl + 1)
+      const { lines, dropped } = stdout.push(chunk)
+      if (dropped > 0) console.warn(`[chat] ${cmd}: dropped ${dropped} stream line(s) over the size cap`)
+      for (const line of lines) {
+        const raw = line.trim()
         if (!raw) continue
         let parsed: any
         try {
           parsed = JSON.parse(raw)
         } catch {
-          this.emit({ turnId, type: 'text', text: raw })
+          // a banner or a warning, not an event — shown, but no bigger than any message
+          this.emit({ turnId, type: 'text', text: capText(raw) })
           continue
         }
         sawStructured = true
-        const events =
-          req.provider === 'claude'
-            ? parseClaudeStreamLine(turnId, parsed)
-            : parseCodexStreamLine(turnId, parsed)
+        let events: ChatEvent[]
+        try {
+          events =
+            req.provider === 'claude'
+              ? parseClaudeStreamLine(turnId, parsed)
+              : parseCodexStreamLine(turnId, parsed)
+        } catch (err) {
+          // one event the parser cannot read (an input nested past what it can
+          // serialise) is skipped; thrown out of a stream handler it took down main
+          console.error(`[chat] ${cmd}: unreadable stream event skipped:`, err)
+          continue
+        }
         for (const ev of events) this.deliver(turn, ev)
       }
     })
@@ -547,7 +572,7 @@ export class ChatManager {
     child.on('close', (code) => {
       // flush a final line that arrived without a trailing newline — it can carry the
       // session_id / result event, without which resume breaks
-      const rest = buf.trim()
+      let rest = stdout.rest().trim()
       if (rest && sawStructured) {
         try {
           const parsed = JSON.parse(rest)
@@ -559,7 +584,7 @@ export class ChatManager {
             if (ev.type === 'done') turn.doneSent = true
             this.emit(ev)
           }
-          buf = ''
+          rest = ''
         } catch {
           /* not a complete JSON line */
         }
@@ -571,8 +596,8 @@ export class ChatManager {
           message: `${cmd} exited with code ${code}${errBuf ? `:\n${errBuf.trim()}` : ''}`
         })
       }
-      if (!sawStructured && req.provider !== 'copilot' && code === 0 && buf.trim()) {
-        this.emit({ turnId, type: 'text', text: buf.trim() })
+      if (!sawStructured && req.provider !== 'copilot' && code === 0 && rest) {
+        this.emit({ turnId, type: 'text', text: capText(rest) })
       }
       // a throw from a listener must not leave the turn on the busy board forever
       try {
@@ -606,13 +631,14 @@ export class ChatManager {
   private startAcpTurn(
     turnId: string,
     req: ChatRequest,
-    agent: AcpAgent,
-    env: NodeJS.ProcessEnv
+    launch: AcpLaunch
   ): void {
+    const { agent, env, pinned } = launch
     const acp = new AcpTurn(agent, {
       turnId,
       cwd: req.cwd,
       env,
+      pinned,
       permissionMode: req.permissionMode,
       emit: (ev) => {
         const turn = this.turns.get(turnId)

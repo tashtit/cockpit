@@ -50,7 +50,7 @@ Every chat runs under one of three permission modes, mapped to each provider's o
 | Mode | What it means | Under the hood |
 | --- | --- | --- |
 | **Safe** | Provider defaults. Some tools may be blocked entirely in headless mode. | no extra flags |
-| **Auto-edit** | File edits proceed without asking; everything else still gated. | `--permission-mode acceptEdits` (Claude) / `--full-auto` (Codex) |
+| **Auto-edit** | File edits proceed without asking; everything else still gated. | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
 | **YOLO** | All approvals bypassed. | provider bypass flags |
 
 ::: warning YOLO means it

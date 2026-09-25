@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { SessionIndexer, foldThread, groupFamilies, subagentParent } from '../src/main/indexer'
 import { writePagedThread, type PagedThread } from './codex-paged-thread'
+import { makeFifo } from './fifo'
 import type { BusySession, SessionMeta } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
@@ -531,6 +532,235 @@ describe('watcher-event probing (codex subagent rollouts)', () => {
     expect(anyIdx.rescanTimer).not.toBeNull()
     expect(anyIdx.dirtyTimer).toBeNull()
     idx.stopWatchers() // clear the pending timer before the suite ends
+  })
+})
+
+describe('leftovers of interrupted cache saves', () => {
+  it('are swept at launch once old, while a save that may still be running is left alone', () => {
+    const dir = join(root, 'userdata-tmps')
+    mkdirSync(dir, { recursive: true })
+    const cacheFile = join(dir, 'index-cache.json')
+    const hourAgo = new Date(Date.now() - 3_600_000)
+    const old = join(dir, 'index-cache.json.4242.7.tmp')
+    const fresh = join(dir, 'index-cache.json.4243.1.tmp')
+    const unrelated = join(dir, 'index-cache.json.bak')
+    for (const f of [old, fresh, unrelated]) writeFileSync(f, '{}')
+    utimesSync(old, hourAgo, hourAgo)
+    utimesSync(unrelated, hourAgo, hourAgo)
+    const idx = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null })
+    idx.stopWatchers()
+    expect(readdirSync(dir).sort()).toEqual(['index-cache.json.4243.1.tmp', 'index-cache.json.bak'])
+  })
+})
+
+describe('a Codex thread renamed in session_index.jsonl', () => {
+  const home = join(root, 'codex-names')
+  const day = join(home, 'sessions', '2026', '09', '20')
+  const rollout = (id: string, prompt: string): string => {
+    mkdirSync(day, { recursive: true })
+    const f = join(day, `rollout-${id}.jsonl`)
+    writeFileSync(
+      f,
+      jsonl([
+        { timestamp: '2026-09-20T10:00:00Z', type: 'session_meta', payload: { id, cwd: '/nowhere/n' } },
+        { timestamp: '2026-09-20T10:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] } }
+      ])
+    )
+    return f
+  }
+  const index = join(home, 'session_index.jsonl')
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    rollout('t1', 'first prompt')
+    rollout('t2', 'second prompt')
+    writeFileSync(index, jsonl([{ id: 't1', thread_name: 'Named first' }]))
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: home, provider: 'codex', label: 'cx' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  // every new thread names itself there: the index's mtime used to be stamped into
+  // every Codex entry, so each write re-parsed every rollout after a full rescan
+  it('re-titles that thread alone, without a rescan or a re-parse of the others', () => {
+    const anyIdx = idx as any
+    expect(idx.getSession('codex:t1')?.title).toBe('Named first')
+    expect(idx.getSession('codex:t2')?.title).toBe('second prompt')
+    const untouched = anyIdx.fileCache.get(join(day, 'rollout-t1.jsonl'))
+    appendFileSync(index, jsonl([{ id: 't2', thread_name: 'Named second' }]))
+    anyIdx.markSourceDirty({ path: home, provider: 'codex', label: 'cx' })
+    expect(anyIdx.rescanTimer).toBeNull()
+    anyIdx.applyDirty()
+    expect(idx.getSession('codex:t2')?.title).toBe('Named second')
+    expect(idx.getSession('codex:t1')?.title).toBe('Named first')
+    // the other thread's entry is the very one cached before: judged, not re-read
+    expect(anyIdx.fileCache.get(join(day, 'rollout-t1.jsonl'))).toBe(untouched)
+  })
+})
+
+describe('files in a session root that are not regular files', () => {
+  const cpDir = join(root, 'copilot-fifo')
+  const clDir = join(root, 'claude-fifo')
+  const stops: Array<() => void> = []
+  afterAll(() => stops.forEach((stop) => stop()))
+
+  it('are skipped by the scan and the watcher probe alike, without blocking', async () => {
+    writeCopilotSession(cpDir, 'real', '/nowhere/x', 'a real session', '2026-09-20T10:00:00Z')
+    mkdirSync(join(cpDir, 'session-state', 'piped'), { recursive: true })
+    stops.push(makeFifo(join(cpDir, 'session-state', 'piped', 'events.jsonl')))
+    // the real session's name file is a FIFO too: the title falls back to the prompt
+    stops.push(makeFifo(join(cpDir, 'session-state', 'real', 'workspace.yaml')))
+    mkdirSync(join(clDir, 'projects', 'p'), { recursive: true })
+    const piped = join(clDir, 'projects', 'p', 'piped.jsonl')
+    stops.push(makeFifo(piped))
+
+    const started = Date.now()
+    const idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([
+      { path: cpDir, provider: 'copilot', label: 'cp' },
+      { path: clDir, provider: 'claude', label: 'cl' }
+    ])
+    idx.stopWatchers()
+    // a pipe announced by the watcher is probed the same way
+    ;(idx as any).markDirty('change', piped)
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(idx.page({}).items.map((s) => [s.id, s.title])).toEqual([['copilot:real', 'a real session']])
+    expect((idx as any).rescanTimer).toBeNull()
+  })
+})
+
+describe('known repo roots', () => {
+  const dir = join(root, 'claude-roots')
+  const projDir = join(dir, 'projects', 'p')
+  function repo(name: string): string {
+    const r = join(root, 'roots', name)
+    mkdirSync(join(r, '.git'), { recursive: true })
+    writeFileSync(join(r, '.git', 'config'), `[remote "origin"]\n\turl = https://github.com/acme/${name}.git\n`)
+    return r
+  }
+  function session(name: string, cwd: string): string {
+    mkdirSync(projDir, { recursive: true })
+    const f = join(projDir, `${name}.jsonl`)
+    writeFileSync(
+      f,
+      jsonl([{ type: 'user', message: { role: 'user', content: name }, timestamp: '2026-09-20T10:00:00Z', sessionId: name, cwd }])
+    )
+    return f
+  }
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    session('r1', repo('one'))
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: dir, provider: 'claude', label: 'roots' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('are kept between questions and re-derived once the index changes', () => {
+    const roots = idx.knownRepoRoots()
+    expect([...roots]).toEqual([join(root, 'roots', 'one')])
+    // asked on every IPC call that names a root: the same answer, not a fresh listRepos()
+    expect(idx.knownRepoRoots()).toBe(roots)
+    // a session in a repo never seen before, picked up by the watcher's probe
+    const two = repo('two')
+    ;(idx as any).markDirty('change', session('r2', two))
+    expect(idx.knownRepoRoots().has(two)).toBe(true)
+    // and one archived by the user is still a root the app may work in
+    idx.setArchived(['claude:r2'])
+    expect(idx.knownRepoRoots().has(two)).toBe(true)
+  })
+})
+
+// Several agents writing at once is the ordinary case: the watcher's pacing must keep
+// the index moving while their combined write rate never pauses.
+describe('watcher pacing under parallel writers', () => {
+  const dir = join(root, 'claude-parallel')
+  const projDir = join(dir, 'projects', 'p')
+  const names = ['w1', 'w2', 'w3']
+  const file = (name: string): string => join(projDir, `${name}.jsonl`)
+  const line = (name: string, text: string): string =>
+    jsonl([{ type: 'user', message: { role: 'user', content: text }, timestamp: '2026-09-20T10:00:00Z', sessionId: name, cwd: '/nowhere/p' }])
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    mkdirSync(projDir, { recursive: true })
+    for (const n of names) writeFileSync(file(n), line(n, `start ${n}`))
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: dir, provider: 'claude', label: 'par' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => {
+    vi.useRealTimers()
+    idx?.stopWatchers()
+  })
+
+  it('flushes every written file within the refresh window, however often any of them is written', () => {
+    vi.useFakeTimers()
+    try {
+      const counts = (): number[] => names.map((n) => idx.getSession(`claude:${n}`)?.messageCount ?? 0)
+      expect(counts()).toEqual([1, 1, 1])
+      // three logs appended in rotation every 200ms: no 500ms of quiet, ever
+      for (let i = 0; i < 9; i++) {
+        const n = names[i % names.length]
+        appendFileSync(file(n), line(n, `write ${i}`))
+        ;(idx as any).markDirty('change', file(n))
+        vi.advanceTimersByTime(200)
+      }
+      // by now each file was written three times, and every write had its flush
+      expect(counts()).toEqual([4, 4, 4])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('starts a full rescan within its maximum wait while structural events keep arriving', () => {
+    vi.useFakeTimers()
+    const rescan = vi.spyOn(idx, 'rescan').mockResolvedValue()
+    try {
+      // a file not indexed yet, created and written on macOS: every append arrives as 'rename'
+      for (let t = 0; t < 2750; t += 250) {
+        ;(idx as any).markDirty('rename', file('fresh'))
+        vi.advanceTimersByTime(250)
+      }
+      expect(rescan).not.toHaveBeenCalled()
+      ;(idx as any).markDirty('rename', file('fresh'))
+      vi.advanceTimersByTime(250)
+      expect(rescan).toHaveBeenCalledTimes(1)
+      // the next burst gets a fresh deadline, and a quiet one still settles first
+      ;(idx as any).markDirty('rename', file('fresh'))
+      vi.advanceTimersByTime(700)
+      expect(rescan).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(100)
+      expect(rescan).toHaveBeenCalledTimes(2)
+    } finally {
+      rescan.mockRestore()
+      idx.stopWatchers()
+      vi.useRealTimers()
+    }
+  })
+
+  it('refreshes a known file on rename alone while it is still there, and rescans once it is gone', () => {
+    const anyIdx = idx as any
+    const rescan = vi.spyOn(idx, 'rescan').mockResolvedValue()
+    try {
+      const before = idx.getSession('claude:w2')?.messageCount ?? 0
+      appendFileSync(file('w2'), line('w2', 'appended while fresh'))
+      anyIdx.markDirty('rename', file('w2'))
+      expect(anyIdx.rescanTimer).toBeNull()
+      anyIdx.applyDirty()
+      expect(idx.getSession('claude:w2')?.messageCount).toBe(before + 1)
+      rmSync(file('w2'))
+      anyIdx.markDirty('rename', file('w2'))
+      expect(anyIdx.rescanTimer).not.toBeNull()
+    } finally {
+      rescan.mockRestore()
+      idx.stopWatchers()
+    }
   })
 })
 

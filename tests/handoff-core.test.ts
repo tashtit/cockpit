@@ -274,11 +274,13 @@ describe('buildHandoffBriefing', () => {
 })
 
 describe('buildSummarizeCommand', () => {
-  it('claude resumes with stream-json and the prompt last', () => {
+  it('claude resumes with stream-json, no tools, and the prompt last', () => {
     const { cmd, args } = buildSummarizeCommand('claude', 'abc-123')
     expect(cmd).toBe('claude')
     expect(args).toEqual([
-      '-p', '--output-format', 'stream-json', '--verbose', '--resume', 'abc-123', SUMMARIZE_PROMPT
+      '-p', '--output-format', 'stream-json', '--verbose',
+      '--tools', '', '--strict-mcp-config',
+      '--resume', 'abc-123', SUMMARIZE_PROMPT
     ])
   })
 

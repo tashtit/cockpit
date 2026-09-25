@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -88,7 +88,26 @@ describe('buildCommand', () => {
       permissionMode: 'yolo'
     })
     expect(args).toContain('--allow-all-tools')
+    expect(args).not.toContain('--deny-tool')
   })
+  it('copilot auto-edit edits files but never runs a shell it cannot ask about', () => {
+    const { args } = buildCommand({ provider: 'copilot', cwd: '/x', prompt: 'p', permissionMode: 'auto-edit' })
+    expect(args).toContain('--allow-all-tools')
+    expect(args[args.indexOf('--deny-tool') + 1]).toBe('shell')
+  })
+  it('keeps a prompt that starts with "-" a prompt, not an option', () => {
+    // a pasted markdown list: claude refused it as `unknown option '- fix this'`,
+    // codex as an unexpected argument, copilot as an invalid command format
+    const prompt = '- fix this\n- and that'
+    for (const provider of ['claude', 'codex'] as const) {
+      const { args } = buildCommand({ provider, cwd: '/x', prompt, permissionMode: 'safe' })
+      expect(args.slice(-2), provider).toEqual(['--', prompt])
+    }
+    const { args } = buildCommand({ provider: 'copilot', cwd: '/x', prompt, permissionMode: 'safe' })
+    expect(args[0]).toBe(`--prompt=${prompt}`)
+    expect(args).not.toContain('-p')
+  })
+
   it('attached images become prompt file references for every provider', () => {
     for (const provider of ['claude', 'codex', 'copilot'] as const) {
       const { args } = buildCommand({
@@ -98,7 +117,8 @@ describe('buildCommand', () => {
         permissionMode: 'safe',
         images: ['/data/chat-images/a.png', '/data/chat-images/b.jpg']
       })
-      const prompt = provider === 'copilot' ? args[args.indexOf('-p') + 1] : args[args.length - 1]
+      const prompt =
+        provider === 'copilot' ? (args.find((a) => a.startsWith('--prompt=')) ?? '') : args[args.length - 1]
       expect(prompt).toContain('what is this?')
       expect(prompt).toContain('/data/chat-images/a.png')
       expect(prompt).toContain('/data/chat-images/b.jpg')
@@ -455,5 +475,50 @@ describe('ChatManager: one turn per session', () => {
     expect(chat.turnFor('copilot', 'sess-9')).toBeNull()
     expect(chat.busySessions()).toEqual([])
     expect(() => chat.assertNotRunning(resume('sess-9'))).not.toThrow()
+  })
+})
+
+describe('ChatManager: reading a CLI stream', () => {
+  // a stub `claude` first on PATH: it prints what real CLIs have been caught printing
+  const bin = mkdtempSync(join(tmpdir(), 'cockpit-chat-stream-'))
+  const deep = '{"a":'.repeat(100_000) + '1' + '}'.repeat(100_000)
+  writeFileSync(
+    join(bin, 'stub.mjs'),
+    [
+      `const w = (s) => process.stdout.write(s)`,
+      // a banner far past a message's size, then an event nested past what can be serialised
+      `w('x'.repeat(30000) + '\\n')`,
+      `w(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'stub-1' }) + '\\n')`,
+      `w(${JSON.stringify(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Weird","input":${deep}}]}}\n`)})`,
+      `w(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'still here' }] } }) + '\\n')`,
+      // the result, without the newline a last line often lacks
+      `w(JSON.stringify({ type: 'result', session_id: 'stub-1' }))`
+    ].join('\n')
+  )
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}"\n`)
+  chmodSync(join(bin, 'claude'), 0o755)
+
+  it('caps a non-JSON line, skips an event it cannot read and still ends on the final line', async () => {
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const events: ChatEvent[] = []
+      let finish: () => void = () => {}
+      const finished = new Promise<void>((r) => (finish = r))
+      const chat = new ChatManager((ev) => {
+        events.push(ev)
+        if (ev.type === 'done') finish()
+      })
+      chat.send({ provider: 'claude', cwd: tmpdir(), prompt: 'hi', permissionMode: 'safe' })
+      await finished
+      expect(events.map((e) => e.type)).toEqual(['text', 'session', 'text', 'session', 'done'])
+      const banner = events[0] as Extract<ChatEvent, { type: 'text' }>
+      expect(banner.text.length).toBeLessThan(20_100)
+      expect(banner.text).toContain('more chars')
+      expect(events[2]).toMatchObject({ type: 'text', text: 'still here' })
+      await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
+    } finally {
+      process.env.PATH = path
+    }
   })
 })

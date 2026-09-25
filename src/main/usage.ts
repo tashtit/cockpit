@@ -1,6 +1,5 @@
-import { createReadStream, existsSync, statSync } from 'node:fs'
-import { join } from 'node:path'
-import { createInterface } from 'node:readline'
+import { closeSync, createReadStream, existsSync, openSync, readSync, statSync, type Stats } from 'node:fs'
+import { join, sep } from 'node:path'
 import type {
   Mutable,
   ProviderUsage,
@@ -29,68 +28,176 @@ const WEEK_HOURS = 7 * 24
 
 /* ---------- claude: local measurement ---------- */
 
-/** Accumulator — mutated in place by addUsage, hence Mutable. */
+/** Accumulator — mutated in place while folding, hence Mutable. */
 type HourBucket = Mutable<UsageTokens> & { requests: number }
 
-/** Hourly token totals for one session file; re-parsed only when the file changes. */
-const claudeFileCache = new Map<
-  string,
-  { mtimeMs: number; size: number; buckets: Map<number, HourBucket> }
->()
+/** One request's tokens, kept compact: every request of a live log stays in memory. */
+type RequestUsage = UsageTokens & { readonly hour: number }
 
-function addUsage(b: HourBucket, u: any): void {
-  b.input += Number(u.input_tokens) || 0
-  b.output += Number(u.output_tokens) || 0
-  b.cacheRead += Number(u.cache_read_input_tokens) || 0
-  b.cacheCreate += Number(u.cache_creation_input_tokens) || 0
-  b.requests += 1
+/**
+ * What one session log has been read to. Logs are append-only, so a log being written
+ * is read on from `offset` rather than re-streamed from byte 0 on every snapshot — a
+ * long session's log is tens of MB, and the meter asks every minute.
+ */
+type ClaudeFileState = {
+  readonly ino: number
+  readonly size: number
+  readonly mtimeMs: number
+  /** Bytes through the last complete line: where the next read resumes. */
+  readonly offset: number
+  /** The file's first bytes — a log rewritten in place keeps its inode, not its head. */
+  readonly head: Buffer
+  readonly anonymous: number
+  /**
+   * The complete lines' requests, carried across reads because a streamed request is
+   * re-written under the same id and the last one wins. Filled in place by the next
+   * read; null once the log has gone quiet, so idle logs keep only their buckets.
+   */
+  readonly perRequest: Map<string, RequestUsage> | null
+  readonly buckets: ReadonlyMap<number, HourBucket>
+}
+
+/** Per session file, pruned to the files the last walk of their home still saw. */
+const claudeFileCache = new Map<string, ClaudeFileState>()
+
+/** How long after its last write a log stays resumable; after that only its buckets are kept. */
+const RESUMABLE_MS = HOUR
+const HEAD_BYTES = 256
+const NEWLINE = 0x0a
+
+/** The usage one log line reports, or null for every line that reports none. */
+function requestOf(line: Buffer): { id: string | null; usage: RequestUsage } | null {
+  // cheap pre-filter: only assistant entries carry token usage
+  if (line.indexOf('"usage"') < 0 || line.indexOf('"assistant"') < 0) return null
+  let entry: any
+  try {
+    entry = JSON.parse(line.toString('utf8'))
+  } catch {
+    return null // mid-write / corrupt line
+  }
+  if (entry?.type !== 'assistant') return null
+  const u = entry.message?.usage
+  const ts = toMs(entry.timestamp)
+  if (!u || ts === null) return null
+  const id: string | null =
+    (typeof entry.requestId === 'string' && entry.requestId) ||
+    (typeof entry.message?.id === 'string' && entry.message.id) ||
+    null
+  return {
+    id,
+    usage: {
+      hour: Math.floor(ts / HOUR),
+      input: Number(u.input_tokens) || 0,
+      output: Number(u.output_tokens) || 0,
+      cacheRead: Number(u.cache_read_input_tokens) || 0,
+      cacheCreate: Number(u.cache_creation_input_tokens) || 0
+    }
+  }
+}
+
+/** Add a request (one) or a whole bucket (its count) to the hour's bucket. */
+function addTo(
+  buckets: Map<number, HourBucket>,
+  hour: number,
+  u: UsageTokens & { readonly requests?: number }
+): void {
+  let b = buckets.get(hour)
+  if (!b) buckets.set(hour, (b = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, requests: 0 }))
+  b.input += u.input
+  b.output += u.output
+  b.cacheRead += u.cacheRead
+  b.cacheCreate += u.cacheCreate
+  b.requests += u.requests ?? 1
 }
 
 /**
- * Bucket one claude session log by hour. Streaming line reader — transcripts can be
- * tens of MB and must never be held in memory whole. Entries repeat while streaming,
- * so usage is deduped by request id (last occurrence wins — it has the final totals).
+ * Whether `st` is `prev`'s log grown by appends: same inode, longer, same first bytes,
+ * and still a line break where the last read stopped. Anything else is read from 0.
  */
-async function parseClaudeFile(file: string): Promise<Map<number, HourBucket>> {
-  const perRequest = new Map<string, { ts: number; usage: any }>()
-  let anonymous = 0
-  const rl = createInterface({
-    input: createReadStream(file, { encoding: 'utf8' }),
-    crlfDelay: Infinity
-  })
+function appendedTo(file: string, st: Stats, prev: ClaudeFileState): boolean {
+  if (!prev.perRequest || st.ino !== prev.ino || st.size <= prev.size) return false
+  let fd: number | null = null
   try {
-    for await (const line of rl) {
-      // cheap pre-filter: only assistant entries carry token usage
-      if (!line.includes('"usage"') || !line.includes('"assistant"')) continue
-      let entry: any
-      try {
-        entry = JSON.parse(line)
-      } catch {
-        continue // mid-write / corrupt line
-      }
-      if (entry?.type !== 'assistant') continue
-      const usage = entry.message?.usage
-      const ts = toMs(entry.timestamp)
-      if (!usage || ts === null) continue
-      const key: string =
-        (typeof entry.requestId === 'string' && entry.requestId) ||
-        (typeof entry.message?.id === 'string' && entry.message.id) ||
-        `anon-${anonymous++}`
-      perRequest.set(key, { ts, usage })
-    }
+    fd = openSync(file, 'r')
+    const head = Buffer.alloc(prev.head.length)
+    if (readSync(fd, head, 0, head.length, 0) !== head.length || !head.equals(prev.head)) return false
+    if (prev.offset === 0) return true
+    const last = Buffer.alloc(1)
+    return readSync(fd, last, 0, 1, prev.offset - 1) === 1 && last[0] === NEWLINE
   } catch {
-    /* unreadable file — skip, same failure tolerance as the parsers */
+    return false
   } finally {
-    rl.close()
+    if (fd !== null) closeSync(fd)
   }
+}
+
+/**
+ * Bucket one claude session log by hour, reading on from where `prev` stopped when the
+ * log was only appended to. Streamed in chunks — transcripts can be tens of MB and must
+ * never be held in memory whole. Entries repeat while streaming, so usage is deduped by
+ * request id (last occurrence wins — it has the final totals). An unterminated last
+ * line counts provisionally and is read again next time, since it may still be mid-write.
+ */
+async function readClaudeFile(
+  file: string,
+  st: Stats,
+  opts: { readonly prev?: ClaudeFileState; readonly now: number }
+): Promise<ClaudeFileState> {
+  const prev = opts.prev && appendedTo(file, st, opts.prev) ? opts.prev : undefined
+  const perRequest = prev?.perRequest ?? new Map<string, RequestUsage>()
+  let anonymous = prev?.anonymous ?? 0
+  let offset = prev?.offset ?? 0
+  let head = prev?.head ?? Buffer.alloc(0)
+  let size = st.size
+  let partial: Buffer[] = [] // bytes after the last line break read so far
+  const commit = (line: Buffer): void => {
+    const r = requestOf(line)
+    if (r) perRequest.set(r.id ?? `anon-${anonymous++}`, r.usage)
+  }
+  if (st.size > offset) {
+    try {
+      // bounded by the size just stat'ed, so the recorded size is what was read
+      const stream: AsyncIterable<Buffer> = createReadStream(file, { start: offset, end: st.size - 1 })
+      for await (const chunk of stream) {
+        if (!prev && head.length < HEAD_BYTES) {
+          head = Buffer.concat([head, chunk.subarray(0, HEAD_BYTES - head.length)])
+        }
+        let from = 0
+        for (let nl = chunk.indexOf(NEWLINE); nl >= 0; nl = chunk.indexOf(NEWLINE, from)) {
+          const piece = chunk.subarray(from, nl)
+          const line = partial.length ? Buffer.concat([...partial, piece]) : piece
+          partial = []
+          commit(line)
+          offset += line.length + 1
+          from = nl + 1
+        }
+        if (from < chunk.length) partial.push(chunk.subarray(from))
+      }
+    } catch {
+      // unreadable mid-way — same failure tolerance as the parsers; what was committed
+      // stands, and recording only that much makes the next snapshot read on from it
+      partial = []
+      size = offset
+    }
+  }
+
   const buckets = new Map<number, HourBucket>()
-  for (const { ts, usage } of perRequest.values()) {
-    const hour = Math.floor(ts / HOUR)
-    let b = buckets.get(hour)
-    if (!b) buckets.set(hour, (b = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, requests: 0 }))
-    addUsage(b, usage)
+  const tail = partial.length ? requestOf(Buffer.concat(partial)) : null
+  const tailKey = tail ? (tail.id ?? `anon-${anonymous}`) : null
+  for (const [key, u] of perRequest) if (key !== tailKey) addTo(buckets, u.hour, u)
+  if (tail) addTo(buckets, tail.usage.hour, tail.usage)
+
+  const live = opts.now - st.mtimeMs < RESUMABLE_MS
+  return {
+    ino: st.ino,
+    size,
+    mtimeMs: st.mtimeMs,
+    offset,
+    head,
+    anonymous,
+    perRequest: live ? perRequest : null,
+    buckets
   }
-  return buckets
 }
 
 function emptyTokens(): UsageTokens {
@@ -125,6 +232,7 @@ export async function claudeUsage(configDir: string, now = Date.now()): Promise<
   const files = walkFiles(root, 3).filter((f) => f.endsWith('.jsonl'))
 
   const merged = new Map<number, HourBucket>()
+  const seen = new Set<string>()
   for (const file of files) {
     let st
     try {
@@ -133,20 +241,18 @@ export async function claudeUsage(configDir: string, now = Date.now()): Promise<
       continue
     }
     if (st.mtimeMs < cutoff) continue // nothing in the trailing week
+    seen.add(file)
     let cached = claudeFileCache.get(file)
-    if (!cached || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
-      cached = { mtimeMs: st.mtimeMs, size: st.size, buckets: await parseClaudeFile(file) }
+    if (!cached || cached.ino !== st.ino || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
+      cached = await readClaudeFile(file, st, { prev: cached, now })
       claudeFileCache.set(file, cached)
     }
-    for (const [hour, b] of cached.buckets) {
-      let m = merged.get(hour)
-      if (!m) merged.set(hour, (m = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, requests: 0 }))
-      m.input += b.input
-      m.output += b.output
-      m.cacheRead += b.cacheRead
-      m.cacheCreate += b.cacheCreate
-      m.requests += b.requests
-    }
+    for (const [hour, b] of cached.buckets) addTo(merged, hour, b)
+  }
+  // a deleted log, or one gone quiet for a week, has nothing left to count
+  const prefix = root + sep
+  for (const file of claudeFileCache.keys()) {
+    if (file.startsWith(prefix) && !seen.has(file)) claudeFileCache.delete(file)
   }
 
   const nowHour = Math.floor(now / HOUR)

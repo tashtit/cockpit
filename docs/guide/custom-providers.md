@@ -30,6 +30,8 @@ Claude Code only speaks its own API shape, so it pairs with Anthropic-compatible
 
 Every filled-in field stays editable: point Anthropic at a regional proxy, or run Ollama on another port. **Add provider** stays off until a hosted API has its key, because those APIs refuse every request without one.
 
+A base URL has to start with `https://` unless it is on this Mac or a private network — `localhost`, a `10.`, `172.16–31.`, `192.168.` or Tailscale `100.64–127.` address, a `.local` / `.lan` / `.internal` name, or a bare machine name like `gpu-box`. Over plain `http://` to anywhere else, the key and every prompt would cross the internet unencrypted.
+
 Only the two **-compatible** entries ask for more, because only a gateway can differ:
 
 - **Wire API** (`completions` or `responses`) for OpenAI-compatible endpoints; GPT-5 models need `responses`. The OpenAI entry asks too, starting on `responses`.
@@ -46,7 +48,7 @@ Claude Code and Copilot send a provider's key the same way, and so does the mode
 - **Gateways set to Bearer**: Claude Code gets `ANTHROPIC_AUTH_TOKEN`, Copilot gets `COPILOT_PROVIDER_BEARER_TOKEN`.
 - **OpenAI-compatible and Azure**: Copilot gets `COPILOT_PROVIDER_API_KEY`, sent as that API's own header.
 
-A session on a provider carries that provider's key and no other. Every other credential variable the agent reads is set to empty, so a key exported in your shell never reaches the provider. A provider added before this choice existed keeps working as it did. The one change is Claude against `api.anthropic.com`, which now gets `x-api-key`: that API never accepted the bearer token Claude used to send it.
+A session on a provider carries that provider's key and no other. Every other credential variable the agent reads is set to empty, so a key exported in your shell never reaches the provider. A provider with no key (a local Ollama, a keyless gateway) is sent the placeholder `cockpit-no-key` in the same header: left with no key at all, Claude Code would fall back to your own Claude sign-in and send its token to the provider. A provider added before this choice existed keeps working as it did. The one change is Claude against `api.anthropic.com`, which now gets `x-api-key`: that API never accepted the bearer token Claude used to send it.
 
 ## Where the key lives
 

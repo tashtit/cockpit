@@ -2,11 +2,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync
 } from 'node:fs'
@@ -214,6 +217,48 @@ describe('scanCleanup — worktrees', () => {
     expect(report.worktrees.find((w) => w.path === dirtyTree)?.blocks).toEqual(['dirty'])
     sessions = []
   })
+
+  it('blocks a worktree whose status git cannot read, rather than calling it clean', async () => {
+    // a status that failed or timed out used to read as clean — and the report, and
+    // the daily reminder, then called the worktree ready to go
+    const broken = join(cockpitWorktrees, 'app', 'unreadable')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/unreadable', broken])
+    const dotGit = join(broken, '.git')
+    const pointer = readFileSync(dotGit, 'utf8')
+    writeFileSync(dotGit, `gitdir: ${join(root, 'nowhere')}\n`)
+    backdate(broken)
+    try {
+      const { report, ready } = await surveyCleanup(deps, 30)
+      expect(report.worktrees.find((w) => w.path === broken)?.blocks).toEqual(['dirty'])
+      expect(ready.worktrees).not.toContain(broken)
+    } finally {
+      writeFileSync(dotGit, pointer)
+      git(mainRepo, ['worktree', 'remove', broken])
+    }
+  })
+
+  it('reads a worktree without writing its index', async () => {
+    // `git status` refreshes a stale index and writes it back under index.lock — in a
+    // worktree an agent is working in, the agent's own `git commit` then fails on it
+    const tree = join(cockpitWorktrees, 'app', 'quiet-read')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/quiet-read', tree])
+    const index = git(tree, ['rev-parse', '--path-format=absolute', '--git-path', 'index']).trim()
+    // the same content with a new mtime: the stat data the index holds no longer matches
+    const t = (OLD - DAY) / 1000
+    utimesSync(join(tree, 'README.md'), t, t)
+    backdate(tree)
+    const before = readFileSync(index)
+    const mtime = statSync(index).mtimeMs
+    try {
+      const report = await scanCleanup(deps, 30)
+      // it was looked at: stale, clean, listed
+      expect(report.worktrees.find((w) => w.path === tree)?.blocks).toEqual([])
+      expect(statSync(index).mtimeMs).toBe(mtime)
+      expect(readFileSync(index).equals(before)).toBe(true)
+    } finally {
+      git(mainRepo, ['worktree', 'remove', tree])
+    }
+  })
 })
 
 describe('scanCleanup — sessions', () => {
@@ -246,6 +291,28 @@ describe('scanCleanup — sessions', () => {
     expect(report.sessions[0].bytes).toBe(75)
     sessions = []
   })
+
+  it('counts a link in a copilot session as itself, never what it points at', async () => {
+    // deleting takes the link, not its target — and a link back up the tree used to be
+    // walked until the path grew too long, counting the log again at every level
+    const dir = join(sourceDir, 'session-state', 'linked')
+    const elsewhere = join(root, 'big-elsewhere')
+    mkdirSync(dir, { recursive: true })
+    mkdirSync(elsewhere, { recursive: true })
+    writeFileSync(join(dir, 'events.jsonl'), 'z'.repeat(50))
+    writeFileSync(join(elsewhere, 'blob.bin'), 'b'.repeat(100_000))
+    symlinkSync(elsewhere, join(dir, 'out'))
+    symlinkSync('.', join(dir, 'loop'))
+    const links = lstatSync(join(dir, 'out')).size + lstatSync(join(dir, 'loop')).size
+    sessions = [
+      session({ id: 'copilot:linked', provider: 'copilot', sourcePath: join(dir, 'events.jsonl') })
+    ]
+    const report = await scanCleanup(deps, 30)
+    expect(report.sessions[0].bytes).toBe(50 + links)
+    sessions = []
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(elsewhere, { recursive: true, force: true })
+  })
 })
 
 describe('surveyCleanup — what could go right now', () => {
@@ -268,6 +335,31 @@ describe('surveyCleanup — what could go right now', () => {
     expect(ready.bytes).toBe(300 + carried + leftover)
     sessions = []
     busy = new Set()
+  })
+})
+
+describe('surveyCleanup — one at a time', () => {
+  it('hands a second ask the survey already running, and only that', async () => {
+    // the view's scan and the daily reminder landing together ran two full surveys
+    const first = surveyCleanup(deps, 30)
+    expect(surveyCleanup(deps, 30)).toBe(first)
+    // another threshold is another question
+    const other = surveyCleanup(deps, 90)
+    expect(other).not.toBe(first)
+    await Promise.all([first, other])
+    // once it has answered, the next ask runs its own
+    const next = surveyCleanup(deps, 30)
+    expect(next).not.toBe(first)
+    await next
+  })
+
+  it('never hands out a survey begun before a cleanup action ended', async () => {
+    // it could list what the action just removed — and the view rescans right after
+    const before = surveyCleanup(deps, 30)
+    await deleteSessions(deps, [], 30)
+    const after = surveyCleanup(deps, 30)
+    expect(after).not.toBe(before)
+    await Promise.all([before, after])
   })
 })
 
@@ -558,6 +650,19 @@ describe('removeWorktrees', () => {
     expect(git(mainRepo, ['branch', '--list'])).not.toMatch(/cockpit\/fix-login/)
   })
 
+  it('deletes a merged branch whose name starts with a dash as a name, never an option', async () => {
+    // plumbing makes such a ref; as a bare argument git read it as switches
+    const tree = join(cockpitWorktrees, 'app', 'dashed')
+    git(mainRepo, ['worktree', 'add', '-q', '--detach', tree])
+    git(mainRepo, ['update-ref', 'refs/heads/-oops', 'HEAD'])
+    git(tree, ['symbolic-ref', 'HEAD', 'refs/heads/-oops'])
+    backdate(tree)
+    const res = await removeWorktrees(deps, [tree])
+    expect(res.cleaned).toBe(1)
+    expect(res.branchesDeleted).toEqual(['-oops'])
+    expect(git(mainRepo, ['branch', '--list'])).not.toMatch(/-oops/)
+  })
+
   it('removes the worktree but keeps a branch git will not part with', async () => {
     // an unmerged commit makes `git branch -d` refuse — the directory still goes,
     // and the work stays reachable on the branch
@@ -601,6 +706,39 @@ describe('removeWorktrees', () => {
     const res = await removeWorktrees(deps, [ghost])
     expect(res.cleaned).toBe(1)
     expect(git(mainRepo, ['worktree', 'list'])).not.toMatch(/ghost/)
+  })
+
+  it('clears only the missing registration it was asked to, never every missing one', async () => {
+    // a worktree on a drive that is only unmounted reads as missing too — `git worktree
+    // prune` used to take it along with the one picked
+    const picked = join(cockpitWorktrees, 'app', 'gone-picked')
+    const unmounted = join(cockpitWorktrees, 'app', 'gone-unmounted')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/gone-picked', picked])
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/gone-unmounted', unmounted])
+    rmSync(picked, { recursive: true, force: true })
+    rmSync(unmounted, { recursive: true, force: true })
+    const res = await removeWorktrees(deps, [picked])
+    expect(res).toMatchObject({ cleaned: 1, failed: [] })
+    const listing = git(mainRepo, ['worktree', 'list', '--porcelain'])
+    expect(listing).not.toContain(`worktree ${picked}\n`)
+    expect(listing).toContain(`worktree ${unmounted}\n`)
+    // and it goes the same way once it is the one picked
+    expect((await removeWorktrees(deps, [unmounted])).cleaned).toBe(1)
+    expect(git(mainRepo, ['worktree', 'list', '--porcelain'])).not.toContain(`worktree ${unmounted}\n`)
+  })
+
+  it('keeps a missing registration git has locked, and says so', async () => {
+    // a lock is how a worktree on a removable drive says it will be back
+    const away = join(cockpitWorktrees, 'app', 'on-a-drive')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/on-a-drive', away])
+    git(mainRepo, ['worktree', 'lock', away])
+    rmSync(away, { recursive: true, force: true })
+    const report = await scanCleanup(deps, 30)
+    expect(report.worktrees.find((w) => w.path === away)?.blocks).toEqual(['locked'])
+    const res = await removeWorktrees(deps, [away])
+    expect(res.cleaned).toBe(0)
+    expect(res.failed[0]?.reason).toMatch(/locked/)
+    expect(git(mainRepo, ['worktree', 'list', '--porcelain'])).toContain(`worktree ${away}\n`)
   })
 })
 

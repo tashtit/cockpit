@@ -4,20 +4,26 @@ import {
   MAX_STALE_DAYS,
   MIN_STALE_DAYS,
   clampStaleDays,
+  isDirty,
   isStale,
   judgeProcesses,
   lastWorktreeActivity,
+  mapLimit,
   ownProcessTree,
   parseElapsed,
   parseLsofCwds,
   parsePs,
   parseWorktreeList,
   providerWorktreeHomes,
+  resolvedOnce,
   sameProcess,
+  sessionsByCwd,
+  sessionsUnder,
   staleCutoff,
   sumBytes,
   worktreeBlocks,
-  worktreeOrigin
+  worktreeOrigin,
+  worktreesWithProcesses
 } from '../src/main/cleanup-core'
 
 const DAY = 86_400_000
@@ -144,6 +150,19 @@ describe('worktreeOrigin', () => {
   })
 })
 
+describe('isDirty', () => {
+  it('reads any status line as uncommitted work, and an empty status as clean', () => {
+    expect(isDirty(' M src/app.ts\n')).toBe(true)
+    expect(isDirty('?? scratch.txt\n')).toBe(true)
+    expect(isDirty('')).toBe(false)
+    expect(isDirty('\n')).toBe(false)
+  })
+
+  it('never reads a status git could not give as clean', () => {
+    expect(isDirty(null)).toBe(true)
+  })
+})
+
 describe('worktreeBlocks', () => {
   const clean = {
     isMain: false,
@@ -199,6 +218,79 @@ describe('lastWorktreeActivity', () => {
 
   it('reports no evidence as 0', () => {
     expect(lastWorktreeActivity([null, undefined, 0])).toBe(0)
+  })
+})
+
+describe('sessions by where they ran', () => {
+  const at = (id: string, cwd: string | null, updatedAt: number) => ({ id, cwd, updatedAt })
+
+  it('resolves each distinct path once, however often it is asked', () => {
+    const asked: string[] = []
+    const resolve = resolvedOnce((p) => {
+      asked.push(p)
+      return p.replace('/var/', '/private/var/')
+    })
+    for (let i = 0; i < 100; i++) resolve('/var/app')
+    resolve('/repos/app')
+    expect(resolve('/var/app')).toBe('/private/var/app')
+    expect(asked).toEqual(['/var/app', '/repos/app'])
+  })
+
+  it('gathers sessions under their resolved cwd, one group per real directory', () => {
+    const groups = sessionsByCwd(
+      [at('a', '/var/app', 100), at('b', '/private/var/app', 300), at('c', '/repos/x', 50), at('d', null, 900)],
+      (p) => p.replace(/^\/var\//, '/private/var/')
+    )
+    expect(groups).toEqual([
+      { cwd: '/private/var/app', newest: 300, ids: ['a', 'b'] },
+      { cwd: '/repos/x', newest: 50, ids: ['c'] }
+    ])
+  })
+
+  it('counts every session in a directory or below it, and nothing beside it', () => {
+    const groups = sessionsByCwd(
+      [at('top', '/wt/fix', 100), at('deep', '/wt/fix/src/ui', 700), at('twin', '/wt/fix-2', 999)],
+      (p) => p
+    )
+    expect(sessionsUnder(groups, '/wt/fix')).toEqual({ newest: 700, ids: ['top', 'deep'] })
+    expect(sessionsUnder(groups, '/wt/other')).toEqual({ newest: 0, ids: [] })
+  })
+})
+
+describe('mapLimit', () => {
+  it('never runs more than the limit at once, and keeps the input order', async () => {
+    let running = 0
+    let most = 0
+    const out = await mapLimit(
+      [50, 10, 30, 0, 20, 40, 5],
+      async (ms) => {
+        running++
+        most = Math.max(most, running)
+        await new Promise((r) => setTimeout(r, ms))
+        running--
+        return ms * 2
+      },
+      3
+    )
+    expect(most).toBe(3)
+    expect(out).toEqual([100, 20, 60, 0, 40, 80, 10])
+  })
+
+  it('answers an empty list without calling anything', async () => {
+    expect(await mapLimit([], async () => 1, 4)).toEqual([])
+  })
+})
+
+describe('worktreesWithProcesses', () => {
+  it('counts a process against the deepest worktree around it, and nothing outside every one', () => {
+    const trees = ['/repos/app', '/repos/app/.claude/worktrees/spike', '/wt/app/fix']
+    const inside = worktreesWithProcesses(trees, [
+      { cwd: '/repos/app/.claude/worktrees/spike/web' },
+      { cwd: '/wt/app/fix' },
+      { cwd: '/wt/app/fix-2' },
+      { cwd: '/tmp' }
+    ])
+    expect([...inside].sort()).toEqual(['/repos/app/.claude/worktrees/spike', '/wt/app/fix'])
   })
 })
 

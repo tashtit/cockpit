@@ -2,8 +2,9 @@ import { describe, it, expect, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HomeView } from '../../src/renderer/src/HomeView'
-import type { AccountsSnapshot, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
+import type { AccountsSnapshot, Landing, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
 import { pasteImage, stubObjectUrls } from './paste'
+import { clearLanded, initLanded } from '../../src/renderer/src/landed'
 
 const repo: RepoGroup = {
   key: '/home/dev/cachely',
@@ -73,6 +74,15 @@ describe('HomeView composer', () => {
         display: 'dev@example.com'
       }
     })
+  })
+
+  it('starts with Auto-edit when the remembered mode is not one', async () => {
+    window.localStorage.setItem('cockpit:mode', '"yolo"')
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    const { onStart } = renderHome()
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Task description' }), 'add dark mode')
+    await userEvent.click(screen.getByRole('button', { name: 'Start with Claude' }))
+    expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ mode: 'auto-edit' }))
   })
 
   it('surfaces a start failure inline', async () => {
@@ -273,6 +283,91 @@ describe('HomeView recent activity', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /Fix the flaky indexer test/ }))
     expect(onOpenSession).toHaveBeenCalledWith(session)
+  })
+})
+
+describe('HomeView on an index push', () => {
+  it('reads the tables again but listens for their rounds once', async () => {
+    const props = {
+      repos: [repo],
+      indexed: true,
+      busy: false,
+      onStart: vi.fn().mockResolvedValue(null),
+      onOpenSession: vi.fn(),
+      onOpenFull: vi.fn(),
+      onNewRoundtable: vi.fn(),
+      onOpenRoundtable: vi.fn(),
+      onOpenSettings: vi.fn()
+    }
+    const { rerender } = render(<HomeView {...props} indexVersion={0} />)
+    rerender(<HomeView {...props} indexVersion={1} />)
+    rerender(<HomeView {...props} indexVersion={2} />)
+    await waitFor(() => expect(window.cockpit.listRoundtables).toHaveBeenCalledTimes(3))
+    expect(window.cockpit.onRoundtableEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('looks a session that needs you up once per piece of news, even when the index has none', async () => {
+    const idle: SessionMeta = {
+      id: 'claude:old',
+      provider: 'claude',
+      nativeId: 'old',
+      source: '/home/dev/.claude',
+      title: 'An idle session that landed',
+      cwd: repo.root,
+      logBranch: null,
+      startedAt: 1700000000000,
+      updatedAt: 1700000100000,
+      messageCount: 3,
+      sourcePath: '/home/dev/.claude/projects/x/old.jsonl'
+    }
+    let push: (list: Landing[]) => void = () => {}
+    vi.mocked(window.cockpit.onLandings).mockImplementation((cb) => {
+      push = cb
+      return () => {}
+    })
+    vi.mocked(window.cockpit.getSession).mockImplementation(async (id) => (id === idle.id ? idle : null))
+    const stop = initLanded()
+    try {
+      act(() =>
+        push([
+          { id: idle.id, at: 1, kind: 'landed' },
+          { id: 'claude:gone', at: 1, kind: 'landed' }
+        ])
+      )
+      const props = {
+        repos: [repo],
+        indexed: true,
+        busy: false,
+        onStart: vi.fn().mockResolvedValue(null),
+        onOpenSession: vi.fn(),
+        onOpenFull: vi.fn(),
+        onNewRoundtable: vi.fn(),
+        onOpenRoundtable: vi.fn(),
+        onOpenSettings: vi.fn()
+      }
+      const { rerender } = render(<HomeView {...props} indexVersion={0} />)
+      await screen.findByRole('button', { name: /An idle session that landed/ })
+      expect(window.cockpit.getSession).toHaveBeenCalledTimes(2)
+      rerender(<HomeView {...props} indexVersion={1} />)
+      rerender(<HomeView {...props} indexVersion={2} />)
+      await waitFor(() => expect(window.cockpit.pageSessions).toHaveBeenCalledTimes(3))
+      await act(async () => {})
+      // neither the one it found nor the one it didn't is asked for again
+      expect(window.cockpit.getSession).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('button', { name: /An idle session that landed/ })).toBeInTheDocument()
+      // news again for the one it could not find: that is a reason to look again
+      act(() =>
+        push([
+          { id: idle.id, at: 1, kind: 'landed' },
+          { id: 'claude:gone', at: 2, kind: 'landed' }
+        ])
+      )
+      await waitFor(() => expect(window.cockpit.getSession).toHaveBeenCalledTimes(3))
+      expect(window.cockpit.getSession).toHaveBeenLastCalledWith('claude:gone')
+    } finally {
+      stop()
+      clearLanded()
+    }
   })
 })
 

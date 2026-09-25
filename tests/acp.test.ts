@@ -79,7 +79,8 @@ describe('AcpTurn', () => {
     })
     await done
     const ask = events.find((e) => e.type === 'permission')
-    expect(ask).toMatchObject({ type: 'permission', toolName: 'shell', preview: 'Run ls -la' })
+    // the card shows the command itself, and the agent's title beside it
+    expect(ask).toMatchObject({ type: 'permission', toolName: 'shell', preview: 'Run ls -la', detail: 'ls -la' })
     expect((ask as Extract<ChatEvent, { type: 'permission' }>).options.map((o) => o.optionId)).toEqual([
       'allow_once',
       'reject_once'
@@ -189,6 +190,22 @@ describe('AcpTurn', () => {
     await turn.run('hello')
     expect((events[0] as Extract<ChatEvent, { type: 'error' }>).message).toMatch(/not found on PATH/)
     expect(events.at(-1)).toMatchObject({ type: 'done' })
+  })
+
+  it('lets what the turn pins win over the definition’s own env', async () => {
+    // the definition asks for one behaviour, the turn pins another: the turn's (a custom
+    // provider's base URL and key, the config home) is what the agent must see
+    const events: ChatEvent[] = []
+    const turn = new AcpTurn(stubAgent('crash'), {
+      turnId: 't1',
+      cwd,
+      env: process.env,
+      pinned: { STUB_MODE: 'basic' },
+      permissionMode: 'safe',
+      emit: (ev) => events.push(ev)
+    })
+    await turn.run('hello')
+    expect(events.map((e) => e.type)).toEqual(['session', 'tool', 'done'])
   })
 
   it('sends the prompt as an ACP text block', async () => {

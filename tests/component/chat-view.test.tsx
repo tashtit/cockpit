@@ -402,3 +402,21 @@ describe('ChatView transcript window', () => {
     expect(key).toHaveAttribute('tabindex', '-1')
   })
 })
+
+describe('the permission mode it remembers', () => {
+  const composer = (): HTMLElement => screen.getByRole('textbox', { name: 'Message Claude' })
+
+  it('sends with Auto-edit when what storage holds is not a mode', async () => {
+    window.localStorage.setItem('cockpit:mode', 'bypassPermissions')
+    const { onSend } = renderChat()
+    await userEvent.type(composer(), 'go{Enter}')
+    expect(onSend).toHaveBeenCalledWith('go', 'auto-edit', undefined)
+  })
+
+  it('sends with a remembered mode that is one — Yolo included', async () => {
+    window.localStorage.setItem('cockpit:mode', 'yolo')
+    const { onSend } = renderChat()
+    await userEvent.type(composer(), 'go{Enter}')
+    expect(onSend).toHaveBeenCalledWith('go', 'yolo', undefined)
+  })
+})

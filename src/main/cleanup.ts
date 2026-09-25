@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type {
   CleanupBlock,
@@ -14,18 +14,25 @@ import type {
 } from '../shared/types'
 import {
   clampStaleDays,
+  isDirty,
   isStale,
   judgeProcesses,
   lastWorktreeActivity,
+  mapLimit,
   ownProcessTree,
   parseLsofCwds,
   parsePs,
   parseWorktreeList,
+  resolvedOnce,
   sameProcess,
+  sessionsByCwd,
+  sessionsUnder,
   staleCutoff,
   sumBytes,
   worktreeBlocks,
   worktreeOrigin,
+  worktreesWithProcesses,
+  type CwdSessions,
   type JudgedProcess,
   type ProcessFacts,
   type WorktreeEntry,
@@ -70,7 +77,17 @@ export const CLEANUP_ROW_CAP = 500
 /** Sizing a worktree walks a whole checkout — give up rather than stall the scan. */
 const DU_TIMEOUT_MS = 10_000
 
-/** Hand the event loop back this often while stat-ing session files. */
+/** At most this many `du` at once: each one walks a whole checkout, node_modules and all. */
+const DU_PARALLEL = 4
+
+/**
+ * What sizing every stale worktree may take in all. The pool turns a disk thrashing
+ * under every walk at once into a queue, and a queue of big checkouts must not hold
+ * the scan: what is still waiting when this runs out reads as unmeasured.
+ */
+const DU_BUDGET_MS = 30_000
+
+/** Hand the event loop back this often while stat-ing or removing session files. */
 const YIELD_EVERY = 200
 
 const yieldToLoop = (): Promise<void> => new Promise((r) => setImmediate(r))
@@ -144,22 +161,41 @@ function deleteTargets(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): stri
   return sessionLogFiles(meta).map((f) => resolve(copilotSessionDir(f) ?? f))
 }
 
+/**
+ * A Copilot session directory is a handful of files a level or two deep. These bound
+ * the walk for one that is not — sizing runs synchronously for every stale session.
+ */
+const DIR_MAX_DEPTH = 8
+const DIR_MAX_ENTRIES = 10_000
+
+/**
+ * What removing `dir` would free. Links are counted as themselves and never followed:
+ * `rmSync` removes the link, not what it points at, and a link back up the tree would
+ * otherwise be walked until the path grew too long. Past the bounds the walk stops,
+ * and the answer is what it counted by then.
+ */
 function dirBytes(dir: string): number {
   let total = 0
-  let names: string[] = []
-  try {
-    names = readdirSync(dir)
-  } catch {
-    return 0
-  }
-  for (const n of names) {
+  let entries = 0
+  const walk = (at: string, depth: number): void => {
+    let names: string[]
     try {
-      const st = statSync(join(dir, n))
-      total += st.isDirectory() ? dirBytes(join(dir, n)) : st.size
+      names = readdirSync(at)
     } catch {
-      /* a file that vanished mid-scan simply doesn't count */
+      return
+    }
+    for (const n of names) {
+      if (++entries > DIR_MAX_ENTRIES) return
+      try {
+        const st = lstatSync(join(at, n))
+        if (!st.isDirectory()) total += st.size
+        else if (depth < DIR_MAX_DEPTH) walk(join(at, n), depth + 1)
+      } catch {
+        /* a file that vanished mid-scan simply doesn't count */
+      }
     }
   }
+  walk(dir, 0)
   return total
 }
 
@@ -234,8 +270,27 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessSnapshot> {
 
 /* ---------- worktrees ---------- */
 
-async function git(repoRoot: string, args: readonly string[]): Promise<string | null> {
-  const r = await execText('git', ['-C', repoRoot, ...args], { timeoutMs: 20_000 })
+/**
+ * At most this many git processes at once. A survey runs a few per worktree; a
+ * hundred worktrees' worth at once would starve the agents working in them.
+ */
+const GIT_PARALLEL = 4
+
+/**
+ * Every git call cleanup makes to *read* goes through here; what changes a repository
+ * (`worktree remove`, `branch -d`) is spelled out where it happens. Without
+ * `--no-optional-locks`, `git status` refreshes a stale index and writes it back under
+ * `index.lock` — in worktrees agents are working in, whose own `git commit` then fails
+ * on the lock this scan holds. fsmonitor is off because a survey must not start a
+ * watcher daemon in every repository it looks at; it only ever speeds status up, so
+ * the answer is the same without it.
+ */
+async function gitRead(dir: string, args: readonly string[]): Promise<string | null> {
+  const r = await execText(
+    'git',
+    ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', dir, ...args],
+    { timeoutMs: 20_000 }
+  )
   return r.ok ? r.stdout : null
 }
 
@@ -245,14 +300,15 @@ async function git(repoRoot: string, args: readonly string[]): Promise<string | 
  * them. A git call that fails answers true: unsure is not safe to remove.
  */
 async function unanchoredCommits(dir: string): Promise<boolean> {
-  if ((await git(dir, ['symbolic-ref', '-q', 'HEAD'])) !== null) return false
-  const out = await git(dir, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--tags', '--remotes'])
+  if ((await gitRead(dir, ['symbolic-ref', '-q', 'HEAD'])) !== null) return false
+  const out = await gitRead(dir, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--tags', '--remotes'])
   return out === null || Number(out.trim()) > 0
 }
 
 /** `du -sk` in bytes; null when it fails or takes too long to be worth waiting for. */
-async function measureDir(path: string): Promise<number | null> {
-  const r = await execText('du', ['-sk', path], { timeoutMs: DU_TIMEOUT_MS })
+async function measureDir(path: string, timeoutMs = DU_TIMEOUT_MS): Promise<number | null> {
+  if (timeoutMs <= 0) return null
+  const r = await execText('du', ['-sk', path], { timeoutMs: Math.min(timeoutMs, DU_TIMEOUT_MS) })
   if (!r.ok) return null
   const kb = Number(r.stdout.trim().split(/\s+/)[0])
   return Number.isFinite(kb) ? kb * 1024 : null
@@ -272,20 +328,8 @@ function realish(path: string): string {
   }
 }
 
-/** Newest `updatedAt` among sessions running in (or under) a directory, plus how many. */
-function sessionActivityIn(
-  sessions: readonly SessionMeta[],
-  path: string
-): { readonly newest: number; readonly count: number } {
-  let newest = 0
-  let count = 0
-  for (const s of sessions) {
-    if (!s.cwd || !isUnder(realish(s.cwd), path)) continue
-    count++
-    if (s.updatedAt > newest) newest = s.updatedAt
-  }
-  return { newest, count }
-}
+/** `realish` for one survey or one action: each distinct path resolved once, then remembered. */
+type Resolve = (path: string) => string
 
 function dirMtime(path: string): number {
   try {
@@ -295,87 +339,187 @@ function dirMtime(path: string): number {
   }
 }
 
-/** One worktree, fully judged — shared by the scan and by removal's re-derivation. */
-type JudgedWorktree = StaleWorktree & { readonly repoRootForGit: string }
+/** A worktree as git lists it, before anything is asked inside it. */
+type ListedWorktree = {
+  /** The repo root whose listing produced it — where its git commands run */
+  readonly root: string
+  readonly entry: WorktreeEntry
+  /** Resolved, as every path it is compared with is */
+  readonly path: string
+  /** The repository's own checkout: the listing's first record */
+  readonly isMain: boolean
+  /** Registered, but its directory is gone */
+  readonly missing: boolean
+}
 
-async function judgeWorktrees(
-  deps: CleanupDeps,
-  procs: readonly ProcessFacts[]
-): Promise<JudgedWorktree[]> {
-  const sessions = deps.sessions()
-  const busy = deps.busyIds()
-  const busyCwds = new Set(
-    sessions.filter((s) => busy.has(s.id) && s.cwd).map((s) => realish(s.cwd as string))
+/**
+ * Every worktree of every known repository, each once — a worktree two roots both
+ * list is the first one's. One `git worktree list` per repository, a few at a time.
+ */
+async function listWorktrees(deps: CleanupDeps, resolve: Resolve): Promise<ListedWorktree[]> {
+  const roots = deps.repoRoots()
+  const listings = await mapLimit(
+    roots,
+    (root) => gitRead(root, ['worktree', 'list', '--porcelain']),
+    GIT_PARALLEL
   )
-  const cockpitRoot = realish(deps.cockpitWorktreeRoot)
-  const out: JudgedWorktree[] = []
-  const listed: { root: string; entry: WorktreeEntry; path: string; isMain: boolean }[] = []
+  const out: ListedWorktree[] = []
   const seen = new Set<string>()
-  for (const root of deps.repoRoots()) {
-    const listing = await git(root, ['worktree', 'list', '--porcelain'])
+  for (const [r, root] of roots.entries()) {
+    const listing = listings[r]
     if (listing === null) continue
     for (const [i, entry] of parseWorktreeList(listing).entries()) {
-      const path = realish(entry.path)
+      const path = resolve(entry.path)
       if (seen.has(path)) continue
       seen.add(path)
-      // the first record is the repository's own checkout; bare repos have no
-      // working tree to clean at all
-      if (!entry.bare) listed.push({ root, entry, path, isMain: i === 0 })
+      // bare repos have no working tree to clean at all
+      if (entry.bare) continue
+      out.push({ root, entry, path, isMain: i === 0, missing: entry.prunable || !existsSync(path) })
     }
-  }
-  // a process belongs to the deepest worktree around it, so one running in a
-  // `.claude/worktrees/*` checkout never counts against the repository holding it
-  const processIn = new Set<string>()
-  for (const p of procs) {
-    let best: string | null = null
-    for (const l of listed) {
-      if (isUnder(p.cwd, l.path) && (!best || l.path.length > best.length)) best = l.path
-    }
-    if (best) processIn.add(best)
-  }
-  for (const { root, entry, path, isMain } of listed) {
-    const missing = entry.prunable || !existsSync(path)
-    const activity = sessionActivityIn(sessions, path)
-    const tip = missing ? null : await git(path, ['log', '-1', '--format=%ct', 'HEAD'])
-    const tipMs = tip === null ? 0 : Number(tip.trim()) * 1000
-    const dirty = missing
-      ? false
-      : ((await git(path, ['status', '--porcelain'])) ?? '').trim().length > 0
-    const unpushedOut = missing
-      ? null
-      : await git(path, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
-    // a registration whose directory is gone has nothing left to protect —
-    // the disk-derived facts are all false, so only `main` can still block it
-    const blocks = worktreeBlocks({
-      isMain,
-      locked: entry.locked && !missing,
-      dirty,
-      busy: !missing && [...busyCwds].some((c) => isUnder(c, path)),
-      roundtable: deps.tableForCwd(path) !== null,
-      // nothing is left to protect in a directory that is already gone
-      processes: !missing && processIn.has(path),
-      unanchored: !missing && !isMain && entry.detached && (await unanchoredCommits(path))
-    })
-    out.push({
-      path,
-      repoRoot: root,
-      repoRootForGit: root,
-      repoName: basename(root),
-      branch: entry.branch,
-      origin: worktreeOrigin(path, cockpitRoot),
-      lastActivity: lastWorktreeActivity([
-        Number.isFinite(tipMs) ? tipMs : 0,
-        activity.newest,
-        missing ? 0 : dirMtime(path)
-      ]),
-      sessionCount: activity.count,
-      missing,
-      unpushed: unpushedOut === null ? 0 : Number(unpushedOut.trim()) || 0,
-      bytes: null,
-      blocks
-    })
   }
   return out
+}
+
+/** A listed worktree, with when it was last used. */
+type AgedWorktree = ListedWorktree & {
+  /**
+   * Newest of its branch tip, the sessions indexed in it and its directory's mtime.
+   * Exact for a stale worktree; for a fresh one it may stop at the first signal that
+   * proves it fresh, since a fresh worktree's age is never shown.
+   */
+  readonly lastActivity: number
+  /** Sessions indexed in it or below it */
+  readonly sessionIds: readonly string[]
+}
+
+/**
+ * How long a worktree has been idle. The branch tip costs a git process, so it is
+ * asked only when the sessions and the directory have not already shown the worktree
+ * used since `cutoff` — whatever the tip says then, it cannot make the worktree stale.
+ */
+async function ageWorktree(
+  w: ListedWorktree,
+  input: { readonly groups: readonly CwdSessions[]; readonly cutoff: number }
+): Promise<AgedWorktree> {
+  const inside = sessionsUnder(input.groups, w.path)
+  const seen = lastWorktreeActivity([inside.newest, w.missing ? 0 : dirMtime(w.path)])
+  const settled = w.missing || !isStale(seen, input.cutoff)
+  const tip = settled ? null : await gitRead(w.path, ['log', '-1', '--format=%ct', 'HEAD'])
+  const tipMs = tip === null ? 0 : Number(tip.trim()) * 1000
+  return {
+    ...w,
+    lastActivity: lastWorktreeActivity([seen, Number.isFinite(tipMs) ? tipMs : 0]),
+    sessionIds: inside.ids
+  }
+}
+
+/** What every inspection in one survey or one action shares. */
+type InspectContext = {
+  readonly deps: CleanupDeps
+  /** Resolved cwds of the sessions with a turn running */
+  readonly busyCwds: readonly string[]
+  /** Worktrees a process outside Cockpit is still running in */
+  readonly processIn: ReadonlySet<string>
+}
+
+function inspectContext(
+  deps: CleanupDeps,
+  input: {
+    readonly resolve: Resolve
+    readonly sessions: readonly SessionMeta[]
+    readonly busy: ReadonlySet<string>
+    readonly listed: readonly ListedWorktree[]
+    readonly procs: readonly ProcessFacts[]
+  }
+): InspectContext {
+  return {
+    deps,
+    busyCwds: input.sessions
+      .filter((s) => input.busy.has(s.id) && s.cwd)
+      .map((s) => input.resolve(s.cwd as string)),
+    processIn: worktreesWithProcesses(input.listed.map((w) => w.path), input.procs)
+  }
+}
+
+/** What stands between a worktree and its removal, with what only git inside it can tell. */
+type Inspection = {
+  readonly blocks: CleanupBlock[]
+  /** Commits on HEAD that no remote has — informational */
+  readonly unpushed: number
+}
+
+/**
+ * The git battery — status, unpushed commits, whether a detached HEAD's commits are
+ * held anywhere else — run only for worktrees whose answer can matter: the stale ones
+ * a survey lists, the ones picked for removal, the ones a session delete would take.
+ * `status` walks the whole checkout, so it is skipped where no answer could lift a
+ * block already there: the repository's own checkout, a worktree an agent is running
+ * in, a table's room.
+ */
+async function inspectWorktree(w: ListedWorktree, ctx: InspectContext): Promise<Inspection> {
+  const { entry, path, missing, isMain } = w
+  const busy = !missing && ctx.busyCwds.some((c) => isUnder(c, path))
+  const roundtable = ctx.deps.tableForCwd(path) !== null
+  const settled = missing || isMain || busy || roundtable
+  const dirty = settled ? false : isDirty(await gitRead(path, ['status', '--porcelain']))
+  const unpushed =
+    missing || isMain ? null : await gitRead(path, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
+  // a registration whose directory is gone has nothing left to protect — the
+  // disk-derived facts are all false. git's own lock still counts: it is how a
+  // worktree on a drive that comes and goes says it will be back
+  const blocks = worktreeBlocks({
+    isMain,
+    locked: entry.locked,
+    dirty,
+    busy,
+    roundtable,
+    // nothing is left to protect in a directory that is already gone
+    processes: !missing && ctx.processIn.has(path),
+    unanchored: !missing && !isMain && entry.detached && (await unanchoredCommits(path))
+  })
+  return { blocks, unpushed: unpushed === null ? 0 : Number(unpushed.trim()) || 0 }
+}
+
+/** One stale worktree, fully judged — what the survey lists. */
+type JudgedWorktree = StaleWorktree & { readonly repoRootForGit: string }
+
+async function judgeWorktree(
+  w: AgedWorktree,
+  ctx: InspectContext,
+  cockpitRoot: string
+): Promise<JudgedWorktree> {
+  const { blocks, unpushed } = await inspectWorktree(w, ctx)
+  return {
+    path: w.path,
+    repoRoot: w.root,
+    repoRootForGit: w.root,
+    repoName: basename(w.root),
+    branch: w.entry.branch,
+    origin: worktreeOrigin(w.path, cockpitRoot),
+    lastActivity: w.lastActivity,
+    sessionCount: w.sessionIds.length,
+    missing: w.missing,
+    unpushed,
+    bytes: null,
+    blocks
+  }
+}
+
+/**
+ * What each worktree occupies, a few `du` at a time: started all at once, the walks
+ * fought each other for the disk and most ran into their timeout. The step as a whole
+ * keeps to `DU_BUDGET_MS`.
+ */
+async function sizeWorktrees(
+  trees: readonly JudgedWorktree[]
+): Promise<ReadonlyMap<string, number | null>> {
+  const deadline = Date.now() + DU_BUDGET_MS
+  const sizes = await mapLimit(
+    trees,
+    async (w) => (w.missing ? 0 : await measureDir(w.path, deadline - Date.now())),
+    DU_PARALLEL
+  )
+  return new Map(trees.map((w, i) => [w.path, sizes[i]]))
 }
 
 /** Where worktrees get cut: Cockpit's root, each repo's `.claude/worktrees`, the extras. */
@@ -395,11 +539,15 @@ function worktreeHomes(deps: CleanupDeps): WorktreeHome[] {
   return homes
 }
 
-/** The processes left behind in old worktrees, judged against a fresh listing. */
+/**
+ * The processes left behind in old worktrees, judged against a fresh listing. Only
+ * where each worktree is and how long it has been idle decide it — none of the git
+ * battery, which is why stopping processes never runs it.
+ */
 function orphanProcesses(
   deps: CleanupDeps,
   input: {
-    readonly trees: readonly JudgedWorktree[]
+    readonly trees: readonly AgedWorktree[]
     readonly procs: readonly ProcessFacts[]
     readonly cutoff: number
   }
@@ -408,9 +556,9 @@ function orphanProcesses(
     processes: input.procs,
     worktrees: input.trees.map((w) => ({
       path: w.path,
-      repoName: w.repoName,
-      branch: w.branch,
-      isMain: w.blocks.includes('main'),
+      repoName: basename(w.root),
+      branch: w.entry.branch,
+      isMain: w.isMain,
       stale: isStale(w.lastActivity, input.cutoff),
       missing: w.missing
     })),
@@ -429,11 +577,10 @@ function orphanProcesses(
  */
 function worktreeForCwd(
   trees: readonly JudgedWorktree[],
-  cwd: string | null,
+  here: string | null,
   cutoff: number
 ): JudgedWorktree | null {
-  if (!cwd) return null
-  const here = realish(cwd)
+  if (!here) return null
   for (const w of trees) {
     if (w.blocks.length > 0 || w.missing) continue
     if (!isStale(w.lastActivity, cutoff)) continue
@@ -453,28 +600,69 @@ export async function scanCleanup(deps: CleanupDeps, staleDays: number): Promise
   return (await surveyCleanup(deps, staleDays)).report
 }
 
-export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promise<CleanupSurvey> {
+/**
+ * Surveys in flight, by what makes two asks the same question: the same Cockpit (its
+ * roots and pid) and the same threshold. The view's scan and the daily reminder can
+ * land together, and a second full survey beside the first doubles every git, lsof and
+ * du for the same answer.
+ */
+const surveys = new Map<string, Promise<CleanupSurvey>>()
+
+/**
+ * A cleanup action that, once it ends, forgets every survey still in flight: begun
+ * before the end, one may show what the action has just removed — and the view
+ * rescans the moment an action returns.
+ */
+function retiringSurveys<A extends readonly unknown[], R>(
+  action: (...args: A) => Promise<R>
+): (...args: A) => Promise<R> {
+  return async (...args) => {
+    try {
+      return await action(...args)
+    } finally {
+      surveys.clear()
+    }
+  }
+}
+
+/** One survey at a time per question: a second ask while one runs gets that one's answer. */
+export function surveyCleanup(deps: CleanupDeps, staleDays: number): Promise<CleanupSurvey> {
   const days = clampStaleDays(staleDays)
+  const key = [deps.cockpitWorktreeRoot, deps.roundtableRoot, deps.selfPid, days].join('\0')
+  const running = surveys.get(key)
+  if (running) return running
+  const survey = runSurvey(deps, days).finally(() => {
+    if (surveys.get(key) === survey) surveys.delete(key)
+  })
+  surveys.set(key, survey)
+  return survey
+}
+
+async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey> {
   const scannedAt = Date.now()
   const cutoff = staleCutoff(days, scannedAt)
   const all = deps.sessions()
   const busy = deps.busyIds()
+  const resolve = resolvedOnce(realish)
+  const groups = sessionsByCwd(all, resolve)
 
-  const { procs } = await processSnapshot(deps)
-  const judged = await judgeWorktrees(deps, procs)
-  const linked = judged.filter((w) => !w.blocks.includes('main'))
-  const staleTrees = linked
-    .filter((w) => isStale(w.lastActivity, cutoff))
-    .sort((a, b) => a.lastActivity - b.lastActivity)
+  const [{ procs }, listed] = await Promise.all([processSnapshot(deps), listWorktrees(deps, resolve)])
+  // how long each has been idle comes first, and cheaply: only a stale worktree is
+  // ever shown, so only those go on to the git battery
+  const aged = await mapLimit(listed, (w) => ageWorktree(w, { groups, cutoff }), GIT_PARALLEL)
+  const linked = aged.filter((w) => !w.isMain)
+  const ctx = inspectContext(deps, { resolve, sessions: all, busy, listed, procs })
+  const cockpitRoot = resolve(deps.cockpitWorktreeRoot)
+  const staleTrees = (
+    await mapLimit(
+      linked.filter((w) => isStale(w.lastActivity, cutoff)),
+      (w) => judgeWorktree(w, ctx, cockpitRoot),
+      GIT_PARALLEL
+    )
+  ).sort((a, b) => a.lastActivity - b.lastActivity)
   // only stale worktrees are sized: walking every checkout in every repo would
   // cost far more than the answer is worth
-  const sizes = new Map<string, number | null>(
-    await Promise.all(
-      staleTrees.map(
-        async (w) => [w.path, w.missing ? 0 : await measureDir(w.path)] as [string, number | null]
-      )
-    )
-  )
+  const sizes = await sizeWorktrees(staleTrees)
 
   const staleMetas = all
     .filter((s) => isStale(s.updatedAt, cutoff))
@@ -483,7 +671,7 @@ export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promi
   let n = 0
   for (const s of staleMetas) {
     if (++n % YIELD_EVERY === 0) await yieldToLoop()
-    const w = worktreeForCwd(staleTrees, s.cwd, cutoff)
+    const w = worktreeForCwd(staleTrees, s.cwd ? resolve(s.cwd) : null, cutoff)
     sessions.push({
       id: s.id,
       provider: s.provider,
@@ -517,7 +705,7 @@ export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promi
     const mine = seats.filter((s) => s.roundtableId === t.id)
     const dirBytes = (await measureDir(t.cwd)) ?? null
     const logBytes = mine.reduce((n, s) => n + sessionBytes(s), 0)
-    const w = staleTrees.find((tree) => tree.path === realish(t.cwd))
+    const w = staleTrees.find((tree) => tree.path === resolve(t.cwd))
     staleTables.push({
       id: t.id,
       title: t.title,
@@ -546,7 +734,7 @@ export async function surveyCleanup(deps: CleanupDeps, staleDays: number): Promi
     .slice(0, CLEANUP_ROW_CAP)
     .map(({ repoRootForGit: _drop, ...w }) => ({ ...w, bytes: sizes.get(w.path) ?? null }))
 
-  const left = orphanProcesses(deps, { trees: judged, procs, cutoff })
+  const left = orphanProcesses(deps, { trees: aged, procs, cutoff })
   const processes: OrphanProcess[] = left
     .slice(0, CLEANUP_ROW_CAP)
     .map(({ ppid: _ppid, ...p }) => p)
@@ -598,6 +786,16 @@ function audit(line: string): void {
 }
 
 /**
+ * `git branch -d`, never -D: git's own merged check is the safety net for the commits
+ * worktree removal deliberately leaves behind. The name is read from git, and a ref
+ * made with plumbing can start with `-` — after `--` it can only ever be a name, never
+ * `-D` or `--force`.
+ */
+async function deleteMergedBranch(repoRoot: string, branch: string): Promise<boolean> {
+  return (await execText('git', ['-C', repoRoot, 'branch', '-d', '--', branch])).ok
+}
+
+/**
  * Delete the provider's own log files for these sessions, and the worktrees they
  * ran in. A session and its checkout are one piece of work — cleaning the log but
  * leaving a 400MB abandoned worktree behind is not a cleanup.
@@ -613,7 +811,7 @@ function audit(line: string): void {
  * it is stale and unblocked, which is exactly the set the scan showed attached to
  * these rows. The listing is re-derived here rather than trusted from the scan.
  */
-export async function deleteSessions(
+export const deleteSessions = retiringSurveys(async function deleteSessions(
   deps: CleanupDeps,
   ids: readonly string[],
   staleDays: number
@@ -629,7 +827,11 @@ export async function deleteSessions(
   let freedBytes = 0
   const cutoff = staleCutoff(staleDays, Date.now())
 
+  let n = 0
   for (const raw of ids) {
+    // a selection can run to thousands of logs, each a synchronous rm — IPC must not
+    // wait on all of them
+    if (++n % YIELD_EVERY === 0) await yieldToLoop()
     const id = String(raw)
     const meta = byId.get(id)
     if (!meta) {
@@ -672,45 +874,84 @@ export async function deleteSessions(
   }
 
   if (deleted.size > 0) {
-    const snapshot = await processSnapshot(deps)
-    for (const w of await judgeWorktrees(deps, snapshot.procs)) {
-      if (w.blocks.length > 0 || w.missing) continue
-      if (!isStale(w.lastActivity, cutoff)) continue
-      const inside = all.filter((s) => s.cwd && isUnder(realish(s.cwd), w.path))
-      // no session of its own is not this action's business — that is an orphan,
-      // and orphans are cleaned from the worktrees list, deliberately by hand
-      if (inside.length === 0) continue
-      if (!inside.every((s) => deleted.has(s.id))) continue
-      if (!snapshot.complete) {
-        failed.push({ target: w.path, reason: UNCHECKED })
-        continue
-      }
-      const bytes = (await measureDir(w.path)) ?? 0
-      const removed = await execText(
-        'git',
-        ['-C', w.repoRootForGit, 'worktree', 'remove', w.path],
-        { timeoutMs: 60_000 }
-      )
-      if (!removed.ok) {
-        failed.push({
-          target: w.path,
-          reason: removed.stderr.trim() || 'git refused to remove the worktree'
-        })
-        continue
-      }
-      freedBytes += bytes
-      audit(`removed worktree ${w.path} (${bytes} bytes)`)
-      if (w.branch) {
-        const gone = await execText('git', ['-C', w.repoRootForGit, 'branch', '-d', w.branch])
-        if (gone.ok) {
-          branchesDeleted.push(w.branch)
-          audit(`deleted branch ${w.branch} in ${w.repoRootForGit}`)
-        }
-      }
-    }
+    const cascade = await takeWorktreesWith(deps, { sessions: all, deleted, cutoff })
+    freedBytes += cascade.freedBytes
+    failed.push(...cascade.failed)
+    branchesDeleted.push(...cascade.branchesDeleted)
   }
 
   return { cleaned, freedBytes, failed, branchesDeleted, deletedIds: [...deleted] }
+})
+
+/**
+ * The worktrees going with `deleted`: each only when every session indexed in it is
+ * among them, and only when it is stale and unblocked. The cheap test runs first, so
+ * the process table and the git battery are read only for the worktrees that pass it —
+ * usually a handful, often none.
+ */
+async function takeWorktreesWith(
+  deps: CleanupDeps,
+  input: {
+    /** Every session indexed before the deletion, the deleted ones included */
+    readonly sessions: readonly SessionMeta[]
+    readonly deleted: ReadonlySet<string>
+    readonly cutoff: number
+  }
+): Promise<{
+  readonly freedBytes: number
+  readonly failed: readonly { readonly target: string; readonly reason: string }[]
+  readonly branchesDeleted: readonly string[]
+}> {
+  const resolve = resolvedOnce(realish)
+  const groups = sessionsByCwd(input.sessions, resolve)
+  const listed = await listWorktrees(deps, resolve)
+  const going = listed.filter((w) => {
+    if (w.isMain || w.missing) return false
+    const inside = sessionsUnder(groups, w.path).ids
+    // no session of its own is not this action's business — that is an orphan,
+    // and orphans are cleaned from the worktrees list, deliberately by hand
+    return inside.length > 0 && inside.every((id) => input.deleted.has(id))
+  })
+  const failed: { target: string; reason: string }[] = []
+  const branchesDeleted: string[] = []
+  let freedBytes = 0
+  if (going.length === 0) return { freedBytes, failed, branchesDeleted }
+  const snapshot = await processSnapshot(deps)
+  const ctx = inspectContext(deps, {
+    resolve,
+    sessions: input.sessions,
+    busy: deps.busyIds(),
+    listed,
+    procs: snapshot.procs
+  })
+  for (const listedTree of going) {
+    const w = await ageWorktree(listedTree, { groups, cutoff: input.cutoff })
+    if (!isStale(w.lastActivity, input.cutoff)) continue
+    if ((await inspectWorktree(w, ctx)).blocks.length > 0) continue
+    if (!snapshot.complete) {
+      failed.push({ target: w.path, reason: UNCHECKED })
+      continue
+    }
+    const bytes = (await measureDir(w.path)) ?? 0
+    const removed = await execText('git', ['-C', w.root, 'worktree', 'remove', w.path], {
+      timeoutMs: 60_000
+    })
+    if (!removed.ok) {
+      failed.push({
+        target: w.path,
+        reason: removed.stderr.trim() || 'git refused to remove the worktree'
+      })
+      continue
+    }
+    freedBytes += bytes
+    audit(`removed worktree ${w.path} (${bytes} bytes)`)
+    const branch = w.entry.branch
+    if (branch && (await deleteMergedBranch(w.root, branch))) {
+      branchesDeleted.push(branch)
+      audit(`deleted branch ${branch} in ${w.root}`)
+    }
+  }
+  return { freedBytes, failed, branchesDeleted }
 }
 
 /**
@@ -723,7 +964,7 @@ export async function deleteSessions(
  * give up (never --force). A table's room is only ever removed *with* its table,
  * which is why the worktrees list keeps refusing it on its own.
  */
-export async function deleteRoundtables(
+export const deleteRoundtables = retiringSurveys(async function deleteRoundtables(
   deps: CleanupDeps,
   ids: readonly string[],
   staleDays: number
@@ -762,8 +1003,7 @@ export async function deleteRoundtables(
     // record and its worktree — with transcripts its seats can no longer resume.
     const room = realish(t.cwd)
     if (t.repoRoot && existsSync(room)) {
-      const status = await git(room, ['status', '--porcelain'])
-      if (status === null || status.trim() !== '') {
+      if (isDirty(await gitRead(room, ['status', '--porcelain']))) {
         failed.push({ target: name, reason: 'its worktree has uncommitted changes' })
         continue
       }
@@ -814,12 +1054,9 @@ export async function deleteRoundtables(
       }
       freedBytes += bytes
       audit(`removed table worktree ${dir} (${bytes} bytes)`)
-      if (t.branch) {
-        const gone = await execText('git', ['-C', t.repoRoot, 'branch', '-d', t.branch])
-        if (gone.ok) {
-          branchesDeleted.push(t.branch)
-          audit(`deleted branch ${t.branch} in ${t.repoRoot}`)
-        }
+      if (t.branch && (await deleteMergedBranch(t.repoRoot, t.branch))) {
+        branchesDeleted.push(t.branch)
+        audit(`deleted branch ${t.branch} in ${t.repoRoot}`)
       }
     } else {
       // a scratch room: main derived the path, and it must still sit under the root
@@ -851,33 +1088,74 @@ export async function deleteRoundtables(
   }
 
   return { cleaned, freedBytes, failed, branchesDeleted, deletedIds }
+})
+
+/**
+ * The registration `repoRoot` holds at `path` (resolved), whether or not its directory
+ * is still there; undefined when git could not list its worktrees at all.
+ */
+async function registrationAt(repoRoot: string, path: string): Promise<WorktreeEntry | null | undefined> {
+  const listing = await gitRead(repoRoot, ['worktree', 'list', '--porcelain'])
+  if (listing === null) return undefined
+  return parseWorktreeList(listing).find((e) => realish(e.path) === path) ?? null
+}
+
+/**
+ * Clear the registration of one worktree whose directory is gone — that one alone.
+ * `git worktree prune` would drop every registration whose directory is missing, a
+ * worktree on a drive that is only unmounted among them, picked or not. Only a
+ * registration git itself calls prunable, and nothing has locked, is asked for; the
+ * listing is read again afterwards, because one still there is a failure whatever
+ * git's exit status said. Resolves with why it was kept, or null once it is gone.
+ */
+async function dropRegistration(repoRoot: string, path: string): Promise<string | null> {
+  const held = await registrationAt(repoRoot, path)
+  if (held === null) return null
+  if (held === undefined) return 'git could not list the repository’s worktrees — try again'
+  if (held.locked) return blockReason(['locked'])
+  if (!held.prunable || existsSync(path)) return 'git still sees its directory — rescan'
+  const removed = await execText('git', ['-C', repoRoot, 'worktree', 'remove', held.path], {
+    timeoutMs: 60_000
+  })
+  if ((await registrationAt(repoRoot, path)) === null) return null
+  return removed.stderr.trim() || 'git kept the worktree’s registration'
 }
 
 /**
  * `git worktree remove` each path, then drop the branch when git says it is fully
  * merged. Deliberately never passes --force: the listing is re-derived here, and a
  * worktree that has picked up a block since the scan is refused rather than forced.
+ * Only the picked worktrees are inspected, each just before it goes.
  */
-export async function removeWorktrees(
+export const removeWorktrees = retiringSurveys(async function removeWorktrees(
   deps: CleanupDeps,
   paths: readonly string[]
 ): Promise<CleanupResult> {
+  const resolve = resolvedOnce(realish)
   const snapshot = await processSnapshot(deps)
-  const judged = new Map((await judgeWorktrees(deps, snapshot.procs)).map((w) => [w.path, w]))
+  const listed = await listWorktrees(deps, resolve)
+  const byPath = new Map(listed.map((w) => [w.path, w]))
+  const ctx = inspectContext(deps, {
+    resolve,
+    sessions: deps.sessions(),
+    busy: deps.busyIds(),
+    listed,
+    procs: snapshot.procs
+  })
   const failed: { target: string; reason: string }[] = []
   const branchesDeleted: string[] = []
-  const pruned = new Set<string>()
   let cleaned = 0
   let freedBytes = 0
-  for (const raw of paths) {
-    const path = realish(String(raw))
-    const w = judged.get(path)
+  // a path picked twice is one worktree: the second ask would only meet it gone
+  for (const path of new Set(paths.map((raw) => resolve(String(raw))))) {
+    const w = byPath.get(path)
     if (!w) {
       failed.push({ target: path, reason: 'not a worktree of any known repository' })
       continue
     }
-    if (w.blocks.length > 0) {
-      failed.push({ target: path, reason: blockReason(w.blocks) })
+    const { blocks } = await inspectWorktree(w, ctx)
+    if (blocks.length > 0) {
+      failed.push({ target: path, reason: blockReason(blocks) })
       continue
     }
     if (!w.missing && !snapshot.complete) {
@@ -886,16 +1164,17 @@ export async function removeWorktrees(
     }
     if (w.missing) {
       // nothing on disk: the registration is the only thing left to clear
-      if (!pruned.has(w.repoRootForGit)) {
-        await git(w.repoRootForGit, ['worktree', 'prune'])
-        pruned.add(w.repoRootForGit)
+      const kept = await dropRegistration(w.root, path)
+      if (kept) {
+        failed.push({ target: path, reason: kept })
+        continue
       }
-      audit(`pruned missing worktree ${path} from ${w.repoRootForGit}`)
+      audit(`cleared the registration of missing worktree ${path} from ${w.root}`)
       cleaned++
       continue
     }
     const bytes = (await measureDir(path)) ?? 0
-    const removed = await execText('git', ['-C', w.repoRootForGit, 'worktree', 'remove', path], {
+    const removed = await execText('git', ['-C', w.root, 'worktree', 'remove', path], {
       timeoutMs: 60_000
     })
     if (!removed.ok) {
@@ -905,18 +1184,14 @@ export async function removeWorktrees(
     cleaned++
     freedBytes += bytes
     audit(`removed worktree ${path} (${bytes} bytes)`)
-    // -d, never -D: git's own merged check is the safety net for the commits that
-    // worktree removal deliberately left behind
-    if (w.branch) {
-      const gone = await execText('git', ['-C', w.repoRootForGit, 'branch', '-d', w.branch])
-      if (gone.ok) {
-        branchesDeleted.push(w.branch)
-        audit(`deleted branch ${w.branch} in ${w.repoRootForGit}`)
-      }
+    const branch = w.entry.branch
+    if (branch && (await deleteMergedBranch(w.root, branch))) {
+      branchesDeleted.push(branch)
+      audit(`deleted branch ${branch} in ${w.root}`)
     }
   }
   return { cleaned, freedBytes, failed, branchesDeleted }
-}
+})
 
 /** The first block is the one worth showing — they are ordered by weight. */
 function blockReason(blocks: readonly CleanupBlock[]): string {
@@ -941,22 +1216,24 @@ function blockReason(blocks: readonly CleanupBlock[]): string {
  * started at the same moment. Never SIGKILL: a process that ignores the polite
  * signal is reported, not forced.
  */
-export async function stopProcesses(
+export const stopProcesses = retiringSurveys(async function stopProcesses(
   deps: CleanupDeps,
   targets: readonly ProcessTarget[],
   staleDays: number
 ): Promise<CleanupResult> {
-  // the worktree walk first — it takes seconds — so the process table is read as
-  // close to the signal as it can be. Worktree blocks play no part in which
-  // processes are left behind, so the walk needs no process list of its own.
-  const trees = await judgeWorktrees(deps, [])
-  const { procs } = await processSnapshot(deps)
-  const orphans = new Map(
-    orphanProcesses(deps, { trees, procs, cutoff: staleCutoff(staleDays, Date.now()) }).map((p) => [
-      p.pid,
-      p
-    ])
+  // the worktree walk first, so the process table is read as close to the signal as
+  // it can be. Which processes are left behind turns on each worktree's place and
+  // age alone, so the walk is the listing and the ages — none of the git battery.
+  const resolve = resolvedOnce(realish)
+  const cutoff = staleCutoff(staleDays, Date.now())
+  const groups = sessionsByCwd(deps.sessions(), resolve)
+  const trees = await mapLimit(
+    await listWorktrees(deps, resolve),
+    (w) => ageWorktree(w, { groups, cutoff }),
+    GIT_PARALLEL
   )
+  const { procs } = await processSnapshot(deps)
+  const orphans = new Map(orphanProcesses(deps, { trees, procs, cutoff }).map((p) => [p.pid, p]))
   const failed: { target: string; reason: string }[] = []
   const signalled: JudgedProcess[] = []
   const picked = new Map(targets.map((t) => [t.pid, t]))
@@ -991,7 +1268,7 @@ export async function stopProcesses(
     failed.push({ target: label(p), reason: 'still running — it did not exit on SIGTERM' })
   }
   return { cleaned: signalled.length - alive.length, freedBytes: 0, failed }
-}
+})
 
 function isAlive(pid: number): boolean {
   try {

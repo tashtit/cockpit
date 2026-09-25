@@ -1,7 +1,7 @@
 import { opendirSync, type Dir } from 'node:fs'
 import { dirname } from 'node:path'
 import type { AttentionAsk, BusySession, Provider, SessionMeta } from '../shared/types'
-import { TRANSCRIPT_TAIL_BYTES, parseJsonlText, readTail } from './parsers/util'
+import { TRANSCRIPT_TAIL_BYTES, judgeJsonlTail } from './parsers/util'
 import {
   IDLE,
   copilotLockPids,
@@ -61,16 +61,10 @@ const SWEEP_MS = 10_000
 export function readTurnState(file: string, provider: Provider): TurnVerdict | null {
   // copilot's legacy JSON snapshots never stream a turn
   if (provider === 'copilot' && !file.endsWith('events.jsonl')) return IDLE
-  for (const bytes of LIVE_TAIL_STEPS) {
-    const tail = readTail(file, bytes)
-    if (!tail.text) return IDLE
-    // a truncated tail opens mid-record — drop the partial line
-    const text = tail.truncated ? tail.text.slice(tail.text.indexOf('\n') + 1) : tail.text
-    const verdict = judgeTail(provider, parseJsonlText(text, false))
-    if (verdict) return verdict
-    if (!tail.truncated) return null // that was the whole file
-  }
-  return null
+  // each wider window reads only what the narrower one did not: a buried record used
+  // to cost the 64KB, the 1MB and the 4MB read and parsed over again, one after another
+  const tail = judgeJsonlTail(file, LIVE_TAIL_STEPS, (records) => judgeTail(provider, records))
+  return tail.empty ? IDLE : tail.found
 }
 
 /**
@@ -192,7 +186,7 @@ export class LivenessTracker {
     // an older page of a Codex thread shares the live page's id: nothing it says is news
     if (prev && file !== prev.file && written <= prev.lastWriteAt) return
     // The gate is for arrivals. The indexer also re-reads a log that has not changed,
-    // when a file beside it did (Codex's name index, whenever another session starts;
+    // when a file beside it did (Codex's name index, when that thread is named;
     // Copilot's workspace.yaml) — and at the 90s gate that re-read dropped a turn ten
     // minutes into a tool call: shown idle while it ran, its real ending never
     // announced. A running entry is kept by the rule the sweep keeps it by.

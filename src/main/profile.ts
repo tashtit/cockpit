@@ -24,7 +24,7 @@ import { claudeIdentity, codexIdentity, copilotUsers, ghUser } from './accounts'
 import { parseUnifiedDiff } from './parsers/artifacts'
 import { cellToolCalls } from './parsers/code-mode'
 import { toolItemFor, toolItemName, toolRecords } from './parsers/codex'
-import { contentToText, sessionLogFiles, toMs } from './parsers/util'
+import { contentToText, sessionLogFiles, timeSlicer, toMs } from './parsers/util'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals, built
@@ -60,8 +60,11 @@ const DEEP_READ_BYTES: Record<Provider, number> = {
 
 const DAY_MS = 86_400_000
 
-/** Deep pass hands the event loop back this often, so IPC never stalls behind it. */
-const YIELD_EVERY = 20
+/**
+ * Deep pass hands the event loop back after this much work, so IPC never stalls behind
+ * it — by time, since one session costs a cached lookup or a 2MB parse.
+ */
+const DEEP_SLICE_MS = 16
 
 /** Tallying counterparts of the readonly wire types (see buildProfile). */
 type MutableDay = Mutable<ActivityDay>
@@ -662,8 +665,8 @@ export type ProfileOptions = {
  *
  * Async because the deep pass reads every transcript: on a cold cache that is
  * seconds of IO, and this runs on the main process where a synchronous stall
- * would freeze the UI and every other IPC call. It yields between files (see
- * `YIELD_EVERY`), matching the indexer's own scan discipline.
+ * would freeze the UI and every other IPC call. It yields between files on a time
+ * budget (see `DEEP_SLICE_MS`), matching the indexer's own scan discipline.
  */
 export async function buildProfile(sessions: SessionMeta[], opts: ProfileOptions): Promise<ProfileStats> {
   if (opts.cacheFile) loadDeepCache(opts.cacheFile)
@@ -754,17 +757,14 @@ async function assemble(sessions: SessionMeta[], opts: ProfileOptions): Promise<
   const reads = new Map<Provider, number>()
   const byDay = new Map<string, MutableDay>()
   const hours = Array.from({ length: 24 }, (): Mutable<PromptTally> => ({ prompts: 0, byProvider: {} }))
-  let sinceYield = 0
+  const pace = timeSlicer(DEEP_SLICE_MS)
   for (const s of sessions) {
     const ts = s.startedAt || s.updatedAt
     attempts.set(s.provider, (attempts.get(s.provider) ?? 0) + 1)
     // a thread kept across several files counts every page of it
     const pages: (DeepStats | null)[] = []
     for (const f of sessionLogFiles(s)) pages.push(await deepForFile(f, s.provider))
-    if (++sinceYield >= YIELD_EVERY) {
-      sinceYield = 0
-      await new Promise<void>((r) => setImmediate(r))
-    }
+    await pace()
     const read = pages[pages.length - 1] !== null
     // The days it was worked in: the day it started, and every day it was sent a
     // prompt — a session resumed all week is a week of work, not one square.

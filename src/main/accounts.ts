@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AccountInfo, AccountsSnapshot, Provider, SourceDir } from '../shared/types'
 import { execText } from './env'
 import { parseJsonc, readJsoncFile } from './parsers/util'
+import { replaceFile } from './replace-file'
 
 /**
  * Who is each agent CLI signed in as?
@@ -84,7 +85,8 @@ export function setCopilotActiveUser(configDir: string, login: string): void {
   if (j.lastLoggedInUser?.login === login) return
   j.lastLoggedInUser = match
   const header = raw.match(/^(\s*\/\/.*\n)+/)?.[0] ?? ''
-  writeFileSync(path, header + JSON.stringify(j, null, 2) + '\n')
+  // the file holds every signed-in user: a write cut short would sign them all out
+  replaceFile(path, header + JSON.stringify(j, null, 2) + '\n')
 }
 
 let ghUserCache: { at: number; login: string | null } | null = null

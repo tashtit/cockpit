@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView, foldToolRuns } from '../../src/renderer/src/ChatView'
-import { setChatLog } from '../../src/renderer/src/chat-log'
+import { addChatMessage, refreshChatLog, setChatLog, streamChatText } from '../../src/renderer/src/chat-log'
+import { DiffLines } from '../../src/renderer/src/InstructionDiff'
+import type { DiffLine } from '../../src/shared/line-diff'
 import type { ChatBinding } from '../../src/renderer/src/chat-binding'
 import type { SessionMessage, WorkArtifact } from '../../src/shared/types'
 import { parseAsks } from '../../src/shared/asks'
@@ -389,5 +391,59 @@ describe('the Edits tab', () => {
     renderChat([call('Edit', edit('/tmp/wt/a.ts'))], { repoRoot: null })
     await userEvent.click(screen.getByRole('button', { name: /open in the Work panel/ }))
     expect(within(panel()).queryByRole('button', { name: 'Changes' })).not.toBeInTheDocument()
+  })
+})
+
+/** One change, then a long quiet stretch — the stretch folds behind a row. */
+const quiet = (path: string): WorkArtifact => ({
+  kind: 'edits',
+  files: [
+    {
+      path,
+      change: 'edit',
+      hunks: [
+        [
+          { op: 'add', text: 'import { limit } from "./limit"' },
+          ...Array.from({ length: 10 }, (_, i) => ({ op: 'same' as const, text: `line ${i}` }))
+        ]
+      ]
+    }
+  ]
+})
+
+describe('a fold the reader opened', () => {
+  it('stays open while the turn streams, a re-read lands and another edit arrives', async () => {
+    renderChat([user('fix it'), call('Edit', quiet('/tmp/wt/src/a.ts'), { ts: 1 })])
+    await userEvent.click(screen.getByRole('button', { name: /open in the Work panel/ }))
+    await userEvent.click(within(panel()).getByRole('button', { name: '8 unchanged lines' }))
+    expect(within(panel()).getByText('line 9')).toBeInTheDocument()
+    act(() => {
+      streamChatText('still working')
+      addChatMessage(call('Edit', quiet('/tmp/wt/src/b.ts'), { ts: 2 }))
+    })
+    // the log read from disk again: the same edit in a fresh object
+    act(() =>
+      refreshChatLog(
+        structuredClone([
+          user('fix it'),
+          call('Edit', quiet('/tmp/wt/src/a.ts'), { ts: 1 }),
+          say('still working'),
+          call('Edit', quiet('/tmp/wt/src/b.ts'), { ts: 2 })
+        ])
+      )
+    )
+    expect(within(panel()).getByText('src/b.ts')).toBeInTheDocument()
+    expect(within(panel()).getByText('line 9')).toBeInTheDocument()
+  })
+
+  it('closes when the lines change, not when the same lines come in a new array', async () => {
+    const lines: DiffLine[] = [{ op: 'add', text: 'new' }, ...Array.from({ length: 10 }, (_, i) => ({ op: 'same' as const, text: `line ${i}` }))]
+    const { rerender } = render(<DiffLines lines={lines} layout="unified" />)
+    await userEvent.click(screen.getByRole('button', { name: '8 unchanged lines' }))
+    rerender(<DiffLines lines={structuredClone(lines)} layout="unified" />)
+    expect(screen.getByText('line 9')).toBeInTheDocument()
+    rerender(<DiffLines lines={[{ op: 'add', text: 'newer' }, ...lines.slice(1)]} layout="unified" />)
+    expect(screen.queryByText('line 9')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '8 unchanged lines' })).toBeInTheDocument()
   })
 })

@@ -33,7 +33,9 @@ const RENDER_LAST = 200
 
 type LivePart =
   | { readonly kind: 'text'; readonly text: string }
-  | { readonly kind: 'tool'; readonly toolName: string; readonly detail: string; readonly preview?: string }
+  /** The call as the transcript row it renders as — built once, when it arrives, so the
+   *  memoized row is not handed a new message on every flush of the wave */
+  | { readonly kind: 'tool'; readonly m: SessionMessage }
 /** One seat's in-flight turn as the view sees it. */
 type LiveTurn = {
   /** What the seat has said and run so far, in the order it happened */
@@ -159,7 +161,10 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         clearPendingText(ev.seat)
         setLive((prev) => {
           const cur = withText(prev[ev.seat], said)
-          const tool: LivePart = { kind: 'tool', toolName: ev.toolName, detail: ev.detail, preview: ev.preview }
+          const tool: LivePart = {
+            kind: 'tool',
+            m: { role: 'assistant', kind: 'tool_call', toolName: ev.toolName, text: ev.detail, preview: ev.preview }
+          }
           return { ...prev, [ev.seat]: { ...cur, parts: [...cur.parts, tool] } }
         })
       } else if (ev.type === 'entry') {
@@ -464,14 +469,10 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                 ? joinNames(e.to.map((j) => uiSeatName(rt.participants, j)))
                 : undefined
             }
-            hint={
-              e.speaker !== 'user' && e.error && looksSignedOut(e.text)
-                ? {
-                    provider: e.speaker,
-                    configHome: rt.participants[entrySeatIndex(rt.participants, e)]?.configDir
-                  }
-                : undefined
-            }
+            // primitives, not an object: a fresh one per render broke the row's memo on
+            // every flush of the wave
+            signIn={e.speaker !== 'user' && e.error && looksSignedOut(e.text) ? e.speaker : undefined}
+            signInHome={e.error ? rt.participants[entrySeatIndex(rt.participants, e)]?.configDir : undefined}
           />
         ))}
         {/* the wave: one live block per seat currently streaming, in seat order */}
@@ -484,19 +485,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
               {/* parts only ever append, so an index is a stable key */}
               {turn.parts.map((part, i) =>
                 part.kind === 'tool' ? (
-                  <Message
-                    key={i}
-                    m={
-                      {
-                        role: 'assistant',
-                        kind: 'tool_call',
-                        toolName: part.toolName,
-                        text: part.detail,
-                        preview: part.preview
-                      } as SessionMessage
-                    }
-                    provider={seat.provider}
-                  />
+                  <Message key={i} m={part.m} provider={seat.provider} />
                 ) : (
                   <div key={i} className="msg msg-assistant streaming">
                     <span className={`avatar plogo-${seat.provider}`} aria-hidden="true">
@@ -918,15 +907,18 @@ function ConsensusOutcome({
 const EntryRow = memo(function EntryRow({
   e,
   label,
-  hint,
+  signIn,
+  signInHome,
   toNames
 }: {
   e: RoundtableEntry
   label: string
   /** A message to part of the table: whom it went to */
   toNames?: string
-  /** What fixes a failed turn, when the failure says (a lapsed sign-in) */
-  hint?: { readonly provider: Provider; readonly configHome?: string }
+  /** The agent to sign in again, when a failed turn says that is what fixes it */
+  signIn?: Provider
+  /** The seat's config home, for the sign-in command */
+  signInHome?: string
 }): JSX.Element {
   if (e.speaker === 'user') {
     return (
@@ -945,10 +937,10 @@ const EntryRow = memo(function EntryRow({
     return (
       <div className="sys-row">
         {`${label} turn failed: ${e.text}`}
-        {hint && (
+        {signIn && (
           <span className="rt-fail-hint">
             {' '}
-            <SignInFix provider={hint.provider} configHome={hint.configHome} />
+            <SignInFix provider={signIn} configHome={signInHome} />
           </span>
         )}
       </div>

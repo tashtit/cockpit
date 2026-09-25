@@ -61,8 +61,10 @@ function homebrewTurn(queue: string): string[] {
 /**
  * The `.command` script Terminal runs: a login shell (so Homebrew and npm are on PATH
  * as the person has them), what it is about to do, the command, and how it went.
- * `title` is Cockpit's own fixed wording, never renderer text. A line that runs Homebrew
- * is given `homebrewQueue`, the lock file every such script waits its turn on.
+ * `title` is Cockpit's own wording, but it can carry a config-home path, so it is
+ * printed as data: `print -P` would expand `%` escapes in it, and `$(…)` too
+ * wherever the person's zsh sets PROMPT_SUBST. A line that runs Homebrew is given
+ * `homebrewQueue`, the lock file every such script waits its turn on.
  */
 export function terminalScript(
   title: string,
@@ -72,7 +74,7 @@ export function terminalScript(
   return [
     '#!/bin/zsh -l',
     'cd ~',
-    `print -P ${shQuote(`%B${title}%b`)}`,
+    `printf '\\033[1m%s\\033[0m\\n' ${shQuote(title)}`,
     `print -r -- ${shQuote(`$ ${line}`)}`,
     'echo',
     ...(opts.homebrewQueue === undefined ? [] : homebrewTurn(opts.homebrewQueue)),

@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -306,9 +308,24 @@ function snapshotConfig(): string {
   const path = join(dir, `before-restore-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
   // raw bytes, not a re-serialization: the config holds plaintext MCP env values
   // and a snapshot that "cleaned" anything would not be an undo
-  if (existsSync(configFilePath())) copyFileSync(configFilePath(), path)
-  else writeFileSync(path, JSON.stringify({ sources: [] }, null, 2), { mode: 0o600 })
+  if (existsSync(configFilePath())) {
+    copyFileSync(configFilePath(), path)
+    chmodSync(path, 0o600)
+  } else writeFileSync(path, JSON.stringify({ sources: [] }, null, 2), { mode: 0o600 })
+  pruneSnapshots(dir)
   return path
+}
+
+/** Snapshots kept: each restore takes one, and only the latest backs the undo. */
+const SNAPSHOTS_KEPT = 10
+
+function pruneSnapshots(dir: string): void {
+  // the stamp in the name sorts as the time it was taken
+  const old = readdirSync(dir)
+    .filter((f) => /^before-restore-.+\.json$/.test(f))
+    .sort()
+    .slice(0, -SNAPSHOTS_KEPT)
+  for (const f of old) rmSync(join(dir, f), { force: true })
 }
 
 function writeSkill(name: string, repoRoot: string | null, files: SkillFiles): string {

@@ -1,5 +1,14 @@
 import { afterAll, describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
@@ -79,6 +88,21 @@ describe('setCopilotActiveUser', () => {
   })
   it('refuses a login that is not logged in', () => {
     expect(() => setCopilotActiveUser(join(root, 'copilot-x'), 'evil-user')).toThrow(/not logged in/)
+  })
+  // the file holds every signed-in user, so it is replaced whole rather than
+  // truncated and rewritten, and keeps the owner-only mode copilot gave it
+  it('replaces the file whole, keeping its mode', () => {
+    const dir = join(root, 'copilot-x')
+    const path = join(dir, 'config.json')
+    chmodSync(path, 0o600)
+    const other = copilotUsers(dir).active === 'work-user' ? 'personal-user' : 'work-user'
+    const before = statSync(path)
+    setCopilotActiveUser(dir, other)
+    const after = statSync(path)
+    expect(copilotUsers(dir).active).toBe(other)
+    expect(after.ino).not.toBe(before.ino)
+    expect(after.mode & 0o777).toBe(0o600)
+    expect(readdirSync(dir)).toEqual(['config.json'])
   })
 })
 

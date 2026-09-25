@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { absolutePath, buildWork, checkSummary, fileChange, followUpSummary, hasWork, needsLook, planTitle, sharedSummary, tabFor, todoSummary } from '../src/shared/work'
+import { absolutePath, buildWork, checkSummary, fileChange, followUpSummary, needsLook, planTitle, sharedSummary, tabFor, todoSummary } from '../src/shared/work'
 import type { CheckKind, FileEdit, SessionMessage, WorkArtifact } from '../src/shared/types'
 
 const call = (toolName: string, artifact: WorkArtifact, extra: Partial<SessionMessage> = {}): SessionMessage => ({
@@ -145,13 +145,6 @@ describe('buildWork: edits', () => {
     expect(absolutePath('a.ts', '/r/')).toBe('/r/a.ts')
     expect(absolutePath('/abs/a.ts', '/r')).toBe('/abs/a.ts')
     expect(absolutePath('a.ts')).toBe('a.ts')
-  })
-})
-
-describe('hasWork', () => {
-  it('asks whether any call carries something for the panel', () => {
-    expect(hasWork([say('hi'), { role: 'assistant', kind: 'tool_call', toolName: 'Bash', text: 'ls' }])).toBe(false)
-    expect(hasWork([call('TodoWrite', { kind: 'todos', items: [] })])).toBe(true)
   })
 })
 

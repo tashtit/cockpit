@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   DiffFile,
   DiffHunk,
@@ -86,7 +86,12 @@ export function formatNotes(
   return out.join('\n').trimEnd()
 }
 
-export function ReviewPanel({
+/**
+ * Memoized, with every handler it passes down stable: it sits under the chat, which
+ * renders on every stream flush and every keystroke in the composer, and a diff is up
+ * to 20,000 lines — each of those renders used to redraw all of them.
+ */
+export const ReviewPanel = memo(function ReviewPanel({
   cwd,
   provider,
   busy,
@@ -116,7 +121,7 @@ export function ReviewPanel({
   const [editing, setEditing] = useState<string | null>(null)
   const layout = useDiffLayout()
   const agent = PROVIDER_LABEL[provider]
-  const openUrl = onOpenUrl ?? ((url: string) => void api.openExternal(url))
+  const openUrl = useMemo(() => onOpenUrl ?? ((url: string) => void api.openExternal(url)), [onOpenUrl])
 
   // the open PR's side of the review — read on demand, never polled
   const openPr = pr && pr.state === 'OPEN' && repoRoot ? pr : undefined
@@ -220,15 +225,17 @@ export function ReviewPanel({
     }
   }
 
-  const keep = (note: ReviewNote): void => {
-    setNotes(new Map(notes).set(noteKey(note.path, note.line), note))
+  const keep = useCallback((note: ReviewNote): void => {
+    setNotes((m) => new Map(m).set(noteKey(note.path, note.line), note))
     setEditing(null)
-  }
-  const drop = (key: string): void => {
-    const next = new Map(notes)
-    next.delete(key)
-    setNotes(next)
-  }
+  }, [])
+  const drop = useCallback((key: string): void => {
+    setNotes((m) => {
+      const next = new Map(m)
+      next.delete(key)
+      return next
+    })
+  }, [])
   const send = (): void => {
     if (!onCompose || !diff || notes.size === 0) return
     onCompose(formatNotes([...notes.values()], diff))
@@ -328,7 +335,7 @@ export function ReviewPanel({
       )}
     </section>
   )
-}
+})
 
 function Summary({ diff }: { diff: WorkspaceDiff }): JSX.Element {
   const n = diff.files.length
@@ -444,7 +451,7 @@ function useNoteRoving(): {
   }
 }
 
-function FileBlock({ file, layout, ...line }: LineProps & { layout: DiffLayout }): JSX.Element {
+const FileBlock = memo(function FileBlock({ file, layout, ...line }: LineProps & { layout: DiffLayout }): JSX.Element {
   const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path
   const kind = file.untracked ? 'untracked' : file.status
   const threadCount = shownThreads(file, line.threads)
@@ -476,9 +483,9 @@ function FileBlock({ file, layout, ...line }: LineProps & { layout: DiffLayout }
       )}
     </details>
   )
-}
+})
 
-function Hunk({ hunk, layout, ...line }: LineProps & { hunk: DiffHunk; layout: DiffLayout }): JSX.Element {
+const Hunk = memo(function Hunk({ hunk, layout, ...line }: LineProps & { hunk: DiffHunk; layout: DiffLayout }): JSX.Element {
   const range = `@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@`
   return (
     <>
@@ -493,7 +500,7 @@ function Hunk({ hunk, layout, ...line }: LineProps & { hunk: DiffHunk; layout: D
         : hunk.lines.map((l, k) => <LineRow key={k} line={l} {...line} />)}
     </>
   )
-}
+})
 
 /** Side by side: the n-th removed line across from the n-th added one, as the instructions diff does. */
 export function pairLines(lines: readonly DiffHunkLine[]): Array<[DiffHunkLine | null, DiffHunkLine | null]> {
@@ -546,7 +553,7 @@ function PairRow({ left, right, ...line }: LineProps & { left: DiffHunkLine | nu
   )
 }
 
-function LineRow({ line: l, ...line }: LineProps & { line: DiffHunkLine }): JSX.Element {
+const LineRow = memo(function LineRow({ line: l, ...line }: LineProps & { line: DiffHunkLine }): JSX.Element {
   return (
     <>
       <Line line={l} side="both" addressable {...line} />
@@ -556,9 +563,9 @@ function LineRow({ line: l, ...line }: LineProps & { line: DiffHunkLine }): JSX.
       ))}
     </>
   )
-}
+})
 
-function Line({
+const Line = memo(function Line({
   line: l,
   side,
   addressable,
@@ -606,7 +613,7 @@ function Line({
       {notes.has(key) && <span className="sr-only"> (has a note)</span>}
     </div>
   )
-}
+})
 
 /** A reviewer's unresolved thread under its line: their words, not the user's — read-only here. */
 function ThreadRow({ thread, onOpenUrl }: { thread: PrReviewThread; onOpenUrl: (url: string) => void }): JSX.Element {

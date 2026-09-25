@@ -1,8 +1,19 @@
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { RepoInfo } from '../shared/types'
+import { MAX_CWD_CHARS, readHead, readSmallFile } from './parsers/util'
 
 export const GENERAL_REPO: RepoInfo = { key: 'general', name: 'General', fullName: null, root: null }
+
+/**
+ * Bounds on the git files read per checkout. Every cwd a log names is walked, so these
+ * are someone else's files: each read goes through the regular-file-only readers, and a
+ * pointer or HEAD past its bound is not one. A config is read from the top — `origin`
+ * sits near it, and branch sections can make the rest arbitrarily long.
+ */
+const GIT_POINTER_BYTES = 8 * 1024
+const GIT_HEAD_BYTES = 4 * 1024
+const GIT_CONFIG_HEAD_BYTES = 1024 * 1024
 
 export type ResolvedRepo = {
   readonly repo: RepoInfo
@@ -29,6 +40,9 @@ export function clearRepoCache(): void {
  */
 export function resolveRepo(cwd: string | null): ResolvedRepo | null {
   if (typeof cwd !== 'string' || !cwd.startsWith('/')) return null
+  // the walk below stats every ancestor, each nearly as long as the path — quadratic
+  // in its length — so a path no directory can have is refused before it starts
+  if (cwd.length > MAX_CWD_CHARS) return null
   const cached = cwdCache.get(cwd)
   if (cached !== undefined) return cached
   const res = resolveUncached(resolve(cwd))
@@ -60,7 +74,7 @@ function fromGitPath(workRoot: string, gitPath: string): ResolvedRepo | null {
       }
     }
     // .git file: "gitdir: /path/to/main/.git/worktrees/<name>"
-    const pointer = parseGitdirPointer(readFileSync(gitPath, 'utf8'))
+    const pointer = parseGitdirPointer(readSmallFile(gitPath, GIT_POINTER_BYTES) ?? '')
     if (!pointer) return null
     const gitdir = resolve(dirname(gitPath), pointer)
     const wt = gitdir.match(/^(.*)\/\.git\/worktrees\/[^/]+$/)
@@ -113,11 +127,8 @@ export function branchFromHead(headContents: string): string | null {
 export function branchForCwd(cwd: string | null): string | null {
   const res = resolveRepo(cwd)
   if (!res) return null
-  try {
-    return branchFromHead(readFileSync(join(res.gitDir, 'HEAD'), 'utf8'))
-  } catch {
-    return null
-  }
+  const head = readSmallFile(join(res.gitDir, 'HEAD'), GIT_HEAD_BYTES)
+  return head === null ? null : branchFromHead(head)
 }
 
 function repoInfoFor(root: string, configPath: string): RepoInfo {
@@ -135,12 +146,8 @@ function repoInfoFor(root: string, configPath: string): RepoInfo {
 
 /** Parse owner/repo out of the [remote "origin"] url in a git config file. */
 export function parseOriginFullName(configPath: string): string | null {
-  let raw: string
-  try {
-    raw = readFileSync(configPath, 'utf8')
-  } catch {
-    return null
-  }
+  const raw = readHead(configPath, GIT_CONFIG_HEAD_BYTES).text
+  if (!raw) return null
   const section = raw.match(/\[remote "origin"\]([^[]*)/)
   const url = section?.[1].match(/^\s*url\s*=\s*(.+)\s*$/m)?.[1].trim()
   if (!url) return null

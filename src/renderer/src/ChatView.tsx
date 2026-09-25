@@ -1,13 +1,13 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
 import { api } from './api'
 import { AskPicker } from './AskPicker'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
-import { announceChat, useChatLog, useChatStatus } from './chat-log'
+import { announceChat, useChatKeys, useChatLog, useChatStatus } from './chat-log'
 import { Markdown } from './Markdown'
-import { MODES } from './NewSession'
+import { MODES, savedMode } from './NewSession'
 import { cwdLabel } from '../../shared/library'
 import { BranchChip, CockpitLogo, DiffIcon, HandoffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL, WorkIcon } from './logos'
 import { DiffStat } from './InstructionDiff'
@@ -15,7 +15,7 @@ import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
 import { findAnchor } from './transcript-anchor'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
-import { artifactStat, buildWork, hasWork, planTitle, tabFor, type WorkModel, type WorkTab } from '../../shared/work'
+import { artifactStat, buildWork, planTitle, tabFor, type WorkModel, type WorkTab } from '../../shared/work'
 import { WorkPanel, type WorkFocus } from './WorkPanel'
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too — the
@@ -67,12 +67,11 @@ export function ChatView({
   // the transcript is the app's hottest state and this is its only reader —
   // subscribing here keeps a streaming turn out of every other view (chat-log.ts)
   const log = useChatLog()
+  const keys = useChatKeys()
   const announced = useChatStatus()
   const [draft, setDraft] = useState('')
   const atts = useImageAttachments()
-  const [mode, setMode] = useState<PermissionMode>(
-    () => (window.localStorage.getItem('cockpit:mode') as PermissionMode) ?? 'auto-edit'
-  )
+  const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [cwdCopied, setCwdCopied] = useState(false)
   /** Review mode: the worktree's changes take the transcript's place */
   const [review, setReview] = useState(false)
@@ -117,8 +116,8 @@ export function ChatView({
     const idx = findAnchor(log, anchor)
     if (idx < 0) return
     raise(log.length - idx + ANCHOR_CONTEXT)
-    setAnchoredKey(idx)
-  }, [anchor, log, raise])
+    setAnchoredKey(keys[idx] ?? null)
+  }, [anchor, log, keys, raise])
   useLayoutEffect(() => {
     if (anchoredKey === null || scrolledKey.current === anchoredKey) return
     const el = scrollRef.current?.querySelector<HTMLElement>(`[data-log-key="${anchoredKey}"]`)
@@ -166,9 +165,28 @@ export function ChatView({
   }, [binding?.cwd])
 
   // the Work panel is offered once the transcript holds something to put in it — a
-  // plan, a to-do list, an edit — and built only while it is open
-  const workable = useMemo(() => hasWork(log), [log])
-  const model = useMemo(() => (work && binding ? buildWork(log, binding.cwd) : null), [work !== null, log, binding?.cwd])
+  // plan, a to-do list, an edit — and built only while it is open, from the rows that
+  // carry one. A stream flush rewrites the text row, never one of these, so the rows
+  // come back as the same object until one carrying work arrives, changes or leaves,
+  // and the model is folded again then rather than on every flush. It names the rows by
+  // their place among themselves; the transcript's row keys are translated at the
+  // panel's edge (`workFocus`, `pendingPlanAt`)
+  const artifactsRef = useRef<ArtifactRows>(NO_ARTIFACTS)
+  const artifacts = useMemo(() => {
+    const next = artifactRows(log, keys)
+    if (sameArtifacts(artifactsRef.current, next)) return artifactsRef.current
+    artifactsRef.current = next
+    return next
+  }, [log, keys])
+  const workable = artifacts.rows.length > 0
+  const model = useMemo(
+    () => (work && binding ? buildWork(artifacts.rows, binding.cwd) : null),
+    [work !== null, artifacts, binding?.cwd]
+  )
+  const workFocus = useMemo(
+    () => (work ? { ...work, key: work.key === null ? null : workIndex(artifacts, work.key) } : null),
+    [work, artifacts]
+  )
   const openWork = useCallback((key: number | null, tab: WorkTab) => {
     const active = document.activeElement
     if (active instanceof HTMLElement && !active.closest('.work-panel')) workOpener.current = active
@@ -189,6 +207,13 @@ export function ChatView({
     if (panel && getComputedStyle(panel).position === 'absolute') closeWork()
     setReview((v) => !v)
   }, [closeWork])
+  const reviewRef = useRef(review)
+  reviewRef.current = review
+  /** The Edits tab's way to the real diff: opens it, never closes it */
+  const openChanges = useCallback(() => {
+    if (!reviewRef.current) toggleReview()
+  }, [toggleReview])
+  const workTab = useCallback((tab: WorkTab) => setWork((w) => (w ? { ...w, tab, key: null } : w)), [])
 
   // ⌘D flips between the conversation and its changes (the palette owns the
   // keyboard while it is open — a dialog on screen means leave it alone)
@@ -206,7 +231,7 @@ export function ChatView({
   /** The header key and ⌘J: open on the tab that matters most right now, or close. */
   const toggleWork = (): void => {
     if (work) closeWork()
-    else if (binding) openWork(null, defaultTab(buildWork(log, binding.cwd), pendingPlanKey))
+    else if (binding) openWork(null, defaultTab(buildWork(artifacts.rows, binding.cwd), pendingPlanKey))
   }
   const toggleWorkRef = useRef(toggleWork)
   toggleWorkRef.current = toggleWork
@@ -221,11 +246,13 @@ export function ChatView({
     return () => window.removeEventListener('keydown', onKey)
   }, [workable, work !== null])
 
-  /** Review notes and fix prompts land in the composer, ready to send — the reviewer gets the last word. */
-  const compose = (text: string): void => {
+  /** Review notes and fix prompts land in the composer, ready to send — the reviewer
+   *  gets the last word. Stable, so the memoized review is not redrawn by this view's
+   *  every stream flush and keystroke. */
+  const compose = useCallback((text: string): void => {
     setDraft((d) => (d.trim() ? `${d.trimEnd()}\n\n${text}` : text))
     composerRef.current?.focus()
-  }
+  }, [])
 
   const branchPr = useMemo(
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
@@ -249,25 +276,10 @@ export function ChatView({
   }, [binding?.repoRoot])
   const onDefaultBranch = !!binding?.branch && binding.branch === defaultBranch
 
-  const sliced = log.length > limit ? log.slice(-limit) : log
-  const base = log.length - sliced.length
-  // providers repeat identical system notices; consecutive duplicates add nothing.
-  // each row keeps its absolute log offset as the key — stable because the log is
-  // append-only, even when the dedup filter drops rows in the middle.
-  // a tool call and the result that answers it are one event: the result folds into
-  // the call's row (its key stays the call's offset) instead of a second ↳ row
-  const visible: Array<{ m: SessionMessage; key: number; result?: SessionMessage }> = []
-  sliced.forEach((m, i) => {
-    if (m.kind === 'system' && sliced[i - 1]?.kind === 'system' && sliced[i - 1].text === m.text)
-      return
-    const prev = visible[visible.length - 1]
-    if (m.kind === 'tool_result' && prev?.m.kind === 'tool_call' && !prev.result) {
-      prev.result = m
-      return
-    }
-    visible.push({ m, key: base + i })
-  })
-  const hidden = log.length - sliced.length
+  // what the transcript draws: worked out when the log or its window moves, not on
+  // every keystroke in the composer
+  const { shown, visible } = useMemo(() => transcriptRows(log, keys, limit), [log, keys, limit])
+  const hidden = log.length - shown
 
   // the agent's question is answerable while it is the last thing in the transcript
   // and nothing has answered it — an older one is history, and a seat session's
@@ -275,11 +287,13 @@ export function ChatView({
   const lastRow = visible[visible.length - 1]
   const pendingAsk = lastRow && isPendingAsk(lastRow) && !binding?.readOnly ? lastRow : undefined
   const pendingPlanKey = pendingAsk?.m.artifact?.kind === 'plan' ? pendingAsk.key : null
+  const pendingPlanAt = pendingPlanKey === null ? null : workIndex(artifacts, pendingPlanKey)
 
   // a long stretch of tool calls is one piece of work, not twenty rows of it: four or
   // more in a row fold into a work-log block that says what happened. The run a turn
   // is still producing never folds — watching it is the point while it runs.
-  const blocks = foldToolRuns(visible, busy || elsewhere)
+  const live = busy || elsewhere
+  const blocks = useMemo(() => foldToolRuns(visible, live), [visible, live])
 
   // a blocked agent is the most important thing on the screen — it speaks over
   // whatever the turn last said. Otherwise chat-log.ts owns the announcements, and
@@ -478,7 +492,7 @@ export function ChatView({
               }}
             >
               {hidden > 0 && (
-                <EarlierRow shown={sliced.length} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
+                <EarlierRow shown={shown} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
               )}
               {blocks.map((b) =>
                 b.kind === 'run' ? (
@@ -599,16 +613,16 @@ export function ChatView({
             )}
           </footer>
         </div>
-        {work && model && (
+        {workFocus && model && (
           <WorkPanel
             model={model}
-            focus={work}
-            onTab={(tab) => setWork((w) => (w ? { ...w, tab, key: null } : w))}
+            focus={workFocus}
+            onTab={workTab}
             onClose={closeWork}
             cwd={binding.cwd}
             provider={binding.provider}
-            pendingPlanKey={pendingPlanKey}
-            onOpenChanges={reviewable ? () => !review && toggleReview() : undefined}
+            pendingPlanKey={pendingPlanAt}
+            onOpenChanges={reviewable ? openChanges : undefined}
             sessionId={binding.nativeSessionId ? `${binding.provider}:${binding.nativeSessionId}` : null}
             onOpenUrl={onOpenUrl}
             onStartFollowUp={onStartFollowUp}
@@ -617,6 +631,33 @@ export function ChatView({
       </div>
     </main>
   )
+}
+
+/** The rows that carry a plan, to-dos, an edit or a check — all the Work panel folds — with their keys. */
+type ArtifactRows = { readonly rows: readonly SessionMessage[]; readonly keys: readonly number[] }
+
+const NO_ARTIFACTS: ArtifactRows = { rows: [], keys: [] }
+
+/** The same rows under the same keys — nothing the Work panel folds has moved. */
+function sameArtifacts(a: ArtifactRows, b: ArtifactRows): boolean {
+  return a.rows.length === b.rows.length && a.rows.every((m, i) => m === b.rows[i] && a.keys[i] === b.keys[i])
+}
+
+function artifactRows(log: readonly SessionMessage[], keys: readonly number[]): ArtifactRows {
+  const rows: SessionMessage[] = []
+  const rowKeys: number[] = []
+  log.forEach((m, i) => {
+    if (m.kind !== 'tool_call' || !m.artifact) return
+    rows.push(m)
+    rowKeys.push(keys[i] ?? i)
+  })
+  return { rows, keys: rowKeys }
+}
+
+/** A transcript row's key → its place among the rows the Work panel was folded over. */
+function workIndex(artifacts: ArtifactRows, key: number): number | null {
+  const i = artifacts.keys.indexOf(key)
+  return i < 0 ? null : i
 }
 
 /** Where the Work key opens: a plan waiting on you, else the list under way, else a check
@@ -636,6 +677,35 @@ export function defaultTab(model: WorkModel, pendingPlanKey: number | null): Wor
 
 /** A transcript row, or a folded run of consecutive tool rows. */
 type Row = { m: SessionMessage; key: number; result?: SessionMessage }
+
+/**
+ * The newest `limit` rows as the transcript draws them. Providers repeat identical
+ * system notices; consecutive duplicates add nothing. Each row renders under the key
+ * chat-log.ts minted for it — stable across a re-read of the log, even one that starts
+ * further in, and when the dedup filter drops rows in the middle. A tool call and the
+ * result that answers it are one event: the result folds into the call's row (its key
+ * stays the call's) instead of a second ↳ row.
+ */
+function transcriptRows(
+  log: readonly SessionMessage[],
+  keys: readonly number[],
+  limit: number
+): { readonly shown: number; readonly visible: readonly Row[] } {
+  const sliced = log.length > limit ? log.slice(-limit) : log
+  const base = log.length - sliced.length
+  const visible: Row[] = []
+  sliced.forEach((m, i) => {
+    if (m.kind === 'system' && sliced[i - 1]?.kind === 'system' && sliced[i - 1].text === m.text)
+      return
+    const prev = visible[visible.length - 1]
+    if (m.kind === 'tool_result' && prev?.m.kind === 'tool_call' && !prev.result) {
+      prev.result = m
+      return
+    }
+    visible.push({ m, key: keys[base + i] ?? base + i })
+  })
+  return { shown: sliced.length, visible }
+}
 type Block = { kind: 'row'; row: Row } | { kind: 'run'; rows: Row[] }
 
 /** Four is where a run stops reading as "a couple of steps" and starts as a wall. */
@@ -916,26 +986,46 @@ function PermissionAsk({
   provider: Provider
   onAnswer: (optionId: string) => void
 }): JSX.Element {
+  // a command is what is being allowed, so it is what the card shows; the agent's title
+  // is its own account of the command, and sits beside it as the lesser line
+  const command = commandOf(ask)
   return (
     <div
-      className={`perm-card tint-${provider}`}
+      className={`perm-card tint-${provider}${command ? ' perm-exec' : ''}`}
       role="group"
       aria-label={`${PROVIDER_LABEL[provider]} needs permission: ${ask.preview}`}
     >
       <div className="perm-body">
         <span className="perm-tool">{ask.toolName}</span>
-        <span className="perm-what" title={ask.detail}>
+        <span className="perm-what" title={command ? ask.preview : ask.detail}>
           {ask.preview}
         </span>
       </div>
+      {command && (
+        <>
+          {/* scrolls in itself, so it takes focus: a keyboard reader must reach the end
+              of what they are allowing. Wrapped, never cut at the edge */}
+          <pre className="perm-command" tabIndex={0} role="region" aria-label="The command it wants to run" dir="ltr">
+            <Visible text={command.text} />
+          </pre>
+          {command.cut > 0 && (
+            <p className="perm-cut">
+              Truncated — {command.cut.toLocaleString()} more {command.cut === 1 ? 'character' : 'characters'} not
+              shown
+            </p>
+          )}
+        </>
+      )}
       <div className="perm-actions">
         {ask.options.map((o) => (
           <button
             key={o.optionId}
             type="button"
-            // allow is the affirmative action; everything else stays quiet, so the
-            // safe answer is never the one styled to be clicked without reading
-            className={o.kind?.startsWith('allow') ? 'btn-primary' : 'btn-ghost'}
+            // one yes is the affirmative action. "Allow always" hands the agent every
+            // later call of this kind unasked, so it must not look as safe as a single
+            // yes — it and every other answer stay quiet, and the answer styled to be
+            // clicked without reading is never the one that gives away the most
+            className={o.kind === 'allow_once' ? 'btn-primary' : 'btn-ghost'}
             onClick={() => onAnswer(o.optionId)}
           >
             {o.name}
@@ -944,4 +1034,43 @@ function PermissionAsk({
       </div>
     </div>
   )
+}
+
+/** The note main's `capText` ends a cut text with: how many characters did not come. */
+const CUT_NOTE = /\n… \((\d+) more chars\)$/
+
+/** The command a shell permission carries — main sends it whole, up to its bound. */
+function commandOf(ask: PendingPermission): { readonly text: string; readonly cut: number } | null {
+  if (ask.toolName !== 'shell') return null
+  const cut = CUT_NOTE.exec(ask.detail)
+  return cut ? { text: ask.detail.slice(0, cut.index), cut: Number(cut[1]) } : { text: ask.detail, cut: 0 }
+}
+
+/**
+ * Characters that change what a command looks like without looking like anything:
+ * control characters other than newline and tab (a carriage return rewrites the line a
+ * terminal shows), bidi embeddings, overrides and isolates (they reorder what is drawn,
+ * so the text read is not the text run), and the zero-width and other invisible format
+ * characters and fillers.
+ */
+const HIDDEN =
+  /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u061C\u115F\u1160\u180E\u200B-\u200F\u2028-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB]/g
+
+/** Text with each hidden character drawn as its code point, in a mark of its own. */
+function Visible({ text }: { text: string }): JSX.Element {
+  const parts: ReactNode[] = []
+  let at = 0
+  for (const m of text.matchAll(HIDDEN)) {
+    const i = m.index
+    if (i > at) parts.push(text.slice(at, i))
+    const code = m[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')
+    parts.push(
+      <span key={i} className="perm-ctl" title="An invisible character, shown by its code">
+        U+{code}
+      </span>
+    )
+    at = i + m[0].length
+  }
+  if (at < text.length) parts.push(text.slice(at))
+  return <>{parts}</>
 }

@@ -39,11 +39,13 @@ import {
   addChatNotice,
   announceChat,
   endChatStream,
+  refreshChatLog,
   setChatLog,
   streamChatText
 } from './chat-log'
 import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
+import { keepSame } from './same'
 import type { StartSessionRequest } from './NewSession'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import type { AccountsSnapshot } from '../../shared/types'
@@ -182,14 +184,17 @@ export function App(): JSX.Element {
           const messages = await api.getSessionMessages(stamp.id)
           // the view moved on meanwhile: another session, or a turn of ours
           if (diskLogRef.current !== stamp || activeTurnRef.current !== null) return
-          setChatLog(messages)
+          // the same conversation, further on: rows it already showed keep their place
+          refreshChatLog(messages)
           armDiskLog(stamp.id)
         })
         .catch(() => {})
     }
     const load = (): void => {
-      void api.listRepos().then(setRepos)
-      void api.getAccounts().then(setAccounts)
+      // every push answers with fresh clones: one that says what the rail already
+      // shows must not redraw it (or re-make `openSession` for every row under it)
+      void api.listRepos().then((r) => setRepos((prev) => keepSame(prev, r)))
+      void api.getAccounts().then((a) => setAccounts((prev) => keepSame(prev, a)))
       setIndexVersion((v) => v + 1)
       refreshOpenLog()
     }
@@ -237,6 +242,9 @@ export function App(): JSX.Element {
 
   const bindingRef = useRef<ChatBinding | null>(null)
   bindingRef.current = binding
+  /** Read at the click, so `openSession` — every sidebar row's handler — stays one function */
+  const accountsRef = useRef<AccountsSnapshot | null>(null)
+  accountsRef.current = accounts
   const paletteOpenRef = useRef(false)
   paletteOpenRef.current = paletteOpen
 
@@ -267,7 +275,7 @@ export function App(): JSX.Element {
       return
     }
     let dead = false
-    void api.getPrs(root).then((p) => !dead && setPrs(p))
+    void api.getPrs(root).then((p) => !dead && setPrs((prev) => keepSame(prev, p)))
     return () => {
       dead = true
     }
@@ -500,7 +508,7 @@ export function App(): JSX.Element {
       // reopened session would silently continue on the default account.
       // (SessionMeta.source is the source LABEL; copilot's historical user is
       // unknowable from logs, so copilotUser is deliberately left unset.)
-      const acct = accounts?.accounts.find(
+      const acct = accountsRef.current?.accounts.find(
         (a) => a.provider === s.provider && a.label === s.source
       )
       setBinding({
@@ -529,7 +537,7 @@ export function App(): JSX.Element {
       }
       await landLog(seq, s.id)
     },
-    [accounts, joinTurn, landLog]
+    [joinTurn, landLog]
   )
 
   /** Land on a history entry. A chat entry that is still the bound conversation
@@ -857,6 +865,8 @@ export function App(): JSX.Element {
     setView({ kind: 'extensions', repoRoot })
   }, [])
 
+  const newSession = useCallback((repo: RepoGroup) => setView({ kind: 'new', repo }), [])
+
   // what the window shows, for main: a session watched live never lands or notifies,
   // and opening one clears its landing, its Dock count and its banner (landed.ts)
   const roundtableOnScreen = view.kind === 'roundtable' ? view.id : null
@@ -951,7 +961,7 @@ export function App(): JSX.Element {
         }}
         selectedId={selectedSessionId}
         onSelect={openSession}
-        onNewSession={(repo) => setView({ kind: 'new', repo })}
+        onNewSession={newSession}
         onRepoSetup={openRepoSetup}
         selectedRoundtableId={view.kind === 'roundtable' ? view.id : null}
         onOpenRoundtable={openRoundtable}
@@ -1058,7 +1068,7 @@ export function App(): JSX.Element {
           repos={visibleRepos}
           scopeRepo={scopeRepo}
           onOpenSession={(s, at) => void openSession(s, at ? { anchor: at } : {})}
-          onNewSession={(repo) => setView({ kind: 'new', repo })}
+          onNewSession={newSession}
           onGoto={(v: PaletteViewKey) =>
             setView(v === 'extensions' ? { kind: v, repoRoot: null } : { kind: v })
           }

@@ -22,6 +22,12 @@ export function splitLines(text: string): string[] {
   return t === '' ? [] : t.split('\n')
 }
 
+/** Append one array to another. Never `out.push(...items)`: a spread passes every item as
+ *  its own call argument, and past ~100k lines that overflows the stack (RangeError). */
+function pushAll<T>(out: T[], items: readonly T[]): void {
+  for (const item of items) out.push(item)
+}
+
 /** Beyond this many table cells the LCS is not worth its memory — see fallback. */
 const MAX_TABLE_CELLS = 1_000_000
 
@@ -40,7 +46,7 @@ export function diffLines(before: readonly string[], after: readonly string[]): 
   const b = after.slice(head, after.length - tail)
 
   const out: DiffLine[] = before.slice(0, head).map((text) => ({ op: 'same', text }))
-  out.push(...middle(a, b))
+  pushAll(out, middle(a, b))
   for (const text of before.slice(before.length - tail)) out.push({ op: 'same', text })
   return out
 }
@@ -83,7 +89,8 @@ function groupChanges(lines: readonly DiffLine[]): DiffLine[] {
   let dels: DiffLine[] = []
   let adds: DiffLine[] = []
   const flush = (): void => {
-    out.push(...dels, ...adds)
+    pushAll(out, dels)
+    pushAll(out, adds)
     dels = []
     adds = []
   }
@@ -117,7 +124,7 @@ export function foldUnchanged(lines: readonly DiffLine[], context = 2): DiffRow[
   let run: DiffLine[] = []
   const flush = (): void => {
     if (run.length >= MIN_FOLD) rows.push({ op: 'fold', lines: run })
-    else rows.push(...run)
+    else pushAll(rows, run)
     run = []
   }
   lines.forEach((line, i) => {

@@ -145,7 +145,11 @@ test('settings lists seeded providers with agent applicability, and adds/removes
   await win.getByLabel('Display name').fill('broken')
   await win.getByLabel('Base URL').fill('not a url')
   await win.getByRole('button', { name: 'Add provider' }).click()
-  await expect(win.getByText(/Invalid provider:/)).toBeVisible()
+  await expect(win.getByText(/Enter the base URL, starting with https:\/\//).first()).toBeVisible()
+  // plain http to a public host would carry the key unencrypted: refused, and said why
+  await win.getByLabel('Base URL').fill('http://gateway.example.com/v1')
+  await win.getByRole('button', { name: 'Add provider' }).click()
+  await expect(win.getByText(/Use https:\/\/ for gateway\.example\.com/).first()).toBeVisible()
 
   // a real add round-trips through main into config; the model probe fails fast
   // (nothing listens on the port) and reports as advice, not an error. The refused

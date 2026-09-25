@@ -57,7 +57,7 @@ describe('the sash on the rail', () => {
     expect(sash()).toHaveAttribute('aria-valuenow', '600')
   })
 
-  it('follows the pointer while dragged and holds at the bounds', () => {
+  it('follows the pointer while dragged, holds at the bounds, and remembers where it was let go', () => {
     render(
       <aside>
         <RailResizer />
@@ -66,16 +66,34 @@ describe('the sash on the rail', () => {
     fireEvent.pointerDown(sash(), { button: 0, pointerId: 1, clientX: 260 })
     expect(document.body).toHaveClass('rail-dragging')
     fireEvent.pointerMove(sash(), { pointerId: 1, clientX: 340 })
-    expect(stored()).toBe('340')
+    expect(sash()).toHaveAttribute('aria-valuenow', '340')
     fireEvent.pointerMove(sash(), { pointerId: 1, clientX: 1000 })
-    expect(stored()).toBe('600')
+    expect(sash()).toHaveAttribute('aria-valuenow', '600')
     fireEvent.pointerMove(sash(), { pointerId: 1, clientX: 40 })
-    expect(stored()).toBe('200')
+    expect(sash()).toHaveAttribute('aria-valuenow', '200')
+    // nothing is written while the drag runs — only where it ends
+    expect(stored()).toBeNull()
     fireEvent.pointerUp(sash(), { pointerId: 1 })
     expect(document.body).not.toHaveClass('rail-dragging')
+    expect(stored()).toBe('200')
     // a released pointer moves nothing
     fireEvent.pointerMove(sash(), { pointerId: 1, clientX: 400 })
     expect(stored()).toBe('200')
+  })
+
+  it('moves the grid itself during a drag, and hands App the width on release', async () => {
+    render(<App />)
+    const s = await screen.findByRole('separator', { name: 'Sidebar width' })
+    const app = document.querySelector<HTMLElement>('.app')!
+    fireEvent.pointerDown(s, { button: 0, pointerId: 1, clientX: 260 })
+    fireEvent.pointerMove(s, { pointerId: 1, clientX: 300 })
+    expect(app.style.getPropertyValue('--rail')).toBe('300px')
+    fireEvent.pointerMove(s, { pointerId: 1, clientX: 380 })
+    expect(app.style.getPropertyValue('--rail')).toBe('380px')
+    expect(stored()).toBeNull()
+    fireEvent.pointerUp(s, { pointerId: 1 })
+    expect(stored()).toBe('380')
+    expect(app.style.getPropertyValue('--rail')).toBe('380px')
   })
 
   it('a stored width lands on the grid as --rail, and a double-click hands it back to the stylesheet', async () => {

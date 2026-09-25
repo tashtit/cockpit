@@ -463,6 +463,8 @@ export type PrThreadComment = {
   readonly author: string
   readonly body: string
   readonly url: string
+  /** GitHub says the author is not the owner, an org member or a collaborator */
+  readonly outsider?: boolean
 }
 
 /** An unresolved review thread — resolved ones need nothing from the agent. */
@@ -483,6 +485,8 @@ export type PrChangeRequest = {
   /** The review's summary; '' when the reviewer only left threads */
   readonly body: string
   readonly url: string
+  /** GitHub says the author is not the owner, an org member or a collaborator */
+  readonly outsider?: boolean
 }
 
 /** What an open PR is waiting on, read on demand for the review panel. */

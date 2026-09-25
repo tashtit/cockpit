@@ -7,8 +7,9 @@ import type { CheckKind, EditLine, FileEdit, SessionMessage, TodoStatus, WorkArt
  * on every render the panel is open, which is cheap (a pass over rows that already
  * carry parsed artifacts; no diffing happens here — main did that).
  *
- * A row's `key` is its offset in the log, the same key the transcript renders it
- * under, so a row can open the panel at itself.
+ * A row's `key` is its place among the rows it was given. ChatView hands over only the
+ * rows that carry an artifact and translates between these and the transcript's own
+ * row keys at the panel's edge, so a row can still open the panel at itself.
  */
 
 export type WorkTab = 'plan' | 'todos' | 'edits' | 'checks' | 'files' | 'follow-ups'
@@ -161,11 +162,6 @@ export function planTitle(text: string): string {
 export function absolutePath(path: string, cwd?: string): string {
   if (!cwd || path.startsWith('/')) return path
   return `${cwd.replace(/\/$/, '')}/${path.replace(/^\.\//, '')}`
-}
-
-/** Does any row carry something the panel shows? The header's Work key asks this. */
-export function hasWork(log: readonly SessionMessage[]): boolean {
-  return log.some((m) => m.kind === 'tool_call' && m.artifact !== undefined)
 }
 
 /** Which tab a row's artifact belongs on. */

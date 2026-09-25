@@ -1,14 +1,22 @@
 import { afterAll, describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { makeFifo } from './fifo'
 import {
+  LineSplitter,
   capText,
+  isRegularFile,
+  judgeJsonlTail,
   parseJsonc,
   readHead,
+  readJson,
+  readSmallFile,
+  readTail,
   patchPreview,
   readJsonlTail,
   shellPreview,
+  timeSlicer,
   toolPreview,
   truncate,
   TRANSCRIPT_TAIL_BYTES
@@ -53,6 +61,147 @@ describe('readHead', () => {
     expect(r.truncated).toBe(true)
     expect(r.text.length).toBe(1000)
     expect(r.size).toBe(10_000)
+  })
+})
+
+describe('reading only regular files', () => {
+  const stops: Array<() => void> = []
+  afterAll(() => stops.forEach((stop) => stop()))
+
+  // a FIFO reports size 0, which used to route it to a whole-file read that never returned
+  it('skips a FIFO at once, whichever reader meets it', () => {
+    const pipe = join(root, 'events.jsonl')
+    stops.push(makeFifo(pipe))
+    const started = Date.now()
+    expect(readHead(pipe, 1000)).toEqual({ text: '', truncated: false, size: 0 })
+    expect(readTail(pipe, 1000)).toEqual({ text: '', truncated: false, size: 0 })
+    expect(readJsonlTail(pipe)).toEqual({ lines: [], truncated: false, bytes: 0 })
+    expect(readSmallFile(pipe, 1000)).toBeNull()
+    expect(readJson(pipe, 1000)).toBeNull()
+    expect(isRegularFile(pipe)).toBe(false)
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  it('reads a small file whole, and refuses one past its bound rather than cutting it', () => {
+    const f = join(root, 'doc.json')
+    writeFileSync(f, '{"a":1}')
+    expect(readSmallFile(f, 100)).toBe('{"a":1}')
+    expect(readJson(f, 100)).toEqual({ a: 1 })
+    expect(readSmallFile(f, 3)).toBeNull()
+    expect(readJson(f, 3)).toBeNull()
+    expect(readSmallFile(join(root, 'missing.json'), 100)).toBeNull()
+    writeFileSync(join(root, 'empty'), '')
+    expect(readSmallFile(join(root, 'empty'), 100)).toBe('')
+  })
+
+  it('judges a link by what it is, not by what it points at', () => {
+    const target = join(root, 'target.jsonl')
+    writeFileSync(target, '{}\n')
+    const link = join(root, 'link.jsonl')
+    symlinkSync(target, link)
+    expect(isRegularFile(target)).toBe(true)
+    expect(isRegularFile(link)).toBe(false)
+  })
+})
+
+describe('LineSplitter', () => {
+  it('hands back each line once it ends, however the stream was chunked', () => {
+    const s = new LineSplitter()
+    expect(s.push('{"a":1}\n{"b"')).toEqual({ lines: ['{"a":1}'], dropped: 0 })
+    expect(s.push(':2')).toEqual({ lines: [], dropped: 0 })
+    expect(s.push('}\n\nlast')).toEqual({ lines: ['{"b":2}', ''], dropped: 0 })
+    // a stream's final record often has no newline
+    expect(s.rest()).toBe('last')
+    expect(s.rest()).toBe('')
+  })
+
+  it('drops a line past its cap whole, and carries on with the next', () => {
+    const s = new LineSplitter(10)
+    expect(s.push('0123456789')).toEqual({ lines: [], dropped: 0 })
+    expect(s.push('abc')).toEqual({ lines: [], dropped: 0 })
+    expect(s.push('def\nok\n')).toEqual({ lines: ['ok'], dropped: 1 })
+    // ended inside a single chunk, the same bound holds
+    expect(s.push('0123456789abc\nfine\n')).toEqual({ lines: ['fine'], dropped: 1 })
+    s.push('0123456789abc')
+    expect(s.rest()).toBe('')
+  })
+
+  // the newline was searched for across everything held, on every chunk: 50MB took ~4s
+  it('stays linear in a long line arriving in pipe-sized chunks', () => {
+    const s = new LineSplitter()
+    const chunk = 'x'.repeat(64 * 1024)
+    const started = Date.now()
+    // 6MB kept, then 24MB dropped at the cap
+    for (let i = 0; i < 96; i++) s.push(chunk)
+    const kept = s.push('\n')
+    for (let i = 0; i < 384; i++) s.push(chunk)
+    const over = s.push('\nnext\n')
+    expect(Date.now() - started).toBeLessThan(1500)
+    expect(kept.lines[0]?.length).toBe(96 * chunk.length)
+    expect(over).toEqual({ lines: ['next'], dropped: 1 })
+  })
+})
+
+describe('judgeJsonlTail', () => {
+  it('widens window by window, reading each byte once and keeping a line the edge cut whole', () => {
+    const f = join(root, 'steps.jsonl')
+    // two-byte characters inside, so a window's edge can land mid-character
+    const rows = Array.from({ length: 10 }, (_, n) => JSON.stringify({ n, pad: 'é'.repeat(20) }) + '\n')
+    writeFileSync(f, rows.join(''))
+    const size = Buffer.byteLength(rows.join(''))
+    const lineBytes = Buffer.byteLength(rows[0])
+    const seen: number[][] = []
+    // the first window's edge falls mid-line (and mid-character); the second reaches the start
+    const tail = judgeJsonlTail(f, [Math.floor(lineBytes * 2.5), size + 10], (records) => {
+      seen.push(records.map((r) => r.n))
+      return null
+    })
+    expect(tail).toEqual({ found: null, empty: false })
+    expect(seen).toEqual([[8, 9], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]])
+  })
+
+  it('stops at the first answer, and says when there was nothing to read', () => {
+    const f = join(root, 'answer.jsonl')
+    writeFileSync(f, '{"n":1}\n{"n":2}\n')
+    let calls = 0
+    const tail = judgeJsonlTail(f, [12, 1000], (records) => {
+      calls++
+      return records.at(-1)?.n ?? null
+    })
+    expect(tail).toEqual({ found: 2, empty: false })
+    expect(calls).toBe(1)
+    expect(judgeJsonlTail(join(root, 'nothing.jsonl'), [8], () => 'x')).toEqual({ found: null, empty: true })
+    writeFileSync(join(root, 'blank.jsonl'), '')
+    expect(judgeJsonlTail(join(root, 'blank.jsonl'), [8], () => 'x')).toEqual({ found: null, empty: true })
+  })
+})
+
+describe('timeSlicer', () => {
+  const busy = (ms: number): void => {
+    const until = performance.now() + ms
+    while (performance.now() < until) {
+      // a step of real work
+    }
+  }
+
+  // steps range from a cached stat to a 2MB parse: pacing by count held IPC for 166ms
+  it('hands the event loop back once a step has run the budget out, and not before', async () => {
+    // generous, so a loaded machine's scheduling can't pass for a slow step
+    const pace = timeSlicer(200)
+    let ran = 0
+    const others = (): void => void setImmediate(() => ran++)
+    // quick steps: nothing else gets a turn in between
+    others()
+    for (let i = 0; i < 5; i++) await pace()
+    expect(ran).toBe(0)
+    // one slow step: the next pace lets the waiting callback run
+    busy(250)
+    await pace()
+    expect(ran).toBe(1)
+    // and the budget starts over from there
+    others()
+    await pace()
+    expect(ran).toBe(1)
   })
 })
 

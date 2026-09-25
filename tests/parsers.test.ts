@@ -776,6 +776,87 @@ describe('robustness', () => {
     expect(parseCodexMeta(codex, 'x')).toMatchObject({ cwd: null, logBranch: null })
   })
 
+  // the repo resolver walks every ancestor of a cwd: a 16k-component "path" cost seconds
+  it('takes no cwd longer than a directory path can be', () => {
+    const dir = join(root, 'long-cwd')
+    const long = '/a'.repeat(16_000)
+    const ts = '2026-08-01T10:00:00Z'
+    const prompt = { type: 'user', message: { role: 'user', content: 'hi' }, timestamp: ts, sessionId: 'long' }
+    mkdirSync(join(dir, 'copilot', 'session-state', 'long'), { recursive: true })
+    const claude = join(dir, 'claude-long.jsonl')
+    // the first usable cwd wins, so a later sane one is still the session's
+    writeFileSync(claude, jsonl([{ ...prompt, cwd: long }, { ...prompt, cwd: '/Users/x/app' }]))
+    expect(parseClaudeMeta(claude, 'x')?.cwd).toBe('/Users/x/app')
+    writeFileSync(claude, jsonl([{ ...prompt, cwd: long }]))
+    expect(parseClaudeMeta(claude, 'x')?.cwd).toBeNull()
+    const codex = join(dir, 'rollout-long.jsonl')
+    writeFileSync(
+      codex,
+      jsonl([
+        { timestamp: ts, type: 'session_meta', payload: { id: 'long', cwd: long } },
+        { timestamp: ts, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] } }
+      ])
+    )
+    expect(parseCodexMeta(codex, 'x')?.cwd).toBeNull()
+    writeFileSync(
+      join(dir, 'copilot', 'session-state', 'long', 'events.jsonl'),
+      jsonl([
+        { type: 'session.start', timestamp: ts, data: { sessionId: 'long', context: { cwd: long } } },
+        { type: 'user.message', timestamp: ts, data: { content: 'hi' } }
+      ])
+    )
+    expect(listCopilotSessions(join(dir, 'copilot'), 'x').map((s) => s.cwd)).toEqual([null])
+    // a path at the limit is still one
+    const edge = `/${'b'.repeat(1023)}`
+    writeFileSync(claude, jsonl([{ ...prompt, cwd: edge }]))
+    expect(parseClaudeMeta(claude, 'x')?.cwd).toBe(edge)
+  })
+
+  // JSON.parse reads any depth; JSON.stringify recursed and threw, blanking the transcript
+  it('keeps a transcript whose tool input is nested deeper than JSON.stringify can go', () => {
+    const dir = join(root, 'deep-input')
+    mkdirSync(join(dir, 'copilot-deep'), { recursive: true })
+    const deep = '{"a":'.repeat(100_000) + '1' + '}'.repeat(100_000)
+    const ts = '2026-08-01T10:00:00Z'
+    const claude = join(dir, 'claude-deep.jsonl')
+    writeFileSync(
+      claude,
+      [
+        JSON.stringify({ type: 'user', message: { role: 'user', content: 'go' }, timestamp: ts }),
+        `{"type":"assistant","timestamp":"${ts}","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Weird","input":${deep}}]}}`,
+        JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'still here' }, timestamp: ts })
+      ].join('\n') + '\n'
+    )
+    const rows = parseClaudeMessages(claude)
+    expect(rows.map((m) => m.text)).toEqual(['go', '(nested too deeply to show)', 'still here'])
+    expect(rows[1]).toMatchObject({ kind: 'tool_call', toolName: 'Weird' })
+
+    const codex = join(dir, 'rollout-deep.jsonl')
+    writeFileSync(
+      codex,
+      [
+        `{"timestamp":"${ts}","type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","server":"s","tool":"t","arguments":${deep}}}}`,
+        `{"timestamp":"${ts}","type":"response_item","payload":{"type":"function_call_output","call_id":"c","output":${deep}}}`,
+        JSON.stringify({ timestamp: ts, type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'still here' }] } })
+      ].join('\n') + '\n'
+    )
+    expect(parseCodexMessages(codex).map((m) => m.text)).toEqual([
+      '(nested too deeply to show)',
+      '(nested too deeply to show)',
+      'still here'
+    ])
+
+    const copilot = join(dir, 'copilot-deep', 'events.jsonl')
+    writeFileSync(
+      copilot,
+      [
+        `{"type":"tool.execution_start","timestamp":"${ts}","data":{"toolName":"weird","toolCallId":"x","arguments":${deep}}}`,
+        JSON.stringify({ type: 'assistant.message', timestamp: ts, data: { content: 'still here' } })
+      ].join('\n') + '\n'
+    )
+    expect(parseCopilotMessages(copilot).map((m) => m.text)).toEqual(['(nested too deeply to show)', 'still here'])
+  })
+
   it('empty/missing dirs return no sessions', () => {
     expect(listClaudeSessions(join(root, 'nope'), 'x')).toEqual([])
     expect(listCodexSessions(join(root, 'nope'), 'x')).toEqual([])

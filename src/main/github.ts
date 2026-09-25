@@ -66,8 +66,11 @@ const defaultBranches = new Map<string, string | null>()
 
 /**
  * The branch a PR would target — `origin/HEAD` when the clone recorded it, else the
- * first of the conventional names that actually exists on the remote. Null when git
- * answers none of that: an unknown default must never hide a working affordance.
+ * first of the conventional names that actually exists on the remote, else what
+ * GitHub says (a repo made locally and pushed has no `origin/HEAD`, and its default
+ * need not be main or master). Null when nothing answers: an unknown default must
+ * never hide a working affordance. Only an answer is remembered — a timeout or an
+ * offline moment is asked again next time, not believed for the rest of the run.
  */
 export async function getDefaultBranch(repoRoot: string): Promise<string | null> {
   const cached = defaultBranches.get(repoRoot)
@@ -90,6 +93,13 @@ export async function getDefaultBranch(repoRoot: string): Promise<string | null>
       }
     }
   }
-  defaultBranches.set(repoRoot, name)
+  if (!name) {
+    const gh = await execText('gh', ['repo', 'view', '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name'], {
+      cwd: repoRoot,
+      timeoutMs: 15_000
+    })
+    name = (gh.ok && gh.stdout.trim()) || null
+  }
+  if (name) defaultBranches.set(repoRoot, name)
   return name
 }

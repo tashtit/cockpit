@@ -43,12 +43,33 @@ export function fmtElapsed(ms: number): string {
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
 }
 
+/**
+ * Built once each. `toLocale*String` with options builds a new ICU formatter on every
+ * call, and every sidebar and board row shows a time — the clock setting picks which of
+ * these two a row uses, so a Settings change still re-renders every row in the new one.
+ */
+const DATE_FORMAT = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
+const CLOCK_FORMAT: Readonly<Record<TimeFormat, Intl.DateTimeFormat>> = {
+  '12h': new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit', hour12: true }),
+  '24h': new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+/** Today as the epoch ms it spans, local time — worked out again only once the clock leaves it. */
+let today = { start: 0, end: 0 }
+
+function isToday(ms: number): boolean {
+  const now = Date.now()
+  if (now < today.start || now >= today.end) {
+    const d = new Date(now)
+    d.setHours(0, 0, 0, 0)
+    const start = d.getTime()
+    d.setDate(d.getDate() + 1)
+    today = { start, end: d.getTime() }
+  }
+  return ms >= today.start && ms < today.end
+}
+
 /** Session timestamps: time of day for today, short date for anything older. */
 export function fmtTime(ms: number, fmt: TimeFormat): string {
-  const d = new Date(ms)
-  const today = new Date().toDateString() === d.toDateString()
-  if (!today) return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-  return fmt === '12h'
-    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-    : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+  return isToday(ms) ? CLOCK_FORMAT[fmt].format(ms) : DATE_FORMAT.format(ms)
 }
