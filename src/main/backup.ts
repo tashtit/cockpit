@@ -6,7 +6,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync
@@ -48,6 +47,7 @@ import {
 import { adoptScope, hasSkillCopy, skillCopyDir, skillSource } from './library'
 import { walkFiles } from './parsers/util'
 import { isUnder } from './paths'
+import { writeFileAtomic } from './replace-file'
 
 /*
  * The disk around backup-core: reading skills, writing the file, and putting a
@@ -232,11 +232,7 @@ export function buildBundle(
 
 export function writeBackup(path: string, deps: ExportDeps, passphrase?: string): BackupExportResult {
   const { bundle, result } = buildBundle(deps, passphrase)
-  // write-then-rename with the mode set on the temp file: chmod on an existing
-  // target would leave a window where the old inode still holds the new bytes
-  const tmp = path + '.tmp'
-  writeFileSync(tmp, JSON.stringify(bundle, null, 2), { mode: 0o600 })
-  renameSync(tmp, path)
+  writeFileAtomic(path, JSON.stringify(bundle, null, 2), { mode: 0o600 })
   return { path, ...result }
 }
 

@@ -1,6 +1,5 @@
-import { createReadStream, mkdirSync, readFileSync, statSync } from 'node:fs'
-import { rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, extname } from 'node:path'
+import { createReadStream, readFileSync, statSync } from 'node:fs'
+import { extname } from 'node:path'
 import { createInterface } from 'node:readline'
 import type {
   AccountStat,
@@ -25,6 +24,7 @@ import { parseUnifiedDiff } from './parsers/artifacts'
 import { cellToolCalls } from './parsers/code-mode'
 import { toolItemFor, toolItemName, toolRecords } from './parsers/codex'
 import { contentToText, sessionLogFiles, timeSlicer, toMs } from './parsers/util'
+import { writeFileAtomicAsync } from './replace-file'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals, built
@@ -545,14 +545,10 @@ function saveDeepCache(file: string, visited: ReadonlySet<string>): Promise<void
   for (const [path, e] of deepCache) entries[path] = { mtimeMs: e.mtimeMs, size: e.size, stats: storeStats(e.stats) }
   const body = JSON.stringify({ v: DEEP_CACHE_VERSION, entries })
   deepSaving = deepSaving.then(async () => {
-    const tmp = `${file}.${process.pid}.tmp`
     try {
-      mkdirSync(dirname(file), { recursive: true })
-      await writeFile(tmp, body)
-      await rename(tmp, file)
+      await writeFileAtomicAsync(file, body)
     } catch (err) {
       console.error('[profile] cache save failed:', err)
-      await rm(tmp, { force: true }).catch(() => {})
     }
   })
   return deepSaving

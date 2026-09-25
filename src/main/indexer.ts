@@ -4,15 +4,11 @@ import {
   readFileSync,
   readdirSync,
   statSync,
-  writeFileSync,
-  mkdirSync,
-  renameSync,
   rmSync,
   watch,
   type FSWatcher
 } from 'node:fs'
-import { writeFile, rename, rm } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import type {
   BusySession,
   Mutable,
@@ -32,6 +28,7 @@ import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos
 import { isRegularFile, timeSlicer } from './parsers/util'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
+import { isTempFileOf, writeFileAtomic, writeFileAtomicAsync } from './replace-file'
 import {
   listClaudeSessionFiles,
   listClaudeSessionRoots,
@@ -106,29 +103,17 @@ const RESCAN_QUIET_MS = 750
  */
 const RESCAN_MAX_WAIT_MS = 3000
 
-let cacheSaveSeq = 0
-/**
- * A fixed tmp name races when saves overlap (slow disk, quit flush during an
- * in-flight async save, or two app instances sharing userData): the first
- * rename consumes the tmp file and the second fails with ENOENT. The pid keeps
- * instances apart; the counter keeps saves within a process apart.
- */
-function nextCacheTmp(cacheFile: string): string {
-  return `${cacheFile}.${process.pid}.${++cacheSaveSeq}.tmp`
-}
-
 /** A save's tmp file this old belongs to no save still running, whichever instance wrote it. */
 const STALE_CACHE_TMP_MS = 10 * 60_000
 
 /**
  * A save interrupted between its write and its rename — a crash, a force quit — leaves
  * its tmp file behind, a whole copy of the cache, and nothing else ever removes one.
- * Only files named the way nextCacheTmp names them are touched, and only old ones: a
+ * Only files named the way writeFileAtomic names them are touched, and only old ones: a
  * second instance sharing userData may be mid-save right now.
  */
 function sweepCacheTmps(cacheFile: string): void {
   const dir = dirname(cacheFile)
-  const prefix = `${basename(cacheFile)}.`
   let names: string[]
   try {
     names = readdirSync(dir)
@@ -137,7 +122,7 @@ function sweepCacheTmps(cacheFile: string): void {
   }
   const cutoff = Date.now() - STALE_CACHE_TMP_MS
   for (const name of names) {
-    if (!name.startsWith(prefix) || !/^\d+\.\d+\.tmp$/.test(name.slice(prefix.length))) continue
+    if (!isTempFileOf(cacheFile, name)) continue
     const p = join(dir, name)
     try {
       const st = lstatSync(p)
@@ -1324,32 +1309,20 @@ export class SessionIndexer {
   private async writeCacheFile(): Promise<void> {
     if (!this.cacheFile || !this.cacheDirty) return
     this.cacheDirty = false
-    const tmp = nextCacheTmp(this.cacheFile)
     try {
-      mkdirSync(dirname(this.cacheFile), { recursive: true })
-      await writeFile(tmp, this.serializeCache())
-      await rename(tmp, this.cacheFile)
+      await writeFileAtomicAsync(this.cacheFile, this.serializeCache())
     } catch (err) {
       console.error('[indexer] cache save failed:', err)
-      await rm(tmp, { force: true }).catch(() => {})
     }
   }
 
   /** Synchronous flush for app quit. */
   saveCache(): void {
     if (!this.cacheFile) return
-    const tmp = nextCacheTmp(this.cacheFile)
     try {
-      mkdirSync(dirname(this.cacheFile), { recursive: true })
-      writeFileSync(tmp, this.serializeCache())
-      renameSync(tmp, this.cacheFile)
+      writeFileAtomic(this.cacheFile, this.serializeCache())
     } catch (err) {
       console.error('[indexer] cache save failed:', err)
-      try {
-        rmSync(tmp, { force: true })
-      } catch {
-        /* best-effort cleanup */
-      }
     }
   }
 

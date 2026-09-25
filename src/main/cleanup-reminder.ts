@@ -1,5 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readFileSync } from 'node:fs'
 import type { CleanupNotice } from '../shared/types'
 import {
   EMPTY_REMINDER,
@@ -11,6 +10,7 @@ import {
   type CleanupReady,
   type ReminderState
 } from './cleanup-reminder-core'
+import { writeFileAtomic } from './replace-file'
 
 /**
  * Cleanup reminders, the IO half: the timer that runs the cleanup scan once a day in
@@ -126,11 +126,7 @@ export class CleanupReminder {
 
   private save(): void {
     try {
-      mkdirSync(dirname(this.deps.file), { recursive: true })
-      // write-then-rename: a crash mid-write must never leave a truncated file
-      const tmp = `${this.deps.file}.tmp`
-      writeFileSync(tmp, JSON.stringify(this.state))
-      renameSync(tmp, this.deps.file)
+      writeFileAtomic(this.deps.file, JSON.stringify(this.state))
     } catch (err) {
       console.error('[cleanup] could not save the reminder state:', err)
     }

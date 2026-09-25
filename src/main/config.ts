@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type {
@@ -12,6 +12,7 @@ import type {
   UpdatePrefs
 } from '../shared/types'
 import { clampStaleDays } from './cleanup-core'
+import { writeFileAtomic } from './replace-file'
 import { sanitizeAcpAgent } from '../shared/acp'
 import { clampZoom, type WindowPlacement } from '../shared/window'
 
@@ -504,22 +505,9 @@ export function sessionLineage(): Record<string, string> {
 
 export function saveConfig(cfg: AppConfig): void {
   assertOverwritable()
-  mkdirSync(userDataDir(), { recursive: true })
-  // write-then-rename: a crash mid-write must never leave a truncated config. The
-  // temp name is per write, so a second instance on the same userData (dev beside
-  // the installed app) can't rename this one's half-written file into place.
-  const tmp = `${configPath()}.${process.pid}.${++saveSeq}.tmp`
-  try {
-    // owner-only: the config holds MCP servers' env values in plaintext
-    writeFileSync(tmp, JSON.stringify(cfg, null, 2), { mode: 0o600 })
-    renameSync(tmp, configPath())
-  } catch (err) {
-    rmSync(tmp, { force: true })
-    throw err
-  }
+  // owner-only: the config holds MCP servers' env values in plaintext
+  writeFileAtomic(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 })
 }
-
-let saveSeq = 0
 
 /**
  * Every write passes here. A config that exists and cannot be read is the user's,

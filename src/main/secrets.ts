@@ -1,7 +1,8 @@
 import { safeStorage } from 'electron'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { userDataDir } from './config'
+import { writeFileAtomic } from './replace-file'
 
 /**
  * BYOK API keys, encrypted with the OS keychain (Electron safeStorage) and kept in a
@@ -33,12 +34,8 @@ function readAll(): Record<string, string> | null {
 }
 
 function writeAll(map: Record<string, string>): void {
-  mkdirSync(userDataDir(), { recursive: true })
-  // ciphertext only, but keep it owner-readable regardless; write-then-rename so
-  // a crash mid-write can't truncate the store
-  const tmp = keysPath() + '.tmp'
-  writeFileSync(tmp, JSON.stringify(map, null, 2), { mode: 0o600 })
-  renameSync(tmp, keysPath())
+  // ciphertext only, but keep it owner-readable regardless
+  writeFileAtomic(keysPath(), JSON.stringify(map, null, 2), { mode: 0o600 })
 }
 
 export function setEndpointKey(endpointId: string, key: string): void {
