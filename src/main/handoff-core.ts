@@ -1,5 +1,5 @@
 import type { Provider, SessionMessage, TodoStatus } from '../shared/types'
-import { buildWork, todoSummary } from '../shared/work'
+import { buildWork, CHECK_LABEL, todoSummary, type CheckWork } from '../shared/work'
 import { capText, truncate } from './parsers/util'
 import { isValidNativeId } from './chat'
 
@@ -42,6 +42,7 @@ const DIFFSTAT_LINES = 21
 const PLAN_CAP = 4_000
 const TODOS_SHOWN = 30
 const TODO_EACH = 160
+const CHECK_COMMAND = 160
 
 const AGENT_NAME: Record<Provider, string> = {
   claude: 'Claude Code',
@@ -169,11 +170,21 @@ const TODO_LINE: Record<TodoStatus, (text: string) => string> = {
   blocked: (t) => `- [ ] ${t} (blocked)`
 }
 
+/** One check's last word: `Tests: failed (exit 1) — \`npm test\`; 2 files edited since`. */
+function checkLine(c: CheckWork): string {
+  const run = c.last ?? c.runs[c.runs.length - 1]!
+  const state = c.last?.status ?? 'no result yet'
+  const exit = run.exitCode !== undefined && run.exitCode !== 0 ? ` (exit ${run.exitCode})` : ''
+  const since = c.editedSince === 0 ? '' : `; ${c.editedSince === 1 ? '1 file' : `${c.editedSince} files`} edited since`
+  return `- ${CHECK_LABEL[c.kind]}: ${state}${exit} — \`${truncate(run.command, CHECK_COMMAND)}\`${since}`
+}
+
 /**
- * The agent's own account of the work — the plan it last proposed and where its to-do
- * list stands, folded the way the Work panel folds them. The conversation's tail says
- * what was said last; this says what was agreed and what is left, which is what the
- * next agent needs first. Null when the agent kept neither.
+ * The agent's own account of the work — the plan it last proposed, where its to-do list
+ * stands and how its checks last ended, folded the way the Work panel folds them. The
+ * conversation's tail says what was said last; this says what was agreed, what is left
+ * and what was verified, which is what the next agent needs first. Null when the agent
+ * kept none of them.
  */
 function workSection(messages: readonly SessionMessage[]): string | null {
   const work = buildWork(messages)
@@ -193,6 +204,13 @@ function workSection(messages: readonly SessionMessage[]): string | null {
       `## To-dos (${todoSummary(work.todos)})\n\n` +
         'Checked steps are done — verify them, don’t redo them.\n\n' +
         lines.join('\n')
+    )
+  }
+  if (work.checks.length > 0) {
+    parts.push(
+      '## Checks (how each last ended)\n\n' +
+        'A check with files edited since no longer covers them — run it again.\n\n' +
+        work.checks.map(checkLine).join('\n')
     )
   }
   return parts.length > 0 ? parts.join('\n\n') : null

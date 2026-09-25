@@ -1261,6 +1261,7 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .review-pr .tone-warn { color: var(--warn); }
 .review-pr .tone-danger { color: var(--danger); }
 .review-pr .tone-dim, .review-kind.tone-dim { color: var(--fg-dim); }
+.review-kind.tone-ok { color: var(--ok); border-color: rgba(var(--ok-rgb), 0.5); }
 .review-kind.tone-danger { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
 .review-kind.tone-warn { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
 .review-pr-fix { display: inline-flex; align-items: center; gap: var(--s2); }
@@ -1342,6 +1343,43 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .work-edit + .work-edit { margin-top: var(--s3); }
 .work-edit.ringed { box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.55); }
 .work-failed { margin-left: var(--s2); color: var(--warn); }
+/* checks: one framed block per check — its state word, what ran, the end of what it
+   printed — with the runs before it folded underneath */
+.work-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  gap: var(--s3); }
+.work-check { display: flex; flex-direction: column; gap: var(--s2); min-width: 0;
+  padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); transition: box-shadow var(--dur) var(--ease); }
+.work-check.ringed, .work-check-run.ringed { box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.55); }
+.work-check-head { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  min-height: 24px; }
+.work-check-name { font-weight: 600; }
+.work-check-meta { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.work-check-time { margin-left: auto; }
+.work-check-cmd { min-width: 0; font-family: var(--mono); font-size: var(--fs-sm);
+  color: var(--fg-dim); overflow-wrap: anywhere; }
+/* an agent's script can be a screenful of setup around the check: three lines here, the
+   whole of it in the tooltip; an earlier run's is one */
+.work-check > .work-check-cmd { display: -webkit-box; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.work-check-out { margin: 0; padding: var(--s2) var(--s3); border-radius: var(--radius-sm);
+  background: var(--bg-deep); color: var(--fg); font-family: var(--mono); font-size: var(--fs-xs);
+  line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 260px;
+  overflow-y: auto; }
+.work-check-runs > summary { display: flex; align-items: center; gap: var(--s2); min-height: 24px;
+  cursor: pointer; list-style: none; color: var(--fg-dim); font-size: var(--fs-xs);
+  font-family: var(--mono); }
+.work-check-runs > summary::-webkit-details-marker { display: none; }
+.work-check-runs > summary::before { content: '▸'; width: 10px; flex-shrink: 0; font-size: 10px;
+  transition: transform var(--dur) var(--ease); }
+.work-check-runs[open] > summary::before { transform: rotate(90deg); }
+.work-check-list { list-style: none; margin: var(--s1) 0 0; padding: 0; display: flex;
+  flex-direction: column; gap: 2px; }
+.work-check-run { display: flex; align-items: baseline; gap: var(--s2); min-width: 0;
+  padding: 2px var(--s2); border-radius: var(--radius-sm); }
+.work-check-run .work-check-cmd { flex: 1; font-size: var(--fs-xs); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
 
 /* a transcript row that opens the Work panel: the tool row's grammar as one button —
    the blank lead keeps its chip in line with the ▸ of the rows around it */
@@ -1353,6 +1391,10 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .tool-open-go { display: inline-flex; flex-shrink: 0; align-self: center; color: var(--fg-dim); }
 .tool-open:hover .tool-open-go { color: var(--accent); }
 .tool-failed { flex-shrink: 0; color: var(--warn); white-space: nowrap; }
+/* how a check a row ran ended: the word itself, in its tone */
+.tool-verdict { flex-shrink: 0; white-space: nowrap; }
+.tool-verdict.tone-ok { color: var(--ok); }
+.tool-verdict.tone-danger { color: var(--danger); }
 
 /* a plan waiting for approval is read in the card, above its two answers */
 .ask-plan { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }

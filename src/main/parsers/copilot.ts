@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { planArtifact, todoTableArtifact, toolArtifact } from './artifacts'
+import { checkOutcome, exitCodeIn } from './checks'
 import {
   capText,
   readJson,
@@ -446,10 +447,21 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
           ...(artifact ? { artifact } : {}),
           ts
         })
-      } else if (ev.type === 'tool.execution_complete' && ev.data?.success === false) {
+      } else if (ev.type === 'tool.execution_complete') {
+        const at = typeof ev.data?.toolCallId === 'string' ? callRows.get(ev.data.toolCallId) : undefined
+        if (at === undefined) continue
+        let row = out[at]!
         // an edit that never landed must not read as one
-        const at = typeof ev.data.toolCallId === 'string' ? callRows.get(ev.data.toolCallId) : undefined
-        if (at !== undefined) out[at] = { ...out[at]!, failed: true }
+        if (ev.data.success === false) row = { ...row, failed: true }
+        // a check learns how it ended: the exit code Copilot states (`success` is true
+        // whatever the command exited with), else the marker at the end of its output
+        if (row.artifact?.kind === 'check') {
+          const result = ev.data.result
+          const text = String(result?.detailedContent || result?.content || '')
+          const stated = ev.data.shellExecution?.exitCode
+          row = { ...row, artifact: checkOutcome(row.artifact, { text, exitCode: typeof stated === 'number' ? stated : exitCodeIn(text) }) }
+        }
+        out[at] = row
       } else if (ev.type === 'system.message') {
         const text = typeof ev.data?.content === 'string' ? ev.data.content : ''
         if (text) out.push({ role: 'system', kind: 'system', text: truncate(text, 200), ts })

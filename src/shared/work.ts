@@ -1,4 +1,4 @@
-import type { EditLine, FileEdit, SessionMessage, TodoStatus, WorkArtifact } from './types'
+import type { CheckKind, EditLine, FileEdit, SessionMessage, TodoStatus, WorkArtifact } from './types'
 
 /**
  * The Work panel's model: what the agent's own tool calls say about its work, folded
@@ -11,7 +11,40 @@ import type { EditLine, FileEdit, SessionMessage, TodoStatus, WorkArtifact } fro
  * under, so a row can open the panel at itself.
  */
 
-export type WorkTab = 'plan' | 'todos' | 'edits'
+export type WorkTab = 'plan' | 'todos' | 'edits' | 'checks'
+
+/** The order the Checks tab lists them in: quickest first, the order an agent runs them */
+export const CHECK_ORDER: readonly CheckKind[] = ['types', 'lint', 'tests', 'e2e', 'build']
+
+/** What a check is called wherever a person or the next agent reads it */
+export const CHECK_LABEL: Readonly<Record<CheckKind, string>> = {
+  types: 'Typecheck',
+  lint: 'Lint',
+  tests: 'Tests',
+  e2e: 'End-to-end tests',
+  build: 'Build'
+}
+
+/** One run of a check: a command that ran it, and how it ended if the log says. */
+export type CheckRun = {
+  readonly key: number
+  readonly ts?: number
+  readonly command: string
+  /** Absent: no verdict — still running, refused, or sent to the background */
+  readonly status?: 'passed' | 'failed'
+  readonly exitCode?: number
+  readonly output?: readonly string[]
+}
+
+export type CheckWork = {
+  readonly kind: CheckKind
+  /** Oldest first */
+  readonly runs: readonly CheckRun[]
+  /** The newest run with a verdict — the check's state; null while none has one */
+  readonly last: CheckRun | null
+  /** Files edited after `last`, which it no longer speaks for */
+  readonly editedSince: number
+}
 
 export type PlanEntry = { readonly key: number; readonly text: string; readonly ts?: number }
 
@@ -45,6 +78,8 @@ export type WorkModel = {
   /** In the order the agent first touched them */
   readonly files: readonly FileWork[]
   readonly editCount: number
+  /** Every check the agent ran, in CHECK_ORDER */
+  readonly checks: readonly CheckWork[]
 }
 
 export function lineStat(lines: readonly EditLine[]): { added: number; removed: number } {
@@ -99,7 +134,7 @@ export function hasWork(log: readonly SessionMessage[]): boolean {
 
 /** Which tab a row's artifact belongs on. */
 export function tabFor(a: WorkArtifact): WorkTab {
-  return a.kind === 'plan' ? 'plan' : a.kind === 'edits' ? 'edits' : 'todos'
+  return a.kind === 'plan' ? 'plan' : a.kind === 'edits' ? 'edits' : a.kind === 'check' ? 'checks' : 'todos'
 }
 
 export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkModel {
@@ -108,6 +143,7 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
   let todosKey: number | null = null
   const files = new Map<string, EditEntry[]>()
   let editCount = 0
+  const runs = new Map<CheckKind, CheckRun[]>()
   // Claude numbers tasks 1, 2, 3… — a create whose result was never read (the live
   // stream carries no results) takes the next number after the highest seen
   let nextTask = 1
@@ -172,7 +208,30 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
           editCount++
         }
         break
+      case 'check': {
+        const { command, status, exitCode, output } = a
+        const run: CheckRun = {
+          key,
+          ...(m.ts ? { ts: m.ts } : {}),
+          command,
+          ...(status ? { status } : {}),
+          ...(exitCode !== undefined ? { exitCode } : {}),
+          ...(output ? { output } : {})
+        }
+        for (const kind of a.checks) runs.set(kind, [...(runs.get(kind) ?? []), run])
+        break
+      }
     }
+  })
+
+  // what each check's newest verdict no longer covers: the files a landed edit touched after it
+  const landedEdits = [...files].flatMap(([path, edits]) => edits.filter((e) => !e.failed).map((e) => ({ path, key: e.key })))
+  const checks = CHECK_ORDER.flatMap((kind): CheckWork[] => {
+    const list = runs.get(kind)
+    if (!list) return []
+    const last = [...list].reverse().find((r) => r.status !== undefined) ?? null
+    const since = last === null ? [] : landedEdits.filter((e) => e.key > last.key)
+    return [{ kind, runs: list, last, editedSince: new Set(since.map((e) => e.path)).size }]
   })
 
   return {
@@ -188,7 +247,8 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
         removed: landed.reduce((n, e) => n + e.removed, 0)
       }
     }),
-    editCount
+    editCount,
+    checks
   }
 }
 
@@ -205,4 +265,20 @@ export function fileChange(file: FileWork): FileEdit['change'] {
   if (last === 'delete') return 'delete'
   const first = landed[0]?.edit.change
   return first === 'add' || first === 'write' ? first : 'edit'
+}
+
+/** A check that wants a look: its newest verdict failed, or files changed after it. */
+export function needsLook(c: CheckWork): boolean {
+  return c.last?.status === 'failed' || c.editedSince > 0
+}
+
+/** "3 checks · 1 failing · 1 out of date" — the tab's readout, in the words the rows use. */
+export function checkSummary(checks: readonly CheckWork[]): string {
+  const failing = checks.filter((c) => c.last?.status === 'failed').length
+  const stale = checks.filter((c) => c.last?.status === 'passed' && c.editedSince > 0).length
+  const parts = [checks.length === 1 ? '1 check' : `${checks.length} checks`]
+  if (failing > 0) parts.push(`${failing} failing`)
+  if (stale > 0) parts.push(`${stale} out of date`)
+  if (failing === 0 && stale === 0 && checks.every((c) => c.last?.status === 'passed')) parts.push('all passing')
+  return parts.join(' · ')
 }

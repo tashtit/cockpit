@@ -307,7 +307,21 @@ describe('parsePatch', () => {
     expect(a?.kind).toBe('edits')
     const heredoc = toolArtifact('exec_command', { cmd: `apply_patch <<'EOF'\n${PATCH}EOF` })
     expect(heredoc?.kind).toBe('edits')
-    expect(toolArtifact('shell', { command: ['bash', '-lc', 'npm test'] })).toBeUndefined()
+    // a shell command that is no patch is a check where it runs one, else nothing
+    expect(toolArtifact('shell', { command: ['bash', '-lc', 'npm test'] })).toEqual({
+      kind: 'check',
+      checks: ['tests'],
+      command: 'npm test',
+      ownExit: true
+    })
+    expect(toolArtifact('shell', { command: ['bash', '-lc', 'git status'] })).toBeUndefined()
+  })
+
+  it('makes every agent’s shell call a check where it runs one', () => {
+    expect(toolArtifact('Bash', { command: 'npm run typecheck', description: 'x' })).toMatchObject({ checks: ['types'] })
+    expect(toolArtifact('bash', { command: 'npx vitest run', mode: 'sync' })).toMatchObject({ checks: ['tests'] })
+    expect(toolArtifact('exec_command', { cmd: 'cargo test' })).toMatchObject({ checks: ['tests'] })
+    expect(toolArtifact('Bash', { command: 'ls' })).toBeUndefined()
   })
 
   it('text that is not a patch is no edit', () => {

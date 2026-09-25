@@ -251,6 +251,13 @@ describe('parseCodexStreamLine', () => {
     const [old] = parseCodexStreamLine('t', { msg: { type: 'exec_command_begin', command: ['bash', '-lc', 'npm test'] } })
     expect(old).toMatchObject({ type: 'tool', preview: 'npm test' })
   })
+  it('carries a check that streamed in finished, with how it ended', () => {
+    const [run] = parseCodexStreamLine('t', {
+      type: 'item.completed',
+      item: { type: 'command_execution', command: "bash -lc 'npm test'", aggregated_output: ' Tests  2 failed | 8 passed', exit_code: 1, status: 'failed' }
+    })
+    expect(run).toMatchObject({ type: 'tool', preview: 'npm test', artifact: { kind: 'check', checks: ['tests'], status: 'failed', exitCode: 1 } })
+  })
   it('carries what the Work panel shows: a file change names its files, a todo list is the plan', () => {
     const [edit] = parseCodexStreamLine('t', {
       type: 'item.completed',

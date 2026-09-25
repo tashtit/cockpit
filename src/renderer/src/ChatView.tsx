@@ -613,12 +613,15 @@ export function ChatView({
   )
 }
 
-/** Where the Work key opens: a plan waiting on you, else the list under way, else the edits. */
+/** Where the Work key opens: a plan waiting on you, else the list under way, else a check
+ *  that failed, else the edits. */
 export function defaultTab(model: WorkModel, pendingPlanKey: number | null): WorkTab {
   if (pendingPlanKey !== null) return 'plan'
   if (model.todos.some((t) => t.status !== 'completed')) return 'todos'
+  if (model.checks.some((c) => c.last?.status === 'failed')) return 'checks'
   if (model.files.length > 0) return 'edits'
   if (model.plans.length > 0) return 'plan'
+  if (model.checks.length > 0) return 'checks'
   return 'todos'
 }
 
@@ -731,6 +734,8 @@ function artifactHeadline(m: SessionMessage, cwd: string | undefined): string {
       return m.preview ?? `#${a.id}`
     case 'edits':
       return relative(a.files.map((f) => f.path).join(', '), cwd).slice(0, 120)
+    case 'check':
+      return relative(m.preview ?? a.command, cwd).slice(0, 120)
   }
 }
 
@@ -790,7 +795,11 @@ export const Message = memo(function Message({
         </span>
         <code className="tool-preview">{headline}</code>
         {a.kind === 'edits' && !m.failed && <DiffStat {...artifactStat(a)} />}
-        {m.failed && <span className="tool-failed">didn't apply</span>}
+        {/* a check says how it ended; a check that failed ran, it didn't fail to apply */}
+        {a.kind === 'check' && a.status && (
+          <span className={`tool-verdict ${a.status === 'passed' ? 'tone-ok' : 'tone-danger'}`}>{a.status}</span>
+        )}
+        {m.failed && a.kind !== 'check' && <span className="tool-failed">didn't apply</span>}
         <span className="tool-open-go" aria-hidden="true">
           <WorkIcon size={11} />
         </span>

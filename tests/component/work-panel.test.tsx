@@ -187,6 +187,60 @@ describe('a plan waiting for approval', () => {
   })
 })
 
+describe('checks', () => {
+  const check = (command: string, extra: Partial<Extract<WorkArtifact, { kind: 'check' }>> = {}): WorkArtifact => ({
+    kind: 'check',
+    checks: ['tests'],
+    command,
+    ...extra
+  })
+
+  it('a check row says how it ended, not that it failed to apply', () => {
+    renderChat([user('test it'), call('Bash', check('npm test', { status: 'failed', exitCode: 1 }), { failed: true, preview: 'npm test' })])
+    const row = screen.getByRole('button', { name: /npm test/ })
+    expect(within(row).getByText('failed')).toHaveClass('tool-verdict', 'tone-danger')
+    expect(within(row).queryByText("didn't apply")).not.toBeInTheDocument()
+  })
+
+  it('the Work key opens on a failing check, which shows its state, output and what changed since', async () => {
+    renderChat([
+      user('fix it'),
+      call('Bash', check('npm test', { status: 'passed', exitCode: 0 }), { ts: Date.parse('2026-09-01T10:00:00Z') }),
+      call('Edit', edit('/tmp/wt/src/a.ts')),
+      call('Bash', { kind: 'check', checks: ['types'], command: 'npx tsc --noEmit', status: 'failed', exitCode: 2, output: ['src/a.ts(1,7): error TS2322'] })
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(within(panel()).getByRole('tab', { name: /Checks/ })).toHaveAttribute('aria-selected', 'true')
+    expect(within(panel()).getByText('2 checks · 1 failing · 1 out of date')).toBeInTheDocument()
+    const types = within(panel()).getByText('Typecheck').closest('li')!
+    expect(within(types).getByText('failed')).toHaveClass('review-kind', 'tone-danger')
+    expect(within(types).getByText('exit 2')).toBeInTheDocument()
+    expect(within(types).getByText('src/a.ts(1,7): error TS2322')).toBeInTheDocument()
+    const tests = within(panel()).getByText('Tests').closest('li')!
+    expect(within(tests).getByText('passed')).toHaveClass('tone-ok')
+    expect(within(tests).getByText('1 file edited since')).toHaveClass('work-flag')
+  })
+
+  it('keeps the runs before the newest verdict one step away', async () => {
+    renderChat([
+      user('fix it'),
+      call('Bash', check('npm test', { status: 'failed', exitCode: 1 }), { preview: 'npm test' }),
+      call('Bash', check('npm test -- --run', { status: 'passed', exitCode: 0 }), { preview: 'npm test -- --run' })
+    ])
+    // the older run's row opens the panel at itself: its fold opens, the run is in it
+    await userEvent.click(screen.getAllByRole('button', { name: /npm test/ })[0]!)
+    expect(within(panel()).getByText('1 earlier run · 1 failed')).toBeInTheDocument()
+    expect(within(panel()).getByText('npm test').closest('li')).toHaveClass('work-check-run')
+  })
+
+  it('says what would appear when the agent ran none', async () => {
+    renderChat([user('fix it'), call('Edit', edit('/tmp/wt/a.ts'))])
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    await userEvent.click(within(panel()).getByRole('tab', { name: /Checks/ }))
+    expect(within(panel()).getByText(/No checks yet/)).toBeInTheDocument()
+  })
+})
+
 describe('the Edits tab', () => {
   it('points at Changes for what is on disk, where there is a worktree to diff', async () => {
     renderChat([call('Edit', edit('/tmp/wt/a.ts'))])

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { absolutePath, buildWork, fileChange, hasWork, planTitle, todoSummary } from '../src/shared/work'
-import type { FileEdit, SessionMessage, WorkArtifact } from '../src/shared/types'
+import { absolutePath, buildWork, checkSummary, fileChange, hasWork, needsLook, planTitle, tabFor, todoSummary } from '../src/shared/work'
+import type { CheckKind, FileEdit, SessionMessage, WorkArtifact } from '../src/shared/types'
 
 const call = (toolName: string, artifact: WorkArtifact, extra: Partial<SessionMessage> = {}): SessionMessage => ({
   role: 'assistant',
@@ -152,5 +152,61 @@ describe('hasWork', () => {
   it('asks whether any call carries something for the panel', () => {
     expect(hasWork([say('hi'), { role: 'assistant', kind: 'tool_call', toolName: 'Bash', text: 'ls' }])).toBe(false)
     expect(hasWork([call('TodoWrite', { kind: 'todos', items: [] })])).toBe(true)
+  })
+})
+
+describe('buildWork: checks', () => {
+  const check = (checks: CheckKind[], command: string, status?: 'passed' | 'failed', exitCode?: number): WorkArtifact => ({
+    kind: 'check',
+    checks,
+    command,
+    ...(status ? { status } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {})
+  })
+
+  it('keeps every run per check, in the tab’s order, the newest verdict as its state', () => {
+    const log = [
+      call('Bash', check(['tests'], 'npm test', 'failed', 1), { ts: 1 }),
+      call('Bash', check(['types', 'tests'], 'npm run typecheck && npm test', 'passed', 0), { ts: 2 }),
+      // still running: listed, but never the state
+      call('Bash', check(['tests'], 'npm test'))
+    ]
+    const { checks } = buildWork(log)
+    expect(checks.map((c) => c.kind)).toEqual(['types', 'tests'])
+    const tests = checks[1]!
+    expect(tests.runs.map((r) => r.key)).toEqual([0, 1, 2])
+    expect(tests.last).toEqual({ key: 1, ts: 2, command: 'npm run typecheck && npm test', status: 'passed', exitCode: 0 })
+    expect(checks[0]!.last?.key).toBe(1)
+  })
+
+  it('counts the files a landed edit touched after the verdict: the check no longer covers them', () => {
+    const log = [
+      call('Edit', edit('/r/a.ts', 'a', 'b')),
+      call('Bash', check(['tests'], 'npm test', 'passed', 0)),
+      call('Edit', edit('/r/a.ts', 'b', 'c')),
+      call('Edit', edit('/r/a.ts', 'c', 'd')),
+      call('Write', edit('/r/b.ts', '', 'x', 'write')),
+      // an edit that never landed changes nothing
+      call('Edit', edit('/r/c.ts', 'a', 'b'), { failed: true }),
+      call('Bash', check(['lint'], 'npm run lint', 'failed', 1))
+    ]
+    const { checks } = buildWork(log)
+    const byKind = Object.fromEntries(checks.map((c) => [c.kind, c]))
+    expect(byKind.tests?.editedSince).toBe(2)
+    expect(byKind.lint?.editedSince).toBe(0)
+    expect(checks.filter(needsLook).map((c) => c.kind)).toEqual(['lint', 'tests'])
+    expect(checkSummary(checks)).toBe('2 checks · 1 failing · 1 out of date')
+  })
+
+  it('says all passing only when every check has passed and nothing changed since', () => {
+    const passing = buildWork([call('Bash', check(['types'], 'tsc', 'passed', 0)), call('Bash', check(['tests'], 'vitest', 'passed', 0))])
+    expect(checkSummary(passing.checks)).toBe('2 checks · all passing')
+    const waiting = buildWork([call('Bash', check(['tests'], 'vitest'))])
+    expect(waiting.checks[0]!.last).toBeNull()
+    expect(checkSummary(waiting.checks)).toBe('1 check')
+  })
+
+  it('opens a check row on the Checks tab', () => {
+    expect(tabFor(check(['tests'], 'npm test'))).toBe('checks')
   })
 })
