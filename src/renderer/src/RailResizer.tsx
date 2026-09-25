@@ -26,8 +26,13 @@ export function RailResizer(): JSX.Element {
   const [width, setWidth] = useState(0)
   const [viewport, setViewport] = useState(() => window.innerWidth)
   const [dragging, setDragging] = useState(false)
-  /** Where the drag started: the pointer, and the rail. */
-  const drag = useRef<{ x: number; width: number } | null>(null)
+  /** Where the drag started — the pointer, and the rail — and where it has taken the rail */
+  const drag = useRef<{
+    readonly x: number
+    readonly width: number
+    /** Mutable: the width the last move set, which the release commits (null: none yet) */
+    px: number | null
+  } | null>(null)
 
   /** What the rail measures now — its border box is the grid track. */
   const measure = useCallback((): number => {
@@ -59,18 +64,27 @@ export function RailResizer(): JSX.Element {
     // composer for an 8px strip — the sash is a handle, not a destination
     e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
-    drag.current = { x: e.clientX, width: measure() }
+    drag.current = { x: e.clientX, width: measure(), px: null }
     setDragging(true)
   }
   const onPointerMove = (e: PointerEvent<HTMLDivElement>): void => {
     const from = drag.current
     if (!from) return
-    setRailWidth(clampRail(from.width + (e.clientX - from.x), window.innerWidth))
+    const px = clampRail(from.width + (e.clientX - from.x), window.innerWidth)
+    if (px === from.px) return
+    from.px = px
+    // straight onto the grid while the pointer moves: through the store, every move was
+    // a localStorage write and a render of the whole app, 60–120 times a second. The
+    // store — and App's own `--rail` — take the width once, where the drag ends
+    ref.current?.closest<HTMLElement>('.app')?.style.setProperty('--rail', `${px}px`)
+    setWidth(px)
   }
   const endDrag = (): void => {
-    if (!drag.current) return
+    const from = drag.current
+    if (!from) return
     drag.current = null
     setDragging(false)
+    if (from.px !== null) setRailWidth(from.px)
   }
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     const vw = window.innerWidth
