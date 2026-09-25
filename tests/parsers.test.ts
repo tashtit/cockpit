@@ -1399,6 +1399,47 @@ describe('what agents share with the person', () => {
   })
 })
 
+describe('follow-ups an agent suggests', () => {
+  it('claude: a suggestion learns its id from the result, and a later withdrawal marks it', () => {
+    const dir = join(root, 'follow-ups')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'claude-follow-ups.jsonl')
+    const at = (s: number): string => `2026-09-05T10:00:${String(s).padStart(2, '0')}Z`
+    const call = (id: string, name: string, input: object, s: number): object => ({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
+      timestamp: at(s)
+    })
+    const result = (id: string, content: string, s: number): object => ({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text: content }] }] },
+      timestamp: at(s)
+    })
+    writeFileSync(
+      file,
+      jsonl([
+        call('f1', 'mcp__ccd_session__spawn_task', { title: 'Fix the cache race', tldr: 'Seen in the logs.', prompt: 'In the repo, fix it.' }, 1),
+        result('f1', 'Noted (position 1, task_id: task_40d57447). A chip is showing for the user.', 2),
+        call('f2', 'mcp__ccd_session__spawn_task', { title: 'Drop the dead flag', prompt: 'Remove it.' }, 3),
+        result('f2', 'Noted (position 2, task_id: task_5a73def8).', 4),
+        call('d1', 'mcp__ccd_session__dismiss_task', { task_id: 'task_40d57447', reason: 'Fixed on main.' }, 5),
+        result('d1', 'Withdrawn.', 6),
+        // a withdrawal of something this log never suggested changes nothing
+        call('d2', 'mcp__ccd_session__dismiss_task', { task_id: 'task_nope' }, 7)
+      ])
+    )
+    const calls = parseClaudeMessages(file).filter((m) => m.kind === 'tool_call')
+    expect(calls[0]).toMatchObject({
+      artifact: { kind: 'follow-up', title: 'Fix the cache race', summary: 'Seen in the logs.', taskId: 'task_40d57447', dismissed: 'Fixed on main.' }
+    })
+    expect(calls[1]!.artifact).toMatchObject({ taskId: 'task_5a73def8' })
+    expect(calls[1]!.artifact).not.toHaveProperty('dismissed')
+    expect(calls[2]!.artifact).toBeUndefined()
+    // each row reads as what it did
+    expect(calls.map((c) => c.preview)).toEqual(['Fix the cache race', 'Drop the dead flag', 'Fixed on main.', 'withdrew a suggestion'])
+  })
+})
+
 describe('work agents keep outside their own log', () => {
   const dir = join(root, 'beside')
   const at = (s: number): string => `2026-09-02T10:00:${String(s).padStart(2, '0')}Z`

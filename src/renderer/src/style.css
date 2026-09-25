@@ -1410,6 +1410,26 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .work-shared-actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
 .work-link { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; min-width: 0; }
 .work-link .link-btn { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+/* follow-ups: work the agent suggested for a session of its own — framed like a check,
+   the prompt folded under it, one key that fills in the new-session form */
+.work-follows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  gap: var(--s3); }
+.work-follow { display: flex; flex-direction: column; gap: var(--s2); min-width: 0;
+  padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); transition: box-shadow var(--dur) var(--ease); }
+.work-follow.ringed { box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.55); }
+.work-follow.dismissed .work-follow-title { color: var(--fg-dim); }
+.work-follow-head { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.work-follow-title { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.work-follow-prompt > summary { display: flex; align-items: center; gap: var(--s2); min-height: 24px;
+  cursor: pointer; list-style: none; color: var(--fg-dim); font-size: var(--fs-xs);
+  font-family: var(--mono); }
+.work-follow-prompt > summary::-webkit-details-marker { display: none; }
+.work-follow-prompt > summary::before { content: '▸'; width: 10px; flex-shrink: 0; font-size: 10px;
+  transition: transform var(--dur) var(--ease); }
+.work-follow-prompt[open] > summary::before { transform: rotate(90deg); }
+.work-follow-prompt > pre { margin-top: var(--s1); }
+.work-follow-actions { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
 .work-link-url { min-width: 0; overflow-wrap: anywhere; }
 
 /* a transcript row that opens the Work panel: the tool row's grammar as one button —
@@ -1426,6 +1446,7 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .tool-verdict { flex-shrink: 0; white-space: nowrap; }
 .tool-verdict.tone-ok { color: var(--ok); }
 .tool-verdict.tone-danger { color: var(--danger); }
+.tool-verdict.tone-dim { color: var(--fg-dim); }
 
 /* a plan waiting for approval is read in the card, above its two answers */
 .ask-plan { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }
@@ -2312,35 +2333,56 @@ button.pnl-flag:hover { text-decoration: underline; }
 .idiff-tools { display: flex; justify-content: flex-end; }
 
 /* ---------- profile: activity heatmap + per-agent totals (ProfileView) ---------- */
-/* Headline numbers. tabular-nums so the row doesn't jitter as counts tick up. */
-.pv-stats { display: flex; flex-wrap: wrap; gap: var(--s5); margin-bottom: var(--s5);
+/* Headline numbers over the sessions-by-agent bar: the glance every tab keeps, and
+   the key to every agent color on the page. tabular-nums so counts don't jitter. */
+.pv-stats { display: flex; flex-direction: column; gap: var(--s4); margin-bottom: var(--s5);
   padding: var(--s4); background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); }
-.pv-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pv-stat strong { font-size: var(--fs-lg); font-weight: 600; color: var(--fg);
+.pv-nums { display: flex; flex-wrap: wrap; gap: var(--s4) var(--s5); margin: 0; }
+/* the value sits over its label, but the label leads in the DOM: a <dl> reads
+   "sessions, 23" rather than a bare number */
+.pv-stat { display: flex; flex-direction: column-reverse; gap: 2px; min-width: 0; }
+.pv-stat dd { margin: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--fg);
   font-variant-numeric: tabular-nums; }
-.pv-stat span { color: var(--fg-dim); font-size: var(--fs-xs); font-weight: 600;
+.pv-stat dt { color: var(--fg-dim); font-size: var(--fs-xs); font-weight: 600;
   letter-spacing: 0.6px; }
+.pv-mix { display: flex; flex-direction: column; gap: var(--s2); }
+.pv-mix .pv-bar-fill { width: 100%; }
+.pv-mix-key, .pv-mix-key ul { display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--s1) var(--s4); }
+.pv-mix-key { color: var(--fg-dim); font-size: var(--fs-xs); }
+.pv-mix-key li { display: inline-flex; align-items: center; gap: var(--s2); white-space: nowrap; }
+.pv-mix-key strong { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pv-mix-label { font-weight: 600; }
+.pv-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 
 /* The year of squares sizes itself to the card: a container query scales --pv-sq
-   so all weeks fit the available width (28px weekday column + 6px gap + per-week
-   4px gaps are the constants in the formula). No inner scrollbars in normal use —
-   overflow-x stays as a floor-fallback for tiny windows, and overflow-y is pinned
+   so all weeks fit the available width. A week's pitch (square + gap) is the width
+   past the lead — the 28px weekday column and its 6px gap — over the weeks; the gap
+   takes about a quarter of it, between 1px and 4px, so small squares are not swamped
+   by fixed gaps. --pv-lead is that 34 less the smallest gap (the last week has none),
+   so the grid never outgrows its box: a full year fits the 286px card at the window
+   floor. overflow-x stays only as a fallback below the floor, and overflow-y is pinned
    shut so a horizontal bar can never breed the redundant vertical one. */
-.pv-heat-scroll { container-type: inline-size; overflow-x: auto; overflow-y: hidden;
+.pv-heat-scroll { container: pv-heat / inline-size; overflow-x: auto; overflow-y: hidden;
   padding-bottom: var(--s2); }
-.pv-heat { --pv-sq: clamp(5px, calc((100cqi - 30px) / var(--pv-weeks, 53) - 4px), 11px);
+.pv-heat { --pv-lead: 33px; --pv-pitch: calc((100cqi - var(--pv-lead)) / var(--pv-weeks, 53));
+  --pv-gap: clamp(1px, calc(var(--pv-pitch) * 0.27), 4px);
+  --pv-sq: clamp(3px, calc(var(--pv-pitch) - var(--pv-gap)), 11px);
   display: inline-grid; grid-template-columns: auto auto;
   column-gap: var(--s2); row-gap: var(--s1); }
-.pv-months { grid-column: 2; grid-row: 1; display: grid; gap: var(--s1);
+.pv-months { grid-column: 2; grid-row: 1; display: grid; gap: var(--pv-gap);
   grid-template-columns: repeat(var(--pv-weeks), var(--pv-sq));
   color: var(--fg-dim); font-size: var(--fs-xs); }
+/* a label runs on past its week's column; the row clips at the grid's edge rather than
+   let the last one widen the scroller (the component also drops a label that close) */
+.pv-months { overflow: hidden; }
 .pv-months span { white-space: nowrap; }
 /* fixed width: the container-query formula above treats this column as a constant */
-.pv-weekdays { grid-column: 1; grid-row: 2; display: grid; gap: var(--s1);
+.pv-weekdays { grid-column: 1; grid-row: 2; display: grid; gap: var(--pv-gap);
   grid-template-rows: repeat(7, var(--pv-sq)); align-items: center;
   color: var(--fg-dim); font-size: var(--fs-xs); width: 28px; }
-.pv-grid { grid-column: 2; grid-row: 2; display: grid; gap: var(--s1);
+.pv-grid { grid-column: 2; grid-row: 2; display: grid; gap: var(--pv-gap);
   grid-template-rows: repeat(7, var(--pv-sq)); grid-auto-flow: column;
   grid-auto-columns: var(--pv-sq); }
 /* Empty days keep the grid dense; the agent hue is applied inline per square. */
@@ -2353,65 +2395,86 @@ button.pnl-flag:hover { text-decoration: underline; }
 .pv-scale { display: inline-flex; align-items: center; gap: var(--s1); }
 .pv-scale .pv-sq { display: inline-block; }
 
-.pv-agents, .pv-langs, .pv-repos { list-style: none; margin: 0 0 var(--s5); padding: 0;
-  display: flex; flex-direction: column; gap: var(--s2); }
-.pv-agent { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3);
-  border: 1px solid var(--border); border-radius: var(--radius); }
-.pv-agent-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
-.pv-agent-head { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
-  font-size: var(--fs-base); }
-.pv-agent-days, .pv-agent-meta { color: var(--fg-dim); font-size: var(--fs-xs); }
-.pv-agent-meta { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+/* The one list grammar — models, languages, repos: name | agent-split bar | count.
+   Rows share the list's columns (subgrid), so every track starts and ends at one x
+   whatever the count beside it says. Both text columns take what they need up to a
+   share of the card and give way past it — a name truncates (its tooltip keeps it),
+   a count wraps at its "·" — so the list holds at the window floor without a query. */
+.pv-bars { display: grid; list-style: none; margin: 0 0 var(--s5); padding: 0;
+  grid-template-columns: fit-content(45%) minmax(40px, 1fr) fit-content(35%);
+  gap: var(--s2) var(--s3); }
+.pv-bars li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid;
+  align-items: center; min-width: 0; font-size: var(--fs-sm); }
+.pv-bar-name { min-width: 0; color: var(--fg); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.pv-bar-name svg { vertical-align: -2px; margin-right: var(--s2); color: var(--fg-dim); }
+.pv-mono { font-family: var(--mono); }
+.pv-bar-n { color: var(--fg-dim); font-size: var(--fs-xs); text-align: right;
   font-variant-numeric: tabular-nums; }
-.pv-diff { display: inline-flex; gap: var(--s2); font-family: var(--mono); font-style: normal; }
+.pv-bar { display: block; min-width: 0; height: 6px; background: var(--surface);
+  border-radius: var(--radius-pill); overflow: hidden; }
+/* segment colors are inline (token rgb refs), like heatmap squares */
+.pv-bar-fill { display: flex; height: 100%; border-radius: var(--radius-pill); overflow: hidden; }
+.pv-bar-fill i { display: block; height: 100%; flex-basis: 0; }
+
+/* Agents as columns, one measure per row: reading across a row is the comparison.
+   Fixed layout, so no cell can widen its column; the header's logo and name wrap onto
+   two lines once a column is too narrow for both, and a tool name truncates (the
+   list's tooltip has them all). The wrapper is the size container: its width is the
+   card's, which the dragged rail decides — not the window (tightened at the end of
+   the file). */
+.pv-compare-wrap { container: pv-compare / inline-size; margin-bottom: var(--s5); }
+.pv-compare { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0;
+  font-size: var(--fs-sm); }
+.pv-compare th, .pv-compare td { padding: var(--s2) var(--s3); text-align: left;
+  vertical-align: top; overflow-wrap: break-word; }
+.pv-compare thead td { width: 30%; }
+.pv-compare thead th { color: var(--fg); font-size: var(--fs-base); font-weight: 600;
+  background: rgba(var(--pv-agent), 0.12); box-shadow: inset 0 -2px 0 rgba(var(--pv-agent), 0.9);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.pv-th { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px var(--s2); }
+.pv-compare tbody tr + tr > * { border-top: 1px solid var(--border); }
+.pv-compare tbody th { color: var(--fg-dim); font-weight: 500; }
+.pv-compare td { color: var(--fg); font-variant-numeric: tabular-nums; }
+.pv-na { color: var(--fg-dim); }
+.pv-diff { display: inline-flex; flex-wrap: wrap; gap: 0 var(--s2); font-family: var(--mono);
+  font-style: normal; }
 .pv-add { color: var(--ok); font-style: normal; }
 .pv-del { color: var(--danger); font-style: normal; }
-/* "no measurable edits" is a fact about the agent's tooling, not a warning */
-.pv-untracked { font-style: italic; }
-.pv-tools { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; min-width: 0; }
-.pv-models { display: flex; gap: var(--s1); flex-wrap: wrap; }
+/* "none measured" is a fact about the agent's tooling, not a warning */
+.pv-untracked { font-style: italic; color: var(--fg-dim); }
+.pv-tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  gap: 2px; font-family: var(--mono); font-size: var(--fs-xs); }
+.pv-tools li { display: flex; gap: var(--s1); min-width: 0; }
+.pv-tool-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-tool-n { flex-shrink: 0; color: var(--fg-dim); }
 
-.pv-langs li, .pv-repos li { display: flex; align-items: center; gap: var(--s3);
-  font-size: var(--fs-sm); }
-.pv-lang-ext { font-family: var(--mono); color: var(--fg); width: 56px; flex-shrink: 0; }
-.pv-bar { flex: 1; min-width: 0; height: 6px; background: var(--surface);
-  border-radius: var(--radius-pill); overflow: hidden; }
-.pv-bar i { display: block; height: 100%; background: var(--accent);
-  border-radius: var(--radius-pill); }
-.pv-lang-n { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0;
-  font-variant-numeric: tabular-nums; }
-.pv-repos li { color: var(--fg-dim); }
-.pv-repo-name { flex: 1; min-width: 0; color: var(--fg); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; }
-
-/* Model bars: same grammar as languages, but the fill splits into agent-tinted
-   segments — the same model family crosses agent boundaries, and that split is
-   the insight. Segment colors are inline (token rgb refs), like heatmap squares. */
-.pv-model-name { font-family: var(--mono); color: var(--fg); width: 148px; flex-shrink: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pv-bar-split { display: flex; height: 100%; border-radius: var(--radius-pill);
-  overflow: hidden; }
-.pv-bar-split i { display: block; height: 100%; flex-basis: 0; }
-
+/* its own size container, for the same reason as the comparison (see the end of the file) */
 .pv-accounts { list-style: none; margin: 0 0 var(--s5); padding: 0;
-  display: flex; flex-direction: column; gap: var(--s2); }
+  display: flex; flex-direction: column; gap: var(--s2); container: pv-accounts / inline-size; }
 .pv-accounts li { display: flex; align-items: center; gap: var(--s3);
   font-size: var(--fs-sm); color: var(--fg-dim); }
 .pv-acct-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
+.pv-acct-last { flex-shrink: 0; font-size: var(--fs-xs); white-space: nowrap; }
 
-/* Sessions-by-hour strip: a quiet instrument readout, not a chart with axes —
-   the tallest hour gets named in the hint line below it. */
+/* Sessions-by-hour strip: a quiet instrument readout, not a chart with axes — the
+   tallest hour gets named in the hint line below it. Bars and marks share one
+   24-column grid (the axis pads by the strip's border too), so each mark sits under
+   its own hour; every hour keeps a 2px baseline, so an empty one still reads as a slot. */
 .pv-rhythm-wrap { margin-bottom: var(--s5); }
-.pv-rhythm { display: flex; align-items: flex-end; gap: 3px; height: 44px;
-  padding: var(--s2) var(--s3); background: var(--surface);
+.pv-rhythm, .pv-rhythm-axis { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr));
+  column-gap: 3px; }
+.pv-rhythm { height: 52px; padding: var(--s2) var(--s3); background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius); }
-.pv-rhythm i { flex: 1; min-width: 0; background: rgba(var(--accent-rgb), 0.75);
-  border-radius: 1px; }
-.pv-rhythm-axis { display: flex; justify-content: space-between;
-  padding: 2px var(--s3) 0; color: var(--fg-dim); font-size: var(--fs-xs);
-  font-family: var(--mono); }
+.pv-hour { display: flex; align-items: flex-end; min-width: 0; height: 100%;
+  box-shadow: inset 0 -2px 0 var(--border); }
+.pv-hour-fill { display: flex; flex-direction: column-reverse; width: 100%;
+  border-radius: 1px; overflow: hidden; }
+.pv-hour-fill i { display: block; flex-basis: 0; }
+.pv-rhythm-axis { padding: 2px calc(var(--s3) + 1px) 0; color: var(--fg-dim);
+  font-size: var(--fs-xs); font-family: var(--mono); }
+.pv-rhythm-axis span { white-space: nowrap; }
 .pv-rhythm-wrap .ns-hint { margin-top: var(--s2); }
 
 /* ---------- instrument voice & HUD (the bolder-pass identity layer) ----------
@@ -2432,7 +2495,7 @@ button.pnl-flag:hover { text-decoration: underline; }
    Session titles and prose are user content — they stay sans. */
 .ns-head h2, .empty-chat h2 { font-family: var(--mono); text-transform: uppercase;
   letter-spacing: 1.2px; font-size: var(--fs-md); }
-.pv-stat span { font-family: var(--mono); letter-spacing: 0.7px; }
+.pv-stat dt, .pv-mix-label { font-family: var(--mono); letter-spacing: 0.7px; }
 /* the busy line reads as an instrument annunciator — "CLAUDE IS WORKING…" */
 .thinking { font-family: var(--mono); font-size: var(--fs-xs);
   text-transform: uppercase; letter-spacing: 0.7px; }
@@ -2649,4 +2712,35 @@ button.pnl-flag:hover { text-decoration: underline; }
 @container chat-deck (max-width: 719px) {
   .work-panel { position: absolute; inset: 0; z-index: 2; border-left: none;
     background: var(--bg); }
+}
+
+/* ---------- the profile's lists: asked of their own width ----------
+   Both are containers because the card's width is the window minus a rail the person
+   drags. The comparison: a value cell has to hold its longest word whole — "unreadable"
+   (the unreadable-logs warning, 61px, measured), then "measured" at 53 — and with three
+   agents a column holds 70% ÷ 3 of the table less 16px of padding, which is 61 from a
+   330px table down. Under that the measure column gives up 6 points and the padding
+   half, which holds 61 down to 273: past the 286px table at the window floor. */
+@container pv-compare (max-width: 329px) {
+  .pv-compare thead td { width: 24%; }
+  .pv-compare th, .pv-compare td { padding-inline: var(--s1); }
+}
+/* An account row starts cutting its config home's name ("claude-default" beside a
+   dev@example.com chip) below 304px of list, measured in the tour world; the last-used
+   time is the row's decoration, so it goes first and gives the name back ~48px. */
+@container pv-accounts (max-width: 303px) {
+  .pv-acct-last { display: none; }
+}
+
+/* ---------- the heatmap's labels, at a narrow card ----------
+   A long grid (over 44 weeks, `.pv-heat-long`) at a narrow card is squares a few pixels
+   apart, and its labels are what stop fitting: measured over a full year, the month
+   names close to 3px apart below a 320px box and touch at 286, and Mon / Wed / Fri sit
+   on top of each other. Under 352px of grid the weekday column goes — its 34px go to
+   the squares (--pv-lead falls to the smallest gap) — and so does every other month
+   name, which leaves a year's labels two months apart. */
+@container pv-heat (max-width: 351px) {
+  .pv-heat-long .pv-heat { --pv-lead: -1px; column-gap: 0; }
+  .pv-heat-long .pv-weekdays { display: none; }
+  .pv-heat-long .pv-months span:nth-child(even) { visibility: hidden; }
 }

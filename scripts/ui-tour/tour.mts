@@ -280,6 +280,19 @@ const STATIC: readonly Shot[] = [
       }
     })
   ),
+  // a follow-up the agent suggested, started: the form filled in with its prompt
+  {
+    view: 'new session',
+    name: 'new-session-follow-up',
+    tall: 1100,
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await w.getByRole('tab', { name: /Follow-ups/ }).click()
+      await w.getByRole('button', { name: 'Start a session…' }).click()
+      await pause(w, 500)
+    }
+  },
   {
     view: 'new session',
     name: 'new-session',
@@ -422,6 +435,17 @@ const STATIC: readonly Shot[] = [
       await pause(w, 400)
     }
   },
+  // work it spotted outside the task, one step from a session of its own
+  {
+    view: 'chat',
+    name: 'chat-work-follow-ups',
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await w.getByRole('tab', { name: /Follow-ups/ }).click()
+      await pause(w, 400)
+    }
+  },
   // a plan waiting for approval is read in its card, and opens in the panel
   { view: 'chat', name: 'chat-plan', go: (w) => open(w, /Plan rate limiting for the public API/) },
   {
@@ -472,7 +496,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

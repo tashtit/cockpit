@@ -222,12 +222,15 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
     await userEvent.click(update)
     expect(window.cockpit.openCliUpdate).toHaveBeenCalledWith('claude')
     expect(within(claude).getByText(/Finish the update in the Terminal window/)).toBeInTheDocument()
+    // one CLI behind has nothing to update together with
+    expect(screen.queryByRole('button', { name: /together…$/ })).not.toBeInTheDocument()
 
     expect(within(screen.getByText('0.155.1').closest('li')!).getByText('up to date')).toBeInTheDocument()
     expect(screen.getByText('not installed')).toBeInTheDocument()
   })
 
-  it('two Homebrew updates say they take turns; a self-updating CLI runs on its own', async () => {
+  /** Claude and Codex behind on Homebrew, Copilot behind on its own updater */
+  const allBehind = (): CliStatus[] => {
     const behind = (provider: 'claude' | 'codex' | 'copilot', updateCommand: string): CliStatus => ({
       provider,
       installed: true,
@@ -240,7 +243,7 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
       updateAvailable: true,
       updateCommand
     })
-    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+    return [
       behind('claude', 'brew update && brew upgrade --cask claude-code'),
       behind('codex', 'brew update && brew upgrade --cask codex'),
       {
@@ -249,19 +252,43 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
         install: 'native',
         channel: 'its own updater'
       }
-    ])
+    ]
+  }
+
+  it('two Homebrew updates say they take turns; a self-updating CLI runs on its own', async () => {
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue(allBehind())
     render(<Settings onClose={vi.fn()} />)
     await screen.findByRole('heading', { name: 'Agent CLIs' })
     const [claude, codex, copilot] = (await screen.findAllByText('1.0.0')).map((v) => v.closest('li')!)
     await userEvent.click(within(claude).getByRole('button', { name: 'Update…' }))
     // alone, nothing to wait for
     expect(within(claude).getByText('Finish the update in the Terminal window — this row updates by itself.')).toBeInTheDocument()
+    // Claude's window has it, so there is nothing left to update together
+    expect(screen.queryByRole('button', { name: /together…$/ })).not.toBeInTheDocument()
 
     await userEvent.click(within(codex).getByRole('button', { name: 'Update…' }))
     await userEvent.click(within(copilot).getByRole('button', { name: 'Update…' }))
     expect(within(codex).getByText(/takes turns with Claude’s, since Homebrew runs one at a time/)).toBeInTheDocument()
     expect(within(claude).getByText(/takes turns with Codex’s, since Homebrew runs one at a time/)).toBeInTheDocument()
     expect(within(copilot).getByText('Finish the update in the Terminal window — this row updates by itself.')).toBeInTheDocument()
+  })
+
+  it('updates two Homebrew CLIs together in one window, which takes no turns', async () => {
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue(allBehind())
+    render(<Settings onClose={vi.fn()} />)
+    const together = await screen.findByRole('button', { name: 'Update Claude and Codex together…' })
+    // what it will run is visible before it runs: one `brew update`, one upgrade of both
+    expect(together).toHaveAttribute('title', 'brew update && brew upgrade --cask claude-code codex')
+    await userEvent.click(together)
+    expect(window.cockpit.openCliUpdateHomebrew).toHaveBeenCalledWith(['claude', 'codex'])
+
+    const [claude, codex, copilot] = screen.getAllByText('1.0.0').map((v) => v.closest('li')!)
+    for (const row of [claude, codex]) {
+      expect(within(row).getByText('Finish the update in the Terminal window — this row updates by itself.')).toBeInTheDocument()
+    }
+    // Copilot updates itself, so it was never part of it
+    expect(within(copilot).queryByText(/Finish the update/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /together…$/ })).not.toBeInTheDocument()
   })
 
   it('never offers an update its channel cannot deliver — it says the channel is behind', async () => {

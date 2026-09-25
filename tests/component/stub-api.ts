@@ -251,6 +251,7 @@ export function freshApi(): CockpitApi {
     openSignIn: vi.fn(async () => {}),
     listCliStatus: vi.fn(async (): Promise<CliStatus[]> => []),
     openCliUpdate: vi.fn(async () => {}),
+    openCliUpdateHomebrew: vi.fn(async () => {}),
     openCliChannelRefresh: vi.fn(async () => {}),
     listAgentModels: vi.fn(async (provider: Provider) =>
       provider === 'codex'
@@ -316,7 +317,8 @@ export function freshApi(): CockpitApi {
       repos: [],
       models: [],
       accounts: [],
-      hourCounts: new Array(24).fill(0)
+      hours: Array.from({ length: 24 }, () => ({ prompts: 0, byProvider: {} })),
+      roundtables: null
     })),
     getZoomFactor: vi.fn(() => 1),
     setZoomFactor: vi.fn(),

@@ -217,6 +217,16 @@ function workSection(messages: readonly SessionMessage[]): string | null {
     ]
     parts.push('## Files and pages it shared with the user (newest first)\n\n' + lines.join('\n'))
   }
+  const suggested = work.followUps.filter((f) => !f.dismissed)
+  if (suggested.length > 0) {
+    // outside this task by the agent's own judgement: context, not more work to take on
+    const lines = suggested
+      .slice(0, SHARED_SHOWN)
+      .map((f) => `- ${truncate(f.title, TODO_EACH)}${f.summary ? ` — ${truncate(f.summary, TODO_EACH)}` : ''}`)
+    parts.push(
+      '## Follow-ups it suggested (outside this task — leave them unless asked)\n\n' + lines.join('\n')
+    )
+  }
   if (work.checks.length > 0) {
     parts.push(
       '## Checks (how each last ended)\n\n' +

@@ -12,6 +12,8 @@ import { samePlain } from './same'
 import {
   CHECK_LABEL,
   checkSummary,
+  followUpSummary,
+  type FollowUpEntry,
   sharedSummary,
   type SharedFileEntry,
   fileChange,
@@ -28,7 +30,8 @@ import {
 /**
  * The Work panel: what the agent handed you to look at, beside the conversation —
  * the plan it proposed, where its to-do list stands, every edit it made, file by
- * file, how the checks it ran ended, and the files and pages it shared with you. Built from the agents' own tool calls (`work.ts`), so it is what the agent
+ * file, how the checks it ran ended, the files and pages it shared with you, and the
+ * work it suggested for sessions of their own. Built from the agents' own tool calls (`work.ts`), so it is what the agent
  * *said*: the edits are each call's own description of its change, and **Changes**
  * (the worktree's diff, ⌘D) stays the word on what is actually on disk.
  *
@@ -90,7 +93,8 @@ export const WorkPanel = memo(function WorkPanel({
   pendingPlanKey,
   onOpenChanges,
   sessionId,
-  onOpenUrl
+  onOpenUrl,
+  onStartFollowUp
 }: {
   model: WorkModel
   focus: WorkFocus
@@ -105,6 +109,8 @@ export const WorkPanel = memo(function WorkPanel({
   /** The indexed session, which main reads a shared file for; null before it has an id */
   sessionId: string | null
   onOpenUrl: (url: string) => void
+  /** Fill in the new-session form with a suggestion; absent where sessions can't start */
+  onStartFollowUp?: (followUp: { readonly title: string; readonly prompt: string; readonly cwd?: string }) => void
 }): JSX.Element {
   const bodyRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
@@ -127,7 +133,8 @@ export const WorkPanel = memo(function WorkPanel({
     { id: 'edits', label: 'Edits', count: model.files.length },
     // the checks that want a look: failed, or out of date since an edit
     { id: 'checks', label: 'Checks', count: model.checks.filter(needsLook).length },
-    { id: 'files', label: 'Files', count: model.shared.files.length + model.shared.links.length }
+    { id: 'files', label: 'Files', count: model.shared.files.length + model.shared.links.length },
+    { id: 'follow-ups', label: 'Follow-ups', count: model.followUps.filter((f) => !f.dismissed).length }
   ]
 
   return (
@@ -162,6 +169,15 @@ export const WorkPanel = memo(function WorkPanel({
           <TodosTab model={model} provider={provider} />
         ) : focus.tab === 'checks' ? (
           <ChecksTab model={model} focus={focus} provider={provider} scroller={bodyRef} />
+        ) : focus.tab === 'follow-ups' ? (
+          <FollowUpsTab
+            model={model}
+            focus={focus}
+            provider={provider}
+            sessionId={sessionId}
+            scroller={bodyRef}
+            onStart={onStartFollowUp}
+          />
         ) : focus.tab === 'files' ? (
           <FilesTab
             model={model}
@@ -816,4 +832,119 @@ function FilePreview({
         </p>
       )
   }
+}
+
+/** Where the person started a suggestion, per machine: a convenience, so a lost one only
+ *  offers Start again */
+const STARTED_KEY = 'cockpit:follow-ups-started'
+
+function startedAt(): Record<string, number> {
+  try {
+    const v: unknown = JSON.parse(window.localStorage.getItem(STARTED_KEY) ?? '{}')
+    return v && typeof v === 'object' ? (v as Record<string, number>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function markStarted(id: string): void {
+  try {
+    window.localStorage.setItem(STARTED_KEY, JSON.stringify({ ...startedAt(), [id]: Date.now() }))
+  } catch {
+    /* a private window or full storage: the mark is only a convenience */
+  }
+}
+
+function FollowUpsTab({
+  model,
+  focus,
+  provider,
+  sessionId,
+  scroller,
+  onStart
+}: {
+  model: WorkModel
+  focus: WorkFocus
+  provider: Provider
+  sessionId: string | null
+  scroller: RefObject<HTMLDivElement | null>
+  onStart?: (followUp: { readonly title: string; readonly prompt: string; readonly cwd?: string }) => void
+}): JSX.Element {
+  const fmt = useTimeFormat()
+  const { followUps } = model
+  const [started, setStarted] = useState(startedAt)
+  const [ringed, setRinged] = useState<number | null>(null)
+  useEffect(() => {
+    if (focus.key !== null && followUps.some((f) => f.key === focus.key)) setRinged(focus.key)
+  }, [focus.at])
+  useLayoutEffect(() => {
+    if (ringed === null) return
+    scroller.current?.querySelector(`[data-work-key="${ringed}"]`)?.scrollIntoView({ block: 'nearest' })
+    const t = setTimeout(() => setRinged(null), RING_MS)
+    return () => clearTimeout(t)
+  }, [ringed])
+
+  if (followUps.length === 0) {
+    return (
+      <p className="work-empty">
+        No follow-ups yet. When {PROVIDER_LABEL[provider]} spots work outside this task, it suggests it here as a
+        session of its own.
+      </p>
+    )
+  }
+  const idOf = (f: FollowUpEntry): string => `${sessionId ?? ''}:${f.taskId ?? `row-${f.key}`}`
+  return (
+    <>
+      <div className="work-meta">
+        <span>{followUpSummary(followUps)}</span>
+      </div>
+      <p className="work-note">
+        Work the agent spotted outside this task. Starting one fills in a new session with its prompt, with any agent.
+      </p>
+      <ul className="work-follows">
+        {followUps.map((f) => {
+          const at = started[idOf(f)]
+          return (
+            <li
+              key={f.key}
+              className={`work-follow${f.dismissed ? ' dismissed' : ''}${ringed === f.key ? ' ringed' : ''}`}
+              data-work-key={f.key}
+            >
+              <div className="work-follow-head">
+                <span className="work-follow-title">{f.title}</span>
+                {f.dismissed && <span className="review-kind tone-dim">withdrawn</span>}
+                {f.ts && <span className="work-check-meta">{fmtTime(f.ts, fmt)}</span>}
+              </div>
+              {f.summary && <p className="work-note">{f.summary}</p>}
+              {f.dismissed && f.dismissed !== 'withdrawn' && <p className="work-note">Withdrawn: {f.dismissed}</p>}
+              {f.cwd && (
+                <span className="work-check-meta" title={f.cwd}>
+                  in {shortPath(f.cwd)}
+                </span>
+              )}
+              <details className="work-follow-prompt">
+                <summary>the prompt it starts with</summary>
+                <pre className="work-check-out">{f.prompt}</pre>
+              </details>
+              {!f.dismissed && onStart && (
+                <div className="work-follow-actions">
+                  <button
+                    className="btn-ghost small"
+                    onClick={() => {
+                      markStarted(idOf(f))
+                      setStarted(startedAt())
+                      onStart({ title: f.title, prompt: f.prompt, ...(f.cwd ? { cwd: f.cwd } : {}) })
+                    }}
+                  >
+                    {at ? 'Start another session…' : 'Start a session…'}
+                  </button>
+                  {at && <span className="work-check-meta">started {fmtTime(at, fmt)}</span>}
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </>
+  )
 }

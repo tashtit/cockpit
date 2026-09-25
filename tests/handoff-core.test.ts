@@ -227,6 +227,20 @@ describe('buildHandoffBriefing', () => {
     )
   })
 
+  it('names the follow-ups it suggested as outside the task, leaving out withdrawn ones', () => {
+    const follow = (title: string, dismissed?: string): SessionMessage =>
+      msg({
+        role: 'assistant',
+        kind: 'tool_call',
+        toolName: 'mcp__ccd_session__spawn_task',
+        text: '{}',
+        artifact: { kind: 'follow-up', title, prompt: 'p', summary: 'why', ...(dismissed ? { dismissed } : {}) }
+      })
+    const { briefing } = buildHandoffBriefing(source, [...transcript, follow('Fix the cache race'), follow('Old idea', 'stale')], git)
+    expect(briefing).toContain('## Follow-ups it suggested (outside this task — leave them unless asked)\n\n- Fix the cache race — why')
+    expect(briefing).not.toContain('Old idea')
+  })
+
   it('has no plan or to-do sections when the agent kept neither', () => {
     const { briefing } = buildHandoffBriefing(source, transcript, git)
     expect(briefing).not.toContain('## Plan')

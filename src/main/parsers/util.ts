@@ -532,6 +532,11 @@ export function toolPreview(name: string, input: unknown): string | null {
     case 'str_replace':
     case 'str_replace_editor':
       return str(i.path)
+    // the Claude app's suggestions of work for later, and taking one back
+    case 'mcp__ccd_session__spawn_task':
+      return str(i.title)
+    case 'mcp__ccd_session__dismiss_task':
+      return str(i.reason) ?? 'withdrew a suggestion'
     // Copilot's to-do list and scratch tables: the call says what it is doing, the
     // query stays in the detail
     case 'sql':

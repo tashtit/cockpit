@@ -7,7 +7,9 @@ import { execText } from './env'
 
 /**
  * Sessions archived — or deleted — inside the provider's own app must never show up in
- * Cockpit: not as active, not under Cockpit's own Archived toggle.
+ * Cockpit: not as active, not under Cockpit's own Archived toggle. The two are told
+ * apart all the same (`ProviderHidden`): the tree hides both, but an archived session
+ * is finished work the profile still counts, while a deleted one was thrown away.
  *
  * Where each provider keeps that state:
  * - copilot: data.db is the app's source of truth, and the transcript under
@@ -36,28 +38,47 @@ const MAX_CLAUDE_RECORD_BYTES = 256 * 1024
 /** Keep this many record reads in flight, never all of them: a store holds thousands. */
 const RECORD_READERS = 32
 
+/**
+ * What the providers' own apps have hidden, by session id. `hidden` is everything the
+ * tree must not show; `deleted` is the part of it that was thrown away rather than
+ * archived — always a subset of `hidden`.
+ */
+export type ProviderHidden = {
+  readonly hidden: ReadonlySet<string>
+  readonly deleted: ReadonlySet<string>
+}
+
 type CopilotRow = {
   readonly id: string
   /** Archived or deleted in the app, by any of COPILOT_HIDDEN_WHEN. */
   readonly hidden: boolean
+  /** Deleted, by a `deleted` clause — the rest of `hidden` is archived */
+  readonly deleted: boolean
 }
 
 /**
  * Every way data.db says a session `s` is gone from the Copilot app, each with the
- * `table.column`s it reads. The app has grown these in stages (workspaces and side
- * chats are newer than `sessions.archived_at`), so a clause the db has no columns for
- * is left out rather than failing the read: that db simply can't say that thing yet.
+ * `table.column`s it reads and whether it means archived or deleted. The app has grown
+ * these in stages (workspaces and side chats are newer than `sessions.archived_at`), so
+ * a clause the db has no columns for is left out rather than failing the read: that db
+ * simply can't say that thing yet.
  */
-const COPILOT_HIDDEN_WHEN: readonly { readonly reads: readonly string[]; readonly sql: string }[] = [
+const COPILOT_HIDDEN_WHEN: readonly {
+  readonly kind: 'archived' | 'deleted'
+  readonly reads: readonly string[]
+  readonly sql: string
+}[] = [
   // a general chat, archived on its own row
-  { reads: ['sessions.archived_at'], sql: 's.archived_at IS NOT NULL' },
+  { kind: 'archived', reads: ['sessions.archived_at'], sql: 's.archived_at IS NOT NULL' },
   // a project chat is archived as its workspace — the session row keeps no timestamp
   {
+    kind: 'archived',
     reads: ['workspaces.session_id', 'workspaces.archived_at'],
     sql: 'EXISTS (SELECT 1 FROM workspaces w WHERE w.session_id = s.id AND w.archived_at IS NOT NULL)'
   },
   // ...and so is a session the workspace ran before its current one
   {
+    kind: 'archived',
     reads: [
       'workspace_session_aliases.session_id',
       'workspace_session_aliases.workspace_id',
@@ -70,6 +91,7 @@ const COPILOT_HIDDEN_WHEN: readonly { readonly reads: readonly string[]; readonl
   },
   // a side chat goes with what it was opened from
   {
+    kind: 'archived',
     reads: [
       'workspace_side_chats.session_id',
       'workspace_side_chats.workspace_id',
@@ -81,6 +103,7 @@ const COPILOT_HIDDEN_WHEN: readonly { readonly reads: readonly string[]; readonl
       ' WHERE c.session_id = s.id AND w.archived_at IS NOT NULL)'
   },
   {
+    kind: 'archived',
     reads: ['session_side_chats.session_id', 'session_side_chats.parent_session_id', 'sessions.archived_at'],
     sql:
       'EXISTS (SELECT 1 FROM session_side_chats c JOIN sessions p ON p.id = c.parent_session_id' +
@@ -89,6 +112,7 @@ const COPILOT_HIDDEN_WHEN: readonly { readonly reads: readonly string[]; readonl
   // A project chat always lives in a workspace, and deleting the workspace drops its
   // row (and its aliases) but keeps the session's: one with neither was deleted.
   {
+    kind: 'deleted',
     reads: ['sessions.session_type', 'workspaces.session_id', 'workspace_session_aliases.session_id'],
     sql:
       "s.session_type = 'project'" +
@@ -99,11 +123,11 @@ const COPILOT_HIDDEN_WHEN: readonly { readonly reads: readonly string[]; readonl
 
 const COPILOT_TABLES = [...new Set(COPILOT_HIDDEN_WHEN.flatMap((c) => c.reads.map((r) => r.split('.')[0])))]
 
-/** The one statement that reads every session and whether the app still shows it. */
+/** The one statement that reads every session: `id|hidden|deleted`, flags 0 or 1. */
 function copilotSessionsSql(columns: ReadonlySet<string>): string {
   const clauses = COPILOT_HIDDEN_WHEN.filter((c) => c.reads.every((r) => columns.has(r)))
-  const hidden = clauses.length ? clauses.map((c) => `(${c.sql})`).join(' OR ') : '0'
-  return `SELECT s.id, ${hidden} FROM sessions s`
+  const any = (cs: typeof clauses): string => (cs.length ? cs.map((c) => `(${c.sql})`).join(' OR ') : '0')
+  return `SELECT s.id, ${any(clauses)}, ${any(clauses.filter((c) => c.kind === 'deleted'))} FROM sessions s`
 }
 
 /** What the last read of one desktop record said, and the stamp it said it about. */
@@ -134,8 +158,9 @@ export class ProviderArchivedReader {
     this.claudeStoreDir = claudeStoreDir === undefined ? defaultClaudeStoreDir() : claudeStoreDir
   }
 
-  async list(sources: SourceDir[], prev: ReadonlySet<string>): Promise<Set<string>> {
+  async list(sources: SourceDir[], prev: ProviderHidden): Promise<ProviderHidden> {
     const out = new Set<string>()
+    const deleted = new Set<string>()
     const jobs = sources
       .filter((s) => s.provider === 'copilot')
       .map(async (s) => {
@@ -144,17 +169,25 @@ export class ProviderArchivedReader {
           // read failed (locked db, missing sqlite3): keep what we knew rather than
           // letting hidden sessions flicker back into the tree; the indexer seeds
           // prev from its persisted cache, so this holds across app launches too
-          for (const id of prev) if (id.startsWith('copilot:')) out.add(id)
+          for (const id of prev.hidden) if (id.startsWith('copilot:')) out.add(id)
+          for (const id of prev.deleted) if (id.startsWith('copilot:')) deleted.add(id)
           return
         }
-        for (const r of rows) if (r.hidden) out.add(`copilot:${r.id}`)
-        for (const id of copilotDeletedIds(s.path, rows)) out.add(`copilot:${id}`)
+        for (const r of rows) {
+          if (r.hidden) out.add(`copilot:${r.id}`)
+          if (r.deleted) deleted.add(`copilot:${r.id}`)
+        }
+        for (const id of copilotDeletedIds(s.path, rows)) {
+          out.add(`copilot:${id}`)
+          deleted.add(`copilot:${id}`)
+        }
       })
+    // the desktop store records archiving alone: a Claude session is never "deleted" here
     if (this.claudeStoreDir && sources.some((s) => s.provider === 'claude')) {
-      jobs.push(this.claudeArchivedIds(this.claudeStoreDir, prev, out))
+      jobs.push(this.claudeArchivedIds(this.claudeStoreDir, prev.hidden, out))
     }
     await Promise.all(jobs)
-    return out
+    return { hidden: out, deleted }
   }
 
   private async claudeArchivedIds(
@@ -232,12 +265,11 @@ export class ProviderArchivedReader {
     }
     const lines = await sqlite(db, copilotSessionsSql(columns))
     if (lines === null) return null
-    const rows = lines
-      .filter((l) => l.includes('|'))
-      .map((l) => {
-        const sep = l.lastIndexOf('|')
-        return { id: l.slice(0, sep), hidden: l.slice(sep + 1) === '1' }
-      })
+    // the flags are the last two fields; an id is everything before them
+    const rows = lines.flatMap((l) => {
+      const m = /^(.+)\|([01])\|([01])$/.exec(l)
+      return m ? [{ id: m[1], hidden: m[2] === '1', deleted: m[3] === '1' }] : []
+    })
     if (stamp !== null) this.dbs.set(db, { stamp, rows })
     return rows
   }

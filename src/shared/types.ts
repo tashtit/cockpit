@@ -203,6 +203,21 @@ export type WorkArtifact =
     }
   | { readonly kind: 'edits'; readonly files: readonly FileEdit[] }
   | {
+      readonly kind: 'follow-up'
+      /** What the new session would be for */
+      readonly title: string
+      /** Why the agent suggests it now, in a sentence or two */
+      readonly summary?: string
+      /** The self-contained prompt it would start with, bounded */
+      readonly prompt: string
+      /** Another project's root the agent named for it; absent: the session's own */
+      readonly cwd?: string
+      /** The id its app gave it (`task_…`), once the result is read */
+      readonly taskId?: string
+      /** The agent withdrew it (`dismiss_task`), and why */
+      readonly dismissed?: string
+    }
+  | {
       readonly kind: 'shared'
       /** Files it handed the person, as the call named them */
       readonly files: readonly string[]
@@ -992,16 +1007,36 @@ export type UsageSnapshot = {
 
 /* ---------- profile ---------- */
 
+/** A count split by the agents behind it: the profile's one grammar, since the split is the point. */
+export type AgentSplit = Partial<Record<Provider, number>>
+
+/** Sessions started in one bucket (a day, an hour of the day), and which agents ran them. */
+export type SessionTally = {
+  readonly sessions: number
+  /** Sessions per provider — drives the tint of the square or the bar's segments */
+  readonly byProvider: AgentSplit
+}
+
+/** Prompts sent in one bucket (an hour of the day), and to which agents. */
+export type PromptTally = {
+  readonly prompts: number
+  readonly byProvider: AgentSplit
+}
+
+/** The roundtables' seat sessions, and how many tables they ran in. */
+export type RoundtableTally = SessionTally & {
+  readonly tables: number
+}
+
 /**
- * One day of the activity heatmap. Days are local-time calendar days so the grid
- * matches the user's sense of "yesterday", not UTC's.
+ * One day of the activity heatmap: the sessions worked in that day — started, or sent
+ * a prompt — so a session resumed all week lights every day of it, not just its first.
+ * Days are local-time calendar days so the grid matches the user's sense of
+ * "yesterday", not UTC's.
  */
-export type ActivityDay = {
+export type ActivityDay = SessionTally & {
   /** Local calendar day, `YYYY-MM-DD` */
   readonly day: string
-  readonly sessions: number
-  /** Sessions per provider that day — drives the square's tint */
-  readonly byProvider: Partial<Record<Provider, number>>
 }
 
 /** Per-agent totals. The comparison across these is the point of the profile. */
@@ -1010,8 +1045,20 @@ export type ProviderProfile = {
   readonly sessions: number
   /** Distinct local days with at least one session */
   readonly activeDays: number
-  /** Mean messages per session (index metadata, so it costs nothing) */
-  readonly avgTurns: number
+  /**
+   * Sessions whose logs the deep pass could read — the denominator for every
+   * per-session rate below, since a session it could not read contributed nothing.
+   */
+  readonly readSessions: number
+  /**
+   * Prompts the person sent, counted the same way for every agent: what they typed,
+   * never tool results, injected context or the CLI's own echoes. The index's
+   * `messageCount` can't stand in — it counts records, and Claude writes one per
+   * tool call and one per result, so it read as several times chattier than the others.
+   */
+  readonly prompts: number
+  /** Every tool call in the read sessions (not just the `tools` shown, which are capped) */
+  readonly toolCalls: number
   /**
    * Lines the agent wrote / removed via its edit tools. This counts edit *operations*,
    * not surviving diff: rewriting the same file twice counts twice, and nothing here
@@ -1046,7 +1093,7 @@ export type NameCount = {
 export type ModelStat = {
   readonly name: string
   readonly count: number
-  readonly byProvider: Partial<Record<Provider, number>>
+  readonly byProvider: AgentSplit
 }
 
 /** Sessions attributed to one signed-in account (config home), for multi-account setups. */
@@ -1066,12 +1113,18 @@ export type LanguageStat = {
   readonly ext: string
   readonly files: number
   readonly linesAdded: number
+  /** Lines added per agent */
+  readonly byProvider: AgentSplit
 }
 
 export type RepoStat = {
   readonly key: string
   readonly name: string
+  /** GitHub `owner/repo`, when the origin remote names one */
+  readonly fullName: string | null
   readonly sessions: number
+  /** Sessions per agent */
+  readonly byProvider: AgentSplit
   readonly lastActivity: number
 }
 
@@ -1087,6 +1140,7 @@ export type ProfileStats = {
   /** Epoch ms of the earliest session seen; null when there are none */
   readonly since: number | null
   readonly totalSessions: number
+  /** Days a session was worked in (see ActivityDay) */
   readonly activeDays: number
   /** Consecutive active days ending today or yesterday; 0 once the chain breaks */
   readonly currentStreak: number
@@ -1101,8 +1155,14 @@ export type ProfileStats = {
   readonly models: ModelStat[]
   /** Signed-in accounts with their session share, most-used first */
   readonly accounts: AccountStat[]
-  /** Sessions started per local hour of day — 24 buckets, index 0 = midnight */
-  readonly hourCounts: number[]
+  /** Prompts sent per local hour of day — 24 buckets, index 0 = midnight */
+  readonly hours: PromptTally[]
+  /**
+   * Roundtable seats, counted apart: every other number here is the person's own
+   * sessions, and a seat is prompted by its table rather than by them. Null when no
+   * table has run a seat.
+   */
+  readonly roundtables: RoundtableTally | null
 }
 
 /**

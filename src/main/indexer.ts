@@ -40,6 +40,7 @@ import {
 } from './parsers/claude'
 import {
   codexThreadName,
+  isArchivedRollout,
   listCodexSessionFiles,
   listCodexSessionRoots,
   parseCodexMeta,
@@ -301,8 +302,10 @@ export class SessionIndexer {
   private archived = new Set<string>()
   /** Handoff lineage (session id → source session id) from cockpit config */
   private lineage = new Map<string, string>()
-  /** Archived or deleted in the provider's own app — excluded everywhere (see provider-archived.ts) */
+  /** Archived or deleted in the provider's own app — out of every listing (see provider-archived.ts) */
   private providerArchived = new Set<string>()
+  /** The deleted part of `providerArchived`: the rest is archived, finished work the profile counts */
+  private providerDeleted = new Set<string>()
   private providerArchivedTimer: NodeJS.Timeout | null = null
   /** Repo keys the user chose not to display */
   private hiddenRepos = new Set<string>()
@@ -433,11 +436,16 @@ export class SessionIndexer {
   }
 
   private async refreshProviderArchived(): Promise<void> {
-    const next = await this.archivedReader.list(this.sources, this.providerArchived)
+    const next = await this.archivedReader.list(this.sources, {
+      hidden: this.providerArchived,
+      deleted: this.providerDeleted
+    })
+    const differs = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean =>
+      a.size !== b.size || [...a].some((id) => !b.has(id))
     const changed =
-      next.size !== this.providerArchived.size ||
-      [...next].some((id) => !this.providerArchived.has(id))
-    this.providerArchived = next
+      differs(next.hidden, this.providerArchived) || differs(next.deleted, this.providerDeleted)
+    this.providerArchived = new Set(next.hidden)
+    this.providerDeleted = new Set(next.deleted)
     if (changed) {
       this.emitUpdate()
       // Persisted with the stat cache (and seeded back in loadCache) so a failed
@@ -913,7 +921,7 @@ export class SessionIndexer {
   sourceStats(sources: SourceDir[]): SourceStats[] {
     const by = new Map<string, { count: number; last: number | null }>()
     for (const s of this.sessions.values()) {
-      if (this.providerArchived.has(s.id)) continue
+      if (this.hiddenByProvider(s)) continue
       const key = `${s.provider}:${s.source}`
       const e = by.get(key) ?? { count: 0, last: null }
       e.count++
@@ -936,7 +944,7 @@ export class SessionIndexer {
     // per-repo aggregation accumulators, mutated while summing — hence Mutable
     const groups = new Map<string, Mutable<RepoGroup>>()
     for (const s of this.sessions.values()) {
-      if (this.providerArchived.has(s.id)) continue
+      if (this.hiddenByProvider(s)) continue
       if (s.updatedAt < cutoff) continue
       // roundtable seat-sessions never count as a group's work — they page (and are
       // counted) only under their table
@@ -995,6 +1003,16 @@ export class SessionIndexer {
     return cwds
   }
 
+  /**
+   * Archived or deleted in its provider's own app: out of every listing. Codex says so
+   * by where the file is, so that half is read off the path at every ask — a rollout
+   * archived mid-session must leave the tree on the rescan that moves it, not on the
+   * next sweep.
+   */
+  private hiddenByProvider(s: SessionMeta): boolean {
+    return this.providerArchived.has(s.id) || (s.provider === 'codex' && isArchivedRollout(s.sourcePath))
+  }
+
   /** Wired by index.ts to the roundtable manager: cwd → owning table id, if any. */
   private roundtableForCwd: (cwd: string) => string | null = () => null
 
@@ -1019,7 +1037,7 @@ export class SessionIndexer {
     const providers = scope.providers?.length ? new Set<Provider>(scope.providers) : null
     const out: SessionMeta[] = []
     for (const s of this.sessions.values()) {
-      if (this.providerArchived.has(s.id) || this.archived.has(s.id)) continue
+      if (this.hiddenByProvider(s) || this.archived.has(s.id)) continue
       if (s.updatedAt < cutoff) continue
       if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
       const key = s.repo?.key ?? 'general'
@@ -1033,7 +1051,7 @@ export class SessionIndexer {
   page(query: SessionQuery): SessionPage {
     const cutoff = this.historyCutoff()
     let all = [...this.sessions.values()]
-    all = all.filter((s) => !this.providerArchived.has(s.id) && s.updatedAt >= cutoff)
+    all = all.filter((s) => !this.hiddenByProvider(s) && s.updatedAt >= cutoff)
     all = all.filter((s) => this.archived.has(s.id) === !!query.archived)
     // roundtable seat-sessions are not independent work: they page only under their
     // own table (query.roundtableId) and stay out of the tree/board/search entirely
@@ -1127,17 +1145,50 @@ export class SessionIndexer {
   }
 
   /**
-   * Every session the user still owns, for aggregate stats (see profile.ts).
+   * Every session not thrown away, roundtable seats included: matching a running
+   * turn, a PR or a restored repo to its session has to see the seats too.
    * Deliberately ignores `historyDays` and `hiddenRepos` — those are display
-   * filters for the tree, while a profile is the long view over all history.
-   * Provider-archived and user-archived sessions stay excluded: those were
-   * explicitly thrown away.
+   * filters for the tree. Provider-archived and user-archived sessions stay
+   * excluded: those were explicitly thrown away.
    */
   allSessions(): SessionMeta[] {
     const out: SessionMeta[] = []
     for (const s of this.sessions.values()) {
-      if (this.providerArchived.has(s.id) || this.archived.has(s.id)) continue
+      if (this.hiddenByProvider(s) || this.archived.has(s.id)) continue
       out.push(s)
+    }
+    return out
+  }
+
+  /**
+   * The user's own work, for the profile's aggregates. Archived sessions are in —
+   * Cockpit's and the providers' own: archiving is how a session ends (the desktop app
+   * archives one when its PR closes), and the work in it happened; only a session
+   * deleted in its provider's app is out. Roundtable seats are out too: they belong to
+   * their table the way cleanup treats them — a seat is prompted by its table, not by
+   * the person — and the profile reports them apart (`roundtableSessions`).
+   */
+  ownSessions(): SessionMeta[] {
+    const out: SessionMeta[] = []
+    for (const s of this.sessions.values()) {
+      if (this.providerDeleted.has(s.id)) continue
+      if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
+      out.push(s)
+    }
+    return out
+  }
+
+  /**
+   * Seat sessions — the ones cleanupSessions leaves out — stamped with their table.
+   * Deleting a roundtable takes these with it; nothing else may.
+   */
+  roundtableSessions(): SessionMeta[] {
+    const out: SessionMeta[] = []
+    for (const s of this.sessions.values()) {
+      if (this.hiddenByProvider(s)) continue
+      const roundtableId = s.cwd === null ? null : this.roundtableForCwd(s.cwd)
+      if (roundtableId === null) continue
+      out.push({ ...s, roundtableId })
     }
     return out
   }
@@ -1149,25 +1200,10 @@ export class SessionIndexer {
    * Roundtable seats stay out: they belong to their table, not to the user's own
    * work, and removing one would strand the table's transcript.
    */
-  /**
-   * Seat sessions — the ones cleanupSessions leaves out — stamped with their table.
-   * Deleting a roundtable takes these with it; nothing else may.
-   */
-  roundtableSessions(): SessionMeta[] {
-    const out: SessionMeta[] = []
-    for (const s of this.sessions.values()) {
-      if (this.providerArchived.has(s.id)) continue
-      const roundtableId = s.cwd === null ? null : this.roundtableForCwd(s.cwd)
-      if (roundtableId === null) continue
-      out.push({ ...s, roundtableId })
-    }
-    return out
-  }
-
   cleanupSessions(): SessionMeta[] {
     const out: SessionMeta[] = []
     for (const s of this.sessions.values()) {
-      if (this.providerArchived.has(s.id)) continue
+      if (this.hiddenByProvider(s)) continue
       if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
       out.push({ ...s, archived: this.archived.has(s.id) })
     }
@@ -1227,6 +1263,11 @@ export class SessionIndexer {
           raw.providerArchived.filter((id: unknown): id is string => typeof id === 'string')
         )
       }
+      if (Array.isArray(raw.providerDeleted)) {
+        this.providerDeleted = new Set(
+          raw.providerDeleted.filter((id: unknown): id is string => typeof id === 'string')
+        )
+      }
     } catch {
       /* no cache yet */
     }
@@ -1260,7 +1301,8 @@ export class SessionIndexer {
     return JSON.stringify({
       v: CACHE_VERSION,
       entries,
-      providerArchived: [...this.providerArchived]
+      providerArchived: [...this.providerArchived],
+      providerDeleted: [...this.providerDeleted]
     })
   }
 

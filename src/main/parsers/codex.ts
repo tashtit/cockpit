@@ -31,13 +31,28 @@ const META_HEAD_BYTES = 256 * 1024
  * Codex CLI sessions: <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl
  * Lines: { timestamp, type: "session_meta"|"response_item"|"event_msg"|..., payload }
  */
-/** Only these dirs get walked/watched — never the whole config dir. */
+/** Where Codex moves a rollout it archives: one flat dir beside `sessions/`. */
+const ARCHIVED_DIR = 'archived_sessions'
+
+/**
+ * Only these dirs get walked/watched — never the whole config dir. The archive is one of
+ * them: an archived rollout is finished work the profile counts, and the indexer keeps
+ * it out of every listing the way it does other provider-archived sessions
+ * (`isArchivedRollout`).
+ */
 export function listCodexSessionRoots(sourceDir: string): string[] {
-  return [join(sourceDir, 'sessions')]
+  return [join(sourceDir, 'sessions'), join(sourceDir, ARCHIVED_DIR)]
 }
 
 export function listCodexSessionFiles(sourceDir: string): string[] {
-  return walkFiles(join(sourceDir, 'sessions'), 5).filter((f) => f.endsWith('.jsonl'))
+  return [...walkFiles(join(sourceDir, 'sessions'), 5), ...walkFiles(join(sourceDir, ARCHIVED_DIR), 0)].filter(
+    (f) => f.endsWith('.jsonl')
+  )
+}
+
+/** Archived in Codex: its app moves the rollout into `archived_sessions/` (and back out). */
+export function isArchivedRollout(file: string): boolean {
+  return basename(dirname(file)) === ARCHIVED_DIR
 }
 
 /** Codex keeps generated thread names out-of-band: { id, thread_name, updated_at } per line. */
@@ -76,11 +91,14 @@ function threadNames(sourceDir: string): Map<string, string> {
   return names
 }
 
-/** Rollouts live at <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl — walk up to the home dir. */
+/**
+ * Rollouts live at <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl, or flat in
+ * <CODEX_HOME>/archived_sessions/ once archived — walk up to the home dir.
+ */
 function codexHomeOf(file: string): string | null {
   let d = dirname(file)
   for (let i = 0; i < 6; i++) {
-    if (basename(d) === 'sessions') return dirname(d)
+    if (basename(d) === 'sessions' || basename(d) === ARCHIVED_DIR) return dirname(d)
     d = dirname(d)
   }
   return null

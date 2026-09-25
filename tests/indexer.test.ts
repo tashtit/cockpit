@@ -92,6 +92,33 @@ afterAll(() => {
 })
 
 describe('SessionIndexer', () => {
+  it("keeps roundtable seats out of the user's own sessions, and hands them over apart", () => {
+    // s3 ran in a table's room: it belongs to the table, not to the person's own work
+    indexer.setRoundtableResolver((cwd) => (cwd === '/nowhere/special' ? 'rt-1' : null))
+    try {
+      expect(indexer.allSessions().map((s) => s.nativeId).sort()).toEqual(['s1', 's2', 's3'])
+      expect(indexer.ownSessions().map((s) => s.nativeId).sort()).toEqual(['s1', 's2'])
+      expect(indexer.roundtableSessions().map((s) => [s.nativeId, s.roundtableId])).toEqual([['s3', 'rt-1']])
+    } finally {
+      indexer.setRoundtableResolver(() => null)
+    }
+  })
+
+  it("counts archived work as the user's own, but never a session its app deleted", () => {
+    const any = indexer as unknown as { providerArchived: Set<string>; providerDeleted: Set<string> }
+    const [s1, s2] = ['s1', 's2'].map((n) => indexer.allSessions().find((s) => s.nativeId === n)!.id)
+    // s1 archived in the provider's app (as the desktop app does when its PR closes), s2 deleted there
+    any.providerArchived = new Set([s1, s2])
+    any.providerDeleted = new Set([s2])
+    try {
+      expect(indexer.allSessions().map((s) => s.nativeId)).toEqual(['s3'])
+      expect(indexer.ownSessions().map((s) => s.nativeId).sort()).toEqual(['s1', 's3'])
+    } finally {
+      any.providerArchived = new Set()
+      any.providerDeleted = new Set()
+    }
+  })
+
   it('groups sessions by GitHub fullName, general bucket last', () => {
     const repos = indexer.listRepos()
     expect(repos.map((r) => r.key)).toEqual(['gh:acme/repo-a', 'general'])
@@ -355,6 +382,44 @@ describe('provider-archived sessions (claude desktop store)', () => {
     // and excluded from the repo group count
     const repoA = idx.listRepos().find((r) => r.key === 'gh:acme/repo-a')
     expect((repoA?.sessionCount ?? 0) + (repoA?.archivedCount ?? 0)).toBe(1)
+  })
+})
+
+// Codex archives a thread by moving its rollout into <home>/archived_sessions/: the
+// tree must never show it, and the profile must still count it — archiving is how a
+// piece of work ends, not a way of throwing it away.
+describe('codex archived rollouts', () => {
+  const codexDir = join(root, 'codex-archive')
+  const rollout = (dir: string, id: string, prompt: string): void => {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, `rollout-${id}.jsonl`),
+      jsonl([
+        { timestamp: '2026-08-09T10:00:00Z', type: 'session_meta', payload: { id, cwd: '/nowhere/x' } },
+        { timestamp: '2026-08-09T10:00:01Z', type: 'event_msg', payload: { type: 'user_message', message: prompt } }
+      ])
+    )
+  }
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    rollout(join(codexDir, 'sessions', '2026', '08', '09'), 'live', 'still going')
+    rollout(join(codexDir, 'archived_sessions'), 'done', 'finished and archived')
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: codexDir, provider: 'codex', label: 'cx' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('keeps an archived rollout out of every listing', () => {
+    expect(idx.page({}).items.map((s) => s.nativeId)).toEqual(['live'])
+    expect(idx.allSessions().map((s) => s.nativeId)).toEqual(['live'])
+    expect(idx.cleanupSessions().map((s) => s.nativeId)).toEqual(['live'])
+  })
+
+  it("counts it as the user's own work", () => {
+    expect(idx.ownSessions().map((s) => s.nativeId).sort()).toEqual(['done', 'live'])
   })
 })
 

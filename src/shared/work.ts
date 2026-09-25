@@ -12,7 +12,7 @@ import type { CheckKind, EditLine, FileEdit, SessionMessage, TodoStatus, WorkArt
  * row keys at the panel's edge, so a row can still open the panel at itself.
  */
 
-export type WorkTab = 'plan' | 'todos' | 'edits' | 'checks' | 'files'
+export type WorkTab = 'plan' | 'todos' | 'edits' | 'checks' | 'files' | 'follow-ups'
 
 /** The order the Checks tab lists them in: quickest first, the order an agent runs them */
 export const CHECK_ORDER: readonly CheckKind[] = ['types', 'lint', 'tests', 'e2e', 'build']
@@ -35,6 +35,19 @@ export type CheckRun = {
   readonly status?: 'passed' | 'failed'
   readonly exitCode?: number
   readonly output?: readonly string[]
+}
+
+/** Work the agent suggested for a session of its own, where it was suggested. */
+export type FollowUpEntry = {
+  readonly key: number
+  readonly ts?: number
+  readonly title: string
+  readonly summary?: string
+  readonly prompt: string
+  readonly cwd?: string
+  readonly taskId?: string
+  /** Withdrawn by the agent, and why */
+  readonly dismissed?: string
 }
 
 /** A file an agent handed the person — the newest hand-off of it. */
@@ -102,6 +115,8 @@ export type WorkModel = {
   readonly checks: readonly CheckWork[]
   /** What it handed the person, newest first, each file and page once */
   readonly shared: { readonly files: readonly SharedFileEntry[]; readonly links: readonly SharedLinkEntry[] }
+  /** Work it suggested for sessions of their own: still on offer first, newest first */
+  readonly followUps: readonly FollowUpEntry[]
 }
 
 export function lineStat(lines: readonly EditLine[]): { added: number; removed: number } {
@@ -155,6 +170,7 @@ export function tabFor(a: WorkArtifact): WorkTab {
   if (a.kind === 'edits') return 'edits'
   if (a.kind === 'check') return 'checks'
   if (a.kind === 'shared') return 'files'
+  if (a.kind === 'follow-up') return 'follow-ups'
   return 'todos'
 }
 
@@ -168,6 +184,7 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
   // each file and page at its newest hand-off, with its place in that call's own list
   const sharedFiles = new Map<string, { readonly entry: SharedFileEntry; readonly i: number }>()
   const sharedLinks = new Map<string, { readonly entry: SharedLinkEntry; readonly i: number }>()
+  const followUps: FollowUpEntry[] = []
   // Claude numbers tasks 1, 2, 3… — a create whose result was never read (the live
   // stream carries no results) takes the next number after the highest seen
   let nextTask = 1
@@ -232,6 +249,12 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
           editCount++
         }
         break
+      case 'follow-up': {
+        if (m.failed) break
+        const { kind: _, ...suggested } = a
+        followUps.push({ key, ...(m.ts ? { ts: m.ts } : {}), ...suggested })
+        break
+      }
       case 'shared': {
         // a write that failed handed nothing over
         if (m.failed) break
@@ -284,7 +307,9 @@ export function buildWork(log: readonly SessionMessage[], cwd?: string): WorkMod
     }),
     editCount,
     checks,
-    shared: { files: newestFirst(sharedFiles), links: newestFirst(sharedLinks) }
+    shared: { files: newestFirst(sharedFiles), links: newestFirst(sharedLinks) },
+    // the ones still on offer first, then those taken back, each newest first
+    followUps: [...followUps.reverse().filter((f) => !f.dismissed), ...followUps.filter((f) => f.dismissed)]
   }
 }
 
@@ -332,4 +357,13 @@ export function sharedSummary(shared: WorkModel['shared']): string {
   if (shared.files.length > 0) parts.push(shared.files.length === 1 ? '1 file' : `${shared.files.length} files`)
   if (shared.links.length > 0) parts.push(shared.links.length === 1 ? '1 page' : `${shared.links.length} pages`)
   return parts.join(' · ') || 'nothing shared'
+}
+
+/** "3 suggested · 1 withdrawn" — the Follow-ups tab's readout. */
+export function followUpSummary(followUps: readonly FollowUpEntry[]): string {
+  const withdrawn = followUps.filter((f) => f.dismissed).length
+  const open = followUps.length - withdrawn
+  const parts = [open === 1 ? '1 suggested' : `${open} suggested`]
+  if (withdrawn > 0) parts.push(`${withdrawn} withdrawn`)
+  return parts.join(' · ')
 }
