@@ -26,7 +26,8 @@ import { SignInFix } from './SignInFix'
 import { limitOptions, MESSAGE_LIMITS, TABLE_LIMITS } from './NewRoundtable'
 import { Select } from './Select'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
-import { BranchChip, ChatIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { BranchChip, ChatIcon, ProviderLogo, PROVIDER_LABEL, SearchIcon } from './logos'
+import { SeatEvidencePanel } from './SeatEvidencePanel'
 
 /** Same DOM bound as ChatView, scaled to discussion-length transcripts. */
 const RENDER_LAST = 200
@@ -87,6 +88,13 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   const [to, setTo] = useState<readonly number[] | null>(null)
   /** The table's limits being edited in place; null = the editor is closed */
   const [limitsDraft, setLimitsDraft] = useState<RoundtableLimits | null>(null)
+  // what each seat's replies rest on, beside the table — re-read when a round ends
+  const [evidence, setEvidence] = useState(false)
+  const [evidenceRead, setEvidenceRead] = useState(0)
+  // a round's end is when the seats' logs hold what they gathered for it
+  useEffect(() => {
+    if (!running) setEvidenceRead((n) => n + 1)
+  }, [running])
   /** The consensus round cap in the same editor */
   const [roundsDraft, setRoundsDraft] = useState(3)
   /** A message sent mid-round, waiting for the round to end (main owns it) */
@@ -380,332 +388,359 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
             </button>
           </div>
         </div>
+        {/* the calls behind the replies: the table keeps only their words */}
+        <button
+          className="btn-review btn-work"
+          aria-label="Evidence"
+          aria-pressed={evidence}
+          aria-controls={evidence ? 'evidence-panel' : undefined}
+          title={
+            evidence
+              ? 'Close the evidence'
+              : 'Evidence — what each seat ran, searched for, fetched and read behind its replies'
+          }
+          onClick={() => setEvidence((on) => !on)}
+        >
+          <SearchIcon />
+        </button>
       </header>
 
-      {limitsDraft && (
-        <div className="rt-limits" id="rt-limits" role="group" aria-label="Roundtable spending limits">
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-edit-message">Agent turns per message</label>
-            <Select
-              id="rt-edit-message"
-              ariaLabel="Agent turns per message"
-              value={String(limitsDraft.maxTurnsPerMessage)}
-              options={limitOptions(MESSAGE_LIMITS, limitsDraft.maxTurnsPerMessage)}
-              onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerMessage: Number(v) })}
-            />
-          </div>
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-edit-table">Agent turns for the table</label>
-            <Select
-              id="rt-edit-table"
-              ariaLabel="Agent turns for the table"
-              value={String(limitsDraft.maxTurnsPerTable)}
-              options={limitOptions(TABLE_LIMITS, limitsDraft.maxTurnsPerTable)}
-              onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerTable: Number(v) })}
-            />
-          </div>
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-edit-minutes">Longest a seat may take</label>
-            <Select
-              id="rt-edit-minutes"
-              ariaLabel="Longest a seat may take"
-              value={String(limitsDraft.maxTurnMinutes)}
-              options={minuteOptions(limitsDraft.maxTurnMinutes)}
-              onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnMinutes: Number(v) })}
-            />
-          </div>
-          {rt.mode === 'consensus' && (
-            <div className="ns-opt">
-              <label className="ns-label" htmlFor="rt-edit-rounds">Round cap</label>
-              <Select
-                id="rt-edit-rounds"
-                ariaLabel="Round cap"
-                value={String(roundsDraft)}
-                options={[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({
-                  value: String(n),
-                  label: n === 1 ? '1 round' : `${n} rounds`
-                }))}
-                onChange={(v) => setRoundsDraft(Number(v))}
-              />
-            </div>
-          )}
-          {running && (
-            <span className="ns-hint rt-limits-note">
-              Applies from the next round — or the next turn, for the time limit.
-            </span>
-          )}
-          <div className="rt-limits-actions">
-            <button className="btn-ghost" onClick={() => setLimitsDraft(null)}>Cancel</button>
-            <button className="btn-primary" onClick={() => void saveLimits()}>Save</button>
-          </div>
-        </div>
-      )}
-
-      <RoundtableTable rt={rt} entries={entries} speaking={speaking} running={running} />
-
-      <div
-        className="messages"
-        ref={scrollRef}
-        onScroll={(e) => {
-          const el = e.currentTarget
-          atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-          if (atBottomRef.current) below.settle()
-        }}
-      >
-        {base > 0 && (
-          <EarlierRow shown={sliced.length} total={entries.length} step={RENDER_LAST} onShow={showEarlier} />
-        )}
-        {sliced.map((e, i) => (
-          <EntryRow
-            key={base + i}
-            e={e}
-            label={
-              e.speaker === 'user'
-                ? 'User'
-                : uiSeatName(rt.participants, entrySeatIndex(rt.participants, e))
-            }
-            toNames={
-              e.speaker === 'user' && e.to
-                ? joinNames(e.to.map((j) => uiSeatName(rt.participants, j)))
-                : undefined
-            }
-            // primitives, not an object: a fresh one per render broke the row's memo on
-            // every flush of the wave
-            signIn={e.speaker !== 'user' && e.error && looksSignedOut(e.text) ? e.speaker : undefined}
-            signInHome={e.error ? rt.participants[entrySeatIndex(rt.participants, e)]?.configDir : undefined}
-          />
-        ))}
-        {/* the wave: one live block per seat currently streaming, in seat order */}
-        {speaking.map((seatIdx) => {
-          const turn = live[seatIdx]
-          const seat = rt.participants[seatIdx]
-          if (!turn || !seat || turn.parts.length === 0) return null
-          return (
-            <div key={seatIdx} className="rt-live">
-              {/* parts only ever append, so an index is a stable key */}
-              {turn.parts.map((part, i) =>
-                part.kind === 'tool' ? (
-                  <Message key={i} m={part.m} provider={seat.provider} />
-                ) : (
-                  <div key={i} className="msg msg-assistant streaming">
-                    <span className={`avatar plogo-${seat.provider}`} aria-hidden="true">
-                      <ProviderLogo p={seat.provider} size={14} />
-                    </span>
-                    <div className="assistant-body markdown">
-                      <div className={`rt-speaker rt-speaker-${seat.provider}`}>
-                        {uiSeatName(rt.participants, seatIdx)}
-                      </div>
-                      <p className="streaming-plain">{part.text}</p>
-                    </div>
-                  </div>
-                )
+      <div className="chat-deck">
+        <div className="chat-main">
+          {limitsDraft && (
+            <div className="rt-limits" id="rt-limits" role="group" aria-label="Roundtable spending limits">
+              <div className="ns-opt">
+                <label className="ns-label" htmlFor="rt-edit-message">Agent turns per message</label>
+                <Select
+                  id="rt-edit-message"
+                  ariaLabel="Agent turns per message"
+                  value={String(limitsDraft.maxTurnsPerMessage)}
+                  options={limitOptions(MESSAGE_LIMITS, limitsDraft.maxTurnsPerMessage)}
+                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerMessage: Number(v) })}
+                />
+              </div>
+              <div className="ns-opt">
+                <label className="ns-label" htmlFor="rt-edit-table">Agent turns for the table</label>
+                <Select
+                  id="rt-edit-table"
+                  ariaLabel="Agent turns for the table"
+                  value={String(limitsDraft.maxTurnsPerTable)}
+                  options={limitOptions(TABLE_LIMITS, limitsDraft.maxTurnsPerTable)}
+                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerTable: Number(v) })}
+                />
+              </div>
+              <div className="ns-opt">
+                <label className="ns-label" htmlFor="rt-edit-minutes">Longest a seat may take</label>
+                <Select
+                  id="rt-edit-minutes"
+                  ariaLabel="Longest a seat may take"
+                  value={String(limitsDraft.maxTurnMinutes)}
+                  options={minuteOptions(limitsDraft.maxTurnMinutes)}
+                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnMinutes: Number(v) })}
+                />
+              </div>
+              {rt.mode === 'consensus' && (
+                <div className="ns-opt">
+                  <label className="ns-label" htmlFor="rt-edit-rounds">Round cap</label>
+                  <Select
+                    id="rt-edit-rounds"
+                    ariaLabel="Round cap"
+                    value={String(roundsDraft)}
+                    options={[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({
+                      value: String(n),
+                      label: n === 1 ? '1 round' : `${n} rounds`
+                    }))}
+                    onChange={(v) => setRoundsDraft(Number(v))}
+                  />
+                </div>
               )}
+              {running && (
+                <span className="ns-hint rt-limits-note">
+                  Applies from the next round — or the next turn, for the time limit.
+                </span>
+              )}
+              <div className="rt-limits-actions">
+                <button className="btn-ghost" onClick={() => setLimitsDraft(null)}>Cancel</button>
+                <button className="btn-primary" onClick={() => void saveLimits()}>Save</button>
+              </div>
             </div>
-          )
-        })}
-        {running && (
-          <div className="thinking">
-            <span
-              className={
-                speaking.length === 1
-                  ? `pulse pulse-${rt.participants[speaking[0]]?.provider ?? 'claude'}`
-                  : 'pulse'
-              }
-            />{' '}
-            {speaking.length > 0
-              ? `${thinkingNames} ${speaking.length === 1 ? 'is' : 'are'} thinking…`
-              : 'starting the round…'}
-            {rt.mode === 'consensus' && (
-              <span className="rt-progress">
-                {' '}
-                — reaching an understanding, round {Math.min(cycle.roundsRun + 1, rt.maxRounds)} of
-                ≤{rt.maxRounds}
-              </span>
+          )}
+
+          <RoundtableTable rt={rt} entries={entries} speaking={speaking} running={running} />
+
+          <div
+            className="messages"
+            ref={scrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget
+              atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+              if (atBottomRef.current) below.settle()
+            }}
+          >
+            {base > 0 && (
+              <EarlierRow shown={sliced.length} total={entries.length} step={RENDER_LAST} onShow={showEarlier} />
             )}
-            {/* one chip per seat still at it: how long, and a way to stop waiting for it —
-                the rest of the round carries on without that seat */}
-            {speaking.length > 0 && (
-              <span className="rt-waiting">
-                {speaking.map((i) => (
-                  <span key={i} className="rt-waiting-seat">
-                    <span className="rt-waiting-time">
-                      {uiSeatName(rt.participants, i)} · {elapsed(now, live[i]?.since)}
-                    </span>
+            {sliced.map((e, i) => (
+              <EntryRow
+                key={base + i}
+                e={e}
+                label={
+                  e.speaker === 'user'
+                    ? 'User'
+                    : uiSeatName(rt.participants, entrySeatIndex(rt.participants, e))
+                }
+                toNames={
+                  e.speaker === 'user' && e.to
+                    ? joinNames(e.to.map((j) => uiSeatName(rt.participants, j)))
+                    : undefined
+                }
+                // primitives, not an object: a fresh one per render broke the row's memo on
+                // every flush of the wave
+                signIn={e.speaker !== 'user' && e.error && looksSignedOut(e.text) ? e.speaker : undefined}
+                signInHome={e.error ? rt.participants[entrySeatIndex(rt.participants, e)]?.configDir : undefined}
+              />
+            ))}
+            {/* the wave: one live block per seat currently streaming, in seat order */}
+            {speaking.map((seatIdx) => {
+              const turn = live[seatIdx]
+              const seat = rt.participants[seatIdx]
+              if (!turn || !seat || turn.parts.length === 0) return null
+              return (
+                <div key={seatIdx} className="rt-live">
+                  {/* parts only ever append, so an index is a stable key */}
+                  {turn.parts.map((part, i) =>
+                    part.kind === 'tool' ? (
+                      <Message key={i} m={part.m} provider={seat.provider} />
+                    ) : (
+                      <div key={i} className="msg msg-assistant streaming">
+                        <span className={`avatar plogo-${seat.provider}`} aria-hidden="true">
+                          <ProviderLogo p={seat.provider} size={14} />
+                        </span>
+                        <div className="assistant-body markdown">
+                          <div className={`rt-speaker rt-speaker-${seat.provider}`}>
+                            {uiSeatName(rt.participants, seatIdx)}
+                          </div>
+                          <p className="streaming-plain">{part.text}</p>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )
+            })}
+            {running && (
+              <div className="thinking">
+                <span
+                  className={
+                    speaking.length === 1
+                      ? `pulse pulse-${rt.participants[speaking[0]]?.provider ?? 'claude'}`
+                      : 'pulse'
+                  }
+                />{' '}
+                {speaking.length > 0
+                  ? `${thinkingNames} ${speaking.length === 1 ? 'is' : 'are'} thinking…`
+                  : 'starting the round…'}
+                {rt.mode === 'consensus' && (
+                  <span className="rt-progress">
+                    {' '}
+                    — reaching an understanding, round {Math.min(cycle.roundsRun + 1, rt.maxRounds)} of
+                    ≤{rt.maxRounds}
+                  </span>
+                )}
+                {/* one chip per seat still at it: how long, and a way to stop waiting for it —
+                    the rest of the round carries on without that seat */}
+                {speaking.length > 0 && (
+                  <span className="rt-waiting">
+                    {speaking.map((i) => (
+                      <span key={i} className="rt-waiting-seat">
+                        <span className="rt-waiting-time">
+                          {uiSeatName(rt.participants, i)} · {elapsed(now, live[i]?.since)}
+                        </span>
+                        <button
+                          className="link-btn"
+                          aria-label={`Skip ${uiSeatName(rt.participants, i)} — go on without it`}
+                          title="Stop waiting: end this seat's turn and carry on without it"
+                          onClick={() => void api.skipRoundtableSeat(id, i).catch(() => {})}
+                        >
+                          skip
+                        </button>
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </div>
+            )}
+            {/* the message sent mid-round, waiting its turn — visibly not sent yet */}
+            {queued && (
+              <div className="msg msg-user">
+                <div className="bubble bubble-user rt-queued">
+                  <div className="rt-to-caption">
+                    waiting — goes out when this round ends
+                    {queued.to ? ` · to ${joinNames(queued.to.map((j) => uiSeatName(rt.participants, j)))}` : ''}
+                    {' · '}
+                    <button className="link-btn" onClick={() => void api.unqueueRoundtableMessage(id)}>
+                      cancel
+                    </button>
+                  </div>
+                  <pre>{queued.text}</pre>
+                </div>
+              </div>
+            )}
+            {!running && rt.mode === 'consensus' && cycle.concluded && (
+              <ConsensusOutcome rt={rt} entries={entries} rounds={cycle.roundsRun} />
+            )}
+            {stoppedOnFailure && (
+              <div className="sys-row">
+                Stopped reaching an understanding —{' '}
+                {joinNames([...new Set(lastRoundFailures)].map((i) => uiSeatName(rt.participants, i)))}{' '}
+                couldn’t answer, so another round would only bill the others. Fix it, then send a
+                message or run one more round
+                {working.length > 0 && working.length < rt.participants.length && (
+                  <>
+                    {' '}— or{' '}
                     <button
                       className="link-btn"
-                      aria-label={`Skip ${uiSeatName(rt.participants, i)} — go on without it`}
-                      title="Stop waiting: end this seat's turn and carry on without it"
-                      onClick={() => void api.skipRoundtableSeat(id, i).catch(() => {})}
+                      onClick={() => {
+                        setTo(working)
+                        void oneMoreRound(working)
+                      }}
                     >
-                      skip
+                      continue without{' '}
+                      {joinNames([...new Set(lastRoundFailures)].map((i) => uiSeatName(rt.participants, i)))}
                     </button>
-                  </span>
-                ))}
-              </span>
-            )}
-          </div>
-        )}
-        {/* the message sent mid-round, waiting its turn — visibly not sent yet */}
-        {queued && (
-          <div className="msg msg-user">
-            <div className="bubble bubble-user rt-queued">
-              <div className="rt-to-caption">
-                waiting — goes out when this round ends
-                {queued.to ? ` · to ${joinNames(queued.to.map((j) => uiSeatName(rt.participants, j)))}` : ''}
-                {' · '}
-                <button className="link-btn" onClick={() => void api.unqueueRoundtableMessage(id)}>
-                  cancel
-                </button>
+                  </>
+                )}
+                .
               </div>
-              <pre>{queued.text}</pre>
-            </div>
-          </div>
-        )}
-        {!running && rt.mode === 'consensus' && cycle.concluded && (
-          <ConsensusOutcome rt={rt} entries={entries} rounds={cycle.roundsRun} />
-        )}
-        {stoppedOnFailure && (
-          <div className="sys-row">
-            Stopped reaching an understanding —{' '}
-            {joinNames([...new Set(lastRoundFailures)].map((i) => uiSeatName(rt.participants, i)))}{' '}
-            couldn’t answer, so another round would only bill the others. Fix it, then send a
-            message or run one more round
-            {working.length > 0 && working.length < rt.participants.length && (
-              <>
-                {' '}— or{' '}
-                <button
-                  className="link-btn"
-                  onClick={() => {
-                    setTo(working)
-                    void oneMoreRound(working)
-                  }}
-                >
-                  continue without{' '}
-                  {joinNames([...new Set(lastRoundFailures)].map((i) => uiSeatName(rt.participants, i)))}
-                </button>
-              </>
             )}
-            .
-          </div>
-        )}
-        {outOfTurns && !note && (
-          <div className="sys-row">
-            This table has spent {spent} of its {rt.limits.maxTurnsPerTable} agent turns — another
-            round would pass its ceiling.{' '}
-            <button className="link-btn" onClick={() => setLimitsDraft(rt.limits)}>
-              Raise the limit
-            </button>
-          </div>
-        )}
-        {note && (
-          <div className="sys-row" role="alert">
-            {note}
-            {outOfTurns && (
-              <>
-                {' '}
+            {outOfTurns && !note && (
+              <div className="sys-row">
+                This table has spent {spent} of its {rt.limits.maxTurnsPerTable} agent turns — another
+                round would pass its ceiling.{' '}
                 <button className="link-btn" onClick={() => setLimitsDraft(rt.limits)}>
                   Raise the limit
                 </button>
-              </>
+              </div>
             )}
+            {note && (
+              <div className="sys-row" role="alert">
+                {note}
+                {outOfTurns && (
+                  <>
+                    {' '}
+                    <button className="link-btn" onClick={() => setLimitsDraft(rt.limits)}>
+                      Raise the limit
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+            <JumpToLatest on={below.unseen} onJump={below.jump} />
           </div>
-        )}
-        <JumpToLatest on={below.unseen} onJump={below.jump} />
-      </div>
-      <div className="sr-only" role="status" aria-live="polite">
-        {status}
-      </div>
+          <div className="sr-only" role="status" aria-live="polite">
+            {status}
+          </div>
 
-      <footer className="composer">
-        {/* who the next message goes to — the whole table by default; a seat can be left
-            out (one that can't answer, or one you want to hear from alone) */}
-        {rt.participants.length > 1 && (
-          <div className="rt-to" role="group" aria-label="Send to">
-            <span className="rt-to-label">To</span>
-            {rt.participants.map((p, i) => (
-              <button
-                key={i}
-                className={`rt-to-seat plogo-${p.provider}${addressed.includes(i) ? ' on' : ''}`}
-                aria-pressed={addressed.includes(i)}
-                disabled={addressed.length === 1 && addressed.includes(i)}
-                title={addressed.includes(i) ? 'Leave this seat out of the next message' : 'Include this seat'}
-                onClick={() => toggleSeat(i)}
-              >
-                <ProviderLogo p={p.provider} size={12} />
-                <span>{uiSeatName(rt.participants, i)}</span>
-              </button>
-            ))}
-            {to && (
-              <button className="link-btn rt-to-all" onClick={() => setTo(null)}>
-                everyone
-              </button>
+          <footer className="composer">
+            {/* who the next message goes to — the whole table by default; a seat can be left
+                out (one that can't answer, or one you want to hear from alone) */}
+            {rt.participants.length > 1 && (
+              <div className="rt-to" role="group" aria-label="Send to">
+                <span className="rt-to-label">To</span>
+                {rt.participants.map((p, i) => (
+                  <button
+                    key={i}
+                    className={`rt-to-seat plogo-${p.provider}${addressed.includes(i) ? ' on' : ''}`}
+                    aria-pressed={addressed.includes(i)}
+                    disabled={addressed.length === 1 && addressed.includes(i)}
+                    title={addressed.includes(i) ? 'Leave this seat out of the next message' : 'Include this seat'}
+                    onClick={() => toggleSeat(i)}
+                  >
+                    <ProviderLogo p={p.provider} size={12} />
+                    <span>{uiSeatName(rt.participants, i)}</span>
+                  </button>
+                ))}
+                {to && (
+                  <button className="link-btn rt-to-all" onClick={() => setTo(null)}>
+                    everyone
+                  </button>
+                )}
+              </div>
             )}
-          </div>
-        )}
-        <textarea
-          ref={composerRef}
-          aria-label="Message the roundtable"
-          placeholder={
-            running
-              ? 'Add a message — it goes out when this round ends (Enter)…'
-              : to
-                ? `Message ${joinNames(to.map((i) => uiSeatName(rt.participants, i)))}…  (Enter to send)`
-                : 'Message the roundtable…  (Enter to send, Shift+Enter for newline)'
-          }
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void send()
-            }
-          }}
-        />
-        {!running && entries.length > 0 && (
-          <button
-            className="btn-ghost"
-            title="Run a discussion round with no new message — seats reply to each other in turn"
-            onClick={() => void oneMoreRound()}
-          >
-            One more round
-          </button>
-        )}
-        {running ? (
-          <>
-            {/* mid-round, a message can wait for the round or cut it short */}
-            {draft.trim() && (
+            <textarea
+              ref={composerRef}
+              aria-label="Message the roundtable"
+              placeholder={
+                running
+                  ? 'Add a message — it goes out when this round ends (Enter)…'
+                  : to
+                    ? `Message ${joinNames(to.map((i) => uiSeatName(rt.participants, i)))}…  (Enter to send)`
+                    : 'Message the roundtable…  (Enter to send, Shift+Enter for newline)'
+              }
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void send()
+                }
+              }}
+            />
+            {!running && entries.length > 0 && (
               <button
                 className="btn-ghost"
-                title="Stop the round and send this now"
-                onClick={() => void send('interrupt')}
+                title="Run a discussion round with no new message — seats reply to each other in turn"
+                onClick={() => void oneMoreRound()}
               >
-                Send now
+                One more round
               </button>
             )}
-            {draft.trim() ? (
-              <button
-                className="btn-primary"
-                title="Sends the moment this round ends — a consensus cycle ends early for it"
-                onClick={() => void send('queue')}
-              >
-                Send after round
-              </button>
+            {running ? (
+              <>
+                {/* mid-round, a message can wait for the round or cut it short */}
+                {draft.trim() && (
+                  <button
+                    className="btn-ghost"
+                    title="Stop the round and send this now"
+                    onClick={() => void send('interrupt')}
+                  >
+                    Send now
+                  </button>
+                )}
+                {draft.trim() ? (
+                  <button
+                    className="btn-primary"
+                    title="Sends the moment this round ends — a consensus cycle ends early for it"
+                    onClick={() => void send('queue')}
+                  >
+                    Send after round
+                  </button>
+                ) : (
+                  <button
+                    className="btn-danger"
+                    title={queued ? 'Stop the round — the waiting message then goes out' : 'Stop the round'}
+                    onClick={() => void api.stopRoundtable(id)}
+                  >
+                    Stop
+                  </button>
+                )}
+              </>
             ) : (
-              <button
-                className="btn-danger"
-                title={queued ? 'Stop the round — the waiting message then goes out' : 'Stop the round'}
-                onClick={() => void api.stopRoundtable(id)}
-              >
-                Stop
+              <button className="btn-primary" disabled={!draft.trim()} onClick={() => void send()}>
+                Send
               </button>
             )}
-          </>
-        ) : (
-          <button className="btn-primary" disabled={!draft.trim()} onClick={() => void send()}>
-            Send
-          </button>
+          </footer>
+        </div>
+        {evidence && (
+          <SeatEvidencePanel
+            table={rt}
+            participants={rt.participants}
+            refresh={evidenceRead}
+            onClose={() => setEvidence(false)}
+          />
         )}
-      </footer>
+      </div>
     </main>
   )
 }

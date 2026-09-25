@@ -1436,6 +1436,26 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .work-follow-prompt[open] > summary::before { transform: rotate(90deg); }
 .work-follow-prompt > pre { margin-top: var(--s1); }
 .work-follow-actions { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+/* a roundtable seat's evidence: the Work panel's frame, one turn per block — what it
+   ran, searched for, fetched and read, the verb in the mono voice beside each */
+.ev-turns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  gap: var(--s4); }
+.ev-turn { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.ev-turn-head { display: flex; align-items: baseline; gap: var(--s2); min-width: 0;
+  padding-bottom: var(--s1); border-bottom: 1px solid var(--border); }
+.ev-reply { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg-dim); }
+.ev-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  gap: var(--s2); }
+.ev-item { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.ev-verb { flex: 0 0 auto; min-width: 4.5em; max-width: 40%; overflow-wrap: anywhere;
+  color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono); }
+.ev-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ev-text { font-family: var(--mono); font-size: var(--fs-sm); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden; }
+.ev-result { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim);
+  font-family: var(--mono); font-size: var(--fs-xs); }
 .work-link-url { min-width: 0; overflow-wrap: anywhere; }
 
 /* a transcript row that opens the Work panel: the tool row's grammar as one button —

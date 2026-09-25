@@ -535,3 +535,45 @@ describe('RoundtableView transcript window', () => {
     expect(screen.queryByText(/showing the last/)).not.toBeInTheDocument()
   })
 })
+
+describe('RoundtableView evidence', () => {
+  it('opens what each seat ran and looked up, from its own log, one tab per seat', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(fixture())
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 2,
+      items: [
+        { id: 'claude:c1', provider: 'claude', startedAt: 1 },
+        { id: 'codex:x1', provider: 'codex', startedAt: 2 }
+      ] as never
+    })
+    vi.mocked(window.cockpit.getSessionMessages).mockImplementation(async (id: string) =>
+      id === 'claude:c1'
+        ? [
+            { role: 'user', kind: 'text', text: 'adopt biome?', ts: Date.parse('2026-09-01T10:00:00Z') },
+            { role: 'assistant', kind: 'tool_call', toolName: 'Bash', text: '{}', preview: 'npx biome --version', failed: true },
+            { role: 'tool', kind: 'tool_result', text: 'Exit code 127\ncommand not found' },
+            { role: 'assistant', kind: 'tool_call', toolName: 'WebSearch', text: '{}', preview: 'biome vs eslint speed', failed: true },
+            { role: 'tool', kind: 'tool_result', text: 'This command requires approval' },
+            { role: 'assistant', kind: 'text', text: 'I lean yes — one tool.' }
+          ]
+        : [{ role: 'user', kind: 'text', text: 'adopt biome?' }, { role: 'assistant', kind: 'text', text: 'Benchmarks first.' }]
+    )
+    render(<RoundtableView id="rt-1" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Evidence' }))
+    const panel = screen.getByRole('complementary', { name: 'Evidence' })
+    expect(within(panel).getByRole('tab', { name: /Claude/ })).toHaveAttribute('aria-selected', 'true')
+    expect(await within(panel).findByText('npx biome --version')).toBeInTheDocument()
+    expect(within(panel).getByText('ran')).toBeInTheDocument()
+    expect(within(panel).getByText('failed')).toHaveClass('review-kind', 'tone-danger')
+    expect(within(panel).getByText('Exit code 127')).toBeInTheDocument()
+    expect(within(panel).getByText('I lean yes — one tool.')).toBeInTheDocument()
+    // a call safe mode held back never ran: said apart from a failure, and counted
+    expect(within(panel).getByText('not run')).toHaveClass('review-kind', 'tone-warn')
+    expect(within(panel).getByText('1 not run')).toHaveClass('work-flag')
+    expect(window.cockpit.pageSessions).toHaveBeenCalledWith({ roundtableId: 'rt-1', limit: 200 })
+
+    // a seat that answered from what it knew says so
+    await userEvent.click(within(panel).getByRole('tab', { name: /Codex/ }))
+    expect(within(panel).getByText(/answered from what it already knew/)).toBeInTheDocument()
+  })
+})

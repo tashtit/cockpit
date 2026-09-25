@@ -1315,7 +1315,9 @@ describe('checks: how each agent’s runs of its tests, typecheck and linter end
     )
     const calls = parseCopilotMessages(file).filter((m) => m.kind === 'tool_call')
     expect(calls[0]).toMatchObject({ artifact: { checks: ['tests'], status: 'failed', exitCode: 1, output: ['FAIL a.test.ts'] } })
-    expect(calls[0].failed).toBeUndefined()
+    // a non-zero exit is a failed call, as Claude's log would say — whatever `success` claimed
+    expect(calls[0].failed).toBe(true)
+    expect(calls[1].failed).toBeUndefined()
     expect(calls[1]).toMatchObject({ artifact: { checks: ['lint'], status: 'passed', exitCode: 0, output: ['clean'] } })
     // started in the background: its end is in a later read, not here
     expect(calls[2].artifact).not.toHaveProperty('status')

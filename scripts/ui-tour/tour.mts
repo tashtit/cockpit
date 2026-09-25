@@ -321,6 +321,17 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'roundtable', name: 'roundtable-consensus', go: (w) => open(w, /Should usage polling move/) },
+  // what each seat looked up behind its replies, from its own log
+  {
+    view: 'roundtable',
+    name: 'roundtable-evidence',
+    go: async (w) => {
+      await open(w, /Should usage polling move/)
+      await w.getByRole('button', { name: 'Evidence', exact: true }).click()
+      await w.locator('.ev-item').first().waitFor()
+      await pause(w, 400)
+    }
+  },
   // a seat on an account whose CLI session has expired: said on the card, before the
   // table starts, with the command that fixes it — and Open held until it is
   {
@@ -496,7 +507,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up
