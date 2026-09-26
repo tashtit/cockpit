@@ -54,6 +54,41 @@ describe('buildCommand', () => {
     // and the prompt still comes last, after --
     expect(safe.slice(-2)).toEqual(['--', 'hi'])
   })
+  it('a read-only Codex seat reaches the network through a permission profile, its files still read-only', () => {
+    const seat = (over: Partial<ChatRequest> = {}): string[] =>
+      buildCommand({
+        provider: 'codex',
+        cwd: '/x',
+        prompt: 'hi',
+        permissionMode: 'safe',
+        research: true,
+        options: { codexSandbox: 'read-only' },
+        ...over
+      }).args
+    const overrides = (args: string[]): string[] => args.filter((_, i) => args[i - 1] === '-c')
+    const fresh = seat()
+    // the --sandbox flag would beat the profile; -c sandbox_mode is the floor it beats
+    expect(fresh).not.toContain('--sandbox')
+    expect(overrides(fresh)).toEqual([
+      'sandbox_mode="read-only"',
+      'permissions.cockpit-roundtable-seat={ extends = ":read-only", filesystem = { ":root" = "read" }, network = { enabled = true } }',
+      'default_permissions="cockpit-roundtable-seat"'
+    ])
+    expect(fresh.join(' ')).not.toMatch(/write|danger/)
+    expect(fresh.slice(-2)).toEqual(['--', 'hi'])
+    // a resumed turn keeps it
+    const resumed = seat({ resumeNativeId: 'sid' })
+    expect(resumed.slice(0, 3)).toEqual(['exec', 'resume', 'sid'])
+    expect(overrides(resumed)).toEqual(overrides(fresh))
+    // only a seat, only read-only, only safe: every other turn keeps its sandbox as it was
+    const plain = (over: Partial<ChatRequest>): string[] => overrides(seat(over))
+    expect(plain({ research: undefined })).toEqual([])
+    expect(seat({ research: undefined })).toContain('--sandbox')
+    expect(plain({ options: { codexSandbox: 'workspace-write' } })).toEqual([])
+    expect(plain({ options: {} })).toEqual([])
+    expect(plain({ permissionMode: 'yolo' })).toEqual([])
+    expect(seat({ permissionMode: 'yolo' })).toContain('--dangerously-bypass-approvals-and-sandbox')
+  })
   it('codex resume inserts subcommand and passes sandbox as a config override', () => {
     // `codex exec resume` accepts neither --full-auto nor --sandbox — only -c
     const { cmd, args } = buildCommand({

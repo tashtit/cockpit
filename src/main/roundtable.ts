@@ -662,8 +662,9 @@ export class RoundtableManager {
       options,
       configDir: seat.configDir,
       copilotUser: seat.copilotUser,
-      // a seat backs its claims: Claude may search and fetch pages, still never run or edit
-      ...(speaker === 'claude' ? { research: true } : {})
+      // a seat backs its claims: Claude may search and fetch pages, still never run or
+      // edit; Codex's read-only sandbox reaches the network, its files still read-only
+      ...(speaker === 'claude' || speaker === 'codex' ? { research: true } : {})
     }
     // send() returns synchronously; even its fast-fail events arrive via microtask,
     // so the routing entry below is always in place before the first event fires
