@@ -500,9 +500,9 @@ describe('RoundtableManager', () => {
     expect(scratch.sent[1].provider).toBe('codex')
     expect(scratch.sent[1].options?.codexSandbox).toBe('read-only')
     expect(scratch.sent[1].options?.codexSkipGitCheck).toBe(true)
-    // Claude's seat may research — the web, not the shell — and no other seat is told to
+    // both seats may research: Claude the web, not the shell; Codex the network, read-only
     expect(scratch.sent[0]).toMatchObject({ provider: 'claude', research: true })
-    expect(scratch.sent[1].research).toBeUndefined()
+    expect(scratch.sent[1]).toMatchObject({ provider: 'codex', research: true })
 
     const grounded = makeManager(newDir())
     grounded.manager.create(TWO_SEATS, {

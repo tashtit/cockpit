@@ -88,8 +88,10 @@ function framing(table: TableInfo, seatIndex: number): string {
     workspace
   ]
   // what this seat can do to check a claim — said so it doesn't spend its turn on calls
-  // that will be refused (the other agents' sandboxes say their own)
-  if (table.participants[seatIndex]?.provider === 'claude') lines.push(CLAUDE_RESEARCH)
+  // that will be refused (Copilot's safe mode says its own)
+  const provider = table.participants[seatIndex]?.provider
+  if (provider === 'claude') lines.push(CLAUDE_RESEARCH)
+  if (provider === 'codex') lines.push(CODEX_RESEARCH)
   if (table.mode === 'consensus') lines.push(CONSENSUS_RULE)
   return lines.join('\n')
 }
@@ -97,6 +99,10 @@ function framing(table: TableInfo, seatIndex: number): string {
 /** A Claude seat's reach (`CLAUDE_RESEARCH_TOOLS` in chat.ts): the web, and nothing that runs. */
 const CLAUDE_RESEARCH =
   'To check a claim you can search the web and fetch pages; you have no shell, so rather than running commands, look things up — a registry or RDAP page answers whether a name is taken.'
+
+/** A Codex seat's reach (`CODEX_RESEARCH_ARGS` in chat.ts): read-only commands that reach the network. */
+const CODEX_RESEARCH =
+  'To check a claim you can run read-only commands, and they reach the network: curl a registry or an RDAP page to see whether a name is taken. Nothing you run can write a file.'
 
 /** The goal contract for consensus tables — every seat closes with a stance line. */
 const CONSENSUS_RULE =

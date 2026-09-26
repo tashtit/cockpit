@@ -96,9 +96,16 @@ describe('buildTurnPrompt', () => {
     expect(p).toContain('read-only for this discussion')
   })
 
-  it('tells a Claude seat it can search and fetch pages, and only a Claude seat', () => {
-    expect(buildTurnPrompt(table(), 0)).toContain('you can search the web and fetch pages; you have no shell')
-    expect(buildTurnPrompt(table(), 1)).not.toContain('search the web')
+  it('tells each seat how it can check a claim — Claude the web, Codex the network — and Copilot neither', () => {
+    const claude = buildTurnPrompt(table(), 0)
+    expect(claude).toContain('you can search the web and fetch pages; you have no shell')
+    expect(claude).not.toContain('reach the network')
+    const codex = buildTurnPrompt(table(), 1)
+    expect(codex).toContain('you can run read-only commands, and they reach the network')
+    expect(codex).not.toContain('search the web')
+    const copilot = buildTurnPrompt(table({ participants: [seat(), seat({ provider: 'copilot' })] }), 1)
+    expect(copilot).not.toContain('search the web')
+    expect(copilot).not.toContain('reach the network')
   })
 
   it('repo-less tables say so instead of pointing at a directory', () => {

@@ -96,6 +96,24 @@ export function withTurnFlags(agent: AcpAgent | undefined, req: ChatRequest): Ac
  */
 export const CLAUDE_RESEARCH_TOOLS: readonly string[] = ['WebSearch', 'WebFetch']
 
+/**
+ * A read-only Codex seat's reach: its sandbox with the network on, so a `curl` to a
+ * registry or an RDAP page can check a claim — the files stay read-only. A permission
+ * profile is the one way to give a read-only sandbox the network (`network_access` is
+ * workspace-write's alone). The profile beats a `sandbox_mode` set with `-c`, which stays
+ * as the floor for a Codex that predates profiles; the `--sandbox` flag would beat the
+ * profile. The filesystem is listed as well as extended, since a Codex whose profiles
+ * predate `extends` (0.120's do) ignores it. Without this a seat's lookups ran only where the
+ * person's own Codex config had its auto-reviewer approve each one out of the sandbox.
+ */
+const CODEX_RESEARCH_PROFILE = 'cockpit-roundtable-seat'
+export const CODEX_RESEARCH_ARGS: readonly string[] = [
+  '-c',
+  `permissions.${CODEX_RESEARCH_PROFILE}={ extends = ":read-only", filesystem = { ":root" = "read" }, network = { enabled = true } }`,
+  '-c',
+  `default_permissions="${CODEX_RESEARCH_PROFILE}"`
+]
+
 export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } {
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
   const effort = effortOf(req)
@@ -130,11 +148,14 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
           : req.permissionMode === 'auto-edit'
             ? 'workspace-write'
             : null
+      const research = req.research === true && req.permissionMode === 'safe' && sandbox === 'read-only'
       if (sandbox && req.permissionMode !== 'yolo') {
-        // `exec resume` accepts no --sandbox flag — only the -c config override form
-        if (resume) args.push('-c', `sandbox_mode="${sandbox}"`)
+        // `exec resume` accepts no --sandbox flag — only the -c config override form,
+        // which a researching seat takes too: the flag would override its profile
+        if (resume || research) args.push('-c', `sandbox_mode="${sandbox}"`)
         else args.push('--sandbox', sandbox)
       }
+      if (research) args.push(...CODEX_RESEARCH_ARGS)
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
       args.push('--', promptWithImages(req))
       return { cmd: 'codex', args }
