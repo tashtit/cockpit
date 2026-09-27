@@ -1,5 +1,6 @@
 import { app, Notification } from 'electron'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type {
   AttentionFocus,
   AttentionPrefs,
@@ -269,10 +270,14 @@ export class AttentionDesk {
   }
 }
 
-/** macOS system sounds: on every Mac already, so nothing third-party ships with the app. */
-const SOUND_FILE: Record<'finish' | 'fail', string> = {
-  finish: '/System/Library/Sounds/Glass.aiff',
-  fail: '/System/Library/Sounds/Basso.aiff'
+/**
+ * Cockpit's own sounds, synthesized by `npm run sounds` (scripts/sounds-core.mts) into
+ * resources/sounds. afplay reads a real file, so a packaged build carries them outside the
+ * asar; any other run reads the checkout's copy, beside out/.
+ */
+function soundFile(sound: 'finish' | 'fail'): string {
+  const dir = app.isPackaged ? join(process.resourcesPath, 'sounds') : join(__dirname, '..', '..', 'resources', 'sounds')
+  return join(dir, `${sound}.wav`)
 }
 
 /** No answer from macOS within this long means the permission prompt is probably up. */
@@ -328,7 +333,7 @@ export function electronSurface(): AttentionSurface {
       app.setBadgeCount(count)
     },
     play: (sound) => {
-      if (mac) void execText('/usr/bin/afplay', [SOUND_FILE[sound]], { timeoutMs: 10_000 })
+      if (mac) void execText('/usr/bin/afplay', [soundFile(sound)], { timeoutMs: 10_000 })
     },
     bounce: () => {
       app.dock?.bounce('informational')

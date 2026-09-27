@@ -1258,7 +1258,7 @@ export type AttentionPrefs = {
   /** A desktop notification when a turn finishes or fails, an agent waits on you, a
    *  roundtable concludes, or a pull request turns red */
   readonly notifications: boolean
-  /** A short macOS system sound on finish and on failure */
+  /** A short sound of Cockpit's own on finish and on failure */
   readonly sound: boolean
   /** The number of landed, unopened sessions on the Dock icon */
   readonly badge: boolean
