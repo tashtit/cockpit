@@ -3,6 +3,7 @@ import type { RoundtableParticipant } from '../../shared/types'
 import { seatDisplayName } from '../../shared/roundtable'
 import { api } from './api'
 import { buildEvidence, EVIDENCE_VERB, seatSessions, type EvidenceTurn } from './evidence'
+import { relativeTo } from './format'
 import { ipcErrorText } from './ipc-error'
 import { PROVIDER_LABEL, XIcon } from './logos'
 import { SidePanel } from './SidePanel'
@@ -111,11 +112,6 @@ export function SeatEvidencePanel({
   )
 }
 
-/** Paths under the room read relative to it, as the chat's rows do under a session's directory */
-function relative(text: string, room: string): string {
-  return text.split(`${room}/`).join('')
-}
-
 function SeatTurns({ seat, evidence, room }: { seat: string; evidence: SeatEvidence; room: string }): JSX.Element {
   const fmt = useTimeFormat()
   if (evidence.sessions === 0) {
@@ -172,11 +168,11 @@ function SeatTurns({ seat, evidence, room }: { seat: string; evidence: SeatEvide
                   </span>
                   <span className="ev-what">
                     <code className="ev-text" title={item.text}>
-                      {relative(item.text, room)}
+                      {relativeTo(item.text, room)}
                     </code>
                     {item.result && (
                       <span className="ev-result" title={item.result}>
-                        {relative(item.result.split('\n').find((l) => l.trim()) ?? '', room)}
+                        {relativeTo(item.result.split('\n').find((l) => l.trim()) ?? '', room)}
                       </span>
                     )}
                   </span>

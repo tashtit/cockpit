@@ -32,3 +32,10 @@ export function fmtAgo(ms: number, now = Date.now()): string {
   if (h < 24) return `${h}h ago`
   return DATE_FORMAT.format(ms)
 }
+
+/** Paths inside a directory read relative to it — the header already names the directory
+ *  (a session's, a roundtable's room), so repeating it in every row only pushes the file
+ *  off-screen. No directory, or an empty one, leaves the text as it is. */
+export function relativeTo(text: string, dir: string | undefined): string {
+  return dir ? text.split(`${dir}/`).join('') : text
+}

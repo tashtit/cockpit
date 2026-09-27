@@ -9,8 +9,8 @@ import type { RoundtableEvent, RoundtableSnapshot } from '../../src/shared/types
 // counted, not changed: the transcript's own row, still memoized, with its renders
 // counted — so a test can say which rows a flush of the wave redrew
 const messageRenders = vi.hoisted(() => ({ calls: 0 }))
-vi.mock('../../src/renderer/src/ChatView', async (importOriginal) => {
-  const real = await importOriginal<typeof import('../../src/renderer/src/ChatView')>()
+vi.mock('../../src/renderer/src/Message', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/renderer/src/Message')>()
   const { memo } = await import('react')
   const inner = (real.Message as unknown as { type: (p: Parameters<typeof real.Message>[0]) => JSX.Element }).type
   return {

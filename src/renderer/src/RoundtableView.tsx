@@ -19,7 +19,7 @@ import {
 } from '../../shared/roundtable'
 import { api } from './api'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
-import { Message } from './ChatView'
+import { Message } from './Message'
 import { Markdown } from './Markdown'
 import { looksSignedOut } from '../../shared/agent-auth'
 import { SignInFix } from './SignInFix'
