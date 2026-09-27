@@ -1,6 +1,7 @@
 import { useRef, useState, type JSX } from 'react'
 import type { AcpAgent, AcpAgentProbe, Provider } from '../../shared/types'
 import { acpAgentRefusal } from '../../shared/acp'
+import { PROVIDERS } from '../../shared/library'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
@@ -183,7 +184,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
                 id="acp-provider"
                 ariaLabel="Which agent this CLI drives"
                 value={provider}
-                options={(['claude', 'codex', 'copilot'] as Provider[]).map((p) => ({
+                options={PROVIDERS.map((p) => ({
                   value: p,
                   label: PROVIDER_LABEL[p]
                 }))}

@@ -11,6 +11,7 @@ import type {
 import { endpointSupports } from '../../shared/endpoints'
 import { effortsFor } from '../../shared/agent-models'
 import { signInHint } from '../../shared/agent-auth'
+import { PROVIDERS } from '../../shared/library'
 import {
   DEFAULT_ROUNDTABLE_LIMITS,
   duplicateSeats,
@@ -30,7 +31,6 @@ import { useLoaded } from './use-loaded'
 import { ErrorAlert } from './ErrorAlert'
 import { plural } from './format'
 
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
 const ROUND_CHOICES = [1, 2, 3, 4, 5]
 const DEFAULT_SEATS: SeatDraft[] = [{ provider: 'claude' }, { provider: 'codex' }]

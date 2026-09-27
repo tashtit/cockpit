@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { Provider, ProviderUsage, UsageSnapshot, UsageWindow } from '../../shared/types'
+import { PROVIDERS } from '../../shared/library'
 import { api } from './api'
 import { useBusyMap } from './busy'
 import { fmtCount, fmtResetIn, usageSpent } from './format'
@@ -16,8 +17,6 @@ import { ProviderMark, PROVIDER_LABEL, UsageWarnIcon } from './logos'
 export const USAGE_POLL_MS = 60_000
 /** From this percentage on a cell carries the warning glyph next to its color. */
 export const USAGE_WARN_PERCENT = 80
-
-const PROVIDER_ORDER: Provider[] = ['claude', 'codex', 'copilot']
 
 export type UsageMeter = {
   readonly provider: Provider
@@ -94,7 +93,7 @@ export function usageMeters(snapshot: UsageSnapshot, now = Date.now()): UsageMet
     const cur = best.get(u.provider)
     if (!cur || (m.percent ?? -1) > (cur.percent ?? -1)) best.set(u.provider, m)
   }
-  return PROVIDER_ORDER.flatMap((p) => best.get(p) ?? [])
+  return PROVIDERS.flatMap((p) => best.get(p) ?? [])
 }
 
 /**

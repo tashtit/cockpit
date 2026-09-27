@@ -13,7 +13,7 @@ import type {
 } from '../../shared/types'
 import { compareVersions, homebrewUpdateCommand, runsHomebrew } from '../../shared/agent-cli'
 import { DEFAULT_BRANCH_PREFIX, branchPrefixRefusal, normalizeBranchPrefix } from '../../shared/branch-prefix'
-import { shortPath } from '../../shared/library'
+import { PROVIDERS, shortPath } from '../../shared/library'
 import { api } from './api'
 import { saveBranchPrefix, useBranchPrefix } from './branch-prefix'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
@@ -23,8 +23,6 @@ import { BranchIcon, OrgIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
 import { ErrorAlert } from './ErrorAlert'
-
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
 /** Where a row's usage numbers come from — the tooltip on its usage readout. */
 const USAGE_SOURCE: Record<Provider, string> = {
