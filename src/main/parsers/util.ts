@@ -241,7 +241,7 @@ export function readJsonlTail(
 }
 
 /** A stream record longer than this is dropped, not held — the bound ACP keeps too. */
-export const MAX_STREAM_LINE_CHARS = 8 * 1024 * 1024
+const MAX_STREAM_LINE_CHARS = 8 * 1024 * 1024
 
 /**
  * Newline-delimited records out of a stream that arrives in chunks (a CLI's stdout).

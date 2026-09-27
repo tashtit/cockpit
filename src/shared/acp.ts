@@ -76,7 +76,7 @@ export const BLOCKED_AGENT_ENV: readonly string[] = [
  * dozens of `GIT_*` (GIT_CONFIG_COUNT/KEY/VALUE alone set any config, hooks and
  * sshCommand included), and each interpreter keeps growing its own.
  */
-export const BLOCKED_AGENT_ENV_PREFIXES: readonly string[] = [
+const BLOCKED_AGENT_ENV_PREFIXES: readonly string[] = [
   'DYLD_',
   'GIT_',
   'JAVA_TOOL_OPTIONS',

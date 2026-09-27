@@ -78,7 +78,7 @@ const MESSAGE_PARSERS = {
   copilot: parseCopilotMessages
 } as const
 
-export const DEFAULT_PAGE_SIZE = 30
+const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
 const CACHE_VERSION = 11
 /** Yield to the event loop after this much scanning so scans never starve IPC (a frame). */

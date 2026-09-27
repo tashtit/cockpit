@@ -60,7 +60,7 @@ const INSTALL_LABEL: Record<CliInstall, string> = {
 }
 
 /** "0.30.0", or "0.0.0 (development run)" — a dev build's version says nothing on its own. */
-export function versionLine(app: NonNullable<FeedbackFacts['app']>): string {
+function versionLine(app: NonNullable<FeedbackFacts['app']>): string {
   return app.packaged ? app.version : `${app.version} (development run)`
 }
 

@@ -44,7 +44,7 @@ export type McpDescription = {
 }
 
 /** The word the row wears. Lowercase except where the registry spells itself. */
-export const MCP_KIND_TAG: Record<McpKind, string> = {
+const MCP_KIND_TAG: Record<McpKind, string> = {
   remote: 'remote',
   npm: 'npm',
   pypi: 'PyPI',

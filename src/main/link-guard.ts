@@ -12,7 +12,7 @@ import { isUnder, realOrSelf } from './paths'
  * it names. Every write Cockpit makes into a repo's own files asks this first.
  */
 
-export function isSymlink(path: string): boolean {
+function isSymlink(path: string): boolean {
   try {
     return lstatSync(path).isSymbolicLink()
   } catch {

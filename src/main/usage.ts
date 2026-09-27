@@ -309,7 +309,7 @@ function codexWindow(w: any): UsageWindow | null {
 }
 
 /** Last provider-reported rate-limit snapshot in one rollout file's tail, if any. */
-export function codexSnapshotFromTail(text: string): {
+function codexSnapshotFromTail(text: string): {
   windows: UsageWindow[]
   plan?: string
   measuredAt?: number

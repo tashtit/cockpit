@@ -97,7 +97,7 @@ function diffStatLines(text: string): string {
  * The git facts of the briefing, regenerated verbatim for AI-improved briefings
  * so a model can never hallucinate repository state.
  */
-export function buildGitSection(git: GitSnapshot | null): { section: string; warnings: string[] } {
+function buildGitSection(git: GitSnapshot | null): { section: string; warnings: string[] } {
   if (git === null) {
     return {
       section: '## Git state\n\n(unavailable — the working directory no longer exists)',

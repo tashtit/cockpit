@@ -32,14 +32,14 @@ import { legacyTimelineTexts } from './parsers/copilot'
  * budget and a global one may hit it — a full-text index is the follow-up if it does.
  */
 
-export const DEFAULT_HIT_LIMIT = 50
-export const MAX_HIT_LIMIT = 200
-export const DEFAULT_PER_SESSION = 3
+const DEFAULT_HIT_LIMIT = 50
+const MAX_HIT_LIMIT = 200
+const DEFAULT_PER_SESSION = 3
 const MAX_PER_SESSION = 20
 /** A transcript is read only this far — a 50MB log's head, never the whole thing. */
 export const DEFAULT_MAX_BYTES_PER_FILE = 8 * 1024 * 1024
 /** Partial results after this long: a search over 2,500 transcripts always ends. */
-export const DEFAULT_TIME_BUDGET_MS = 15_000
+const DEFAULT_TIME_BUDGET_MS = 15_000
 const CHUNK_BYTES = 256 * 1024
 const MIN_QUERY_LENGTH = 2
 /** Snippet window around the match, in UTF-16 units of the whitespace-collapsed text */

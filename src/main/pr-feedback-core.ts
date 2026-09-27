@@ -212,7 +212,7 @@ export function cleanLogLine(raw: string): string {
 
 export type ExcerptCaps = { readonly maxLines: number; readonly maxChars: number }
 
-export const EXCERPT_CAPS: ExcerptCaps = { maxLines: 40, maxChars: 3_000 }
+const EXCERPT_CAPS: ExcerptCaps = { maxLines: 40, maxChars: 3_000 }
 
 /**
  * The part of a failed job's log that says why: the failing step's output up to

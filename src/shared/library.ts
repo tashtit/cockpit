@@ -40,7 +40,7 @@ export type AgentState =
   | 'na'
 
 /** The three ways the agent can disagree with its switch. */
-export const DRIFT_STATES: readonly AgentState[] = ['pending', 'changed', 'extra']
+const DRIFT_STATES: readonly AgentState[] = ['pending', 'changed', 'extra']
 
 export function isDrift(state: AgentState): boolean {
   return DRIFT_STATES.includes(state)
@@ -132,7 +132,7 @@ export const KIND_ORDER: readonly PanelKind[] = [
 ]
 
 /** Plugins and marketplaces are installed per machine — a repo can't scope them. */
-export const GLOBAL_ONLY_KINDS: readonly PanelKind[] = ['plugin', 'marketplace']
+const GLOBAL_ONLY_KINDS: readonly PanelKind[] = ['plugin', 'marketplace']
 
 export function kindsForScope(repoRoot: string | null): readonly PanelKind[] {
   return repoRoot === null ? KIND_ORDER : KIND_ORDER.filter((k) => !GLOBAL_ONLY_KINDS.includes(k))
@@ -281,7 +281,7 @@ export type Actual = {
   readonly mismatch?: boolean
 }
 
-export const ABSENT: Actual = { present: false, detail: '', fields: {} }
+const ABSENT: Actual = { present: false, detail: '', fields: {} }
 
 /** Cockpit's definition for an entry, in the same comparable shape. */
 export type Desired = {

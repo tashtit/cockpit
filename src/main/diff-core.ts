@@ -316,7 +316,7 @@ export function parseStatus(text: string): { readonly dirty: boolean; readonly u
 const BINARY_PROBE = 8_000
 
 /** Git's own heuristic: a NUL in the first 8000 bytes makes a file binary. */
-export function looksBinary(bytes: Uint8Array): boolean {
+function looksBinary(bytes: Uint8Array): boolean {
   const n = Math.min(bytes.length, BINARY_PROBE)
   for (let i = 0; i < n; i++) if (bytes[i] === 0) return true
   return false

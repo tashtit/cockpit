@@ -142,7 +142,7 @@ function countsOf(bundle: Bundle): BackupCounts {
 }
 
 /** Gather everything worth keeping, with the secrets split out of the body. */
-export function buildBundle(
+function buildBundle(
   deps: ExportDeps,
   passphrase?: string
 ): { readonly bundle: Bundle; readonly result: Omit<BackupExportResult, 'path'> } {

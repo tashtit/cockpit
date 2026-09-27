@@ -558,8 +558,5 @@ export const PUSH = {
   updateState: 'update-state'
 } as const
 
-/** Any channel the renderer may invoke. */
-export type InvokeChannel = (typeof CH)[keyof typeof CH]
-
 /** Any event main may push to the window. */
 export type PushChannel = (typeof PUSH)[keyof typeof PUSH]

@@ -309,7 +309,7 @@ export function parsePs(out: string, now: number): PsRow[] {
  * How far two readings of one process's start may drift: `etime` has whole-second
  * resolution and each scan subtracts it from its own clock.
  */
-export const SAME_START_MS = 2_000
+const SAME_START_MS = 2_000
 
 /**
  * Whether the process a pid names now is still the one that was picked. Pids are

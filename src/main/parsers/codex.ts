@@ -58,7 +58,7 @@ export function isArchivedRollout(file: string): boolean {
 }
 
 /** Codex keeps generated thread names out-of-band: { id, thread_name, updated_at } per line. */
-export function codexIndexFile(sourceDir: string): string {
+function codexIndexFile(sourceDir: string): string {
   return join(sourceDir, 'session_index.jsonl')
 }
 

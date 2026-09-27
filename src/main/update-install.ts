@@ -99,7 +99,7 @@ const electronFetch: UpdateFetch = async (url, signal) => {
  * download, so a slow connection that keeps delivering is never cut off, and in
  * awake time only: macOS pauses timers while the Mac sleeps.
  */
-export const STALL_MS = 60_000
+const STALL_MS = 60_000
 
 /** What `stageUpdate` reaches outside itself through — replaced by the tests. */
 export type StageIo = {

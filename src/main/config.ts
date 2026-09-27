@@ -444,7 +444,7 @@ export function listAcpAgents(): AcpAgent[] {
 }
 
 /** Upsert by id, in place, so editing an agent keeps its position in the user's list. */
-export function withAcpAgent(cfg: AppConfig, agent: AcpAgent): AppConfig {
+function withAcpAgent(cfg: AppConfig, agent: AcpAgent): AppConfig {
   const existing = cfg.acpAgents ?? []
   const agents = existing.some((a) => a.id === agent.id)
     ? existing.map((a) => (a.id === agent.id ? agent : a))
