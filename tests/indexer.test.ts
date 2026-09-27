@@ -1511,3 +1511,71 @@ describe('subagentParent', () => {
     expect(subagentParent('/h/.codex/sessions/2026/09/16/rollout-x.jsonl')).toBeNull()
   })
 })
+
+describe('who drives a session (control)', () => {
+  const home = join(root, 'claude-control')
+  const worktrees = join(root, 'cockpit-userdata', 'worktrees')
+  const cacheFile = join(root, 'cache-control', 'index-cache.json')
+  let idx: SessionIndexer
+
+  function writeSession(name: string, cwd: string, ts: string): void {
+    const dir = join(home, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, `${name}.jsonl`),
+      jsonl([
+        { type: 'user', message: { role: 'user', content: `task ${name}` }, timestamp: ts, sessionId: name, cwd },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: ts }
+      ])
+    )
+  }
+
+  beforeAll(async () => {
+    // from a terminal, never touched · in one of Cockpit's own worktrees (started there
+    // before the record existed) · taken over · started here, then released
+    writeSession('hc-out', '/nowhere/control', '2026-08-01T10:00:00Z')
+    writeSession('hc-wt', join(worktrees, 'rocket', 'login-flake'), '2026-08-02T10:00:00Z')
+    writeSession('hc-took', '/nowhere/control', '2026-08-03T10:00:00Z')
+    writeSession('hc-rel', join(worktrees, 'rocket', 'old-task'), '2026-08-04T10:00:00Z')
+    idx = new SessionIndexer(() => {}, { cacheFile, claudeStoreDir: null, cockpitWorktrees: worktrees })
+    await idx.setSources([{ path: home, provider: 'claude', label: 'control' }])
+    idx.stopWatchers()
+    idx.setControl({
+      'claude:hc-took': { how: 'taken-over', at: 1_000 },
+      'claude:hc-rel': { how: 'released', at: 2_000 }
+    })
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('stamps every page row and getSession with who drives it and how it got there', () => {
+    const by = new Map(idx.page({}).items.map((s) => [s.nativeId, s.control]))
+    expect(by.get('hc-out')).toEqual({ holder: 'agent', how: 'outside' })
+    expect(by.get('hc-wt')).toEqual({ holder: 'cockpit', how: 'started' })
+    expect(by.get('hc-took')).toEqual({ holder: 'cockpit', how: 'taken-over', since: 1_000 })
+    // the record outranks the worktree: a released session stays released
+    expect(by.get('hc-rel')).toEqual({ holder: 'agent', how: 'released', since: 2_000 })
+    expect(idx.getSession('claude:hc-took')?.control?.holder).toBe('cockpit')
+  })
+
+  it('pages only the holder a query asks for, both sides adding up to the whole', () => {
+    const ids = (holder?: 'cockpit' | 'agent'): string[] =>
+      idx.page(holder ? { holder } : {}).items.map((s) => s.nativeId).sort()
+    expect(ids('cockpit')).toEqual(['hc-took', 'hc-wt'])
+    expect(ids('agent')).toEqual(['hc-out', 'hc-rel'])
+    expect(ids()).toEqual(['hc-out', 'hc-rel', 'hc-took', 'hc-wt'])
+  })
+
+  it("counts a project's held sessions beside its active ones", () => {
+    const general = idx.listRepos().find((r) => r.key === 'general')
+    expect(general?.sessionCount).toBe(4)
+    expect(general?.heldCount).toBe(2)
+  })
+
+  it('reads a change of hands at the next ask, with nothing re-parsed', () => {
+    idx.setControl({ 'claude:hc-out': { how: 'taken-over', at: 3_000 } })
+    expect(idx.getSession('claude:hc-out')?.control).toEqual({ holder: 'cockpit', how: 'taken-over', since: 3_000 })
+    // the entries it no longer holds fall back to where each session runs
+    expect(idx.getSession('claude:hc-rel')?.control).toEqual({ holder: 'cockpit', how: 'started' })
+  })
+})

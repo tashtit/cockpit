@@ -129,7 +129,22 @@ const STATIC: readonly Shot[] = [
       await pause(w, 300)
     }
   },
-  { view: 'sidebar', name: 'sidebar-project-filter', go: async (w) => { await home(w); await w.getByRole('button', { name: 'Choose projects to display' }).click(); await pause(w, 300) } },
+  { view: 'sidebar', name: 'sidebar-project-filter', go: async (w) => { await home(w); await w.getByRole('button', { name: 'Choose what the tree shows' }).click(); await pause(w, 300) } },
+  // the tree narrowed to the sessions Cockpit drives: the strip that says so, the rows
+  // with Cockpit's mark, and the projects holding none of them gone
+  {
+    view: 'sidebar',
+    name: 'sidebar-in-cockpit',
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('button', { name: 'Choose what the tree shows' }).click()
+      await w.getByRole('radio', { name: /In Cockpit/ }).click()
+      await w.keyboard.press('Escape')
+      await w.getByText('Only sessions in Cockpit').waitFor()
+      await pause(w, 400)
+    },
+    after: (w) => w.getByRole('button', { name: 'Show all' }).click()
+  },
   // the rail dragged out to its ceiling — a width no window size reaches on its own,
   // with the deck reflowing behind it; the sash itself is the lit hairline on the border
   {
@@ -375,6 +390,27 @@ const STATIC: readonly Shot[] = [
   },
   { view: 'roundtable', name: 'roundtable-open', go: (w) => open(w, /Monorepo or polyrepo/) },
   { view: 'chat', name: 'chat-claude', go: (w) => open(w, /Fix the login flake/) },
+  // a session Cockpit drives, its hold chip opened: Release and Open in Terminal
+  {
+    view: 'chat',
+    name: 'chat-held',
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.getByRole('button', { name: 'In Cockpit' }).click()
+      await w.getByRole('region', { name: 'Who drives this session' }).waitFor()
+      await pause(w, 300)
+    }
+  },
+  // one from a terminal: read, never sent to, until it is taken over
+  {
+    view: 'chat',
+    name: 'chat-outside',
+    go: async (w) => {
+      await open(w, /Add a fallback when the billing API/)
+      await w.getByRole('button', { name: 'Take over' }).waitFor()
+      await pause(w, 300)
+    }
+  },
   // a transcript-search hit opens its session at the message: ringed, mid-viewport
   {
     view: 'chat',
@@ -507,7 +543,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

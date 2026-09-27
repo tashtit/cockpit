@@ -22,6 +22,17 @@ One row per repository, ordered by last activity, with that repo's sessions unde
 
 Click a session to read its parsed transcript — messages, tool calls, and results. Type below the transcript to continue the conversation with the same provider; see [Chat](/guide/chat).
 
+### In Cockpit or with its agent
+
+Every session is driven from one place at a time:
+
+- **In Cockpit** — Cockpit started it (a new task, a handoff, a follow-up), or you took it over. Cockpit sends its turns, and its row carries Cockpit's hexagon after the title.
+- **In its agent** — it came from a terminal or the agent's own app, or you released it back there. Cockpit shows its log as it grows but sends nothing to it until you take it over.
+
+Hover a row to see which, and how it got there (*In Cockpit — taken over from Claude*, *In Codex — opened outside Cockpit*). To change hands, open the session: see [Taking over and releasing](/guide/chat#taking-over-and-releasing).
+
+To see only one side, open the eye button beside the search field and pick **In Cockpit** or **Outside Cockpit** under *Sessions*. The tree keeps only the projects with sessions on that side, the counts follow, and search stays inside the filter. The choice outlives a restart, so while it's on a strip under the search field says *Only sessions in Cockpit* — **Show all** there puts every session back.
+
 ### Searching inside transcripts
 
 "Where did I discuss X?" — across every agent at once, which no single vendor can

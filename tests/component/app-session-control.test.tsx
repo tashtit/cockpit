@@ -1,0 +1,98 @@
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { App } from '../../src/renderer/src/App'
+import type { RepoGroup, SessionControl, SessionMeta } from '../../src/shared/types'
+
+const repo: RepoGroup = {
+  key: '/home/dev/rocket',
+  name: 'rocket',
+  fullName: 'acme/rocket',
+  root: '/home/dev/rocket',
+  sessionCount: 1,
+  archivedCount: 0,
+  heldCount: 0,
+  lastActivity: 1700000000000,
+  providers: ['claude'],
+  hidden: false
+}
+
+function session(control: SessionControl): SessionMeta {
+  return {
+    id: 'claude:a',
+    provider: 'claude',
+    nativeId: 'a',
+    source: 'claude-default',
+    title: 'fix the login flake',
+    cwd: '/home/dev/rocket',
+    logBranch: 'main',
+    gitBranch: 'main',
+    startedAt: 1700000000000,
+    updatedAt: 1700000600000,
+    messageCount: 4,
+    sourcePath: '/home/dev/.claude/projects/p/a.jsonl',
+    repo: { key: repo.key, name: repo.name, fullName: repo.fullName, root: repo.root },
+    control
+  }
+}
+
+async function openSession(control: SessionControl): Promise<void> {
+  vi.mocked(window.cockpit.listRepos).mockResolvedValue([repo])
+  vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session(control)] })
+  vi.mocked(window.cockpit.getSession).mockResolvedValue(session(control))
+  vi.mocked(window.cockpit.getSessionMessages).mockResolvedValue([
+    { role: 'user', kind: 'text', text: 'hello transcript' }
+  ])
+  render(<App />)
+  const board = await screen.findByRole('region', { name: 'Session board' })
+  await userEvent.click(await within(board).findByRole('button', { name: /fix the login flake/ }))
+  // the transcript has landed — anything said after this is not overwritten by it
+  await screen.findByText('hello transcript')
+}
+
+describe('App and who drives the open session', () => {
+  it('reads a session from outside Cockpit, and sends only once it is taken over', async () => {
+    await openSession({ holder: 'agent', how: 'outside' })
+    const composer = await screen.findByRole('textbox', { name: 'Message Claude' })
+    await userEvent.type(composer, 'carry on')
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+
+    const taken: SessionControl = { holder: 'cockpit', how: 'taken-over', since: 5 }
+    vi.mocked(window.cockpit.setSessionHolder).mockResolvedValue(taken)
+    vi.mocked(window.cockpit.getSession).mockResolvedValue(session(taken))
+    await userEvent.click(screen.getByRole('button', { name: 'Take over' }))
+    expect(window.cockpit.setSessionHolder).toHaveBeenCalledWith('claude:a', 'cockpit')
+
+    // the bar gives way to the composer, which kept the draft
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Who drives this session' })).toBeNull())
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() =>
+      expect(window.cockpit.sendChat).toHaveBeenCalledWith(
+        expect.objectContaining({ resumeNativeId: 'a', prompt: 'carry on' })
+      )
+    )
+  })
+
+  it('says why a take-over main refused did not happen, and keeps Send held', async () => {
+    await openSession({ holder: 'agent', how: 'outside' })
+    vi.mocked(window.cockpit.setSessionHolder).mockRejectedValue(
+      new Error('Its agent is working on it right now — take it over once that turn ends.')
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Take over' }))
+    expect(
+      await screen.findByText(/Couldn't take it over: Its agent is working on it/, { ignore: '.sr-only' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+  })
+
+  it('releases a session Cockpit holds back to its agent', async () => {
+    await openSession({ holder: 'cockpit', how: 'started' })
+    const released: SessionControl = { holder: 'agent', how: 'released', since: 9 }
+    vi.mocked(window.cockpit.setSessionHolder).mockResolvedValue(released)
+    await userEvent.click(await screen.findByRole('button', { name: 'In Cockpit' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Release to Claude' }))
+    expect(window.cockpit.setSessionHolder).toHaveBeenCalledWith('claude:a', 'agent')
+    expect(await screen.findByRole('button', { name: 'Take over' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(/released from Cockpit/)
+  })
+})

@@ -177,6 +177,21 @@ describe('sanitizeBundle', () => {
     expect(() => sanitizeBundle(raw({ version: 99 }))).toThrow(/version 99/)
   })
 
+  it('keeps only well-formed control entries', () => {
+    const out = sanitizeBundle(
+      raw({
+        sessions: {
+          archived: [],
+          sessionEndpoints: {},
+          continuedFrom: {},
+          removedEndpoints: {},
+          sessionControl: { 'claude:a': { how: 'started', at: 1 }, 'claude:b': { how: 'owned', at: 1 }, 'claude:c': 7 }
+        }
+      })
+    )
+    expect(out.sessions.sessionControl).toEqual({ 'claude:a': { how: 'started', at: 1 } })
+  })
+
   it('drops skill files that try to escape their folder', () => {
     const out = sanitizeBundle(
       raw({
@@ -442,6 +457,32 @@ describe('planRestore', () => {
     )
     expect(plan.config.archived?.sort()).toEqual(['a', 'b'])
     expect(plan.config.continuedFrom).toEqual({ s1: 'mine', s2: 'theirs' })
+  })
+
+  it('carries who drives each session, the local record winning', () => {
+    const plan = planRestore(
+      { ...local, sessionControl: { 'claude:s1': { how: 'released', at: 5 } } },
+      bundle({
+        sessions: {
+          archived: [],
+          sessionEndpoints: {},
+          continuedFrom: {},
+          removedEndpoints: {},
+          sessionControl: {
+            'claude:s1': { how: 'taken-over', at: 1 },
+            'codex:s2': { how: 'started', at: 2 }
+          }
+        }
+      }),
+      ctx()
+    )
+    expect(plan.config.sessionControl).toEqual({
+      'claude:s1': { how: 'released', at: 5 },
+      'codex:s2': { how: 'started', at: 2 }
+    })
+    // a file written before the record existed restores the local one untouched
+    expect(planRestore({ ...local, sessionControl: { 'claude:s1': { how: 'released', at: 5 } } }, bundle(), ctx()).config
+      .sessionControl).toEqual({ 'claude:s1': { how: 'released', at: 5 } })
   })
 
   it('adopts the backup’s project order only when there is none locally', () => {

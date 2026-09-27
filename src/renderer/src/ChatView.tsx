@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
-import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
+import type { PermissionMode, Provider, PrStatus, SessionControl, SessionHolder, SessionMessage } from '../../shared/types'
 import { api } from './api'
 import { AskPicker } from './AskPicker'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
@@ -9,7 +9,19 @@ import { announceChat, useChatKeys, useChatLog, useChatStatus } from './chat-log
 import { Markdown } from './Markdown'
 import { MODES, savedMode } from './NewSession'
 import { cwdLabel } from '../../shared/library'
-import { BranchChip, CockpitLogo, DiffIcon, HandoffIcon, PrBadge, ProviderLogo, PROVIDER_LABEL, WorkIcon } from './logos'
+import { holdSentence, holderName } from './hold'
+import {
+  BranchChip,
+  CockpitLogo,
+  DiffIcon,
+  HandoffIcon,
+  HeldIcon,
+  PrBadge,
+  ProcessIcon,
+  ProviderLogo,
+  PROVIDER_LABEL,
+  WorkIcon
+} from './logos'
 import { DiffStat } from './InstructionDiff'
 import { ReviewPanel } from './ReviewPanel'
 import { Select } from './Select'
@@ -41,6 +53,9 @@ export function ChatView({
   onOpenLineage,
   permissions,
   onAnswerPermission,
+  control = null,
+  onSetHolder,
+  onResumeInTerminal,
   anchor = null
 }: {
   binding: ChatBinding | null
@@ -61,6 +76,13 @@ export function ChatView({
   onOpenLineage: (sourceId: string) => void
   permissions: readonly PendingPermission[]
   onAnswerPermission: (ask: PendingPermission, optionId: string) => void
+  /** Who drives this session — Cockpit, or its agent outside it (main's record); null
+   *  while unknown, and for a seat, which its table drives */
+  control?: SessionControl | null
+  /** Take the session over, or release it back to its agent; resolves true once it did */
+  onSetHolder?: (holder: SessionHolder) => Promise<boolean>
+  /** Release it and resume it in its agent's own CLI, in Terminal; resolves true once opened */
+  onResumeInTerminal?: () => Promise<boolean>
   /** The message to open on, from a transcript-search hit; null opens at the bottom */
   anchor?: TranscriptAnchor | null
 }): JSX.Element {
@@ -143,6 +165,20 @@ export function ChatView({
   useEffect(() => {
     if (binding) composerRef.current?.focus()
   }, [binding?.cwd, binding?.nativeSessionId === null])
+
+  /** The hold bar opened from the header chip on a session Cockpit holds (one with its
+   *  agent always shows it), and what the last change of hands said, for the status line */
+  const [holdOpen, setHoldOpen] = useState(false)
+  const [holdPending, setHoldPending] = useState(false)
+  const [holdSaid, setHoldSaid] = useState('')
+  useEffect(() => {
+    setHoldOpen(false)
+    setHoldSaid('')
+  }, [conversation])
+  // a turn's own announcements take the status line back
+  useEffect(() => {
+    if (busy) setHoldSaid('')
+  }, [busy])
 
   // a freshly opened session always starts pinned to the bottom — per conversation,
   // not per binding object: App re-makes the binding mid-turn (the native id from the
@@ -300,8 +336,12 @@ export function ChatView({
   // the working line is only the fallback for a turn that has not announced one
   // (App does, at every turn start) — never an override, or a mid-turn error would
   // be the one thing a reader never hears.
+  // a session with its agent is shown, never sent to: Cockpit follows its log, and the
+  // person takes it over — one explicit step — before anything here resumes it
+  const withAgent = control?.holder === 'agent' && !binding?.readOnly
   const status =
     (permissions.length ? `Permission needed: ${permissions[0].preview}` : announced) ||
+    holdSaid ||
     (busy && binding ? `${PROVIDER_LABEL[binding.provider]} is working…` : '') ||
     (elsewhere && binding
       ? `${PROVIDER_LABEL[binding.provider]} is ${pendingAsk ? 'waiting for your answer' : 'working'} elsewhere…`
@@ -309,16 +349,49 @@ export function ChatView({
 
   // a turn running in a terminal is not Cockpit's to interrupt, and resuming the
   // session under it would run a second turn on the same log — Send waits for it
-  const sendBlocked = busy || elsewhere
+  const sendBlocked = busy || elsewhere || withAgent
   const elsewhereHint = binding
-    ? `${PROVIDER_LABEL[binding.provider]} is working on this session in a terminal or its own app — Send waits for that turn to finish`
+    ? elsewhere
+      ? `${PROVIDER_LABEL[binding.provider]} is working on this session in a terminal or its own app — Send waits for that turn to finish`
+      : withAgent
+        ? `This session is with ${PROVIDER_LABEL[binding.provider]} — take it over to send from Cockpit`
+        : undefined
     : undefined
   // the process that asked is still waiting on its own prompt: answering here too would
   // resume the session under it, so the card says where the answer goes instead
   const askElsewhereNote =
     elsewhere && binding
       ? `${PROVIDER_LABEL[binding.provider]} is waiting for this in a terminal or its own app — answer it there. Send waits for that turn to finish.`
-      : undefined
+      : withAgent && binding
+        ? `This session is with ${PROVIDER_LABEL[binding.provider]} — answer it there, or take it over to answer here.`
+        : undefined
+
+  /** Change hands: the bar's buttons, each saying what happened once main agrees. */
+  const changeHands = (to: SessionHolder): void => {
+    if (!onSetHolder || holdPending || !binding) return
+    setHoldPending(true)
+    void onSetHolder(to)
+      .then((ok) => {
+        if (!ok) return
+        if (to === 'cockpit') {
+          setHoldSaid('Taken over — Cockpit sends this session’s turns now')
+          composerRef.current?.focus()
+        } else {
+          setHoldSaid(`Released to ${PROVIDER_LABEL[binding.provider]} — Cockpit only follows its log now`)
+          setHoldOpen(false)
+        }
+      })
+      .finally(() => setHoldPending(false))
+  }
+  const resumeThere = (): void => {
+    if (!onResumeInTerminal || holdPending || !binding) return
+    setHoldPending(true)
+    void onResumeInTerminal()
+      .then((ok) => {
+        if (ok) setHoldSaid(`Released and resumed in Terminal — continue it with ${PROVIDER_LABEL[binding.provider]} there`)
+      })
+      .finally(() => setHoldPending(false))
+  }
 
   /** A pick from the agent's own options: the same send path a typed message takes. */
   const sendAnswer = (text: string): void => {
@@ -368,6 +441,30 @@ export function ChatView({
         <div className="chat-header-text">
           <h2 className="chat-title">{binding.title}</h2>
           <div className="chat-sub">
+            {/* who drives it, first: a session Cockpit holds opens its bar from here
+                (release, resume in Terminal); one with its agent always shows the bar */}
+            {control &&
+              !binding.readOnly &&
+              (control.holder === 'cockpit' ? (
+                <button
+                  className="acct-chip hold-chip held"
+                  aria-expanded={holdOpen}
+                  aria-controls={holdOpen ? 'hold-bar' : undefined}
+                  title={`${holdSentence(control, binding.provider)} — click to release it`}
+                  onClick={() => setHoldOpen((v) => !v)}
+                >
+                  <HeldIcon size={10} />
+                  <span className="chip-text">{holderName('cockpit', binding.provider)}</span>
+                </button>
+              ) : (
+                <span
+                  className={`acct-chip hold-chip acct-${binding.provider}`}
+                  title={holdSentence(control, binding.provider)}
+                >
+                  <ProviderLogo p={binding.provider} size={10} />
+                  <span className="chip-text">{holderName('agent', binding.provider)}</span>
+                </span>
+              ))}
             {binding.continuedFrom && (
               <button
                 className={`acct-chip acct-${binding.continuedFrom.provider} lineage-chip`}
@@ -570,6 +667,20 @@ export function ChatView({
             />
           ))}
 
+          {control && !binding.readOnly && (withAgent || holdOpen) && (
+            <HoldBar
+              control={control}
+              provider={binding.provider}
+              busy={busy}
+              elsewhere={elsewhere}
+              pending={holdPending}
+              onTakeOver={() => changeHands('cockpit')}
+              onRelease={() => changeHands('agent')}
+              onResume={resumeThere}
+              onClose={() => setHoldOpen(false)}
+            />
+          )}
+
           <footer className="composer">
             {binding.readOnly ? (
               // roundtable seat-session: the table's round loop owns this conversation
@@ -612,8 +723,8 @@ export function ChatView({
                 ) : (
                   <button
                     className="btn-primary"
-                    disabled={elsewhere || (!draft.trim() && atts.attachments.length === 0)}
-                    title={elsewhere ? elsewhereHint : undefined}
+                    disabled={elsewhere || withAgent || (!draft.trim() && atts.attachments.length === 0)}
+                    title={elsewhere || withAgent ? elsewhereHint : undefined}
                     onClick={submit}
                   >
                     Send
@@ -987,6 +1098,110 @@ export const Message = memo(function Message({
  * someone's terminal gets answered. This one holds the process open and answers it
  * directly, so it is one decision, not a form, and it can never be left half-filled.
  */
+/**
+ * Who drives the session, and the way to change it — docked above the composer like a
+ * permission card. A session with its agent always shows it (Take over is the one step
+ * between reading it and sending to it); one Cockpit holds shows it from the header's
+ * chip, to release it or to resume it in the agent's own CLI.
+ */
+function HoldBar({
+  control,
+  provider,
+  busy,
+  elsewhere,
+  pending,
+  onTakeOver,
+  onRelease,
+  onResume,
+  onClose
+}: {
+  control: SessionControl
+  provider: Provider
+  /** Cockpit's own turn is running — not the moment to hand the session back */
+  busy: boolean
+  /** The agent is running a turn outside Cockpit — not the moment to take it over */
+  elsewhere: boolean
+  /** A change of hands is on its way to main */
+  pending: boolean
+  onTakeOver: () => void
+  onRelease: () => void
+  onResume: () => void
+  onClose: () => void
+}): JSX.Element {
+  const agent = PROVIDER_LABEL[provider]
+  const held = control.holder === 'cockpit'
+  const why = held
+    ? control.how === 'taken-over'
+      ? `taken over from ${agent}, so Cockpit sends its turns. Release it to hand it back.`
+      : `started here, so Cockpit sends its turns. Release it to carry on in ${agent} instead.`
+    : elsewhere
+      ? `${agent} is working on it outside Cockpit right now — take it over once that turn ends.`
+      : control.how === 'released'
+        ? `released from Cockpit, which only follows its log. Take it over to send from here.`
+        : `opened outside Cockpit — in a terminal or ${agent}’s own app. Cockpit only follows its log; take it over to send from here.`
+  // a turn running would be pulled from under: Cockpit's own holds up a release, the
+  // agent's a take-over, and either one a second CLI opened on the same log
+  const ourTurn = 'Cockpit is running a turn in it — stop it, or let it finish, first'
+  const theirTurn = `${agent} is running a turn in it — wait for that turn to end`
+  const blocked = held ? busy : elsewhere
+  const blockedWhy = held ? ourTurn : theirTurn
+  const resumeBlocked = busy || elsewhere
+  const resumeWhy = busy ? ourTurn : theirTurn
+  return (
+    <div
+      className={`hold-bar ${held ? 'held' : `acct-${provider}`}`}
+      id="hold-bar"
+      role="region"
+      aria-label="Who drives this session"
+    >
+      <span className="hold-mark" aria-hidden="true">
+        {held ? <HeldIcon size={12} /> : <ProviderLogo p={provider} size={12} />}
+      </span>
+      <p className="hold-text">
+        <strong>{holderName(control.holder, provider)}</strong> — {why}
+      </p>
+      <div className="hold-actions">
+        <button
+          className="btn-ghost small"
+          disabled={resumeBlocked || pending}
+          title={
+            resumeBlocked
+              ? resumeWhy
+              : `${held ? 'Release it and resume' : 'Resume'} it in ${agent}’s own CLI, in a Terminal window`
+          }
+          onClick={onResume}
+        >
+          <ProcessIcon size={11} /> Open in Terminal
+        </button>
+        {held ? (
+          <>
+            <button
+              className="btn-ghost small"
+              disabled={blocked || pending}
+              title={blocked ? blockedWhy : `Hand it back to ${agent} — Cockpit stops sending to it`}
+              onClick={onRelease}
+            >
+              Release to {agent}
+            </button>
+            <button className="icon-btn small" aria-label="Hide" title="Hide" onClick={onClose}>
+              ×
+            </button>
+          </>
+        ) : (
+          <button
+            className="btn-primary hold-take"
+            disabled={blocked || pending}
+            title={blocked ? blockedWhy : 'Cockpit sends its turns from here on'}
+            onClick={onTakeOver}
+          >
+            Take over
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function PermissionAsk({
   ask,
   provider,

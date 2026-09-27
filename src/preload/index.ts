@@ -20,6 +20,7 @@ import type {
   Landing,
   PanelTarget,
   ProcessTarget,
+  SessionHolder,
   SessionQuery,
   TimeFormat,
   TranscriptSearchQuery,
@@ -54,6 +55,9 @@ const api: CockpitApi = {
   readSessionFile: (sessionId: string, path: string) => ipcRenderer.invoke(CH.sessionsFile, sessionId, path),
   openSessionFile: (sessionId: string, path: string, how: 'open' | 'reveal') =>
     ipcRenderer.invoke(CH.sessionsOpenFile, sessionId, path, how),
+  setSessionHolder: (sessionId: string, holder: SessionHolder) =>
+    ipcRenderer.invoke(CH.sessionsSetHolder, sessionId, holder),
+  resumeInTerminal: (sessionId: string) => ipcRenderer.invoke(CH.sessionsResumeInTerminal, sessionId),
   searchTranscripts: (query: TranscriptSearchQuery) =>
     ipcRenderer.invoke(CH.transcriptsSearch, query),
   cancelTranscriptSearch: () => ipcRenderer.invoke(CH.transcriptsCancel),

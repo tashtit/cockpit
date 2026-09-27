@@ -21,6 +21,7 @@ const repo: RepoGroup = {
   root: '/home/dev/rocket',
   sessionCount: 2,
   archivedCount: 0,
+  heldCount: 0,
   lastActivity: 1700000000000,
   providers: ['claude'],
   hidden: false
@@ -678,12 +679,12 @@ describe('project order', () => {
 
   it('offers sort A→Z only while the projects are in a dragged order', async () => {
     renderProjects([project('apple'), project('zebra')])
-    await userEvent.click(screen.getByRole('button', { name: 'Choose projects to display' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Choose what the tree shows' }))
     expect(screen.queryByRole('button', { name: /sort A→Z/ })).toBeNull()
     cleanup()
 
     renderProjects([project('zebra'), project('apple')])
-    await userEvent.click(screen.getByRole('button', { name: 'Choose projects to display' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Choose what the tree shows' }))
     await userEvent.click(screen.getByRole('button', { name: /sort A→Z/ }))
     expect(window.cockpit.setRepoOrder).toHaveBeenCalledWith([])
     expect(rowNames()).toEqual(['acme/apple', 'acme/zebra'])
@@ -752,5 +753,64 @@ describe('an index push', () => {
     rerender(<TreeSidebar {...sidebarProps(2)} />)
     await waitFor(() => expect(window.cockpit.listRoundtables).toHaveBeenCalledTimes(3))
     expect(window.cockpit.onRoundtableEvent).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Who drives each session — Cockpit, or the agent it came from — is on the row, and
+ * the tree can be narrowed to either side.
+ */
+describe('who drives a session', () => {
+  const held = session({ id: 'claude:held', title: 'started here', control: { holder: 'cockpit', how: 'started' } })
+  const outside = session({ id: 'claude:out', title: 'from a terminal', control: { holder: 'agent', how: 'outside' } })
+
+  it('marks the rows Cockpit holds, and says either way in the row', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 2, items: [held, outside] })
+    renderSidebar({ heldCount: 1 })
+    const mine = await screen.findByRole('treeitem', { name: /started here\s*\(in Cockpit\)/ })
+    expect(mine.querySelector('.held-mark')).not.toBeNull()
+    expect(mine).toHaveAttribute('title', expect.stringContaining('In Cockpit — started here'))
+    const theirs = screen.getByRole('treeitem', { name: /from a terminal/ })
+    expect(theirs.querySelector('.held-mark')).toBeNull()
+    expect(theirs).not.toHaveTextContent('in Cockpit')
+    expect(theirs).toHaveAttribute('title', expect.stringContaining('In Claude — opened outside Cockpit'))
+  })
+
+  it('narrows the tree to one side from the eye, says so, and shows all again', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockImplementation(async (q) =>
+      q?.holder === 'cockpit'
+        ? { total: 1, items: [held] }
+        : q?.holder === 'agent'
+          ? { total: 1, items: [outside] }
+          : { total: 2, items: [held, outside] }
+    )
+    renderSidebar({ heldCount: 1 })
+    await screen.findByRole('treeitem', { name: /from a terminal/ })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose what the tree shows' }))
+    const sessions = screen.getByRole('radiogroup', { name: 'Sessions' })
+    expect(within(sessions).getByRole('radio', { name: /All sessions/ })).toBeChecked()
+    await userEvent.click(within(sessions).getByRole('radio', { name: /In Cockpit/ }))
+
+    await waitFor(() => expect(screen.queryByRole('treeitem', { name: /from a terminal/ })).toBeNull())
+    expect(screen.getByRole('treeitem', { name: /started here/ })).toBeInTheDocument()
+    expect(window.cockpit.pageSessions).toHaveBeenLastCalledWith(expect.objectContaining({ holder: 'cockpit' }))
+    expect(screen.getByText('Only sessions in Cockpit')).toBeInTheDocument()
+    // the project's count follows the filter
+    expect(screen.getByRole('treeitem', { name: /acme\/rocket/ })).toHaveTextContent(/1$/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show all' }))
+    expect(await screen.findByRole('treeitem', { name: /from a terminal/ })).toBeInTheDocument()
+    expect(screen.queryByText('Only sessions in Cockpit')).toBeNull()
+  })
+
+  it('takes a project out of the tree when none of its sessions are on that side', async () => {
+    window.localStorage.setItem('cockpit:holder-filter', 'cockpit')
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+    renderSidebar({ heldCount: 0 })
+    expect(screen.queryByRole('treeitem', { name: /acme\/rocket/ })).toBeNull()
+    expect(screen.getByText(/Cockpit holds no sessions yet/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Show all sessions' }))
+    expect(await screen.findByRole('treeitem', { name: /acme\/rocket/ })).toBeInTheDocument()
   })
 })

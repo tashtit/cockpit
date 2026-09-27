@@ -27,10 +27,34 @@ export type RepoGroup = RepoInfo & {
   /** Active (non-archived) session count */
   readonly sessionCount: number
   readonly archivedCount: number
+  /** How many of the active sessions Cockpit holds (`SessionControl.holder`); the
+   *  rest are with their agent — what the tree's holder filter counts by */
+  readonly heldCount: number
   readonly lastActivity: number
   readonly providers: Provider[]
   /** User chose not to display this project (still listed here for the chooser UI) */
   readonly hidden: boolean
+}
+
+/**
+ * Who sends a session's turns. `cockpit`: Cockpit started it or took it over, and its
+ * composer drives it. `agent`: it lives in the agent's own CLI or app — Cockpit reads
+ * its log as it grows, and sends nothing until the person takes it over.
+ */
+export type SessionHolder = 'cockpit' | 'agent'
+
+/**
+ * How a session came to be where it is: Cockpit `started` it or `taken-over` it (held
+ * by Cockpit), or it was `released` back to its agent or never touched — `outside`.
+ */
+export type SessionHold = 'started' | 'taken-over' | 'released' | 'outside'
+
+export type SessionControl = {
+  readonly holder: SessionHolder
+  readonly how: SessionHold
+  /** Epoch ms it last changed hands; absent for `outside`, and for a session Cockpit
+   *  started before it kept this record (known only by its worktree) */
+  readonly since?: number
 }
 
 export type SessionMeta = {
@@ -87,6 +111,9 @@ export type SessionMeta = {
   /** Set when this is a roundtable seat-session (cwd is a table's room/worktree) —
    *  such sessions page only under their table and open read-only */
   roundtableId?: string
+  /** Who drives it — Cockpit or its agent (cockpit config, not provider logs) — set
+   *  by the indexer on every page row and `getSession` */
+  control?: SessionControl
 }
 
 /** One earlier file of a thread kept across several (`SessionMeta.segments`). */
@@ -290,6 +317,8 @@ export type SessionQuery = {
   readonly roundtableId?: string
   /** false/undefined = active sessions; true = archived ones */
   readonly archived?: boolean
+  /** Only the sessions Cockpit holds, or only those with their agent; absent = both */
+  readonly holder?: SessionHolder
   readonly offset?: number
   readonly limit?: number
 }

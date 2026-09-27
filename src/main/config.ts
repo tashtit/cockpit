@@ -12,6 +12,7 @@ import type {
   UpdatePrefs
 } from '../shared/types'
 import { clampStaleDays } from './cleanup-core'
+import { sanitizeControlMap, withControl, type ControlEntry } from './session-control-core'
 import { writeFileAtomic } from './replace-file'
 import { sanitizeAcpAgent } from '../shared/acp'
 import { clampZoom, type WindowPlacement } from '../shared/window'
@@ -79,6 +80,12 @@ export type AppConfig = {
   readonly removedEndpoints?: Record<string, string>
   /** Handoff lineage: source session each session continues, keyed by `${provider}:${nativeId}` */
   readonly continuedFrom?: Record<string, string>
+  /**
+   * Sessions that changed hands — Cockpit started one, took one over, or released one
+   * back to its agent — keyed by `${provider}:${nativeId}`. A session not listed is
+   * with its agent, unless it runs in one of Cockpit's own worktrees (`controlOf`).
+   */
+  readonly sessionControl?: Record<string, ControlEntry>
   /** Notification, sound and Dock-badge switches the user flipped; an absent one follows the build */
   readonly attention?: Partial<AttentionPrefs>
   /** Automatic download/install switches the user flipped; an absent one is on */
@@ -136,7 +143,8 @@ function parseConfig(raw: string): AppConfig {
     archived: stringList(cfg.archived),
     archivedRoundtables: stringList(cfg.archivedRoundtables),
     hiddenRepos: stringList(cfg.hiddenRepos),
-    repoOrder: stringList(cfg.repoOrder)
+    repoOrder: stringList(cfg.repoOrder),
+    sessionControl: cfg.sessionControl === undefined ? undefined : sanitizeControlMap(cfg.sessionControl)
   }
 }
 
@@ -501,6 +509,25 @@ export function sessionLineageFor(sessionId: string): string | undefined {
 
 export function sessionLineage(): Record<string, string> {
   return loadConfig().continuedFrom ?? {}
+}
+
+export const SESSION_CONTROL_CAP = 1000
+
+/**
+ * Record that a session changed hands. Returns the whole updated map so the caller
+ * can hand it straight to the indexer (the bindSessionLineage pattern).
+ */
+export function bindSessionControl(sessionId: string, entry: ControlEntry): Record<string, ControlEntry> {
+  const cfg = loadConfig()
+  const current = cfg.sessionControl ?? {}
+  const next = withControl(current, sessionId, entry, SESSION_CONTROL_CAP)
+  if (next === current) return current
+  saveConfig({ ...cfg, sessionControl: { ...next } })
+  return { ...next }
+}
+
+export function sessionControlFor(sessionId: string): ControlEntry | undefined {
+  return loadConfig().sessionControl?.[sessionId]
 }
 
 export function saveConfig(cfg: AppConfig): void {
