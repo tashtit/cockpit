@@ -1,5 +1,9 @@
 import { defineConfig } from 'vitepress'
 
+// VitePress 1.x pins its own vite 5 (and esbuild 0.21), both past their security fixes, so
+// `overrides` in package.json hands it the root vite instead — drop the override once
+// VitePress 2 is stable.
+
 export default defineConfig({
   title: 'Cockpit',
   description:

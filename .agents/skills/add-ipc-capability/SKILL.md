@@ -31,8 +31,8 @@ ipcMain.handle(CH.cleanupSetStaleDays, (_e, days: number) => {
 })
 
 // src/preload/index.ts, inside the exposed object
-getStaleDays: () => ipcRenderer.invoke('cleanup:stale-days'),
-setStaleDays: (days: number) => ipcRenderer.invoke('cleanup:set-stale-days', days),
+getStaleDays: () => ipcRenderer.invoke(CH.cleanupStaleDays),
+setStaleDays: (days: number) => ipcRenderer.invoke(CH.cleanupSetStaleDays, days),
 
 // tests/component/stub-api.ts, inside freshApi()
 getStaleDays: vi.fn(async () => 30),

@@ -20,6 +20,7 @@ import { writeFileAtomic } from './replace-file'
 
 export type CleanupReminderDeps = {
   /** Where the last check and what was shown survive a restart */
+  /** `<userData>/cleanup-reminder.json` */
   readonly file: string
   /**
    * The Cleanup view's own scan, reduced to what could go right now. When the view is

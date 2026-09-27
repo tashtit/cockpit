@@ -10,7 +10,11 @@
  * import library.ts, which imports types.ts back.
  *
  * Adding a capability touches four files in order (.agents/skills/add-ipc-capability):
- * this file, main/index.ts, preload/index.ts, renderer/src/api.ts.
+ * this file, main/index.ts, preload/index.ts, tests/component/stub-api.ts — the renderer
+ * then calls it through renderer/src/api.ts, which is never edited. `CockpitApi` is grouped
+ * under `---------- topic ----------` banners and `CH` by channel prefix: a new
+ * member goes in the group that owns the question, not at the end. The member order is
+ * not kept in step across the files — don't spend a pass aligning them.
  */
 import type { PanelReport } from './library'
 import type {
@@ -383,7 +387,7 @@ export type CockpitApi = {
 
 /**
  * Every channel name, once. `ipcMain.handle` and `ipcRenderer.invoke` both take a
- * plain string, so main and preload used to agree only by eye: 94 pairs of matching
+ * plain string, so main and preload used to agree only by eye, on pairs of matching
  * literals with nothing checking them. Naming a channel through `CH` turns a typo or
  * a half-finished rename into a typecheck failure, instead of a runtime "No handler
  * registered" that only an e2e run might reach. `tests/ipc-channels.test.ts` is what

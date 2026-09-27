@@ -63,7 +63,9 @@ import { isUnder } from './paths'
  *   processes  — whatever is still running with its cwd inside a stale worktree, or
  *                inside one already removed from under it (the dev server nobody
  *                stopped). Found with `lsof`, stopped with SIGTERM only, and a
- *                worktree with one inside is blocked until it is gone.
+ *                worktree with one inside is blocked until it is gone. Archiving a
+ *                session stops what it left behind in its worktree without the view
+ *                (`stopLeftBehind`, told when by `archive-watch.ts`).
  *
  * Nothing here trusts a renderer-supplied path. `removeWorktrees` re-derives the
  * whole listing before acting, and only paths that listing produced are touched.

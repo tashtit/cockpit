@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { CH, PUSH } from '../src/shared/contract'
 
 /**
- * The renderer↔main contract is 96 channel names that main and preload have to agree
- * on exactly. TypeScript checks the shape of `CockpitApi`, but `ipcMain.handle` and
+ * The renderer↔main contract is a hundred-odd channel names that main and preload have
+ * to agree on exactly. TypeScript checks the shape of `CockpitApi`, but `ipcMain.handle` and
  * `ipcRenderer.invoke` take a plain string, so nothing checked the names themselves —
  * a typo surfaced as a runtime "No handler registered", if anything reached it at all.
  *
