@@ -126,6 +126,48 @@ describe('the rail of your own messages', () => {
     expect(document.querySelector('.prompt-peek')).toBeNull()
   })
 
+  it('keeps the mark being read in view in a rail too short for them all, and its peek with it', async () => {
+    renderChat(logWith(24, [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]))
+    // a 96px rail of 24px marks, scrolled to the last four; each mark is where the
+    // rail's scroll puts it, and the rail itself is 0–96 on screen
+    const list = document.querySelector<HTMLElement>('.prompt-rail-list')!
+    let top = 192
+    Object.defineProperty(list, 'clientHeight', { value: 96, configurable: true })
+    Object.defineProperty(list, 'scrollHeight', { value: 288, configurable: true })
+    Object.defineProperty(list, 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      set: (v: number) => {
+        top = Math.max(0, Math.min(288 - 96, v))
+      }
+    })
+    const items = [...list.children]
+    items.forEach((li, i) => {
+      Object.defineProperty(li, 'offsetTop', { value: i * 24, configurable: true })
+      Object.defineProperty(li, 'offsetHeight', { value: 24, configurable: true })
+    })
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const li = this.closest('.prompt-rail-list > li')
+      const i = li ? items.indexOf(li) : -1
+      const y = i < 0 ? 0 : i * 24 - top
+      const h = i < 0 ? 96 : 24
+      return { top: y, bottom: y + h, left: 0, right: 24, width: 24, height: h, x: 0, y, toJSON: () => ({}) }
+    })
+    const peek = (): HTMLElement | null => document.querySelector<HTMLElement>('.prompt-peek')
+    mark(12, 12).focus()
+    for (let i = 0; i < 4; i++) await userEvent.keyboard('{ArrowUp}')
+    // mark 8 (at 168px) was above the rail's view: the rail scrolls to centre it
+    expect(mark(8, 12)).toHaveFocus()
+    expect(list.scrollTop).toBe(168 - (96 - 24) / 2)
+    fireEvent.scroll(list)
+    expect(peek()).toHaveTextContent('8 of 12')
+    expect(peek()?.style.top).toBe(`${7 * 24 - list.scrollTop}px`)
+    // and the peek goes once its mark scrolls out of the rail
+    list.scrollTop = 0
+    fireEvent.scroll(list)
+    expect(peek()).toBeNull()
+  })
+
   it('is one tab stop whose arrow keys walk the messages from the one being read', async () => {
     const messages = renderChat(logWith(12, [0, 4, 8]))
     const { end } = layOut(messages, 12)
