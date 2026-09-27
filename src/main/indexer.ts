@@ -167,7 +167,7 @@ function mostSpecific<T>(candidates: ReadonlyArray<{ readonly root: string; read
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 10
+const CACHE_VERSION = 11
 /** Yield to the event loop after this much scanning so scans never starve IPC (a frame). */
 const SCAN_SLICE_MS = 16
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -480,9 +480,11 @@ export class SessionIndexer {
     this.emitUpdate()
   }
 
-  /** Who drives this session: its recorded change of hands, else where it runs. */
+  /** Who drives this session: its recorded change of hands, else where it runs — and
+   *  where its log says it was opened, so "in its agent" can name the place. */
   controlOf(s: SessionMeta): SessionControl {
-    return controlOf(this.control.get(s.id), s.cwd, this.cockpitWorktrees)
+    const control = controlOf(this.control.get(s.id), s.cwd, this.cockpitWorktrees)
+    return s.surface ? { ...control, surface: s.surface } : control
   }
 
   /** Applied at query time; repo groups stay listed (flagged hidden) for the chooser UI. */

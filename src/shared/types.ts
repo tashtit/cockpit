@@ -56,12 +56,23 @@ export type SessionHolder = 'cockpit' | 'agent'
  */
 export type SessionHold = 'started' | 'taken-over' | 'released' | 'outside'
 
+/**
+ * Where a session was opened, as its own log says: the agent's desktop `app`, its CLI
+ * in a `terminal`, an editor extension (`ide`), a `browser` extension, or a `headless`
+ * run (`claude -p`, `codex exec` — scripts, and Cockpit itself). `cli` is Copilot's CLI,
+ * whose log doesn't tell a terminal from a headless run.
+ */
+export type SessionSurface = 'app' | 'terminal' | 'ide' | 'browser' | 'headless' | 'cli'
+
 export type SessionControl = {
   readonly holder: SessionHolder
   readonly how: SessionHold
   /** Epoch ms it last changed hands; absent for `outside`, and for a session Cockpit
    *  started before it kept this record (known only by its worktree) */
   readonly since?: number
+  /** Where it was opened (`SessionMeta.surface`), when its log says — so "in its agent"
+   *  can name the place: the Claude app, a terminal */
+  readonly surface?: SessionSurface
 }
 
 export type SessionMeta = {
@@ -81,6 +92,9 @@ export type SessionMeta = {
   readonly logBranch: string | null
   /** GitHub owner/repo when the provider's log states it directly (Copilot does) */
   readonly repoFullName?: string | null
+  /** Where the session was opened, when its log says: Claude's `entrypoint`, Codex's
+   *  `originator`, Copilot's app build (see parsers/surface.ts) */
+  readonly surface?: SessionSurface
   readonly startedAt: number
   readonly updatedAt: number
   readonly messageCount: number

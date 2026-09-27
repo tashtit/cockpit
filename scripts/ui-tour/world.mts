@@ -148,6 +148,9 @@ function populate(world: World): void {
     readonly turns: readonly Turn[]
   }): void => {
     const id = randomUUID()
+    // where it was opened, as Claude stamps it: Cockpit runs `claude -p` in its own
+    // worktrees, and everything else here was opened in the desktop app
+    const entrypoint = o.cwd.startsWith(join(world.userData, 'worktrees')) ? 'sdk-cli' : 'claude-desktop'
     let t = o.hoursAgo
     const at = (): string => iso((t = Math.max(t - 0.02, 0.01)))
     const lines: object[] = []
@@ -162,7 +165,7 @@ function populate(world: World): void {
     }
     for (const turn of o.turns) {
       if (turn.user)
-        lines.push({ type: 'user', sessionId: id, cwd: o.cwd, gitBranch: o.branch ?? null, timestamp: at(), message: { role: 'user', content: turn.user } })
+        lines.push({ type: 'user', sessionId: id, cwd: o.cwd, gitBranch: o.branch ?? null, entrypoint, timestamp: at(), message: { role: 'user', content: turn.user } })
       if (turn.say) assistant([{ type: 'text', text: turn.say }])
       for (const tool of turn.tools ?? []) {
         const toolId = `toolu_${++seq}`
@@ -429,7 +432,8 @@ function populate(world: World): void {
     write(
       join(dir, `rollout-${at.replace(/[:.]/g, '-')}-${id}.jsonl`),
       jsonl([
-        { timestamp: at, type: 'session_meta', payload: { id, cwd: o.cwd, git: o.branch ? { branch: o.branch } : undefined } },
+        // run in a terminal, as its TUI names itself
+        { timestamp: at, type: 'session_meta', payload: { id, cwd: o.cwd, originator: 'codex-tui', git: o.branch ? { branch: o.branch } : undefined } },
         { timestamp: at, type: 'turn_context', payload: { cwd: o.cwd, model: 'gpt-5-codex' } },
         ...o.items.map((payload) => ({ timestamp: at, type: 'response_item', payload })),
         {

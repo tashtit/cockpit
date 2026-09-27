@@ -17,6 +17,7 @@ import {
   CockpitLogo,
   GearIcon,
   GraphIcon,
+  HeldIcon,
   LandingMark,
   ProviderLogo,
   PROVIDER_LABEL,
@@ -587,9 +588,11 @@ function PaletteOption({
   onHover: () => void
   onPick: () => void
 }): JSX.Element {
+  // who drives it, as on the sidebar row: marked only where Cockpit does
+  const held = it.kind === 'session' && it.s.control?.holder === 'cockpit'
   const label =
     it.kind === 'session'
-      ? `${PROVIDER_LABEL[it.s.provider]} session: ${it.s.title}`
+      ? `${PROVIDER_LABEL[it.s.provider]} session: ${it.s.title}${held ? ' (in Cockpit)' : ''}`
       : it.kind === 'hit'
         ? `${PROVIDER_LABEL[it.s.provider]} session: ${it.s.title} — ${ROLE_LABEL[it.h.role]}: ${it.h.snippet}`
         : it.kind === 'repo'
@@ -623,6 +626,11 @@ function PaletteOption({
             <ProviderLogo p={it.s.provider} size={13} />
           </span>
           <span className="palette-title">{it.s.title}</span>
+          {held && (
+            <span className="held-mark" aria-hidden="true">
+              <HeldIcon size={10} />
+            </span>
+          )}
           {it.s.gitBranch && <BranchChip branch={it.s.gitBranch} />}
           {showRepo && it.s.repo && <span className="palette-hint">{it.s.repo.name}</span>}
           {landing?.kind === 'asks' ? (

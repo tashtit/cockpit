@@ -115,14 +115,16 @@ export function resumeLine(provider: Provider, nativeId: string, configDir?: str
 
 /**
  * The Terminal script around it: into the session's directory, say what is about to
- * run, then hand the window to the agent — interactive, so nothing follows it.
+ * run, then hand the window to the agent — interactive, so nothing follows it. zsh as a
+ * login shell for the person's own PATH, but the body is plain POSIX sh, so what it does
+ * can be run — and tested — by any shell.
  */
 export function resumeScript(title: string, cwd: string, line: string): string {
   return [
     '#!/bin/zsh -l',
     `cd ${shQuote(cwd)} || exit 1`,
     `printf '\\033[1m%s\\033[0m\\n' ${shQuote(title)}`,
-    `print -r -- ${shQuote(`$ ${line}`)}`,
+    `printf '%s\n' ${shQuote(`$ ${line}`)}`,
     'echo',
     line,
     ''

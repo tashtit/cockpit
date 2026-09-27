@@ -70,6 +70,21 @@ describe('CommandPalette', () => {
     expect(screen.getByRole('group', { name: 'recent' })).toBeInTheDocument()
   })
 
+  it('marks the sessions Cockpit drives, in the mark and in the name', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 2,
+      items: [
+        session('a', 'fix the login flake', { control: { holder: 'cockpit', how: 'taken-over', since: 1 } }),
+        session('b', 'add pagination', { control: { holder: 'agent', how: 'outside' } })
+      ]
+    })
+    renderPalette()
+    const mine = await screen.findByRole('option', { name: 'Claude session: fix the login flake (in Cockpit)' })
+    expect(mine.querySelector('.held-mark')).not.toBeNull()
+    const theirs = screen.getByRole('option', { name: 'Claude session: add pagination' })
+    expect(theirs.querySelector('.held-mark')).toBeNull()
+  })
+
   it('arrows move the active option and Enter opens it', async () => {
     const items = [session('a', 'fix the login flake'), session('b', 'add pagination')]
     vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 2, items })

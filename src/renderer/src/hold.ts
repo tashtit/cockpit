@@ -11,9 +11,35 @@ import { PROVIDER_LABEL } from './logos'
  * says it, so the rows, the chat header and the filter speak the same sentence.
  */
 
-/** The holder as a short name: the chip and the filter's options. */
-export function holderName(holder: SessionHolder, provider: SessionProvider): string {
-  return holder === 'cockpit' ? 'In Cockpit' : `In ${PROVIDER_LABEL[provider]}`
+/**
+ * Where a session with its agent lives, when its log says where it was opened: "the
+ * Claude app", "a terminal". Null for Cockpit's own, for a released one (it went
+ * wherever it was resumed next), for a headless run (nowhere to go back to) and for a
+ * client no log has named yet.
+ */
+export function placeOf(control: SessionControl, provider: SessionProvider): string | null {
+  if (control.holder !== 'agent' || control.how !== 'outside') return null
+  const agent = PROVIDER_LABEL[provider]
+  switch (control.surface) {
+    case 'app':
+      return `the ${agent} app`
+    case 'terminal':
+      return 'a terminal'
+    case 'ide':
+      return 'an editor'
+    case 'browser':
+      return 'a browser extension'
+    case 'cli':
+      return `the ${agent} CLI`
+    default:
+      return null
+  }
+}
+
+/** The holder as a short name — the chip: "In Cockpit", "In the Claude app", "In Codex". */
+export function holderName(control: SessionControl, provider: SessionProvider): string {
+  if (control.holder === 'cockpit') return 'In Cockpit'
+  return `In ${placeOf(control, provider) ?? PROVIDER_LABEL[provider]}`
 }
 
 /** The whole story in one line — a row's tooltip, the chip's title. */
@@ -27,7 +53,9 @@ export function holdSentence(control: SessionControl, provider: SessionProvider)
     case 'released':
       return `In ${agent} — released from Cockpit; Cockpit only follows its log`
     case 'outside':
-      return `In ${agent} — opened outside Cockpit; Cockpit only follows its log`
+      return control.surface === 'headless'
+        ? `In ${agent} — run headless outside Cockpit; Cockpit only follows its log`
+        : `${holderName(control, provider)} — opened outside Cockpit; Cockpit only follows its log`
   }
 }
 
