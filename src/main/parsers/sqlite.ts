@@ -77,14 +77,27 @@ export function splitSessionRef(ref: string): { readonly file: string; readonly 
  * What one query over a shared database said, kept until the database changes: a
  * database holding a hundred sessions changes on every write to any of them, and each
  * of the hundred is then re-judged — from this, not from a hundred queries.
+ *
+ * A read that fails is not an answer. The app that owns the database is writing to it,
+ * or a read-only open finds its write-ahead index wanting a recovery only a writer may
+ * run; `read` returns null, the last good answer stands, and the next call reads again.
+ * Taken as "no sessions", it dropped every session in the database from the index until
+ * the next good read put them back — a session flickering in and out of the sidebar, and
+ * out of search, every few seconds while its agent was at work. A database that is not
+ * there at all is an answer: nothing in it (`empty`).
  */
-export function snapshotCache<T>(read: (file: string) => T): (file: string) => T {
+export function snapshotCache<T>(read: (file: string) => T | null, empty: T): (file: string) => T {
   const cache = new Map<string, { readonly stamp: string; readonly value: T }>()
   return (file) => {
-    const stamp = dbStamp(file) ?? '-'
+    const stamp = dbStamp(file)
+    if (stamp === null) {
+      cache.delete(file)
+      return empty
+    }
     const hit = cache.get(file)
     if (hit && hit.stamp === stamp) return hit.value
     const value = read(file)
+    if (value === null) return hit?.value ?? empty
     cache.set(file, { stamp, value })
     return value
   }

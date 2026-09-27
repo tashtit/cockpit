@@ -281,7 +281,7 @@ type Composer = {
 }
 
 /** Every chat with messages in it, from its document's few fields that matter — one read per change. */
-const composerChats = snapshotCache((db: string): Map<string, Composer> => {
+const composerChats = snapshotCache((db: string): Map<string, Composer> | null => {
   const out = new Map<string, Composer>()
   const parents = new Map<string, string>()
   const rows = queryAll(
@@ -298,7 +298,9 @@ const composerChats = snapshotCache((db: string): Map<string, Composer> => {
        coalesce(json_extract(value, '$.fullConversationHeadersOnly[0].grouping.textPreview'),
                 json_extract(value, '$.conversation[0].text')) AS preview
      FROM cursorDiskKV WHERE key LIKE 'composerData:%' AND json_valid(value)`
-  ) ?? []
+  )
+  // a failed read is no answer, not "no chats" (see snapshotCache)
+  if (!rows) return null
   for (const r of rows) {
     const id = String(r['key'] ?? '').slice('composerData:'.length)
     for (const child of parseJson(r['subagents']) ?? []) if (typeof child === 'string') parents.set(child, id)
@@ -320,7 +322,7 @@ const composerChats = snapshotCache((db: string): Map<string, Composer> => {
     })
   }
   return out
-})
+}, new Map())
 
 function composerMeta(db: string, id: string, sourceLabel: string): SessionMeta | null {
   const c = composerChats(db).get(id)

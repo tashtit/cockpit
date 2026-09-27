@@ -2315,6 +2315,25 @@ describe('opencode parser', () => {
     const legacy = listOpencodeSessions(home, 'o').find((m) => m.nativeId === 'ses_legacy')!
     expect(parseOpencodeMessages(legacy.sourcePath).map((r) => r.text)).toEqual(['what can you do?'])
   })
+
+  // opencode — or anything else that opens its database to write — can hold it for a
+  // moment; a read then fails. Taken as "no sessions", every session in the database
+  // dropped out of the index until the next good read, flickering every few seconds
+  it('keeps its sessions through a read that fails while something holds the database', () => {
+    const ids = (): string[] => listOpencodeSessions(home, 'o').map((m) => m.nativeId).sort()
+    expect(ids()).toEqual(['ses_legacy', 'ses_one', 'ses_two'])
+    const writer = new DatabaseSync(join(home, 'opencode.db'))
+    try {
+      // a write that keeps the whole file to itself: every other connection is refused
+      writer.exec('PRAGMA locking_mode = EXCLUSIVE')
+      writer.exec("UPDATE session SET title = 'renamed while held' WHERE id = 'ses_two'")
+      expect(ids()).toEqual(['ses_legacy', 'ses_one', 'ses_two'])
+    } finally {
+      writer.close()
+    }
+    // and the next read after it lets go is the database as it now stands
+    expect(listOpencodeSessions(home, 'o').find((m) => m.nativeId === 'ses_two')?.title).toBe('renamed while held')
+  })
 })
 
 describe('cursor parser: the editor’s own chats', () => {

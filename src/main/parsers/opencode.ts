@@ -33,13 +33,19 @@ type SessionRow = {
   readonly archived: boolean
 }
 
+type DbSessions = { readonly sessions: Map<string, SessionRow>; readonly counts: Map<string, number> }
+
 /** Every session in the database, and how many turns each holds — one read per change. */
-const dbSessions = snapshotCache((file: string) => {
-  const sessions = new Map<string, SessionRow>()
-  for (const r of queryAll(
+const dbSessions = snapshotCache((file: string): DbSessions | null => {
+  const rows = queryAll(
     file,
     'SELECT id, title, directory, parent_id, time_created, time_updated, time_archived FROM session'
-  ) ?? []) {
+  )
+  const turns = queryAll(file, 'SELECT session_id, count(*) AS n FROM message GROUP BY session_id')
+  // either read failing is no answer at all: a session counted without its turns is dropped
+  if (!rows || !turns) return null
+  const sessions = new Map<string, SessionRow>()
+  for (const r of rows) {
     const id = typeof r['id'] === 'string' ? r['id'] : null
     if (!id) continue
     sessions.set(id, {
@@ -53,11 +59,11 @@ const dbSessions = snapshotCache((file: string) => {
     })
   }
   const counts = new Map<string, number>()
-  for (const r of queryAll(file, 'SELECT session_id, count(*) AS n FROM message GROUP BY session_id') ?? []) {
+  for (const r of turns) {
     if (typeof r['session_id'] === 'string') counts.set(r['session_id'], Number(r['n'] ?? 0))
   }
   return { sessions, counts }
-})
+}, { sessions: new Map(), counts: new Map() })
 
 export function listOpencodeSessionFiles(home: string): string[] {
   const db = join(home, OPENCODE_DB)
