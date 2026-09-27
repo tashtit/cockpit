@@ -50,6 +50,8 @@ Two rules keep that safe:
 
 Dev servers, watchers and shells still running inside a stale worktree, or inside one already removed from under them (Cockpit's, Claude Code's `.claude/worktrees`, Codex's and Copilot's), grouped by the worktree they run in. **Stop** is armed like Delete and sends each one SIGTERM, never a kill — but only while the pid still names the same process, with the same command line and start time, as the scan showed; one that ignores the signal is reported as still running.
 
+Most never get here: archiving a session already stops what it left running in its worktree (see [Archiving](/guide/sessions#archiving)).
+
 ## Roundtables
 
 Tables nobody has spoken to in a while, plus every table you archived — archiving one is already the decision, so it is listed at once. A table is one row: deleting it takes its seat sessions and the directory it ran in (its room, or its worktree and the branch when git reports it fully merged). A table mid-round is never selectable, and one whose worktree has uncommitted changes is refused before anything of it is deleted — seats included.

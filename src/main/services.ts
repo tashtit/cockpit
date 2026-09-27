@@ -19,7 +19,8 @@ import {
   userDataDir,
   type AppConfig
 } from './config'
-import { surveyCleanup, type CleanupDeps } from './cleanup'
+import { stopLeftBehind, surveyCleanup, type CleanupDeps } from './cleanup'
+import { ArchiveWatch } from './archive-watch'
 import { DEFAULT_STALE_DAYS, providerWorktreeHomes } from './cleanup-core'
 import { CleanupReminder } from './cleanup-reminder'
 import { RoundtableManager } from './roundtable'
@@ -99,6 +100,7 @@ export function startServices(): Services {
   let chat: ChatManager | null = null
   let tables: RoundtableManager | null = null
   let desk: AttentionDesk | null = null
+  let archiveWatch: ArchiveWatch | null = null
 
   const busySessions = (): BusySession[] =>
     mergeBusy(chat?.busySessions() ?? [], indexer.liveSessions())
@@ -150,6 +152,7 @@ export function startServices(): Services {
       ledger.resolveCopilotHandoffs()
       resolveAttention()
       forgetThrownAway()
+      archiveWatch?.update()
       sendToWin(PUSH.indexUpdated)
     },
     {
@@ -378,6 +381,16 @@ export function startServices(): Services {
     remind: (notice) => theDesk.cleanupReady(notice)
   })
   void indexer.whenScanned().then(() => reminder.start())
+  // archiving a session ends its work: the dev server it left running in its worktree
+  // is stopped with it, whichever app it was archived in
+  const watch = new ArchiveWatch({
+    listed: () => indexer.allSessions(),
+    thrownAway: (id) => indexer.thrownAway(id),
+    session: (id) => indexer.getSession(id),
+    stop: (sessions) => stopLeftBehind(cleanupDeps(), sessions)
+  })
+  archiveWatch = watch
+  void indexer.whenScanned().then(() => watch.start())
 
   return {
     indexer,
