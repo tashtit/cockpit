@@ -181,6 +181,17 @@ describe('NewRoundtable', () => {
     ])
   })
 
+  it('opens on a free discussion when what storage holds is no goal the form offers', async () => {
+    window.localStorage.setItem('cockpit:rt-table-mode', 'debate')
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    expect(screen.getByRole('button', { name: /^Goal/ })).toHaveTextContent('Free discussion')
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
+    await waitFor(() =>
+      expect(window.cockpit.createRoundtable).toHaveBeenCalledWith(expect.objectContaining({ mode: 'open' }))
+    )
+  })
+
   it('says why the table would not open in main’s words, not Electron’s', async () => {
     vi.mocked(window.cockpit.createRoundtable).mockRejectedValue(
       new Error("Error invoking remote method 'roundtable:create': Error: Claude isn't signed in — run claude /login")

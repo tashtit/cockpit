@@ -51,9 +51,12 @@ type SeatDraft = {
   readonly longContext?: boolean
 }
 
+/** The goals the form offers — a stored one that isn't among them is no goal at all */
+const TABLE_MODES: readonly RoundtableMode[] = ['open', 'consensus']
+
 /** The kind of table last opened here (`stored-value.ts`, like the other two below). */
 const savedTableMode = storedValue<RoundtableMode>('cockpit:rt-table-mode', {
-  parse: (raw) => raw as RoundtableMode,
+  parse: (raw) => TABLE_MODES.find((m) => m === raw),
   serialize: (mode) => mode,
   fallback: 'open'
 })
