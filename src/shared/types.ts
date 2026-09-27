@@ -1464,7 +1464,7 @@ export type Roundtable = {
   readonly branch: string | null
   /** Always 'safe': roundtables are discussions — seats read the code, never change it */
   readonly permissionMode: PermissionMode
-  /** 'consensus' = auto-rounds until every seat agrees, then a joint synthesis */
+  /** 'consensus' = auto-rounds until every seat agrees; the outcome is the seats' own stance lines, no extra AI turn */
   readonly mode: RoundtableMode
   /** Consensus mode: max auto discussion rounds per user message (the wave is round 1) */
   readonly maxRounds: number
@@ -1473,7 +1473,7 @@ export type Roundtable = {
   limits: RoundtableLimits
   /** Rounds completed since the last user message — mutable cycle state */
   roundsRun: number
-  /** Consensus mode: the current cycle ended with a synthesis; a new message reopens */
+  /** Consensus mode: the current cycle concluded (every seat agreed, or it hit its cap); a new message reopens */
   concluded: boolean
   readonly participants: RoundtableParticipant[]
   readonly entries: RoundtableEntry[]
@@ -1578,7 +1578,7 @@ export type RoundtableEvent =
       readonly running: boolean
       /** Rounds completed this cycle — drives the consensus progress line */
       readonly roundsRun?: number
-      /** The cycle just closed with a synthesis (consensus mode) */
+      /** The consensus cycle just concluded */
       readonly concluded?: boolean
       /** The user stopped the round — nothing finished, so nobody is notified */
       readonly stopped?: boolean

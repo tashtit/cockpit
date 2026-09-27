@@ -22,8 +22,9 @@ import { execText } from './env'
  *     A row-less dir is treated as deleted only when its events.jsonl mtime falls
  *     inside the era the db demonstrably covers — see copilotDeletedIds. Deleting a
  *     project chat's workspace removes the workspace row and keeps the session's.
- * - codex: archiving physically moves the rollout file to <home>/archived_sessions/,
- *   which the indexer never walks — nothing extra to read.
+ * - codex: archiving physically moves the rollout file to <home>/archived_sessions/.
+ *   The indexer walks that dir as a session root and hides what is in it by its path
+ *   (`isArchivedRollout` in parsers/codex.ts) — nothing extra to read here.
  * - claude: the CLI persists nothing, but the Claude desktop app keeps one JSON
  *   record per session under ~/Library/Application Support/Claude/
  *   claude-code-sessions/<install>/<workspace>/<id>.json with an `isArchived`

@@ -57,7 +57,10 @@ export type ReminderState = {
   readonly checkedAt: number
   /** When the person was last reminded, or last opened Cleanup; 0 when never */
   readonly shownAt: number
-  /** Everything ready at that moment (`kind:key`) — what is not news any more */
+  /**
+   * Everything ready at that moment (`kind:key`) — what is not news any more. A key set,
+   * not counts: a count misses one item cleaned and another gone stale in its place.
+   */
   readonly shown: readonly string[]
 }
 
