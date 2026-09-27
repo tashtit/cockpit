@@ -5,6 +5,7 @@ import type {
   AttentionPr,
   AttentionPrefs,
   AttentionTarget,
+  AttentionTone,
   ChatEvent,
   CleanupNotice,
   Landing,
@@ -144,11 +145,35 @@ export type Notice = {
   readonly keys: readonly string[]
 }
 
+/**
+ * A burst plays one sound, the most urgent of its tones — the order the Dock badge and
+ * the board already rank by: a question, then a failure or a red PR, then an ending.
+ */
+const TONE_ORDER: readonly AttentionTone[] = ['asks', 'fail', 'finish']
+
+/** A tone named by the renderer (the Settings preview) — checked, never trusted. */
+export function asAttentionTone(raw: unknown): AttentionTone {
+  const tone = TONE_ORDER.find((t) => t === raw)
+  if (!tone) throw new Error(`There is no ${String(raw).slice(0, 40)} sound.`)
+  return tone
+}
+
+/**
+ * How loud to play a sound, from what `defaults read -g com.apple.sound.beep.volume`
+ * printed: the Alert volume slider (System Settings › Sound) as the 0–1 gain macOS plays
+ * its own alert sounds at, relative to the output volume. The key is absent until the
+ * slider is first moved, and anything unreadable plays at full rather than going quiet.
+ */
+export function alertGain(reported: string): number {
+  const text = reported.trim()
+  return /^\d+(\.\d+)?$/.test(text) ? Math.min(1, Number(text)) : 1
+}
+
 /** What a flush asks the IO layer to do. */
 export type Flush = {
   /** null when notifications are off, or nothing is news any more */
   readonly notice: Notice | null
-  readonly sound: 'finish' | 'fail' | null
+  readonly sound: AttentionTone | null
 }
 
 /** A turn followed from spawn to exit — mutable accumulator on purpose. */
@@ -190,10 +215,10 @@ type Pending = {
   readonly fallbackTitle: string
   readonly failed: boolean
   /**
-   * Which sound speaks for it — a red PR sounds like a failure without being one, and
-   * housekeeping makes none
+   * Which sound speaks for it — a question has its own, a red PR sounds like a failure
+   * without being one, and housekeeping makes none
    */
-  readonly tone: 'finish' | 'fail' | null
+  readonly tone: AttentionTone | null
   readonly group: Group
 }
 
@@ -897,7 +922,7 @@ export class AttentionTracker {
     if (live.length === 0) return { notice: null, sound: null }
     const failed = live.some((p) => p.failed)
     const tones = live.map((p) => p.tone)
-    const sound = !prefs.sound ? null : tones.includes('fail') ? 'fail' : tones.includes('finish') ? 'finish' : null
+    const sound = prefs.sound ? (TONE_ORDER.find((t) => tones.includes(t)) ?? null) : null
     if (!prefs.notifications) return { notice: null, sound }
     const nameOf = (p: Pending): string => {
       const u = this.unseen.get(p.key)
@@ -1055,7 +1080,7 @@ export class AttentionTracker {
       title: null,
       fallbackTitle: 'Session',
       failed: false,
-      tone: 'finish',
+      tone: 'asks',
       group: 'asks'
     })
     this.trim()

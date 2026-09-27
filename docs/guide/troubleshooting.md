@@ -73,7 +73,7 @@ Session log formats are provider-internal and drift between releases — Cockpit
 
 ## The agent says it can't use tools
 
-Claude and ACP agents ask before anything their [permission mode](/guide/worktrees-and-prs#permission-modes) doesn't allow: look for the request just above the composer. Codex can't ask when it runs headless, so in **Safe** it refuses instead — re-run the task with **Auto-edit** (or, on a trusted repo, YOLO).
+Claude and ACP agents ask before anything their [permission mode](/guide/worktrees-and-prs#permission-modes) doesn't allow: look for the request just above the composer. Codex can't ask when it runs headless, so in **Safe** it refuses instead — re-run the task with **Auto-edit**, where what its sandbox refuses (git, the network) goes to Codex's own reviewer (or, on a trusted repo, YOLO).
 
 ## The agent can't find `node`, `npm` or another command
 
@@ -83,7 +83,7 @@ Cockpit starts every agent with the `PATH` your login shell sets up, read once w
 $SHELL -ilc 'printenv PATH'
 ```
 
-Startup files that take longer than ten seconds, or wait for input, are given up on, and agents fall back to the system's `PATH` plus the usual install folders. Cockpit sets `COCKPIT_RESOLVING_ENVIRONMENT=1` while it reads, so a slow part of your startup files can be skipped for it. Restart Cockpit after changing them.
+Until your shell answers, agents start with the system's `PATH` plus the usual install folders; startup files that take longer than a minute, or wait for input, are given up on for that launch. Cockpit sets `COCKPIT_RESOLVING_ENVIRONMENT=1` while it reads, so a slow part of your startup files can be skipped for it. Restart Cockpit after changing them.
 
 ## Wrong Node version
 

@@ -17,6 +17,12 @@ import { writeFileAtomic } from './replace-file'
 import { sanitizeAcpAgent } from '../shared/acp'
 import { isSessionProvider } from '../shared/providers'
 import { clampZoom, type WindowPlacement } from '../shared/window'
+import {
+  DEFAULT_BRANCH_PREFIX,
+  branchPrefixOf,
+  branchPrefixRefusal,
+  normalizeBranchPrefix
+} from '../shared/branch-prefix'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
@@ -56,6 +62,8 @@ export type AppConfig = {
   readonly staleDays?: number
   /** Clock format for session times in the UI; absent = 24h */
   readonly timeFormat?: TimeFormat
+  /** What the branches Cockpit cuts for worktrees start with; absent = `cockpit/` */
+  readonly branchPrefix?: string
   /**
    * Interface zoom the user last set, as a webFrame factor; absent = 100%. Main
    * restores it before the window paints, because it also decides the window's
@@ -288,6 +296,21 @@ export function setStaleDays(days: number): number {
   const d = clampStaleDays(days)
   saveConfig({ ...cfg, staleDays: d })
   return d
+}
+
+/** The prefix new worktree branches get — the default unless a valid one was set. */
+export function branchPrefix(cfg: AppConfig = loadConfig()): string {
+  return branchPrefixOf(cfg.branchPrefix)
+}
+
+/** Set it from what the person typed; '' goes back to the default. Throws the reason for a name git would refuse. */
+export function setBranchPrefix(raw: string): string {
+  const prefix = normalizeBranchPrefix(raw)
+  const refusal = branchPrefixRefusal(prefix)
+  if (refusal) throw new Error(refusal)
+  const keep = prefix === '' || prefix === DEFAULT_BRANCH_PREFIX ? undefined : prefix
+  saveConfig({ ...loadConfig(), branchPrefix: keep })
+  return keep ?? DEFAULT_BRANCH_PREFIX
 }
 
 export function setZoom(factor: number): number {

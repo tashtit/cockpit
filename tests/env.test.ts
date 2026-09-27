@@ -124,4 +124,29 @@ describe('loadLoginShellPath', () => {
       vi.resetModules()
     }
   })
+
+  it('a slow shell holds the probes only so long, and its PATH still lands for what comes after', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cockpit-slow-shell-'))
+    writeFileSync(
+      join(dir, 'shell'),
+      ['#!/bin/sh', 'sleep 1', 'PATH=/login/slow/bin:/usr/bin:/bin; export PATH', 'eval "$4"'].join('\n')
+    )
+    chmodSync(join(dir, 'shell'), 0o755)
+    const shell = process.env.SHELL
+    process.env.SHELL = join(dir, 'shell')
+    try {
+      vi.resetModules()
+      const env = await import('../src/main/env')
+      const load = env.loadLoginShellPath()
+      const started = Date.now()
+      await env.loginPathReady(100)
+      expect(Date.now() - started).toBeLessThan(900)
+      expect(env.cliEnv().PATH).not.toContain('/login/slow/bin')
+      await load
+      expect(env.cliEnv().PATH?.split(':')).toContain('/login/slow/bin')
+    } finally {
+      process.env.SHELL = shell
+      vi.resetModules()
+    }
+  })
 })

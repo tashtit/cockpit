@@ -123,6 +123,38 @@ export const CODEX_RESEARCH_ARGS: readonly string[] = [
   `default_permissions="${CODEX_RESEARCH_PROFILE}"`
 ]
 
+/**
+ * What a side question's copy of a Claude session may use: it reads, it never writes or
+ * runs anything. `--tools` is the built-in set itself, not a pre-approval — the person's
+ * own allow rules or a default mode that accepts edits could otherwise reach the copy.
+ */
+export const CLAUDE_SIDE_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob']
+
+/**
+ * A side question's copy of a Codex session: a read-only sandbox, and nothing escalates
+ * out of it — an approvals reviewer in the person's own config would otherwise wave a
+ * write through. `exec fork` takes no `--sandbox` flag, so both are config overrides.
+ */
+export const CODEX_SIDE_ARGS: readonly string[] = ['-c', 'sandbox_mode="read-only"', '-c', 'approval_policy="never"']
+
+/**
+ * Auto-edit's "anything more still asks", for Codex. Its workspace sandbox keeps `.git`
+ * read-only — and a Cockpit worktree's git data lives in the main checkout besides — so
+ * even `git add` failed there, along with anything that needs the network (`npm ci`,
+ * `git push`, `gh`). Codex's answer is escalation: the command runs again outside the
+ * sandbox once approved. Headless, nobody can approve, so each escalation goes to Codex's
+ * own approvals reviewer — what `codex exec --approve-for-me` sets, in the `-c` form that
+ * `exec resume` also takes. Verified on 0.157: without it a commit in a linked worktree is
+ * refused, with it the commit is reviewed and lands. Deliberately not a writable `.git`:
+ * a sandboxed agent that can write hooks or objects can run code outside the sandbox.
+ */
+export const CODEX_REVIEWED_ARGS: readonly string[] = [
+  '-c',
+  'approval_policy="on-request"',
+  '-c',
+  'approvals_reviewer="auto_review"'
+]
+
 /** A turn's command line, and what it is handed on stdin when its prompt does not ride argv. */
 export type BuiltCommand = { readonly cmd: string; readonly args: string[]; readonly stdin?: string }
 
@@ -130,7 +162,8 @@ export type BuildOptions = {
   /**
    * Claude only: someone can answer this turn's permission prompts in the chat, so the CLI
    * asks Cockpit (claude-permissions.ts) instead of refusing every call its mode does not
-   * already allow. Never for a roundtable seat — no card exists to show one on.
+   * already allow. Never for a roundtable seat — no card exists to show one on — nor for a
+   * side question's copy, which may only read.
    */
   readonly askHost?: boolean
 }
@@ -149,6 +182,8 @@ export type CliRequest = ChatRequest & { readonly provider: Provider }
 export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCommand {
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
   const effort = effortOf(req)
+  // a side question copies the session it names and saves nothing — never a continuation
+  const fork = req.sideFork === true && req.resumeNativeId !== undefined
   switch (req.provider) {
     case 'claude': {
       const args = ['-p', '--output-format', 'stream-json', '--verbose']
@@ -157,8 +192,11 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
       if (req.research && req.permissionMode === 'safe') args.push('--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
+      // no MCP servers either: a copy answering a question needs none, and starts faster
+      if (fork) args.push('--tools', CLAUDE_SIDE_TOOLS.join(','), '--strict-mcp-config')
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
-      if (opts.askHost) {
+      if (fork) args.push('--fork-session', '--no-session-persistence')
+      if (opts.askHost && !fork) {
         args.push(...CLAUDE_HOST_ARGS)
         return { cmd: 'claude', args, stdin: userMessageLine(promptWithImages(req)) }
       }
@@ -169,13 +207,24 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
     }
     case 'codex': {
       const resume = req.resumeNativeId
-      const args = resume ? ['exec', 'resume', resume, '--json'] : ['exec', '--json']
-      // both `exec` and `exec resume` take this flag (verified against codex --help)
-      if (req.options?.codexSkipGitCheck) args.push('--skip-git-repo-check')
+      // `exec fork --ephemeral` writes nothing; `exec resume --ephemeral` still appends the
+      // turn to the rollout it resumed (0.157), so a side question never takes that form
+      const args = fork && resume
+        ? ['exec', 'fork', resume, '--json', '--ephemeral']
+        : resume
+          ? ['exec', 'resume', resume, '--json']
+          : ['exec', '--json']
+      // all three forms take this flag. A read-only copy is never kept from a directory
+      // for not being a repository: the check guards edits outside version control
+      if (fork || req.options?.codexSkipGitCheck) args.push('--skip-git-repo-check')
       if (model) args.push('--model', model)
-      // no flags for these: the config-override form works for `exec` and `exec resume`
+      // no flags for these: the config-override form works for every `exec` form
       if (effort) args.push('-c', `model_reasoning_effort="${effort}"`)
       if (req.options?.fast) args.push('-c', 'service_tier="priority"')
+      if (fork) {
+        args.push(...CODEX_SIDE_ARGS, '--', promptWithImages(req))
+        return { cmd: 'codex', args }
+      }
       const requested = req.options?.codexSandbox
       // --full-auto was removed from `codex exec`; auto-edit maps to its old meaning
       const sandbox =
@@ -191,6 +240,9 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
         if (resume || research) args.push('-c', `sandbox_mode="${sandbox}"`)
         else args.push('--sandbox', sandbox)
       }
+      // only the workspace sandbox auto-edit means: a read-only one the person picked stays
+      // read-only, and nothing is reviewed out of a safe turn
+      if (req.permissionMode === 'auto-edit' && sandbox === 'workspace-write') args.push(...CODEX_REVIEWED_ARGS)
       if (research) args.push(...CODEX_RESEARCH_ARGS)
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
       args.push('--', promptWithImages(req))
@@ -241,6 +293,11 @@ export function parseClaudeStreamLine(turnId: string, line: any): ChatEvent[] {
     }
   } else if (line?.type === 'result') {
     if (line.session_id) out.push({ turnId, type: 'session', nativeSessionId: String(line.session_id) })
+    // a resumed session with a background task's notice still queued drains it first, as a
+    // run of its own that ends in a result of its own — before the prompt is even read.
+    // That is not this turn ending: the turn's own result follows, and the process
+    // exiting ends it anyway if none does
+    if (line.origin?.kind === 'task-notification') return out
     // error results (is_error / subtype error_*) still end the turn, but silently
     // swallowing them would make a failed turn look like a successful empty one
     if (line.is_error) {
@@ -646,8 +703,10 @@ export class ChatManager {
         }
         for (const ev of events) this.deliver(turn, ev)
         // stream-json input keeps the CLI reading for another message: the result is the
-        // turn's last word, so nothing more is coming from this side
-        if (turn.claudeAsks && parsed?.type === 'result') child.stdin?.end()
+        // turn's last word, so nothing more is coming from this side — unless it closed only
+        // a queued task notice's run, when the turn and its permission answers are still ahead
+        if (turn.claudeAsks && parsed?.type === 'result' && parsed.origin?.kind !== 'task-notification')
+          child.stdin?.end()
       }
     })
 

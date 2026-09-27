@@ -9,6 +9,7 @@ import {
   bindSessionControl,
   bindSessionEndpoint,
   bindSessionLineage,
+  branchPrefix,
   loadConfig,
   removeModelEndpoint,
   saveConfig,
@@ -17,6 +18,7 @@ import {
   sessionLineage,
   sessionLineageFor,
   setAttentionPrefs,
+  setBranchPrefix,
   setHistoryDays,
   setUpdatePrefs,
   setWindowPlacement,
@@ -135,6 +137,37 @@ describe('loadConfig / saveConfig', () => {
     expect(cfg.repoOrder).toBeUndefined()
     expect(cfg.archivedRoundtables).toBeUndefined()
     expect(() => new Set(cfg.archived ?? [])).not.toThrow()
+  })
+})
+
+describe('branch prefix', () => {
+  it('is cockpit/ until the person names their own, which is saved as they meant it', () => {
+    saveConfig({ sources: [] })
+    expect(branchPrefix()).toBe('cockpit/')
+    expect(setBranchPrefix('titan')).toBe('titan/')
+    expect(loadConfig().branchPrefix).toBe('titan/')
+    expect(branchPrefix()).toBe('titan/')
+  })
+
+  it('empty, or the default typed out, goes back to saying nothing', () => {
+    saveConfig({ sources: [], branchPrefix: 'titan/' })
+    expect(setBranchPrefix('')).toBe('cockpit/')
+    expect('branchPrefix' in JSON.parse(readFileSync(cfgPath(), 'utf8'))).toBe(false)
+    setBranchPrefix('titan/')
+    expect(setBranchPrefix('cockpit/')).toBe('cockpit/')
+    expect(loadConfig().branchPrefix).toBeUndefined()
+  })
+
+  it('refuses a name git would, and keeps the one it had', () => {
+    saveConfig({ sources: [], branchPrefix: 'titan/' })
+    expect(() => setBranchPrefix('--force')).toThrow(/Start with a letter/)
+    expect(() => setBranchPrefix('my team/')).toThrow(/letters, digits/)
+    expect(branchPrefix()).toBe('titan/')
+  })
+
+  it('a hand-edited prefix git would refuse is read as the default, not used', () => {
+    writeFileSync(cfgPath(), JSON.stringify({ sources: [], branchPrefix: 'a..b/' }))
+    expect(branchPrefix()).toBe('cockpit/')
   })
 })
 

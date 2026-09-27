@@ -23,6 +23,7 @@ import type {
   AppInfo,
   AttentionFocus,
   AttentionPrefs,
+  AttentionTone,
   AttentionTarget,
   BackupExportResult,
   BackupPreview,
@@ -67,6 +68,7 @@ import type {
   SessionPage,
   SessionProvider,
   SessionQuery,
+  SideChatRequest,
   ShareResult,
   SourceDir,
   SourceStats,
@@ -91,6 +93,13 @@ export type CockpitApi = {
   readonly respondPermission: (turnId: string, requestId: string, optionId: string) => Promise<void>
   /** Persist a pasted image in main's image dir; resolves to the absolute file path */
   readonly saveChatImage: (data: Uint8Array, mime: string) => Promise<string>
+
+  /* ---------- a side question: asked of a copy of the session, never the session ---------- */
+  /** Ask about a session without adding to it; resolves to the turn id its events carry */
+  readonly askSideChat: (req: SideChatRequest) => Promise<string>
+  readonly cancelSideChat: (turnId: string) => Promise<void>
+  /** A side question's stream — its own channel, so nothing of it reaches the chat's turn */
+  readonly onSideChatEvent: (cb: (ev: ChatEvent) => void) => () => void
 
   /* ---------- sources and the index the renderer reads through ---------- */
   readonly getSources: () => Promise<SourceDir[]>
@@ -144,6 +153,8 @@ export type CockpitApi = {
   readonly setAttentionPrefs: (prefs: AttentionPrefs) => Promise<AttentionPrefs>
   /** Post a sample notification (with the sound, when that is on) and report what macOS did */
   readonly testNotification: () => Promise<NotificationDelivery>
+  /** Play one of the notification sounds once, whatever the Sound switch says (the Settings preview) */
+  readonly playSound: (tone: AttentionTone) => Promise<void>
   /** Tell main what the window shows — it never notifies about that, and opening clears a landing */
   readonly setAttentionFocus: (focus: AttentionFocus) => Promise<void>
   /** Sessions that landed while nobody was looking, newest first */
@@ -199,6 +210,10 @@ export type CockpitApi = {
   /** The branch a PR from this repo would target; null when git can't say */
   readonly getDefaultBranch: (repoRoot: string) => Promise<string | null>
   readonly createWorkspace: (repoRoot: string, name?: string) => Promise<WorkspaceInfo>
+  /** What the branches of new worktrees start with — `cockpit/` unless the person set their own */
+  readonly getBranchPrefix: () => Promise<string>
+  /** Set it ('' restores the default); resolves to the prefix now in force, rejects with why git would refuse it */
+  readonly setBranchPrefix: (prefix: string) => Promise<string>
   readonly createPr: (cwd: string) => Promise<string>
   /** The worktree's changes for review before they ship; `cwd` must be a known session/worktree dir */
   readonly getWorkspaceDiff: (cwd: string, scope: DiffScope) => Promise<WorkspaceDiff>
@@ -406,6 +421,7 @@ export const CH = {
   attentionCleanup: 'attention:cleanup',
   attentionFocus: 'attention:focus',
   attentionLandings: 'attention:landings',
+  attentionPlay: 'attention:play',
   attentionPrefs: 'attention:prefs',
   attentionSetPrefs: 'attention:set-prefs',
   attentionTakeOpen: 'attention:take-open',
@@ -498,6 +514,9 @@ export const CH = {
 
   shellOpen: 'shell:open',
 
+  sideChatAsk: 'side-chat:ask',
+  sideChatCancel: 'side-chat:cancel',
+
   sourcesAdd: 'sources:add',
   sourcesGet: 'sources:get',
   sourcesPickDir: 'sources:pick-dir',
@@ -521,9 +540,11 @@ export const CH = {
 
   windowZoom: 'window:zoom',
 
+  workspaceBranchPrefix: 'workspace:branch-prefix',
   workspaceCreate: 'workspace:create',
   workspaceDiff: 'workspace:diff',
-  workspacePr: 'workspace:pr'
+  workspacePr: 'workspace:pr',
+  workspaceSetBranchPrefix: 'workspace:set-branch-prefix'
 } as const
 
 /** Main -> renderer events. Pair each with an `onX` member on `CockpitApi`. */
@@ -536,6 +557,7 @@ export const PUSH = {
   indexUpdated: 'index-updated',
   landings: 'landings',
   roundtableEvent: 'roundtable-event',
+  sideChatEvent: 'side-chat-event',
   updateState: 'update-state'
 } as const
 

@@ -13,13 +13,15 @@ import type {
   UsageWindow
 } from '../../shared/types'
 import { compareVersions, homebrewUpdateCommand, runsHomebrew } from '../../shared/agent-cli'
+import { DEFAULT_BRANCH_PREFIX, branchPrefixRefusal, normalizeBranchPrefix } from '../../shared/branch-prefix'
 import { shortPath } from '../../shared/library'
 import { isDrivable, SESSION_PROVIDERS } from '../../shared/providers'
 import { api } from './api'
+import { saveBranchPrefix, useBranchPrefix } from './branch-prefix'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { fmtAgo, fmtCount, fmtResetIn } from './format'
 import { ipcErrorText } from './ipc-error'
-import { OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { BranchIcon, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
 
@@ -516,7 +518,8 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
 
       <AgentClis onStatus={onStatus} />
 
-      {/* GitHub is an account too — it sits with the others, under the same tab */}
+      {/* GitHub is an account too — it sits with the others, under the same tab, and
+          so does what the branches you push there are called */}
       <h3 className="ns-label">GitHub</h3>
       <ul className="source-list">
         <li className="source-row">
@@ -541,8 +544,98 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
             </div>
           </div>
         </li>
+        <BranchPrefixRow onStatus={onStatus} />
       </ul>
     </>
+  )
+}
+
+/**
+ * What the branches Cockpit cuts for new sessions start with. Teams have rules for this
+ * (`titan/`, `users/titan/`), and an agent that follows its instructions will not commit
+ * on a branch the rule forbids — so the prefix is the person's to name. The rule shown
+ * while typing is the one main enforces (`src/shared/branch-prefix.ts`).
+ */
+function BranchPrefixRow({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
+  const current = useBranchPrefix()
+  /** What is typed, until it is saved or backed out of; null shows the saved prefix */
+  const [draft, setDraft] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const typed = normalizeBranchPrefix(draft ?? current)
+  const refusal = branchPrefixRefusal(typed)
+  const effective = typed || DEFAULT_BRANCH_PREFIX
+  const changed = draft !== null && refusal === null && effective !== current
+  const problem = refusal ?? error
+
+  const save = async (): Promise<void> => {
+    if (!changed || draft === null) return
+    setSaving(true)
+    try {
+      const saved = await saveBranchPrefix(draft)
+      setDraft(null)
+      setError(null)
+      onStatus(`Branch prefix set to ${saved}`)
+    } catch (err) {
+      setError(ipcErrorText(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <li className="source-row">
+      <span className="plogo" aria-hidden="true">
+        <BranchIcon size={13} />
+      </span>
+      <div className="source-body">
+        <div className="source-label">
+          Branch prefix
+          <span className="acct-chip">{current}</span>
+        </div>
+        <div className="source-note">
+          Each new session works on a branch of its own, like <code>{refusal ? current : effective}fix-login-flake</code>.
+          Leave it empty for <code>{DEFAULT_BRANCH_PREFIX}</code>.
+        </div>
+        <form
+          className="ns-branch-row"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void save()
+          }}
+        >
+          <input
+            aria-label="Branch prefix"
+            placeholder={DEFAULT_BRANCH_PREFIX}
+            spellCheck={false}
+            autoComplete="off"
+            value={draft ?? current}
+            aria-invalid={problem !== null}
+            aria-describedby={problem !== null ? 'branch-prefix-error' : undefined}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              setError(null)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && draft !== null) {
+                // backs out of the edit; a second Escape is the view's
+                e.stopPropagation()
+                setDraft(null)
+                setError(null)
+              }
+            }}
+          />
+          <button type="submit" className="btn-ghost small" disabled={!changed || saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+        {problem !== null && (
+          <div className="new-error" role="alert" id="branch-prefix-error">
+            {problem}
+          </div>
+        )}
+      </div>
+    </li>
   )
 }
 

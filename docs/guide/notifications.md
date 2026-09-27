@@ -44,13 +44,13 @@ A cleanup reminder says what cleaning up would free, and what is waiting:
 
 Click any of them to bring Cockpit forward on that session (a cleanup reminder opens Cleanup). When several things land within a second or two of each other, they arrive as **one** notification ("2 finished · 1 waiting on you") listing them, and clicking it opens the home board where they all are.
 
-**The sound** is a macOS system sound: *Glass* when a turn finishes or an agent asks you something, *Basso* when a turn fails (Claude stopping on an API error or usage limit included) or a pull request goes red. Several endings at once play one sound, the graver one. A cleanup reminder never plays a sound.
+**The sound** is Cockpit's own: two bright notes rising when a turn finishes, a light tap-tap and a lift when an agent asks you something or needs your permission, and two warm notes falling when a turn fails (Claude stopping on an API error or usage limit included) or a pull request goes red. Like the Mac's own alert sounds, they follow the **Alert volume** slider in System Settings › Sound, and they're about as loud as those sounds. Several endings at once play one sound, the most urgent: a question, then a failure, then a finish. A cleanup reminder never plays a sound.
 
 **The Dock badge** counts sessions that need you and you haven't opened yet — the same sessions the home board and the sidebar mark **landed**, **asks you** or with the red PR mark, plus roundtables that concluded. Cleanup reminders aren't counted, because no agent is waiting on them. A session with several reasons counts once and shows its most urgent one: a question, then a red PR, then an ended turn. Opening it takes it off the count, clears every reason, and takes its notification out of Notification Center. Archiving it does the same, whether in Cockpit or in the agent's own app — the Claude desktop app, Copilot or Codex — and so does archiving a roundtable.
 
 ## Settings
 
-**Settings › Notifications** has a switch for each of the three and a **Send a test notification** button, which posts a sample and reports what macOS did with it. These three cover every kind of news alike — there is no per-kind switch.
+**Settings › Notifications** has a switch for each of the three and a **Send a test notification** button, which posts a sample and reports what macOS did with it. Under it, **Hear each sound** plays the finished, asks-you and failed sounds one at a time, whether Sound is on or not. These three cover every kind of news alike — there is no per-kind switch.
 
 A fourth, **Cleanup reminders**, decides whether the daily cleanup check runs at all. With it off, Cockpit never scans in the background; with notifications off but reminders on, Cleanup still gets its dot in the sidebar.
 

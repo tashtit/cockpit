@@ -92,6 +92,27 @@ describe('Settings notifications', () => {
     expect(within(list).getByRole('button', { name: 'Send a test notification' })).toBeEnabled()
   })
 
+  it('each sound can be heard on its own, whatever the Sound switch says, and says what played', async () => {
+    vi.mocked(window.cockpit.getAttentionPrefs).mockResolvedValue({
+      notifications: true,
+      sound: false,
+      badge: true,
+      cleanup: true
+    })
+    render(<Settings onClose={vi.fn()} section="notifications" />)
+    const list = await switches()
+    const keys = within(list).getByRole('group', { name: 'Hear each sound' })
+    expect(within(keys).getAllByRole('button').map((b) => b.textContent)).toEqual(['Finished', 'Asks you', 'Failed'])
+
+    await userEvent.click(within(keys).getByRole('button', { name: 'Asks you' }))
+    expect(window.cockpit.playSound).toHaveBeenCalledWith('asks')
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Played the sound for an agent asking you'))
+
+    vi.mocked(window.cockpit.playSound).mockRejectedValueOnce(new Error('no speaker'))
+    await userEvent.click(within(keys).getByRole('button', { name: 'Failed' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Could not play the sound: no speaker'))
+  })
+
   it('a development run says the switches start off here', async () => {
     // the stub is a development run already; say so, since that is what's under test
     expect((await window.cockpit.getAppInfo()).packaged).toBe(false)

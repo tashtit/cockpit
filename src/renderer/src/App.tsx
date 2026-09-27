@@ -31,6 +31,7 @@ import { Settings, type SettingsSection } from './Settings'
 import { branchHint, taskTitle } from './task-names'
 import { initLanded } from './landed'
 import { canDrive, drivableNow, initAcpReadiness, useDrivableAgents } from './acp-readiness'
+import { initSideChat } from './side-chat-log'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -49,6 +50,7 @@ import {
 } from './chat-log'
 import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
+import { initBranchPrefix } from './branch-prefix'
 import { keepSame } from './same'
 import type { StartSessionRequest } from './NewSession'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
@@ -206,12 +208,15 @@ export function App(): JSX.Element {
       return b.readOnly === readOnly ? b : { ...b, readOnly }
     })
   }, [drivable])
+  // side questions' answers land while their panel is closed, or another view is up
+  useEffect(() => initSideChat(), [])
   // the transcript's markdown pipeline is its own chunk — warm it once the window
   // is up, so the first session opened renders formatted with no plain-text flash
   useEffect(() => preloadMarkdown(), [])
 
   useEffect(() => {
     void initTimeFormat()
+    void initBranchPrefix()
     // the open transcript follows its log: when the index says the session moved
     // past the read on screen, read it again (a session run elsewhere keeps writing)
     const refreshOpenLog = (): void => {

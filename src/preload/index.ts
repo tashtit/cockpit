@@ -6,6 +6,7 @@ import type {
   AcpReadiness,
   AttentionFocus,
   AttentionPrefs,
+  AttentionTone,
   AttentionTarget,
   BusySession,
   ChatEvent,
@@ -24,6 +25,7 @@ import type {
   SessionProvider,
   SessionHolder,
   SessionQuery,
+  SideChatRequest,
   TimeFormat,
   TranscriptSearchQuery,
   NewAcpAgent,
@@ -42,6 +44,13 @@ const api: CockpitApi = {
     const handler = (_e: unknown, ev: ChatEvent): void => cb(ev)
     ipcRenderer.on(PUSH.chatEvent, handler)
     return () => ipcRenderer.removeListener(PUSH.chatEvent, handler)
+  },
+  askSideChat: (req: SideChatRequest) => ipcRenderer.invoke(CH.sideChatAsk, req),
+  cancelSideChat: (turnId: string) => ipcRenderer.invoke(CH.sideChatCancel, turnId),
+  onSideChatEvent: (cb: (ev: ChatEvent) => void) => {
+    const handler = (_e: unknown, ev: ChatEvent): void => cb(ev)
+    ipcRenderer.on(PUSH.sideChatEvent, handler)
+    return () => ipcRenderer.removeListener(PUSH.sideChatEvent, handler)
   },
   getSources: () => ipcRenderer.invoke(CH.sourcesGet),
   getSourceStats: () => ipcRenderer.invoke(CH.sourcesStats),
@@ -74,6 +83,7 @@ const api: CockpitApi = {
   getAttentionPrefs: () => ipcRenderer.invoke(CH.attentionPrefs),
   setAttentionPrefs: (prefs: AttentionPrefs) => ipcRenderer.invoke(CH.attentionSetPrefs, prefs),
   testNotification: () => ipcRenderer.invoke(CH.attentionTest),
+  playSound: (tone: AttentionTone) => ipcRenderer.invoke(CH.attentionPlay, tone),
   setAttentionFocus: (focus: AttentionFocus) => ipcRenderer.invoke(CH.attentionFocus, focus),
   getLandings: () => ipcRenderer.invoke(CH.attentionLandings),
   onLandings: (cb: (landings: Landing[]) => void) => {
@@ -117,6 +127,8 @@ const api: CockpitApi = {
   getDefaultBranch: (repoRoot: string) => ipcRenderer.invoke(CH.githubDefaultBranch, repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>
     ipcRenderer.invoke(CH.workspaceCreate, repoRoot, name),
+  getBranchPrefix: () => ipcRenderer.invoke(CH.workspaceBranchPrefix),
+  setBranchPrefix: (prefix: string) => ipcRenderer.invoke(CH.workspaceSetBranchPrefix, prefix),
   createPr: (cwd: string) => ipcRenderer.invoke(CH.workspacePr, cwd),
   getWorkspaceDiff: (cwd: string, scope: DiffScope) => ipcRenderer.invoke(CH.workspaceDiff, cwd, scope),
   getPrFeedback: (repoRoot: string, prNumber: number) =>

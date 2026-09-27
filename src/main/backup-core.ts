@@ -15,6 +15,7 @@ import type { AppConfig } from './config'
 import { SESSION_CONTROL_CAP, SESSION_ENDPOINT_CAP, SESSION_LINEAGE_CAP, withEndpoint } from './config'
 import { sanitizeControlMap, type ControlEntry } from './session-control-core'
 import { clampStaleDays } from './cleanup-core'
+import { branchPrefixRefusal, normalizeBranchPrefix } from '../shared/branch-prefix'
 
 /*
  * The backup bundle and every rule about it that needs no disk: what a file may
@@ -74,6 +75,8 @@ export type Bundle = {
     readonly historyDays?: number
     readonly staleDays?: number
     readonly timeFormat?: TimeFormat
+    /** absent in files written before it existed, and when it was the default */
+    readonly branchPrefix?: string
     readonly hiddenRepos: readonly string[]
     /** the sidebar's dragged project order; absent in files written before it existed */
     readonly repoOrder?: readonly string[]
@@ -365,6 +368,7 @@ export function sanitizeBundle(input: unknown): Bundle {
       ...(settings['timeFormat'] === '12h' || settings['timeFormat'] === '24h'
         ? { timeFormat: settings['timeFormat'] as TimeFormat }
         : {}),
+      ...restorablePrefix(settings['branchPrefix']),
       hiddenRepos: strList(settings['hiddenRepos'], 2000),
       ...(Array.isArray(settings['repoOrder']) ? { repoOrder: strList(settings['repoOrder'], 2000) } : {}),
       sources: (Array.isArray(settings['sources']) ? settings['sources'] : [])
@@ -542,6 +546,13 @@ export function mergeSources(
   return { sources, skipped }
 }
 
+/** A branch prefix from the file, only when it is one this build would set itself. */
+function restorablePrefix(raw: unknown): { branchPrefix?: string } {
+  if (typeof raw !== 'string') return {}
+  const prefix = normalizeBranchPrefix(raw.slice(0, 200))
+  return prefix !== '' && branchPrefixRefusal(prefix) === null ? { branchPrefix: prefix } : {}
+}
+
 /**
  * What restoring this bundle would do, as a merge that never deletes: anything
  * already here stays as it is, because local state is what the agents actually
@@ -573,7 +584,8 @@ export function planRestore(local: AppConfig, bundle: Bundle, ctx: RestoreContex
       : {}),
     ...(bundle.settings.historyDays !== undefined ? { historyDays: bundle.settings.historyDays } : {}),
     ...(bundle.settings.staleDays !== undefined ? { staleDays: bundle.settings.staleDays } : {}),
-    ...(bundle.settings.timeFormat !== undefined ? { timeFormat: bundle.settings.timeFormat } : {})
+    ...(bundle.settings.timeFormat !== undefined ? { timeFormat: bundle.settings.timeFormat } : {}),
+    ...(bundle.settings.branchPrefix !== undefined ? { branchPrefix: bundle.settings.branchPrefix } : {})
   }
 
   /* scopes: instructions, library entries, skills */

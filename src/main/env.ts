@@ -44,8 +44,16 @@ export function cliPath(inherited: string | undefined, login: string | null = lo
 /** What brackets the PATH in the login shell's output, apart from whatever its startup files print. */
 const LOGIN_PATH_MARK = '__COCKPIT_LOGIN_PATH__'
 
-/** nvm alone takes seconds to load; a startup file that waits on input never finishes. */
-const LOGIN_SHELL_TIMEOUT_MS = 10_000
+/**
+ * How long the login shell gets. nvm alone takes seconds, and on a loaded machine far
+ * longer — a cap of ten seconds was blown at a load average of 260, and that launch ran
+ * every agent on the bare PATH until the next restart. What waits on it is capped apart
+ * (`LOGIN_PATH_WAIT_MS`), so a slow shell only makes the PATH land later.
+ */
+const LOGIN_SHELL_TIMEOUT_MS = 60_000
+
+/** How long a launch-time probe waits for the login shell before going ahead without it. */
+export const LOGIN_PATH_WAIT_MS = 10_000
 
 /** The PATH between the last two marks of a login shell's output, or null when there is none. */
 export function loginPathFrom(stdout: string): string | null {
@@ -69,9 +77,19 @@ export function loadLoginShellPath(): Promise<void> {
   return loginPathLoad
 }
 
-/** Settles once the login shell's PATH is read or given up on — at once when nothing asked for it. */
-export function loginPathReady(): Promise<void> {
-  return loginPathLoad ?? Promise.resolve()
+/**
+ * Settles once the login shell's PATH is read or given up on, or after `waitMs` —
+ * whichever is first; at once when nothing asked for it. A probe past the wait runs on
+ * what PATH there is, and the read carries on for the spawns after it.
+ */
+export function loginPathReady(waitMs: number = LOGIN_PATH_WAIT_MS): Promise<void> {
+  if (!loginPathLoad) return Promise.resolve()
+  return Promise.race([
+    loginPathLoad,
+    new Promise<void>((done) => {
+      setTimeout(done, waitMs).unref()
+    })
+  ])
 }
 
 async function readLoginShellPath(): Promise<string | null> {

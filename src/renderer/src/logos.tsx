@@ -1,6 +1,8 @@
 import type { JSX } from 'react'
 import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, SessionProvider, TodoStatus } from '../../shared/types'
 import { AGENT_LABEL } from '../../shared/providers'
+import { DEFAULT_BRANCH_PREFIX } from '../../shared/branch-prefix'
+import { useBranchPrefix } from './branch-prefix'
 
 export const PROVIDER_LABEL = AGENT_LABEL
 
@@ -306,21 +308,28 @@ export function Spinner({ label }: { label?: string }): JSX.Element {
   )
 }
 
+/** A branch prefix as the pill shows it: `cockpit/` → `c/`, `users/titan/` → `u/`; a short one stays whole. */
+function shortPrefix(prefix: string): string {
+  return prefix.length > 3 ? `${prefix[0]}${prefix.slice(-1)}` : prefix
+}
+
 /**
- * Branch pill. Cockpit worktree branches all share the `cockpit/` prefix, so it
- * carries no information — abbreviate it to a dimmed `c/` and spend the chip's
- * width on the part that distinguishes branches. Full name stays in the tooltip.
+ * Branch pill. Cockpit worktree branches all share one prefix — the person's own
+ * (Settings › Accounts), or `cockpit/`, which branches cut before they set one still
+ * carry — so it carries no information: abbreviate it to a dimmed `c/` and spend the
+ * chip's width on the part that distinguishes branches. Full name stays in the tooltip.
  */
 export function BranchChip({ branch }: { branch: string }): JSX.Element {
-  const suffix = branch.startsWith('cockpit/') ? branch.slice('cockpit/'.length) : null
+  const own = useBranchPrefix()
+  const prefix = [own, DEFAULT_BRANCH_PREFIX].find((p) => branch.length > p.length && branch.startsWith(p))
   return (
     <span className="branch-chip" title={`⎇ ${branch}`}>
       <BranchIcon size={10} />
       <span className="chip-text">
-        {suffix !== null ? (
+        {prefix !== undefined ? (
           <>
-            <span className="chip-pre">c/</span>
-            {suffix}
+            <span className="chip-pre">{shortPrefix(prefix)}</span>
+            {branch.slice(prefix.length)}
           </>
         ) : (
           branch
@@ -377,6 +386,23 @@ export const WorkIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
     aria-hidden="true"
   >
     <path d="M1.75 3.5 3 4.75 5.25 2.5M1.75 10.5 3 11.75l2.25-2.25M7.75 3.75h6.5M7.75 8h6.5M7.75 12.25h6.5" />
+  </svg>
+)
+
+/** A speech bubble with a line aside: the chat header's Side chat key — a question asked off to the side. */
+export const SideChatIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M2.75 2.25h6.5a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1H6.5l-2.5 2v-2H2.75a1 1 0 0 1-1-1v-4.5a1 1 0 0 1 1-1ZM13.25 2.25v11.5" />
   </svg>
 )
 

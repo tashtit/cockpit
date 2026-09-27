@@ -8,13 +8,17 @@ Hit **New task** (⌘N) or use the composer on the Home view: pick a repository,
 
 Cockpit then:
 
-1. creates a `cockpit/<name>` branch — named from the first words of your task (`cockpit/add-changelog-entry-retry-fix`) unless you set one in the full New session form,
+1. creates a `cockpit/<name>` branch — named from the first words of your task (`cockpit/add-changelog-entry-retry-fix`) unless you set one in the full New session form. The `cockpit/` part is the [branch prefix](#branch-prefix), which you can change,
 2. checks it out in an **isolated git worktree** under the app's own data directory — outside your checkout,
 3. runs the agent there.
 
 Your working copy stays untouched no matter what the agent does. Uncommitted work in your checkout can't be clobbered, and parallel tasks on the same repo can't collide with each other.
 
-If the repository has a `post-checkout` hook that fails (husky is the usual one, when it can't find `node`), the task still starts: git has finished the checkout before the hook runs. The chat opens with what the hook printed, since whatever it sets up is missing from that worktree. Any other failure removes the half-made worktree and its branch, so trying again doesn't leave extra `cockpit/*` branches behind.
+### Branch prefix
+
+If your team names branches its own way — `titan/…`, `users/titan/…` — set the prefix in **Settings › Accounts**, under GitHub. Type `titan` and branches become `titan/add-changelog-entry-retry-fix`; leave it empty to go back to `cockpit/`. It applies to every branch Cockpit cuts from then on: new sessions, roundtables with a project, and shared-instructions pull requests. Branches already made keep their names. An agent told to work only on branches with your prefix can then commit and push without renaming the branch first.
+
+If the repository has a `post-checkout` hook that fails (husky is the usual one, when it can't find `node`), the task still starts: git has finished the checkout before the hook runs. The chat opens with what the hook printed, since whatever it sets up is missing from that worktree. Any other failure removes the half-made worktree and its branch, so trying again doesn't leave extra branches behind.
 
 ## Reviewing before you ship
 
@@ -50,10 +54,12 @@ Every chat runs under one of three permission modes, mapped to each provider's o
 | Mode | What it means | Under the hood |
 | --- | --- | --- |
 | **Safe** | Provider defaults: anything that needs approval asks you first. Codex, which can't ask when it runs headless, refuses it instead. | no extra flags |
-| **Auto-edit** | File edits proceed without asking; anything that runs a command asks you first. Codex runs commands inside its workspace sandbox instead. | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
+| **Auto-edit** | File edits proceed without asking; anything that runs a command asks you first. Codex runs commands inside its workspace sandbox instead, and hands what the sandbox refuses to its own reviewer (below). | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` + `approvals_reviewer="auto_review"` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
 | **YOLO** | All approvals bypassed. | provider bypass flags |
 
 When Claude or an [ACP agent](./acp-agents.md#answering-a-permission-request) wants to do something its mode doesn't already allow — `npm test`, `git commit`, a file outside the worktree — the turn stops and the request appears just above the composer, with the command itself. **Allow** lets that one call run; **Deny** tells the agent you said no, and it carries on without it. If you're not looking at that session, the request is also a [notification](./notifications.md). A roundtable seat never asks: seats only read.
+
+Codex can't put a question to you while Cockpit runs it, so in **Auto-edit** its sandbox has the final say on most things: file edits and ordinary commands in the worktree just run. What the sandbox refuses — every git write (Codex keeps `.git` read-only, and a worktree's git data lives in your main checkout), and anything that needs the network, like `npm ci`, `git push` or `gh pr create` — is re-run outside the sandbox only once Codex's own approvals reviewer agrees, the same reviewer `codex exec --approve-for-me` uses. That is what lets a Codex session commit and open its pull request; a reviewer that says no ends that step, not the session.
 
 Agents run with your own `PATH`, as your terminal has it: Cockpit reads it from your login shell when it starts, so `node`, `npm` and whatever else your shell sets up (nvm, Homebrew, asdf) are there for the agent's commands too.
 

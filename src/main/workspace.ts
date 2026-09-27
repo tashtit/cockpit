@@ -5,6 +5,7 @@ import { parseWorktreeList, type WorktreeEntry } from './cleanup-core'
 import { execText, type ExecResult } from './env'
 import { getDefaultBranch } from './github'
 import { userDataDir } from './config'
+import { DEFAULT_BRANCH_PREFIX } from '../shared/branch-prefix'
 
 const TIMEOUT_MS = 120_000
 /** A hook that fails mid-install can print pages; the reason is at the end. */
@@ -133,7 +134,11 @@ function slugify(name: string): string {
     .slice(0, 40)
 }
 
-type WorkspaceOptions = { readonly base?: string }
+type WorkspaceOptions = {
+  readonly base?: string
+  /** What the new branch starts with — the person's setting (config `branchPrefix`); `cockpit/` when unsaid */
+  readonly prefix?: string
+}
 
 // One at a time: what a failed add left behind is told apart from what was
 // already there by looking before and after, which holds only while nothing
@@ -141,8 +146,9 @@ type WorkspaceOptions = { readonly base?: string }
 let creating: Promise<unknown> = Promise.resolve()
 
 /**
- * Every new session gets its own linked worktree + branch (cockpit/<slug>), kept
- * outside the repo (under userData) so checkouts stay clean and nothing needs ignoring.
+ * Every new session gets its own linked worktree + branch (`<prefix><slug>`, `cockpit/`
+ * unless the person set their own), kept outside the repo (under userData) so checkouts
+ * stay clean and nothing needs ignoring.
  */
 export function createWorkspace(
   repoRoot: string,
@@ -163,12 +169,13 @@ async function create(
   const parent = join(userDataDir(), 'worktrees', slugify(basename(repoRoot)) || 'repo')
   mkdirSync(parent, { recursive: true })
   const baseCommit = await commitOf(repoRoot, opts.base ?? 'HEAD')
+  const prefix = opts.prefix ?? DEFAULT_BRANCH_PREFIX
   for (const slug of [baseSlug, `${baseSlug}-${Date.now().toString(36).slice(-4)}`]) {
-    const target = { dest: join(parent, slug), branch: `cockpit/${slug}` }
+    const target = { dest: join(parent, slug), branch: `${prefix}${slug}` }
     if (await nameTaken(repoRoot, target)) continue
     return addWorktree(repoRoot, { ...target, base: opts.base, baseCommit })
   }
-  throw new Error(`cockpit/${baseSlug} is taken in ${repoRoot}, and so is its fallback name.`)
+  throw new Error(`${prefix}${baseSlug} is taken in ${repoRoot}, and so is its fallback name.`)
 }
 
 /**

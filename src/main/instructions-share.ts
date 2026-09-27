@@ -7,6 +7,7 @@ import { allCarryBaseline, foldTargets, instructionTargets, upsertSharedBlock } 
 import { resolveWithin } from './link-guard'
 import { resolveRepo } from './repos'
 import { createPr, createWorkspace, removeWorkspace } from './workspace'
+import { DEFAULT_BRANCH_PREFIX } from '../shared/branch-prefix'
 
 /*
  * Sharing a repo's instructions with the people who work on it.
@@ -20,7 +21,8 @@ import { createPr, createWorkspace, removeWorkspace } from './workspace'
  * user's checkout: "always worktrees, always PRs".
  */
 
-const BRANCH_PREFIX = 'share-instructions'
+/** What a share branch is called after the person's branch prefix: `cockpit/share-instructions-<date>` */
+const SHARE_SLUG = 'share-instructions'
 const SHARE_COMMIT = 'docs: update shared agent instructions'
 
 async function git(args: readonly string[], cwd: string): Promise<string> {
@@ -52,8 +54,11 @@ async function fileAtBase(repoRoot: string, base: string, path: string): Promise
   return r.ok ? r.stdout : null
 }
 
-/** An open instructions PR to update, rather than a second one alongside it. */
-async function openShareBranch(repoRoot: string): Promise<{ branch: string; url: string } | null> {
+/**
+ * An open instructions PR to update, rather than a second one alongside it — under the
+ * branch prefix set now, or the default one it may have been opened under before that.
+ */
+async function openShareBranch(repoRoot: string, prefix: string): Promise<{ branch: string; url: string } | null> {
   const r = await execText(
     'gh',
     ['pr', 'list', '--state', 'open', '--json', 'headRefName,url', '--limit', '50'],
@@ -62,7 +67,8 @@ async function openShareBranch(repoRoot: string): Promise<{ branch: string; url:
   if (!r.ok) return null
   try {
     const prs = JSON.parse(r.stdout) as Array<{ headRefName?: string; url?: string }>
-    const found = prs.find((p) => p.headRefName?.startsWith(`cockpit/${BRANCH_PREFIX}`))
+    const heads = [`${prefix}${SHARE_SLUG}`, `${DEFAULT_BRANCH_PREFIX}${SHARE_SLUG}`]
+    const found = prs.find((p) => heads.some((h) => p.headRefName?.startsWith(h)))
     return found?.headRefName && found.url ? { branch: found.headRefName, url: found.url } : null
   } catch {
     return null
@@ -108,9 +114,12 @@ export async function commitShare(cwd: string, baseline: string): Promise<boolea
 
 /**
  * Open (or update) a pull request that puts this repo's shared instructions into
- * the repo itself.
+ * the repo itself, on a branch under the person's branch prefix.
  */
-export async function shareInstructions(repoRoot: string): Promise<ShareResult> {
+export async function shareInstructions(
+  repoRoot: string,
+  prefix: string = DEFAULT_BRANCH_PREFIX
+): Promise<ShareResult> {
   const baseline = getInstructions(repoRoot).baseline
   if (baseline.trim() === '') throw new Error('shared instructions are empty — nothing to share')
   if (!resolveRepo(repoRoot)?.repo.fullName) {
@@ -118,7 +127,7 @@ export async function shareInstructions(repoRoot: string): Promise<ShareResult> 
   }
 
   await git(['fetch', 'origin'], repoRoot)
-  const existing = await openShareBranch(repoRoot)
+  const existing = await openShareBranch(repoRoot, prefix)
   const base = existing ? `origin/${existing.branch}` : await defaultBranch(repoRoot)
 
   // decide "nothing to share" before creating a branch or a worktree, so an
@@ -136,8 +145,9 @@ export async function shareInstructions(repoRoot: string): Promise<ShareResult> 
     return existing ? { status: 'unchanged', url: existing.url } : { status: 'unchanged' }
   }
 
-  const ws = await createWorkspace(repoRoot, `${BRANCH_PREFIX}-${new Date().toISOString().slice(0, 10)}`, {
-    base
+  const ws = await createWorkspace(repoRoot, `${SHARE_SLUG}-${new Date().toISOString().slice(0, 10)}`, {
+    base,
+    prefix
   })
   try {
     if (!(await commitShare(ws.cwd, baseline))) {

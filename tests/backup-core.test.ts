@@ -485,6 +485,15 @@ describe('planRestore', () => {
       .sessionControl).toEqual({ 'claude:s1': { how: 'released', at: 5 } })
   })
 
+  it('carries the branch prefix, and drops one this build would refuse to set', () => {
+    const theirs = (branchPrefix: string): Bundle =>
+      sanitizeBundle({ ...bundle(), settings: { hiddenRepos: [], sources: [], branchPrefix } })
+    expect(theirs('titan').settings.branchPrefix).toBe('titan/')
+    expect(planRestore(local, theirs('titan/'), ctx()).config.branchPrefix).toBe('titan/')
+    expect(theirs('--force/').settings.branchPrefix).toBeUndefined()
+    expect(planRestore({ ...local, branchPrefix: 'mine/' }, theirs('a..b/'), ctx()).config.branchPrefix).toBe('mine/')
+  })
+
   it('adopts the backup’s project order only when there is none locally', () => {
     const theirs = bundle({ settings: { hiddenRepos: [], repoOrder: ['gh:o/b', 'gh:o/a'], sources: [] } })
     expect(planRestore(local, theirs, ctx()).config.repoOrder).toEqual(['gh:o/b', 'gh:o/a'])

@@ -11,6 +11,9 @@ import {
   parseCodexStreamLine,
   promptWithImages,
   withTurnFlags,
+  CLAUDE_SIDE_TOOLS,
+  CODEX_REVIEWED_ARGS,
+  CODEX_SIDE_ARGS,
   type CliRequest
 } from '../src/main/chat'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
@@ -135,6 +138,26 @@ describe('buildCommand', () => {
     expect(args).not.toContain('--full-auto')
     expect(args[args.indexOf('--sandbox') + 1]).toBe('workspace-write')
   })
+  it('codex auto-edit hands what its sandbox refuses to Codex’s reviewer, on exec and exec resume', () => {
+    const codex = (over: Partial<CliRequest> = {}): string[] =>
+      buildCommand({ provider: 'codex', cwd: '/x', prompt: 'commit it', permissionMode: 'auto-edit', ...over }).args
+    const reviewed = (args: string[]): boolean =>
+      args.join(' ').includes(CODEX_REVIEWED_ARGS.join(' '))
+    // git writes and the network escalate out of the workspace sandbox; headless, the
+    // reviewer is the one who can say yes
+    expect(reviewed(codex())).toBe(true)
+    expect(reviewed(codex({ resumeNativeId: 'sid' }))).toBe(true)
+    expect(CODEX_REVIEWED_ARGS).toEqual(['-c', 'approval_policy="on-request"', '-c', 'approvals_reviewer="auto_review"'])
+    // the prompt still comes last
+    expect(codex().slice(-2)).toEqual(['--', 'commit it'])
+    // nothing is reviewed out of a sandbox the person chose to keep read-only, out of a
+    // safe turn, a roundtable seat, or a side question's copy — and yolo asks nobody
+    expect(reviewed(codex({ options: { codexSandbox: 'read-only' } }))).toBe(false)
+    expect(reviewed(codex({ permissionMode: 'safe' }))).toBe(false)
+    expect(reviewed(codex({ permissionMode: 'safe', options: { codexSandbox: 'read-only' }, research: true }))).toBe(false)
+    expect(reviewed(codex({ resumeNativeId: 'sid', sideFork: true }))).toBe(false)
+    expect(reviewed(codex({ permissionMode: 'yolo' }))).toBe(false)
+  })
   it('codex skip-git-repo-check rides both exec forms, only when asked', () => {
     for (const resumeNativeId of [undefined, 'sid']) {
       const { args } = buildCommand({
@@ -206,6 +229,60 @@ describe('buildCommand', () => {
     })
     expect(args).not.toContain('--image')
     expect(args[args.length - 1]).toContain('/data/chat-images/a.png')
+  })
+})
+
+describe('side chat: a copy of the session, never the session', () => {
+  const side = (over: Partial<CliRequest>): string[] =>
+    buildCommand({
+      provider: 'claude',
+      cwd: '/x',
+      prompt: 'why?',
+      resumeNativeId: 'sid',
+      permissionMode: 'safe',
+      sideFork: true,
+      ...over
+    }).args
+
+  it('claude forks the session and saves nothing: read-only tools, no MCP servers', () => {
+    const args = side({})
+    expect(args[args.indexOf('--resume') + 1]).toBe('sid')
+    expect(args).toContain('--fork-session')
+    expect(args).toContain('--no-session-persistence')
+    // --tools is the set itself, not a pre-approval the person's own rules could widen
+    expect(args[args.indexOf('--tools') + 1]).toBe(CLAUDE_SIDE_TOOLS.join(','))
+    expect(CLAUDE_SIDE_TOOLS).toEqual(['Read', 'Grep', 'Glob'])
+    expect(args).toContain('--strict-mcp-config')
+    expect(args.join(' ')).not.toMatch(/permission-mode|dangerously|allowedTools/)
+    expect(args.slice(-2)).toEqual(['--', 'why?'])
+    // a plain resume is the session itself, and is kept
+    const plain = side({ sideFork: undefined })
+    expect(plain).not.toContain('--fork-session')
+    expect(plain).not.toContain('--no-session-persistence')
+    expect(plain).not.toContain('--tools')
+  })
+
+  it('codex forks ephemerally — never `exec resume`, which appends the turn to the rollout', () => {
+    const args = side({ provider: 'codex', options: { model: 'gpt-5', effort: 'low' } })
+    expect(args.slice(0, 5)).toEqual(['exec', 'fork', 'sid', '--json', '--ephemeral'])
+    expect(args).not.toContain('resume')
+    // read-only, nothing escalating out of it, and never kept from a folder for not being a repo
+    expect(args.slice(-2 - CODEX_SIDE_ARGS.length, -2)).toEqual([...CODEX_SIDE_ARGS])
+    expect(CODEX_SIDE_ARGS).toContain('sandbox_mode="read-only"')
+    expect(CODEX_SIDE_ARGS).toContain('approval_policy="never"')
+    expect(args).toContain('--skip-git-repo-check')
+    expect(args).not.toContain('--sandbox')
+    expect(args[args.indexOf('--model') + 1]).toBe('gpt-5')
+    expect(args).toContain('model_reasoning_effort="low"')
+    expect(args.slice(-2)).toEqual(['--', 'why?'])
+  })
+
+  it('without a session to copy there is nothing to fork', () => {
+    const claude = side({ resumeNativeId: undefined })
+    expect(claude).not.toContain('--fork-session')
+    const codex = side({ provider: 'codex', resumeNativeId: undefined })
+    expect(codex).not.toContain('fork')
+    expect(codex).not.toContain('--ephemeral')
   })
 })
 
@@ -296,6 +373,14 @@ describe('parseClaudeStreamLine', () => {
     })
     expect(ev.map((e) => e.type)).toEqual(['error', 'done'])
     expect(ev[0]).toMatchObject({ message: expect.stringContaining('API key invalid') })
+  })
+  it('a queued task notice drained before the prompt is not the turn ending', () => {
+    // a resumed session with a background task's notice pending: claude runs it first, as a
+    // zero-turn run that ends in a result of its own, then reads the prompt
+    const notice = { type: 'result', subtype: 'success', is_error: false, num_turns: 0, result: '', session_id: 's', origin: { kind: 'task-notification' } }
+    expect(parseClaudeStreamLine('t', notice).map((e) => e.type)).toEqual(['session'])
+    const own = { type: 'result', subtype: 'success', is_error: false, num_turns: 1, result: 'ok', session_id: 's' }
+    expect(parseClaudeStreamLine('t', own).map((e) => e.type)).toEqual(['session', 'done'])
   })
   it('an error result without text falls back to the subtype', () => {
     const ev = parseClaudeStreamLine('t', { type: 'result', subtype: 'error_max_turns', is_error: true })

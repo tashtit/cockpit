@@ -21,6 +21,7 @@
     "build": "electron-vite build",
     "package": "npm run build && electron-builder --config electron-builder.config.js --mac --publish never && node scripts/verify-signing.mts",
     "icon": "swift scripts/build-app-icon.swift",
+    "sounds": "node scripts/build-sounds.mts",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
