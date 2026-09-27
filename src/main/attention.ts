@@ -120,7 +120,7 @@ export class AttentionDesk {
     return this.tracker.cleanupNotice()
   }
 
-  /* stream-side calls are hot (every text chunk) — only an ending can change what shows */
+  /* stream-side calls are hot (every text chunk) — only an ending or a permission can change what shows */
 
   turnStarted(start: TurnStart): void {
     this.tracker.turnStarted(start)
@@ -131,8 +131,7 @@ export class AttentionDesk {
   }
 
   chatEvent(ev: ChatEvent): void {
-    this.tracker.chatEvent(ev)
-    if (ev.type === 'done') this.sync()
+    if (this.tracker.chatEvent(ev)) this.sync()
   }
 
   tableEnded(end: TableEnd): void {

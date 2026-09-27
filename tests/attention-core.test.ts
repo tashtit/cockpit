@@ -188,6 +188,77 @@ describe('AttentionTracker — what lands', () => {
   })
 })
 
+describe('AttentionTracker — a spawned turn waiting on a permission', () => {
+  /** A claude turn Cockpit runs in `abc`, stopped on a command it wants to run. */
+  function asking(h: ReturnType<typeof harness>): boolean {
+    h.t.turnStarted({ turnId: 't1', provider: 'claude', cwd: CHECKOUT, prompt: 'run the tests', resumeNativeId: 'abc' })
+    h.t.chatEvent({ turnId: 't1', type: 'tool', toolName: 'Bash', detail: 'npm test' })
+    return h.t.chatEvent({
+      turnId: 't1',
+      type: 'permission',
+      requestId: 'r1',
+      toolName: 'shell',
+      detail: 'npm test',
+      preview: 'Run the test suite',
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }]
+    })
+  }
+
+  it('is news the way a question in a log is: it names what it wants, and the banner opens the session', () => {
+    const h = harness()
+    h.titles.set('claude:abc', 'Run the tests')
+    expect(asking(h)).toBe(true)
+    expect(h.t.landings()).toEqual([
+      { id: 'claude:abc', at: h.clock.now, kind: 'asks', asks: { kind: 'permission', detail: 'Run the test suite' } }
+    ])
+    expect(h.flush().notice).toMatchObject({
+      id: 'cockpit:asks:claude:abc',
+      title: 'Claude needs permission',
+      subtitle: 'Run the tests',
+      body: 'Run the test suite',
+      target: { kind: 'session', id: 'claude:abc' }
+    })
+  })
+
+  it('whatever the turn does next means it was answered — the question goes, and the ending lands as usual', () => {
+    const h = harness()
+    asking(h)
+    h.flush()
+    // the desk syncs on this one chunk: it is what takes the question off the board
+    expect(h.t.chatEvent({ turnId: 't1', type: 'text', text: 'All green.' })).toBe(true)
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+    expect(h.t.takeWithdrawn()).toEqual(['cockpit:asks:claude:abc'])
+    // and every chunk after it changes nothing
+    expect(h.t.chatEvent({ turnId: 't1', type: 'text', text: ' Done.' })).toBe(false)
+    h.t.chatEvent({ turnId: 't1', type: 'done' })
+    expect(h.t.landings()).toEqual([{ id: 'claude:abc', at: h.clock.now, kind: 'landed' }])
+  })
+
+  it('stopped while it asks, it leaves nothing behind', () => {
+    const h = harness()
+    asking(h)
+    h.t.turnCancelled('t1')
+    h.t.chatEvent({ turnId: 't1', type: 'error', message: 'claude exited with code 143' })
+    h.t.chatEvent({ turnId: 't1', type: 'done' })
+    expect(h.t.landings()).toEqual([])
+    expect(h.t.badgeCount(ALL_ON)).toBe(0)
+  })
+
+  it('is not news in the session on screen, nor from a turn that has not named its session', () => {
+    const watched = harness()
+    watched.t.setWindowFocused(true)
+    watched.t.setFocus({ kind: 'session', id: 'claude:abc', provider: 'claude', cwd: CHECKOUT })
+    expect(asking(watched)).toBe(false)
+    expect(watched.t.landings()).toEqual([])
+
+    const unnamed = harness()
+    unnamed.t.turnStarted({ turnId: 't2', provider: 'copilot', cwd: CHECKOUT, prompt: 'hi' })
+    const ask = { turnId: 't2', type: 'permission', requestId: '1', toolName: 'shell', detail: 'ls', options: [] } as const
+    expect(unnamed.t.chatEvent(ask)).toBe(false)
+    expect(unnamed.t.landings()).toEqual([])
+  })
+})
+
 describe('AttentionTracker — opening and bursts', () => {
   it('opening a session before the burst flushes drops its notification — the user got there first', () => {
     const h = harness()

@@ -14,7 +14,7 @@ Cockpit then:
 
 Your working copy stays untouched no matter what the agent does. Uncommitted work in your checkout can't be clobbered, and parallel tasks on the same repo can't collide with each other.
 
-If the repository has a `post-checkout` hook that fails (husky is the usual one, when `node` is only on your shell's PATH and not the app's), the task still starts: git has finished the checkout before the hook runs. The chat opens with what the hook printed, since whatever it sets up is missing from that worktree. Any other failure removes the half-made worktree and its branch, so trying again doesn't leave extra `cockpit/*` branches behind.
+If the repository has a `post-checkout` hook that fails (husky is the usual one, when it can't find `node`), the task still starts: git has finished the checkout before the hook runs. The chat opens with what the hook printed, since whatever it sets up is missing from that worktree. Any other failure removes the half-made worktree and its branch, so trying again doesn't leave extra `cockpit/*` branches behind.
 
 ## Reviewing before you ship
 
@@ -49,9 +49,13 @@ Every chat runs under one of three permission modes, mapped to each provider's o
 
 | Mode | What it means | Under the hood |
 | --- | --- | --- |
-| **Safe** | Provider defaults. Some tools may be blocked entirely in headless mode. | no extra flags |
-| **Auto-edit** | File edits proceed without asking; everything else still gated. | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
+| **Safe** | Provider defaults: anything that needs approval asks you first. Codex, which can't ask when it runs headless, refuses it instead. | no extra flags |
+| **Auto-edit** | File edits proceed without asking; anything that runs a command asks you first. Codex runs commands inside its workspace sandbox instead. | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
 | **YOLO** | All approvals bypassed. | provider bypass flags |
+
+When Claude or an [ACP agent](./acp-agents.md#answering-a-permission-request) wants to do something its mode doesn't already allow — `npm test`, `git commit`, a file outside the worktree — the turn stops and the request appears just above the composer, with the command itself. **Allow** lets that one call run; **Deny** tells the agent you said no, and it carries on without it. If you're not looking at that session, the request is also a [notification](./notifications.md). A roundtable seat never asks: seats only read.
+
+Agents run with your own `PATH`, as your terminal has it: Cockpit reads it from your login shell when it starts, so `node`, `npm` and whatever else your shell sets up (nvm, Homebrew, asdf) are there for the agent's commands too.
 
 ::: warning YOLO means it
 YOLO disables the agent's approval gates entirely. Use it only on repositories you trust — the worktree isolation protects your checkout, not the wider machine.

@@ -10,7 +10,7 @@ import type { AcpPermissionOption, AgentOptions, Provider, TranscriptHit } from 
  * only on the shared vocabulary.
  */
 /**
- * A permission request a live ACP turn is blocked on, and the answers it will take.
+ * A permission request a live ACP or Claude turn is blocked on, and the answers it will take.
  *
  * Not to be confused with `AskPrompt` / `AskPicker`: that is a question *read out of a
  * transcript*, answered by composing the next message, and it works for sessions Cockpit

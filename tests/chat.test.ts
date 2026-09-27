@@ -27,6 +27,24 @@ describe('buildCommand', () => {
     expect(args).toContain('stream-json')
     expect(args[args.length - 1]).toBe('hi')
   })
+  it('claude with someone to ask: the CLI puts its permission prompts to Cockpit, and the prompt goes on stdin', () => {
+    const req: ChatRequest = { provider: 'claude', cwd: '/x', prompt: '- fix this', permissionMode: 'auto-edit', resumeNativeId: 'abc' }
+    const { args, stdin } = buildCommand(req, { askHost: true })
+    expect(args.join(' ')).toContain('--input-format stream-json --permission-prompt-tool stdio')
+    expect(args).toContain('acceptEdits')
+    expect(args[args.indexOf('--resume') + 1]).toBe('abc')
+    // nothing of the prompt on the command line, so no `--` to keep it from being read as a flag
+    expect(args).not.toContain('--')
+    expect(args.join(' ')).not.toContain('fix this')
+    expect(JSON.parse(stdin ?? '')).toMatchObject({ type: 'user', message: { role: 'user', content: '- fix this' } })
+    // without it — a roundtable seat — the CLI refuses on its own, as it always has
+    const seat = buildCommand(req)
+    expect(seat.stdin).toBeUndefined()
+    expect(seat.args).not.toContain('--permission-prompt-tool')
+    expect(seat.args.slice(-2)).toEqual(['--', '- fix this'])
+    // the option is Claude's alone
+    expect(buildCommand({ ...req, provider: 'codex' }, { askHost: true }).stdin).toBeUndefined()
+  })
   it('claude resume', () => {
     const { args } = buildCommand({
       provider: 'claude',
@@ -568,6 +586,82 @@ describe('ChatManager: reading a CLI stream', () => {
       expect(banner.text).toContain('more chars')
       expect(events[2]).toMatchObject({ type: 'text', text: 'still here' })
       await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
+    } finally {
+      process.env.PATH = path
+    }
+  })
+})
+
+describe('ChatManager: Claude asks Cockpit before what its mode does not allow', () => {
+  // a stub `claude` that speaks the stdio control protocol the way claude 2.1 does: it
+  // reads its prompt from stdin, puts requests to its host, and keeps reading until the
+  // host closes stdin — so a turn only ends if main closes it after the result
+  const bin = mkdtempSync(join(tmpdir(), 'cockpit-chat-host-'))
+  writeFileSync(
+    join(bin, 'stub.mjs'),
+    [
+      `import { createInterface } from 'node:readline'`,
+      `const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n')`,
+      `const got = []`,
+      `const ask = (request_id, request) => out({ type: 'control_request', request_id, request })`,
+      `const steps = [`,
+      `  () => { out({ type: 'system', subtype: 'init', session_id: 'stub-host' }); ask('q-1', { subtype: 'can_use_tool', tool_name: 'AskUserQuestion', input: { questions: [{ question: 'Red or blue?', header: 'Color', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] }] } }) },`,
+      `  () => ask('h-1', { subtype: 'hook_callback', callback_id: 'x' }),`,
+      `  () => ask('p-1', { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm test', description: 'Run the tests' }, description: 'Run the tests' }),`,
+      `  () => ask('p-2', { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'git push' }, description: 'Push' }),`,
+      `  () => { out({ type: 'assistant', message: { content: [{ type: 'text', text: JSON.stringify({ argv: process.argv.slice(2), got }) }] } }); out({ type: 'result', session_id: 'stub-host' }) }`,
+      `]`,
+      `createInterface({ input: process.stdin }).on('line', (line) => { got.push(JSON.parse(line)); steps.shift()?.() }).on('close', () => process.exit(0))`
+    ].join('\n')
+  )
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}" "$@"\n`)
+  chmodSync(join(bin, 'claude'), 0o755)
+
+  it('shows each request on the card, sends the answer back, and ends the turn once the result is in', async () => {
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const events: ChatEvent[] = []
+      let finish: () => void = () => {}
+      const finished = new Promise<void>((r) => (finish = r))
+      const chat: ChatManager = new ChatManager(
+        (ev) => {
+          events.push(ev)
+          if (ev.type === 'permission') {
+            // a click on an option the card never had, and on a request it is not waiting on, do nothing
+            chat.respondPermission(ev.turnId, ev.requestId, 'allow_always')
+            chat.respondPermission(ev.turnId, 'p-404', 'allow')
+            chat.respondPermission(ev.turnId, ev.requestId, ev.requestId === 'p-1' ? 'allow' : 'deny')
+          }
+          if (ev.type === 'done') finish()
+        },
+        { asksPermissions: () => true }
+      )
+      chat.send({ provider: 'claude', cwd: tmpdir(), prompt: 'run the tests', permissionMode: 'auto-edit' })
+      await finished
+
+      const asks = events.filter((e): e is Extract<ChatEvent, { type: 'permission' }> => e.type === 'permission')
+      // the question and the hook never reached the person: only the two commands did
+      expect(asks.map((a) => [a.requestId, a.toolName, a.detail, a.preview])).toEqual([
+        ['p-1', 'shell', 'npm test', 'Run the tests'],
+        ['p-2', 'shell', 'git push', 'Push']
+      ])
+      const report = events.find((e) => e.type === 'text' && e.text.startsWith('{"argv"'))
+      const { argv, got } = JSON.parse((report as Extract<ChatEvent, { type: 'text' }>).text)
+      expect(argv).toEqual(expect.arrayContaining(['--permission-prompt-tool', 'stdio', '--permission-mode', 'acceptEdits']))
+      expect(got[0]).toMatchObject({ type: 'user', message: { content: 'run the tests' } })
+      const answers = got.slice(1).map((m: any) => [m.response.request_id, m.response.response?.behavior ?? m.response.subtype])
+      expect(answers).toEqual([
+        ['q-1', 'deny'],
+        ['h-1', 'error'],
+        ['p-1', 'allow'],
+        ['p-2', 'deny']
+      ])
+      expect(got[3].response.response.updatedInput).toEqual({ command: 'npm test', description: 'Run the tests' })
+      expect(events.filter((e) => e.type === 'error')).toEqual([])
+      // stdin closed after the result, so the CLI exited and nothing is left running
+      await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
+      expect(chat.runningTurns()).toBe(0)
     } finally {
       process.env.PATH = path
     }

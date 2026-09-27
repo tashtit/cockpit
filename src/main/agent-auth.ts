@@ -1,5 +1,5 @@
 import type { Provider } from '../shared/types'
-import { execText } from './env'
+import { execText, loginPathReady } from './env'
 import {
   claudeSignIn,
   codexSignIn,
@@ -14,6 +14,8 @@ import {
  * an expired session. Never throws; see agent-auth-core for what counts.
  */
 export async function signInState(provider: Provider, configDir?: string): Promise<SignInState> {
+  // a CLI that is only on the login shell's PATH must not read as missing at launch
+  await loginPathReady()
   const cmd = signInCommand(provider)
   if (!cmd) {
     // no status command, but whether it is installed at all is still worth knowing
