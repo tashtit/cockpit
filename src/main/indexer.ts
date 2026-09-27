@@ -249,6 +249,16 @@ type WatchSpec = {
   readonly handler: (event: string, filename: string | Buffer | null) => void
 }
 
+/** What a page lists, settled once per query (see SessionIndexer.inScope). */
+type PageScope = {
+  /** Sessions idle since before this are past the history window */
+  readonly cutoff: number
+  readonly archived: boolean
+  readonly roundtableId?: string
+  readonly repoKey?: string
+  readonly providers: ReadonlySet<Provider> | null
+}
+
 /**
  * The session index — Cockpit's core data flow. It walks every registered source dir (the
  * three providers' homes plus extras from config), hands each session file to its
@@ -980,7 +990,7 @@ export class SessionIndexer {
       if (s.updatedAt < cutoff) continue
       // roundtable seat-sessions never count as a group's work — they page (and are
       // counted) only under their table
-      if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
+      if (this.isSeat(s)) continue
       const info = s.repo ?? GENERAL_REPO
       let g = groups.get(info.key)
       if (!g) {
@@ -1055,56 +1065,66 @@ export class SessionIndexer {
     this.repoRoots = null
   }
 
+  /** The roundtable a session is a seat of, or null for the person's own work. */
+  private tableOf(s: SessionMeta): string | null {
+    return s.cwd === null ? null : this.roundtableForCwd(s.cwd)
+  }
+
+  private isSeat(s: SessionMeta): boolean {
+    return this.tableOf(s) !== null
+  }
+
+  /**
+   * Whether a page over `scope` lists this session — the one rule page() and transcript
+   * search share: provider-archived sessions and those past the history window are out,
+   * archived ones only on an archived page, roundtable seats only under their own table
+   * (they are not independent work, so they stay out of the tree, the board and search),
+   * and repos the user hid only out of unscoped (global) queries.
+   */
+  private inScope(s: SessionMeta, scope: PageScope): boolean {
+    if (this.hiddenByProvider(s) || s.updatedAt < scope.cutoff) return false
+    if (this.archived.has(s.id) !== scope.archived) return false
+    const table = this.tableOf(s)
+    if (scope.roundtableId ? table !== scope.roundtableId : table !== null) return false
+    const key = s.repo?.key ?? 'general'
+    if (scope.repoKey ? key !== scope.repoKey : this.hiddenRepos.has(key)) return false
+    return scope.providers === null || scope.providers.has(s.provider)
+  }
+
   /**
    * What a transcript search may read: the sessions a plain (non-archived) page over
    * the same scope would list, newest first, so a capped search keeps the most recent
    * matches. The `sourcePath`s inside are the trust boundary — transcript-search.ts
-   * never takes a path from the renderer, only from here. Mirrors page()'s
-   * visibility rules: provider-archived, archived, roundtable seats and sessions past
-   * the history window stay out; hidden repos are skipped only on unscoped queries.
+   * never takes a path from the renderer, only from here. The same visibility rules as
+   * page() (inScope), over a plain page: archived sessions stay out.
    */
   transcriptCandidates(scope: {
     readonly repoKey?: string
     readonly providers?: readonly Provider[]
   }): SessionMeta[] {
-    const cutoff = this.historyCutoff()
-    const providers = scope.providers?.length ? new Set<Provider>(scope.providers) : null
-    const out: SessionMeta[] = []
-    for (const s of this.sessions.values()) {
-      if (this.hiddenByProvider(s) || this.archived.has(s.id)) continue
-      if (s.updatedAt < cutoff) continue
-      if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
-      const key = s.repo?.key ?? 'general'
-      if (scope.repoKey ? key !== scope.repoKey : this.hiddenRepos.has(key)) continue
-      if (providers && !providers.has(s.provider)) continue
-      out.push(s)
-    }
+    const within = this.pageScope({ ...scope, archived: false })
+    const out = [...this.sessions.values()].filter((s) => this.inScope(s, within))
     return out.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
+  private pageScope(query: {
+    readonly archived?: boolean
+    readonly roundtableId?: string
+    readonly repoKey?: string
+    readonly providers?: readonly Provider[]
+  }): PageScope {
+    return {
+      cutoff: this.historyCutoff(),
+      archived: !!query.archived,
+      roundtableId: query.roundtableId || undefined,
+      repoKey: query.repoKey || undefined,
+      providers: query.providers?.length ? new Set<Provider>(query.providers) : null
+    }
+  }
+
   page(query: SessionQuery): SessionPage {
-    const cutoff = this.historyCutoff()
-    let all = [...this.sessions.values()]
-    all = all.filter((s) => !this.hiddenByProvider(s) && s.updatedAt >= cutoff)
-    all = all.filter((s) => this.archived.has(s.id) === !!query.archived)
-    // roundtable seat-sessions are not independent work: they page only under their
-    // own table (query.roundtableId) and stay out of the tree/board/search entirely
-    if (query.roundtableId) {
-      const id = query.roundtableId
-      all = all.filter((s) => s.cwd !== null && this.roundtableForCwd(s.cwd) === id)
-    } else {
-      all = all.filter((s) => s.cwd === null || this.roundtableForCwd(s.cwd) === null)
-    }
-    if (query.repoKey) {
-      all = all.filter((s) => (s.repo?.key ?? 'general') === query.repoKey)
-    } else {
-      // global queries (search) skip repos the user chose not to display
-      all = all.filter((s) => !this.hiddenRepos.has(s.repo?.key ?? 'general'))
-    }
-    if (query.providers?.length) {
-      const set = new Set<Provider>(query.providers)
-      all = all.filter((s) => set.has(s.provider))
-    }
+    const within = this.pageScope(query)
+    let all = [...this.sessions.values()].filter((s) => this.inScope(s, within))
     if (query.holder) {
       const holder = query.holder
       all = all.filter((s) => this.controlOf(s).holder === holder)
@@ -1220,7 +1240,7 @@ export class SessionIndexer {
     const out: SessionMeta[] = []
     for (const s of this.sessions.values()) {
       if (this.providerDeleted.has(s.id)) continue
-      if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
+      if (this.isSeat(s)) continue
       out.push(s)
     }
     return out
@@ -1234,7 +1254,7 @@ export class SessionIndexer {
     const out: SessionMeta[] = []
     for (const s of this.sessions.values()) {
       if (this.hiddenByProvider(s)) continue
-      const roundtableId = s.cwd === null ? null : this.roundtableForCwd(s.cwd)
+      const roundtableId = this.tableOf(s)
       if (roundtableId === null) continue
       out.push({ ...s, roundtableId })
     }
@@ -1252,7 +1272,7 @@ export class SessionIndexer {
     const out: SessionMeta[] = []
     for (const s of this.sessions.values()) {
       if (this.hiddenByProvider(s)) continue
-      if (s.cwd !== null && this.roundtableForCwd(s.cwd) !== null) continue
+      if (this.isSeat(s)) continue
       out.push({ ...s, archived: this.archived.has(s.id) })
     }
     return out
@@ -1264,7 +1284,7 @@ export class SessionIndexer {
     if (!s) return null
     // a seat-session must read as one however it was reached (lineage chip, palette),
     // not only when paged under its table — the renderer keys read-only off this
-    const roundtableId = s.cwd === null ? null : this.roundtableForCwd(s.cwd)
+    const roundtableId = this.tableOf(s)
     return {
       ...s,
       archived: this.archived.has(s.id),
