@@ -1,5 +1,6 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu, shell } from 'electron'
 import { join, resolve } from 'node:path'
+import { appMenuTemplate } from './app-menu'
 import { loadLoginShellPath } from './env'
 import { startServices, type Services } from './services'
 import { registerIpc } from './ipc'
@@ -7,7 +8,8 @@ import { createWindow } from './window'
 
 /*
  * Main's entry: build the services (services.ts), register every IPC handler (ipc/),
- * open the window (window.ts), and stop what Cockpit started when it quits.
+ * set the menu bar (app-menu.ts), open the window (window.ts), and stop what Cockpit
+ * started when it quits.
  */
 
 // e2e/dev isolation only — a packaged app must never honor a data-dir override
@@ -44,6 +46,12 @@ app.whenReady().then(() => {
   // can arrive before main can answer it
   services = startServices()
   registerIpc(services)
+
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      appMenuTemplate({ mac: process.platform === 'darwin', open: (url) => void shell.openExternal(url) })
+    )
+  )
 
   // Cockpit mark in the dock — dev only: a packaged build carries it as the bundle icon,
   // and resources/ is not in the asar

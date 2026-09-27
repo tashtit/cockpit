@@ -13,6 +13,9 @@ import type { AppInfo, CliInstall, CliStatus } from './types'
 /** The repository — releases, issues and discussions all live under it. */
 export const COCKPIT_REPO_URL = 'https://github.com/tashtit/cockpit'
 
+/** Where releases live — the updater's feed and the only place release notes are kept. */
+export const RELEASES_URL = `${COCKPIT_REPO_URL}/releases`
+
 /** The user guide (`docs/`), published to GitHub Pages from `main`. */
 export const COCKPIT_GUIDE_URL = 'https://tashtit.github.io/cockpit/'
 
