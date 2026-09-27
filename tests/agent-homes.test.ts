@@ -91,28 +91,35 @@ describe('reconcileDetected', () => {
   const gemini = src('gemini', '/h/.gemini')
   const cursor = src('cursor', '/h/.cursor')
 
-  it('on a config from before detection, adds only the agents this build newly reads', () => {
+  it('on a config from before removals were recorded, adds only the agents this build newly reads', () => {
     // the person removed ~/.codex long ago; its home is still on disk
     const next = reconcileDetected([claude], undefined, [claude, codex, gemini])
     expect(next.sources).toEqual([claude, gemini])
-    expect(next.seen.sort()).toEqual([claude.path, codex.path, gemini.path].map((p) => resolve(p)).sort())
+    expect(next.dismissed).toEqual([resolve(codex.path)])
     expect(next.changed).toBe(true)
   })
 
-  it('adds a home the first time it appears', () => {
-    const next = reconcileDetected([claude, gemini], [claude.path, gemini.path], [claude, gemini, cursor])
+  it('adds a home that appeared since the last launch', () => {
+    const next = reconcileDetected([claude, gemini], [], [claude, gemini, cursor])
     expect(next.sources).toEqual([claude, gemini, cursor])
     expect(next.changed).toBe(true)
   })
 
   it('never adds back a home the person removed', () => {
-    const next = reconcileDetected([claude], [claude.path, gemini.path], [claude, gemini])
+    const next = reconcileDetected([claude], [resolve(gemini.path)], [claude, gemini])
     expect(next.sources).toEqual([claude])
     expect(next.changed).toBe(false)
+  })
+
+  it('adds back a home an older build dropped — only a removal is final', () => {
+    // an older build that cannot read Gemini rewrote the config without it
+    const next = reconcileDetected([claude], [], [claude, gemini])
+    expect(next.sources).toEqual([claude, gemini])
   })
 
   it('does not add a home twice under a different spelling of its path', () => {
     const next = reconcileDetected([src('gemini', '/h/./.gemini/')], [], [gemini])
     expect(next.sources).toHaveLength(1)
+    expect(next.changed).toBe(false)
   })
 })

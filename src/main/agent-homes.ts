@@ -93,24 +93,23 @@ export function detectAgentHomes(home: string = homedir()): SourceDir[] {
 }
 
 /**
- * Fold what detection found into the configured sources. A home is added the first time
- * it is ever seen and never again, so one the person removed stays removed; `seen` is
- * that memory (`AppConfig.detectedSources`). A config written before detection kept any
- * memory has none — its three CLI homes were offered on its first run, so they count as
- * seen, and only agents this build newly reads are added.
+ * Fold what detection found into the configured sources: a home found that is not a
+ * source is added, unless the person removed it — `dismissed`, which only Settings'
+ * Remove writes (`AppConfig.dismissedSources`). Removal is recorded, never inferred from a
+ * home's absence: an older build that cannot read an agent drops that agent's sources
+ * when it rewrites the shared config, and that must not read as the person removing them.
+ * A config from before the record has none. Its first run offered the three CLI homes
+ * then, so one of those found now and not configured was removed, and counts as dismissed.
  */
 export function reconcileDetected(
   sources: readonly SourceDir[],
-  seen: readonly string[] | undefined,
+  dismissed: readonly string[] | undefined,
   found: readonly SourceDir[]
-): { readonly sources: SourceDir[]; readonly seen: string[]; readonly changed: boolean } {
+): { readonly sources: SourceDir[]; readonly dismissed: string[]; readonly changed: boolean } {
   const known = new Set(sources.map((s) => resolve(s.path)))
-  const remembered = new Set(
-    seen ?? found.filter((s) => isDrivable(s.provider)).map((s) => resolve(s.path))
+  const removed = new Set(
+    dismissed ?? found.filter((s) => isDrivable(s.provider) && !known.has(resolve(s.path))).map((s) => resolve(s.path))
   )
-  const added = found.filter((s) => !known.has(resolve(s.path)) && !remembered.has(resolve(s.path)))
-  const nextSeen = new Set(remembered)
-  for (const s of found) nextSeen.add(resolve(s.path))
-  const changed = added.length > 0 || seen === undefined || nextSeen.size !== remembered.size
-  return { sources: [...sources, ...added], seen: [...nextSeen], changed }
+  const added = found.filter((s) => !known.has(resolve(s.path)) && !removed.has(resolve(s.path)))
+  return { sources: [...sources, ...added], dismissed: [...removed], changed: added.length > 0 || dismissed === undefined }
 }

@@ -720,14 +720,19 @@ app.whenReady().then(() => {
     const cfg = loadConfig()
     if (cfg.sources.some((s) => s.path === p)) return cfg.sources
     const sources = [...cfg.sources, { path: p, provider, label }]
-    saveConfig({ ...cfg, sources })
+    // added back by hand: detection may offer it again after a later removal
+    const dismissedSources = (cfg.dismissedSources ?? []).filter((d) => d !== p)
+    saveConfig({ ...cfg, sources, dismissedSources })
     void indexer.setSources(sources)
     return sources
   })
   ipcMain.handle(CH.sourcesRemove, (_e, path: string) => {
     const cfg = loadConfig()
     const sources = cfg.sources.filter((s) => s.path !== path)
-    saveConfig({ ...cfg, sources })
+    // the one place a removal is recorded: detection never adds this home back
+    const gone = resolve(String(path))
+    const dismissedSources = [...new Set([...(cfg.dismissedSources ?? []), gone])]
+    saveConfig({ ...cfg, sources, dismissedSources })
     void indexer.setSources(sources)
     return sources
   })

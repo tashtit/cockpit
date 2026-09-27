@@ -331,7 +331,7 @@ describe('interface zoom', () => {
 })
 
 describe('adoptDetectedSources', () => {
-  it('indexes an agent that appeared since the last launch — once, so removing it is final', () => {
+  it('indexes an agent that appeared since the last launch, and a removal is final', () => {
     const home = mkdtempSync(join(tmpdir(), 'cockpit-config-home-'))
     const prevHome = process.env['HOME']
     process.env['HOME'] = home
@@ -341,10 +341,18 @@ describe('adoptDetectedSources', () => {
       saveConfig({ sources: [{ path: join(home, '.claude'), provider: 'claude', label: 'claude-default' }], archived: ['a'] })
       const adopted = adoptDetectedSources()
       expect(adopted.sources.map((s) => s.label)).toEqual(['claude-default', 'gemini-default'])
-      expect(loadConfig()).toMatchObject({ archived: ['a'], detectedSources: [join(home, '.claude'), join(home, '.gemini')] })
-      // the person removes it in Settings: the next launch leaves it removed
+      expect(loadConfig()).toMatchObject({ archived: ['a'], dismissedSources: [] })
+      // an older build rewrites the config without the agent it cannot read: not a removal
       const cfg = loadConfig()
       saveConfig({ ...cfg, sources: cfg.sources.filter((s) => s.provider !== 'gemini') })
+      expect(adoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude', 'gemini'])
+      // the person removes it in Settings, which records the removal: it stays removed
+      const now = loadConfig()
+      saveConfig({
+        ...now,
+        sources: now.sources.filter((s) => s.provider !== 'gemini'),
+        dismissedSources: [join(home, '.gemini')]
+      })
       expect(adoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude'])
     } finally {
       process.env['HOME'] = prevHome

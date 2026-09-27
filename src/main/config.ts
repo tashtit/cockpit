@@ -21,11 +21,11 @@ import { clampZoom, type WindowPlacement } from '../shared/window'
 export type AppConfig = {
   readonly sources: SourceDir[]
   /**
-   * Every agent home detection has ever offered (resolved paths), so a source the person
-   * removed is never added back by the next launch's detection. Absent in a config
-   * written before detection ran on every launch — see reconcileDetected.
+   * Agent homes the person removed in Settings (resolved paths), which detection never
+   * adds back. Only Remove writes it, and Add clears a path from it: an older build that
+   * drops sources it cannot read must not look like a removal (see reconcileDetected).
    */
-  readonly detectedSources?: string[]
+  readonly dismissedSources?: string[]
   /** Session ids the user archived in Cockpit (provider logs have no such flag) */
   readonly archived?: string[]
   /** Roundtable ids the user archived — the tables themselves stay on disk */
@@ -119,10 +119,9 @@ export function configFilePath(): string {
   return configPath()
 }
 
-/** First run: every agent home on this machine, each remembered as offered. */
+/** First run: every agent home on this machine, nothing yet removed. */
 function firstRunConfig(): AppConfig {
-  const sources = detectAgentHomes()
-  return { sources, detectedSources: sources.map((s) => resolve(s.path)), archived: [] }
+  return { sources: detectAgentHomes(), dismissedSources: [], archived: [] }
 }
 
 /**
@@ -132,9 +131,9 @@ function firstRunConfig(): AppConfig {
  */
 export function adoptDetectedSources(): AppConfig {
   const cfg = loadConfig()
-  const next = reconcileDetected(cfg.sources, cfg.detectedSources, detectAgentHomes())
+  const next = reconcileDetected(cfg.sources, cfg.dismissedSources, detectAgentHomes())
   if (!next.changed) return cfg
-  const updated = { ...cfg, sources: next.sources, detectedSources: next.seen }
+  const updated = { ...cfg, sources: next.sources, dismissedSources: next.dismissed }
   saveConfig(updated)
   return updated
 }
@@ -160,7 +159,7 @@ function parseConfig(raw: string): AppConfig {
     archivedRoundtables: stringList(cfg.archivedRoundtables),
     hiddenRepos: stringList(cfg.hiddenRepos),
     repoOrder: stringList(cfg.repoOrder),
-    detectedSources: stringList(cfg.detectedSources),
+    dismissedSources: stringList(cfg.dismissedSources),
     sessionControl: cfg.sessionControl === undefined ? undefined : sanitizeControlMap(cfg.sessionControl)
   }
 }
