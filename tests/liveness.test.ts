@@ -615,4 +615,116 @@ describe("LivenessTracker — copilot's own lock", () => {
   })
 })
 
+describe('LivenessTracker — a question waits for whoever asked it', () => {
+  const question = {
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: { questions: [{ question: 'Ship it?' }] } }] },
+    timestamp: T1
+  }
+  const asked = [FIXTURES.claude.midTurn[0], question]
+  /** A Claude config home of its own: the log, and the `sessions/` its processes write. */
+  function claudeHome(name: string, records: readonly unknown[]): { file: string; sessions: string } {
+    const home = join(root, 'claude-asks', name)
+    const file = join(home, 'projects', 'p', `${name}.jsonl`)
+    mkdirSync(dirname(file), { recursive: true })
+    mkdirSync(join(home, 'sessions'), { recursive: true })
+    writeFileSync(file, jsonl([...records]))
+    return { file, sessions: join(home, 'sessions') }
+  }
+  /** A process file as Claude Code writes one, for `pid`. */
+  const processFile = (sessions: string, pid: number, over: object): void =>
+    writeFileSync(join(sessions, `${pid}.json`), JSON.stringify({ pid, cwd: '/x', kind: 'interactive', status: 'waiting', ...over }))
+  const deadPid = (): number => spawnSync('/usr/bin/true').pid
+  const opts = { windowMs: 100, toolWindowMs: 200, sweepMs: 40 }
+  const ids = (t: LivenessTracker): string[] => t.sessions().map((s) => s.id)
+
+  it('claude: a question stays live while the process that asked it is there', async () => {
+    const t = tracker(() => {}, opts)
+    const { file, sessions } = claudeHome('q-held', asked)
+    processFile(sessions, process.pid, { sessionId: 'q-held' })
+    t.observe(file, meta('claude', 'q-held', file), Date.now())
+    await new Promise((r) => setTimeout(r, 600)) // several sweeps past both windows
+    expect(t.sessions()).toEqual([
+      expect.objectContaining({ id: 'claude:q-held', asks: { kind: 'question', detail: 'Ship it?' } })
+    ])
+  })
+
+  it('claude: it goes once the process has, says it is idle, or holds another session', async () => {
+    const t = tracker(() => {}, opts)
+    const gone = claudeHome('q-gone', asked)
+    processFile(gone.sessions, deadPid(), { sessionId: 'q-gone' })
+    const idle = claudeHome('q-idle', asked)
+    processFile(idle.sessions, process.pid, { sessionId: 'q-idle', status: 'idle' })
+    const other = claudeHome('q-other', asked)
+    processFile(other.sessions, process.pid, { sessionId: 'someone-else' })
+    for (const [name, h] of [['q-gone', gone], ['q-idle', idle], ['q-other', other]] as const)
+      t.observe(h.file, meta('claude', name, h.file), Date.now())
+    expect(ids(t)).toHaveLength(3)
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+  })
+
+  it('claude: the process keeps a question, never a long tool call — that is the tool window\'s', async () => {
+    const t = tracker(() => {}, opts)
+    const { file, sessions } = claudeHome('q-tool', FIXTURES.claude.midTurn)
+    processFile(sessions, process.pid, { sessionId: 'q-tool', status: 'busy' })
+    t.observe(file, meta('claude', 'q-tool', file), Date.now())
+    expect(ids(t)).toEqual(['claude:q-tool'])
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+  })
+
+  const THREAD = '01a0da73-d921-7a10-8c1c-baed7386db10'
+  const codexQuestion = {
+    timestamp: T1,
+    type: 'response_item',
+    payload: {
+      type: 'function_call',
+      name: 'request_user_input',
+      call_id: 'q',
+      arguments: JSON.stringify({ questions: [{ question: 'Ship it?', options: ['yes', 'no'] }] })
+    }
+  }
+  function codexHome(name: string, records: readonly unknown[]): { home: string; file: string } {
+    const home = join(root, 'codex-asks', name)
+    const file = join(home, 'sessions', '2026', '09', '27', `rollout-2026-09-27T10-00-00-${THREAD}.jsonl`)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, jsonl([...records]))
+    return { home, file }
+  }
+
+  it("codex: a question stays live while a process holds the thread's writer lock", async () => {
+    let held = true
+    const locks: string[] = []
+    const t = tracker(() => {}, {
+      ...opts,
+      codexLockHeld: async (lock) => {
+        locks.push(lock)
+        return held
+      }
+    })
+    const { home, file } = codexHome('held', [...FIXTURES.codex.midTurn, codexQuestion])
+    t.observe(file, meta('codex', THREAD, file), Date.now())
+    await new Promise((r) => setTimeout(r, 600))
+    expect(ids(t)).toEqual([`codex:${THREAD}`])
+    expect(locks[0]).toBe(join(home, 'thread-writer-locks', `${THREAD}.lock`))
+    // the app closed the thread, or the CLI was killed: the next answer lets it go
+    held = false
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+  })
+
+  it('codex: a turn that is not asking never costs a lock check', async () => {
+    const locks: string[] = []
+    const t = tracker(() => {}, {
+      ...opts,
+      codexLockHeld: async (lock) => {
+        locks.push(lock)
+        return true
+      }
+    })
+    const { file } = codexHome('working', [...FIXTURES.codex.midTurn, SILENCE.codex.inTool])
+    t.observe(file, meta('codex', THREAD, file), Date.now())
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+    expect(locks).toEqual([])
+  })
+})
+
 afterAll(() => rmSync(root, { recursive: true, force: true }))

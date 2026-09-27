@@ -515,6 +515,66 @@ export function copilotLockPids(names: readonly string[]): number[] {
   return pids
 }
 
+/* ---------- who still holds a session that asked ---------- */
+
+/*
+ * A turn stopped on a question writes nothing until it is answered — for minutes or
+ * hours — so its log alone cannot tell a person thinking from a CLI killed mid-question.
+ * Claude and Codex each leave a sign of the process that holds a session, as Copilot's
+ * lock does; the tracker keeps an asking entry past its window while that sign says the
+ * process is still there. As with Copilot, the process is the evidence, never the file.
+ */
+
+/** `<pid>.json`, as Claude Code names the file it keeps per running process. */
+const CLAUDE_PROCESS = /^(\d{1,9})\.json$/
+
+/**
+ * The pids Claude claims are running, read off the names in its config home's
+ * `sessions/` directory (`<pid>.json` beside a `<pid>.<hash>.key`). It leaves them
+ * behind on a crash, so the caller checks each pid before reading its file.
+ */
+export function claudeProcessPids(names: readonly string[]): number[] {
+  const pids: number[] = []
+  for (const name of names) {
+    const pid = CLAUDE_PROCESS.exec(name)
+    if (pid) pids.push(Number(pid[1]))
+  }
+  return pids
+}
+
+/**
+ * Does a Claude process file say that process holds this session? Confirmed against
+ * real files (2026-09): `{pid, sessionId, cwd, status: 'busy' | 'idle' | 'waiting',
+ * waitingFor?}` — `waiting` / `input needed` while a question is open. Only an
+ * explicit `idle` says the process waits on nothing; a status it does not know keeps
+ * the pid as the evidence, since the field is Claude's own and may drift.
+ */
+export function claudeProcessHolds(record: unknown, pid: number, nativeId: string): boolean {
+  const r = objectOf(record)
+  if (!r || r.sessionId !== nativeId) return false
+  // the file must be the process its name says: a pid inside that disagrees is not evidence
+  if (r.pid !== undefined && r.pid !== pid) return false
+  return r.status !== 'idle'
+}
+
+/** A Codex thread id is a UUID; anything else is never joined into a path. */
+const CODEX_THREAD_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
+
+/**
+ * Where Codex keeps the writer lock for a thread, from its rollout's path:
+ * `<home>/sessions/YYYY/MM/DD/rollout-….jsonl` → `<home>/thread-writer-locks/<id>.lock`.
+ * The lock is held open (and locked) by whichever Codex process — the app's server, a
+ * terminal's CLI — has the thread loaded; the file itself stays behind. Null for a
+ * path of another shape or an id that isn't a thread's. `sep` is the platform's.
+ */
+export function codexWriterLock(file: string, nativeId: string, sep = '/'): string | null {
+  if (!CODEX_THREAD_ID.test(nativeId)) return null
+  const parts = file.split(sep)
+  // …/sessions/YYYY/MM/DD/rollout.jsonl: the home is five segments up
+  if (parts.length < 6 || parts[parts.length - 5] !== 'sessions') return null
+  return [...parts.slice(0, -5), 'thread-writer-locks', `${nativeId}.lock`].join(sep)
+}
+
 /* ---------- the busy set ---------- */
 
 /**

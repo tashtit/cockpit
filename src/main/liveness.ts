@@ -1,9 +1,13 @@
-import { opendirSync, type Dir } from 'node:fs'
-import { dirname } from 'node:path'
+import { existsSync, opendirSync, type Dir } from 'node:fs'
+import { basename, dirname, join, sep } from 'node:path'
 import type { AttentionAsk, BusySession, Provider, SessionMeta } from '../shared/types'
-import { TRANSCRIPT_TAIL_BYTES, judgeJsonlTail } from './parsers/util'
+import { TRANSCRIPT_TAIL_BYTES, judgeJsonlTail, readJson } from './parsers/util'
+import { execText } from './env'
 import {
   IDLE,
+  claudeProcessHolds,
+  claudeProcessPids,
+  codexWriterLock,
   copilotLockPids,
   judgeTail,
   type ObservedSession,
@@ -25,8 +29,11 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
  * nothing written) the entry gets LIVE_TOOL_WINDOW_MS instead. Copilot is the one
  * provider that says so itself: it holds an `inuse.<pid>.lock` beside the log for as
  * long as its CLI runs, so a Copilot entry past either window is kept while that pid
- * is one of ours and still running, and expires once it is not. Best-effort by design: an unreadable or
- * unrecognised tail — or lock — is idle, never an error.
+ * is one of ours and still running, and expires once it is not. A turn stopped on a
+ * question is kept the same way whoever asked it, because it writes nothing for as
+ * long as the person takes to answer: Claude keeps a `sessions/<pid>.json` per running
+ * process naming its session, Codex holds a writer lock on the thread. Best-effort by
+ * design: an unreadable or unrecognised tail — or lock — is idle, never an error.
  *
  * The transitions are news too (`onTurn`, for the attention desk): a turn seen
  * running whose log then writes its ending record has *ended* — an expiry is not
@@ -99,33 +106,75 @@ function pidAlive(pid: number): boolean {
  * stale), so one alone never means a turn is running.
  */
 function copilotHolderAlive(file: string): boolean {
+  return copilotLockPids(dirNames(dirname(file), LOCK_SCAN_ENTRIES)).some(pidAlive)
+}
+
+/** Up to `max` names in a directory; none when it can't be read. */
+function dirNames(path: string, max: number): string[] {
   let dir: Dir
   try {
-    dir = opendirSync(dirname(file))
+    dir = opendirSync(path)
   } catch {
-    return false
+    return []
   }
+  const names: string[] = []
   try {
-    const names: string[] = []
-    for (let i = 0; i < LOCK_SCAN_ENTRIES; i++) {
+    for (let i = 0; i < max; i++) {
       const entry = dir.readSync()
       if (!entry) break
       names.push(entry.name)
     }
-    return copilotLockPids(names).some(pidAlive)
   } catch {
-    return false
+    // the directory went away mid-read: what was read is all there is
   } finally {
     try {
       dir.closeSync()
     } catch {
-      // already closed, or the directory went away mid-read
+      // already closed
     }
   }
+  return names
+}
+
+/**
+ * Entries a Claude process check looks at: two per running Claude (`<pid>.json` and its
+ * `.key`), and a few left behind by ones that crashed.
+ */
+const CLAUDE_PROCESS_ENTRIES = 256
+/** A process file is a few hundred bytes of JSON */
+const CLAUDE_PROCESS_BYTES = 16 * 1024
+
+/**
+ * Is a Claude process still holding the session this log belongs to? Claude Code keeps
+ * `<config home>/sessions/<pid>.json` for each running process, naming the session it
+ * has open — the log sits at `<config home>/projects/<project>/<id>.jsonl`. Only living
+ * pids have their file read. Bounded; a home of another shape holds nothing.
+ */
+function claudeHolderAlive(file: string, nativeId: string): boolean {
+  const projects = dirname(dirname(file))
+  if (basename(projects) !== 'projects') return false
+  const dir = join(dirname(projects), 'sessions')
+  return claudeProcessPids(dirNames(dir, CLAUDE_PROCESS_ENTRIES)).some(
+    (pid) => pidAlive(pid) && claudeProcessHolds(readJson(join(dir, `${pid}.json`), CLAUDE_PROCESS_BYTES), pid, nativeId)
+  )
+}
+
+/**
+ * Does a Codex process hold this writer lock? The file outlives its holder, so only an
+ * open descriptor on it counts — which only lsof can see. Narrowed to processes named
+ * codex (the app's server and the CLI both are): a whole-table lsof takes a second, this
+ * one well under a tenth. No lsof, no match, a timeout: not held.
+ */
+async function codexLockHeld(lock: string): Promise<boolean> {
+  if (!existsSync(lock)) return false
+  const r = await execText('lsof', ['-t', '-a', '-c', 'codex', '--', lock], { timeoutMs: 5_000 })
+  return /^\d+$/m.test(r.stdout)
 }
 
 type LiveEntry = {
   readonly id: string
+  /** The provider's own id — what its process files and locks name the session by */
+  readonly nativeId: string
   readonly file: string
   /** Whose log this is — copilot's expiry also consults its lock */
   readonly provider: Provider
@@ -147,6 +196,8 @@ export type LivenessOptions = {
   readonly now?: () => number
   /** A turn started, stopped to ask, or ended — from the log's own records only */
   readonly onTurn?: (ev: ObservedTurn) => void
+  /** Whether a Codex writer lock is held — lsof by default; tests stand one in */
+  readonly codexLockHeld?: (lock: string) => Promise<boolean>
 }
 
 const sameAsk = (a: AttentionAsk | null, b: AttentionAsk | null): boolean =>
@@ -161,6 +212,9 @@ export class LivenessTracker {
   private readonly toolWindowMs: number
   private readonly sweepMs: number
   private readonly now: () => number
+  private readonly codexLockHeld: (lock: string) => Promise<boolean>
+  /** An asking Codex entry's lock, as last checked (see codexHeld) */
+  private readonly codexLocks = new Map<string, { held: boolean; checking: boolean }>()
 
   constructor(onChange: (sessions: BusySession[]) => void, opts: LivenessOptions = {}) {
     this.onChange = onChange
@@ -169,6 +223,7 @@ export class LivenessTracker {
     this.toolWindowMs = Math.max(this.windowMs, opts.toolWindowMs ?? LIVE_TOOL_WINDOW_MS)
     this.sweepMs = opts.sweepMs ?? SWEEP_MS
     this.now = opts.now ?? Date.now
+    this.codexLockHeld = opts.codexLockHeld ?? codexLockHeld
   }
 
   /**
@@ -240,6 +295,7 @@ export class LivenessTracker {
     } else {
       this.entries.set(meta.id, {
         id: meta.id,
+        nativeId: meta.nativeId,
         file,
         provider: meta.provider,
         startedAt,
@@ -283,12 +339,14 @@ export class LivenessTracker {
   /** Forget everything: no more writes will arrive once the watchers are down. */
   stop(): void {
     this.stopSweep()
+    this.codexLocks.clear()
     if (this.entries.size === 0) return
     this.entries.clear()
     this.emit()
   }
 
   private drop(id: string): void {
+    this.codexLocks.delete(id)
     if (!this.entries.delete(id)) return
     if (this.entries.size === 0) this.stopSweep()
     this.emit()
@@ -300,15 +358,43 @@ export class LivenessTracker {
     for (const [id, e] of this.entries) {
       if (this.holds(e, now)) continue
       this.entries.delete(id)
+      this.codexLocks.delete(id)
       changed = true
     }
     if (this.entries.size === 0) this.stopSweep()
     if (changed) this.emit()
   }
 
-  /** Inside its window — or a copilot turn whose CLI still holds the session's lock. */
+  /**
+   * Inside its window — or a copilot turn whose CLI still holds the session's lock, or a
+   * turn stopped on a question whose process is still there to be answered: a question
+   * waits as long as the person does, and writes nothing while it does.
+   */
   private holds(e: LiveEntry, now: number): boolean {
-    return now - e.lastWriteAt <= e.windowMs || (e.provider === 'copilot' && copilotHolderAlive(e.file))
+    if (now - e.lastWriteAt <= e.windowMs) return true
+    if (e.provider === 'copilot') return copilotHolderAlive(e.file)
+    if (!e.asks) return false
+    return e.provider === 'claude' ? claudeHolderAlive(e.file, e.nativeId) : this.codexHeld(e)
+  }
+
+  /**
+   * Whether a Codex process still holds an asking thread, as lsof last said. lsof is a
+   * process, not a read, so it is never waited on here: each sweep asks again and the
+   * answer decides the sweep after it, which keeps the entry one sweep past its holder
+   * at most. Until the first answer the entry is kept — a wait, not a verdict.
+   */
+  private codexHeld(e: LiveEntry): boolean {
+    const lock = codexWriterLock(e.file, e.nativeId, sep)
+    if (!lock) return false
+    const known = this.codexLocks.get(e.id)
+    if (!known?.checking) {
+      this.codexLocks.set(e.id, { held: known?.held ?? true, checking: true })
+      void this.codexLockHeld(lock).then((held) => {
+        // an entry dropped meanwhile keeps no answer
+        if (this.codexLocks.has(e.id)) this.codexLocks.set(e.id, { held, checking: false })
+      })
+    }
+    return known?.held ?? true
   }
 
   private ensureSweep(): void {
