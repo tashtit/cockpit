@@ -667,7 +667,7 @@ describe('AttentionTracker — turns observed in the logs', () => {
       { id: 'claude:obs', at: h.clock.now, kind: 'asks', asks: { kind: 'question', detail: 'Which owner?' } }
     ])
     const { notice, sound } = h.flush()
-    expect(sound).toBe('finish')
+    expect(sound).toBe('asks')
     expect(notice).toMatchObject({
       id: 'cockpit:asks:claude:obs',
       title: 'Claude asks you',
@@ -953,13 +953,14 @@ describe('AttentionTracker — one row per session, and mixed bursts', () => {
     expect(h.t.badgeCount(ALL_ON)).toBe(0)
   })
 
-  it('a burst of different kinds is counted by kind, and sounds like the worst of them', () => {
+  it('a burst of different kinds is counted by kind, and sounds like the most urgent of them', () => {
     const h = harness()
     runTurn(h, { turnId: 't1', resume: 'one', text: 'Done.' })
     observed(h, { type: 'asks', id: 'codex:two', provider: 'codex' })
     h.t.prsUpdated(ROCKET, [pr()], carrier)
     const { notice, sound } = h.flush()
-    expect(sound).toBe('fail')
+    // a question outranks the red PR, as it does on the Dock badge
+    expect(sound).toBe('asks')
     expect(notice).toMatchObject({ title: '1 finished · 1 waiting on you · 1 PR red', target: { kind: 'home' } })
     expect(notice?.body.split('\n')).toEqual([
       'Claude finished · fix the login flake',

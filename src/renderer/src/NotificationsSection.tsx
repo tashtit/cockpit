@@ -16,7 +16,7 @@ const SWITCHES: ReadonlyArray<{
   {
     key: 'sound',
     label: 'Sound',
-    note: 'Two notes rising when a turn finishes or an agent asks you something, two notes falling when a turn fails or a pull request goes red.'
+    note: 'Two notes rising when a turn finishes, a tap-tap and a lift when an agent asks you something, two notes falling when a turn fails or a pull request goes red.'
   },
   {
     key: 'badge',

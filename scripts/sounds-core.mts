@@ -5,7 +5,7 @@
  * writes them to resources/sounds/, and tests/sounds.test.ts fails when the committed
  * files and this file disagree.
  *
- * Each sound is a pair of struck notes. A note is a handful of sine partials — the modes a
+ * Each sound is a few struck notes. A note is a handful of sine partials — the modes a
  * struck bar rings in — each fading at its own rate, the high ones fastest, so the attack
  * is bright and the tail is round. A small Freeverb-style reverb puts them in a room.
  */
@@ -59,14 +59,35 @@ export const SOUNDS = {
     loudness: -19.5
   },
   /**
+   * An agent is waiting on you: a tap-tap and a lift on a kalimba-like tine (B5, B5, D♯6),
+   * ending on the leading tone of the finish sound's key — unresolved, like a question.
+   * 6.267 is a clamped tine's second mode, which gives the pluck its metallic edge.
+   */
+  asks: {
+    strikes: [
+      { at: 0, hz: note(14), gain: 0.7 },
+      { at: 0.09, hz: note(14), gain: 0.55 },
+      { at: 0.2, hz: note(18), gain: 1 }
+    ],
+    partials: [
+      { ratio: 1, gain: 1, decay: 0.3 },
+      { ratio: 2, gain: 0.06, decay: 0.12 },
+      { ratio: 6.267, gain: 0.14, decay: 0.022 }
+    ],
+    seconds: 1,
+    room: { rt60: 0.6, mix: 0.14 },
+    loudness: -19
+  },
+  /**
    * A turn failed or a pull request went red: two warm, short wooden strikes a minor third
-   * apart, falling (G4 → E4), the second sagging a little — plainly not the finish sound,
+   * apart, falling (F♯4 → D♯4), the second sagging a little — plainly not the finish sound,
    * without sounding like an alarm. 3.93 and 9.2 are a tuned marimba bar's upper modes.
+   * (Not G → E: those open NBC's registered G-E-C chime, and no sound here should.)
    */
   fail: {
     strikes: [
-      { at: 0, hz: note(-2), gain: 1 },
-      { at: 0.15, hz: note(-5), gain: 0.95, sag: 0.02 }
+      { at: 0, hz: note(-3), gain: 1 },
+      { at: 0.15, hz: note(-6), gain: 0.95, sag: 0.02 }
     ],
     partials: [
       { ratio: 1, gain: 1, decay: 0.28 },
@@ -109,7 +130,11 @@ function strike(out: Float64Array, s: Strike, partials: readonly Partial[]): voi
   }
 }
 
-/** Freeverb's comb and allpass lengths (samples at 44.1kHz): mutually prime, so no echo lines up with another */
+/**
+ * Freeverb's comb and allpass lengths (samples at 44.1kHz): mutually prime, so no echo
+ * lines up with another. Freeverb (Jezar at Dreampoint, 2000) is public domain; only these
+ * tuning numbers come from it, the filters below are written here.
+ */
 const COMBS = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617]
 const ALLPASSES = [556, 441, 341, 225]
 /** How much each comb's feedback is low-passed: highs die first, as in a real room, and no attack echoes back sharp */

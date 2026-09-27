@@ -11,11 +11,16 @@ const committed = (name: string): Uint8Array =>
   new Uint8Array(readFileSync(new URL(`../resources/sounds/${name}.wav`, import.meta.url)))
 
 /** Every sound the attention desk plays — a new one fails to typecheck here until it is listed */
-const PLAYED: Record<Parameters<AttentionSurface['play']>[0], true> = { finish: true, fail: true }
+const PLAYED: Record<Parameters<AttentionSurface['play']>[0], true> = { finish: true, asks: true, fail: true }
 
 describe('resources/sounds', () => {
   it('has a sound for everything the attention desk plays', () => {
     expect(SOUND_NAMES).toEqual(expect.arrayContaining(Object.keys(PLAYED)))
+  })
+
+  it('synthesizes from its own numbers alone: the generator imports nothing, so it can read no recording', () => {
+    const source = readFileSync(new URL('../scripts/sounds-core.mts', import.meta.url), 'utf8')
+    expect(source).not.toMatch(/^\s*import\b|\bimport\s*\(|\brequire\s*\(/m)
   })
 
   it.each(SOUND_NAMES)('%s.wav is what its definition synthesizes', (name) => {

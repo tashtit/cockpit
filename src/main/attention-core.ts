@@ -144,11 +144,20 @@ export type Notice = {
   readonly keys: readonly string[]
 }
 
+/** The sounds a landing can make: a turn done, an agent waiting on you, something gone wrong. */
+export type Tone = 'finish' | 'asks' | 'fail'
+
+/**
+ * A burst plays one sound, the most urgent of its tones — the order the Dock badge and
+ * the board already rank by: a question, then a failure or a red PR, then an ending.
+ */
+const TONE_ORDER: readonly Tone[] = ['asks', 'fail', 'finish']
+
 /** What a flush asks the IO layer to do. */
 export type Flush = {
   /** null when notifications are off, or nothing is news any more */
   readonly notice: Notice | null
-  readonly sound: 'finish' | 'fail' | null
+  readonly sound: Tone | null
 }
 
 /** A turn followed from spawn to exit — mutable accumulator on purpose. */
@@ -190,10 +199,10 @@ type Pending = {
   readonly fallbackTitle: string
   readonly failed: boolean
   /**
-   * Which sound speaks for it — a red PR sounds like a failure without being one, and
-   * housekeeping makes none
+   * Which sound speaks for it — a question has its own, a red PR sounds like a failure
+   * without being one, and housekeeping makes none
    */
-  readonly tone: 'finish' | 'fail' | null
+  readonly tone: Tone | null
   readonly group: Group
 }
 
@@ -898,7 +907,7 @@ export class AttentionTracker {
     if (live.length === 0) return { notice: null, sound: null }
     const failed = live.some((p) => p.failed)
     const tones = live.map((p) => p.tone)
-    const sound = !prefs.sound ? null : tones.includes('fail') ? 'fail' : tones.includes('finish') ? 'finish' : null
+    const sound = prefs.sound ? (TONE_ORDER.find((t) => tones.includes(t)) ?? null) : null
     if (!prefs.notifications) return { notice: null, sound }
     const nameOf = (p: Pending): string => {
       const u = this.unseen.get(p.key)
@@ -1056,7 +1065,7 @@ export class AttentionTracker {
       title: null,
       fallbackTitle: 'Session',
       failed: false,
-      tone: 'finish',
+      tone: 'asks',
       group: 'asks'
     })
     this.trim()

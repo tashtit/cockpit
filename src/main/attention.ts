@@ -18,6 +18,7 @@ import {
   sanitizeUnseen,
   type Notice,
   type TableEnd,
+  type Tone,
   type ThrownAway,
   type TurnStart,
   type Unseen
@@ -41,7 +42,7 @@ export type AttentionSurface = {
   /** Take delivered banners out of Notification Center */
   readonly withdraw: (ids: readonly string[]) => void
   readonly setBadge: (count: number) => void
-  readonly play: (sound: 'finish' | 'fail') => void
+  readonly play: (sound: Tone) => void
   /** One Dock bounce — how a refused banner still gets noticed */
   readonly bounce: () => void
 }
@@ -275,7 +276,7 @@ export class AttentionDesk {
  * resources/sounds. afplay reads a real file, so a packaged build carries them outside the
  * asar; any other run reads the checkout's copy, beside out/.
  */
-function soundFile(sound: 'finish' | 'fail'): string {
+function soundFile(sound: Tone): string {
   const dir = app.isPackaged ? join(process.resourcesPath, 'sounds') : join(__dirname, '..', '..', 'resources', 'sounds')
   return join(dir, `${sound}.wav`)
 }
