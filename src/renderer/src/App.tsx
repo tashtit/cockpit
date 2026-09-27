@@ -3,7 +3,7 @@ import type {
   AccountsSnapshot,
   AttentionFocus,
   AttentionTarget,
-  ChatEvent,
+  ChatRequest,
   PermissionMode,
   PrStatus,
   RepoGroup,
@@ -34,24 +34,16 @@ import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
 import { DevBanner } from './DevBanner'
 import { initBusySessions, spawnedTurn, useSessionRunsElsewhere } from './busy'
-import { rejoinStream, type Rejoin } from './rejoin'
 import { useRailWidth } from './rail'
-import {
-  addChatMessage,
-  addChatNotice,
-  announceChat,
-  endChatStream,
-  refreshChatLog,
-  setChatLog,
-  streamChatText
-} from './chat-log'
+import { addChatMessage, addChatNotice, refreshChatLog, setChatLog } from './chat-log'
 import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
 import { initBranchPrefix } from './branch-prefix'
 import { keepSame } from './same'
 import type { StartSessionRequest } from './agent-choice'
-import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
+import type { ChatBinding, TranscriptAnchor } from './chat-binding'
 import type { NavEntry, View } from './nav-history'
+import { useChatTurns } from './use-chat-turns'
 import { useNavHistory } from './use-nav-history'
 import { useZoom } from './use-zoom'
 
@@ -71,6 +63,27 @@ function lineageRef(id: string | undefined): ChatBinding['continuedFrom'] | unde
   return provider ? { id, provider } : undefined
 }
 
+/** Where closing a view lands: the conversation still bound, else home. */
+function behind(binding: ChatBinding | null): View {
+  return binding ? { kind: 'chat' } : { kind: 'welcome' }
+}
+
+/** What a turn carries beyond the conversation it belongs to. */
+type TurnInput = Pick<ChatRequest, 'prompt' | 'permissionMode' | 'images' | 'handoffFrom'>
+
+/** A turn of the conversation `b` is bound to: its agent, directory, account and options. */
+function turnRequest(b: ChatBinding, turn: TurnInput): ChatRequest {
+  return {
+    provider: b.provider,
+    cwd: b.cwd,
+    resumeNativeId: b.nativeSessionId ?? undefined,
+    options: b.options,
+    configDir: b.configDir,
+    copilotUser: b.copilotUser,
+    ...turn
+  }
+}
+
 export function App(): JSX.Element {
   const [repos, setRepos] = useState<RepoGroup[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
@@ -86,23 +99,20 @@ export function App(): JSX.Element {
   const [control, setControl] = useState<SessionControl | null>(null)
   /** Where the open chat should land: the message a transcript-search hit named */
   const [anchor, setAnchor] = useState<TranscriptAnchor | null>(null)
-  const [activeTurn, setActiveTurn] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [creatingPr, setCreatingPr] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const selectedSessionIdRef = useRef<string | null>(null)
   selectedSessionIdRef.current = selectedSessionId
-  const activeTurnRef = useRef<string | null>(null)
-  activeTurnRef.current = activeTurn
-  /** Events can beat the sendChat() reply for fast-failing spawns — hold them briefly. */
-  const pendingEventsRef = useRef<ChatEvent[]>([])
-  /** The active turn was running before its session was opened: its stream waits on the
-   *  log being read, then skips the rows the log already holds (rejoin.ts). */
-  const rejoinRef = useRef<Rejoin | null>(null)
+  const bindingRef = useRef<ChatBinding | null>(null)
+  bindingRef.current = binding
+  /** Read at the click, so `openSession` — every sidebar row's handler — stays one function */
+  const accountsRef = useRef<AccountsSnapshot | null>(null)
+  accountsRef.current = accounts
+  const paletteOpenRef = useRef(false)
+  paletteOpenRef.current = paletteOpen
   /** Guards against a slow transcript load landing after the user switched sessions. */
   const openSeqRef = useRef(0)
-  /** Did this turn report an error? "finished" would be a lie if it did. */
-  const turnFailedRef = useRef(false)
   /**
    * The transcript on screen as read from disk: which session, and when. A session
    * run in a terminal keeps writing under this view, so on every index update the
@@ -111,9 +121,58 @@ export function App(): JSX.Element {
    * conversation with no indexed session yet.
    */
   const diskLogRef = useRef<{ readonly id: string; readonly at: number } | null>(null)
-  const armDiskLog = (id: string | null): void => {
+  const armDiskLog = useCallback((id: string | null): void => {
     diskLogRef.current = id === null ? null : { id, at: Date.now() }
-  }
+  }, [])
+
+  const { zoom, resetZoom } = useZoom()
+
+  // the rail's width once it has been dragged: it reaches the grid as `--rail`, which
+  // the stylesheet holds to the bounds (`.app`) — nothing stored, nothing set
+  const rail = useRailWidth()
+
+  const { step, followMint } = useNavHistory({ view, binding, sessionId: selectedSessionId })
+
+  /** What the agent is called in an announcement — the provider behind this chat. */
+  const speaker = useCallback(
+    () => PROVIDER_LABEL[bindingRef.current?.provider ?? 'claude'],
+    []
+  )
+
+  /**
+   * A turn named its session. Keep the tree highlight tracking the live conversation:
+   * row ids are `${provider}:${nativeId}`, and providers can mint a new session id on
+   * resume (claude forks one per turn) or on first turn of a new session.
+   */
+  const followSession = useCallback(
+    (nativeSessionId: string) => {
+      const provider = bindingRef.current?.provider
+      if (provider) {
+        const newId = `${provider}:${nativeSessionId}`
+        const oldId = selectedSessionIdRef.current
+        setSelectedSessionId(newId)
+        // history entries for this conversation follow the mint — restoring
+        // one later must resume the new id, not fork a pre-turn snapshot
+        followMint({ oldId, newId, nativeSessionId, binding: bindingRef.current })
+      }
+      setBinding((b) => (b ? { ...b, nativeSessionId } : b))
+    },
+    [followMint]
+  )
+
+  // a turn is over: the log on disk is the conversation again
+  const settleLog = useCallback(() => armDiskLog(selectedSessionIdRef.current), [armDiskLog])
+
+  const {
+    activeTurn,
+    activeTurnRef,
+    permissions,
+    answerPermission,
+    run: runTurn,
+    join: joinTurn,
+    logLanded,
+    cancel
+  } = useChatTurns({ speaker, onSession: followSession, onSettled: settleLog })
 
   useEffect(() => initBusySessions(), [])
   // the open session's agent is running in a terminal or its own app — its log is
@@ -184,22 +243,6 @@ export function App(): JSX.Element {
     return api.onIndexUpdated(load)
   }, [])
 
-  const { zoom, resetZoom } = useZoom()
-
-  // the rail's width once it has been dragged: it reaches the grid as `--rail`, which
-  // the stylesheet holds to the bounds (`.app`) — nothing stored, nothing set
-  const rail = useRailWidth()
-
-  const bindingRef = useRef<ChatBinding | null>(null)
-  bindingRef.current = binding
-  /** Read at the click, so `openSession` — every sidebar row's handler — stays one function */
-  const accountsRef = useRef<AccountsSnapshot | null>(null)
-  accountsRef.current = accounts
-  const paletteOpenRef = useRef(false)
-  paletteOpenRef.current = paletteOpen
-
-  const { step, followMint } = useNavHistory({ view, binding, sessionId: selectedSessionId })
-
   // PR statuses for the repo behind the open chat
   useEffect(() => {
     const root = binding?.repoRoot
@@ -213,174 +256,6 @@ export function App(): JSX.Element {
       dead = true
     }
   }, [binding?.repoRoot, indexVersion])
-
-  /** What the agent is called in an announcement — the provider behind this chat. */
-  const speaker = useCallback(
-    () => PROVIDER_LABEL[bindingRef.current?.provider ?? 'claude'],
-    []
-  )
-
-  /**
-   * Permission questions an ACP or Claude turn is blocked on. Kept out of the transcript on
-   * purpose: this is a thing that is true *now*, not a thing that happened, and the
-   * agent does not move again until one of them is answered.
-   */
-  const [permissions, setPermissions] = useState<PendingPermission[]>([])
-
-  /**
-   * A question a turn is now blocked on. A card belongs to the turn that asked: the chat
-   * shows only the active turn's (`turnPermissions`), so an answer can never land in
-   * another conversation's transcript, and one asked by a turn off screen waits for its
-   * own chat — a rejoined turn must still find it. It goes when its turn ends or is
-   * stopped. Request ids are the agent's own counter, so only turn and id together name
-   * one; a repeat replaces the earlier copy.
-   */
-  const askPermission = useCallback((ev: Extract<ChatEvent, { type: 'permission' }>) => {
-    setPermissions((list) => [
-      ...list.filter((a) => a.turnId !== ev.turnId || a.requestId !== ev.requestId),
-      {
-        turnId: ev.turnId,
-        requestId: ev.requestId,
-        toolName: ev.toolName,
-        preview: ev.preview ?? ev.detail,
-        detail: ev.detail,
-        options: ev.options
-      }
-    ])
-  }, [])
-
-  const answerPermission = useCallback((ask: PendingPermission, optionId: string) => {
-    const label = ask.options.find((o) => o.optionId === optionId)?.name ?? optionId
-    setPermissions((list) =>
-      list.filter((a) => a.turnId !== ask.turnId || a.requestId !== ask.requestId)
-    )
-    void api.respondPermission(ask.turnId, ask.requestId, optionId)
-    // the answer belongs in the transcript even though the question did not — it is
-    // what the rest of the turn was conditioned on, and a reader should hear it once
-    addChatNotice(`${label} — ${ask.preview}`)
-  }, [])
-
-  const applyEvent = useCallback(
-    (ev: ChatEvent) => {
-      if (ev.type === 'session') {
-        // keep the tree highlight tracking the live conversation: row ids are
-        // `${provider}:${nativeId}`, and providers can mint a new session id on
-        // resume (claude forks one per turn) or on first turn of a new session
-        const provider = bindingRef.current?.provider
-        if (provider) {
-          const newId = `${provider}:${ev.nativeSessionId}`
-          const oldId = selectedSessionIdRef.current
-          setSelectedSessionId(newId)
-          // history entries for this conversation follow the mint — restoring
-          // one later must resume the new id, not fork a pre-turn snapshot
-          followMint({ oldId, newId, nativeSessionId: ev.nativeSessionId, binding: bindingRef.current })
-        }
-        setBinding((b) => (b ? { ...b, nativeSessionId: ev.nativeSessionId } : b))
-      } else if (ev.type === 'text') {
-        streamChatText(ev.text)
-      } else if (ev.type === 'tool') {
-        addChatMessage({
-          role: 'assistant',
-          kind: 'tool_call',
-          toolName: ev.toolName,
-          text: ev.detail,
-          preview: ev.preview,
-          // a question with options reaches the transcript as an answerable card
-          ...(ev.asks ? { asks: ev.asks } : {}),
-          // a plan, to-dos or an edit opens in the Work panel as it streams
-          ...(ev.artifact ? { artifact: ev.artifact } : {})
-        })
-      } else if (ev.type === 'permission') {
-        // the prompt is not a transcript row, but it must land after what came before it
-        endChatStream({ keepText: true })
-        askPermission(ev)
-      } else if (ev.type === 'error') {
-        // said as it happens, even mid-turn: an error nobody hears is the bug
-        turnFailedRef.current = true
-        addChatNotice(ev.message, `${speaker()}: ${ev.message}`)
-      } else if (ev.type === 'done') {
-        endChatStream({ keepText: true })
-        setActiveTurn(null)
-        rejoinRef.current = null
-        // the log on disk is the conversation again — a terminal turn after this
-        // one shows up here as it lands
-        armDiskLog(selectedSessionIdRef.current)
-        // the turn is over; anything it was still asking has been answered or abandoned
-        setPermissions((list) => list.filter((a) => a.turnId !== ev.turnId))
-        announceChat(
-          turnFailedRef.current ? `${speaker()} finished with errors` : `${speaker()} finished`
-        )
-      }
-    },
-    [speaker, askPermission, followMint]
-  )
-
-  useEffect(() => {
-    return api.onChatEvent((ev: ChatEvent) => {
-      if (ev.turnId !== activeTurnRef.current) {
-        // a question is the one thing a turn off screen can't be allowed to lose: it
-        // waits for its conversation, and goes when the turn does
-        if (ev.type === 'permission') askPermission(ev)
-        else if (ev.type === 'done')
-          setPermissions((list) => list.filter((a) => a.turnId !== ev.turnId))
-        // spawn failures can emit before sendChat() resolves with the turn id
-        if (activeTurnRef.current === null) {
-          pendingEventsRef.current.push(ev)
-          if (pendingEventsRef.current.length > 100) pendingEventsRef.current.shift()
-        }
-        return
-      }
-      const rejoin = rejoinRef.current
-      for (const e of rejoin?.turnId === ev.turnId ? rejoin.offer(ev) : [ev]) applyEvent(e)
-    })
-  }, [applyEvent, askPermission])
-
-  /**
-   * Adopt a turn id and replay any events that arrived before we knew it.
-   *
-   * `rejoin` is a turn that was already running when its session was opened. Its rows
-   * are in the log being read, so the replay keeps only what a log never holds (session
-   * ids, permission questions, errors), and all of it waits on that read with whatever
-   * streams in meanwhile (`landLog`). One that ended while the window was away is left
-   * alone: the log is the whole story.
-   */
-  const beginTurn = useCallback(
-    (turnId: string, { rejoin = false }: { readonly rejoin?: boolean } = {}) => {
-      const buffered = pendingEventsRef.current.filter((e) => e.turnId === turnId)
-      pendingEventsRef.current = []
-      const stillLive = !buffered.some((e) => e.type === 'done')
-      if (rejoin && !stillLive) return
-      activeTurnRef.current = turnId
-      turnFailedRef.current = false
-      rejoinRef.current = null
-      setActiveTurn(stillLive ? turnId : null)
-      if (rejoin) {
-        const joined = rejoinStream(turnId)
-        for (const ev of buffered) if (ev.type !== 'text' && ev.type !== 'tool') joined.offer(ev)
-        rejoinRef.current = joined
-        return
-      }
-      announceChat(`${speaker()} is working…`)
-      for (const ev of buffered) applyEvent(ev)
-    },
-    [applyEvent, speaker]
-  )
-
-  /**
-   * A conversation is being opened: a turn of ours still running on it is rejoined —
-   * its stream and its Stop — rather than shown idle with Send open beside it. Anything
-   * else leaves the chat idle.
-   */
-  const joinTurn = useCallback(
-    (turnId: string | null) => {
-      // synchronously: the previous conversation's turn must not stream into this one
-      activeTurnRef.current = null
-      rejoinRef.current = null
-      setActiveTurn(null)
-      if (turnId !== null) beginTurn(turnId, { rejoin: true })
-    },
-    [beginTurn]
-  )
 
   /**
    * The opened session's log, once read: on screen, with a rejoined turn's stream let in
@@ -398,16 +273,38 @@ export function App(): JSX.Element {
       // a slower load for a previously opened session must not clobber this one
       if (seq !== openSeqRef.current) return
       if (messages) setChatLog(messages)
-      const rejoin = rejoinRef.current
-      if (!rejoin) {
-        if (messages) armDiskLog(id)
-        return
-      }
-      // said now, not as the turn was adopted: putting the log on screen resets the line
-      announceChat(`${speaker()} is working…`)
-      for (const ev of rejoin.logRead(messages ?? [])) applyEvent(ev)
+      // with no rejoined turn to let in behind it, the log on disk is the conversation
+      if (!logLanded(messages ?? []) && messages) armDiskLog(id)
     },
-    [applyEvent, speaker]
+    [logLanded, armDiskLog]
+  )
+
+  /**
+   * Put a conversation on screen in place of the one there: an empty log until its own is
+   * read, its binding, who drives it, where it should land, and a turn of ours still
+   * running on it rejoined (`turn`). Returns this open's sequence number, which the log
+   * read and any lookup behind it must still hold when they land.
+   */
+  const mountConversation = useCallback(
+    (c: {
+      readonly sessionId: string | null
+      readonly binding: ChatBinding
+      readonly control: SessionControl | null
+      readonly anchor: TranscriptAnchor | null
+      readonly turn: string | null
+    }): number => {
+      const seq = ++openSeqRef.current
+      setChatLog([])
+      diskLogRef.current = null
+      setSelectedSessionId(c.sessionId)
+      setControl(c.control)
+      setAnchor(c.anchor)
+      setBinding(c.binding)
+      setView({ kind: 'chat' })
+      joinTurn(c.turn)
+      return seq
+    },
+    [joinTurn]
   )
 
   const openSession = useCallback(
@@ -419,12 +316,6 @@ export function App(): JSX.Element {
         setView({ kind: 'chat' })
         return
       }
-      const seq = ++openSeqRef.current
-      setChatLog([])
-      diskLogRef.current = null
-      setSelectedSessionId(s.id)
-      setControl(s.roundtableId ? null : (s.control ?? null))
-      setAnchor(opts.anchor ?? null)
       // restore the account this session's source dir belongs to — otherwise a
       // reopened session would silently continue on the default account.
       // (SessionMeta.source is the source LABEL; copilot's historical user is
@@ -432,21 +323,25 @@ export function App(): JSX.Element {
       const acct = accountsRef.current?.accounts.find(
         (a) => a.provider === s.provider && a.label === s.source
       )
-      setBinding({
-        provider: s.provider,
-        cwd: s.cwd ?? '~',
-        nativeSessionId: s.nativeId,
-        title: s.title,
-        branch: s.gitBranch ?? null,
-        repoRoot: s.repo?.root ?? null,
-        configDir: acct && !acct.isDefault ? acct.path : undefined,
-        accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
-        continuedFrom: lineageRef(s.continuedFrom),
-        readOnly: s.roundtableId ? true : undefined
+      const seq = mountConversation({
+        sessionId: s.id,
+        binding: {
+          provider: s.provider,
+          cwd: s.cwd ?? '~',
+          nativeSessionId: s.nativeId,
+          title: s.title,
+          branch: s.gitBranch ?? null,
+          repoRoot: s.repo?.root ?? null,
+          configDir: acct && !acct.isDefault ? acct.path : undefined,
+          accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
+          continuedFrom: lineageRef(s.continuedFrom),
+          readOnly: s.roundtableId ? true : undefined
+        },
+        control: s.roundtableId ? null : (s.control ?? null),
+        anchor: opts.anchor ?? null,
+        // a seat's turn is its table's, and streams there — the seat's chat only reads
+        turn: s.roundtableId ? null : spawnedTurn(s.id)
       })
-      setView({ kind: 'chat' })
-      // a seat's turn is its table's, and streams there — the seat's chat only reads
-      joinTurn(s.roundtableId ? null : spawnedTurn(s.id))
       // the parent chip names the session, so it waits for the lookup — and a parent
       // the index no longer holds gets no chip at all rather than one that can't open
       if (s.parentId) {
@@ -458,7 +353,7 @@ export function App(): JSX.Element {
       }
       await landLog(seq, s.id)
     },
-    [joinTurn, landLog]
+    [mountConversation, landLog, activeTurnRef]
   )
 
   /** Land on a history entry. A chat entry that is still the bound conversation
@@ -474,25 +369,25 @@ export function App(): JSX.Element {
       const sameChat =
         entry.sessionId === selectedSessionIdRef.current &&
         (entry.sessionId !== null || entry.binding === bindingRef.current)
-      if (!sameChat) {
-        const seq = ++openSeqRef.current
-        setChatLog([])
-        diskLogRef.current = null
-        setSelectedSessionId(entry.sessionId)
+      if (sameChat) {
+        setView({ kind: 'chat' })
+        return
+      }
+      // an entry with no id is a new chat that never announced one: nothing to rejoin
+      // and no log to read
+      const id = entry.sessionId
+      const seq = mountConversation({
+        sessionId: id,
+        binding: entry.binding,
         // a chat that never announced an id is one Cockpit started; any other is read
         // back from the index as the id lands
-        setControl(entry.sessionId === null && !entry.binding.readOnly ? startedHere() : null)
-        setAnchor(null)
-        setBinding(entry.binding)
-        // an entry with no id is a new chat that never announced one: nothing to rejoin
-        // and no log to read
-        const id = entry.sessionId
-        joinTurn(id !== null && !entry.binding.readOnly ? spawnedTurn(id) : null)
-        if (id !== null) void landLog(seq, id)
-      }
-      setView({ kind: 'chat' })
+        control: id === null && !entry.binding.readOnly ? startedHere() : null,
+        anchor: null,
+        turn: id !== null && !entry.binding.readOnly ? spawnedTurn(id) : null
+      })
+      if (id !== null) void landLog(seq, id)
     },
-    [joinTurn, landLog]
+    [mountConversation, landLog]
   )
 
   const goBack = useCallback(() => {
@@ -544,9 +439,7 @@ export function App(): JSX.Element {
           v.kind === 'new' ||
           v.kind === 'handoff' ||
           v.kind === 'new-roundtable'
-            ? bindingRef.current
-              ? { kind: 'chat' }
-              : { kind: 'welcome' }
+            ? behind(bindingRef.current)
             : v
         )
       }
@@ -564,25 +457,14 @@ export function App(): JSX.Element {
       // the transcript shows attachments as one marker line per image
       addChatMessage({ role: 'user', kind: 'text', text: withImageMarks(prompt, images) })
       try {
-        const turnId = await api.sendChat({
-          provider: binding.provider,
-          cwd: binding.cwd,
-          prompt,
-          resumeNativeId: binding.nativeSessionId ?? undefined,
-          permissionMode,
-          options: binding.options,
-          configDir: binding.configDir,
-          copilotUser: binding.copilotUser,
-          images
-        })
-        beginTurn(turnId)
+        await runTurn(turnRequest(binding, { prompt, permissionMode, images }))
       } catch (err) {
         // a rejected invoke (e.g. copilot account no longer logged in) must not
         // leave the prompt looking sent with no reply and no error
         addChatNotice(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
       }
     },
-    [binding, activeTurn, elsewhere, control, beginTurn]
+    [binding, activeTurn, elsewhere, control, runTurn]
   )
 
   /** Take the open session over, or release it back to its agent. */
@@ -616,6 +498,28 @@ export function App(): JSX.Element {
     }
   }, [])
 
+  /**
+   * A conversation Cockpit starts itself — a new session in its own worktree, or a handoff
+   * in the source's — bound, on screen with its opening rows, and its first turn sent.
+   * Rejects as `sendChat` does; the form it was started from says why.
+   */
+  const launchChat = useCallback(
+    async (launch: {
+      readonly binding: ChatBinding
+      /** What the transcript opens with: notes, then the first prompt as the person wrote it */
+      readonly rows: readonly SessionMessage[]
+      readonly turn: TurnInput
+    }): Promise<void> => {
+      setSelectedSessionId(null)
+      setControl(startedHere())
+      setBinding(launch.binding)
+      setView({ kind: 'chat' })
+      setChatLog(launch.rows)
+      await runTurn(turnRequest(launch.binding, launch.turn))
+    },
+    [runTurn]
+  )
+
   /** New session flow: create worktree, bind chat, fire the first prompt. */
   const startSession = useCallback(
     async (req: StartSessionRequest): Promise<string | null> => {
@@ -624,42 +528,31 @@ export function App(): JSX.Element {
       setCreating(true)
       try {
         const ws = await api.createWorkspace(repo.root, name || branchHint(prompt))
-        setSelectedSessionId(null)
-        setControl(startedHere())
-        setBinding({
-          provider,
-          cwd: ws.cwd,
-          nativeSessionId: null,
-          // the task is what the user will look for — the branch already has its own chip
-          title: taskTitle(prompt) || ws.branch,
-          branch: ws.branch,
-          repoRoot: repo.root,
-          options,
-          configDir: account.configDir,
-          copilotUser: account.copilotUser,
-          accountLabel: account.display
-        })
-        setView({ kind: 'chat' })
-        setChatLog([
-          {
-            role: 'system',
-            kind: 'system',
-            text: `Worktree ready on ${ws.branch} — running isolated from your main checkout.`
+        await launchChat({
+          binding: {
+            provider,
+            cwd: ws.cwd,
+            nativeSessionId: null,
+            // the task is what the user will look for — the branch already has its own chip
+            title: taskTitle(prompt) || ws.branch,
+            branch: ws.branch,
+            repoRoot: repo.root,
+            options,
+            configDir: account.configDir,
+            copilotUser: account.copilotUser,
+            accountLabel: account.display
           },
-          ...(ws.warning ? [{ role: 'system', kind: 'system', text: ws.warning } as const] : []),
-          { role: 'user', kind: 'text', text: withImageMarks(prompt, images) }
-        ])
-        const turnId = await api.sendChat({
-          provider,
-          cwd: ws.cwd,
-          prompt,
-          permissionMode: mode,
-          options,
-          configDir: account.configDir,
-          copilotUser: account.copilotUser,
-          images
+          rows: [
+            {
+              role: 'system',
+              kind: 'system',
+              text: `Worktree ready on ${ws.branch} — running isolated from your main checkout.`
+            },
+            ...(ws.warning ? [{ role: 'system', kind: 'system', text: ws.warning } as const] : []),
+            { role: 'user', kind: 'text', text: withImageMarks(prompt, images) }
+          ],
+          turn: { prompt, permissionMode: mode, images }
         })
-        beginTurn(turnId)
         return null
       } catch (err) {
         return err instanceof Error ? err.message : String(err)
@@ -667,7 +560,7 @@ export function App(): JSX.Element {
         setCreating(false)
       }
     },
-    [beginTurn]
+    [launchChat]
   )
 
   /** Open the handoff form for the current session (needs a started, idle session). */
@@ -685,7 +578,7 @@ export function App(): JSX.Element {
         repoRoot: b.repoRoot
       }
     })
-  }, [])
+  }, [activeTurnRef])
 
   /**
    * A suggestion the open session's agent made, started as a session of its own: the
@@ -708,41 +601,30 @@ export function App(): JSX.Element {
       const { source, provider, briefing, mode, options, account } = req
       setCreating(true)
       try {
-        setSelectedSessionId(null)
-        setControl(startedHere())
-        setBinding({
-          provider,
-          cwd: source.cwd,
-          nativeSessionId: null,
-          title: source.title,
-          branch: source.branch,
-          repoRoot: source.repoRoot,
-          options,
-          configDir: account.configDir,
-          copilotUser: account.copilotUser,
-          accountLabel: account.display,
-          continuedFrom: { id: source.id, provider: source.provider }
-        })
-        setView({ kind: 'chat' })
-        setChatLog([
-          {
-            role: 'system',
-            kind: 'system',
-            text: `Continuing from ${PROVIDER_LABEL[source.provider]} in ${source.cwd} — same worktree, same branch.`
+        await launchChat({
+          binding: {
+            provider,
+            cwd: source.cwd,
+            nativeSessionId: null,
+            title: source.title,
+            branch: source.branch,
+            repoRoot: source.repoRoot,
+            options,
+            configDir: account.configDir,
+            copilotUser: account.copilotUser,
+            accountLabel: account.display,
+            continuedFrom: { id: source.id, provider: source.provider }
           },
-          { role: 'user', kind: 'text', text: briefing }
-        ])
-        const turnId = await api.sendChat({
-          provider,
-          cwd: source.cwd,
-          prompt: briefing,
-          permissionMode: mode,
-          options,
-          configDir: account.configDir,
-          copilotUser: account.copilotUser,
-          handoffFrom: source.id
+          rows: [
+            {
+              role: 'system',
+              kind: 'system',
+              text: `Continuing from ${PROVIDER_LABEL[source.provider]} in ${source.cwd} — same worktree, same branch.`
+            },
+            { role: 'user', kind: 'text', text: briefing }
+          ],
+          turn: { prompt: briefing, permissionMode: mode, handoffFrom: source.id }
         })
-        beginTurn(turnId)
         return null
       } catch (err) {
         return err instanceof Error ? err.message : String(err)
@@ -750,7 +632,7 @@ export function App(): JSX.Element {
         setCreating(false)
       }
     },
-    [beginTurn]
+    [launchChat]
   )
 
   /** Lineage chip navigation: resolve the source session and open it. */
@@ -768,22 +650,6 @@ export function App(): JSX.Element {
     setSelectedSessionId(null)
     setView({ kind: 'roundtable', id })
   }, [])
-
-  const cancel = useCallback(() => {
-    if (activeTurn) {
-      void api.cancelChat(activeTurn)
-      // the killed turn's terminal `done` no longer matches activeTurnRef, so do
-      // its cleanup locally: stop the shimmer and drop any not-yet-flushed text
-      setActiveTurn(null)
-      rejoinRef.current = null
-      setPermissions((list) => list.filter((a) => a.turnId !== activeTurn))
-      endChatStream({ keepText: false })
-      // as a turn's own end does: the log on disk is the conversation again, or the
-      // transcript stops following it until the session is reopened
-      armDiskLog(selectedSessionIdRef.current)
-      announceChat(`${speaker()} stopped`)
-    }
-  }, [activeTurn, speaker])
 
   const createPr = useCallback(async () => {
     // in-flight guard: a double-click must not race two `gh pr create` runs
@@ -804,10 +670,13 @@ export function App(): JSX.Element {
 
   const openUrl = useCallback((url: string) => void api.openExternal(url), [])
 
+  /** Close a view: back to the conversation still bound, else home. */
+  const backOut = useCallback(() => setView(behind(bindingRef.current)), [])
+
   /** Nav icons are stateful: opening the view you're already on backs out of it. */
   const toggleView = useCallback((kind: 'settings' | 'extensions' | 'profile' | 'cleanup') => {
     setView((v) => {
-      if (v.kind === kind) return bindingRef.current ? { kind: 'chat' } : { kind: 'welcome' }
+      if (v.kind === kind) return behind(bindingRef.current)
       return kind === 'extensions' ? { kind, repoRoot: null } : { kind }
     })
   }, [])
@@ -870,13 +739,6 @@ export function App(): JSX.Element {
     return off
   }, [])
 
-  // the questions the turn on screen is blocked on; another conversation's turn keeps
-  // its own, for when that conversation is opened and its turn rejoined
-  const turnPermissions = useMemo(
-    () => permissions.filter((p) => p.turnId === activeTurn),
-    [permissions, activeTurn]
-  )
-
   // hidden projects stay out of pickers too — the sidebar's eye popover still lists them
   const visibleRepos = useMemo(() => repos.filter((r) => !r.hidden), [repos])
   // the repo the window is on — what a transcript search scopes to before it widens.
@@ -935,21 +797,17 @@ export function App(): JSX.Element {
         activeView={view.kind}
       />
       {view.kind === 'cleanup' ? (
-        <CleanupView onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
+        <CleanupView onClose={backOut} />
       ) : view.kind === 'profile' ? (
-        <ProfileView onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })} />
+        <ProfileView onClose={backOut} />
       ) : view.kind === 'settings' ? (
-        <Settings
-          section={view.section}
-          openCount={view.openCount}
-          onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
-        />
+        <Settings section={view.section} openCount={view.openCount} onClose={backOut} />
       ) : view.kind === 'extensions' ? (
         <AiSetup
           repos={repos}
           repoRoot={view.repoRoot}
           onScope={(repoRoot) => setView({ kind: 'extensions', repoRoot })}
-          onClose={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
+          onClose={backOut}
         />
       ) : view.kind === 'new' ? (
         <NewSession
@@ -959,21 +817,12 @@ export function App(): JSX.Element {
           initialPrompt={view.draft}
           initialImages={view.draftImages}
           onStart={startSession}
-          onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
+          onCancel={backOut}
         />
       ) : view.kind === 'handoff' ? (
-        <HandoffView
-          source={view.source}
-          busy={creating}
-          onStart={startHandoff}
-          onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
-        />
+        <HandoffView source={view.source} busy={creating} onStart={startHandoff} onCancel={backOut} />
       ) : view.kind === 'new-roundtable' ? (
-        <NewRoundtable
-          repos={visibleRepos}
-          onCreated={openRoundtable}
-          onCancel={() => setView(binding ? { kind: 'chat' } : { kind: 'welcome' })}
-        />
+        <NewRoundtable repos={visibleRepos} onCreated={openRoundtable} onCancel={backOut} />
       ) : view.kind === 'roundtable' ? (
         // keyed: one table's seat picks, open limits editor and draft must never
         // carry over to the next — Save there wrote table A's limits onto table B
@@ -1005,7 +854,7 @@ export function App(): JSX.Element {
           onOpenHandoff={openHandoff}
           onStartFollowUp={startFollowUp}
           onOpenLineage={(id) => void openLineage(id)}
-          permissions={turnPermissions}
+          permissions={permissions}
           onAnswerPermission={answerPermission}
           control={control}
           onSetHolder={setHolder}
