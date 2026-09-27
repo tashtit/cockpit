@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { SelectCheck, SelectChevron } from './logos'
 import { useDismissable } from './popover'
 
-type SelectOption = {
+export type SelectOption = {
   readonly value: string
   readonly label: string
   /** Right-aligned dim annotation (e.g. a count or state) */
