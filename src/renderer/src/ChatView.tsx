@@ -8,7 +8,7 @@ import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { useChatKeys, useChatLog, useChatStatus } from './chat-log'
 import { CopyPath } from './CopyPath'
-import { MODES, savedMode } from './agent-choice'
+import { MODES, rememberMode, savedMode } from './agent-choice'
 import { cwdLabel } from '../../shared/library'
 import { holdSentence, holderName, placeOf } from './hold'
 import { HoldBar } from './HoldBar'
@@ -707,7 +707,7 @@ export function ChatView({
                   options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
                   onChange={(v) => {
                     setMode(v as PermissionMode)
-                    window.localStorage.setItem('cockpit:mode', v)
+                    rememberMode(v as PermissionMode)
                   }}
                 />
                 {busy ? (

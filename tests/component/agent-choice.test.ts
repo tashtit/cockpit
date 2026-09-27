@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   accountOptions,
   rememberChoice,
+  rememberMode,
   savedAccount,
   savedMode,
   savedProvider
@@ -114,6 +115,15 @@ describe('storage that refuses access', () => {
       expect(savedProvider()).toBe('claude')
       expect(savedMode()).toBe('auto-edit')
       expect(savedAccount(snap, 'claude')?.key).toBe('/home/dev/.claude')
+    } finally {
+      restore()
+    }
+  })
+
+  it('never throws from a mode picked in a chat that cannot be remembered', () => {
+    const restore = refuseStorage()
+    try {
+      expect(() => rememberMode('yolo')).not.toThrow()
     } finally {
       restore()
     }

@@ -129,6 +129,11 @@ export function savedProvider(): Provider {
   return PROVIDERS.find((p) => p === saved) ?? 'claude'
 }
 
+/** Remember the permission mode picked, for every form (and the next chat's composer) to open on. */
+export function rememberMode(mode: PermissionMode): void {
+  writeStored(MODE_KEY, mode)
+}
+
 /** Remember the account picked for `provider`, for every form to open on. */
 export function rememberAccount(provider: Provider, key: string): void {
   writeStored(accountStorageKey(provider), key)
@@ -141,7 +146,7 @@ export function rememberChoice(choice: {
   readonly account: AccountOption | undefined
 }): void {
   writeStored(PROVIDER_KEY, choice.provider)
-  writeStored(MODE_KEY, choice.mode)
+  rememberMode(choice.mode)
   if (choice.account) rememberAccount(choice.provider, choice.account.key)
 }
 
