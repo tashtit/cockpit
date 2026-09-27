@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type {
   CleanupBlock,
@@ -41,7 +41,7 @@ import {
 import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText } from './env'
 import { sessionLogFiles } from './parsers/util'
-import { isUnder } from './paths'
+import { isUnder, realOrSelf } from './paths'
 
 /**
  * Cross-agent cleanup: the one place that answers "what has gone stale, across
@@ -321,11 +321,7 @@ async function measureDir(path: string, timeoutMs = DU_TIMEOUT_MS): Promise<numb
  * sessions inside it never match.
  */
 function realish(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    return resolve(path)
-  }
+  return realOrSelf(resolve(path))
 }
 
 /** `realish` for one survey or one action: each distinct path resolved once, then remembered. */

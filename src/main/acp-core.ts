@@ -2,6 +2,7 @@ import type { AcpPermissionOption, ChatEvent, PermissionMode } from '../shared/t
 import { ACP_PROTOCOL_VERSION } from '../shared/acp'
 import { capText, jsonText, shellPreview, truncate } from './parsers/util'
 import { acpDiffArtifact, acpPlanArtifact } from './parsers/artifacts'
+import { shellWord } from './shell-quote'
 
 /**
  * The IO-free half of the ACP client: everything that turns protocol JSON into Cockpit's
@@ -191,11 +192,6 @@ function commandLine(command: unknown): string | null {
     return command.map(shellWord).join(' ')
   }
   return null
-}
-
-/** One argument as a shell would have to be given it: bare when it can be, quoted otherwise. */
-function shellWord(arg: string): string {
-  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, "'\\''")}'`
 }
 
 /** Tool-call kinds `auto-edit` answers by itself — the ones that only touch files. */

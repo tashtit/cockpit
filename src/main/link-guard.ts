@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { isUnder } from './paths'
+import { isUnder, realOrSelf } from './paths'
 
 /*
  * Writing into a directory someone else filled.
@@ -17,15 +17,6 @@ export function isSymlink(path: string): boolean {
     return lstatSync(path).isSymbolicLink()
   } catch {
     return false
-  }
-}
-
-/** `path` with its links followed as far as they lead — itself when nothing is there. */
-function realOrSelf(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    return path
   }
 }
 

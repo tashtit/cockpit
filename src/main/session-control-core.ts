@@ -1,7 +1,6 @@
 import { resolve } from 'node:path'
 import type { Provider, SessionControl, SessionHold, SessionHolder } from '../shared/types'
-import { CONFIG_HOME_VAR } from '../shared/providers'
-import { shQuote } from './agent-cli-core'
+import { shQuote, withConfigHome } from './shell-quote'
 import { isUnder } from './paths'
 
 /**
@@ -111,7 +110,7 @@ export function resumeLine(provider: Provider, nativeId: string, configDir?: str
         ? `codex resume ${id}`
         : // an optional-value flag: joined, so the id can never be read as a prompt
           `copilot --resume=${id}`
-  return configDir === undefined ? cmd : `${CONFIG_HOME_VAR[provider]}=${shQuote(configDir)} ${cmd}`
+  return withConfigHome(provider, cmd, configDir)
 }
 
 /**

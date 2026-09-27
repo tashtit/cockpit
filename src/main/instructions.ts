@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { InstructionFile, InstructionsState } from '../shared/types'
 import {
@@ -16,6 +16,7 @@ import {
 } from './instructions-core'
 import { loadConfig, saveConfig } from './config'
 import { resolveWithin } from './link-guard'
+import { realOrSelf } from './paths'
 import { replaceFile } from './replace-file'
 
 /* IO around instructions-core: baseline storage (cockpit config) + file fan-out. */
@@ -82,22 +83,13 @@ function assertWritable(repoRoot: string | null, path: string): void {
   if (repoRoot !== null) resolveWithin(path, repoRoot, 'the repository')
 }
 
-/** Where a path leads through a symlink — or the path itself when it is not there. */
-function realPathOf(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    return path
-  }
-}
-
 /** The scope's files as an apply sees them: read once, with links and imports folded. */
 function readScope(repoRoot: string | null): FoldedTarget[] {
   return foldTargets(
     instructionTargets(repoRoot).map((target) => ({
       target,
       raw: readTarget(target.path),
-      real: realPathOf(target.path)
+      real: realOrSelf(target.path)
     }))
   )
 }
