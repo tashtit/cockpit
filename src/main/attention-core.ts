@@ -5,6 +5,7 @@ import type {
   AttentionPr,
   AttentionPrefs,
   AttentionTarget,
+  AttentionTone,
   ChatEvent,
   CleanupNotice,
   Landing,
@@ -144,20 +145,24 @@ export type Notice = {
   readonly keys: readonly string[]
 }
 
-/** The sounds a landing can make: a turn done, an agent waiting on you, something gone wrong. */
-export type Tone = 'finish' | 'asks' | 'fail'
-
 /**
  * A burst plays one sound, the most urgent of its tones — the order the Dock badge and
  * the board already rank by: a question, then a failure or a red PR, then an ending.
  */
-const TONE_ORDER: readonly Tone[] = ['asks', 'fail', 'finish']
+const TONE_ORDER: readonly AttentionTone[] = ['asks', 'fail', 'finish']
+
+/** A tone named by the renderer (the Settings preview) — checked, never trusted. */
+export function asAttentionTone(raw: unknown): AttentionTone {
+  const tone = TONE_ORDER.find((t) => t === raw)
+  if (!tone) throw new Error(`There is no ${String(raw).slice(0, 40)} sound.`)
+  return tone
+}
 
 /** What a flush asks the IO layer to do. */
 export type Flush = {
   /** null when notifications are off, or nothing is news any more */
   readonly notice: Notice | null
-  readonly sound: Tone | null
+  readonly sound: AttentionTone | null
 }
 
 /** A turn followed from spawn to exit — mutable accumulator on purpose. */
@@ -202,7 +207,7 @@ type Pending = {
    * Which sound speaks for it — a question has its own, a red PR sounds like a failure
    * without being one, and housekeeping makes none
    */
-  readonly tone: Tone | null
+  readonly tone: AttentionTone | null
   readonly group: Group
 }
 

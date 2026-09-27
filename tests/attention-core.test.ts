@@ -7,6 +7,7 @@ import {
   LANDING_TTL_MS,
   OBSERVED_ECHO_MS,
   WAIT_TTL_MS,
+  asAttentionTone,
   elapsedLabel,
   failureSnippet,
   outcomeSnippet,
@@ -1077,5 +1078,14 @@ describe('AttentionTracker — cleanup reminders', () => {
       sessions: 0,
       bytes: 0
     })
+  })
+})
+
+describe('asAttentionTone', () => {
+  it('passes the three sounds and refuses anything else the renderer names', () => {
+    for (const tone of ['finish', 'asks', 'fail']) expect(asAttentionTone(tone)).toBe(tone)
+    for (const raw of ['Glass', '', null, undefined, 3, { tone: 'asks' }, '../../etc/passwd']) {
+      expect(() => asAttentionTone(raw)).toThrow(/There is no/)
+    }
   })
 })

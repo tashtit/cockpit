@@ -50,7 +50,7 @@ Click any of them to bring Cockpit forward on that session (a cleanup reminder o
 
 ## Settings
 
-**Settings › Notifications** has a switch for each of the three and a **Send a test notification** button, which posts a sample and reports what macOS did with it. These three cover every kind of news alike — there is no per-kind switch.
+**Settings › Notifications** has a switch for each of the three and a **Send a test notification** button, which posts a sample and reports what macOS did with it. Under it, **Hear each sound** plays the finished, asks-you and failed sounds one at a time, whether Sound is on or not. These three cover every kind of news alike — there is no per-kind switch.
 
 A fourth, **Cleanup reminders**, decides whether the daily cleanup check runs at all. With it off, Cockpit never scans in the background; with notifications off but reminders on, Cleanup still gets its dot in the sidebar.
 

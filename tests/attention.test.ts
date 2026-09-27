@@ -206,6 +206,17 @@ describe('AttentionDesk', () => {
     expect(opened).toEqual([null])
     desk.dispose()
   })
+
+  it('the Settings preview plays the sound asked for, whatever the Sound switch says — and nothing else', () => {
+    const { desk, seen } = makeDesk(file, {
+      prefs: { notifications: true, sound: false, badge: true, cleanup: true }
+    })
+    desk.play('asks')
+    desk.play('fail')
+    expect(seen.sounds).toEqual(['asks', 'fail'])
+    expect(seen).toMatchObject({ banners: [], badges: [], bounces: 0 })
+    desk.dispose()
+  })
 })
 
 describe('AttentionDesk — observed turns and pull requests', () => {

@@ -134,6 +134,12 @@ seventh.
   build, then a second note line `macOS said: <code>…</code>` verbatim), or no answer yet
   (the permission prompt). Before a test it says a development run starts the switches off.
   The test posts a sample regardless of the switch — pressing the button is the request.
+  Under it, a "Hear each sound" `.source-row` whose `.source-note` says it plays whether
+  Sound is on or not, and whose `.source-health` is a `role="group"` named by the row's
+  label (so each key reads in context) of three `.btn-ghost.small` keys — Finished · Asks
+  you · Failed, the order a turn meets them. Each plays its sound once (`attention:play`),
+  whatever the Sound switch says for the same reason, and announces "Played the sound for
+  …" through the `role="status"` region; the key's `title` says the same.
 - GitHub section: the second group on the Accounts tab — it is an account, and the
   sidebar footer already shows the two together; it never gets a tab of its own. One row — `OrgIcon` · "gh CLI" · `@login`
   acct-chip (or `.missing`) · `.source-note` prose (NOT mono; mono is machine identifiers

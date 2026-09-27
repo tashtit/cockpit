@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { AttentionPrefs, NotificationDelivery } from '../../shared/types'
+import type { AttentionPrefs, AttentionTone, NotificationDelivery } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 
@@ -28,6 +28,17 @@ const SWITCHES: ReadonlyArray<{
     label: 'Cleanup reminders',
     note: 'A daily look at what has gone idle past Cleanup’s threshold. When something new has, Cleanup gets a dot in the sidebar and you get a notification — at most once a week, never with a sound.'
   }
+]
+
+/** The preview keys, in the order a turn meets them; `about` finishes "the sound for …" */
+const TONES: ReadonlyArray<{
+  readonly tone: AttentionTone
+  readonly label: string
+  readonly about: string
+}> = [
+  { tone: 'finish', label: 'Finished', about: 'a finished turn' },
+  { tone: 'asks', label: 'Asks you', about: 'an agent asking you' },
+  { tone: 'fail', label: 'Failed', about: 'a failure or a red pull request' }
 ]
 
 type TestState = 'idle' | 'sending' | NotificationDelivery
@@ -97,6 +108,15 @@ export function NotificationsSection({
     onStatus(testLine(result, packaged))
   }
 
+  const hear = async (t: (typeof TONES)[number]): Promise<void> => {
+    try {
+      await api.playSound(t.tone)
+      onStatus(`Played the sound for ${t.about}`)
+    } catch (err) {
+      onStatus(`Could not play the sound: ${ipcErrorText(err)}`)
+    }
+  }
+
   return (
     <>
       <p className="ns-hint ns-prose">
@@ -149,6 +169,27 @@ export function NotificationsSection({
             >
               {test === 'sending' ? 'Sending…' : 'Send a test notification'}
             </button>
+          </div>
+        </li>
+        <li className="source-row">
+          <div className="source-body">
+            <div className="source-label" id="attn-hear-label">
+              Hear each sound
+            </div>
+            <div className="source-note">Plays it once, whether Sound is on or not.</div>
+          </div>
+          {/* the group lends each key its context: "Hear each sound, Asks you" */}
+          <div className="source-health" role="group" aria-labelledby="attn-hear-label">
+            {TONES.map((t) => (
+              <button
+                key={t.tone}
+                className="btn-ghost small"
+                title={`Play the sound for ${t.about}`}
+                onClick={() => void hear(t)}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
         </li>
       </ul>

@@ -171,6 +171,7 @@ export function freshApi(): CockpitApi {
     getAttentionPrefs: vi.fn(async () => ({ notifications: true, sound: true, badge: true, cleanup: true })),
     setAttentionPrefs: vi.fn(async (prefs) => prefs),
     testNotification: vi.fn(async () => ({ status: 'shown' as const })),
+    playSound: vi.fn(async () => {}),
     setAttentionFocus: vi.fn(async () => {}),
     getLandings: vi.fn(async () => []),
     onLandings: vi.fn(() => () => {}),
