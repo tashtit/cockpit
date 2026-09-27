@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   accountOptions,
+  chosenAccount,
   rememberChoice,
   rememberMode,
   savedAccount,
@@ -80,6 +81,22 @@ describe('savedAccount', () => {
   it('ignores a stale saved key that no longer resolves', () => {
     window.localStorage.setItem('cockpit:account:claude', '/gone/.claude')
     expect(savedAccount(snap, 'claude')?.key).toBe('/home/dev/.claude')
+  })
+})
+
+describe('chosenAccount', () => {
+  it('runs as the account picked on the form', () => {
+    expect(chosenAccount(snap, 'claude', '/home/dev/.claude-work')?.key).toBe('/home/dev/.claude-work')
+  })
+
+  it('falls back to the saved account when nothing is picked, or the pick is gone', () => {
+    window.localStorage.setItem('cockpit:account:claude', '/home/dev/.claude-work')
+    expect(chosenAccount(snap, 'claude', undefined)?.key).toBe('/home/dev/.claude-work')
+    expect(chosenAccount(snap, 'claude', '/gone/.claude')?.key).toBe('/home/dev/.claude-work')
+  })
+
+  it('never takes a pick made for another agent', () => {
+    expect(chosenAccount(snap, 'copilot', '/home/dev/.claude-work')?.key).toBe('/home/dev/.copilot|octo')
   })
 })
 

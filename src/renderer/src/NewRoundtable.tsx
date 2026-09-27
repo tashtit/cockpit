@@ -21,7 +21,7 @@ import {
 } from '../../shared/roundtable'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
-import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './agent-choice'
+import { accountOptions, AGENT_BLURB, chosenAccount, type AccountOption } from './agent-choice'
 import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { Select } from './Select'
@@ -153,8 +153,7 @@ export function NewRoundtable({
   }, [chosenEndpoints.join('\n')])
 
   const seatAccount = (seat: SeatDraft): AccountOption | undefined =>
-    accountOptions(accounts, seat.provider).find((o) => o.key === seat.account) ??
-    savedAccount(accounts, seat.provider)
+    chosenAccount(accounts, seat.provider, seat.account)
   const agentKey = (seat: SeatDraft): string =>
     `${seat.provider}|${seatAccount(seat)?.configDir ?? ''}`
   // one listing per agent and account home the table uses, fetched once

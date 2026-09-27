@@ -101,11 +101,24 @@ export function accountOptions(snap: AccountsSnapshot | null, provider: Provider
   return out
 }
 
-/** The single account-resolution rule: the user's saved choice, else the first configured. */
+/** The account a form opens on for `p`: the user's saved choice, else the first configured. */
 export function savedAccount(snap: AccountsSnapshot | null, p: Provider): AccountOption | undefined {
   const opts = accountOptions(snap, p)
   const saved = readStored(accountStorageKey(p))
   return opts.find((o) => o.key === saved) ?? opts[0]
+}
+
+/**
+ * The account a start runs as: the one picked on the form (`key`, an `AccountOption.key`)
+ * while that agent still offers it, else the saved one, else the first. A start form's
+ * agent and every roundtable seat resolve theirs by this one rule.
+ */
+export function chosenAccount(
+  snap: AccountsSnapshot | null,
+  p: Provider,
+  key: string | null | undefined
+): AccountOption | undefined {
+  return accountOptions(snap, p).find((o) => o.key === key) ?? savedAccount(snap, p)
 }
 
 /** The one permission-mode table — every form and ChatView read it, so wording never drifts. */
@@ -189,7 +202,7 @@ export function useAgentChoice(initial: () => Provider = savedProvider): AgentCh
   const [accountKey, setAccountKey] = useState<string | null>(null)
 
   const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
-  const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider)
+  const account = chosenAccount(accounts, provider, accountKey)
 
   useEffect(() => {
     setAccountKey(null)
