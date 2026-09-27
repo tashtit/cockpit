@@ -14,7 +14,7 @@ Every `Record<Provider, …>` and every provider-keyed `as const` map refuses to
 - `src/shared/library.ts` — `PanelReport.cells`
 - `src/shared/roundtable.ts` — `SEAT_NAME`
 - `src/renderer/src/logos.tsx` — `PROVIDER_LABEL`, plus the SVG mark itself
-- `src/renderer/src/NewSession.tsx` — `MODEL_SUGGESTIONS`, `AGENT_BLURB`
+- `src/renderer/src/agent-choice.ts` — `AGENT_BLURB`
 
 `Partial<Record<Provider, …>>` sites compile without the key; they need no edit.
 

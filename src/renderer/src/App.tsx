@@ -509,6 +509,12 @@ export function App(): JSX.Element {
       readonly rows: readonly SessionMessage[]
       readonly turn: TurnInput
     }): Promise<void> => {
+      // a session opened just before is still reading its log: that read, its parent
+      // lookup and a disk-log refresh must all land nowhere now, and its search anchor
+      // belongs to it — the same reset mountConversation gives an opened session
+      openSeqRef.current++
+      diskLogRef.current = null
+      setAnchor(null)
       setSelectedSessionId(null)
       setControl(startedHere())
       setBinding(launch.binding)

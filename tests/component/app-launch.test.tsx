@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../src/renderer/src/App'
-import type { AccountsSnapshot, ChatEvent, RepoGroup } from '../../src/shared/types'
+import type { AccountsSnapshot, ChatEvent, RepoGroup, SessionMessage, SessionMeta } from '../../src/shared/types'
 
 /**
  * The conversations Cockpit starts itself: a new session in a worktree of its own, and a
@@ -97,6 +97,46 @@ describe('App starts conversations of its own', () => {
       handoffFrom: 'claude:n1'
     })
     expect(vi.mocked(window.cockpit.sendChat).mock.calls[1][0].resumeNativeId).toBeUndefined()
+  })
+
+  it('a session still reading its log when a new one starts never lands over it', async () => {
+    wire()
+    const opened: SessionMeta = {
+      id: 'claude:a',
+      provider: 'claude',
+      nativeId: 'a',
+      source: 'claude-default',
+      title: 'fix the login flake',
+      cwd: '/home/dev/rocket',
+      logBranch: 'cockpit/fix-login',
+      gitBranch: 'cockpit/fix-login',
+      startedAt: 1700000000000,
+      updatedAt: 1700000600000,
+      messageCount: 4,
+      sourcePath: '/home/dev/.claude/projects/p/a.jsonl',
+      repo: { key: repo.key, name: repo.name, fullName: repo.fullName, root: repo.root }
+    }
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [opened] })
+    let land: (rows: SessionMessage[]) => void = () => {}
+    vi.mocked(window.cockpit.getSessionMessages).mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve
+      })
+    )
+    render(<App />)
+    const board = await screen.findByRole('region', { name: 'Session board' })
+    await userEvent.click(await within(board).findByRole('button', { name: /fix the login flake/ }))
+    // straight on to a new task, before the opened session's log has been read
+    fireEvent.keyDown(window, { key: 'n', metaKey: true })
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Task description' }), 'add dark mode')
+    const start = screen.getByRole('button', { name: 'Start with Claude' })
+    await waitFor(() => expect(start).toBeEnabled())
+    await userEvent.click(start)
+    await screen.findByText(/Worktree ready on cockpit\/add-dark-mode/)
+
+    await act(async () => land([{ role: 'assistant', kind: 'text', text: 'the old session, read late' }]))
+    expect(screen.queryByText('the old session, read late')).not.toBeInTheDocument()
+    expect(screen.getByText(/Worktree ready on cockpit\/add-dark-mode/)).toBeInTheDocument()
   })
 
   it("says why a worktree could not be made in main's words, on the form it was started from", async () => {
