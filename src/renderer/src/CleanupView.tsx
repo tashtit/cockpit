@@ -16,7 +16,7 @@ import {
   worktreeFilters,
   worktreeValues
 } from './cleanup-filters'
-import { usePicks } from './cleanup-picks'
+import { usePicks } from './use-picks'
 import {
   GroupHead,
   ProcessGroup,

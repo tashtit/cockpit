@@ -6,7 +6,7 @@ import type {
   StaleTable,
   StaleWorktree
 } from '../../shared/types'
-import type { Picks } from './cleanup-picks'
+import type { Picks } from './use-picks'
 import { SeatCluster } from './SeatCluster'
 import {
   BranchChip,

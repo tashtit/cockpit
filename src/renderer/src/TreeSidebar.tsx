@@ -11,7 +11,7 @@ import type {
 import { cleanupCounts, cleanupHeadline } from '../../shared/cleanup'
 import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
-import { useCleanupNotice } from './cleanup-notice'
+import { useCleanupNotice } from './use-cleanup-notice'
 import { heldSessions, setHolderFilter, useHolderFilter } from './hold'
 import { ProjectFilter } from './ProjectFilter'
 import { RailResizer } from './RailResizer'

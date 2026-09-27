@@ -1,7 +1,7 @@
 import { useMemo, useState, type JSX, type ReactNode } from 'react'
 import { formatBytes } from '../../shared/cleanup'
 import type { Selections, SetSelections } from './cleanup-filters'
-import { usePicks, type Picks } from './cleanup-picks'
+import { usePicks, type Picks } from './use-picks'
 import { GroupHead, type RowProps } from './CleanupRows'
 import { FilterBar, matchesFilters, type FilterGroup } from './FilterBar'
 import { plural } from './format'

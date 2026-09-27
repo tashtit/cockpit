@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { PermissionMode, PrStatus, SessionControl, SessionHolder } from '../../shared/types'
 import { api } from './api'
-import { useTranscriptAnchor } from './anchor-scroll'
+import { useTranscriptAnchor } from './use-transcript-anchor'
 import { AskPicker } from './AskPicker'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import { AttachRow, useImageAttachments } from './attachments'
@@ -36,7 +36,7 @@ import { PromptRail } from './PromptRail'
 import { foldToolRuns, isPendingAsk, transcriptRows } from './transcript-rows'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
 import { useLoaded } from './use-loaded'
-import { useWorkPanel } from './work-panel-state'
+import { useWorkPanel } from './use-work-panel'
 import { WorkPanel } from './WorkPanel'
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too — the
@@ -193,7 +193,7 @@ export function ChatView({
   const pendingAsk = lastRow && isPendingAsk(lastRow) && !binding?.readOnly ? lastRow : undefined
   const pendingPlanKey = pendingAsk?.m.artifact?.kind === 'plan' ? pendingAsk.key : null
 
-  // the agent's plan, to-dos and edits beside the conversation (work-panel-state.ts) — one
+  // the agent's plan, to-dos and edits beside the conversation (use-work-panel.ts) — one
   // panel beside the conversation at a time, so opening it closes the side chat
   const { work, workable, model, workFocus, pendingPlanAt, openWork, closeWork, hideWork, workTab, toggleWork } =
     useWorkPanel({ log, keys, cwd: binding?.cwd, pendingPlanKey, onOpen: () => setSide(null) })

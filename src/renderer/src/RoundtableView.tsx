@@ -18,7 +18,7 @@ import { looksSignedOut } from '../../shared/agent-auth'
 import { SignInFix } from './SignInFix'
 import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { cycleReplies, uiSeatName } from './roundtable-seats'
-import { useRoundtableStream } from './roundtable-stream'
+import { useRoundtableStream } from './use-roundtable-stream'
 import { RoundtableTable } from './RoundtableTable'
 import { Select } from './Select'
 import { fmtElapsed, plural } from './format'
@@ -57,7 +57,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   const atBottomRef = useRef(true)
   const chatWidth = useChatWidth()
 
-  // the table as main streams it (roundtable-stream.ts); once loaded, the round cap
+  // the table as main streams it (use-roundtable-stream.ts); once loaded, the round cap
   // editor starts from the table's own and the composer takes focus
   const { rt, setRt, entries, running, live, cycle, queued, note, setNote } = useRoundtableStream(id, (snap) => {
     setRoundsDraft(snap.maxRounds)
