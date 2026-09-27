@@ -102,7 +102,8 @@ export function parseAsks(toolName: string, input: unknown): AskPrompt[] | undef
  * The message a set of picks sends. Cockpit answers by continuing the session, so
  * this is the user's next prompt — it repeats each question so the answer stands on
  * its own in a transcript the agent resumes from. Questions left unpicked are left
- * out; nothing picked at all sends nothing.
+ * out; nothing picked at all sends nothing. A pick may be the person's own words
+ * (the card's Other), several lines long: those stay inside their question's item.
  */
 export function formatAskAnswer(
   prompts: readonly AskPrompt[],
@@ -111,7 +112,10 @@ export function formatAskAnswer(
   const lines = prompts
     .map((p, i) => ({ p, picked: (picks[i] ?? []).filter((l) => l.trim()) }))
     .filter(({ picked }) => picked.length > 0)
-    .map(({ p, picked }) => `- ${p.question} → ${picked.join(', ')}`)
+    .map(({ p, picked }) => {
+      const said = picked.map((l) => l.trim().replace(/\n/g, '\n  '))
+      return `- ${p.question} → ${said.join(', ')}`
+    })
   if (lines.length === 0) return ''
   const head = lines.length > 1 ? 'Answering your questions:' : 'Answering your question:'
   return `${head}\n${lines.join('\n')}`

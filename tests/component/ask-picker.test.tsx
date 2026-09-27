@@ -104,6 +104,60 @@ describe('AskPicker in the transcript', () => {
     )
   })
 
+  it('Other takes an answer of your own when none of the offered ones fits', async () => {
+    const user = userEvent.setup()
+    const onSend = renderChat([ask])
+    const send = screen.getByRole('button', { name: 'Send answer' }) as HTMLButtonElement
+    await user.click(screen.getByRole('radio', { name: /Other/ }))
+    const own = screen.getByRole('textbox', { name: /Your own answer to: Which owner/ })
+    // opened because it was asked for: typing goes straight in
+    expect(own).toHaveFocus()
+    // picked but empty is no answer yet
+    expect(send.disabled).toBe(true)
+    await user.type(own, 'Neither — keep it in a fork for now')
+    expect(send.disabled).toBe(false)
+    await user.click(send)
+    expect(onSend).toHaveBeenCalledWith(
+      'Answering your question:\n- Which owner should the repo live under? → Neither — keep it in a fork for now',
+      expect.any(String)
+    )
+  })
+
+  it('a single answer is one answer: an offered pick sets the written one aside, and back', async () => {
+    const user = userEvent.setup()
+    const onSend = renderChat([ask])
+    await user.click(screen.getByRole('radio', { name: /Other/ }))
+    await user.type(screen.getByRole('textbox', { name: /Your own answer/ }), 'a fork')
+    await user.click(screen.getByRole('radio', { name: /tashtit/ }))
+    expect(screen.queryByRole('textbox', { name: /Your own answer/ })).toBeNull()
+    expect((screen.getByRole('radio', { name: /Other/ }) as HTMLInputElement).checked).toBe(false)
+    // what was written is kept for when Other is picked again
+    await user.click(screen.getByRole('radio', { name: /Other/ }))
+    expect((screen.getByRole('radio', { name: /tashtit/ }) as HTMLInputElement).checked).toBe(false)
+    const own = screen.getByRole('textbox', { name: /Your own answer/ })
+    expect(own).toHaveValue('a fork')
+    // Enter sends, as it does in the composer; Shift+Enter is a new line
+    await user.type(own, '{Shift>}{Enter}{/Shift}for now{Enter}')
+    expect(onSend).toHaveBeenCalledWith(
+      'Answering your question:\n- Which owner should the repo live under? → a fork\n  for now',
+      expect.any(String)
+    )
+  })
+
+  it('on a pick-any question Other is one more answer beside the offered ones', async () => {
+    const user = userEvent.setup()
+    const multi: SessionMessage = {
+      ...ask,
+      asks: [{ question: 'Where?', multiSelect: true, options: [{ label: 'Sign-in' }, { label: 'Empty states' }] }]
+    }
+    const onSend = renderChat([multi])
+    await user.click(screen.getByRole('checkbox', { name: /Sign-in/ }))
+    await user.click(screen.getByRole('checkbox', { name: /Other/ }))
+    await user.type(screen.getByRole('textbox', { name: /Your own answer/ }), 'the settings page')
+    await user.click(screen.getByRole('button', { name: 'Send answer' }))
+    expect(onSend).toHaveBeenCalledWith('Answering your question:\n- Where? → Sign-in, the settings page', expect.any(String))
+  })
+
   it('an answered question is history — the tool row comes back', () => {
     renderChat([ask, { role: 'tool', kind: 'tool_result', text: 'Your questions have been answered' }])
     expect(screen.queryByRole('button', { name: 'Send answer' })).toBeNull()
@@ -118,6 +172,7 @@ describe('AskPicker in the transcript', () => {
   it('a running turn shows the options but cannot send them', () => {
     renderChat([ask], { busy: true })
     expect((screen.getByRole('radio', { name: /tashtit/ }) as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByRole('radio', { name: /Other/ }) as HTMLInputElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Send answer' }) as HTMLButtonElement).disabled).toBe(true)
   })
 

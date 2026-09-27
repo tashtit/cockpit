@@ -72,7 +72,9 @@ An agent that stops to ask — Claude Code's `AskUserQuestion` or its plan gate,
 them off the transcript and renders the last unanswered one as a card in the chat: the
 question, its options with the agent's own one-line descriptions, and **Send answer**.
 Multi-select questions take several picks; a question the conversation has moved past
-stays a plain tool row.
+stays a plain tool row. When none of the answers fits, pick **Other** at the bottom of
+the list and write your own — it is sent in place of a pick (or beside the picks, on a
+multi-select question). Enter sends it, Shift+Enter starts a new line.
 
 When the question is a plan gate, the card shows the plan itself above
 **Approve the plan** and **Keep planning**, so you approve what you have read, not a
@@ -81,8 +83,8 @@ whole side of the window.
 
 The pick is sent as your next message, worded from the question (`Answering your
 question: - Which layout…? → packages/<runtime>`), so it stands on its own in the
-transcript the agent resumes from — and you can always ignore the card and type your
-own answer instead. Nothing is sent until you press the key.
+transcript the agent resumes from — and you can always ignore the card and type in
+the message box instead. Nothing is sent until you press the key.
 
 While the agent is still waiting in a terminal or its own app, the card shows the
 question but holds **Send answer**: answer it there, where the process is blocked on it.
