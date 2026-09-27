@@ -511,6 +511,9 @@ export function toolPreview(name: string, input: unknown): string | null {
       const q = first && typeof first === 'object' ? (first as Record<string, unknown>) : null
       return str(q?.question) ?? str(q?.title) ?? str(q?.header) ?? 'waiting for your answer'
     }
+    // Copilot: one question per call (an older form-shaped call carries a `message`)
+    case 'ask_user':
+      return str(i.question) ?? str(i.message) ?? 'waiting for your answer'
     case 'ExitPlanMode':
     case 'exit_plan_mode':
       return 'waiting for the plan to be approved'

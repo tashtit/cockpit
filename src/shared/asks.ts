@@ -5,7 +5,8 @@ import type { AskOption, AskPrompt } from './types'
  *
  * The agents that can ask say so in a tool call that never gets an answer on its own:
  * Claude's `AskUserQuestion` (a list of questions, each with labelled options) and
- * `ExitPlanMode` (approve the plan, or keep planning), Codex's `request_user_input`.
+ * `ExitPlanMode` (approve the plan, or keep planning), Codex's `request_user_input`,
+ * Copilot's `ask_user` (one question and its `choices`) and `exit_plan_mode`.
  * Copilot's permission prompts are not here on purpose — approving one needs the
  * process that is blocked on it, and Cockpit answers by sending a message.
  *
@@ -41,8 +42,10 @@ function toPrompt(v: unknown): AskPrompt | null {
   if (!q) return null
   const question = text(q.question ?? q.title ?? q.prompt, MAX_TEXT)
   const options: AskOption[] = []
-  if (Array.isArray(q.options)) {
-    for (const o of q.options) {
+  // Copilot names its offered answers `choices`
+  const offered = Array.isArray(q.options) ? q.options : q.choices
+  if (Array.isArray(offered)) {
+    for (const o of offered) {
       const opt = toOption(o)
       // a repeated label would make two picks indistinguishable in the answer
       if (opt && !options.some((p) => p.label === opt.label)) options.push(opt)
@@ -60,7 +63,7 @@ function toPrompt(v: unknown): AskPrompt | null {
   }
 }
 
-/** Claude's plan gate asks one thing and offers no list — these are its two answers. */
+/** The plan gate (Claude's and Copilot's) asks one thing and offers no list — these are its two answers. */
 const PLAN_PROMPT: AskPrompt = {
   question: 'Approve this plan and start implementing it?',
   header: 'Plan',
@@ -76,7 +79,13 @@ const PLAN_PROMPT: AskPrompt = {
  * before calling).
  */
 export function parseAsks(toolName: string, input: unknown): AskPrompt[] | undefined {
-  if (toolName === 'ExitPlanMode') return [PLAN_PROMPT]
+  if (toolName === 'ExitPlanMode' || toolName === 'exit_plan_mode') return [PLAN_PROMPT]
+  // Copilot asks one question per call, at the top level of its arguments; a bare
+  // question with no `choices` wants prose, which the composer already takes
+  if (toolName === 'ask_user') {
+    const prompt = toPrompt(input)
+    return prompt ? [prompt] : undefined
+  }
   if (toolName !== 'AskUserQuestion' && toolName !== 'request_user_input') return undefined
   const questions = record(input)?.questions
   if (!Array.isArray(questions)) return undefined

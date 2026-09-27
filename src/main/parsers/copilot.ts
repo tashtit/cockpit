@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { planArtifact, sharedArtifact, todoTableArtifact, toolArtifact } from './artifacts'
 import { checkOutcome, exitCodeIn } from './checks'
+import { parseAsks } from '../../shared/asks'
 import {
   capText,
   isRegularFile,
@@ -442,6 +443,7 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
         const args = ev.data?.arguments ?? ev.data?.input ?? ''
         // the same humanized headline Claude and Codex rows get — raw JSON stays in the detail
         const preview = toolPreview(toolName, args)
+        const asks = parseAsks(toolName, args)
         const written = planFileWritten(sessionDir, toolName, args)
         const shared = written ? null : sessionFileWritten(sessionDir, toolName, args)
         let artifact = toolArtifact(toolName, args)
@@ -467,6 +469,7 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
           toolName,
           text: truncate(jsonText(args), 400),
           ...(preview ? { preview: truncate(preview, 200) } : {}),
+          ...(asks ? { asks } : {}),
           ...(artifact ? { artifact } : {}),
           ts
         })
@@ -474,6 +477,12 @@ export function parseCopilotMessages(file: string): SessionMessage[] {
         const at = typeof ev.data?.toolCallId === 'string' ? callRows.get(ev.data.toolCallId) : undefined
         if (at === undefined) continue
         let row = out[at]!
+        // a question answered (or dismissed) where it was asked is history: Copilot's log
+        // has no result row for the transcript to pair it with, so the call stops asking
+        if (row.asks) {
+          const { asks: _, ...rest } = row
+          row = rest
+        }
         // an edit that never landed must not read as one
         if (ev.data.success === false) row = { ...row, failed: true }
         // a shell command's exit code: the one Copilot states, else the marker at the end

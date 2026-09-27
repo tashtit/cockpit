@@ -16,6 +16,7 @@ export function AskPicker({
   prompts,
   provider,
   disabled,
+  note,
   onAnswer,
   plan,
   onOpenPlan
@@ -24,6 +25,8 @@ export function AskPicker({
   provider: Provider
   /** A turn is running (or the session takes no input) — the answer can't go yet */
   disabled: boolean
+  /** Where the answer goes instead, when not here — replaces the sends-as-a-message note */
+  note?: string
   onAnswer: (text: string) => void
   /** The plan an approval question is about: read here, before the pick */
   plan?: string
@@ -100,7 +103,7 @@ export function AskPicker({
         </fieldset>
       ))}
       <div className="ask-actions">
-        <span className="ask-note">Sends as your next message — or write your own answer below.</span>
+        <span className="ask-note">{note ?? 'Sends as your next message — or write your own answer below.'}</span>
         <button
           className="btn-primary"
           disabled={disabled || !complete}
