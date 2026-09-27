@@ -126,7 +126,9 @@ async function runTurn(id, params) {
         { optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }
       ]
     })
-    notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `answered:${outcome?.outcome?.optionId}` } })
+    // an option picked, or the outcome itself when none was (`cancelled`)
+    const answer = outcome?.outcome?.optionId ?? outcome?.outcome?.outcome
+    notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `answered:${answer}` } })
   }
   if (mode === 'fs-probe') {
     const res = await request('fs/read_text_file', { path: '/etc/hosts' }).catch(() => null)

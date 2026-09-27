@@ -46,7 +46,8 @@ without ACP — Cockpit answers the CLI's own permission prompts — with *Allow
 Whatever Cockpit approves on its own, in Auto-edit or Yolo, it allows once, for that call.
 It never picks *Always allow*: that would stay in the agent's own settings and let the same
 calls through in your own sessions too, long after the turn. An agent that offers nothing
-but *Always allow* is asked about, even in Yolo, so that choice stays yours.
+but *Always allow* is asked about, even in Yolo, so that choice stays yours. And stopping
+a turn while a question is open answers it as cancelled, never with one of its options.
 
 A [roundtable](./roundtables.md) seat has no composer to put the card above, so its
 requests are never shown: each one is refused for that call alone — never with a

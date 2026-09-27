@@ -221,15 +221,6 @@ export function decidePermission(
   return null
 }
 
-/** The refusal to send when a turn is cancelled while a permission question is open. */
-export function denyOption(options: readonly AcpPermissionOption[]): string | null {
-  return (
-    options.find((o) => o.kind === 'reject_once')?.optionId ??
-    options.find((o) => o.kind === 'reject_always')?.optionId ??
-    null
-  )
-}
-
 /** What a `session/request_permission` is answered with. */
 export type PermissionOutcome =
   | { readonly outcome: 'selected'; readonly optionId: string }
