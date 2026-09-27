@@ -13,12 +13,12 @@ import type {
   Provider,
   SkillInfo
 } from '../shared/types'
+import { isRecord } from '../shared/guards'
 import { PROVIDERS } from '../shared/providers'
 import {
   codexMcpServers,
   codexServerText,
   freshCodexServer,
-  isPlainObject,
   mcpJsonFor,
   normalizeMcp,
   patchCodexServer,
@@ -104,7 +104,7 @@ function addFound(
   found: { readonly agent: JsonAgent; readonly cfg: any; readonly scope: Omit<FoundScope, 'config' | 'raw'> }
 ): void {
   const { agent, cfg, scope } = found
-  const own = isPlainObject(cfg) ? cfg : undefined
+  const own = isRecord(cfg) ? cfg : undefined
   const raw: McpRawDefinitions = own === undefined ? {} : agent === 'claude' ? { claude: own } : { copilot: own }
   const entry: FoundScope = { ...scope, config: normalizeMcp(cfg), raw }
   const existing = out.get(name)
@@ -539,7 +539,7 @@ export function getMcpConfig(name: string): McpConfig {
  */
 export function assertClaudeProjectServer(name: string, projectPath: string): string {
   const table: any = claudeMcpTables().projects.get(projectPath)
-  const cfg = isPlainObject(table) && Object.hasOwn(table, name) ? table[name] : undefined
+  const cfg = isRecord(table) && Object.hasOwn(table, name) ? table[name] : undefined
   if (!cfg) throw new Error(`no project-scoped server "${name}" in ${projectPath}`)
   return projectPath
 }

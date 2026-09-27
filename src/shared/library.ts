@@ -8,6 +8,7 @@ import type {
   Provider
 } from './types'
 import { PROVIDERS } from './providers'
+import { clip } from './text'
 
 /**
  * Reconciliation: Cockpit's own config (what you asked for) against each agent's
@@ -534,6 +535,6 @@ export function instructionRow(state: InstructionsState, entry: LibraryEntry): P
   }
   // the entry's own first line is far more use here than restating the row's name
   const firstLine = state.baseline.trim().split('\n')[0].replace(/^#+\s*/, '')
-  const detail = firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine
+  const detail = clip(firstLine, 80)
   return buildRow(entry, { detail, fields: {} }, actual)
 }

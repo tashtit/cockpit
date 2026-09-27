@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import type { SessionMeta } from '../../shared/types'
+import { clip, sliceCodePoints } from '../../shared/text'
 
 /**
  * Open a file for reading only if it is a regular file, and say how big it is.
@@ -309,12 +310,19 @@ export class LineSplitter {
 }
 
 /**
- * Slice without splitting a surrogate pair — `.slice()` counts UTF-16 code units,
- * so cutting mid-emoji leaves a lone surrogate that renders as U+FFFD.
+ * A field providers write either as an object or as its JSON text (Codex serialises a
+ * call's arguments as a string): the object, or null for anything else, malformed
+ * JSON included.
  */
-function sliceCodePoints(s: string, end: number): string {
-  const cut = end > 0 && end < s.length && /[\uD800-\uDBFF]/.test(s[end - 1]) ? end - 1 : end
-  return s.slice(0, cut)
+export function objectOrJson(v: unknown): Record<string, unknown> | null {
+  if (v && typeof v === 'object') return v as Record<string, unknown>
+  if (typeof v !== 'string') return null
+  try {
+    const parsed: unknown = JSON.parse(v)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -454,7 +462,7 @@ export function contentToText(content: unknown): string {
 
 export function truncate(s: string, n = 80): string {
   const one = s.replace(/\s+/g, ' ').trim()
-  return one.length > n ? sliceCodePoints(one, n - 1) + '…' : one
+  return clip(one, n)
 }
 
 /**

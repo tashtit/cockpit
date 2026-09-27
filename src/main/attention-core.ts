@@ -17,7 +17,9 @@ import type {
   RoundtableEntry
 } from '../shared/types'
 import { cleanupCounts, cleanupHeadline } from '../shared/cleanup'
+import { asRecord } from '../shared/guards'
 import { PROVIDERS } from '../shared/providers'
+import { clip as clipText } from '../shared/text'
 import type { ObservedTurn } from './liveness-core'
 
 /**
@@ -230,8 +232,7 @@ const samePath = (a: string | undefined, b: string | undefined): boolean =>
 
 const trimSep = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, '') : p)
 
-const clip = (s: string, max: number): string =>
-  s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s
+const clip = (s: string, max: number): string => clipText(s, max, { trimCut: true })
 
 /** The first readable line of an agent's closing text, markdown stripped. */
 export function outcomeSnippet(text: string, max = SNIPPET_MAX): string {
@@ -326,13 +327,13 @@ function providerOf(id: string): Provider | undefined {
 const str = (v: unknown, max: number): string | null => (typeof v === 'string' ? v.slice(0, max) : null)
 
 function sanitizeAsk(raw: unknown): AttentionAsk | null {
-  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  const o = asRecord(raw)
   const kind = o?.['kind'] === 'question' ? 'question' : o?.['kind'] === 'permission' ? 'permission' : null
   return kind ? { kind, detail: str(o?.['detail'], 512) ?? '' } : null
 }
 
 function sanitizePr(raw: unknown): AttentionPr | null {
-  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  const o = asRecord(raw)
   const number = o?.['number']
   if (typeof number !== 'number' || !Number.isInteger(number) || number < 1) return null
   const checks = CHECKS.find((c) => c === o?.['checks'])
@@ -344,7 +345,7 @@ function sanitizePr(raw: unknown): AttentionPr | null {
 const whole = (v: unknown): number => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : 0)
 
 function sanitizeCleanup(raw: unknown): CleanupNotice | null {
-  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  const o = asRecord(raw)
   if (!o || typeof o['at'] !== 'number' || !Number.isFinite(o['at'])) return null
   return {
     at: o['at'],
@@ -362,8 +363,8 @@ export function sanitizeUnseen(raw: unknown, now: number): Unseen[] {
   const list = Array.isArray(raw) ? raw : []
   const out: Unseen[] = []
   for (const r of list.slice(-LANDING_MAX * 4)) {
-    if (!r || typeof r !== 'object') continue
-    const o = r as Record<string, unknown>
+    const o = asRecord(r)
+    if (!o) continue
     const key = str(o['key'], 512) ?? ''
     const kind = KINDS.find((k) => k === o['kind'])
     const at = typeof o['at'] === 'number' && Number.isFinite(o['at']) ? o['at'] : NaN

@@ -9,6 +9,7 @@ import type {
   SourceDir,
   TimeFormat
 } from '../shared/types'
+import { isRecord } from '../shared/guards'
 import { kindsForScope } from '../shared/library'
 import { PROVIDERS } from '../shared/providers'
 import { sanitizeEndpoint } from '../shared/endpoints'
@@ -170,10 +171,6 @@ const MAX_SKILL_FILES = 200
 const MAX_ENTRIES_PER_SCOPE = 500
 const MAX_SCOPES = 500
 const MAX_MAP_KEYS = 5000
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
 
 function str(v: unknown, max = 500): string | undefined {
   return typeof v === 'string' && v.length > 0 && v.length <= max ? v : undefined

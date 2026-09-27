@@ -17,6 +17,7 @@ import {
 import { endpointSupports, isValidModel } from '../shared/endpoints'
 import { EFFORT_LEVELS } from '../shared/agent-models'
 import { isProvider } from '../shared/providers'
+import { sliceCodePoints } from '../shared/text'
 
 export { SEAT_NAME } from '../shared/roundtable'
 
@@ -31,7 +32,7 @@ const ENTRY_CAP = 6_000
 const PROMPT_CAP = 48_000
 
 function cap(text: string, max: number): string {
-  return text.length <= max ? text : text.slice(0, max) + ' …[truncated]'
+  return text.length <= max ? text : sliceCodePoints(text, max) + ' …[truncated]'
 }
 
 /** How a transcript line is attributed inside a prompt; own lines read as "You". */
@@ -183,7 +184,7 @@ export function parseStance(text: string): {
 export function deriveTitle(topic: string): string {
   const line = topic.trim().split('\n', 1)[0]
   if (line.length <= 56) return line || 'Roundtable'
-  const cut = line.slice(0, 56)
+  const cut = sliceCodePoints(line, 56)
   const sp = cut.lastIndexOf(' ')
   return (sp > 24 ? cut.slice(0, sp) : cut) + '…'
 }
