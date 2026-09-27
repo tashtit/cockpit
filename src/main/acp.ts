@@ -17,7 +17,7 @@ import {
   promptResultEvents
 } from './acp-core'
 import { cliEnv } from './env'
-import { truncate } from './parsers/util'
+import { LineSplitter, MAX_STREAM_LINE_CHARS, truncate } from './parsers/util'
 
 /**
  * One ACP conversation, for the length of one turn.
@@ -45,9 +45,6 @@ type TurnOptions = {
   readonly emit: (ev: ChatEvent) => void
 }
 
-/** Stops one runaway line from growing the heap without bound. */
-const MAX_LINE_BYTES = 8 * 1024 * 1024
-
 /** How long an agent has to exit on its own once its turn is over */
 const EXIT_GRACE_MS = 2_000
 
@@ -58,7 +55,8 @@ type Pending = {
 
 /** JSON-RPC over the child's stdio: newline-delimited objects, one per message. */
 class JsonRpc {
-  private buf = ''
+  /** Bounded and linear however long a line runs; one past the cap fails the connection */
+  private readonly lines = new LineSplitter()
   private nextId = 1
   private readonly pending = new Map<number, Pending>()
   private closed: Error | null = null
@@ -75,16 +73,15 @@ class JsonRpc {
   private feed(chunk: string): void {
     // failed: nothing more will be read, and holding on to it would grow without bound
     if (this.closed) return
-    this.buf += chunk
-    if (this.buf.length > MAX_LINE_BYTES) {
-      this.buf = ''
-      this.fail(new Error('the agent sent a single message larger than 8MB'))
+    const { lines, dropped } = this.lines.push(chunk)
+    // at once, not when the runaway line ends: an agent may never send its newline
+    if (dropped > 0 || this.lines.isOverflowing()) {
+      this.lines.rest()
+      this.fail(new Error(`the agent sent a single message larger than ${MAX_STREAM_LINE_CHARS / (1024 * 1024)}MB`))
       return
     }
-    let nl: number
-    while ((nl = this.buf.indexOf('\n')) >= 0) {
-      const raw = this.buf.slice(0, nl).trim()
-      this.buf = this.buf.slice(nl + 1)
+    for (const line of lines) {
+      const raw = line.trim()
       if (!raw) continue
       let msg: Record<string, unknown>
       try {

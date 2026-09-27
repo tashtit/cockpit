@@ -166,8 +166,12 @@ describe('LineSplitter', () => {
   it('drops a line past its cap whole, and carries on with the next', () => {
     const s = new LineSplitter(10)
     expect(s.push('0123456789')).toEqual({ lines: [], dropped: 0 })
+    expect(s.isOverflowing()).toBe(false)
     expect(s.push('abc')).toEqual({ lines: [], dropped: 0 })
+    // known before the line ends, for a reader that must not wait for its newline
+    expect(s.isOverflowing()).toBe(true)
     expect(s.push('def\nok\n')).toEqual({ lines: ['ok'], dropped: 1 })
+    expect(s.isOverflowing()).toBe(false)
     // ended inside a single chunk, the same bound holds
     expect(s.push('0123456789abc\nfine\n')).toEqual({ lines: ['fine'], dropped: 1 })
     s.push('0123456789abc')

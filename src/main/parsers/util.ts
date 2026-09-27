@@ -344,6 +344,11 @@ export class LineSplitter {
     return { lines, dropped }
   }
 
+  /** The line being received has already run past the cap: it will be dropped when it ends. */
+  isOverflowing(): boolean {
+    return this.overflowing
+  }
+
   /** What the stream ended on without a newline (a last record often has none); '' when it overflowed. */
   rest(): string {
     const line = this.overflowing ? '' : this.pending.join('')
