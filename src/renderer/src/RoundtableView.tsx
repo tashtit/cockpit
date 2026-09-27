@@ -15,7 +15,7 @@ import { Message } from './Message'
 import { Markdown } from './Markdown'
 import { looksSignedOut } from '../../shared/agent-auth'
 import { SignInFix } from './SignInFix'
-import { limitOptions, MESSAGE_LIMITS, TABLE_LIMITS } from './NewRoundtable'
+import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { cycleReplies, uiSeatName } from './roundtable-seats'
 import { useRoundtableStream } from './roundtable-stream'
 import { RoundtableTable } from './RoundtableTable'
@@ -226,36 +226,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         <div className="chat-main">
           {limitsDraft && (
             <div className="rt-limits" id="rt-limits" role="group" aria-label="Roundtable spending limits">
-              <div className="ns-opt">
-                <label className="ns-label" htmlFor="rt-edit-message">Agent turns per message</label>
-                <Select
-                  id="rt-edit-message"
-                  ariaLabel="Agent turns per message"
-                  value={String(limitsDraft.maxTurnsPerMessage)}
-                  options={limitOptions(MESSAGE_LIMITS, limitsDraft.maxTurnsPerMessage)}
-                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerMessage: Number(v) })}
-                />
-              </div>
-              <div className="ns-opt">
-                <label className="ns-label" htmlFor="rt-edit-table">Agent turns for the table</label>
-                <Select
-                  id="rt-edit-table"
-                  ariaLabel="Agent turns for the table"
-                  value={String(limitsDraft.maxTurnsPerTable)}
-                  options={limitOptions(TABLE_LIMITS, limitsDraft.maxTurnsPerTable)}
-                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerTable: Number(v) })}
-                />
-              </div>
-              <div className="ns-opt">
-                <label className="ns-label" htmlFor="rt-edit-minutes">Longest a seat may take</label>
-                <Select
-                  id="rt-edit-minutes"
-                  ariaLabel="Longest a seat may take"
-                  value={String(limitsDraft.maxTurnMinutes)}
-                  options={minuteOptions(limitsDraft.maxTurnMinutes)}
-                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnMinutes: Number(v) })}
-                />
-              </div>
+              <RoundtableLimitFields idPrefix="rt-edit" limits={limitsDraft} onChange={setLimitsDraft} />
               {rt.mode === 'consensus' && (
                 <div className="ns-opt">
                   <label className="ns-label" htmlFor="rt-edit-rounds">Round cap</label>
@@ -569,13 +540,6 @@ function elapsed(now: number, since: number | undefined): string {
   if (sec < 60) return `${sec}s`
   const min = Math.floor(sec / 60)
   return min < 60 ? `${min}m` : `${Math.floor(min / 60)}h ${min % 60}m`
-}
-
-/** The time-limit presets, plus a hand-edited value shown as itself; 0 = no limit. */
-function minuteOptions(current: number): Array<{ value: string; label: string }> {
-  const presets = [5, 10, 15, 30, 60, 0]
-  const values = presets.includes(current) ? presets : [...presets, current].sort((a, b) => (a || 1e9) - (b || 1e9))
-  return values.map((n) => ({ value: String(n), label: n === 0 ? 'no limit' : `${n} min` }))
 }
 
 /**

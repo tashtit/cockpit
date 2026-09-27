@@ -365,6 +365,16 @@ describe('RoundtableView spending limits', () => {
     expect(screen.queryByText(/another round would pass its ceiling/)).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Roundtable spending limits' })).not.toBeInTheDocument()
   })
+
+  it('shows a time limit off the presets as itself', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({ limits: { maxTurnsPerMessage: 16, maxTurnsPerTable: 80, maxTurnMinutes: 45 } })
+    )
+    render(<RoundtableView id="rt-1" />)
+    await userEvent.click(await screen.findByRole('button', { name: /agent turns$/ }))
+    const editor = screen.getByRole('group', { name: 'Roundtable spending limits' })
+    expect(within(editor).getByRole('button', { name: /^Longest a seat may take/ })).toHaveTextContent('45 min')
+  })
 })
 
 describe('RoundtableView failed seats', () => {

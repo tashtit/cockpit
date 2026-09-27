@@ -22,15 +22,13 @@ import {
 import { api } from './api'
 import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './NewSession'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
 const ROUND_CHOICES = [1, 2, 3, 4, 5]
-/** Ceiling presets — within ROUNDTABLE_LIMIT_RANGE, which main enforces */
-export const MESSAGE_LIMITS = [4, 8, 12, 16, 24, 32, 64]
-export const TABLE_LIMITS = [20, 40, 80, 160, 320, 0]
 const LIMITS_KEY = 'cockpit:rt-limits'
 const SEATS_KEY = 'cockpit:rt-seats'
 const DEFAULT_SEATS: SeatDraft[] = [{ provider: 'claude' }, { provider: 'codex' }]
@@ -49,19 +47,6 @@ type SeatDraft = {
   readonly fast?: boolean
   /** Copilot: the long-context window */
   readonly longContext?: boolean
-}
-
-/** A ceiling's options: its presets plus whatever value is current, shown as itself. */
-export function limitOptions(
-  presets: readonly number[],
-  current: number
-): Array<{ value: string; label: string }> {
-  // 0 means "no ceiling", so it sorts as the largest
-  const rank = (n: number): number => (n === 0 ? Infinity : n)
-  const values = presets.includes(current)
-    ? presets
-    : [...presets, current].sort((a, b) => rank(a) - rank(b))
-  return values.map((n) => ({ value: String(n), label: n === 0 ? 'no ceiling' : `${n} turns` }))
 }
 
 /** The ceilings last chosen here — the next table starts from them. */
@@ -739,40 +724,7 @@ export function NewRoundtable({
 
         <span className="ns-label" id="rt-limits-label">Roundtable spending limits</span>
         <div className="ns-options" role="group" aria-labelledby="rt-limits-label">
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-limit-message">Agent turns per message</label>
-            <Select
-              id="rt-limit-message"
-              ariaLabel="Agent turns per message"
-              value={String(limits.maxTurnsPerMessage)}
-              options={limitOptions(MESSAGE_LIMITS, limits.maxTurnsPerMessage)}
-              onChange={(v) => setLimits((l) => ({ ...l, maxTurnsPerMessage: Number(v) }))}
-            />
-          </div>
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-limit-table">Agent turns for the table</label>
-            <Select
-              id="rt-limit-table"
-              ariaLabel="Agent turns for the table"
-              value={String(limits.maxTurnsPerTable)}
-              options={limitOptions(TABLE_LIMITS, limits.maxTurnsPerTable)}
-              onChange={(v) => setLimits((l) => ({ ...l, maxTurnsPerTable: Number(v) }))}
-            />
-          </div>
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-limit-minutes">Longest a seat may take</label>
-            <Select
-              id="rt-limit-minutes"
-              ariaLabel="Longest a seat may take"
-              value={String(limits.maxTurnMinutes)}
-              options={[5, 10, 15, 30, 60, 0].map((n) => ({
-                value: String(n),
-                label: n === 0 ? 'no limit' : `${n} min`,
-                title: 'a seat still going after this is skipped — the round carries on without it'
-              }))}
-              onChange={(v) => setLimits((l) => ({ ...l, maxTurnMinutes: Number(v) }))}
-            />
-          </div>
+          <RoundtableLimitFields idPrefix="rt-limit" limits={limits} onChange={setLimits} />
         </div>
         {/* the bill, before it is run up: every seat's reply is a full agent turn */}
         <div className="ns-hint">
