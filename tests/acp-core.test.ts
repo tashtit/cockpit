@@ -359,8 +359,18 @@ describe('decidePermission', () => {
     expect(decidePermission('auto-edit', opts, 'edit')).not.toBe('allow_always')
   })
 
-  it('answers everything in yolo', () => {
-    expect(decidePermission('yolo', opts, 'execute')).toBe('allow_always')
+  it('answers everything in yolo, once per call', () => {
+    expect(decidePermission('yolo', opts, 'execute')).toBe('allow_once')
+    expect(decidePermission('yolo', opts, 'edit')).toBe('allow_once')
+  })
+
+  it('never grants a standing allowance by itself — an agent offering only that asks the person', () => {
+    const standing: AcpPermissionOption[] = [
+      { optionId: 'allow_always', kind: 'allow_always', name: 'Always allow' },
+      { optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }
+    ]
+    expect(decidePermission('yolo', standing, 'execute')).toBeNull()
+    expect(decidePermission('auto-edit', standing, 'edit')).toBeNull()
   })
 
   it('asks when the agent offered nothing that allows', () => {

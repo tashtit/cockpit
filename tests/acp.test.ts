@@ -103,6 +103,13 @@ describe('AcpTurn', () => {
     expect(texts(events)).toContain('answered:allow_once')
   })
 
+  it('answers a command itself in yolo, for that call only', async () => {
+    const { events, done } = start('permission', { permissionMode: 'yolo' })
+    await done
+    expect(events.some((e) => e.type === 'permission')).toBe(false)
+    expect(texts(events)).toContain('answered:allow_once')
+  })
+
   it('still asks before executing in auto-edit', async () => {
     const { events, done } = start('permission', {
       permissionMode: 'auto-edit',

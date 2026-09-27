@@ -43,6 +43,11 @@ work goes ahead without asking, and anything that *executes* still stops for you
 asks about everything; Yolo asks about nothing. Claude Code sessions get the same card
 without ACP — Cockpit answers the CLI's own permission prompts — with *Allow* and *Deny*.
 
+Whatever Cockpit approves on its own, in Auto-edit or Yolo, it allows once, for that call.
+It never picks *Always allow*: that would stay in the agent's own settings and let the same
+calls through in your own sessions too, long after the turn. An agent that offers nothing
+but *Always allow* is asked about, even in Yolo, so that choice stays yours.
+
 A [roundtable](./roundtables.md) seat has no composer to put the card above, so its
 requests are never shown: each one is refused for that call alone — never with a
 standing refusal, which would stay in the agent's own settings — and the seat carries on

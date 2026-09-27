@@ -203,6 +203,11 @@ const AUTO_EDIT_KINDS = new Set(['edit', 'read', 'move', 'search'])
  * This is the first time Cockpit can answer these one at a time. The CLI paths pre-answer
  * everything with a flag, which is why `auto-edit` has always been approximate there; here
  * it can mean what it says — file work proceeds, anything that executes still asks.
+ *
+ * What Cockpit answers by itself it allows once, for that call, in every mode. A mode is
+ * the turn's setting, and `allow_always` would outlive the turn inside the agent's own
+ * config: a yolo turn would leave the tool approved in the person's own sessions too. An
+ * agent that offers only a standing allowance is asked about, so that choice stays theirs.
  * Returns the option id to send back, or null to put the question to the user.
  */
 export function decidePermission(
@@ -210,15 +215,9 @@ export function decidePermission(
   options: readonly AcpPermissionOption[],
   toolKind?: string
 ): string | null {
-  if (options.length === 0) return null
-  const byKind = (k: string): string | undefined => options.find((o) => o.kind === k)?.optionId
-  const allow = (): string | null => byKind('allow_always') ?? byKind('allow_once') ?? null
-  if (mode === 'yolo') return allow()
-  if (mode === 'auto-edit' && toolKind && AUTO_EDIT_KINDS.has(toolKind)) {
-    // once per call, not once per session: 'auto-edit' is a turn's setting, and
-    // allow_always would outlive the turn inside the agent's own config
-    return byKind('allow_once') ?? allow()
-  }
+  const once = options.find((o) => o.kind === 'allow_once')?.optionId ?? null
+  if (mode === 'yolo') return once
+  if (mode === 'auto-edit' && toolKind && AUTO_EDIT_KINDS.has(toolKind)) return once
   return null
 }
 
