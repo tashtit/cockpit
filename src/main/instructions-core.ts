@@ -9,7 +9,8 @@ import {
   START_MARKERS,
   normalizeBaseline
 } from '../shared/instruction-markers'
-import type { InstructionFile, InstructionReader, InstructionStatus, Provider } from '../shared/types'
+import { PROVIDERS } from '../shared/providers'
+import type { InstructionFile, InstructionReader, InstructionStatus } from '../shared/types'
 
 /*
  * Pure logic for the shared-instructions feature (no electron, unit-testable).
@@ -324,8 +325,6 @@ export type FoldedTarget = TargetRead & {
   readonly readBy: readonly InstructionReader[]
 }
 
-const PROVIDER_ORDER: readonly Provider[] = ['claude', 'codex', 'copilot']
-
 /**
  * The files an apply writes, once the ones that only *read* another target are
  * folded into it. A repo `CLAUDE.md` that is a symlink to `AGENTS.md`, or that
@@ -368,7 +367,7 @@ export function foldTargets(reads: readonly TargetRead[], home = homedir()): Fol
     for (const b of by) {
       for (const a of reads.find((o) => o.target.path === b.path)?.target.agents ?? []) joined.add(a)
     }
-    return { ...r, target: { ...r.target, agents: PROVIDER_ORDER.filter((p) => joined.has(p)) }, readBy: by }
+    return { ...r, target: { ...r.target, agents: PROVIDERS.filter((p) => joined.has(p)) }, readBy: by }
   })
 }
 

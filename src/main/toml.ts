@@ -1,3 +1,5 @@
+import { isRecord } from '../shared/guards'
+
 /*
  * A reader for TOML that is going to be edited, not just understood.
  *
@@ -299,7 +301,7 @@ export function assignPath(target: Record<string, TomlValue>, path: readonly str
 }
 
 export function isTomlTable(v: unknown): v is Record<string, TomlValue> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
+  return isRecord(v)
 }
 
 /* ---------- strings in and out ---------- */

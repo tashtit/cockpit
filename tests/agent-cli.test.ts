@@ -12,7 +12,8 @@ import {
   runsHomebrew,
   updateCommandFor
 } from '../src/shared/agent-cli'
-import { brewVersion, loginLine, shQuote, terminalScript } from '../src/main/agent-cli-core'
+import { brewVersion, loginLine, terminalScript } from '../src/main/agent-cli-core'
+import { shQuote } from '../src/main/shell-quote'
 import { writeTerminalScript } from '../src/main/agent-cli'
 
 /** The scripts are zsh, and wait on macOS's `lockf` — the platform they run on. CI's

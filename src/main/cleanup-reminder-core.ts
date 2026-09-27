@@ -1,4 +1,5 @@
 import type { CleanupNotice } from '../shared/types'
+import { asRecord } from '../shared/guards'
 
 /**
  * Cleanup reminders, the IO-free half: whether what a background cleanup scan found is
@@ -122,7 +123,7 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
 
 /** The saved file is untrusted input: keep what is well-formed, forget the rest. */
 export function sanitizeReminder(raw: unknown): ReminderState {
-  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const o = asRecord(raw) ?? {}
   const shown = Array.isArray(o['shown']) ? o['shown'] : []
   return {
     checkedAt: num(o['checkedAt']),

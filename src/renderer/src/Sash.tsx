@@ -13,14 +13,14 @@ import {
 export type SashBounds = { readonly min: number; readonly max: number }
 
 /** One arrow key's worth. */
-export const SASH_STEP = 16
+const SASH_STEP = 16
 
 /** A width held to the bounds, in whole pixels. */
-export function clampTo(px: number, bounds: SashBounds): number {
+function clampTo(px: number, bounds: SashBounds): number {
   return Math.min(bounds.max, Math.max(bounds.min, Math.round(px)))
 }
 
-export type SashProps = {
+type SashProps = {
   /** The edge of its pane the sash sits on. The pane is its parent element. */
   readonly edge: 'left' | 'right'
   /** Where it sits on that edge (style.css); `.sash` is the look */

@@ -186,6 +186,38 @@ describe('Agents › Panel', () => {
     })
   })
 
+  // the armed step backs out on Escape as well as on blur, like every other armed button —
+  // and the Escape goes no further, since the view around the panel closes on it too
+  it('backs out of an armed switch-off on Escape', async () => {
+    await openPanel()
+    await section('Plugins')
+    const closes = vi.fn()
+    window.addEventListener('keydown', closes)
+    try {
+      await userEvent.click(sw('evalkit@tashtit', 'Claude'))
+      expect(screen.getByText('click again to remove')).toBeInTheDocument()
+      await userEvent.keyboard('{Escape}')
+      expect(screen.queryByText('click again to remove')).not.toBeInTheDocument()
+      expect(closes).not.toHaveBeenCalled()
+      // disarmed, so the next click asks again rather than switching it off
+      await userEvent.click(sw('evalkit@tashtit', 'Claude'))
+      expect(window.cockpit.setPanelSwitch).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', closes)
+    }
+  })
+
+  it('backs out of an armed remove on Escape', async () => {
+    await openPanel()
+    await section('MCP servers')
+    await userEvent.click(screen.getByRole('button', { name: /linear/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove linear everywhere' }))
+    expect(screen.getByRole('button', { name: 'Confirm removing linear everywhere' })).toHaveFocus()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: 'Remove linear everywhere' })).toBeInTheDocument()
+    expect(window.cockpit.removePanelEntry).not.toHaveBeenCalled()
+  })
+
   // removing everywhere is the one action that would otherwise be unrecoverable —
   // keeping a copy is the entire reason Cockpit has a config of its own
   it('keeps a removed entry so it can be put back', async () => {
@@ -594,6 +626,29 @@ describe('Agents › the instructions row', () => {
     // the switch still does what the row's did
     await userEvent.click(codex)
     expect(window.cockpit.setPanelSwitch).toHaveBeenCalled()
+  })
+
+  // a read that failed used to leave "loading…" up for good, with nothing said
+  const refused = new Error("Error invoking remote method 'instructions:get': Error: EACCES: permission denied")
+
+  it('says why the editor could not read the files, instead of loading forever', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(buildReport(null, [instructionRow(inst, entry)]))
+    vi.mocked(window.cockpit.getInstructions).mockRejectedValue(refused)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('tab', { name: /^Instructions/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('EACCES: permission denied')
+    expect(screen.queryByText('loading…')).not.toBeInTheDocument()
+  })
+
+  it('says why an opened row could not read the files, instead of reading forever', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(buildReport(null, [instructionRow(inst, entry)]))
+    vi.mocked(window.cockpit.getInstructions).mockRejectedValue(refused)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: /Shared baseline/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('EACCES: permission denied')
+    expect(screen.queryByText('reading each agent’s file…')).not.toBeInTheDocument()
   })
 })
 

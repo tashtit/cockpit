@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { storedValue } from './stored-value'
 
 /**
  * The conversation column width — a per-user reading preference. On large
@@ -6,12 +6,10 @@ import { useSyncExternalStore } from 'react'
  * the assistant's replies; the column keeps the exchange together, and the
  * user picks how wide it runs (Settings → Display).
  *
- * UI preference, not machine state → localStorage, like cockpit:provider/mode.
+ * UI preference, not machine state → localStorage (`stored-value.ts`), like
+ * cockpit:provider/mode.
  */
 export type ChatWidth = 'narrow' | 'cozy' | 'wide' | 'full'
-
-const KEY = 'cockpit:chat-width'
-const DEFAULT: ChatWidth = 'cozy'
 
 /** CSS value each preference maps to ('100%' = no column, edge-to-edge). */
 export const CHAT_WIDTH_CSS: Record<ChatWidth, string> = {
@@ -28,48 +26,22 @@ export const CHAT_WIDTH_OPTIONS: ReadonlyArray<{ value: ChatWidth; label: string
   { value: 'full', label: 'Full width', hint: 'no limit' }
 ]
 
-/**
- * Guarded like rail.ts: this runs when the module loads, before any error boundary
- * exists, so storage refusing access would leave a blank window rather than a
- * default width.
- */
-function load(): ChatWidth {
-  let v: string | null = null
-  try {
-    v = window.localStorage.getItem(KEY)
-  } catch {
-    // storage unavailable — the default is a fine width
-  }
-  return v && v in CHAT_WIDTH_CSS ? (v as ChatWidth) : DEFAULT
-}
-
-let width: ChatWidth = load()
-const listeners = new Set<() => void>()
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
-}
+const width = storedValue<ChatWidth>('cockpit:chat-width', {
+  parse: (raw) => (Object.hasOwn(CHAT_WIDTH_CSS, raw) ? (raw as ChatWidth) : undefined),
+  serialize: (w) => w,
+  fallback: 'cozy'
+})
 
 /** Live column preference — a Settings change re-renders the open chat. */
 export function useChatWidth(): ChatWidth {
-  return useSyncExternalStore(subscribe, () => width)
+  return width.use()
 }
 
 export function setChatWidth(w: ChatWidth): void {
-  width = w
-  try {
-    window.localStorage.setItem(KEY, w)
-  } catch {
-    // not remembered past this run — the open chat still takes the width
-  }
-  listeners.forEach((l) => l())
+  width.set(w)
 }
 
 /** Tests only: re-read localStorage after a test cleared it. */
 export function reloadChatWidth(): void {
-  width = load()
-  listeners.forEach((l) => l())
+  width.reload()
 }

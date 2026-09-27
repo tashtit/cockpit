@@ -1,5 +1,6 @@
 import type { AttentionAsk, BusySession, Provider } from '../shared/types'
-import { contentToText, toMs } from './parsers/util'
+import { clip } from '../shared/text'
+import { contentToText, objectOrJson, toMs } from './parsers/util'
 
 /**
  * Is an agent mid-turn in a session, judged from the tail of the session's own log?
@@ -99,25 +100,13 @@ function oneLine(v: unknown, max = DETAIL_MAX): string {
   if (typeof v !== 'string') return ''
   const line = v.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
   const flat = line.replace(/\s+/g, ' ')
-  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat
+  return clip(flat, max, { trimCut: true })
 }
 
 /** A closing answer, whitespace-trimmed and capped; undefined when empty (keeps verdicts tidy). */
 function closingOf(text: string): string | undefined {
   const t = text.trim()
   return t ? t.slice(0, CLOSING_MAX) : undefined
-}
-
-/** A field that providers write either as an object or as its JSON text. */
-function objectOf(v: unknown): Record<string, unknown> | null {
-  if (v && typeof v === 'object') return v as Record<string, unknown>
-  if (typeof v !== 'string') return null
-  try {
-    const parsed: unknown = JSON.parse(v)
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
-  } catch {
-    return null
-  }
 }
 
 /* ---------- claude ---------- */
@@ -297,8 +286,8 @@ function codexCommand(command: unknown): string {
 }
 
 function codexQuestion(args: unknown): string {
-  const a = objectOf(args)
-  const q = Array.isArray(a?.questions) ? objectOf(a?.questions[0]) : null
+  const a = objectOrJson(args)
+  const q = Array.isArray(a?.questions) ? objectOrJson(a?.questions[0]) : null
   return oneLine(q?.title) || oneLine(q?.question) || oneLine(q?.prompt)
 }
 
@@ -395,18 +384,18 @@ const COPILOT_TOOL_ASKS: Readonly<Record<string, AttentionAsk['kind']>> = {
 
 /** What a Copilot tool call is waiting on the user for, if it is one of those. */
 function copilotToolAsk(data: unknown): AttentionAsk | undefined {
-  const d = objectOf(data)
+  const d = objectOrJson(data)
   const name = typeof d?.toolName === 'string' ? d.toolName : ''
   const kind = COPILOT_TOOL_ASKS[name]
   if (!kind) return undefined
   if (name === 'exit_plan_mode') return { kind, detail: 'Approve the plan' }
-  const args = objectOf(d?.arguments)
+  const args = objectOrJson(d?.arguments)
   return { kind, detail: oneLine(args?.question) }
 }
 
 function copilotAsk(data: unknown): AttentionAsk {
-  const d = objectOf(data)
-  const prompt = objectOf(d?.promptRequest) ?? objectOf(d?.permissionRequest)
+  const d = objectOrJson(data)
+  const prompt = objectOrJson(d?.promptRequest) ?? objectOrJson(d?.permissionRequest)
   const tool = typeof prompt?.toolName === 'string' ? prompt.toolName : ''
   const server = typeof prompt?.serverName === 'string' ? prompt.serverName : ''
   const detail =
@@ -552,7 +541,7 @@ export function claudeProcessPids(names: readonly string[]): number[] {
  * the pid as the evidence, since the field is Claude's own and may drift.
  */
 export function claudeProcessHolds(record: unknown, pid: number, nativeId: string): boolean {
-  const r = objectOf(record)
+  const r = objectOrJson(record)
   if (!r || r.sessionId !== nativeId) return false
   // the file must be the process its name says: a pid inside that disagrees is not evidence
   if (r.pid !== undefined && r.pid !== pid) return false

@@ -1,5 +1,6 @@
 import type { Provider } from '../shared/types'
 import { SIGN_IN_COMMAND } from '../shared/agent-auth'
+import { shQuote, withConfigHome } from './shell-quote'
 
 /**
  * Terminal hand-offs, IO-free (what the tests target). Signing in and updating both
@@ -9,22 +10,9 @@ import { SIGN_IN_COMMAND } from '../shared/agent-auth'
  * caller has already validated, and it is single-quoted.
  */
 
-/** POSIX single-quoting: safe for any path, including spaces and quotes. */
-export function shQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
-/** The variable that points each CLI at a config home. */
-export const CONFIG_HOME_VAR: Record<Provider, string> = {
-  claude: 'CLAUDE_CONFIG_DIR',
-  codex: 'CODEX_HOME',
-  copilot: 'COPILOT_HOME'
-}
-
 /** The sign-in command line for one agent and home, as the script runs it. */
 export function loginLine(provider: Provider, configDir?: string): string {
-  const cmd = SIGN_IN_COMMAND[provider]
-  return configDir === undefined ? cmd : `${CONFIG_HOME_VAR[provider]}=${shQuote(configDir)} ${cmd}`
+  return withConfigHome(provider, SIGN_IN_COMMAND[provider], configDir)
 }
 
 /** `lockf`'s exit status when the lock is held by someone else (sysexits EX_TEMPFAIL). */

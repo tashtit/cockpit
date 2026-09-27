@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useState, type JSX } from 'react'
 import {
   feedbackPrefills,
   feedbackUrl,
@@ -7,10 +7,13 @@ import {
 } from '../../shared/feedback'
 import type { AppInfo, UpdatePrefs, UpdateState } from '../../shared/types'
 import { api } from './api'
-import { fmtAgo } from './format'
+import { disarmOn } from './disarm'
+import { fmtAgo, plural } from './format'
 import { ipcErrorText } from './ipc-error'
 import { CockpitLogo } from './logos'
-import { turnsWord, useRestartToUpdate } from './update-prompt'
+import { useRestartToUpdate } from './update-prompt'
+import { useLoaded } from './use-loaded'
+import { ErrorAlert } from './ErrorAlert'
 
 const UPDATE_SWITCHES: ReadonlyArray<{
   readonly key: keyof UpdatePrefs
@@ -106,7 +109,7 @@ function FeedbackGroup({
 }
 
 /** The About row's one-line readout of where the updater stands. */
-export function updateLine(u: UpdateState | null, prefs: UpdatePrefs | null): string {
+function updateLine(u: UpdateState | null, prefs: UpdatePrefs | null): string {
   if (!u) return 'loading…'
   switch (u.status) {
     case 'unsupported':
@@ -153,13 +156,9 @@ export function AboutSection({
   onUpdate: (u: UpdateState) => void
   onStatus: (s: string) => void
 }): JSX.Element {
-  const [prefs, setPrefs] = useState<UpdatePrefs | null>(null)
+  const { value: prefs, set: setPrefs } = useLoaded(() => api.getUpdatePrefs(), [])
   const [licensesError, setLicensesError] = useState<string | null>(null)
   const restart = useRestartToUpdate()
-
-  useEffect(() => {
-    void api.getUpdatePrefs().then(setPrefs)
-  }, [])
 
   const checkUpdates = async (): Promise<void> => {
     onUpdate({ status: 'checking' })
@@ -232,16 +231,10 @@ export function AboutSection({
               <button
                 className="btn-ghost danger small armed"
                 onClick={restart.restart}
-                onBlur={restart.disarm}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    e.stopPropagation()
-                    restart.disarm()
-                  }
-                }}
-                title={`Cockpit is running ${turnsWord(restart.armed)}, and restarting stops them. Click again to restart now, or let them finish first.`}
+                {...disarmOn(restart.disarm)}
+                title={`Cockpit is running ${plural(restart.armed, 'turn')}, and restarting stops them. Click again to restart now, or let them finish first.`}
               >
-                Stop {turnsWord(restart.armed)} and restart?
+                Stop {plural(restart.armed, 'turn')} and restart?
               </button>
             )}
           </>
@@ -300,11 +293,11 @@ export function AboutSection({
           ))}
       </ul>
       {update?.installFailure && (
-        <div role="alert" className="new-error">
+        <ErrorAlert>
           The last update could not be installed, so the version you had was put back:{' '}
           {update.installFailure} Nothing downloads on its own until you check for updates
           again.
-        </div>
+        </ErrorAlert>
       )}
       <p className="ns-hint ns-prose">
         Installed builds check GitHub Releases on launch and every few hours, then keep
@@ -332,11 +325,7 @@ export function AboutSection({
           Open source licenses
         </button>
       </p>
-      {licensesError && (
-        <div role="alert" className="new-error">
-          {licensesError}
-        </div>
-      )}
+      {licensesError && <ErrorAlert>{licensesError}</ErrorAlert>}
       <FeedbackGroup appInfo={appInfo} onStatus={onStatus} />
     </>
   )

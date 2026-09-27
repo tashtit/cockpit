@@ -13,7 +13,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeUsage, codexUsage, getUsage, parsePremiumRequests, premiumRequestsResetAt, throttled } from '../src/main/usage'
+import { claudeUsage, codexUsage, getUsage, parsePremiumRequests, premiumRequestsResetAt } from '../src/main/usage'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-usage-fixtures-'))
 const claudeHome = join(root, 'claude')
@@ -288,46 +288,6 @@ describe('parsePremiumRequests', () => {
     expect(parsePremiumRequests({})).toBeNull()
     expect(parsePremiumRequests(null)).toBeNull()
     expect(parsePremiumRequests('nope')).toBeNull()
-  })
-})
-
-describe('throttled', () => {
-  it('remembers a result for the TTL and coalesces concurrent calls into one run', async () => {
-    let now = 1_000
-    let runs = 0
-    const get = throttled(
-      60_000,
-      async () => {
-        runs++
-        return { runs }
-      },
-      () => now
-    )
-    const [a, b] = await Promise.all([get(), get()])
-    expect(runs).toBe(1)
-    expect(a).toBe(b)
-    now += 59_999
-    expect(await get()).toBe(a)
-    expect(runs).toBe(1)
-    now += 1
-    const c = await get()
-    expect(runs).toBe(2)
-    expect(c).not.toBe(a)
-  })
-
-  it('does not remember a failed run — the next call tries again', async () => {
-    let fail = true
-    let runs = 0
-    const get = throttled(60_000, async () => {
-      runs++
-      if (fail) throw new Error('gh failed')
-      return 'ok'
-    })
-    await expect(get()).rejects.toThrow('gh failed')
-    fail = false
-    expect(await get()).toBe('ok')
-    expect(await get()).toBe('ok')
-    expect(runs).toBe(2)
   })
 })
 

@@ -1,66 +1,33 @@
-import { memo, useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import { memo, useEffect, useRef, useState, type JSX } from 'react'
 import type {
   Provider,
   RoundtableEntry,
-  RoundtableEvent,
   RoundtableLimits,
-  RoundtableParticipant,
-  RoundtableQueued,
   RoundtableWhenBusy,
-  RoundtableSnapshot,
-  SessionMessage
+  RoundtableSnapshot
 } from '../../shared/types'
 import { cwdLabel } from '../../shared/library'
-import {
-  entrySeatIndex,
-  roundRefusal,
-  seatDisplayName,
-  turnsSpent
-} from '../../shared/roundtable'
+import { entrySeatIndex, roundRefusal, turnsSpent } from '../../shared/roundtable'
 import { api } from './api'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
-import { Message } from './ChatView'
+import { CopyPath } from './CopyPath'
+import { ipcErrorText } from './ipc-error'
+import { Message } from './Message'
 import { Markdown } from './Markdown'
 import { looksSignedOut } from '../../shared/agent-auth'
 import { SignInFix } from './SignInFix'
-import { limitOptions, MESSAGE_LIMITS, TABLE_LIMITS } from './NewRoundtable'
+import { RoundtableLimitFields } from './RoundtableLimitFields'
+import { cycleReplies, uiSeatName } from './roundtable-seats'
+import { useRoundtableStream } from './use-roundtable-stream'
+import { RoundtableTable } from './RoundtableTable'
 import { Select } from './Select'
+import { fmtElapsed, plural } from './format'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
-import { BranchChip, ChatIcon, ProviderLogo, PROVIDER_LABEL, SearchIcon } from './logos'
+import { BranchChip, ChatIcon, ProviderLogo, ProviderMark, SearchIcon } from './logos'
 import { SeatEvidencePanel } from './SeatEvidencePanel'
 
 /** Same DOM bound as ChatView, scaled to discussion-length transcripts. */
 const RENDER_LAST = 200
-
-type LivePart =
-  | { readonly kind: 'text'; readonly text: string }
-  /** The call as the transcript row it renders as — built once, when it arrives, so the
-   *  memoized row is not handed a new message on every flush of the wave */
-  | { readonly kind: 'tool'; readonly m: SessionMessage }
-/** One seat's in-flight turn as the view sees it. */
-type LiveTurn = {
-  /** What the seat has said and run so far, in the order it happened */
-  readonly parts: readonly LivePart[]
-  /** Epoch ms the turn started — how long the seat has been at it */
-  readonly since?: number
-}
-/** Keyed by participant index — several seats may share a provider. */
-type LiveMap = Partial<Record<number, LiveTurn>>
-
-/** Streamed text grows the passage it continues; after a tool call it starts a new one. */
-function withText(turn: LiveTurn | undefined, text: string): LiveTurn {
-  const cur = turn ?? { parts: [] }
-  if (text === '') return cur
-  const last = cur.parts[cur.parts.length - 1]
-  return last?.kind === 'text'
-    ? { ...cur, parts: [...cur.parts.slice(0, -1), { kind: 'text', text: last.text + text }] }
-    : { ...cur, parts: [...cur.parts, { kind: 'text', text }] }
-}
-
-/** UI seat name: "Claude", or "Claude · opus" / "Claude #2" when a provider repeats. */
-function uiSeatName(participants: readonly RoundtableParticipant[], index: number): string {
-  return seatDisplayName(participants, index, PROVIDER_LABEL)
-}
 
 /** "Claude, Codex and Copilot" — seat names joined the way a sentence would. */
 function joinNames(names: string[]): string {
@@ -75,19 +42,32 @@ function joinNames(names: string[]): string {
  * own live block. The round loop lives in main; this view renders, never relays.
  */
 export function RoundtableView({ id }: { id: string }): JSX.Element {
-  const [rt, setRt] = useState<RoundtableSnapshot | null>(null)
-  const [entries, setEntries] = useState<RoundtableEntry[]>([])
-  const [running, setRunning] = useState(false)
-  const [live, setLive] = useState<LiveMap>({})
-  /** Consensus-cycle progress, updated by round events */
-  const [cycle, setCycle] = useState({ roundsRun: 0, concluded: false })
   const [draft, setDraft] = useState('')
-  const [note, setNote] = useState<string | null>(null)
-  const [cwdCopied, setCwdCopied] = useState(false)
   /** Seats the next message or round goes to; null = the whole table */
   const [to, setTo] = useState<readonly number[] | null>(null)
   /** The table's limits being edited in place; null = the editor is closed */
   const [limitsDraft, setLimitsDraft] = useState<RoundtableLimits | null>(null)
+  /** The consensus round cap in the same editor */
+  const [roundsDraft, setRoundsDraft] = useState(3)
+  /** Ticks while a round runs, so a seat's elapsed time counts up */
+  const [now, setNow] = useState(() => Date.now())
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+  /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
+  const atBottomRef = useRef(true)
+  const chatWidth = useChatWidth()
+
+  // the table as main streams it (use-roundtable-stream.ts); once loaded, the round cap
+  // editor starts from the table's own and the composer takes focus
+  const { rt, setRt, entries, running, live, cycle, queued, note, setNote } = useRoundtableStream(id, (snap) => {
+    setRoundsDraft(snap.maxRounds)
+    composerRef.current?.focus()
+  })
+  // a table opens pinned to the bottom
+  useEffect(() => {
+    atBottomRef.current = true
+  }, [id])
+
   // what each seat's replies rest on, beside the table — re-read when a round ends
   const [evidence, setEvidence] = useState(false)
   const [evidenceRead, setEvidenceRead] = useState(0)
@@ -95,147 +75,6 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   useEffect(() => {
     if (!running) setEvidenceRead((n) => n + 1)
   }, [running])
-  /** The consensus round cap in the same editor */
-  const [roundsDraft, setRoundsDraft] = useState(3)
-  /** A message sent mid-round, waiting for the round to end (main owns it) */
-  const [queued, setQueued] = useState<RoundtableQueued | null>(null)
-  /** Ticks while a round runs, so a seat's elapsed time counts up */
-  const [now, setNow] = useState(() => Date.now())
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const composerRef = useRef<HTMLTextAreaElement>(null)
-  /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
-  const atBottomRef = useRef(true)
-  /** Events arriving before the snapshot loads are buffered, then replayed. */
-  const readyRef = useRef(false)
-  const pendingRef = useRef<RoundtableEvent[]>([])
-  /** Streamed text is batched (~40ms) per seat so stdout chunks don't re-render the log. */
-  const bufRef = useRef(new Map<number, string>())
-  const flushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const chatWidth = useChatWidth()
-
-  const clearPendingText = useCallback((seat?: number) => {
-    if (seat !== undefined) bufRef.current.delete(seat)
-    else bufRef.current.clear()
-    if (bufRef.current.size === 0 && flushRef.current) {
-      clearTimeout(flushRef.current)
-      flushRef.current = null
-    }
-  }, [])
-
-  const flushDelta = useCallback(() => {
-    flushRef.current = null
-    const drained = [...bufRef.current]
-    bufRef.current.clear()
-    if (drained.length === 0) return
-    setLive((prev) => {
-      const next: LiveMap = { ...prev }
-      for (const [seat, chunk] of drained) next[seat] = withText(next[seat], chunk)
-      return next
-    })
-  }, [])
-
-  const apply = useCallback(
-    (ev: RoundtableEvent) => {
-      if (ev.type === 'round') {
-        setRunning(ev.running)
-        if (ev.roundsRun !== undefined || ev.concluded !== undefined) {
-          setCycle((c) => ({
-            roundsRun: ev.roundsRun ?? c.roundsRun,
-            concluded: ev.concluded ?? c.concluded
-          }))
-        }
-        if (!ev.running) {
-          clearPendingText()
-          setLive({})
-        }
-      } else if (ev.type === 'turn') {
-        clearPendingText(ev.seat)
-        setLive((prev) => ({ ...prev, [ev.seat]: { parts: [], since: ev.at } }))
-      } else if (ev.type === 'queued') {
-        setQueued(ev.queued)
-        if (ev.error) setNote(`Your waiting message didn’t go out: ${ev.error}`)
-      } else if (ev.type === 'turn-end') {
-        clearPendingText(ev.seat)
-        setLive((prev) => {
-          const { [ev.seat]: _gone, ...rest } = prev
-          return rest
-        })
-      } else if (ev.type === 'delta') {
-        bufRef.current.set(ev.seat, (bufRef.current.get(ev.seat) ?? '') + ev.text)
-        if (!flushRef.current) flushRef.current = setTimeout(flushDelta, 40)
-      } else if (ev.type === 'tool') {
-        // text still waiting in the batch was said before this call, so it lands first
-        const said = bufRef.current.get(ev.seat) ?? ''
-        clearPendingText(ev.seat)
-        setLive((prev) => {
-          const cur = withText(prev[ev.seat], said)
-          const tool: LivePart = {
-            kind: 'tool',
-            m: { role: 'assistant', kind: 'tool_call', toolName: ev.toolName, text: ev.detail, preview: ev.preview }
-          }
-          return { ...prev, [ev.seat]: { ...cur, parts: [...cur.parts, tool] } }
-        })
-      } else if (ev.type === 'entry') {
-        if (ev.entry.speaker !== 'user' && ev.entry.seat !== undefined) {
-          clearPendingText(ev.entry.seat)
-          setLive((prev) => {
-            const { [ev.entry.seat as number]: _gone, ...rest } = prev
-            return rest
-          })
-        }
-        // index is absolute — an entry the snapshot already carried must not repeat
-        setEntries((es) => (ev.index < es.length ? es : [...es, ev.entry]))
-      }
-    },
-    [clearPendingText, flushDelta]
-  )
-
-  useEffect(() => {
-    readyRef.current = false
-    pendingRef.current = []
-    setRt(null)
-    setEntries([])
-    setRunning(false)
-    setLive({})
-    setNote(null)
-    atBottomRef.current = true
-    // subscribe before the snapshot loads: anything emitted in between is replayed
-    const unsub = api.onRoundtableEvent((ev) => {
-      if (ev.id !== id) return
-      if (!readyRef.current) pendingRef.current.push(ev)
-      else apply(ev)
-    })
-    let dead = false
-    void api
-      .getRoundtable(id)
-      .then((snap) => {
-        if (dead) return
-        setRt(snap)
-        setEntries([...snap.entries])
-        setRunning(snap.running)
-        setCycle({ roundsRun: snap.roundsRun, concluded: snap.concluded })
-        const liveNow: LiveMap = {}
-        for (const seat of snap.speaking) {
-          liveNow[seat] = { parts: [], since: snap.speakingSince?.[seat] }
-        }
-        setQueued(snap.queued ?? null)
-        setRoundsDraft(snap.maxRounds)
-        setLive(liveNow)
-        readyRef.current = true
-        const pending = pendingRef.current
-        pendingRef.current = []
-        for (const ev of pending) apply(ev)
-        composerRef.current?.focus()
-      })
-      .catch((err) => {
-        if (!dead) setNote(err instanceof Error ? err.message : String(err))
-      })
-    return () => {
-      dead = true
-      unsub()
-      clearPendingText()
-    }
-  }, [id, apply, clearPendingText])
 
   useEffect(() => {
     if (atBottomRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
@@ -255,12 +94,6 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     return () => clearInterval(t)
   }, [running])
 
-  useEffect(() => {
-    if (!cwdCopied) return
-    const t = setTimeout(() => setCwdCopied(false), 1500)
-    return () => clearTimeout(t)
-  }, [cwdCopied])
-
   /** Mid-round, a message waits for the round (`queue`) or stops it and goes now. */
   const send = async (whenBusy: RoundtableWhenBusy = 'queue'): Promise<void> => {
     const p = draft.trim()
@@ -270,7 +103,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     try {
       await api.sendRoundtableMessage(id, p, { seats: to ?? undefined, whenBusy })
     } catch (err) {
-      setNote(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
+      setNote(`Send failed: ${ipcErrorText(err)}`)
       setDraft(p) // a rejected send must not eat the typed message
     }
   }
@@ -280,7 +113,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     try {
       await api.continueRoundtable(id, seats ?? undefined)
     } catch (err) {
-      setNote(err instanceof Error ? err.message : String(err))
+      setNote(ipcErrorText(err))
     }
   }
 
@@ -296,7 +129,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
       setLimitsDraft(null)
       setNote(null)
     } catch (err) {
-      setNote(err instanceof Error ? err.message : String(err))
+      setNote(ipcErrorText(err))
     }
   }
 
@@ -356,21 +189,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
           <h2 className="chat-title">{rt.title}</h2>
           <div className="chat-sub">
             {rt.branch && <BranchChip branch={rt.branch} />}
-            <button
-              className={`chat-cwd ${cwdCopied ? 'copied' : ''}`}
-              title={`${rt.cwd}\nclick to copy path`}
-              onClick={() => {
-                void navigator.clipboard.writeText(rt.cwd)
-                setCwdCopied(true)
-              }}
-            >
-              {rt.repoRoot ? cwdLabel(rt.cwd, rt.repoRoot, rt.branch) : 'scratch room'}
-            </button>
-            {cwdCopied && (
-              <span className="copy-flash" role="status">
-                copied
-              </span>
-            )}
+            <CopyPath path={rt.cwd} label={rt.repoRoot ? cwdLabel(rt.cwd, rt.repoRoot, rt.branch) : 'scratch room'} />
             <button
               className={`rt-budget${outOfTurns ? ' spent' : ''}`}
               aria-expanded={limitsDraft !== null}
@@ -409,36 +228,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
         <div className="chat-main">
           {limitsDraft && (
             <div className="rt-limits" id="rt-limits" role="group" aria-label="Roundtable spending limits">
-              <div className="ns-opt">
-                <label className="ns-label" htmlFor="rt-edit-message">Agent turns per message</label>
-                <Select
-                  id="rt-edit-message"
-                  ariaLabel="Agent turns per message"
-                  value={String(limitsDraft.maxTurnsPerMessage)}
-                  options={limitOptions(MESSAGE_LIMITS, limitsDraft.maxTurnsPerMessage)}
-                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerMessage: Number(v) })}
-                />
-              </div>
-              <div className="ns-opt">
-                <label className="ns-label" htmlFor="rt-edit-table">Agent turns for the table</label>
-                <Select
-                  id="rt-edit-table"
-                  ariaLabel="Agent turns for the table"
-                  value={String(limitsDraft.maxTurnsPerTable)}
-                  options={limitOptions(TABLE_LIMITS, limitsDraft.maxTurnsPerTable)}
-                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnsPerTable: Number(v) })}
-                />
-              </div>
-              <div className="ns-opt">
-                <label className="ns-label" htmlFor="rt-edit-minutes">Longest a seat may take</label>
-                <Select
-                  id="rt-edit-minutes"
-                  ariaLabel="Longest a seat may take"
-                  value={String(limitsDraft.maxTurnMinutes)}
-                  options={minuteOptions(limitsDraft.maxTurnMinutes)}
-                  onChange={(v) => setLimitsDraft({ ...limitsDraft, maxTurnMinutes: Number(v) })}
-                />
-              </div>
+              <RoundtableLimitFields idPrefix="rt-edit" limits={limitsDraft} onChange={setLimitsDraft} />
               {rt.mode === 'consensus' && (
                 <div className="ns-opt">
                   <label className="ns-label" htmlFor="rt-edit-rounds">Round cap</label>
@@ -448,7 +238,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                     value={String(roundsDraft)}
                     options={[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({
                       value: String(n),
-                      label: n === 1 ? '1 round' : `${n} rounds`
+                      label: plural(n, 'round')
                     }))}
                     onChange={(v) => setRoundsDraft(Number(v))}
                   />
@@ -513,9 +303,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                       <Message key={i} m={part.m} provider={seat.provider} />
                     ) : (
                       <div key={i} className="msg msg-assistant">
-                        <span className={`avatar plogo-${seat.provider}`} aria-hidden="true">
-                          <ProviderLogo p={seat.provider} size={14} />
-                        </span>
+                        <ProviderMark p={seat.provider} size={14} box="avatar" decorative />
                         <div className="assistant-body markdown">
                           <div className={`rt-speaker rt-speaker-${seat.provider}`}>
                             {uiSeatName(rt.participants, seatIdx)}
@@ -551,21 +339,26 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                     the rest of the round carries on without that seat */}
                 {speaking.length > 0 && (
                   <span className="rt-waiting">
-                    {speaking.map((i) => (
-                      <span key={i} className="rt-waiting-seat">
-                        <span className="rt-waiting-time">
-                          {uiSeatName(rt.participants, i)} · {elapsed(now, live[i]?.since)}
+                    {speaking.map((i) => {
+                      // how long, on the board's own clock; "just now" until the start is known
+                      const since = live[i]?.since
+                      return (
+                        <span key={i} className="rt-waiting-seat">
+                          <span className="rt-waiting-time">
+                            {uiSeatName(rt.participants, i)} ·{' '}
+                            {since === undefined ? 'just now' : fmtElapsed(now - since)}
+                          </span>
+                          <button
+                            className="link-btn"
+                            aria-label={`Skip ${uiSeatName(rt.participants, i)} — go on without it`}
+                            title="Stop waiting: end this seat's turn and carry on without it"
+                            onClick={() => void api.skipRoundtableSeat(id, i).catch(() => {})}
+                          >
+                            skip
+                          </button>
                         </span>
-                        <button
-                          className="link-btn"
-                          aria-label={`Skip ${uiSeatName(rt.participants, i)} — go on without it`}
-                          title="Stop waiting: end this seat's turn and carry on without it"
-                          onClick={() => void api.skipRoundtableSeat(id, i).catch(() => {})}
-                        >
-                          skip
-                        </button>
-                      </span>
-                    ))}
+                      )
+                    })}
                   </span>
                 )}
               </div>
@@ -745,130 +538,6 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
   )
 }
 
-/** "42s", "3m", "1h 5m" since a turn started; blank until the start is known. */
-function elapsed(now: number, since: number | undefined): string {
-  if (since === undefined) return 'just now'
-  const sec = Math.max(0, Math.round((now - since) / 1000))
-  if (sec < 60) return `${sec}s`
-  const min = Math.floor(sec / 60)
-  return min < 60 ? `${min}m` : `${Math.floor(min / 60)}h ${min % 60}m`
-}
-
-/** The time-limit presets, plus a hand-edited value shown as itself; 0 = no limit. */
-function minuteOptions(current: number): Array<{ value: string; label: string }> {
-  const presets = [5, 10, 15, 30, 60, 0]
-  const values = presets.includes(current) ? presets : [...presets, current].sort((a, b) => (a || 1e9) - (b || 1e9))
-  return values.map((n) => ({ value: String(n), label: n === 0 ? 'no limit' : `${n} min` }))
-}
-
-/** One line naming how a seat was set up: model, thinking, and the knobs it has on. */
-export function seatSetup(p: RoundtableParticipant): string {
-  const o = p.options ?? {}
-  return [
-    o.model ?? 'default model',
-    o.effort ? `${o.effort} thinking` : null,
-    o.fast ? 'fast' : null,
-    o.longContext ? 'long context' : null,
-    o.modelEndpoint ? 'custom provider' : null
-  ]
-    .filter(Boolean)
-    .join(' · ')
-}
-
-/** Point on the table edge (a quadratic arc) at parameter t ∈ [0,1], in % of the panel. */
-function arcPoint(t: number): { x: number; y: number } {
-  const u = 1 - t
-  // P0 (4,91) — C (50,-36) — P1 (96,91), mirroring the SVG path below
-  return {
-    x: u * u * 4 + 2 * u * t * 50 + t * t * 96,
-    y: u * u * 91 + 2 * u * t * -36 + t * t * 91
-  }
-}
-
-/**
- * The table itself — the view's one signature element. Seats sit around an arc (the
- * tabletop edge), each carrying its live state: thinking, agrees, not yet, or quiet.
- * Everything it shows is derived; the arc breathes only while a round runs.
- */
-function RoundtableTable({
-  rt,
-  entries,
-  speaking,
-  running
-}: {
-  rt: RoundtableSnapshot
-  entries: RoundtableEntry[]
-  speaking: readonly number[]
-  running: boolean
-}): JSX.Element {
-  // the current cycle: everything after the last user message
-  let start = 0
-  for (let i = entries.length - 1; i >= 0; i--) {
-    if (entries[i].speaker === 'user') {
-      start = i + 1
-      break
-    }
-  }
-  const seats = rt.participants.map((p, i) => {
-    let last: RoundtableEntry | undefined
-    for (let j = entries.length - 1; j >= start; j--) {
-      const e = entries[j]
-      if (e.speaker !== 'user' && entrySeatIndex(rt.participants, e) === i && !e.error) {
-        last = e
-        break
-      }
-    }
-    const thinking = speaking.includes(i)
-    const status = thinking
-      ? 'thinking…'
-      : last?.stance === 'agree'
-        ? 'agrees'
-        : last?.stance === 'continue'
-          ? 'not yet'
-          : last
-            ? 'spoke'
-            : 'quiet'
-    return {
-      provider: p.provider,
-      name: uiSeatName(rt.participants, i),
-      status,
-      thinking,
-      setup: seatSetup(p)
-    }
-  })
-  const n = seats.length
-  return (
-    <div className={`rt-table ${running ? 'running' : ''}`} role="group" aria-label="The table">
-      <svg className="rt-table-arc" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <path className="rt-table-edge" d="M 4 91 Q 50 -36 96 91" />
-        <path className="rt-table-glow" d="M 4 91 Q 50 -36 96 91" />
-      </svg>
-      {seats.map((s, i) => {
-        const p = arcPoint((i + 1) / (n + 1))
-        return (
-          <div
-            key={i}
-            className={`rt-table-seat ${s.thinking ? 'thinking' : ''} status-${
-              s.status === 'agrees' ? 'agree' : s.status === 'not yet' ? 'continue' : 'other'
-            }`}
-            style={{ left: `${p.x}%`, top: `${p.y}%` }}
-            title={`${s.name}\n${s.setup}`}
-          >
-            <span className={`rt-seat plogo-${s.provider}`}>
-              <ProviderLogo p={s.provider} size={14} />
-              {s.thinking && <span className={`pulse pulse-${s.provider} rt-seat-pulse`} />}
-            </span>
-            <span className="rt-table-name">{s.name}</span>
-            <span className="rt-table-status">{s.status}</span>
-            {/* what this seat runs on — the form's choices, readable on the table itself */}
-            <span className="rt-table-setup">{s.setup}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 /**
  * The cycle's outcome, assembled by the app — never by another AI turn: each seat's
  * own closing line (its stance note, or the first line of its final reply), side by
@@ -880,26 +549,12 @@ function ConsensusOutcome({
   rounds
 }: {
   rt: RoundtableSnapshot
-  entries: RoundtableEntry[]
+  entries: readonly RoundtableEntry[]
   rounds: number
 }): JSX.Element {
-  // the current cycle: everything after the last user message
-  let start = 0
-  for (let i = entries.length - 1; i >= 0; i--) {
-    if (entries[i].speaker === 'user') {
-      start = i + 1
-      break
-    }
-  }
+  const replies = cycleReplies(rt.participants, entries)
   const seats = rt.participants.map((p, i) => {
-    let last: RoundtableEntry | undefined
-    for (let j = entries.length - 1; j >= start; j--) {
-      const e = entries[j]
-      if (e.speaker !== 'user' && entrySeatIndex(rt.participants, e) === i && !e.error) {
-        last = e
-        break
-      }
-    }
+    const last = replies[i]
     const firstLine = last?.text.split('\n').find((l) => l.trim())?.trim() ?? ''
     const line =
       last?.stanceNote ?? (firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine)
@@ -916,15 +571,13 @@ function ConsensusOutcome({
       <div className="rt-outcome-head">
         {allAgree ? 'Shared understanding' : 'No full agreement'}
         <span className="rt-outcome-sub">
-          the seats&#8217; own closing lines · {rounds} round{rounds === 1 ? '' : 's'} — a new
+          the seats&#8217; own closing lines · {plural(rounds, 'round')} — a new
           message reopens the table
         </span>
       </div>
       {seats.map((s, i) => (
         <div key={i} className="rt-outcome-row">
-          <span className={`avatar plogo-${s.provider}`} aria-hidden="true">
-            <ProviderLogo p={s.provider} size={13} />
-          </span>
+          <ProviderMark p={s.provider} box="avatar" decorative />
           <span className={`rt-speaker rt-speaker-${s.provider}`}>{s.name}</span>
           {/* a seat that never spoke stated no position — saying "not yet" would
               invent a dissent (a failed turn is silence, not disagreement) */}
@@ -983,9 +636,7 @@ const EntryRow = memo(function EntryRow({
   }
   return (
     <div className="msg msg-assistant">
-      <span className={`avatar plogo-${e.speaker}`} aria-hidden="true">
-        <ProviderLogo p={e.speaker} size={14} />
-      </span>
+      <ProviderMark p={e.speaker} size={14} box="avatar" decorative />
       <div className="assistant-body markdown">
         <div className={`rt-speaker rt-speaker-${e.speaker}`}>
           {label}

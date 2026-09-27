@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { isUnder } from './paths'
+import { isUnder, realOrSelf } from './paths'
 
 /*
  * Writing into a directory someone else filled.
@@ -12,20 +12,11 @@ import { isUnder } from './paths'
  * it names. Every write Cockpit makes into a repo's own files asks this first.
  */
 
-export function isSymlink(path: string): boolean {
+function isSymlink(path: string): boolean {
   try {
     return lstatSync(path).isSymbolicLink()
   } catch {
     return false
-  }
-}
-
-/** `path` with its links followed as far as they lead — itself when nothing is there. */
-function realOrSelf(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    return path
   }
 }
 

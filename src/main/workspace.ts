@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { WorkspaceInfo } from '../shared/types'
 import { parseWorktreeList, type WorktreeEntry } from './cleanup-core'
-import { execText, type ExecResult } from './env'
+import { execOrThrow, execText, failureText } from './env'
 import { getDefaultBranch } from './github'
 import { userDataDir } from './config'
 import { DEFAULT_BRANCH_PREFIX } from '../shared/branch-prefix'
@@ -21,14 +21,8 @@ const TIMEOUT_MS = 120_000
 /** A hook that fails mid-install can print pages; the reason is at the end. */
 const HOOK_OUTPUT_LINES = 20
 
-function failureText(cmd: string, r: ExecResult): string {
-  return r.stderr.trim() || r.stdout.trim() || r.error || `${cmd} failed`
-}
-
-async function run(cmd: string, args: string[], cwd: string): Promise<string> {
-  const r = await execText(cmd, args, { cwd, timeoutMs: TIMEOUT_MS })
-  if (!r.ok) throw new Error(failureText(cmd, r))
-  return r.stdout.trim()
+function run(cmd: string, args: readonly string[], cwd: string): Promise<string> {
+  return execOrThrow(cmd, args, { cwd, timeoutMs: TIMEOUT_MS })
 }
 
 /** The commit `ref` names, or null when it names none. */
@@ -155,6 +149,11 @@ type WorkspaceOptions = {
 // else here is creating worktrees in between.
 let creating: Promise<unknown> = Promise.resolve()
 
+/** Where Cockpit cuts its worktrees: under its own userData, never inside a repo. */
+export function worktreesDir(): string {
+  return join(userDataDir(), 'worktrees')
+}
+
 /**
  * Every new session gets its own linked worktree + branch (`<prefix><slug>`, `cockpit/`
  * unless the person set their own), kept outside the repo (under userData) so checkouts
@@ -176,7 +175,7 @@ async function create(
   opts: WorkspaceOptions
 ): Promise<WorkspaceInfo> {
   const baseSlug = (name && slugify(name)) || `ws-${Date.now().toString(36)}`
-  const parent = join(userDataDir(), 'worktrees', slugify(basename(repoRoot)) || 'repo')
+  const parent = join(worktreesDir(), slugify(basename(repoRoot)) || 'repo')
   mkdirSync(parent, { recursive: true })
   const baseCommit = await commitOf(repoRoot, opts.base ?? 'HEAD')
   const prefix = opts.prefix ?? DEFAULT_BRANCH_PREFIX

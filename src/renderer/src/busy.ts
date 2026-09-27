@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import type { BusySession, Landing } from '../../shared/types'
 import { api } from './api'
+import { seedThenFollow } from './seed-then-follow'
+import { subscribers } from './subscribers'
 
 /**
  * Tiny shared store for live session status: rows in the sidebar tree and the
@@ -19,14 +21,8 @@ let turns: ReadonlyMap<string, string> = new Map()
  * question shows these too, opened or not.
  */
 let waiting: ReadonlyMap<string, Landing> = new Map()
-const listeners = new Set<() => void>()
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
-}
+const changes = subscribers()
+const subscribe = changes.subscribe
 
 function set(sessions: BusySession[]): void {
   // a turn ending is main's to judge (landed.ts mirrors what it decides)
@@ -42,13 +38,16 @@ function set(sessions: BusySession[]): void {
       s.source === 'observed' && s.asks ? [[s.id, { id: s.id, at: s.startedAt, kind: 'asks', asks: s.asks }]] : []
     )
   )
-  listeners.forEach((l) => l())
+  changes.notify()
 }
 
 /** Seed from main and follow pushes; returns the unsubscribe (App's mount effect). */
 export function initBusySessions(): () => void {
-  void api.getBusySessions().then(set)
-  return api.onBusySessions(set)
+  return seedThenFollow(
+    () => api.getBusySessions(),
+    (on) => api.onBusySessions(on),
+    set
+  )
 }
 
 /** True while a provider process is running for this session id. */

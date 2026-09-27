@@ -10,8 +10,8 @@ export type ReleaseType = 'major' | 'minor' | 'patch'
 
 export type Commit = { readonly hash: string; readonly message: string }
 
-const RECORD = ''
-const FIELD = ''
+const RECORD = '\u001e'
+const FIELD = '\u001f'
 
 /** the `git log` format `parseLog` reads: hash, unit separator, full message, record separator */
 export const LOG_FORMAT = '%H%x1f%B%x1e'

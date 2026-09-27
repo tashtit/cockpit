@@ -10,11 +10,12 @@
  * import library.ts, which imports types.ts back.
  *
  * Adding a capability touches four files in order (.agents/skills/add-ipc-capability):
- * this file, main/index.ts, preload/index.ts, tests/component/stub-api.ts — the renderer
- * then calls it through renderer/src/api.ts, which is never edited. `CockpitApi` is grouped
- * under `---------- topic ----------` banners and `CH` by channel prefix: a new
- * member goes in the group that owns the question, not at the end. The member order is
- * not kept in step across the files — don't spend a pass aligning them.
+ * this file, the domain's module in main/ipc/, preload/index.ts and
+ * tests/component/stub-api.ts — the renderer then calls it through renderer/src/api.ts,
+ * which is never edited. `CockpitApi` is grouped under `---------- topic ----------`
+ * banners and `CH` by channel prefix: a new member goes in the group that owns the
+ * question, not at the end. The member order is not kept in step across the files —
+ * don't spend a pass aligning them.
  */
 import type { PanelReport } from './library'
 import type {
@@ -556,9 +557,6 @@ export const PUSH = {
   sideChatEvent: 'side-chat-event',
   updateState: 'update-state'
 } as const
-
-/** Any channel the renderer may invoke. */
-export type InvokeChannel = (typeof CH)[keyof typeof CH]
 
 /** Any event main may push to the window. */
 export type PushChannel = (typeof PUSH)[keyof typeof PUSH]
