@@ -1,5 +1,6 @@
 import { useState, type JSX } from 'react'
 import {
+  COCKPIT_GUIDE_URL,
   feedbackPrefills,
   feedbackUrl,
   type FeedbackCli,
@@ -304,6 +305,10 @@ export function AboutSection({
         themselves current on their own. Cockpit downloads and installs its own updates rather
         than leaving it to macOS, which is what lets it clear the quarantine flag Gatekeeper
         would otherwise block the new build on.{' '}
+        <button className="link-btn" onClick={() => void api.openExternal(COCKPIT_GUIDE_URL)}>
+          User guide
+        </button>
+        <span className="link-sep" aria-hidden="true">·</span>
         {appInfo && (
           <>
             <button
