@@ -201,6 +201,41 @@ Copilot CLI keeps its to-dos in a table of the session's own database rather tha
 its log. Cockpit reads that table as it stands now, so the list appears on the last
 call that changed it; earlier versions of the list aren't kept anywhere.
 
+## Side chat: questions that don't join the session
+
+Sometimes you want to ask the agent something without adding it to the session. You might
+want to know why it chose an approach, what is left, or what a file it just read does. The
+header's **Side chat** key (⌘L) opens a panel beside the conversation for that. Each question
+is answered by a throwaway copy of the conversation as it stands, so:
+
+- **You can ask while a turn is running.** The copy knows everything up to the moment you
+  ask, and the session keeps working. That applies to a turn running in Cockpit, in a
+  terminal or in the agent's own app.
+- **Nothing reaches the session.** The question and the answer aren't written to the
+  session's log. The agent working on the task never sees them, and the session doesn't
+  show up twice in the sidebar.
+- **The copy can read files but not change them.** It can open a file to answer, and the
+  answer lists what it looked at.
+
+| Agent | How the copy is made |
+| --- | --- |
+| Claude Code | `claude -p --resume <id> --fork-session --no-session-persistence`, with only the Read, Grep and Glob tools and no MCP servers |
+| Codex | `codex exec fork <id> --ephemeral`, in a read-only sandbox that never asks to leave it |
+
+Copilot CLI can't copy a session or run without saving one, so its sessions have no side
+chat. A roundtable seat's session doesn't have one either. The copy runs as the session's
+account, and on its custom provider if it has one.
+
+Follow-up questions build on each other: every answer so far goes along with the next
+question. **Add to message** puts an answer in your message to the session's agent, where
+you can edit it before sending. **Clear** starts the side chat over. One question runs at a
+time, and **Stop** ends it. The side chat keeps its answers while the window is open, even
+when you switch sessions or close the panel. A reload forgets them.
+
+The side chat and the Work panel share the space beside the conversation, and the width you
+drag it to, so opening one closes the other. A half-typed question is still there when you come back, and the first
+Escape leaves the question box without closing the panel.
+
 ## Continuing in another agent
 
 **Continue in…** in the header starts a new session with another agent (or a fresh one

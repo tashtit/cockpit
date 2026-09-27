@@ -20,10 +20,14 @@ import {
   ProcessIcon,
   ProviderLogo,
   PROVIDER_LABEL,
+  SideChatIcon,
   WorkIcon
 } from './logos'
 import { DiffStat } from './InstructionDiff'
 import { ReviewPanel } from './ReviewPanel'
+import { SideChat } from './SideChat'
+import { sideChatSupported } from '../../shared/side-chat'
+import type { SideTarget } from './side-chat-log'
 import { Select } from './Select'
 import { findAnchor } from './transcript-anchor'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
@@ -101,6 +105,9 @@ export function ChatView({
   const [work, setWork] = useState<WorkFocus | null>(null)
   /** What had focus when the panel opened — closing hands it back */
   const workOpener = useRef<HTMLElement | null>(null)
+  /** Side chat beside the transcript, in the Work panel's slot: when it last opened, or closed */
+  const [side, setSide] = useState<number | null>(null)
+  const sideOpener = useRef<HTMLElement | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** Auto-scroll only while the user is pinned to the bottom — never hijack a scroll-up. */
@@ -198,6 +205,7 @@ export function ChatView({
   useEffect(() => {
     setReview(false)
     setWork(null)
+    setSide(null)
   }, [binding?.cwd])
 
   // the Work panel is offered once the transcript holds something to put in it — a
@@ -225,7 +233,10 @@ export function ChatView({
   )
   const openWork = useCallback((key: number | null, tab: WorkTab) => {
     const active = document.activeElement
-    if (active instanceof HTMLElement && !active.closest('.work-panel')) workOpener.current = active
+    // by id: the side chat is a .work-panel too, and focus in it is somewhere to come back from
+    if (active instanceof HTMLElement && !active.closest('#work-panel')) workOpener.current = active
+    // one panel beside the conversation at a time
+    setSide(null)
     setWork({ tab, key, at: Date.now() })
   }, [])
   const closeWork = useCallback(() => {
@@ -235,14 +246,60 @@ export function ChatView({
     workOpener.current = null
     if (back?.isConnected) back.focus()
   }, [])
+  // side chat: questions about this session, asked of a copy of it — offered once there
+  // is a session to copy, by an agent whose CLI can copy one without writing to it. A
+  // running turn is no reason to hold it: asking mid-turn is the point
+  const sideable = !!binding?.nativeSessionId && !binding.readOnly && sideChatSupported(binding.provider)
+  const sideTarget = useMemo<SideTarget | null>(
+    () =>
+      binding?.nativeSessionId && sideable
+        ? {
+            provider: binding.provider,
+            cwd: binding.cwd,
+            nativeSessionId: binding.nativeSessionId,
+            options: binding.options,
+            configDir: binding.configDir
+          }
+        : null,
+    [sideable, binding?.provider, binding?.cwd, binding?.nativeSessionId, binding?.options, binding?.configDir]
+  )
+  const openSide = useCallback(() => {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && !active.closest('#side-chat')) sideOpener.current = active
+    setWork(null)
+    setSide(Date.now())
+  }, [])
+  const closeSide = useCallback(() => {
+    setSide(null)
+    const back = sideOpener.current
+    sideOpener.current = null
+    if (back?.isConnected) back.focus()
+  }, [])
+  const toggleSide = (): void => (side !== null ? closeSide() : openSide())
+  const toggleSideRef = useRef(toggleSide)
+  toggleSideRef.current = toggleSide
+  // ⌘L opens and closes it (the palette owns the keyboard while it is open)
+  useEffect(() => {
+    if (!sideable) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== 'l' || document.querySelector('[role="dialog"]')) return
+      e.preventDefault()
+      toggleSideRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sideable])
+
   /** Changes, from the header, ⌘D or the Edits tab. Where the panel covers the
    *  conversation (a narrow deck), the review would open unseen behind it — so it
    *  gives way first; beside the conversation it stays, to read the two together. */
   const toggleReview = useCallback(() => {
-    const panel = document.getElementById('work-panel')
-    if (panel && getComputedStyle(panel).position === 'absolute') closeWork()
+    if (panelCovers()) {
+      closeWork()
+      closeSide()
+    }
     setReview((v) => !v)
-  }, [closeWork])
+  }, [closeWork, closeSide])
   const reviewRef = useRef(review)
   reviewRef.current = review
   /** The Edits tab's way to the real diff: opens it, never closes it */
@@ -289,6 +346,14 @@ export function ChatView({
     setDraft((d) => (d.trim() ? `${d.trimEnd()}\n\n${text}` : text))
     composerRef.current?.focus()
   }, [])
+  /** A side answer on its way into the message: a panel covering the composer steps aside */
+  const composeFromSide = useCallback(
+    (text: string): void => {
+      if (panelCovers()) setSide(null)
+      compose(text)
+    },
+    [compose]
+  )
 
   const branchPr = useMemo(
     () => (binding?.branch ? prs.find((p) => p.headRefName === binding.branch) : undefined),
@@ -558,6 +623,23 @@ export function ChatView({
             <WorkIcon />
           </button>
         )}
+        {/* questions about the session that never reach it — its mark alone, like Work */}
+        {sideable && (
+          <button
+            className="btn-review btn-work"
+            aria-label="Side chat"
+            aria-pressed={side !== null}
+            aria-controls={side !== null ? 'side-chat' : undefined}
+            title={
+              side !== null
+                ? 'Close the side chat (⌘L)'
+                : `Side chat — ask ${PROVIDER_LABEL[binding.provider]} about this session without adding to it (⌘L)`
+            }
+            onClick={toggleSide}
+          >
+            <SideChatIcon />
+          </button>
+        )}
         {/* progressive disclosure: only a started session can be handed off; a
             running turn merely disables it. A roundtable seat session is the
             table's internal, not a conversation to continue — main refuses it
@@ -751,9 +833,18 @@ export function ChatView({
             onStartFollowUp={onStartFollowUp}
           />
         )}
+        {side !== null && sideTarget && (
+          <SideChat target={sideTarget} at={side} onClose={closeSide} onCompose={composeFromSide} />
+        )}
       </div>
     </main>
   )
+}
+
+/** Whether the panel beside the conversation — Work or side chat — covers it instead (a narrow deck). */
+function panelCovers(): boolean {
+  const panel = document.querySelector('.chat-deck > .work-panel')
+  return !!panel && getComputedStyle(panel).position === 'absolute'
 }
 
 /** The rows that carry a plan, to-dos, an edit or a check — all the Work panel folds — with their keys. */

@@ -46,6 +46,10 @@ const findLog = (root, suffix) => {
   }
 }
 const HANDOFF = 'You are handing this coding session off'
+// a side question's answer: the copy read the file, then said why
+const SIDE_ANSWER =
+  'Two retries still flaked under CI load — the token refresh can take longer than both. ' +
+  'The **jittered backoff** is what fixed it; `retries = 3` alone only buys time for the refresh to land.'
 const SUMMARY =
   '## Original request\nFix the login flake\n## Current state\nTests green locally\n' +
   '## What has been done\nRaised retries, added backoff\n## What remains\nPR review\n## Gotchas\nCI is slow'
@@ -115,6 +119,15 @@ async function claude() {
   }
   if (args[0] !== '-p') return console.log('ok') // mcp login, plugin install, …
   const prompt = args.at(-1) ?? ''
+  // a side question: a copy of the session that saves nothing, so no log is written
+  if (args.includes('--no-session-persistence')) {
+    const fork = randomUUID()
+    await emit({ type: 'system', subtype: 'init', session_id: fork, cwd, model: 'claude-opus-4-1' })
+    const read = { type: 'tool_use', id: 'toolu_side', name: 'Read', input: { file_path: join(cwd, 'src/auth/login.ts') } }
+    for (const b of [read, { type: 'text', text: SIDE_ANSWER }])
+      await emit({ type: 'assistant', session_id: fork, message: { role: 'assistant', content: [b] } })
+    return emit({ type: 'result', subtype: 'success', is_error: false, session_id: fork, total_cost_usd: 0.01 })
+  }
   const id = flag('--resume') ?? randomUUID()
   const home = process.env.CLAUDE_CONFIG_DIR ?? join(HOME, '.claude')
   const file =
@@ -148,6 +161,13 @@ async function claude() {
 async function codex() {
   if (args[0] === 'login' && args[1] === 'status') return console.log('Logged in using ChatGPT')
   if (args[0] !== 'exec') return console.log('ok')
+  // a side question: `exec fork --ephemeral` copies the session and writes nothing
+  if (args[1] === 'fork' && args.includes('--ephemeral')) {
+    await emit({ type: 'thread.started', thread_id: randomUUID() })
+    await emit({ type: 'item.completed', item: { type: 'command_execution', command: 'bash -lc "rg fallback src"', exit_code: 0 } })
+    await emit({ type: 'item.completed', item: { type: 'agent_message', text: 'The fallback only runs when the billing API times out.' } })
+    return emit({ type: 'turn.completed' })
+  }
   const resume = args[1] === 'resume' ? args[2] : undefined
   const id = resume ?? randomUUID()
   const prompt = args.at(-1) ?? ''

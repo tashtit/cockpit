@@ -29,6 +29,7 @@ import { PROVIDER_LABEL } from './logos'
 import { Settings, type SettingsSection } from './Settings'
 import { branchHint, taskTitle } from './task-names'
 import { initLanded } from './landed'
+import { initSideChat } from './side-chat-log'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -193,6 +194,8 @@ export function App(): JSX.Element {
     }
   }, [selectedSessionId, indexVersion])
   useEffect(() => initLanded(), [])
+  // side questions' answers land while their panel is closed, or another view is up
+  useEffect(() => initSideChat(), [])
   // the transcript's markdown pipeline is its own chunk — warm it once the window
   // is up, so the first session opened renders formatted with no plain-text flash
   useEffect(() => preloadMarkdown(), [])

@@ -17,6 +17,7 @@ import type {
   ProcessTarget,
   SessionMeta,
   SessionQuery,
+  SideChatRequest,
   TimeFormat,
   TranscriptSearchQuery,
   UpdatePrefs
@@ -29,6 +30,7 @@ import { isUnder } from './paths'
 import { TranscriptSearcher } from './transcript-search'
 import { ChatManager, isValidNativeId } from './chat'
 import { holderOf, holdRefusal, resumeLine, resumeScript, type ControlEntry } from './session-control-core'
+import { sideTurnRequest } from './side-chat'
 import { mergeBusy } from './liveness-core'
 import {
   getPanel,
@@ -164,6 +166,8 @@ let win: BrowserWindow | null = null
 let indexer: SessionIndexer
 let transcripts: TranscriptSearcher
 let chat: ChatManager
+/** Side questions' turns: a manager of their own, so none reaches the busy board or the desk */
+let sideChat: ChatManager | null = null
 let roundtables: RoundtableManager | null = null
 let attention: AttentionDesk | null = null
 let cleanupReminder: CleanupReminder | null = null
@@ -1370,9 +1374,10 @@ app.whenReady().then(() => {
   )
   ipcMain.handle(CH.chatSend, (_e, req: ChatRequest) => {
     // pasted-image paths are renderer input — only accept files chat:save-image wrote;
-    // and a seat's research allowance is the roundtable manager's alone to give
+    // a seat's research allowance is the roundtable manager's alone to give, and a copy
+    // that saves nothing is side chat's (a chat turn is the session, and is kept)
     {
-      const { images: rawImages, research: _research, ...rest } = req
+      const { images: rawImages, research: _research, sideFork: _sideFork, ...rest } = req
       const images = assertChatImages(chatImagesDir(), rawImages)
       req = images ? { ...rest, images } : rest
     }
@@ -1452,6 +1457,34 @@ app.whenReady().then(() => {
       // against what it actually asked, so a stale or invented answer is dropped
       chat.respondPermission(String(turnId), String(requestId), String(optionId))
   )
+
+  // side chat: questions asked of a throwaway copy of a session. A ChatManager of its
+  // own, so a side turn never marks its session busy, never lands on the attention desk
+  // and never streams into the chat; one side question runs per session at a time
+  const side = new ChatManager((ev) => sendToWin(PUSH.sideChatEvent, ev), {
+    resolveEndpoint: (id) => listModelEndpoints().find((e) => e.id === id),
+    resolveKey: (ep) => getEndpointKey(ep.id)
+  })
+  sideChat = side
+  ipcMain.handle(CH.sideChatAsk, (_e, raw: SideChatRequest) => {
+    let req = sideTurnRequest(raw)
+    // the directory and config home are renderer input, checked as chat:send checks them
+    req = {
+      ...req,
+      cwd: assertKnownCwd(req.cwd),
+      configDir: req.configDir === undefined ? undefined : assertKnownConfigDir(req.configDir, req.provider)
+    }
+    if (roundtables?.tableIdForCwd(req.cwd)) {
+      throw new Error('A roundtable seat session has no side chat — ask at the table.')
+    }
+    // the copy runs on the backend its session was started on
+    if (req.resumeNativeId && !req.options?.modelEndpoint) {
+      const inherited = sessionEndpointFor(`${req.provider}:${req.resumeNativeId}`)
+      if (inherited) req = { ...req, options: { ...req.options, modelEndpoint: inherited } }
+    }
+    return side.send(req)
+  })
+  ipcMain.handle(CH.sideChatCancel, (_e, turnId: string) => side.cancel(String(turnId)))
 
   // roundtables: several agents, one shared discussion, driven through the same
   // ChatManager (its emit hands their stream events to the manager above)
@@ -1738,6 +1771,7 @@ app.on('will-quit', () => {
 function stopSpawnedWork(): void {
   roundtables?.stopAll()
   chat?.cancelAll()
+  sideChat?.cancelAll()
 }
 
 // A downloaded update swaps itself in behind the quit the user already asked for:

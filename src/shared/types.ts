@@ -718,6 +718,37 @@ export type ChatRequest = {
    *  sandbox gets the network (`CODEX_RESEARCH_ARGS`), its files still read-only. Only the
    *  roundtable manager sets it; `chat:send` strips it, so no renderer request loosens a chat */
   readonly research?: boolean
+  /** A side question (`SideChatRequest`): the resumed session is copied, never continued —
+   *  Claude `--fork-session --no-session-persistence`, Codex `exec fork --ephemeral` — so the
+   *  turn writes nothing to the session's log, and the agent may read files but not change
+   *  them. Only the side-chat handler sets it; `chat:send` strips it */
+  readonly sideFork?: boolean
+}
+
+/** One question a session's side chat asked, and what came back. */
+export type SideExchange = {
+  readonly question: string
+  readonly answer: string
+}
+
+/**
+ * A side question about a session: answered from a throwaway copy of its conversation, so
+ * it can be asked while a turn runs and nothing of it reaches the session. Main builds the
+ * turn from this (`sideTurnRequest`) — the renderer names the session, never a flag.
+ */
+export type SideChatRequest = {
+  readonly provider: Provider
+  readonly cwd: string
+  /** The session to copy: the one on screen */
+  readonly nativeSessionId: string
+  readonly question: string
+  /** What this side chat asked and was told before, oldest first — the copy holds only
+   *  the session, so earlier exchanges ride in the prompt */
+  readonly history?: readonly SideExchange[]
+  /** The session's model and thinking level, where the window knows them */
+  readonly options?: AgentOptions
+  /** Config home of the session's account — the copy is read from there */
+  readonly configDir?: string
 }
 
 /** Context briefing for handing a session to another agent, built main-side. */

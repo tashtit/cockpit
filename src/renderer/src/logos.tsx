@@ -341,6 +341,23 @@ export const WorkIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
   </svg>
 )
 
+/** A speech bubble with a line aside: the chat header's Side chat key — a question asked off to the side. */
+export const SideChatIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M2.75 2.25h6.5a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1H6.5l-2.5 2v-2H2.75a1 1 0 0 1-1-1v-4.5a1 1 0 0 1 1-1ZM13.25 2.25v11.5" />
+  </svg>
+)
+
 /**
  * Where one to-do stands, as a shape, never only a colour: an empty ring (not
  * started), a ring around a dot (under way), a ring around a check (done), a ring
