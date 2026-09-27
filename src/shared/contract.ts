@@ -66,6 +66,7 @@ import type {
   SessionMeta,
   SessionPage,
   SessionQuery,
+  SideChatRequest,
   ShareResult,
   SourceDir,
   SourceStats,
@@ -90,6 +91,13 @@ export type CockpitApi = {
   readonly respondPermission: (turnId: string, requestId: string, optionId: string) => Promise<void>
   /** Persist a pasted image in main's image dir; resolves to the absolute file path */
   readonly saveChatImage: (data: Uint8Array, mime: string) => Promise<string>
+
+  /* ---------- a side question: asked of a copy of the session, never the session ---------- */
+  /** Ask about a session without adding to it; resolves to the turn id its events carry */
+  readonly askSideChat: (req: SideChatRequest) => Promise<string>
+  readonly cancelSideChat: (turnId: string) => Promise<void>
+  /** A side question's stream — its own channel, so nothing of it reaches the chat's turn */
+  readonly onSideChatEvent: (cb: (ev: ChatEvent) => void) => () => void
 
   /* ---------- sources and the index the renderer reads through ---------- */
   readonly getSources: () => Promise<SourceDir[]>
@@ -495,6 +503,9 @@ export const CH = {
 
   shellOpen: 'shell:open',
 
+  sideChatAsk: 'side-chat:ask',
+  sideChatCancel: 'side-chat:cancel',
+
   sourcesAdd: 'sources:add',
   sourcesGet: 'sources:get',
   sourcesPickDir: 'sources:pick-dir',
@@ -532,6 +543,7 @@ export const PUSH = {
   indexUpdated: 'index-updated',
   landings: 'landings',
   roundtableEvent: 'roundtable-event',
+  sideChatEvent: 'side-chat-event',
   updateState: 'update-state'
 } as const
 

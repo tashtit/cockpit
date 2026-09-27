@@ -20,7 +20,8 @@ gives way like the branch chip) for a session another session started — then b
 cwd that copies its full path — displayed via `cwdLabel`: a worktree as `worktree · <slug>`, or bare
 `worktree` when the slug is the branch chip's own name (its location is only where a tool keeps
 worktrees), anything else `~`-abbreviated; the full path is always in the tooltip — and "· not started" when no native session yet) · PR affordance · `Changes` ·
-`Work` (only once the transcript carries a plan, to-dos or an edit) · `Continue in…`.
+`Work` (only once the transcript carries a plan, to-dos or an edit) · `Side chat` (a started
+Claude or Codex session that takes input) · `Continue in…`.
 Header min-height is 52px — it's the drag region, keep it a real grab target.
 
 - **The header is identity, never settings.** The permission mode lives in the composer
@@ -30,7 +31,8 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   and `Continue in…` keys fold to 28px squares (`.lbl` hidden; `DiffIcon`/`HandoffIcon`
   stay, each with an `aria-label`). The `Work` key (`.btn-review.btn-work`) is that
   square at every width — `WorkIcon`, named by its `aria-label` and tooltip: a fourth
-  label cost the title ~70px at 900px, and the rows are the way in. An open PR's badge drops its state word
+  label cost the title ~70px at 900px, and the rows are the way in. The `Side chat` key is
+  the same square (`SideChatIcon`) for the same reason. An open PR's badge drops its state word
   (`.pr-word`) to keep the number beside its checks glyph, unresolved-thread count
   (`.pr-threads`) and review mark — the state stays in the badge's `aria-label` and
   tooltip; ≤700px the agent badge drops
@@ -314,6 +316,44 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
     machine (`localStorage`, a convenience). Withdrawn suggestions and roundtables (no
     `onStartFollowUp`) have no key.
   - A withdrawn row in the transcript says `withdrawn` (`.tool-verdict.tone-dim`).
+
+## Side chat (`SideChat.tsx`, `#side-chat`)
+
+Questions about the session on screen, answered by a throwaway copy of it (main's
+`sideTurnRequest`, `sideFork` in `buildCommand`), so nothing asked or answered reaches the
+session and a question can be asked while a turn runs, in Cockpit or elsewhere. The
+transcript is never the place for it: a side exchange drawn there would read as part of
+the conversation the agent resumes from.
+
+- **The Work panel's slot, not a second one.** It is a `SidePanel` (`#side-chat`: the same
+  frame, the same sash and dragged width — one width for both — and the same cover under
+  720px of deck) with a `.work-head` head. Opening either panel closes the other, so the
+  conversation always keeps the room it needs. The
+  header key (`.btn-review.btn-work`, `SideChatIcon`, `aria-pressed`, ⌘L) is offered on a
+  started Claude or Codex session that takes input. It is never offered on Copilot, whose
+  CLI cannot copy a session without writing to it, and never held by a running turn, since
+  asking mid-turn is the point.
+- **Head:** the `Side chat` placard (`.ns-label`), **Clear** (`.btn-ghost.small`, once
+  there is a thread) and the ×. **Body** (`.side-body`, its own scroller, `tabIndex=0`,
+  a named region): a `.work-note` saying what the copy is and may do, then one
+  `.side-exchange` per question, in the transcript's own grammar: the question as a
+  `.bubble-user`, the answer as avatar + `.assistant-body.markdown` (`.streaming` while it
+  is still answering), widened to the panel since the panel is the column. While it
+  answers, the `.thinking` line says so, or names the file it is reading. A failure or a
+  stop is a `.sys-row`. Under an answer, `.side-foot` holds what the copy looked at
+  (`.side-looked`, a quiet ▸ fold in the checks' run grammar, worded like the work fold:
+  `2 steps · Read · Grep`) and **Add to message** (`.link-btn`), which appends the answer
+  to the chat's composer for the person to edit. A panel covering the conversation steps
+  aside first.
+- **Composer:** the chat's own (`.composer.side-composer`, the same band with the panel's
+  inline padding, so the two footers read as one line across the deck): Enter asks,
+  **Ask** ↔ **Stop** in one slot. The draft lives in the store (`side-chat-log.ts`), so
+  Escape in the field leaves it (and keeps the text) rather than reaching the panel; an
+  Escape anywhere else in the panel closes it and hands focus back to what opened it.
+- The thread follows the reader only while they are at the bottom: a question just asked
+  scrolls there, and an answer growing never pulls a reader back down after a scroll-up.
+- The `role=status` region inside the panel says each transition once (answering,
+  answered, failed), never per streamed line.
 
 ## Permission prompt (`PermissionAsk`, `.perm-card`)
 

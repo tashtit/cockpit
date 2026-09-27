@@ -9,7 +9,9 @@ import {
   parseClaudeStreamLine,
   parseCodexStreamLine,
   promptWithImages,
-  withTurnFlags
+  withTurnFlags,
+  CLAUDE_SIDE_TOOLS,
+  CODEX_SIDE_ARGS
 } from '../src/main/chat'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
 import type { AcpAgent, BusySession, ChatEvent, ChatRequest } from '../src/shared/types'
@@ -207,6 +209,60 @@ describe('buildCommand', () => {
   })
 })
 
+describe('side chat: a copy of the session, never the session', () => {
+  const side = (over: Partial<ChatRequest>): string[] =>
+    buildCommand({
+      provider: 'claude',
+      cwd: '/x',
+      prompt: 'why?',
+      resumeNativeId: 'sid',
+      permissionMode: 'safe',
+      sideFork: true,
+      ...over
+    }).args
+
+  it('claude forks the session and saves nothing: read-only tools, no MCP servers', () => {
+    const args = side({})
+    expect(args[args.indexOf('--resume') + 1]).toBe('sid')
+    expect(args).toContain('--fork-session')
+    expect(args).toContain('--no-session-persistence')
+    // --tools is the set itself, not a pre-approval the person's own rules could widen
+    expect(args[args.indexOf('--tools') + 1]).toBe(CLAUDE_SIDE_TOOLS.join(','))
+    expect(CLAUDE_SIDE_TOOLS).toEqual(['Read', 'Grep', 'Glob'])
+    expect(args).toContain('--strict-mcp-config')
+    expect(args.join(' ')).not.toMatch(/permission-mode|dangerously|allowedTools/)
+    expect(args.slice(-2)).toEqual(['--', 'why?'])
+    // a plain resume is the session itself, and is kept
+    const plain = side({ sideFork: undefined })
+    expect(plain).not.toContain('--fork-session')
+    expect(plain).not.toContain('--no-session-persistence')
+    expect(plain).not.toContain('--tools')
+  })
+
+  it('codex forks ephemerally — never `exec resume`, which appends the turn to the rollout', () => {
+    const args = side({ provider: 'codex', options: { model: 'gpt-5', effort: 'low' } })
+    expect(args.slice(0, 5)).toEqual(['exec', 'fork', 'sid', '--json', '--ephemeral'])
+    expect(args).not.toContain('resume')
+    // read-only, nothing escalating out of it, and never kept from a folder for not being a repo
+    expect(args.slice(-2 - CODEX_SIDE_ARGS.length, -2)).toEqual([...CODEX_SIDE_ARGS])
+    expect(CODEX_SIDE_ARGS).toContain('sandbox_mode="read-only"')
+    expect(CODEX_SIDE_ARGS).toContain('approval_policy="never"')
+    expect(args).toContain('--skip-git-repo-check')
+    expect(args).not.toContain('--sandbox')
+    expect(args[args.indexOf('--model') + 1]).toBe('gpt-5')
+    expect(args).toContain('model_reasoning_effort="low"')
+    expect(args.slice(-2)).toEqual(['--', 'why?'])
+  })
+
+  it('without a session to copy there is nothing to fork', () => {
+    const claude = side({ resumeNativeId: undefined })
+    expect(claude).not.toContain('--fork-session')
+    const codex = side({ provider: 'codex', resumeNativeId: undefined })
+    expect(codex).not.toContain('fork')
+    expect(codex).not.toContain('--ephemeral')
+  })
+})
+
 describe('promptWithImages', () => {
   it('returns the prompt untouched without images', () => {
     expect(promptWithImages({ provider: 'claude', cwd: '/x', prompt: 'hi', permissionMode: 'safe' })).toBe('hi')
@@ -294,6 +350,14 @@ describe('parseClaudeStreamLine', () => {
     })
     expect(ev.map((e) => e.type)).toEqual(['error', 'done'])
     expect(ev[0]).toMatchObject({ message: expect.stringContaining('API key invalid') })
+  })
+  it('a queued task notice drained before the prompt is not the turn ending', () => {
+    // a resumed session with a background task's notice pending: claude runs it first, as a
+    // zero-turn run that ends in a result of its own, then reads the prompt
+    const notice = { type: 'result', subtype: 'success', is_error: false, num_turns: 0, result: '', session_id: 's', origin: { kind: 'task-notification' } }
+    expect(parseClaudeStreamLine('t', notice).map((e) => e.type)).toEqual(['session'])
+    const own = { type: 'result', subtype: 'success', is_error: false, num_turns: 1, result: 'ok', session_id: 's' }
+    expect(parseClaudeStreamLine('t', own).map((e) => e.type)).toEqual(['session', 'done'])
   })
   it('an error result without text falls back to the subtype', () => {
     const ev = parseClaudeStreamLine('t', { type: 'result', subtype: 'error_max_turns', is_error: true })

@@ -1,0 +1,222 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { ChatView } from '../../src/renderer/src/ChatView'
+import type { ChatBinding } from '../../src/renderer/src/chat-binding'
+import { setChatLog } from '../../src/renderer/src/chat-log'
+import { initSideChat, resetSideChat } from '../../src/renderer/src/side-chat-log'
+import type { ChatEvent, SessionMessage } from '../../src/shared/types'
+
+const binding: ChatBinding = {
+  provider: 'claude',
+  cwd: '/tmp/wt',
+  nativeSessionId: 'sid-1',
+  title: 'Fix the login flake',
+  branch: 'cockpit/login-flake',
+  repoRoot: '/tmp/repo',
+  options: { model: 'opus', effort: 'high' },
+  configDir: '/Users/me/.claude-work'
+}
+
+function renderChat(over: { binding?: Partial<ChatBinding>; busy?: boolean; log?: SessionMessage[] } = {}): void {
+  if (over.log) setChatLog(over.log)
+  render(
+    <ChatView
+      binding={{ ...binding, ...over.binding }}
+      prs={[]}
+      busy={over.busy ?? false}
+      elsewhere={false}
+      prBusy={false}
+      onSend={vi.fn()}
+      onCancel={() => {}}
+      onCreatePr={() => {}}
+      onOpenUrl={() => {}}
+      onOpenHandoff={() => {}}
+      onOpenLineage={() => {}}
+      permissions={[]}
+      onAnswerPermission={vi.fn()}
+    />
+  )
+}
+
+/** Main's side-chat stream, as the store hears it */
+let emitSide: (ev: ChatEvent) => void = () => {}
+const sideKey = (): HTMLElement => screen.getByRole('button', { name: 'Side chat' })
+const question = (): HTMLElement => screen.getByRole('textbox', { name: 'Ask Claude on the side' })
+
+beforeEach(() => {
+  resetSideChat()
+  vi.mocked(window.cockpit.onSideChatEvent).mockImplementation((cb) => {
+    emitSide = cb
+    return () => {}
+  })
+  initSideChat()
+})
+
+async function ask(text: string): Promise<void> {
+  await userEvent.type(question(), `${text}{Enter}`)
+}
+
+describe('side chat', () => {
+  it('is offered on a started Claude or Codex session that takes input — never Copilot, a seat or a new chat', () => {
+    renderChat()
+    expect(sideKey()).toHaveAttribute('aria-pressed', 'false')
+    for (const b of [{ nativeSessionId: null }, { provider: 'copilot' as const }, { readOnly: true }]) {
+      document.body.innerHTML = ''
+      renderChat({ binding: b })
+      expect(screen.queryByRole('button', { name: 'Side chat' })).not.toBeInTheDocument()
+    }
+    document.body.innerHTML = ''
+    renderChat({ binding: { provider: 'codex' } })
+    expect(sideKey()).toBeInTheDocument()
+  })
+
+  it('asks a copy of the session mid-turn, and the answer stays out of the transcript', async () => {
+    renderChat({ busy: true, log: [{ role: 'user', kind: 'text', text: 'fix the flake' }] })
+    // the session's own Send waits on its turn; a side question does not
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+    await userEvent.click(sideKey())
+    expect(sideKey()).toHaveAttribute('aria-pressed', 'true')
+    expect(question()).toHaveFocus()
+
+    await ask('why retries = 3?')
+    expect(window.cockpit.askSideChat).toHaveBeenCalledWith({
+      provider: 'claude',
+      cwd: '/tmp/wt',
+      nativeSessionId: 'sid-1',
+      options: { model: 'opus', effort: 'high' },
+      configDir: '/Users/me/.claude-work',
+      question: 'why retries = 3?',
+      history: []
+    })
+    const panel = screen.getByRole('complementary', { name: 'Side chat' })
+    expect(within(panel).getByText('Claude is answering…')).toBeInTheDocument()
+    expect(question()).toHaveValue('')
+
+    act(() => {
+      emitSide({ turnId: 'side-turn-1', type: 'tool', toolName: 'Read', detail: '{}', preview: 'Read src/login.ts' })
+    })
+    expect(within(panel).getByText('Claude is looking: Read src/login.ts')).toBeInTheDocument()
+    act(() => {
+      emitSide({ turnId: 'side-turn-1', type: 'text', text: 'Two retries still flaked under load.' })
+      emitSide({ turnId: 'side-turn-1', type: 'done' })
+    })
+    expect(await within(panel).findByText('Two retries still flaked under load.')).toBeInTheDocument()
+    expect(within(panel).getByText('1 step · Read')).toBeInTheDocument()
+    // the conversation never heard of it
+    const transcript = document.querySelector('.messages') as HTMLElement
+    expect(within(transcript).queryByText(/Two retries/)).not.toBeInTheDocument()
+    expect(within(transcript).queryByText(/why retries/)).not.toBeInTheDocument()
+    expect(window.cockpit.sendChat).not.toHaveBeenCalled()
+  })
+
+  it('carries the answered exchanges into the next question, not the ones that failed', async () => {
+    renderChat()
+    await userEvent.click(sideKey())
+    await ask('first?')
+    act(() => {
+      emitSide({ turnId: 'side-turn-1', type: 'text', text: 'First answer.' })
+      emitSide({ turnId: 'side-turn-1', type: 'done' })
+    })
+    vi.mocked(window.cockpit.askSideChat).mockResolvedValueOnce('side-turn-2')
+    await ask('second?')
+    act(() => {
+      emitSide({ turnId: 'side-turn-2', type: 'error', message: 'claude exited with code 1' })
+      emitSide({ turnId: 'side-turn-2', type: 'done' })
+    })
+    expect(await screen.findByText('Side question failed: claude exited with code 1')).toBeInTheDocument()
+    vi.mocked(window.cockpit.askSideChat).mockResolvedValueOnce('side-turn-3')
+    await ask('third?')
+    expect(vi.mocked(window.cockpit.askSideChat).mock.calls[2][0].history).toEqual([
+      { question: 'first?', answer: 'First answer.' }
+    ])
+  })
+
+  it('stops a question being answered, and what its process says after is the kill', async () => {
+    renderChat()
+    await userEvent.click(sideKey())
+    await ask('slow one?')
+    await userEvent.click(within(screen.getByRole('complementary', { name: 'Side chat' })).getByRole('button', { name: 'Stop' }))
+    expect(window.cockpit.cancelSideChat).toHaveBeenCalledWith('side-turn-1')
+    act(() => {
+      emitSide({ turnId: 'side-turn-1', type: 'error', message: 'claude exited with code null' })
+      emitSide({ turnId: 'side-turn-1', type: 'done' })
+    })
+    expect(screen.getByText('Stopped.')).toBeInTheDocument()
+    expect(screen.queryByText(/exited with code null/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeInTheDocument()
+  })
+
+  it('hears a turn that failed before main said which one it was', async () => {
+    let resolve: (id: string) => void = () => {}
+    vi.mocked(window.cockpit.askSideChat).mockImplementationOnce(() => new Promise((r) => (resolve = r)))
+    renderChat()
+    await userEvent.click(sideKey())
+    await ask('where?')
+    act(() => {
+      emitSide({ turnId: 'side-turn-9', type: 'error', message: 'Working directory no longer exists: /tmp/wt' })
+      emitSide({ turnId: 'side-turn-9', type: 'done' })
+    })
+    await act(async () => resolve('side-turn-9'))
+    expect(await screen.findByText(/Side question failed: Working directory no longer exists/)).toBeInTheDocument()
+  })
+
+  it('says why main refused the question, in its own words', async () => {
+    vi.mocked(window.cockpit.askSideChat).mockRejectedValueOnce(
+      new Error("Error invoking remote method 'side-chat:ask': Error: unknown working directory: /tmp/wt")
+    )
+    renderChat()
+    await userEvent.click(sideKey())
+    await ask('hm?')
+    expect(await screen.findByText('Side question failed: unknown working directory: /tmp/wt')).toBeInTheDocument()
+  })
+
+  it('hands an answer to the composer, where the person edits it before it is sent', async () => {
+    renderChat()
+    await userEvent.click(sideKey())
+    await ask('summary?')
+    act(() => {
+      emitSide({ turnId: 'side-turn-1', type: 'text', text: 'Use a backoff, not more retries.' })
+      emitSide({ turnId: 'side-turn-1', type: 'done' })
+    })
+    await userEvent.click(await screen.findByRole('button', { name: 'Add to message' }))
+    const composer = screen.getByRole('textbox', { name: 'Message Claude' })
+    expect(composer).toHaveValue('Use a backoff, not more retries.')
+    expect(composer).toHaveFocus()
+  })
+
+  it('shares one slot with Work, keeps a half-typed question through Escape, and ⌘L toggles it', async () => {
+    renderChat({
+      log: [
+        {
+          role: 'assistant',
+          kind: 'tool_call',
+          toolName: 'TodoWrite',
+          text: '{}',
+          artifact: { kind: 'todos', items: [{ text: 'fix it', status: 'in_progress' }] }
+        }
+      ]
+    })
+    await userEvent.click(sideKey())
+    await userEvent.type(question(), 'half a thought')
+    await userEvent.click(screen.getByRole('button', { name: 'Work' }))
+    expect(screen.queryByRole('complementary', { name: 'Side chat' })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Work' })).toBeInTheDocument()
+
+    await userEvent.click(sideKey())
+    expect(screen.queryByRole('complementary', { name: 'Work' })).not.toBeInTheDocument()
+    expect(question()).toHaveValue('half a thought')
+    // first Escape leaves the field, the second closes the panel and hands focus back
+    await userEvent.keyboard('{Escape}')
+    expect(question()).not.toHaveFocus()
+    await userEvent.click(screen.getByRole('region', { name: 'Side questions and answers' }))
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('complementary', { name: 'Side chat' })).not.toBeInTheDocument()
+    expect(sideKey()).toHaveFocus()
+
+    await userEvent.keyboard('{Meta>}l{/Meta}')
+    expect(question()).toHaveValue('half a thought')
+    await userEvent.keyboard('{Meta>}l{/Meta}')
+    expect(screen.queryByRole('complementary', { name: 'Side chat' })).not.toBeInTheDocument()
+  })
+})

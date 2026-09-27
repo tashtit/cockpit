@@ -23,6 +23,7 @@ import type {
   ProcessTarget,
   SessionHolder,
   SessionQuery,
+  SideChatRequest,
   TimeFormat,
   TranscriptSearchQuery,
   NewAcpAgent,
@@ -41,6 +42,13 @@ const api: CockpitApi = {
     const handler = (_e: unknown, ev: ChatEvent): void => cb(ev)
     ipcRenderer.on(PUSH.chatEvent, handler)
     return () => ipcRenderer.removeListener(PUSH.chatEvent, handler)
+  },
+  askSideChat: (req: SideChatRequest) => ipcRenderer.invoke(CH.sideChatAsk, req),
+  cancelSideChat: (turnId: string) => ipcRenderer.invoke(CH.sideChatCancel, turnId),
+  onSideChatEvent: (cb: (ev: ChatEvent) => void) => {
+    const handler = (_e: unknown, ev: ChatEvent): void => cb(ev)
+    ipcRenderer.on(PUSH.sideChatEvent, handler)
+    return () => ipcRenderer.removeListener(PUSH.sideChatEvent, handler)
   },
   getSources: () => ipcRenderer.invoke(CH.sourcesGet),
   getSourceStats: () => ipcRenderer.invoke(CH.sourcesStats),

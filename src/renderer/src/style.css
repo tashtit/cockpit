@@ -611,7 +611,7 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .btn-handoff:disabled { opacity: 0.5; cursor: default; }
 /* the review toggle: an icon+word key that stays lit while the panel is open */
 .btn-review { display: inline-flex; align-items: center; gap: var(--s2); }
-/* the Work key is its mark at every width — the square the others fold to ≤780px */
+/* the Work and Side chat keys are their marks at every width — the square the others fold to ≤780px */
 .btn-work { width: 28px; height: 28px; padding: 0; justify-content: center; }
 .btn-review:hover { color: var(--fg); border-color: var(--border-strong); }
 .btn-review[aria-pressed='true'] { color: var(--accent);
@@ -1455,13 +1455,15 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   background: var(--bg-deep); color: var(--fg); font-family: var(--mono); font-size: var(--fs-xs);
   line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 260px;
   overflow-y: auto; }
-.work-check-runs > summary { display: flex; align-items: center; gap: var(--s2); min-height: 24px;
-  cursor: pointer; list-style: none; color: var(--fg-dim); font-size: var(--fs-xs);
-  font-family: var(--mono); }
-.work-check-runs > summary::-webkit-details-marker { display: none; }
-.work-check-runs > summary::before { content: '▸'; width: 10px; flex-shrink: 0; font-size: 10px;
-  transition: transform var(--dur) var(--ease); }
-.work-check-runs[open] > summary::before { transform: rotate(90deg); }
+.work-check-runs > summary, .side-looked > summary { display: flex; align-items: center;
+  gap: var(--s2); min-height: 24px; cursor: pointer; list-style: none; color: var(--fg-dim);
+  font-size: var(--fs-xs); font-family: var(--mono); }
+.work-check-runs > summary::-webkit-details-marker,
+.side-looked > summary::-webkit-details-marker { display: none; }
+.work-check-runs > summary::before, .side-looked > summary::before { content: '▸'; width: 10px;
+  flex-shrink: 0; font-size: 10px; transition: transform var(--dur) var(--ease); }
+.work-check-runs[open] > summary::before, .side-looked[open] > summary::before {
+  transform: rotate(90deg); }
 .work-check-list { list-style: none; margin: var(--s1) 0 0; padding: 0; display: flex;
   flex-direction: column; gap: 2px; }
 .work-check-run { display: flex; align-items: baseline; gap: var(--s2); min-width: 0;
@@ -1555,6 +1557,30 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   text-align: center; }
 .empty-chat h2 { color: var(--fg); }
 .empty-chat.small { flex: none; padding: var(--s6); align-self: center; }
+
+/* ---------- side chat: questions about the session, asked of a copy of it ----------
+   It takes the Work panel's slot and frame (`.work-panel`, `.work-head`), so the two are
+   one place beside the conversation and cover it alike under 720px of deck. The thread is
+   the transcript's own rows at the panel's width, and the composer is the chat's. */
+/* the placard voice, without the micro-label's lead: it sits in the head's row */
+.work-head .side-title { flex: 1; min-width: 0; margin: 0; }
+.side-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+  gap: var(--s5); padding: var(--s4); scrollbar-gutter: stable; }
+.side-body > * { flex-shrink: 0; }
+.side-exchange { display: flex; flex-direction: column; gap: var(--s3); }
+/* the transcript's widths are a reading column's share; here the panel is the column */
+.side-exchange .bubble-user { max-width: 88%; }
+.side-exchange .assistant-body { flex: 1; max-width: none; }
+.side-foot { display: flex; align-items: flex-start; gap: var(--s3); flex-wrap: wrap;
+  margin-left: 32px; }
+.side-looked { flex: 1 1 140px; min-width: 0; }
+.side-looked ul { list-style: none; margin: var(--s1) 0 0; display: flex; flex-direction: column;
+  gap: 2px; }
+.side-looked code { display: block; padding: 2px var(--s2); font-family: var(--mono);
+  font-size: var(--fs-xs); color: var(--fg-dim); overflow-wrap: anywhere; }
+.side-use { min-height: 24px; margin-left: auto; font-size: var(--fs-sm); white-space: nowrap; }
+/* the chat's composer band at the panel's width: the two footers read as one line */
+.side-composer { padding-inline: var(--s4); }
 
 /* ---------- mission-control home ---------- */
 /* Two regions and a fixed frame: the board reads above, the composer is docked to
