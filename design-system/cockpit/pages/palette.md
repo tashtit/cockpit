@@ -70,6 +70,7 @@ under them says how much was read and why a search stopped early.
 ## Row grammar
 
 Session rows reuse the established vocabulary — agent `ProviderLogo` · title ·
+`.held-mark` (only on a session Cockpit drives; its option's name says "(in Cockpit)") ·
 `BranchChip` · meta slot (`LandingMark` while it asks, else `Spinner` while flying, else
 `LandingMark` for a red PR or a landing, else timestamp; repo name appears as a
 `.palette-hint` only in query mode). Repo rows: `RepoIcon` · dimmed-owner `owner/name` ·

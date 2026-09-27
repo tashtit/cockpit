@@ -12,8 +12,9 @@ Identity + situation in one row, left to right:
 solid agent `.badge` · `.acct-chip` ("running as" — shows the identity's local part,
 full identity in the tooltip; shed entirely ≤780px) · title + sub (first the `.hold-chip` —
 who drives the session: *In Cockpit* with Cockpit's hexagon, an accent-bordered key that
-opens the hold bar, or *In Claude* in the agent's livery, a plain statement since the bar is
-already open for it; ≤382px of `@container chat-sub` it sheds its words to its mark — then lineage chips that open
+opens the hold bar, or — in the agent's livery, a plain statement since the bar is already
+open for it — the place its log says it was opened (*In the Claude app*, *In a terminal*,
+`placeOf`), else *In Claude*; ≤382px of `@container chat-sub` it sheds its words to its mark — then lineage chips that open
 the related session — `from <Agent>` for a handoff, `by <title>` (`.parent-chip`, which
 gives way like the branch chip) for a session another session started — then branch chip, clickable
 cwd that copies its full path — displayed via `cwdLabel`: a worktree as `worktree · <slug>`, or bare
