@@ -186,6 +186,17 @@ driver's env from `launchEnv` in `tests/e2e/launch-env.ts` (or the same spread o
 `process.env`). `COCKPIT_E2E_TAKE_FOCUS=1` is the one switch that fronts a window, for the
 full-screen specs; don't set it unasked.
 
+## Probing an agent CLI
+
+Every `claude`, `codex` or `copilot` run saves a session into the person's real history, and
+their Cockpit lists it: a batch of probes from a scratch folder lands in Chats as a column of
+look-alike rows, and each ending can raise a landing. Probe with `claude -p
+--no-session-persistence` or `codex exec --ephemeral`, which save nothing; drop the switch only
+when resuming is what the probe tests. Copilot has no such switch, and neither do the turns a
+dev app spawns against the real `HOME` (a roundtable's seats included) — keep those few, prefer
+the ui-tour world's stub CLIs when no real model is needed, and name in the report what ran so
+the person can archive it.
+
 ## Documentation
 
 The user guide is a VitePress site in `docs/` (`docs/guide/`, one page per feature), published
