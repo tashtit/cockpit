@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
-  AccountsSnapshot,
   AgentModel,
   ModelEndpoint,
   Provider,
@@ -27,6 +26,7 @@ import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
 import { storedValue } from './stored-value'
+import { useLoaded } from './use-loaded'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
@@ -116,8 +116,11 @@ export function NewRoundtable({
   const [maxRounds, setMaxRounds] = useState(3)
   const [limits, setLimits] = useState<RoundtableLimits>(savedLimits.get)
   const [dupConfirmed, setDupConfirmed] = useState(false)
-  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
-  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  const { value: accounts } = useLoaded(() => api.getAccounts(), [])
+  // optional call: a preload from before this method must not crash the form (dev HMR)
+  const { value: endpoints } = useLoaded(api.getModelEndpoints ? () => api.getModelEndpoints() : null, [], {
+    initial: [] as ModelEndpoint[]
+  })
   /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
   /** Every model each agent offers, per config home (`agentKey`) — main reads the CLIs' own lists */
@@ -133,9 +136,6 @@ export function NewRoundtable({
 
   useEffect(() => {
     topicRef.current?.focus()
-    void api.getAccounts().then(setAccounts)
-    // optional call: a preload from before this method must not crash the form (dev HMR)
-    void api.getModelEndpoints?.().then(setEndpoints)
   }, [])
 
   // ask each chosen provider what it serves, once; the cached list covers the meantime
