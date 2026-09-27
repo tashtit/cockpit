@@ -1088,7 +1088,7 @@ export const Message = memo(function Message({
 })
 
 /**
- * A live ACP turn has stopped and is waiting on a decision.
+ * A live ACP or Claude turn has stopped and is waiting on a decision.
  *
  * Docked between the transcript and the composer rather than written into the log: this
  * is a thing that is true *now*, and nothing else in the turn moves until it is answered.

@@ -315,7 +315,7 @@ export function App(): JSX.Element {
   )
 
   /**
-   * Permission questions an ACP turn is blocked on. Kept out of the transcript on
+   * Permission questions an ACP or Claude turn is blocked on. Kept out of the transcript on
    * purpose: this is a thing that is true *now*, not a thing that happened, and the
    * agent does not move again until one of them is answered.
    */

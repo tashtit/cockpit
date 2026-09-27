@@ -10,7 +10,7 @@ import {
   updateCommandFor
 } from '../shared/agent-cli'
 import { brewVersion } from './agent-cli-core'
-import { execText } from './env'
+import { execText, loginPathReady } from './env'
 
 const LATEST_TTL_MS = 60 * 60_000
 /** Homebrew's own answer is a local command, so it is re-read often — that is what
@@ -75,6 +75,8 @@ async function brewLatest(provider: Provider, cask: boolean, force: boolean): Pr
 
 /** One CLI as this Mac has it: where, which version, how installed, and whether it is behind. */
 export async function cliStatus(provider: Provider, opts: { readonly force?: boolean } = {}): Promise<CliStatus> {
+  // an npm-installed CLI is only on the login shell's PATH: asked before that is read, it is "missing"
+  await loginPathReady()
   const found = await execText('/usr/bin/which', [provider], { timeoutMs: 5_000 })
   const bin = found.ok ? found.stdout.trim().split('\n')[0] : ''
   const force = opts.force === true
