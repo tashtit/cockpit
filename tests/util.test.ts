@@ -11,12 +11,14 @@ import {
   parseJsonc,
   readHead,
   readHeadBytes,
+  readHeadBytesAsync,
   readJson,
   readSmallFile,
   readTail,
   patchPreview,
   readJsonlTail,
   shellPreview,
+  streamJsonl,
   timeSlicer,
   toolPreview,
   truncate,
@@ -70,12 +72,14 @@ describe('reading only regular files', () => {
   afterAll(() => stops.forEach((stop) => stop()))
 
   // a FIFO reports size 0, which used to route it to a whole-file read that never returned
-  it('skips a FIFO at once, whichever reader meets it', () => {
+  it('skips a FIFO at once, whichever reader meets it', async () => {
     const pipe = join(root, 'events.jsonl')
     stops.push(makeFifo(pipe))
     const started = Date.now()
     expect(readHead(pipe, 1000)).toEqual({ text: '', truncated: false, size: 0 })
     expect(readHeadBytes(pipe, 1000)).toBeNull()
+    await expect(readHeadBytesAsync(pipe, 1000)).resolves.toBeNull()
+    await expect(streamJsonl(pipe, { cap: 1000 }, () => true)).resolves.toEqual({ truncated: false, failed: true })
     expect(readTail(pipe, 1000)).toEqual({ text: '', truncated: false, size: 0 })
     expect(readJsonlTail(pipe)).toEqual({ lines: [], truncated: false, bytes: 0 })
     expect(readSmallFile(pipe, 1000)).toBeNull()
@@ -116,6 +120,35 @@ describe('reading only regular files', () => {
     expect(head).toMatchObject({ size: 4, truncated: true })
     expect(readHeadBytes(f, 4)).toMatchObject({ size: 4, truncated: false })
     expect(readHeadBytes(join(root, 'nowhere.bin'), 4)).toBeNull()
+  })
+})
+
+describe('streamJsonl', () => {
+  const read = async (file: string, limits: { cap: number; end?: number }, stopAt?: number) => {
+    const got: unknown[] = []
+    const outcome = await streamJsonl(file, limits, (line) => {
+      got.push(line)
+      return got.length !== stopAt
+    })
+    return { got, ...outcome }
+  }
+
+  it('hands over every record, the last one without its newline, and stops when told', async () => {
+    const f = join(root, 'stream.jsonl')
+    writeFileSync(f, '{"a":1}\nnot json\n\n{"a":"é"}\n{"a":3}')
+    expect(await read(f, { cap: 1000 })).toEqual({ got: [{ a: 1 }, { a: 'é' }, { a: 3 }], truncated: false, failed: false })
+    expect((await read(f, { cap: 1000 }, 1)).got).toEqual([{ a: 1 }])
+    // an earlier page of a thread counts only up to where its history ends
+    expect(await read(f, { cap: 1000, end: 8 })).toMatchObject({ got: [{ a: 1 }], truncated: false })
+  })
+
+  it('drops the record a cap cuts, and assembles one longer than a chunk', async () => {
+    const f = join(root, 'capped.jsonl')
+    const long = JSON.stringify({ pad: 'x'.repeat(600 * 1024) })
+    writeFileSync(f, `${long}\n{"a":2}\n`)
+    expect(await read(f, { cap: long.length + 4 })).toEqual({ got: [JSON.parse(long)], truncated: true, failed: false })
+    expect((await read(f, { cap: 10 * 1024 * 1024 })).got).toHaveLength(2)
+    expect(await read(join(root, 'nowhere.jsonl'), { cap: 10 })).toEqual({ got: [], truncated: false, failed: true })
   })
 })
 

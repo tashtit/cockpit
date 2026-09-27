@@ -1,5 +1,3 @@
-import { open, type FileHandle } from 'node:fs/promises'
-import { StringDecoder } from 'node:string_decoder'
 import type {
   Provider,
   SessionMeta,
@@ -10,7 +8,7 @@ import type {
   TranscriptSearchStop
 } from '../shared/types'
 import { isProvider } from '../shared/providers'
-import { contentToText, toMs } from './parsers/util'
+import { contentToText, readHeadBytesAsync, streamJsonl, toMs } from './parsers/util'
 import { legacyTimelineTexts } from './parsers/copilot'
 
 /**
@@ -40,7 +38,6 @@ const MAX_PER_SESSION = 20
 export const DEFAULT_MAX_BYTES_PER_FILE = 8 * 1024 * 1024
 /** Partial results after this long: a search over 2,500 transcripts always ends. */
 const DEFAULT_TIME_BUDGET_MS = 15_000
-const CHUNK_BYTES = 256 * 1024
 const MIN_QUERY_LENGTH = 2
 /** Snippet window around the match, in UTF-16 units of the whitespace-collapsed text */
 const SNIPPET_BEFORE = 48
@@ -140,88 +137,10 @@ const EXTRACTORS: Record<Provider, RecordExtractor> = {
   copilot: copilotRecords
 }
 
-type ReadOutcome = { readonly truncated: boolean }
-
-async function openQuietly(file: string): Promise<FileHandle | null> {
-  try {
-    return await open(file, 'r')
-  } catch {
-    return null
-  }
-}
-
-function handleLine(raw: string, onLine: (line: unknown) => boolean): boolean {
-  const t = raw.trim()
-  if (!t) return true
-  let obj: unknown
-  try {
-    obj = JSON.parse(t)
-  } catch {
-    return true
-  }
-  return onLine(obj)
-}
-
-/**
- * Stream a JSONL file in fixed chunks, at most `cap` bytes of it, handing each parsed
- * line to `onLine`; a false return stops the read. Malformed lines are skipped and a
- * line longer than a chunk is still assembled. Never throws — an unreadable file reads
- * as empty, the way every parser here treats one. `end` is where the file's content
- * stops counting (an earlier page of a thread); being cut there is not truncation.
- */
-async function streamJsonl(
-  file: string,
-  limits: { readonly cap: number; readonly end?: number },
-  onLine: (line: unknown) => boolean
-): Promise<ReadOutcome> {
-  const fh = await openQuietly(file)
-  if (!fh) return { truncated: false }
-  try {
-    const size = Math.min((await fh.stat()).size, limits.end ?? Infinity)
-    const truncated = size > limits.cap
-    const stop = Math.min(size, limits.cap)
-    // a multi-byte character split across two chunks must not become two U+FFFDs
-    const decoder = new StringDecoder('utf8')
-    const buf = Buffer.allocUnsafe(CHUNK_BYTES)
-    let carry = ''
-    let pos = 0
-    while (pos < stop) {
-      const { bytesRead } = await fh.read(buf, 0, Math.min(CHUNK_BYTES, stop - pos), pos)
-      if (bytesRead === 0) break
-      pos += bytesRead
-      const lines = (carry + decoder.write(buf.subarray(0, bytesRead))).split('\n')
-      carry = lines.pop() ?? ''
-      for (const raw of lines) if (!handleLine(raw, onLine)) return { truncated }
-    }
-    // the last line lacks a newline only when the file ended there — a capped read
-    // stops mid-line, and half a record is not a record
-    if (!truncated) {
-      const rest = carry + decoder.end()
-      if (rest.trim()) handleLine(rest, onLine)
-    }
-    return { truncated }
-  } catch {
-    return { truncated: false }
-  } finally {
-    await fh.close().catch(() => {})
-  }
-}
-
 /** A whole-document read under the same cap, for the legacy Copilot JSON layout. */
 async function readCapped(file: string, cap: number): Promise<{ text: string; truncated: boolean }> {
-  const fh = await openQuietly(file)
-  if (!fh) return { text: '', truncated: false }
-  try {
-    const size = (await fh.stat()).size
-    const n = Math.min(size, cap)
-    const buf = Buffer.allocUnsafe(n)
-    const { bytesRead } = await fh.read(buf, 0, n, 0)
-    return { text: buf.toString('utf8', 0, bytesRead), truncated: size > cap }
-  } catch {
-    return { text: '', truncated: false }
-  } finally {
-    await fh.close().catch(() => {})
-  }
+  const head = await readHeadBytesAsync(file, cap)
+  return head ? { text: head.bytes.toString('utf8'), truncated: head.truncated } : { text: '', truncated: false }
 }
 
 const collapse = (s: string): string => s.replace(/\s+/g, ' ').trim()

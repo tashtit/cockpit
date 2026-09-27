@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, lstatSync, openSync, readlinkSync, readSync } from 'node:fs'
+import { lstatSync, readlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { DiffFile, DiffScope, WorkspaceDiff } from '../shared/types'
 import {
@@ -12,6 +12,7 @@ import {
   withNumstat
 } from './diff-core'
 import { execText } from './env'
+import { readHeadBytes } from './parsers/util'
 import { isUnder } from './paths'
 
 /**
@@ -75,21 +76,11 @@ function readHead(path: string): { bytes: Uint8Array; truncated: boolean } | nul
     const st = lstatSync(path)
     if (st.isSymbolicLink()) return { bytes: Buffer.from(`${readlinkSync(path)}\n`), truncated: false }
     if (!st.isFile()) return null
-    // O_NONBLOCK and the fstat close the gap between the lstat and the open
-    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
-    try {
-      const opened = fstatSync(fd)
-      if (!opened.isFile()) return null
-      const size = opened.size
-      const buf = Buffer.alloc(Math.min(size, UNTRACKED_MAX_BYTES))
-      const n = readSync(fd, buf, 0, buf.length, 0)
-      return { bytes: buf.subarray(0, n), truncated: size > buf.length }
-    } finally {
-      closeSync(fd)
-    }
   } catch {
     return null
   }
+  // no-follow, non-blocking and the fstat close the gap between the lstat and the open
+  return readHeadBytes(path, UNTRACKED_MAX_BYTES, { noFollow: true })
 }
 
 function untrackedFiles(cwd: string, paths: readonly string[]): DiffFile[] {

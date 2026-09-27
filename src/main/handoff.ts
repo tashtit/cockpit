@@ -11,6 +11,7 @@ import type { GitSnapshot, HandoffSourceInfo } from './handoff-core'
 import { parseClaudeStreamLine, parseCodexStreamLine } from './chat'
 import { listModelEndpoints, sessionEndpointFor, sourceFor } from './config'
 import { getEndpointKey } from './secrets'
+import { parseJsonlText } from './parsers/util'
 import { endpointEnv } from '../shared/endpoints'
 import { CONFIG_HOME_VAR } from '../shared/providers'
 
@@ -94,15 +95,7 @@ function textFromStream(provider: Provider, stdout: string): string {
   const parse = provider === 'claude' ? parseClaudeStreamLine : parseCodexStreamLine
   const texts: string[] = []
   let error: string | null = null
-  for (const raw of stdout.split('\n')) {
-    const line = raw.trim()
-    if (line === '') continue
-    let obj: unknown
-    try {
-      obj = JSON.parse(line)
-    } catch {
-      continue
-    }
+  for (const obj of parseJsonlText(stdout, false)) {
     for (const ev of parse('handoff-summarize', obj)) {
       if (ev.type === 'text') texts.push(ev.text)
       if (ev.type === 'error') error = ev.message

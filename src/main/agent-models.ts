@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs'
-import { open, readdir, stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AgentModel, Provider } from '../shared/types'
 import { BUILTIN_MODELS, mergeModels } from '../shared/agent-models'
 import { codexCatalog, codexConfiguredModel, copilotModelsInLog } from './agent-models-core'
 import { mapLimit } from './map-limit'
 import { defaultConfigHome } from './paths'
+import { readHeadBytesAsync } from './parsers/util'
 
 /** Copilot logs read for models: the newest few, the head of each — bounded like every scan. */
 const COPILOT_LOGS = 60
@@ -19,21 +20,6 @@ const CACHE_MS = 10 * 60_000
 
 /** The answer in flight or found, so a burst of pickers opening shares one scan. */
 const cache = new Map<string, { readonly at: number; readonly models: Promise<AgentModel[]> }>()
-
-async function readHead(path: string, bytes: number): Promise<string> {
-  try {
-    const fh = await open(path, 'r')
-    try {
-      const buf = Buffer.alloc(bytes)
-      const { bytesRead } = await fh.read(buf, 0, bytes, 0)
-      return buf.subarray(0, bytesRead).toString('utf8')
-    } finally {
-      await fh.close()
-    }
-  } catch {
-    return ''
-  }
-}
 
 function codexModels(home: string): AgentModel[] {
   let catalog: AgentModel[] = []
@@ -78,7 +64,8 @@ async function copilotModels(home: string): Promise<AgentModel[]> {
   const logs = stats.filter((log) => log !== null)
   const seen = new Set<string>()
   for (const log of logs.sort((a, b) => b.mtime - a.mtime).slice(0, COPILOT_LOGS)) {
-    for (const id of copilotModelsInLog(await readHead(log.path, COPILOT_LOG_BYTES))) seen.add(id)
+    const head = await readHeadBytesAsync(log.path, COPILOT_LOG_BYTES)
+    for (const id of copilotModelsInLog(head?.bytes.toString('utf8') ?? '')) seen.add(id)
   }
   return [...seen].sort().map((id) => ({ id, label: id }))
 }
