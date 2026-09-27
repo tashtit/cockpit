@@ -566,7 +566,10 @@ const LIVE: readonly Shot[] = [
     name: 'chat-streaming',
     go: async (w) => {
       await send(w, /Fix the login flake/, 'Run the whole suite once more.')
-      await pause(w, 1500)
+      // a fixed pause landed before the stub's first line, so the shot showed the working
+      // line alone: wait for the reply itself to be arriving
+      await w.locator('.streaming-plain').first().waitFor({ timeout: 15_000 })
+      await pause(w, 300)
     }
   },
   // a turn read from the top: the reply keeps arriving below, and the key says so. The

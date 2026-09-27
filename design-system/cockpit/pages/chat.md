@@ -71,8 +71,9 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
 
 - Row vocabulary — do not invent new message shapes:
   - user → `.bubble-user` right-aligned, accent tint, `max-width: min(74%, 60ch)`
-  - assistant → avatar + `.markdown` body, `max-width: min(85%, 76ch)`; `.streaming`
-    shows the accent left border; `.reasoning` dims + italicizes
+  - assistant → avatar + `.markdown` body, `max-width: min(85%, 76ch)`; `.reasoning`
+    dims + italicizes. A reply still streaming looks like any other (plain text until it
+    lands) — the `.thinking` line is what says the turn is live; don't add a mark
   - tool call → `.tool-row` collapsed `<details>`: gear chip + mono 120-char preview —
     the humanized headline (`SessionMessage.preview`: Bash command, Edit/Read/Write path,
     Copilot's `bash`/`edit`/`create` and Codex's `shell`/`exec_command`/`apply_patch` too — the script inside Codex's `bash -lc` wrapper, a patch named by the files it touches — from `toolPreview()`/`shellPreview()` in main, for saved history and the live stream alike) when available,

@@ -1067,7 +1067,7 @@ export const Message = memo(function Message({
   }
   return (
     <div
-      className={`msg msg-assistant ${m.streaming ? 'streaming' : ''} ${m.kind === 'reasoning' ? 'reasoning' : ''}${ring}`}
+      className={`msg msg-assistant${m.kind === 'reasoning' ? ' reasoning' : ''}${ring}`}
       data-log-key={logKey}
     >
       <span className={`avatar plogo-${provider}`} aria-hidden="true">
