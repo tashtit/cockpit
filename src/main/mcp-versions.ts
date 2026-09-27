@@ -1,6 +1,7 @@
 import { describeMcp, isNewer, registryOf, type Registry } from '../shared/mcp-source'
 import type { McpConfig, McpVersion } from '../shared/types'
 import { mapLimit } from './map-limit'
+import { throttledBy } from './cache'
 
 /*
  * "Is there a newer one?" — asked of the registry a pinned MCP server installs from.
@@ -22,17 +23,6 @@ const MAX_PARALLEL = 6
 /** A package name is put in a URL, and it comes out of a hand-edited config file. */
 const NPM_NAME = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 const PYPI_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$/
-
-/** Answers keyed `<registry>:<package>`; a process-lifetime cache, so it mutates. */
-const cache = new Map<string, { readonly version: string; readonly at: number }>()
-
-/**
- * Asks in flight, keyed the same way. The cache is only written once an answer is
- * back, so without this two rows pinning the same package — and two panels opened in
- * quick succession — each miss the cache and fetch it again. Deliberately not a cache
- * of failures: a registry that was unreachable a second ago is worth asking again.
- */
-const inFlight = new Map<string, Promise<string>>()
 
 function nameOk(registry: Registry, pkg: string): boolean {
   return registry === 'npm' ? NPM_NAME.test(pkg) : PYPI_NAME.test(pkg)
@@ -65,21 +55,20 @@ async function fetchLatest(registry: Registry, pkg: string): Promise<string> {
   return version
 }
 
-/** The registry's newest release, from the cache when it was asked recently. */
+type Package = { readonly registry: Registry; readonly pkg: string }
+
+/**
+ * The registry's newest release, from the cache when it was asked recently. Asks in
+ * flight are shared, so two rows pinning the same package — and two panels opened in
+ * quick succession — fetch it once. Deliberately not a cache of failures: a registry
+ * that was unreachable a second ago is worth asking again.
+ */
+const latestVersions = throttledBy(TTL_MS, ({ registry, pkg }: Package) => fetchLatest(registry, pkg), {
+  keyOf: ({ registry, pkg }) => `${registry}:${pkg}`
+})
+
 function latestVersion(registry: Registry, pkg: string): Promise<string> {
-  const key = `${registry}:${pkg}`
-  const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < TTL_MS) return Promise.resolve(hit.version)
-  const pending = inFlight.get(key)
-  if (pending) return pending
-  const ask = fetchLatest(registry, pkg)
-    .then((version) => {
-      cache.set(key, { version, at: Date.now() })
-      return version
-    })
-    .finally(() => inFlight.delete(key))
-  inFlight.set(key, ask)
-  return ask
+  return latestVersions({ registry, pkg })
 }
 
 function failed(err: unknown): string {

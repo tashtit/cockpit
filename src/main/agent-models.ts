@@ -3,6 +3,7 @@ import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AgentModel, Provider } from '../shared/types'
 import { BUILTIN_MODELS, mergeModels } from '../shared/agent-models'
+import { throttledBy } from './cache'
 import { codexCatalog, codexConfiguredModel, copilotModelsInLog } from './agent-models-core'
 import { mapLimit } from './map-limit'
 import { defaultConfigHome } from './paths'
@@ -17,9 +18,6 @@ const COPILOT_LOG_BYTES = 256 * 1024
  */
 const STAT_BATCH = 64
 const CACHE_MS = 10 * 60_000
-
-/** The answer in flight or found, so a burst of pickers opening shares one scan. */
-const cache = new Map<string, { readonly at: number; readonly models: Promise<AgentModel[]> }>()
 
 function codexModels(home: string): AgentModel[] {
   let catalog: AgentModel[] = []
@@ -77,17 +75,19 @@ async function copilotModels(home: string): Promise<AgentModel[]> {
  */
 export function listAgentModels(provider: Provider, configDir?: string): Promise<AgentModel[]> {
   const home = configDir ?? defaultConfigHome(provider)
-  const key = `${provider}|${home}`
-  const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.models
-  const found =
-    provider === 'codex'
-      ? Promise.resolve(codexModels(home))
-      : provider === 'copilot'
-        ? copilotModels(home)
-        : Promise.resolve([])
-  // every read above fails soft, so what is cached here never rejects
-  const models = found.then((f) => mergeModels(BUILTIN_MODELS[provider], f))
-  cache.set(key, { at: Date.now(), models })
-  return models
+  return modelsByHome({ provider, home })
 }
+
+type Home = { readonly provider: Provider; readonly home: string }
+
+/** The answer in flight or found, so a burst of pickers opening shares one scan. */
+const modelsByHome = throttledBy(
+  CACHE_MS,
+  async ({ provider, home }: Home): Promise<AgentModel[]> => {
+    // every read here fails soft, so what is cached never rejects
+    const found =
+      provider === 'codex' ? codexModels(home) : provider === 'copilot' ? await copilotModels(home) : []
+    return mergeModels(BUILTIN_MODELS[provider], found)
+  },
+  { keyOf: ({ provider, home }) => `${provider}|${home}` }
+)
