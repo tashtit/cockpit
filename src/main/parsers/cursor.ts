@@ -93,7 +93,7 @@ function projectSlug(file: string): string | null {
 const walked = new Map<string, string | null>()
 
 /**
- * The directory a slug was made from. The slug is lossy (`titan.ron` and `titan-ron`
+ * The directory a slug was made from. The slug is lossy (`jane.doe` and `jane-doe`
  * look alike), so the paths the agent itself used are asked first — any ancestor of one
  * whose slug matches is the workspace — and only then the disk, one directory level at
  * a time, following the entries whose slug is a prefix of what is left.

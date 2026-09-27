@@ -2081,7 +2081,7 @@ describe('cursor parser', () => {
   })
 
   it('names the workspace the way Cursor does, and finds it again', () => {
-    expect(cursorSlug('/Users/titan.ron/.cursor/worktrees/cachely/v96w')).toBe('Users-titan-ron-cursor-worktrees-cachely-v96w')
+    expect(cursorSlug('/Users/jane.doe/.cursor/worktrees/app/v96w')).toBe('Users-jane-doe-cursor-worktrees-app-v96w')
     // from the paths the agent used
     expect(resolveCursorSlug('Users-me-dev-web', ['/Users/me/dev/web/src/auth.ts'])).toBe('/Users/me/dev/web')
     // from the disk, when the agent named none: a real directory with a dot in its name
