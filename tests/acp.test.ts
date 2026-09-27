@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { describe, it, expect, vi } from 'vitest'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -16,14 +16,15 @@ import { AcpTurn, probeAcpAgent } from '../src/main/acp'
 const STUB = fileURLToPath(new URL('./fixtures/stub-acp-agent.mjs', import.meta.url))
 const cwd = mkdtempSync(join(tmpdir(), 'cockpit-acp-'))
 
-function stubAgent(mode: string): AcpAgent {
+function stubAgent(mode: string, over: Partial<AcpAgent> = {}): AcpAgent {
   return {
     id: 'stub',
     label: 'Stub',
     command: process.execPath,
     args: [STUB],
     provider: 'copilot',
-    env: { STUB_MODE: mode }
+    env: { STUB_MODE: mode },
+    ...over
   }
 }
 
@@ -38,12 +39,14 @@ function start(
     mustResume?: boolean
     /** Whether a question can reach anyone — a chat by default, as most of these are */
     asksPermissions?: boolean
+    /** How the agent is signed in, as a built-in names it */
+    auth?: Pick<AcpAgent, 'authMethod' | 'signIn'>
     onEvent?: (ev: ChatEvent, turn: AcpTurn) => void
   } = {}
 ): Run & { readonly done: Promise<void> } {
   const events: ChatEvent[] = []
   let turn!: AcpTurn
-  turn = new AcpTurn(stubAgent(mode), {
+  turn = new AcpTurn(stubAgent(mode, opts.auth), {
     turnId: 't1',
     cwd,
     env: process.env,
@@ -196,6 +199,30 @@ describe('AcpTurn', () => {
     expect(events[0]).toMatchObject({ type: 'session', nativeSessionId: 'sess-1' })
   })
 
+  // Cursor's agent answers every session with ACP's auth-required error until the client
+  // calls `authenticate` with the method that reuses its CLI's own sign-in
+  it('signs in with the method a built-in names, once, when the agent asks', async () => {
+    const { events, done } = start('auth', { auth: { authMethod: 'stub-login', signIn: 'stub login' } })
+    await done
+    expect(events.map((e) => e.type)).toEqual(['session', 'tool', 'done'])
+  })
+
+  it('says how to sign in when signing in there does not work', async () => {
+    const { events, done } = start('auth-fail', { auth: { authMethod: 'stub-login', signIn: 'stub login' } })
+    await done
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect((events[0] as { message: string }).message).toBe(
+      'Stub needs signing in: Authentication required — sign it in by running `stub login` in a terminal, then send again.'
+    )
+  })
+
+  it('never signs in with a method no one named — the agent’s reason stands', async () => {
+    const { events, done } = start('auth')
+    await done
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect((events[0] as { message: string }).message).toBe('Stub needs signing in: Authentication required.')
+  })
+
   it('declines fs and terminal calls rather than hanging, since it claimed neither', async () => {
     const { events, done } = start('fs-probe')
     await done
@@ -269,6 +296,23 @@ describe('AcpTurn', () => {
 })
 
 describe('probeAcpAgent', () => {
+  // a probe runs for every built-in at every launch: what it starts must not outlive it
+  it('ends the agent and everything it started, even what ignores SIGTERM', async () => {
+    const pidFile = join(cwd, `probe-${Date.now()}.pid`)
+    const probe = await probeAcpAgent({ ...stubAgent('relaunch'), env: { STUB_MODE: 'relaunch', STUB_PIDFILE: pidFile } }, cwd)
+    expect(probe.ok).toBe(true)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    const alive = (): boolean => {
+      try {
+        process.kill(pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    await vi.waitFor(() => expect(alive()).toBe(false), { timeout: 8000, interval: 100 })
+  })
+
   it('reports what the agent said about itself and what it can do', async () => {
     const probe = await probeAcpAgent(stubAgent('basic'), cwd)
     expect(probe).toMatchObject({

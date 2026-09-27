@@ -642,6 +642,14 @@ export type AcpAgent = {
   readonly provider: SessionProvider
   /** Shipped in code rather than stored in config, and so not removable */
   readonly builtin?: boolean
+  /**
+   * Built-ins: the `authenticate` method that reuses the CLI's own sign-in, called once when
+   * the agent answers a session with ACP's auth-required error (Cursor's agent wants this
+   * even after `agent login`)
+   */
+  readonly authMethod?: string
+  /** Built-ins: what the person runs in a terminal to sign the CLI in, named when it isn't */
+  readonly signIn?: string
 }
 
 /** Renderer-supplied agent definition — main assigns the id. */

@@ -41,6 +41,16 @@ A CLI installed while Cockpit is running is found without a restart. Opening the
 
 Continuing one of these sessions reopens the conversation in its agent. If the agent can't do that, because it can't load a past session over ACP or no longer knows this one, the turn fails and says so. It never starts a fresh conversation without the history you are looking at. **Continue in…** still works either way.
 
+### Signing them in
+
+Each agent signs in on its own; Cockpit never handles the credentials. When an agent refuses a turn until it is signed in, the turn says so and names the command to run in a terminal. Then send again:
+
+| Agent | Sign in with |
+| --- | --- |
+| Gemini CLI | `gemini`, then `/auth` to choose how. Google no longer accepts the CLI's personal Google login for Gemini Code Assist, so use a Gemini API key or Vertex AI |
+| opencode | `opencode auth login`, or nothing at all for its free models |
+| Cursor | `cursor-agent login`. After that Cockpit signs its ACP server in with the same login, and never opens a browser from a chat |
+
 ## Answering a permission request
 
 Over ACP an agent can stop mid-turn and ask before it runs something. The question appears

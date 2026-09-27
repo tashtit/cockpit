@@ -28,9 +28,21 @@ export const ACP_PROTOCOL_VERSION = 1
  */
 export const BUILTIN_ACP_AGENTS: readonly AcpAgent[] = [
   { id: 'builtin-copilot', label: 'Copilot (ACP)', command: 'copilot', args: ['--acp'], provider: 'copilot', builtin: true },
-  { id: 'builtin-gemini', label: 'Gemini CLI (ACP)', command: 'gemini', args: ['--acp'], provider: 'gemini', builtin: true },
-  { id: 'builtin-opencode', label: 'opencode (ACP)', command: 'opencode', args: ['acp'], provider: 'opencode', builtin: true },
-  { id: 'builtin-cursor', label: 'Cursor Agent (ACP)', command: 'cursor-agent', args: ['acp'], provider: 'cursor', builtin: true },
+  { id: 'builtin-gemini', label: 'Gemini CLI (ACP)', command: 'gemini', args: ['--acp'], provider: 'gemini', builtin: true, signIn: 'gemini' },
+  { id: 'builtin-opencode', label: 'opencode (ACP)', command: 'opencode', args: ['acp'], provider: 'opencode', builtin: true, signIn: 'opencode auth login' },
+  // `authenticate` reuses `cursor-agent login`'s credentials, and signed out would start a
+  // browser login from inside a chat turn and wait on it — NO_OPEN_BROWSER makes it refuse
+  {
+    id: 'builtin-cursor',
+    label: 'Cursor Agent (ACP)',
+    command: 'cursor-agent',
+    args: ['acp'],
+    env: { NO_OPEN_BROWSER: '1' },
+    provider: 'cursor',
+    builtin: true,
+    authMethod: 'cursor_login',
+    signIn: 'cursor-agent login'
+  },
   { id: 'builtin-cline', label: 'Cline CLI (ACP)', command: 'cline', args: ['--acp'], provider: 'cline', builtin: true }
 ]
 
