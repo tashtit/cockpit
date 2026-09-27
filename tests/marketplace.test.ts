@@ -212,11 +212,13 @@ describe('what the marketplaces on this machine hold', () => {
 
     it('keeps what it fetched for the afternoon, and never keeps a failure', async () => {
       const [newer] = catalogUrls('acme/kept')
-      let asked = serve({})
+      serve({})
       await expect(lookupCatalog('acme/kept')).rejects.toThrow(/no catalogue file in that repository/)
-      asked = serve({ [newer]: { name: 'kept', plugins: [{ name: 'a' }] } })
+      // the failure was not kept: this lookup asks again, and finds it
+      serve({ [newer]: { name: 'kept', plugins: [{ name: 'a' }] } })
       expect((await lookupCatalog('acme/kept')).plugins).toHaveLength(1)
-      asked = serve({})
+      // the find was kept: nothing is asked for the next one
+      const asked = serve({})
       expect((await lookupCatalog('acme/kept')).name).toBe('kept')
       expect(asked).toEqual([])
     })
