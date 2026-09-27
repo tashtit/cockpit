@@ -32,6 +32,7 @@ import { StaleList, useStaleList, type Freed, type StaleListConfig } from './Sta
 import { TabList, TabPanel } from './Tabs'
 import { formatBytes } from '../../shared/cleanup'
 import { ErrorAlert } from './ErrorAlert'
+import { ViewCard } from './ViewCard'
 
 /**
  * Cleanup: one place for everything that has gone quiet, across every agent and
@@ -230,7 +231,6 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const armed = useArmedConfirm()
-  const headingRef = useRef<HTMLHeadingElement>(null)
   /** null until the first scan lands, which opens the first tab holding anything —
    *  unless you picked one while it was still walking */
   const [tab, setTab] = useState<CleanupSection | null>(null)
@@ -280,7 +280,6 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   }, [])
 
   useEffect(() => {
-    headingRef.current?.focus()
     void scan()
   }, [scan])
 
@@ -462,82 +461,72 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   return (
-    <main className="chat settings-view">
-      <div className="ns-card">
-        <div className="ns-head">
-          <h2 ref={headingRef} tabIndex={-1}>
-            Cleanup
-          </h2>
-          <button className="btn-ghost" onClick={onClose}>
-            Close
+    <ViewCard title="Cleanup" onClose={onClose}>
+      <p className="ns-hint">
+        What has gone quiet, across every agent and every repository, and what can safely go.
+      </p>
+
+      <div className="ns-options">
+        <div className="ns-opt">
+          <label className="ns-label" htmlFor="stale-days">
+            Idle threshold
+          </label>
+          <Select
+            id="stale-days"
+            ariaLabel="Idle threshold"
+            value={staleDays}
+            options={STALE_OPTIONS}
+            onChange={(v) => void changeThreshold(v)}
+          />
+        </div>
+        <div className="ns-opt cl-rescan">
+          <button className="btn-ghost" disabled={scanning || working} onClick={() => void scan()}>
+            {scanning ? 'Scanning…' : 'Rescan'}
           </button>
         </div>
-        <p className="ns-hint">
-          What has gone quiet, across every agent and every repository, and what can safely go.
-        </p>
-
-        <div className="ns-options">
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="stale-days">
-              Idle threshold
-            </label>
-            <Select
-              id="stale-days"
-              ariaLabel="Idle threshold"
-              value={staleDays}
-              options={STALE_OPTIONS}
-              onChange={(v) => void changeThreshold(v)}
-            />
-          </div>
-          <div className="ns-opt cl-rescan">
-            <button className="btn-ghost" disabled={scanning || working} onClick={() => void scan()}>
-              {scanning ? 'Scanning…' : 'Rescan'}
-            </button>
-          </div>
-        </div>
-
-        <p className="ns-hint" aria-live="polite">
-          {scanning ? (
-            <>
-              <span className="pulse" aria-hidden="true" /> Walking every source and repository…
-            </>
-          ) : report ? (
-            <>
-              {report.staleSessionCount} of {report.totalSessions} sessions ·{' '}
-              {formatBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
-              {report.totalWorktrees} worktrees
-              {report.totalTables > 0 &&
-                ` · ${report.staleTableCount} of ${report.totalTables} roundtables`}
-              {report.processes.length > 0 &&
-                ` · ${report.processes.length} process${
-                  report.processes.length === 1 ? '' : 'es'
-                } left running`}
-              {status && ` — ${status}`}
-            </>
-          ) : (
-            status
-          )}
-        </p>
-
-        {/* the threshold and the scan above govern every list, so they sit over the
-            tabs; each list is its own page under them, never a heading further down */}
-        <TabList
-          id="cleanup"
-          label="Cleanup sections"
-          tabs={CLEANUP_SECTIONS.map((s) => ({ ...s, count: counts[s.id] }))}
-          selected={current}
-          onSelect={(t) => {
-            // an armed Delete is a question about the list on screen — leaving it is "no"
-            armed.disarm()
-            setTab(t)
-          }}
-        />
-        <TabPanel id="cleanup" selected={current}>
-          {panels[current]}
-        </TabPanel>
-
-        {error && <ErrorAlert>{error}</ErrorAlert>}
       </div>
-    </main>
+
+      <p className="ns-hint" aria-live="polite">
+        {scanning ? (
+          <>
+            <span className="pulse" aria-hidden="true" /> Walking every source and repository…
+          </>
+        ) : report ? (
+          <>
+            {report.staleSessionCount} of {report.totalSessions} sessions ·{' '}
+            {formatBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
+            {report.totalWorktrees} worktrees
+            {report.totalTables > 0 &&
+              ` · ${report.staleTableCount} of ${report.totalTables} roundtables`}
+            {report.processes.length > 0 &&
+              ` · ${report.processes.length} process${
+                report.processes.length === 1 ? '' : 'es'
+              } left running`}
+            {status && ` — ${status}`}
+          </>
+        ) : (
+          status
+        )}
+      </p>
+
+      {/* the threshold and the scan above govern every list, so they sit over the
+          tabs; each list is its own page under them, never a heading further down */}
+      <TabList
+        id="cleanup"
+        label="Cleanup sections"
+        tabs={CLEANUP_SECTIONS.map((s) => ({ ...s, count: counts[s.id] }))}
+        selected={current}
+        onSelect={(t) => {
+          // an armed Delete is a question about the list on screen — leaving it is "no"
+          armed.disarm()
+          setTab(t)
+        }}
+      />
+      <TabPanel id="cleanup" selected={current}>
+        {panels[current]}
+      </TabPanel>
+
+      {error && <ErrorAlert>{error}</ErrorAlert>}
+    </ViewCard>
   )
 }

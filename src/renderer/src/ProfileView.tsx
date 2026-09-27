@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
 import type {
   ActivityDay,
   AgentSplit,
@@ -12,6 +12,7 @@ import { ChatIcon, ProviderMark, PROVIDER_LABEL, RepoIcon } from './logos'
 import { TabList, TabPanel } from './Tabs'
 import { useLoaded } from './use-loaded'
 import { RepoName } from './RepoName'
+import { ViewCard } from './ViewCard'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals.
@@ -544,11 +545,6 @@ function Compare({ providers }: { providers: readonly ProviderProfile[] }): JSX.
 
 export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
   const [tab, setTab] = useState<ProfileTab>('activity')
-  const headingRef = useRef<HTMLHeadingElement>(null)
-
-  useEffect(() => {
-    headingRef.current?.focus()
-  }, [])
   const { value: profile, error } = useLoaded(() => api.getProfile(), [])
 
   // scale the grid by the busiest day *in the grid*: busiestDay is all-time and
@@ -722,65 +718,54 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   return (
-    <main className="chat settings-view">
-      <div className="ns-card">
-        <div className="ns-head">
-          <h2 ref={headingRef} tabIndex={-1}>
-            Profile
-          </h2>
-          <button className="btn-ghost" onClick={onClose}>
-            Close
-          </button>
-        </div>
-
-        {error ? (
-          <p className="ns-hint ns-prose">Couldn&apos;t build the profile — {error}</p>
-        ) : !profile ? (
-          <p className="ns-hint" aria-live="polite">
-            <span className="pulse" aria-hidden="true" /> Reading your session history…
+    <ViewCard title="Profile" onClose={onClose}>
+      {error ? (
+        <p className="ns-hint ns-prose">Couldn&apos;t build the profile — {error}</p>
+      ) : !profile ? (
+        <p className="ns-hint" aria-live="polite">
+          <span className="pulse" aria-hidden="true" /> Reading your session history…
+        </p>
+      ) : profile.totalSessions === 0 ? (
+        <p className="ns-hint ns-prose">No sessions indexed yet — start one and this fills in.</p>
+      ) : (
+        <>
+          <p className="ns-hint ns-prose">
+            {profile.login ? <strong>{profile.login}</strong> : 'Your work'} across every agent
+            Cockpit indexes
+            {profile.since ? <> — since {fmtSince(profile.since)}</> : null}.
           </p>
-        ) : profile.totalSessions === 0 ? (
-          <p className="ns-hint ns-prose">No sessions indexed yet — start one and this fills in.</p>
-        ) : (
-          <>
-            <p className="ns-hint ns-prose">
-              {profile.login ? <strong>{profile.login}</strong> : 'Your work'} across every agent
-              Cockpit indexes
-              {profile.since ? <> — since {fmtSince(profile.since)}</> : null}.
-            </p>
 
-            <div className="pv-stats">
-              <dl className="pv-nums">
-                <Stat label="sessions">{fmtNum(profile.totalSessions)}</Stat>
-                <Stat label="active days">{fmtNum(profile.activeDays)}</Stat>
-                <Stat label="day streak">{fmtNum(profile.currentStreak)}</Stat>
-                <Stat label="longest streak">{fmtNum(profile.longestStreak)}</Stat>
-                <Stat label="lines edited">
-                  {linesAdded === 0 && linesRemoved === 0 ? (
-                    '0'
-                  ) : (
-                    <Diff added={linesAdded} removed={linesRemoved} />
-                  )}
-                </Stat>
-              </dl>
-              {providers.length > 0 && <AgentMix providers={providers} />}
-            </div>
+          <div className="pv-stats">
+            <dl className="pv-nums">
+              <Stat label="sessions">{fmtNum(profile.totalSessions)}</Stat>
+              <Stat label="active days">{fmtNum(profile.activeDays)}</Stat>
+              <Stat label="day streak">{fmtNum(profile.currentStreak)}</Stat>
+              <Stat label="longest streak">{fmtNum(profile.longestStreak)}</Stat>
+              <Stat label="lines edited">
+                {linesAdded === 0 && linesRemoved === 0 ? (
+                  '0'
+                ) : (
+                  <Diff added={linesAdded} removed={linesRemoved} />
+                )}
+              </Stat>
+            </dl>
+            {providers.length > 0 && <AgentMix providers={providers} />}
+          </div>
 
-            <TabList
-              id="profile"
-              label="Profile sections"
-              tabs={PROFILE_TABS.filter(
-                (t) => t.id !== 'code' || profile.languages.length > 0 || profile.repos.length > 0
-              )}
-              selected={tab}
-              onSelect={setTab}
-            />
-            <TabPanel id="profile" selected={tab}>
-              {panels?.[tab]}
-            </TabPanel>
-          </>
-        )}
-      </div>
-    </main>
+          <TabList
+            id="profile"
+            label="Profile sections"
+            tabs={PROFILE_TABS.filter(
+              (t) => t.id !== 'code' || profile.languages.length > 0 || profile.repos.length > 0
+            )}
+            selected={tab}
+            onSelect={setTab}
+          />
+          <TabPanel id="profile" selected={tab}>
+            {panels?.[tab]}
+          </TabPanel>
+        </>
+      )}
+    </ViewCard>
   )
 }

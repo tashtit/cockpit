@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import type { TimeFormat, UpdateState } from '../../shared/types'
 import { AboutSection } from './AboutSection'
 import { AccountsSection } from './AccountsSection'
@@ -14,6 +14,7 @@ import { TabList, TabPanel } from './Tabs'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
 import { initBranchPrefix } from './branch-prefix'
 import { useLoaded } from './use-loaded'
+import { ViewCard } from './ViewCard'
 
 /** History window presets; value is days as a string, '0' = all history. */
 const HISTORY_OPTIONS = [
@@ -89,11 +90,7 @@ export function Settings({
   const [update, setUpdate] = useState<UpdateState | null>(null)
   /** sr-only announcements (same pattern as ChatView's status region) */
   const [status, setStatus] = useState('')
-  const headingRef = useRef<HTMLHeadingElement>(null)
 
-  useEffect(() => {
-    headingRef.current?.focus()
-  }, [])
   useEffect(() => {
     if (section) setTab(section)
   }, [section, openCount])
@@ -155,27 +152,21 @@ export function Settings({
   }
 
   return (
-    <main className="chat settings-view">
-      <div className="ns-card">
-        <div className="ns-head">
-          <h2 ref={headingRef} tabIndex={-1}>Settings</h2>
-          <button className="btn-ghost" onClick={onClose}>Close</button>
-        </div>
-        {/* tabs, not a jump row: each panel is short enough to read whole, and the
-            title, the tabs and Close stay put instead of scrolling away under you */}
-        <TabList
-          id="settings"
-          label="Settings sections"
-          tabs={SETTINGS_SECTIONS}
-          selected={tab}
-          onSelect={setTab}
-        />
-        <TabPanel id="settings" selected={tab}>
-          {panels[tab]}
-        </TabPanel>
-        <div className="sr-only" role="status" aria-live="polite">{status}</div>
-      </div>
-    </main>
+    <ViewCard title="Settings" onClose={onClose}>
+      {/* tabs, not a jump row: each panel is short enough to read whole, and the
+          title, the tabs and Close stay put instead of scrolling away under you */}
+      <TabList
+        id="settings"
+        label="Settings sections"
+        tabs={SETTINGS_SECTIONS}
+        selected={tab}
+        onSelect={setTab}
+      />
+      <TabPanel id="settings" selected={tab}>
+        {panels[tab]}
+      </TabPanel>
+      <div className="sr-only" role="status" aria-live="polite">{status}</div>
+    </ViewCard>
   )
 }
 
