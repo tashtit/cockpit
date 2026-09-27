@@ -86,6 +86,21 @@ describe('HomeView composer', () => {
     expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ mode: 'auto-edit' }))
   })
 
+  it('starts even when storage refuses to remember the choice', async () => {
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    })
+    try {
+      vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+      const { onStart } = renderHome()
+      await userEvent.type(await screen.findByRole('textbox', { name: 'Task description' }), 'add dark mode')
+      await userEvent.click(screen.getByRole('button', { name: 'Start with Claude' }))
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude', prompt: 'add dark mode' }))
+    } finally {
+      write.mockRestore()
+    }
+  })
+
   it('surfaces a start failure inline', async () => {
     vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
     renderHome({ onStart: vi.fn().mockResolvedValue('claude CLI not found on PATH') })

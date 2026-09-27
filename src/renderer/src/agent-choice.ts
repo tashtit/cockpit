@@ -6,6 +6,7 @@ import type {
   Provider,
   RepoGroup
 } from '../../shared/types'
+import { PROVIDERS } from '../../shared/library'
 import { api } from './api'
 
 /**
@@ -13,6 +14,10 @@ import { api } from './api'
  * and the permission mode. Home's composer, the New session form and the handoff form all
  * choose them, and all remember them in the same localStorage keys — one memory across
  * every entry point. ChatView reads the mode back, the new-roundtable form the accounts.
+ *
+ * Storage is anyone's to write (a devtools console, another build, a hand edit) and can
+ * refuse outright (a private window, blocked site data), so nothing read here trusts it:
+ * a refused read is unset, and only a known agent or mode comes out of it.
  */
 
 export type AccountChoice = {
@@ -41,6 +46,28 @@ export type StartSessionRequest = {
   readonly account: AccountChoice
   /** Pasted-image paths (saveChatImage) sent with the first prompt */
   readonly images?: readonly string[]
+}
+
+const PROVIDER_KEY = 'cockpit:provider'
+const MODE_KEY = 'cockpit:mode'
+const accountStorageKey = (p: Provider): string => `cockpit:account:${p}`
+
+/** What storage holds under `key` — nothing, when it refuses to be read. */
+function readStored(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+/** Keep `value` under `key` — unless storage refuses, which must never stop a start. */
+function writeStored(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // not remembered: the choice still runs, the next form just opens on the default
+  }
 }
 
 /** Flatten the accounts snapshot into selectable options per provider. */
@@ -76,7 +103,8 @@ export function accountOptions(snap: AccountsSnapshot | null, provider: Provider
 /** The single account-resolution rule: the user's saved choice, else the first configured. */
 export function savedAccount(snap: AccountsSnapshot | null, p: Provider): AccountOption | undefined {
   const opts = accountOptions(snap, p)
-  return opts.find((o) => o.key === window.localStorage.getItem(`cockpit:account:${p}`)) ?? opts[0]
+  const saved = readStored(accountStorageKey(p))
+  return opts.find((o) => o.key === saved) ?? opts[0]
 }
 
 /** The one permission-mode table — every form and ChatView read it, so wording never drifts. */
@@ -87,29 +115,23 @@ export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = 
 ]
 
 /**
- * The permission mode the person last sent with, read back from storage — or the default
- * when what is stored is not one of the modes. Storage is anyone's to write (a devtools
- * console, another build, a hand edit), and the mode is what decides what an agent may do
- * unasked, so nothing but a known mode may come out of it.
+ * The permission mode the person last sent with, or the default when what is stored is
+ * not one of the modes — the mode decides what an agent may do unasked.
  */
 export function savedMode(): PermissionMode {
-  let stored: string | null = null
-  try {
-    stored = window.localStorage.getItem('cockpit:mode')
-  } catch {
-    // blocked storage: the default
-  }
-  return MODES.find((m) => m.v === stored)?.v ?? 'auto-edit'
+  const saved = readStored(MODE_KEY)
+  return MODES.find((m) => m.v === saved)?.v ?? 'auto-edit'
 }
 
-/** The agent the person last started with, or Claude when nothing is stored. */
+/** The agent the person last started with, or Claude when what is stored is not one. */
 export function savedProvider(): Provider {
-  return (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
+  const saved = readStored(PROVIDER_KEY)
+  return PROVIDERS.find((p) => p === saved) ?? 'claude'
 }
 
 /** Remember the account picked for `provider`, for every form to open on. */
 export function rememberAccount(provider: Provider, key: string): void {
-  window.localStorage.setItem(`cockpit:account:${provider}`, key)
+  writeStored(accountStorageKey(provider), key)
 }
 
 /** Remember what a session was started with, for the next form to open on. */
@@ -118,8 +140,8 @@ export function rememberChoice(choice: {
   readonly mode: PermissionMode
   readonly account: AccountOption | undefined
 }): void {
-  window.localStorage.setItem('cockpit:provider', choice.provider)
-  window.localStorage.setItem('cockpit:mode', choice.mode)
+  writeStored(PROVIDER_KEY, choice.provider)
+  writeStored(MODE_KEY, choice.mode)
   if (choice.account) rememberAccount(choice.provider, choice.account.key)
 }
 

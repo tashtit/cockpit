@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { accountOptions, savedAccount } from '../../src/renderer/src/agent-choice'
+import { describe, it, expect, vi } from 'vitest'
+import {
+  accountOptions,
+  rememberChoice,
+  savedAccount,
+  savedMode,
+  savedProvider
+} from '../../src/renderer/src/agent-choice'
 import type { AccountsSnapshot } from '../../src/shared/types'
 
 const snap: AccountsSnapshot = {
@@ -73,5 +79,54 @@ describe('savedAccount', () => {
   it('ignores a stale saved key that no longer resolves', () => {
     window.localStorage.setItem('cockpit:account:claude', '/gone/.claude')
     expect(savedAccount(snap, 'claude')?.key).toBe('/home/dev/.claude')
+  })
+})
+
+describe('savedProvider', () => {
+  it('opens on the agent the last session started with', () => {
+    window.localStorage.setItem('cockpit:provider', 'codex')
+    expect(savedProvider()).toBe('codex')
+  })
+
+  it('falls back to Claude when what is stored is not an agent', () => {
+    window.localStorage.setItem('cockpit:provider', 'gemini')
+    expect(savedProvider()).toBe('claude')
+  })
+})
+
+describe('storage that refuses access', () => {
+  /** A private window, or site data blocked: every storage call throws. */
+  function refuseStorage(): () => void {
+    const denied = (): never => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    }
+    const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(denied)
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(denied)
+    return () => {
+      read.mockRestore()
+      write.mockRestore()
+    }
+  }
+
+  it('reads as nothing remembered', () => {
+    const restore = refuseStorage()
+    try {
+      expect(savedProvider()).toBe('claude')
+      expect(savedMode()).toBe('auto-edit')
+      expect(savedAccount(snap, 'claude')?.key).toBe('/home/dev/.claude')
+    } finally {
+      restore()
+    }
+  })
+
+  it('never stops a start that cannot be remembered', () => {
+    const restore = refuseStorage()
+    try {
+      expect(() =>
+        rememberChoice({ provider: 'claude', mode: 'yolo', account: accountOptions(snap, 'claude')[1] })
+      ).not.toThrow()
+    } finally {
+      restore()
+    }
   })
 })
