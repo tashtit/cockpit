@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { splitRows } from '../../shared/line-diff'
 import type {
   DiffFile,
   DiffHunk,
@@ -13,7 +14,7 @@ import type {
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { useDiffLayout, type DiffLayout } from './diff-layout'
-import { DiffLayoutToggle, DiffStat } from './InstructionDiff'
+import { DiffLayoutToggle, DiffStat, GUTTER, SAID } from './InstructionDiff'
 import { LinkExternalIcon, PROVIDER_LABEL } from './logos'
 import { PrStrip } from './PrStrip'
 
@@ -26,7 +27,7 @@ import { PrStrip } from './PrStrip'
  * "Fix with <agent>" turns everything it is waiting on into one prompt.
  */
 
-export const SCOPES: ReadonlyArray<{ readonly v: DiffScope; readonly label: string; readonly hint: string }> = [
+const SCOPES: ReadonlyArray<{ readonly v: DiffScope; readonly label: string; readonly hint: string }> = [
   { v: 'branch', label: 'Branch', hint: 'Everything since the base branch — what a PR would carry' },
   { v: 'staged', label: 'Staged', hint: 'What is in the index, ready to commit' },
   { v: 'unstaged', label: 'Unstaged', hint: 'Working-tree edits not staged yet, plus untracked files' }
@@ -39,17 +40,14 @@ const KIND_LABEL: Record<DiffFile['status'], string> = {
   renamed: 'renamed'
 }
 
-const GUTTER: Record<DiffHunkLine['op'], string> = { same: ' ', add: '+', del: '−' }
-const SAID: Record<DiffHunkLine['op'], string> = { same: '', add: 'added: ', del: 'removed: ' }
-
-export type ReviewNote = {
+type ReviewNote = {
   readonly path: string
   readonly line: DiffHunkLine
   readonly text: string
 }
 
 /** A removed line is addressed on the old side, everything else on the new. */
-export function noteKey(path: string, line: DiffHunkLine): string {
+function noteKey(path: string, line: DiffHunkLine): string {
   return line.op === 'del' ? `${path}#L${line.oldNo}` : `${path}#R${line.newNo}`
 }
 
@@ -57,7 +55,7 @@ export function noteKey(path: string, line: DiffHunkLine): string {
  * Where a reviewer's thread can sit: GitHub anchors it to one side of the PR
  * diff, so a context line — present on both sides — answers to either number.
  */
-export function threadKeys(path: string, line: DiffHunkLine): string[] {
+function threadKeys(path: string, line: DiffHunkLine): string[] {
   if (line.op === 'del') return [`${path}#L${line.oldNo}`]
   if (line.op === 'add') return [`${path}#R${line.newNo}`]
   return [`${path}#R${line.newNo}`, `${path}#L${line.oldNo}`]
@@ -494,35 +492,13 @@ const Hunk = memo(function Hunk({ hunk, layout, ...line }: LineProps & { hunk: D
         {hunk.header && ` ${hunk.header}`}
       </div>
       {layout === 'split'
-        ? pairLines(hunk.lines).map(([l, r], k) => (
-            <PairRow key={k} left={l} right={r} {...line} />
+        ? splitRows(hunk.lines).map((row, k) => (
+            <PairRow key={k} left={row.left} right={row.right} {...line} />
           ))
         : hunk.lines.map((l, k) => <LineRow key={k} line={l} {...line} />)}
     </>
   )
 })
-
-/** Side by side: the n-th removed line across from the n-th added one, as the instructions diff does. */
-export function pairLines(lines: readonly DiffHunkLine[]): Array<[DiffHunkLine | null, DiffHunkLine | null]> {
-  const out: Array<[DiffHunkLine | null, DiffHunkLine | null]> = []
-  let dels: DiffHunkLine[] = []
-  let adds: DiffHunkLine[] = []
-  const flush = (): void => {
-    for (let i = 0; i < Math.max(dels.length, adds.length); i++) out.push([dels[i] ?? null, adds[i] ?? null])
-    dels = []
-    adds = []
-  }
-  for (const l of lines) {
-    if (l.op === 'del') dels.push(l)
-    else if (l.op === 'add') adds.push(l)
-    else {
-      flush()
-      out.push([l, l])
-    }
-  }
-  flush()
-  return out
-}
 
 function PairRow({ left, right, ...line }: LineProps & { left: DiffHunkLine | null; right: DiffHunkLine | null }): JSX.Element {
   // a context line sits on both sides but is one line: address it once, on the right

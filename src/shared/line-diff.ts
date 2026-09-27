@@ -138,10 +138,10 @@ export function foldUnchanged(lines: readonly DiffLine[], context = 2): DiffRow[
 }
 
 /** One row of a side-by-side diff: what was there on the left, what will be on the right. */
-export type DiffPair = {
+export type DiffPair<L extends DiffLine = DiffLine> = {
   readonly op: 'pair'
-  readonly left: DiffLine | null
-  readonly right: DiffLine | null
+  readonly left: L | null
+  readonly right: L | null
 }
 
 export type SplitRow = DiffPair | DiffFold
@@ -149,8 +149,11 @@ export type SplitRow = DiffPair | DiffFold
 /**
  * Unified rows → side-by-side rows. Within a changed stretch the n-th removed line
  * sits across from the n-th added one, and whichever side runs out leaves a blank
- * cell; context and folds span both sides.
+ * cell; context and folds span both sides. Lines with no folds among them — a git
+ * hunk's, numbered — come back as pairs of those same lines, numbers and all.
  */
+export function splitRows<L extends DiffLine>(rows: readonly L[]): DiffPair<L>[]
+export function splitRows(rows: readonly DiffRow[]): SplitRow[]
 export function splitRows(rows: readonly DiffRow[]): SplitRow[] {
   const out: SplitRow[] = []
   let dels: DiffLine[] = []

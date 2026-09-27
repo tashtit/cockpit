@@ -44,8 +44,9 @@ export const APPLY_LABEL: Record<Exclude<InstructionStatus, 'synced'>, string> =
   drifted: 'Re-apply'
 }
 
-const GUTTER: Record<DiffLine['op'], string> = { same: ' ', add: '+', del: '−' }
-const SAID: Record<DiffLine['op'], string> = { same: '', add: 'added: ', del: 'removed: ' }
+/** A line's +/− gutter, and what a screen reader hears in its place. Shared with the review. */
+export const GUTTER: Record<DiffLine['op'], string> = { same: ' ', add: '+', del: '−' }
+export const SAID: Record<DiffLine['op'], string> = { same: '', add: 'added: ', del: 'removed: ' }
 
 function bandText(n: number): string {
   return n === 1
