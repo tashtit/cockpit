@@ -4,7 +4,7 @@ import { acpAgentRefusal } from '../../shared/acp'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { useLoaded } from './use-loaded'
 
@@ -113,9 +113,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
       <ul className="source-list">
         {agents.map((agent) => (
           <li key={agent.id} className={`source-row tint-${agent.provider}`}>
-            <span className={`plogo plogo-${agent.provider}`} aria-hidden="true">
-              <ProviderLogo p={agent.provider} size={13} />
-            </span>
+            <ProviderMark p={agent.provider} decorative />
             <div className="source-body">
               <div className="source-label">
                 {agent.label}

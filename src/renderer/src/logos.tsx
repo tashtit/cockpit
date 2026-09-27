@@ -54,6 +54,37 @@ export function ProviderLogo({ p, size = 14 }: { p: Provider; size?: number }): 
   )
 }
 
+/**
+ * An agent's logo in its livery box (`.plogo-{agent}` colors it) — a row's agent, a
+ * filter option's, a transcript speaker's. `box` is the box's own class: `plogo` for the
+ * mark in a row, `avatar` for the one beside a message. `decorative` hides the box where
+ * a label beside it already names the agent; `titled` names it on hover where the mark
+ * stands alone.
+ */
+export function ProviderMark({
+  p,
+  size = 13,
+  box = 'plogo',
+  decorative = false,
+  titled = false
+}: {
+  readonly p: Provider
+  readonly size?: number
+  readonly box?: 'plogo' | 'avatar'
+  readonly decorative?: boolean
+  readonly titled?: boolean
+}): JSX.Element {
+  return (
+    <span
+      className={`${box} plogo-${p}`}
+      aria-hidden={decorative ? 'true' : undefined}
+      title={titled ? PROVIDER_LABEL[p] : undefined}
+    >
+      <ProviderLogo p={p} size={size} />
+    </span>
+  )
+}
+
 import cockpitLogoUrl from './assets/cockpit-logo.webp'
 
 /** The user-supplied Cockpit mark — not redrawn, just lifted off the packaged
@@ -248,6 +279,20 @@ const OCTICON_ARROW_SWITCH =
   'M5.22 14.78a.75.75 0 0 0 1.06-1.06L4.56 12h8.69a.75.75 0 0 0 0-1.5H4.56l1.72-1.72a.75.75 0 0 0-1.06-1.06l-3 3a.75.75 0 0 0 0 1.06l3 3Zm5.56-6.5a.75.75 0 1 1-1.06-1.06l1.72-1.72H2.75a.75.75 0 0 1 0-1.5h8.69L9.72 2.28a.75.75 0 0 1 1.06-1.06l3 3a.75.75 0 0 1 0 1.06l-3 3Z'
 export const HandoffIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_ARROW_SWITCH} size={size} />
+)
+/** octicon alert-16 — a footer usage cell near its limit, beside the warn color */
+const OCTICON_ALERT =
+  'M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z'
+export const UsageWarnIcon = ({ size = 10 }: { size?: number }): JSX.Element => (
+  <svg className="usage-warn" width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <path d={OCTICON_ALERT} />
+  </svg>
+)
+/** The elbow that hangs a session under the one that started it (the sidebar's family rows) */
+export const ElbowIcon = (): JSX.Element => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+    <path d="M3 0v4a3 3 0 0 0 3 3h4" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
 )
 
 /** Live-status dot: this session's agent is running right now. Color = agent identity. */

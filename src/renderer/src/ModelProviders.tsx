@@ -5,7 +5,7 @@ import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { onEscape } from './disarm'
 import { ipcErrorText } from './ipc-error'
-import { EndpointIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { EndpointIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { useLoaded } from './use-loaded'
 
@@ -202,9 +202,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                   </span>
                   <span className="repo-providers" aria-hidden="true">
                     {endpointAgents(ep).map((p) => (
-                      <span key={p} className={`plogo plogo-${p}`}>
-                        <ProviderLogo p={p} size={12} />
-                      </span>
+                      <ProviderMark key={p} p={p} size={12} />
                     ))}
                   </span>
                   <span className="source-origin">works with {agents}</span>

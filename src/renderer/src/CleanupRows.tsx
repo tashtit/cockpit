@@ -12,7 +12,7 @@ import {
   BranchChip,
   BranchIcon,
   ProcessIcon,
-  ProviderLogo,
+  ProviderMark,
   PROVIDER_LABEL,
   RepoIcon
 } from './logos'
@@ -159,9 +159,7 @@ export function SessionRow({ row: s, now, picked, onPick }: RowProps<StaleSessio
         label={`Select session ${s.title}`}
         onPick={onPick}
       />
-      <span className={`plogo plogo-${s.provider}`} aria-hidden="true">
-        <ProviderLogo p={s.provider} size={13} />
-      </span>
+      <ProviderMark p={s.provider} decorative />
       <div className="cl-body">
         <div className="cl-title" title={s.title}>
           {s.title || `${PROVIDER_LABEL[s.provider]} session`}

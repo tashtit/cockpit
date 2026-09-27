@@ -3,7 +3,7 @@ import type { Provider, ProviderUsage, UsageSnapshot, UsageWindow } from '../../
 import { api } from './api'
 import { useBusyMap } from './busy'
 import { fmtCount, fmtResetIn } from './format'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ProviderMark, PROVIDER_LABEL, UsageWarnIcon } from './logos'
 
 /**
  * The sidebar footer's subscription meters: one compact cell per provider that reports
@@ -111,15 +111,6 @@ export function usageMeters(snapshot: UsageSnapshot, now = Date.now()): UsageMet
   return PROVIDER_ORDER.flatMap((p) => best.get(p) ?? [])
 }
 
-/** 10px warning triangle — local so the sidebar's parallel icon edits stay clear. */
-function WarnGlyph(): JSX.Element {
-  return (
-    <svg className="usage-warn" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" />
-    </svg>
-  )
-}
-
 /**
  * The footer row itself. Renders nothing until a provider reports numbers — absence
  * is not an error state, the identity bar below still opens Settings.
@@ -159,15 +150,13 @@ export function UsageMeters({ onOpen }: { onOpen: () => void }): JSX.Element | n
           className={`usage-cell usage-cell-${m.provider}${m.warn ? ' warn' : ''}`}
           title={m.title}
         >
-          <span className={`plogo plogo-${m.provider}`}>
-            <ProviderLogo p={m.provider} size={12} />
-          </span>
+          <ProviderMark p={m.provider} size={12} />
           {m.percent !== null && (
             <span className="usage-mini">
               <span className="usage-mini-fill" style={{ width: `${m.percent}%` }} />
             </span>
           )}
-          {m.warn && <WarnGlyph />}
+          {m.warn && <UsageWarnIcon />}
           <span className="usage-cell-num">{m.text}</span>
         </span>
       ))}

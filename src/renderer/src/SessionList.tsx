@@ -6,7 +6,7 @@ import { toggleFamily, useFoldedFamilies } from './families'
 import { HeldMark } from './HeldMark'
 import { holdSentence, useHolderFilter } from './hold'
 import { useLandedMap, useSessionLanded } from './landed'
-import { ArchiveIcon, landingLabel, LandingMark, PrBadge, ProviderLogo, PROVIDER_LABEL, Spinner } from './logos'
+import { ArchiveIcon, ElbowIcon, landingLabel, LandingMark, PrBadge, ProviderMark, PROVIDER_LABEL, Spinner } from './logos'
 import { fmtTime, useTimeFormat } from './time'
 import { useLoaded } from './use-loaded'
 
@@ -236,14 +236,10 @@ export const SessionRow = memo(function SessionRow({
           aria-hidden="true"
           style={depth > 1 ? ({ '--depth': Math.min(depth, 3) } as CSSProperties) : undefined}
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M3 0v4a3 3 0 0 0 3 3h4" stroke="currentColor" strokeWidth="1.2" />
-          </svg>
+          <ElbowIcon />
         </span>
       )}
-      <span className={`plogo plogo-${s.provider}`} title={PROVIDER_LABEL[s.provider]}>
-        <ProviderLogo p={s.provider} size={13} />
-      </span>
+      <ProviderMark p={s.provider} titled />
       <span className="session-title">{s.title}</span>
       {held && <HeldMark />}
       {/* archived reads as strikethrough + dim visually — say it out loud too.

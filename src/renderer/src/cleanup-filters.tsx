@@ -1,6 +1,6 @@
 import type { Provider, StaleSession, StaleTable, StaleWorktree } from '../../shared/types'
 import type { FilterGroup, FilterOption } from './FilterBar'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
 
 /**
  * The Cleanup view's filter dimensions: what each list can be narrowed by, and the
@@ -81,9 +81,7 @@ function agentDim(dim: Dim, agents: readonly Provider[]): FilterGroup {
       value: p,
       label: PROVIDER_LABEL[p],
       icon: (
-        <span className={`plogo plogo-${p}`} aria-hidden="true">
-          <ProviderLogo p={p} size={11} />
-        </span>
+        <ProviderMark p={p} size={11} decorative />
       )
     }))
   )

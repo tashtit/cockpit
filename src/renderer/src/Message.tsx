@@ -4,7 +4,7 @@ import { artifactStat, planTitle, tabFor, type WorkTab } from '../../shared/work
 import { relativeTo } from './format'
 import { DiffStat } from './InstructionDiff'
 import { Markdown } from './Markdown'
-import { ProviderLogo, WorkIcon } from './logos'
+import { ProviderMark, WorkIcon } from './logos'
 import { runSummary, type Row } from './transcript-rows'
 
 /**
@@ -196,9 +196,7 @@ export const Message = memo(function Message({
       className={`msg msg-assistant${m.kind === 'reasoning' ? ' reasoning' : ''}${ring}`}
       data-log-key={logKey}
     >
-      <span className={`avatar plogo-${provider}`} aria-hidden="true">
-        <ProviderLogo p={provider} size={14} />
-      </span>
+      <ProviderMark p={provider} size={14} box="avatar" decorative />
       <div className="assistant-body markdown">
         {m.streaming ? (
           // the in-flight message grows on every ~40ms flush — re-running the full

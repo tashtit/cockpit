@@ -21,7 +21,7 @@ import {
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './agent-choice'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
@@ -390,9 +390,7 @@ export function NewRoundtable({
                   onClick={() => addSeat(p)}
                 >
                   <span aria-hidden="true">+</span>
-                  <span className={`plogo plogo-${p}`} aria-hidden="true">
-                    <ProviderLogo p={p} size={12} />
-                  </span>
+                  <ProviderMark p={p} size={12} decorative />
                   {PROVIDER_LABEL[p]}
                   {out && (
                     <span className="rt-add-out" aria-hidden="true">
@@ -423,9 +421,7 @@ export function NewRoundtable({
                 aria-label={`${name} seat`}
               >
                 <div className="rt-seat-card-head">
-                  <span className={`plogo plogo-${seat.provider}`} aria-hidden="true">
-                    <ProviderLogo p={seat.provider} size={13} />
-                  </span>
+                  <ProviderMark p={seat.provider} decorative />
                   {/* the seat's agent is its title, and changeable in place */}
                   <Select
                     className="rt-seat-agent"

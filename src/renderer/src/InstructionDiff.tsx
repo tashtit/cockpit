@@ -17,7 +17,7 @@ import {
   useDiffLayout,
   type DiffLayout
 } from './diff-layout'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { useSame } from './same'
 
 /**
@@ -130,9 +130,7 @@ export function InstructionDiff({
       <div className={`idiff-head ${tint}`} ref={headRef} tabIndex={headRef ? -1 : undefined}>
         <span className="ext-agents" role="img" aria-label={`Read by ${readers}`}>
           {file.agents.map((a) => (
-            <span key={a} className={`plogo plogo-${a}`} title={PROVIDER_LABEL[a]}>
-              <ProviderLogo p={a} size={13} />
-            </span>
+            <ProviderMark key={a} p={a} titled />
           ))}
         </span>
         <span className="idiff-path">{path}</span>

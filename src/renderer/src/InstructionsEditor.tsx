@@ -6,7 +6,7 @@ import { ipcErrorText } from './ipc-error'
 import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, DiffStat, InstructionDiff, ReadByNote } from './InstructionDiff'
 import { applyFile, takeFile, type InstructionsWrite } from './instruction-writes'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
 import type { Notice } from './notice'
 import { useLoaded } from './use-loaded'
@@ -386,9 +386,7 @@ function InstructionFileRow({
         aria-label={`Read by ${file.agents.map((a) => PROVIDER_LABEL[a]).join(' and ')}`}
       >
         {file.agents.map((a) => (
-          <span key={a} className={`plogo plogo-${a}`} title={PROVIDER_LABEL[a]}>
-            <ProviderLogo p={a} size={13} />
-          </span>
+          <ProviderMark key={a} p={a} titled />
         ))}
       </div>
       <div className="ext-body">

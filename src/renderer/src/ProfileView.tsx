@@ -8,7 +8,7 @@ import type {
 } from '../../shared/types'
 import { api } from './api'
 import { fmtAgo } from './format'
-import { ChatIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import { ChatIcon, ProviderMark, PROVIDER_LABEL, RepoIcon } from './logos'
 import { TabList, TabPanel } from './Tabs'
 import { useLoaded } from './use-loaded'
 
@@ -519,9 +519,7 @@ function Compare({ providers }: { providers: readonly ProviderProfile[] }): JSX.
                 style={{ '--pv-agent': `var(--${p.provider}-rgb)` } as CSSProperties}
               >
                 <span className="pv-th">
-                  <span className={`plogo plogo-${p.provider}`} aria-hidden="true">
-                    <ProviderLogo p={p.provider} size={13} />
-                  </span>
+                  <ProviderMark p={p.provider} decorative />
                   {PROVIDER_LABEL[p.provider]}
                 </span>
               </th>
@@ -642,9 +640,7 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
             <ul className="pv-accounts">
               {profile.accounts.map((a) => (
                 <li key={`${a.provider}:${a.label}`}>
-                  <span className={`plogo plogo-${a.provider}`} aria-hidden="true">
-                    <ProviderLogo p={a.provider} size={13} />
-                  </span>
+                  <ProviderMark p={a.provider} decorative />
                   {a.identity ? (
                     <span className={`acct-chip acct-${a.provider}`}>{a.identity}</span>
                   ) : (

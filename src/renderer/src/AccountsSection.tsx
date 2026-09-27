@@ -19,7 +19,7 @@ import { saveBranchPrefix, useBranchPrefix } from './branch-prefix'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { fmtAgo, fmtCount, fmtResetIn } from './format'
 import { ipcErrorText } from './ipc-error'
-import { BranchIcon, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { BranchIcon, OrgIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
 
@@ -274,9 +274,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
       <ul className="source-list">
         {stats.map((s) => (
           <li key={s.path} className={`source-row tint-${s.provider}`}>
-            <span className={`plogo plogo-${s.provider}`} aria-hidden="true">
-              <ProviderLogo p={s.provider} size={13} />
-            </span>
+            <ProviderMark p={s.provider} decorative />
             <div className="source-body">
               <div className="source-label">
                 {s.label}
@@ -359,9 +357,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
         {/* usage Cockpit measured for a home it no longer indexes still belongs on screen */}
         {orphanUsage.map((u) => (
           <li key={`${u.provider}:${u.path}`} className={`source-row tint-${u.provider}`}>
-            <span className={`plogo plogo-${u.provider}`} aria-hidden="true">
-              <ProviderLogo p={u.provider} size={13} />
-            </span>
+            <ProviderMark p={u.provider} decorative />
             <div className="source-body">
               <div className="source-label">
                 {u.label}
@@ -746,9 +742,7 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
         ) : (
           clis.map((c) => (
             <li key={c.provider} className={`source-row tint-${c.provider}`}>
-              <span className={`plogo plogo-${c.provider}`} aria-hidden="true">
-                <ProviderLogo p={c.provider} size={13} />
-              </span>
+              <ProviderMark p={c.provider} decorative />
               <div className="source-body">
                 <div className="source-label">
                   {PROVIDER_LABEL[c.provider]}

@@ -33,7 +33,7 @@ import {
   LinkExternalIcon,
   OrgIcon,
   ProcessIcon,
-  ProviderLogo,
+  ProviderMark,
   PROVIDER_LABEL,
   RepoIcon,
   SlidersIcon,
@@ -484,9 +484,7 @@ function IdentityBar({
       }
     >
       {accounts?.accounts.map((a) => (
-        <span key={a.path} className={`plogo plogo-${a.provider}`}>
-          <ProviderLogo p={a.provider} size={12} />
-        </span>
+        <ProviderMark key={a.path} p={a.provider} size={12} />
       ))}
       {accounts?.githubUser ? (
         <span className="footer-gh">
@@ -704,9 +702,7 @@ function ProviderStrip({ providers }: { providers: readonly Provider[] }): JSX.E
   return (
     <span className="repo-providers">
       {providers.map((p) => (
-        <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
-          <ProviderLogo p={p} size={10} />
-        </span>
+        <ProviderMark key={p} p={p} size={10} titled />
       ))}
     </span>
   )

@@ -23,7 +23,7 @@ import { RoundtableTable } from './RoundtableTable'
 import { Select } from './Select'
 import { fmtElapsed } from './time'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
-import { BranchChip, ChatIcon, ProviderLogo, SearchIcon } from './logos'
+import { BranchChip, ChatIcon, ProviderLogo, ProviderMark, SearchIcon } from './logos'
 import { SeatEvidencePanel } from './SeatEvidencePanel'
 
 /** Same DOM bound as ChatView, scaled to discussion-length transcripts. */
@@ -303,9 +303,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                       <Message key={i} m={part.m} provider={seat.provider} />
                     ) : (
                       <div key={i} className="msg msg-assistant">
-                        <span className={`avatar plogo-${seat.provider}`} aria-hidden="true">
-                          <ProviderLogo p={seat.provider} size={14} />
-                        </span>
+                        <ProviderMark p={seat.provider} size={14} box="avatar" decorative />
                         <div className="assistant-body markdown">
                           <div className={`rt-speaker rt-speaker-${seat.provider}`}>
                             {uiSeatName(rt.participants, seatIdx)}
@@ -579,9 +577,7 @@ function ConsensusOutcome({
       </div>
       {seats.map((s, i) => (
         <div key={i} className="rt-outcome-row">
-          <span className={`avatar plogo-${s.provider}`} aria-hidden="true">
-            <ProviderLogo p={s.provider} size={13} />
-          </span>
+          <ProviderMark p={s.provider} box="avatar" decorative />
           <span className={`rt-speaker rt-speaker-${s.provider}`}>{s.name}</span>
           {/* a seat that never spoke stated no position — saying "not yet" would
               invent a dissent (a failed turn is silence, not disagreement) */}
@@ -640,9 +636,7 @@ const EntryRow = memo(function EntryRow({
   }
   return (
     <div className="msg msg-assistant">
-      <span className={`avatar plogo-${e.speaker}`} aria-hidden="true">
-        <ProviderLogo p={e.speaker} size={14} />
-      </span>
+      <ProviderMark p={e.speaker} size={14} box="avatar" decorative />
       <div className="assistant-body markdown">
         <div className={`rt-speaker rt-speaker-${e.speaker}`}>
           {label}

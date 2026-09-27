@@ -18,7 +18,7 @@ import {
   CockpitLogo,
   GearIcon,
   GraphIcon,
-  ProviderLogo,
+  ProviderMark,
   PROVIDER_LABEL,
   RepoIcon,
   SearchIcon,
@@ -613,9 +613,7 @@ function PaletteOption({
     >
       {it.kind === 'session' && (
         <>
-          <span className={`plogo plogo-${it.s.provider}`}>
-            <ProviderLogo p={it.s.provider} size={13} />
-          </span>
+          <ProviderMark p={it.s.provider} />
           <span className="palette-title">{it.s.title}</span>
           {/* the option's name already says "(in Cockpit)" */}
           {held && <HeldMark mute />}
@@ -635,9 +633,7 @@ function PaletteOption({
       {it.kind === 'hit' && (
         <>
           <div className="palette-hit-head">
-            <span className={`plogo plogo-${it.s.provider}`}>
-              <ProviderLogo p={it.s.provider} size={13} />
-            </span>
+            <ProviderMark p={it.s.provider} />
             <span className="palette-title">{it.s.title}</span>
             {showRepo && it.s.repo && <span className="palette-hint">{it.s.repo.name}</span>}
             <time

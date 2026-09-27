@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, type JSX } from 'react'
 import type { Provider } from '../../shared/types'
 import { SIDE_QUESTION_MAX } from '../../shared/side-chat'
 import { Markdown } from './Markdown'
-import { PROVIDER_LABEL, ProviderLogo, XIcon } from './logos'
+import { PROVIDER_LABEL, ProviderMark, XIcon } from './logos'
 import { SidePanel } from './SidePanel'
 import {
   askSide,
@@ -189,9 +189,7 @@ const Exchange = memo(function Exchange({
       </div>
       {entry.answer && (
         <div className={`msg msg-assistant${asking ? ' streaming' : ''}`}>
-          <span className={`avatar plogo-${provider}`} aria-hidden="true">
-            <ProviderLogo p={provider} size={14} />
-          </span>
+          <ProviderMark p={provider} size={14} box="avatar" decorative />
           <div className="assistant-body markdown">
             <Markdown text={entry.answer} />
           </div>
