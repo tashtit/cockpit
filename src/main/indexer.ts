@@ -58,6 +58,7 @@ import {
 import { listGeminiSessionFiles, listGeminiSessionRoots, parseGeminiMeta, parseGeminiMessages } from './parsers/gemini'
 import {
   CURSOR_IDE_DB,
+  isCursorAcpStore,
   listCursorSessionFiles,
   listCursorSessionRoots,
   parseCursorMeta,
@@ -146,6 +147,17 @@ const SHARED_DBS: Partial<Record<SessionProvider, string>> = {
 function storeFile(file: string): string {
   const ref = splitSessionRef(file)
   return ref && Object.values(SHARED_DBS).includes(basename(ref.file)) ? ref.file : file
+}
+
+/**
+ * Agents that keep each conversation in a database of its own, under a session root:
+ * Antigravity's `conversations/<id>.db`, and the `acp-sessions/<id>/store.db` Cursor's ACP
+ * server keeps. Written through the database's `-wal`, which the watcher otherwise ignores —
+ * and which macOS reports only once the agent closes the database, at the end of its turn.
+ */
+const OWN_DBS: Partial<Record<SessionProvider, (file: string) => boolean>> = {
+  antigravity: (file) => file.endsWith('.db'),
+  cursor: isCursorAcpStore
 }
 
 /** A database written through a write-ahead log: its main file's stamp does not move. */
@@ -391,7 +403,9 @@ type PageScope = {
  *   write rescans only when the database lists a session the index lacks, and otherwise
  *   re-judges the known ones, keeping an unchanged session the same object — so Cursor
  *   saving its editor state announces nothing. A read that fails keeps the last good answer
- *   (`snapshotCache`) rather than dropping every session in the database.
+ *   (`snapshotCache`) rather than dropping every session in the database. Others keep one
+ *   database per conversation under a session root (Antigravity, Cursor's ACP server;
+ *   `OWN_DBS`): its `-wal` writes are that conversation's changes.
  * - When one conversation has two records in different stores (a Cursor chat in its
  *   database and as a transcript), the fuller wins, then the newer; and sources can nest
  *   (Cursor's editor storage holds Cline's and Roo's homes), so a file belongs to the most
@@ -747,10 +761,11 @@ export class SessionIndexer {
       this.liveness.heartbeat(parent)
       return
     }
-    // a conversation kept as its own database (Antigravity) is written through its
-    // `-wal`: a write there is a change to the conversation, a new `.db` a new one
+    // a conversation kept as its own database (OWN_DBS) is written through its `-wal`:
+    // a write there is a change to the conversation, a new database a new one
     const db = /^(.*\.db)(-wal|-shm|-journal)?$/.exec(full)?.[1]
-    if (db && this.sourceForFile(db)?.provider === 'antigravity') {
+    const provider = db ? this.sourceForFile(db)?.provider : undefined
+    if (db && provider && OWN_DBS[provider]?.(db)) {
       this.markDirty(this.fileSource.has(db) ? 'change' : 'rename', db)
       return
     }

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { disposalBytes, disposalFiles, disposalOf, dispose, openBy } from '../src/main/session-disposal'
 import type { SessionMeta } from '../src/shared/types'
-import { writeAntigravityConversation, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
+import { writeAntigravityConversation, writeCursorAcpSession, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-disposal-'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -148,6 +148,18 @@ describe('what deleting a session removes, as its agent keeps it', () => {
     dispose(plan)
     expect(existsSync(db)).toBe(false)
     expect(existsSync(join(dir, 'brain', 'conv'))).toBe(false)
+  })
+
+  it('Cursor over ACP: the conversation’s folder, its other conversations kept', () => {
+    const db = writeCursorAcpSession(dir, { id: 'conv', cwd: '/x', created: 1, messages: [{ role: 'user', content: 'hi' }] })
+    const other = writeCursorAcpSession(dir, { id: 'other', cwd: '/x', created: 1, messages: [{ role: 'user', content: 'hi' }] })
+    const plan = disposalOf(meta({ provider: 'cursor', nativeId: 'conv', sourcePath: db }))
+    // the database is what the running agent holds open, so what may block the delete
+    expect(plan.databases).toEqual([db])
+    expect(plan.paths).toEqual([join(dir, 'acp-sessions', 'conv')])
+    dispose(plan)
+    expect(existsSync(join(dir, 'acp-sessions', 'conv'))).toBe(false)
+    expect(existsSync(other)).toBe(true)
   })
 
   it('a database nobody has open is free to write', async () => {

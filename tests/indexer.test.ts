@@ -1,13 +1,21 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { SessionIndexer, foldThread, groupFamilies, subagentParent } from '../src/main/indexer'
 import { writePagedThread, type PagedThread } from './codex-paged-thread'
 import { makeFifo } from './fifo'
 import { DatabaseSync } from 'node:sqlite'
-import { writeAntigravityConversation, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
+import {
+  protoEncode,
+  writeAntigravityConversation,
+  writeCursorAcpSession,
+  writeCursorChats,
+  writeOpencodeDb,
+  type ProtoIn
+} from '../scripts/ui-tour/store-fixtures.mts'
 import type { BusySession, SessionMeta } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
@@ -1532,6 +1540,7 @@ describe('sessions kept in databases', () => {
   const cline = join(editor, 'saoudrizwan.claude-dev')
   const at = Date.parse('2026-09-01T09:00:00Z')
   const turn = (text: string, role: 'user' | 'assistant' = 'user') => ({ role, at, parts: [{ type: 'text', text }] })
+  const acpQuery = (text: string) => ({ role: 'user', content: [{ type: 'text', text: `<user_query>${text}</user_query>` }] })
   let idx: SessionIndexer
 
   beforeAll(async () => {
@@ -1564,6 +1573,14 @@ describe('sessions kept in databases', () => {
     const transcript = join(cursor, 'projects', 'x', 'agent-transcripts', 'chat-1')
     mkdirSync(transcript, { recursive: true })
     writeFileSync(join(transcript, 'chat-1.jsonl'), '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>hi</user_query>"}]}}\n')
+    // a conversation Cursor's ACP server keeps — every one Cockpit starts
+    writeCursorAcpSession(cursor, {
+      id: 'acp-1',
+      cwd: '/x',
+      name: 'Over ACP',
+      created: at,
+      messages: [acpQuery('an acp prompt'), { role: 'assistant', content: [{ type: 'text', text: 'on it' }] }]
+    })
     idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
     await idx.setSources([
       { path: opencode, provider: 'opencode', label: 'opencode-default' },
@@ -1582,12 +1599,41 @@ describe('sessions kept in databases', () => {
   const ids = (): string[] => idx.page({ repoKey: 'general', limit: 100 }).items.map((s) => s.id).sort()
 
   it('indexes each, the editor’s own record of a Cursor chat over its transcript', () => {
-    expect(ids()).toEqual(['antigravity:conv-1', 'cline:1756700000000', 'cursor:chat-1', 'opencode:ses_a'])
+    expect(ids()).toEqual(['antigravity:conv-1', 'cline:1756700000000', 'cursor:acp-1', 'cursor:chat-1', 'opencode:ses_a'])
     expect(idx.getSession('cursor:chat-1')).toMatchObject({ title: 'From the editor', source: 'cursor-ide' })
     // the Cline task under Cursor's storage is Cline's, not the editor's
     expect(idx.getSession('cline:1756700000000')?.source).toBe('cline-cursor')
     expect(idx.getMessages('opencode:ses_a').map((m) => m.text)).toEqual(['one'])
     expect(idx.getMessages('antigravity:conv-1').map((m) => m.text)).toEqual(['an antigravity prompt'])
+    expect(idx.getSession('cursor:acp-1')).toMatchObject({ title: 'Over ACP', source: 'cursor-default', messageCount: 2 })
+    expect(idx.getMessages('cursor:acp-1').map((m) => m.text)).toEqual(['an acp prompt', 'on it'])
+  })
+
+  it('follows a Cursor ACP conversation once the turn that wrote it ends', async () => {
+    // what the server does: new message blobs, a new root listing them all, the meta row
+    // pointed at it — through the write-ahead log, the folder's meta.json untouched. macOS
+    // reports none of it while the database is held open; the process's end is the news,
+    // and all it touches is the database and its log
+    const db = new DatabaseSync(join(cursor, 'acp-sessions', 'acp-1', 'store.db'))
+    db.exec('PRAGMA journal_mode = WAL')
+    // the log's own creation reaches the watcher first; let it pass
+    await new Promise((r) => setTimeout(r, 2000))
+    const put = (data: Uint8Array): Uint8Array => {
+      const id = createHash('sha256').update(data).digest()
+      db.prepare('INSERT OR IGNORE INTO blobs (id, data) VALUES (?, ?)').run(id.toString('hex'), data)
+      return new Uint8Array(id)
+    }
+    const ids = [
+      acpQuery('an acp prompt'),
+      { role: 'assistant', content: [{ type: 'text', text: 'on it' }] },
+      acpQuery('and then?'),
+      { role: 'assistant', content: [{ type: 'text', text: 'done' }] }
+    ].map((m) => put(new TextEncoder().encode(JSON.stringify(m))))
+    const root = put(protoEncode(ids.map((id): ProtoIn => [1, id])))
+    const meta = { agentId: 'acp-1', latestRootBlobId: Buffer.from(root).toString('hex'), name: 'Over ACP', createdAt: at }
+    db.prepare(`UPDATE meta SET value = ? WHERE key = '0'`).run(Buffer.from(JSON.stringify(meta)).toString('hex'))
+    db.close()
+    await vi.waitFor(() => expect(idx.getSession('cursor:acp-1')?.messageCount).toBe(4), { timeout: 8000, interval: 100 })
   })
 
   it('follows a database as it is written: a session that grows, and one that is new', async () => {

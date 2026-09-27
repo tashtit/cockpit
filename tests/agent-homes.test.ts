@@ -76,6 +76,16 @@ describe('detectAgentHomes', () => {
     }
   })
 
+  it('counts Cursor from the conversations its ACP server keeps, with no transcript yet', () => {
+    const acpOnly = mkdtempSync(join(tmpdir(), 'cockpit-agent-homes-acp-'))
+    try {
+      mkdirSync(join(acpOnly, '.cursor', 'acp-sessions', 'conv-1'), { recursive: true })
+      expect(detectAgentHomes(acpOnly)).toEqual([{ path: join(acpOnly, '.cursor'), provider: 'cursor', label: 'cursor-default' }])
+    } finally {
+      rmSync(acpOnly, { recursive: true, force: true })
+    }
+  })
+
   it('names editors by their data folder', () => {
     expect(editorLabel('Code')).toBe('vscode')
     expect(editorLabel('Code - Insiders')).toBe('vscode-insiders')

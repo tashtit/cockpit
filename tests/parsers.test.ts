@@ -1,6 +1,6 @@
 import { afterAll, describe, it, expect, beforeAll } from 'vitest'
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { parseClaudeMessages, parseClaudeMeta } from '../src/main/parsers/claude'
@@ -14,7 +14,7 @@ import { listGeminiSessions, parseGeminiMessages, parseGeminiMeta } from '../src
 import { listClineSessions, parseClineMessages } from '../src/main/parsers/cline'
 import { listAntigravitySessions, parseAntigravityMessages } from '../src/main/parsers/antigravity'
 import { listOpencodeSessions, parseOpencodeMessages } from '../src/main/parsers/opencode'
-import { writeAntigravityConversation, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
+import { writeAntigravityConversation, writeCursorAcpSession, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 import {
   cursorQueryTime,
   cursorSlug,
@@ -2132,6 +2132,99 @@ describe('cursor parser', () => {
     expect(rows[3]!.preview).toBe('**/*sign*')
     expect(rows[4]!.artifact).toMatchObject({ kind: 'edits', files: [{ path: '/Users/me/dev/web/src/auth.ts' }] })
     expect(rows[5]!.artifact).toMatchObject({ kind: 'check', checks: ['types'] })
+  })
+})
+
+describe('cursor parser — the conversations its ACP server keeps', () => {
+  const home = join(root, 'cursor-acp')
+  const id = '725e2579-ff14-4351-85d6-51a6c8c36463'
+  const created = Date.parse('2026-09-27T22:15:58Z')
+  const query = (text: string) => ({
+    role: 'user',
+    content: [{ type: 'text', text: `<timestamp>Monday, Sep 28, 2026, 1:16 AM (UTC+3)</timestamp>\n<user_query>\n${text}\n</user_query>` }]
+  })
+  const call = (callId: string, toolName: string, args: object) => ({ type: 'tool-call', toolCallId: callId, toolName, args })
+  const result = (callId: string, text: string, isError = false) => ({
+    role: 'tool',
+    content: [{ type: 'tool-result', toolCallId: callId, toolName: 'x', result: text }],
+    providerOptions: { cursor: { highLevelToolCallResult: { isError } } }
+  })
+  let file = ''
+
+  beforeAll(() => {
+    file = writeCursorAcpSession(home, {
+      id,
+      cwd: '/Users/me/dev/web',
+      name: 'Sign-in fix',
+      created,
+      stale: [query('a draft of the question, from an earlier root')],
+      messages: [
+        { role: 'system', content: 'You are an AI coding assistant.' },
+        { role: 'user', content: '<user_info>\nOS Version: darwin\n</user_info>' },
+        query('why can customers not sign in?'),
+        {
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', text: '', signature: 'opaque' },
+            { type: 'text', text: 'Reading the auth module.' },
+            call('c1', 'Read', { path: 'auth.ts' }),
+            call('c2', 'Shell', { command: 'npm run typecheck' })
+          ]
+        },
+        result('c1', 'Error: File not found', true),
+        result('c2', 'Exit code: 2\n\nCommand output:\n\n```\nsrc/auth.ts(3,1): error TS2304: Cannot find name x.\n```'),
+        { role: 'assistant', content: [{ type: 'text', text: 'The allow-list was empty.' }] }
+      ]
+    })
+    // a folder the server made but never wrote a conversation into
+    mkdirSync(join(home, 'acp-sessions', 'empty'), { recursive: true })
+  })
+
+  it('lists the conversation under its own id, named and placed as Cursor keeps it', () => {
+    const metas = listCursorSessions(home, 'cursor-default')
+    expect(metas).toEqual([
+      expect.objectContaining({
+        id: `cursor:${id}`,
+        nativeId: id,
+        provider: 'cursor',
+        title: 'Sign-in fix',
+        cwd: '/Users/me/dev/web',
+        startedAt: created,
+        // the person's question and two replies — not the context Cursor opens with
+        messageCount: 3,
+        sourcePath: file
+      })
+    ])
+  })
+
+  it('reads the conversation in the order its root lists, results joined to their calls', () => {
+    const rows = parseCursorMessages(file)
+    expect(rows.map((r) => [r.role, r.kind, r.toolName ?? r.text])).toEqual([
+      ['user', 'text', 'why can customers not sign in?'],
+      ['assistant', 'text', 'Reading the auth module.'],
+      ['assistant', 'tool_call', 'Read'],
+      ['tool', 'tool_result', 'Error: File not found'],
+      ['assistant', 'tool_call', 'Shell'],
+      ['tool', 'tool_result', expect.stringMatching(/^Exit code: 2/)],
+      ['assistant', 'text', 'The allow-list was empty.']
+    ])
+    expect(rows[2]!.failed).toBe(true)
+    expect(rows[4]!.failed).toBeUndefined()
+    expect(rows[4]!.artifact).toMatchObject({ kind: 'check', checks: ['types'], status: 'failed', exitCode: 2 })
+    expect(rows[0]!.ts).toBe(Date.parse('2026-09-27T22:16:00Z'))
+  })
+
+  it('takes the workspace from the root when meta.json is gone', () => {
+    const other = writeCursorAcpSession(join(root, 'cursor-acp-bare'), {
+      id: 'bare-1',
+      cwd: '/Users/me/dev/api',
+      created,
+      messages: [query('hello'), { role: 'assistant', content: [{ type: 'text', text: 'hi' }] }]
+    })
+    rmSync(join(dirname(other), 'meta.json'))
+    expect(listCursorSessions(join(root, 'cursor-acp-bare'), 'cursor-default')).toEqual([
+      expect.objectContaining({ id: 'cursor:bare-1', title: 'hello', cwd: '/Users/me/dev/api', messageCount: 2 })
+    ])
   })
 })
 

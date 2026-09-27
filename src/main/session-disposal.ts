@@ -3,7 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta } from '../shared/types'
 import { execText } from './env'
-import { CURSOR_IDE_DB } from './parsers/cursor'
+import { CURSOR_IDE_DB, isCursorAcpStore } from './parsers/cursor'
 import { OPENCODE_DB } from './parsers/opencode'
 import { queryAll, splitSessionRef } from './parsers/sqlite'
 import { readJson, sessionLogFiles } from './parsers/util'
@@ -87,6 +87,8 @@ export function disposalOf(meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'so
         const db = resolve(ref.file)
         return { paths: [], rows: { db, kind: 'cursor-chat', id: ref.id }, databases: [db] }
       }
+      // a conversation its ACP server keeps: the folder holds its database and meta.json
+      if (isCursorAcpStore(file)) return { paths: [resolve(dirname(file))], databases: [resolve(file)] }
       // `<id>/<id>.jsonl` with its subagents beside it: the folder is the transcript
       const dir = dirname(file)
       return none([basename(dir) === basename(file, '.jsonl') ? dir : file])

@@ -1,10 +1,11 @@
 /**
  * Writers for the agents that keep sessions in SQLite rather than log files — Cursor's
- * editor chats, opencode, Antigravity — laid out the way each writes them. The unit
- * tests build their fixtures with these, and the ui-tour's world does too, so what the
- * tour shows is exactly what the tests read.
+ * editor chats and its ACP server, opencode, Antigravity — laid out the way each writes
+ * them. The unit tests build their fixtures with these, and the ui-tour's world does too,
+ * so what the tour shows is exactly what the tests read.
  */
-import { mkdirSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -191,4 +192,42 @@ export function writeCursorChats(file: string, chats: readonly CursorChat[]): vo
   // a draft: every chat Cursor opens starts as one, with nothing in it
   put.run('composerData:draft-1', JSON.stringify({ _v: 10, composerId: 'draft-1', createdAt: 1, fullConversationHeadersOnly: [] }))
   db.close()
+}
+
+/* ---------- Cursor's ACP server ---------- */
+
+export type CursorAcpSession = {
+  readonly id: string
+  readonly cwd: string
+  readonly name?: string
+  readonly created: number
+  /** each message as Cursor stores it: `{role, content}`, AI-SDK-style parts */
+  readonly messages: readonly object[]
+  /** messages of an earlier root, left in the store as the conversation grew */
+  readonly stale?: readonly object[]
+}
+
+/** A conversation Cursor's ACP server keeps: <home>/acp-sessions/<id>/{meta.json,store.db}. */
+export function writeCursorAcpSession(home: string, s: CursorAcpSession): string {
+  const dir = `${home}/acp-sessions/${s.id}`
+  const file = `${dir}/store.db`
+  mkdirSync(dir, { recursive: true })
+  rmSync(file, { force: true })
+  writeFileSync(`${dir}/meta.json`, JSON.stringify({ schemaVersion: 1, cwd: s.cwd, title: s.name ?? 'New Chat' }))
+  const db = new DatabaseSync(file)
+  db.exec('CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB); CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);')
+  const put = db.prepare('INSERT OR IGNORE INTO blobs (id, data) VALUES (?, ?)')
+  const blob = (data: Uint8Array): Uint8Array => {
+    const id = createHash('sha256').update(data).digest()
+    put.run(id.toString('hex'), data)
+    return new Uint8Array(id)
+  }
+  const json = (m: object): Uint8Array => blob(new TextEncoder().encode(JSON.stringify(m)))
+  for (const m of s.stale ?? []) json(m)
+  const ids = s.messages.map(json)
+  const root = blob(protoEncode([...ids.map((id): ProtoIn => [1, id]), [9, `file://${s.cwd}`], [22, 'cli']]))
+  const meta = { agentId: s.id, latestRootBlobId: Buffer.from(root).toString('hex'), name: s.name, createdAt: s.created, mode: 'default' }
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('0', Buffer.from(JSON.stringify(meta)).toString('hex'))
+  db.close()
+  return file
 }

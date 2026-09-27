@@ -83,7 +83,7 @@ Cockpit drives Claude Code, Codex and Copilot. It also **reads** the sessions of
 | Agent | Where its sessions are found |
 | --- | --- |
 | Gemini CLI | `~/.gemini/tmp/*/chats/` |
-| Cursor | the editor's own chats, in its storage database, and the agent transcripts under `~/.cursor/projects/` |
+| Cursor | the editor's own chats, in its storage database, the agent transcripts under `~/.cursor/projects/`, and the conversations its ACP server keeps under `~/.cursor/acp-sessions/`, which is where every Cursor session Cockpit starts lives |
 | Cline | the extension's storage in every editor it is installed in — VS Code, Cursor, Windsurf or any other VS Code-family editor — and the Cline CLI's `~/.cline/data` |
 | Roo Code | the extension's storage in every editor it is installed in |
 | opencode | its database, `~/.local/share/opencode/opencode.db`, and the file store older versions kept beside it |

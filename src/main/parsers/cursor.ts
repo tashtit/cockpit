@@ -1,8 +1,10 @@
 import { existsSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { basename, dirname, isAbsolute, join, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { toolArtifact } from './artifacts'
-import { checkArtifact } from './checks'
+import { checkArtifact, checkOutcome } from './checks'
+import { protoAll, protoString } from './protobuf'
 import { dbMtime, queryAll, sessionRef, snapshotCache, splitSessionRef } from './sqlite'
 import {
   capText,
@@ -11,7 +13,9 @@ import {
   parseJsonlText,
   readHead,
   readJsonlTail,
+  readSmallFile,
   toMs,
+  TRANSCRIPT_TAIL_BYTES,
   toolPreview,
   truncate,
   usableCwd
@@ -30,10 +34,12 @@ const MAX_SLUG_DEPTH = 16
  * parent under `subagents/`. Each line is `{role: user|assistant, message: {content}}`
  * with Anthropic-style blocks (`text`, `tool_use` — no ids, no results), or
  * `{type: "turn_ended", status, error?}`. The opening query carries its own time:
- * `<timestamp>Wednesday, Aug 19, 2026, 12:56 AM (UTC+3)</timestamp>`.
+ * `<timestamp>Wednesday, Aug 19, 2026, 12:56 AM (UTC+3)</timestamp>`. The conversations
+ * its ACP server holds — every one Cockpit starts — are kept apart, in acp-sessions/
+ * (see the end of this file).
  */
 export function listCursorSessionRoots(home: string): string[] {
-  return [join(home, 'projects')]
+  return [join(home, 'projects'), join(home, 'acp-sessions')]
 }
 
 /**
@@ -51,6 +57,7 @@ export function listCursorSessionFiles(home: string): string[] {
   const out: string[] = []
   const db = join(home, CURSOR_IDE_DB)
   if (existsSync(db)) for (const id of composerChats(db).keys()) out.push(sessionRef(db, id))
+  out.push(...acpStoreFiles(home))
   for (const project of dirEntries(projects)) {
     if (!project.isDirectory()) continue
     const dir = join(projects, project.name, 'agent-transcripts')
@@ -191,6 +198,7 @@ function blocksText(content: unknown): string {
 export function parseCursorMeta(file: string, sourceLabel: string): SessionMeta | null {
   const ref = splitSessionRef(file)
   if (ref && basename(ref.file) === CURSOR_IDE_DB) return composerMeta(ref.file, ref.id, sourceLabel)
+  if (isCursorAcpStore(file)) return acpStoreMeta(file, sourceLabel)
   const slug = projectSlug(file)
   if (!slug || file.includes(`${sep}subagents${sep}`)) return null
   const head = readHead(file, META_HEAD_BYTES)
@@ -231,6 +239,7 @@ export function parseCursorMeta(file: string, sourceLabel: string): SessionMeta 
 export function parseCursorMessages(file: string): SessionMessage[] {
   const ref = splitSessionRef(file)
   if (ref && basename(ref.file) === CURSOR_IDE_DB) return composerMessages(ref.file, ref.id)
+  if (isCursorAcpStore(file)) return acpStoreMessages(file)
   const { lines, truncated } = readJsonlTail(file)
   const out: SessionMessage[] = []
   for (const l of lines) {
@@ -428,4 +437,234 @@ function composerMessages(db: string, id: string): SessionMessage[] {
     }
   }
   return out
+}
+
+/* ---------- the ACP server's sessions (acp-sessions/<id>/store.db) ---------- */
+
+/**
+ * Cursor's ACP server (`cursor-agent acp`, which is how Cockpit drives Cursor) keeps each
+ * conversation in a folder of its own, <home>/acp-sessions/<id>/: `meta.json` names its
+ * workspace (`cwd`) and title, and `store.db` holds it as content-addressed blobs — a
+ * `blobs` table (`id` the hex SHA-256 of `data`) and a `meta` table whose row `0` is hex
+ * JSON naming the conversation (`agentId`, `name`, `createdAt`) and its `latestRootBlobId`.
+ * The root blob is a protobuf message whose field 1 lists the ids of the conversation's
+ * messages in order (older roots stay behind as the conversation grows); each message is
+ * JSON, `{role: system|user|assistant|tool, content}`, with `text`, `reasoning`,
+ * `tool-call` {toolCallId, toolName, args} and `tool-result` {toolCallId, result} parts.
+ * The opening user message is context Cursor adds (`<user_info>`), not the person's.
+ */
+export const CURSOR_ACP_STORE = 'store.db'
+
+export function isCursorAcpStore(file: string): boolean {
+  const parts = file.split(sep)
+  return parts.at(-1) === CURSOR_ACP_STORE && parts.at(-3) === 'acp-sessions'
+}
+
+function acpStoreFiles(home: string): string[] {
+  const dir = join(home, 'acp-sessions')
+  return dirEntries(dir).flatMap((e) => {
+    const file = join(dir, e.name, CURSOR_ACP_STORE)
+    return e.isDirectory() && existsSync(file) ? [file] : []
+  })
+}
+
+/** A message bigger than this is not read — a tool result can hold a whole file. */
+const MAX_ACP_BLOB_BYTES = 1024 * 1024
+/** The messages a meta read looks through for the person's first prompt */
+const ACP_PROMPT_SCAN = 24
+/** What a message's head must hold to be told apart by role, without reading it whole */
+const ACP_HEAD_BYTES = 64
+
+type AcpStore = {
+  readonly id: string
+  readonly name: string | null
+  readonly createdAt: number | null
+  /** the conversation's messages, in order, by blob id */
+  readonly order: readonly string[]
+  /** the root's workspace, when `meta.json` is gone */
+  readonly uri: string | null
+}
+
+function acpStore(file: string): AcpStore | null {
+  const hexJson = queryAll(file, `SELECT value FROM meta WHERE key = '0'`)?.[0]?.['value']
+  if (typeof hexJson !== 'string') return null
+  const meta = parseJson(Buffer.from(hexJson, 'hex').toString('utf8'))
+  const rootId = str(meta?.latestRootBlobId)
+  const root = rootId ? queryAll(file, 'SELECT data FROM blobs WHERE id = ?', rootId)?.[0]?.['data'] : null
+  if (!(root instanceof Uint8Array)) return null
+  const order = protoAll(root, [1]).flatMap((v) => (v instanceof Uint8Array && v.length === 32 ? [Buffer.from(v).toString('hex')] : []))
+  return {
+    id: str(meta?.agentId) ?? basename(dirname(file)),
+    name: str(meta?.name),
+    createdAt: toMs(meta?.createdAt),
+    order,
+    uri: protoString(root, [9])
+  }
+}
+
+/**
+ * Some of a conversation's blobs by id, with their sizes: `data` whole up to `maxBytes`,
+ * else only its first `ACP_HEAD_BYTES` (`whole: false`).
+ */
+function acpBlobs(
+  file: string,
+  ids: readonly string[],
+  maxBytes: number
+): Map<string, { readonly size: number; readonly data: Uint8Array | null; readonly whole: boolean }> {
+  const out = new Map<string, { size: number; data: Uint8Array | null; whole: boolean }>()
+  if (ids.length === 0) return out
+  for (const r of queryAll(
+    file,
+    `SELECT id, length(data) AS n,
+       CASE WHEN length(data) > ${maxBytes} THEN substr(data, 1, ${ACP_HEAD_BYTES}) ELSE data END AS d
+     FROM blobs WHERE id IN (SELECT value FROM json_each(?))`,
+    JSON.stringify(ids)
+  ) ?? []) {
+    const d = r['d']
+    const size = Number(r['n'] ?? 0)
+    out.set(String(r['id']), { size, data: d instanceof Uint8Array ? d : null, whole: size <= maxBytes })
+  }
+  return out
+}
+
+/** One message blob as JSON; null when it is not one (a node of the tree, or unreadable). */
+function acpMessage(data: Uint8Array | null | undefined): any {
+  if (!data || data[0] !== 0x7b) return null
+  return parseJson(Buffer.from(data).toString('utf8'))
+}
+
+/** Context Cursor adds as a user message — the workspace, the OS — not the person's words. */
+function isAcpContext(m: any): boolean {
+  return typeof m?.content === 'string' && m.content.trimStart().startsWith('<user_info>')
+}
+
+function acpWorkspace(file: string, store: AcpStore): string | null {
+  const json = parseJson(readSmallFile(join(dirname(file), 'meta.json'), 64 * 1024))
+  const cwd = usableCwd(json?.cwd)
+  if (cwd) return cwd
+  if (!store.uri?.startsWith('file://')) return null
+  try {
+    return usableCwd(fileURLToPath(store.uri))
+  } catch {
+    return null
+  }
+}
+
+function acpStoreMeta(file: string, sourceLabel: string): SessionMeta | null {
+  const store = acpStore(file)
+  if (!store || store.order.length === 0) return null
+  // role by each message's head; the person's first prompt by reading the first few whole
+  const heads = acpBlobs(file, store.order, 0)
+  let messageCount = 0
+  for (const id of store.order) {
+    const head = heads.get(id)?.data
+    const text = head ? Buffer.from(head).toString('utf8') : ''
+    const role = /^\{"role":"(user|assistant)"/.exec(text)?.[1]
+    if (role === 'assistant' || (role === 'user' && !text.includes('"content":"<user_info>'))) messageCount++
+  }
+  let firstPrompt = ''
+  let startedAt: number | null = null
+  const opening = acpBlobs(file, store.order.slice(0, ACP_PROMPT_SCAN), MAX_ACP_BLOB_BYTES)
+  for (const id of store.order.slice(0, ACP_PROMPT_SCAN)) {
+    const b = opening.get(id)
+    const m = b?.whole ? acpMessage(b.data) : null
+    if (m?.role !== 'user' || isAcpContext(m)) continue
+    firstPrompt = queryText(m.content)
+    startedAt = cursorQueryTime(blocksText(m.content))
+    if (firstPrompt) break
+  }
+  if (messageCount === 0 || !firstPrompt) return null
+  const at = dbMtime(file)
+  return {
+    id: `cursor:${store.id}`,
+    provider: 'cursor',
+    nativeId: store.id,
+    source: sourceLabel,
+    title: truncate(store.name ?? firstPrompt) || '(untitled)',
+    cwd: acpWorkspace(file, store),
+    logBranch: null,
+    startedAt: store.createdAt ?? startedAt ?? at,
+    updatedAt: at,
+    messageCount,
+    sourcePath: file
+  }
+}
+
+/** A tool result's text: the string the model was handed, else its text parts. */
+function acpResultText(part: any): string {
+  if (typeof part?.result === 'string') return part.result
+  return blocksText(part?.experimental_content)
+}
+
+function acpStoreMessages(file: string): SessionMessage[] {
+  const store = acpStore(file)
+  if (!store) return []
+  // the newest messages that fit the transcript budget, each read only if it is not huge
+  const sizes = acpBlobs(file, store.order, 0)
+  let budget = TRANSCRIPT_TAIL_BYTES
+  let from = store.order.length
+  while (from > 0) {
+    const size = Math.min(sizes.get(store.order[from - 1]!)?.size ?? 0, MAX_ACP_BLOB_BYTES)
+    if (budget - size < 0) break
+    budget -= size
+    from--
+  }
+  const window = store.order.slice(from)
+  const blobs = acpBlobs(file, window, MAX_ACP_BLOB_BYTES)
+  const messages = window.map((id) => {
+    const b = blobs.get(id)
+    return b?.whole ? acpMessage(b.data) : null
+  })
+  // how each call ended, by its id — a result is a message of its own, after the call's
+  const results = new Map<string, { readonly text: string; readonly failed: boolean }>()
+  for (const m of messages) {
+    if (m?.role !== 'tool' || !Array.isArray(m.content)) continue
+    const failed = m.providerOptions?.cursor?.highLevelToolCallResult?.isError === true
+    for (const p of m.content) {
+      if (p?.type === 'tool-result' && typeof p.toolCallId === 'string') results.set(p.toolCallId, { text: acpResultText(p), failed })
+    }
+  }
+  const out: SessionMessage[] = []
+  let ts: number | undefined
+  for (const m of messages) {
+    if (m?.role === 'user' && !isAcpContext(m)) {
+      const text = queryText(m.content)
+      ts = cursorQueryTime(blocksText(m.content)) ?? ts
+      if (text) out.push({ role: 'user', kind: 'text', text: capText(text), ts })
+    } else if (m?.role === 'assistant' && Array.isArray(m.content)) {
+      const thinking = m.content
+        .map((p: any) => (p?.type === 'reasoning' && typeof p.text === 'string' ? p.text : ''))
+        .join('\n')
+        .trim()
+      if (thinking) out.push({ role: 'assistant', kind: 'reasoning', text: capText(thinking), ts })
+      const text = blocksText(m.content)
+      if (text) out.push({ role: 'assistant', kind: 'text', text: capText(text), ts })
+      for (const p of m.content) {
+        if (p?.type !== 'tool-call') continue
+        const name = typeof p.toolName === 'string' ? p.toolName : 'tool'
+        const result = typeof p.toolCallId === 'string' ? results.get(p.toolCallId) : undefined
+        const output = result?.text ?? ''
+        const preview = toolPreview(name, p.args)
+        let artifact = toolArtifact(name, p.args)
+        if (artifact?.kind === 'check' && output) {
+          const code = /^Exit code: (\d+)/.exec(output)?.[1]
+          artifact = checkOutcome(artifact, { text: output, exitCode: code === undefined ? null : Number(code) })
+        }
+        out.push({
+          role: 'assistant',
+          kind: 'tool_call',
+          toolName: name,
+          text: truncate(jsonText(p.args ?? {}), 400),
+          ...(preview ? { preview: truncate(preview, 200) } : {}),
+          ...(artifact ? { artifact } : {}),
+          ...(result?.failed ? { failed: true } : {}),
+          ts
+        })
+        if (output) out.push({ role: 'tool', kind: 'tool_result', text: truncate(output, 400), ts })
+      }
+    }
+  }
+  return from > 0
+    ? [{ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' }, ...out]
+    : out
 }

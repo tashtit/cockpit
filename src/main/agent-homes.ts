@@ -67,7 +67,12 @@ export function detectAgentHomes(home: string = homedir()): SourceDir[] {
     if (existsSync(path)) out.push({ path, provider: p, label: `${p}-default` })
   }
   add('gemini', join(home, '.gemini'), 'gemini-default', 'tmp')
-  add('cursor', join(home, '.cursor'), 'cursor-default', 'projects')
+  // Cursor: its CLI's transcripts, or only the conversations its ACP server keeps — the
+  // ones Cockpit started
+  const cursor = join(home, '.cursor')
+  if (['projects', 'acp-sessions'].some((root) => existsSync(join(cursor, root)))) {
+    out.push({ path: cursor, provider: 'cursor', label: 'cursor-default' })
+  }
   add('cline', join(home, '.cline', 'data'), 'cline-cli', 'tasks')
   // opencode's data home: its database, or the file store it kept before one
   const opencode = join(home, '.local', 'share', 'opencode')
