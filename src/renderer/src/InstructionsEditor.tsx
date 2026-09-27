@@ -5,8 +5,10 @@ import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, DiffStat, InstructionDiff, ReadByNote } from './InstructionDiff'
+import { applyFile, takeFile, type InstructionsWrite } from './instruction-writes'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
+import type { Notice } from './notice'
 
 /**
  * Writing the shared baseline: the one surface here that authors content rather
@@ -20,13 +22,6 @@ const STATUS_LABEL: Record<InstructionFile['status'], string> = {
   unmanaged: 'not applied',
   missing: 'no file yet'
 }
-
-/** `link` is for an outcome that lives somewhere else — a PR the share just opened. */
-type Notice = {
-  text: string
-  kind: 'ok' | 'error'
-  link?: { href: string; label: string }
-} | null
 
 /** GitHub-comment grammar, plus the PR's own third tab: what the write would change. */
 type EditorTab = 'write' | 'preview' | 'changes'
@@ -84,7 +79,7 @@ export function InstructionsEditor({
     setFocusPath(null)
   }, [mdView, focusPath])
 
-  const run = async (op: () => Promise<InstructionsState>, okText: string): Promise<void> => {
+  const run = async ({ op, ok }: InstructionsWrite): Promise<void> => {
     setNotice(null)
     setBusy(true)
     const startedOn = repoRoot
@@ -95,7 +90,7 @@ export function InstructionsEditor({
       if (startedOn !== repoRootRef.current) return
       setInst(s)
       setDraft(s.baseline)
-      setNotice({ text: okText, kind: 'ok' })
+      setNotice({ text: ok, kind: 'ok' })
       onSaved()
     } catch (err) {
       if (startedOn !== repoRootRef.current) return
@@ -106,23 +101,16 @@ export function InstructionsEditor({
   }
 
   const saveBaseline = (): Promise<void> =>
-    run(() => api.saveInstructionsBaseline(repoRoot, draft), 'Shared instructions saved.')
+    run({ op: () => api.saveInstructionsBaseline(repoRoot, draft), ok: 'Shared instructions saved.' })
 
   const saveAndApply = (): Promise<void> =>
-    run(
-      async () => {
+    run({
+      op: async () => {
         await api.saveInstructionsBaseline(repoRoot, draft)
         return api.applyInstructions(repoRoot)
       },
-      'Applied to every agent file — running sessions pick it up on their next start.'
-    )
-
-  const applyOne = (path: string): Promise<void> =>
-    run(() => api.applyInstructions(repoRoot, path), 'Applied — restart that agent to pick it up.')
-
-  /** The other side of drift: a teammate's update arrived in the repo's own files. */
-  const takeFile = (path: string): Promise<void> =>
-    run(() => api.adoptInstructionsFrom(repoRoot, path), "Taken as the baseline — it's yours now.")
+      ok: 'Applied to every agent file — running sessions pick it up on their next start.'
+    })
 
   /**
    * Share a repo's instructions the way the repo shares everything else: a PR to
@@ -278,14 +266,14 @@ export function InstructionsEditor({
                 busy={busy}
                 dirty={dirty}
                 baselineEmpty={inst.baseline.trim() === ''}
-                onApply={() => void applyOne(f.path)}
+                onApply={() => void run(applyFile(repoRoot, f.path))}
                 onSeeChanges={() => seeChanges(f.path)}
-                onTakeFile={() => void takeFile(f.path)}
+                onTakeFile={() => void run(takeFile(repoRoot, f.path))}
                 onSaveFile={(content) =>
-                  void run(
-                    () => api.saveInstructionFile(repoRoot, f.path, content),
-                    'File saved.'
-                  )
+                  void run({
+                    op: () => api.saveInstructionFile(repoRoot, f.path, content),
+                    ok: 'File saved.'
+                  })
                 }
               />
             ))}

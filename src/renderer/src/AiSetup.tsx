@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import type { RepoGroup } from '../../shared/types'
 import { AgentPanel } from './AgentPanel'
 import { api } from './api'
+import type { Notice } from './notice'
 import { Select } from './Select'
 
 /**
@@ -14,13 +15,6 @@ import { Select } from './Select'
  * read. Scope is the only thing above the panel now, because it is the only thing
  * that changes what every row underneath means.
  */
-
-/** `link` is for an outcome that lives somewhere else — a PR the share just opened. */
-type Notice = {
-  text: string
-  kind: 'ok' | 'error'
-  link?: { href: string; label: string }
-} | null
 
 export function AiSetup({
   repos,
