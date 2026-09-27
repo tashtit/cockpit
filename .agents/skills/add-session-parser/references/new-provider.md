@@ -8,11 +8,10 @@ Every `Record<Provider, …>` and every provider-keyed `as const` map refuses to
 
 - `src/main/indexer.ts` — `FILE_LISTERS`, `ROOT_LISTERS`, `META_PARSERS`, `MESSAGE_PARSERS`
 - `src/main/accounts.ts` — the per-provider defaults record
-- `src/main/handoff-core.ts` — `AGENT_NAME`
-- `src/main/profile.ts` — `DEEP_PARSERS`
+- `src/main/profile.ts` — `DEEP_READ_BYTES`, `DEEP_READERS`
 - `src/main/library.ts` — `PLUGIN_CMD`
 - `src/shared/library.ts` — `PanelReport.cells`
-- `src/shared/roundtable.ts` — `SEAT_NAME`
+- `src/shared/providers.ts` — `AGENT_NAME`, `CONFIG_HOME_VAR` (`SEAT_NAME` in `src/shared/roundtable.ts` is `AGENT_NAME`)
 - `src/renderer/src/logos.tsx` — `PROVIDER_LABEL`, plus the SVG mark itself
 - `src/renderer/src/NewSession.tsx` — `MODEL_SUGGESTIONS`, `AGENT_BLURB`
 
