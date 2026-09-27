@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { join } from 'node:path'
 import type { ChatRequest, SideChatRequest } from '../../shared/types'
 import { CH } from '../../shared/contract'
-import { SEAT_NAME } from '../../shared/roundtable'
+import { AGENT_NAME } from '../../shared/providers'
 import { sessionControlFor, sessionEndpointFor, userDataDir } from '../config'
 import { assertChatImages, saveChatImage } from '../chat-images'
 import { holderOf } from '../session-control-core'
@@ -68,7 +68,7 @@ export function registerChatHandlers(s: Services): void {
     if (resumed) {
       const holder = indexer.getSession(resumed)?.control?.holder ?? (recorded && holderOf(recorded.how))
       if (holder === 'agent') {
-        throw new Error(`This session is with ${SEAT_NAME[req.provider]} — take it over to send from Cockpit.`)
+        throw new Error(`This session is with ${AGENT_NAME[req.provider]} — take it over to send from Cockpit.`)
       }
     }
     // a session already mid-turn gets no second CLI — refused before anything below

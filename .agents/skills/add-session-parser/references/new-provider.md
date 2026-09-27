@@ -20,13 +20,10 @@ Every `Record<Provider, …>` and every provider-keyed `as const` map refuses to
 
 ## Typecheck does not find these
 
-Hard-coded arrays silently omit the new provider from the UI and from cross-agent loops. Grep for `['claude', 'codex', 'copilot']` to find every one:
+Hard-coded arrays silently omit the new provider from the UI and from cross-agent loops. Grep for `['claude', 'codex', 'copilot']` to find any that remain:
 
-- `src/shared/library.ts` — `PROVIDERS`
-- `src/main/roundtable-core.ts` — `PROVIDERS`
-- `src/main/extensions.ts` — the `for (const agent of […])` loop
-- `src/main/ipc/guards.ts` — `asProvider`, `assertKnownConfigDir`, `asAttentionFocus`; and the `sources:add` check in `src/main/ipc/sessions.ts`
-- `src/renderer/src/NewSession.tsx`, `NewRoundtable.tsx`, `HandoffView.tsx`, `HomeView.tsx`, `Settings.tsx` — each view's `PROVIDERS`
+- `src/shared/providers.ts` — `PROVIDERS`, `isProvider`, `AGENT_NAME`, `CONFIG_HOME_VAR`: every main-side list and check of the three reads these (IPC input goes through `isProvider` in `src/main/ipc/guards.ts`)
+- the renderer's own labels and icons (`PROVIDER_LABEL` and the logos in `logos.tsx`)
 
 Behavior that is provider-specific by construction:
 

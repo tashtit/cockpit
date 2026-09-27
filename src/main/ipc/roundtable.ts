@@ -2,12 +2,8 @@ import { ipcMain } from 'electron'
 import type { NewRoundtableRequest } from '../../shared/types'
 import { CH, PUSH } from '../../shared/contract'
 import { signInHint } from '../../shared/agent-auth'
-import {
-  ROUNDTABLE_MAX_SEATS,
-  roundsAllowed,
-  sanitizeRoundtableLimits,
-  SEAT_NAME
-} from '../../shared/roundtable'
+import { AGENT_NAME } from '../../shared/providers'
+import { ROUNDTABLE_MAX_SEATS, roundsAllowed, sanitizeRoundtableLimits } from '../../shared/roundtable'
 import { branchPrefix, listModelEndpoints, setRoundtableArchived } from '../config'
 import { signInState } from '../agent-auth'
 import { createWorkspace } from '../workspace'
@@ -80,8 +76,8 @@ export function registerRoundtableHandlers(s: Services): void {
         broken
           .map(({ seat, state }) =>
             state === 'missing'
-              ? `${SEAT_NAME[seat.provider]} isn't installed — Cockpit can't find its \`${seat.provider}\` command.`
-              : `${SEAT_NAME[seat.provider]} isn't signed in${seat.accountLabel ? ` (${seat.accountLabel})` : ''}. ${signInHint(seat.provider, seat.configDir)}`
+              ? `${AGENT_NAME[seat.provider]} isn't installed — Cockpit can't find its \`${seat.provider}\` command.`
+              : `${AGENT_NAME[seat.provider]} isn't signed in${seat.accountLabel ? ` (${seat.accountLabel})` : ''}. ${signInHint(seat.provider, seat.configDir)}`
           )
           .join('\n')
       )

@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { join } from 'node:path'
 import { CH } from '../../shared/contract'
-import { SEAT_NAME } from '../../shared/roundtable'
+import { AGENT_NAME } from '../../shared/providers'
 import { homebrewUpdateCommand, runsHomebrew } from '../../shared/agent-cli'
 import { loadConfig, userDataDir } from '../config'
 import { getAccounts } from '../accounts'
@@ -27,7 +27,7 @@ export function registerAgentHandlers(s: Services): void {
     const home = optionalConfigDir(configDir, provider)
     return openInTerminal(
       `sign-in-${provider}`,
-      `Cockpit — sign in to ${SEAT_NAME[provider]}${home ? ` (${home})` : ''}`,
+      `Cockpit — sign in to ${AGENT_NAME[provider]}${home ? ` (${home})` : ''}`,
       loginLine(provider, home)
     )
   })
@@ -47,9 +47,9 @@ export function registerAgentHandlers(s: Services): void {
     // from the renderer
     const status = await cliStatus(provider)
     if (!status.installed || !status.updateCommand) {
-      throw new Error(`${SEAT_NAME[provider]} isn't installed, so there is nothing to update.`)
+      throw new Error(`${AGENT_NAME[provider]} isn't installed, so there is nothing to update.`)
     }
-    return openInTerminal(`update-${provider}`, `Cockpit — update ${SEAT_NAME[provider]}`, status.updateCommand)
+    return openInTerminal(`update-${provider}`, `Cockpit — update ${AGENT_NAME[provider]}`, status.updateCommand)
   })
   // several Homebrew CLIs in one run: one `brew update` and one window rather than a
   // window each taking turns. Which CLIs is renderer input, so each is re-read here and
@@ -64,7 +64,7 @@ export function registerAgentHandlers(s: Services): void {
     if (line === null) throw new Error('None of these has a Homebrew update waiting any more.')
     return openInTerminal(
       'update-homebrew',
-      `Cockpit — update ${behind.map((st) => SEAT_NAME[st.provider]).join(' and ')}`,
+      `Cockpit — update ${behind.map((st) => AGENT_NAME[st.provider]).join(' and ')}`,
       line
     )
   })
@@ -76,12 +76,12 @@ export function registerAgentHandlers(s: Services): void {
     const status = await cliStatus(provider)
     if (status.install !== 'brew-cask' && status.install !== 'brew-formula') {
       throw new Error(
-        `${SEAT_NAME[provider]} doesn't get its updates from Homebrew, so there is nothing to refresh.`
+        `${AGENT_NAME[provider]} doesn't get its updates from Homebrew, so there is nothing to refresh.`
       )
     }
     return openInTerminal(
       `refresh-${provider}`,
-      `Cockpit — refresh what Homebrew knows (for ${SEAT_NAME[provider]})`,
+      `Cockpit — refresh what Homebrew knows (for ${AGENT_NAME[provider]})`,
       'brew update'
     )
   })

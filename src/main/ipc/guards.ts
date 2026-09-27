@@ -1,5 +1,4 @@
-import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import type {
   AttentionFocus,
   PanelKind,
@@ -7,8 +6,9 @@ import type {
   Provider,
   SessionMeta
 } from '../../shared/types'
+import { PROVIDERS, isProvider } from '../../shared/providers'
 import type { SessionIndexer } from '../indexer'
-import { isUnder } from '../paths'
+import { defaultConfigHome, isUnder } from '../paths'
 import { loadConfig } from '../config'
 import { worktreesDir } from '../workspace'
 
@@ -19,13 +19,10 @@ import { worktreesDir } from '../workspace'
  * against roots main itself derived.
  */
 
-const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
-
 /** An agent named by the renderer — it becomes a path segment or a spawned command, so only the three. */
 export function asProvider(agent: unknown): Provider {
-  const found = PROVIDERS.find((p) => p === agent)
-  if (!found) throw new Error('unknown agent')
-  return found
+  if (!isProvider(agent)) throw new Error('unknown agent')
+  return agent
 }
 
 const PANEL_KINDS: readonly PanelKind[] = ['mcp', 'skill', 'plugin', 'marketplace', 'instructions']
@@ -63,9 +60,9 @@ export function assertKnownConfigDir(configDir: unknown, provider: Provider): st
   if (typeof configDir !== 'string') throw new Error('invalid config home')
   // `provider` is renderer input with a compile-time-only type — it is about to be
   // interpolated into a path, so re-check it here rather than trusting the caller
-  if (!PROVIDERS.includes(provider)) throw new Error('unknown agent')
+  if (!isProvider(provider)) throw new Error('unknown agent')
   const c = resolve(configDir)
-  if (c === join(homedir(), `.${provider}`)) return c
+  if (c === defaultConfigHome(provider)) return c
   const known = loadConfig().sources.some((s) => s.provider === provider && resolve(s.path) === c)
   if (!known) throw new Error(`unknown ${provider} config home: ${c}`)
   return c

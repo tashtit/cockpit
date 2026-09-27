@@ -1,7 +1,7 @@
 import { dialog, ipcMain, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import type {
   BusySession,
   Provider,
@@ -10,7 +10,7 @@ import type {
   TranscriptSearchQuery
 } from '../../shared/types'
 import { CH } from '../../shared/contract'
-import { SEAT_NAME } from '../../shared/roundtable'
+import { AGENT_NAME, isProvider } from '../../shared/providers'
 import {
   bindSessionControl,
   loadConfig,
@@ -19,9 +19,11 @@ import {
   setRepoHidden,
   setRepoOrder,
   setSessionArchived,
-  setTimeFormat
+  setTimeFormat,
+  sourceFor
 } from '../config'
 import { isValidNativeId } from '../chat'
+import { defaultConfigHome } from '../paths'
 import { holdRefusal, resumeLine, resumeScript, type ControlEntry } from '../session-control-core'
 import { assertSharedFile, openSharedFile, readSharedFile } from '../session-files'
 import { getHandoffBriefing, improveHandoffBriefing } from '../handoff'
@@ -53,7 +55,7 @@ export function registerSessionHandlers(s: Services): void {
   })
   ipcMain.handle(CH.sourcesAdd, (_e, path: string, provider: Provider, label: string) => {
     // renderer args are untrusted — an unknown provider would crash the next scan
-    if (!(['claude', 'codex', 'copilot'] as Provider[]).includes(provider)) {
+    if (!isProvider(provider)) {
       throw new Error(`Unknown provider: ${String(provider)}`)
     }
     const p = resolve(String(path))
@@ -141,16 +143,16 @@ export function registerSessionHandlers(s: Services): void {
       )
     }
     // the config home the index found it under; the provider's default needs no variable
-    const source = loadConfig().sources.find((x) => x.provider === session.provider && x.label === session.source)
+    const source = sourceFor(session)
     const home =
-      source && resolve(source.path) !== join(homedir(), `.${session.provider}`) ? resolve(source.path) : undefined
+      source && resolve(source.path) !== defaultConfigHome(session.provider) ? resolve(source.path) : undefined
     const line = resumeLine(session.provider, session.nativeId, home)
     if (indexer.controlOf(session).holder === 'cockpit') {
       indexer.setControl(bindSessionControl(session.id, { how: 'released', at: Date.now() }))
     }
     await openScript(
       `resume-${session.provider}`,
-      resumeScript(`Cockpit — resuming in ${SEAT_NAME[session.provider]}`, session.cwd, line)
+      resumeScript(`Cockpit — resuming in ${AGENT_NAME[session.provider]}`, session.cwd, line)
     )
   })
 

@@ -27,6 +27,7 @@ import { UpdateManager } from './updates'
 import { AttentionDesk, electronSurface } from './attention'
 import { tableOutcome } from './attention-core'
 import { worktreesDir } from './workspace'
+import { defaultConfigHome } from './paths'
 import { TurnLedger } from './turn-ledger'
 import { onWindowFocus, openAttentionTarget, sendToWin } from './window'
 
@@ -77,7 +78,7 @@ function applyConfig(indexer: SessionIndexer, cfg: AppConfig): void {
 /** Copilot multi-account: a turn runs as the user it names, activated before it spawns. */
 export function activateCopilotUser(req: Pick<ChatRequest, 'provider' | 'configDir' | 'copilotUser'>): void {
   if (req.provider === 'copilot' && req.copilotUser) {
-    setCopilotActiveUser(req.configDir ?? join(homedir(), '.copilot'), req.copilotUser)
+    setCopilotActiveUser(req.configDir ?? defaultConfigHome('copilot'), req.copilotUser)
   }
 }
 
