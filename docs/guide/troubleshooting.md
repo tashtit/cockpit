@@ -83,7 +83,7 @@ Cockpit starts every agent with the `PATH` your login shell sets up, read once w
 $SHELL -ilc 'printenv PATH'
 ```
 
-Startup files that take longer than ten seconds, or wait for input, are given up on, and agents fall back to the system's `PATH` plus the usual install folders. Cockpit sets `COCKPIT_RESOLVING_ENVIRONMENT=1` while it reads, so a slow part of your startup files can be skipped for it. Restart Cockpit after changing them.
+Until your shell answers, agents start with the system's `PATH` plus the usual install folders; startup files that take longer than a minute, or wait for input, are given up on for that launch. Cockpit sets `COCKPIT_RESOLVING_ENVIRONMENT=1` while it reads, so a slow part of your startup files can be skipped for it. Restart Cockpit after changing them.
 
 ## Wrong Node version
 
