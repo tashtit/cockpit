@@ -8,6 +8,7 @@ import type {
 } from '../../shared/types'
 import { PROVIDERS } from '../../shared/library'
 import { api } from './api'
+import { useLoaded } from './use-loaded'
 
 /**
  * Who runs a new session and how far it may go unasked: the agent, the account it runs as
@@ -184,15 +185,11 @@ export type AgentChoice = {
 export function useAgentChoice(initial: () => Provider = savedProvider): AgentChoice {
   const [provider, setProvider] = useState<Provider>(initial)
   const [mode, setMode] = useState<PermissionMode>(savedMode)
-  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
+  const { value: accounts } = useLoaded(() => api.getAccounts(), [])
   const [accountKey, setAccountKey] = useState<string | null>(null)
 
   const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
   const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider)
-
-  useEffect(() => {
-    void api.getAccounts().then(setAccounts)
-  }, [])
 
   useEffect(() => {
     setAccountKey(null)

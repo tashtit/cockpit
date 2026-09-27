@@ -14,6 +14,7 @@ import { AGENT_BLURB, MODES, type AccountOption, type AgentChoice } from './agen
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { useLoaded } from './use-loaded'
 
 /**
  * The pieces the New session and handoff forms are built from: the agent cards, the
@@ -55,17 +56,16 @@ export function useAgentOptions(provider: Provider, configDir: string | undefine
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
-  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  // optional call: a preload from before this method must not crash the form (dev HMR)
+  const { value: endpoints } = useLoaded(api.getModelEndpoints ? () => api.getModelEndpoints() : null, [], {
+    initial: [] as ModelEndpoint[]
+  })
   const [endpointId, setEndpointId] = useState('')
   /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
   /** Every model each agent offers, per config home (`agentKey`) — main reads the CLIs' own lists */
   const [agentModels, setAgentModels] = useState<Record<string, AgentModel[]>>({})
 
-  useEffect(() => {
-    // optional call: a preload from before this method must not crash the form (dev HMR)
-    void api.getModelEndpoints?.().then(setEndpoints)
-  }, [])
 
   // models, levels and endpoints differ per agent — reset stale choices on switch
   useEffect(() => {
