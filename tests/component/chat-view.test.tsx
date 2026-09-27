@@ -166,6 +166,13 @@ describe('ChatView on a session of an agent Cockpit only reads', () => {
     expect(onOpenHandoff).toHaveBeenCalledTimes(2)
   })
 
+  it('offers no take-over: Cockpit has no CLI of that agent’s to drive it with', () => {
+    renderChat(vi.fn(), { binding: cursor, control: { holder: 'agent', how: 'outside' } })
+    expect(screen.queryByRole('region', { name: 'Who drives this session' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Take over/ })).not.toBeInTheDocument()
+    expect(document.querySelector('.hold-chip')).toBeNull()
+  })
+
   it('a roundtable seat stays the table’s: no handoff anywhere', () => {
     renderChat(vi.fn(), { binding: { ...binding, nativeSessionId: 'seat-1', readOnly: 'seat' } })
     expect(screen.getByText(/Talk to it at the table/)).toBeInTheDocument()
