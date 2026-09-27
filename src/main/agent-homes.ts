@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { SessionProvider, SourceDir } from '../shared/types'
-import { isDrivable } from '../shared/providers'
+import { isDrivable, PROVIDERS } from '../shared/providers'
 
 /**
  * Where each agent on this machine keeps its sessions — found on disk, never assumed.
@@ -62,7 +62,7 @@ export function detectAgentHomes(home: string = homedir()): SourceDir[] {
   }
   // the three CLIs Cockpit drives count from their home alone — a fresh install with
   // no session yet is still one to index, and to start sessions in
-  for (const p of ['claude', 'codex', 'copilot'] as const) {
+  for (const p of PROVIDERS) {
     const path = join(home, `.${p}`)
     if (existsSync(path)) out.push({ path, provider: p, label: `${p}-default` })
   }
