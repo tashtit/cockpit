@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Landing } from '../../shared/types'
 import { api } from './api'
+import { subscribeBusy, waitingNow } from './busy'
 
 /**
  * Sessions that need you: a turn has ended and nobody has opened the session since
@@ -15,6 +16,11 @@ import { api } from './api'
  * screen, so App reports what the window shows (`setAttentionFocus`) and main keeps a
  * watched session from ever landing. This store mirrors main's set for the rows that
  * carry the mark; a session with several reasons carries its most urgent one.
+ *
+ * Main's set is news, and opening a session clears it — but an agent still stopped on
+ * its question is still waiting whether or not you have looked. So the map the rows
+ * read also holds every question the busy set says a turn is stopped on (`waitingNow`):
+ * the row shows the question glyph instead of a spinner for as long as that lasts.
  */
 
 /** id → why it needs you (one reason per session, the most urgent) */
@@ -60,12 +66,38 @@ export function clearLanded(): void {
   set([])
 }
 
+function subscribeAll(cb: () => void): () => void {
+  const offLanded = subscribe(cb)
+  const offBusy = subscribeBusy(cb)
+  return () => {
+    offLanded()
+    offBusy()
+  }
+}
+
+/** main's set with the questions turns are stopped on; rebuilt only when either changes */
+let view: { readonly base: typeof landed; readonly waiting: ReadonlyMap<string, Landing>; readonly map: ReadonlyMap<string, Landing> } | null = null
+
+function needsYou(): ReadonlyMap<string, Landing> {
+  const waiting = waitingNow()
+  if (view?.base === landed && view.waiting === waiting) return view.map
+  let map = landed
+  if (waiting.size > 0) {
+    const merged = new Map(landed)
+    // a question outranks a red PR and a landing; main's own keeps the time it was raised
+    for (const [id, w] of waiting) if (merged.get(id)?.kind !== 'asks') merged.set(id, w)
+    map = merged
+  }
+  view = { base: landed, waiting, map }
+  return map
+}
+
 /** id → why it needs you, for the rows that carry the state. */
 export function useLandedMap(): ReadonlyMap<string, Landing> {
-  return useSyncExternalStore(subscribe, () => landed)
+  return useSyncExternalStore(subscribeAll, needsYou)
 }
 
 /** Why this session needs you, or null (sidebar rows ask one at a time). */
 export function useSessionLanded(id: string): Landing | null {
-  return useSyncExternalStore(subscribe, () => landed.get(id) ?? null)
+  return useSyncExternalStore(subscribeAll, () => needsYou().get(id) ?? null)
 }

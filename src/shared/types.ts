@@ -1197,7 +1197,15 @@ export type BusySession = {
        */
       readonly turnId: string | null
     }
-  | { readonly source: 'observed' }
+  | {
+      readonly source: 'observed'
+      /**
+       * What the turn has stopped to ask, while it waits on the person: the process is
+       * up but going nowhere, so the rows say so rather than spin. Unlike the `asks`
+       * landing it outlives opening the session — it is a state, not news.
+       */
+      readonly asks?: AttentionAsk
+    }
 )
 
 /* ---------- attention: notifications, sounds and the Dock badge ---------- */

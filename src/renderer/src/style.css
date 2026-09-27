@@ -1117,6 +1117,12 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .ask-opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ask-opt-label { font-size: var(--fs-base); color: var(--fg); }
 .ask-opt-desc { font-size: var(--fs-sm); line-height: 1.45; color: var(--fg-dim); }
+/* Other's own words: opens under the options once picked, the composer's field in miniature */
+.ask-other { resize: none; background: var(--bg2); color: var(--fg);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: var(--s2) var(--s3); font: inherit; font-size: var(--fs-base); line-height: 1.5;
+  field-sizing: content; min-height: 2lh; max-height: 8lh; }
+.ask-other:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 .ask-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--s4);
   flex-wrap: wrap; }
 .ask-note { flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--fg-dim); }

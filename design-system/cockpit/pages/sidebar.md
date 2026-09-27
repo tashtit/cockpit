@@ -71,7 +71,9 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     dropped, so `claude-work` reads `work`),
     then the exclusive meta slot, in order of urgency: the `.asks-mark` question glyph in
     the agent's color while its agent waits on you (`useSessionLanded` kind `asks` — it
-    beats running, because the process is up but going nowhere), else the neutral
+    beats running, because the process is up but going nowhere; `landed.ts` folds in the
+    questions the busy set says a turn is stopped on, `BusySession.asks`, so the glyph
+    outlives opening the session for as long as the question stays open), else the neutral
     `Spinner` while the session's provider process runs, else the rest of `LandingMark`
     while the session has something unseen — GitHub's x `.fix-mark` in `--danger` for a red
     pull request on its branch, a solid `.landed-dot` in the accent for a turn that ended

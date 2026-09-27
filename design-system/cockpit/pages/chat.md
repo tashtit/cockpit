@@ -110,7 +110,13 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     legend (the agent's `header`, else `Question N`), the question at `--fs-prose`, then
     full-width option rows — native radios, or checkboxes when the agent allowed several
     (`accent-color`, so the control is the OS's and the row is the target). A picked row
-    takes the accent tint. **Send answer** is disabled until every question has a pick and
+    takes the accent tint. Every question ends in **Other** ("None of these — write your
+    own answer"), the escape the agents' own prompts offer: picked, it opens `.ask-other`
+    under the options — the composer's field in miniature, focused because it was just
+    asked for, Enter sends and Shift+Enter breaks the line — and its words are the answer
+    (one answer on a single-select question, so an offered pick sets it aside and keeps
+    the text; one more beside the picks on a pick-any one). Picked but empty is no answer.
+    **Send answer** is disabled until every question has a pick and
     while a turn runs; the note beside it says the pick sends as the next message, and
     sheds to its own line ≤700px. While the session runs elsewhere the same note says
     where to answer instead (the terminal or app blocked on it), and the `is working
