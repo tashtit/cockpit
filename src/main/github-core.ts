@@ -1,5 +1,6 @@
 import type { PrChecks, PrReview, PrState, PrStatus } from '../shared/types'
-import { nodes, obj } from './pr-feedback-core'
+import { asRecord } from '../shared/guards'
+import { nodes } from './pr-feedback-core'
 
 /**
  * The IO-free half of github.ts: turning what `gh pr list --json` prints into
@@ -151,11 +152,11 @@ export function parseUnresolvedThreads(stdout: string): Map<number, number> {
   } catch {
     return counts
   }
-  const prs = obj(obj(obj(json)?.data)?.repository)?.pullRequests
+  const prs = asRecord(asRecord(asRecord(json)?.data)?.repository)?.pullRequests
   for (const node of nodes(prs)) {
-    const pr = obj(node)
+    const pr = asRecord(node)
     if (!pr || typeof pr.number !== 'number') continue
-    const open = nodes(pr.reviewThreads).filter((t) => obj(t)?.isResolved === false).length
+    const open = nodes(pr.reviewThreads).filter((t) => asRecord(t)?.isResolved === false).length
     if (open > 0) counts.set(pr.number, open)
   }
   return counts

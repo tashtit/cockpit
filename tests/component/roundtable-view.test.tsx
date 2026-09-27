@@ -9,8 +9,8 @@ import type { RoundtableEvent, RoundtableSnapshot } from '../../src/shared/types
 // counted, not changed: the transcript's own row, still memoized, with its renders
 // counted — so a test can say which rows a flush of the wave redrew
 const messageRenders = vi.hoisted(() => ({ calls: 0 }))
-vi.mock('../../src/renderer/src/ChatView', async (importOriginal) => {
-  const real = await importOriginal<typeof import('../../src/renderer/src/ChatView')>()
+vi.mock('../../src/renderer/src/Message', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/renderer/src/Message')>()
   const { memo } = await import('react')
   const inner = (real.Message as unknown as { type: (p: Parameters<typeof real.Message>[0]) => JSX.Element }).type
   return {
@@ -105,6 +105,20 @@ describe('RoundtableView', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'One more round' }))
     expect(window.cockpit.continueRoundtable).toHaveBeenCalledWith('rt-1', undefined)
+  })
+
+  it('says why a send failed in main’s words, and keeps the typed message', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(fixture())
+    vi.mocked(window.cockpit.sendRoundtableMessage).mockRejectedValue(
+      new Error("Error invoking remote method 'roundtable:send': Error: This table has spent its agent turns.")
+    )
+    render(<RoundtableView id="rt-1" />)
+    const box = await screen.findByRole('textbox', { name: 'Message the roundtable' })
+    await userEvent.type(box, 'and CI?')
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    // Electron's wrapper is plumbing, not an explanation
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^Send failed: This table has spent its agent turns\.$/)
+    expect(box).toHaveValue('and CI?')
   })
 
   it('a running round shows the speaking seat and swaps Send for Stop', async () => {
@@ -365,6 +379,16 @@ describe('RoundtableView spending limits', () => {
     expect(screen.queryByText(/another round would pass its ceiling/)).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Roundtable spending limits' })).not.toBeInTheDocument()
   })
+
+  it('shows a time limit off the presets as itself', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
+      fixture({ limits: { maxTurnsPerMessage: 16, maxTurnsPerTable: 80, maxTurnMinutes: 45 } })
+    )
+    render(<RoundtableView id="rt-1" />)
+    await userEvent.click(await screen.findByRole('button', { name: /agent turns$/ }))
+    const editor = screen.getByRole('group', { name: 'Roundtable spending limits' })
+    expect(within(editor).getByRole('button', { name: /^Longest a seat may take/ })).toHaveTextContent('45 min')
+  })
 })
 
 describe('RoundtableView failed seats', () => {
@@ -468,8 +492,8 @@ describe('RoundtableView while a round runs', () => {
     render(<RoundtableView id="rt-1" />)
     const box = await screen.findByRole('textbox', { name: 'Message the roundtable' })
     expect(box).toBeEnabled()
-    // the stuck seat shows how long it has been at it, and can be skipped
-    expect(await screen.findByText('Claude · 3m')).toBeInTheDocument()
+    // the stuck seat shows how long it has been at it — on the board's clock — and can be skipped
+    expect(await screen.findByText(/^Claude · 3m \d\ds$/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Skip Claude — go on without it' }))
     expect(window.cockpit.skipRoundtableSeat).toHaveBeenCalledWith('rt-1', 0)
 

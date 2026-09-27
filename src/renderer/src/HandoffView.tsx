@@ -1,23 +1,21 @@
-import { useEffect, useMemo, useState, type JSX } from 'react'
-import type { AccountsSnapshot, AgentOptions, PermissionMode, SessionProvider } from '../../shared/types'
+import { useEffect, useState, type JSX } from 'react'
+import type { AgentOptions, PermissionMode, SessionProvider } from '../../shared/types'
 import { api } from './api'
-import { shortPath } from '../../shared/library'
+import { ipcErrorText } from './ipc-error'
+import { PROVIDERS, shortPath } from '../../shared/library'
 import { isDrivable } from '../../shared/providers'
+import { rememberChoice, useAgentChoice, type AccountChoice } from './agent-choice'
 import {
   AccountField,
-  AgentCard,
+  AgentCards,
   AgentOptionsFields,
   AgentOptionsHints,
-  accountOptions,
-  MODES,
-  savedAccount,
-  savedMode,
+  ModeField,
+  ModeHint,
   useAgentOptions
-} from './NewSession'
-import type { AccountChoice } from './NewSession'
+} from './agent-options'
 import { BranchChip, ProviderLogo, PROVIDER_LABEL } from './logos'
-import { Select } from './Select'
-import { refreshAcpReadiness, startableAgents, useDrivableAgents } from './acp-readiness'
+import { ErrorAlert } from './ErrorAlert'
 
 /** The session being handed off, snapshotted from the open chat binding. */
 export type HandoffSourceRef = {
@@ -60,16 +58,11 @@ export function HandoffView({
   onStart: (req: StartHandoffRequest) => Promise<string | null>
   onCancel: () => void
 }): JSX.Element {
-  const drivable = useDrivableAgents()
-  const agents = startableAgents(drivable)
   // default to a different agent — continuing on the same one is allowed, but the
   // point of a handoff is usually the switch
-  const [picked, setProvider] = useState<SessionProvider | null>(null)
-  // derived: an ACP-driven pick whose agent went away falls back like no pick at all
-  const provider = picked && agents.includes(picked) ? picked : (agents.find((p) => p !== source.provider) ?? 'claude')
-  const [mode, setMode] = useState<PermissionMode>(savedMode)
-  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
-  const [accountKey, setAccountKey] = useState<string | null>(null)
+  const choice = useAgentChoice(() => PROVIDERS.find((p) => p !== source.provider) ?? 'claude')
+  const { provider, mode } = choice
+  const agent = useAgentOptions(provider, choice.account?.configDir)
   const [briefing, setBriefing] = useState('')
   const [cwdExists, setCwdExists] = useState(true)
   const [warnings, setWarnings] = useState<string[]>([])
@@ -80,19 +73,6 @@ export function HandoffView({
   /** The pre-AI text, so an unwanted rewrite is one click away from undone */
   const [preAi, setPreAi] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
-  const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider)
-  const agent = useAgentOptions(provider, account?.configDir)
-
-  useEffect(() => {
-    void api.getAccounts().then(setAccounts)
-    refreshAcpReadiness()
-  }, [])
-
-  useEffect(() => {
-    setAccountKey(null)
-  }, [provider])
 
   const loadBriefing = (): void => {
     setBriefLoading(true)
@@ -106,7 +86,7 @@ export function HandoffView({
       })
       .catch((err) => {
         // the form stays usable: the user can retry, or write a briefing by hand
-        setBriefError(err instanceof Error ? err.message : String(err))
+        setBriefError(ipcErrorText(err))
       })
       .finally(() => setBriefLoading(false))
   }
@@ -123,9 +103,7 @@ export function HandoffView({
         setBriefing(text)
       })
       .catch((err) => {
-        setError(
-          `Improve failed: ${err instanceof Error ? err.message : String(err)}`
-        )
+        setError(`Improve failed: ${ipcErrorText(err)}`)
       })
       .finally(() => setImproving(false))
   }
@@ -133,9 +111,7 @@ export function HandoffView({
   const start = async (): Promise<void> => {
     if (busy || improving || !cwdExists || !briefing.trim() || agent.modelMissing) return
     setError(null)
-    window.localStorage.setItem('cockpit:provider', provider)
-    window.localStorage.setItem('cockpit:mode', mode)
-    if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
+    rememberChoice(choice)
     const finalBriefing = next.trim()
       ? `${briefing.trimEnd()}\n\n## What to do next\n\n${next.trim()}`
       : briefing
@@ -145,11 +121,7 @@ export function HandoffView({
       briefing: finalBriefing,
       mode,
       options: agent.options,
-      account: {
-        configDir: account?.configDir,
-        copilotUser: account?.copilotUser,
-        display: account?.display
-      }
+      account: choice.runAs
     })
     if (err) setError(err)
   }
@@ -175,43 +147,21 @@ export function HandoffView({
         </div>
 
         <label className="ns-label">Continue with</label>
-        <div className="ns-providers" role="group" aria-label="Continue with">
-          {agents.map((p) => (
-            <AgentCard
-              key={p}
-              p={p}
-              active={provider === p}
-              account={p === provider ? account : savedAccount(accounts, p)}
-              accountsLoading={accounts === null}
-              onPick={() => setProvider(p)}
-            />
-          ))}
-        </div>
+        <AgentCards choice={choice} label="Continue with" />
 
         <div className="ns-options ns-agent-options">
           {isDrivable(provider) && (
             <AccountField
-              opts={opts}
-              account={account}
-              loading={accounts === null}
-              onChange={setAccountKey}
+              opts={choice.opts}
+              account={choice.account}
+              loading={choice.accounts === null}
+              onChange={choice.setAccount}
             />
           )}
           <AgentOptionsFields provider={provider} o={agent} />
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="ns-mode">Permissions</label>
-            <Select
-              id="ns-mode"
-              ariaLabel="Permissions"
-              value={mode}
-              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-              onChange={(v) => setMode(v as PermissionMode)}
-            />
-          </div>
+          <ModeField mode={mode} onChange={choice.setMode} />
         </div>
-        <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>
-          {MODES.find((m) => m.v === mode)?.hint}
-        </div>
+        <ModeHint mode={mode} />
         <AgentOptionsHints provider={provider} o={agent} />
 
         <div className="handoff-brief-head">
@@ -249,19 +199,19 @@ export function HandoffView({
           onChange={(e) => setBriefing(e.target.value)}
         />
         {briefError && (
-          <div className="new-error" role="alert">
+          <ErrorAlert>
             Briefing failed: {briefError}{' '}
             <button className="link-btn" onClick={loadBriefing}>Retry</button>
-          </div>
+          </ErrorAlert>
         )}
         {warnings.map((w) => (
           <div key={w} className="ns-hint">{w}</div>
         ))}
         {!cwdExists && (
-          <div className="new-error" role="alert">
+          <ErrorAlert>
             This session’s working directory no longer exists — a handoff needs the
             original directory.
-          </div>
+          </ErrorAlert>
         )}
 
         <label className="ns-label" htmlFor="handoff-next">What should the agent do next</label>
@@ -276,7 +226,7 @@ export function HandoffView({
           }}
         />
 
-        {error && <div className="new-error" role="alert">{error}</div>}
+        {error && <ErrorAlert>{error}</ErrorAlert>}
 
         <div className="ns-actions">
           <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>

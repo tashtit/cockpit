@@ -99,3 +99,26 @@ describe('NewSession with an agent Cockpit only reads', () => {
     )
   })
 })
+
+describe('NewSession remembered choice', () => {
+  it('opens on Claude when the remembered agent is not one', () => {
+    window.localStorage.setItem('cockpit:provider', 'aider')
+    renderForm()
+    expect(screen.getByRole('button', { pressed: true })).toHaveAccessibleName(/Claude/)
+  })
+
+  // a private window or blocked site data makes every storage call throw — the form
+  // opens on its defaults rather than failing to render
+  it('opens on its defaults when storage refuses to be read', () => {
+    const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    })
+    try {
+      renderForm()
+      expect(screen.getByRole('button', { pressed: true })).toHaveAccessibleName(/Claude/)
+      expect(screen.getByRole('button', { name: /^Permissions/ })).toHaveTextContent('Auto-edit')
+    } finally {
+      read.mockRestore()
+    }
+  })
+})

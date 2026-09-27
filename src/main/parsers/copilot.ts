@@ -73,19 +73,6 @@ export function listCopilotSessionFiles(sourceDir: string): string[] {
   return out
 }
 
-export function listCopilotSessions(sourceDir: string, sourceLabel: string): SessionMeta[] {
-  const out: SessionMeta[] = []
-  const seen = new Set<string>()
-  for (const file of listCopilotSessionFiles(sourceDir)) {
-    const meta = parseCopilotMeta(file, sourceLabel)
-    if (meta && !seen.has(meta.id)) {
-      seen.add(meta.id)
-      out.push(meta)
-    }
-  }
-  return out
-}
-
 export function parseCopilotMeta(file: string, sourceLabel: string): SessionMeta | null {
   if (file.endsWith('events.jsonl')) return parseEventsMeta(file, sourceLabel)
   return parseLegacyMeta(file, sourceLabel)

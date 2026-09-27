@@ -17,25 +17,21 @@ Every `Record<Provider, …>` and every provider-keyed `as const` map refuses to
 
 - `src/main/indexer.ts` — `FILE_LISTERS`, `ROOT_LISTERS`, `META_PARSERS`, `MESSAGE_PARSERS`
 - `src/main/accounts.ts` — the per-provider defaults record
-- `src/main/handoff-core.ts` — `AGENT_NAME`
-- `src/main/profile.ts` — `DEEP_PARSERS`
+- `src/main/profile.ts` — `DEEP_READ_BYTES`, `DEEP_READERS`
 - `src/main/library.ts` — `PLUGIN_CMD`
 - `src/shared/library.ts` — `PanelReport.cells`
-- `src/shared/roundtable.ts` — `SEAT_NAME`
+- `src/shared/providers.ts` — `AGENT_NAME`, `CONFIG_HOME_VAR` (`SEAT_NAME` in `src/shared/roundtable.ts` is `AGENT_NAME`)
 - `src/renderer/src/logos.tsx` — `PROVIDER_LABEL`, plus the SVG mark itself
-- `src/renderer/src/NewSession.tsx` — `MODEL_SUGGESTIONS`, `AGENT_BLURB`
+- `src/renderer/src/agent-choice.ts` — `AGENT_BLURB`
 
 `Partial<Record<Provider, …>>` sites compile without the key; they need no edit.
 
 ## Typecheck does not find these
 
-Hard-coded arrays silently omit the new provider from the UI and from cross-agent loops. Grep for `['claude', 'codex', 'copilot']` to find every one:
+Hard-coded arrays silently omit the new provider from the UI and from cross-agent loops. Grep for `['claude', 'codex', 'copilot']` to find any that remain:
 
-- `src/shared/library.ts` — `PROVIDERS`
-- `src/main/roundtable-core.ts` — `PROVIDERS`
-- `src/main/extensions.ts` — the `for (const agent of […])` loop
-- `src/main/index.ts` — the inline provider checks in `assertKnownConfigDir` and the chat handler
-- `src/renderer/src/NewSession.tsx`, `NewRoundtable.tsx`, `HandoffView.tsx`, `HomeView.tsx`, `Settings.tsx` — each view's `PROVIDERS`
+- `src/shared/providers.ts` — `PROVIDERS`, `isProvider`, `AGENT_NAME`, `CONFIG_HOME_VAR`: every main-side list and check of the three reads these (IPC input goes through `isProvider` in `src/main/ipc/guards.ts`)
+- the renderer's own labels and icons (`PROVIDER_LABEL` and the logos in `logos.tsx`)
 
 Behavior that is provider-specific by construction:
 

@@ -496,6 +496,24 @@ describe('roundtables as tree items', () => {
     expect(window.cockpit.setRoundtableArchived).toHaveBeenCalledWith('rt-g', false)
   })
 
+  it('draws every seat when a table seats the same agent twice', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      vi.mocked(window.cockpit.listRoundtables).mockResolvedValue([
+        { ...grounded, providers: ['claude', 'claude', 'codex'] }
+      ])
+      renderSidebar()
+
+      const row = await screen.findByRole('treeitem', { name: /adopt biome\?/ })
+      // keyed by agent, the two Claude seats shared a key — React warns, and an update
+      // can drop or duplicate one of them
+      expect(row.querySelectorAll('.rt-seat')).toHaveLength(3)
+      expect(errors.mock.calls.flat().join('\n')).not.toMatch(/same key/)
+    } finally {
+      errors.mockRestore()
+    }
+  })
+
   it('groups tables under their project or Chats, and expands their seat sessions', async () => {
     vi.mocked(window.cockpit.pageSessions).mockImplementation(async (q) =>
       q?.roundtableId === 'rt-g'

@@ -44,7 +44,7 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   - **A nav key can carry a `.nav-dot`**: a 5px `--warn` dot in the key's top-right
     corner. It is the card tabs' amber dot (`.pnl-pill-dot`, "something behind this
     needs a look"), placed where the eye keeps its `.filter-dot`. Only Cleanup uses it
-    today, for the daily check's unseen reminder (`cleanup-notice.ts` mirrors main's
+    today, for the daily check's unseen reminder (`use-cleanup-notice.ts` mirrors main's
     state). The dot is `aria-hidden`; the key's name and tooltip say the same thing in
     words ("Cleanup can free 2.1 GB — 12 sessions · 3 worktrees"). The view that is open
     never shows it.

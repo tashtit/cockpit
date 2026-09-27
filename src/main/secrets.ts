@@ -1,8 +1,8 @@
 import { safeStorage } from 'electron'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { userDataDir } from './config'
 import { writeFileAtomic } from './replace-file'
+import { readIfPresent } from './state-file'
 
 /**
  * BYOK API keys, encrypted with the OS keychain (Electron safeStorage) and kept in a
@@ -19,12 +19,13 @@ function keysPath(): string {
  * write it back — rewriting from an empty map would destroy every stored ciphertext.
  */
 function readAll(): Record<string, string> | null {
-  let raw: string
+  let raw: string | null
   try {
-    raw = readFileSync(keysPath(), 'utf8')
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? {} : null
+    raw = readIfPresent(keysPath())
+  } catch {
+    return null
   }
+  if (raw === null) return {}
   try {
     const parsed = JSON.parse(raw)
     return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, string>) : null

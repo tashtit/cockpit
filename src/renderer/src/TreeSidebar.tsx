@@ -1,30 +1,28 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
-  Landing,
   PrStatus,
   RepoGroup,
   RoundtableMeta,
   SessionHolder,
   SessionMeta,
-  SessionProvider,
-  TimeFormat
+  SessionProvider
 } from '../../shared/types'
 import { cleanupCounts, cleanupHeadline } from '../../shared/cleanup'
 import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
-import { useBusyMap, useSessionBusy } from './busy'
-import { useCleanupNotice } from './cleanup-notice'
-import { toggleFamily, useFoldedFamilies } from './families'
-import { HOLDER_FILTER_LABEL, holdSentence, setHolderFilter, useHolderFilter } from './hold'
-import { agentCounts, setAgentShown, showAllAgents, shownProviders, shownSessions, useHiddenAgents } from './agent-filter'
+import { useCleanupNotice } from './use-cleanup-notice'
+import { setHolderFilter, useHolderFilter } from './hold'
+import { showAllAgents, shownProviders, shownSessions, useHiddenAgents } from './agent-filter'
+import { ProjectFilter } from './ProjectFilter'
 import { RailResizer } from './RailResizer'
-import { keepSame } from './same'
-import { useLandedMap, useSessionLanded } from './landed'
+import { RoundtableNode } from './RoundtableNode'
+import { noop, SessionList, SessionRow } from './SessionList'
 import type { SettingsSection } from './Settings'
-import { fmtTime, useTimeFormat } from './time'
 import { UpdateBar } from './UpdateBar'
 import { UsageMeters } from './UsageMeters'
+import { useLoaded } from './use-loaded'
+import { useRoundtables } from './use-roundtables'
 import {
   AgentIcon,
   ChatIcon,
@@ -33,34 +31,20 @@ import {
   GearIcon,
   GraphIcon,
   HeldIcon,
-  landingLabel,
-  LandingMark,
   LinkExternalIcon,
   OrgIcon,
-  PrBadge,
   ProcessIcon,
-  ProviderLogo,
+  ProviderMark,
   PROVIDER_LABEL,
   RepoIcon,
   SlidersIcon,
-  Spinner,
   TrashIcon
 } from './logos'
+import { RepoName } from './RepoName'
+import { roveIndex, type RoveKeys } from './roving'
 
-const PAGE = 20
-/** Server-side page clamp — hide "more" past this. */
-const MAX_LOADED = 1000
-
-/**
- * A live-index refetch keeps the list it replaces when nothing in it changed, so the
- * rows keep their identity — but by every field, not a chosen few: a row draws its
- * branch (re-derived from the checkout on every scan) and the PR found by it, its place
- * in a family and a handoff chain, its account, and hands the whole session to
- * `onSelect`. A list compared on four of them left a moved branch on the old PR.
- */
-function keepList(prev: SessionMeta[] | null, next: SessionMeta[]): SessionMeta[] {
-  return prev === null ? next : keepSame(prev, next)
-}
+/** The tree's arrows: a row at a time, stopping at either end; Home and End jump */
+const TREE_KEYS: RoveKeys = { next: 'ArrowDown', prev: 'ArrowUp', ends: true }
 
 export function TreeSidebar({
   repos,
@@ -159,7 +143,7 @@ export function TreeSidebar({
 
   // roundtables are tree items like sessions: grounded ones sit under their project,
   // repo-less ones under Chats — never a category of their own
-  const [tables, setTables] = useState<RoundtableMeta[]>([])
+  const tables = useRoundtables(indexVersion)
   // narrowed to who drives the sessions: a project with none of that kind leaves the
   // tree while the filter is on (its tables are Cockpit's, so they count as held)
   const holder = useHolderFilter()
@@ -177,26 +161,6 @@ export function TreeSidebar({
       ),
     [visibleRepos, holder, hidden, filtered, tables]
   )
-  /** Only the newest answer lands: a slow list must not overwrite a later one */
-  const tablesSeq = useRef(0)
-  const loadTables = useCallback((): void => {
-    const seq = ++tablesSeq.current
-    void api.listRoundtables?.().then((r) => {
-      if (seq === tablesSeq.current) setTables((prev) => keepSame(prev, r))
-    })
-  }, [])
-  useEffect(() => loadTables(), [indexVersion, loadTables])
-  // subscribed once: an index push is a reason to read the list again, not to drop
-  // the listener and add it back
-  useEffect(() => {
-    const unsub = api.onRoundtableEvent?.((ev) => {
-      if (ev.type === 'round') loadTables()
-    })
-    return () => {
-      tablesSeq.current++
-      unsub?.()
-    }
-  }, [loadTables])
   const chatTables = useMemo(() => tables.filter((t) => t.repoRoot === null), [tables])
   // each project's own tables, one array per project and the same one until the list
   // changes — a filter per row per render handed every memoized project a new prop
@@ -397,17 +361,15 @@ export function TreeSidebar({
           target?.focus()
         }}
         onKeyDown={(e) => {
-          if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
           const rows = Array.from(
             e.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"], .archived-toggle, .tree-more')
           )
           if (rows.length === 0) return
-          const idx = rows.indexOf(document.activeElement as HTMLElement)
+          const at = rows.indexOf(document.activeElement as HTMLElement)
+          const to = roveIndex(e.key, { at, count: rows.length }, TREE_KEYS)
+          if (to === null) return
           e.preventDefault()
-          if (e.key === 'ArrowDown') rows[Math.min(idx + 1, rows.length - 1)]?.focus()
-          else if (e.key === 'ArrowUp') rows[Math.max(idx - 1, 0)]?.focus()
-          else if (e.key === 'Home') rows[0]?.focus()
-          else rows[rows.length - 1]?.focus()
+          rows[to]?.focus()
         }}
       >
         {debounced ? (
@@ -501,42 +463,7 @@ export function TreeSidebar({
         {/* subscription meters ride above the identity bar — one cell per provider
             that reports numbers; the row opens Settings at the usage section */}
         <UsageMeters onOpen={() => onOpenSettings('accounts')} />
-        {/* one compact identity bar: agent logos (accounts in the tooltip), GitHub
-            login on the right; the whole row opens Settings for the full detail */}
-        <button
-          className="footer-ids"
-          onClick={() => onOpenSettings()}
-          aria-label="Accounts — open settings"
-          title={
-            accounts === null
-              ? 'loading accounts…'
-              : [
-                  ...accounts.accounts.map(
-                    (a) =>
-                      `${PROVIDER_LABEL[a.provider]} — ${a.identity ?? a.label}` +
-                      (a.isDefault ? '' : ` (${a.label})`)
-                  ),
-                  accounts.githubUser
-                    ? `GitHub (PRs) — @${accounts.githubUser}`
-                    : 'GitHub: gh not signed in'
-                ].join('\n')
-          }
-        >
-          {accounts?.accounts.map((a) => (
-            <span key={a.path} className={`plogo plogo-${a.provider}`}>
-              <ProviderLogo p={a.provider} size={12} />
-            </span>
-          ))}
-          {accounts?.githubUser ? (
-            <span className="footer-gh">
-              <OrgIcon size={11} /> @{accounts.githubUser}
-            </span>
-          ) : accounts !== null ? (
-            <span className="footer-gh gh-missing">
-              <OrgIcon size={11} /> gh: not signed in
-            </span>
-          ) : null}
-        </button>
+        <IdentityBar accounts={accounts} onOpen={() => onOpenSettings()} />
       </footer>
       {/* the rail's width is the person's: the sash on its right edge, last so Tab
           reaches it after the footer and before the deck */}
@@ -546,181 +473,49 @@ export function TreeSidebar({
 }
 
 /**
- * Eye popover: what the tree shows — sessions by who drives them (every one, only
- * Cockpit's, or only those with their agent), then every indexed project with a
- * visibility checkbox (all on by default).
+ * One compact identity bar: agent logos (accounts in the tooltip), GitHub login on the
+ * right; the whole row opens Settings for the full detail.
  */
-function ProjectFilter({
-  repos,
-  onResetOrder
+function IdentityBar({
+  accounts,
+  onOpen
 }: {
-  repos: RepoGroup[]
-  /** Present only while the projects are in a dragged order — puts them back A→Z */
-  onResetOrder?: () => void
+  accounts: AccountsSnapshot | null
+  onOpen: () => void
 }): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const popRef = useRef<HTMLDivElement>(null)
-  const hiddenCount = repos.filter((r) => r.hidden).length
-  const holder = useHolderFilter()
-  const hiddenAgents = useHiddenAgents()
-  const shown = repos.filter((r) => !r.hidden)
-  const counts: Record<'all' | SessionHolder, number> = {
-    all: shown.reduce((n, r) => n + r.sessionCount, 0),
-    cockpit: shown.reduce((n, r) => n + r.heldCount, 0),
-    agent: shown.reduce((n, r) => n + r.sessionCount - r.heldCount, 0)
-  }
-  // every agent with a session here, and any hidden one that has none right now — so an
-  // agent can always be switched back on
-  const agents = [
-    ...agentCounts(shown, holder),
-    ...hiddenAgents.filter((a) => !shown.some((r) => r.byProvider[a])).map((agent) => ({ agent, count: 0 }))
-  ]
-  const scoped = [
-    holder ? HOLDER_FILTER_LABEL[holder].toLowerCase() : null,
-    hiddenAgents.length > 0 ? `${hiddenAgents.length} ${hiddenAgents.length === 1 ? 'agent' : 'agents'} hidden` : null,
-    hiddenCount > 0 ? `${hiddenCount} ${hiddenCount === 1 ? 'project' : 'projects'} hidden` : null
-  ].filter((x): x is string => x !== null)
-
-  useEffect(() => {
-    if (!open) return
-    // keyboard users land inside the popover; Esc closes it and returns focus
-    popRef.current?.querySelector<HTMLInputElement>('input')?.focus()
-    const onDown = (e: MouseEvent): void => {
-      if (wrapRef.current?.contains(e.target as Node)) return
-      // the popover is about to unmount — hand focus back to its trigger rather than
-      // letting it fall to <body> and restart Tab order at the top of the window
-      if (popRef.current?.contains(document.activeElement)) btnRef.current?.focus()
-      setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        // the popover owns this Esc — App's view-level handler must not also fire
-        e.stopPropagation()
-        setOpen(false)
-        btnRef.current?.focus()
-      }
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
   return (
-    <div className="repo-filter-wrap" ref={wrapRef}>
-      <button
-        ref={btnRef}
-        className={`icon-btn ${scoped.length > 0 ? 'filter-active' : ''}`}
-        title={
-          scoped.length > 0
-            ? `Choose what the tree shows — ${scoped.join(', ')}`
-            : 'Choose what the tree shows'
-        }
-        aria-label="Choose what the tree shows"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z" />
-        </svg>
-        {scoped.length > 0 && <span className="filter-dot" aria-hidden />}
-      </button>
-      {open && (
-        <div className="repo-filter-pop" role="dialog" aria-label="What the tree shows" ref={popRef}>
-          <div className="repo-filter-head" id="holder-filter-head">
-            <span>Sessions</span>
-          </div>
-          <div role="radiogroup" aria-labelledby="holder-filter-head">
-            {([null, 'cockpit', 'agent'] as const).map((h) => (
-              <label
-                key={h ?? 'all'}
-                className="repo-filter-row"
-                title={
-                  h === null
-                    ? 'Every session, whoever drives it'
-                    : h === 'cockpit'
-                      ? 'Sessions Cockpit started or took over — it sends their turns'
-                      : 'Sessions from a terminal or an agent’s own app, or released back there — Cockpit only follows their logs'
-                }
-              >
-                <input
-                  type="radio"
-                  name="holder-filter"
-                  checked={holder === h}
-                  onChange={() => setHolderFilter(h)}
-                />
-                <span className="repo-icon">
-                  {h === 'cockpit' ? <HeldIcon size={12} /> : h === 'agent' ? <ProcessIcon size={12} /> : <ChatIcon size={12} />}
-                </span>
-                <span className="repo-filter-name">{h === null ? 'All sessions' : HOLDER_FILTER_LABEL[h]}</span>
-                <span className="repo-count">{counts[h ?? 'all']}</span>
-              </label>
-            ))}
-          </div>
-          {agents.length > 1 || hiddenAgents.length > 0 ? (
-            <>
-              <div className="repo-filter-head repo-filter-divided" id="agent-filter-head">
-                <span>Agents</span>
-              </div>
-              <div role="group" aria-labelledby="agent-filter-head">
-                {agents.map(({ agent, count }) => (
-                  <label key={agent} className="repo-filter-row" title={`Sessions of ${PROVIDER_LABEL[agent]}`}>
-                    <input
-                      type="checkbox"
-                      checked={!hiddenAgents.includes(agent)}
-                      onChange={(e) => setAgentShown(agent, e.currentTarget.checked)}
-                    />
-                    <span className={`repo-icon plogo plogo-${agent}`}>
-                      <ProviderLogo p={agent} size={12} />
-                    </span>
-                    <span className="repo-filter-name">{PROVIDER_LABEL[agent]}</span>
-                    <span className="repo-count">{count}</span>
-                  </label>
-                ))}
-              </div>
-            </>
-          ) : null}
-          <div className="repo-filter-head repo-filter-divided">
-            <span>Projects</span>
-            {onResetOrder && (
-              <button
-                className="btn-ghost small repo-filter-reset"
-                title="Forget the dragged order and list projects A→Z"
-                onClick={onResetOrder}
-              >
-                sort A→Z
-              </button>
-            )}
-          </div>
-          {repos.map((r) => (
-            <label key={r.key} className="repo-filter-row" title={r.fullName ?? r.root ?? r.name}>
-              <input
-                type="checkbox"
-                checked={!r.hidden}
-                // drive from the checkbox's own post-click state, not from the
-                // prop: the prop only catches up after the IPC round-trip, so a
-                // quick second click would otherwise re-send the first value
-                onChange={(e) => void api.setRepoHidden(r.key, !e.currentTarget.checked)}
-              />
-              {/* repo-less sessions are "Chats" everywhere the rail names them */}
-              <span className="repo-icon">
-                {r.key === 'general' ? <ChatIcon size={12} /> : <RepoIcon size={12} />}
-              </span>
-              <span className="repo-filter-name">
-                {r.key === 'general' ? 'Chats' : (r.fullName ?? r.name)}
-              </span>
-              <span className="repo-count">{r.sessionCount + r.archivedCount}</span>
-            </label>
-          ))}
-          {repos.length === 0 && <div className="tree-empty">no projects indexed</div>}
-        </div>
-      )}
-    </div>
+    <button
+      className="footer-ids"
+      onClick={onOpen}
+      aria-label="Accounts — open settings"
+      title={
+        accounts === null
+          ? 'loading accounts…'
+          : [
+              ...accounts.accounts.map(
+                (a) =>
+                  `${PROVIDER_LABEL[a.provider]} — ${a.identity ?? a.label}` +
+                  (a.isDefault ? '' : ` (${a.label})`)
+              ),
+              accounts.githubUser
+                ? `GitHub (PRs) — @${accounts.githubUser}`
+                : 'GitHub: gh not signed in'
+            ].join('\n')
+      }
+    >
+      {accounts?.accounts.map((a) => (
+        <ProviderMark key={a.path} p={a.provider} size={12} />
+      ))}
+      {accounts?.githubUser ? (
+        <span className="footer-gh">
+          <OrgIcon size={11} /> @{accounts.githubUser}
+        </span>
+      ) : accounts !== null ? (
+        <span className="footer-gh gh-missing">
+          <OrgIcon size={11} /> gh: not signed in
+        </span>
+      ) : null}
+    </button>
   )
 }
 
@@ -763,20 +558,15 @@ const RepoNode = memo(function RepoNode({
   drop: 'before' | 'after' | null
   reorder: RepoReorder
 }): JSX.Element {
-  const [prs, setPrs] = useState<PrStatus[]>([])
+  const root = repo.root
+  const { value: prs } = useLoaded(open && root ? () => api.getPrs(root) : null, [open, repo.root, indexVersion], {
+    initial: NO_PRS,
+    keepSame: true
+  })
   const [showArchived, setShowArchived] = useState(false)
   const toggleThis = (): void => onToggle(repo.key)
   const holder = useHolderFilter()
   const hidden = useHiddenAgents()
-
-  useEffect(() => {
-    if (!open || !repo.root) return
-    let dead = false
-    void api.getPrs(repo.root).then((p) => !dead && setPrs((prev) => keepSame(prev, p)))
-    return () => {
-      dead = true
-    }
-  }, [open, repo.root, indexVersion])
 
   return (
     <div
@@ -829,14 +619,7 @@ const RepoNode = memo(function RepoNode({
           <RepoIcon size={13} />
         </span>
         <span className="repo-name">
-          {repo.fullName ? (
-            <>
-              <span className="repo-owner">{repo.fullName.split('/')[0]}/</span>
-              {repo.fullName.split('/')[1]}
-            </>
-          ) : (
-            repo.name
-          )}
+          <RepoName repo={repo} />
         </span>
         <ProviderStrip providers={repo.providers} />
         <span className="row-actions">
@@ -914,10 +697,9 @@ type RepoReorder = {
   readonly onNudge: (key: string, delta: -1 | 1) => void
 }
 
-/** Stable identities: new [] / () => {} each render would re-trigger memoized children. */
+/** Stable identities: a new [] each render would re-trigger memoized children. */
 const NO_PRS: PrStatus[] = []
 const NO_TABLES: RoundtableMeta[] = []
-const noop = (): void => {}
 
 /** Enter/Space toggles; ArrowRight/ArrowLeft expand and collapse (WAI-ARIA tree pattern). */
 function expandKeys(open: boolean, onToggle: () => void) {
@@ -941,9 +723,7 @@ function ProviderStrip({ providers }: { providers: readonly SessionProvider[] })
   return (
     <span className="repo-providers">
       {providers.map((p) => (
-        <span key={p} className={`plogo plogo-${p}`} title={PROVIDER_LABEL[p]}>
-          <ProviderLogo p={p} size={10} />
-        </span>
+        <ProviderMark key={p} p={p} size={10} titled />
       ))}
     </span>
   )
@@ -1053,159 +833,6 @@ function GroupChildren({
   )
 }
 
-/** The archive glyph both a session row and a table row carry (Octicons archive). */
-function ArchiveIcon(): JSX.Element {
-  return (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H1.75A1.75 1.75 0 0 1 0 4.25ZM1.75 7a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25Zm4.5 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z" />
-    </svg>
-  )
-}
-
-/**
- * A roundtable as a tree item — it sits inside its project (or Chats) like any
- * session. The row opens the shared view; the chevron expands the seat-sessions the
- * table spawned. Those never appear as independent sessions anywhere else, and open
- * read-only (a debugging view).
- */
-function RoundtableNode({
-  t,
-  selected,
-  selectedId,
-  indexVersion,
-  onOpen,
-  onSelect
-}: {
-  t: RoundtableMeta
-  selected: boolean
-  selectedId: string | null
-  indexVersion: number
-  onOpen: (id: string) => void
-  onSelect: (s: SessionMeta) => void
-}): JSX.Element {
-  const timeFormat = useTimeFormat()
-  const [seatsOpen, setSeatsOpen] = useState(false)
-  const onToggleSeats = (): void => setSeatsOpen((v) => !v)
-  return (
-    <>
-      <div
-        className={`session-row rt-row ${selected ? 'selected' : ''} ${t.archived ? 'archived' : ''}`}
-        role="treeitem"
-        aria-selected={selected}
-        aria-expanded={seatsOpen}
-        aria-level={2}
-        tabIndex={-1}
-        title={`${t.providers.map((p) => PROVIDER_LABEL[p]).join(' + ')}\n${t.title}${
-          t.branch ? `\n⎇ ${t.branch}` : ''
-        }\nchevron: seat sessions (debug)`}
-        onClick={() => onOpen(t.id)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onOpen(t.id)
-          } else if (e.key === 'ArrowRight' && !seatsOpen) onToggleSeats()
-          else if (e.key === 'ArrowLeft' && seatsOpen) onToggleSeats()
-        }}
-      >
-        {/* the chevron is the seat-session (debug) toggle; the row itself opens the table */}
-        <span
-          className={`chev ${seatsOpen ? 'open' : ''}`}
-          role="button"
-          aria-label={seatsOpen ? 'Hide seat sessions' : 'Show seat sessions'}
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggleSeats()
-          }}
-        >
-          ▸
-        </span>
-        <span className="rt-seats">
-          {t.providers.map((p) => (
-            <span key={p} className={`rt-seat plogo-${p}`}>
-              <ProviderLogo p={p} size={10} />
-            </span>
-          ))}
-        </span>
-        <span className="session-title">{t.title}</span>
-        {t.archived && <span className="sr-only">(archived)</span>}
-        <span className="row-actions">
-          <button
-            className="icon-btn small"
-            title={t.archived ? 'Unarchive' : 'Archive'}
-            aria-label={t.archived ? 'Unarchive roundtable' : 'Archive roundtable'}
-            onClick={(e) => {
-              e.stopPropagation()
-              void api.setRoundtableArchived(t.id, !t.archived)
-            }}
-          >
-            <ArchiveIcon />
-          </button>
-        </span>
-        <span className="row-meta">
-          {t.running ? (
-            <Spinner label="round in progress" />
-          ) : (
-            <time dateTime={new Date(t.updatedAt).toISOString()}>
-              {fmtTime(t.updatedAt, timeFormat)}
-            </time>
-          )}
-        </span>
-      </div>
-      {seatsOpen && (
-        <SeatSessionList
-          tableId={t.id}
-          indexVersion={indexVersion}
-          selectedId={selectedId}
-          onSelect={onSelect}
-        />
-      )}
-    </>
-  )
-}
-
-/** The provider sessions a table spawned, shown only here — they open read-only. */
-function SeatSessionList({
-  tableId,
-  indexVersion,
-  selectedId,
-  onSelect
-}: {
-  tableId: string
-  indexVersion: number
-  selectedId: string | null
-  onSelect: (s: SessionMeta) => void
-}): JSX.Element {
-  const [items, setItems] = useState<SessionMeta[] | null>(null)
-
-  useEffect(() => {
-    let dead = false
-    void api.pageSessions({ roundtableId: tableId, limit: PAGE }).then((p) => {
-      if (dead) return
-      setItems((prev) => keepList(prev, p.items))
-    })
-    return () => {
-      dead = true
-    }
-  }, [tableId, indexVersion])
-
-  if (items === null) return <div className="tree-empty">loading…</div>
-  if (items.length === 0) return <div className="tree-empty">no seat sessions yet</div>
-  return (
-    <>
-      {items.map((s) => (
-        <SessionRow
-          key={s.id}
-          s={s}
-          selected={selectedId === s.id}
-          level={3}
-          onSelect={onSelect}
-          onOpenUrl={noop}
-        />
-      ))}
-    </>
-  )
-}
-
 /** Sessions with no repo: one flat section — a Chats header with the sessions right under it. */
 function ChatsSection({
   repo,
@@ -1275,374 +902,6 @@ function ChatsSection({
   )
 }
 
-type Nest = {
-  readonly s: SessionMeta
-  /** How many sessions up the family this row hangs from — 0 for a top-level row */
-  readonly depth: number
-  /** The session that started this one, when that is the family the row sits in */
-  readonly parent?: SessionMeta
-  /** Every row under this one in its family — mutable: nesting() fills it in */
-  descendants: SessionMeta[]
-  /** This row's family is folded, so its descendants are not rendered — mutable:
-   *  nesting() decides it on a second pass, once every family is known */
-  folded: boolean
-  /** A folded ancestor hides this row — mutable for the same second pass */
-  hidden: boolean
-}
-
-/**
- * How each row sits in a family of sessions one session started (`parentId`): how
- * deep, under whom, what hangs below it, and whether a fold hides it. A row nests
- * only under the family the rows above it are still in — the indexer emits a family
- * contiguously (`groupFamilies`), so a parent anywhere else in the list is not what
- * the row hangs from. A fold never hides the open session: while one of its
- * descendants is selected, a folded family renders open (the fold itself is kept).
- */
-function nesting(
-  items: readonly SessionMeta[],
-  folds: ReadonlySet<string>,
-  selectedId: string | null
-): readonly Nest[] {
-  const out: Nest[] = []
-  const path: Nest[] = []
-  for (const s of items) {
-    while (path.length > 0 && path[path.length - 1].s.id !== s.parentId) path.pop()
-    const row: Nest = { s, depth: path.length, parent: path[path.length - 1]?.s, descendants: [], folded: false, hidden: false }
-    for (const up of path) up.descendants.push(s)
-    out.push(row)
-    path.push(row)
-  }
-  let foldedAt = Infinity
-  for (const row of out) {
-    row.hidden = row.depth > foldedAt
-    if (row.hidden) continue
-    foldedAt = Infinity
-    row.folded =
-      row.descendants.length > 0 &&
-      folds.has(row.s.id) &&
-      !row.descendants.some((d) => d.id === selectedId)
-    if (row.folded) foldedAt = row.depth
-  }
-  return out
-}
-
-function SessionList({
-  repoKey,
-  archived,
-  prs,
-  indexVersion,
-  accounts,
-  selectedId,
-  onSelect,
-  onOpenUrl
-}: {
-  repoKey: string
-  archived: boolean
-  prs: PrStatus[]
-  indexVersion: number
-  accounts: AccountsSnapshot | null
-  selectedId: string | null
-  onSelect: (s: SessionMeta) => void
-  onOpenUrl: (url: string) => void
-}): JSX.Element {
-  const [pages, setPages] = useState(1)
-  // null = first page still loading — "no sessions" must never flash during the fetch
-  const [items, setItems] = useState<SessionMeta[] | null>(null)
-  const [total, setTotal] = useState(0)
-  const holder = useHolderFilter()
-  const hidden = useHiddenAgents()
-  const providers = shownProviders(hidden)
-
-  useEffect(() => {
-    let dead = false
-    void api
-      .pageSessions({
-        repoKey,
-        archived,
-        offset: 0,
-        limit: Math.min(PAGE * pages, MAX_LOADED),
-        ...(holder ? { holder } : {}),
-        ...(providers ? { providers } : {})
-      })
-      .then((p) => {
-        if (dead) return
-        setTotal(p.total)
-        // keep row identity stable across live-index refetches when nothing changed
-        setItems((prev) => keepList(prev, p.items))
-      })
-    return () => {
-      dead = true
-    }
-  }, [repoKey, archived, pages, indexVersion, holder, hidden])
-
-  const folds = useFoldedFamilies()
-  const rows = useMemo(() => nesting(items ?? [], folds, selectedId), [items, folds, selectedId])
-
-  if (items === null) return <div className="tree-empty">loading…</div>
-
-  return (
-    <>
-      {rows.map(
-        (r, i) =>
-          !r.hidden && (
-            <SessionRow
-              key={r.s.id}
-              s={r.s}
-              pr={r.s.gitBranch ? prs.find((p) => p.headRefName === r.s.gitBranch) : undefined}
-              accounts={accounts}
-              selected={selectedId === r.s.id}
-              // the indexer emits handoff chains contiguously, newest first: a row whose
-              // id is the previous row's `continuedFrom` renders as that row's ancestor
-              chained={items[i - 1]?.continuedFrom === r.s.id}
-              family={r}
-              onSelect={onSelect}
-              onOpenUrl={onOpenUrl}
-            />
-          )
-      )}
-      {/* an active list only comes up empty when every session is archived —
-          the Archived toggle right below is the way back in */}
-      {items.length === 0 && (
-        <div className="tree-empty">
-          no {archived ? 'archived' : 'active'} sessions
-          {holder === 'cockpit' ? ' in Cockpit' : holder === 'agent' ? ' outside Cockpit' : ''}
-        </div>
-      )}
-      {items.length < total && items.length < MAX_LOADED && (
-        <button className="tree-more" role="treeitem" aria-level={2} tabIndex={-1} onClick={() => setPages((p) => p + 1)}>
-          more… ({items.length}/{total})
-        </button>
-      )}
-    </>
-  )
-}
-
-/** Memoized: an index push that left this session alone must not redraw its row. */
-const SessionRow = memo(function SessionRow({
-  s,
-  pr,
-  accounts,
-  selected,
-  level = 2,
-  chained = false,
-  family,
-  onSelect,
-  onOpenUrl
-}: {
-  s: SessionMeta
-  pr?: PrStatus
-  accounts?: AccountsSnapshot | null
-  selected: boolean
-  /** 2 under a repo/section row, 1 in flat search results */
-  level?: number
-  /** This session was continued by the row above it (handoff thread ancestor) */
-  chained?: boolean
-  /** Where the row sits in a family of sessions one session started, if in one */
-  family?: Nest
-  onSelect: (s: SessionMeta) => void
-  onOpenUrl: (url: string) => void
-}): JSX.Element {
-  const timeFormat = useTimeFormat()
-  // the live dot takes the row's exclusive meta slot: running beats PR beats time
-  const working = useSessionBusy(s.id)
-  const landed = useSessionLanded(s.id)
-  const acct = accounts?.accounts.find((a) => a.provider === s.provider && a.label === s.source)
-  const multiAccount =
-    (accounts?.accounts.filter((a) => a.provider === s.provider).length ?? 0) > 1
-  const depth = family?.depth ?? 0
-  const parent = family?.parent
-  const under = family?.descendants.length ?? 0
-  const folded = family?.folded ?? false
-  const foldLabel = `${folded ? 'Show' : 'Hide'} the ${under} ${under === 1 ? 'session' : 'sessions'} under it`
-  // the row's own claim on its meta slot, in the slot's order of urgency
-  const ownRank = landed?.kind === 'asks' ? 3 : working ? 2 : landed ? 1 : 0
-  // who drives it: marked only where Cockpit does — the exception in a tree mostly
-  // read from terminals and the agents' own apps — and said in words either way
-  const held = s.control?.holder === 'cockpit'
-  const hold = s.control ? holdSentence(s.control, s.provider) : null
-  return (
-    <div
-      className={`session-row ${selected ? 'selected' : ''} ${s.archived ? 'archived' : ''} ${chained ? 'chained' : ''}`}
-      role="treeitem"
-      aria-selected={selected}
-      aria-level={level + depth}
-      aria-expanded={under > 0 ? !folded : undefined}
-      data-session-id={s.id}
-      tabIndex={-1}
-      title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${parent ? `\nstarted by ${parent.title}` : ''}${hold ? `\n${hold}` : ''}\n~${s.messageCount} messages${landed ? `\n${landingLabel(landed)}` : ''}`}
-      onClick={() => onSelect(s)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onSelect(s)
-        } else if (e.key === 'ArrowRight' && under > 0 && folded) {
-          toggleFamily(s.id)
-        } else if (e.key === 'ArrowLeft') {
-          // an open family folds; anything else steps up to the session that started it
-          if (under > 0 && !folded) toggleFamily(s.id)
-          else if (parent) {
-            // escaped: an id is the provider's own, and a quote or bracket in one made
-            // this selector throw inside the key handler
-            e.currentTarget
-              .closest('[role="tree"]')
-              ?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(parent.id)}"]`)
-              ?.focus()
-          }
-        }
-      }}
-    >
-      {(chained || depth > 0) && (
-        // deeper family rows step in by one indent per level, capped so a long chain
-        // of sessions starting sessions can't push the title out of a narrow rail
-        <span
-          className="chain-elbow"
-          aria-hidden="true"
-          style={depth > 1 ? ({ '--depth': Math.min(depth, 3) } as CSSProperties) : undefined}
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M3 0v4a3 3 0 0 0 3 3h4" stroke="currentColor" strokeWidth="1.2" />
-          </svg>
-        </span>
-      )}
-      <span className={`plogo plogo-${s.provider}`} title={PROVIDER_LABEL[s.provider]}>
-        <ProviderLogo p={s.provider} size={13} />
-      </span>
-      <span className="session-title">{s.title}</span>
-      {held && (
-        <span className="held-mark" aria-hidden="true">
-          <HeldIcon size={10} />
-        </span>
-      )}
-      {held && <span className="sr-only">(in Cockpit)</span>}
-      {/* archived reads as strikethrough + dim visually — say it out loud too.
-          sr-only is position:absolute, so it costs no row width or gap */}
-      {s.archived && <span className="sr-only">(archived)</span>}
-      {/* the elbow is the only visual signal, so it can't be the only signal */}
-      {chained && <span className="sr-only">(continued by the session above)</span>}
-      {parent && <span className="sr-only">(started by {parent.title})</span>}
-      {/* only the exception is marked: with two Claude homes, every default-account row
-          wearing "claude-d…" spent a third of the title's width saying nothing */}
-      {multiAccount && acct && !acct.isDefault && (
-        <span className="acct-chip">
-          {acct.label.startsWith(`${s.provider}-`) ? acct.label.slice(s.provider.length + 1) : acct.label}
-        </span>
-      )}
-      {/* the fold trails the title rather than leading the row: a leading chevron would
-          push the parent's logo off its siblings' and the elbows below off its logo.
-          Not a Tab stop — like every row control, the keys are the row's own (→ / ←) */}
-      {under > 0 && (
-        <button
-          className="family-toggle"
-          aria-label={foldLabel}
-          title={foldLabel}
-          tabIndex={-1}
-          onClick={(e) => {
-            e.stopPropagation()
-            toggleFamily(s.id)
-          }}
-        >
-          <span className={`chev ${folded ? '' : 'open'}`} aria-hidden="true">
-            ▸
-          </span>
-          {under}
-        </button>
-      )}
-      <span className="row-actions">
-        <button
-          className="icon-btn small"
-          title={s.archived ? 'Unarchive' : 'Archive'}
-          aria-label={s.archived ? 'Unarchive session' : 'Archive session'}
-          onClick={(e) => {
-            e.stopPropagation()
-            void api.setArchived(s.id, !s.archived)
-          }}
-        >
-          <ArchiveIcon />
-        </button>
-      </span>
-      {/* the row's one meta slot, in order of urgency: an agent waiting on you, then
-          running, then a red PR or finished-while-you-were-away, then the branch's PR,
-          then when it last moved — and a folded family lends the slot to a hidden row
-          that outranks this one, so folding never hides an agent that needs you */}
-      <span className="row-meta">
-        {folded ? (
-          <FoldedNews hidden={family?.descendants ?? []} outranks={ownRank}>
-            <RowMeta s={s} pr={pr} working={working} landed={landed} timeFormat={timeFormat} onOpenUrl={onOpenUrl} />
-          </FoldedNews>
-        ) : (
-          <RowMeta s={s} pr={pr} working={working} landed={landed} timeFormat={timeFormat} onOpenUrl={onOpenUrl} />
-        )}
-      </span>
-    </div>
-  )
-})
-
-/** A row's exclusive meta slot, filled from its own state (see SessionRow). */
-function RowMeta({
-  s,
-  pr,
-  working,
-  landed,
-  timeFormat,
-  onOpenUrl
-}: {
-  s: SessionMeta
-  pr?: PrStatus
-  working: boolean
-  landed: Landing | null
-  timeFormat: TimeFormat
-  onOpenUrl: (url: string) => void
-}): JSX.Element {
-  return landed?.kind === 'asks' ? (
-    <LandingMark landing={landed} p={s.provider} />
-  ) : working ? (
-    <Spinner label={`${PROVIDER_LABEL[s.provider]} is working`} />
-  ) : landed ? (
-    <LandingMark landing={landed} p={s.provider} plainDot />
-  ) : pr ? (
-    <PrBadge pr={pr} onOpen={onOpenUrl} compact />
-  ) : (
-    <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtTime(s.updatedAt, timeFormat)}</time>
-  )
-}
-
-/**
- * The meta slot of a folded family's parent: the most urgent state among the rows the
- * fold hides — asking you, then running, then finished or a red PR — when it outranks
- * the parent's own, named after the session it belongs to; otherwise the parent's own
- * slot (`children`). Only folded parents subscribe to the whole busy and landed maps.
- */
-function FoldedNews({
-  hidden,
-  outranks,
-  children
-}: {
-  hidden: readonly SessionMeta[]
-  outranks: number
-  children: JSX.Element
-}): JSX.Element {
-  const busy = useBusyMap()
-  const landings = useLandedMap()
-  let best: { readonly s: SessionMeta; readonly rank: number; readonly landing: Landing | null } | null = null
-  for (const h of hidden) {
-    const landing = landings.get(h.id) ?? null
-    const rank = landing?.kind === 'asks' ? 3 : busy.has(h.id) ? 2 : landing ? 1 : 0
-    if (rank > (best?.rank ?? outranks)) best = { s: h, rank, landing }
-  }
-  if (!best) return children
-  const why = best.rank === 2 || !best.landing ? `${PROVIDER_LABEL[best.s.provider]} is working` : landingLabel(best.landing)
-  const label = `${best.s.title} — ${why}`
-  return (
-    <span className="folded-news" role="img" aria-label={label} title={label}>
-      {best.rank === 2 || !best.landing ? (
-        <Spinner />
-      ) : (
-        <LandingMark landing={best.landing} p={best.s.provider} mute plainDot />
-      )}
-    </span>
-  )
-}
-
 function SearchResults({
   query,
   holder,
@@ -1657,25 +916,20 @@ function SearchResults({
   selectedId: string | null
   onSelect: (s: SessionMeta) => void
 }): JSX.Element {
-  // null = search in flight — don't flash "no matches" while waiting
-  const [items, setItems] = useState<SessionMeta[] | null>(null)
-  const [total, setTotal] = useState(0)
-
   const hidden = useHiddenAgents()
-  useEffect(() => {
-    let dead = false
-    const providers = shownProviders(hidden)
-    void api
-      .pageSessions({ search: query, limit: 100, ...(holder ? { holder } : {}), ...(providers ? { providers } : {}) })
-      .then((p) => {
-        if (dead) return
-        setItems(p.items)
-        setTotal(p.total)
-      })
-    return () => {
-      dead = true
-    }
-  }, [query, holder, hidden, indexVersion])
+  const { value: page } = useLoaded(
+    () =>
+      api.pageSessions({
+        search: query,
+        limit: 100,
+        ...(holder ? { holder } : {}),
+        ...(shownProviders(hidden) ? { providers: shownProviders(hidden) } : {})
+      }),
+    [query, holder, hidden, indexVersion]
+  )
+  // null = search in flight — don't flash "no matches" while waiting
+  const items = page?.items ?? null
+  const total = page?.total ?? 0
 
   if (items === null) return <div className="tree-empty">searching…</div>
 

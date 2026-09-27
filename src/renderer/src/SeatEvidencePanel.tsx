@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { RoundtableParticipant } from '../../shared/types'
-import { seatDisplayName } from '../../shared/roundtable'
 import { api } from './api'
 import { buildEvidence, EVIDENCE_VERB, seatSessions, type EvidenceTurn } from './evidence'
-import { ipcErrorText } from './ipc-error'
-import { PROVIDER_LABEL, XIcon } from './logos'
+import { fmtTime, plural, relativeTo } from './format'
+import { XIcon } from './logos'
+import { uiSeatName } from './roundtable-seats'
 import { SidePanel } from './SidePanel'
 import { TabList, type TabDef } from './Tabs'
-import { fmtTime, useTimeFormat } from './time'
+import { useTimeFormat } from './time'
+import { useLoaded } from './use-loaded'
 
 /**
  * Beside a roundtable, what each seat's replies rest on — the commands it ran, what it
@@ -26,6 +27,22 @@ type SeatEvidence = {
   readonly shared: boolean
 }
 
+/** Every seat's evidence, read off the newest of the sessions it ran. */
+async function readEvidence(
+  tableId: string,
+  participants: readonly RoundtableParticipant[]
+): Promise<SeatEvidence[]> {
+  const page = await api.pageSessions({ roundtableId: tableId, limit: 200 })
+  return Promise.all(
+    seatSessions(participants, page.items).map(async ({ sessions, shared }) => {
+      const newest = [...sessions].sort((a, b) => b.startedAt - a.startedAt).slice(0, SESSIONS_PER_SEAT)
+      const logs = await Promise.all(newest.map((s) => api.getSessionMessages(s.id)))
+      const turns = logs.flatMap((log) => buildEvidence(log)).sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
+      return { turns, sessions: sessions.length, shared }
+    })
+  )
+}
+
 export function SeatEvidencePanel({
   table,
   participants,
@@ -40,8 +57,6 @@ export function SeatEvidencePanel({
   onClose: () => void
 }): JSX.Element {
   const [seat, setSeat] = useState(0)
-  const [evidence, setEvidence] = useState<readonly SeatEvidence[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -52,28 +67,12 @@ export function SeatEvidencePanel({
     if (bodyRef.current) bodyRef.current.scrollTop = 0
   }, [seat])
 
-  useEffect(() => {
-    let live = true
-    const read = async (): Promise<SeatEvidence[]> => {
-      const page = await api.pageSessions({ roundtableId: table.id, limit: 200 })
-      return Promise.all(
-        seatSessions(participants, page.items).map(async ({ sessions, shared }) => {
-          const newest = [...sessions].sort((a, b) => b.startedAt - a.startedAt).slice(0, SESSIONS_PER_SEAT)
-          const logs = await Promise.all(newest.map((s) => api.getSessionMessages(s.id)))
-          const turns = logs.flatMap((log) => buildEvidence(log)).sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
-          return { turns, sessions: sessions.length, shared }
-        })
-      )
-    }
-    read()
-      .then((e) => live && (setEvidence(e), setError(null)))
-      .catch((err: unknown) => live && setError(ipcErrorText(err)))
-    return () => {
-      live = false
-    }
-  }, [table.id, participants, refresh])
+  const { value: evidence, error } = useLoaded(
+    () => readEvidence(table.id, participants),
+    [table.id, participants, refresh]
+  )
 
-  const name = (i: number): string => seatDisplayName(participants, i, PROVIDER_LABEL)
+  const name = (i: number): string => uiSeatName(participants, i)
   const tabs: readonly TabDef<string>[] = participants.map((_, i) => ({
     id: String(i),
     label: name(i),
@@ -111,11 +110,6 @@ export function SeatEvidencePanel({
   )
 }
 
-/** Paths under the room read relative to it, as the chat's rows do under a session's directory */
-function relative(text: string, room: string): string {
-  return text.split(`${room}/`).join('')
-}
-
 function SeatTurns({ seat, evidence, room }: { seat: string; evidence: SeatEvidence; room: string }): JSX.Element {
   const fmt = useTimeFormat()
   if (evidence.sessions === 0) {
@@ -138,8 +132,7 @@ function SeatTurns({ seat, evidence, room }: { seat: string; evidence: SeatEvide
     <>
       <div className="work-meta">
         <span>
-          {evidence.turns.length === 1 ? '1 turn' : `${evidence.turns.length} turns`} ·{' '}
-          {calls === 1 ? '1 call' : `${calls} calls`}
+          {plural(evidence.turns.length, 'turn')} · {plural(calls, 'call')}
         </span>
         {/* a seat whose calls never ran backed its claims with nothing it could check */}
         {refused > 0 && <span className="work-flag">{refused} not run</span>}
@@ -172,11 +165,11 @@ function SeatTurns({ seat, evidence, room }: { seat: string; evidence: SeatEvide
                   </span>
                   <span className="ev-what">
                     <code className="ev-text" title={item.text}>
-                      {relative(item.text, room)}
+                      {relativeTo(item.text, room)}
                     </code>
                     {item.result && (
                       <span className="ev-result" title={item.result}>
-                        {relative(item.result.split('\n').find((l) => l.trim()) ?? '', room)}
+                        {relativeTo(item.result.split('\n').find((l) => l.trim()) ?? '', room)}
                       </span>
                     )}
                   </span>

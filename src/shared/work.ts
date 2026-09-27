@@ -16,7 +16,7 @@ import type { CheckKind, EditLine, FileEdit, SessionMessage, TodoStatus, WorkArt
 export type WorkTab = 'plan' | 'todos' | 'edits' | 'checks' | 'files' | 'follow-ups'
 
 /** The order the Checks tab lists them in: quickest first, the order an agent runs them */
-export const CHECK_ORDER: readonly CheckKind[] = ['types', 'lint', 'tests', 'e2e', 'build']
+const CHECK_ORDER: readonly CheckKind[] = ['types', 'lint', 'tests', 'e2e', 'build']
 
 /** What a check is called wherever a person or the next agent reads it */
 export const CHECK_LABEL: Readonly<Record<CheckKind, string>> = {
@@ -120,7 +120,7 @@ export type WorkModel = {
   readonly followUps: readonly FollowUpEntry[]
 }
 
-export function lineStat(lines: readonly EditLine[]): { added: number; removed: number } {
+function lineStat(lines: readonly EditLine[]): { added: number; removed: number } {
   let added = 0
   let removed = 0
   for (const l of lines) {
@@ -130,7 +130,7 @@ export function lineStat(lines: readonly EditLine[]): { added: number; removed: 
   return { added, removed }
 }
 
-export function editStat(edit: FileEdit): { added: number; removed: number } {
+function editStat(edit: FileEdit): { added: number; removed: number } {
   let added = 0
   let removed = 0
   for (const h of edit.hunks) {

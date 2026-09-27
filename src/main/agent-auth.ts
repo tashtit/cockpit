@@ -1,4 +1,5 @@
 import type { Provider } from '../shared/types'
+import { CONFIG_HOME_VAR } from '../shared/providers'
 import { execText, loginPathReady } from './env'
 import {
   claudeSignIn,
@@ -23,7 +24,7 @@ export async function signInState(provider: Provider, configDir?: string): Promi
     return isMissingBinary(r.error) ? 'missing' : 'unknown'
   }
   const env: NodeJS.ProcessEnv = {}
-  if (configDir) env[provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME'] = configDir
+  if (configDir) env[CONFIG_HOME_VAR[provider]] = configDir
   const r = await execText(cmd[0], cmd.slice(1), { env, timeoutMs: 10_000 })
   if (isMissingBinary(r.error)) return 'missing'
   return provider === 'claude' ? claudeSignIn(r.stdout) : codexSignIn(`${r.stdout}\n${r.stderr}`, r.ok)

@@ -1,5 +1,3 @@
-import { open, type FileHandle } from 'node:fs/promises'
-import { StringDecoder } from 'node:string_decoder'
 import type {
   SessionMessage,
   SessionMeta,
@@ -10,7 +8,7 @@ import type {
   TranscriptSearchResult,
   TranscriptSearchStop
 } from '../shared/types'
-import { contentToText, toMs } from './parsers/util'
+import { contentToText, jsonText, readHeadBytesAsync, streamJsonl, toMs } from './parsers/util'
 import { legacyTimelineTexts } from './parsers/copilot'
 import { partsText } from './parsers/gemini'
 import { isSessionProvider } from '../shared/providers'
@@ -34,15 +32,14 @@ import { isSessionProvider } from '../shared/providers'
  * budget and a global one may hit it — a full-text index is the follow-up if it does.
  */
 
-export const DEFAULT_HIT_LIMIT = 50
-export const MAX_HIT_LIMIT = 200
-export const DEFAULT_PER_SESSION = 3
+const DEFAULT_HIT_LIMIT = 50
+const MAX_HIT_LIMIT = 200
+const DEFAULT_PER_SESSION = 3
 const MAX_PER_SESSION = 20
 /** A transcript is read only this far — a 50MB log's head, never the whole thing. */
 export const DEFAULT_MAX_BYTES_PER_FILE = 8 * 1024 * 1024
 /** Partial results after this long: a search over 2,500 transcripts always ends. */
-export const DEFAULT_TIME_BUDGET_MS = 15_000
-const CHUNK_BYTES = 256 * 1024
+const DEFAULT_TIME_BUDGET_MS = 15_000
 const MIN_QUERY_LENGTH = 2
 /** Snippet window around the match, in UTF-16 units of the whitespace-collapsed text */
 const SNIPPET_BEFORE = 48
@@ -71,7 +68,7 @@ const claudeRecords: RecordExtractor = (line, tools) => {
   if (tools && Array.isArray(content)) {
     for (const b of content) {
       if (b?.type === 'tool_use') {
-        out.push({ role: 'tool', text: `${b.name ?? 'tool'} ${JSON.stringify(b.input ?? {})}`, ts })
+        out.push({ role: 'tool', text: `${b.name ?? 'tool'} ${jsonText(b.input ?? {})}`, ts })
       } else if (b?.type === 'tool_result') {
         const t = contentToText(b.content)
         if (t) out.push({ role: 'tool', text: t, ts })
@@ -101,12 +98,12 @@ const codexRecords: RecordExtractor = (line, tools) => {
     }
     case 'function_call': {
       if (!tools) return []
-      const args = typeof p.arguments === 'string' ? p.arguments : JSON.stringify(p.arguments ?? '')
+      const args = typeof p.arguments === 'string' ? p.arguments : jsonText(p.arguments ?? '')
       return [{ role: 'tool', text: `${p.name ?? 'tool'} ${args}`, ts }]
     }
     case 'function_call_output': {
       if (!tools) return []
-      const text = typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '')
+      const text = typeof p.output === 'string' ? p.output : jsonText(p.output ?? '')
       return [{ role: 'tool', text, ts }]
     }
     default:
@@ -126,7 +123,7 @@ const copilotRecords: RecordExtractor = (line, tools) => {
   if (ev?.type === 'tool.execution_start') {
     const args = ev.data?.arguments ?? ev.data?.input ?? ''
     const name = String(ev.data?.toolName ?? ev.data?.name ?? 'tool')
-    return [{ role: 'tool', text: `${name} ${typeof args === 'string' ? args : JSON.stringify(args)}`, ts }]
+    return [{ role: 'tool', text: `${name} ${typeof args === 'string' ? args : jsonText(args)}`, ts }]
   }
   if (ev?.type === 'tool.execution_complete') {
     const r = ev.data?.result ?? ev.data?.output
@@ -196,88 +193,10 @@ function rowRecords(rows: readonly SessionMessage[], tools: boolean): TextRecord
   })
 }
 
-type ReadOutcome = { readonly truncated: boolean }
-
-async function openQuietly(file: string): Promise<FileHandle | null> {
-  try {
-    return await open(file, 'r')
-  } catch {
-    return null
-  }
-}
-
-function handleLine(raw: string, onLine: (line: unknown) => boolean): boolean {
-  const t = raw.trim()
-  if (!t) return true
-  let obj: unknown
-  try {
-    obj = JSON.parse(t)
-  } catch {
-    return true
-  }
-  return onLine(obj)
-}
-
-/**
- * Stream a JSONL file in fixed chunks, at most `cap` bytes of it, handing each parsed
- * line to `onLine`; a false return stops the read. Malformed lines are skipped and a
- * line longer than a chunk is still assembled. Never throws — an unreadable file reads
- * as empty, the way every parser here treats one. `end` is where the file's content
- * stops counting (an earlier page of a thread); being cut there is not truncation.
- */
-async function streamJsonl(
-  file: string,
-  limits: { readonly cap: number; readonly end?: number },
-  onLine: (line: unknown) => boolean
-): Promise<ReadOutcome> {
-  const fh = await openQuietly(file)
-  if (!fh) return { truncated: false }
-  try {
-    const size = Math.min((await fh.stat()).size, limits.end ?? Infinity)
-    const truncated = size > limits.cap
-    const stop = Math.min(size, limits.cap)
-    // a multi-byte character split across two chunks must not become two U+FFFDs
-    const decoder = new StringDecoder('utf8')
-    const buf = Buffer.allocUnsafe(CHUNK_BYTES)
-    let carry = ''
-    let pos = 0
-    while (pos < stop) {
-      const { bytesRead } = await fh.read(buf, 0, Math.min(CHUNK_BYTES, stop - pos), pos)
-      if (bytesRead === 0) break
-      pos += bytesRead
-      const lines = (carry + decoder.write(buf.subarray(0, bytesRead))).split('\n')
-      carry = lines.pop() ?? ''
-      for (const raw of lines) if (!handleLine(raw, onLine)) return { truncated }
-    }
-    // the last line lacks a newline only when the file ended there — a capped read
-    // stops mid-line, and half a record is not a record
-    if (!truncated) {
-      const rest = carry + decoder.end()
-      if (rest.trim()) handleLine(rest, onLine)
-    }
-    return { truncated }
-  } catch {
-    return { truncated: false }
-  } finally {
-    await fh.close().catch(() => {})
-  }
-}
-
 /** A whole-document read under the same cap, for the legacy Copilot JSON layout. */
 async function readCapped(file: string, cap: number): Promise<{ text: string; truncated: boolean }> {
-  const fh = await openQuietly(file)
-  if (!fh) return { text: '', truncated: false }
-  try {
-    const size = (await fh.stat()).size
-    const n = Math.min(size, cap)
-    const buf = Buffer.allocUnsafe(n)
-    const { bytesRead } = await fh.read(buf, 0, n, 0)
-    return { text: buf.toString('utf8', 0, bytesRead), truncated: size > cap }
-  } catch {
-    return { text: '', truncated: false }
-  } finally {
-    await fh.close().catch(() => {})
-  }
+  const head = await readHeadBytesAsync(file, cap)
+  return head ? { text: head.bytes.toString('utf8'), truncated: head.truncated } : { text: '', truncated: false }
 }
 
 const collapse = (s: string): string => s.replace(/\s+/g, ' ').trim()
@@ -448,7 +367,7 @@ export class TranscriptSearcher {
     const take = (r: TextRecord): boolean => {
       const hit = matchRecord(r, q.needle, meta.id)
       if (!hit) return true
-      const key = `${hit.role} ${hit.snippet}`
+      const key = `${hit.role}\u0000${hit.snippet}`
       if (seen.has(key)) return true
       seen.add(key)
       hits.push(hit)

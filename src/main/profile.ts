@@ -1,6 +1,5 @@
-import { createReadStream, readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
-import { createInterface } from 'node:readline'
 import type {
   AccountStat,
   ActivityDay,
@@ -23,7 +22,7 @@ import { claudeIdentity, codexIdentity, copilotUsers, ghUser } from './accounts'
 import { parseUnifiedDiff } from './parsers/artifacts'
 import { cellToolCalls } from './parsers/code-mode'
 import { toolItemFor, toolItemName, toolRecords } from './parsers/codex'
-import { contentToText, sessionLogFiles, timeSlicer, toMs } from './parsers/util'
+import { contentToText, sessionLogFiles, streamJsonl, timeSlicer, toMs } from './parsers/util'
 import { writeFileAtomicAsync } from './replace-file'
 import { isDrivable } from '../shared/providers'
 
@@ -422,29 +421,15 @@ const DEEP_READERS: Record<Provider, () => DeepReader> = {
 /**
  * Stream one log through its provider's reader, a line at a time, up to DEEP_READ_BYTES.
  * A line cut by the cap or half-written by a live session fails to parse and is skipped
- * — the same tolerance the parsers have.
+ * — the same tolerance the parsers have. Null when the log could not be read through.
  */
-async function readDeep(file: string, provider: Provider): Promise<DeepStats> {
+async function readDeep(file: string, provider: Provider): Promise<DeepStats | null> {
   const reader = DEEP_READERS[provider]()
-  const input = createReadStream(file, { end: DEEP_READ_BYTES[provider] - 1 })
-  const lines = createInterface({ input, crlfDelay: Infinity })
-  try {
-    for await (const raw of lines) {
-      const t = raw.trim()
-      if (!t) continue
-      let entry: unknown
-      try {
-        entry = JSON.parse(t)
-      } catch {
-        continue
-      }
-      reader.line(entry)
-    }
-  } finally {
-    lines.close()
-    input.destroy()
-  }
-  return reader.done()
+  const read = await streamJsonl(file, { cap: DEEP_READ_BYTES[provider] }, (entry) => {
+    reader.line(entry)
+    return true
+  })
+  return read.failed ? null : reader.done()
 }
 
 /**
@@ -585,12 +570,13 @@ async function deepForFile(file: string, provider: Provider): Promise<DeepStats 
   }
   const hit = deepCache.get(file)
   if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.stats
-  let stats: DeepStats
+  let stats: DeepStats | null
   try {
     stats = await readDeep(file, provider)
   } catch {
-    return null // unreadable / reshaped log — never fail the whole profile for one file
+    stats = null // a reader's fold (codex pairs records) choked on a reshaped log
   }
+  if (!stats) return null // unreadable / reshaped log — never fail the whole profile for one file
   deepCache.set(file, { mtimeMs, size, stats })
   deepDirty = true
   return stats

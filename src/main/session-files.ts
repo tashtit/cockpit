@@ -1,7 +1,8 @@
-import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import type { SessionFilePreview, SessionMessage, SessionMeta } from '../shared/types'
 import { buildWork } from '../shared/work'
+import { readHeadBytes } from './parsers/util'
 
 /**
  * The files an agent shared with the person (`SendUserFile`, a published page, Copilot's
@@ -89,19 +90,12 @@ function resolved(path: string): { readonly real: string; readonly size: number 
   }
 }
 
-function head(file: string, bytes: number): Buffer {
-  let fd: number | null = null
-  try {
-    fd = openSync(file, 'r')
-    const buf = Buffer.alloc(bytes)
-    const n = readSync(fd, buf, 0, bytes, 0)
-    return buf.subarray(0, n)
-  } finally {
-    if (fd !== null) closeSync(fd)
-  }
-}
-
-/** A shared file, read for its preview: an image whole, the head of text, else what it is. */
+/**
+ * A shared file, read for its preview: an image whole, the head of text, else what it is.
+ * The reads re-check what they open (readHeadBytes) rather than trust the stat above: a
+ * FIFO swapped in at the path since blocked main on a plain open, and a bigger file
+ * swapped in was read whole.
+ */
 export function readSharedFile(path: string): SessionFilePreview {
   const file = resolved(path)
   if (!file) return { kind: 'missing' }
@@ -109,25 +103,25 @@ export function readSharedFile(path: string): SessionFilePreview {
   const ext = extname(real).toLowerCase()
   const canOpen = openable(real)
   const mime = IMAGE_TYPES[ext]
-  try {
-    if (mime) {
-      if (size > MAX_IMAGE_BYTES) return { kind: 'other', size, reason: 'size', openable: canOpen }
-      return { kind: 'image', mime, data: new Uint8Array(readFileSync(real)), size, openable: canOpen }
-    }
-    if (RENDERED_ELSEWHERE.has(ext)) return { kind: 'other', size, reason: 'kind', openable: canOpen }
-    const bytes = head(real, MAX_TEXT_BYTES)
-    // a NUL is binary: a preview of it would be noise
-    if (bytes.includes(0)) return { kind: 'other', size, reason: 'kind', openable: canOpen }
-    return {
-      kind: 'text',
-      text: bytes.toString('utf8'),
-      truncated: size > bytes.length,
-      markdown: MARKDOWN.has(ext),
-      size,
-      openable: canOpen
-    }
-  } catch {
-    return { kind: 'missing' }
+  if (mime) {
+    if (size > MAX_IMAGE_BYTES) return { kind: 'other', size, reason: 'size', openable: canOpen }
+    const image = readHeadBytes(real, MAX_IMAGE_BYTES)
+    if (!image) return { kind: 'missing' }
+    if (image.truncated) return { kind: 'other', size: image.size, reason: 'size', openable: canOpen }
+    return { kind: 'image', mime, data: new Uint8Array(image.bytes), size: image.size, openable: canOpen }
+  }
+  if (RENDERED_ELSEWHERE.has(ext)) return { kind: 'other', size, reason: 'kind', openable: canOpen }
+  const head = readHeadBytes(real, MAX_TEXT_BYTES)
+  if (!head) return { kind: 'missing' }
+  // a NUL is binary: a preview of it would be noise
+  if (head.bytes.includes(0)) return { kind: 'other', size: head.size, reason: 'kind', openable: canOpen }
+  return {
+    kind: 'text',
+    text: head.bytes.toString('utf8'),
+    truncated: head.truncated,
+    markdown: MARKDOWN.has(ext),
+    size: head.size,
+    openable: canOpen
   }
 }
 

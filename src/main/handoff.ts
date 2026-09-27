@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs'
 import type { HandoffBriefing, Provider, SessionMeta } from '../shared/types'
 import type { SessionIndexer } from './indexer'
-import { execText } from './env'
+import { execOrThrow, gitRead } from './env'
 import {
   buildHandoffBriefing,
   buildSummarizeCommand,
@@ -9,10 +9,11 @@ import {
 } from './handoff-core'
 import type { GitSnapshot, HandoffSourceInfo } from './handoff-core'
 import { parseClaudeStreamLine, parseCodexStreamLine } from './chat'
-import { listModelEndpoints, loadConfig, sessionEndpointFor } from './config'
+import { listModelEndpoints, sessionEndpointFor, sourceFor } from './config'
 import { getEndpointKey } from './secrets'
+import { parseJsonlText } from './parsers/util'
 import { endpointEnv } from '../shared/endpoints'
-import { isDrivable } from '../shared/providers'
+import { CONFIG_HOME_VAR, isDrivable } from '../shared/providers'
 
 /**
  * IO around handoff-core: indexer lookups, git snapshots, and the "Improve with
@@ -38,12 +39,9 @@ function dirExists(cwd: string): boolean {
 
 /** Four independent probes, each fail-soft — a session cwd may be a deleted worktree. */
 async function gitSnapshot(cwd: string): Promise<GitSnapshot> {
-  const run = async (args: string[]): Promise<string | null> => {
-    // read-only: a plain status refreshes the index under index.lock, in a worktree
-    // whose agent may be committing right now
-    const r = await execText('git', ['--no-optional-locks', ...args], { cwd, timeoutMs: 5_000 })
-    return r.ok ? r.stdout : null
-  }
+  // read-only: a plain status refreshes the index under index.lock, in a worktree
+  // whose agent may be committing right now
+  const run = (args: readonly string[]): Promise<string | null> => gitRead(cwd, args, { timeoutMs: 5_000 })
   const [branch, status, diffStat, log] = await Promise.all([
     run(['rev-parse', '--abbrev-ref', 'HEAD']),
     run(['status', '--porcelain']),
@@ -73,14 +71,8 @@ export async function getHandoffBriefing(
  */
 function summarizeEnv(meta: SessionMeta, provider: Provider): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
-  const src = loadConfig().sources.find(
-    (s) => s.provider === meta.provider && s.label === meta.source
-  )
-  if (src) {
-    if (meta.provider === 'claude') env['CLAUDE_CONFIG_DIR'] = src.path
-    else if (meta.provider === 'codex') env['CODEX_HOME'] = src.path
-    else env['COPILOT_HOME'] = src.path
-  }
+  const src = sourceFor(meta)
+  if (src) env[CONFIG_HOME_VAR[provider]] = src.path
   const endpointId = sessionEndpointFor(meta.id)
   if (endpointId) {
     const ep = listModelEndpoints().find((e) => e.id === endpointId)
@@ -100,15 +92,7 @@ function textFromStream(provider: Provider, stdout: string): string {
   const parse = provider === 'claude' ? parseClaudeStreamLine : parseCodexStreamLine
   const texts: string[] = []
   let error: string | null = null
-  for (const raw of stdout.split('\n')) {
-    const line = raw.trim()
-    if (line === '') continue
-    let obj: unknown
-    try {
-      obj = JSON.parse(line)
-    } catch {
-      continue
-    }
+  for (const obj of parseJsonlText(stdout, false)) {
     for (const ev of parse('handoff-summarize', obj)) {
       if (ev.type === 'text') texts.push(ev.text)
       if (ev.type === 'error') error = ev.message
@@ -156,12 +140,13 @@ async function improve(indexer: SessionIndexer, sessionId: string): Promise<stri
   }
   const { cmd, args } = buildSummarizeCommand(provider, meta.nativeId)
   const env = summarizeEnv(meta, provider)
-  const r = await execText(cmd, args, { cwd, timeoutMs: 120_000, env })
-  if (!r.ok) {
-    const detail = (r.stderr.trim() || r.error || 'unknown error').slice(0, 500)
-    throw new Error(`${cmd} could not summarize the session: ${detail}`)
-  }
-  const aiText = textFromStream(provider, r.stdout)
+  const stdout = await execOrThrow(cmd, args, {
+    cwd,
+    timeoutMs: 120_000,
+    env,
+    failure: (r) => `${cmd} could not summarize the session: ${(r.stderr.trim() || r.error || 'unknown error').slice(0, 500)}`
+  })
+  const aiText = textFromStream(provider, stdout)
   if (aiText === '') throw new Error(`${cmd} returned no briefing text.`)
   return composeImprovedBriefing(sourceInfo(meta), aiText, await gitSnapshot(cwd))
 }

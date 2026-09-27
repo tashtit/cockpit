@@ -9,8 +9,20 @@ import {
   readdirSync,
   statSync
 } from 'node:fs'
+import { open, type FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
 import type { SessionMeta } from '../../shared/types'
+import { clip, sliceCodePoints } from '../../shared/text'
+
+type OpenOptions = {
+  /** Refuse a symlink at the path itself: the caller judged the path by lstat and must read that very file */
+  readonly noFollow?: boolean
+}
+
+function readFlags(opts: OpenOptions): number {
+  return constants.O_RDONLY | constants.O_NONBLOCK | (opts.noFollow ? constants.O_NOFOLLOW : 0)
+}
 
 /**
  * Open a file for reading only if it is a regular file, and say how big it is.
@@ -20,10 +32,10 @@ import type { SessionMeta } from '../../shared/types'
  * non-blocking so a FIFO returns at once, and the fstat of what was opened decides —
  * not a stat of the path, which a swap between the two would fool.
  */
-function openRegular(file: string): { readonly fd: number; readonly size: number } | null {
+function openRegular(file: string, opts: OpenOptions = {}): { readonly fd: number; readonly size: number } | null {
   let fd: number
   try {
-    fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK)
+    fd = openSync(file, readFlags(opts))
   } catch {
     return null
   }
@@ -49,12 +61,76 @@ function readAt(fd: number, length: number, position: number): Buffer {
   return buf.subarray(0, n)
 }
 
+/** openRegular off the event loop: the same non-blocking open, and the same fstat decides. */
+async function openRegularAsync(file: string): Promise<{ readonly fh: FileHandle; readonly size: number } | null> {
+  let fh: FileHandle
+  try {
+    fh = await open(file, readFlags({}))
+  } catch {
+    return null
+  }
+  try {
+    const st = await fh.stat()
+    if (st.isFile()) return { fh, size: st.size }
+  } catch {
+    // an fd we cannot stat is not one we read from
+  }
+  await fh.close().catch(() => {})
+  return null
+}
+
+/** readAt off the event loop. */
+async function readAtAsync(fh: FileHandle, length: number, position: number): Promise<Buffer> {
+  const buf = Buffer.alloc(length)
+  let n = 0
+  while (n < length) {
+    const { bytesRead } = await fh.read(buf, n, length - n, position + n)
+    if (bytesRead === 0) break
+    n += bytesRead
+  }
+  return buf.subarray(0, n)
+}
+
 /** Is this path a regular file — itself, not whatever a link at it points to? */
 export function isRegularFile(path: string): boolean {
   try {
     return lstatSync(path).isFile()
   } catch {
     return false
+  }
+}
+
+/** The start of a file as bytes: how big the whole file is, and whether the bytes are all of it. */
+export type HeadBytes = { readonly bytes: Buffer; readonly size: number; readonly truncated: boolean }
+
+/**
+ * At most maxBytes from the start of a file, as bytes; null when it is missing or
+ * anything but a regular file (see openRegular), or cannot be read.
+ */
+export function readHeadBytes(file: string, maxBytes: number, opts: OpenOptions = {}): HeadBytes | null {
+  const f = openRegular(file, opts)
+  if (!f) return null
+  try {
+    const bytes = readAt(f.fd, Math.min(f.size, maxBytes), 0)
+    return { bytes, size: f.size, truncated: f.size > maxBytes }
+  } catch {
+    return null
+  } finally {
+    closeSync(f.fd)
+  }
+}
+
+/** readHeadBytes off the event loop, for a read that walks many files. */
+export async function readHeadBytesAsync(file: string, maxBytes: number): Promise<HeadBytes | null> {
+  const f = await openRegularAsync(file)
+  if (!f) return null
+  try {
+    const bytes = await readAtAsync(f.fh, Math.min(f.size, maxBytes), 0)
+    return { bytes, size: f.size, truncated: f.size > maxBytes }
+  } catch {
+    return null
+  } finally {
+    await f.fh.close().catch(() => {})
   }
 }
 
@@ -67,17 +143,9 @@ export function readHead(
   file: string,
   maxBytes: number
 ): { text: string; truncated: boolean; size: number } {
-  const f = openRegular(file)
-  if (!f) return { text: '', truncated: false, size: 0 }
-  try {
-    const want = Math.min(f.size, maxBytes)
-    const text = want > 0 ? readAt(f.fd, want, 0).toString('utf8') : ''
-    return { text, truncated: f.size > maxBytes, size: f.size }
-  } catch {
-    return { text: '', truncated: false, size: 0 }
-  } finally {
-    closeSync(f.fd)
-  }
+  const head = readHeadBytes(file, maxBytes)
+  if (!head) return { text: '', truncated: false, size: 0 }
+  return { text: head.bytes.toString('utf8'), truncated: head.truncated, size: head.size }
 }
 
 /**
@@ -394,6 +462,11 @@ export class LineSplitter {
     return { lines, dropped }
   }
 
+  /** The line being received has already run past the cap: it will be dropped when it ends. */
+  isOverflowing(): boolean {
+    return this.overflowing
+  }
+
   /** What the stream ended on without a newline (a last record often has none); '' when it overflowed. */
   rest(): string {
     const line = this.overflowing ? '' : this.pending.join('')
@@ -426,13 +499,88 @@ export class LineSplitter {
   }
 }
 
+/** How a streamed JSONL read ended. */
+export type JsonlRead = {
+  /** The cap stopped it before the file (or `end`) did */
+  readonly truncated: boolean
+  /** Nothing was read to the end: the file is missing or no regular file, a read failed, or `onLine` threw */
+  readonly failed: boolean
+}
+
+const JSONL_CHUNK_BYTES = 256 * 1024
+
 /**
- * Slice without splitting a surrogate pair — `.slice()` counts UTF-16 code units,
- * so cutting mid-emoji leaves a lone surrogate that renders as U+FFFD.
+ * Stream a JSONL file in fixed chunks, at most `cap` bytes of it, handing each parsed
+ * line to `onLine`; a false return stops the read. Malformed lines are skipped and a
+ * line longer than a chunk is still assembled. Never throws — an unreadable file reads
+ * as empty, the way every parser here treats one, and says so (`failed`). `end` is
+ * where the file's content stops counting (an earlier page of a thread); being cut
+ * there is not truncation.
  */
-function sliceCodePoints(s: string, end: number): string {
-  const cut = end > 0 && end < s.length && /[\uD800-\uDBFF]/.test(s[end - 1]) ? end - 1 : end
-  return s.slice(0, cut)
+export async function streamJsonl(
+  file: string,
+  limits: { readonly cap: number; readonly end?: number },
+  onLine: (line: unknown) => boolean
+): Promise<JsonlRead> {
+  const f = await openRegularAsync(file)
+  if (!f) return { truncated: false, failed: true }
+  const handle = (raw: string): boolean => {
+    const t = raw.trim()
+    if (!t) return true
+    let obj: unknown
+    try {
+      obj = JSON.parse(t)
+    } catch {
+      return true
+    }
+    return onLine(obj)
+  }
+  try {
+    const size = Math.min(f.size, limits.end ?? Infinity)
+    const truncated = size > limits.cap
+    const stop = Math.min(size, limits.cap)
+    // a multi-byte character split across two chunks must not become two U+FFFDs
+    const decoder = new StringDecoder('utf8')
+    // no line inside the cap is longer than the cap, so none is ever dropped
+    const lines = new LineSplitter(limits.cap)
+    const buf = Buffer.allocUnsafe(Math.min(JSONL_CHUNK_BYTES, Math.max(1, stop)))
+    let pos = 0
+    while (pos < stop) {
+      const { bytesRead } = await f.fh.read(buf, 0, Math.min(buf.length, stop - pos), pos)
+      if (bytesRead === 0) break
+      pos += bytesRead
+      for (const raw of lines.push(decoder.write(buf.subarray(0, bytesRead))).lines) {
+        if (!handle(raw)) return { truncated, failed: false }
+      }
+    }
+    // the last line lacks a newline only when the file ended there — a capped read
+    // stops mid-line, and half a record is not a record
+    if (!truncated) {
+      lines.push(decoder.end())
+      handle(lines.rest())
+    }
+    return { truncated, failed: false }
+  } catch {
+    return { truncated: false, failed: true }
+  } finally {
+    await f.fh.close().catch(() => {})
+  }
+}
+
+/**
+ * A field providers write either as an object or as its JSON text (Codex serialises a
+ * call's arguments as a string): the object, or null for anything else, malformed
+ * JSON included.
+ */
+export function objectOrJson(v: unknown): Record<string, unknown> | null {
+  if (v && typeof v === 'object') return v as Record<string, unknown>
+  if (typeof v !== 'string') return null
+  try {
+    const parsed: unknown = JSON.parse(v)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -572,7 +720,7 @@ export function contentToText(content: unknown): string {
 
 export function truncate(s: string, n = 80): string {
   const one = s.replace(/\s+/g, ' ').trim()
-  return one.length > n ? sliceCodePoints(one, n - 1) + '…' : one
+  return clip(one, n)
 }
 
 /**

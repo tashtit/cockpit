@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from 'react'
 import type { AcpReadiness, SessionProvider } from '../../shared/types'
-import { DRIVABLE_PROVIDERS, isDrivable, READ_ONLY_PROVIDERS } from '../../shared/providers'
+import { isDrivable, PROVIDERS, READ_ONLY_PROVIDERS } from '../../shared/providers'
 import { api } from './api'
+import { seedThenFollow } from './seed-then-follow'
+import { subscribers } from './subscribers'
 
 /**
  * Which agents a session can be started or continued with right now, as main last said
@@ -11,14 +13,14 @@ import { api } from './api'
  * that one is removed. Until main answers, only the three are: a form never offers an
  * agent that cannot run.
  */
-const INITIAL: AcpReadiness = { drivable: DRIVABLE_PROVIDERS, builtinsReady: [] }
+const INITIAL: AcpReadiness = { drivable: PROVIDERS, builtinsReady: [] }
 
 let current: AcpReadiness = INITIAL
-const listeners = new Set<() => void>()
+const changes = subscribers()
 
 function set(next: AcpReadiness): void {
   current = next
-  listeners.forEach((l) => l())
+  changes.notify()
 }
 
 /**
@@ -28,20 +30,9 @@ function set(next: AcpReadiness): void {
  * again when they open (`refreshAcpReadiness`).
  */
 export function initAcpReadiness(): () => void {
-  // a push that beats the seed is newer than it — the seed must not overwrite it
-  let pushed = false
   // optional calls: a preload from before these methods must not take a view down (dev HMR)
-  void api
-    .getAcpReadiness?.()
-    .then((r) => {
-      if (!pushed) set(r)
-    })
-    .catch(() => {})
-  const off = api.onAcpReadiness?.((r) => {
-    pushed = true
-    set(r)
-  })
-  return off ?? (() => {})
+  if (!api.getAcpReadiness || !api.onAcpReadiness) return () => {}
+  return seedThenFollow(api.getAcpReadiness, api.onAcpReadiness, set)
 }
 
 /** Ask again — a form that picks an agent, on opening. The answer, or a probe it starts, arrives as usual. */
@@ -52,17 +43,10 @@ export function refreshAcpReadiness(): void {
     .catch(() => {})
 }
 
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
-}
-
 const snapshot = (): AcpReadiness => current
 
 export function useAcpReadiness(): AcpReadiness {
-  return useSyncExternalStore(subscribe, snapshot)
+  return useSyncExternalStore(changes.subscribe, snapshot)
 }
 
 /** The agents a session can be started or continued with right now. */
@@ -77,7 +61,7 @@ export function canDrive(provider: SessionProvider, drivable: readonly SessionPr
 
 /** Every agent a form may offer: the three CLIs, then the ones an ACP agent drives, in the one agent order. */
 export function startableAgents(drivable: readonly SessionProvider[]): SessionProvider[] {
-  return [...DRIVABLE_PROVIDERS, ...READ_ONLY_PROVIDERS.filter((p) => drivable.includes(p))]
+  return [...PROVIDERS, ...READ_ONLY_PROVIDERS.filter((p) => drivable.includes(p))]
 }
 
 /** What the store holds now, for a callback that must not re-render on it. */

@@ -7,6 +7,8 @@ import type {
   PrThreadComment
 } from '../shared/types'
 import { checkStateWord, failingChecks, needsFix } from '../shared/pr-feedback'
+import { asRecord } from '../shared/guards'
+import { clip } from '../shared/text'
 
 /**
  * The IO-free half of the PR fix loop: what gh prints about one open PR →
@@ -53,20 +55,14 @@ function httpsUrl(v: unknown): string | null {
   return typeof v === 'string' && v.startsWith('https://') ? v : null
 }
 
-/** A JSON object, or null for anything else (arrays included). Shared with github-core. */
-export function obj(v: unknown): Record<string, unknown> | null {
-  return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null
-}
-
 /** A GraphQL connection's `nodes`, or [] when the connection is missing or malformed. */
 export function nodes(v: unknown): unknown[] {
-  const n = obj(v)?.nodes
+  const n = asRecord(v)?.nodes
   return Array.isArray(n) ? n : []
 }
 
 function cap(text: string, max: number): string {
-  const t = text.trim()
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
+  return clip(text.trim(), max, { trimCut: true })
 }
 
 /**
@@ -85,7 +81,7 @@ export function parseChecks(stdout: string): PrCheckRun[] | null {
   if (!Array.isArray(arr)) return null
   const out: PrCheckRun[] = []
   for (const row of arr) {
-    const r = obj(row)
+    const r = asRecord(row)
     if (!r || typeof r.name !== 'string') continue
     out.push({
       name: r.name,
@@ -101,7 +97,7 @@ export function parseChecks(stdout: string): PrCheckRun[] | null {
 export type FeedbackCore = Omit<PrFeedback, 'checks' | 'warnings'>
 
 function author(v: unknown): string {
-  const login = obj(v)?.login
+  const login = asRecord(v)?.login
   // a deleted account comes back as a null author; GitHub itself shows "ghost"
   return typeof login === 'string' && login ? login : 'ghost'
 }
@@ -119,7 +115,7 @@ function outsider(v: unknown): boolean {
 }
 
 function comment(v: unknown): PrThreadComment | null {
-  const c = obj(v)
+  const c = asRecord(v)
   if (!c) return null
   return {
     author: author(c.author),
@@ -130,9 +126,9 @@ function comment(v: unknown): PrThreadComment | null {
 }
 
 function thread(v: unknown): PrReviewThread | null {
-  const t = obj(v)
+  const t = asRecord(v)
   if (!t || t.isResolved === true || typeof t.path !== 'string') return null
-  const cs = obj(t.comments)
+  const cs = asRecord(t.comments)
   const comments = nodes(cs)
     .map(comment)
     .filter((c): c is PrThreadComment => c !== null)
@@ -149,7 +145,7 @@ function thread(v: unknown): PrReviewThread | null {
 }
 
 function changeRequest(v: unknown): PrChangeRequest | null {
-  const r = obj(v)
+  const r = asRecord(v)
   if (!r || r.state !== 'CHANGES_REQUESTED') return null
   return {
     author: author(r.author),
@@ -167,7 +163,7 @@ export function parseFeedbackResponse(stdout: string): FeedbackCore | null {
   } catch {
     return null
   }
-  const pr = obj(obj(obj(obj(json)?.data)?.repository)?.pullRequest)
+  const pr = asRecord(asRecord(asRecord(asRecord(json)?.data)?.repository)?.pullRequest)
   if (!pr || typeof pr.number !== 'number') return null
   return {
     number: pr.number,
@@ -190,8 +186,8 @@ export function parseFeedbackResponse(stdout: string): FeedbackCore | null {
 /** GitHub's own words when a GraphQL call is refused (no access, no such PR). */
 export function graphqlError(stdout: string): string | null {
   try {
-    const errs = obj(JSON.parse(stdout))?.errors
-    const msg = Array.isArray(errs) ? obj(errs[0])?.message : null
+    const errs = asRecord(JSON.parse(stdout))?.errors
+    const msg = Array.isArray(errs) ? asRecord(errs[0])?.message : null
     return typeof msg === 'string' ? msg : null
   } catch {
     return null
@@ -216,7 +212,7 @@ export function cleanLogLine(raw: string): string {
 
 export type ExcerptCaps = { readonly maxLines: number; readonly maxChars: number }
 
-export const EXCERPT_CAPS: ExcerptCaps = { maxLines: 40, maxChars: 3_000 }
+const EXCERPT_CAPS: ExcerptCaps = { maxLines: 40, maxChars: 3_000 }
 
 /**
  * The part of a failed job's log that says why: the failing step's output up to
@@ -402,5 +398,5 @@ export function buildFixBriefing(fb: PrFeedback, logs: ReadonlyMap<string, strin
     )
   }
   const text = out.join('\n')
-  return text.length > FIX_BRIEFING_MAX_CHARS ? `${text.slice(0, FIX_BRIEFING_MAX_CHARS - 1)}…` : text
+  return clip(text, FIX_BRIEFING_MAX_CHARS)
 }

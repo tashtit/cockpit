@@ -109,6 +109,15 @@ describe('HandoffView', () => {
     await waitFor(() => expect(screen.getByLabelText('Briefing')).toHaveValue('second try'))
   })
 
+  it("shows a failed briefing in main's words, without Electron's wrapper", async () => {
+    vi.mocked(window.cockpit.getHandoffBriefing).mockRejectedValue(
+      new Error("Error invoking remote method 'handoff:briefing': Error: not indexed yet")
+    )
+    renderHandoff()
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Briefing failed: not indexed yet'))
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/Error invoking remote method/)
+  })
+
   it('Improve with AI replaces the text and Revert restores it', async () => {
     vi.mocked(window.cockpit.getHandoffBriefing).mockResolvedValue({
       briefing: 'extracted', cwdExists: true

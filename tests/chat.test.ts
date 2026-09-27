@@ -710,7 +710,7 @@ describe('ChatManager: reading a CLI stream', () => {
   writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}"\n`)
   chmodSync(join(bin, 'claude'), 0o755)
 
-  it('caps a non-JSON line, skips an event it cannot read and still ends on the final line', async () => {
+  it('caps a non-JSON line, shows an event nested too deeply to serialise, and still ends on the final line', async () => {
     const path = process.env.PATH
     process.env.PATH = `${bin}:${path}`
     try {
@@ -723,12 +723,69 @@ describe('ChatManager: reading a CLI stream', () => {
       })
       chat.send({ provider: 'claude', cwd: tmpdir(), prompt: 'hi', permissionMode: 'safe' })
       await finished
-      expect(events.map((e) => e.type)).toEqual(['text', 'session', 'text', 'session', 'done'])
+      expect(events.map((e) => e.type)).toEqual(['text', 'session', 'tool', 'text', 'session', 'done'])
       const banner = events[0] as Extract<ChatEvent, { type: 'text' }>
       expect(banner.text.length).toBeLessThan(20_100)
       expect(banner.text).toContain('more chars')
-      expect(events[2]).toMatchObject({ type: 'text', text: 'still here' })
+      // the row the transcript shows for it too, rather than no row at all
+      expect(events[2]).toMatchObject({ type: 'tool', toolName: 'Weird', detail: '(nested too deeply to show)' })
+      expect(events[3]).toMatchObject({ type: 'text', text: 'still here' })
       await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
+    } finally {
+      process.env.PATH = path
+    }
+  })
+})
+
+describe('ChatManager: the last line of a stream', () => {
+  // a stub `claude` whose result announces a new id (claude forks one per resumed turn),
+  // ended by a newline or — when the prompt says `bare` — by the exit alone
+  const bin = mkdtempSync(join(tmpdir(), 'cockpit-chat-last-'))
+  writeFileSync(
+    join(bin, 'stub.mjs'),
+    [
+      `const end = process.argv.at(-1) === 'bare' ? '' : '\\n'`,
+      `process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'stub-1' }) + '\\n')`,
+      `process.stdout.write(JSON.stringify({ type: 'result', session_id: 'stub-2' }) + end)`
+    ].join('\n')
+  )
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}" "$@"\n`)
+  chmodSync(join(bin, 'claude'), 0o755)
+
+  /** What one turn emitted, and the ids the busy board had it running under at each change. */
+  async function run(prompt: string): Promise<{ events: unknown[]; running: string[][] }> {
+    const events: ChatEvent[] = []
+    const running: string[][] = []
+    let finish: () => void = () => {}
+    const finished = new Promise<void>((r) => (finish = r))
+    const chat = new ChatManager(
+      (ev) => {
+        events.push(ev)
+        if (ev.type === 'done') finish()
+      },
+      { onBusyChange: (busy) => running.push(busy.filter((b) => b.source === 'spawned' && b.turnId !== null).map((b) => b.id)) }
+    )
+    chat.send({ provider: 'claude', cwd: tmpdir(), prompt, permissionMode: 'safe' })
+    await finished
+    await vi.waitFor(() => expect(chat.runningTurns()).toBe(0))
+    return { events: events.map((e) => [e.type, e.type === 'session' ? e.nativeSessionId : null]), running }
+  }
+
+  it('reads a final line without its newline the way it reads any other', async () => {
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const ended = await run('newline')
+      const bare = await run('bare')
+      expect(ended.events).toEqual([
+        ['session', 'stub-1'],
+        ['session', 'stub-2'],
+        ['done', null]
+      ])
+      // the flush at exit once emitted the result past the turn's bookkeeping: the id it
+      // announced never reached the busy board, and its done never cleared the turn there
+      expect(bare).toEqual(ended)
+      expect(bare.running).toContainEqual(['claude:stub-1', 'claude:stub-2'])
     } finally {
       process.env.PATH = path
     }

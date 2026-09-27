@@ -1,10 +1,10 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { splitRows } from '../../shared/line-diff'
 import type {
   DiffFile,
   DiffHunk,
   DiffHunkLine,
   DiffScope,
-  PrFeedback,
   PrReviewThread,
   PrStatus,
   SessionProvider,
@@ -13,9 +13,15 @@ import type {
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { useDiffLayout, type DiffLayout } from './diff-layout'
-import { DiffLayoutToggle, DiffStat } from './InstructionDiff'
+import { DiffLayoutToggle, DiffStat, GUTTER, SAID } from './InstructionDiff'
 import { LinkExternalIcon, PROVIDER_LABEL } from './logos'
 import { PrStrip } from './PrStrip'
+import { useLoaded } from './use-loaded'
+import { plural } from './format'
+import { roveIndex, type RoveKeys } from './roving'
+
+/** The note cursor's arrows: a line at a time, stopping at either end; Home and End jump */
+const NOTE_KEYS: RoveKeys = { next: 'ArrowDown', prev: 'ArrowUp', ends: true }
 
 /**
  * Review before landing: the worktree's changes, in the transcript's place, read
@@ -26,7 +32,7 @@ import { PrStrip } from './PrStrip'
  * "Fix with <agent>" turns everything it is waiting on into one prompt.
  */
 
-export const SCOPES: ReadonlyArray<{ readonly v: DiffScope; readonly label: string; readonly hint: string }> = [
+const SCOPES: ReadonlyArray<{ readonly v: DiffScope; readonly label: string; readonly hint: string }> = [
   { v: 'branch', label: 'Branch', hint: 'Everything since the base branch — what a PR would carry' },
   { v: 'staged', label: 'Staged', hint: 'What is in the index, ready to commit' },
   { v: 'unstaged', label: 'Unstaged', hint: 'Working-tree edits not staged yet, plus untracked files' }
@@ -39,17 +45,14 @@ const KIND_LABEL: Record<DiffFile['status'], string> = {
   renamed: 'renamed'
 }
 
-const GUTTER: Record<DiffHunkLine['op'], string> = { same: ' ', add: '+', del: '−' }
-const SAID: Record<DiffHunkLine['op'], string> = { same: '', add: 'added: ', del: 'removed: ' }
-
-export type ReviewNote = {
+type ReviewNote = {
   readonly path: string
   readonly line: DiffHunkLine
   readonly text: string
 }
 
 /** A removed line is addressed on the old side, everything else on the new. */
-export function noteKey(path: string, line: DiffHunkLine): string {
+function noteKey(path: string, line: DiffHunkLine): string {
   return line.op === 'del' ? `${path}#L${line.oldNo}` : `${path}#R${line.newNo}`
 }
 
@@ -57,7 +60,7 @@ export function noteKey(path: string, line: DiffHunkLine): string {
  * Where a reviewer's thread can sit: GitHub anchors it to one side of the PR
  * diff, so a context line — present on both sides — answers to either number.
  */
-export function threadKeys(path: string, line: DiffHunkLine): string[] {
+function threadKeys(path: string, line: DiffHunkLine): string[] {
   if (line.op === 'del') return [`${path}#L${line.oldNo}`]
   if (line.op === 'add') return [`${path}#R${line.newNo}`]
   return [`${path}#R${line.newNo}`, `${path}#L${line.oldNo}`]
@@ -113,9 +116,6 @@ export const ReviewPanel = memo(function ReviewPanel({
   onOpenUrl?: (url: string) => void
 }): JSX.Element {
   const [scope, setScope] = useState<DiffScope>('branch')
-  const [diff, setDiff] = useState<WorkspaceDiff | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const [version, setVersion] = useState(0)
   const [notes, setNotes] = useState<ReadonlyMap<string, ReviewNote>>(new Map())
   const [editing, setEditing] = useState<string | null>(null)
@@ -126,9 +126,6 @@ export const ReviewPanel = memo(function ReviewPanel({
   // the open PR's side of the review — read on demand, never polled
   const openPr = pr && pr.state === 'OPEN' && repoRoot ? pr : undefined
   const prNumber = openPr?.number
-  const [feedback, setFeedback] = useState<PrFeedback | null>(null)
-  const [fbError, setFbError] = useState<string | null>(null)
-  const [fbLoading, setFbLoading] = useState(false)
   const [fixing, setFixing] = useState(false)
   const [notice, setNotice] = useState<readonly string[]>([])
   /** A fix prompt that arrives after the panel closed must not land in another session's composer */
@@ -140,27 +137,12 @@ export const ReviewPanel = memo(function ReviewPanel({
     []
   )
 
-  useEffect(() => {
-    if (busy) return
-    let dead = false
-    setLoading(true)
-    api.getWorkspaceDiff(cwd, scope).then(
-      (d) => {
-        if (dead) return
-        setDiff(d)
-        setError(null)
-        setLoading(false)
-      },
-      (err) => {
-        if (dead) return
-        setError(ipcErrorText(err))
-        setLoading(false)
-      }
-    )
-    return () => {
-      dead = true
-    }
-  }, [cwd, scope, busy, version])
+  // mid-turn the tree is changing under the reader: read once the turn settles
+  const read = useLoaded(busy ? null : () => api.getWorkspaceDiff(cwd, scope), [cwd, scope, busy, version])
+  const { value: diff, error } = read
+  // until the first diff lands the bar says one is coming — a panel opened mid-turn too,
+  // where the read waits for the turn to settle
+  const loading = read.loading || (diff === null && error === null)
 
   // notes belong to the worktree they were written on
   useEffect(() => {
@@ -168,33 +150,18 @@ export const ReviewPanel = memo(function ReviewPanel({
     setEditing(null)
   }, [cwd])
 
+  const fb = useLoaded(
+    prNumber === undefined || !repoRoot || busy ? null : () => api.getPrFeedback(repoRoot, prNumber),
+    [repoRoot, prNumber, busy, version]
+  )
+  const { value: feedback, error: fbError, setError: setFbError, loading: fbLoading } = fb
+
+  // another PR, or none: what was read about the last one goes with it
   useEffect(() => {
-    setFeedback(null)
+    fb.set(null)
     setFbError(null)
     setNotice([])
   }, [repoRoot, prNumber])
-
-  useEffect(() => {
-    if (prNumber === undefined || !repoRoot || busy) return
-    let dead = false
-    setFbLoading(true)
-    api.getPrFeedback(repoRoot, prNumber).then(
-      (fb) => {
-        if (dead) return
-        setFeedback(fb)
-        setFbError(null)
-        setFbLoading(false)
-      },
-      (err) => {
-        if (dead) return
-        setFbError(ipcErrorText(err))
-        setFbLoading(false)
-      }
-    )
-    return () => {
-      dead = true
-    }
-  }, [repoRoot, prNumber, busy, version])
 
   // reviewers' threads sit under the lines they are about — but only against the
   // branch scope: the index's line numbers are not the PR's
@@ -284,7 +251,7 @@ export const ReviewPanel = memo(function ReviewPanel({
         <span className="review-right">
           {onCompose && notes.size > 0 && (
             <button className="btn-ghost small" onClick={send} title="Put the notes in the composer, ready to send">
-              Send {notes.size} {notes.size === 1 ? 'note' : 'notes'} to {agent}
+              Send {plural(notes.size, 'note')} to {agent}
             </button>
           )}
           <button
@@ -330,7 +297,7 @@ export const ReviewPanel = memo(function ReviewPanel({
       {diff && diff.droppedFiles > 0 && (
         <div className="idiff-band">
           <span aria-hidden="true">⋯</span>
-          {diff.droppedFiles} more {diff.droppedFiles === 1 ? 'file' : 'files'} not shown
+          {plural(diff.droppedFiles, 'more file')} not shown
         </div>
       )}
     </section>
@@ -343,7 +310,7 @@ function Summary({ diff }: { diff: WorkspaceDiff }): JSX.Element {
     <>
       <DiffStat added={diff.added} removed={diff.removed} />
       <span>
-        {n} {n === 1 ? 'file' : 'files'}
+        {plural(n, 'file')}
       </span>
       {diff.scope === 'branch' && diff.base && (
         <span title={`Commits on ${diff.branch ?? 'this branch'} the base doesn't have, and the other way round`}>
@@ -425,14 +392,10 @@ function useNoteRoving(): {
       if (target !== e.currentTarget && !target.classList.contains('review-note-btn')) return
       const btns = buttons()
       if (btns.length === 0) return
-      const at = btns.indexOf(document.activeElement as HTMLButtonElement)
-      const next =
-        e.key === 'ArrowDown' ? Math.min(Math.max(at, 0) + 1, btns.length - 1)
-        : e.key === 'ArrowUp' ? Math.max(Math.max(at, 0) - 1, 0)
-        : e.key === 'Home' ? 0
-        : e.key === 'End' ? btns.length - 1
-        : -1
-      if (next < 0) return
+      // with the body itself focused, the lines count from the first
+      const at = Math.max(btns.indexOf(document.activeElement as HTMLButtonElement), 0)
+      const next = roveIndex(e.key, { at, count: btns.length }, NOTE_KEYS)
+      if (next === null) return
       e.preventDefault()
       cursor.current = next
       rove(btns[next])
@@ -464,7 +427,7 @@ const FileBlock = memo(function FileBlock({ file, layout, ...line }: LineProps &
           <span className={`review-kind ${kind}`}>{file.binary ? 'binary' : file.untracked ? 'untracked' : KIND_LABEL[file.status]}</span>
         )}
         {threadCount > 0 && (
-          <span className="review-kind tone-warn">{threadCount === 1 ? '1 thread' : `${threadCount} threads`}</span>
+          <span className="review-kind tone-warn">{plural(threadCount, 'thread')}</span>
         )}
         {!file.binary && <DiffStat added={file.added} removed={file.removed} />}
       </summary>
@@ -494,35 +457,13 @@ const Hunk = memo(function Hunk({ hunk, layout, ...line }: LineProps & { hunk: D
         {hunk.header && ` ${hunk.header}`}
       </div>
       {layout === 'split'
-        ? pairLines(hunk.lines).map(([l, r], k) => (
-            <PairRow key={k} left={l} right={r} {...line} />
+        ? splitRows(hunk.lines).map((row, k) => (
+            <PairRow key={k} left={row.left} right={row.right} {...line} />
           ))
         : hunk.lines.map((l, k) => <LineRow key={k} line={l} {...line} />)}
     </>
   )
 })
-
-/** Side by side: the n-th removed line across from the n-th added one, as the instructions diff does. */
-export function pairLines(lines: readonly DiffHunkLine[]): Array<[DiffHunkLine | null, DiffHunkLine | null]> {
-  const out: Array<[DiffHunkLine | null, DiffHunkLine | null]> = []
-  let dels: DiffHunkLine[] = []
-  let adds: DiffHunkLine[] = []
-  const flush = (): void => {
-    for (let i = 0; i < Math.max(dels.length, adds.length); i++) out.push([dels[i] ?? null, adds[i] ?? null])
-    dels = []
-    adds = []
-  }
-  for (const l of lines) {
-    if (l.op === 'del') dels.push(l)
-    else if (l.op === 'add') adds.push(l)
-    else {
-      flush()
-      out.push([l, l])
-    }
-  }
-  flush()
-  return out
-}
 
 function PairRow({ left, right, ...line }: LineProps & { left: DiffHunkLine | null; right: DiffHunkLine | null }): JSX.Element {
   // a context line sits on both sides but is one line: address it once, on the right
@@ -628,7 +569,7 @@ function ThreadRow({ thread, onOpenUrl }: { thread: PrReviewThread; onOpenUrl: (
         </div>
       ))}
       <div className="review-thread-foot">
-        {more > 0 && <span>{more === 1 ? '1 more reply' : `${more} more replies`}</span>}
+        {more > 0 && <span>{plural(more, 'more reply', 'more replies')}</span>}
         {first.url && (
           <button className="link-btn" onClick={() => onOpenUrl(first.url)}>
             Open on GitHub <LinkExternalIcon size={10} />

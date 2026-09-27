@@ -15,7 +15,6 @@ import {
   saveConfig,
   sessionControlFor,
   sessionEndpointFor,
-  sessionLineage,
   sessionLineageFor,
   setAttentionPrefs,
   setBranchPrefix,
@@ -221,6 +220,9 @@ describe('model endpoints', () => {
 })
 
 describe('session lineage', () => {
+  /** the whole persisted map, in its recency order */
+  const sessionLineage = (): Record<string, string> => loadConfig().continuedFrom ?? {}
+
   it('binds and reads back, returning the updated map', () => {
     saveConfig({ sources: [] })
     const map = bindSessionLineage('codex:new', 'claude:old')

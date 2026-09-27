@@ -1,74 +1,42 @@
-import { useSyncExternalStore } from 'react'
 import type { RepoGroup, SessionHolder, SessionProvider } from '../../shared/types'
 import { isSessionProvider, SESSION_PROVIDERS } from '../../shared/providers'
 import { heldSessions } from './hold'
+import { storedValue } from './stored-value'
 
 /**
  * Which agents' sessions the tree shows. A view preference for this machine, like the
- * holder filter (`hold.ts`), so it lives in localStorage rather than in config. Kept as
- * the agents *hidden*: an agent Cockpit starts reading later shows up without anyone
- * having to switch it on.
+ * holder filter (`hold.ts`), so it lives in localStorage (`stored-value.ts`) rather than
+ * in config. Kept as the agents *hidden*: an agent Cockpit starts reading later shows up
+ * without anyone having to switch it on.
  */
-const KEY = 'cockpit:hidden-agents'
-
-const listeners = new Set<() => void>()
-/** A choice storage refused to save — it still holds for this run. */
-let unsaved: readonly SessionProvider[] | undefined
-/** The last list read, kept while its stored text is the same: a snapshot must be stable. */
-let cached: { readonly raw: string | null; readonly value: readonly SessionProvider[] } | null = null
-
 const NONE: readonly SessionProvider[] = []
 
-function read(): readonly SessionProvider[] {
-  if (unsaved !== undefined) return unsaved
-  let raw: string | null = null
-  try {
-    raw = window.localStorage.getItem(KEY)
-  } catch {
-    return NONE
-  }
-  if (cached && cached.raw === raw) return cached.value
-  let value: readonly SessionProvider[] = NONE
-  try {
-    const parsed: unknown = raw === null ? [] : JSON.parse(raw)
-    if (Array.isArray(parsed)) value = parsed.filter(isSessionProvider)
-  } catch {
-    /* an unreadable preference is no preference */
-  }
-  cached = { raw, value }
-  return value
-}
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
-}
+const hiddenAgents = storedValue<readonly SessionProvider[]>('cockpit:hidden-agents', {
+  parse: (raw) => {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter(isSessionProvider) : undefined
+  },
+  serialize: (hidden) => (hidden.length === 0 ? null : JSON.stringify(hidden)),
+  fallback: NONE
+})
 
 /** The agents the tree leaves out; empty when it shows them all. */
 export function useHiddenAgents(): readonly SessionProvider[] {
-  return useSyncExternalStore(subscribe, read)
-}
-
-function save(hidden: readonly SessionProvider[]): void {
-  try {
-    if (hidden.length === 0) window.localStorage.removeItem(KEY)
-    else window.localStorage.setItem(KEY, JSON.stringify(hidden))
-    unsaved = undefined
-  } catch {
-    unsaved = hidden
-  }
-  listeners.forEach((l) => l())
+  return hiddenAgents.use()
 }
 
 export function setAgentShown(agent: SessionProvider, shown: boolean): void {
-  const hidden = read().filter((a) => a !== agent)
-  save(shown ? hidden : [...hidden, agent])
+  const hidden = hiddenAgents.get().filter((a) => a !== agent)
+  hiddenAgents.set(shown ? hidden : [...hidden, agent])
 }
 
 export function showAllAgents(): void {
-  save(NONE)
+  hiddenAgents.set(NONE)
+}
+
+/** Tests only: drop what this run holds and read storage again. */
+export function reloadHiddenAgents(): void {
+  hiddenAgents.reload()
 }
 
 /** What a page query asks for: every agent but the hidden, or no narrowing at all. */

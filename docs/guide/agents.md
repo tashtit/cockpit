@@ -66,7 +66,7 @@ that's out of step with it is simply out of date, whatever the other agents are 
   was on. This is what the kept copy is for: removing everywhere would otherwise be the
   one action in the panel you couldn't undo.
 - Removing everywhere, and switching a plugin or marketplace off, each ask for a second
-  click first, because they run a real uninstall.
+  click first, because they run a real uninstall. Escape, or moving away, backs out.
 
 ### How each kind is applied
 

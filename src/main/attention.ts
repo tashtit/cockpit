@@ -1,5 +1,4 @@
 import { app, Notification } from 'electron'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
   AttentionFocus,
@@ -27,7 +26,7 @@ import {
 import { execText } from './env'
 import { readTurnState } from './liveness'
 import type { ObservedTurn } from './liveness-core'
-import { writeFileAtomic } from './replace-file'
+import { readJsonState, saveJsonQuietly } from './state-file'
 import { isDrivable } from '../shared/providers'
 
 /**
@@ -80,13 +79,15 @@ type Saved = {
 }
 
 function readSaved(file: string, now: number): Saved {
-  try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { unseen?: unknown; prs?: unknown }
-    return { unseen: sanitizeUnseen(parsed?.unseen, now), seenPrs: sanitizeSeenPrs(parsed?.prs) }
-  } catch {
-    // first run, or a hand-edited file: landings are news, not records — start clean
-    return { unseen: [], seenPrs: [] }
-  }
+  // first run, or a hand-edited file: landings are news, not records — start clean
+  return readJsonState(
+    file,
+    (raw) => {
+      const parsed = raw as { unseen?: unknown; prs?: unknown } | null
+      return { unseen: sanitizeUnseen(parsed?.unseen, now), seenPrs: sanitizeSeenPrs(parsed?.prs) }
+    },
+    { unseen: [], seenPrs: [] }
+  )
 }
 
 export class AttentionDesk {
@@ -271,11 +272,7 @@ export class AttentionDesk {
   }
 
   private save(json: string): void {
-    try {
-      writeFileAtomic(this.deps.file, json)
-    } catch (err) {
-      console.error('[attention] could not save landings:', err)
-    }
+    saveJsonQuietly(this.deps.file, json, '[attention] could not save landings:')
   }
 }
 

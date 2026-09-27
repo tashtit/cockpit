@@ -1,4 +1,5 @@
 import type { McpConfig, McpRawDefinitions, Provider } from '../shared/types'
+import { isRecord } from '../shared/guards'
 import {
   assignPath,
   isTomlTable,
@@ -50,10 +51,6 @@ export function normalizeMcp(cfg: any): McpConfig {
   }
 }
 
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
 /** What a stored definition runs, in the view the agents are compared on. */
 export function rawMcpConfig(
   raw: McpRawDefinitions | undefined,
@@ -97,7 +94,7 @@ export type JsonAgent = Exclude<Provider, 'codex'>
  * holds — or held, before it was switched off.
  */
 export function mcpJsonFor(agent: JsonAgent, cfg: McpConfig, base: unknown): Record<string, unknown> {
-  if (isPlainObject(base)) return patchMcpJson(base, cfg, agent)
+  if (isRecord(base)) return patchMcpJson(base, cfg, agent)
   return agent === 'claude' ? mcpForClaude(cfg) : mcpForCopilot(cfg)
 }
 

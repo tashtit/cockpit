@@ -1,8 +1,76 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { disarmOn } from './disarm'
 
 const CONFIRM_TIMEOUT_MS = 4000
 
-export type ConfirmRemoveProps = {
+/** The one armed slot a group of two-step buttons shares — what `useArmedConfirm` returns. */
+type ArmedSlot = {
+  readonly armed: string | null
+  readonly arm: (id: string) => void
+  readonly disarm: () => void
+}
+
+type ArmedButtonProps = {
+  /** Distinguishes this button from the others sharing one armed slot */
+  readonly id: string
+  readonly slot: ArmedSlot
+  readonly onConfirm: () => void
+  /** The resting button's words, and its screen-reader name when they are not enough */
+  readonly rest: string
+  readonly restLabel?: string
+  /** The armed question, its screen-reader name, and hover copy saying what it takes */
+  readonly ask: string
+  readonly askLabel?: string
+  readonly title: string
+  readonly disabled?: boolean
+  /** The row-sized resting button — a per-row remove rather than a list's action */
+  readonly small?: boolean
+}
+
+/**
+ * Two-step destructive button: the first click arms, the second commits, and the
+ * armed state backs out on blur or Escape. One component for every such button — the
+ * disarm rules gate destructive actions, so two hand-synced copies is how one button
+ * ends up behaving differently from its neighbour.
+ */
+export function ArmedButton({
+  id,
+  slot,
+  onConfirm,
+  rest,
+  restLabel,
+  ask,
+  askLabel,
+  title,
+  disabled,
+  small = false
+}: ArmedButtonProps): JSX.Element {
+  if (slot.armed !== id) {
+    return (
+      <button
+        className={small ? 'btn-ghost danger small' : 'btn-ghost danger'}
+        aria-label={restLabel}
+        disabled={disabled}
+        onClick={() => slot.arm(id)}
+      >
+        {rest}
+      </button>
+    )
+  }
+  return (
+    <button
+      className="btn-danger"
+      aria-label={askLabel}
+      title={title}
+      {...disarmOn(slot.disarm)}
+      onClick={onConfirm}
+    >
+      {ask}
+    </button>
+  )
+}
+
+type ConfirmRemoveProps = {
   /** Distinguishes this row from the others sharing one armed slot */
   readonly id: string
   readonly armed: string | null
@@ -16,12 +84,7 @@ export type ConfirmRemoveProps = {
   readonly onConfirm: () => void
 }
 
-/**
- * Two-step destructive remove: the first click arms, the second commits, and the
- * armed state backs out on blur or Escape. One component for every such row — the
- * disarm rules gate destructive actions, so two hand-synced copies is how one row
- * ends up behaving differently from its neighbour.
- */
+/** A row's own Remove → Remove? — the `ArmedButton` every removable row shares. */
 export function ConfirmRemove({
   id,
   armed,
@@ -32,29 +95,18 @@ export function ConfirmRemove({
   onDisarm,
   onConfirm
 }: ConfirmRemoveProps): JSX.Element {
-  if (armed !== id) {
-    return (
-      <button className="btn-ghost danger small" aria-label={label} onClick={() => onArm(id)}>
-        Remove
-      </button>
-    )
-  }
   return (
-    <button
-      className="btn-danger"
-      aria-label={confirmLabel}
+    <ArmedButton
+      id={id}
+      slot={{ armed, arm: onArm, disarm: onDisarm }}
+      onConfirm={onConfirm}
+      small
+      rest="Remove"
+      restLabel={label}
+      ask="Remove?"
+      askLabel={confirmLabel}
       title={confirmTitle}
-      onBlur={onDisarm}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation()
-          onDisarm()
-        }
-      }}
-      onClick={onConfirm}
-    >
-      Remove?
-    </button>
+    />
   )
 }
 

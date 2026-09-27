@@ -158,6 +158,50 @@ describe('NewRoundtable', () => {
     })
   })
 
+  it('starts from saved limits, a time limit off the presets shown as itself', async () => {
+    window.localStorage.setItem(
+      'cockpit:rt-limits',
+      JSON.stringify({ maxTurnsPerMessage: 24, maxTurnsPerTable: 40, maxTurnMinutes: 45 })
+    )
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    const limits = screen.getByRole('group', { name: 'Roundtable spending limits' })
+    expect(within(limits).getByRole('button', { name: /^Agent turns per message/ })).toHaveTextContent('24 turns')
+    // a value off the list once read as the first preset, "5 min"
+    const minutes = within(limits).getByRole('button', { name: /^Longest a seat may take/ })
+    expect(minutes).toHaveTextContent('45 min')
+    await userEvent.click(minutes)
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '5 min',
+      '10 min',
+      '15 min',
+      '30 min',
+      '45 min',
+      '60 min',
+      'no limit'
+    ])
+  })
+
+  it('opens on a free discussion when what storage holds is no goal the form offers', async () => {
+    window.localStorage.setItem('cockpit:rt-table-mode', 'debate')
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    expect(screen.getByRole('button', { name: /^Goal/ })).toHaveTextContent('Free discussion')
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
+    await waitFor(() =>
+      expect(window.cockpit.createRoundtable).toHaveBeenCalledWith(expect.objectContaining({ mode: 'open' }))
+    )
+  })
+
+  it('says why the table would not open in main’s words, not Electron’s', async () => {
+    vi.mocked(window.cockpit.createRoundtable).mockRejectedValue(
+      new Error("Error invoking remote method 'roundtable:create': Error: Claude isn't signed in — run claude /login")
+    )
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^Claude isn't signed in — run claude \/login$/)
+  })
+
   it('needs a topic and at least two seats, and stops adding at eight', async () => {
     render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
     const open = screen.getByRole('button', { name: 'Open roundtable' })

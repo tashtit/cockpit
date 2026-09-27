@@ -24,7 +24,7 @@ import { samePlain } from './same'
  */
 
 /** The rows on screen and the key each renders under, index for index. */
-export type ChatRows = {
+type ChatRows = {
   readonly messages: readonly SessionMessage[]
   readonly keys: readonly number[]
 }

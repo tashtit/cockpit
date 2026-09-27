@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useRef, useState, type JSX } from 'react'
 import type { AcpAgent, AcpAgentProbe, SessionProvider } from '../../shared/types'
 import { acpAgentRefusal } from '../../shared/acp'
 import { isDrivable, SESSION_PROVIDERS } from '../../shared/providers'
@@ -6,8 +6,10 @@ import { api } from './api'
 import { useAcpReadiness } from './acp-readiness'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { useLoaded } from './use-loaded'
+import { ErrorAlert } from './ErrorAlert'
 
 /**
  * Agents Cockpit drives over ACP: the list, the add form, and removal.
@@ -17,7 +19,11 @@ import { Select } from './Select'
  * feeds Settings' sr-only announcer.
  */
 export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JSX.Element {
-  const [agents, setAgents] = useState<AcpAgent[]>([])
+  // optional call: during dev HMR the renderer can outrun a preload that predates
+  // this method — a missing bridge must not take the whole Settings view down
+  const { value: agents, set: setAgents } = useLoaded(api.getAcpAgents ? () => api.getAcpAgents() : null, [], {
+    initial: [] as AcpAgent[]
+  })
   const [label, setLabel] = useState('')
   const [provider, setProvider] = useState<SessionProvider>('claude')
   const { builtinsReady } = useAcpReadiness()
@@ -32,12 +38,6 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
   /** Folded until asked for — the list is the readout, adding one is a task */
   const [addOpen, setAddOpen] = useState(false)
   const confirm = useArmedConfirm()
-
-  useEffect(() => {
-    // optional call: during dev HMR the renderer can outrun a preload that predates
-    // this method — a missing bridge must not take the whole Settings view down
-    void api.getAcpAgents?.().then(setAgents)
-  }, [])
 
   const say = (msg: string): void => {
     setNotice(msg)
@@ -123,9 +123,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
       <ul className="source-list">
         {agents.map((agent) => (
           <li key={agent.id} className={`source-row tint-${agent.provider}`}>
-            <span className={`plogo plogo-${agent.provider}`} aria-hidden="true">
-              <ProviderLogo p={agent.provider} size={13} />
-            </span>
+            <ProviderMark p={agent.provider} decorative />
             <div className="source-body">
               <div className="source-label">
                 {agent.label}
@@ -164,11 +162,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
         ))}
         {agents.length === 0 && <li className="tree-empty">no ACP agents</li>}
       </ul>
-      {removeError && (
-        <div role="alert" className="new-error">
-          {removeError}
-        </div>
-      )}
+      {removeError && <ErrorAlert>{removeError}</ErrorAlert>}
       {notice && !error && <p className="ns-hint">{notice}</p>}
       {!addOpen && (
         <div className="source-add-open">
@@ -250,11 +244,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
                 : probe.error}
             </p>
           )}
-          {error && (
-            <div role="alert" className="new-error">
-              {error}
-            </div>
-          )}
+          {error && <ErrorAlert>{error}</ErrorAlert>}
           <div className="ns-actions">
             <button type="button" className="btn-ghost" onClick={() => void runProbe()} disabled={probing}>
               {probing ? 'Testing…' : 'Test'}

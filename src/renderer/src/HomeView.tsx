@@ -1,25 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type {
-  AccountsSnapshot,
-  Landing,
-  PermissionMode,
-  RepoGroup,
-  RoundtableMeta,
-  SessionMeta
-} from '../../shared/types'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import type { Landing, PermissionMode, RepoGroup, RoundtableMeta, SessionMeta } from '../../shared/types'
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
+import { HeldMark } from './HeldMark'
 import { holdSentence } from './hold'
 import { useLandedMap } from './landed'
-import { accountOptions, MODES, savedAccount, savedMode, usableAgent, type StartSessionRequest } from './NewSession'
-import { startableAgents, useDrivableAgents } from './acp-readiness'
+import { MODES, rememberAccount, rememberChoice, useAgentChoice, type StartSessionRequest } from './agent-choice'
 import { isDrivable } from '../../shared/providers'
 import {
   BranchChip,
   CheckIcon,
   landingLabel,
-  HeldIcon,
   LandingMark,
   landingWord,
   LiveDot,
@@ -28,8 +20,12 @@ import {
   RepoIcon
 } from './logos'
 import { keepSame } from './same'
+import { SeatCluster } from './SeatCluster'
 import { Select } from './Select'
-import { fmtElapsed, fmtTime, useTimeFormat } from './time'
+import { fmtElapsed, fmtTime, plural } from './format'
+import { useTimeFormat } from './time'
+import { useRoundtables } from './use-roundtables'
+import { ErrorAlert } from './ErrorAlert'
 
 /** "titan-ron" → "Titan": the login's first name-ish segment, capitalized. */
 function firstName(login: string): string {
@@ -82,34 +78,17 @@ export function HomeView({
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
-  const drivable = useDrivableAgents()
-  const [picked, setProvider] = useState<string | null>(() => window.localStorage.getItem('cockpit:provider'))
-  // derived, not stored: the picked agent may be one whose ACP agent answers only later
-  const provider = usableAgent(picked, drivable)
-  const [mode, setMode] = useState<PermissionMode>(savedMode)
+  const choice = useAgentChoice()
+  const { provider, mode, accounts, account } = choice
   const [prompt, setPrompt] = useState('')
   const atts = useImageAttachments()
   const [error, setError] = useState<string | null>(null)
   const [recent, setRecent] = useState<SessionMeta[]>([])
   const [recentTotal, setRecentTotal] = useState(0)
-  const [tables, setTables] = useState<RoundtableMeta[]>([])
-  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
-  const [accountKey, setAccountKey] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
-
-  const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
-  const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider) ?? null
-
-  useEffect(() => {
-    setAccountKey(null)
-  }, [provider])
 
   const selected =
     selectable.find((r) => r.key === repoKey) ?? (selectable.length > 0 ? selectable[0] : null)
-
-  useEffect(() => {
-    void api.getAccounts().then(setAccounts)
-  }, [])
 
   useEffect(() => {
     let dead = false
@@ -124,26 +103,8 @@ export function HomeView({
     }
   }, [indexVersion])
 
-  // roundtable strip: reload on mount, on every index push and whenever a round starts
-  // or ends elsewhere — listening once: a push is a reason to read the list again, not
-  // to drop the listener and add it back. Only the newest answer lands.
-  const tablesSeq = useRef(0)
-  const loadTables = useCallback((): void => {
-    const seq = ++tablesSeq.current
-    void api.listRoundtables?.().then((r) => {
-      if (seq === tablesSeq.current) setTables((prev) => keepSame(prev, r.filter((t) => !t.archived)))
-    })
-  }, [])
-  useEffect(() => loadTables(), [indexVersion, loadTables])
-  useEffect(() => {
-    const unsub = api.onRoundtableEvent?.((ev) => {
-      if (ev.type === 'round') loadTables()
-    })
-    return () => {
-      tablesSeq.current++
-      unsub?.()
-    }
-  }, [loadTables])
+  // roundtable strip: the tables not archived, read again whenever a round starts or ends
+  const tables = useRoundtables(indexVersion, { activeOnly: true })
 
   const start = async (): Promise<void> => {
     // same guard the Start button enforces — ⌘Enter must not start a session
@@ -157,9 +118,7 @@ export function HomeView({
     )
       return
     setError(null)
-    window.localStorage.setItem('cockpit:provider', provider)
-    window.localStorage.setItem('cockpit:mode', mode)
-    if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
+    rememberChoice(choice)
     const err = await onStart({
       repo: selected,
       provider,
@@ -167,11 +126,7 @@ export function HomeView({
       prompt: prompt.trim(),
       mode,
       options: {},
-      account: {
-        configDir: account?.configDir,
-        copilotUser: account?.copilotUser,
-        display: account?.display
-      },
+      account: choice.runAs,
       images: atts.paths()
     })
     if (err) setError(err)
@@ -327,8 +282,8 @@ export function HomeView({
                 />
                 <div className="composer-identity">
                   <div className="composer-agents" role="group" aria-label="Agent">
-                    {startableAgents(drivable).map((p) => {
-                      const pAcct = savedAccount(accounts, p)
+                    {choice.agents.map((p) => {
+                      const pAcct = choice.accountFor(p)
                       const cli = isDrivable(p)
                       return (
                         <button
@@ -339,7 +294,7 @@ export function HomeView({
                           className={`composer-agent plogo-${p} ${provider === p ? 'active' : ''} ${
                             cli && accounts !== null && !pAcct ? 'no-acct' : ''
                           }`}
-                          onClick={() => setProvider(p)}
+                          onClick={() => choice.setProvider(p)}
                         >
                           <ProviderLogo p={p} size={15} />
                         </button>
@@ -356,7 +311,7 @@ export function HomeView({
                     <span className="acct-chip" aria-hidden="true">
                       …
                     </span>
-                  ) : opts.length > 0 ? (
+                  ) : choice.opts.length > 0 ? (
                     <Select
                       className="composer-acct-wrap"
                       mono
@@ -364,10 +319,10 @@ export function HomeView({
                       ariaLabel={`${PROVIDER_LABEL[provider]} account`}
                       title={`${PROVIDER_LABEL[provider]} account in use`}
                       value={account?.key ?? ''}
-                      options={opts.map((o) => ({ value: o.key, label: o.display }))}
+                      options={choice.opts.map((o) => ({ value: o.key, label: o.display }))}
                       onChange={(v) => {
-                        window.localStorage.setItem(`cockpit:account:${provider}`, v)
-                        setAccountKey(v)
+                        rememberAccount(provider, v)
+                        choice.setAccount(v)
                       }}
                     />
                   ) : (
@@ -378,7 +333,7 @@ export function HomeView({
                   ariaLabel="Permission mode"
                   value={mode}
                   options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-                  onChange={(v) => setMode(v as PermissionMode)}
+                  onChange={(v) => choice.setMode(v as PermissionMode)}
                 />
                 <button
                   className="btn-primary"
@@ -414,7 +369,7 @@ export function HomeView({
           {mode === 'yolo' && (
             <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
           )}
-          {error && <div className="new-error" role="alert">{error}</div>}
+          {error && <ErrorAlert>{error}</ErrorAlert>}
         </div>
       </div>
     </main>
@@ -571,7 +526,7 @@ function Board({
   // news — an agent working is the normal condition — so it never leads.
   const needs = [
     asking.length > 0 && `${asking.length} waiting on you`,
-    red > 0 && `${red} red ${red === 1 ? 'PR' : 'PRs'}`,
+    red > 0 && plural(red, 'red PR'),
     landedCount > 0 && `${landedCount} landed`
   ].filter((c): c is string => typeof c === 'string')
   // the board is a taste, not the list: what is happening always shows, the ground fills
@@ -659,13 +614,12 @@ function TableRow({ t, onOpen }: { t: RoundtableMeta; onOpen: (id: string) => vo
         ) : (
           <span className="board-dot-idle" aria-hidden="true" />
         )}
-        <span className="rt-seats board-lead" role="img" aria-label={`Roundtable: ${t.providers.map((p) => PROVIDER_LABEL[p]).join(', ')}`}>
-          {t.providers.map((p, i) => (
-            <span key={`${p}-${i}`} className={`rt-seat plogo-${p}`}>
-              <ProviderLogo p={p} size={12} />
-            </span>
-          ))}
-        </span>
+        <SeatCluster
+          providers={t.providers}
+          size={12}
+          className="board-lead"
+          label={`Roundtable: ${t.providers.map((p) => PROVIDER_LABEL[p]).join(', ')}`}
+        />
         <span className="board-branch">{t.branch && <BranchChip branch={t.branch} />}</span>
         <span className="board-task">{t.title}</span>
         {t.running ? (
@@ -727,12 +681,7 @@ function BoardRow({
         {/* the slot renders even without a branch, so every task starts on one grid line */}
         <span className="board-branch">{s.gitBranch && <BranchChip branch={s.gitBranch} />}</span>
         <span className="board-task">{s.title}</span>
-        {held && (
-          <span className="held-mark" aria-hidden="true">
-            <HeldIcon size={10} />
-          </span>
-        )}
-        {held && <span className="sr-only">(in Cockpit)</span>}
+        {held && <HeldMark />}
         {s.repo && <span className="board-repo">{s.repo.name}</span>}
         {flying ? (
           <span className="board-meta">{fmtElapsed(now - startedAt)}</span>

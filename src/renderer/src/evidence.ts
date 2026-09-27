@@ -10,7 +10,7 @@ import type { RoundtableParticipant, SessionMessage, SessionMeta } from '../../s
  * never parses tool JSON.
  */
 
-export type EvidenceKind = 'command' | 'search' | 'page' | 'file' | 'other'
+type EvidenceKind = 'command' | 'search' | 'page' | 'file' | 'other'
 
 /** Each CLI's names for the tools that gather evidence */
 const KINDS: Readonly<Record<string, EvidenceKind>> = {
@@ -48,7 +48,7 @@ const BOOKKEEPING = new Set([
   'skill'
 ])
 
-export type EvidenceItem = {
+type EvidenceItem = {
   readonly key: number
   readonly ts?: number
   readonly kind: EvidenceKind

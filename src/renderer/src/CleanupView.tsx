@@ -1,35 +1,39 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
-  CleanupBlock,
   CleanupReport,
   CleanupResult,
   OrphanProcess,
-  Provider,
-  SessionProvider,
   StaleSession,
   StaleTable,
   StaleWorktree
 } from '../../shared/types'
 import { api } from './api'
-import { useArmedConfirm } from './ConfirmRemove'
 import {
-  FilterBar,
-  matchesFilters,
-  type FilterGroup,
-  type FilterOption
-} from './FilterBar'
+  sessionFilters,
+  sessionValues,
+  tableFilters,
+  tableValues,
+  worktreeFilters,
+  worktreeValues
+} from './cleanup-filters'
+import { usePicks } from './use-picks'
 import {
-  BranchChip,
-  BranchIcon,
-  ProcessIcon,
-  ProviderLogo,
-  PROVIDER_LABEL,
-  RepoIcon
-} from './logos'
+  GroupHead,
+  ProcessGroup,
+  ProcessRow,
+  SessionRow,
+  TableRow,
+  WorktreeRow
+} from './CleanupRows'
+import { ArmedButton, useArmedConfirm } from './ConfirmRemove'
+import { ipcErrorText } from './ipc-error'
 import { Select } from './Select'
+import { StaleList, useStaleList, type Freed, type StaleListConfig } from './StaleList'
 import { TabList, TabPanel } from './Tabs'
 import { formatBytes } from '../../shared/cleanup'
-import { shortPath } from '../../shared/library'
+import { ErrorAlert } from './ErrorAlert'
+import { ViewCard } from './ViewCard'
+import { plural } from './format'
 
 /**
  * Cleanup: one place for everything that has gone quiet, across every agent and
@@ -58,11 +62,6 @@ const STALE_OPTIONS = [
   { value: '365', label: 'Idle over a year' }
 ]
 
-/** Stands in for "no repository" as a filter value; a leading space keeps it out
- *  of the space of real repository names. */
-const NO_REPO = ' none'
-const DAY_MS = 86_400_000
-
 /**
  * The card's tabs, in order — one list each. Four lists on one page read as a single
  * long scroll, so each is its own panel, and the counts on the tabs say where the work
@@ -86,480 +85,9 @@ function sectionCounts(r: CleanupReport | null): Record<CleanupSection, number> 
   }
 }
 
-/** "idle 47d" / "idle 8mo" — coarse on purpose; this view is about abandonment. */
-function fmtIdle(since: number, now: number): string {
-  if (since <= 0) return 'never used'
-  const days = Math.max(0, Math.floor((now - since) / DAY_MS))
-  if (days < 60) return `idle ${days}d`
-  if (days < 365) return `idle ${Math.round(days / 30)}mo`
-  return `idle ${(days / 365).toFixed(1)}y`
-}
-
-const BLOCK_LABEL: Record<CleanupBlock, string> = {
-  main: 'the repo’s own checkout',
-  roundtable: 'a roundtable’s room',
-  busy: 'an agent is running',
-  process: 'a process is running',
-  dirty: 'uncommitted changes',
-  detached: 'commits on no branch',
-  locked: 'locked',
-  'in-use': 'open in its app'
-}
-
-/** "running 3d" — how long a left-behind process has outlived its work. */
-function fmtRunning(since: number, now: number): string {
-  if (since <= 0) return 'running'
-  const mins = Math.max(0, Math.floor((now - since) / 60_000))
-  if (mins < 60) return `running ${mins}m`
-  if (mins < 60 * 24) return `running ${Math.floor(mins / 60)}h`
-  return `running ${Math.floor(mins / (60 * 24))}d`
-}
-
-/** The executable's own name, without its path — `node`, not `/usr/local/bin/node`. */
-function processName(command: string): string {
-  const first = command.trim().split(/\s+/)[0] ?? ''
-  return first.slice(first.lastIndexOf('/') + 1) || 'process'
-}
-
-/* ---------- selection ---------- */
-
-type Picks = {
-  readonly picked: ReadonlySet<string>
-  /** Toggle one row; `range` extends from the last row touched (shift-click) */
-  readonly toggle: (index: number, on: boolean, range: boolean) => void
-  readonly toggleAll: (on: boolean) => void
-  readonly clear: () => void
-  /** Selected rows the current filter actually shows */
-  readonly shown: number
-  readonly selectable: number
-}
-
-/**
- * Selection over the *filtered* rows, which is what makes "filter, then select
- * all" work: the master toggle only ever reaches what is on screen, while
- * selections made under a previous filter survive (and are disclosed as hidden).
- * Blocked rows are never selectable — not by click, not by range, not by the
- * master toggle — so nothing can be armed that main would only refuse.
- */
-function usePicks<T>(
-  rows: readonly T[],
-  keyOf: (row: T) => string,
-  blocked: (row: T) => boolean
-): Picks {
-  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
-  const anchor = useRef<number | null>(null)
-
-  const toggle = useCallback(
-    (index: number, on: boolean, range: boolean): void => {
-      // read the anchor here, not inside the updater: the updater runs during the
-      // next render, by which point `anchor.current` is already this row and every
-      // range would collapse to a single one
-      const from = range && anchor.current !== null ? Math.min(anchor.current, index) : index
-      const to = range && anchor.current !== null ? Math.max(anchor.current, index) : index
-      anchor.current = index
-      setPicked((prev) => {
-        const next = new Set(prev)
-        for (let i = from; i <= to; i++) {
-          const row = rows[i]
-          if (!row || blocked(row)) continue
-          if (on) next.add(keyOf(row))
-          else next.delete(keyOf(row))
-        }
-        return next
-      })
-    },
-    [rows, keyOf, blocked]
-  )
-
-  const toggleAll = useCallback(
-    (on: boolean): void => {
-      setPicked((prev) => {
-        const next = new Set(prev)
-        for (const row of rows) {
-          if (blocked(row)) continue
-          if (on) next.add(keyOf(row))
-          else next.delete(keyOf(row))
-        }
-        return next
-      })
-      anchor.current = null
-    },
-    [rows, keyOf, blocked]
-  )
-
-  const clear = useCallback((): void => {
-    setPicked(new Set())
-    anchor.current = null
-  }, [])
-
-  const selectable = rows.filter((r) => !blocked(r))
-  return {
-    picked,
-    toggle,
-    toggleAll,
-    clear,
-    shown: selectable.filter((r) => picked.has(keyOf(r))).length,
-    selectable: selectable.length
-  }
-}
-
-/* ---------- shared bits ---------- */
-
-/**
- * A checkbox that can also read "some". Shift is taken off the native event so
- * range-select works from the keyboard (shift+space) exactly as it does from the
- * mouse — the click a checkbox synthesises carries the modifier either way.
- */
-function Pick({
-  checked,
-  indeterminate,
-  disabled,
-  label,
-  onPick
-}: {
-  checked: boolean
-  indeterminate?: boolean
-  disabled?: boolean
-  label: string
-  onPick: (on: boolean, range: boolean) => void
-}): JSX.Element {
-  const ref = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = indeterminate === true
-  }, [indeterminate])
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      className="cl-pick"
-      checked={checked}
-      disabled={disabled}
-      aria-label={label}
-      onChange={(e) => onPick(e.target.checked, (e.nativeEvent as MouseEvent).shiftKey === true)}
-    />
-  )
-}
-
-/** The group's one control surface: master toggle, what is selected, what it frees. */
-function GroupHead({
-  picks,
-  label,
-  summary,
-  children
-}: {
-  picks: Picks
-  label: string
-  summary: ReactNode
-  children: ReactNode
-}): JSX.Element {
-  const all = picks.selectable > 0 && picks.shown === picks.selectable
-  return (
-    <div className="cl-head">
-      <Pick
-        checked={all}
-        indeterminate={picks.shown > 0 && !all}
-        disabled={picks.selectable === 0}
-        label={all ? `Clear selection — ${label}` : `Select all shown — ${label}`}
-        onPick={(on) => picks.toggleAll(on)}
-      />
-      <span className="cl-head-summary">{summary}</span>
-      <div className="cl-head-actions">{children}</div>
-    </div>
-  )
-}
-
-/** Two-step destructive button: arms on first click, commits on second. */
-function ArmedAction({
-  id,
-  armed,
-  disabled,
-  labels,
-  confirm
-}: {
-  id: string
-  armed: string | null
-  disabled: boolean
-  /** [resting, armed, tooltip on the armed state] */
-  labels: readonly [string, string, string]
-  confirm: {
-    readonly arm: (id: string) => void
-    readonly disarm: () => void
-    readonly commit: () => void
-  }
-}): JSX.Element {
-  const [idle, live, title] = labels
-  if (armed !== id) {
-    return (
-      <button className="btn-ghost danger" disabled={disabled} onClick={() => confirm.arm(id)}>
-        {idle}
-      </button>
-    )
-  }
-  return (
-    <button
-      className="btn-danger"
-      title={title}
-      onBlur={confirm.disarm}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation()
-          confirm.disarm()
-        }
-      }}
-      onClick={confirm.commit}
-    >
-      {live}
-    </button>
-  )
-}
-
-/* ---------- rows ---------- */
-
-function SessionRow({
-  s,
-  now,
-  picked,
-  onPick
-}: {
-  s: StaleSession
-  now: number
-  picked: boolean
-  onPick: (on: boolean, range: boolean) => void
-}): JSX.Element {
-  const w = s.worktree
-  return (
-    <li className={`cl-row tint-${s.provider} ${picked ? 'picked' : ''}`}>
-      <Pick
-        checked={picked}
-        disabled={s.blocks.length > 0}
-        label={`Select session ${s.title}`}
-        onPick={onPick}
-      />
-      <span className={`plogo plogo-${s.provider}`} aria-hidden="true">
-        <ProviderLogo p={s.provider} size={13} />
-      </span>
-      <div className="cl-body">
-        <div className="cl-title" title={s.title}>
-          {s.title || `${PROVIDER_LABEL[s.provider]} session`}
-          {s.archived && <span className="cl-tag">archived</span>}
-        </div>
-        <div className="cl-sub">
-          {s.repoName ?? 'no repository'}
-          {w ? (
-            <span
-              className="cl-carry"
-              title={
-                w.sessionCount > 1
-                  ? `${w.path} — shared with ${w.sessionCount - 1} other session${
-                      w.sessionCount === 2 ? '' : 's'
-                    }; only removed when all of them are`
-                  : `${w.path} — removed with this session`
-              }
-            >
-              <BranchIcon size={10} />
-              takes its worktree · {formatBytes(w.bytes)}
-              {w.sessionCount > 1 && <span className="cl-shared"> · shared ×{w.sessionCount}</span>}
-            </span>
-          ) : (
-            s.cwd && (
-              <span className="cl-path" title={s.cwd}>
-                {' · '}
-                {shortPath(s.cwd)}
-              </span>
-            )
-          )}
-        </div>
-      </div>
-      <div className="cl-meta">
-        {s.blocks.map((b) => (
-          <span key={b} className="cl-block">
-            {BLOCK_LABEL[b]}
-          </span>
-        ))}
-        <span className="cl-size">{formatBytes(s.bytes)}</span>
-        <time dateTime={new Date(s.updatedAt).toISOString()}>{fmtIdle(s.updatedAt, now)}</time>
-      </div>
-    </li>
-  )
-}
-
-/**
- * A roundtable row. The carry chip says what leaves with it — the seats and the
- * worktree — because the table is the unit, exactly as a session's worktree rides
- * on the session above.
- */
-function TableRow({
-  t,
-  now,
-  picked,
-  onPick
-}: {
-  t: StaleTable
-  now: number
-  picked: boolean
-  onPick: (on: boolean, range: boolean) => void
-}): JSX.Element {
-  const carry = [
-    t.seatCount > 0 && `${t.seatCount} seat session${t.seatCount === 1 ? '' : 's'}`,
-    t.worktree ? 'its worktree' : 'its room'
-  ].filter(Boolean)
-  return (
-    <li className={`cl-row ${picked ? 'picked' : ''}`}>
-      <Pick
-        checked={picked}
-        disabled={t.blocks.length > 0}
-        label={`Select roundtable ${t.title}`}
-        onPick={onPick}
-      />
-      <span className="rt-seats" aria-hidden="true">
-        {t.providers.map((p, i) => (
-          <span key={`${p}-${i}`} className={`rt-seat plogo-${p}`}>
-            <ProviderLogo p={p} size={10} />
-          </span>
-        ))}
-      </span>
-      <div className="cl-body">
-        <div className="cl-title">
-          {t.title}
-          {t.repoName && <span className="cl-tag">{t.repoName}</span>}
-          {t.archived && <span className="cl-tag">archived</span>}
-          {t.worktree?.branch && <BranchChip branch={t.worktree.branch} />}
-        </div>
-        <div className="cl-sub">
-          {t.entryCount} message{t.entryCount === 1 ? '' : 's'} · takes {carry.join(' · ')}
-        </div>
-      </div>
-      <div className="cl-meta">
-        {t.blocks.map((b) => (
-          <span key={b} className="cl-block">
-            {BLOCK_LABEL[b]}
-          </span>
-        ))}
-        {/* sizes are never a bare 0 (MASTER: "— when unmeasurable, never 0") — an
-            empty room with its seats already gone has nothing to free */}
-        <span className="cl-size">{formatBytes(t.bytes ? t.bytes : null)}</span>
-        <span className="cl-age">{fmtIdle(t.updatedAt, now)}</span>
-      </div>
-    </li>
-  )
-}
-
-function WorktreeRow({
-  w,
-  now,
-  picked,
-  onPick
-}: {
-  w: StaleWorktree
-  now: number
-  picked: boolean
-  onPick: (on: boolean, range: boolean) => void
-}): JSX.Element {
-  return (
-    <li className={`cl-row ${picked ? 'picked' : ''}`}>
-      <Pick
-        checked={picked}
-        disabled={w.blocks.length > 0}
-        label={`Select worktree ${w.path}`}
-        onPick={onPick}
-      />
-      <span className="repo-icon" aria-hidden="true">
-        <RepoIcon size={13} />
-      </span>
-      <div className="cl-body">
-        <div className="cl-title">
-          {w.repoName}
-          <span className={`cl-origin cl-origin-${w.origin}`}>
-            {w.origin === 'cockpit' ? 'cockpit' : 'external'}
-          </span>
-          {w.branch && <BranchChip branch={w.branch} />}
-          {w.missing && <span className="cl-tag">directory gone</span>}
-        </div>
-        <div className="cl-sub cl-path" title={w.path}>
-          {shortPath(w.path)}
-        </div>
-      </div>
-      <div className="cl-meta">
-        {w.blocks.map((b) => (
-          <span key={b} className="cl-block">
-            {BLOCK_LABEL[b]}
-          </span>
-        ))}
-        {w.unpushed > 0 && (
-          <span
-            className="cl-unpushed"
-            title="Commits no remote has — the branch is kept unless git says it is fully merged"
-          >
-            {w.unpushed} unpushed
-          </span>
-        )}
-        {w.sessionCount > 0 && <span className="repo-count">{w.sessionCount}</span>}
-        <span className="cl-size">{formatBytes(w.bytes)}</span>
-        <time dateTime={new Date(w.lastActivity || now).toISOString()}>
-          {fmtIdle(w.lastActivity, now)}
-        </time>
-      </div>
-    </li>
-  )
-}
-
-function ProcessRow({
-  p,
-  now,
-  picked,
-  onPick
-}: {
-  p: OrphanProcess
-  now: number
-  picked: boolean
-  onPick: (on: boolean, range: boolean) => void
-}): JSX.Element {
-  const name = processName(p.command)
-  return (
-    <li className={`cl-row ${picked ? 'picked' : ''}`}>
-      <Pick checked={picked} label={`Select process ${name} (pid ${p.pid})`} onPick={onPick} />
-      <span className="repo-icon" aria-hidden="true">
-        <ProcessIcon size={13} />
-      </span>
-      <div className="cl-body">
-        <div className="cl-title" title={p.command}>
-          <span className="cl-proc">{name}</span>
-        </div>
-        {/* the group names the worktree; the command line is what tells siblings apart */}
-        <div className="cl-sub cl-path" title={`${p.command}\n${p.cwd}`}>
-          {p.command}
-        </div>
-      </div>
-      <div className="cl-meta">
-        <span className="cl-size">pid {p.pid}</span>
-        <span>{fmtRunning(p.startedAt, now)}</span>
-      </div>
-    </li>
-  )
-}
-
-/** One worktree's left-behind processes, under a line that names the worktree once. */
-function ProcessGroup({
-  procs,
-  children
-}: {
-  procs: readonly OrphanProcess[]
-  children: ReactNode
-}): JSX.Element {
-  const head = procs[0]
-  return (
-    <li className="cl-proc-group">
-      <div className="cl-title cl-proc-where">
-        {head.repoName && <span className="cl-proc-repo">{head.repoName}</span>}
-        {head.branch && <BranchChip branch={head.branch} />}
-        {procs.some((p) => p.worktreeGone) && <span className="cl-tag">worktree removed</span>}
-        <span className="cl-sub cl-path" title={head.worktreePath}>
-          {shortPath(head.worktreePath)}
-        </span>
-      </div>
-      <ul className="source-list">{children}</ul>
-    </li>
-  )
+/** A list's destructive button at rest: "Delete 3…", or "Delete…" with nothing picked. */
+function counted(verb: string, n: number): string {
+  return n > 0 ? `${verb} ${n}…` : `${verb}…`
 }
 
 /* ---------- what a selection actually frees ---------- */
@@ -569,10 +97,7 @@ function ProcessGroup({
  * worktree counts once, and only when every session indexed in it is picked — the
  * same rule main applies, so the number beside the button is the truth.
  */
-function reclaim(
-  rows: readonly StaleSession[],
-  picked: ReadonlySet<string>
-): { readonly bytes: number; readonly trees: number } {
+function reclaim(rows: readonly StaleSession[], picked: ReadonlySet<string>): Freed {
   let bytes = 0
   const trees = new Map<string, { picked: number; of: number; bytes: number }>()
   for (const s of rows) {
@@ -597,178 +122,105 @@ function reclaim(
   return { bytes, trees: n }
 }
 
-/* ---------- filter dimensions ---------- */
-
-type Selections = Record<string, { readonly included: readonly string[]; readonly excluded: readonly string[] }>
-
-const NONE: readonly string[] = []
-
-/** Bind one dimension to a slot of the selections record. */
-function dimension(
-  sel: Selections,
-  set: (fn: (prev: Selections) => Selections) => void
-): (id: string, label: string, options: FilterOption[]) => FilterGroup {
-  return (id, label, options) => ({
-    id,
-    label,
-    options,
-    included: sel[id]?.included ?? NONE,
-    excluded: sel[id]?.excluded ?? NONE,
-    onChange: (included, excluded) => set((prev) => ({ ...prev, [id]: { included, excluded } }))
+/** A table or a leftover worktree frees just itself: the picked rows on screen. */
+function shownBytes<T>(
+  key: (row: T) => string,
+  bytes: (row: T) => number | null
+): StaleListConfig<T>['frees'] {
+  return (_all, shown, picked) => ({
+    bytes: shown.filter((row) => picked.has(key(row))).reduce((n, row) => n + (bytes(row) ?? 0), 0),
+    trees: 0
   })
 }
 
-/** Every value a session carries for a dimension (see matchesFilters). */
-function sessionValues(s: StaleSession, groupId: string): readonly string[] {
-  if (groupId === 'agent') return [s.provider]
-  if (groupId === 'project') return [s.repoName ?? NO_REPO]
-  const state: string[] = []
-  if (s.archived) state.push('archived')
-  state.push(s.worktree ? 'worktree' : 'no-worktree')
-  if (s.blocks.length > 0) state.push('blocked')
-  return state
+/* ---------- the lists ---------- */
+
+const sessionKey = (s: StaleSession): string => s.id
+const tableKey = (t: StaleTable): string => t.id
+const treeKey = (w: StaleWorktree): string => w.path
+const processKey = (p: OrphanProcess): string => String(p.pid)
+
+const SESSIONS: StaleListConfig<StaleSession> = {
+  key: sessionKey,
+  blocked: (s) => s.blocks.length > 0,
+  text: (s) => `${s.title} ${s.repoName ?? ''} ${s.cwd ?? ''}`,
+  filters: sessionFilters,
+  values: sessionValues,
+  // every session, not just the shown ones: a shared worktree goes only with all of them
+  frees: (all, _shown, picked) => reclaim(all, picked),
+  Row: SessionRow,
+  empty: 'Nothing idle that long — every session is still recent.',
+  about: (
+    <>
+      Deleting a session takes the worktree it ran in with it, and the branch when git
+      reports that branch as fully merged. Archiving only hides a session in Cockpit — it
+      frees nothing.
+    </>
+  ),
+  bar: {
+    defaultPinned: ['agent', 'project'],
+    label: 'Filter sessions',
+    placeholder: 'Filter by title, project or path…'
+  },
+  head: 'stale sessions',
+  reading: 'Still reading every source…',
+  noMatch: 'No sessions match this filter.'
 }
 
-function tableValues(t: StaleTable, groupId: string): readonly string[] {
-  if (groupId === 'agent') return t.providers
-  if (groupId === 'project') return [t.repoName ?? NO_REPO]
-  const state: string[] = []
-  if (t.archived) state.push('archived')
-  state.push(t.worktree ? 'worktree' : 'room')
-  if (t.blocks.length > 0) state.push('blocked')
-  return state
+const TABLES: StaleListConfig<StaleTable> = {
+  key: tableKey,
+  blocked: (t) => t.blocks.length > 0,
+  text: (t) => `${t.title} ${t.repoName ?? ''} ${t.cwd}`,
+  filters: tableFilters,
+  values: tableValues,
+  frees: shownBytes(tableKey, (t) => t.bytes),
+  Row: TableRow,
+  empty: 'No table archived, and none gone quiet that long — every roundtable is recent.',
+  about: (
+    <>
+      Tables nobody has spoken to in a while, plus every table you archived — that is
+      already a decision, so it needs no waiting. Deleting one takes the seat sessions
+      that ran inside it and the room it ran in — its worktree and, when git reports the
+      branch fully merged, that too.
+    </>
+  ),
+  bar: {
+    defaultPinned: ['agent', 'state'],
+    label: 'Filter roundtables',
+    placeholder: 'Filter by topic, project or path…'
+  },
+  head: 'roundtables',
+  reading: 'Still reading every table…',
+  noMatch: 'No roundtables match this filter.'
 }
 
-function worktreeValues(w: StaleWorktree, groupId: string): readonly string[] {
-  if (groupId === 'agent') return w.providers
-  if (groupId === 'project') return [w.repoName]
-  if (groupId === 'origin') return [w.origin]
-  const state: string[] = [w.blocks.length > 0 ? 'blocked' : 'removable']
-  if (w.missing) state.push('missing')
-  if (w.unpushed > 0) state.push('unpushed')
-  return state
+const WORKTREES: StaleListConfig<StaleWorktree> = {
+  key: treeKey,
+  blocked: (w) => w.blocks.length > 0,
+  text: (w) => `${w.repoName} ${w.branch ?? ''} ${w.path}`,
+  filters: worktreeFilters,
+  values: worktreeValues,
+  frees: shownBytes(treeKey, (w) => w.bytes),
+  Row: WorktreeRow,
+  empty: 'No leftovers — every stale worktree belongs to a stale session, or is still in use.',
+  about: (
+    <>
+      Checkouts no stale session claims, including ones Cockpit never cut — a session’s
+      own worktree goes with it, under Sessions. Removing one keeps its branch unless git
+      reports it as fully merged.
+    </>
+  ),
+  bar: {
+    defaultPinned: ['agent', 'origin', 'state'],
+    label: 'Filter worktrees',
+    placeholder: 'Filter by project, branch or path…'
+  },
+  head: 'worktrees',
+  reading: 'Still asking git in every repository…',
+  noMatch: 'No worktrees match this filter.'
 }
 
-/** Options are derived from the rows themselves, so a dimension never offers a
- *  value that would match nothing. */
-function presentOptions<T>(rows: readonly T[], of: (row: T) => string): string[] {
-  return [...new Set(rows.map(of))].sort()
-}
-
-function sessionFilters(
-  rows: readonly StaleSession[],
-  sel: Selections,
-  set: (fn: (prev: Selections) => Selections) => void
-): FilterGroup[] {
-  const dim = dimension(sel, set)
-  return [
-    dim(
-      'agent',
-      'Agent',
-      presentOptions(rows, (s) => s.provider).map((p) => ({
-        value: p,
-        label: PROVIDER_LABEL[p as SessionProvider],
-        icon: (
-          <span className={`plogo plogo-${p}`} aria-hidden="true">
-            <ProviderLogo p={p as SessionProvider} size={11} />
-          </span>
-        )
-      }))
-    ),
-    dim(
-      'project',
-      'Project',
-      presentOptions(rows, (s) => s.repoName ?? NO_REPO).map((r) => ({
-        value: r,
-        label: r === NO_REPO ? 'No repository' : r
-      }))
-    ),
-    dim('state', 'State', [
-      { value: 'worktree', label: 'Has a worktree' },
-      { value: 'no-worktree', label: 'No worktree' },
-      { value: 'archived', label: 'Archived' },
-      { value: 'blocked', label: 'Blocked' }
-    ])
-  ]
-}
-
-function tableFilters(
-  rows: readonly StaleTable[],
-  sel: Selections,
-  set: (fn: (prev: Selections) => Selections) => void
-): FilterGroup[] {
-  const dim = dimension(sel, set)
-  return [
-    dim(
-      'agent',
-      'Agent',
-      // a seat's agent, so a table shows up under every agent sitting at it
-      presentOptions(rows.flatMap((t) => [...t.providers]), (p) => p).map((p) => ({
-        value: p,
-        label: PROVIDER_LABEL[p as Provider],
-        icon: (
-          <span className={`plogo plogo-${p}`} aria-hidden="true">
-            <ProviderLogo p={p as Provider} size={11} />
-          </span>
-        )
-      }))
-    ),
-    dim(
-      'project',
-      'Project',
-      presentOptions(rows, (t) => t.repoName ?? NO_REPO).map((r) => ({
-        value: r,
-        label: r === NO_REPO ? 'No repository' : r
-      }))
-    ),
-    dim('state', 'State', [
-      { value: 'worktree', label: 'Has a worktree' },
-      { value: 'room', label: 'Scratch room' },
-      { value: 'archived', label: 'Archived' },
-      { value: 'blocked', label: 'Blocked' }
-    ])
-  ]
-}
-
-function worktreeFilters(
-  rows: readonly StaleWorktree[],
-  sel: Selections,
-  set: (fn: (prev: Selections) => Selections) => void
-): FilterGroup[] {
-  const dim = dimension(sel, set)
-  return [
-    dim(
-      'agent',
-      'Agent',
-      // the agents whose sessions ran in it — Cursor's and Claude Code's own worktrees
-      // are theirs; one no session claims has none
-      presentOptions(rows.flatMap((w) => [...w.providers]), (p) => p).map((p) => ({
-        value: p,
-        label: PROVIDER_LABEL[p as SessionProvider],
-        icon: (
-          <span className={`plogo plogo-${p}`} aria-hidden="true">
-            <ProviderLogo p={p as SessionProvider} size={11} />
-          </span>
-        )
-      }))
-    ),
-    dim('origin', 'Origin', [
-      { value: 'cockpit', label: 'Cut by Cockpit' },
-      { value: 'external', label: 'External' }
-    ]),
-    dim(
-      'project',
-      'Project',
-      presentOptions(rows, (w) => w.repoName).map((r) => ({ value: r, label: r }))
-    ),
-    dim('state', 'State', [
-      { value: 'removable', label: 'Removable' },
-      { value: 'blocked', label: 'Blocked' },
-      { value: 'unpushed', label: 'Has unpushed commits' },
-      { value: 'missing', label: 'Directory gone' }
-    ])
-  ]
-}
+const neverBlocked = (): boolean => false
 
 /* ---------- the view ---------- */
 
@@ -780,19 +232,10 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const armed = useArmedConfirm()
-  const headingRef = useRef<HTMLHeadingElement>(null)
   /** null until the first scan lands, which opens the first tab holding anything —
    *  unless you picked one while it was still walking */
   const [tab, setTab] = useState<CleanupSection | null>(null)
   const current = tab ?? 'sessions'
-
-  const [sq, setSq] = useState('')
-  const [wq, setWq] = useState('')
-  const [tq, setTq] = useState('')
-  // one include/exclude pair per dimension, keyed by group id — the bar owns no state
-  const [sSel, setSSel] = useState<Selections>({})
-  const [wSel, setWSel] = useState<Selections>({})
-  const [tSel, setTSel] = useState<Selections>({})
 
   const sessions = useMemo(() => report?.sessions ?? [], [report])
   const worktrees = useMemo(() => report?.worktrees ?? [], [report])
@@ -808,52 +251,12 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   }, [report])
   const processes = useMemo(() => processGroups.flat(), [processGroups])
 
-  const sessionGroups = useMemo(
-    () => sessionFilters(sessions, sSel, setSSel),
-    [sessions, sSel]
-  )
-  const treeGroups = useMemo(() => worktreeFilters(worktrees, wSel, setWSel), [worktrees, wSel])
-  const tableGroups = useMemo(() => tableFilters(tables, tSel, setTSel), [tables, tSel])
-
-  const shownSessions = useMemo(() => {
-    const q = sq.trim().toLowerCase()
-    return sessions.filter((s) => {
-      if (!matchesFilters(sessionGroups, (id) => sessionValues(s, id))) return false
-      if (!q) return true
-      return `${s.title} ${s.repoName ?? ''} ${s.cwd ?? ''}`.toLowerCase().includes(q)
-    })
-  }, [sessions, sq, sessionGroups])
-
-  const shownWorktrees = useMemo(() => {
-    const q = wq.trim().toLowerCase()
-    return worktrees.filter((w) => {
-      if (!matchesFilters(treeGroups, (id) => worktreeValues(w, id))) return false
-      if (!q) return true
-      return `${w.repoName} ${w.branch ?? ''} ${w.path}`.toLowerCase().includes(q)
-    })
-  }, [worktrees, wq, treeGroups])
-
-  const shownTables = useMemo(() => {
-    const q = tq.trim().toLowerCase()
-    return tables.filter((t) => {
-      if (!matchesFilters(tableGroups, (id) => tableValues(t, id))) return false
-      if (!q) return true
-      return `${t.title} ${t.repoName ?? ''} ${t.cwd}`.toLowerCase().includes(q)
-    })
-  }, [tables, tq, tableGroups])
-
-  const sessionKey = useCallback((s: StaleSession) => s.id, [])
-  const sessionBlocked = useCallback((s: StaleSession) => s.blocks.length > 0, [])
-  const treeKey = useCallback((w: StaleWorktree) => w.path, [])
-  const treeBlocked = useCallback((w: StaleWorktree) => w.blocks.length > 0, [])
-  const sPicks = usePicks(shownSessions, sessionKey, sessionBlocked)
-  const wPicks = usePicks(shownWorktrees, treeKey, treeBlocked)
-  const processKey = useCallback((p: OrphanProcess) => String(p.pid), [])
-  const neverBlocked = useCallback(() => false, [])
+  // each list's query, filters and picks live here, so they survive a tab switch
+  const sList = useStaleList(sessions, SESSIONS)
+  const tList = useStaleList(tables, TABLES)
+  const wList = useStaleList(worktrees, WORKTREES)
   const pPicks = usePicks(processes, processKey, neverBlocked)
-  const tableKey = useCallback((t: StaleTable) => t.id, [])
-  const tableBlocked = useCallback((t: StaleTable) => t.blocks.length > 0, [])
-  const tPicks = usePicks(shownTables, tableKey, tableBlocked)
+  const allPicks = [sList.picks, wList.picks, pPicks, tList.picks]
 
   // Scans overlap — the threshold can change while one runs — and finish in any
   // order: a report measured at the old threshold landing last would show the wrong
@@ -871,26 +274,23 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       const counts = sectionCounts(r)
       setTab((t) => t ?? CLEANUP_SECTIONS.find((s) => counts[s.id] > 0)?.id ?? 'sessions')
     } catch (err) {
-      if (seq === scanSeq.current) setError(err instanceof Error ? err.message : String(err))
+      if (seq === scanSeq.current) setError(ipcErrorText(err))
     } finally {
       if (seq === scanSeq.current) setScanning(false)
     }
   }, [])
 
   useEffect(() => {
-    headingRef.current?.focus()
     void scan()
   }, [scan])
 
   const changeThreshold = async (days: string): Promise<void> => {
     setStaleDays(days)
     await api.setStaleDays(Number(days))
-    sPicks.clear()
-    wPicks.clear()
-    pPicks.clear()
-    // a table picked at the old threshold may not be listed at the new one — a
-    // pick left behind rode along, unseen, into the next delete
-    tPicks.clear()
+    // every list's picks, the tables' included: a table picked at the old threshold
+    // may not be listed at the new one — a pick left behind rode along, unseen, into
+    // the next delete
+    for (const p of allPicks) p.clear()
     await scan()
   }
 
@@ -903,40 +303,25 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       const res = await action()
       // the rescan comes first: it clears the previous error, so a refusal reported
       // before it would be wiped off the screen the moment the truth came back
-      sPicks.clear()
-      wPicks.clear()
-      pPicks.clear()
-      tPicks.clear()
+      for (const p of allPicks) p.clear()
       await scan()
       const failed = res.failed.length
       const freed = res.freedBytes > 0 ? ` · ${formatBytes(res.freedBytes)} freed` : ''
       const branches = res.branchesDeleted?.length
-        ? ` · ${res.branchesDeleted.length} merged branch${
-            res.branchesDeleted.length === 1 ? '' : 'es'
-          } deleted`
+        ? ` · ${plural(res.branchesDeleted.length, 'merged branch', 'merged branches')} deleted`
         : ''
       setStatus(`${verb} ${res.cleaned}${freed}${branches}${failed ? ` · ${failed} kept` : ''}`)
       if (failed) setError(res.failed.map((f) => `${f.target} — ${f.reason}`).join('\n'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(ipcErrorText(err))
     } finally {
       setWorking(false)
     }
   }
 
-  const sPicked = sPicks.picked
-  const wPicked = wPicks.picked
-  const gain = reclaim(sessions, sPicked)
-  const hiddenSessions = sPicked.size - sPicks.shown
-  const treeGain = shownWorktrees
-    .filter((w) => wPicked.has(w.path))
-    .reduce((n, w) => n + (w.bytes ?? 0), 0)
-  const hiddenTrees = wPicked.size - wPicks.shown
-  const tPicked = tPicks.picked
-  const tableGain = shownTables
-    .filter((t) => tPicked.has(t.id))
-    .reduce((n, t) => n + (t.bytes ?? 0), 0)
-  const hiddenTables = tPicked.size - tPicks.shown
+  const sPicked = sList.picks.picked
+  const tPicked = tList.picks.picked
+  const wPicked = wList.picks.picked
   const pPicked = pPicks.picked
   const counts = sectionCounts(report)
   const truncated = (report?.staleSessionCount ?? 0) > sessions.length
@@ -945,97 +330,40 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
   /** One panel per tab: a `Record` will not compile if a tab is added to
    *  `CLEANUP_SECTIONS` without a list behind it. */
   const panels: Record<CleanupSection, JSX.Element> = {
-    sessions:
-      sessions.length === 0 && !scanning ? (
-        <p className="ns-hint">Nothing idle that long — every session is still recent.</p>
-      ) : (
-        <>
-          <p className="ns-hint">
-            Deleting a session takes the worktree it ran in with it, and the branch when git
-            reports that branch as fully merged. Archiving only hides a session in Cockpit — it
-            frees nothing.
-          </p>
-          <FilterBar
-            groups={sessionGroups}
-            defaultPinned={['agent', 'project']}
-            search={{
-              value: sq,
-              onChange: setSq,
-              label: 'Filter sessions',
-              placeholder: 'Filter by title, project or path…'
-            }}
-          />
-
-          <GroupHead
-            picks={sPicks}
-            label="stale sessions"
-            summary={
-              sPicked.size > 0 ? (
-                <>
-                  <strong>{sPicked.size}</strong> selected · {formatBytes(gain.bytes)}
-                  {gain.trees > 0 && ` · ${gain.trees} worktree${gain.trees === 1 ? '' : 's'}`}
-                  {hiddenSessions > 0 && (
-                    <span className="cl-hidden"> · {hiddenSessions} not shown</span>
-                  )}
-                </>
-              ) : (
-                <>
-                  {shownSessions.length} shown
-                  {shownSessions.length !== sessions.length && ` of ${sessions.length}`}
-                </>
-              )
-            }
-          >
-            <button
-              className="btn-ghost"
-              disabled={working || sPicked.size === 0}
-              title="Hides them in Cockpit. Nothing on disk is touched."
-              onClick={() => void run('Archived', () => api.archiveSessions([...sPicked]))}
-            >
-              Archive{sPicked.size > 0 ? ` ${sPicked.size}` : ''}
-            </button>
-            <ArmedAction
-              id="sessions"
-              armed={armed.armed}
-              disabled={working || sPicked.size === 0}
-              labels={[
-                sPicked.size > 0 ? `Delete ${sPicked.size}…` : 'Delete…',
-                `Delete ${sPicked.size} for good?`,
-                "Deletes the agents' own log files, the worktrees these sessions ran in, and any branch git reports as fully merged. This cannot be undone."
-              ]}
-              confirm={{
-                arm: armed.arm,
-                disarm: armed.disarm,
-                commit: () => void run('Deleted', () => api.deleteSessions([...sPicked]))
-              }}
-            />
-          </GroupHead>
-
-          {shownSessions.length === 0 ? (
-            <p className="ns-hint cl-empty">
-              {scanning ? 'Still reading every source…' : 'No sessions match this filter.'}
-            </p>
-          ) : (
-            <ul className="source-list cl-list">
-              {shownSessions.map((s, i) => (
-                <SessionRow
-                  key={s.id}
-                  s={s}
-                  now={now}
-                  picked={sPicked.has(s.id)}
-                  onPick={(on, range) => sPicks.toggle(i, on, range)}
-                />
-              ))}
-            </ul>
-          )}
-          {truncated && (
+    sessions: (
+      <StaleList
+        config={SESSIONS}
+        list={sList}
+        now={now}
+        scanning={scanning}
+        footer={
+          truncated && (
             <p className="ns-hint">
               Showing the {sessions.length} oldest of {report?.staleSessionCount} — clean these,
               then rescan for the rest.
             </p>
-          )}
-        </>
-      ),
+          )
+        }
+      >
+        <button
+          className="btn-ghost"
+          disabled={working || sPicked.size === 0}
+          title="Hides them in Cockpit. Nothing on disk is touched."
+          onClick={() => void run('Archived', () => api.archiveSessions([...sPicked]))}
+        >
+          Archive{sPicked.size > 0 ? ` ${sPicked.size}` : ''}
+        </button>
+        <ArmedButton
+          id="sessions"
+          slot={armed}
+          disabled={working || sPicked.size === 0}
+          rest={counted('Delete', sPicked.size)}
+          ask={`Delete ${sPicked.size} for good?`}
+          title="Deletes the agents' own log files, the worktrees these sessions ran in, and any branch git reports as fully merged. This cannot be undone."
+          onConfirm={() => void run('Deleted', () => api.deleteSessions([...sPicked]))}
+        />
+      </StaleList>
+    ),
     processes:
       processes.length === 0 && !scanning ? (
         <p className="ns-hint">
@@ -1061,27 +389,22 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
               )
             }
           >
-            <ArmedAction
+            <ArmedButton
               id="processes"
-              armed={armed.armed}
+              slot={armed}
               disabled={working || pPicked.size === 0}
-              labels={[
-                pPicked.size > 0 ? `Stop ${pPicked.size}…` : 'Stop…',
-                `Stop ${pPicked.size} process${pPicked.size === 1 ? '' : 'es'}?`,
-                'Sends SIGTERM to each, asking it to exit. Anything unsaved inside those processes is lost; one that ignores the signal is reported, never killed.'
-              ]}
-              confirm={{
-                arm: armed.arm,
-                disarm: armed.disarm,
-                commit: () =>
-                  void run('Stopped', () =>
-                    api.stopProcesses(
-                      processes
-                        .filter((p) => pPicked.has(processKey(p)))
-                        .map(({ pid, command, startedAt }) => ({ pid, command, startedAt }))
-                    )
+              rest={counted('Stop', pPicked.size)}
+              ask={`Stop ${plural(pPicked.size, 'process', 'processes')}?`}
+              title="Sends SIGTERM to each, asking it to exit. Anything unsaved inside those processes is lost; one that ignores the signal is reported, never killed."
+              onConfirm={() =>
+                void run('Stopped', () =>
+                  api.stopProcesses(
+                    processes
+                      .filter((p) => pPicked.has(processKey(p)))
+                      .map(({ pid, command, startedAt }) => ({ pid, command, startedAt }))
                   )
-              }}
+                )
+              }
             />
           </GroupHead>
           {processes.length === 0 ? (
@@ -1095,7 +418,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
                     return (
                       <ProcessRow
                         key={p.pid}
-                        p={p}
+                        row={p}
                         now={now}
                         picked={pPicked.has(processKey(p))}
                         onPick={(on, range) => pPicks.toggle(i, on, range)}
@@ -1108,244 +431,99 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           )}
         </>
       ),
-    tables:
-      tables.length === 0 && !scanning ? (
-        <p className="ns-hint">
-          No table archived, and none gone quiet that long — every roundtable is recent.
-        </p>
-      ) : (
-        <>
-          <p className="ns-hint">
-            Tables nobody has spoken to in a while, plus every table you archived — that is
-            already a decision, so it needs no waiting. Deleting one takes the seat sessions
-            that ran inside it and the room it ran in — its worktree and, when git reports the
-            branch fully merged, that too.
-          </p>
-          <FilterBar
-            groups={tableGroups}
-            defaultPinned={['agent', 'state']}
-            search={{
-              value: tq,
-              onChange: setTq,
-              label: 'Filter roundtables',
-              placeholder: 'Filter by topic, project or path…'
-            }}
-          />
-
-          <GroupHead
-            picks={tPicks}
-            label="roundtables"
-            summary={
-              tPicked.size > 0 ? (
-                <>
-                  <strong>{tPicked.size}</strong> selected · {formatBytes(tableGain)}
-                  {hiddenTables > 0 && (
-                    <span className="cl-hidden"> · {hiddenTables} not shown</span>
-                  )}
-                </>
-              ) : (
-                <>
-                  {shownTables.length} shown
-                  {shownTables.length !== tables.length && ` of ${tables.length}`}
-                </>
-              )
-            }
-          >
-            <ArmedAction
-              id="tables"
-              armed={armed.armed}
-              disabled={working || tPicked.size === 0}
-              labels={[
-                tPicked.size > 0 ? `Delete ${tPicked.size}…` : 'Delete…',
-                `Delete ${tPicked.size} roundtable${tPicked.size === 1 ? '' : 's'}?`,
-                'Takes each table, its seat sessions and the directory it ran in. This cannot be undone.'
-              ]}
-              confirm={{
-                arm: armed.arm,
-                disarm: armed.disarm,
-                commit: () => void run('Deleted', () => api.deleteRoundtables([...tPicked]))
-              }}
-            />
-          </GroupHead>
-
-          {shownTables.length === 0 ? (
-            <p className="ns-hint cl-empty">
-              {scanning ? 'Still reading every table…' : 'No roundtables match this filter.'}
-            </p>
-          ) : (
-            <ul className="source-list cl-list">
-              {shownTables.map((t, i) => (
-                <TableRow
-                  key={t.id}
-                  t={t}
-                  now={now}
-                  picked={tPicked.has(t.id)}
-                  onPick={(on, range) => tPicks.toggle(i, on, range)}
-                />
-              ))}
-            </ul>
-          )}
-        </>
-      ),
-    worktrees:
-      worktrees.length === 0 && !scanning ? (
-        <p className="ns-hint">
-          No leftovers — every stale worktree belongs to a stale session, or is still in use.
-        </p>
-      ) : (
-        <>
-          <p className="ns-hint">
-            Checkouts no stale session claims, including ones Cockpit never cut — a session’s
-            own worktree goes with it, under Sessions. Removing one keeps its branch unless git
-            reports it as fully merged.
-          </p>
-          <FilterBar
-            groups={treeGroups}
-            defaultPinned={['agent', 'origin', 'state']}
-            search={{
-              value: wq,
-              onChange: setWq,
-              label: 'Filter worktrees',
-              placeholder: 'Filter by project, branch or path…'
-            }}
-          />
-
-          <GroupHead
-            picks={wPicks}
-            label="worktrees"
-            summary={
-              wPicked.size > 0 ? (
-                <>
-                  <strong>{wPicked.size}</strong> selected · {formatBytes(treeGain)}
-                  {hiddenTrees > 0 && <span className="cl-hidden"> · {hiddenTrees} not shown</span>}
-                </>
-              ) : (
-                <>
-                  {shownWorktrees.length} shown
-                  {shownWorktrees.length !== worktrees.length && ` of ${worktrees.length}`}
-                </>
-              )
-            }
-          >
-            <ArmedAction
-              id="worktrees"
-              armed={armed.armed}
-              disabled={working || wPicked.size === 0}
-              labels={[
-                wPicked.size > 0 ? `Remove ${wPicked.size}…` : 'Remove…',
-                `Remove ${wPicked.size} worktree${wPicked.size === 1 ? '' : 's'}?`,
-                'Runs git worktree remove on each — the directory goes, the branch stays unless git says it is fully merged.'
-              ]}
-              confirm={{
-                arm: armed.arm,
-                disarm: armed.disarm,
-                commit: () => void run('Removed', () => api.removeWorktrees([...wPicked]))
-              }}
-            />
-          </GroupHead>
-
-          {shownWorktrees.length === 0 ? (
-            <p className="ns-hint cl-empty">
-              {scanning ? 'Still asking git in every repository…' : 'No worktrees match this filter.'}
-            </p>
-          ) : (
-            <ul className="source-list cl-list">
-              {shownWorktrees.map((w, i) => (
-                <WorktreeRow
-                  key={w.path}
-                  w={w}
-                  now={now}
-                  picked={wPicked.has(w.path)}
-                  onPick={(on, range) => wPicks.toggle(i, on, range)}
-                />
-              ))}
-            </ul>
-          )}
-        </>
-      )
+    tables: (
+      <StaleList config={TABLES} list={tList} now={now} scanning={scanning}>
+        <ArmedButton
+          id="tables"
+          slot={armed}
+          disabled={working || tPicked.size === 0}
+          rest={counted('Delete', tPicked.size)}
+          ask={`Delete ${plural(tPicked.size, 'roundtable')}?`}
+          title="Takes each table, its seat sessions and the directory it ran in. This cannot be undone."
+          onConfirm={() => void run('Deleted', () => api.deleteRoundtables([...tPicked]))}
+        />
+      </StaleList>
+    ),
+    worktrees: (
+      <StaleList config={WORKTREES} list={wList} now={now} scanning={scanning}>
+        <ArmedButton
+          id="worktrees"
+          slot={armed}
+          disabled={working || wPicked.size === 0}
+          rest={counted('Remove', wPicked.size)}
+          ask={`Remove ${plural(wPicked.size, 'worktree')}?`}
+          title="Runs git worktree remove on each — the directory goes, the branch stays unless git says it is fully merged."
+          onConfirm={() => void run('Removed', () => api.removeWorktrees([...wPicked]))}
+        />
+      </StaleList>
+    )
   }
 
   return (
-    <main className="chat settings-view">
-      <div className="ns-card">
-        <div className="ns-head">
-          <h2 ref={headingRef} tabIndex={-1}>
-            Cleanup
-          </h2>
-          <button className="btn-ghost" onClick={onClose}>
-            Close
+    <ViewCard title="Cleanup" onClose={onClose}>
+      <p className="ns-hint">
+        What has gone quiet, across every agent and every repository, and what can safely go.
+      </p>
+
+      <div className="ns-options">
+        <div className="ns-opt">
+          <label className="ns-label" htmlFor="stale-days">
+            Idle threshold
+          </label>
+          <Select
+            id="stale-days"
+            ariaLabel="Idle threshold"
+            value={staleDays}
+            options={STALE_OPTIONS}
+            onChange={(v) => void changeThreshold(v)}
+          />
+        </div>
+        <div className="ns-opt cl-rescan">
+          <button className="btn-ghost" disabled={scanning || working} onClick={() => void scan()}>
+            {scanning ? 'Scanning…' : 'Rescan'}
           </button>
         </div>
-        <p className="ns-hint">
-          What has gone quiet, across every agent and every repository, and what can safely go.
-        </p>
-
-        <div className="ns-options">
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="stale-days">
-              Idle threshold
-            </label>
-            <Select
-              id="stale-days"
-              ariaLabel="Idle threshold"
-              value={staleDays}
-              options={STALE_OPTIONS}
-              onChange={(v) => void changeThreshold(v)}
-            />
-          </div>
-          <div className="ns-opt cl-rescan">
-            <button className="btn-ghost" disabled={scanning || working} onClick={() => void scan()}>
-              {scanning ? 'Scanning…' : 'Rescan'}
-            </button>
-          </div>
-        </div>
-
-        <p className="ns-hint" aria-live="polite">
-          {scanning ? (
-            <>
-              <span className="pulse" aria-hidden="true" /> Walking every source and repository…
-            </>
-          ) : report ? (
-            <>
-              {report.staleSessionCount} of {report.totalSessions} sessions ·{' '}
-              {formatBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
-              {report.totalWorktrees} worktrees
-              {report.totalTables > 0 &&
-                ` · ${report.staleTableCount} of ${report.totalTables} roundtables`}
-              {report.processes.length > 0 &&
-                ` · ${report.processes.length} process${
-                  report.processes.length === 1 ? '' : 'es'
-                } left running`}
-              {status && ` — ${status}`}
-            </>
-          ) : (
-            status
-          )}
-        </p>
-
-        {/* the threshold and the scan above govern every list, so they sit over the
-            tabs; each list is its own page under them, never a heading further down */}
-        <TabList
-          id="cleanup"
-          label="Cleanup sections"
-          tabs={CLEANUP_SECTIONS.map((s) => ({ ...s, count: counts[s.id] }))}
-          selected={current}
-          onSelect={(t) => {
-            // an armed Delete is a question about the list on screen — leaving it is "no"
-            armed.disarm()
-            setTab(t)
-          }}
-        />
-        <TabPanel id="cleanup" selected={current}>
-          {panels[current]}
-        </TabPanel>
-
-        {error && (
-          <div role="alert" className="new-error">
-            {error}
-          </div>
-        )}
       </div>
-    </main>
+
+      <p className="ns-hint" aria-live="polite">
+        {scanning ? (
+          <>
+            <span className="pulse" aria-hidden="true" /> Walking every source and repository…
+          </>
+        ) : report ? (
+          <>
+            {report.staleSessionCount} of {report.totalSessions} sessions ·{' '}
+            {formatBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
+            {report.totalWorktrees} worktrees
+            {report.totalTables > 0 &&
+              ` · ${report.staleTableCount} of ${report.totalTables} roundtables`}
+            {report.processes.length > 0 &&
+              ` · ${plural(report.processes.length, 'process', 'processes')} left running`}
+            {status && ` — ${status}`}
+          </>
+        ) : (
+          status
+        )}
+      </p>
+
+      {/* the threshold and the scan above govern every list, so they sit over the
+          tabs; each list is its own page under them, never a heading further down */}
+      <TabList
+        id="cleanup"
+        label="Cleanup sections"
+        tabs={CLEANUP_SECTIONS.map((s) => ({ ...s, count: counts[s.id] }))}
+        selected={current}
+        onSelect={(t) => {
+          // an armed Delete is a question about the list on screen — leaving it is "no"
+          armed.disarm()
+          setTab(t)
+        }}
+      />
+      <TabPanel id="cleanup" selected={current}>
+        {panels[current]}
+      </TabPanel>
+
+      {error && <ErrorAlert>{error}</ErrorAlert>}
+    </ViewCard>
   )
 }

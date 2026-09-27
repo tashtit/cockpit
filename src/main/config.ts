@@ -6,6 +6,7 @@ import type {
   AttentionPrefs,
   LibraryEntry,
   ModelEndpoint,
+  SessionMeta,
   SourceDir,
   TimeFormat,
   UpdatePrefs
@@ -14,8 +15,9 @@ import { detectAgentHomes, reconcileDetected } from './agent-homes'
 import { clampStaleDays } from './cleanup-core'
 import { sanitizeControlMap, withControl, type ControlEntry } from './session-control-core'
 import { writeFileAtomic } from './replace-file'
+import { readIfPresent } from './state-file'
+import { isLatest, withRecent } from './recent-map'
 import { sanitizeAcpAgent } from '../shared/acp'
-import { isSessionProvider } from '../shared/providers'
 import { clampZoom, type WindowPlacement } from '../shared/window'
 import {
   DEFAULT_BRANCH_PREFIX,
@@ -23,6 +25,7 @@ import {
   branchPrefixRefusal,
   normalizeBranchPrefix
 } from '../shared/branch-prefix'
+import { isSessionProvider } from '../shared/providers'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
@@ -187,18 +190,18 @@ function stringList(v: unknown): string[] | undefined {
  * in-memory defaults: that would turn one unreadable file into a lost one.
  */
 export function readConfigStrict(): AppConfig {
-  let raw: string
-  try {
-    raw = readFileSync(configPath(), 'utf8')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return firstRunConfig()
-    throw new Error(`cannot read ${configPath()}: ${(err as Error).message}`)
-  }
+  const raw = readIfPresent(configPath())
+  if (raw === null) return firstRunConfig()
   try {
     return parseConfig(raw)
   } catch (err) {
     throw new Error(`${configPath()} is unreadable (${(err as Error).message}) — fix or move it first`)
   }
+}
+
+/** The configured source a session was indexed under — its config home — while it is still configured. */
+export function sourceFor(session: Pick<SessionMeta, 'provider' | 'source'>): SourceDir | undefined {
+  return loadConfig().sources.find((s) => s.provider === session.provider && s.label === session.source)
 }
 
 export function loadConfig(): AppConfig {
@@ -233,48 +236,38 @@ export function loadConfig(): AppConfig {
   return cfg
 }
 
-export function setSessionArchived(sessionId: string, archived: boolean): string[] {
+/** The config lists an id is either on or off: what is archived, what is hidden. */
+type ListField = 'archived' | 'archivedRoundtables' | 'hiddenRepos'
+
+/** Put `ids` on the list (or take them off) and save; the whole list as it now stands. */
+function toggleListed(field: ListField, ids: readonly string[], on: boolean): string[] {
   const cfg = loadConfig()
-  const set = new Set(cfg.archived ?? [])
-  if (archived) set.add(sessionId)
-  else set.delete(sessionId)
-  const ids = [...set]
-  saveConfig({ ...cfg, archived: ids })
-  return ids
+  const set = new Set(cfg[field] ?? [])
+  for (const id of ids) {
+    if (on) set.add(String(id))
+    else set.delete(String(id))
+  }
+  const next = [...set]
+  saveConfig({ ...cfg, [field]: next })
+  return next
+}
+
+export function setSessionArchived(sessionId: string, archived: boolean): string[] {
+  return toggleListed('archived', [sessionId], archived)
 }
 
 /** Same two tiers as a session: archiving a table only hides it, and is reversible. */
 export function setRoundtableArchived(id: string, archived: boolean): string[] {
-  const cfg = loadConfig()
-  const set = new Set(cfg.archivedRoundtables ?? [])
-  if (archived) set.add(id)
-  else set.delete(id)
-  const ids = [...set]
-  saveConfig({ ...cfg, archivedRoundtables: ids })
-  return ids
+  return toggleListed('archivedRoundtables', [id], archived)
 }
 
 /** Batch counterpart of setSessionArchived — cleanup archives hundreds at once. */
 export function setSessionsArchived(ids: readonly string[], archived: boolean): string[] {
-  const cfg = loadConfig()
-  const set = new Set(cfg.archived ?? [])
-  for (const id of ids) {
-    if (archived) set.add(String(id))
-    else set.delete(String(id))
-  }
-  const next = [...set]
-  saveConfig({ ...cfg, archived: next })
-  return next
+  return toggleListed('archived', ids, archived)
 }
 
 export function setRepoHidden(repoKey: string, hidden: boolean): string[] {
-  const cfg = loadConfig()
-  const set = new Set(cfg.hiddenRepos ?? [])
-  if (hidden) set.add(repoKey)
-  else set.delete(repoKey)
-  const keys = [...set]
-  saveConfig({ ...cfg, hiddenRepos: keys })
-  return keys
+  return toggleListed('hiddenRepos', [repoKey], hidden)
 }
 
 export function setRepoOrder(repoKeys: readonly string[]): string[] {
@@ -455,7 +448,7 @@ export function listAcpAgents(): AcpAgent[] {
 }
 
 /** Upsert by id, in place, so editing an agent keeps its position in the user's list. */
-export function withAcpAgent(cfg: AppConfig, agent: AcpAgent): AppConfig {
+function withAcpAgent(cfg: AppConfig, agent: AcpAgent): AppConfig {
   const existing = cfg.acpAgents ?? []
   const agents = existing.some((a) => a.id === agent.id)
     ? existing.map((a) => (a.id === agent.id ? agent : a))
@@ -497,17 +490,12 @@ export const SESSION_ENDPOINT_CAP = 500
 /** Remember which endpoint a session was started with so resume stays on that backend. */
 export function bindSessionEndpoint(sessionId: string, endpointId: string): void {
   const cfg = loadConfig()
-  const entries = Object.entries(cfg.sessionEndpoints ?? {})
+  const current = cfg.sessionEndpoints ?? {}
   // claude emits two session events per turn — skip the rewrite when nothing changes
-  const last = entries[entries.length - 1]
-  if (last && last[0] === sessionId && last[1] === endpointId) return
-  // re-insert so JSON key order doubles as recency for the cap below
-  const kept = entries.filter(([sid]) => sid !== sessionId)
-  kept.push([sessionId, endpointId])
-  saveConfig({
-    ...cfg,
-    sessionEndpoints: Object.fromEntries(kept.slice(Math.max(0, kept.length - SESSION_ENDPOINT_CAP)))
-  })
+  if (isLatest(current, sessionId, endpointId)) return
+  // re-inserted even when bound already, so a session still in use outlives the cap
+  const next = withRecent(current, { id: sessionId, value: endpointId, cap: SESSION_ENDPOINT_CAP })
+  saveConfig({ ...cfg, sessionEndpoints: next })
 }
 
 export function sessionEndpointFor(sessionId: string): string | undefined {
@@ -529,23 +517,15 @@ export function bindSessionLineage(
   const current = cfg.continuedFrom ?? {}
   // a session can never continue itself
   if (newSessionId === sourceSessionId) return current
-  const entries = Object.entries(current)
   // claude emits two session events per turn — skip the rewrite when nothing changes
-  const last = entries[entries.length - 1]
-  if (last && last[0] === newSessionId && last[1] === sourceSessionId) return current
-  const kept = entries.filter(([sid]) => sid !== newSessionId)
-  kept.push([newSessionId, sourceSessionId])
-  const next = Object.fromEntries(kept.slice(Math.max(0, kept.length - SESSION_LINEAGE_CAP)))
+  if (isLatest(current, newSessionId, sourceSessionId)) return current
+  const next = withRecent(current, { id: newSessionId, value: sourceSessionId, cap: SESSION_LINEAGE_CAP })
   saveConfig({ ...cfg, continuedFrom: next })
   return next
 }
 
 export function sessionLineageFor(sessionId: string): string | undefined {
   return loadConfig().continuedFrom?.[sessionId]
-}
-
-export function sessionLineage(): Record<string, string> {
-  return loadConfig().continuedFrom ?? {}
 }
 
 export const SESSION_CONTROL_CAP = 1000
@@ -580,16 +560,5 @@ export function saveConfig(cfg: AppConfig): void {
  * those defaults over it. Refuse instead, until the file is fixed or moved.
  */
 function assertOverwritable(): void {
-  let raw: string
-  try {
-    raw = readFileSync(configPath(), 'utf8')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw new Error(`cannot read ${configPath()} (${(err as Error).message}) — not overwriting it`)
-  }
-  try {
-    parseConfig(raw)
-  } catch (err) {
-    throw new Error(`${configPath()} is unreadable (${(err as Error).message}) — fix or move it first`)
-  }
+  readConfigStrict()
 }
