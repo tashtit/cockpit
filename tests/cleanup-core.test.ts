@@ -8,6 +8,7 @@ import {
   isStale,
   judgeProcesses,
   lastWorktreeActivity,
+  leftBehind,
   ownProcessTree,
   parseElapsed,
   parseLsofCwds,
@@ -443,6 +444,89 @@ describe('judgeProcesses', () => {
 
   it('lists the longest-running first', () => {
     expect(judge([proc(9, '/wt/app/fix'), proc(3, '/wt/app/fix')]).map((p) => p.pid)).toEqual([3, 9])
+  })
+})
+
+describe('leftBehind', () => {
+  const proc = (pid: number, cwd: string, ppid = 1) => ({
+    pid,
+    ppid,
+    command: `node server-${pid}.js`,
+    startedAt: pid,
+    cwd
+  })
+  const tree = { repoName: 'app', branch: 'cockpit/fix', isMain: false, missing: false }
+  const worktrees = [
+    { ...tree, path: '/repos/app', isMain: true, branch: 'main' },
+    { ...tree, path: '/wt/app/fix' },
+    { ...tree, path: '/wt/app/other', branch: 'cockpit/other' },
+    { ...tree, path: '/repos/app/.claude/worktrees/spike', branch: 'spike' }
+  ]
+  const homes = [
+    { path: '/wt', repoName: null, depth: 2 },
+    { path: '/repos/app/.claude/worktrees', repoName: 'app', depth: 1 }
+  ]
+  const onDisk = new Set(['/repos/app', '/wt/app/fix', '/wt/app/other', '/repos/app/.claude/worktrees/spike'])
+  const left = (
+    processes: ReturnType<typeof proc>[],
+    where: { archived?: string[]; inUse?: string[] } = {}
+  ) =>
+    leftBehind({
+      archived: where.archived ?? ['/wt/app/fix'],
+      inUse: where.inUse ?? [],
+      processes,
+      worktrees,
+      homes,
+      exists: (p) => onDisk.has(p)
+    }).map((p) => p.pid)
+
+  it('takes the server an archived session left running, and everything under it', () => {
+    // npm run dev → vite → esbuild, adopted by launchd once the turn that started it ended
+    const found = left([proc(10, '/wt/app/fix'), proc(11, '/wt/app/fix', 10), proc(12, '/wt/app/fix/web', 11)])
+    expect(found).toEqual([10, 11, 12])
+  })
+
+  it('leaves what a live parent still answers for', () => {
+    // the agent still running it (pid 50, elsewhere), and a terminal's shell
+    expect(left([proc(10, '/wt/app/fix', 50), proc(11, '/wt/app/fix', 10), proc(20, '/wt/app/fix', 60)])).toEqual([])
+  })
+
+  it('takes a server started deeper than the session ran, anywhere in its worktree', () => {
+    expect(left([proc(10, '/wt/app/fix')], { archived: ['/wt/app/fix/packages/web'] })).toEqual([10])
+  })
+
+  it('leaves a worktree another session, a running turn or a table still uses', () => {
+    expect(left([proc(10, '/wt/app/fix')], { inUse: ['/wt/app/fix/web'] })).toEqual([])
+  })
+
+  it('leaves the other worktrees, and the repository’s own checkout alone', () => {
+    const procs = [proc(10, '/wt/app/other'), proc(11, '/repos/app'), proc(12, '/repos/app/.claude/worktrees/spike')]
+    expect(left(procs)).toEqual([])
+    // a session in the checkout itself holds every worktree inside it — and ends none of them
+    expect(left(procs, { archived: ['/repos/app'] })).toEqual([])
+  })
+
+  it('takes one whose worktree was removed with the session', () => {
+    const gone = '/repos/app/.claude/worktrees/done'
+    const [p] = leftBehind({
+      archived: [gone],
+      inUse: [],
+      processes: [proc(10, `${gone}/web`)],
+      worktrees,
+      homes,
+      exists: (p) => onDisk.has(p)
+    })
+    expect(p).toMatchObject({ pid: 10, worktreePath: gone, worktreeGone: true })
+  })
+
+  it('leaves a tree that also works outside the worktree whole', () => {
+    // a multiplexer started there, with a window in another checkout
+    expect(left([proc(10, '/wt/app/fix'), proc(11, '/wt/app/fix', 10), proc(12, '/wt/app/other', 10)])).toEqual([])
+  })
+
+  it('takes nothing when no session was archived in a worktree', () => {
+    expect(left([proc(10, '/wt/app/fix')], { archived: [] })).toEqual([])
+    expect(left([proc(10, '/tmp/scratch')], { archived: ['/tmp/scratch'] })).toEqual([])
   })
 })
 

@@ -18,6 +18,7 @@ import {
   isStale,
   judgeProcesses,
   lastWorktreeActivity,
+  leftBehind,
   ownProcessTree,
   parseLsofCwds,
   parsePs,
@@ -33,6 +34,7 @@ import {
   worktreesWithProcesses,
   type CwdSessions,
   type JudgedProcess,
+  type PlacedWorktree,
   type ProcessFacts,
   type WorktreeEntry,
   type WorktreeHome
@@ -61,7 +63,9 @@ import { isUnder, realOrSelf } from './paths'
  *   processes  — whatever is still running with its cwd inside a stale worktree, or
  *                inside one already removed from under it (the dev server nobody
  *                stopped). Found with `lsof`, stopped with SIGTERM only, and a
- *                worktree with one inside is blocked until it is gone.
+ *                worktree with one inside is blocked until it is gone. Archiving a
+ *                session stops what it left behind in its worktree without the view
+ *                (`stopLeftBehind`, told when by `archive-watch.ts`).
  *
  * Nothing here trusts a renderer-supplied path. `removeWorktrees` re-derives the
  * whole listing before acting, and only paths that listing produced are touched.
@@ -532,17 +536,15 @@ function orphanProcesses(
 ): JudgedProcess[] {
   return judgeProcesses({
     processes: input.procs,
-    worktrees: input.trees.map((w) => ({
-      path: w.path,
-      repoName: basename(w.root),
-      branch: w.entry.branch,
-      isMain: w.isMain,
-      stale: isStale(w.lastActivity, input.cutoff),
-      missing: w.missing
-    })),
+    worktrees: input.trees.map((w) => ({ ...placed(w), stale: isStale(w.lastActivity, input.cutoff) })),
     homes: worktreeHomes(deps),
     exists: existsSync
   })
+}
+
+/** A listed worktree as process judgement sees it. */
+function placed(w: ListedWorktree): PlacedWorktree {
+  return { path: w.path, repoName: basename(w.root), branch: w.entry.branch, isMain: w.isMain, missing: w.missing }
 }
 
 /* ---------- the scan ---------- */
@@ -1228,7 +1230,7 @@ export const stopProcesses = retiringSurveys(async function stopProcesses(
   const { procs } = await processSnapshot(deps)
   const orphans = new Map(orphanProcesses(deps, { trees, procs, cutoff }).map((p) => [p.pid, p]))
   const failed: { target: string; reason: string }[] = []
-  const signalled: JudgedProcess[] = []
+  const chosen: JudgedProcess[] = []
   const picked = new Map(targets.map((t) => [t.pid, t]))
   for (const t of picked.values()) {
     const p = orphans.get(t.pid)
@@ -1241,6 +1243,63 @@ export const stopProcesses = retiringSurveys(async function stopProcesses(
       failed.push({ target: label(p), reason: 'the pid now belongs to a different process — rescan' })
       continue
     }
+    chosen.push(p)
+  }
+  const stopped = await terminate(chosen)
+  return { ...stopped, failed: [...failed, ...stopped.failed] }
+})
+
+/**
+ * Archiving a session is the end of its work, so what it left running in its worktree
+ * is stopped with it — the dev server a turn started and nobody stopped. `archived` is
+ * what was just archived or deleted, here or in its provider's app; `listed` is every
+ * session still listed, since a worktree one of them runs in is still in use. Which
+ * processes go is `leftBehind`'s judgement: nothing a live parent still answers for,
+ * never the repository's own checkout, never Cockpit's own tree. SIGTERM only, as
+ * everywhere in cleanup.
+ */
+export const stopLeftBehind = retiringSurveys(async function stopLeftBehind(
+  deps: CleanupDeps,
+  sessions: { readonly archived: readonly SessionMeta[]; readonly listed: readonly SessionMeta[] }
+): Promise<CleanupResult> {
+  const resolve = resolvedOnce(realish)
+  const cwdsOf = (list: readonly SessionMeta[]): string[] =>
+    list.flatMap((s) => (s.cwd ? [resolve(s.cwd)] : []))
+  const archived = cwdsOf(sessions.archived)
+  if (archived.length === 0) return { cleaned: 0, freedBytes: 0, failed: [] }
+  const busy = deps.busyIds()
+  const inUse = [
+    ...cwdsOf(sessions.listed),
+    ...cwdsOf(sessions.archived.filter((s) => busy.has(s.id))),
+    ...deps.tables().filter((t) => !t.archived).map((t) => resolve(t.cwd))
+  ]
+  // only the repositories the archived sessions ran in: one `git worktree list` each
+  const roots = new Set(sessions.archived.flatMap((s) => (s.repo?.root ? [s.repo.root] : [])))
+  const scoped: CleanupDeps = { ...deps, repoRoots: () => deps.repoRoots().filter((r) => roots.has(r)) }
+  const [{ procs }, listed] = await Promise.all([processSnapshot(deps), listWorktrees(scoped, resolve)])
+  const left = leftBehind({
+    archived,
+    inUse,
+    processes: procs,
+    worktrees: listed.map(placed),
+    homes: worktreeHomes(deps),
+    exists: existsSync
+  })
+  if (left.length > 0) {
+    const ids = sessions.archived.map((s) => s.id).join(', ')
+    audit(`stopping ${left.length} process(es) left running by ${ids}`)
+  }
+  return terminate(left)
+})
+
+/**
+ * SIGTERM each process, then give them a moment to exit. Never SIGKILL: a process that
+ * ignores the polite signal is reported, not forced.
+ */
+async function terminate(procs: readonly JudgedProcess[]): Promise<CleanupResult> {
+  const failed: { target: string; reason: string }[] = []
+  const signalled: JudgedProcess[] = []
+  for (const p of procs) {
     try {
       process.kill(p.pid, 'SIGTERM')
       signalled.push(p)
@@ -1261,7 +1320,7 @@ export const stopProcesses = retiringSurveys(async function stopProcesses(
     failed.push({ target: label(p), reason: 'still running — it did not exit on SIGTERM' })
   }
   return { cleaned: signalled.length - alive.length, freedBytes: 0, failed }
-})
+}
 
 function isAlive(pid: number): boolean {
   try {

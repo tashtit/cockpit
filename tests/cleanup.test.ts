@@ -20,6 +20,7 @@ import {
   deleteSessions,
   removeWorktrees,
   scanCleanup,
+  stopLeftBehind,
   stopProcesses,
   surveyCleanup,
   type CleanupDeps,
@@ -960,6 +961,74 @@ describe('processes left in old worktrees', () => {
     expect(refused.failed).toHaveLength(1)
     child.kill('SIGKILL')
     await exited(child)
+  }, PROCESS_TIMEOUT_MS)
+
+  /**
+   * A process left behind the way a turn leaves its dev server: started in the
+   * background by a shell that has since exited, so launchd (init, off macOS) adopts it.
+   */
+  async function orphanIn(dir: string): Promise<number> {
+    const out = execFileSync('sh', ['-c', 'sleep 300 >/dev/null 2>&1 & echo $!'], { cwd: dir, encoding: 'utf8' })
+    const pid = Number(out.trim())
+    orphans.push(pid)
+    return pid
+  }
+  const orphans: number[] = []
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  const parentOf = (pid: number): number =>
+    Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim())
+
+  afterAll(() => {
+    for (const pid of orphans) if (alive(pid)) process.kill(pid, 'SIGKILL')
+  })
+
+  it.runIf(hasLsof)('stops what an archived session left running in its worktree, and only that', async (ctx) => {
+    const tree = join(cockpitWorktrees, 'app', 'archived-server')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/archived-server', tree])
+    const server = await orphanIn(tree)
+    // a Linux subreaper adopts orphans in init's place — nothing there reads as left behind
+    if (parentOf(server) !== 1) ctx.skip()
+    // this one's parent — the test, standing in for the agent still running it — is alive
+    const held = await runIn(tree)
+    const s = session({
+      id: 'claude:archived-server',
+      sourcePath: join(sourceDir, 'archived-server.jsonl'),
+      cwd: tree,
+      repo: { key: 'app', name: 'app', fullName: null, root: mainRepo }
+    })
+
+    // still listed under another session: the worktree is in use
+    const kept = await stopLeftBehind(deps, { archived: [s], listed: [{ ...s, id: 'claude:other' }] })
+    expect(kept.cleaned).toBe(0)
+    expect(alive(server)).toBe(true)
+
+    const res = await stopLeftBehind(deps, { archived: [s], listed: [] })
+    expect(res).toMatchObject({ cleaned: 1, failed: [] })
+    expect(alive(server)).toBe(false)
+    expect(held.exitCode === null && held.signalCode === null).toBe(true)
+    held.kill('SIGKILL')
+    await exited(held)
+  }, PROCESS_TIMEOUT_MS)
+
+  it.runIf(hasLsof)('never stops anything for a session archived in the repository’s own checkout', async (ctx) => {
+    const server = await orphanIn(mainRepo)
+    if (parentOf(server) !== 1) ctx.skip()
+    const s = session({
+      id: 'claude:in-checkout',
+      sourcePath: join(sourceDir, 'in-checkout.jsonl'),
+      cwd: mainRepo,
+      repo: { key: 'app', name: 'app', fullName: null, root: mainRepo }
+    })
+    const res = await stopLeftBehind(deps, { archived: [s], listed: [] })
+    expect(res.cleaned).toBe(0)
+    expect(alive(server)).toBe(true)
   }, PROCESS_TIMEOUT_MS)
 
   it.runIf(hasLsof)('refuses a pid that is not left in an old worktree', async () => {
