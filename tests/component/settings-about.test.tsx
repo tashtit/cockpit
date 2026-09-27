@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings } from '../../src/renderer/src/Settings'
+import { COCKPIT_GUIDE_URL } from '../../src/shared/feedback'
 import type { AppInfo, CliStatus, UpdateState } from '../../src/shared/types'
 
 const installed: AppInfo = {
@@ -167,6 +168,13 @@ describe('Settings › About', () => {
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull()
     // nothing to switch on either: this build could not act on them
     expect(screen.queryByRole('checkbox', { name: 'Install when I quit' })).toBeNull()
+  })
+
+  it('opens the user guide externally, in a development run too', async () => {
+    // the stub's defaults are the dev-run shape: the guide does not depend on the build
+    render(<Settings onClose={vi.fn()} section="about" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'User guide' }))
+    expect(window.cockpit.openExternal).toHaveBeenCalledWith(COCKPIT_GUIDE_URL)
   })
 
   it('opens the release notes externally', async () => {

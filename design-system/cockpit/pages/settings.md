@@ -263,8 +263,9 @@ seventh.
   role="alert"` under the list, before the hint: what was put back, verbatim why, and
   that nothing downloads on its own until Check for updates is pressed. The `.ns-hint`
   says Cockpit keeps itself current and installs its own updates so it can clear the
-  quarantine flag, and links the GitHub release notes through a `link-btn`
-  (`openExternal`) — notes are not rendered in-app. Beside it, "Open source licenses"
+  quarantine flag, then ends in a row of `link-btn`s split by `.link-sep`: "User guide"
+  (the published `docs/` site, `COCKPIT_GUIDE_URL`, in every build) and the GitHub
+  release notes, both through `openExternal` — neither is rendered in-app. Last, "Open source licenses"
   (`link-btn`) opens the generated `THIRD_PARTY_NOTICES.txt` in the system text viewer
   (`openLicenseNotices`); the reason it could not open shows verbatim in a `.new-error
   role="alert"` under the hint. A development run shows the `unsupported` reason as prose
