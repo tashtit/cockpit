@@ -14,6 +14,7 @@ import type {
 import { clampStaleDays } from './cleanup-core'
 import { sanitizeControlMap, withControl, type ControlEntry } from './session-control-core'
 import { writeFileAtomic } from './replace-file'
+import { readIfPresent } from './state-file'
 import { isLatest, withRecent } from './recent-map'
 import { sanitizeAcpAgent } from '../shared/acp'
 import { clampZoom, type WindowPlacement } from '../shared/window'
@@ -172,13 +173,8 @@ function stringList(v: unknown): string[] | undefined {
  * in-memory defaults: that would turn one unreadable file into a lost one.
  */
 export function readConfigStrict(): AppConfig {
-  let raw: string
-  try {
-    raw = readFileSync(configPath(), 'utf8')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { sources: detectDefaults(), archived: [] }
-    throw new Error(`cannot read ${configPath()}: ${(err as Error).message}`)
-  }
+  const raw = readIfPresent(configPath())
+  if (raw === null) return { sources: detectDefaults(), archived: [] }
   try {
     return parseConfig(raw)
   } catch (err) {

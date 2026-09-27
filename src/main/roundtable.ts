@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -31,7 +31,7 @@ import {
   roundsAllowed
 } from '../shared/roundtable'
 import type { CleanupTable } from './cleanup'
-import { writeFileAtomic } from './replace-file'
+import { readJsonState, saveJsonQuietly } from './state-file'
 
 /** In-memory working copy — the round loop mutates it, persisting after every entry. */
 type Table = Omit<Mutable<Roundtable>, 'participants' | 'entries'> & {
@@ -156,15 +156,11 @@ export class RoundtableManager {
       return // no dir yet — first run
     }
     for (const f of files) {
-      try {
-        const rt = sanitizeRoundtable(JSON.parse(readFileSync(join(this.dir, f), 'utf8')))
-        if (rt) {
-          this.tables.set(rt.id, structuredClone(rt) as Table)
-          this.forgetRooms()
-        }
-      } catch {
-        /* skip unreadable file */
-      }
+      // an unreadable file, or one that is no table, is skipped
+      const rt = readJsonState(join(this.dir, f), sanitizeRoundtable, null)
+      if (!rt) continue
+      this.tables.set(rt.id, structuredClone(rt) as Table)
+      this.forgetRooms()
     }
   }
 
@@ -175,11 +171,7 @@ export class RoundtableManager {
    * that works catches the file up.
    */
   private save(t: Table): void {
-    try {
-      writeFileAtomic(join(this.dir, `${t.id}.json`), JSON.stringify(t, null, 2))
-    } catch (err) {
-      console.error(`[roundtable] failed to save ${t.id}:`, err)
-    }
+    saveJsonQuietly(join(this.dir, `${t.id}.json`), JSON.stringify(t, null, 2), `[roundtable] failed to save ${t.id}:`)
   }
 
   /** A round the table cannot afford never starts — the user hears why, up front. */

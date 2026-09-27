@@ -31,6 +31,7 @@ import { assertLinksWithin } from './link-guard'
 import { defaultConfigHome } from './paths'
 import { parseJsonc, readJsoncFile } from './parsers/util'
 import { replaceFile } from './replace-file'
+import { readIfPresent } from './state-file'
 
 /*
  * Each agent stores MCP servers in its own format:
@@ -574,14 +575,8 @@ function writeJsonFile(path: string, value: unknown): void {
  * every project Claude Code knows.
  */
 function readJsonForWrite(path: string): any {
-  let raw: string
-  try {
-    raw = readFileSync(path, 'utf8')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {}
-    throw new Error(`cannot read ${path}: ${err instanceof Error ? err.message : err}`)
-  }
-  if (raw.trim() === '') return {}
+  const raw = readIfPresent(path)
+  if (raw === null || raw.trim() === '') return {}
   const j = parseJsonc(raw)
   if (j === null || typeof j !== 'object' || Array.isArray(j)) {
     throw new Error(`${path} isn't valid JSON — Cockpit won't rewrite a file it can't read; fix it first`)

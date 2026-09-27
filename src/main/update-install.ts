@@ -2,7 +2,7 @@ import { app, net } from 'electron'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -22,6 +22,7 @@ import {
   type BundleFacts,
   type FeedFile
 } from './update-install-core'
+import { writeFileAtomicAsync } from './replace-file'
 
 /**
  * Installing an update, the IO half: fetch the release zip, prove it is the build
@@ -210,7 +211,7 @@ export async function stageUpdate(req: StageRequest, io: StageIo = {}): Promise<
   // now, once the bundle has been judged to be the one that was offered
   await execText('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', staged], { timeoutMs: 60_000 })
 
-  await writeFile(manifestFile(), JSON.stringify({ version, app: staged }), 'utf8')
+  await writeFileAtomicAsync(manifestFile(), JSON.stringify({ version, app: staged }))
   return { version, app: staged }
 }
 

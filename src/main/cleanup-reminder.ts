@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import type { CleanupNotice } from '../shared/types'
 import {
   EMPTY_REMINDER,
@@ -10,7 +9,7 @@ import {
   type CleanupReady,
   type ReminderState
 } from './cleanup-reminder-core'
-import { writeFileAtomic } from './replace-file'
+import { readJsonState, saveJsonQuietly } from './state-file'
 
 /**
  * Cleanup reminders, the IO half: the timer that runs the cleanup scan once a day in
@@ -35,12 +34,8 @@ export type CleanupReminderDeps = {
 }
 
 function readState(file: string): ReminderState {
-  try {
-    return sanitizeReminder(JSON.parse(readFileSync(file, 'utf8')))
-  } catch {
-    // first run, or a hand-edited file: at worst one reminder too many
-    return EMPTY_REMINDER
-  }
+  // first run, or a hand-edited file: at worst one reminder too many
+  return readJsonState(file, sanitizeReminder, EMPTY_REMINDER)
 }
 
 export class CleanupReminder {
@@ -126,10 +121,6 @@ export class CleanupReminder {
   }
 
   private save(): void {
-    try {
-      writeFileAtomic(this.deps.file, JSON.stringify(this.state))
-    } catch (err) {
-      console.error('[cleanup] could not save the reminder state:', err)
-    }
+    saveJsonQuietly(this.deps.file, JSON.stringify(this.state), '[cleanup] could not save the reminder state:')
   }
 }
