@@ -144,16 +144,18 @@ describe('resumeScript', () => {
     writeFileSync(join(bin, 'claude'), `#!/bin/sh\npwd > '${out}'\necho "$@" >> '${out}'\n`)
     chmodSync(join(bin, 'claude'), 0o755)
     const script = join(dir, 'resume.command')
-    // `-l` would load the machine's own profile; the line itself is what is under test
-    writeFileSync(script, resumeScript('Cockpit — resuming', cwd, resumeLine('claude', 'abc')).replace(' -l', ''))
-    const run = spawnSync('/bin/zsh', [script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } })
+    writeFileSync(script, resumeScript('Cockpit — resuming', cwd, resumeLine('claude', 'abc')))
+    // run by /bin/sh, not its zsh shebang: the body is POSIX, a Linux runner has no zsh,
+    // and a login shell would load the machine's own profile — the line is what is under test
+    const run = spawnSync('/bin/sh', [script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } })
     expect(run.status).toBe(0)
+    expect(String(run.stdout)).toContain("$ claude --resume 'abc'")
     expect(readFileSync(out, 'utf8').split('\n').slice(0, 2)).toEqual([cwd, '--resume abc'])
   })
 
   it('stops rather than run the agent anywhere else when the directory is gone', () => {
     const script = resumeScript('t', '/nowhere/at/all', 'echo ran')
-    const run = spawnSync('/bin/zsh', ['-c', script.replace('#!/bin/zsh -l\n', '')])
+    const run = spawnSync('/bin/sh', ['-c', script])
     expect(run.status).toBe(1)
     expect(String(run.stdout)).not.toContain('ran')
   })

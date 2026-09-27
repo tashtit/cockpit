@@ -287,6 +287,41 @@ describe('HomeView recent activity', () => {
   })
 })
 
+describe('HomeView and who drives each session', () => {
+  const base = (id: string, title: string, over: Partial<SessionMeta>): SessionMeta => ({
+    id: `claude:${id}`,
+    provider: 'claude',
+    nativeId: id,
+    source: '/home/dev/.claude',
+    title,
+    cwd: repo.root,
+    logBranch: 'main',
+    gitBranch: 'main',
+    startedAt: 1700000000000,
+    updatedAt: 1700000100000,
+    messageCount: 3,
+    sourcePath: `/home/dev/.claude/projects/x/${id}.jsonl`,
+    repo: { key: repo.key, name: repo.name, fullName: repo.fullName, root: repo.root },
+    ...over
+  })
+
+  it("marks the board's rows Cockpit drives, and names where the others live", async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 2,
+      items: [
+        base('mine', 'Started in Cockpit', { control: { holder: 'cockpit', how: 'started' } }),
+        base('theirs', 'Opened in the app', { control: { holder: 'agent', how: 'outside', surface: 'app' } })
+      ]
+    })
+    renderHome()
+    const mine = await screen.findByRole('button', { name: /Started in Cockpit\s*\(in Cockpit\)/ })
+    expect(mine.querySelector('.held-mark')).not.toBeNull()
+    const theirs = screen.getByRole('button', { name: /Opened in the app/ })
+    expect(theirs.querySelector('.held-mark')).toBeNull()
+    expect(theirs).toHaveAttribute('title', expect.stringContaining('In the Claude app — opened outside Cockpit'))
+  })
+})
+
 describe('HomeView on an index push', () => {
   it('reads the tables again but listens for their rounds once', async () => {
     const props = {

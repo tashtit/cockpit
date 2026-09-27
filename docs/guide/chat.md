@@ -20,9 +20,9 @@ Open any session from the sidebar and type: Cockpit resumes that conversation wi
 
 ### Taking over and releasing
 
-The chat header says who drives the session, first thing under the title: **In Cockpit**, or **In Claude** (Codex, Copilot) for one that lives with its agent — see [In Cockpit or with its agent](/guide/sessions#in-cockpit-or-with-its-agent).
+The chat header says who drives the session, first thing under the title: **In Cockpit**, or, for one that lives with its agent, where it was opened — **In the Claude app**, **In a terminal** — or just **In Claude** when its log doesn't say. See [In Cockpit or with its agent](/guide/sessions#in-cockpit-or-with-its-agent).
 
-A session that came from a terminal or the agent's own app is Cockpit's to read, not to send to. A bar above the composer says so, and **Send** stays off — your draft is kept — until you press **Take over**. From then on Cockpit sends its turns. Close it where it was open first, so the two don't both write to it. **Take over** waits while the agent is running a turn elsewhere.
+A session that came from a terminal or the agent's own app is Cockpit's to read, not to send to. A bar above the composer says so, and **Send** stays off — your draft is kept — until you press **Take over**. From then on Cockpit sends its turns. Close it where it was open first — the bar names the place when the log does — so the two don't both write to it. **Take over** waits while the agent is running a turn elsewhere.
 
 A session Cockpit holds opens the same bar from its **In Cockpit** chip:
 

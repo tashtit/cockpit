@@ -1572,6 +1572,19 @@ describe('who drives a session (control)', () => {
     expect(general?.heldCount).toBe(2)
   })
 
+  it('carries where its log says it was opened', async () => {
+    const dir = join(home, 'projects', 'p')
+    writeFileSync(
+      join(dir, 'hc-app.jsonl'),
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'task' }, timestamp: '2026-08-05T10:00:00Z', sessionId: 'hc-app', cwd: '/nowhere/control', entrypoint: 'claude-desktop' },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: '2026-08-05T10:00:00Z' }
+      ])
+    )
+    await idx.rescan()
+    expect(idx.getSession('claude:hc-app')?.control).toEqual({ holder: 'agent', how: 'outside', surface: 'app' })
+  })
+
   it('reads a change of hands at the next ask, with nothing re-parsed', () => {
     idx.setControl({ 'claude:hc-out': { how: 'taken-over', at: 3_000 } })
     expect(idx.getSession('claude:hc-out')?.control).toEqual({ holder: 'cockpit', how: 'taken-over', since: 3_000 })
