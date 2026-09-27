@@ -773,6 +773,67 @@ async function deleteMergedBranch(repoRoot: string, branch: string): Promise<boo
   return (await execText('git', ['-C', repoRoot, 'branch', '-d', '--', branch])).ok
 }
 
+type LogRemoval =
+  | { readonly ok: true; readonly bytes: number }
+  /** `outside`: refused before anything went, for a file outside every configured source */
+  | { readonly ok: false; readonly outside: boolean; readonly reason: string }
+
+/**
+ * Unlink a session's own log files, each re-validated against the configured sources
+ * first — `label` names the session in the audit. Earlier pages go first: a failure
+ * part-way leaves the session listed on its newest file, never an old page left behind
+ * to pose as the whole thread.
+ */
+function removeSessionLogs(
+  meta: Pick<SessionMeta, 'sourcePath' | 'segments'>,
+  ctx: { readonly roots: readonly string[]; readonly label: string }
+): LogRemoval {
+  const targets = deleteTargets(meta)
+  const outside = targets.find((t) => !ctx.roots.some((r) => isUnder(t, r)))
+  if (outside) {
+    audit(`refused ${ctx.label}: ${outside} is outside every configured source`)
+    return { ok: false, outside: true, reason: 'outside every configured source' }
+  }
+  const bytes = sessionBytes(meta)
+  try {
+    for (const target of targets) rmSync(target, { recursive: true, force: false })
+  } catch (err) {
+    return { ok: false, outside: false, reason: err instanceof Error ? err.message : String(err) }
+  }
+  audit(`removed ${ctx.label}: ${targets.join(', ')} (${bytes} bytes)`)
+  return { ok: true, bytes }
+}
+
+type WorktreeRemoval =
+  | { readonly ok: true; readonly bytes: number; readonly branchDeleted: string | null }
+  /** git's own reason, null when it gave none */
+  | { readonly ok: false; readonly reason: string | null }
+
+/**
+ * Remove one worktree the way every path here does: measured first, then `git worktree
+ * remove` — never --force, so git's refusal of a dirty tree stands — then its branch,
+ * when git calls it merged. Each step is audited. A table's room (`goneIsRemoved`)
+ * counts as removed when git refused only because its directory is already gone.
+ */
+async function removeWorktree(w: {
+  readonly root: string
+  readonly path: string
+  readonly branch: string | null | undefined
+  /** How the audit names it */
+  readonly noun: string
+  readonly goneIsRemoved?: boolean
+}): Promise<WorktreeRemoval> {
+  const bytes = (await measureDir(w.path)) ?? 0
+  const removed = await execText('git', ['-C', w.root, 'worktree', 'remove', w.path], { timeoutMs: 60_000 })
+  if (!removed.ok && !(w.goneIsRemoved && !existsSync(w.path))) {
+    return { ok: false, reason: removed.stderr.trim() || null }
+  }
+  audit(`removed ${w.noun} ${w.path} (${bytes} bytes)`)
+  if (!w.branch || !(await deleteMergedBranch(w.root, w.branch))) return { ok: true, bytes, branchDeleted: null }
+  audit(`deleted branch ${w.branch} in ${w.root}`)
+  return { ok: true, bytes, branchDeleted: w.branch }
+}
+
 /**
  * Delete the provider's own log files for these sessions, and the worktrees they
  * ran in. A session and its checkout are one piece of work — cleaning the log but
@@ -827,28 +888,14 @@ export const deleteSessions = retiringSurveys(async function deleteSessions(
       failed.push({ target: meta.title || id, reason: 'it was used again since the scan' })
       continue
     }
-    const targets = deleteTargets(meta)
-    const outside = targets.find((t) => !roots.some((r) => isUnder(t, r)))
-    if (outside) {
-      audit(`refused session ${id}: ${outside} is outside every configured source`)
-      failed.push({ target: meta.title || id, reason: 'outside every configured source' })
+    const removal = removeSessionLogs(meta, { roots, label: `session ${id}` })
+    if (!removal.ok) {
+      failed.push({ target: meta.title || id, reason: removal.reason })
       continue
     }
-    const bytes = sessionBytes(meta)
-    try {
-      // earlier pages first: a failure part-way leaves the session listed on its
-      // newest file, never an old page left behind to pose as the whole thread
-      for (const target of targets) rmSync(target, { recursive: true, force: false })
-      cleaned++
-      deleted.add(id)
-      freedBytes += bytes
-      audit(`removed session ${id}: ${targets.join(', ')} (${bytes} bytes)`)
-    } catch (err) {
-      failed.push({
-        target: meta.title || id,
-        reason: err instanceof Error ? err.message : String(err)
-      })
-    }
+    cleaned++
+    deleted.add(id)
+    freedBytes += removal.bytes
   }
 
   if (deleted.size > 0) {
@@ -910,24 +957,13 @@ async function takeWorktreesWith(
       failed.push({ target: w.path, reason: UNCHECKED })
       continue
     }
-    const bytes = (await measureDir(w.path)) ?? 0
-    const removed = await execText('git', ['-C', w.root, 'worktree', 'remove', w.path], {
-      timeoutMs: 60_000
-    })
-    if (!removed.ok) {
-      failed.push({
-        target: w.path,
-        reason: removed.stderr.trim() || 'git refused to remove the worktree'
-      })
+    const removal = await removeWorktree({ root: w.root, path: w.path, branch: w.entry.branch, noun: 'worktree' })
+    if (!removal.ok) {
+      failed.push({ target: w.path, reason: removal.reason ?? 'git refused to remove the worktree' })
       continue
     }
-    freedBytes += bytes
-    audit(`removed worktree ${w.path} (${bytes} bytes)`)
-    const branch = w.entry.branch
-    if (branch && (await deleteMergedBranch(w.root, branch))) {
-      branchesDeleted.push(branch)
-      audit(`deleted branch ${branch} in ${w.root}`)
-    }
+    freedBytes += removal.bytes
+    if (removal.branchDeleted) branchesDeleted.push(removal.branchDeleted)
   }
   return { freedBytes, failed, branchesDeleted }
 }
@@ -994,22 +1030,12 @@ export const deleteRoundtables = retiringSurveys(async function deleteRoundtable
     // the seats first: their logs are provider files like any other session's
     let seatTrouble: string | null = null
     for (const s of seats.filter((s) => s.roundtableId === id)) {
-      const targets = deleteTargets(s)
-      const outside = targets.find((t) => !sourceRoots.some((r) => isUnder(t, r)))
-      if (outside) {
-        audit(`refused seat ${s.id} of table ${id}: ${outside} is outside every configured source`)
-        seatTrouble = 'a seat session sits outside every configured source'
+      const removal = removeSessionLogs(s, { roots: sourceRoots, label: `seat ${s.id} of table ${id}` })
+      if (!removal.ok) {
+        seatTrouble = removal.outside ? 'a seat session sits outside every configured source' : removal.reason
         break
       }
-      const bytes = sessionBytes(s)
-      try {
-        for (const target of targets) rmSync(target, { recursive: true, force: false })
-        freedBytes += bytes
-        audit(`removed seat ${s.id} of table ${id}: ${targets.join(', ')} (${bytes} bytes)`)
-      } catch (err) {
-        seatTrouble = err instanceof Error ? err.message : String(err)
-        break
-      }
+      freedBytes += removal.bytes
     }
     if (seatTrouble) {
       failed.push({ target: name, reason: seatTrouble })
@@ -1018,25 +1044,22 @@ export const deleteRoundtables = retiringSurveys(async function deleteRoundtable
 
     // then the directory the table ran in
     const dir = room
-    const bytes = (await measureDir(dir)) ?? 0
     if (t.repoRoot) {
-      const removed = await execText('git', ['-C', t.repoRoot, 'worktree', 'remove', dir], {
-        timeoutMs: 60_000
+      const removal = await removeWorktree({
+        root: t.repoRoot,
+        path: dir,
+        branch: t.branch,
+        noun: 'table worktree',
+        goneIsRemoved: true
       })
-      if (!removed.ok && existsSync(dir)) {
-        failed.push({
-          target: name,
-          reason: removed.stderr.trim() || 'git refused to remove the table’s worktree'
-        })
+      if (!removal.ok) {
+        failed.push({ target: name, reason: removal.reason ?? 'git refused to remove the table’s worktree' })
         continue
       }
-      freedBytes += bytes
-      audit(`removed table worktree ${dir} (${bytes} bytes)`)
-      if (t.branch && (await deleteMergedBranch(t.repoRoot, t.branch))) {
-        branchesDeleted.push(t.branch)
-        audit(`deleted branch ${t.branch} in ${t.repoRoot}`)
-      }
+      freedBytes += removal.bytes
+      if (removal.branchDeleted) branchesDeleted.push(removal.branchDeleted)
     } else {
+      const bytes = (await measureDir(dir)) ?? 0
       // a scratch room: main derived the path, and it must still sit under the root
       if (!isUnder(dir, roomRoot)) {
         audit(`refused table ${id}: ${dir} is outside ${roomRoot}`)
@@ -1151,22 +1174,14 @@ export const removeWorktrees = retiringSurveys(async function removeWorktrees(
       cleaned++
       continue
     }
-    const bytes = (await measureDir(path)) ?? 0
-    const removed = await execText('git', ['-C', w.root, 'worktree', 'remove', path], {
-      timeoutMs: 60_000
-    })
-    if (!removed.ok) {
-      failed.push({ target: path, reason: removed.stderr.trim() || 'git refused to remove it' })
+    const removal = await removeWorktree({ root: w.root, path, branch: w.entry.branch, noun: 'worktree' })
+    if (!removal.ok) {
+      failed.push({ target: path, reason: removal.reason ?? 'git refused to remove it' })
       continue
     }
     cleaned++
-    freedBytes += bytes
-    audit(`removed worktree ${path} (${bytes} bytes)`)
-    const branch = w.entry.branch
-    if (branch && (await deleteMergedBranch(w.root, branch))) {
-      branchesDeleted.push(branch)
-      audit(`deleted branch ${branch} in ${w.root}`)
-    }
+    freedBytes += removal.bytes
+    if (removal.branchDeleted) branchesDeleted.push(removal.branchDeleted)
   }
   return { cleaned, freedBytes, failed, branchesDeleted }
 })
