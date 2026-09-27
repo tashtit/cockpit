@@ -11,6 +11,7 @@ import type {
   SessionMeta
 } from '../../shared/types'
 import { clampZoom } from '../../shared/window'
+import { isDrivable } from '../../shared/providers'
 import { api } from './api'
 import { followUpRepo } from './follow-up'
 import { withImageMarks, type ImageAttachment } from './attachments'
@@ -521,7 +522,7 @@ export function App(): JSX.Element {
         configDir: acct && !acct.isDefault ? acct.path : undefined,
         accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
         continuedFrom: lineageRef(s.continuedFrom),
-        readOnly: s.roundtableId ? true : undefined
+        readOnly: s.roundtableId ? 'seat' : isDrivable(s.provider) ? undefined : 'agent'
       })
       setView({ kind: 'chat' })
       // a seat's turn is its table's, and streams there — the seat's chat only reads
@@ -640,13 +641,16 @@ export function App(): JSX.Element {
   const send = useCallback(
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
       if (!binding || activeTurn || binding.readOnly || elsewhere) return
+      // `readOnly` already stops an agent Cockpit only reads; this says so to the types
+      const provider = binding.provider
+      if (!isDrivable(provider)) return
       // from here the view holds what disk does not — no re-read may land on it
       diskLogRef.current = null
       // the transcript shows attachments as one marker line per image
       addChatMessage({ role: 'user', kind: 'text', text: withImageMarks(prompt, images) })
       try {
         const turnId = await api.sendChat({
-          provider: binding.provider,
+          provider,
           cwd: binding.cwd,
           prompt,
           resumeNativeId: binding.nativeSessionId ?? undefined,

@@ -130,7 +130,7 @@ describe('AskPicker in the transcript', () => {
   })
 
   it('a read-only seat session gets no picker — the table owns its conversation', () => {
-    renderChat([ask], { binding: { ...binding, readOnly: true } })
+    renderChat([ask], { binding: { ...binding, readOnly: 'seat' } })
     expect(screen.queryByRole('button', { name: 'Send answer' })).toBeNull()
     expect(screen.getByText('AskUserQuestion')).toBeTruthy()
   })

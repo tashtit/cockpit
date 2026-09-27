@@ -1,7 +1,6 @@
 import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { homedir } from 'node:os'
 import type {
   AcpAgent,
   AttentionPrefs,
@@ -11,13 +10,21 @@ import type {
   TimeFormat,
   UpdatePrefs
 } from '../shared/types'
+import { detectAgentHomes, reconcileDetected } from './agent-homes'
 import { clampStaleDays } from './cleanup-core'
 import { writeFileAtomic } from './replace-file'
 import { sanitizeAcpAgent } from '../shared/acp'
+import { isSessionProvider } from '../shared/providers'
 import { clampZoom, type WindowPlacement } from '../shared/window'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
+  /**
+   * Every agent home detection has ever offered (resolved paths), so a source the person
+   * removed is never added back by the next launch's detection. Absent in a config
+   * written before detection ran on every launch — see reconcileDetected.
+   */
+  readonly detectedSources?: string[]
   /** Session ids the user archived in Cockpit (provider logs have no such flag) */
   readonly archived?: string[]
   /** Roundtable ids the user archived — the tables themselves stay on disk */
@@ -105,15 +112,24 @@ export function configFilePath(): string {
   return configPath()
 }
 
-/** First run: auto-detect default provider homes. */
-function detectDefaults(): SourceDir[] {
-  const h = homedir()
-  const candidates: SourceDir[] = [
-    { path: join(h, '.claude'), provider: 'claude', label: 'claude-default' },
-    { path: join(h, '.codex'), provider: 'codex', label: 'codex-default' },
-    { path: join(h, '.copilot'), provider: 'copilot', label: 'copilot-default' }
-  ]
-  return candidates.filter((c) => existsSync(c.path))
+/** First run: every agent home on this machine, each remembered as offered. */
+function firstRunConfig(): AppConfig {
+  const sources = detectAgentHomes()
+  return { sources, detectedSources: sources.map((s) => resolve(s.path)), archived: [] }
+}
+
+/**
+ * The config with any agent home that appeared since the last launch added — an agent
+ * installed later, an editor that gained Cline — saved when that changed anything.
+ * Homes are added once: removing one in Settings is final (see reconcileDetected).
+ */
+export function adoptDetectedSources(): AppConfig {
+  const cfg = loadConfig()
+  const next = reconcileDetected(cfg.sources, cfg.detectedSources, detectAgentHomes())
+  if (!next.changed) return cfg
+  const updated = { ...cfg, sources: next.sources, detectedSources: next.seen }
+  saveConfig(updated)
+  return updated
 }
 
 /** The one parse both readers share, so "valid config" can never mean two things. */
@@ -136,15 +152,14 @@ function parseConfig(raw: string): AppConfig {
     archived: stringList(cfg.archived),
     archivedRoundtables: stringList(cfg.archivedRoundtables),
     hiddenRepos: stringList(cfg.hiddenRepos),
-    repoOrder: stringList(cfg.repoOrder)
+    repoOrder: stringList(cfg.repoOrder),
+    detectedSources: stringList(cfg.detectedSources)
   }
 }
 
-const PROVIDER_NAMES: ReadonlySet<unknown> = new Set(['claude', 'codex', 'copilot'])
-
 function isSource(s: unknown): s is SourceDir {
   const o = s as Partial<SourceDir> | null
-  return !!o && typeof o.path === 'string' && o.path !== '' && PROVIDER_NAMES.has(o.provider)
+  return !!o && typeof o.path === 'string' && o.path !== '' && isSessionProvider(o.provider)
 }
 
 function stringList(v: unknown): string[] | undefined {
@@ -161,7 +176,7 @@ export function readConfigStrict(): AppConfig {
   try {
     raw = readFileSync(configPath(), 'utf8')
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { sources: detectDefaults(), archived: [] }
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return firstRunConfig()
     throw new Error(`cannot read ${configPath()}: ${(err as Error).message}`)
   }
   try {
@@ -198,7 +213,7 @@ export function loadConfig(): AppConfig {
       console.error(`[config] unreadable ${configPath()} (backed up to .corrupt):`, err)
     }
   }
-  const cfg = { sources: detectDefaults(), archived: [] }
+  const cfg = firstRunConfig()
   if (missing) saveConfig(cfg)
   return cfg
 }

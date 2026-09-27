@@ -25,6 +25,7 @@ import { execText } from './env'
 import { readTurnState } from './liveness'
 import type { ObservedTurn } from './liveness-core'
 import { writeFileAtomic } from './replace-file'
+import { isDrivable } from '../shared/providers'
 
 /**
  * Attention, the IO half: carries out what `attention-core.ts` decides. The desk
@@ -166,7 +167,8 @@ export class AttentionDesk {
   recheckAsks(sessionFor: (id: string) => Pick<SessionMeta, 'provider' | 'sourcePath'> | null): void {
     this.tracker.settleAsks((u) => {
       const s = u.id === null ? null : sessionFor(u.id)
-      return s !== null && readTurnState(s.sourcePath, s.provider)?.asks !== undefined
+      // only the CLIs Cockpit drives have their turns read — nothing else can be asking
+      return s !== null && isDrivable(s.provider) && readTurnState(s.sourcePath, s.provider)?.asks !== undefined
     })
     this.sync()
   }

@@ -539,6 +539,21 @@ describe('deleteSessions', () => {
     sessions = []
   })
 
+  it('leaves an agent Cockpit only reads to its own app: not listed, never deleted', async () => {
+    const task = join(sourceDir, 'tasks', '1756700000000')
+    mkdirSync(task, { recursive: true })
+    const log = join(task, 'ui_messages.json')
+    writeFileSync(log, '[]')
+    writeFileSync(join(task, 'api_conversation_history.json'), '[]')
+    sessions = [session({ id: 'cline:1756700000000', provider: 'cline', sourcePath: log })]
+    expect((await scanCleanup(deps, 30)).sessions).toEqual([])
+    const res = await deleteSessions(deps, ['cline:1756700000000'], 30)
+    expect(res.cleaned).toBe(0)
+    expect(res.failed[0]!.reason).toMatch(/only reads this agent/)
+    expect(existsSync(log)).toBe(true)
+    sessions = []
+  })
+
   it('refuses a file outside every configured source', async () => {
     const outside = join(root, 'not-a-source.jsonl')
     writeFileSync(outside, 'important')

@@ -1,4 +1,4 @@
-import type { AcpPermissionOption, AgentOptions, Provider, TranscriptHit } from '../../shared/types'
+import type { AcpPermissionOption, AgentOptions, SessionProvider, TranscriptHit } from '../../shared/types'
 
 /**
  * What a chat view is bound to — which agent, in which directory, as whom — and what
@@ -37,7 +37,8 @@ export type PendingPermission = {
 export type TranscriptAnchor = Pick<TranscriptHit, 'role' | 'snippet' | 'timestamp'>
 
 export type ChatBinding = {
-  readonly provider: Provider
+  /** Any agent the index reads; only a driven one (`isDrivable`) is ever sent a turn */
+  readonly provider: SessionProvider
   readonly cwd: string
   readonly nativeSessionId: string | null
   readonly title: string
@@ -51,10 +52,14 @@ export type ChatBinding = {
   /** Human-readable identity shown in the chat header */
   readonly accountLabel?: string
   /** Lineage chip: the session this one was handed off from */
-  readonly continuedFrom?: { readonly id: string; readonly provider: Provider }
+  readonly continuedFrom?: { readonly id: string; readonly provider: SessionProvider }
   /** Parent chip: the session that started this one (`SessionMeta.parentId`), set once
    *  the parent is found in the index — a parent Cockpit can't open gets no chip */
-  readonly startedBy?: { readonly id: string; readonly provider: Provider; readonly title: string }
-  /** Roundtable seat-session: view only, no composer (main refuses sends there too) */
-  readonly readOnly?: boolean
+  readonly startedBy?: { readonly id: string; readonly provider: SessionProvider; readonly title: string }
+  /**
+   * View only, no composer, and why: a roundtable seat-session belongs to its table (main
+   * refuses sends there too); an agent Cockpit only reads has no CLI Cockpit runs — its
+   * session can still be continued with one that it does.
+   */
+  readonly readOnly?: 'seat' | 'agent'
 }

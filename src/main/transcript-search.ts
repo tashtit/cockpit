@@ -1,16 +1,19 @@
 import { open, type FileHandle } from 'node:fs/promises'
 import { StringDecoder } from 'node:string_decoder'
 import type {
-  Provider,
   SessionMeta,
+  SessionProvider,
   TranscriptHit,
   TranscriptHitRole,
   TranscriptSearchQuery,
   TranscriptSearchResult,
   TranscriptSearchStop
 } from '../shared/types'
-import { contentToText, toMs } from './parsers/util'
+import { contentToText, jsonArrayItems, toMs } from './parsers/util'
 import { legacyTimelineTexts } from './parsers/copilot'
+import { partsText } from './parsers/gemini'
+import { clineRows } from './parsers/cline'
+import { isSessionProvider } from '../shared/providers'
 
 /**
  * Cross-agent full-text search over transcript *contents* — "where did I discuss X",
@@ -41,8 +44,6 @@ const MIN_QUERY_LENGTH = 2
 /** Snippet window around the match, in UTF-16 units of the whitespace-collapsed text */
 const SNIPPET_BEFORE = 48
 const SNIPPET_AFTER = 120
-
-const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
 
 /** One searchable piece of a transcript line: who said it, what, when. */
 type TextRecord = {
@@ -132,10 +133,58 @@ const copilotRecords: RecordExtractor = (line, tools) => {
   return []
 }
 
-const EXTRACTORS: Record<Provider, RecordExtractor> = {
+/** One Gemini CLI message record: what the person typed, the reply, its tool calls. */
+function geminiMessageTexts(m: any, tools: boolean): TextRecord[] {
+  const ts = toMs(m?.timestamp)
+  if (m?.type === 'user') {
+    const text = partsText(m.displayContent ?? m.content).trim()
+    // the CLI's context preamble and slash commands are not something anyone said
+    return text && !/^(?:[/?]|<session_context>|<hook_context>)/.test(text) ? [{ role: 'user', text, ts }] : []
+  }
+  if (m?.type !== 'gemini') return []
+  const out: TextRecord[] = []
+  const text = partsText(m.content)
+  if (text) out.push({ role: 'assistant', text, ts })
+  if (tools && Array.isArray(m.toolCalls)) {
+    for (const c of m.toolCalls) {
+      out.push({ role: 'tool', text: `${c?.name ?? 'tool'} ${JSON.stringify(c?.args ?? {})}`, ts })
+      if (typeof c?.resultDisplay === 'string' && c.resultDisplay) out.push({ role: 'tool', text: c.resultDisplay, ts })
+    }
+  }
+  return out
+}
+
+/** A Gemini CLI log record: a message, or a checkpoint (`$set.messages`) holding many. */
+const geminiRecords: RecordExtractor = (line, tools) => {
+  const l = line as any
+  if (typeof l?.id === 'string') return geminiMessageTexts(l, tools)
+  const list = Array.isArray(l?.$set?.messages) ? l.$set.messages : Array.isArray(l?.messages) ? l.messages : []
+  return list.flatMap((m: unknown) => geminiMessageTexts(m, tools))
+}
+
+/** Cursor's agent transcripts: Anthropic-style blocks under `role` rather than `type`. */
+const cursorRecords: RecordExtractor = (line, tools) => {
+  const l = line as any
+  if (l?.role !== 'user' && l?.role !== 'assistant') return []
+  return claudeRecords({ type: l.role, message: l.message }, tools)
+}
+
+/** The logs read line by line; the Cline family keeps one JSON array instead (see searchFile). */
+const EXTRACTORS: Record<Exclude<SessionProvider, 'cline' | 'roo'>, RecordExtractor> = {
   claude: claudeRecords,
   codex: codexRecords,
-  copilot: copilotRecords
+  copilot: copilotRecords,
+  gemini: geminiRecords,
+  cursor: cursorRecords
+}
+
+/** An older Gemini CLI's one-document log; a capped read of one parses as nothing. */
+function geminiDocRecords(text: string, tools: boolean): TextRecord[] {
+  try {
+    return geminiRecords(JSON.parse(text), tools) as TextRecord[]
+  } catch {
+    return []
+  }
 }
 
 type ReadOutcome = { readonly truncated: boolean }
@@ -266,7 +315,7 @@ type NormalQuery = {
   readonly text: string
   readonly needle: string
   readonly repoKey?: string
-  readonly providers?: readonly Provider[]
+  readonly providers?: readonly SessionProvider[]
   readonly limit: number
   readonly perSession: number
   readonly tools: boolean
@@ -275,9 +324,7 @@ type NormalQuery = {
 /** The query is renderer input — every field is re-derived, never trusted as typed. */
 function normalizeQuery(raw: TranscriptSearchQuery): NormalQuery {
   const text = collapse(String(raw?.text ?? ''))
-  const providers = Array.isArray(raw?.providers)
-    ? raw.providers.filter((p): p is Provider => PROVIDERS.includes(p))
-    : []
+  const providers = Array.isArray(raw?.providers) ? raw.providers.filter(isSessionProvider) : []
   return {
     text,
     needle: text.toLowerCase(),
@@ -293,7 +340,7 @@ function normalizeQuery(raw: TranscriptSearchQuery): NormalQuery {
 export type CandidateSource = {
   transcriptCandidates(scope: {
     readonly repoKey?: string
-    readonly providers?: readonly Provider[]
+    readonly providers?: readonly SessionProvider[]
   }): SessionMeta[]
   getSession(id: string): SessionMeta | null
 }
@@ -396,6 +443,24 @@ export class TranscriptSearcher {
       hits.push(hit)
       return hits.length < q.perSession
     }
+    // documents rather than line streams: the Cline family's message array, and the one
+    // JSON file an older Gemini CLI wrote per session
+    if (meta.provider === 'cline' || meta.provider === 'roo' || (meta.provider === 'gemini' && meta.sourcePath.endsWith('.json'))) {
+      const { text, truncated } = await readCapped(meta.sourcePath, this.maxBytes)
+      if (!alive()) return { hits, truncated }
+      const records: TextRecord[] =
+        meta.provider === 'gemini'
+          ? geminiDocRecords(text, q.tools)
+          : clineRows(jsonArrayItems(text), { fromStart: true }).flatMap((m): TextRecord[] => {
+              if (m.kind === 'text' && (m.role === 'user' || m.role === 'assistant')) {
+                return [{ role: m.role, text: m.text, ts: m.ts ?? null }]
+              }
+              const tool = m.kind === 'tool_call' || m.kind === 'tool_result'
+              return q.tools && tool ? [{ role: 'tool', text: m.text, ts: m.ts ?? null }] : []
+            })
+      for (const r of records) if (!take(r)) break
+      return { hits, truncated }
+    }
     if (meta.provider === 'copilot' && !meta.sourcePath.endsWith('.jsonl')) {
       const { text, truncated } = await readCapped(meta.sourcePath, this.maxBytes)
       let doc: unknown = null
@@ -412,7 +477,7 @@ export class TranscriptSearcher {
       }
       return { hits, truncated }
     }
-    const extract = EXTRACTORS[meta.provider]
+    const extract = EXTRACTORS[meta.provider as keyof typeof EXTRACTORS]
     // a thread kept across several files is searched page by page, oldest first,
     // each earlier page only as far as the thread's history in it goes
     const pages = [...(meta.segments ?? []), { path: meta.sourcePath, endByte: undefined }]

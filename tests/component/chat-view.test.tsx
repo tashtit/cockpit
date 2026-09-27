@@ -141,6 +141,26 @@ describe('ChatView handoff affordances', () => {
   })
 })
 
+describe('ChatView on a session of an agent Cockpit only reads', () => {
+  const cursor: ChatBinding = { ...binding, provider: 'cursor', nativeSessionId: 'cur-1', readOnly: 'agent' }
+
+  it('says why there is no composer, and offers the way on', async () => {
+    const { onOpenHandoff } = renderChat(vi.fn(), { binding: cursor })
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByText(/Cockpit reads Cursor sessions but doesn.t run Cursor/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue in Claude, Codex or Copilot…' }))
+    // the header keeps its own handoff key too — a session to continue is exactly this
+    await userEvent.click(screen.getByRole('button', { name: 'Continue in another agent…' }))
+    expect(onOpenHandoff).toHaveBeenCalledTimes(2)
+  })
+
+  it('a roundtable seat stays the table’s: no handoff anywhere', () => {
+    renderChat(vi.fn(), { binding: { ...binding, nativeSessionId: 'seat-1', readOnly: 'seat' } })
+    expect(screen.getByText(/Talk to it at the table/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Continue in/ })).not.toBeInTheDocument()
+  })
+})
+
 describe('ChatView image paste', () => {
   it('saves a pasted image via the api and shows a removable chip', async () => {
     renderChat()

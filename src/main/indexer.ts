@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import type {
   BusySession,
   Mutable,
-  Provider,
+  SessionProvider,
   RepoGroup,
   SessionMeta,
   SessionMessage,
@@ -51,30 +51,55 @@ import {
   parseCopilotMeta,
   parseCopilotMessages
 } from './parsers/copilot'
+import { listGeminiSessionFiles, listGeminiSessionRoots, parseGeminiMeta, parseGeminiMessages } from './parsers/gemini'
+import { listCursorSessionFiles, listCursorSessionRoots, parseCursorMeta, parseCursorMessages } from './parsers/cursor'
+import {
+  listClineSessionFiles,
+  listClineSessionRoots,
+  parseClineMessages,
+  parseClineMeta,
+  parseRooMeta
+} from './parsers/cline'
 
-const FILE_LISTERS = {
+const FILE_LISTERS: Record<SessionProvider, (home: string) => string[]> = {
   claude: listClaudeSessionFiles,
   codex: listCodexSessionFiles,
-  copilot: listCopilotSessionFiles
-} as const
+  copilot: listCopilotSessionFiles,
+  gemini: listGeminiSessionFiles,
+  cursor: listCursorSessionFiles,
+  cline: listClineSessionFiles,
+  roo: listClineSessionFiles
+}
 
-const ROOT_LISTERS = {
+const ROOT_LISTERS: Record<SessionProvider, (home: string) => string[]> = {
   claude: listClaudeSessionRoots,
   codex: listCodexSessionRoots,
-  copilot: listCopilotSessionRoots
-} as const
+  copilot: listCopilotSessionRoots,
+  gemini: listGeminiSessionRoots,
+  cursor: listCursorSessionRoots,
+  cline: listClineSessionRoots,
+  roo: listClineSessionRoots
+}
 
-const META_PARSERS = {
+const META_PARSERS: Record<SessionProvider, (file: string, label: string) => SessionMeta | null> = {
   claude: parseClaudeMeta,
   codex: parseCodexMeta,
-  copilot: parseCopilotMeta
-} as const
+  copilot: parseCopilotMeta,
+  gemini: parseGeminiMeta,
+  cursor: parseCursorMeta,
+  cline: parseClineMeta,
+  roo: parseRooMeta
+}
 
-const MESSAGE_PARSERS = {
+const MESSAGE_PARSERS: Record<SessionProvider, (file: string) => SessionMessage[]> = {
   claude: parseClaudeMessages,
   codex: parseCodexMessages,
-  copilot: parseCopilotMessages
-} as const
+  copilot: parseCopilotMessages,
+  gemini: parseGeminiMessages,
+  cursor: parseCursorMessages,
+  cline: parseClineMessages,
+  roo: parseClineMessages
+}
 
 export const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
@@ -1016,10 +1041,10 @@ export class SessionIndexer {
    */
   transcriptCandidates(scope: {
     readonly repoKey?: string
-    readonly providers?: readonly Provider[]
+    readonly providers?: readonly SessionProvider[]
   }): SessionMeta[] {
     const cutoff = this.historyCutoff()
-    const providers = scope.providers?.length ? new Set<Provider>(scope.providers) : null
+    const providers = scope.providers?.length ? new Set<SessionProvider>(scope.providers) : null
     const out: SessionMeta[] = []
     for (const s of this.sessions.values()) {
       if (this.hiddenByProvider(s) || this.archived.has(s.id)) continue
@@ -1053,7 +1078,7 @@ export class SessionIndexer {
       all = all.filter((s) => !this.hiddenRepos.has(s.repo?.key ?? 'general'))
     }
     if (query.providers?.length) {
-      const set = new Set<Provider>(query.providers)
+      const set = new Set<SessionProvider>(query.providers)
       all = all.filter((s) => set.has(s.provider))
     }
     if (query.search) {

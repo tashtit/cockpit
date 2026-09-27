@@ -12,6 +12,7 @@ import { parseClaudeStreamLine, parseCodexStreamLine } from './chat'
 import { listModelEndpoints, loadConfig, sessionEndpointFor } from './config'
 import { getEndpointKey } from './secrets'
 import { endpointEnv } from '../shared/endpoints'
+import { isDrivable } from '../shared/providers'
 
 /**
  * IO around handoff-core: indexer lookups, git snapshots, and the "Improve with
@@ -70,7 +71,7 @@ export async function getHandoffBriefing(
  * home plus, for BYOK-bound sessions, the endpoint env. A removed endpoint
  * refuses loudly — same contract as resuming the session itself.
  */
-function summarizeEnv(meta: SessionMeta): NodeJS.ProcessEnv {
+function summarizeEnv(meta: SessionMeta, provider: Provider): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   const src = loadConfig().sources.find(
     (s) => s.provider === meta.provider && s.label === meta.source
@@ -88,7 +89,7 @@ function summarizeEnv(meta: SessionMeta): NodeJS.ProcessEnv {
         'This session runs on a custom model provider that is no longer configured — re-add it, or use the extracted briefing.'
       )
     }
-    Object.assign(env, endpointEnv(meta.provider, ep, ep.hasKey ? getEndpointKey(ep.id) : undefined))
+    Object.assign(env, endpointEnv(provider, ep, ep.hasKey ? getEndpointKey(ep.id) : undefined))
   }
   return env
 }
@@ -145,18 +146,22 @@ export async function improveHandoffBriefing(
 async function improve(indexer: SessionIndexer, sessionId: string): Promise<string> {
   const meta = indexer.getSession(sessionId)
   if (!meta) throw new Error('Unknown session — it may not be indexed yet.')
+  const provider = meta.provider
+  if (!isDrivable(provider)) {
+    throw new Error('Improving the briefing resumes the source agent’s own CLI, which Cockpit does not run for this agent — use the extracted briefing.')
+  }
   const cwd = meta.cwd
   if (cwd === null || !dirExists(cwd)) {
     throw new Error('The working directory no longer exists — handoff needs it.')
   }
-  const { cmd, args } = buildSummarizeCommand(meta.provider, meta.nativeId)
-  const env = summarizeEnv(meta)
+  const { cmd, args } = buildSummarizeCommand(provider, meta.nativeId)
+  const env = summarizeEnv(meta, provider)
   const r = await execText(cmd, args, { cwd, timeoutMs: 120_000, env })
   if (!r.ok) {
     const detail = (r.stderr.trim() || r.error || 'unknown error').slice(0, 500)
     throw new Error(`${cmd} could not summarize the session: ${detail}`)
   }
-  const aiText = textFromStream(meta.provider, r.stdout)
+  const aiText = textFromStream(provider, r.stdout)
   if (aiText === '') throw new Error(`${cmd} returned no briefing text.`)
   return composeImprovedBriefing(sourceInfo(meta), aiText, await gitSnapshot(cwd))
 }

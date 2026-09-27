@@ -25,6 +25,7 @@ import { cellToolCalls } from './parsers/code-mode'
 import { toolItemFor, toolItemName, toolRecords } from './parsers/codex'
 import { contentToText, sessionLogFiles, timeSlicer, toMs } from './parsers/util'
 import { writeFileAtomicAsync } from './replace-file'
+import { isDrivable } from '../shared/providers'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals, built
@@ -85,8 +86,19 @@ function split(into: AgentSplit, provider: Provider, by: number): void {
   into[provider] = (into[provider] ?? 0) + by
 }
 
+/**
+ * A session of one of the three CLIs Cockpit drives. The profile compares those — their
+ * usage, models and tool calls are what its deep pass knows how to read — so sessions
+ * of agents Cockpit only indexes stay out of it.
+ */
+type DrivenSession = SessionMeta & { readonly provider: Provider }
+
+function driven(s: SessionMeta): s is DrivenSession {
+  return isDrivable(s.provider)
+}
+
 /** The seats, apart from the person's own sessions: how many, which agents, how many tables. */
-function seatTally(seats: readonly SessionMeta[]): RoundtableTally | null {
+function seatTally(seats: readonly DrivenSession[]): RoundtableTally | null {
   if (seats.length === 0) return null
   const t = emptyTally()
   for (const s of seats) tally(t, s.provider)
@@ -664,18 +676,19 @@ export type ProfileOptions = {
  * would freeze the UI and every other IPC call. It yields between files on a time
  * budget (see `DEEP_SLICE_MS`), matching the indexer's own scan discipline.
  */
-export async function buildProfile(sessions: SessionMeta[], opts: ProfileOptions): Promise<ProfileStats> {
+export async function buildProfile(all: SessionMeta[], opts: ProfileOptions): Promise<ProfileStats> {
+  const sessions = all.filter(driven)
   if (opts.cacheFile) loadDeepCache(opts.cacheFile)
   const profile = await assemble(sessions, opts)
   if (opts.cacheFile) await saveDeepCache(opts.cacheFile, new Set(sessions.flatMap((s) => sessionLogFiles(s))))
   return profile
 }
 
-async function assemble(sessions: SessionMeta[], opts: ProfileOptions): Promise<ProfileStats> {
+async function assemble(sessions: DrivenSession[], opts: ProfileOptions): Promise<ProfileStats> {
   const { now, login } = opts
   const maxDays = opts.maxDays ?? 371 // 53 weeks — a full GitHub-style grid
   const today = dayKey(now)
-  const roundtables = seatTally(opts.seats ?? [])
+  const roundtables = seatTally((opts.seats ?? []).filter(driven))
 
   if (sessions.length === 0) {
     return {
@@ -891,16 +904,18 @@ async function assemble(sessions: SessionMeta[], opts: ProfileOptions): Promise<
 
 /** Signed-in identity per source, read from each provider's own config files. */
 function sourceIdentities(sources: SourceDir[]): AccountIdentity[] {
-  return sources.map((s) => {
+  return sources.flatMap((s) => {
+    const provider = s.provider
+    if (!isDrivable(provider)) return []
     let identity: string | null = null
     try {
-      if (s.provider === 'claude') identity = claudeIdentity(s.path)
-      else if (s.provider === 'codex') identity = codexIdentity(s.path)
+      if (provider === 'claude') identity = claudeIdentity(s.path)
+      else if (provider === 'codex') identity = codexIdentity(s.path)
       else identity = copilotUsers(s.path).active
     } catch {
       /* unreadable config — the account still lists, just unnamed */
     }
-    return { provider: s.provider, label: s.label, identity }
+    return [{ provider, label: s.label, identity }]
   })
 }
 

@@ -16,6 +16,7 @@ import type {
   PanelTarget,
   ProcessTarget,
   SessionMeta,
+  SessionProvider,
   SessionQuery,
   TimeFormat,
   TranscriptSearchQuery,
@@ -44,6 +45,7 @@ import { assertSharedFile, openSharedFile, readSharedFile } from './session-file
 import { probeAcpAgent } from './acp'
 import { BUILTIN_ACP_AGENTS, builtinAgentFor, sanitizeAcpAgent } from '../shared/acp'
 import {
+  adoptDetectedSources,
   addAcpAgent,
   addModelEndpoint,
   attentionPrefs,
@@ -71,6 +73,7 @@ import {
   setWindowPlacement,
   setZoom
 } from './config'
+import { isDrivable, isSessionProvider } from '../shared/providers'
 import {
   deleteRoundtables,
   deleteSessions,
@@ -302,7 +305,8 @@ function asAttentionFocus(raw: unknown): AttentionFocus {
     return { kind: 'roundtable', id: f['id'].slice(0, 512) }
   }
   if (f['kind'] === 'cleanup') return { kind: 'cleanup' }
-  const provider = (['claude', 'codex', 'copilot'] as const).find((p) => p === f['provider'])
+  // any agent the index reads: a session Cockpit only reads is still one the window shows
+  const provider = isSessionProvider(f['provider']) ? f['provider'] : null
   if (f['kind'] === 'session' && provider && typeof f['cwd'] === 'string') {
     return {
       kind: 'session',
@@ -636,7 +640,9 @@ function assertKnownConfigDir(configDir: unknown, provider: Provider): string {
 }
 
 app.whenReady().then(() => {
-  const cfg = loadConfig()
+  // an agent installed, or an editor that gained Cline, since the last launch is indexed
+  // from this one on — a source the person removed is never added back
+  const cfg = adoptDetectedSources()
   indexer = new SessionIndexer(
     () => {
       resolveCopilotHandoffs()
@@ -675,9 +681,9 @@ app.whenReady().then(() => {
     })
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
   })
-  ipcMain.handle(CH.sourcesAdd, (_e, path: string, provider: Provider, label: string) => {
+  ipcMain.handle(CH.sourcesAdd, (_e, path: string, provider: SessionProvider, label: string) => {
     // renderer args are untrusted — an unknown provider would crash the next scan
-    if (!(['claude', 'codex', 'copilot'] as Provider[]).includes(provider)) {
+    if (!isSessionProvider(provider)) {
       throw new Error(`Unknown provider: ${String(provider)}`)
     }
     const p = resolve(String(path))
@@ -1275,6 +1281,11 @@ app.whenReady().then(() => {
     saveChatImage(chatImagesDir(), data, mime)
   )
   ipcMain.handle(CH.chatSend, (_e, req: ChatRequest) => {
+    // the agent is renderer input like the rest: only a CLI Cockpit drives is spawned, and
+    // a session of an agent Cockpit only reads is continued through a handoff instead
+    if (!isSessionProvider(req.provider) || !isDrivable(req.provider)) {
+      throw new Error('Cockpit only reads this agent’s sessions — continue it in Claude, Codex or Copilot instead.')
+    }
     // pasted-image paths are renderer input — only accept files chat:save-image wrote;
     // and a seat's research allowance is the roundtable manager's alone to give
     {

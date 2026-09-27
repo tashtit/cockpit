@@ -2,6 +2,7 @@ import { opendirSync, type Dir } from 'node:fs'
 import { dirname } from 'node:path'
 import type { AttentionAsk, BusySession, Provider, SessionMeta } from '../shared/types'
 import { TRANSCRIPT_TAIL_BYTES, judgeJsonlTail } from './parsers/util'
+import { isDrivable } from '../shared/providers'
 import {
   IDLE,
   copilotLockPids,
@@ -181,6 +182,9 @@ export class LivenessTracker {
    * fresh mtime and old content, and must not surface as a phantom turn.
    */
   observe(file: string, meta: SessionMeta, mtimeMs: number): void {
+    // turns are read out of the logs of the CLIs Cockpit drives; an agent it only reads
+    // keeps logs whose turn records it has never been taught
+    if (!isDrivable(meta.provider)) return
     const written = Math.min(mtimeMs, meta.updatedAt)
     const prev = this.entries.get(meta.id)
     // an older page of a Codex thread shares the live page's id: nothing it says is news

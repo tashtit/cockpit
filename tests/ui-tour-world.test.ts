@@ -6,6 +6,10 @@ import { execFileSync } from 'node:child_process'
 import { listClaudeSessions, parseClaudeMessages } from '../src/main/parsers/claude'
 import { listCodexSessions, parseCodexMessages } from '../src/main/parsers/codex'
 import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
+import { listGeminiSessions } from '../src/main/parsers/gemini'
+import { listCursorSessions } from '../src/main/parsers/cursor'
+import { listClineSessions } from '../src/main/parsers/cline'
+import { detectAgentHomes } from '../src/main/agent-homes'
 import { sanitizeRoundtable } from '../src/main/roundtable-core'
 import { buildWork } from '../src/shared/work'
 import { buildEvidence } from '../src/renderer/src/evidence'
@@ -38,6 +42,25 @@ describe('ui-tour fixture world', () => {
     // the tour opens these by title — a parser that stops reading titles breaks it
     expect(claude.map((s) => s.title)).toContain('Fix the login flake in CI')
     expect(copilot.map((s) => s.title)).toContain('Tidy the usage panel spacing')
+  })
+
+  it('holds sessions of the agents Cockpit only reads, where detection finds them', () => {
+    const homes = detectAgentHomes(world.home).filter((h) => !['claude', 'codex', 'copilot'].includes(h.provider))
+    expect(homes.map((h) => h.label).sort()).toEqual(['cline-vscode', 'cursor-default', 'gemini-default', 'roo-cursor'])
+    const read = homes.flatMap((h) =>
+      h.provider === 'gemini'
+        ? listGeminiSessions(h.path, h.label)
+        : h.provider === 'cursor'
+          ? listCursorSessions(h.path, h.label)
+          : listClineSessions(h.path, h.label, h.provider === 'roo' ? 'roo' : 'cline')
+    )
+    // each lands in a repository of the world, so the tour's sidebar shows it there
+    expect(read.map((s) => [s.provider, s.title, s.cwd?.split('/').pop()]).sort()).toEqual([
+      ['cline', 'Link every tutorial to its API reference page.', 'lumen-docs'],
+      ['cursor', 'Map which jobs never emit a span.', 'atlas'],
+      ['gemini', 'Stop the usage panel flashing on load', 'rocket'],
+      ['roo', 'Pin the Terraform provider versions', 'infra-tools']
+    ])
   })
 
   it('holds the work agents keep beside their logs: a subagent’s edit, a Copilot to-do table', () => {

@@ -6,6 +6,8 @@ Everything in Cockpit starts from the session index: a live, repo-grouped view o
 
 Cockpit watches each provider's session root — `~/.claude`, `~/.codex`, `~/.copilot`, plus any extra config homes you add in Settings. Sessions you run in a plain terminal appear and update live; there's no import step and no daemon.
 
+It also reads the sessions of agents it doesn't run — see [Agents Cockpit reads](#agents-cockpit-reads) below.
+
 Each session's working directory is resolved to its **git repository**, worktree-aware: a session run in a linked worktree groups under the main repository, and the sidebar row is named `owner/repo` from the origin remote. Sessions with no repository land in a flat **Chats** section at the bottom.
 
 ## The sidebar
@@ -56,6 +58,21 @@ Backing into the conversation that's currently running just flips the view — t
 A session whose agent is running right now is **flying**: a small turning ring on its row in the sidebar and the ⌘K palette, and a pulsing dot in the agent's color on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot (blue in the sidebar and the palette, the agent's color on the board) and `landed <time>` — until you open it, or archive it here or in the agent's own app. Two more states say a session **needs you**: an agent that has stopped to ask a question or for a permission shows a question glyph and `asks you`, on top of the board whatever else is true of it, and an open pull request on the session's branch that has failing checks or changes requested shows GitHub's red x and `#57 checks failing`. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
 
 A session you run in a terminal or the provider's own app counts as flying while its log keeps growing — Cockpit reads the tail of the log on every write. When the log goes quiet for a minute and a half it drops back to the ground without landing; while the last thing written is a tool call still waiting for its result (a test suite, a build), Cockpit waits ten minutes instead, since those write nothing until they finish.
+
+## Agents Cockpit reads
+
+Cockpit drives Claude Code, Codex and Copilot. It also **reads** the sessions of these agents, so their work sits in the same sidebar, under the same repositories:
+
+| Agent | Where its sessions are found |
+| --- | --- |
+| Gemini CLI | `~/.gemini/tmp/*/chats/` |
+| Cursor | the agent transcripts under `~/.cursor/projects/` |
+| Cline | the extension's storage in every editor it is installed in — VS Code, Cursor, Windsurf or any other VS Code-family editor — and the Cline CLI's `~/.cline/data` |
+| Roo Code | the extension's storage in every editor it is installed in |
+
+Nothing needs setting up. Each launch looks for these homes, adds any that appeared since the last one, and lists them in **Settings › Accounts** under **Other agents · read only**. A home you remove there stays removed; detection never adds it back.
+
+A session of one of these agents opens read-only: its transcript, tool calls, edits, to-do lists and test runs render as they do for any session, and ⌘K's transcript search covers it. It has no composer, because Cockpit doesn't run that agent. To pick the work up, use **Continue in…**: it hands the session, with a briefing built from its transcript, to Claude, Codex or Copilot in the same directory. Live status, landings and notifications follow the agents Cockpit runs, and cleanup leaves these sessions to their own apps.
 
 ## Archiving
 

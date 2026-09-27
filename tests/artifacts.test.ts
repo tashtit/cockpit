@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   acpDiffArtifact,
   acpPlanArtifact,
+  checklistArtifact,
   fileChangeArtifact,
   followUpArtifact,
   followUpTaskId,
@@ -9,6 +10,7 @@ import {
   parsePatch,
   parseUnifiedDiff,
   publishedUrl,
+  searchReplaceArtifact,
   sharedArtifact,
   todoListArtifact,
   todoStatus,
@@ -497,5 +499,53 @@ describe('pairHunks and ACP diffs', () => {
       ]
     })
     expect(acpDiffArtifact([{ type: 'content' }])).toBeUndefined()
+  })
+})
+
+describe('the Cline family’s edits and progress', () => {
+  it('reads SEARCH/REPLACE blocks in both dialects', () => {
+    const cline = searchReplaceArtifact(
+      'a.ts',
+      '------- SEARCH\nold one\n=======\nnew one\n+++++++ REPLACE\n\n------- SEARCH\nx\n=======\ny\n+++++++ REPLACE'
+    )
+    expect(cline).toMatchObject({
+      kind: 'edits',
+      files: [
+        {
+          path: 'a.ts',
+          change: 'edit',
+          hunks: [
+            [
+              { op: 'del', text: 'old one' },
+              { op: 'add', text: 'new one' }
+            ],
+            [
+              { op: 'del', text: 'x' },
+              { op: 'add', text: 'y' }
+            ]
+          ]
+        }
+      ]
+    })
+    // Roo Code: merge-conflict markers, a start line and a rule opening the search side
+    const roo = searchReplaceArtifact('b.json', '<<<<<<< SEARCH\n:start_line:4\n-------\n"a": 1\n=======\n"a": 2\n>>>>>>> REPLACE')
+    expect(roo).toMatchObject({
+      files: [{ path: 'b.json', hunks: [[{ op: 'del', text: '"a": 1' }, { op: 'add', text: '"a": 2' }]] }]
+    })
+    expect(searchReplaceArtifact('c.ts', 'no blocks here')).toBeUndefined()
+    expect(searchReplaceArtifact('c.ts', 42)).toBeUndefined()
+  })
+
+  it('reads a markdown checklist as a to-do list', () => {
+    expect(checklistArtifact('Plan:\n- [x] Read it\n- [ ] Change it\n* [~] Test it')).toEqual({
+      kind: 'todos',
+      items: [
+        { text: 'Read it', status: 'completed' },
+        { text: 'Change it', status: 'pending' },
+        { text: 'Test it', status: 'in_progress' }
+      ]
+    })
+    // a note with no checklist in it is not an emptied plan
+    expect(checklistArtifact('just thinking out loud')).toBeUndefined()
   })
 })

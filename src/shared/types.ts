@@ -6,7 +6,14 @@
  * that returns these types lives in contract.ts, which may import from here and
  * from library.ts; keeping it out of this file is what keeps the direction honest.
  */
+/** The agent CLIs Cockpit drives: it starts and resumes their sessions, seats them at
+ *  roundtables, signs them in and reads their usage. */
 export type Provider = 'claude' | 'codex' | 'copilot'
+/** Agents Cockpit reads but does not drive: their sessions are indexed from the logs
+ *  they keep on disk and open read-only, to be continued by a `Provider`. */
+export type ReadOnlyProvider = 'gemini' | 'cursor' | 'cline' | 'roo'
+/** Whoever wrote a session's log — every agent the indexer reads. */
+export type SessionProvider = Provider | ReadOnlyProvider
 
 /** Strip readonly for a local builder/accumulator — never for shared state. */
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -28,7 +35,7 @@ export type RepoGroup = RepoInfo & {
   readonly sessionCount: number
   readonly archivedCount: number
   readonly lastActivity: number
-  readonly providers: Provider[]
+  readonly providers: SessionProvider[]
   /** User chose not to display this project (still listed here for the chooser UI) */
   readonly hidden: boolean
 }
@@ -36,7 +43,7 @@ export type RepoGroup = RepoInfo & {
 export type SessionMeta = {
   /** Stable id: `${provider}:${nativeId}` */
   readonly id: string
-  readonly provider: Provider
+  readonly provider: SessionProvider
   /** Provider-native session id (uuid, filename stem, etc.) */
   readonly nativeId: string
   /** Which registered source dir this came from (account isolation later) */
@@ -267,7 +274,7 @@ export type SessionMessage = {
 
 export type SourceDir = {
   readonly path: string
-  readonly provider: Provider
+  readonly provider: SessionProvider
   /** User label, e.g. account name ("claude-main") */
   readonly label: string
 }
@@ -284,7 +291,7 @@ export type SourceStats = SourceDir & {
 export type SessionQuery = {
   /** RepoInfo.key to scope to one repository ('general' = sessions with no repo) */
   readonly repoKey?: string
-  readonly providers?: Provider[]
+  readonly providers?: SessionProvider[]
   readonly search?: string
   /** Page only this roundtable's seat-sessions (normal queries exclude them all) */
   readonly roundtableId?: string
@@ -309,7 +316,7 @@ export type TranscriptSearchQuery = {
   readonly text: string
   /** RepoInfo.key to scope to one repository; undefined = every visible repo */
   readonly repoKey?: string
-  readonly providers?: Provider[]
+  readonly providers?: SessionProvider[]
   /** Total hit cap (default 50, at most 200) */
   readonly limit?: number
   /** Hits kept per session, so one chatty transcript can't fill the list (default 3) */
@@ -1224,7 +1231,7 @@ export type AttentionFocus =
       readonly kind: 'session'
       /** `${provider}:${nativeId}`; null for a new chat whose agent hasn't named its session yet */
       readonly id: string | null
-      readonly provider: Provider
+      readonly provider: SessionProvider
       readonly cwd: string
     }
   | { readonly kind: 'roundtable'; readonly id: string }
@@ -1582,6 +1589,7 @@ export type SessionWorktree = {
 export type StaleSession = {
   /** Session id: `${provider}:${nativeId}` */
   readonly id: string
+  /** Only the CLIs Cockpit drives: other agents' sessions are their own apps' to delete */
   readonly provider: Provider
   readonly title: string
   readonly repoName: string | null

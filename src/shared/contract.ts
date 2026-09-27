@@ -62,6 +62,7 @@ import type {
   SessionMessage,
   SessionMeta,
   SessionPage,
+  SessionProvider,
   SessionQuery,
   ShareResult,
   SourceDir,
@@ -93,7 +94,7 @@ export type CockpitApi = {
   readonly getSourceStats: () => Promise<SourceStats[]>
   /** Native directory picker (main-process dialog); null when the user cancels */
   readonly pickDirectory: () => Promise<string | null>
-  readonly addSource: (path: string, provider: Provider, label: string) => Promise<SourceDir[]>
+  readonly addSource: (path: string, provider: SessionProvider, label: string) => Promise<SourceDir[]>
   readonly removeSource: (path: string) => Promise<SourceDir[]>
   readonly listRepos: () => Promise<RepoGroup[]>
   /** Resolves once the index has finished its first full scan — until then no repos means "not read yet" */

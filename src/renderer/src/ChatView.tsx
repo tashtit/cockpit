@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
-import type { PermissionMode, Provider, PrStatus, SessionMessage } from '../../shared/types'
+import type { PermissionMode, PrStatus, SessionMessage, SessionProvider } from '../../shared/types'
 import { api } from './api'
 import { AskPicker } from './AskPicker'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
@@ -358,13 +358,16 @@ export function ChatView({
           <span className="badge-text">{PROVIDER_LABEL[binding.provider]}</span>
         </span>
         {/* compact: the local part identifies the account at a glance; the full
-            identity lives in the tooltip (same pattern as the sidebar footer) */}
-        <span
-          className={`acct-chip acct-${binding.provider}`}
-          title={`Running as ${binding.accountLabel ?? 'default account'}`}
-        >
-          {(binding.accountLabel ?? 'default account').split('@')[0]}
-        </span>
+            identity lives in the tooltip (same pattern as the sidebar footer). An agent
+            Cockpit only reads runs as nobody Cockpit knows, so it claims no account */}
+        {binding.readOnly !== 'agent' && (
+          <span
+            className={`acct-chip acct-${binding.provider}`}
+            title={`Running as ${binding.accountLabel ?? 'default account'}`}
+          >
+            {(binding.accountLabel ?? 'default account').split('@')[0]}
+          </span>
+        )}
         <div className="chat-header-text">
           <h2 className="chat-title">{binding.title}</h2>
           <div className="chat-sub">
@@ -462,8 +465,9 @@ export function ChatView({
         {/* progressive disclosure: only a started session can be handed off; a
             running turn merely disables it. A roundtable seat session is the
             table's internal, not a conversation to continue — main refuses it
-            as a handoff source, so the affordance must not be offered either. */}
-        {binding.nativeSessionId && !binding.readOnly && (
+            as a handoff source, so the affordance must not be offered either.
+            A session of an agent Cockpit only reads is exactly one to continue. */}
+        {binding.nativeSessionId && binding.readOnly !== 'seat' && (
           <button
             className="btn-handoff"
             disabled={busy}
@@ -571,10 +575,21 @@ export function ChatView({
           ))}
 
           <footer className="composer">
-            {binding.readOnly ? (
+            {binding.readOnly === 'seat' ? (
               // roundtable seat-session: the table's round loop owns this conversation
               <div className="composer-readonly">
                 Seat session of a roundtable — read-only. Talk to it at the table.
+              </div>
+            ) : binding.readOnly === 'agent' ? (
+              // an agent Cockpit reads but doesn't run: the way on is another agent
+              <div className="composer-readonly">
+                Cockpit reads {PROVIDER_LABEL[binding.provider]} sessions but doesn&apos;t run{' '}
+                {PROVIDER_LABEL[binding.provider]}.{' '}
+                {binding.nativeSessionId && (
+                  <button className="link-btn" onClick={onOpenHandoff}>
+                    Continue in Claude, Codex or Copilot…
+                  </button>
+                )}
               </div>
             ) : (
               <>
@@ -774,7 +789,7 @@ function ToolRun({
   onOpenWork
 }: {
   rows: Row[]
-  provider: Provider
+  provider: SessionProvider
   cwd: string
   onOpenWork?: (key: number, tab: WorkTab) => void
 }): JSX.Element {
@@ -858,7 +873,7 @@ export const Message = memo(function Message({
   onOpenWork
 }: {
   m: SessionMessage
-  provider: Provider
+  provider: SessionProvider
   /** The tool_result answering this tool_call, folded into the same row */
   result?: SessionMessage
   /** The session's directory — paths under it render relative */
@@ -993,7 +1008,7 @@ function PermissionAsk({
   onAnswer
 }: {
   ask: PendingPermission
-  provider: Provider
+  provider: SessionProvider
   onAnswer: (optionId: string) => void
 }): JSX.Element {
   // a command is what is being allowed, so it is what the card shows; the agent's title

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import type { AccountsSnapshot, AgentOptions, PermissionMode, Provider } from '../../shared/types'
+import type { AccountsSnapshot, AgentOptions, PermissionMode, Provider, SessionProvider } from '../../shared/types'
 import { api } from './api'
 import { shortPath } from '../../shared/library'
+import { isDrivable } from '../../shared/providers'
 import {
   AccountField,
   AGENT_BLURB,
@@ -23,7 +24,8 @@ const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 export type HandoffSourceRef = {
   /** `${provider}:${nativeId}` */
   readonly id: string
-  readonly provider: Provider
+  /** Any agent the index reads — a session of one Cockpit only reads hands off too */
+  readonly provider: SessionProvider
   readonly title: string
   readonly cwd: string
   readonly branch: string | null
@@ -232,14 +234,17 @@ export function HandoffView({
               Revert to extracted
             </button>
           )}
-          <button
-            className="btn-ghost small"
-            disabled={improving || briefLoading}
-            onClick={improve}
-            title={`Ask the ${PROVIDER_LABEL[source.provider]} session to write its own handoff briefing`}
-          >
-            {improving ? `Asking ${PROVIDER_LABEL[source.provider]}…` : 'Improve with AI'}
-          </button>
+          {/* improving resumes the source session in its own CLI — one Cockpit runs */}
+          {isDrivable(source.provider) && (
+            <button
+              className="btn-ghost small"
+              disabled={improving || briefLoading}
+              onClick={improve}
+              title={`Ask the ${PROVIDER_LABEL[source.provider]} session to write its own handoff briefing`}
+            >
+              {improving ? `Asking ${PROVIDER_LABEL[source.provider]}…` : 'Improve with AI'}
+            </button>
+          )}
         </div>
         <textarea
           id="handoff-brief"

@@ -3,10 +3,10 @@ import type {
   AccountsSnapshot,
   Landing,
   PrStatus,
-  Provider,
   RepoGroup,
   RoundtableMeta,
   SessionMeta,
+  SessionProvider,
   TimeFormat
 } from '../../shared/types'
 import { cleanupCounts, cleanupHeadline } from '../../shared/cleanup'
@@ -789,7 +789,7 @@ function expandKeys(open: boolean, onToggle: () => void) {
   }
 }
 
-function ProviderStrip({ providers }: { providers: readonly Provider[] }): JSX.Element {
+function ProviderStrip({ providers }: { providers: readonly SessionProvider[] }): JSX.Element {
   return (
     <span className="repo-providers">
       {providers.map((p) => (

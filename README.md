@@ -23,6 +23,7 @@
 ## Why Cockpit
 
 - **Your history is already there.** Cockpit reads the session logs Claude Code, Codex and Copilot CLI already write, so the first launch lists every session you have run — in a terminal, an editor or the agents' own apps — grouped by repository and branch, and it stays live as you work.
+- **Every agent's work in one place.** Sessions from Gemini CLI, Cursor, Cline and Roo Code, found in whichever editor runs them, sit beside the rest to read and search, and any of them continues in Claude Code, Codex or Copilot with one click.
 - **It tells you when an agent needs you.** The board shows what is flying, what has landed and what is waiting on your answer. A notification and a Dock badge arrive when a turn ends, fails or asks you a question, and when a pull request on your branch goes red.
 - **Work lands as a pull request.** A new task runs on its own branch in its own git worktree, never in your checkout. Review the diff, open the PR, and when checks fail or a reviewer asks for changes, **Fix with Claude** turns all of it into one prompt.
 

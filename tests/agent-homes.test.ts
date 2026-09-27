@@ -1,0 +1,106 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { detectAgentHomes, editorLabel, reconcileDetected } from '../src/main/agent-homes'
+import type { SourceDir } from '../src/shared/types'
+
+/** A fake HOME with agents installed the way they lay themselves out on disk. */
+let home: string
+
+const dir = (...parts: string[]): string => {
+  const p = join(home, ...parts)
+  mkdirSync(p, { recursive: true })
+  return p
+}
+
+const storage = (root: string, editor: string, ext: string): string =>
+  join(home, root, editor, 'User', 'globalStorage', ext)
+
+beforeAll(() => {
+  home = mkdtempSync(join(tmpdir(), 'cockpit-agent-homes-'))
+  dir('.claude')
+  dir('.codex')
+  dir('.gemini', 'tmp')
+  dir('.cursor', 'projects')
+  dir('.cline', 'data', 'tasks')
+  dir('Library', 'Application Support', 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks')
+  dir('Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'tasks')
+  // Linux's XDG home, and an editor this code has never heard of
+  dir('.config', 'Brand New Editor', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks')
+  // installed but never used: no tasks yet, so nothing to index
+  dir('Library', 'Application Support', 'Windsurf', 'User', 'globalStorage', 'saoudrizwan.claude-dev')
+})
+
+afterAll(() => rmSync(home, { recursive: true, force: true }))
+
+describe('detectAgentHomes', () => {
+  it('finds every agent that has written sessions, in any editor, with a label per home', () => {
+    const found = detectAgentHomes(home)
+    const byLabel = Object.fromEntries(found.map((s) => [s.label, s]))
+    expect(Object.keys(byLabel).sort()).toEqual([
+      'claude-default',
+      'cline-brand-new-editor',
+      'cline-cli',
+      'cline-vscode',
+      'codex-default',
+      'cursor-default',
+      'gemini-default',
+      'roo-cursor'
+    ])
+    expect(byLabel['gemini-default']).toEqual({ path: join(home, '.gemini'), provider: 'gemini', label: 'gemini-default' })
+    expect(byLabel['cline-vscode']!.path).toBe(storage(join('Library', 'Application Support'), 'Code', 'saoudrizwan.claude-dev'))
+    expect(byLabel['roo-cursor']).toMatchObject({ provider: 'roo' })
+  })
+
+  it('counts a home only once the agent has used it — ~/.gemini alone is not Gemini CLI', () => {
+    const bare = mkdtempSync(join(tmpdir(), 'cockpit-agent-homes-bare-'))
+    try {
+      mkdirSync(join(bare, '.gemini', 'antigravity'), { recursive: true })
+      mkdirSync(join(bare, '.cursor', 'extensions'), { recursive: true })
+      expect(detectAgentHomes(bare)).toEqual([])
+    } finally {
+      rmSync(bare, { recursive: true, force: true })
+    }
+  })
+
+  it('names editors by their data folder', () => {
+    expect(editorLabel('Code')).toBe('vscode')
+    expect(editorLabel('Code - Insiders')).toBe('vscode-insiders')
+    expect(editorLabel('Cursor')).toBe('cursor')
+    expect(editorLabel('Antigravity IDE')).toBe('antigravity-ide')
+  })
+})
+
+describe('reconcileDetected', () => {
+  const src = (provider: SourceDir['provider'], path: string): SourceDir => ({ path, provider, label: `${provider}-x` })
+  const claude = src('claude', '/h/.claude')
+  const codex = src('codex', '/h/.codex')
+  const gemini = src('gemini', '/h/.gemini')
+  const cursor = src('cursor', '/h/.cursor')
+
+  it('on a config from before detection, adds only the agents this build newly reads', () => {
+    // the person removed ~/.codex long ago; its home is still on disk
+    const next = reconcileDetected([claude], undefined, [claude, codex, gemini])
+    expect(next.sources).toEqual([claude, gemini])
+    expect(next.seen.sort()).toEqual([claude.path, codex.path, gemini.path].map((p) => resolve(p)).sort())
+    expect(next.changed).toBe(true)
+  })
+
+  it('adds a home the first time it appears', () => {
+    const next = reconcileDetected([claude, gemini], [claude.path, gemini.path], [claude, gemini, cursor])
+    expect(next.sources).toEqual([claude, gemini, cursor])
+    expect(next.changed).toBe(true)
+  })
+
+  it('never adds back a home the person removed', () => {
+    const next = reconcileDetected([claude], [claude.path, gemini.path], [claude, gemini])
+    expect(next.sources).toEqual([claude])
+    expect(next.changed).toBe(false)
+  })
+
+  it('does not add a home twice under a different spelling of its path', () => {
+    const next = reconcileDetected([src('gemini', '/h/./.gemini/')], [], [gemini])
+    expect(next.sources).toHaveLength(1)
+  })
+})

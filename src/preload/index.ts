@@ -20,6 +20,7 @@ import type {
   Landing,
   PanelTarget,
   ProcessTarget,
+  SessionProvider,
   SessionQuery,
   TimeFormat,
   TranscriptSearchQuery,
@@ -43,7 +44,7 @@ const api: CockpitApi = {
   getSources: () => ipcRenderer.invoke(CH.sourcesGet),
   getSourceStats: () => ipcRenderer.invoke(CH.sourcesStats),
   pickDirectory: () => ipcRenderer.invoke(CH.sourcesPickDir),
-  addSource: (path: string, provider: Provider, label: string) =>
+  addSource: (path: string, provider: SessionProvider, label: string) =>
     ipcRenderer.invoke(CH.sourcesAdd, path, provider, label),
   removeSource: (path: string) => ipcRenderer.invoke(CH.sourcesRemove, path),
   listRepos: () => ipcRenderer.invoke(CH.reposList),

@@ -9,6 +9,15 @@ import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/c
 import { parseCodexStreamLine } from '../src/main/chat'
 import type { SessionMessage } from '../src/shared/types'
 import { toolPreview } from '../src/main/parsers/util'
+import { listGeminiSessions, parseGeminiMessages, parseGeminiMeta } from '../src/main/parsers/gemini'
+import { listClineSessions, parseClineMessages } from '../src/main/parsers/cline'
+import {
+  cursorQueryTime,
+  cursorSlug,
+  listCursorSessions,
+  parseCursorMessages,
+  resolveCursorSlug
+} from '../src/main/parsers/cursor'
 import { writePagedThread } from './codex-paged-thread'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-test-fixtures-'))
@@ -1687,6 +1696,438 @@ describe('work agents keep outside their own log', () => {
     // not a database
     writeFileSync(join(sdir, 'session.db'), 'garbage')
     expect(parseCopilotMessages(file)[0].artifact).toBeUndefined()
+  })
+})
+
+describe('gemini parser', () => {
+  const home = join(root, 'gemini')
+  const chats = join(home, 'tmp', 'myrepo', 'chats')
+  const sessionId = 'abcd1234-0000-4000-8000-000000000001'
+  const t = (m: number): string => `2026-09-01T10:${String(m).padStart(2, '0')}:00.000Z`
+  const preamble = {
+    id: 'm0',
+    timestamp: t(0),
+    type: 'user',
+    content: [{ text: '<session_context>\nThis is the Gemini CLI.\n- **Workspace Directories:**\n  - /elsewhere\n' }]
+  }
+
+  beforeAll(() => {
+    mkdirSync(chats, { recursive: true })
+    writeFileSync(join(home, 'tmp', 'myrepo', '.project_root'), '/Users/me/dev/myrepo\n')
+    writeFileSync(
+      join(chats, 'session-2026-09-01T10-00-abcd1234.jsonl'),
+      jsonl([
+        { sessionId, projectHash: 'h', startTime: t(0), lastUpdated: t(0), kind: 'main' },
+        { $set: { messages: [preamble] } },
+        { id: 'm1', timestamp: t(1), type: 'user', content: [{ text: 'fix the flaky test' }] },
+        { id: 'm2', timestamp: t(2), type: 'gemini', content: [{ text: '' }], thoughts: [] },
+        // the same reply again, now with its reasoning and tool call — it replaces the first
+        {
+          id: 'm2',
+          timestamp: t(2),
+          type: 'gemini',
+          content: [{ text: 'Running the tests.' }],
+          thoughts: [{ subject: 'Planning', description: 'run them first', timestamp: t(2) }],
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'run_shell_command',
+              args: { command: 'npm test' },
+              status: 'success',
+              timestamp: t(3),
+              result: [
+                {
+                  functionResponse: {
+                    id: 'c1',
+                    name: 'run_shell_command',
+                    response: { output: 'Command: npm test\nOutput: Tests  1 failed | 4 passed\nExit Code: 1' }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          id: 'm3',
+          timestamp: t(4),
+          type: 'gemini',
+          content: 'Fixed the race.',
+          toolCalls: [
+            {
+              id: 'c2',
+              name: 'replace',
+              args: { file_path: '/Users/me/dev/myrepo/a.ts', old_string: 'await a\n', new_string: 'await b\n' },
+              status: 'error',
+              timestamp: t(4),
+              resultDisplay: 'Failed to edit: 0 occurrences found'
+            }
+          ]
+        },
+        { $set: { summary: 'Fix the flaky test', lastUpdated: t(5) } },
+        { id: 'm4', timestamp: t(6), type: 'user', content: [{ text: 'this prompt was rewound' }] },
+        { $rewindTo: 'm4' },
+        { id: 'm5', timestamp: t(7), type: 'info', content: 'Request cancelled.' }
+      ]) + 'not json at all\n'
+    )
+    // an older CLI's one-document log, its directory named only in projects.json
+    const legacy = join(home, 'tmp', 'other', 'chats')
+    mkdirSync(legacy, { recursive: true })
+    writeFileSync(join(home, 'projects.json'), JSON.stringify({ projects: { '/Users/me/dev/other': 'other' } }))
+    writeFileSync(
+      join(legacy, 'session-2026-08-01T09-00-legacy01.json'),
+      JSON.stringify({
+        sessionId: 'legacy-0001',
+        projectHash: 'h2',
+        startTime: '2026-08-01T09:00:00.000Z',
+        lastUpdated: '2026-08-01T09:05:00.000Z',
+        messages: [
+          { id: 'a', timestamp: '2026-08-01T09:00:00.000Z', type: 'user', content: 'explain the build' },
+          { id: 'b', timestamp: '2026-08-01T09:01:00.000Z', type: 'gemini', content: [{ text: 'It uses vite.' }] }
+        ]
+      })
+    )
+    // a session where nothing was said: the context preamble and a slash command
+    writeFileSync(
+      join(legacy, 'session-2026-08-02T09-00-quiet001.jsonl'),
+      jsonl([
+        { sessionId: 'quiet-0001', projectHash: 'h2', startTime: t(0), lastUpdated: t(0) },
+        preamble,
+        { id: 'q', timestamp: t(1), type: 'user', content: [{ text: '/model' }] }
+      ])
+    )
+    // a subagent's log, one directory deeper, and a file that is not a session at all
+    mkdirSync(join(chats, sessionId), { recursive: true })
+    writeFileSync(
+      join(chats, sessionId, 'sub-1.jsonl'),
+      jsonl([{ sessionId: 'sub-1', projectHash: 'h', kind: 'subagent' }, { id: 'x', type: 'user', content: 'hi' }])
+    )
+    writeFileSync(join(chats, 'session-broken.jsonl'), '{"sessionId": "broken"')
+  })
+
+  it('lists the sessions a person had, and none of the rest', () => {
+    const ids = listGeminiSessions(home, 'gemini-default').map((m) => m.id).sort()
+    expect(ids).toEqual([`gemini:${sessionId}`, 'gemini:legacy-0001'])
+  })
+
+  it('reads the title, the directory and the span off the log', () => {
+    const meta = parseGeminiMeta(join(chats, 'session-2026-09-01T10-00-abcd1234.jsonl'), 'gemini-default')!
+    expect(meta).toMatchObject({
+      id: `gemini:${sessionId}`,
+      provider: 'gemini',
+      nativeId: sessionId,
+      source: 'gemini-default',
+      title: 'Fix the flaky test',
+      cwd: '/Users/me/dev/myrepo',
+      logBranch: null,
+      startedAt: Date.parse(t(0)),
+      updatedAt: Date.parse(t(5)),
+      // the rewound prompt is gone, the preamble and the info line never counted
+      messageCount: 3
+    })
+    const legacy = listGeminiSessions(home, 'g').find((m) => m.id === 'gemini:legacy-0001')!
+    expect(legacy).toMatchObject({ title: 'explain the build', cwd: '/Users/me/dev/other', messageCount: 2 })
+  })
+
+  it('turns the replayed records into the conversation', () => {
+    const rows = parseGeminiMessages(join(chats, 'session-2026-09-01T10-00-abcd1234.jsonl'))
+    expect(rows.map((r) => [r.role, r.kind, r.toolName ?? r.text])).toEqual([
+      ['user', 'text', 'fix the flaky test'],
+      ['assistant', 'reasoning', 'Planning: run them first'],
+      ['assistant', 'text', 'Running the tests.'],
+      ['assistant', 'tool_call', 'run_shell_command'],
+      ['tool', 'tool_result', 'Command: npm test Output: Tests 1 failed | 4 passed Exit Code: 1'],
+      ['assistant', 'text', 'Fixed the race.'],
+      ['assistant', 'tool_call', 'replace'],
+      ['tool', 'tool_result', 'Failed to edit: 0 occurrences found'],
+      ['system', 'system', 'Request cancelled.']
+    ])
+    const shell = rows[3]!
+    expect(shell.preview).toBe('npm test')
+    expect(shell.artifact).toMatchObject({ kind: 'check', checks: ['tests'], status: 'failed', exitCode: 1 })
+    const edit = rows[6]!
+    expect(edit.failed).toBe(true)
+    expect(edit.artifact).toMatchObject({ kind: 'edits', files: [{ path: '/Users/me/dev/myrepo/a.ts', change: 'edit' }] })
+  })
+
+  it('reads an older one-document log whole', () => {
+    const rows = parseGeminiMessages(join(home, 'tmp', 'other', 'chats', 'session-2026-08-01T09-00-legacy01.json'))
+    expect(rows.map((r) => r.text)).toEqual(['explain the build', 'It uses vite.'])
+  })
+})
+
+describe('cline family parser', () => {
+  const cline = join(root, 'cline')
+  const roo = join(root, 'roo')
+  const task = '1756700000000'
+  const env = (cwd: string): string =>
+    JSON.stringify({ request: `<task>\nx\n</task>\n<environment_details>\n# Current Working Directory (${cwd}) Files\n` })
+  const say = (ts: number, kind: string, text: string, extra: object = {}) => ({ ts, type: 'say', say: kind, text, ...extra })
+  const ask = (ts: number, kind: string, text: string) => ({ ts, type: 'ask', ask: kind, text })
+  const T = 1756700000000
+
+  beforeAll(() => {
+    mkdirSync(join(cline, 'tasks', task), { recursive: true })
+    mkdirSync(join(cline, 'state'), { recursive: true })
+    writeFileSync(
+      join(cline, 'state', 'taskHistory.json'),
+      JSON.stringify([{ id: task, ts: T + 60_000, task: 'add a login page', cwdOnTaskInitialization: '/Users/me/dev/web' }])
+    )
+    writeFileSync(
+      join(cline, 'tasks', task, 'ui_messages.json'),
+      JSON.stringify([
+        say(T, 'text', 'add a login page'),
+        say(T + 1, 'api_req_started', env('/somewhere/else')),
+        say(T + 2, 'checkpoint_created', ''),
+        say(T + 3, 'reasoning', 'Needs a form and a route'),
+        say(T + 4, 'text', "I'll create the page."),
+        ask(T + 5, 'tool', JSON.stringify({ tool: 'newFileCreated', path: 'src/login.tsx', content: 'export const Login = () => null\n' })),
+        say(T + 6, 'tool', JSON.stringify({ tool: 'readFile', path: 'src/app.tsx', content: '/Users/me/dev/web/src/app.tsx' })),
+        say(T + 7, 'tool', JSON.stringify({ tool: 'searchFiles', path: 'src', regex: 'Route', content: 'Found 2 results.' })),
+        ask(
+          T + 8,
+          'tool',
+          JSON.stringify({ tool: 'editedExistingFile', path: 'src/app.tsx', content: '------- SEARCH\n<Home />\n=======\n<Login />\n+++++++ REPLACE' })
+        ),
+        say(T + 9, 'diff_error', 'src/app.tsx'),
+        ask(T + 10, 'command', 'npm testREQ_APP'),
+        ask(T + 11, 'command_output', 'FAIL src/login.test.tsx\n'),
+        say(T + 12, 'checkpoint_created', ''),
+        ask(T + 13, 'command_output', 'Tests: 1 failed, 3 passed\n'),
+        say(T + 14, 'task_progress', '- [x] Create the page\n- [ ] Wire the route'),
+        ask(T + 15, 'followup', JSON.stringify({ question: 'Keep the old route?', options: ['Yes', 'No'] })),
+        say(T + 16, 'user_feedback', 'no — and add a logout'),
+        say(T + 17, 'completion_result', 'Done — login and logout added.'),
+        ask(T + 18, 'completion_result', '')
+      ])
+    )
+    // no history entry: the directory comes off the first request's environment block
+    const bare = join(cline, 'tasks', '1756800000000')
+    mkdirSync(bare, { recursive: true })
+    writeFileSync(
+      join(bare, 'ui_messages.json'),
+      JSON.stringify([say(T + 100, 'text', 'tidy the readme'), say(T + 101, 'api_req_started', env('/Users/me/dev/docs'))])
+    )
+    // a task that only ever started, and one cut off mid-write
+    const idle = join(cline, 'tasks', '1756900000000')
+    mkdirSync(idle, { recursive: true })
+    writeFileSync(join(idle, 'ui_messages.json'), JSON.stringify([say(T + 200, 'api_req_started', env('/x'))]))
+    const cut = join(cline, 'tasks', '1757000000000')
+    mkdirSync(cut, { recursive: true })
+    writeFileSync(join(cut, 'ui_messages.json'), '[{"ts":1757000000000,"type":"say","say":"text","text":"half a')
+
+    // Roo Code: its own history item beside each task, and its SEARCH/REPLACE dialect
+    const rtask = join(roo, 'tasks', '9fcb6803-3ba1-4202-bf96-0f076f5ff149')
+    mkdirSync(rtask, { recursive: true })
+    writeFileSync(
+      join(rtask, 'history_item.json'),
+      JSON.stringify({ id: '9fcb6803-3ba1-4202-bf96-0f076f5ff149', task: 'bump the config', ts: T + 5_000, workspace: '/Users/me/dev/api', parentTaskId: 'parent-1' })
+    )
+    writeFileSync(
+      join(rtask, 'ui_messages.json'),
+      JSON.stringify([
+        say(T, 'text', 'bump the config'),
+        ask(T + 1, 'tool', JSON.stringify({ tool: 'updateTodoList', todos: [{ id: 'a', content: 'Bump it', status: 'in_progress' }] })),
+        ask(
+          T + 2,
+          'tool',
+          JSON.stringify({ tool: 'appliedDiff', path: 'package.json', diff: '<<<<<<< SEARCH\n:start_line:3\n-------\n"version": "1.0.0"\n=======\n"version": "1.1.0"\n>>>>>>> REPLACE' })
+        ),
+        say(T + 3, 'completion_result', 'Bumped.')
+      ])
+    )
+  })
+
+  it('lists every task with its title, directory and span', () => {
+    const metas = listClineSessions(cline, 'cline-vscode')
+    expect(metas.map((m) => m.id).sort()).toEqual(['cline:1756700000000', 'cline:1756800000000'])
+    expect(metas.find((m) => m.nativeId === task)).toMatchObject({
+      provider: 'cline',
+      source: 'cline-vscode',
+      title: 'add a login page',
+      // the history's record of the directory beats the environment block
+      cwd: '/Users/me/dev/web',
+      startedAt: T,
+      updatedAt: T + 18,
+      // the task, the reply, the feedback and the result; the question is a question
+      messageCount: 5
+    })
+    expect(metas.find((m) => m.nativeId === '1756800000000')?.cwd).toBe('/Users/me/dev/docs')
+  })
+
+  it('reads a Roo Code task, its parent and its edits', () => {
+    const [meta] = listClineSessions(roo, 'roo-vscode', 'roo')
+    expect(meta).toMatchObject({
+      id: 'roo:9fcb6803-3ba1-4202-bf96-0f076f5ff149',
+      provider: 'roo',
+      title: 'bump the config',
+      cwd: '/Users/me/dev/api',
+      parentId: 'roo:parent-1'
+    })
+    const rows = parseClineMessages(meta!.sourcePath)
+    expect(rows[1]!.artifact).toEqual({ kind: 'todos', items: [{ text: 'Bump it', status: 'in_progress' }] })
+    expect(rows[2]!.artifact).toMatchObject({
+      kind: 'edits',
+      files: [{ path: 'package.json', change: 'edit', hunks: [[{ op: 'del', text: '"version": "1.0.0"' }, { op: 'add', text: '"version": "1.1.0"' }]] }]
+    })
+  })
+
+  it('turns the panel into the conversation, gathering a command’s output onto one result', () => {
+    const rows = parseClineMessages(join(cline, 'tasks', task, 'ui_messages.json'))
+    expect(rows.map((r) => [r.role, r.kind, r.toolName ?? r.text])).toEqual([
+      ['user', 'text', 'add a login page'],
+      ['assistant', 'reasoning', 'Needs a form and a route'],
+      ['assistant', 'text', "I'll create the page."],
+      ['assistant', 'tool_call', 'newFileCreated'],
+      ['assistant', 'tool_call', 'readFile'],
+      ['assistant', 'tool_call', 'searchFiles'],
+      ['tool', 'tool_result', 'Found 2 results.'],
+      ['assistant', 'tool_call', 'editedExistingFile'],
+      ['system', 'system', 'Edit did not apply: src/app.tsx'],
+      ['assistant', 'tool_call', 'execute_command'],
+      ['tool', 'tool_result', 'FAIL src/login.test.tsx Tests: 1 failed, 3 passed'],
+      ['assistant', 'tool_call', 'task_progress'],
+      ['assistant', 'text', 'Keep the old route?\n\n- Yes\n- No'],
+      ['user', 'text', 'no — and add a logout'],
+      ['assistant', 'text', 'Done — login and logout added.']
+    ])
+    expect(rows[3]!.artifact).toMatchObject({ kind: 'edits', files: [{ path: 'src/login.tsx', change: 'add' }] })
+    expect(rows[4]!.preview).toBe('src/app.tsx')
+    expect(rows[5]!.preview).toBe('Route in src')
+    expect(rows[7]).toMatchObject({ failed: true, artifact: { kind: 'edits', files: [{ path: 'src/app.tsx' }] } })
+    expect(rows[9]).toMatchObject({ preview: 'npm test', artifact: { kind: 'check', checks: ['tests'], status: 'failed' } })
+    expect(rows[11]!.artifact).toEqual({
+      kind: 'todos',
+      items: [
+        { text: 'Create the page', status: 'completed' },
+        { text: 'Wire the route', status: 'pending' }
+      ]
+    })
+  })
+
+  it('reads the newest messages of a log too large to read whole, past a message larger than the budget', () => {
+    const dir = join(cline, 'tasks', '1757100000000')
+    mkdirSync(dir, { recursive: true })
+    // six older messages under the per-message cap, more than the budget together
+    const filler = 'x'.repeat(900 * 1024)
+    const old = Array.from({ length: 6 }, (_, i) => say(T + i, 'text', `${i === 0 ? 'the task' : 'old reply'} ${filler}`))
+    writeFileSync(
+      join(dir, 'ui_messages.json'),
+      JSON.stringify([
+        ...old,
+        // a request carrying whole files: bookkeeping, and bigger than the transcript budget
+        say(T + 10, 'api_req_started', 'y'.repeat(5 * 1024 * 1024)),
+        say(T + 11, 'text', 'z'.repeat(1_500_000)),
+        say(T + 12, 'completion_result', 'All done.')
+      ])
+    )
+    const rows = parseClineMessages(join(dir, 'ui_messages.json'))
+    expect(rows[0]!.text).toMatch(/older messages omitted/)
+    // read from mid-log, the first message left is a reply, never mistaken for the task
+    expect(rows.filter((r) => r.role === 'user')).toEqual([])
+    expect(rows.filter((r) => r.text.startsWith('old reply')).length).toBeGreaterThan(0)
+    expect(rows.slice(-2).map((r) => [r.role, r.text])).toEqual([
+      ['assistant', '(message too large to show)'],
+      ['assistant', 'All done.']
+    ])
+  })
+})
+
+describe('cursor parser', () => {
+  const home = join(root, 'cursor')
+  const id = '73aa8a10-b663-4607-8992-e626d22d22e6'
+  const dir = join(home, 'projects', 'Users-me-dev-web', 'agent-transcripts', id)
+  const user = (text: string) => ({ role: 'user', message: { content: [{ type: 'text', text }] } })
+
+  beforeAll(() => {
+    mkdirSync(join(dir, 'subagents'), { recursive: true })
+    writeFileSync(
+      join(dir, `${id}.jsonl`),
+      jsonl([
+        user('<timestamp>Wednesday, Aug 19, 2026, 12:56 AM (UTC+3)</timestamp>\n<user_query>\nwhy can customers not sign in?\n</user_query>'),
+        {
+          role: 'assistant',
+          message: {
+            content: [
+              { type: 'text', text: "I'll trace the sign-in flow.\n\n[REDACTED]" },
+              { type: 'tool_use', name: 'Read', input: { path: '/Users/me/dev/web/src/auth.ts' } },
+              { type: 'tool_use', name: 'Glob', input: { glob_pattern: '**/*sign*' } }
+            ]
+          }
+        },
+        { role: 'assistant', message: { content: [{ type: 'text', text: '[REDACTED]' }] } },
+        {
+          role: 'assistant',
+          message: {
+            content: [
+              { type: 'tool_use', name: 'StrReplace', input: { path: '/Users/me/dev/web/src/auth.ts', old_string: 'false', new_string: 'true' } },
+              { type: 'tool_use', name: 'Shell', input: { command: 'npm run typecheck' } }
+            ]
+          }
+        },
+        { role: 'assistant', message: { content: [{ type: 'text', text: 'The allow-list was empty.' }] } },
+        { type: 'turn_ended', status: 'success' },
+        user('<user_query>thanks</user_query>'),
+        { type: 'turn_ended', status: 'error', error: 'User aborted request' }
+      ])
+    )
+    writeFileSync(join(dir, 'subagents', 'sub.jsonl'), jsonl([user('<user_query>sub</user_query>')]))
+    // a transcript where the agent never answered and nothing was asked
+    const empty = join(home, 'projects', 'Users-me-dev-web', 'agent-transcripts', 'empty-1')
+    mkdirSync(empty, { recursive: true })
+    writeFileSync(join(empty, 'empty-1.jsonl'), jsonl([{ type: 'turn_ended', status: 'error', error: 'no model' }]))
+  })
+
+  it('names the workspace the way Cursor does, and finds it again', () => {
+    expect(cursorSlug('/Users/titan.ron/.cursor/worktrees/cachely/v96w')).toBe('Users-titan-ron-cursor-worktrees-cachely-v96w')
+    // from the paths the agent used
+    expect(resolveCursorSlug('Users-me-dev-web', ['/Users/me/dev/web/src/auth.ts'])).toBe('/Users/me/dev/web')
+    // from the disk, when the agent named none: a real directory with a dot in its name
+    const real = join(root, 'cursor-ws', 'my.project')
+    mkdirSync(real, { recursive: true })
+    expect(resolveCursorSlug(cursorSlug(real))).toBe(real)
+    expect(resolveCursorSlug('nowhere-that-exists-at-all-0f3a')).toBeNull()
+  })
+
+  it('reads the time the opening query carries', () => {
+    expect(cursorQueryTime('<timestamp>Wednesday, Aug 19, 2026, 12:56 AM (UTC+3)</timestamp>')).toBe(
+      Date.parse('2026-08-18T21:56:00Z')
+    )
+    expect(cursorQueryTime('<timestamp>Monday, Sep 7, 2026, 3:05 PM (UTC-4:30)</timestamp>')).toBe(
+      Date.parse('2026-09-07T19:35:00Z')
+    )
+    expect(cursorQueryTime('no time here')).toBeNull()
+  })
+
+  it('lists the transcripts with a conversation in them', () => {
+    const metas = listCursorSessions(home, 'cursor-default')
+    expect(metas).toHaveLength(1)
+    expect(metas[0]).toMatchObject({
+      id: `cursor:${id}`,
+      provider: 'cursor',
+      title: 'why can customers not sign in?',
+      cwd: '/Users/me/dev/web',
+      startedAt: Date.parse('2026-08-18T21:56:00Z'),
+      messageCount: 6
+    })
+  })
+
+  it('turns the transcript into the conversation, hidden reasoning left out', () => {
+    const rows = parseCursorMessages(join(dir, `${id}.jsonl`))
+    expect(rows.map((r) => [r.role, r.kind, r.toolName ?? r.text])).toEqual([
+      ['user', 'text', 'why can customers not sign in?'],
+      ['assistant', 'text', "I'll trace the sign-in flow."],
+      ['assistant', 'tool_call', 'Read'],
+      ['assistant', 'tool_call', 'Glob'],
+      ['assistant', 'tool_call', 'StrReplace'],
+      ['assistant', 'tool_call', 'Shell'],
+      ['assistant', 'text', 'The allow-list was empty.'],
+      ['user', 'text', 'thanks'],
+      ['system', 'system', 'Turn ended: User aborted request']
+    ])
+    expect(rows[2]!.preview).toBe('/Users/me/dev/web/src/auth.ts')
+    expect(rows[3]!.preview).toBe('**/*sign*')
+    expect(rows[4]!.artifact).toMatchObject({ kind: 'edits', files: [{ path: '/Users/me/dev/web/src/auth.ts' }] })
+    expect(rows[5]!.artifact).toMatchObject({ kind: 'check', checks: ['types'] })
   })
 })
 

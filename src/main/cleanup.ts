@@ -41,6 +41,7 @@ import {
 import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText } from './env'
 import { sessionLogFiles } from './parsers/util'
+import { isDrivable } from '../shared/providers'
 import { isUnder } from './paths'
 
 /**
@@ -664,8 +665,11 @@ async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey
   // cost far more than the answer is worth
   const sizes = await sizeWorktrees(staleTrees)
 
+  // an agent Cockpit only reads keeps more than the log it reads (Cline's task folder
+  // and history, Cursor's own state), so its sessions are its own app's to delete — not
+  // listed here, while one indexed in a worktree still holds that worktree back
   const staleMetas = all
-    .filter((s) => isStale(s.updatedAt, cutoff))
+    .filter((s): s is SessionMeta & { readonly provider: Provider } => isStale(s.updatedAt, cutoff) && isDrivable(s.provider))
     .sort((a, b) => a.updatedAt - b.updatedAt)
   const sessions: StaleSession[] = []
   let n = 0
@@ -836,6 +840,10 @@ export const deleteSessions = retiringSurveys(async function deleteSessions(
     const meta = byId.get(id)
     if (!meta) {
       failed.push({ target: id, reason: 'no longer indexed' })
+      continue
+    }
+    if (!isDrivable(meta.provider)) {
+      failed.push({ target: meta.title || id, reason: 'Cockpit only reads this agent’s sessions — delete it in its own app' })
       continue
     }
     if (busy.has(id)) {

@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX, type RefObject } from 'react'
-import type { FileEdit, Provider, SessionFilePreview, TodoStatus } from '../../shared/types'
+import type { FileEdit, SessionFilePreview, SessionProvider, TodoStatus } from '../../shared/types'
 import { shortPath } from '../../shared/library'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
@@ -101,7 +101,7 @@ export const WorkPanel = memo(function WorkPanel({
   onTab: (tab: WorkTab) => void
   onClose: () => void
   cwd: string
-  provider: Provider
+  provider: SessionProvider
   /** The plan row still waiting for the person's approval, if one is */
   pendingPlanKey: number | null
   /** Swap the transcript for the worktree's diff — absent where there is none */
@@ -204,7 +204,7 @@ function PlanTab({
   model: WorkModel
   focus: WorkFocus
   pendingPlanKey: number | null
-  provider: Provider
+  provider: SessionProvider
 }): JSX.Element {
   const fmt = useTimeFormat()
   const { plans } = model
@@ -255,7 +255,7 @@ function indexFor(plans: WorkModel['plans'], key: number | null): number | null 
   return i < 0 ? null : i
 }
 
-function TodosTab({ model, provider }: { model: WorkModel; provider: Provider }): JSX.Element {
+function TodosTab({ model, provider }: { model: WorkModel; provider: SessionProvider }): JSX.Element {
   if (model.todosKey === null) {
     return (
       <p className="work-empty">
@@ -478,7 +478,7 @@ function ChecksTab({
 }: {
   model: WorkModel
   focus: WorkFocus
-  provider: Provider
+  provider: SessionProvider
   scroller: RefObject<HTMLDivElement | null>
 }): JSX.Element {
   const { checks } = model
@@ -613,7 +613,7 @@ function FilesTab({
   model: WorkModel
   focus: WorkFocus
   cwd: string
-  provider: Provider
+  provider: SessionProvider
   sessionId: string | null
   onOpenUrl: (url: string) => void
 }): JSX.Element {
@@ -865,7 +865,7 @@ function FollowUpsTab({
 }: {
   model: WorkModel
   focus: WorkFocus
-  provider: Provider
+  provider: SessionProvider
   sessionId: string | null
   scroller: RefObject<HTMLDivElement | null>
   onStart?: (followUp: { readonly title: string; readonly prompt: string; readonly cwd?: string }) => void

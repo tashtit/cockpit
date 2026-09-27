@@ -329,7 +329,7 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
       }
     }
     case 'Edit':
-      return edits([replaceEdit(i?.file_path, [[i?.old_string, i?.new_string]])])
+      return edits([replaceEdit(i?.file_path ?? i?.path, [[i?.old_string, i?.new_string]])])
     case 'MultiEdit': {
       const list = i?.edits
       const pairs = Array.isArray(list)
@@ -338,7 +338,20 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
       return edits([replaceEdit(i?.file_path, pairs)])
     }
     case 'Write':
+      // Cursor's agent: `path` and `contents` where Claude says `file_path` and `content`
+      return edits([wholeFile(i?.file_path ?? i?.path, i?.content ?? i?.contents, 'write')])
+    case 'StrReplace':
+      return edits([replaceEdit(i?.path ?? i?.file_path, [[i?.old_string, i?.new_string]])])
+    // Gemini CLI
+    case 'write_file':
       return edits([wholeFile(i?.file_path, i?.content, 'write')])
+    case 'replace':
+      return edits([replaceEdit(i?.file_path, [[i?.old_string, i?.new_string]])])
+    case 'write_todos':
+      return todos(i?.todos, (t) => ({ text: t.description, status: t.status }))
+    case 'run_shell_command':
+    case 'Shell':
+      return checkArtifact(i?.command)
     // Codex
     case 'update_plan':
       return todos(i?.plan, (t) => ({ text: t.step, status: t.status }))
@@ -421,6 +434,39 @@ export function fileChangeArtifact(changes: unknown): WorkArtifact | undefined {
 
 function changeKind(v: unknown): FileEdit['change'] {
   return v === 'add' ? 'add' : v === 'delete' ? 'delete' : 'edit'
+}
+
+/**
+ * The Cline family's file edits: SEARCH/REPLACE blocks, in Cline's markers
+ * (`------- SEARCH` … `=======` … `+++++++ REPLACE`) or the older merge-conflict ones
+ * (`<<<<<<< SEARCH` … `>>>>>>> REPLACE`) Roo Code still writes, where a `:start_line:`
+ * header and a `-------` rule may open the search side.
+ */
+export function searchReplaceArtifact(path: unknown, diff: unknown): WorkArtifact | undefined {
+  if (typeof diff !== 'string') return undefined
+  const pairs: Array<readonly [string, string]> = []
+  const block =
+    /(?:^|\n)(?:-{3,}|<{3,}) ?SEARCH[^\n]*\n([\s\S]*?)\n={3,}\n([\s\S]*?)\n?(?:\+{3,}|>{3,}) ?REPLACE/g
+  for (const m of diff.matchAll(block)) {
+    const search = m[1]!.replace(/^(?::start_line:\s*\d+\s*\n)?(?:-{3,}\n)?/, '')
+    pairs.push([search, m[2]!])
+  }
+  return pairs.length > 0 ? edits([replaceEdit(path, pairs)]) : undefined
+}
+
+/** A file an agent created or rewrote whole, when its log names only the path and the text. */
+export function fileWriteArtifact(path: unknown, content: unknown, change: 'add' | 'write'): WorkArtifact | undefined {
+  return edits([wholeFile(path, content, change)])
+}
+
+/** A markdown checklist (`- [ ] step`, `- [x] step`) as a to-do list — Cline's task progress. */
+export function checklistArtifact(text: unknown): WorkArtifact | undefined {
+  if (typeof text !== 'string') return undefined
+  const items = [...text.matchAll(/^\s*[-*] \[([ xX~-])\]\s+(.+)$/gm)].map((m) => ({
+    text: m[2]!,
+    status: m[1] === ' ' ? 'pending' : m[1] === '-' || m[1] === '~' ? 'in_progress' : 'completed'
+  }))
+  return items.length > 0 ? todos(items, (t) => ({ text: t.text, status: t.status })) : undefined
 }
 
 /** Codex's `todo_list` stream item: `{ items: [{ text, completed }] }`. */
