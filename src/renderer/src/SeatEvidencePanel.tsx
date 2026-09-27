@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { RoundtableParticipant } from '../../shared/types'
-import { seatDisplayName } from '../../shared/roundtable'
 import { api } from './api'
 import { buildEvidence, EVIDENCE_VERB, seatSessions, type EvidenceTurn } from './evidence'
 import { relativeTo } from './format'
 import { ipcErrorText } from './ipc-error'
-import { PROVIDER_LABEL, XIcon } from './logos'
+import { XIcon } from './logos'
+import { uiSeatName } from './roundtable-seats'
 import { SidePanel } from './SidePanel'
 import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
@@ -74,7 +74,7 @@ export function SeatEvidencePanel({
     }
   }, [table.id, participants, refresh])
 
-  const name = (i: number): string => seatDisplayName(participants, i, PROVIDER_LABEL)
+  const name = (i: number): string => uiSeatName(participants, i)
   const tabs: readonly TabDef<string>[] = participants.map((_, i) => ({
     id: String(i),
     label: name(i),
