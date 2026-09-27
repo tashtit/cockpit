@@ -399,7 +399,8 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
           <h3 className="ns-label">Other agents · read only</h3>
           <p className="ns-hint ns-prose">
             Found on this machine and indexed beside the rest. Open a session to read it, or
-            continue it with Claude, Codex or Copilot — Cockpit doesn&apos;t sign these in or run them.
+            continue it with another agent. Cockpit doesn&apos;t sign these in; one whose ACP server
+            answers can be started and continued here too (ACP agents, under Providers).
           </p>
           <ul className="source-list">
             {readOnly.map((s) => (
