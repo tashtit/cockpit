@@ -145,7 +145,7 @@ async function faults(): Promise<string[]> {
     }
 
     // 5. A region that scrolls must be reachable without a pointer (WCAG 2.1.1).
-    for (const el of document.querySelectorAll('pre, .messages, .idiff-body, .tree, .board-list, .home-stack')) {
+    for (const el of document.querySelectorAll('pre, .messages, .idiff-body, .tree, .board-list, .home-stack, .home-news-list')) {
       const style = getComputedStyle(el)
       const scrolls =
         (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(style.overflowX)) ||
@@ -247,7 +247,7 @@ test('settings, every section', async () => {
 test('agents, every section', async () => {
   await nav('Agents')
   await audit()
-  for (const section of ['Instructions', 'MCP servers', 'Skills', 'Plugins', 'Marketplaces']) {
+  for (const section of ['Instructions', 'MCP servers', 'Skills', 'Plugins', 'Marketplaces', 'Browse']) {
     await win.getByRole('tab', { name: new RegExp(`^${section}`) }).click()
     await expect(win.getByRole('tab', { name: new RegExp(`^${section}`) })).toHaveAttribute('aria-selected', 'true')
     await audit()

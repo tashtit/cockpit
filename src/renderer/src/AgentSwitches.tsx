@@ -66,7 +66,11 @@ export function AgentSwitches({
                 ? 'Click again to remove it from this agent'
                 : cell.kept
                   ? `${cell.detail || 'on'} — its own definition, kept on purpose`
-                  : cell.detail || (cell.desired ? 'on' : 'off')
+                  : cell.state === 'pending'
+                    ? cell.gone
+                      ? 'on — but removed from its config outside Cockpit'
+                      : 'on — but not written there yet'
+                    : cell.detail || (cell.desired ? 'on' : 'off')
             }
             disabled={busy !== null}
             className={`ag-chip ag-${p} ${cell.desired ? 'on' : 'off'} ${

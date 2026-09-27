@@ -138,6 +138,16 @@ describe('splitSecrets', () => {
     }
   })
 
+  // another machine's agents were never seen holding anything: carried there, the
+  // record would call every server it hasn't got yet "removed outside Cockpit"
+  it('leaves out what this machine’s agents were seen holding', () => {
+    const seenHere: LibraryEntry = { ...mcp, seen: { claude: true, copilot: true } }
+    for (const sealed of [false, true]) {
+      const out = splitSecrets([scope({ library: [seenHere] })], [], { sealed, keyFor: () => undefined })
+      expect(out.scopes[0].library[0].seen).toBeUndefined()
+    }
+  })
+
   it('moves everything secret into the sealed half when there is one', () => {
     const out = splitSecrets([scope({ library: [mcp] })], [endpoint], {
       sealed: true,

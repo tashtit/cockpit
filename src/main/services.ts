@@ -24,6 +24,7 @@ import { RoundtableManager } from './roundtable'
 import { setCopilotActiveUser } from './accounts'
 import { getEndpointKey } from './secrets'
 import { UpdateManager } from './updates'
+import { forgetUpdatesDigest } from './updates-digest'
 import { AttentionDesk, electronSurface } from './attention'
 import { tableOutcome } from './attention-core'
 import { worktreesDir } from './workspace'
@@ -164,7 +165,12 @@ export function startServices(): Services {
 
   // app updates from GitHub Releases — the manager refuses everything but an installed
   // macOS build, so dev runs and e2e never reach the network
-  const updates = new UpdateManager((state) => sendToWin(PUSH.updateState, state))
+  const updates = new UpdateManager((state) => {
+    // the home lists the app beside everything else that could be brought up to date,
+    // and that list is cached — a release arriving or finishing its download is news
+    forgetUpdatesDigest()
+    sendToWin(PUSH.updateState, state)
+  })
 
   /*
    * Attention: a notification, a sound and the Dock badge when a turn ends unseen.

@@ -966,6 +966,13 @@ export type LibraryEntry = {
    * definition.
    */
   readonly withheld?: readonly string[]
+  /**
+   * The agents Cockpit has seen hold it since it last took it out of them itself. One
+   * of these that no longer has it lost it outside Cockpit — the row says "removed
+   * outside" rather than "not written yet". Machine-local, like `raw`: a backup leaves
+   * it out, since another machine's agents are not the ones that were seen.
+   */
+  readonly seen?: Partial<Record<Provider, true>>
 }
 
 /** One entry in one scope — every panel action names its target this way. */
@@ -981,6 +988,150 @@ export type ExtensionsInventory = {
   readonly skills: SkillInfo[]
   readonly plugins: PluginInfo[]
   readonly marketplaces: MarketplaceInfo[]
+}
+
+/* ---------- looking a marketplace up: what it offers ---------- */
+
+/** One plugin as its marketplace's own catalogue describes it. */
+export type CatalogPlugin = {
+  /** the plugin's own name, without the `@marketplace` half */
+  readonly name: string
+  /** the id every agent installs it by: `<name>@<marketplace>` */
+  readonly id: string
+  readonly description: string
+  readonly version?: string
+  readonly author?: string
+  readonly category?: string
+  readonly keywords: readonly string[]
+  /** where a person reads more about it, when the catalogue names one */
+  readonly homepage?: string
+}
+
+/** Where a catalogue was read from — a clone on this machine, or the repo it lives in. */
+export type CatalogOrigin = 'local' | 'remote'
+
+/**
+ * A marketplace and what it offers. Read from the clone an agent already made, or —
+ * only when the person asks for it — fetched from the repository it is published in.
+ */
+export type MarketplaceCatalog = {
+  readonly name: string
+  /** the git URL or `owner/repo` an agent would be pointed at, when one is recorded */
+  readonly source?: string
+  /** agents that already have this marketplace */
+  readonly agents: readonly Provider[]
+  readonly plugins: readonly CatalogPlugin[]
+  /** set once a catalogue was actually read */
+  readonly origin?: CatalogOrigin
+  /** why there is no catalogue to show — never fatal, the marketplace still lists */
+  readonly problem?: string
+  /** Cockpit vouches for this one (`RECOMMENDED_MARKETPLACE`) */
+  readonly recommended?: true
+}
+
+/** What the browse surface asks for: a marketplace to add, or a plugin to install. */
+export type CatalogInstall = {
+  readonly kind: 'marketplace' | 'plugin'
+  /** marketplace: its name · plugin: the `<name>@<marketplace>` id every agent installs by */
+  readonly name: string
+  /** marketplace: where to clone it from (a git URL or `owner/repo`) */
+  readonly source?: string
+}
+
+/* ---------- what could be brought up to date ---------- */
+
+/**
+ * One thing this machine could be brought up to date on. The app, an agent CLI, a
+ * pinned MCP server, a plugin the marketplace has moved past — or a disagreement
+ * between the agents, which is not an update but is the same question: "is anything
+ * out of step?".
+ */
+export type UpdateSuggestionKind = 'app' | 'cli' | 'mcp' | 'plugin' | 'drift'
+
+export type UpdateSuggestion = {
+  readonly kind: UpdateSuggestionKind
+  /** `${kind}:${name}` — stable across gatherings, so a row can be acted on by id */
+  readonly id: string
+  /** the CLI, the server, the plugin id, the entry that drifted, or "Cockpit" */
+  readonly name: string
+  /** the agents it concerns; empty for Cockpit itself */
+  readonly agents: readonly Provider[]
+  /** what is installed now, where there is a version to name */
+  readonly current?: string
+  /** what is on offer */
+  readonly latest?: string
+  /**
+   * plugin: the agents on an older version than `latest` — `agents` is every agent that
+   * has it, since an update brings them all to the same one
+   */
+  readonly behind?: readonly Provider[]
+  /** one line: what this is, and where the newer one comes from */
+  readonly detail: string
+}
+
+/** Everything that could be brought up to date, gathered once. */
+export type UpdatesDigest = {
+  readonly items: readonly UpdateSuggestion[]
+  /** when this was gathered (epoch ms) */
+  readonly at: number
+  /** what couldn't be asked — a registry offline, a catalogue missing. Never fatal. */
+  readonly problems: readonly string[]
+}
+
+/* ---------- the MCP Registry: servers nobody here runs yet ---------- */
+
+/** How a registry server runs once it is added — the definition Cockpit writes. */
+export type RegistryServerKind = 'npm' | 'pypi' | 'remote'
+
+/** A value a server needs to run that only the person can give it: an env var. */
+export type RegistryInput = {
+  readonly name: string
+  readonly description: string
+  /** it won't start without one, and the registry offers no default */
+  readonly required: boolean
+  /** a token or a password — typed into a masked field */
+  readonly secret: boolean
+  readonly default?: string
+}
+
+/** One server the registry offers, as it would land on this machine. */
+export type RegistryServer = {
+  /** the registry's own name, `io.github.owner/server` — its namespace is its publisher */
+  readonly id: string
+  readonly version: string
+  /** what a person calls it: the publisher's title, else the name's last segment */
+  readonly title: string
+  readonly description: string
+  readonly repository?: string
+  readonly website?: string
+  /** how it would run here; absent when Cockpit can't add it (`refusal` says why) */
+  readonly kind?: RegistryServerKind
+  /** the package, or the url a remote server is reached at */
+  readonly what?: string
+  /** what it is called in each agent's config — an existing server's name when one here runs it */
+  readonly name: string
+  readonly inputs: readonly RegistryInput[]
+  /** why this one can't be added from here */
+  readonly refusal?: string
+  /** agents that already run it */
+  readonly agents: readonly Provider[]
+  /** agents it can't be added to, and why */
+  readonly unsupported: Partial<Record<Provider, string>>
+}
+
+export type RegistryPage = {
+  readonly servers: readonly RegistryServer[]
+  /** handed back to read the next page; absent on the last one */
+  readonly next?: string
+}
+
+/** Add one registry server to one agent. */
+export type RegistryAdd = {
+  readonly id: string
+  readonly version: string
+  readonly agent: Provider
+  /** what the person typed for its inputs, by env var name */
+  readonly values: Readonly<Record<string, string>>
 }
 
 /* ---------- shared AI instructions ---------- */

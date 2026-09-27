@@ -11,6 +11,8 @@ import { sanitizeRoundtable } from '../src/main/roundtable-core'
 import { buildWork } from '../src/shared/work'
 import { buildEvidence } from '../src/renderer/src/evidence'
 import { buildWorld, type World } from '../scripts/ui-tour/world.mts'
+import { REGISTRY_PAGE } from '../scripts/ui-tour/registry.mts'
+import { parseRegistryPage, registryPlan } from '../src/shared/mcp-registry'
 
 /**
  * The ui-tour renders whatever the app makes of this world. If a provider's log format
@@ -136,5 +138,16 @@ describe('ui-tour fixture world', () => {
     const empty = buildWorld(join(scratch, 'empty'), { populated: false })
     expect(readdirSync(empty.home)).toEqual(['.gitconfig'])
     expect(existsSync(join(empty.userData, 'cockpit-config.json'))).toBe(false)
+  })
+})
+
+// the tour's canned MCP Registry, read the way main reads the real one: a drifted
+// fixture would otherwise screenshot an empty Browse
+describe('ui-tour fixture registry', () => {
+  it('offers one server of each kind Browse draws, and one it refuses', () => {
+    const { entries } = parseRegistryPage(REGISTRY_PAGE)
+    const plans = entries.map((e) => registryPlan(e))
+    expect(plans.map((p) => ('kind' in p ? p.kind : 'refused'))).toEqual(['npm', 'remote', 'pypi', 'refused'])
+    expect(plans[0]).toMatchObject({ inputs: [{ name: 'ACME_TOKEN', required: true }, { name: 'ACME_REGION' }] })
   })
 })

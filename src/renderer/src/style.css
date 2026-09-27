@@ -1650,6 +1650,40 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   border-top: none; background: none; }
 .home-inner { width: min(var(--home-col), 94%); margin: 0 auto; min-height: 0;
   display: flex; flex-direction: column; gap: var(--s5); }
+/* What is out of date, above the board: one closed line, and its list only when the
+   person opens it. The board is this view's panel and the composer its card, so the
+   strip wears no surface of its own until it is opened — and then the list carries a
+   ceiling, because the room above the dock belongs to the board, not to the news.
+   `flex: none`: the board is what gives way when the window is short. */
+.home-news { flex: none; display: flex; flex-direction: column; gap: var(--s2); }
+.home-news-head { display: flex; align-items: center; gap: var(--s2); text-align: left;
+  padding: var(--s1) var(--s2); border-radius: var(--radius-sm);
+  color: var(--fg-dim); font-size: var(--fs-sm);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.home-news-head:hover { background: var(--surface); color: var(--fg); }
+.home-news-caret { font-size: var(--fs-xs); transition: transform var(--dur) var(--ease); }
+.home-news-caret.open { transform: rotate(90deg); }
+.home-news-lead { color: var(--fg); font-weight: 600; }
+.home-news-more { margin-left: auto; font-size: var(--fs-xs); }
+.home-news-list { list-style: none; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  max-height: min(260px, 34vh); overflow-y: auto; }
+.home-news-list li + li { border-top: 1px solid var(--border); }
+.home-news-row, .home-news-foot { display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s2) var(--s4); min-height: 32px; }
+.news-tag { flex: 0 0 76px; font-size: var(--fs-xs); color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: 0.6px; white-space: nowrap; }
+.news-agents { display: inline-flex; align-items: center; gap: var(--s1); flex-shrink: 0; }
+.news-agent { display: inline-flex; }
+.news-name { font-size: var(--fs-base); font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 38%; }
+.news-jump { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim);
+  white-space: nowrap; }
+.news-jump strong { color: var(--fg); font-weight: 600; }
+.news-detail { flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-news-note { flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--fg-dim); }
+.home-news-note.danger { color: var(--danger); }
 /* the composer, docked: the chat composer's chrome recipe, over the column the board
    reads in. `flex: none` is what keeps it out of the height negotiation above. */
 .home-dock { flex: none; border-top: 1px solid var(--border); background: var(--pane);
@@ -2382,6 +2416,34 @@ button.pnl-flag:hover { text-decoration: underline; }
   border-color: rgba(var(--warn-rgb), 0.5); }
 .mcp-status.error { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.5); }
 
+/* ---------- Agents view: Browse ----------
+   The one section that shows what the agents *don't* have. It keeps the panel's own
+   row grammar — a marketplace is a `.pnl-row` that opens — and its catalogue entries
+   are cards inside that opened row, because a plugin here is a thing being offered
+   rather than a thing being managed. */
+.market-lookup { display: flex; flex-direction: column; gap: var(--s1);
+  margin-bottom: var(--s4); }
+.market-lookup-row { display: flex; align-items: center; gap: var(--s2); }
+.market-lookup .ns-label { margin-top: 0; }
+.market-plugins { list-style: none; display: flex; flex-direction: column; gap: var(--s2); }
+.market-plugin { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.market-plugin-body { flex: 1; min-width: 200px; display: flex; flex-direction: column;
+  gap: 2px; }
+.market-plugin-head { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.market-plugin-what { font-size: var(--fs-sm); color: var(--fg-dim); }
+.market-ver { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim); }
+/* Plugins · MCP servers — the instructions editor's `.md-tabs`, sitting over the blurb */
+.browse-what { margin-bottom: var(--s3); }
+/* a registry server's inputs: env vars only the person can give it, one field each */
+.registry-inputs { display: flex; flex-direction: column; gap: var(--s3); }
+.registry-input { display: flex; flex-direction: column; gap: var(--s1); }
+.registry-input .ns-label { margin-top: 0; }
+.registry-optional { font-weight: 400; letter-spacing: 0; text-transform: none;
+  color: var(--fg-dim); }
+.registry-more { display: flex; justify-content: center; margin-top: var(--s3); }
+
 /* ---------- Agents view: shared instructions ---------- */
 /* the baseline is markdown — edit it with GitHub-comment grammar: Write/Preview
    tabs over an editor surface (the code-block paper, --bg-deep) */
@@ -2654,7 +2716,7 @@ button.pnl-flag:hover { text-decoration: underline; }
 /* the greeting keeps the hero's mono voice at caption scale — a sentence, so it
    takes none of the placards' tracking */
 .home-greet { font-family: var(--mono); letter-spacing: -0.2px; }
-.ns-label, .board-mast, .board-agent,
+.ns-label, .board-mast, .board-agent, .news-tag,
 .section-row, .search-group, .repo-filter-head { font-family: var(--mono);
   letter-spacing: 0.7px; }
 /* view names are placards too: SETTINGS / AGENTS / NEW SESSION / PROFILE.
@@ -2738,6 +2800,11 @@ button.pnl-flag:hover { text-decoration: underline; }
   .pnl-chips { order: 1; flex-basis: 100%; flex-wrap: wrap; }
   .pnl-state { min-width: 0; }
   .pnl-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* the home's updates rows shed the same way: what a thing *is* (its tag) and where
+     the newer one came from are the decoration; the name, the versions and the
+     action are the row. The tag goes first — the row's own words say it again. */
+  .news-tag, .news-detail { display: none; }
+  .news-name { max-width: none; flex: 1; }
 }
 @media (max-width: 700px) {
   /* on a ~360px pane the task title is the row's content — the branch slot goes next,

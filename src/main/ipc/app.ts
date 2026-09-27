@@ -5,6 +5,7 @@ import type { AttentionPrefs, UpdatePrefs } from '../../shared/types'
 import { CH } from '../../shared/contract'
 import { setAttentionPrefs, setUpdatePrefs, setZoom } from '../config'
 import { appInfo } from '../updates'
+import { updatesDigest } from '../updates-digest'
 import { asAttentionTone } from '../attention-core'
 import type { Services } from '../services'
 import { applyWindowFloor, externalUrl, takePendingOpen } from '../window'
@@ -40,6 +41,15 @@ export function registerAppHandlers(s: Services): void {
     updates.install({
       runningTurns: s.chat.runningTurns(),
       stopRunning: (req as { stopRunning?: unknown } | undefined)?.stopRunning === true
+    })
+  )
+  // one list for "is anything out of date?": the app itself, the agent CLIs, pinned
+  // MCP servers, plugins, and what the agents disagree on. On demand, never polled —
+  // the home asks when it opens and the person can ask again.
+  ipcMain.handle(CH.updatesDigest, (_e, force: unknown) =>
+    updatesDigest({
+      app: { state: updates.current, version: app.getVersion() },
+      force: force === true
     })
   )
   ipcMain.handle(CH.updatesPrefs, () => updates.currentPrefs)

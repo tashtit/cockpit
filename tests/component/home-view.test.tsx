@@ -44,6 +44,7 @@ function renderHome(over: Partial<Parameters<typeof HomeView>[0]> = {}) {
     onNewRoundtable: vi.fn(),
     onOpenRoundtable: vi.fn(),
     onOpenSettings: vi.fn(),
+    onOpenAgents: vi.fn(),
     ...over
   }
   render(<HomeView {...props} />)
@@ -348,7 +349,8 @@ describe('HomeView on an index push', () => {
       onOpenFull: vi.fn(),
       onNewRoundtable: vi.fn(),
       onOpenRoundtable: vi.fn(),
-      onOpenSettings: vi.fn()
+      onOpenSettings: vi.fn(),
+      onOpenAgents: vi.fn()
     }
     const { rerender } = render(<HomeView {...props} indexVersion={0} />)
     rerender(<HomeView {...props} indexVersion={1} />)
@@ -381,7 +383,8 @@ describe('HomeView on an index push', () => {
       onOpenFull: vi.fn(),
       onNewRoundtable: vi.fn(),
       onOpenRoundtable: vi.fn(),
-      onOpenSettings: vi.fn()
+      onOpenSettings: vi.fn(),
+      onOpenAgents: vi.fn()
     }
   }
 

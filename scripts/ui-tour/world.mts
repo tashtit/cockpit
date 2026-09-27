@@ -595,6 +595,19 @@ function populate(world: World): void {
   skill('codex', 'incident-review')
   write(join(world.home, '.claude', 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'review@acme-market': [{ version: '1.2.0' }] } }))
   write(join(world.home, '.claude', 'plugins', 'known_marketplaces.json'), JSON.stringify({ 'acme-market': { source: { source: 'github', repo: 'acme/agent-plugins' } } }))
+  // the clone the agent made when it added that marketplace: what Browse reads, and
+  // what tells the home's updates strip that `review` is a release behind
+  write(
+    join(world.home, '.claude', 'plugins', 'marketplaces', 'acme-market', '.claude-plugin', 'marketplace.json'),
+    JSON.stringify({
+      name: 'acme-market',
+      plugins: [
+        { name: 'review', description: 'Reviews a diff before it ships', version: '1.4.0', category: 'review', keywords: ['diff', 'pr'] },
+        { name: 'secure-ci', description: 'Pinned actions and least-privilege tokens', version: '0.9.0', category: 'ci', keywords: ['actions'] },
+        { name: 'release-notes', description: 'Writes the release notes from the merged PRs', version: '2.1.0', category: 'release' }
+      ]
+    })
+  )
   // instructions: one file in sync, one out of date, one without the block
   const S = '<!-- cockpit:shared:start -->'
   const E = '<!-- cockpit:shared:end -->'
