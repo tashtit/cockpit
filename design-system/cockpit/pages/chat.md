@@ -180,6 +180,30 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   Reaching the bottom by hand clears it. Hidden it is `visibility: hidden` and out of
   the tab order; the status region already announced the turn, so the key is the way
   there, not the announcement. Shared with the roundtable — never rebuild it per view.
+- **A way between the person's own messages** (`PromptRail.tsx`, `prompt-nav.ts`): once
+  the log holds two of them, `.chat-transcript` (the `.messages` scroller's positioned
+  wrapper, `container: transcript`) is `.railed` and `.prompt-rail` — a `nav` named "Your
+  messages" — rides the scroller's right edge, inside its padding and clear of its
+  scrollbar. A railed transcript keeps its right padding at least the rail and a gap
+  (32px) wide, so a right-aligned bubble never runs under it. One `.prompt-tick` per
+  message, oldest first: a 24×24 button holding a 10×2 dash (`--fg-dim` at 0.6 opacity at
+  rest, `--fg` on hover and focus); the message being read is the `--accent` dash, drawn
+  16px long, and `aria-current="location"` — a shape, not only a colour. It is the last
+  message that starts above the upper third of the view, or the latest at the end of the
+  transcript. More marks than the rail holds scroll inside it (no scrollbar), keeping
+  that one in view. Pointing at a mark, or focusing it, shows `.prompt-peek` beside the
+  rail: `N of M` and `⌥⌘↑ ⌥⌘↓` in the placard voice over the message, three lines at
+  most, aria-hidden since the button's name already carries it. A click scrolls the
+  message to 16px under the transcript's top edge — where the first row sits — so its
+  answer reads under it. The rail is one tab stop (roving `tabIndex`; ↑ ↓ walk and jump,
+  Home/End). **⌥⌘↑ / ⌥⌘↓** (Copilot's own keys for this) step from wherever the reader
+  is; part-way through an answer, up goes to its own message first. After a jump, steps
+  go on from it while the transcript stays where the jump put it: near the end a message
+  cannot reach the top, and reading positions back would land on it again. Each step says
+  where it landed in the status region ("Your message 2 of 5", "No earlier message of
+  yours"). Positions are read off the DOM, never estimated. A message older than the DOM
+  window has a mark too, and a jump to it raises the window first, as a search hit does.
+  The review in the transcript's place takes the keys away with it.
 - **The pin is per conversation, never per binding object.** App re-makes the binding
   mid-turn (the native id from the CLI's first event, a parent chip arriving), and a
   reset keyed on the object re-pinned the transcript to the bottom — so a reader who had

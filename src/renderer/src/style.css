@@ -993,6 +993,46 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   margin: 0 auto; display: inline-flex; align-items: center; gap: var(--s1);
   color: var(--fg); background: var(--bg2); border-color: var(--border-strong);
   box-shadow: var(--shadow-pop); }
+/* the chat's transcript and the rail of the person's own messages on its right edge
+   (PromptRail.tsx). The rail sits inside the scroller's padding, clear of its scrollbar,
+   and a railed transcript keeps that padding at least the rail and a gap wide — the
+   centring padding is narrower under ~920px of deck, and the ≤780px shed sets 12px.
+   A container, so the peek can be held inside the conversation's own width. */
+.chat-transcript { position: relative; flex: 1; min-height: 0; display: flex;
+  flex-direction: column; container: transcript / inline-size; }
+.chat-transcript.railed > .messages {
+  padding-inline-end: max(calc(24px + var(--s3)), calc((100% - var(--chat-col)) / 2)); }
+.prompt-rail { position: absolute; top: var(--s5); bottom: var(--s5); z-index: 1;
+  /* ::-webkit-scrollbar's width: the transcript's scrollbar stays whole */
+  right: 10px; width: 24px;
+  display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
+/* more marks than the rail holds scroll inside it; PromptRail keeps the one being read
+   in view, so the list needs no scrollbar of its own in a 24px column */
+.prompt-rail-list { position: relative; list-style: none; min-height: 0; max-height: 100%;
+  overflow-y: auto; scrollbar-width: none; pointer-events: auto; }
+.prompt-rail-list::-webkit-scrollbar { display: none; }
+.prompt-tick { display: flex; align-items: center; justify-content: flex-end;
+  width: 24px; height: 24px; padding: 0 var(--s1) 0 0; border-radius: var(--radius-sm); }
+.prompt-tick:hover { background: var(--surface); }
+/* a dash at rest (fg-dim at 0.6 keeps it at 3:1 on the base), brighter on the pointer;
+   the message being read is the accent dash, and longer — a shape, not a colour alone */
+.prompt-tick-mark { width: 10px; height: 2px; border-radius: var(--radius-pill);
+  background: var(--fg-dim); opacity: 0.6; }
+.prompt-tick:hover .prompt-tick-mark, .prompt-tick:focus-visible .prompt-tick-mark {
+  background: var(--fg); opacity: 1; }
+.prompt-tick.on .prompt-tick-mark { width: 16px; background: var(--accent); opacity: 1; }
+.prompt-peek { position: absolute; right: calc(100% + var(--s1)); width: max-content;
+  /* never wider than the conversation beside the rail can show */
+  max-width: min(300px, calc(100cqw - 72px)); padding: var(--s2) var(--s3);
+  pointer-events: none; background: var(--bg2); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-pop); }
+.prompt-peek-head { display: flex; justify-content: space-between; gap: var(--s4);
+  font: 600 var(--fs-xs)/1.4 var(--mono); letter-spacing: 0.9px; text-transform: uppercase;
+  color: var(--fg-dim); }
+.prompt-peek-head kbd { font: inherit; letter-spacing: normal; }
+.prompt-peek-text { margin-top: var(--s1); font-size: var(--fs-base); line-height: 1.5;
+  color: var(--fg); overflow-wrap: anywhere; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 /* the message a transcript search landed on: an accent halo for a few seconds, so the
    eye finds it in a long transcript; the sr-only status says so for everyone else */
 .bubble-user, .assistant-body, .sys-row, .tool-row {
