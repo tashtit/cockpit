@@ -158,6 +158,17 @@ export function asAttentionTone(raw: unknown): AttentionTone {
   return tone
 }
 
+/**
+ * How loud to play a sound, from what `defaults read -g com.apple.sound.beep.volume`
+ * printed: the Alert volume slider (System Settings › Sound) as the 0–1 gain macOS plays
+ * its own alert sounds at, relative to the output volume. The key is absent until the
+ * slider is first moved, and anything unreadable plays at full rather than going quiet.
+ */
+export function alertGain(reported: string): number {
+  const text = reported.trim()
+  return /^\d+(\.\d+)?$/.test(text) ? Math.min(1, Number(text)) : 1
+}
+
 /** What a flush asks the IO layer to do. */
 export type Flush = {
   /** null when notifications are off, or nothing is news any more */

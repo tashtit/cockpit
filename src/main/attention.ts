@@ -15,6 +15,7 @@ import type {
 } from '../shared/types'
 import {
   AttentionTracker,
+  alertGain,
   sanitizeSeenPrs,
   sanitizeUnseen,
   type Notice,
@@ -339,7 +340,14 @@ export function electronSurface(): AttentionSurface {
       app.setBadgeCount(count)
     },
     play: (sound) => {
-      if (mac) void execText('/usr/bin/afplay', [soundFile(sound)], { timeoutMs: 10_000 })
+      if (!mac) return
+      // afplay plays at the output volume; alert sounds follow the Alert volume slider
+      void execText('/usr/bin/defaults', ['read', '-g', 'com.apple.sound.beep.volume'], {
+        timeoutMs: 2_000
+      }).then(({ stdout }) => {
+        const gain = alertGain(stdout)
+        if (gain > 0) void execText('/usr/bin/afplay', ['-v', String(gain), soundFile(sound)], { timeoutMs: 10_000 })
+      })
     },
     bounce: () => {
       app.dock?.bounce('informational')

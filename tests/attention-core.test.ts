@@ -7,6 +7,7 @@ import {
   LANDING_TTL_MS,
   OBSERVED_ECHO_MS,
   WAIT_TTL_MS,
+  alertGain,
   asAttentionTone,
   elapsedLabel,
   failureSnippet,
@@ -1087,5 +1088,19 @@ describe('asAttentionTone', () => {
     for (const raw of ['Glass', '', null, undefined, 3, { tone: 'asks' }, '../../etc/passwd']) {
       expect(() => asAttentionTone(raw)).toThrow(/There is no/)
     }
+  })
+})
+
+describe('alertGain', () => {
+  it('follows the Alert volume slider, the gain macOS plays its own alerts at', () => {
+    expect(alertGain('1\n')).toBe(1)
+    expect(alertGain('0.6065307\n')).toBe(0.6065307)
+    expect(alertGain('0')).toBe(0)
+  })
+
+  it('plays at full when the slider was never moved or the answer is unusable', () => {
+    // `defaults` prints nothing on stdout for a key it doesn't have
+    for (const reported of ['', 'missing value', '-0.5', 'NaN']) expect(alertGain(reported)).toBe(1)
+    expect(alertGain('2.5')).toBe(1)
   })
 })
