@@ -98,4 +98,20 @@ describe('App starts conversations of its own', () => {
     })
     expect(vi.mocked(window.cockpit.sendChat).mock.calls[1][0].resumeNativeId).toBeUndefined()
   })
+
+  it("says why a worktree could not be made in main's words, on the form it was started from", async () => {
+    wire()
+    vi.mocked(window.cockpit.createWorkspace).mockRejectedValue(
+      new Error("Error invoking remote method 'workspace:create': Error: the branch name is already taken")
+    )
+    render(<App />)
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Task description' }), 'add dark mode')
+    const start = screen.getByRole('button', { name: 'Start with Claude' })
+    await waitFor(() => expect(start).toBeEnabled())
+    await userEvent.click(start)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('the branch name is already taken')
+    expect(alert).not.toHaveTextContent(/Error invoking remote method/)
+    expect(window.cockpit.sendChat).not.toHaveBeenCalled()
+  })
 })

@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { AgentOptions, PermissionMode, Provider } from '../../shared/types'
 import { api } from './api'
+import { ipcErrorText } from './ipc-error'
 import { PROVIDERS, shortPath } from '../../shared/library'
 import { rememberChoice, useAgentChoice, type AccountChoice } from './agent-choice'
 import {
@@ -81,7 +82,7 @@ export function HandoffView({
       })
       .catch((err) => {
         // the form stays usable: the user can retry, or write a briefing by hand
-        setBriefError(err instanceof Error ? err.message : String(err))
+        setBriefError(ipcErrorText(err))
       })
       .finally(() => setBriefLoading(false))
   }
@@ -98,9 +99,7 @@ export function HandoffView({
         setBriefing(text)
       })
       .catch((err) => {
-        setError(
-          `Improve failed: ${err instanceof Error ? err.message : String(err)}`
-        )
+        setError(`Improve failed: ${ipcErrorText(err)}`)
       })
       .finally(() => setImproving(false))
   }

@@ -85,6 +85,18 @@ describe('App and who drives the open session', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
   })
 
+  it("says main's reason without the wrapper Electron puts around a refused call", async () => {
+    await openSession({ holder: 'agent', how: 'outside' })
+    vi.mocked(window.cockpit.setSessionHolder).mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'sessions:set-holder': Error: Its agent is working on it right now — take it over once that turn ends."
+      )
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Take over' }))
+    const notice = await screen.findByText(/Couldn't take it over: Its agent is working on it/, { ignore: '.sr-only' })
+    expect(notice).not.toHaveTextContent(/Error invoking remote method/)
+  })
+
   it('releases a session Cockpit holds back to its agent', async () => {
     await openSession({ holder: 'cockpit', how: 'started' })
     const released: SessionControl = { holder: 'agent', how: 'released', since: 9 }

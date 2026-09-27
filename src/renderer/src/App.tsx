@@ -27,6 +27,7 @@ import { RoundtableView } from './RoundtableView'
 import { PROVIDER_LABEL } from './logos'
 import { Settings } from './Settings'
 import { branchHint, taskTitle } from './task-names'
+import { ipcErrorText } from './ipc-error'
 import { initLanded } from './landed'
 import { initSideChat } from './side-chat-log'
 import { ProfileView } from './ProfileView'
@@ -461,7 +462,7 @@ export function App(): JSX.Element {
       } catch (err) {
         // a rejected invoke (e.g. copilot account no longer logged in) must not
         // leave the prompt looking sent with no reply and no error
-        addChatNotice(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
+        addChatNotice(`Send failed: ${ipcErrorText(err)}`)
       }
     },
     [binding, activeTurn, elsewhere, control, runTurn]
@@ -476,9 +477,7 @@ export function App(): JSX.Element {
       if (selectedSessionIdRef.current === id) setControl(next)
       return true
     } catch (err) {
-      addChatNotice(
-        `Couldn't ${holder === 'cockpit' ? 'take it over' : 'release it'}: ${err instanceof Error ? err.message : String(err)}`
-      )
+      addChatNotice(`Couldn't ${holder === 'cockpit' ? 'take it over' : 'release it'}: ${ipcErrorText(err)}`)
       return false
     }
   }, [])
@@ -493,7 +492,7 @@ export function App(): JSX.Element {
       if (s?.control && selectedSessionIdRef.current === id) setControl(s.control)
       return true
     } catch (err) {
-      addChatNotice(`Couldn't open it in Terminal: ${err instanceof Error ? err.message : String(err)}`)
+      addChatNotice(`Couldn't open it in Terminal: ${ipcErrorText(err)}`)
       return false
     }
   }, [])
@@ -555,7 +554,7 @@ export function App(): JSX.Element {
         })
         return null
       } catch (err) {
-        return err instanceof Error ? err.message : String(err)
+        return ipcErrorText(err)
       } finally {
         setCreating(false)
       }
@@ -627,7 +626,7 @@ export function App(): JSX.Element {
         })
         return null
       } catch (err) {
-        return err instanceof Error ? err.message : String(err)
+        return ipcErrorText(err)
       } finally {
         setCreating(false)
       }
@@ -662,7 +661,7 @@ export function App(): JSX.Element {
       void api.openExternal(url)
       setIndexVersion((v) => v + 1)
     } catch (err) {
-      addChatNotice(`PR failed: ${err instanceof Error ? err.message : err}`)
+      addChatNotice(`PR failed: ${ipcErrorText(err)}`)
     } finally {
       setCreatingPr(false)
     }
