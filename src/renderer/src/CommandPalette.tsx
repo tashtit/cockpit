@@ -14,6 +14,7 @@ import { useLandedMap } from './landed'
 import {
   AgentIcon,
   BranchChip,
+  ChatIcon,
   CockpitLogo,
   GearIcon,
   GraphIcon,
@@ -28,6 +29,7 @@ import {
   TrashIcon
 } from './logos'
 import { fmtTime, useTimeFormat } from './time'
+import { shownProviders, useHiddenAgents } from './agent-filter'
 
 /** Views the palette can navigate to — App's View kinds, minus chat/new (those need a target). */
 export type PaletteViewKey = 'welcome' | 'extensions' | 'profile' | 'cleanup' | 'settings'
@@ -88,6 +90,8 @@ type Item =
   | { readonly kind: 'hit'; readonly h: TranscriptHit; readonly s: SessionMeta; readonly i: number }
   /** Widen a repo-scoped transcript search to every repo, or narrow it back */
   | { readonly kind: 'scope'; readonly all: boolean }
+  /** Widen a search the tree's agent filter narrows to every agent, or narrow it back */
+  | { readonly kind: 'agents'; readonly all: boolean }
 
 type Group = { readonly label: string; readonly items: readonly Item[] }
 
@@ -110,6 +114,8 @@ const itemKey = (it: Item): string => {
       return `hit:${it.i}:${it.h.sessionId}`
     case 'scope':
       return `scope:${it.all}`
+    case 'agents':
+      return `agents:${it.all}`
   }
 }
 
@@ -167,6 +173,9 @@ export function CommandPalette({
   const [debounced, setDebounced] = useState('')
   const [mode, setMode] = useState<Mode>('jump')
   const [allRepos, setAllRepos] = useState(false)
+  // transcript search follows the agents the tree shows, as it follows the repo on screen
+  const hiddenAgents = useHiddenAgents()
+  const [allAgents, setAllAgents] = useState(false)
   // null = first fetch in flight — never flash an empty state before results land
   const [sessions, setSessions] = useState<SessionMeta[] | null>(null)
   const [total, setTotal] = useState(0)
@@ -232,7 +241,11 @@ export function CommandPalette({
   }, [debounced, mode])
 
   const scopeKey = !allRepos && scopeRepo ? scopeRepo.key : undefined
-  const scopeLabel = scopeKey && scopeRepo ? repoName(scopeRepo) : 'all repos'
+  const agentScope = allAgents ? undefined : shownProviders(hiddenAgents)
+  const withoutAgents = hiddenAgents.map((a) => PROVIDER_LABEL[a]).join(' or ')
+  const scopeLabel =
+    (scopeKey && scopeRepo ? repoName(scopeRepo) : 'all repos') + (agentScope ? `, not ${withoutAgents}` : '')
+  const agentKey = agentScope?.join(',')
 
   useEffect(() => {
     if (mode !== 'transcripts') return
@@ -244,7 +257,7 @@ export function CommandPalette({
     let dead = false
     setScanning(true)
     void api
-      .searchTranscripts({ text: debounced, repoKey: scopeKey, limit: TRANSCRIPT_LIMIT })
+      .searchTranscripts({ text: debounced, repoKey: scopeKey, limit: TRANSCRIPT_LIMIT, ...(agentScope ? { providers: agentScope } : {}) })
       .then((r) => {
         if (dead) return
         setTranscripts(r)
@@ -256,7 +269,7 @@ export function CommandPalette({
       dead = true
       void api.cancelTranscriptSearch()
     }
-  }, [mode, debounced, scopeKey])
+  }, [mode, debounced, scopeKey, agentKey])
 
   const groups = useMemo((): readonly Group[] => {
     const out: Group[] = []
@@ -270,6 +283,7 @@ export function CommandPalette({
         })
       }
       if (scopeRepo) items.push({ kind: 'scope', all: !allRepos })
+      if (hiddenAgents.length > 0) items.push({ kind: 'agents', all: !allAgents })
       if (items.length > 0) out.push({ label: `transcripts in ${scopeLabel}`, items })
       return out
     }
@@ -319,7 +333,7 @@ export function CommandPalette({
       out.push({ label: 'go to', items: VIEWS.map((v) => ({ kind: 'view', v })) })
     }
     return out
-  }, [mode, transcripts, scopeRepo, allRepos, scopeLabel, sessions, debounced, repos, busy, landed])
+  }, [mode, transcripts, scopeRepo, allRepos, allAgents, hiddenAgents, scopeLabel, sessions, debounced, repos, busy, landed])
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 
@@ -346,6 +360,10 @@ export function CommandPalette({
     }
     if (it.kind === 'scope') {
       setAllRepos(it.all)
+      return
+    }
+    if (it.kind === 'agents') {
+      setAllAgents(it.all)
       return
     }
     onClose()
@@ -456,6 +474,7 @@ export function CommandPalette({
                       showRepo={mode === 'transcripts' ? scopeKey === undefined : debounced !== ''}
                       scopeLabel={scopeLabel}
                       scopeRepo={scopeRepo}
+                      withoutAgents={withoutAgents}
                       timeFormat={timeFormat}
                       onHover={() => setActive(i)}
                       onPick={() => pick(it)}
@@ -569,6 +588,7 @@ function PaletteOption({
   showRepo,
   scopeLabel,
   scopeRepo,
+  withoutAgents,
   timeFormat,
   onHover,
   onPick
@@ -584,6 +604,8 @@ function PaletteOption({
   /** Where a transcript search looks — named on the door row and the scope row */
   scopeLabel: string
   scopeRepo: RepoGroup | null
+  /** The agents the tree hides, named — the agents scope row's words */
+  withoutAgents: string
   timeFormat: TimeFormat
   onHover: () => void
   onPick: () => void
@@ -605,7 +627,11 @@ function PaletteOption({
                 ? it.all
                   ? 'Search all repos'
                   : `Search only ${scopeRepo ? repoName(scopeRepo) : 'this repo'}`
-                : it.v.label
+                : it.kind === 'agents'
+                  ? it.all
+                    ? 'Search every agent'
+                    : `Search without ${withoutAgents}`
+                  : it.v.label
   return (
     <div
       id={id}
@@ -684,6 +710,15 @@ function PaletteOption({
           <span className="palette-title">
             {it.all ? 'all repos' : `only ${scopeRepo ? repoName(scopeRepo) : 'this repo'}`}
           </span>
+          <span className="palette-hint">search scope</span>
+        </>
+      )}
+      {it.kind === 'agents' && (
+        <>
+          <span className="palette-view-icon">
+            <ChatIcon size={13} />
+          </span>
+          <span className="palette-title">{it.all ? 'every agent' : `without ${withoutAgents}`}</span>
           <span className="palette-hint">search scope</span>
         </>
       )}

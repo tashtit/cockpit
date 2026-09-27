@@ -58,6 +58,7 @@ function worktree(over: Partial<StaleWorktree> = {}): StaleWorktree {
     origin: 'cockpit',
     lastActivity: NOW - 200 * DAY,
     sessionCount: 0,
+    providers: [],
     missing: false,
     unpushed: 0,
     bytes: 51_000_000,
@@ -452,6 +453,23 @@ describe('CleanupView — filtering', () => {
     expect(summary()).toMatch(/1 shown of 3/)
   })
 
+  it('filters worktrees by the agent whose sessions ran in them', async () => {
+    const user = userEvent.setup()
+    mount(
+      report({
+        worktrees: [
+          worktree({ path: '/h/.cursor/worktrees/cockpit/a1', origin: 'external', providers: ['cursor'], sessionCount: 1 }),
+          worktree({ path: '/repos/cockpit/.claude/worktrees/b2', origin: 'external', providers: ['claude'], sessionCount: 2 })
+        ]
+      })
+    )
+    await openTab('Worktrees')
+    await openPill(user, /^Agent Any/)
+    await user.click(screen.getByRole('button', { name: 'Cursor' }))
+    await user.keyboard('{Escape}')
+    expect(summary()).toMatch(/1 shown of 2/)
+  })
+
   it('only offers dimension values the rows actually carry', async () => {
     const user = userEvent.setup()
     mount(report({ sessions: [session({ provider: 'claude' })] }))
@@ -548,7 +566,8 @@ describe('CleanupView — acting', () => {
     await screen.findByRole('button', { name: /^Agent Any/ })
     await openTab('Worktrees')
     expect(screen.getByRole('button', { name: /^Origin Any/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^Agent/ })).toBeNull()
+    // the sessions bar pins Project; the worktrees one does not
+    expect(screen.queryByRole('button', { name: /^Project/ })).toBeNull()
   })
 
   it('opens on the first tab that holds anything', async () => {

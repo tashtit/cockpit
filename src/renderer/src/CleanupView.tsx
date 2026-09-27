@@ -5,6 +5,7 @@ import type {
   CleanupResult,
   OrphanProcess,
   Provider,
+  SessionProvider,
   StaleSession,
   StaleTable,
   StaleWorktree
@@ -638,6 +639,7 @@ function tableValues(t: StaleTable, groupId: string): readonly string[] {
 }
 
 function worktreeValues(w: StaleWorktree, groupId: string): readonly string[] {
+  if (groupId === 'agent') return w.providers
   if (groupId === 'project') return [w.repoName]
   if (groupId === 'origin') return [w.origin]
   const state: string[] = [w.blocks.length > 0 ? 'blocked' : 'removable']
@@ -734,6 +736,21 @@ function worktreeFilters(
 ): FilterGroup[] {
   const dim = dimension(sel, set)
   return [
+    dim(
+      'agent',
+      'Agent',
+      // the agents whose sessions ran in it — Cursor's and Claude Code's own worktrees
+      // are theirs; one no session claims has none
+      presentOptions(rows.flatMap((w) => [...w.providers]), (p) => p).map((p) => ({
+        value: p,
+        label: PROVIDER_LABEL[p as SessionProvider],
+        icon: (
+          <span className={`plogo plogo-${p}`} aria-hidden="true">
+            <ProviderLogo p={p as SessionProvider} size={11} />
+          </span>
+        )
+      }))
+    ),
     dim('origin', 'Origin', [
       { value: 'cockpit', label: 'Cut by Cockpit' },
       { value: 'external', label: 'External' }
@@ -1183,7 +1200,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           </p>
           <FilterBar
             groups={treeGroups}
-            defaultPinned={['origin', 'state']}
+            defaultPinned={['agent', 'origin', 'state']}
             search={{
               value: wq,
               onChange: setWq,

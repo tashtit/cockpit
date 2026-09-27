@@ -12,6 +12,7 @@ const repo: RepoGroup = {
   sessionCount: 2,
   archivedCount: 0,
   heldCount: 0,
+  byProvider: {},
   lastActivity: 1700000000000,
   providers: ['claude'],
   hidden: false
@@ -271,6 +272,26 @@ describe('CommandPalette', () => {
       )
       await screen.findByRole('option', { name: /fix the login flake — agent:/ })
       expect(screen.queryByRole('option', { name: /Search all repos|Search only/ })).toBeNull()
+    })
+
+    it('follows the agents the tree hides, says so, and widens to every agent', async () => {
+      window.localStorage.setItem('cockpit:hidden-agents', JSON.stringify(['cline']))
+      vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+      vi.mocked(window.cockpit.searchTranscripts).mockResolvedValue(hit({ hits: [], sessions: [] }))
+      renderPalette({ scopeRepo: null })
+
+      await userEvent.type(screen.getByRole('combobox'), 'flake')
+      await userEvent.click(
+        await screen.findByRole('option', { name: 'Search transcripts for “flake” in all repos, not Cline' })
+      )
+      await waitFor(() => expect(window.cockpit.searchTranscripts).toHaveBeenCalled())
+      const asked = vi.mocked(window.cockpit.searchTranscripts).mock.lastCall?.[0]
+      expect(asked?.providers).toContain('gemini')
+      expect(asked?.providers).not.toContain('cline')
+
+      await userEvent.click(await screen.findByRole('option', { name: 'Search every agent' }))
+      await waitFor(() => expect(vi.mocked(window.cockpit.searchTranscripts).mock.lastCall?.[0]?.providers).toBeUndefined())
+      expect(screen.getByRole('option', { name: 'Search without Cline' })).toBeInTheDocument()
     })
 
     it('says when a search stopped short, and reads on partial transcripts', async () => {

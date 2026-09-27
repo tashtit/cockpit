@@ -41,7 +41,7 @@ import {
 import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText } from './env'
 import { sessionLogFiles } from './parsers/util'
-import { isDrivable } from '../shared/providers'
+import { isDrivable, isSessionProvider } from '../shared/providers'
 import { isUnder } from './paths'
 
 /**
@@ -499,6 +499,7 @@ async function judgeWorktree(
     origin: worktreeOrigin(w.path, cockpitRoot),
     lastActivity: w.lastActivity,
     sessionCount: w.sessionIds.length,
+    providers: [...new Set(w.sessionIds.map((id) => id.slice(0, id.indexOf(':'))))].filter(isSessionProvider),
     missing: w.missing,
     unpushed,
     bytes: null,

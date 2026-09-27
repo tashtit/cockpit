@@ -16,7 +16,8 @@ import { api } from './api'
 import { useBusyMap, useSessionBusy } from './busy'
 import { useCleanupNotice } from './cleanup-notice'
 import { toggleFamily, useFoldedFamilies } from './families'
-import { HOLDER_FILTER_LABEL, heldSessions, holdSentence, setHolderFilter, useHolderFilter } from './hold'
+import { HOLDER_FILTER_LABEL, holdSentence, setHolderFilter, useHolderFilter } from './hold'
+import { agentCounts, setAgentShown, showAllAgents, shownProviders, shownSessions, useHiddenAgents } from './agent-filter'
 import { RailResizer } from './RailResizer'
 import { keepSame } from './same'
 import { useLandedMap, useSessionLanded } from './landed'
@@ -162,16 +163,19 @@ export function TreeSidebar({
   // narrowed to who drives the sessions: a project with none of that kind leaves the
   // tree while the filter is on (its tables are Cockpit's, so they count as held)
   const holder = useHolderFilter()
+  // and to the agents it shows: a project with no session of a shown agent leaves too
+  const hidden = useHiddenAgents()
+  const filtered = holder !== null || hidden.length > 0
   const repoList = useMemo(
     () =>
       visibleRepos.filter(
         (r) =>
           r.key !== 'general' &&
-          (holder === null ||
-            heldSessions(r, holder) > 0 ||
+          (!filtered ||
+            shownSessions(r, { holder, hidden }) > 0 ||
             (holder === 'cockpit' && r.root !== null && tables.some((t) => t.repoRoot === r.root)))
       ),
-    [visibleRepos, holder, tables]
+    [visibleRepos, holder, hidden, filtered, tables]
   )
   /** Only the newest answer lands: a slow list must not overwrite a later one */
   const tablesSeq = useRef(0)
@@ -208,7 +212,7 @@ export function TreeSidebar({
     // a table is Cockpit's own work: out of the tree while it shows only the agents'
     const tablesShown = holder === 'agent' ? 0 : chatTables.length
     const real = visibleRepos.find((r) => r.key === 'general')
-    if (real && (holder === null || heldSessions(real, holder) > 0 || tablesShown > 0)) return real
+    if (real && (!filtered || shownSessions(real, { holder, hidden }) > 0 || tablesShown > 0)) return real
     if (tablesShown === 0) return null
     return {
       key: 'general',
@@ -218,11 +222,12 @@ export function TreeSidebar({
       sessionCount: 0,
       archivedCount: 0,
       heldCount: 0,
+      byProvider: {},
       lastActivity: 0,
       providers: [],
       hidden: false
     }
-  }, [visibleRepos, chatTables, holder])
+  }, [visibleRepos, chatTables, holder, hidden, filtered])
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 250)
@@ -360,13 +365,17 @@ export function TreeSidebar({
       </div>
       {/* the filter outlives a restart, so while it is on the tree says so in words —
           a tree quietly missing half its sessions reads as sessions gone */}
-      {holder && (
+      {filtered && (
         <div className="tree-scope">
-          {holder === 'cockpit' ? <HeldIcon size={10} /> : <ProcessIcon size={10} />}
-          <span className="tree-scope-text">
-            {holder === 'cockpit' ? 'Only sessions in Cockpit' : 'Only sessions outside Cockpit'}
-          </span>
-          <button className="link-btn" onClick={() => setHolderFilter(null)}>
+          {holder === 'cockpit' ? <HeldIcon size={10} /> : holder === 'agent' ? <ProcessIcon size={10} /> : <ChatIcon size={10} />}
+          <span className="tree-scope-text">{scopeSentence(holder, hidden)}</span>
+          <button
+            className="link-btn"
+            onClick={() => {
+              setHolderFilter(null)
+              showAllAgents()
+            }}
+          >
             Show all
           </button>
         </div>
@@ -459,14 +468,22 @@ export function TreeSidebar({
             <p>All projects are hidden — the eye button above brings them back.</p>
           </div>
         )}
-        {holder && visibleRepos.length > 0 && repoList.length === 0 && !general && !debounced && (
+        {filtered && visibleRepos.length > 0 && repoList.length === 0 && !general && !debounced && (
           <div className="empty-item">
             <p>
-              {holder === 'cockpit'
-                ? 'Cockpit holds no sessions yet — start one, or take one over from its agent.'
-                : 'Every session is in Cockpit — none are with their agents.'}
+              {hidden.length > 0
+                ? 'No sessions of the agents the tree shows.'
+                : holder === 'cockpit'
+                  ? 'Cockpit holds no sessions yet — start one, or take one over from its agent.'
+                  : 'Every session is in Cockpit — none are with their agents.'}
             </p>
-            <button className="btn-ghost small" onClick={() => setHolderFilter(null)}>
+            <button
+              className="btn-ghost small"
+              onClick={() => {
+                setHolderFilter(null)
+                showAllAgents()
+              }}
+            >
               Show all sessions
             </button>
           </div>
@@ -547,14 +564,22 @@ function ProjectFilter({
   const popRef = useRef<HTMLDivElement>(null)
   const hiddenCount = repos.filter((r) => r.hidden).length
   const holder = useHolderFilter()
+  const hiddenAgents = useHiddenAgents()
   const shown = repos.filter((r) => !r.hidden)
   const counts: Record<'all' | SessionHolder, number> = {
     all: shown.reduce((n, r) => n + r.sessionCount, 0),
     cockpit: shown.reduce((n, r) => n + r.heldCount, 0),
     agent: shown.reduce((n, r) => n + r.sessionCount - r.heldCount, 0)
   }
+  // every agent with a session here, and any hidden one that has none right now — so an
+  // agent can always be switched back on
+  const agents = [
+    ...agentCounts(shown, holder),
+    ...hiddenAgents.filter((a) => !shown.some((r) => r.byProvider[a])).map((agent) => ({ agent, count: 0 }))
+  ]
   const scoped = [
     holder ? HOLDER_FILTER_LABEL[holder].toLowerCase() : null,
+    hiddenAgents.length > 0 ? `${hiddenAgents.length} ${hiddenAgents.length === 1 ? 'agent' : 'agents'} hidden` : null,
     hiddenCount > 0 ? `${hiddenCount} ${hiddenCount === 1 ? 'project' : 'projects'} hidden` : null
   ].filter((x): x is string => x !== null)
 
@@ -637,6 +662,29 @@ function ProjectFilter({
               </label>
             ))}
           </div>
+          {agents.length > 1 || hiddenAgents.length > 0 ? (
+            <>
+              <div className="repo-filter-head repo-filter-divided" id="agent-filter-head">
+                <span>Agents</span>
+              </div>
+              <div role="group" aria-labelledby="agent-filter-head">
+                {agents.map(({ agent, count }) => (
+                  <label key={agent} className="repo-filter-row" title={`Sessions of ${PROVIDER_LABEL[agent]}`}>
+                    <input
+                      type="checkbox"
+                      checked={!hiddenAgents.includes(agent)}
+                      onChange={(e) => setAgentShown(agent, e.currentTarget.checked)}
+                    />
+                    <span className={`repo-icon plogo plogo-${agent}`}>
+                      <ProviderLogo p={agent} size={12} />
+                    </span>
+                    <span className="repo-filter-name">{PROVIDER_LABEL[agent]}</span>
+                    <span className="repo-count">{count}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          ) : null}
           <div className="repo-filter-head repo-filter-divided">
             <span>Projects</span>
             {onResetOrder && (
@@ -719,6 +767,7 @@ const RepoNode = memo(function RepoNode({
   const [showArchived, setShowArchived] = useState(false)
   const toggleThis = (): void => onToggle(repo.key)
   const holder = useHolderFilter()
+  const hidden = useHiddenAgents()
 
   useEffect(() => {
     if (!open || !repo.root) return
@@ -831,7 +880,7 @@ const RepoNode = memo(function RepoNode({
             </button>
           )}
         </span>
-        <span className="repo-count">{heldSessions(repo, holder)}</span>
+        <span className="repo-count">{shownSessions(repo, { holder, hidden })}</span>
       </div>
       {open && (
         <GroupChildren
@@ -879,6 +928,13 @@ function expandKeys(open: boolean, onToggle: () => void) {
     } else if (e.key === 'ArrowRight' && !open) onToggle()
     else if (e.key === 'ArrowLeft' && open) onToggle()
   }
+}
+
+/** The tree's filters in words — while one is on, the tree says so above its rows. */
+function scopeSentence(holder: SessionHolder | null, hidden: readonly SessionProvider[]): string {
+  const who = holder === 'cockpit' ? 'in Cockpit' : holder === 'agent' ? 'outside Cockpit' : null
+  const agents = hidden.length === 0 ? null : `not ${hidden.map((a) => PROVIDER_LABEL[a]).join(' or ')}`
+  return `Only sessions ${[who, agents].filter(Boolean).join(', ')}`
 }
 
 function ProviderStrip({ providers }: { providers: readonly SessionProvider[] }): JSX.Element {
@@ -930,6 +986,7 @@ function GroupChildren({
 }: GroupChildrenProps): JSX.Element {
   // a table is Cockpit's own work — out of sight while the tree shows only the agents'
   const holder = useHolderFilter()
+  const hidden = useHiddenAgents()
   const own = holder === 'agent' ? NO_TABLES : tables
   // an archived table hides with the archived sessions, and is brought back the same way
   const active = own.filter((t) => !t.archived)
@@ -959,7 +1016,7 @@ function GroupChildren({
           onSelect={onSelect}
         />
       ))}
-      {(heldSessions(repo, holder) > 0 || active.length === 0) && list(false)}
+      {(shownSessions(repo, { holder, hidden }) > 0 || active.length === 0) && list(false)}
       {repo.archivedCount + archivedTables.length > 0 && (
         <>
           <button
@@ -1175,6 +1232,7 @@ function ChatsSection({
 }): JSX.Element {
   const [showArchived, setShowArchived] = useState(false)
   const holder = useHolderFilter()
+  const hidden = useHiddenAgents()
 
   return (
     <div className="chats-section" role="presentation">
@@ -1194,7 +1252,7 @@ function ChatsSection({
         </span>
         <span className="section-name">Chats</span>
         <ProviderStrip providers={repo.providers} />
-        <span className="repo-count">{heldSessions(repo, holder)}</span>
+        <span className="repo-count">{shownSessions(repo, { holder, hidden })}</span>
       </div>
       {open && (
         // no repo means no PRs and nothing to open on GitHub
@@ -1292,6 +1350,8 @@ function SessionList({
   const [items, setItems] = useState<SessionMeta[] | null>(null)
   const [total, setTotal] = useState(0)
   const holder = useHolderFilter()
+  const hidden = useHiddenAgents()
+  const providers = shownProviders(hidden)
 
   useEffect(() => {
     let dead = false
@@ -1301,7 +1361,8 @@ function SessionList({
         archived,
         offset: 0,
         limit: Math.min(PAGE * pages, MAX_LOADED),
-        ...(holder ? { holder } : {})
+        ...(holder ? { holder } : {}),
+        ...(providers ? { providers } : {})
       })
       .then((p) => {
         if (dead) return
@@ -1312,7 +1373,7 @@ function SessionList({
     return () => {
       dead = true
     }
-  }, [repoKey, archived, pages, indexVersion, holder])
+  }, [repoKey, archived, pages, indexVersion, holder, hidden])
 
   const folds = useFoldedFamilies()
   const rows = useMemo(() => nesting(items ?? [], folds, selectedId), [items, folds, selectedId])
@@ -1600,17 +1661,21 @@ function SearchResults({
   const [items, setItems] = useState<SessionMeta[] | null>(null)
   const [total, setTotal] = useState(0)
 
+  const hidden = useHiddenAgents()
   useEffect(() => {
     let dead = false
-    void api.pageSessions({ search: query, limit: 100, ...(holder ? { holder } : {}) }).then((p) => {
-      if (dead) return
-      setItems(p.items)
-      setTotal(p.total)
-    })
+    const providers = shownProviders(hidden)
+    void api
+      .pageSessions({ search: query, limit: 100, ...(holder ? { holder } : {}), ...(providers ? { providers } : {}) })
+      .then((p) => {
+        if (dead) return
+        setItems(p.items)
+        setTotal(p.total)
+      })
     return () => {
       dead = true
     }
-  }, [query, holder, indexVersion])
+  }, [query, holder, hidden, indexVersion])
 
   if (items === null) return <div className="tree-empty">searching…</div>
 

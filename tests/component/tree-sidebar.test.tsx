@@ -22,6 +22,7 @@ const repo: RepoGroup = {
   sessionCount: 2,
   archivedCount: 0,
   heldCount: 0,
+  byProvider: {},
   lastActivity: 1700000000000,
   providers: ['claude'],
   hidden: false
@@ -811,6 +812,51 @@ describe('who drives a session', () => {
     expect(screen.queryByRole('treeitem', { name: /acme\/rocket/ })).toBeNull()
     expect(screen.getByText(/Cockpit holds no sessions yet/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Show all sessions' }))
+    expect(await screen.findByRole('treeitem', { name: /acme\/rocket/ })).toBeInTheDocument()
+  })
+})
+
+describe('TreeSidebar — which agents it shows', () => {
+  const claude = session({ id: 'claude:c1', nativeId: 'c1', title: 'a claude task' })
+  const cline = session({ id: 'cline:k1', nativeId: 'k1', provider: 'cline', title: 'a cline task' })
+  const mixed: Partial<RepoGroup> = {
+    sessionCount: 2,
+    providers: ['claude', 'cline'],
+    byProvider: { claude: { sessions: 1, held: 0 }, cline: { sessions: 1, held: 0 } }
+  }
+
+  it('hides an agent from the eye: its sessions, its count, and says so', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockImplementation(async (q) =>
+      q?.providers && !q.providers.includes('cline') ? { total: 1, items: [claude] } : { total: 2, items: [claude, cline] }
+    )
+    renderSidebar(mixed)
+    await screen.findByRole('treeitem', { name: /a cline task/ })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose what the tree shows' }))
+    const agents = screen.getByRole('group', { name: 'Agents' })
+    expect(within(agents).getByRole('checkbox', { name: /Claude/ })).toBeChecked()
+    await userEvent.click(within(agents).getByRole('checkbox', { name: /Cline/ }))
+
+    await waitFor(() => expect(screen.queryByRole('treeitem', { name: /a cline task/ })).toBeNull())
+    const asked = vi.mocked(window.cockpit.pageSessions).mock.lastCall?.[0]
+    expect(asked?.providers).toContain('claude')
+    expect(asked?.providers).not.toContain('cline')
+    expect(screen.getByText('Only sessions not Cline')).toBeInTheDocument()
+    expect(screen.getByRole('treeitem', { name: /acme\/rocket/ })).toHaveTextContent(/1$/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show all' }))
+    expect(await screen.findByRole('treeitem', { name: /a cline task/ })).toBeInTheDocument()
+  })
+
+  it('takes a project out when every agent it has is hidden, and keeps the agent to switch back on', async () => {
+    window.localStorage.setItem('cockpit:hidden-agents', JSON.stringify(['claude', 'cline']))
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+    renderSidebar(mixed)
+    expect(screen.queryByRole('treeitem', { name: /acme\/rocket/ })).toBeNull()
+    expect(screen.getByText('No sessions of the agents the tree shows.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Choose what the tree shows' }))
+    const agents = screen.getByRole('group', { name: 'Agents' })
+    await userEvent.click(within(agents).getByRole('checkbox', { name: /Cline/ }))
     expect(await screen.findByRole('treeitem', { name: /acme\/rocket/ })).toBeInTheDocument()
   })
 })

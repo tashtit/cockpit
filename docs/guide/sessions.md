@@ -35,13 +35,19 @@ Rows on the home board and in the <kbd>⌘K</kbd> palette carry the same hexagon
 
 To see only one side, open the eye button beside the search field and pick **In Cockpit** or **Outside Cockpit** under *Sessions*. The tree keeps only the projects with sessions on that side, the counts follow, and search stays inside the filter. The choice outlives a restart, so while it's on a strip under the search field says *Only sessions in Cockpit* — **Show all** there puts every session back.
 
+### Filtering by agent
+
+The same eye button lists every agent with sessions under *Agents*, each with its count. Untick one to take its sessions out of the tree: projects with no session of a shown agent leave it, the counts follow, and search stays inside the filter. It combines with *Sessions* above, and is remembered the same way. The strip says what is hidden (*Only sessions not Cline*), and **Show all** clears both filters. An agent Cockpit starts reading later shows up ticked, and a hidden agent stays in the list to be ticked again even when it has no sessions right now.
+
 ### Searching inside transcripts
 
 "Where did I discuss X?" — across every agent at once, which no single vendor can
 answer. Press <kbd>⌘K</kbd>, type the words, and pick **search transcripts for …** under
 the session matches. Cockpit streams through the transcripts on demand (nothing is
 indexed or uploaded), scoped to the repo you are looking at — a row in the results widens
-the search to every repo. Each hit shows the message around the match, marked, with who
+the search to every repo. It follows the tree's agent filter too: with an agent hidden,
+the search leaves its transcripts out and says so (*in all repos, not Cline*), and a
+**Search every agent** row takes them back in. Each hit shows the message around the match, marked, with who
 said it; picking one opens that session **at that message** — scrolled into view and
 briefly highlighted, however far back it is.
 

@@ -13,6 +13,7 @@ import type {
   BusySession,
   Mutable,
   SessionProvider,
+  AgentCount,
   RepoGroup,
   SessionControl,
   SessionMeta,
@@ -1116,15 +1117,21 @@ export class SessionIndexer {
           heldCount: 0,
           lastActivity: 0,
           providers: [],
+          byProvider: {},
           hidden: this.hiddenRepos.has(info.key)
         }
         groups.set(info.key, g)
       }
       if (this.archived.has(s.id)) g.archivedCount++
       else {
+        const held = this.controlOf(s).holder === 'cockpit'
         g.sessionCount++
-        if (this.controlOf(s).holder === 'cockpit') g.heldCount++
+        if (held) g.heldCount++
         if (s.updatedAt > g.lastActivity) g.lastActivity = s.updatedAt
+        const counts = g.byProvider as Record<string, Mutable<AgentCount>>
+        const c = (counts[s.provider] ??= { sessions: 0, held: 0 })
+        c.sessions++
+        if (held) c.held++
       }
       if (!g.providers.includes(s.provider)) g.providers.push(s.provider)
       // Prefer a visible checkout (e.g. ~/dev/foo) over a provider-internal clone (~/.copilot/repos/foo)

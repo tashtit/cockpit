@@ -39,8 +39,16 @@ export type RepoGroup = RepoInfo & {
   readonly heldCount: number
   readonly lastActivity: number
   readonly providers: SessionProvider[]
+  /** The active sessions again, by agent — what the tree's agent filter counts by */
+  readonly byProvider: Partial<Record<SessionProvider, AgentCount>>
   /** User chose not to display this project (still listed here for the chooser UI) */
   readonly hidden: boolean
+}
+
+/** One agent's share of a project's active sessions, and how many of those Cockpit holds. */
+export type AgentCount = {
+  readonly sessions: number
+  readonly held: number
 }
 
 /**
@@ -1692,6 +1700,8 @@ export type StaleWorktree = {
   readonly lastActivity: number
   /** Sessions Cockpit has indexed running in this directory */
   readonly sessionCount: number
+  /** The agents those sessions belong to — which agent's worktree this is, when one made it */
+  readonly providers: readonly SessionProvider[]
   /** Registered in .git/worktrees but gone from disk — prune territory */
   readonly missing: boolean
   /** Commits on HEAD that no remote has. Informational: removing a worktree keeps

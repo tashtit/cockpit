@@ -107,6 +107,7 @@ describe('session rows follow the time format live', () => {
       sessionCount: 1,
       archivedCount: 0,
       heldCount: 0,
+      byProvider: {},
       lastActivity: todayAt1405(),
       providers: ['claude'],
       hidden: false
