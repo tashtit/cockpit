@@ -857,7 +857,8 @@ export function App(): JSX.Element {
           onOpenFull={(repo, draft, draftImages) => setView({ kind: 'new', repo, draft, draftImages })}
           onNewRoundtable={() => setView({ kind: 'new-roundtable' })}
           onOpenRoundtable={openRoundtable}
-          onOpenSettings={() => setView({ kind: 'settings' })}
+          onOpenSettings={(section) => setView({ kind: 'settings', section })}
+          onOpenAgents={() => setView({ kind: 'extensions', repoRoot: null })}
         />
       ) : (
         <ChatView

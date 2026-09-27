@@ -22,6 +22,7 @@ import {
 import { describeMcp, mcpLabel, registryOf, withVersion } from '../shared/mcp-source'
 import { AGENT_NAME, PROVIDERS } from '../shared/providers'
 import type {
+  CatalogInstall,
   ExtensionsInventory,
   LibraryEntry,
   McpConfig,
@@ -58,6 +59,17 @@ import { adoptInventory } from '../shared/library'
  * switching it off takes it back out. The entry itself survives either way — that
  * is what makes a switch reversible instead of a delete, and it is why Cockpit
  * needs a config of its own rather than just editing the agents'.
+ *
+ * Every read also records which agents hold each entry (`seen`, `markSeen`), and
+ * Cockpit forgets that wherever it takes something out itself (`unseen`). That is how a
+ * switched-on entry an agent lacks says why: seen there and gone is "removed outside
+ * Cockpit", never seen is "not written yet" — and `leavePanelOff` is the answer when
+ * that agent is meant to be without it. The record is machine-local; a backup drops it.
+ *
+ * A plugin is updated in every agent that has it (`updatePlugin`) — Codex, which has
+ * no update command, by pulling its marketplace and adding the plugin again — and the
+ * agents' marketplace clones are pulled only on the person's Check again
+ * (`refreshMarketplaces`).
  *
  * Everything here is IO. The comparison logic is in shared/library.ts.
  */
@@ -325,7 +337,7 @@ function ensureScope(repoRoot: string | null): {
   const inv = scopedInventory(repoRoot)
   const before = loadEntries(repoRoot)
   const adopted = adoptInventory(before, inv)
-  const refreshed = adopted.map((entry) => refreshSaved(entry, inv))
+  const refreshed = adopted.map((entry) => markSeen(refreshSaved(entry, inv), inv, repoRoot))
   if (JSON.stringify(refreshed) !== JSON.stringify(before)) saveEntries(repoRoot, refreshed)
   // offered, not recorded: the recommended marketplace joins what the panel reads but
   // not Cockpit's config — opening a view is not a decision. Marketplaces are per
@@ -350,6 +362,42 @@ function refreshSaved(entry: LibraryEntry, inv: ExtensionsRead): LibraryEntry {
   // an agent's own definition carries the values a passphrase-less restore left
   // out, so adopting it is exactly what clears the "needs values" state
   return config ? withoutWithheld({ ...next, config }) : next
+}
+
+/**
+ * Record which agents hold the entry right now. That is what later tells an agent
+ * that lost something outside Cockpit (it was seen there, and is gone) from one it
+ * was never written to. An entry recorded before Cockpit kept this record starts from
+ * `raw` — each agent's own MCP definition, which is only ever read from that agent —
+ * and from then on only from what is seen, since `raw` outlives Cockpit's own
+ * switch-off by design.
+ */
+function markSeen(entry: LibraryEntry, inv: ExtensionsRead, repoRoot: string | null): LibraryEntry {
+  if (entry.kind === 'instructions') return entry
+  const actual = actualOf(entry, inv, repoRoot)
+  const before = seenOf(entry)
+  const now = PROVIDERS.filter((p) => actual[p]?.present === true && before[p] !== true)
+  const seen = { ...before, ...Object.fromEntries(now.map((p) => [p, true])) }
+  // bookkeeping with nothing to record writes nothing: an entry no agent was ever seen
+  // holding stays exactly as it was, so a read never rewrites the config for it
+  if (entry.seen === undefined ? Object.keys(seen).length === 0 : now.length === 0) return entry
+  return { ...entry, seen }
+}
+
+/** What Cockpit has seen — for an entry recorded before it kept track, what `raw` shows. */
+function seenOf(entry: LibraryEntry): Partial<Record<Provider, true>> {
+  return entry.seen ?? Object.fromEntries(PROVIDERS.filter((p) => entry.raw?.[p] !== undefined).map((p) => [p, true]))
+}
+
+/**
+ * Cockpit took it out of these agents itself: having seen it there says nothing any
+ * more. The record is written out even when it started from `raw`, which outlives a
+ * switch-off by design and would otherwise bring the agent straight back.
+ */
+function unseen(entry: LibraryEntry, agents: readonly Provider[]): LibraryEntry {
+  const seen: { -readonly [P in Provider]?: true } = { ...seenOf(entry) }
+  for (const agent of agents) delete seen[agent]
+  return { ...entry, seen }
 }
 
 /**
@@ -553,11 +601,157 @@ export async function setPanelSwitch(
     replaceEntry(loadEntries(target.repoRoot), {
       // an agent switched off has nothing left to differ with; switching one on
       // leaves every difference the user kept exactly as it was
-      ...(on ? entry : withoutKept(entry, [agent])),
+      ...(on ? entry : unseen(withoutKept(entry, [agent]), [agent])),
       enabled: { ...entry.enabled, [agent]: on }
     })
   )
   return getPanel(target.repoRoot)
+}
+
+/**
+ * Add something the person found while browsing: a marketplace, or a plugin from one.
+ *
+ * Browsing shows what no agent here has yet, so unlike every other action in the panel
+ * this one may have no entry to flip — it writes the entry first and then flips it,
+ * which is exactly what the panel's own switch does once the thing exists. Nothing
+ * else is special-cased: the install itself, the reach check ("that agent hasn't got
+ * this marketplace"), and the report all come back through `setPanelSwitch`.
+ */
+export async function addFromCatalog(item: CatalogInstall, agent: Provider): Promise<PanelReport> {
+  const target: PanelTarget = { repoRoot: null, kind: item.kind, name: item.name }
+  assertTarget(target)
+  const { entries } = ensureScope(null)
+  const known = entries.find((e) => e.kind === item.kind && e.name === item.name)
+  // a plugin's source is the marketplace half of its own id; a marketplace's is where
+  // it is cloned from, which is the one thing an add cannot be run without
+  const source =
+    item.kind === 'plugin'
+      ? (known?.source ?? item.name.split('@').pop())
+      : (item.source ?? known?.source)
+  if (item.kind === 'marketplace' && !isAddableSource(source)) {
+    throw new Error(`Cockpit has no source to add the ${item.name} marketplace from.`)
+  }
+  // adding back something removed everywhere is the person asking for it again
+  const was: LibraryEntry = known ?? { kind: item.kind, name: item.name, enabled: {} }
+  const { removed, ...base } = was
+  saveEntries(null, replaceEntry(loadEntries(null), { ...base, ...(source ? { source } : {}) }))
+  return setPanelSwitch(target, agent, true)
+}
+
+/**
+ * Every MCP server Cockpit knows globally — the ones the agents run, adopted, and the
+ * ones switched off everywhere but kept. A registry add reads this for two answers:
+ * "does something here already run that?" and "which names are taken?".
+ */
+export function globalMcpEntries(): ReadonlyArray<{ readonly name: string; readonly config?: McpConfig }> {
+  return ensureScope(null)
+    .entries.filter((e) => e.kind === 'mcp')
+    .map((e) => ({ name: e.name, ...(e.config ? { config: e.config } : {}) }))
+}
+
+/**
+ * Switch an MCP server on for one agent — one Cockpit already knows by `name`, or a
+ * new one with `config`, written as an entry first and then flipped like any other.
+ * An existing entry keeps its own definition: the one the agents run wins over what
+ * was just looked up, since that is what the other agents will be compared against.
+ */
+export async function addMcpServer(
+  name: string,
+  agent: Provider,
+  config?: McpConfig
+): Promise<PanelReport> {
+  const target: PanelTarget = { repoRoot: null, kind: 'mcp', name }
+  assertTarget(target)
+  const { entries } = ensureScope(null)
+  const known = entries.find((e) => e.kind === 'mcp' && e.name === name)
+  if (!known && !config) throw new Error(`Cockpit doesn't know a server named "${name}".`)
+  // adding back something removed everywhere is the person asking for it again
+  const was: LibraryEntry = known ?? { kind: 'mcp', name, enabled: {}, config }
+  const { removed, ...base } = was
+  saveEntries(null, replaceEntry(loadEntries(null), base))
+  return setPanelSwitch(target, agent, true)
+}
+
+/**
+ * The other answer to "switched on, but the agent doesn't have it": that is how it is
+ * meant to be. Taken out in the agent's own config, or never wanted there — either way
+ * the switch follows the agent, and nothing is written into it. Refused while the
+ * agent does have it, where switching off would have to take it out.
+ */
+export async function leavePanelOff(target: PanelTarget, agent: Provider): Promise<PanelReport> {
+  assertTarget(target)
+  const row = getPanel(target.repoRoot).rows.find((r) => r.kind === target.kind && r.name === target.name)
+  if (!row) throw new Error(`Cockpit doesn't track ${target.kind} "${target.name}" here`)
+  if (row.cells[agent].state !== 'pending') {
+    throw new Error(`${AGENT_NAME[agent]} isn’t missing ${target.name} — there is nothing to leave off.`)
+  }
+  const entry = findEntry(loadEntries(target.repoRoot), target)
+  saveEntries(
+    target.repoRoot,
+    replaceEntry(loadEntries(target.repoRoot), { ...unseen(entry, [agent]), enabled: { ...entry.enabled, [agent]: false } })
+  )
+  return getPanel(target.repoRoot)
+}
+
+/**
+ * How an agent brings one plugin up to date. Claude Code and Copilot have `plugin update`.
+ * Codex has none: adding the plugin again installs whatever its marketplace snapshot
+ * holds, replacing the version it had — so the snapshot is pulled first.
+ */
+function pluginUpdateSteps(agent: Provider, id: string): ReadonlyArray<readonly string[]> {
+  if (agent !== 'codex') return [['plugin', 'update', id]]
+  return [
+    ['plugin', 'marketplace', 'upgrade', id.slice(id.lastIndexOf('@') + 1)],
+    ['plugin', 'add', id]
+  ]
+}
+
+/**
+ * Update a plugin in every agent that has it — an update that left one agent on the old
+ * version would be a disagreement of Cockpit's own making. Every agent is tried; what
+ * failed is said together at the end, after the ones that worked.
+ */
+export async function updatePlugin(id: string): Promise<PanelReport> {
+  if (!NAME_RE.test(id) || id.lastIndexOf('@') <= 0) throw new Error('invalid plugin id')
+  const agents = PROVIDERS.filter((agent) =>
+    getExtensions().plugins.some((p) => p.name === id && p.agent === agent)
+  )
+  if (agents.length === 0) throw new Error(`No agent here has ${id} installed.`)
+  const failed: string[] = []
+  for (const agent of agents) {
+    try {
+      for (const step of pluginUpdateSteps(agent, id)) await runAgentCli(agent, step)
+    } catch (err) {
+      failed.push(err instanceof Error ? err.message : String(err))
+    }
+  }
+  if (failed.length > 0) throw new Error(failed.join(' · '))
+  return getPanel(null)
+}
+
+/** How each agent refreshes its marketplace clones from their sources. */
+const MARKET_REFRESH: Record<Provider, readonly string[]> = {
+  claude: ['plugin', 'marketplace', 'update'],
+  // codex calls its clones snapshots, and refreshing them an upgrade
+  codex: ['plugin', 'marketplace', 'upgrade'],
+  copilot: ['plugin', 'marketplace', 'update']
+}
+
+/**
+ * Pull every agent's marketplaces from where they came from. A catalogue is read from
+ * the clone the agent made, and a third-party marketplace refreshes itself only when
+ * told to — so without this a new plugin release stays invisible until the person
+ * happens to update it in the CLI. Only on the person's "Check again", never polled.
+ * Returns what couldn't be refreshed; one agent failing leaves the others refreshed.
+ */
+export async function refreshMarketplaces(): Promise<string[]> {
+  const agents = PROVIDERS.filter((p) => getExtensions().marketplaces.some((m) => m.agent === p))
+  const done = await Promise.allSettled(agents.map((agent) => runAgentCli(agent, MARKET_REFRESH[agent])))
+  return done.flatMap((outcome, i) =>
+    outcome.status === 'rejected'
+      ? [`couldn’t refresh ${agents[i]}’s marketplaces — ${outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)}`]
+      : []
+  )
 }
 
 /** The entry with a kept difference forgotten for these agents (all of them when none named). */
@@ -665,7 +859,7 @@ export async function removePanelEntry(target: PanelTarget): Promise<PanelReport
     }
   }
   if (failed.length > 0) throw new Error(`couldn't remove it everywhere — ${failed.join(' · ')}`)
-  saveEntries(target.repoRoot, replaceEntry(loadEntries(target.repoRoot), { ...entry, removed: true }))
+  saveEntries(target.repoRoot, replaceEntry(loadEntries(target.repoRoot), { ...unseen(entry, PROVIDERS), removed: true }))
   return getPanel(target.repoRoot)
 }
 

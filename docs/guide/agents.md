@@ -41,7 +41,8 @@ A row raises a flag when something disagrees:
 
 | Flag | What happened |
 | --- | --- |
-| `not applied` | The switch is on, but the agent doesn't have it |
+| `not applied` | The switch is on, but Cockpit hasn't written it into that agent yet |
+| `removed outside` | The agent had it, and something outside Cockpit took it out of its config — you, by hand, or the agent's own CLI |
 | `differs` | This agent runs something different from the other agents |
 | `added outside` | The switch is off, yet the agent has it anyway |
 
@@ -54,6 +55,15 @@ goes quiet, and it only comes back to **Needs you** if one of those agents chang
 again; the row's detail says who runs their own on purpose, with *Treat as drift again* to
 undo. Env var *values* are never shown or compared, only their names, so a row never
 claims a difference you can't see.
+
+Cockpit remembers which agents it has seen hold each thing, so it can tell `not applied`
+from `removed outside`: an agent it saw with a server that no longer has it lost it outside Cockpit, and one
+it never saw with it simply hasn't been written to. What Cockpit takes out itself is
+forgotten, so it is never mistaken for a removal outside. Either way there are two answers:
+**Write it now** (*Write it back* when it was removed), or **Leave it off** — for when that
+agent is meant to be without it. Leaving it off switches it off for that agent and writes
+nothing, so the row goes quiet and the other agents keep it. (Its mirror, for something an
+agent has that is switched off, is **Switch it on** or **Take it out**.)
 
 The shared instructions are the exception: you write that baseline in Cockpit, so a file
 that's out of step with it is simply out of date, whatever the other agents are doing.
@@ -216,6 +226,24 @@ Cockpit **offers it but never installs it**:
 - Adding the marketplace installs no plugins. Once it's added, pick the plugins you want in that agent: `/plugin` in Claude Code, `copilot plugin install <name>@tashtit`, `codex plugin add <name>`.
 - Nothing is written anywhere just because the row is offered, including Cockpit's own config and your backups. **Remove everywhere** on the row is a lasting answer: it moves to **Removed** and isn't offered again.
 
+### Is there a newer plugin?
+
+A marketplace's catalogue names the version of each plugin it offers, and Cockpit reads it
+from the copy the agent already cloned — the same copy the agent would update from. When
+that lists a newer version than the one installed, the **Plugins** row is marked
+`update 0.4.2`, and the opened row says which agents are behind and which already have
+it. **Update to 0.4.2** updates it in **every agent that has it** — an update that left
+one agent on the old version would only be a new disagreement — each through its own CLI:
+`plugin update <name>@<marketplace>` for Claude Code and Copilot. Codex has no update
+command, so Cockpit pulls its marketplace (`plugin marketplace upgrade`) and adds the
+plugin again, which replaces the version it had; Codex's installed version is read from
+the folder that install goes into. Restart those CLIs to pick it up.
+
+A marketplace's copy is only as fresh as its last refresh, and a third-party marketplace
+doesn't refresh itself. **Check again** under the home's updates list pulls every agent's
+marketplaces from where they came from first (`plugin marketplace update`, Codex's
+`plugin marketplace upgrade`), so a release made since shows up.
+
 ### Not everything can go everywhere
 
 A plugin is installed **from a marketplace**, so an agent with no way to reach that
@@ -232,3 +260,54 @@ handing you the CLI's own error.
 ::: tip Repo-level skills
 For a shared per-repository setup, a `.agents/skills/` directory with a `.claude/skills` symlink lets Codex and Copilot read skills natively while Claude Code follows the symlink — one source of truth, three consumers.
 :::
+
+## Browse — plugins and MCP servers nobody here has yet
+
+Every other section of the panel is a mirror of what your agents already have. **Browse**
+(Global only — it installs per machine) is the one that shows what they don't. A switch at
+its top picks between two catalogues: **Plugins**, what each marketplace offers, and
+**MCP servers**, what the MCP Registry does.
+
+### Plugins
+
+- **Where the list comes from.** Cockpit reads the catalogue (`marketplace.json`) out of
+  the clone the agent already made when it added the marketplace — no network, every time.
+  A marketplace nobody here has added yet has no catalogue to read, so the row says so and
+  offers **Look it up**, which reads that repository's own catalogue from GitHub. That
+  fetch only ever happens on your click.
+- **Look up a marketplace.** Type `owner/repo` or a github.com URL at the top of the
+  section to read a marketplace you've heard of but nobody here has. Nothing is installed
+  by looking.
+- **Installing.** Each row carries the same three agent chips as the rest of the panel.
+  Clicking one adds the marketplace (`plugin marketplace add`) or installs the plugin
+  (`plugin install <name>@<marketplace>`) in that agent, one agent at a time. A chip for
+  an agent that already has it is lit and inert — taking something out belongs to
+  **Plugins** and **Marketplaces**, where it asks first.
+- **Searching.** The card's search box searches the catalogues while Browse is open —
+  plugin names, descriptions, categories and keywords — instead of the panel's own rows.
+
+### MCP servers
+
+The [MCP Registry](https://registry.modelcontextprotocol.io) is the open catalogue MCP
+servers are published to. Type what a server does, or who makes it, and press **Search** —
+that is the only time this half of Browse reaches the network.
+
+- **Each result says who published it.** Anyone can publish to the registry. Open a row for
+  its registry name (its namespace is the publisher, `io.github.<owner>/…`), its version,
+  and a link to its repository — worth a look before you add one.
+- **Adding.** The agent chips add it to one agent at a time. Cockpit writes the definition
+  itself from the registry's entry: an npm package runs as `npx -y <package>@<version>`, a
+  PyPI one as `uvx <package>==<version>` — pinned, so [Is there a newer
+  one?](#is-there-a-newer-one) covers it from then on — and a remote server by its URL.
+- **What it needs from you.** A server that needs an API key or a setting lists it on its
+  row, one field each (a token's field is masked). They are written into each agent's own
+  config as environment variables, the way every server's settings are kept. Adding it to
+  a second agent gives it the same definition, so nothing is asked twice.
+- **A server this machine already runs** — under any name, as long as it is the same
+  package or URL — shows as that server, lit for the agents that have it.
+- **What Cockpit won't add**, and says why on the row: a container image or other package
+  it doesn't run, a runner option (`npx -c` would run a shell), an environment variable
+  that would load other code (`NODE_OPTIONS`, `DYLD_*`), a remote server that needs a
+  header to connect, and anything with a value left to fill into its command line. Codex
+  reaches remote servers over streamable HTTP only, so an SSE server isn't offered to it.
+- **Taking one out** belongs to **MCP servers**, where it asks first.

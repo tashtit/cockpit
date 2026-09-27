@@ -429,8 +429,9 @@ export function splitSecrets(
     const mine: Record<string, Pick<McpConfig, 'env' | 'args' | 'url'>> = {}
     const library = scope.library.map((stored) => {
       // each agent's own definition stays on this machine: it is read back from the
-      // agents, and holds header tokens in the clear that nothing here would withhold
-      const { raw, ...entry } = stored
+      // agents, and holds header tokens in the clear that nothing here would withhold.
+      // So does what Cockpit has seen them hold — another machine's agents weren't seen
+      const { raw, seen, ...entry } = stored
       if (entry.kind !== 'mcp' || !entry.config) return entry
       const { env, args, url, ...rest } = entry.config
       const envNames = Object.keys(env ?? {})

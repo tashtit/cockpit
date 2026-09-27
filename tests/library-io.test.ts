@@ -5,11 +5,14 @@ import { join } from 'node:path'
 import {
   getPanel,
   keepPanelDifference,
+  leavePanelOff,
   matchPanelEntry,
   removePanelEntry,
+  refreshMarketplaces,
   restorePanelEntry,
   setMcpVersion,
-  setPanelSwitch
+  setPanelSwitch,
+  updatePlugin
 } from '../src/main/library'
 import { saveBaseline } from '../src/main/instructions'
 
@@ -645,5 +648,191 @@ describe('pinning a server to a newer version', () => {
     await expect(
       setMcpVersion({ repoRoot: null, kind: 'mcp', name: 'remote' }, '1.0.0')
     ).rejects.toThrow(/doesn’t pin a package version/)
+  })
+})
+
+describe('updating a plugin, and refreshing the marketplaces it comes from', () => {
+  let savedPath: string | undefined
+
+  beforeEach(() => {
+    savedPath = process.env.PATH
+    process.env.PATH = `${join(home, 'bin')}:${savedPath}`
+  })
+
+  afterEach(() => {
+    process.env.PATH = savedPath
+  })
+
+  /** An agent CLI that writes down what it was asked, and fails when told to. */
+  function stubCli(agent: string, fail = false): string {
+    const log = join(home, `${agent}-calls.log`)
+    write(
+      join(home, 'bin', agent),
+      ['#!/bin/sh', `echo "$@" >> '${log}'`, ...(fail ? ['echo "network is down" >&2', 'exit 1'] : [])].join('\n')
+    )
+    chmodSync(join(home, 'bin', agent), 0o755)
+    return log
+  }
+
+  const calls = (log: string): string[] =>
+    existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []
+
+  function installed(id: string, where: { claude?: boolean; codex?: boolean; copilot?: boolean }): void {
+    const [name, market] = id.split('@')
+    if (where.claude) {
+      write(
+        join(home, '.claude', 'plugins', 'installed_plugins.json'),
+        JSON.stringify({ version: 2, plugins: { [id]: [{ version: '1.2.0', scope: 'user' }] } })
+      )
+    }
+    if (where.codex) write(join(home, '.codex', 'config.toml'), `[plugins."${id}"]\nenabled = true\n`)
+    if (where.copilot) {
+      write(
+        join(home, '.copilot', 'installed-plugins', market, name, '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ name, version: '1.2.0' })
+      )
+    }
+  }
+
+  // an update that left one agent on the old version would be a disagreement of
+  // Cockpit's own making — so it goes to every agent that has the plugin
+  it('updates a plugin in every agent that has it, each in its own words', async () => {
+    installed('review@acme', { claude: true, codex: true, copilot: true })
+    const logs = { claude: stubCli('claude'), codex: stubCli('codex'), copilot: stubCli('copilot') }
+    await updatePlugin('review@acme')
+    expect(calls(logs.claude)).toEqual(['plugin update review@acme'])
+    expect(calls(logs.copilot)).toEqual(['plugin update review@acme'])
+    // codex has no plugin update: adding it again installs what its marketplace
+    // snapshot holds, so the snapshot is pulled first
+    expect(calls(logs.codex)).toEqual(['plugin marketplace upgrade acme', 'plugin add review@acme'])
+  })
+
+  it('leaves alone an agent that hasn’t got the plugin', async () => {
+    installed('review@acme', { codex: true })
+    const logs = { claude: stubCli('claude'), codex: stubCli('codex') }
+    await updatePlugin('review@acme')
+    expect(calls(logs.claude)).toEqual([])
+    expect(calls(logs.codex)).toEqual(['plugin marketplace upgrade acme', 'plugin add review@acme'])
+  })
+
+  it('refuses a plugin no agent here has, before anything is spawned', async () => {
+    installed('review@acme', { claude: true })
+    const log = stubCli('claude')
+    await expect(updatePlugin('lint@acme')).rejects.toThrow(/No agent here has lint@acme installed/)
+    await expect(updatePlugin('review')).rejects.toThrow(/invalid plugin id/)
+    await expect(updatePlugin('--all@acme')).rejects.toThrow(/No agent here has/)
+    expect(calls(log)).toEqual([])
+  })
+
+  it('tries every agent, and says what failed after the ones that worked', async () => {
+    installed('review@acme', { claude: true, copilot: true })
+    stubCli('claude', true)
+    const copilot = stubCli('copilot')
+    await expect(updatePlugin('review@acme')).rejects.toThrow(/claude plugin update review@acme failed — network is down/)
+    expect(calls(copilot)).toEqual(['plugin update review@acme'])
+  })
+
+  it('pulls the marketplaces of every agent that has one, in that agent’s own words', async () => {
+    write(
+      join(home, '.claude', 'plugins', 'known_marketplaces.json'),
+      JSON.stringify({ acme: { source: { source: 'github', repo: 'acme/plugins' } } })
+    )
+    write(join(home, '.codex', 'config.toml'), '[marketplaces.acme]\nsource_type = "git"\nsource = "https://github.com/acme/plugins.git"\n')
+    const logs = { claude: stubCli('claude'), codex: stubCli('codex', true), copilot: stubCli('copilot') }
+    const problems = await refreshMarketplaces()
+    expect(calls(logs.claude)).toEqual(['plugin marketplace update'])
+    // codex calls refreshing its snapshots an upgrade — and here it fails, alone
+    expect(calls(logs.codex)).toEqual(['plugin marketplace upgrade'])
+    expect(problems).toEqual([expect.stringMatching(/^couldn’t refresh codex’s marketplaces — .*network is down/)])
+    // copilot has no marketplace here, so there is nothing of its to pull
+    expect(calls(logs.copilot)).toEqual([])
+  })
+})
+
+describe('a server switched on, but missing from an agent on purpose', () => {
+  function removedFromCopilot(): void {
+    // Cockpit knew gcloud in Claude Code and Copilot; Copilot's own config no longer has it
+    seedClaudeMcp('gcloud', { command: 'npx', args: ['-y', '@google-cloud/gcloud-mcp@0.5.3'] })
+    getPanel(null)
+    const cfg = JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8'))
+    cfg.library.global = cfg.library.global.map((e: any) =>
+      e.name === 'gcloud' ? { ...e, enabled: { ...e.enabled, copilot: true } } : e
+    )
+    writeFileSync(join(userData, 'cockpit-config.json'), JSON.stringify(cfg))
+  }
+
+  it('switches it off for that agent and writes nothing there', async () => {
+    removedFromCopilot()
+    expect(cell(getPanel(null), 'gcloud', 'copilot').state).toBe('pending')
+    const report = await leavePanelOff({ repoRoot: null, kind: 'mcp', name: 'gcloud' }, 'copilot')
+    expect(cell(report, 'gcloud', 'copilot').state).toBe('off')
+    expect(report.rows.find((r) => r.name === 'gcloud')?.drift).toEqual([])
+    // Claude Code keeps it, and Copilot's config was never touched
+    expect(cell(report, 'gcloud', 'claude').state).toBe('on')
+    expect(existsSync(join(home, '.copilot', 'mcp-config.json'))).toBe(false)
+  })
+
+  // switching off an agent that has it would have to take it out — that is Take it out
+  it('refuses where the agent does have it', async () => {
+    removedFromCopilot()
+    await expect(
+      leavePanelOff({ repoRoot: null, kind: 'mcp', name: 'gcloud' }, 'claude')
+    ).rejects.toThrow(/isn’t missing gcloud/)
+  })
+})
+
+describe('telling a server removed outside Cockpit from one never written', () => {
+  const stored = (): any[] => JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8')).library.global
+  const gcloud = { command: 'npx', args: ['-y', '@google-cloud/gcloud-mcp@0.5.3'] }
+
+  it('says an agent that had it lost it outside Cockpit', async () => {
+    seedClaudeMcp('gcloud', gcloud)
+    getPanel(null)
+    expect(stored().find((e) => e.name === 'gcloud')?.seen).toEqual({ claude: true })
+    // taken out of Claude Code's own config, by hand
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: {} }))
+    const cellNow = cell(getPanel(null), 'gcloud', 'claude')
+    expect(cellNow.state).toBe('pending')
+    expect(cellNow.gone).toBe(true)
+  })
+
+  it('never calls one Cockpit never saw there removed', async () => {
+    seedClaudeMcp('gcloud', gcloud)
+    getPanel(null)
+    // switched on for Copilot in Cockpit's config, but Copilot never had it
+    const cfg = JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8'))
+    cfg.library.global = cfg.library.global.map((e: any) =>
+      e.name === 'gcloud' ? { ...e, enabled: { ...e.enabled, copilot: true } } : e
+    )
+    writeFileSync(join(userData, 'cockpit-config.json'), JSON.stringify(cfg))
+    const copilot = cell(getPanel(null), 'gcloud', 'copilot')
+    expect(copilot.state).toBe('pending')
+    expect(copilot.gone).toBeUndefined()
+  })
+
+  // raw is each agent's own definition, only ever read from that agent — so an entry
+  // recorded before Cockpit kept `seen` still knows where it was
+  it('starts from each agent’s own definition for an entry recorded before it kept track', async () => {
+    writeFileSync(
+      join(userData, 'cockpit-config.json'),
+      JSON.stringify({
+        sources: [],
+        library: { global: [{ kind: 'mcp', name: 'gcloud', enabled: { copilot: true }, config: gcloud, raw: { copilot: gcloud } }] }
+      })
+    )
+    const copilot = cell(getPanel(null), 'gcloud', 'copilot')
+    expect(copilot.gone).toBe(true)
+    expect(stored()[0].seen).toEqual({ copilot: true })
+  })
+
+  // what Cockpit takes out itself was not removed behind its back — a later write that
+  // doesn't land is "not written yet", never "removed outside"
+  it('forgets what it saw once Cockpit takes it out itself', async () => {
+    seedClaudeMcp('gcloud', gcloud)
+    getPanel(null)
+    await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'gcloud' }, 'claude', false)
+    expect(stored().find((e) => e.name === 'gcloud')?.seen).toEqual({})
+    await removePanelEntry({ repoRoot: null, kind: 'mcp', name: 'gcloud' })
+    expect(stored().find((e) => e.name === 'gcloud')?.seen).toEqual({})
   })
 })

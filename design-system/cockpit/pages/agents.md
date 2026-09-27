@@ -62,8 +62,8 @@ would open, so the panel is never named by a tab that is not there.
     (`.ag-chip.on.drift`, not `.ag-chip.drift`) — `.ag-chip.on.ag-*` is 0,3,0 and silently
     wins otherwise, which is exactly how the warning went missing once already.
 - **One word per row** (`.pnl-flag`, amber, right-aligned): the ringed chip already says
-  *which* agent, so the row only has to say *what* — `not applied` / `differs` /
-  `added outside`. The same slot carries a dim `.pnl-only` word when some agent has no
+  *which* agent, so the row only has to say *what* — `not applied` / `removed outside` /
+  `differs` / `added outside`. The same slot carries a dim `.pnl-only` word when some agent has no
   switch at all — `Codex only`, `not for Copilot` — and the amber flag outranks it: one
   is a fact about the thing, the other is waiting on you. A "not available" reason is
   also spelled out in full in the opened row (`.pnl-note`); a `title` is unreadable to a
@@ -82,6 +82,17 @@ would open, so the panel is never named by a tab that is not there.
   fingerprint no longer matches and it is `differs` again — a warning the user can
   clear, never one they can only silence. Matching every agent to one definition, or
   switching a kept agent off, forgets the kept difference.
+- **Every disagreement has an "on purpose" answer.** `differs` has *Keep as they are*;
+  `added outside` has *Switch it on* beside *Take it out*; `not applied` and `removed
+  outside` have *Leave it off* beside *Write it now* / *Write it back* (`.pnl-fix`,
+  ghost-small, in that order). Leave it off switches the entry off for that agent and
+  writes nothing — the switch follows the agent.
+- **A missing one says why** (`PanelCell.gone`, from `LibraryEntry.seen`): an agent
+  Cockpit saw hold it and that no longer does lost it outside Cockpit — flag `removed
+  outside`, chip title `on — but removed from its config outside Cockpit`, sentence `Copilot
+  had gcloud, and it was taken out of its config outside Cockpit.`, home row `removed outside
+  Cockpit`. One never seen there is `not applied` / `not written yet`. Never a sentence that
+  names both causes: the record exists so the row can say which.
 - **Remove everywhere is recoverable**, under a `Removed` section with *Put it back*.
 - **One recommendation, and it only offers** (`.pnl-rec`). Tashtit's marketplace
   (`RECOMMENDED_MARKETPLACE`) is the one thing the panel vouches for. Its row is always
@@ -244,6 +255,71 @@ is no health tab, and there must never be a second place to turn a server on.
   - The action is one button, `Update to <version>`, and it may only offer the version
     the registry just gave: the pin is rewritten wherever that server is switched on and
     nothing else in the command changes.
+- **A plugin gets the same line** (`PluginVersionLine`): the `.mcp-bump` in its entry,
+  and opened, one fact that names who is behind and who is not (`Claude and Codex have
+  1.2.0; 1.4.0 is out. Copilot already does.`), the `update` pill and `Update to
+  <version>`, which updates it in **every** agent that has it, each through its own CLI —
+  an update that left one agent behind would be drift of Cockpit's making. The question
+  is local — the marketplace clone against what is installed — so it is asked again on
+  every report rather than once.
+
+## Browse (`MarketBrowse.tsx`, `McpBrowse.tsx`)
+
+The one section that shows what the agents **don't** have — every other one is a mirror of
+their config. Global only: plugins, marketplaces and the servers found here are installed
+per machine, so a repo scope has nothing to browse into and the tab is absent there.
+
+- **Two catalogues, one section.** A `.md-tabs` switch (`.browse-what`, the instructions
+  editor's own Write/Preview grammar — never a second tab row) sits above the blurb:
+  **Plugins** (the marketplaces) and **MCP servers** (the MCP Registry). The blurb speaks
+  for whichever is showing.
+
+- **A marketplace is a `.pnl-row` that opens**, exactly like every other row here: caret ·
+  name · `recommended` tag where it applies · `.pnl-kind` count ("3 plugins", or
+  "catalogue not read") · `.pnl-def` source · the agent chips. Its catalogue entries are
+  `.market-plugin` cards *inside* the opened row, because a plugin here is a thing being
+  offered rather than a thing being managed — the panel's own row grammar would say it
+  has a switch per agent, which it hasn't until it is installed.
+- **The chips are add-only.** An agent that already has it is lit and disabled, titled
+  "already in <Agent> — switch it off under Plugins". Removing runs an uninstall and is an
+  armed confirm in the sections that own it; a browse surface must not be able to
+  uninstall on a mis-click on the row you were reading.
+- **Local is the default answer, the network is a click.** The listing reads the clone the
+  agent already made; a marketplace with no clone here lists with its reason and a
+  **Look it up** button, and the lookup line at the top (`.market-lookup`, a 28px
+  `.ns-opt` input + ghost button) reads one from `owner/repo`. A fetched catalogue says so
+  in a `.pnl-note` under its plugins. Nothing here fetches on arrival.
+- **The card's search belongs to this section while it is open**: it filters catalogues
+  (name, description, category, keywords) instead of the panel's cross-section rows, and a
+  match opens the marketplace it is in. Searching is the whole reason the section exists.
+- The recommendation band steps aside here, as it does for a search: the row it offers is
+  in this list with its own chips.
+
+### MCP servers (`McpBrowse.tsx`)
+
+- **A search is a submit.** The `.market-lookup` line again ("Search the MCP Registry",
+  a 28px `.ns-opt` input + ghost **Search**), with the one sentence of provenance under it:
+  anyone can publish there. Nothing is fetched on arrival or as you type; the last answer is
+  kept for the window's lifetime, so flipping to Plugins and back costs nothing. The card's
+  search narrows the answer, never asks again — and hides **More results** (`.registry-more`)
+  while it narrows, since a filtered list is not the page the cursor continues.
+- **A server is a `.pnl-row` that opens**, the marketplace row's grammar: caret · title ·
+  `.pnl-kind` (`npm` / `PyPI` / `remote`, or `can’t add`) · `.pnl-def` (the package or URL) ·
+  the add-only chips. Opened: the description (`.market-plugin-what`), then one `.pnl-note`
+  of provenance — `Published as <registry name> · v<version> · added as <name>` and a
+  **Its repository** link — because the namespace is the publisher and that is the thing to
+  check.
+- **What only the person can give** is a field per env var (`.registry-inputs` of
+  `.registry-input`: the `.ns-label` placard is the variable's own name, `optional` in the
+  label's quiet voice when it is; a secret is `type=password`; the registry's default is the
+  placeholder), one `.ns-hint` under each, and one under all saying where the values go.
+  A chip clicked while a required one is empty opens the row onto it and says which — it
+  does not add.
+- **A refusal is a disabled chip plus a sentence**: the chip's title and a `.pnl-note` in
+  the opened row carry the same reason (`Cockpit can’t add it: it runs from a container
+  image…`). An agent that can't run one kind (Codex and SSE) is disabled on its own chip.
+- **Already here is lit**, from the panel's own row when there is one — a server this
+  machine runs under any name, when it runs the same package or URL, is that server.
 
 ## Shared list vocabulary
 

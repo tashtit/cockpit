@@ -27,6 +27,7 @@ import {
   removeMcpFromJson,
   type JsonAgent
 } from './extensions-core'
+import { isNewer } from '../shared/mcp-source'
 import { assertLinksWithin } from './link-guard'
 import { defaultConfigHome } from './paths'
 import { parseJsonc, readJsoncFile } from './parsers/util'
@@ -291,6 +292,23 @@ function sourceLabel(v: unknown): string {
 }
 
 /** `name@marketplace` split — the id every agent uses for a plugin. */
+/** One path segment: a marketplace or plugin name must never walk out of the cache. */
+const SEGMENT = /^(?!\.+$)[A-Za-z0-9._-]{1,80}$/
+
+/**
+ * The version Codex has of a plugin. Its config says only whether one is switched on;
+ * the version is the directory it installed it under,
+ * `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>`. An add replaces that
+ * directory, so there is one — and if an interrupted add left two, the newer counts.
+ */
+function codexPluginVersion(marketplace: string, name: string): string | undefined {
+  if (!SEGMENT.test(marketplace) || !SEGMENT.test(name)) return undefined
+  const versions = readDirNames(join(homedir(), '.codex', 'plugins', 'cache', marketplace, name)).filter((v) =>
+    /^\d+(\.\d+)*([-+][0-9A-Za-z.-]+)?$/.test(v)
+  )
+  return versions.reduce<string | undefined>((best, v) => (best === undefined || isNewer(v, best) ? v : best), undefined)
+}
+
 function splitPluginId(id: string): { name: string; marketplace?: string } {
   const at = id.lastIndexOf('@')
   return at > 0 ? { name: id.slice(0, at), marketplace: id.slice(at + 1) } : { name: id }
@@ -359,10 +377,18 @@ function readPlugins(codexToml: string): PluginInfo[] {
     }
   }
   for (const [id, fields] of parseCodexSections(codexToml, 'plugins')) {
-    // codex records no version, only whether the plugin is switched on
+    // codex's config records only whether the plugin is switched on; its version is
+    // the directory the install went into
     if (fields.enabled === 'false') continue
     const { name, marketplace } = splitPluginId(id)
-    out.push({ name: id, agent: 'codex', detail: name, marketplace })
+    const version = marketplace ? codexPluginVersion(marketplace, name) : undefined
+    out.push({
+      name: id,
+      agent: 'codex',
+      detail: [name, version && `v${version}`].filter(Boolean).join(' '),
+      marketplace,
+      version
+    })
   }
   const copilotDir = copilotPluginsDir()
   for (const marketplace of readDirNames(copilotDir)) {

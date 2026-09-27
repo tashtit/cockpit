@@ -62,6 +62,11 @@ export type PanelCell = {
   readonly fields: Readonly<Record<string, string>>
   /** why this agent can't hold it (state 'na' only) */
   readonly reason?: string
+  /**
+   * state 'pending' only: the agent had it, and lost it outside Cockpit — taken out of
+   * its config by hand or by the agent's own CLI. Without it, it was never written there.
+   */
+  readonly gone?: true
 }
 
 export type PanelRow = {
@@ -377,7 +382,7 @@ export function buildRow(
       continue
     }
     const base = { desired: on, detail: a.detail, fields: a.fields }
-    if (on && !a.present) cells[p] = { ...base, state: 'pending' }
+    if (on && !a.present) cells[p] = { ...base, state: 'pending', ...(entry.seen?.[p] ? { gone: true as const } : {}) }
     else if (!on && a.present) cells[p] = { ...base, state: 'extra' }
     else if (!on) cells[p] = { ...base, state: 'off' }
     else if (kept.includes(p)) cells[p] = { ...base, state: 'on', kept: true }
