@@ -9,13 +9,13 @@ import type {
 import {
   acpUpdateToEvents,
   decidePermission,
-  denyOption,
   initializeParams,
   modeIdFor,
   permissionDetail,
   permissionOptions,
   promptResultEvents,
-  unattendedOutcome
+  unattendedOutcome,
+  type PermissionOutcome
 } from './acp-core'
 import { cliEnv } from './env'
 import { LineSplitter, MAX_STREAM_LINE_CHARS, truncate } from './parsers/util'
@@ -479,17 +479,14 @@ export class AcpTurn {
   }
 
   /**
-   * Stop the turn. Open questions are refused first: an agent left holding an unanswered
-   * request would otherwise sit waiting through its own cancellation.
+   * Stop the turn. Open questions are answered first — an agent left holding one would
+   * sit waiting through its own cancellation — and answered `cancelled`, which the spec
+   * requires of a client that cancels. Never with an option: a refusal the agent offers
+   * may be a standing one, kept in its own config long after this turn.
    */
   cancel(): void {
-    for (const [, open] of this.open) {
-      const deny = denyOption(open.options)
-      this.rpc.respond(
-        open.rpcId,
-        deny ? { outcome: { outcome: 'selected', optionId: deny } } : { outcome: { outcome: 'cancelled' } }
-      )
-    }
+    const cancelled: PermissionOutcome = { outcome: 'cancelled' }
+    for (const [, open] of this.open) this.rpc.respond(open.rpcId, { outcome: cancelled })
     this.open.clear()
     if (this.sessionId) this.rpc.notify('session/cancel', { sessionId: this.sessionId })
   }

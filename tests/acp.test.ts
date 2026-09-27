@@ -108,6 +108,13 @@ describe('AcpTurn', () => {
     expect(texts(events)).toContain('answered:allow_once')
   })
 
+  it('answers a command itself in yolo, for that call only', async () => {
+    const { events, done } = start('permission', { permissionMode: 'yolo' })
+    await done
+    expect(events.some((e) => e.type === 'permission')).toBe(false)
+    expect(texts(events)).toContain('answered:allow_once')
+  })
+
   it('still asks before executing in auto-edit', async () => {
     const { events, done } = start('permission', {
       permissionMode: 'auto-edit',
@@ -146,14 +153,15 @@ describe('AcpTurn', () => {
     expect(texts(events)).toContain('answered:allow_once')
   })
 
-  it('refuses an open question when the turn is cancelled, so the agent is not left waiting', async () => {
+  it('answers an open question as cancelled when the turn is, so the agent is not left waiting', async () => {
     const { events, done } = start('permission', {
       onEvent: (ev, turn) => {
         if (ev.type === 'permission') turn.cancel()
       }
     })
     await done
-    expect(texts(events)).toContain('answered:reject_once')
+    // what the spec requires of a client that cancels — and never a refusal the agent keeps
+    expect(texts(events)).toContain('answered:cancelled')
   })
 
   it('resumes a session and never replays its history into the chat', async () => {

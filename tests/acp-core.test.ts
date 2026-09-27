@@ -12,7 +12,6 @@ import {
 import {
   acpUpdateToEvents,
   decidePermission,
-  denyOption,
   initializeParams,
   modeIdFor,
   PERMISSION_COMMAND_MAX,
@@ -378,28 +377,24 @@ describe('decidePermission', () => {
     expect(decidePermission('auto-edit', opts, 'edit')).not.toBe('allow_always')
   })
 
-  it('answers everything in yolo', () => {
-    expect(decidePermission('yolo', opts, 'execute')).toBe('allow_always')
+  it('answers everything in yolo, once per call', () => {
+    expect(decidePermission('yolo', opts, 'execute')).toBe('allow_once')
+    expect(decidePermission('yolo', opts, 'edit')).toBe('allow_once')
+  })
+
+  it('never grants a standing allowance by itself — an agent offering only that asks the person', () => {
+    const standing: AcpPermissionOption[] = [
+      { optionId: 'allow_always', kind: 'allow_always', name: 'Always allow' },
+      { optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }
+    ]
+    expect(decidePermission('yolo', standing, 'execute')).toBeNull()
+    expect(decidePermission('auto-edit', standing, 'edit')).toBeNull()
   })
 
   it('asks when the agent offered nothing that allows', () => {
     const denyOnly: AcpPermissionOption[] = [{ optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }]
     expect(decidePermission('yolo', denyOnly, 'execute')).toBeNull()
     expect(decidePermission('yolo', [], 'execute')).toBeNull()
-  })
-})
-
-describe('denyOption', () => {
-  it('prefers a one-off refusal over a standing one', () => {
-    expect(
-      denyOption([
-        { optionId: 'reject_always', kind: 'reject_always', name: 'Never' },
-        { optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }
-      ])
-    ).toBe('reject_once')
-  })
-  it('is null when nothing refuses', () => {
-    expect(denyOption([{ optionId: 'allow_once', kind: 'allow_once', name: 'Allow' }])).toBeNull()
   })
 })
 
