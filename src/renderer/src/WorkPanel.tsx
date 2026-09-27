@@ -10,6 +10,7 @@ import { SidePanel } from './SidePanel'
 import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
 import { samePlain } from './same'
+import { storedValue } from './stored-value'
 import {
   CHECK_LABEL,
   checkSummary,
@@ -826,26 +827,16 @@ function FilePreview({
   }
 }
 
-/** Where the person started a suggestion, per machine: a convenience, so a lost one only
- *  offers Start again */
-const STARTED_KEY = 'cockpit:follow-ups-started'
-
-function startedAt(): Record<string, number> {
-  try {
-    const v: unknown = JSON.parse(window.localStorage.getItem(STARTED_KEY) ?? '{}')
-    return v && typeof v === 'object' ? (v as Record<string, number>) : {}
-  } catch {
-    return {}
-  }
-}
-
-function markStarted(id: string): void {
-  try {
-    window.localStorage.setItem(STARTED_KEY, JSON.stringify({ ...startedAt(), [id]: Date.now() }))
-  } catch {
-    /* a private window or full storage: the mark is only a convenience */
-  }
-}
+/** When the person started each suggestion, per machine (`stored-value.ts`): a
+ *  convenience, so a lost one only offers Start again */
+const startedAt = storedValue<Readonly<Record<string, number>>>('cockpit:follow-ups-started', {
+  parse: (raw) => {
+    const v: unknown = JSON.parse(raw)
+    return v && typeof v === 'object' ? (v as Record<string, number>) : undefined
+  },
+  serialize: (started) => JSON.stringify(started),
+  fallback: {}
+})
 
 function FollowUpsTab({
   model,
@@ -864,7 +855,7 @@ function FollowUpsTab({
 }): JSX.Element {
   const fmt = useTimeFormat()
   const { followUps } = model
-  const [started, setStarted] = useState(startedAt)
+  const started = startedAt.use()
   const [ringed, setRinged] = useState<number | null>(null)
   useEffect(() => {
     if (focus.key !== null && followUps.some((f) => f.key === focus.key)) setRinged(focus.key)
@@ -923,8 +914,7 @@ function FollowUpsTab({
                   <button
                     className="btn-ghost small"
                     onClick={() => {
-                      markStarted(idOf(f))
-                      setStarted(startedAt())
+                      startedAt.set({ ...startedAt.get(), [idOf(f)]: Date.now() })
                       onStart({ title: f.title, prompt: f.prompt, ...(f.cwd ? { cwd: f.cwd } : {}) })
                     }}
                   >

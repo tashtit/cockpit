@@ -26,12 +26,11 @@ import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
+import { storedValue } from './stored-value'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
 const ROUND_CHOICES = [1, 2, 3, 4, 5]
-const LIMITS_KEY = 'cockpit:rt-limits'
-const SEATS_KEY = 'cockpit:rt-seats'
 const DEFAULT_SEATS: SeatDraft[] = [{ provider: 'claude' }, { provider: 'codex' }]
 
 /** One seat being configured — every field is the seat's own, the agent included. */
@@ -50,25 +49,29 @@ type SeatDraft = {
   readonly longContext?: boolean
 }
 
+/** The kind of table last opened here (`stored-value.ts`, like the other two below). */
+const savedTableMode = storedValue<RoundtableMode>('cockpit:rt-table-mode', {
+  parse: (raw) => raw as RoundtableMode,
+  serialize: (mode) => mode,
+  fallback: 'open'
+})
+
 /** The ceilings last chosen here — the next table starts from them. */
-function savedLimits(): RoundtableLimits {
-  try {
-    const raw = window.localStorage.getItem(LIMITS_KEY)
-    return sanitizeRoundtableLimits(raw ? JSON.parse(raw) : null)
-  } catch {
-    return DEFAULT_ROUNDTABLE_LIMITS
-  }
-}
+const savedLimits = storedValue<RoundtableLimits>('cockpit:rt-limits', {
+  parse: (raw) => sanitizeRoundtableLimits(raw ? JSON.parse(raw) : null),
+  serialize: (limits) => JSON.stringify(limits),
+  fallback: DEFAULT_ROUNDTABLE_LIMITS
+})
 
 /**
  * The seating last opened here, so the next table is one topic away. Stored drafts are
  * only a starting point: anything the lists no longer offer (a removed account, a model
  * gone from a catalog) resolves to its default when the form renders.
  */
-function savedSeats(): SeatDraft[] {
-  try {
-    const raw: unknown = JSON.parse(window.localStorage.getItem(SEATS_KEY) ?? 'null')
-    if (!Array.isArray(raw)) return DEFAULT_SEATS
+const savedSeats = storedValue<SeatDraft[]>('cockpit:rt-seats', {
+  parse: (text) => {
+    const raw: unknown = JSON.parse(text)
+    if (!Array.isArray(raw)) return undefined
     const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
     const seats = raw
       .filter((s) => s && PROVIDERS.includes(s.provider))
@@ -84,11 +87,11 @@ function savedSeats(): SeatDraft[] {
           longContext: s.longContext === true || undefined
         })
       )
-    return seats.length >= 2 ? seats : DEFAULT_SEATS
-  } catch {
-    return DEFAULT_SEATS
-  }
-}
+    return seats.length >= 2 ? seats : undefined
+  },
+  serialize: (seats) => JSON.stringify(seats),
+  fallback: DEFAULT_SEATS
+})
 
 /**
  * Roundtable creation, topic first: what to discuss, then who discusses it — each seat
@@ -106,14 +109,12 @@ export function NewRoundtable({
   onCreated: (id: string) => void
   onCancel: () => void
 }): JSX.Element {
-  const [seats, setSeats] = useState<SeatDraft[]>(savedSeats)
+  const [seats, setSeats] = useState<SeatDraft[]>(savedSeats.get)
   const [repoKey, setRepoKey] = useState('')
   const [topic, setTopic] = useState('')
-  const [tableMode, setTableMode] = useState<RoundtableMode>(
-    () => (window.localStorage.getItem('cockpit:rt-table-mode') as RoundtableMode) ?? 'open'
-  )
+  const [tableMode, setTableMode] = useState<RoundtableMode>(savedTableMode.get)
   const [maxRounds, setMaxRounds] = useState(3)
-  const [limits, setLimits] = useState<RoundtableLimits>(savedLimits)
+  const [limits, setLimits] = useState<RoundtableLimits>(savedLimits.get)
   const [dupConfirmed, setDupConfirmed] = useState(false)
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
@@ -311,13 +312,10 @@ export function NewRoundtable({
     if (busy || !topic.trim() || blocked) return
     setError(null)
     setBusy(true)
-    try {
-      window.localStorage.setItem('cockpit:rt-table-mode', tableMode)
-      window.localStorage.setItem(LIMITS_KEY, JSON.stringify(limits))
-      window.localStorage.setItem(SEATS_KEY, JSON.stringify(seats))
-    } catch {
-      /* storage refused — the table still opens, it just isn't remembered */
-    }
+    // storage may refuse — the table still opens, it just isn't remembered past this run
+    savedTableMode.set(tableMode)
+    savedLimits.set(limits)
+    savedSeats.set(seats)
     try {
       const rt = await api.createRoundtable({
         topic: topic.trim(),

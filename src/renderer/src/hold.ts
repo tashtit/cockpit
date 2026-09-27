@@ -1,6 +1,6 @@
-import { useSyncExternalStore } from 'react'
 import type { Provider, RepoGroup, SessionControl, SessionHolder } from '../../shared/types'
 import { PROVIDER_LABEL } from './logos'
+import { storedValue } from './stored-value'
 
 /**
  * Who drives a session, in words — and the tree's filter on it.
@@ -62,46 +62,22 @@ export function holdSentence(control: SessionControl, provider: Provider): strin
 /**
  * Which sessions the tree shows by who drives them: every one, only those Cockpit
  * holds, or only those still with their agent. A view preference for this machine,
- * like the folds (`families.ts`), so it lives in localStorage rather than in config —
- * and it survives a restart, which is why the tree says so while it is on.
+ * like the folds (`families.ts`), so it lives in localStorage (`stored-value.ts`) rather
+ * than in config — and it survives a restart, which is why the tree says so while it is on.
  */
-const KEY = 'cockpit:holder-filter'
-
-const listeners = new Set<() => void>()
-/** A choice storage refused to save — it still holds for this run. */
-let unsaved: SessionHolder | null | undefined
-
-function read(): SessionHolder | null {
-  if (unsaved !== undefined) return unsaved
-  try {
-    const v = window.localStorage.getItem(KEY)
-    return v === 'cockpit' || v === 'agent' ? v : null
-  } catch {
-    return null
-  }
-}
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
-}
+const holderFilter = storedValue<SessionHolder | null>('cockpit:holder-filter', {
+  parse: (raw) => (raw === 'cockpit' || raw === 'agent' ? raw : undefined),
+  serialize: (holder) => holder,
+  fallback: null
+})
 
 /** The holder the tree is narrowed to, or null for every session. */
 export function useHolderFilter(): SessionHolder | null {
-  return useSyncExternalStore(subscribe, read)
+  return holderFilter.use()
 }
 
 export function setHolderFilter(holder: SessionHolder | null): void {
-  try {
-    if (holder === null) window.localStorage.removeItem(KEY)
-    else window.localStorage.setItem(KEY, holder)
-    unsaved = undefined
-  } catch {
-    unsaved = holder
-  }
-  listeners.forEach((l) => l())
+  holderFilter.set(holder)
 }
 
 /** How many of a project's active sessions the filter lets through. */

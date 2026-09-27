@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { TimeFormat } from '../../shared/types'
 import { api } from './api'
+import { subscribers } from './subscribers'
 
 /**
  * Tiny shared store for the session-time clock format: SessionRow sits three
@@ -8,29 +9,22 @@ import { api } from './api'
  * through every list component. Default matches the main process ('24h').
  */
 let format: TimeFormat = '24h'
-const listeners = new Set<() => void>()
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
-}
+const changes = subscribers()
 
 /** Pull the persisted format once at startup (App's mount effect). */
 export async function initTimeFormat(): Promise<void> {
   format = await api.getTimeFormat()
-  listeners.forEach((l) => l())
+  changes.notify()
 }
 
 /** Live clock format — a Settings change re-renders every subscribed row. */
 export function useTimeFormat(): TimeFormat {
-  return useSyncExternalStore(subscribe, () => format)
+  return useSyncExternalStore(changes.subscribe, () => format)
 }
 
 export function setTimeFormat(f: TimeFormat): void {
   format = f
-  listeners.forEach((l) => l())
+  changes.notify()
   void api.setTimeFormat(f)
 }
 
