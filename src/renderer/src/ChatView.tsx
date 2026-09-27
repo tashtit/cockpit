@@ -30,6 +30,8 @@ import { sideChatSupported } from '../../shared/side-chat'
 import type { SideTarget } from './side-chat-log'
 import { Select } from './Select'
 import { findAnchor } from './transcript-anchor'
+import { promptsOf, samePrompts, usePromptNav, type Prompt } from './prompt-nav'
+import { PromptRail } from './PromptRail'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
 import { artifactStat, buildWork, planTitle, tabFor, type WorkModel, type WorkTab } from '../../shared/work'
 import { WorkPanel, type WorkFocus } from './WorkPanel'
@@ -120,6 +122,24 @@ export function ChatView({
   // anchor just raised
   const { limit, showEarlier, raise } = useTranscriptWindow(scrollRef, RENDER_LAST, conversation)
   const below = useUnseenBelow(scrollRef, atBottomRef, log)
+  // the person's own messages, for the rail and ⌥⌘↑/↓: the same array until one of them
+  // arrives, changes or leaves, so a stream flush never redraws the rail
+  const promptsRef = useRef<readonly Prompt[]>([])
+  const prompts = useMemo(() => {
+    const next = promptsOf(log, keys)
+    if (samePrompts(promptsRef.current, next)) return promptsRef.current
+    promptsRef.current = next
+    return next
+  }, [log, keys])
+  const railed = prompts.length > 1
+  const nav = usePromptNav(scrollRef, atBottomRef, {
+    prompts,
+    total: log.length,
+    limit,
+    raise,
+    enabled: !review,
+    resetKey: conversation
+  })
 
   useEffect(() => {
     if (atBottomRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
@@ -671,71 +691,76 @@ export function ChatView({
               onOpenUrl={onOpenUrl}
             />
           ) : (
-            <div
-              className="messages"
-              ref={scrollRef}
-              onScroll={(e) => {
-                const el = e.currentTarget
-                atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-                if (atBottomRef.current) below.settle()
-              }}
-            >
-              {hidden > 0 && (
-                <EarlierRow shown={shown} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
-              )}
-              {blocks.map((b) =>
-                b.kind === 'run' ? (
-                  <ToolRun
-                    key={b.rows[0].key}
-                    rows={b.rows}
-                    provider={binding.provider}
-                    cwd={binding.cwd}
-                    onOpenWork={openWork}
-                  />
-                ) : b.row === pendingAsk && b.row.m.asks ? (
-                  // the question takes the tool row's place: its options are the point,
-                  // and a collapsed ⚙︎ row hid them behind the raw JSON
-                  <AskPicker
-                    key={b.row.key}
-                    prompts={b.row.m.asks}
-                    provider={binding.provider}
-                    disabled={sendBlocked}
-                    note={askElsewhereNote}
-                    onAnswer={sendAnswer}
-                    // a plan is approved with the plan in view, never on its title alone
-                    plan={b.row.m.artifact?.kind === 'plan' ? b.row.m.artifact.text : undefined}
-                    onOpenPlan={() => openWork(b.row.key, 'plan')}
-                  />
-                ) : (
-                  <Message
-                    key={b.row.key}
-                    m={b.row.m}
-                    provider={binding.provider}
-                    result={b.row.result}
-                    cwd={binding.cwd}
-                    logKey={b.row.key}
-                    anchored={b.row.key === anchoredKey}
-                    onOpenWork={openWork}
-                  />
-                )
-              )}
-              {busy && (
-                <div className="thinking">
-                  <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working…
-                </div>
-              )}
-              {/* the same annunciator for a turn someone else is running: the log grows
-                  under this view (App re-reads it as the index sees each write). A turn
-                  stopped on a question is not working — the card above says what it waits on */}
-              {!busy && elsewhere && !pendingAsk && (
-                <div className="thinking" title={elsewhereHint}>
-                  <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working elsewhere…
-                </div>
-              )}
-              {log.length === 0 && !sendBlocked && (
-                <div className="empty-chat small">Send a prompt to start this session.</div>
-              )}
-              <JumpToLatest on={below.unseen} onJump={below.jump} />
+            // the transcript and, once there are two messages of the person's own to move
+            // between, the rail of them on its right edge
+            <div className={`chat-transcript${railed ? ' railed' : ''}`}>
+              <div
+                className="messages"
+                ref={scrollRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+                  if (atBottomRef.current) below.settle()
+                }}
+              >
+                {hidden > 0 && (
+                  <EarlierRow shown={shown} total={log.length} step={RENDER_LAST} onShow={showEarlier} />
+                )}
+                {blocks.map((b) =>
+                  b.kind === 'run' ? (
+                    <ToolRun
+                      key={b.rows[0].key}
+                      rows={b.rows}
+                      provider={binding.provider}
+                      cwd={binding.cwd}
+                      onOpenWork={openWork}
+                    />
+                  ) : b.row === pendingAsk && b.row.m.asks ? (
+                    // the question takes the tool row's place: its options are the point,
+                    // and a collapsed ⚙︎ row hid them behind the raw JSON
+                    <AskPicker
+                      key={b.row.key}
+                      prompts={b.row.m.asks}
+                      provider={binding.provider}
+                      disabled={sendBlocked}
+                      note={askElsewhereNote}
+                      onAnswer={sendAnswer}
+                      // a plan is approved with the plan in view, never on its title alone
+                      plan={b.row.m.artifact?.kind === 'plan' ? b.row.m.artifact.text : undefined}
+                      onOpenPlan={() => openWork(b.row.key, 'plan')}
+                    />
+                  ) : (
+                    <Message
+                      key={b.row.key}
+                      m={b.row.m}
+                      provider={binding.provider}
+                      result={b.row.result}
+                      cwd={binding.cwd}
+                      logKey={b.row.key}
+                      anchored={b.row.key === anchoredKey}
+                      onOpenWork={openWork}
+                    />
+                  )
+                )}
+                {busy && (
+                  <div className="thinking">
+                    <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working…
+                  </div>
+                )}
+                {/* the same annunciator for a turn someone else is running: the log grows
+                    under this view (App re-reads it as the index sees each write). A turn
+                    stopped on a question is not working — the card above says what it waits on */}
+                {!busy && elsewhere && !pendingAsk && (
+                  <div className="thinking" title={elsewhereHint}>
+                    <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working elsewhere…
+                  </div>
+                )}
+                {log.length === 0 && !sendBlocked && (
+                  <div className="empty-chat small">Send a prompt to start this session.</div>
+                )}
+                <JumpToLatest on={below.unseen} onJump={below.jump} />
+              </div>
+              {railed && <PromptRail prompts={prompts} current={nav.current} onJump={nav.jump} />}
             </div>
           )}
           <div className="sr-only" role="status" aria-live="polite">
