@@ -26,6 +26,7 @@ import {
   WorktreeRow
 } from './CleanupRows'
 import { ArmedButton, useArmedConfirm } from './ConfirmRemove'
+import { ipcErrorText } from './ipc-error'
 import { Select } from './Select'
 import { StaleList, useStaleList, type Freed, type StaleListConfig } from './StaleList'
 import { TabList, TabPanel } from './Tabs'
@@ -271,7 +272,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       const counts = sectionCounts(r)
       setTab((t) => t ?? CLEANUP_SECTIONS.find((s) => counts[s.id] > 0)?.id ?? 'sessions')
     } catch (err) {
-      if (seq === scanSeq.current) setError(err instanceof Error ? err.message : String(err))
+      if (seq === scanSeq.current) setError(ipcErrorText(err))
     } finally {
       if (seq === scanSeq.current) setScanning(false)
     }
@@ -313,7 +314,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       setStatus(`${verb} ${res.cleaned}${freed}${branches}${failed ? ` · ${failed} kept` : ''}`)
       if (failed) setError(res.failed.map((f) => `${f.target} — ${f.reason}`).join('\n'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(ipcErrorText(err))
     } finally {
       setWorking(false)
     }
