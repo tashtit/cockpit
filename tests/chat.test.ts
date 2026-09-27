@@ -652,7 +652,7 @@ describe('ChatManager: reading a CLI stream', () => {
   writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}"\n`)
   chmodSync(join(bin, 'claude'), 0o755)
 
-  it('caps a non-JSON line, skips an event it cannot read and still ends on the final line', async () => {
+  it('caps a non-JSON line, shows an event nested too deeply to serialise, and still ends on the final line', async () => {
     const path = process.env.PATH
     process.env.PATH = `${bin}:${path}`
     try {
@@ -665,11 +665,13 @@ describe('ChatManager: reading a CLI stream', () => {
       })
       chat.send({ provider: 'claude', cwd: tmpdir(), prompt: 'hi', permissionMode: 'safe' })
       await finished
-      expect(events.map((e) => e.type)).toEqual(['text', 'session', 'text', 'session', 'done'])
+      expect(events.map((e) => e.type)).toEqual(['text', 'session', 'tool', 'text', 'session', 'done'])
       const banner = events[0] as Extract<ChatEvent, { type: 'text' }>
       expect(banner.text.length).toBeLessThan(20_100)
       expect(banner.text).toContain('more chars')
-      expect(events[2]).toMatchObject({ type: 'text', text: 'still here' })
+      // the row the transcript shows for it too, rather than no row at all
+      expect(events[2]).toMatchObject({ type: 'tool', toolName: 'Weird', detail: '(nested too deeply to show)' })
+      expect(events[3]).toMatchObject({ type: 'text', text: 'still here' })
       await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
     } finally {
       process.env.PATH = path

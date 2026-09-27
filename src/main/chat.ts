@@ -17,7 +17,7 @@ import {
   isValidModel
 } from '../shared/endpoints'
 import { parseAsks } from '../shared/asks'
-import { LineSplitter, capText, contentToText, shellPreview, toolPreview, truncate } from './parsers/util'
+import { LineSplitter, capText, contentToText, jsonText, shellPreview, toolPreview, truncate } from './parsers/util'
 import { fileChangeArtifact, todoListArtifact, toolArtifact } from './parsers/artifacts'
 import { commandItemCheck } from './parsers/checks'
 import { cliEnv } from './env'
@@ -291,7 +291,7 @@ export function parseClaudeStreamLine(turnId: string, line: any): ChatEvent[] {
             turnId,
             type: 'tool',
             toolName: b.name ?? 'tool',
-            detail: truncate(JSON.stringify(b.input ?? {}), 200),
+            detail: truncate(jsonText(b.input ?? {}), 200),
             ...(preview ? { preview: truncate(preview, 200) } : {}),
             ...(asks ? { asks } : {}),
             ...(artifact ? { artifact } : {})
@@ -356,7 +356,7 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
         turnId,
         type: 'tool',
         toolName: 'apply_patch',
-        detail: truncate(JSON.stringify(it.changes ?? ''), 200),
+        detail: truncate(jsonText(it.changes ?? ''), 200),
         ...(paths.length > 0 ? { preview: truncate(`apply_patch ${paths.join(', ')}`, 200) } : {}),
         ...(artifact ? { artifact } : {})
       })
@@ -370,7 +370,7 @@ export function parseCodexStreamLine(turnId: string, line: any): ChatEvent[] {
           turnId,
           type: 'tool',
           toolName: 'update_plan',
-          detail: truncate(JSON.stringify(it.items ?? []), 200),
+          detail: truncate(jsonText(it.items ?? []), 200),
           preview: `${items} ${items === 1 ? 'step' : 'steps'}`,
           artifact
         })

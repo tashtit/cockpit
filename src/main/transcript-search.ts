@@ -8,7 +8,7 @@ import type {
   TranscriptSearchStop
 } from '../shared/types'
 import { isProvider } from '../shared/providers'
-import { contentToText, readHeadBytesAsync, streamJsonl, toMs } from './parsers/util'
+import { contentToText, jsonText, readHeadBytesAsync, streamJsonl, toMs } from './parsers/util'
 import { legacyTimelineTexts } from './parsers/copilot'
 
 /**
@@ -66,7 +66,7 @@ const claudeRecords: RecordExtractor = (line, tools) => {
   if (tools && Array.isArray(content)) {
     for (const b of content) {
       if (b?.type === 'tool_use') {
-        out.push({ role: 'tool', text: `${b.name ?? 'tool'} ${JSON.stringify(b.input ?? {})}`, ts })
+        out.push({ role: 'tool', text: `${b.name ?? 'tool'} ${jsonText(b.input ?? {})}`, ts })
       } else if (b?.type === 'tool_result') {
         const t = contentToText(b.content)
         if (t) out.push({ role: 'tool', text: t, ts })
@@ -96,12 +96,12 @@ const codexRecords: RecordExtractor = (line, tools) => {
     }
     case 'function_call': {
       if (!tools) return []
-      const args = typeof p.arguments === 'string' ? p.arguments : JSON.stringify(p.arguments ?? '')
+      const args = typeof p.arguments === 'string' ? p.arguments : jsonText(p.arguments ?? '')
       return [{ role: 'tool', text: `${p.name ?? 'tool'} ${args}`, ts }]
     }
     case 'function_call_output': {
       if (!tools) return []
-      const text = typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '')
+      const text = typeof p.output === 'string' ? p.output : jsonText(p.output ?? '')
       return [{ role: 'tool', text, ts }]
     }
     default:
@@ -121,7 +121,7 @@ const copilotRecords: RecordExtractor = (line, tools) => {
   if (ev?.type === 'tool.execution_start') {
     const args = ev.data?.arguments ?? ev.data?.input ?? ''
     const name = String(ev.data?.toolName ?? ev.data?.name ?? 'tool')
-    return [{ role: 'tool', text: `${name} ${typeof args === 'string' ? args : JSON.stringify(args)}`, ts }]
+    return [{ role: 'tool', text: `${name} ${typeof args === 'string' ? args : jsonText(args)}`, ts }]
   }
   if (ev?.type === 'tool.execution_complete') {
     const r = ev.data?.result ?? ev.data?.output
