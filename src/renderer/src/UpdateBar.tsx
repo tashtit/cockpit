@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { api } from './api'
+import { disarmOn } from './disarm'
 import { UpdateIcon } from './logos'
 import { turnsWord, useRestartToUpdate, useUpdatePrompt, type UpdatePrompt } from './update-prompt'
 
@@ -100,13 +101,7 @@ function Bar({
           <button
             className="footer-update armed"
             onClick={onRestart}
-            onBlur={onDisarm}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.stopPropagation()
-                onDisarm()
-              }
-            }}
+            {...disarmOn(onDisarm)}
             aria-label={`Confirm: restarting stops ${turnsWord(armed)} Cockpit is running`}
             title={`Cockpit is running ${turnsWord(armed)}, and restarting stops them. Click again to restart now, or let them finish first.`}
           >

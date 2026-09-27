@@ -7,6 +7,7 @@ import {
 } from '../../shared/feedback'
 import type { AppInfo, UpdatePrefs, UpdateState } from '../../shared/types'
 import { api } from './api'
+import { disarmOn } from './disarm'
 import { fmtAgo } from './format'
 import { ipcErrorText } from './ipc-error'
 import { CockpitLogo } from './logos'
@@ -232,13 +233,7 @@ export function AboutSection({
               <button
                 className="btn-ghost danger small armed"
                 onClick={restart.restart}
-                onBlur={restart.disarm}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    e.stopPropagation()
-                    restart.disarm()
-                  }
-                }}
+                {...disarmOn(restart.disarm)}
                 title={`Cockpit is running ${turnsWord(restart.armed)}, and restarting stops them. Click again to restart now, or let them finish first.`}
               >
                 Stop {turnsWord(restart.armed)} and restart?

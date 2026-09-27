@@ -3,6 +3,7 @@ import type { EndpointAuth, ModelEndpoint, NewModelEndpoint, WireApi } from '../
 import { ENDPOINT_PRESETS, endpointAgents, type EndpointPreset } from '../../shared/endpoints'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
+import { onEscape } from './disarm'
 import { ipcErrorText } from './ipc-error'
 import { EndpointIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -226,12 +227,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                       autoFocus
                       value={keying.value}
                       onChange={(e) => setKeying({ id: ep.id, value: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                          e.stopPropagation()
-                          setKeying(null)
-                        }
-                      }}
+                      onKeyDown={onEscape(() => setKeying(null))}
                     />
                     <button type="submit" className="btn-ghost small" disabled={!keying.value.trim()}>
                       Save key
