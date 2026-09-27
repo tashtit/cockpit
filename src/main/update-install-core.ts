@@ -20,6 +20,7 @@
  */
 
 import type { UpdateState } from '../shared/types'
+import { shQuote } from './shell-quote'
 
 /** One macOS asset as `latest-mac.yml` lists it — remote input, so every field is optional. */
 export type FeedFile = {
@@ -156,11 +157,6 @@ export type SwapPlan = {
   readonly relaunch: boolean
 }
 
-/** Single-quote for /bin/sh — the only way a path stays one word whatever is in it. */
-function q(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
 /**
  * The swap, as a detached script: a running bundle cannot replace itself, so this
  * outlives the app and does the work once the process is gone.
@@ -178,10 +174,10 @@ export function swapScript(plan: SwapPlan): string {
 # Written by Cockpit to install an update it already downloaded and verified.
 # Safe to delete: it does nothing once the app it names has been replaced.
 PID=${plan.pid}
-TARGET=${q(plan.target)}
-NEW=${q(plan.staged)}
-STAGE=${q(plan.stageDir)}
-RESULT=${q(plan.resultFile)}
+TARGET=${shQuote(plan.target)}
+NEW=${shQuote(plan.staged)}
+STAGE=${shQuote(plan.stageDir)}
+RESULT=${shQuote(plan.resultFile)}
 RELAUNCH=${plan.relaunch ? 1 : 0}
 BACKUP="$TARGET.cockpit-previous"
 NEXT="$TARGET.cockpit-next"

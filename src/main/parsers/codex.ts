@@ -11,6 +11,7 @@ import {
   contentToText,
   fileTimes,
   jsonText,
+  objectOrJson,
   parseJsonlText,
   readHead,
   readJsonlTail,
@@ -57,7 +58,7 @@ export function isArchivedRollout(file: string): boolean {
 }
 
 /** Codex keeps generated thread names out-of-band: { id, thread_name, updated_at } per line. */
-export function codexIndexFile(sourceDir: string): string {
+function codexIndexFile(sourceDir: string): string {
   return join(sourceDir, 'session_index.jsonl')
 }
 
@@ -103,16 +104,6 @@ function codexHomeOf(file: string): string | null {
     d = dirname(d)
   }
   return null
-}
-
-export function listCodexSessions(sourceDir: string, sourceLabel: string): SessionMeta[] {
-  const files = listCodexSessionFiles(sourceDir)
-  const out: SessionMeta[] = []
-  for (const file of files) {
-    const meta = parseCodexMeta(file, sourceLabel)
-    if (meta) out.push(meta)
-  }
-  return out
 }
 
 /**
@@ -330,7 +321,7 @@ function itemCall(item: any): ItemCall | null {
     }
     case 'McpToolCall': {
       if (typeof item.server !== 'string' || typeof item.tool !== 'string') return null
-      const args = parseArguments(item.arguments)
+      const args = objectOrJson(item.arguments)
       return {
         name: `mcp__${item.server}__${item.tool}`,
         detail: jsonText(item.arguments ?? {}),
@@ -345,7 +336,7 @@ function itemCall(item: any): ItemCall | null {
       return {
         name: `${ns}${item.tool}`,
         detail: jsonText(item.arguments ?? {}),
-        preview: callTitle(parseArguments(item.arguments)),
+        preview: callTitle(objectOrJson(item.arguments)),
         result: blocksText(item.content_items),
         failed: item.success === false
       }
@@ -638,7 +629,7 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
         case 'function_call': {
           // the headline is the command or the patched files; the raw arguments stay in
           // the detail, as they do for every other agent's rows
-          const args = parseArguments(p.arguments)
+          const args = objectOrJson(p.arguments)
           const preview = toolPreview(p.name ?? 'tool', args) ?? callTitle(args)
           const asks = parseAsks(p.name ?? '', args)
           const artifact = toolArtifact(p.name ?? '', args)
@@ -720,16 +711,4 @@ function renderLines(lines: readonly any[]): SessionMessage[] {
     }
   }
   return out
-}
-
-/** Codex serialises a call's arguments as a JSON string; a malformed one has no headline. */
-function parseArguments(raw: unknown): Record<string, unknown> | null {
-  if (raw && typeof raw === 'object') return raw as Record<string, unknown>
-  if (typeof raw !== 'string') return null
-  try {
-    const v: unknown = JSON.parse(raw)
-    return v && typeof v === 'object' ? (v as Record<string, unknown>) : null
-  } catch {
-    return null
-  }
 }

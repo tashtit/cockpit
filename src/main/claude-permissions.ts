@@ -1,5 +1,6 @@
 import type { AcpPermissionOption, ChatEvent } from '../shared/types'
 import { parseAsks } from '../shared/asks'
+import { asRecord } from '../shared/guards'
 import { permissionDetail } from './acp-core'
 import { toolPreview, truncate } from './parsers/util'
 
@@ -78,7 +79,7 @@ export type ClaudeControl =
  * Unknown request kinds are refused rather than left unanswered — the CLI waits on each.
  */
 export function claudeControl(turnId: string, line: unknown): ClaudeControl | null {
-  const msg = line && typeof line === 'object' ? (line as Record<string, unknown>) : null
+  const msg = asRecord(line)
   if (msg?.['type'] === 'control_cancel_request') {
     const requestId = msg['request_id']
     return typeof requestId === 'string' && REQUEST_ID.test(requestId) ? { kind: 'withdrawn', requestId } : null

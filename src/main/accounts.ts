@@ -1,8 +1,10 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { AccountInfo, AccountsSnapshot, Provider, SourceDir } from '../shared/types'
+import type { AccountInfo, AccountsSnapshot, SourceDir } from '../shared/types'
+import { throttled } from './cache'
 import { execText } from './env'
+import { defaultConfigHome } from './paths'
 import { parseJsonc, readJsoncFile } from './parsers/util'
 import { replaceFile } from './replace-file'
 
@@ -24,7 +26,7 @@ const readJsonFile = readJsoncFile
 const claudeIdCache = new Map<string, { mtime: number; size: number; value: string | null }>()
 
 export function claudeIdentity(configDir: string): string | null {
-  const isDefault = configDir === join(homedir(), '.claude')
+  const isDefault = configDir === defaultConfigHome('claude')
   const statePath = isDefault ? join(homedir(), '.claude.json') : join(configDir, '.claude.json')
   let st
   try {
@@ -89,22 +91,17 @@ export function setCopilotActiveUser(configDir: string, login: string): void {
   replaceFile(path, header + JSON.stringify(j, null, 2) + '\n')
 }
 
-let ghUserCache: { at: number; login: string | null } | null = null
-
-export async function ghUser(): Promise<string | null> {
-  if (ghUserCache && Date.now() - ghUserCache.at < 300_000) return ghUserCache.login
+/** Who `gh` is signed in as, asked at most every five minutes; signed out is an answer too. */
+const ghLogin = throttled(300_000, async (): Promise<string | null> => {
   const r = await execText('gh', ['api', 'user', '-q', '.login'], { timeoutMs: 10_000 })
-  const login = r.ok ? r.stdout.trim() || null : null
-  ghUserCache = { at: Date.now(), login }
-  return login
+  return r.ok ? r.stdout.trim() || null : null
+})
+
+export function ghUser(): Promise<string | null> {
+  return ghLogin()
 }
 
 export async function getAccounts(sources: SourceDir[]): Promise<AccountsSnapshot> {
-  const defaults: Record<Provider, string> = {
-    claude: join(homedir(), '.claude'),
-    codex: join(homedir(), '.codex'),
-    copilot: join(homedir(), '.copilot')
-  }
   const accounts: AccountInfo[] = []
   for (const s of sources) {
     if (!existsSync(s.path)) continue
@@ -112,7 +109,7 @@ export async function getAccounts(sources: SourceDir[]): Promise<AccountsSnapsho
       provider: s.provider,
       path: s.path,
       label: s.label,
-      isDefault: s.path === defaults[s.provider]
+      isDefault: s.path === defaultConfigHome(s.provider)
     }
     if (s.provider === 'claude') {
       accounts.push({ ...base, identity: claudeIdentity(s.path) })

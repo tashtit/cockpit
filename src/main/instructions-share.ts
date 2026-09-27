@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { relative } from 'node:path'
 import type { ShareResult } from '../shared/types'
-import { execText } from './env'
+import { execOrThrow, execText } from './env'
+import { getDefaultBranch } from './github'
 import { getInstructions } from './instructions'
 import { allCarryBaseline, foldTargets, instructionTargets, upsertSharedBlock } from './instructions-core'
 import { resolveWithin } from './link-guard'
@@ -25,24 +26,13 @@ import { DEFAULT_BRANCH_PREFIX } from '../shared/branch-prefix'
 const SHARE_SLUG = 'share-instructions'
 const SHARE_COMMIT = 'docs: update shared agent instructions'
 
-async function git(args: readonly string[], cwd: string): Promise<string> {
-  const r = await execText('git', args, { cwd, timeoutMs: 120_000 })
-  if (!r.ok) throw new Error(r.stderr.trim() || r.stdout.trim() || r.error || 'git failed')
-  return r.stdout.trim()
+function git(args: readonly string[], cwd: string): Promise<string> {
+  return execOrThrow('git', args, { cwd, timeoutMs: 120_000 })
 }
 
-/** `origin/main` — symbolic-ref already prints it with the remote, so never re-prefix it. */
+/** `origin/main`: the remote-tracking ref of the branch a PR would target. */
 async function defaultBranch(repoRoot: string): Promise<string> {
-  const head = await execText('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
-    cwd: repoRoot
-  })
-  if (head.ok && head.stdout.trim()) return head.stdout.trim()
-  const gh = await execText(
-    'gh',
-    ['repo', 'view', '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name'],
-    { cwd: repoRoot }
-  )
-  const name = gh.ok ? gh.stdout.trim() : ''
+  const name = await getDefaultBranch(repoRoot)
   if (!name) throw new Error("couldn't work out the repo's default branch — is `origin` a GitHub remote?")
   return `origin/${name}`
 }

@@ -4,6 +4,7 @@ import type {
   RoundtableLimits,
   RoundtableParticipant
 } from './types'
+import { AGENT_NAME } from './providers'
 
 /**
  * Seat identity, shared by the prompt relay (main) and the UI (renderer) — both are
@@ -12,12 +13,8 @@ import type {
  * provider, so display names disambiguate by model, then ordinal.
  */
 
-/** Names the agents call each other in prompts — and the UI shows on seats. */
-export const SEAT_NAME: Record<Provider, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  copilot: 'Copilot'
-}
+/** Names the agents call each other in prompts — and the UI shows on seats: their product names. */
+export const SEAT_NAME: Record<Provider, string> = AGENT_NAME
 
 /**
  * "Claude Code", or "Claude Code · opus" / "Claude Code #2" when providers repeat.

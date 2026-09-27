@@ -165,6 +165,14 @@ describe('AcpTurn', () => {
     expect(texts(events)).not.toContain('StubAgent v9')
   })
 
+  it('fails the connection at once on a message past the size cap, even one that never ends', async () => {
+    const { events, done } = start('huge')
+    await done
+    const err = events.find((e) => e.type === 'error') as Extract<ChatEvent, { type: 'error' }>
+    expect(err.message).toMatch(/larger than 8MB/)
+    expect(events.at(-1)).toMatchObject({ type: 'done' })
+  })
+
   it('reports a turn that stopped early instead of showing an empty answer', async () => {
     const { events, done } = start('maxtokens')
     await done

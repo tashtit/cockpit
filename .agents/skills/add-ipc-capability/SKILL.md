@@ -8,13 +8,13 @@ description: Add or extend a Cockpit IPC capability — a new CockpitApi / windo
 The entire renderer↔main surface is the `CockpitApi` type in `src/shared/contract.ts` — a `type` alias with `readonly` members, like every shared type here. A new capability is four edits, in this order, then a consumer:
 
 1. **`src/shared/contract.ts`** — add the method to `CockpitApi` as a `readonly` member, and its wire name to the `CH` map (`PUSH` for an event). Request/response types go in **`src/shared/types.ts`**: that file imports nothing from `src/` and must stay that way, so anything it would have to import back belongs in `contract.ts`. Invoke channels are `domain:verb` (`sessions:page`, `workspace:pr`, `panel:set-switch`, `cleanup:set-stale-days`); both halves may be kebab-case. Never write the string at a call site — `tests/ipc-channels.test.ts` fails on a bare literal, and on a `CH` member that only one side uses.
-2. **`src/main/index.ts`** — `ipcMain.handle(CH.domainVerb, …)`.
+2. **`src/main/ipc/<domain>.ts`** — `ipcMain.handle(CH.domainVerb, …)` in the `register…Handlers` function of the module that owns the domain (`sessions`, `chat`, `roundtable`, `github`, `library`, `agents`, `endpoints`, `backup`, `cleanup`, `app`); a new domain gets a module of its own, registered in `ipc/index.ts`. The services a handler needs arrive as the `Services` object (`src/main/services.ts`).
 3. **`src/preload/index.ts`** — bridge method calling `ipcRenderer.invoke(CH.domainVerb, …)` on the object handed to `contextBridge`.
 4. **`tests/component/stub-api.ts`** — add the method to `freshApi()`. It is typed as a complete `CockpitApi` and `tsconfig.json` includes `tests/**`, so `npm run typecheck` fails until the stub has it.
 
 Then call it from components as `api.<method>()` via `import { api } from './api'`. `src/renderer/src/api.ts` is a one-line re-export of `window.cockpit` and is never edited; components never touch `window.cockpit` directly.
 
-Keep handler bodies in `index.ts` thin: real logic lives in a dedicated main module (`indexer.ts`, `instructions.ts`, `workspace.ts`, `cleanup.ts`, …) or an IO-free `-core.ts` so it can be tested without Electron.
+Keep handler bodies thin: real logic lives in a dedicated main module (`indexer.ts`, `instructions.ts`, `workspace.ts`, `cleanup.ts`, …) or an IO-free `-core.ts` so it can be tested without Electron.
 
 ## Worked example — the stale-days setting
 
@@ -23,7 +23,7 @@ Keep handler bodies in `index.ts` thin: real logic lives in a dedicated main mod
 readonly getStaleDays: () => Promise<number>
 readonly setStaleDays: (days: number) => Promise<void>
 
-// src/main/index.ts (abridged)
+// src/main/ipc/cleanup.ts, inside registerCleanupHandlers (abridged)
 ipcMain.handle(CH.cleanupStaleDays, () => loadConfig().staleDays ?? DEFAULT_STALE_DAYS)
 ipcMain.handle(CH.cleanupSetStaleDays, (_e, days: number) => {
   setStaleDays(Number(days)) // renderer input is coerced before use
@@ -41,14 +41,14 @@ setStaleDays: vi.fn(async () => {}),
 
 ## Security rules (non-negotiable)
 
-- Renderer args are untrusted, whatever their TypeScript type says. Coerce primitives (`String(x)`, `Number(x)`) and re-check union-typed values before they reach a path, a spawned command, or a config key — `asPanelKind` and the `Provider` check inside `assertKnownConfigDir` are the pattern; the compile-time type does not survive the bridge.
-- Any path argument must be validated against roots main itself derived, with the `src/main/index.ts` helper that matches its role: `assertKnownRepoRoot` (a repo the indexer found), `assertKnownCwd` (the app's worktrees dir, a known repo root or below, or an indexed session's cwd — the only places a chat turn may run), `assertKnownConfigDir` (a configured source or the provider default). Never act on an arbitrary renderer-supplied path.
+- Renderer args are untrusted, whatever their TypeScript type says. Coerce primitives (`String(x)`, `Number(x)`) and re-check union-typed values before they reach a path, a spawned command, or a config key — `asProvider`, `asPanelKind` and the rest of `src/main/ipc/guards.ts` are the pattern; the compile-time type does not survive the bridge.
+- Any path argument must be validated against roots main itself derived, with the `src/main/ipc/guards.ts` helper that matches its role: `assertKnownRepoRoot(indexer, raw)` (a repo the indexer found), `assertKnownCwd` (the app's worktrees dir, a known repo root or below, or an indexed session's cwd — the only places a chat turn may run), `assertKnownConfigDir` (a configured source or the provider default). Never act on an arbitrary renderer-supplied path.
 - All fs / git / child_process work stays in main. The renderer is sandboxed (`contextIsolation`, `sandbox: true`) and must remain so.
 - Cap what crosses the bridge: paginate lists (`SessionQuery`/`SessionPage`), cap message text (`capText` in `src/main/parsers/util.ts`), never ship a full index.
 
 ## Push events (main → renderer)
 
-Push with `sendToWin(PUSH.eventName, payload)` in `src/main/index.ts`, never `win.webContents.send` directly: streams and scans outlive the window on macOS, and sending to a destroyed webContents throws inside the stream handler and takes the main process down — the helper checks `win.isDestroyed()` first. Push channels are kebab-case nouns (`index-updated`, `busy-sessions`, `chat-event`, `roundtable-event`). Pair each with a preload `onX(cb)` that returns an unsubscribe function, a `readonly onX: (cb: …) => () => void` member on `CockpitApi`, and `onX: vi.fn(() => () => {})` in the stub — follow `onIndexUpdated` / `onBusySessions`.
+Push with `sendToWin(PUSH.eventName, payload)` from `src/main/window.ts`, never `win.webContents.send` directly: streams and scans outlive the window on macOS, and sending to a destroyed webContents throws inside the stream handler and takes the main process down — the helper checks `win.isDestroyed()` first. Push channels are kebab-case nouns (`index-updated`, `busy-sessions`, `chat-event`, `roundtable-event`). Pair each with a preload `onX: subscribe(PUSH.eventName)` (the helper returns the unsubscribe function), a `readonly onX: (cb: …) => () => void` member on `CockpitApi`, and `onX: vi.fn(() => () => {})` in the stub — follow `onIndexUpdated` / `onBusySessions`.
 
 ## Verify
 

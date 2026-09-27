@@ -9,6 +9,7 @@ import type {
   UsageWindow
 } from '../shared/types'
 import { claudeIdentity, codexIdentity, ghUser } from './accounts'
+import { throttled } from './cache'
 import { execText } from './env'
 import { readTail, toMs, walkFiles } from './parsers/util'
 
@@ -309,7 +310,7 @@ function codexWindow(w: any): UsageWindow | null {
 }
 
 /** Last provider-reported rate-limit snapshot in one rollout file's tail, if any. */
-export function codexSnapshotFromTail(text: string): {
+function codexSnapshotFromTail(text: string): {
   windows: UsageWindow[]
   plan?: string
   measuredAt?: number
@@ -435,33 +436,6 @@ async function copilotUsage(login: string): Promise<ProviderUsage> {
 }
 
 /* ---------- throttling ---------- */
-
-/**
- * Remember `compute`'s last result for `ttlMs` and coalesce concurrent calls into one
- * run. A rejected run is never remembered — the next call simply tries again. `now`
- * is injectable for tests.
- */
-export function throttled<T>(
-  ttlMs: number,
-  compute: () => Promise<T>,
-  now: () => number = Date.now
-): () => Promise<T> {
-  let last: { at: number; value: T } | null = null
-  let inflight: Promise<T> | null = null
-  return () => {
-    if (last && now() - last.at < ttlMs) return Promise.resolve(last.value)
-    if (inflight) return inflight
-    inflight = compute()
-      .then((value) => {
-        last = { at: now(), value }
-        return value
-      })
-      .finally(() => {
-        inflight = null
-      })
-    return inflight
-  }
-}
 
 /**
  * Copilot usage goes over the network (`gh api`), so it is fetched at most once per

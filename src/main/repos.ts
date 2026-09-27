@@ -145,7 +145,7 @@ function repoInfoFor(root: string, configPath: string): RepoInfo {
 }
 
 /** Parse owner/repo out of the [remote "origin"] url in a git config file. */
-export function parseOriginFullName(configPath: string): string | null {
+function parseOriginFullName(configPath: string): string | null {
   const raw = readHead(configPath, GIT_CONFIG_HEAD_BYTES).text
   if (!raw) return null
   const section = raw.match(/\[remote "origin"\]([^[]*)/)

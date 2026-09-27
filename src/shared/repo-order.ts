@@ -16,13 +16,13 @@ type Orderable = {
 const GENERAL = 'general'
 
 /** What the tree shows for a project — `owner/repo`, else the directory name. */
-export function repoSortName(r: Orderable): string {
+function repoSortName(r: Orderable): string {
   return r.fullName ?? r.name
 }
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
-export function byRepoName(a: Orderable, b: Orderable): number {
+function byRepoName(a: Orderable, b: Orderable): number {
   return collator.compare(repoSortName(a), repoSortName(b)) || collator.compare(a.key, b.key)
 }
 

@@ -37,6 +37,11 @@ function handle(m) {
   switch (m.method) {
     case 'initialize':
       if (mode === 'banner') process.stdout.write('StubAgent v9 starting up\n')
+      if (mode === 'huge') {
+        // one message past the client's size cap, and never the newline that would end it
+        process.stdout.write('{"jsonrpc":"2.0","pad":"' + 'x'.repeat(9 * 1024 * 1024))
+        return
+      }
       if (mode === 'crash') {
         process.stderr.write('stub: exploded during startup\n')
         process.exit(3)

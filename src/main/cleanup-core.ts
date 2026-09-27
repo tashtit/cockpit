@@ -228,29 +228,6 @@ export function sumBytes(items: readonly { readonly bytes: number | null }[]): n
   return items.reduce((n, i) => n + (i.bytes ?? 0), 0)
 }
 
-/**
- * `work` over `items`, at most `limit` at a time, results in the input's order.
- * Cleanup spawns git and du per worktree: all of them at once starve the machine the
- * agents are working on, one at a time took ten seconds for seventy worktrees.
- * Rejections are the caller's — every unit cleanup hands this resolves, failure included.
- */
-export async function mapLimit<T, R>(
-  items: readonly T[],
-  work: (item: T) => Promise<R>,
-  limit: number
-): Promise<R[]> {
-  const out: R[] = new Array(items.length)
-  let next = 0
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const i = next++
-      out[i] = await work(items[i])
-    }
-  }
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker))
-  return out
-}
-
 /* ---------- processes left running in old worktrees ---------- */
 
 /** One process as `ps` and `lsof` describe it — only what the judgement needs. */
@@ -332,7 +309,7 @@ export function parsePs(out: string, now: number): PsRow[] {
  * How far two readings of one process's start may drift: `etime` has whole-second
  * resolution and each scan subtracts it from its own clock.
  */
-export const SAME_START_MS = 2_000
+const SAME_START_MS = 2_000
 
 /**
  * Whether the process a pid names now is still the one that was picked. Pids are

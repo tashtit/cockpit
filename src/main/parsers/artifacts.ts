@@ -1,3 +1,4 @@
+import { asRecord } from '../../shared/guards'
 import { diffLines } from '../../shared/line-diff'
 import type { EditLine, FileEdit, TodoItem, TodoStatus, WorkArtifact } from '../../shared/types'
 import { checkArtifact } from './checks'
@@ -33,10 +34,6 @@ const MAX_PLAN_CHARS = 20_000
 
 type Rec = Record<string, unknown>
 
-function record(v: unknown): Rec | null {
-  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Rec) : null
-}
-
 function str(v: unknown): string | null {
   return typeof v === 'string' && v.trim() ? v : null
 }
@@ -62,7 +59,7 @@ function todos(list: unknown, read: (item: Rec) => { text: unknown; status: unkn
   if (!Array.isArray(list)) return undefined
   const items: TodoItem[] = []
   for (const raw of list) {
-    const r = record(raw)
+    const r = asRecord(raw)
     if (!r) continue
     const { text, status } = read(r)
     const t = str(text)
@@ -108,7 +105,7 @@ const MAX_FOLLOW_UP_TITLE = 160
  * `spawn_task`: a title, why now, and a prompt written to stand alone.
  */
 export function followUpArtifact(input: unknown): WorkArtifact | undefined {
-  const i = record(input)
+  const i = asRecord(input)
   const title = str(i?.title)
   const prompt = str(i?.prompt)
   if (!title || !prompt) return undefined
@@ -301,7 +298,7 @@ function patchArtifact(text: unknown): WorkArtifact | undefined {
 
 /** The tool names each CLI plans, lists and edits with, and what each one's input says. */
 export function toolArtifact(name: string, input: unknown): WorkArtifact | undefined {
-  const i = record(input)
+  const i = asRecord(input)
   switch (name) {
     // Claude
     case 'ExitPlanMode':
@@ -311,7 +308,7 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
     case 'TaskCreate': {
       // one task per call, or a batch under `tasks`
       const tasks = i?.tasks
-      const batch = Array.isArray(tasks) ? tasks.map((t) => record(t)?.subject) : [i?.subject]
+      const batch = Array.isArray(tasks) ? tasks.map((t) => asRecord(t)?.subject) : [i?.subject]
       const items = batch.flatMap((s) => (str(s) ? [truncate(str(s)!, MAX_TODO_CHARS)] : []))
       return items.length > 0 ? { kind: 'task-add', items: items.slice(0, MAX_TODOS) } : undefined
     }
@@ -333,7 +330,7 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
     case 'MultiEdit': {
       const list = i?.edits
       const pairs = Array.isArray(list)
-        ? list.map((e): readonly [unknown, unknown] => [record(e)?.old_string, record(e)?.new_string])
+        ? list.map((e): readonly [unknown, unknown] => [asRecord(e)?.old_string, asRecord(e)?.new_string])
         : []
       return edits([replaceEdit(i?.file_path, pairs)])
     }
@@ -362,7 +359,7 @@ export function toolArtifact(name: string, input: unknown): WorkArtifact | undef
     case 'mcp__Claude_Browser__preview_start':
       return sharedArtifact({ links: [{ url: i?.url }] })
     case 'open_canvas': {
-      const canvas = record(i?.input)
+      const canvas = asRecord(i?.input)
       return i?.canvasId === 'browser' ? sharedArtifact({ links: [{ url: canvas?.url, title: canvas?.title }] }) : undefined
     }
     // every agent's shell: a command that runs tests, a typecheck, a linter or a build
@@ -398,13 +395,13 @@ export function fileChangeArtifact(changes: unknown): WorkArtifact | undefined {
   const files: Array<FileEdit | null> = []
   if (Array.isArray(changes)) {
     for (const c of changes) {
-      const r = record(c)
+      const r = asRecord(c)
       const path = str(r?.path)
       if (path) files.push({ path, change: changeKind(r?.kind), hunks: [] })
     }
   } else {
-    for (const [path, c] of Object.entries(record(changes) ?? {})) {
-      const r = record(c)
+    for (const [path, c] of Object.entries(asRecord(changes) ?? {})) {
+      const r = asRecord(c)
       const kind = changeKind(r?.type ?? r?.kind)
       if (kind === 'add') files.push(wholeFile(path, r?.content, 'add') ?? { path, change: 'add', hunks: [] })
       else if (kind === 'delete') files.push({ path, change: 'delete', hunks: [] })
@@ -443,7 +440,7 @@ export function acpDiffArtifact(content: unknown): WorkArtifact | undefined {
   if (!Array.isArray(content)) return undefined
   const files: Array<FileEdit | null> = []
   for (const c of content) {
-    const r = record(c)
+    const r = asRecord(c)
     if (r?.type !== 'diff') continue
     const path = str(r.path)
     if (!path || typeof r.newText !== 'string') continue

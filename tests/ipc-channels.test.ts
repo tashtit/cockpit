@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { CH, PUSH } from '../src/shared/contract'
@@ -14,7 +15,12 @@ import { CH, PUSH } from '../src/shared/contract'
  * both ends of every channel actually exist.
  */
 const read = (p: string): string => readFileSync(fileURLToPath(new URL(p, import.meta.url)), 'utf8')
-const MAIN = read('../src/main/index.ts')
+/** Every main-process source, since the handlers live in one module per domain (src/main/ipc/). */
+const MAIN_DIR = fileURLToPath(new URL('../src/main/', import.meta.url))
+const MAIN = readdirSync(MAIN_DIR, { recursive: true, encoding: 'utf8' })
+  .filter((f) => f.endsWith('.ts'))
+  .map((f) => readFileSync(join(MAIN_DIR, f), 'utf8'))
+  .join('\n')
 const PRELOAD = read('../src/preload/index.ts')
 
 /** Escape every regex metacharacter, not just the dot — `\` first, or it re-escapes. */
@@ -36,8 +42,7 @@ describe('IPC channels are named, never spelled', () => {
     ['ipcMain.handle', () => MAIN],
     ['sendToWin', () => MAIN],
     ['ipcRenderer.invoke', () => PRELOAD],
-    ['ipcRenderer.on', () => PRELOAD],
-    ['ipcRenderer.removeListener', () => PRELOAD]
+    ['subscribe', () => PRELOAD]
   ])('%s takes a CH/PUSH member, not a string literal', (fn, source) => {
     const literals = argsOf(source(), fn).filter((a) => a.startsWith("'"))
     expect(literals).toEqual([])
@@ -48,7 +53,7 @@ describe('every channel has both ends', () => {
   const handled = new Set(argsOf(MAIN, 'ipcMain.handle'))
   const invoked = new Set(argsOf(PRELOAD, 'ipcRenderer.invoke'))
   const pushed = new Set(argsOf(MAIN, 'sendToWin'))
-  const listened = new Set(argsOf(PRELOAD, 'ipcRenderer.on'))
+  const listened = new Set(argsOf(PRELOAD, 'subscribe'))
 
   it('every CH member is handled in main', () => {
     const missing = Object.keys(CH).filter((k) => !handled.has(`CH.${k}`))
@@ -68,6 +73,11 @@ describe('every channel has both ends', () => {
 
   it('main and preload reference the same invoke channels', () => {
     expect([...handled].sort()).toEqual([...invoked].sort())
+  })
+
+  it('no channel is handled twice — Electron throws on a second handler', () => {
+    const all = argsOf(MAIN, 'ipcMain.handle')
+    expect(all.filter((c, i) => all.indexOf(c) !== i)).toEqual([])
   })
 })
 

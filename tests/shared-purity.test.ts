@@ -10,7 +10,8 @@ import { describe, expect, it } from 'vitest'
 // runtime, in the built app, as a blank view.
 //
 // And it is acyclic, in one direction: types.ts is the domain vocabulary and imports
-// nothing from src/, library.ts imports types.ts, contract.ts imports both. TypeScript
+// nothing from src/, providers.ts imports only types.ts and text.ts nothing at all,
+// library.ts imports those three, contract.ts imports types.ts and library.ts. TypeScript
 // is happy to compile a type-only cycle, which is how the one #140 removed survived as
 // long as it did.
 const SHARED = join(__dirname, '..', 'src', 'shared')
@@ -32,8 +33,10 @@ function specifiers(source: string): string[] {
 /** What a shared module may import from its own directory. Anything absent may import any sibling. */
 const LAYERS: Record<string, readonly string[]> = {
   'types.ts': [],
+  'providers.ts': ['./types'],
+  'text.ts': [],
   'mcp-source.ts': ['./types'],
-  'library.ts': ['./types'],
+  'library.ts': ['./types', './providers', './text'],
   'contract.ts': ['./types', './library']
 }
 

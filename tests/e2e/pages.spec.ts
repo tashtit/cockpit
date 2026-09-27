@@ -517,7 +517,7 @@ test('keyboard routing: settings shortcut, Escape back to chat, new-task shortcu
 })
 
 test('the window minimum is enforced and every surface holds at exactly that size', async () => {
-  // the floor is a contract: the BrowserWindow minima in src/main/index.ts and
+  // the floor is a contract: the BrowserWindow minima in src/main/window.ts and
   // this audit change together, or this line fails
   const min = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize())
   expect(min).toEqual([560, 420])

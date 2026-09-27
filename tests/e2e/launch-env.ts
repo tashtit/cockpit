@@ -10,7 +10,7 @@ import { join } from 'node:path'
  * `COCKPIT_DEV_DISPLAY` is inherited on purpose: a developer who exports it wants every
  * window a run opens on that screen, not on the one they are working on. It no longer
  * changes what a spec observes — the override only narrows which display a saved
- * placement is judged against (see createWindow in src/main/index.ts), and the
+ * placement is judged against (see createWindow in src/main/window.ts), and the
  * placement specs place the window on the display it already opened on.
  *
  * `COCKPIT_CLI_LATEST` is pinned too: the agent-CLI update check would otherwise ask

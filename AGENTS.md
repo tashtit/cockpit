@@ -36,24 +36,25 @@ sessions (macOS-focused, dark-only). Three processes with a strict boundary:
 The whole surface is the `CockpitApi` type in `src/shared/contract.ts`, and the
 `add-ipc-capability` skill is the recipe. A capability is four edits, in order: `contract.ts`
 (the method and its `CH` channel, `PUSH` for an event; request/response types in `types.ts`) →
-`ipcMain.handle(CH.x, …)` in `src/main/index.ts` → the bridge in `src/preload/index.ts` →
+`ipcMain.handle(CH.x, …)` in the domain's module under `src/main/ipc/` → the bridge in `src/preload/index.ts` →
 `tests/component/stub-api.ts`. Components then call `api.x()`; `src/renderer/src/api.ts` is
 never edited.
 
 - Channel names are never string literals: `tests/ipc-channels.test.ts` fails on a bare literal, on a `CH` member only one side uses, and on a name off the `domain:verb` shape.
-- **Renderer input is untrusted.** Coerce every argument, and validate any path against roots main derived itself (`assertKnownRepoRoot`, `assertKnownCwd`, `assertKnownConfigDir` in `src/main/index.ts`). Never act on an arbitrary renderer-supplied path.
+- **Renderer input is untrusted.** Coerce every argument, and validate any path against roots main derived itself (`assertKnownRepoRoot`, `assertKnownCwd`, `assertKnownConfigDir` in `src/main/ipc/guards.ts`). Never act on an arbitrary renderer-supplied path.
 
 ### `src/shared/` — pure, and the first place to look for a helper
 
 Every module imports only its siblings — no `node:*`, no `electron`, nothing from `src/main` or
 `src/renderer` — so the sandboxed renderer loads the same file main does. The layering is
-one-way: `types.ts` (the domain vocabulary) imports nothing, `library.ts` and `mcp-source.ts`
-import `types.ts`, `contract.ts` imports both. `tests/shared-purity.test.ts` pins both rules,
-since TypeScript compiles a type-only cycle happily. Several of these modules exist because the
+one-way: `types.ts` (the domain vocabulary) and `text.ts` import nothing, `providers.ts` and
+`mcp-source.ts` import `types.ts`, `library.ts` those three, and `contract.ts` `types.ts` and
+`library.ts`. `tests/shared-purity.test.ts` pins both rules (its `LAYERS` table), since
+TypeScript compiles a type-only cycle happily. Several of these modules exist because the
 same rule was about to be written twice, once per process, and drift — check them before
 writing a helper:
 
-`asks.ts` (the questions agents stop to ask, and what a pick becomes) · `endpoints.ts` (BYOK
+`providers.ts` (the three agents' names, product names and config-home variables — every list of them reads it) · `guards.ts` (`isRecord` / `asRecord` for parsed JSON) · `text.ts` (`clip`, `sliceCodePoints`) · `asks.ts` (the questions agents stop to ask, and what a pick becomes) · `endpoints.ts` (BYOK
 validation, env, `/models`) · `acp.ts` (ACP agent definitions and their sanitizer) ·
 `agent-auth.ts`, `agent-cli.ts`, `agent-models.ts` (sign-in verdicts, CLI install and update
 rules, built-in models and `EFFORT_LEVELS`) · `library.ts`, `mcp-source.ts` (Cockpit's config
@@ -86,11 +87,11 @@ it is named for and is what the unit tests target; keep IO in the sibling withou
 - **Library**: `extensions` (MCP / skills / plugins inventory and sharing), `library.ts`, `mcp.ts`, `mcp-versions.ts`, `toml.ts`, `instructions` + `instructions-share.ts` (shared instructions, and sharing them to a repo by PR)
 - **Git & GitHub**: `workspace.ts` (worktrees and PRs), `diff` (the review before landing), `pr-feedback` (the loop after the PR opens), `github` (PR badges)
 - **Housekeeping**: `cleanup`, `cleanup-reminder`, `backup`
-- **App**: `index.ts` (bootstrap and every IPC handler), `attention` (notifications, sounds, the Dock badge), `updates.ts` + `update-install` (self-update), `dev-window.ts`, `link-guard.ts`, `env.ts`, `replace-file.ts`, `paths.ts`
+- **App**: `index.ts` (the entry: services, handlers, window, quit), `services.ts` (builds and wires every long-lived service), `ipc/` (every IPC handler, one module per domain, and `guards.ts` for renderer input), `window.ts` (the window and pushes to it), `turn-ledger.ts` (what a turn Cockpit started owes config once it names its session), `attention` (notifications, sounds, the Dock badge), `updates.ts` + `update-install` (self-update), `dev-window.ts`, `link-guard.ts`, `env.ts`, `replace-file.ts`, `paths.ts`, `shell-quote.ts`, `map-limit.ts`, `cache.ts`, `state-file.ts`, `recent-map.ts`
 
 ### Rules that span modules
 
-- **One way to do each thing.** Run a CLI with `execText` and give every spawn `cliEnv()` (`env.ts`) — never another `execFile` wrapper. `cliEnv()` carries the person's login-shell PATH, read once at launch, so a launch-time probe of an agent CLI waits on `loginPathReady` first. Write a whole file with `writeFileAtomic` / `replaceFile` (`replace-file.ts`) — never another temp-and-rename. Check path containment with `paths.ts`.
+- **One way to do each thing.** Run a CLI with `execText` (or `execOrThrow`, and `gitRead` for read-only git) and give every spawn `cliEnv()` (`env.ts`) — never another `execFile` wrapper. `cliEnv()` carries the person's login-shell PATH, read once at launch, so a launch-time probe of an agent CLI waits on `loginPathReady` first. Write a whole file with `writeFileAtomic` / `replaceFile` (`replace-file.ts`) — never another temp-and-rename; read and save Cockpit's own state files through `state-file.ts`. Cache a slow answer with `throttled` / `throttledBy` (`cache.ts`); keep a capped most-recent map with `recent-map.ts`; read a bounded file head or a JSONL stream through `parsers/util.ts` (`readHeadBytes`, `streamJsonl`, `LineSplitter`). Check path containment, a provider's default config home and realpath-or-self with `paths.ts`; quote a shell word with `shell-quote.ts`; bound a fan-out with `mapLimit`.
 - **One session, one turn.** `chat:send` refuses to resume a session whose turn is still in flight, or one held by its agent (`session-control-core.ts`). Busy state is Cockpit's spawned turns merged with those observed in the logs (`mergeBusy`; spawned wins).
 - **Roundtable seat sessions are not independent work**: they stay out of every listing, page only under `SessionQuery.roundtableId`, and `chat:send` refuses their cwd. Only the roundtable manager sets `research` and only `side-chat:ask` sets `sideFork` (`chat:send` strips both); research never grants the shell — no rule keeps a command read-only.
 - **Git is never forced.** Sessions work in worktrees under userData on a `<prefix><name>` branch (config `branchPrefix`, `cockpit/` when unset), never the user's checkout. Never `git worktree prune`, never `--force` a worktree removal, delete branches only through `git branch -d`, stop processes with SIGTERM only, and never give a sandboxed agent a writable `.git` — hooks or objects it can write are a way out of the sandbox.
