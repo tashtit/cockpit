@@ -24,6 +24,16 @@ const mcp: UpdateSuggestion = {
   detail: 'npm · @playwright/mcp'
 }
 
+const plugin: UpdateSuggestion = {
+  kind: 'plugin',
+  id: 'plugin:review@acme',
+  name: 'review@acme',
+  agents: ['claude', 'copilot'],
+  current: '1.2.0',
+  latest: '1.4.0',
+  detail: 'acme has 1.4.0'
+}
+
 const drift: UpdateSuggestion = {
   kind: 'drift',
   id: 'drift:mcp:github',
@@ -74,8 +84,26 @@ describe('the home’s updates strip', () => {
       { repoRoot: null, kind: 'mcp', name: 'playwright' },
       '0.0.81'
     )
-    // and it asks again rather than leaving the settled row on screen
-    await waitFor(() => expect(window.cockpit.getUpdatesDigest).toHaveBeenCalledWith(true))
+    // and it asks again rather than leaving the settled row on screen — a plain ask:
+    // main forgot its gathering when the pin landed, and a forced one would pull every
+    // marketplace again, which is Check again's to do
+    await waitFor(() => expect(window.cockpit.getUpdatesDigest).toHaveBeenCalledTimes(2))
+    expect(window.cockpit.getUpdatesDigest).not.toHaveBeenCalledWith(true)
+  })
+
+  it('updates a plugin through each agent’s own plugin update', async () => {
+    renderStrip([plugin])
+    await userEvent.click(await screen.findByRole('button', { name: /1 update/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Update to 1.4.0' }))
+    expect(window.cockpit.updatePlugin).toHaveBeenCalledWith('review@acme')
+  })
+
+  it('asks everything again only when the person says so', async () => {
+    renderStrip([plugin])
+    await userEvent.click(await screen.findByRole('button', { name: /1 update/ }))
+    expect(window.cockpit.getUpdatesDigest).not.toHaveBeenCalledWith(true)
+    await userEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(window.cockpit.getUpdatesDigest).toHaveBeenCalledWith(true)
   })
 
   it('hands a CLI update to Terminal, where the person can answer it', async () => {

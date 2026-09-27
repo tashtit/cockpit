@@ -244,12 +244,23 @@ is no health tab, and there must never be a second place to turn a server on.
   - The action is one button, `Update to <version>`, and it may only offer the version
     the registry just gave: the pin is rewritten wherever that server is switched on and
     nothing else in the command changes.
+- **A plugin gets the same line** (`PluginVersionLine`): the `.mcp-bump` in its entry,
+  and opened, one fact (`Claude and Copilot have 1.2.0; tashtit has 1.4.0.`), the
+  `update` pill and `Update to <version>`, which runs each agent's own `plugin update`.
+  The question is local — the marketplace clone against what is installed — so it is
+  asked again on every report rather than once. Codex has no update command and records
+  no plugin version, so it is never named on this line.
 
-## Browse (`MarketBrowse.tsx`)
+## Browse (`MarketBrowse.tsx`, `McpBrowse.tsx`)
 
 The one section that shows what the agents **don't** have — every other one is a mirror of
-their config. Global only: plugins and marketplaces are installed per machine, so a repo
-scope has nothing to browse into and the tab is absent there.
+their config. Global only: plugins, marketplaces and the servers found here are installed
+per machine, so a repo scope has nothing to browse into and the tab is absent there.
+
+- **Two catalogues, one section.** A `.md-tabs` switch (`.browse-what`, the instructions
+  editor's own Write/Preview grammar — never a second tab row) sits above the blurb:
+  **Plugins** (the marketplaces) and **MCP servers** (the MCP Registry). The blurb speaks
+  for whichever is showing.
 
 - **A marketplace is a `.pnl-row` that opens**, exactly like every other row here: caret ·
   name · `recommended` tag where it applies · `.pnl-kind` count ("3 plugins", or
@@ -271,6 +282,32 @@ scope has nothing to browse into and the tab is absent there.
   match opens the marketplace it is in. Searching is the whole reason the section exists.
 - The recommendation band steps aside here, as it does for a search: the row it offers is
   in this list with its own chips.
+
+### MCP servers (`McpBrowse.tsx`)
+
+- **A search is a submit.** The `.market-lookup` line again ("Search the MCP Registry",
+  a 28px `.ns-opt` input + ghost **Search**), with the one sentence of provenance under it:
+  anyone can publish there. Nothing is fetched on arrival or as you type; the last answer is
+  kept for the window's lifetime, so flipping to Plugins and back costs nothing. The card's
+  search narrows the answer, never asks again — and hides **More results** (`.registry-more`)
+  while it narrows, since a filtered list is not the page the cursor continues.
+- **A server is a `.pnl-row` that opens**, the marketplace row's grammar: caret · title ·
+  `.pnl-kind` (`npm` / `PyPI` / `remote`, or `can’t add`) · `.pnl-def` (the package or URL) ·
+  the add-only chips. Opened: the description (`.market-plugin-what`), then one `.pnl-note`
+  of provenance — `Published as <registry name> · v<version> · added as <name>` and a
+  **Its repository** link — because the namespace is the publisher and that is the thing to
+  check.
+- **What only the person can give** is a field per env var (`.registry-inputs` of
+  `.registry-input`: the `.ns-label` placard is the variable's own name, `optional` in the
+  label's quiet voice when it is; a secret is `type=password`; the registry's default is the
+  placeholder), one `.ns-hint` under each, and one under all saying where the values go.
+  A chip clicked while a required one is empty opens the row onto it and says which — it
+  does not add.
+- **A refusal is a disabled chip plus a sentence**: the chip's title and a `.pnl-note` in
+  the opened row carry the same reason (`Cockpit can’t add it: it runs from a container
+  image…`). An agent that can't run one kind (Codex and SSE) is disabled on its own chip.
+- **Already here is lit**, from the panel's own row when there is one — a server this
+  machine runs under any name, when it runs the same package or URL, is that server.
 
 ## Shared list vocabulary
 

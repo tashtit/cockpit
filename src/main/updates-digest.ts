@@ -4,7 +4,7 @@ import { sortSuggestions } from '../shared/updates-digest'
 import type { Provider, UpdateState, UpdateSuggestion, UpdatesDigest } from '../shared/types'
 import { listCliStatus } from './agent-cli'
 import { getExtensions } from './extensions'
-import { getPanel, mcpVersionsFor } from './library'
+import { getPanel, mcpVersionsFor, refreshMarketplaces } from './library'
 import { localCatalogVersions } from './marketplace'
 
 /*
@@ -167,6 +167,15 @@ export function pluginUpdates(): Found {
   }
 }
 
+/** Every agent's marketplace clones, pulled from their sources — what it couldn't pull is a problem. */
+async function marketplaceRefresh(): Promise<Found> {
+  try {
+    return { items: [], problems: await refreshMarketplaces() }
+  } catch (err) {
+    return { items: [], problems: [`couldn’t refresh the marketplaces — ${reason(err)}`] }
+  }
+}
+
 /**
  * What the agents disagree on. Not an update, but the same question — "is anything
  * out of step?" — and the one place that claims to know must not send you elsewhere
@@ -203,12 +212,15 @@ export function updatesDigest(inputs: DigestInputs = {}): Promise<UpdatesDigest>
     if (inFlight) return inFlight
   }
   const gather = async (): Promise<UpdatesDigest> => {
-    const found = [
-      appUpdate(inputs.app),
-      ...(await Promise.all([cliUpdates(inputs.force === true), mcpUpdates()])),
-      pluginUpdates(),
-      agentDrift()
-    ]
+    const force = inputs.force === true
+    const [cli, mcp, refreshed] = await Promise.all([
+      cliUpdates(force),
+      mcpUpdates(),
+      // the person asked again: the plugin question is only as fresh as the clones it
+      // reads, so bring those up to date first — and only then, never on a plain visit
+      force ? marketplaceRefresh() : Promise.resolve(NOTHING)
+    ])
+    const found = [appUpdate(inputs.app), cli, mcp, refreshed, pluginUpdates(), agentDrift()]
     return {
       items: sortSuggestions(found.flatMap((f) => f.items)),
       at: Date.now(),

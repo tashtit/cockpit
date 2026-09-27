@@ -303,6 +303,46 @@ describe('Agents › is there a newer one', () => {
   })
 })
 
+describe('Agents › a plugin its marketplace has moved past', () => {
+  async function openPlugins(): Promise<void> {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(report)
+    vi.mocked(window.cockpit.updatePlugin).mockResolvedValue(report)
+    vi.mocked(window.cockpit.outdatedPlugins).mockResolvedValue([
+      {
+        kind: 'plugin',
+        id: 'plugin:evalkit@tashtit',
+        name: 'evalkit@tashtit',
+        agents: ['claude'],
+        current: '0.1.0',
+        latest: '0.4.2',
+        detail: 'tashtit has 0.4.2'
+      }
+    ])
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByRole('tab', { name: /^Plugins/ })
+    await section('Plugins')
+  }
+
+  it('marks the row, and updates it through the agent’s own CLI from the row itself', async () => {
+    await openPlugins()
+    expect(await screen.findByText('update 0.4.2')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /evalkit@tashtit/ }))
+    expect(screen.getByText(/Claude has 0.1.0; tashtit has 0.4.2/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Update to 0.4.2' }))
+    expect(window.cockpit.updatePlugin).toHaveBeenCalledWith('evalkit@tashtit')
+    expect(await screen.findByText(/evalkit@tashtit is at 0.4.2 in Claude — restart it/)).toBeInTheDocument()
+  })
+
+  // the news is local — a clone against what is installed — so a repo scope, which
+  // installs no plugins, never asks
+  it('never asks in a repo scope', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(buildReport('/dev/rocket', []))
+    render(<AiSetup repos={[repo]} repoRoot="/dev/rocket" onScope={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByRole('tab', { name: /^Instructions/ })
+    expect(window.cockpit.outdatedPlugins).not.toHaveBeenCalled()
+  })
+})
+
 describe('Agents › what an agent can’t be given', () => {
   it('explains an unswitchable agent in the row, not only in a tooltip', async () => {
     const reason = 'openai-bundled ships with Codex — there’s no source another agent could add it from.'

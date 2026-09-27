@@ -596,6 +596,98 @@ export async function addFromCatalog(item: CatalogInstall, agent: Provider): Pro
   return setPanelSwitch(target, agent, true)
 }
 
+/**
+ * Every MCP server Cockpit knows globally — the ones the agents run, adopted, and the
+ * ones switched off everywhere but kept. A registry add reads this for two answers:
+ * "does something here already run that?" and "which names are taken?".
+ */
+export function globalMcpEntries(): ReadonlyArray<{ readonly name: string; readonly config?: McpConfig }> {
+  return ensureScope(null)
+    .entries.filter((e) => e.kind === 'mcp')
+    .map((e) => ({ name: e.name, ...(e.config ? { config: e.config } : {}) }))
+}
+
+/**
+ * Switch an MCP server on for one agent — one Cockpit already knows by `name`, or a
+ * new one with `config`, written as an entry first and then flipped like any other.
+ * An existing entry keeps its own definition: the one the agents run wins over what
+ * was just looked up, since that is what the other agents will be compared against.
+ */
+export async function addMcpServer(
+  name: string,
+  agent: Provider,
+  config?: McpConfig
+): Promise<PanelReport> {
+  const target: PanelTarget = { repoRoot: null, kind: 'mcp', name }
+  assertTarget(target)
+  const { entries } = ensureScope(null)
+  const known = entries.find((e) => e.kind === 'mcp' && e.name === name)
+  if (!known && !config) throw new Error(`Cockpit doesn't know a server named "${name}".`)
+  // adding back something removed everywhere is the person asking for it again
+  const was: LibraryEntry = known ?? { kind: 'mcp', name, enabled: {}, config }
+  const { removed, ...base } = was
+  saveEntries(null, replaceEntry(loadEntries(null), base))
+  return setPanelSwitch(target, agent, true)
+}
+
+/**
+ * The agents that can update a plugin in place. Codex has no `plugin update`, and it
+ * records no version for a plugin either — so it is never told one is out of date.
+ */
+export const PLUGIN_UPDATERS: readonly Provider[] = ['claude', 'copilot']
+
+/**
+ * Update a plugin in every agent that has it and can update one, through that
+ * agent's own `plugin update` — the same CLI the install went through. Every agent is
+ * tried; what failed is said together at the end, after the ones that worked.
+ */
+export async function updatePlugin(id: string): Promise<PanelReport> {
+  if (!NAME_RE.test(id) || !id.includes('@')) throw new Error('invalid plugin id')
+  const agents = [
+    ...new Set(
+      getExtensions()
+        .plugins.filter((p) => p.name === id && PLUGIN_UPDATERS.includes(p.agent))
+        .map((p) => p.agent)
+    )
+  ]
+  if (agents.length === 0) throw new Error(`No agent here can update ${id} — it isn’t installed in Claude Code or Copilot.`)
+  const failed: string[] = []
+  for (const agent of agents) {
+    try {
+      await runAgentCli(agent, ['plugin', 'update', id])
+    } catch (err) {
+      failed.push(err instanceof Error ? err.message : String(err))
+    }
+  }
+  if (failed.length > 0) throw new Error(failed.join(' · '))
+  return getPanel(null)
+}
+
+/** How each agent refreshes its marketplace clones from their sources. */
+const MARKET_REFRESH: Record<Provider, readonly string[]> = {
+  claude: ['plugin', 'marketplace', 'update'],
+  // codex calls its clones snapshots, and refreshing them an upgrade
+  codex: ['plugin', 'marketplace', 'upgrade'],
+  copilot: ['plugin', 'marketplace', 'update']
+}
+
+/**
+ * Pull every agent's marketplaces from where they came from. A catalogue is read from
+ * the clone the agent made, and a third-party marketplace refreshes itself only when
+ * told to — so without this a new plugin release stays invisible until the person
+ * happens to update it in the CLI. Only on the person's "Check again", never polled.
+ * Returns what couldn't be refreshed; one agent failing leaves the others refreshed.
+ */
+export async function refreshMarketplaces(): Promise<string[]> {
+  const agents = PROVIDERS.filter((p) => getExtensions().marketplaces.some((m) => m.agent === p))
+  const done = await Promise.allSettled(agents.map((agent) => runAgentCli(agent, MARKET_REFRESH[agent])))
+  return done.flatMap((outcome, i) =>
+    outcome.status === 'rejected'
+      ? [`couldn’t refresh ${agents[i]}’s marketplaces — ${outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)}`]
+      : []
+  )
+}
+
 /** The entry with a kept difference forgotten for these agents (all of them when none named). */
 function withoutKept(entry: LibraryEntry, agents: readonly Provider[]): LibraryEntry {
   if (!entry.kept) return entry

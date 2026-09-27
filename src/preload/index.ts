@@ -22,6 +22,7 @@ import type {
   Landing,
   PanelTarget,
   ProcessTarget,
+  RegistryAdd,
   SessionHolder,
   SessionQuery,
   SideChatRequest,
@@ -154,7 +155,12 @@ const api: CockpitApi = {
   lookupMarketplace: (source: string) => ipcRenderer.invoke(CH.marketplacesLookup, source),
   addFromCatalog: (item: CatalogInstall, agent: Provider) =>
     ipcRenderer.invoke(CH.marketplacesAdd, item, agent),
+  searchMcpRegistry: (query: string, cursor?: string) =>
+    ipcRenderer.invoke(CH.mcpRegistrySearch, query, cursor),
+  addFromMcpRegistry: (req: RegistryAdd) => ipcRenderer.invoke(CH.mcpRegistryAdd, req),
   getUpdatesDigest: (force?: boolean) => ipcRenderer.invoke(CH.updatesDigest, force),
+  outdatedPlugins: () => ipcRenderer.invoke(CH.pluginsOutdated),
+  updatePlugin: (id: string) => ipcRenderer.invoke(CH.pluginsUpdate, id),
   getInstructions: (repoRoot: string | null) => ipcRenderer.invoke(CH.instructionsGet, repoRoot),
   saveInstructionsBaseline: (repoRoot: string | null, baseline: string) =>
     ipcRenderer.invoke(CH.instructionsSaveBaseline, repoRoot, baseline),

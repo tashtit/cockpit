@@ -17,6 +17,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { startRegistry } from './registry.mts'
 import { buildWorld, type World } from './world.mts'
 
 const MAIN = resolve('out/main/index.js')
@@ -292,6 +293,23 @@ const STATIC: readonly Shot[] = [
   },
   // a marketplace opened onto what it offers — the section's whole point, and the one
   // row grammar in the panel that lists things no agent here has
+  // the MCP Registry half of Browse, searched (a canned registry on a loopback port),
+  // with the server that needs a token opened onto its field
+  {
+    view: 'agents',
+    name: 'agents-browse-mcp',
+    tall: 1100,
+    go: async (w) => {
+      await nav(w, 'Agents')
+      await w.getByRole('tab', { name: /^Browse/ }).click()
+      await w.getByRole('button', { name: 'MCP servers', exact: true }).click()
+      const box = w.getByLabel('Search the MCP Registry')
+      await box.fill('acme')
+      await box.press('Enter')
+      await w.locator('.pnl-entry', { hasText: 'Acme Search' }).click()
+      await pause(w, 400)
+    }
+  },
   {
     view: 'agents',
     name: 'agents-browse-open',
@@ -628,7 +646,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'agents-browse-mcp', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up
@@ -731,12 +749,16 @@ const PINNED = {
   COCKPIT_CLI_LATEST: JSON.stringify({ claude: '2.1.278', codex: '0.155.1', copilot: '1.0.87' })
 }
 
+/** The canned MCP Registry's address, once `main` has it listening. */
+let registryUrl = ''
+
 async function launch(world: World, extraEnv: NodeJS.ProcessEnv = {}): Promise<{ app: ElectronApplication; win: Page }> {
   const app = await electron.launch({
     args: [MAIN],
     env: {
       ...process.env,
       ...PINNED,
+      COCKPIT_MCP_REGISTRY: registryUrl,
       HOME: world.home,
       COCKPIT_USER_DATA: world.userData,
       PATH: `${world.bin}:${process.env['PATH'] ?? ''}`,
@@ -819,6 +841,8 @@ async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true })
   const scratch = mkdtempSync(join(tmpdir(), 'cockpit-ui-tour-'))
   const outcomes: Outcome[] = []
+  const registry = await startRegistry()
+  registryUrl = registry.url
   try {
     console.log('world: desktop')
     const world = buildWorld(join(scratch, 'world'))
@@ -854,6 +878,7 @@ async function main(): Promise<void> {
       await app.close()
     }
   } finally {
+    registry.close()
     rmSync(scratch, { recursive: true, force: true })
   }
   writeFileSync(join(OUT, 'index.html'), sheet(outcomes))

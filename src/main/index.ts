@@ -41,10 +41,12 @@ import {
   removePanelEntry,
   restorePanelEntry,
   setMcpVersion,
-  setPanelSwitch
+  setPanelSwitch,
+  updatePlugin
 } from './library'
 import { listCatalogs, lookupCatalog } from './marketplace'
-import { forgetUpdatesDigest, updatesDigest } from './updates-digest'
+import { addFromRegistry, searchRegistry } from './mcp-registry'
+import { forgetUpdatesDigest, pluginUpdates, updatesDigest } from './updates-digest'
 import { assertChatImages, saveChatImage } from './chat-images'
 import { assertSharedFile, openSharedFile, readSharedFile } from './session-files'
 import { probeAcpAgent } from './acp'
@@ -900,6 +902,35 @@ app.whenReady().then(() => {
       )
     )
   })
+  /*
+   * The MCP Registry: a search is the one call that fetches, and only from a submit.
+   * An add names a registry server and carries what was typed for its inputs — main
+   * rebuilds the definition from the registry's own entry, so no command ever arrives
+   * from the renderer.
+   */
+  ipcMain.handle(CH.mcpRegistrySearch, (_e, query: unknown, cursor: unknown) =>
+    searchRegistry(String(query ?? ''), typeof cursor === 'string' ? cursor : undefined)
+  )
+  ipcMain.handle(CH.mcpRegistryAdd, (_e, req: unknown) => {
+    const asked = (req ?? {}) as { id?: unknown; version?: unknown; agent?: unknown; values?: unknown }
+    const values: Record<string, string> = {}
+    if (asked.values && typeof asked.values === 'object') {
+      for (const [k, v] of Object.entries(asked.values as Record<string, unknown>).slice(0, 50)) {
+        if (typeof v === 'string') values[String(k).slice(0, 64)] = v
+      }
+    }
+    return settled(
+      addFromRegistry({
+        id: String(asked.id ?? '').slice(0, 200),
+        version: String(asked.version ?? '').slice(0, 64),
+        agent: asProvider(asked.agent),
+        values
+      })
+    )
+  })
+  // plugins a clone here has moved past — local reads only, the Agents panel asks on open
+  ipcMain.handle(CH.pluginsOutdated, () => pluginUpdates().items)
+  ipcMain.handle(CH.pluginsUpdate, (_e, id: unknown) => settled(updatePlugin(String(id ?? ''))))
   ipcMain.handle(CH.extensionsCheckMcp, (_e, name: string) => probeMcp(getMcpConfig(String(name))))
   ipcMain.handle(CH.extensionsLoginMcp, (_e, name: string, agent: Provider, projectPath?: string) => {
     const provider = asProvider(agent)

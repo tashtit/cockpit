@@ -2435,6 +2435,15 @@ button.pnl-flag:hover { text-decoration: underline; }
 .market-plugin-head { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
 .market-plugin-what { font-size: var(--fs-sm); color: var(--fg-dim); }
 .market-ver { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim); }
+/* Plugins · MCP servers — the instructions editor's `.md-tabs`, sitting over the blurb */
+.browse-what { margin-bottom: var(--s3); }
+/* a registry server's inputs: env vars only the person can give it, one field each */
+.registry-inputs { display: flex; flex-direction: column; gap: var(--s3); }
+.registry-input { display: flex; flex-direction: column; gap: var(--s1); }
+.registry-input .ns-label { margin-top: 0; }
+.registry-optional { font-weight: 400; letter-spacing: 0; text-transform: none;
+  color: var(--fg-dim); }
+.registry-more { display: flex; justify-content: center; margin-top: var(--s3); }
 
 /* ---------- Agents view: shared instructions ---------- */
 /* the baseline is markdown — edit it with GitHub-comment grammar: Write/Preview

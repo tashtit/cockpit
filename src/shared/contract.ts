@@ -57,6 +57,8 @@ import type {
   ProcessTarget,
   ProfileStats,
   Provider,
+  RegistryAdd,
+  RegistryPage,
   RepoGroup,
   RestoreSummary,
   RoundtableEvent,
@@ -82,6 +84,7 @@ import type {
   UpdateInstallOutcome,
   UpdateInstallRequest,
   UpdatePrefs,
+  UpdateSuggestion,
   UpdatesDigest,
   UpdateState,
   UsageSnapshot,
@@ -265,10 +268,18 @@ export type CockpitApi = {
   readonly lookupMarketplace: (source: string) => Promise<MarketplaceCatalog>
   /** Add a marketplace to an agent, or install a plugin from one, straight off the catalogue */
   readonly addFromCatalog: (item: CatalogInstall, agent: Provider) => Promise<PanelReport>
+  /** Search the MCP Registry for servers to add — only ever on the person's submit */
+  readonly searchMcpRegistry: (query: string, cursor?: string) => Promise<RegistryPage>
+  /** Add a registry server to one agent; main builds its definition from the registry's own entry */
+  readonly addFromMcpRegistry: (req: RegistryAdd) => Promise<PanelReport>
 
   /* ---------- what could be brought up to date ---------- */
   /** App, agent CLIs, pinned MCP servers, plugins and the agents' own disagreements, in one list */
   readonly getUpdatesDigest: (force?: boolean) => Promise<UpdatesDigest>
+  /** Plugins a marketplace clone here offers a newer version of — read off disk, no network */
+  readonly outdatedPlugins: () => Promise<readonly UpdateSuggestion[]>
+  /** Update one plugin (`name@marketplace`) in every agent that has it and can update one */
+  readonly updatePlugin: (id: string) => Promise<PanelReport>
 
   /* ---------- shared AI instructions ---------- */
   readonly getInstructions: (repoRoot: string | null) => Promise<InstructionsState>
@@ -487,6 +498,9 @@ export const CH = {
   marketplacesList: 'marketplaces:list',
   marketplacesLookup: 'marketplaces:lookup',
 
+  mcpRegistryAdd: 'mcp-registry:add',
+  mcpRegistrySearch: 'mcp-registry:search',
+
   instructionsAdoptFile: 'instructions:adopt-file',
   instructionsApply: 'instructions:apply',
   instructionsGet: 'instructions:get',
@@ -500,6 +514,9 @@ export const CH = {
   panelRemove: 'panel:remove',
   panelRestore: 'panel:restore',
   panelSetSwitch: 'panel:set-switch',
+
+  pluginsOutdated: 'plugins:outdated',
+  pluginsUpdate: 'plugins:update',
 
   profileGet: 'profile:get',
 

@@ -19,7 +19,9 @@ import type {
   McpProbeResult,
   McpVersion,
   PanelKind,
-  Provider
+  Provider,
+  RegistryAdd,
+  UpdateSuggestion
 } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
@@ -28,6 +30,7 @@ import { APPLY_LABEL, DiffLayoutToggle, InstructionDiff } from './InstructionDif
 import { InstructionsEditor } from './InstructionsEditor'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { MarketBrowse } from './MarketBrowse'
+import { McpBrowse } from './McpBrowse'
 import { answerRecommendation, recommendationAnswered } from './recommended'
 import { TabList, TabPanel, type TabDef } from './Tabs'
 
@@ -132,6 +135,10 @@ export function AgentPanel({
   const [versions, setVersions] = useState<Readonly<Record<string, McpVersion>>>({})
   /** the scope whose registries have been asked — this costs the network, so once */
   const asked = useRef<string | null | undefined>(undefined)
+  /** plugins a marketplace clone here has moved past, by plugin id — read off disk, so on every report */
+  const [pluginNews, setPluginNews] = useState<Readonly<Record<string, UpdateSuggestion>>>({})
+  /** which half of Browse is showing: the marketplaces' plugins, or the MCP Registry */
+  const [browseWhat, setBrowseWhat] = useState<'plugins' | 'mcp'>('plugins')
   /** whether this visit offers the recommended marketplace — decided on the first report */
   const [offer, setOffer] = useState<boolean | null>(null)
 
@@ -163,6 +170,7 @@ export function AgentPanel({
     setOffer(null)
     setSection(null)
     setVersions({})
+    setPluginNews({})
     asked.current = undefined
     load()
   }, [load])
@@ -174,6 +182,20 @@ export function AgentPanel({
     asked.current = repoRoot
     loadVersions()
   }, [report, repoRoot, loadVersions])
+
+  // a plugin's news is local (its marketplace's clone against what is installed), so it
+  // is read again whenever the report moves — an update is what clears it
+  useEffect(() => {
+    if (repoRoot !== null || !report?.rows.some((r) => r.kind === 'plugin')) return
+    let live = true
+    void api
+      .outdatedPlugins?.()
+      .then((list) => live && setPluginNews(Object.fromEntries(list.map((n) => [n.name, n]))))
+      .catch(() => live && setPluginNews({}))
+    return () => {
+      live = false
+    }
+  }, [report, repoRoot])
 
   useEffect(
     () => () => {
@@ -260,6 +282,20 @@ export function AgentPanel({
     void run(key, () => api.addFromCatalog(item, agent), said)
   }
 
+  /** Add a server found in the MCP Registry to one agent. */
+  const addServer = (req: RegistryAdd, said: string): void => {
+    void run(`registry:${req.id}|${req.agent}`, () => api.addFromMcpRegistry(req), said)
+  }
+
+  /** Update a plugin through each agent's own `plugin update`, wherever it can be. */
+  const updatePlugin = (row: PanelRow, news: UpdateSuggestion): void => {
+    void run(
+      row.id,
+      () => api.updatePlugin(row.name),
+      `${row.name} is at ${news.latest} in ${listOf(news.agents.map((p) => PROVIDER_LABEL[p]))} — restart ${news.agents.length === 1 ? 'it' : 'them'} to pick it up.`
+    )
+  }
+
   /** Bump a pinned server to the release the registry offers, wherever it runs. */
   const update = (row: PanelRow, version: string): void => {
     void run(
@@ -340,12 +376,34 @@ export function AgentPanel({
       )}
       <TabList id="agents" label="Agents sections" tabs={tabs} selected={current} onSelect={setSection} />
       <TabPanel id="agents" selected={current}>
+        {/* two catalogues, one section: what a marketplace offers and what the MCP
+            Registry does. The instructions editor's own switch, not a second tab row */}
+        {browsing && (
+          <div className="md-tabs browse-what" role="group" aria-label="What to browse">
+            <button
+              className={`md-tab ${browseWhat === 'plugins' ? 'active' : ''}`}
+              aria-pressed={browseWhat === 'plugins'}
+              onClick={() => setBrowseWhat('plugins')}
+            >
+              Plugins
+            </button>
+            <button
+              className={`md-tab ${browseWhat === 'mcp' ? 'active' : ''}`}
+              aria-pressed={browseWhat === 'mcp'}
+              onClick={() => setBrowseWhat('mcp')}
+            >
+              MCP servers
+            </button>
+          </div>
+        )}
         {/* the instructions editor opens with its own explanation — a section blurb
             above it would say the same thing twice */}
         {(q !== '' || current !== 'instructions') && (
         <p className="pnl-blurb">
           {browsing
-            ? 'Marketplaces this machine knows, and what each one offers. Adding a marketplace installs nothing — you pick the plugins, one agent at a time.'
+            ? browseWhat === 'mcp'
+              ? 'Servers published to the MCP Registry, the open catalogue MCP servers are listed in. Pick one, then the agents to run it.'
+              : 'Marketplaces this machine knows, and what each one offers. Adding a marketplace installs nothing — you pick the plugins, one agent at a time.'
             : q
             ? `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
             : current === 'removed'
@@ -358,7 +416,7 @@ export function AgentPanel({
         </p>
         )}
 
-        {browsing && (
+        {browsing && browseWhat === 'plugins' && (
           <MarketBrowse
             report={report}
             query={query}
@@ -366,6 +424,9 @@ export function AgentPanel({
             onAdd={addFound}
             setNotice={setNotice}
           />
+        )}
+        {browsing && browseWhat === 'mcp' && (
+          <McpBrowse report={report} query={query} busy={busy} onAdd={addServer} setNotice={setNotice} />
         )}
 
         {!browsing && !q && current === 'instructions' && (
@@ -419,6 +480,7 @@ export function AgentPanel({
                 row={row}
                 repoRoot={repoRoot}
                 version={row.kind === 'mcp' ? versions[row.name] : undefined}
+                news={row.kind === 'plugin' ? pluginNews[row.name] : undefined}
                 showKind={q !== '' || current === 'attention'}
                 armed={armed}
                 busy={busy}
@@ -431,6 +493,7 @@ export function AgentPanel({
                 onArm={arm}
                 onReload={load}
                 onUpdate={update}
+                onUpdatePlugin={updatePlugin}
                 setNotice={setNotice}
               />
             ))}
@@ -600,12 +663,16 @@ function Row({
   onArm,
   onReload,
   onUpdate,
+  onUpdatePlugin,
+  news,
   setNotice
 }: {
   row: PanelRow
   repoRoot: string | null
   /** what the registry said about this server's pinned version, when it pins one */
   version?: McpVersion
+  /** a plugin its marketplace's clone here has a newer version of */
+  news?: UpdateSuggestion
   /** the cross-kind views mix sections, so each row says which one it is */
   showKind: boolean
   open: boolean
@@ -620,6 +687,7 @@ function Row({
   /** something outside the panel's own ops changed an agent — re-read every config */
   onReload: () => void
   onUpdate: (row: PanelRow, version: string) => void
+  onUpdatePlugin: (row: PanelRow, news: UpdateSuggestion) => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
   // one word for the whole row: the amber chip already says which agent
@@ -641,6 +709,11 @@ function Row({
               title={`${version.pkg} ${version.current} is pinned; ${version.registry} offers ${version.latest}`}
             >
               update {version.latest}
+            </span>
+          )}
+          {news?.latest && (
+            <span className="mcp-bump" title={`${news.current} is installed; ${news.detail}`}>
+              update {news.latest}
             </span>
           )}
           {showKind && <span className="pnl-kind">{KIND_LABEL[row.kind]}</span>}
@@ -676,6 +749,8 @@ function Row({
             onArm={onArm}
             onReload={onReload}
             onUpdate={onUpdate}
+            onUpdatePlugin={onUpdatePlugin}
+            news={news}
             setNotice={setNotice}
           />
         </div>
@@ -702,11 +777,14 @@ function Detail({
   onArm,
   onReload,
   onUpdate,
+  onUpdatePlugin,
+  news,
   setNotice
 }: {
   row: PanelRow
   repoRoot: string | null
   version?: McpVersion
+  news?: UpdateSuggestion
   armed: string | null
   busy: string | null
   onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
@@ -716,6 +794,7 @@ function Detail({
   onArm: (key: string | null) => void
   onReload: () => void
   onUpdate: (row: PanelRow, version: string) => void
+  onUpdatePlugin: (row: PanelRow, news: UpdateSuggestion) => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
   const holders = PROVIDERS.filter((p) => agentHasIt(row.cells[p].state))
@@ -727,6 +806,7 @@ function Detail({
   return (
     <div className="pnl-detail-body">
       {version && <McpVersionLine row={row} version={version} busy={busy} onUpdate={onUpdate} />}
+      {news && <PluginVersionLine row={row} news={news} busy={busy} onUpdate={onUpdatePlugin} />}
       {row.kind === 'mcp' && <McpHealth row={row} repoRoot={repoRoot} setNotice={setNotice} />}
 
       {/* a chip that can't be switched explains itself here as well as in its title:
@@ -1038,6 +1118,43 @@ function McpVersionLine({
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * A plugin's version question, asked of the marketplace clone beside it — the catalogue
+ * the agent itself would update from. One button runs each agent's own `plugin update`;
+ * Codex has none and records no version, so it is never part of this line.
+ */
+function PluginVersionLine({
+  row,
+  news,
+  busy,
+  onUpdate
+}: {
+  row: PanelRow
+  news: UpdateSuggestion
+  busy: string | null
+  onUpdate: (row: PanelRow, news: UpdateSuggestion) => void
+}): JSX.Element {
+  return (
+    <div className="pnl-ver">
+      <span className="pnl-health-what">
+        {listOf(news.agents.map((p) => PROVIDER_LABEL[p]))} {news.agents.length === 1 ? 'has' : 'have'}{' '}
+        {news.current}; {news.detail}.
+      </span>
+      <span className="mcp-status update">{VERSION_LABEL.update}</span>
+      <div className="pnl-fix-actions">
+        <button
+          className="btn-ghost small"
+          disabled={busy !== null}
+          title="Runs each agent’s own plugin update — restart those CLIs to pick it up"
+          onClick={() => onUpdate(row, news)}
+        >
+          {busy === row.id ? 'updating…' : `Update to ${news.latest}`}
+        </button>
+      </div>
     </div>
   )
 }

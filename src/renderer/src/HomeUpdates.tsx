@@ -46,7 +46,7 @@ function whenIdle(run: () => void): () => void {
 
 /** Where a row is settled, when Cockpit can't settle it in place. */
 export type UpdatesJump = {
-  /** the Agents view, Global scope — drift, plugins, marketplaces */
+  /** the Agents view, Global scope — where what the agents disagree on is settled */
   readonly agents: () => void
   /** Settings › About — the app's own update */
   readonly about: () => void
@@ -88,7 +88,9 @@ export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null
     setError(null)
     try {
       await run()
-      load(true)
+      // main forgot its gathering when the write landed, so a plain ask is a fresh one —
+      // `force` would pull every marketplace again, which is Check again's to do
+      load(false)
     } catch (err) {
       setError(ipcErrorText(err))
       setBusy(null)
@@ -138,6 +140,7 @@ export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null
               <button
                 className="link-btn"
                 disabled={busy !== null}
+                title="Asks every source again, and pulls each agent’s marketplaces first"
                 onClick={() => load(true)}
               >
                 {busy === 'all' ? 'checking…' : 'Check again'}
@@ -159,9 +162,9 @@ export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null
 
 /**
  * One row, and its one action. An update Cockpit can make itself is made here — the
- * MCP pin it already rewrites in the Agents panel, the Terminal a CLI update has
- * always needed. Anything else leads to the view that owns it rather than growing a
- * second place to do it.
+ * MCP pin and the plugin update the Agents panel makes too, the Terminal a CLI update
+ * has always needed. Anything else leads to the view that owns it rather than growing
+ * a second place to do it.
  */
 function Row({
   item,
@@ -192,10 +195,16 @@ function Row({
               api.setMcpVersion({ repoRoot: null, kind: 'mcp', name: item.name }, item.latest ?? '')
             )
         }
+      case 'plugin':
+        return {
+          label: `Update to ${item.latest}`,
+          title: 'Runs each agent’s own plugin update — restart those CLIs to pick it up',
+          onClick: () => void onAct(item, () => api.updatePlugin(item.name))
+        }
       case 'app':
         return { label: 'Open About', onClick: jump.about }
       default:
-        return { label: item.kind === 'drift' ? 'Settle it' : 'Open Agents', onClick: jump.agents }
+        return { label: 'Settle it', onClick: jump.agents }
     }
   })()
   return (

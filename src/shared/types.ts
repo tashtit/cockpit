@@ -1066,6 +1066,62 @@ export type UpdatesDigest = {
   readonly problems: readonly string[]
 }
 
+/* ---------- the MCP Registry: servers nobody here runs yet ---------- */
+
+/** How a registry server runs once it is added — the definition Cockpit writes. */
+export type RegistryServerKind = 'npm' | 'pypi' | 'remote'
+
+/** A value a server needs to run that only the person can give it: an env var. */
+export type RegistryInput = {
+  readonly name: string
+  readonly description: string
+  /** it won't start without one, and the registry offers no default */
+  readonly required: boolean
+  /** a token or a password — typed into a masked field */
+  readonly secret: boolean
+  readonly default?: string
+}
+
+/** One server the registry offers, as it would land on this machine. */
+export type RegistryServer = {
+  /** the registry's own name, `io.github.owner/server` — its namespace is its publisher */
+  readonly id: string
+  readonly version: string
+  /** what a person calls it: the publisher's title, else the name's last segment */
+  readonly title: string
+  readonly description: string
+  readonly repository?: string
+  readonly website?: string
+  /** how it would run here; absent when Cockpit can't add it (`refusal` says why) */
+  readonly kind?: RegistryServerKind
+  /** the package, or the url a remote server is reached at */
+  readonly what?: string
+  /** what it is called in each agent's config — an existing server's name when one here runs it */
+  readonly name: string
+  readonly inputs: readonly RegistryInput[]
+  /** why this one can't be added from here */
+  readonly refusal?: string
+  /** agents that already run it */
+  readonly agents: readonly Provider[]
+  /** agents it can't be added to, and why */
+  readonly unsupported: Partial<Record<Provider, string>>
+}
+
+export type RegistryPage = {
+  readonly servers: readonly RegistryServer[]
+  /** handed back to read the next page; absent on the last one */
+  readonly next?: string
+}
+
+/** Add one registry server to one agent. */
+export type RegistryAdd = {
+  readonly id: string
+  readonly version: string
+  readonly agent: Provider
+  /** what the person typed for its inputs, by env var name */
+  readonly values: Readonly<Record<string, string>>
+}
+
 /* ---------- shared AI instructions ---------- */
 
 export type InstructionStatus =

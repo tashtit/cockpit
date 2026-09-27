@@ -345,11 +345,11 @@ function Plugin({
 
 /**
  * The panel's own chip, add-only. An agent that already has this is shown lit and
- * inert: taking something out is the Plugins and Marketplaces sections' job, where
- * it is an armed confirm — a browse surface must not be able to uninstall by a
- * mis-click on the row you were reading.
+ * inert: taking something out is the owning section's job (Plugins, Marketplaces,
+ * MCP servers), where it is an armed confirm — a browse surface must not be able to
+ * uninstall by a mis-click on the row you were reading. Both halves of Browse use it.
  */
-function AddChips({
+export function AddChips({
   agents,
   busy,
   keyFor,
@@ -364,7 +364,7 @@ function AddChips({
   keyFor: (agent: Provider) => string
   /** what a chip's label says it adds — for the screen reader and the tooltip */
   what: string
-  /** the section that can switch it off again — "Plugins", "Marketplaces" */
+  /** the section that can switch it off again — "Plugins", "Marketplaces", "MCP servers" */
   where: string
   /** why this agent can't be given it, when it can't */
   disabledFor: (agent: Provider) => string | null

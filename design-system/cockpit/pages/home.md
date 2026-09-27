@@ -172,11 +172,17 @@ Everything between them stays quiet.
   comes from) · one `.btn-ghost.small` action. ≤780px the tag and the detail shed and the
   name takes the room — the name, the versions and the action are the row.
 - **One action per row, and it is the one that settles it.** An update Cockpit already
-  knows how to make is made here (an MCP pin, the Terminal hand-off a CLI update has
-  always been); anything else leads to the view that owns it (*Open About*, *Settle it*,
-  *Open Agents*). Never grow a second place to do what the Agents panel does.
+  knows how to make is made here — an MCP pin and a plugin update, the same calls the
+  Agents panel's own rows make, and the Terminal hand-off a CLI update has always been;
+  anything else leads to the view that owns it (*Open About*, *Settle it*). Never grow a
+  second place to do what the Agents panel does, and never an action the panel lacks.
+- After an action the list asks again plainly: main forgot its gathering when the write
+  landed. A forced ask is **Check again**'s alone.
 - The foot line carries what could not be asked (`problems`, never a silent gap) and
   **Check again** — on demand, never polled, like every other outward question in the app.
+  It is also the one thing that pulls every agent's marketplaces first (their clones are
+  what the plugin rows compare against, and a third-party one never refreshes itself), so
+  it takes seconds rather than a blink, and says `checking…` meanwhile.
 
 ## First run (`Setup`, `.setup-card`)
 

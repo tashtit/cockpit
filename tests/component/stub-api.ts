@@ -261,7 +261,11 @@ export function freshApi(): CockpitApi {
       plugins: []
     })),
     addFromCatalog: vi.fn(async () => emptyPanel),
+    searchMcpRegistry: vi.fn(async () => ({ servers: [] })),
+    addFromMcpRegistry: vi.fn(async () => emptyPanel),
     getUpdatesDigest: vi.fn(async () => ({ items: [], at: 0, problems: [] })),
+    outdatedPlugins: vi.fn(async () => []),
+    updatePlugin: vi.fn(async () => emptyPanel),
     getInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     saveInstructionsBaseline: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     applyInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),

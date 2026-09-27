@@ -7,9 +7,11 @@ import {
   keepPanelDifference,
   matchPanelEntry,
   removePanelEntry,
+  refreshMarketplaces,
   restorePanelEntry,
   setMcpVersion,
-  setPanelSwitch
+  setPanelSwitch,
+  updatePlugin
 } from '../src/main/library'
 import { saveBaseline } from '../src/main/instructions'
 
@@ -645,5 +647,91 @@ describe('pinning a server to a newer version', () => {
     await expect(
       setMcpVersion({ repoRoot: null, kind: 'mcp', name: 'remote' }, '1.0.0')
     ).rejects.toThrow(/doesn’t pin a package version/)
+  })
+})
+
+describe('updating a plugin, and refreshing the marketplaces it comes from', () => {
+  let savedPath: string | undefined
+
+  beforeEach(() => {
+    savedPath = process.env.PATH
+    process.env.PATH = `${join(home, 'bin')}:${savedPath}`
+  })
+
+  afterEach(() => {
+    process.env.PATH = savedPath
+  })
+
+  /** An agent CLI that writes down what it was asked, and fails when told to. */
+  function stubCli(agent: string, fail = false): string {
+    const log = join(home, `${agent}-calls.log`)
+    write(
+      join(home, 'bin', agent),
+      ['#!/bin/sh', `echo "$@" >> '${log}'`, ...(fail ? ['echo "network is down" >&2', 'exit 1'] : [])].join('\n')
+    )
+    chmodSync(join(home, 'bin', agent), 0o755)
+    return log
+  }
+
+  const calls = (log: string): string[] =>
+    existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []
+
+  function installed(id: string, where: { claude?: boolean; codex?: boolean; copilot?: boolean }): void {
+    const [name, market] = id.split('@')
+    if (where.claude) {
+      write(
+        join(home, '.claude', 'plugins', 'installed_plugins.json'),
+        JSON.stringify({ version: 2, plugins: { [id]: [{ version: '1.2.0', scope: 'user' }] } })
+      )
+    }
+    if (where.codex) write(join(home, '.codex', 'config.toml'), `[plugins."${id}"]\nenabled = true\n`)
+    if (where.copilot) {
+      write(
+        join(home, '.copilot', 'installed-plugins', market, name, '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ name, version: '1.2.0' })
+      )
+    }
+  }
+
+  it('runs each agent’s own plugin update where it can, and never Codex, which has none', async () => {
+    installed('review@acme', { claude: true, codex: true, copilot: true })
+    const logs = { claude: stubCli('claude'), codex: stubCli('codex'), copilot: stubCli('copilot') }
+    await updatePlugin('review@acme')
+    expect(calls(logs.claude)).toEqual(['plugin update review@acme'])
+    expect(calls(logs.copilot)).toEqual(['plugin update review@acme'])
+    expect(calls(logs.codex)).toEqual([])
+  })
+
+  it('refuses a plugin no agent here can update, before anything is spawned', async () => {
+    installed('review@acme', { codex: true })
+    const log = stubCli('codex')
+    await expect(updatePlugin('review@acme')).rejects.toThrow(/isn’t installed in Claude Code or Copilot/)
+    await expect(updatePlugin('review')).rejects.toThrow(/invalid plugin id/)
+    await expect(updatePlugin('--all@acme')).rejects.toThrow(/isn’t installed/)
+    expect(calls(log)).toEqual([])
+  })
+
+  it('tries every agent, and says what failed after the ones that worked', async () => {
+    installed('review@acme', { claude: true, copilot: true })
+    stubCli('claude', true)
+    const copilot = stubCli('copilot')
+    await expect(updatePlugin('review@acme')).rejects.toThrow(/claude plugin update review@acme failed — network is down/)
+    expect(calls(copilot)).toEqual(['plugin update review@acme'])
+  })
+
+  it('pulls the marketplaces of every agent that has one, in that agent’s own words', async () => {
+    write(
+      join(home, '.claude', 'plugins', 'known_marketplaces.json'),
+      JSON.stringify({ acme: { source: { source: 'github', repo: 'acme/plugins' } } })
+    )
+    write(join(home, '.codex', 'config.toml'), '[marketplaces.acme]\nsource_type = "git"\nsource = "https://github.com/acme/plugins.git"\n')
+    const logs = { claude: stubCli('claude'), codex: stubCli('codex', true), copilot: stubCli('copilot') }
+    const problems = await refreshMarketplaces()
+    expect(calls(logs.claude)).toEqual(['plugin marketplace update'])
+    // codex calls refreshing its snapshots an upgrade — and here it fails, alone
+    expect(calls(logs.codex)).toEqual(['plugin marketplace upgrade'])
+    expect(problems).toEqual([expect.stringMatching(/^couldn’t refresh codex’s marketplaces — .*network is down/)])
+    // copilot has no marketplace here, so there is nothing of its to pull
+    expect(calls(logs.copilot)).toEqual([])
   })
 })
