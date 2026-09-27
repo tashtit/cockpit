@@ -14,6 +14,7 @@ import { AttachRow, useImageAttachments, type ImageAttachment } from './attachme
 import { Select } from './Select'
 import { branchHint } from './task-names'
 import { useBranchPrefix } from './branch-prefix'
+import { ErrorAlert } from './ErrorAlert'
 
 export function NewSession({
   repo,
@@ -136,7 +137,7 @@ export function NewSession({
           Runs in an isolated git worktree on its own branch — ship it as a PR when done.
         </div>
 
-        {error && <div className="new-error" role="alert">{error}</div>}
+        {error && <ErrorAlert>{error}</ErrorAlert>}
 
         <div className="ns-actions">
           <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>

@@ -14,6 +14,7 @@ import {
   useAgentOptions
 } from './agent-options'
 import { BranchChip, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ErrorAlert } from './ErrorAlert'
 
 /** The session being handed off, snapshotted from the open chat binding. */
 export type HandoffSourceRef = {
@@ -190,19 +191,19 @@ export function HandoffView({
           onChange={(e) => setBriefing(e.target.value)}
         />
         {briefError && (
-          <div className="new-error" role="alert">
+          <ErrorAlert>
             Briefing failed: {briefError}{' '}
             <button className="link-btn" onClick={loadBriefing}>Retry</button>
-          </div>
+          </ErrorAlert>
         )}
         {warnings.map((w) => (
           <div key={w} className="ns-hint">{w}</div>
         ))}
         {!cwdExists && (
-          <div className="new-error" role="alert">
+          <ErrorAlert>
             This session’s working directory no longer exists — a handoff needs the
             original directory.
-          </div>
+          </ErrorAlert>
         )}
 
         <label className="ns-label" htmlFor="handoff-next">What should the agent do next</label>
@@ -217,7 +218,7 @@ export function HandoffView({
           }}
         />
 
-        {error && <div className="new-error" role="alert">{error}</div>}
+        {error && <ErrorAlert>{error}</ErrorAlert>}
 
         <div className="ns-actions">
           <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>

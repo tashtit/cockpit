@@ -8,6 +8,7 @@ import { ipcErrorText } from './ipc-error'
 import { EndpointIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { useLoaded } from './use-loaded'
+import { ErrorAlert } from './ErrorAlert'
 
 const DEFAULT_PRESET = ENDPOINT_PRESETS[0]
 
@@ -272,8 +273,8 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
         })}
         {endpoints.length === 0 && <li className="tree-empty">no custom providers</li>}
       </ul>
-      {removeError && <div role="alert" className="new-error">{removeError}</div>}
-      {keyError && <div role="alert" className="new-error">{keyError}</div>}
+      {removeError && <ErrorAlert>{removeError}</ErrorAlert>}
+      {keyError && <ErrorAlert>{keyError}</ErrorAlert>}
       {/* the outcome of an add outlives the form it was typed into: adding folds the
           form away, and "12 models found" / "couldn't list models" is the answer */}
       {epNotice && !epError && <p className="ns-hint">{epNotice}</p>}
@@ -393,7 +394,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
           )}
         </div>
         <p id="ep-preset-note" className="ns-hint">{preset.note}</p>
-        {epError && <div id="endpoint-add-error" role="alert" className="new-error">{epError}</div>}
+        {epError && <ErrorAlert id="endpoint-add-error">{epError}</ErrorAlert>}
         <div className="ns-actions">
           <button
             type="button"

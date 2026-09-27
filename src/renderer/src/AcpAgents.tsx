@@ -7,6 +7,7 @@ import { ipcErrorText } from './ipc-error'
 import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { useLoaded } from './use-loaded'
+import { ErrorAlert } from './ErrorAlert'
 
 /**
  * Agents Cockpit drives over ACP: the list, the add form, and removal.
@@ -144,11 +145,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
         ))}
         {agents.length === 0 && <li className="tree-empty">no ACP agents</li>}
       </ul>
-      {removeError && (
-        <div role="alert" className="new-error">
-          {removeError}
-        </div>
-      )}
+      {removeError && <ErrorAlert>{removeError}</ErrorAlert>}
       {notice && !error && <p className="ns-hint">{notice}</p>}
       {!addOpen && (
         <div className="source-add-open">
@@ -230,11 +227,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
                 : probe.error}
             </p>
           )}
-          {error && (
-            <div role="alert" className="new-error">
-              {error}
-            </div>
-          )}
+          {error && <ErrorAlert>{error}</ErrorAlert>}
           <div className="ns-actions">
             <button type="button" className="btn-ghost" onClick={() => void runProbe()} disabled={probing}>
               {probing ? 'Testing…' : 'Test'}

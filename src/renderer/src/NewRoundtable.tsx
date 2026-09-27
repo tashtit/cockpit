@@ -27,6 +27,7 @@ import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
 import { storedValue } from './stored-value'
 import { useLoaded } from './use-loaded'
+import { ErrorAlert } from './ErrorAlert'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
@@ -731,7 +732,7 @@ export function NewRoundtable({
             : `The table stops at ${limits.maxTurnsPerTable} turns — about ${messagesAffordable} ${messagesAffordable === 1 ? 'message' : 'messages'} at this size — and you can raise it from the table.`}
         </div>
 
-        {error && <div className="new-error" role="alert">{error}</div>}
+        {error && <ErrorAlert>{error}</ErrorAlert>}
 
         {/* pinned to the bottom of the view: however many seats, the bill and the way
             to open the table are always in sight */}

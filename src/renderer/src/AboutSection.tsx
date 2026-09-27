@@ -13,6 +13,7 @@ import { ipcErrorText } from './ipc-error'
 import { CockpitLogo } from './logos'
 import { turnsWord, useRestartToUpdate } from './update-prompt'
 import { useLoaded } from './use-loaded'
+import { ErrorAlert } from './ErrorAlert'
 
 const UPDATE_SWITCHES: ReadonlyArray<{
   readonly key: keyof UpdatePrefs
@@ -292,11 +293,11 @@ export function AboutSection({
           ))}
       </ul>
       {update?.installFailure && (
-        <div role="alert" className="new-error">
+        <ErrorAlert>
           The last update could not be installed, so the version you had was put back:{' '}
           {update.installFailure} Nothing downloads on its own until you check for updates
           again.
-        </div>
+        </ErrorAlert>
       )}
       <p className="ns-hint ns-prose">
         Installed builds check GitHub Releases on launch and every few hours, then keep
@@ -324,11 +325,7 @@ export function AboutSection({
           Open source licenses
         </button>
       </p>
-      {licensesError && (
-        <div role="alert" className="new-error">
-          {licensesError}
-        </div>
-      )}
+      {licensesError && <ErrorAlert>{licensesError}</ErrorAlert>}
       <FeedbackGroup appInfo={appInfo} onStatus={onStatus} />
     </>
   )

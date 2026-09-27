@@ -24,6 +24,7 @@ import { SeatCluster } from './SeatCluster'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 import { useRoundtables } from './use-roundtables'
+import { ErrorAlert } from './ErrorAlert'
 
 /** "titan-ron" → "Titan": the login's first name-ish segment, capitalized. */
 function firstName(login: string): string {
@@ -360,7 +361,7 @@ export function HomeView({
           {mode === 'yolo' && (
             <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
           )}
-          {error && <div className="new-error" role="alert">{error}</div>}
+          {error && <ErrorAlert>{error}</ErrorAlert>}
         </div>
       </div>
     </main>

@@ -22,6 +22,7 @@ import { ipcErrorText } from './ipc-error'
 import { BranchIcon, OrgIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
+import { ErrorAlert } from './ErrorAlert'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -371,9 +372,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
           </li>
         ))}
       </ul>
-      {removeError && (
-        <div role="alert" className="new-error">{removeError}</div>
-      )}
+      {removeError && <ErrorAlert>{removeError}</ErrorAlert>}
       {lastRemoved && (
         <p className="ns-hint">
           Removed <code>{lastRemoved.label}</code> ({lastRemoved.path}) —{' '}
@@ -443,9 +442,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
             Usually a second account&apos;s home — the directory its <code>CLAUDE_CONFIG_DIR</code>{' '}
             points at. The defaults were found on first run.
           </p>
-          {error && (
-            <div id="source-add-error" role="alert" className="new-error">{error}</div>
-          )}
+          {error && <ErrorAlert id="source-add-error">{error}</ErrorAlert>}
           <div className="ns-actions">
             <button
               type="button"
@@ -464,7 +461,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
         </form>
       )}
 
-      {cliError && <div className="new-error" role="alert">{cliError}</div>}
+      {cliError && <ErrorAlert>{cliError}</ErrorAlert>}
 
       <AgentClis onStatus={onStatus} />
 
@@ -579,11 +576,7 @@ function BranchPrefixRow({ onStatus }: { onStatus: (s: string) => void }): JSX.E
             {saving ? 'Saving…' : 'Save'}
           </button>
         </form>
-        {problem !== null && (
-          <div className="new-error" role="alert" id="branch-prefix-error">
-            {problem}
-          </div>
-        )}
+        {problem !== null && <ErrorAlert id="branch-prefix-error">{problem}</ErrorAlert>}
       </div>
     </li>
   )
@@ -735,7 +728,7 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
           </>
         )}
       </p>
-      {error && <div className="new-error" role="alert">{error}</div>}
+      {error && <ErrorAlert>{error}</ErrorAlert>}
       <ul className="source-list">
         {clis === null ? (
           <li className="source-row"><span className="ns-hint">checking…</span></li>

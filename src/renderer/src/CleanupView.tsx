@@ -31,6 +31,7 @@ import { Select } from './Select'
 import { StaleList, useStaleList, type Freed, type StaleListConfig } from './StaleList'
 import { TabList, TabPanel } from './Tabs'
 import { formatBytes } from '../../shared/cleanup'
+import { ErrorAlert } from './ErrorAlert'
 
 /**
  * Cleanup: one place for everything that has gone quiet, across every agent and
@@ -535,11 +536,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           {panels[current]}
         </TabPanel>
 
-        {error && (
-          <div role="alert" className="new-error">
-            {error}
-          </div>
-        )}
+        {error && <ErrorAlert>{error}</ErrorAlert>}
       </div>
     </main>
   )
