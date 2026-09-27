@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import { PROVIDERS, isDrift, type PanelRow } from '../../shared/library'
 import type { Provider } from '../../shared/types'
-import { disarmHandlers } from './disarm-handlers'
+import { disarmOn } from './disarm'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 
 /** What every set of chips shares with the panel around it. */
@@ -72,7 +72,7 @@ export function AgentSwitches({
             className={`ag-chip ag-${p} ${cell.desired ? 'on' : 'off'} ${
               isDrift(cell.state) ? 'drift' : ''
             } ${isArmed ? 'armed' : ''} ${busy === key ? 'working' : ''}`}
-            {...disarmHandlers(isArmed, onDisarm)}
+            {...(isArmed ? disarmOn(onDisarm) : {})}
             onClick={() => onFlip(row, p, !cell.desired)}
           >
             <ProviderLogo p={p} size={11} />

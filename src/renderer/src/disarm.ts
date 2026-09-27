@@ -18,7 +18,9 @@ export function onEscape(back: () => void): (e: KeyboardEvent) => void {
  * The handlers an armed two-step button wears: it backs out on blur and on Escape,
  * so a question left on screen never outlives the attention it was asked for. One
  * helper for every such button — the disarm rules gate destructive actions, and a
- * hand-typed copy is how one button ends up behaving differently from its neighbour.
+ * hand-typed copy is how one button ends up behaving differently from its neighbour. A
+ * button that stays the same element armed or not wears these only while armed, so its
+ * Escape still reaches the view when there is nothing to back out of.
  */
 export function disarmOn(disarm: () => void): {
   readonly onBlur: () => void

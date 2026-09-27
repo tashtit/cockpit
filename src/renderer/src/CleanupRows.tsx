@@ -7,6 +7,7 @@ import type {
   StaleWorktree
 } from '../../shared/types'
 import type { Picks } from './cleanup-picks'
+import { SeatCluster } from './SeatCluster'
 import {
   BranchChip,
   BranchIcon,
@@ -220,13 +221,7 @@ export function TableRow({ row: t, now, picked, onPick }: RowProps<StaleTable>):
         label={`Select roundtable ${t.title}`}
         onPick={onPick}
       />
-      <span className="rt-seats" aria-hidden="true">
-        {t.providers.map((p, i) => (
-          <span key={`${p}-${i}`} className={`rt-seat plogo-${p}`}>
-            <ProviderLogo p={p} size={10} />
-          </span>
-        ))}
-      </span>
+      <SeatCluster providers={t.providers} decorative />
       <div className="cl-body">
         <div className="cl-title">
           {t.title}

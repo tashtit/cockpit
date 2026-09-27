@@ -15,7 +15,7 @@ import type { McpVersion, PanelKind, Provider } from '../../shared/types'
 import { AgentSwitches, ArmedFlag, cellKey, chipArmed, type Switching } from './AgentSwitches'
 import { api } from './api'
 import { useArmedConfirm } from './ConfirmRemove'
-import { disarmHandlers } from './disarm-handlers'
+import { disarmOn } from './disarm'
 import { ipcErrorText } from './ipc-error'
 import { InstructionsCompare } from './InstructionsCompare'
 import { InstructionsEditor } from './InstructionsEditor'
@@ -625,7 +625,7 @@ function Detail({
                 : `Remove ${row.name} everywhere`
             }
             title="Take it out of every agent. Cockpit keeps a copy, so you can put it back."
-            {...disarmHandlers(removeArmed, onDisarm)}
+            {...(removeArmed ? disarmOn(onDisarm) : {})}
             onClick={() => (removeArmed ? onRemove(row) : onArm(row.id))}
           >
             {removeArmed ? 'Remove everywhere?' : 'Remove everywhere'}
