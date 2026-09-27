@@ -106,16 +106,6 @@ function codexHomeOf(file: string): string | null {
   return null
 }
 
-export function listCodexSessions(sourceDir: string, sourceLabel: string): SessionMeta[] {
-  const files = listCodexSessionFiles(sourceDir)
-  const out: SessionMeta[] = []
-  for (const file of files) {
-    const meta = parseCodexMeta(file, sourceLabel)
-    if (meta) out.push(meta)
-  }
-  return out
-}
-
 /**
  * Which envelope a rollout line uses. Modern codex-rs wraps every item as
  * `{timestamp, type, payload}`; older rollouts wrote bare ResponseItems with no

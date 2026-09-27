@@ -533,10 +533,6 @@ export function sessionLineageFor(sessionId: string): string | undefined {
   return loadConfig().continuedFrom?.[sessionId]
 }
 
-export function sessionLineage(): Record<string, string> {
-  return loadConfig().continuedFrom ?? {}
-}
-
 export const SESSION_CONTROL_CAP = 1000
 
 /**
