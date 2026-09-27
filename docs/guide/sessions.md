@@ -75,6 +75,8 @@ Two kinds of "gone", handled differently:
 - **Archived in Cockpit** — you can archive sessions in-app; they collapse into a dimmed per-repo section. Provider logs have no archive flag, so this state lives in Cockpit's own config.
 - **Archived or deleted in the provider's own app** — Cockpit reads each provider's native archived/deleted state (Copilot's `data.db`, Codex's `archived_sessions/`, the Claude desktop app's session store) and hides those sessions entirely.
 
+Either way, archiving a session ends its work, so Cockpit stops what it left running in its worktree — the dev server a turn started in the background and nobody stopped. Only what outlived whatever launched it goes: a server the agent is still running, or a shell a terminal or the agent's app still holds, is left alone. Nothing is stopped while another session still listed, a running turn or a roundtable uses the same worktree, and nothing ever in the repository's own checkout. It happens once, as the session is archived, with the same polite SIGTERM the Cleanup view's **Stop** sends; start a server there again later and it is yours to keep. Anything left over still shows on the Cleanup view's [Processes](/guide/cleanup#processes) tab.
+
 ## The history window
 
 By default Cockpit shows your full history. If years of sessions make the sidebar noisy, set a **history window** in **Settings › View** — sessions idle for longer than N days disappear from the index (the files on disk are never touched). The presets run from **Last day**, for when you only want what you touched today, out to a year.

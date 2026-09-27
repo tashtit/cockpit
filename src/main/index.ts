@@ -83,10 +83,12 @@ import {
   deleteRoundtables,
   deleteSessions,
   removeWorktrees,
+  stopLeftBehind,
   stopProcesses,
   surveyCleanup,
   type CleanupDeps
 } from './cleanup'
+import { ArchiveWatch } from './archive-watch'
 import { DEFAULT_STALE_DAYS, providerWorktreeHomes } from './cleanup-core'
 import { CleanupReminder } from './cleanup-reminder'
 import { getHandoffBriefing, improveHandoffBriefing } from './handoff'
@@ -173,6 +175,8 @@ let sideChat: ChatManager | null = null
 let roundtables: RoundtableManager | null = null
 let attention: AttentionDesk | null = null
 let cleanupReminder: CleanupReminder | null = null
+/** Stops what a session left running in its worktree once it is archived */
+let archiveWatch: ArchiveWatch | null = null
 let updater: UpdateManager | null = null
 /** A notification clicked while no renderer could hear it — the next one takes it. */
 let pendingOpen: AttentionTarget | null = null
@@ -674,6 +678,7 @@ app.whenReady().then(() => {
       resolveCopilotHandoffs()
       resolveAttention()
       forgetThrownAway()
+      archiveWatch?.update()
       sendToWin(PUSH.indexUpdated)
     },
     {
@@ -1658,6 +1663,16 @@ app.whenReady().then(() => {
   })
   cleanupReminder = reminder
   void indexer.whenScanned().then(() => reminder.start())
+  // archiving a session ends its work: the dev server it left running in its worktree
+  // is stopped with it, whichever app it was archived in
+  const watch = new ArchiveWatch({
+    listed: () => indexer.allSessions(),
+    thrownAway: (id) => indexer.thrownAway(id),
+    session: (id) => indexer.getSession(id),
+    stop: (sessions) => stopLeftBehind(cleanupDeps(), sessions)
+  })
+  archiveWatch = watch
+  void indexer.whenScanned().then(() => watch.start())
   ipcMain.handle(CH.cleanupScan, async () => {
     const { report, ready } = await surveyCleanup(
       cleanupDeps(),

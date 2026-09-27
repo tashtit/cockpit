@@ -372,15 +372,19 @@ export function ownProcessTree(rows: readonly PsRow[], selfPid: number): Set<num
   return own
 }
 
-/** A worktree as far as process judgement cares. */
-export type ProcessWorktree = {
+/** A worktree as far as process judgement cares: where it is and whose. */
+export type PlacedWorktree = {
   readonly path: string
   readonly repoName: string
   readonly branch: string | null
   readonly isMain: boolean
+  readonly missing: boolean
+}
+
+/** ...and whether cleanup counts it old. */
+export type ProcessWorktree = PlacedWorktree & {
   /** Idle past the threshold, or its directory is gone */
   readonly stale: boolean
-  readonly missing: boolean
 }
 
 /**
@@ -459,22 +463,71 @@ function deepest<T extends { readonly path: string }>(
   return best
 }
 
+/** The worktree a path sits in, as far as process judgement can tell. */
+type WorktreeAround<W extends PlacedWorktree> = {
+  readonly path: string
+  readonly repoName: string | null
+  readonly branch: string | null
+  /** The listing's record, when git still lists it */
+  readonly listed: W | null
+  readonly gone: boolean
+}
+
 /**
- * Which processes are left running in old worktrees. Two ways to be one:
+ * Which worktree `cwd` is in. Two ways to be in one:
  *
- *   - its cwd is inside a linked worktree git still lists, and that worktree is
- *     stale (or its directory is gone);
- *   - its cwd sits at or below the worktree level of a worktree home, and that
- *     worktree has no `.git` — it was removed (by this view, by `git worktree
- *     remove`, by hand) while something kept running in it. The directory itself
- *     may well exist again: a dev server that outlives its worktree recreates its
- *     caches (`.wrangler/`, `.nx/`) as an empty shell, so `.git` is the test, not
- *     whether the path is there.
+ *   - it is inside a linked worktree git still lists;
+ *   - it sits at or below the worktree level of a worktree home, and that worktree
+ *     has no `.git` — it was removed (by cleanup, by `git worktree remove`, by hand)
+ *     while something kept running in it. The directory itself may well exist again:
+ *     a dev server that outlives its worktree recreates its caches (`.wrangler/`,
+ *     `.nx/`) as an empty shell, so `.git` is the test, not whether the path is there.
  *
- * A process in the repository's own checkout, in a worktree still in use, in a
- * home or grouping directory itself, or in a deleted directory that was never a
- * worktree is none of cleanup's business. `exists` is the one filesystem question,
- * injected so this stays IO-free — and asked only about paths under a home.
+ * Null for the repository's own checkout, a home or grouping directory itself, a live
+ * checkout git lists for no known repository, and a deleted directory that never was
+ * a worktree. `exists` is the one filesystem question, injected so this stays IO-free.
+ */
+function worktreeAround<W extends PlacedWorktree>(
+  cwd: string,
+  input: {
+    readonly worktrees: readonly W[]
+    readonly homes: readonly WorktreeHome[]
+    readonly exists: (path: string) => boolean
+  }
+): WorktreeAround<W> | null {
+  const tree = deepest(input.worktrees, cwd)
+  if (tree && !tree.isMain) {
+    return {
+      path: tree.path,
+      repoName: tree.repoName,
+      branch: tree.branch,
+      listed: tree,
+      gone: tree.missing || !input.exists(tree.path)
+    }
+  }
+  const home = deepest(input.homes, cwd)
+  if (!home) return null
+  const rel = cwd.slice(home.path.length + 1).split(sep).filter(Boolean)
+  // the home itself, or a grouping directory (`<repo>`) above the worktrees
+  if (rel.length < home.depth) return null
+  const root = join(home.path, ...rel.slice(0, home.depth))
+  // a live worktree git does not list for any known repo — not ours to judge
+  if (input.exists(join(root, '.git'))) return null
+  // no `.git` at the worktree root is what put it here; the cwd may exist as a shell
+  return { path: root, repoName: home.repoName, branch: null, listed: null, gone: true }
+}
+
+function judged(p: ProcessFacts, at: WorktreeAround<PlacedWorktree>): JudgedProcess {
+  return { ...p, worktreePath: at.path, repoName: at.repoName, branch: at.branch, worktreeGone: at.gone }
+}
+
+const byAge = (a: ProcessFacts, b: ProcessFacts): number => a.startedAt - b.startedAt || a.pid - b.pid
+
+/**
+ * Which processes are left running in old worktrees: in a worktree (`worktreeAround`)
+ * that is stale, or whose directory is gone. A process in the repository's own
+ * checkout, in a worktree still in use, in a home or grouping directory itself, or in
+ * a deleted directory that was never a worktree is none of cleanup's business.
  */
 export function judgeProcesses(input: {
   readonly processes: readonly ProcessFacts[]
@@ -484,34 +537,82 @@ export function judgeProcesses(input: {
 }): JudgedProcess[] {
   const out: JudgedProcess[] = []
   for (const p of input.processes) {
-    const tree = deepest(input.worktrees, p.cwd)
-    if (tree && !tree.isMain) {
-      if (!tree.stale && !tree.missing) continue
-      out.push({
-        ...p,
-        worktreePath: tree.path,
-        repoName: tree.repoName,
-        branch: tree.branch,
-        worktreeGone: tree.missing || !input.exists(tree.path)
-      })
-      continue
-    }
-    const home = deepest(input.homes, p.cwd)
-    if (!home) continue
-    const rel = p.cwd.slice(home.path.length + 1).split(sep).filter(Boolean)
-    // the home itself, or a grouping directory (`<repo>`) above the worktrees
-    if (rel.length < home.depth) continue
-    const root = join(home.path, ...rel.slice(0, home.depth))
-    // a live worktree git does not list for any known repo — not ours to judge
-    if (input.exists(join(root, '.git'))) continue
-    out.push({
-      ...p,
-      worktreePath: root,
-      repoName: home.repoName,
-      branch: null,
-      // no `.git` at the worktree root is what put it here; the cwd may exist as a shell
-      worktreeGone: true
-    })
+    const at = worktreeAround(p.cwd, input)
+    if (!at) continue
+    if (at.listed && !at.listed.stale && !at.listed.missing) continue
+    out.push(judged(p, at))
   }
-  return out.sort((a, b) => a.startedAt - b.startedAt || a.pid - b.pid)
+  return out.sort(byAge)
+}
+
+/**
+ * What archived sessions left running: the dev server a turn started and nobody
+ * stopped, still serving a worktree whose work is over. A worktree's work is over when
+ * a session that ran in it has just been archived or deleted and nothing else still
+ * uses it — no session still listed, no turn running, no table (`inUse`, resolved
+ * cwds). The repository's own checkout never is: its work is never over.
+ *
+ * Only what nothing still running launched is taken. Walking up from a process, every
+ * parent short of launchd (pid 1, which adopts what outlives its parent) must be in
+ * one of those worktrees too: a server the agent is still running, a shell a terminal
+ * or an app still holds, or a turn Cockpit runs have a live parent elsewhere, and
+ * answer to it. A tree that also works outside those worktrees — a multiplexer whose
+ * other windows sit elsewhere — is left whole.
+ */
+export function leftBehind(input: {
+  /** Where the sessions just archived or deleted ran — resolved cwds */
+  readonly archived: readonly string[]
+  readonly inUse: readonly string[]
+  /** Every process with a known cwd, outside those worktrees too — how a tree working elsewhere is seen */
+  readonly processes: readonly ProcessFacts[]
+  readonly worktrees: readonly PlacedWorktree[]
+  readonly homes: readonly WorktreeHome[]
+  readonly exists: (path: string) => boolean
+}): JudgedProcess[] {
+  const over = new Set<string>()
+  for (const cwd of input.archived) {
+    const at = worktreeAround(cwd, input)
+    if (at && !input.inUse.some((c) => isUnder(c, at.path))) over.add(at.path)
+  }
+  if (over.size === 0) return []
+  const inside = new Map<number, JudgedProcess>()
+  for (const p of input.processes) {
+    const at = worktreeAround(p.cwd, input)
+    if (at && over.has(at.path)) inside.set(p.pid, judged(p, at))
+  }
+  const children = new Map<number, number[]>()
+  for (const p of input.processes) children.set(p.ppid, [...(children.get(p.ppid) ?? []), p.pid])
+  /** The top of the tree this process is in, when that tree was left to launchd */
+  const orphanRoot = (p: JudgedProcess): number | null => {
+    const seen = new Set<number>()
+    let top = p
+    for (let up = inside.get(top.ppid); up && !seen.has(up.pid); up = inside.get(top.ppid)) {
+      seen.add(up.pid)
+      top = up
+    }
+    return top.ppid === 1 ? top.pid : null
+  }
+  /** Every member of the tree `processes` knows is in one of those worktrees */
+  const whollyInside = (root: number): boolean => {
+    const queue = [root]
+    const seen = new Set(queue)
+    while (queue.length > 0) {
+      for (const c of children.get(queue.pop() as number) ?? []) {
+        if (seen.has(c)) continue
+        if (!inside.has(c)) return false
+        seen.add(c)
+        queue.push(c)
+      }
+    }
+    return true
+  }
+  const roots = new Map<number, boolean>()
+  const out: JudgedProcess[] = []
+  for (const p of inside.values()) {
+    const root = orphanRoot(p)
+    if (root === null) continue
+    if (!roots.has(root)) roots.set(root, whollyInside(root))
+    if (roots.get(root)) out.push(p)
+  }
+  return out.sort(byAge)
 }
