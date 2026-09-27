@@ -651,6 +651,48 @@ export class ChatManager {
     // bounded and linear however long a line runs (see LineSplitter)
     const stdout = new LineSplitter()
     let sawStructured = false
+    /**
+     * One stream record, whether a newline ended it or the stream did: the two used to
+     * be read by two copies of this, and the one at close drifted — it skipped Claude's
+     * control messages and the turn's bookkeeping (`deliver`). False when the line is
+     * no JSON, which only the caller can judge: a banner mid-stream, or a last record
+     * cut off by the exit.
+     */
+    const handleLine = (line: string): boolean => {
+      const raw = line.trim()
+      if (!raw) return true
+      let parsed: any
+      try {
+        parsed = JSON.parse(raw)
+      } catch {
+        return false
+      }
+      sawStructured = true
+      const control = turn.claudeAsks ? claudeControl(turnId, parsed) : null
+      if (control) {
+        this.onClaudeControl(turn, control)
+        return true
+      }
+      let events: ChatEvent[]
+      try {
+        events =
+          req.provider === 'claude'
+            ? parseClaudeStreamLine(turnId, parsed)
+            : parseCodexStreamLine(turnId, parsed)
+      } catch (err) {
+        // one event the parser cannot read (an input nested past what it can
+        // serialise) is skipped; thrown out of a stream handler it took down main
+        console.error(`[chat] ${cmd}: unreadable stream event skipped:`, err)
+        return true
+      }
+      for (const ev of events) this.deliver(turn, ev)
+      // stream-json input keeps the CLI reading for another message: the result is the
+      // turn's last word, so nothing more is coming from this side — unless it closed only
+      // a queued task notice's run, when the turn and its permission answers are still ahead
+      if (turn.claudeAsks && parsed?.type === 'result' && parsed.origin?.kind !== 'task-notification')
+        child.stdin?.end()
+      return true
+    }
     child.stdout!.setEncoding('utf8')
     child.stdout!.on('data', (chunk: string) => {
       if (req.provider === 'copilot') {
@@ -661,40 +703,8 @@ export class ChatManager {
       const { lines, dropped } = stdout.push(chunk)
       if (dropped > 0) console.warn(`[chat] ${cmd}: dropped ${dropped} stream line(s) over the size cap`)
       for (const line of lines) {
-        const raw = line.trim()
-        if (!raw) continue
-        let parsed: any
-        try {
-          parsed = JSON.parse(raw)
-        } catch {
-          // a banner or a warning, not an event — shown, but no bigger than any message
-          this.emit({ turnId, type: 'text', text: capText(raw) })
-          continue
-        }
-        sawStructured = true
-        const control = turn.claudeAsks ? claudeControl(turnId, parsed) : null
-        if (control) {
-          this.onClaudeControl(turn, control)
-          continue
-        }
-        let events: ChatEvent[]
-        try {
-          events =
-            req.provider === 'claude'
-              ? parseClaudeStreamLine(turnId, parsed)
-              : parseCodexStreamLine(turnId, parsed)
-        } catch (err) {
-          // one event the parser cannot read (an input nested past what it can
-          // serialise) is skipped; thrown out of a stream handler it took down main
-          console.error(`[chat] ${cmd}: unreadable stream event skipped:`, err)
-          continue
-        }
-        for (const ev of events) this.deliver(turn, ev)
-        // stream-json input keeps the CLI reading for another message: the result is the
-        // turn's last word, so nothing more is coming from this side — unless it closed only
-        // a queued task notice's run, when the turn and its permission answers are still ahead
-        if (turn.claudeAsks && parsed?.type === 'result' && parsed.origin?.kind !== 'task-notification')
-          child.stdin?.end()
+        // a banner or a warning, not an event — shown, but no bigger than any message
+        if (!handleLine(line)) this.emit({ turnId, type: 'text', text: capText(line.trim()) })
       }
     })
 
@@ -719,41 +729,31 @@ export class ChatManager {
     })
 
     child.on('close', (code) => {
-      // flush a final line that arrived without a trailing newline — it can carry the
-      // session_id / result event, without which resume breaks
-      let rest = stdout.rest().trim()
-      if (rest && sawStructured) {
-        try {
-          const parsed = JSON.parse(rest)
-          const events =
-            req.provider === 'claude'
-              ? parseClaudeStreamLine(turnId, parsed)
-              : parseCodexStreamLine(turnId, parsed)
-          for (const ev of events) {
-            if (ev.type === 'done') turn.doneSent = true
-            this.emit(ev)
-          }
-          rest = ''
-        } catch {
-          /* not a complete JSON line */
-        }
-      }
-      if (code !== 0 && !turn.doneSent) {
-        this.emit({
-          turnId,
-          type: 'error',
-          message: `${cmd} exited with code ${code}${errBuf ? `:\n${errBuf.trim()}` : ''}`
-        })
-      }
-      if (!sawStructured && req.provider !== 'copilot' && code === 0 && rest) {
-        this.emit({ turnId, type: 'text', text: capText(rest) })
-      }
-      // a throw from a listener must not leave the turn on the busy board forever
       try {
-        sendDone()
+        // flush a final line that arrived without a trailing newline — it can carry the
+        // session_id / result event, without which resume breaks
+        const last = stdout.rest()
+        const rest = handleLine(last) ? '' : last.trim()
+        if (code !== 0 && !turn.doneSent) {
+          this.emit({
+            turnId,
+            type: 'error',
+            message: `${cmd} exited with code ${code}${errBuf ? `:\n${errBuf.trim()}` : ''}`
+          })
+        }
+        // no event at all: what the CLI printed is its answer; after events, a last
+        // line that is no JSON is one the exit cut short
+        if (!sawStructured && req.provider !== 'copilot' && code === 0 && rest) {
+          this.emit({ turnId, type: 'text', text: capText(rest) })
+        }
       } finally {
-        this.turns.delete(turnId)
-        this.notifyBusy()
+        // a throw from a listener must not leave the turn on the busy board forever
+        try {
+          sendDone()
+        } finally {
+          this.turns.delete(turnId)
+          this.notifyBusy()
+        }
       }
     })
   }
