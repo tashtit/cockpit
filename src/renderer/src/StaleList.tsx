@@ -47,7 +47,7 @@ export type StaleListConfig<T> = {
 }
 
 /** One list's live state — see `useStaleList`. */
-export type StaleListState<T> = {
+type StaleListState<T> = {
   readonly all: readonly T[]
   /** The rows the filter bar and the free text let through */
   readonly shown: readonly T[]

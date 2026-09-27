@@ -16,7 +16,7 @@ export type RoveKeys = {
 }
 
 /** Where focus stands: the index of the focused item (−1 for none), among `count`. */
-export type RovePlace = { readonly at: number; readonly count: number }
+type RovePlace = { readonly at: number; readonly count: number }
 
 /** The index `key` moves focus to, or null for a key this set does not move on. */
 export function roveIndex(key: string, { at, count }: RovePlace, keys: RoveKeys): number | null {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { clampZoom } from '../../shared/window'
 import { api } from './api'
 
-export type Zoom = {
+type Zoom = {
   /** The window's zoom level, to two places — 1 is 100% */
   readonly zoom: number
   /** Back to 100% */

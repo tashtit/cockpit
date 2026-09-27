@@ -8,7 +8,7 @@ import { storedValue } from './stored-value'
  *
  * The rail (`rail.ts`) and the side panel (`panel.ts`) each keep one.
  */
-export type StoredWidth = {
+type StoredWidth = {
   /** The width the person chose, or null while the stylesheet decides. */
   readonly use: () => number | null
   /** Remember a width — or forget it (`null`) and let the stylesheet decide again. */

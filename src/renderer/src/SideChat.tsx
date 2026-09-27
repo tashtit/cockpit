@@ -161,7 +161,7 @@ export const SideChat = memo(function SideChat({
 })
 
 /** "3 steps · Read ×2 · Grep" — the transcript's work-fold wording, for what a copy looked at. */
-export function lookSummary(looked: readonly SideLook[]): string {
+function lookSummary(looked: readonly SideLook[]): string {
   const counts = new Map<string, number>()
   for (const l of looked) counts.set(l.tool, (counts.get(l.tool) ?? 0) + 1)
   const tools = [...counts].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(' · ')

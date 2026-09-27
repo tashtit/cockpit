@@ -34,7 +34,7 @@ function withText(turn: LiveTurn | undefined, text: string): LiveTurn {
     : { ...cur, parts: [...cur.parts, { kind: 'text', text }] }
 }
 
-export type RoundtableStream = {
+type RoundtableStream = {
   /** The table as last loaded; null until its snapshot lands */
   readonly rt: RoundtableSnapshot | null
   /** For an answer main gives back (new limits) — the stream carries no such event */

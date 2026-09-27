@@ -9,7 +9,7 @@ import { rejoinStream, type Rejoin } from './rejoin'
  * What the open conversation is told by its turns. Pass stable functions (`useCallback`
  * over refs): the stream subscription is remade whenever one of them changes.
  */
-export type TurnHandlers = {
+type TurnHandlers = {
   /** What the agent is called in an announcement — the provider behind the chat */
   readonly speaker: () => string
   /** The turn named the provider's session it writes: a new session's first id, or the
@@ -19,7 +19,7 @@ export type TurnHandlers = {
   readonly onSettled: () => void
 }
 
-export type ChatTurns = {
+type ChatTurns = {
   /** The turn streaming into the open chat; null while it is idle */
   readonly activeTurn: string | null
   /** The same, as of now — for a handler that may run before the next render */

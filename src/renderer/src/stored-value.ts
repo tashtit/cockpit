@@ -16,7 +16,7 @@ import { subscribers } from './subscribers'
  * Storage is read on every snapshot and parsed only when its text changed, so a value
  * built fresh from it (a Set, a record) keeps its identity for `useSyncExternalStore`.
  */
-export type StoredValue<T> = {
+type StoredValue<T> = {
   /** The value, re-rendering on every change — a hook */
   readonly use: () => T
   /** The value now, outside render: a form's starting point, a one-off check */
@@ -26,7 +26,7 @@ export type StoredValue<T> = {
   readonly reload: () => void
 }
 
-export type StoredFormat<T> = {
+type StoredFormat<T> = {
   /** The stored text as a value, or undefined when it is not one this preference takes */
   readonly parse: (raw: string) => T | undefined
   /** The value as stored text; null removes the key */

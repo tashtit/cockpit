@@ -3,12 +3,12 @@ import { useRef, useState, type ClipboardEvent, type JSX } from 'react'
 import { api } from './api'
 
 /** Mirrors MAX_CHAT_IMAGES in src/main/chat-images.ts (main enforces it; this is just UX). */
-export const MAX_IMAGES = 8
+const MAX_IMAGES = 8
 
 /** A pasted image already persisted by main; url is a local blob: preview. */
 export type ImageAttachment = { readonly path: string; readonly name: string; readonly url: string }
 
-export type AttachmentsState = {
+type AttachmentsState = {
   readonly attachments: readonly ImageAttachment[]
   readonly error: string | null
   /** Composer textarea paste handler — captures image files, saves them via IPC */

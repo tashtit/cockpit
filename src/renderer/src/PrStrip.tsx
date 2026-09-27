@@ -11,13 +11,13 @@ import { plural } from './format'
  * GitHub's side; every link opens the PR itself.
  */
 
-export type Readout = { readonly text: string; readonly tone: 'ok' | 'warn' | 'danger' | 'dim' }
+type Readout = { readonly text: string; readonly tone: 'ok' | 'warn' | 'danger' | 'dim' }
 
 /** Rows per kind before the list points at GitHub for the rest. */
 const LIST_MAX = 5
 
 /** What the PR is waiting on, as the strip's readout words. */
-export function prReadout(fb: PrFeedback): Readout[] {
+function prReadout(fb: PrFeedback): Readout[] {
   const counted = fb.checks.filter((c) => c.bucket !== 'skipping').length
   const failing = failingChecks(fb.checks).length
   const pending = fb.checks.filter((c) => c.bucket === 'pending').length

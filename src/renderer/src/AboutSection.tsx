@@ -109,7 +109,7 @@ function FeedbackGroup({
 }
 
 /** The About row's one-line readout of where the updater stands. */
-export function updateLine(u: UpdateState | null, prefs: UpdatePrefs | null): string {
+function updateLine(u: UpdateState | null, prefs: UpdatePrefs | null): string {
   if (!u) return 'loading…'
   switch (u.status) {
     case 'unsupported':

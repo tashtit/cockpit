@@ -23,7 +23,7 @@ import { useLoaded } from './use-loaded'
  */
 
 /** Per-agent option state (model / thinking / BYOK endpoint / codex sandbox). */
-export type AgentOptionsState = {
+type AgentOptionsState = {
   /** The model that would run — one the catalog offers, or typed where none is known */
   readonly model: string
   readonly setModel: (m: string) => void

@@ -461,7 +461,7 @@ const REVIEW_LABEL: Record<Exclude<PrReview, 'none'>, string> = {
 }
 
 /** Why a red PR needs its author: the checks, else the review (the desk raises nothing else). */
-export function prReason(pr: AttentionPr): string {
+function prReason(pr: AttentionPr): string {
   return pr.checks === 'failing' ? 'checks failing' : 'changes requested'
 }
 

@@ -44,7 +44,7 @@ function defaultTab(model: WorkModel, pendingPlanKey: number | null): WorkTab {
   return 'todos'
 }
 
-export type WorkPanelState = {
+type WorkPanelState = {
   /** Which tab the panel is on, and the row that opened it (a transcript key); null = closed */
   readonly work: WorkFocus | null
   /** The transcript holds something to put in the panel — the header offers its key */

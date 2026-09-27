@@ -3,13 +3,13 @@ import type { ChatBinding } from './chat-binding'
 import { arrive, followMint, NAV_START, type NavEntry, type View } from './nav-history'
 
 /** Where the window is: the view, and for a chat the conversation bound to it. */
-export type NavPlace = {
+type NavPlace = {
   readonly view: View
   readonly binding: ChatBinding | null
   readonly sessionId: string | null
 }
 
-export type NavHistoryControls = {
+type NavHistoryControls = {
   /** Step back (-1) or forward (1): the entry landed on, for the caller to restore — or
    *  null, and nothing moves, at either end of history */
   readonly step: (delta: -1 | 1) => NavEntry | null

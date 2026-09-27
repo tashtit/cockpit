@@ -16,9 +16,9 @@ import { ProviderMark, PROVIDER_LABEL, UsageWarnIcon } from './logos'
 /** How often the footer re-asks main; main's own caches make a call cheap. */
 export const USAGE_POLL_MS = 60_000
 /** From this percentage on a cell carries the warning glyph next to its color. */
-export const USAGE_WARN_PERCENT = 80
+const USAGE_WARN_PERCENT = 80
 
-export type UsageMeter = {
+type UsageMeter = {
   readonly provider: Provider
   /** The tightest window's percent used, when the provider reports a limit */
   readonly percent: number | null
@@ -85,7 +85,7 @@ export function usageMeter(u: ProviderUsage, now = Date.now()): UsageMeter | nul
  * (two claude accounts) shows the home closest to its limit — the footer is a
  * glance; per-account rows live in Settings.
  */
-export function usageMeters(snapshot: UsageSnapshot, now = Date.now()): UsageMeter[] {
+function usageMeters(snapshot: UsageSnapshot, now = Date.now()): UsageMeter[] {
   const best = new Map<Provider, UsageMeter>()
   for (const u of snapshot.providers) {
     const m = usageMeter(u, now)

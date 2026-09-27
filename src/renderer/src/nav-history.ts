@@ -29,7 +29,7 @@ export type NavEntry =
   | { readonly kind: 'chat'; readonly binding: ChatBinding; readonly sessionId: string | null }
 
 /** The places visited, oldest first, and which of them the window is on. */
-export type NavHistory = { readonly stack: readonly NavEntry[]; readonly index: number }
+type NavHistory = { readonly stack: readonly NavEntry[]; readonly index: number }
 
 const NAV_MAX = 50
 
@@ -39,7 +39,7 @@ export const NAV_START: NavHistory = { stack: [{ kind: 'view', view: { kind: 'we
 /** Same place = landing there again reuses the current entry instead of growing
  *  history. Chats compare by session id (id-less brand-new chats by binding
  *  identity), the new-session form by target repo + draft. */
-export function sameNavEntry(a: NavEntry, b: NavEntry): boolean {
+function sameNavEntry(a: NavEntry, b: NavEntry): boolean {
   if (a.kind === 'chat' || b.kind === 'chat')
     return (
       a.kind === 'chat' &&

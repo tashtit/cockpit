@@ -39,7 +39,7 @@ export function transcriptRows(
 }
 
 /** A transcript row, or a folded run of consecutive tool rows. */
-export type Block = { readonly kind: 'row'; readonly row: Row } | { readonly kind: 'run'; readonly rows: readonly Row[] }
+type Block = { readonly kind: 'row'; readonly row: Row } | { readonly kind: 'run'; readonly rows: readonly Row[] }
 
 /** Four is where a run stops reading as "a couple of steps" and starts as a wall. */
 const FOLD_AT = 4

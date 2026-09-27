@@ -15,9 +15,9 @@ import { storedWidth } from './stored-width'
  */
 
 /** The narrowest panel: its floor beside the conversation. */
-export const PANEL_MIN = 300
+const PANEL_MIN = 300
 /** What the conversation keeps whatever the drag: a reply wrapping every few words is no conversation. */
-export const CONVERSATION_MIN = 420
+const CONVERSATION_MIN = 420
 
 /** The widths the panel may take in a deck this wide. */
 export function panelBounds(deck: number): SashBounds {
