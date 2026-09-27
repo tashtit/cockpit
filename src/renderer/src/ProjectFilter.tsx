@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import type { RepoGroup, SessionHolder } from '../../shared/types'
 import { api } from './api'
 import { HOLDER_FILTER_LABEL, setHolderFilter, useHolderFilter } from './hold'
-import { ChatIcon, EyeIcon, HeldIcon, ProcessIcon, RepoIcon } from './logos'
+import { agentCounts, setAgentShown, useHiddenAgents } from './agent-filter'
+import { ChatIcon, EyeIcon, HeldIcon, ProcessIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { plural } from './format'
 
 /**
  * Eye popover: what the tree shows — sessions by who drives them (every one, only
- * Cockpit's, or only those with their agent), then every indexed project with a
- * visibility checkbox (all on by default).
+ * Cockpit's, or only those with their agent), then by agent (`agent-filter.ts`), then
+ * every indexed project with a visibility checkbox (all on by default).
  */
 export function ProjectFilter({
   repos,
@@ -24,14 +25,22 @@ export function ProjectFilter({
   const popRef = useRef<HTMLDivElement>(null)
   const hiddenCount = repos.filter((r) => r.hidden).length
   const holder = useHolderFilter()
+  const hiddenAgents = useHiddenAgents()
   const shown = repos.filter((r) => !r.hidden)
   const counts: Record<'all' | SessionHolder, number> = {
     all: shown.reduce((n, r) => n + r.sessionCount, 0),
     cockpit: shown.reduce((n, r) => n + r.heldCount, 0),
     agent: shown.reduce((n, r) => n + r.sessionCount - r.heldCount, 0)
   }
+  // every agent with a session here, and any hidden one that has none right now — so an
+  // agent can always be switched back on
+  const agents = [
+    ...agentCounts(shown, holder),
+    ...hiddenAgents.filter((a) => !shown.some((r) => r.byProvider[a])).map((agent) => ({ agent, count: 0 }))
+  ]
   const scoped = [
     holder ? HOLDER_FILTER_LABEL[holder].toLowerCase() : null,
+    hiddenAgents.length > 0 ? `${plural(hiddenAgents.length, 'agent')} hidden` : null,
     hiddenCount > 0 ? `${plural(hiddenCount, 'project')} hidden` : null
   ].filter((x): x is string => x !== null)
 
@@ -112,6 +121,29 @@ export function ProjectFilter({
               </label>
             ))}
           </div>
+          {agents.length > 1 || hiddenAgents.length > 0 ? (
+            <>
+              <div className="repo-filter-head repo-filter-divided" id="agent-filter-head">
+                <span>Agents</span>
+              </div>
+              <div role="group" aria-labelledby="agent-filter-head">
+                {agents.map(({ agent, count }) => (
+                  <label key={agent} className="repo-filter-row" title={`Sessions of ${PROVIDER_LABEL[agent]}`}>
+                    <input
+                      type="checkbox"
+                      checked={!hiddenAgents.includes(agent)}
+                      onChange={(e) => setAgentShown(agent, e.currentTarget.checked)}
+                    />
+                    <span className={`repo-icon plogo plogo-${agent}`} aria-hidden="true">
+                      <ProviderLogo p={agent} size={12} />
+                    </span>
+                    <span className="repo-filter-name">{PROVIDER_LABEL[agent]}</span>
+                    <span className="repo-count">{count}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          ) : null}
           <div className="repo-filter-head repo-filter-divided">
             <span>Projects</span>
             {onResetOrder && (

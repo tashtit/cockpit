@@ -2,7 +2,8 @@ import { ipcMain } from 'electron'
 import { join } from 'node:path'
 import type { ChatRequest, SideChatRequest } from '../../shared/types'
 import { CH } from '../../shared/contract'
-import { AGENT_NAME } from '../../shared/providers'
+import { AGENT_NAME, isDrivable, isSessionProvider } from '../../shared/providers'
+import { noAcpAgent } from '../chat'
 import { sessionControlFor, sessionEndpointFor, userDataDir } from '../config'
 import { assertChatImages, saveChatImage } from '../chat-images'
 import { holderOf } from '../session-control-core'
@@ -23,6 +24,16 @@ export function registerChatHandlers(s: Services): void {
     saveChatImage(chatImagesDir(), data, mime)
   )
   ipcMain.handle(CH.chatSend, (_e, req: ChatRequest) => {
+    // the agent is renderer input like the rest: a CLI Cockpit runs, or an agent it
+    // otherwise only reads once an ACP agent answers for it
+    if (!isSessionProvider(req.provider)) throw new Error('unknown agent')
+    if (!isDrivable(req.provider)) {
+      if (!s.acpAgentFor(req.provider) && !req.options?.acpAgent) throw new Error(noAcpAgent(req.provider))
+      // an account's config home, a Copilot user and a custom model provider are all a
+      // headless CLI's knobs — none of them reaches an agent Cockpit drives over ACP
+      const { model: _model, modelEndpoint: _endpoint, ...options } = req.options ?? {}
+      req = { ...req, configDir: undefined, copilotUser: undefined, options }
+    }
     // pasted-image paths are renderer input — only accept files chat:save-image wrote;
     // a seat's research allowance is the roundtable manager's alone to give, and a copy
     // that saves nothing is side chat's (a chat turn is the session, and is kept)
@@ -37,7 +48,9 @@ export function registerChatHandlers(s: Services): void {
       ...req,
       cwd: assertKnownCwd(indexer, req.cwd),
       configDir:
-        req.configDir === undefined ? undefined : assertKnownConfigDir(req.configDir, req.provider)
+        req.configDir === undefined || !isDrivable(req.provider)
+          ? undefined
+          : assertKnownConfigDir(req.configDir, req.provider)
     }
     // a resumed BYOK session keeps the endpoint it was started with
     if (req.resumeNativeId && !req.options?.modelEndpoint) {

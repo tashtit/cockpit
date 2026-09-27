@@ -1,0 +1,316 @@
+import { readdirSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
+import type { SessionMeta, SessionMessage, WorkArtifact } from '../../shared/types'
+import { fileWriteArtifact, replaceArtifact, toolArtifact } from './artifacts'
+import { checkArtifact, checkOutcome } from './checks'
+import { dbMtime, queryAll, sessionRef, snapshotCache, splitSessionRef } from './sqlite'
+import { capText, fileTimes, jsonText, readJson, toMs, TRANSCRIPT_TAIL_BYTES, truncate, usableCwd } from './util'
+
+/**
+ * opencode keeps its sessions in <home>/opencode.db (home: ~/.local/share/opencode):
+ * `session` (id, directory, title, parent_id, time_created/updated/archived), `message`
+ * (one row per turn, its JSON in `data`: role, time, model) and `part` (the pieces of a
+ * turn: text, reasoning, tool calls with their input and output). Before the database,
+ * the same records were one JSON file each under <home>/storage/: session/<project>/<id>.json,
+ * message/<session>/<id>.json and part/<message>/<id>.json — still read, for sessions
+ * the database does not hold. Database sessions are indexed as `<db>#<session id>`.
+ */
+export const OPENCODE_DB = 'opencode.db'
+
+export function listOpencodeSessionRoots(home: string): string[] {
+  // the database is watched on its own (see the indexer's database watches); only the
+  // older file store is a tree of session files
+  return [join(home, 'storage', 'session')]
+}
+
+type SessionRow = {
+  readonly id: string
+  readonly title: string
+  readonly directory: string | null
+  readonly parent: string | null
+  readonly created: number | null
+  readonly updated: number | null
+  readonly archived: boolean
+}
+
+type DbSessions = { readonly sessions: Map<string, SessionRow>; readonly counts: Map<string, number> }
+
+/** Every session in the database, and how many turns each holds — one read per change. */
+const dbSessions = snapshotCache((file: string): DbSessions | null => {
+  const rows = queryAll(
+    file,
+    'SELECT id, title, directory, parent_id, time_created, time_updated, time_archived FROM session'
+  )
+  const turns = queryAll(file, 'SELECT session_id, count(*) AS n FROM message GROUP BY session_id')
+  // either read failing is no answer at all: a session counted without its turns is dropped
+  if (!rows || !turns) return null
+  const sessions = new Map<string, SessionRow>()
+  for (const r of rows) {
+    const id = typeof r['id'] === 'string' ? r['id'] : null
+    if (!id) continue
+    sessions.set(id, {
+      id,
+      title: typeof r['title'] === 'string' ? r['title'] : '',
+      directory: usableCwd(r['directory']),
+      parent: typeof r['parent_id'] === 'string' ? r['parent_id'] : null,
+      created: toMs(r['time_created']),
+      updated: toMs(r['time_updated']),
+      archived: r['time_archived'] !== null && r['time_archived'] !== undefined
+    })
+  }
+  const counts = new Map<string, number>()
+  for (const r of turns) {
+    if (typeof r['session_id'] === 'string') counts.set(r['session_id'], Number(r['n'] ?? 0))
+  }
+  return { sessions, counts }
+}, { sessions: new Map(), counts: new Map() })
+
+export function listOpencodeSessionFiles(home: string): string[] {
+  const db = join(home, OPENCODE_DB)
+  const { sessions } = dbSessions(db)
+  const out: string[] = []
+  // archived in opencode itself: out of every listing, as the other agents' are
+  for (const s of sessions.values()) if (!s.archived) out.push(sessionRef(db, s.id))
+  const store = join(home, 'storage', 'session')
+  for (const project of subdirs(store)) {
+    for (const name of files(join(store, project))) {
+      if (name.endsWith('.json') && !sessions.has(basename(name, '.json'))) out.push(join(store, project, name))
+    }
+  }
+  return out
+}
+
+export function listOpencodeSessions(home: string, sourceLabel: string): SessionMeta[] {
+  return listOpencodeSessionFiles(home).flatMap((f) => parseOpencodeMeta(f, sourceLabel) ?? [])
+}
+
+function subdirs(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
+  } catch {
+    return []
+  }
+}
+
+function files(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)
+  } catch {
+    return []
+  }
+}
+
+/** opencode's placeholder title until it names a session: `New session - <ISO time>`. */
+function realTitle(title: string): string {
+  return /^(New session|Child session) - \d{4}-\d{2}-\d{2}T/.test(title) ? '' : title
+}
+
+export function parseOpencodeMeta(file: string, sourceLabel: string): SessionMeta | null {
+  const ref = splitSessionRef(file)
+  if (ref && basename(ref.file) === OPENCODE_DB) {
+    const { sessions, counts } = dbSessions(ref.file)
+    const s = sessions.get(ref.id)
+    const messageCount = counts.get(ref.id) ?? 0
+    if (!s || s.archived || messageCount === 0) return null
+    return meta({ ...s, messageCount, sourcePath: file, sourceLabel, fallbackTime: dbMtime(ref.file), firstPrompt: () => firstDbPrompt(ref.file, ref.id) })
+  }
+  if (!file.endsWith('.json')) return null
+  const s = readJson(file, 1024 * 1024)
+  if (!s || typeof s !== 'object' || typeof s.id !== 'string') return null
+  const home = dirname(dirname(dirname(dirname(file))))
+  const messages = files(join(home, 'storage', 'message', s.id)).filter((n) => n.endsWith('.json'))
+  if (messages.length === 0) return null
+  const ft = fileTimes(file)
+  return meta({
+    id: s.id,
+    title: typeof s.title === 'string' ? s.title : '',
+    directory: usableCwd(s.directory),
+    parent: typeof s.parentID === 'string' ? s.parentID : null,
+    created: toMs(s.time?.created),
+    updated: toMs(s.time?.updated),
+    archived: false,
+    messageCount: messages.length,
+    sourcePath: file,
+    sourceLabel,
+    fallbackTime: ft.end,
+    firstPrompt: () => legacyTurns(home, s.id).find((t) => t.role === 'user')?.parts.find((p) => p?.type === 'text')?.text ?? ''
+  })
+}
+
+function meta(
+  s: SessionRow & {
+    readonly messageCount: number
+    readonly sourcePath: string
+    readonly sourceLabel: string
+    readonly fallbackTime: number
+    readonly firstPrompt: () => string
+  }
+): SessionMeta {
+  return {
+    id: `opencode:${s.id}`,
+    provider: 'opencode',
+    nativeId: s.id,
+    source: s.sourceLabel,
+    title: truncate(realTitle(s.title) || s.firstPrompt()) || '(untitled)',
+    cwd: s.directory,
+    logBranch: null,
+    startedAt: s.created ?? s.fallbackTime,
+    updatedAt: s.updated ?? s.fallbackTime,
+    messageCount: s.messageCount,
+    sourcePath: s.sourcePath,
+    ...(s.parent ? { parentId: `opencode:${s.parent}` } : {})
+  }
+}
+
+function firstDbPrompt(db: string, id: string): string {
+  const rows = queryAll(
+    db,
+    `SELECT p.data AS data FROM part p JOIN message m ON m.id = p.message_id
+     WHERE m.session_id = ? AND json_extract(m.data, '$.role') = 'user' AND json_extract(p.data, '$.type') = 'text'
+     ORDER BY m.time_created, p.id LIMIT 1`,
+    id
+  )
+  try {
+    return String(JSON.parse(String(rows?.[0]?.['data'] ?? '{}')).text ?? '')
+  } catch {
+    return ''
+  }
+}
+
+/** One turn: who spoke, when, and its parts in order. */
+type Turn = { readonly role: string; readonly ts?: number; readonly parts: readonly any[] }
+
+/** A part larger than this is not parsed — a tool's output can be a whole file. */
+const MAX_PART_BYTES = 256 * 1024
+
+function dbTurns(db: string, id: string): { turns: Turn[]; truncated: boolean } {
+  const messages = queryAll(db, 'SELECT id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created, id', id) ?? []
+  const parts = new Map<string, any[]>()
+  let budget = TRANSCRIPT_TAIL_BYTES
+  let truncated = false
+  // newest parts first, so a long session opens on its latest turns
+  for (const r of queryAll(
+    db,
+    `SELECT message_id, CASE WHEN length(data) > ${MAX_PART_BYTES} THEN NULL ELSE data END AS data
+     FROM part WHERE session_id = ? ORDER BY message_id DESC, id DESC`,
+    id
+  ) ?? []) {
+    const raw = typeof r['data'] === 'string' ? r['data'] : null
+    if (!raw) continue
+    budget -= raw.length
+    if (budget < 0) {
+      truncated = true
+      break
+    }
+    try {
+      const mid = String(r['message_id'])
+      parts.set(mid, [JSON.parse(raw), ...(parts.get(mid) ?? [])])
+    } catch {
+      /* a malformed part is skipped */
+    }
+  }
+  const turns: Turn[] = []
+  for (const m of messages) {
+    let data: any = {}
+    try {
+      data = JSON.parse(String(m['data'] ?? '{}'))
+    } catch {
+      /* a turn with an unreadable header still has its parts */
+    }
+    const own = parts.get(String(m['id']))
+    if (!own) continue
+    turns.push({ role: typeof data.role === 'string' ? data.role : 'assistant', ts: toMs(m['time_created']) ?? undefined, parts: own })
+  }
+  return { turns, truncated }
+}
+
+/** The older file store: a directory of turns, a directory of parts per turn — bounded. */
+const MAX_LEGACY_FILES = 4000
+
+function legacyTurns(home: string, id: string): Turn[] {
+  let seen = 0
+  const turns: Turn[] = []
+  const dir = join(home, 'storage', 'message', id)
+  for (const name of files(dir).sort()) {
+    if (!name.endsWith('.json') || ++seen > MAX_LEGACY_FILES) continue
+    const m = readJson(join(dir, name), 256 * 1024)
+    if (!m || typeof m.id !== 'string') continue
+    const partDir = join(home, 'storage', 'part', m.id)
+    const parts = files(partDir)
+      .sort()
+      .flatMap((p) => (++seen > MAX_LEGACY_FILES ? [] : [readJson(join(partDir, p), MAX_PART_BYTES)]))
+      .filter(Boolean)
+    turns.push({ role: typeof m.role === 'string' ? m.role : 'assistant', ts: toMs(m.time?.created) ?? undefined, parts })
+  }
+  return turns.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0))
+}
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
+
+/** opencode's own tool names and what their input says. */
+function toolPreviewOf(tool: string, input: Record<string, unknown>): string | null {
+  return str(input['command']) ?? str(input['filePath']) ?? str(input['pattern']) ?? str(input['url']) ?? str(input['description']) ?? str(input['path']) ?? null
+}
+
+function toolArtifactOf(tool: string, input: Record<string, unknown>): WorkArtifact | undefined {
+  switch (tool) {
+    case 'bash':
+      return checkArtifact(input['command'])
+    case 'edit':
+      return replaceArtifact(input['filePath'], [[input['oldString'], input['newString']]])
+    case 'write':
+      return fileWriteArtifact(input['filePath'], input['content'], 'write')
+    case 'todowrite':
+      return toolArtifact('TodoWrite', { todos: input['todos'] })
+    default:
+      return undefined
+  }
+}
+
+function turnRows(turn: Turn): SessionMessage[] {
+  const out: SessionMessage[] = []
+  const role = turn.role === 'user' ? 'user' : 'assistant'
+  for (const p of turn.parts) {
+    const ts = toMs(p?.time?.start) ?? turn.ts
+    if (p?.type === 'text' && !p.synthetic && str(p.text)) out.push({ role, kind: 'text', text: capText(p.text), ts })
+    else if (p?.type === 'reasoning' && str(p.text)) out.push({ role: 'assistant', kind: 'reasoning', text: capText(p.text), ts })
+    else if (p?.type === 'tool') {
+      const tool = typeof p.tool === 'string' ? p.tool : 'tool'
+      const state = p.state && typeof p.state === 'object' ? p.state : {}
+      const input = state.input && typeof state.input === 'object' ? state.input : {}
+      const output = typeof state.output === 'string' ? state.output : typeof state.error === 'string' ? state.error : ''
+      let artifact = toolArtifactOf(tool, input)
+      if (artifact?.kind === 'check' && output) {
+        const exit = state.metadata?.exit
+        artifact = checkOutcome(artifact, { text: output, exitCode: typeof exit === 'number' ? exit : null })
+      }
+      const preview = str(state.title) ?? toolPreviewOf(tool, input)
+      out.push({
+        role: 'assistant',
+        kind: 'tool_call',
+        toolName: tool,
+        text: truncate(jsonText(input), 400),
+        ...(preview ? { preview: truncate(preview, 200) } : {}),
+        ...(artifact ? { artifact } : {}),
+        ...(state.status === 'error' ? { failed: true } : {}),
+        ts
+      })
+      if (output) out.push({ role: 'tool', kind: 'tool_result', text: truncate(output, 400), ts })
+    }
+  }
+  return out
+}
+
+export function parseOpencodeMessages(file: string): SessionMessage[] {
+  const ref = splitSessionRef(file)
+  if (ref && basename(ref.file) === OPENCODE_DB) {
+    const { turns, truncated } = dbTurns(ref.file, ref.id)
+    const rows = turns.flatMap(turnRows)
+    return truncated
+      ? [{ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' }, ...rows]
+      : rows
+  }
+  const s = readJson(file, 1024 * 1024)
+  if (!s || typeof s.id !== 'string') return []
+  return legacyTurns(dirname(dirname(dirname(dirname(file)))), s.id).flatMap(turnRows)
+}

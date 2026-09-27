@@ -153,6 +153,46 @@ describe('ChatView handoff affordances', () => {
   })
 })
 
+describe('ChatView on a session of an agent Cockpit only reads', () => {
+  const cursor: ChatBinding = { ...binding, provider: 'cursor', nativeSessionId: 'cur-1', readOnly: 'agent' }
+
+  it('says why there is no composer, and offers the way on', async () => {
+    const { onOpenHandoff } = renderChat(vi.fn(), { binding: cursor })
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByText(/Cockpit runs Cursor only over its ACP server/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue it with another agent…' }))
+    // the header keeps its own handoff key too — a session to continue is exactly this
+    await userEvent.click(screen.getByRole('button', { name: 'Continue in another agent…' }))
+    expect(onOpenHandoff).toHaveBeenCalledTimes(2)
+  })
+
+  it('offers no take-over: Cockpit has no CLI of that agent’s to drive it with', () => {
+    renderChat(vi.fn(), { binding: cursor, control: { holder: 'agent', how: 'outside' } })
+    expect(screen.queryByRole('region', { name: 'Who drives this session' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Take over/ })).not.toBeInTheDocument()
+    expect(document.querySelector('.hold-chip')).toBeNull()
+  })
+
+  it('once an ACP agent drives it: a composer, taken over like any, never a Terminal resume', async () => {
+    const gemini: ChatBinding = { ...binding, provider: 'gemini', nativeSessionId: 'g-1' }
+    const onSetHolder = vi.fn(async () => true)
+    renderChat(vi.fn(), { binding: gemini, control: { holder: 'agent', how: 'outside' }, onSetHolder })
+    expect(screen.getByRole('textbox', { name: 'Message Gemini' })).toBeInTheDocument()
+    // it runs as whoever it is signed in as — Cockpit claims no account for it
+    expect(document.querySelector('.chat-header .acct-chip.acct-gemini:not(.hold-chip)')).toBeNull()
+    const bar = screen.getByRole('region', { name: 'Who drives this session' })
+    expect(bar).not.toHaveTextContent('Open in Terminal')
+    await userEvent.click(screen.getByRole('button', { name: 'Take over' }))
+    expect(onSetHolder).toHaveBeenCalledWith('cockpit')
+  })
+
+  it('a roundtable seat stays the table’s: no handoff anywhere', () => {
+    renderChat(vi.fn(), { binding: { ...binding, nativeSessionId: 'seat-1', readOnly: 'seat' } })
+    expect(screen.getByText(/Talk to it at the table/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Continue in/ })).not.toBeInTheDocument()
+  })
+})
+
 describe('ChatView image paste', () => {
   it('saves a pasted image via the api and shows a removable chip', async () => {
     renderChat()
@@ -500,7 +540,7 @@ describe('ChatView and who drives the session', () => {
   })
 
   it('shows no chip and no bar for a seat, which its table drives', () => {
-    renderChat(vi.fn(), { binding: { ...started, readOnly: true }, control: outside })
+    renderChat(vi.fn(), { binding: { ...started, readOnly: 'seat' }, control: outside })
     expect(screen.queryByRole('region', { name: 'Who drives this session' })).not.toBeInTheDocument()
     expect(document.querySelector('.hold-chip')).toBeNull()
   })

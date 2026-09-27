@@ -5,6 +5,7 @@ import { useBusyMap, useSessionBusy } from './busy'
 import { toggleFamily, useFoldedFamilies } from './families'
 import { HeldMark } from './HeldMark'
 import { holdSentence, useHolderFilter } from './hold'
+import { shownProviders, useHiddenAgents } from './agent-filter'
 import { useLandedMap, useSessionLanded } from './landed'
 import { ArchiveIcon, ElbowIcon, landingLabel, LandingMark, PrBadge, ProviderMark, PROVIDER_LABEL, Spinner } from './logos'
 import { fmtTime, plural } from './format'
@@ -93,6 +94,7 @@ export function SessionList({
 }): JSX.Element {
   const [pages, setPages] = useState(1)
   const holder = useHolderFilter()
+  const hidden = useHiddenAgents()
   // a live-index refetch keeps the page it replaces when nothing in it changed, so the
   // rows keep their identity (`keepSame`: by every field, not a chosen few — a row draws
   // its branch, re-derived on every scan, and the PR found by it, its place in a family
@@ -104,9 +106,10 @@ export function SessionList({
         archived,
         offset: 0,
         limit: Math.min(PAGE * pages, MAX_LOADED),
-        ...(holder ? { holder } : {})
+        ...(holder ? { holder } : {}),
+        ...(shownProviders(hidden) ? { providers: shownProviders(hidden) } : {})
       }),
-    [repoKey, archived, pages, indexVersion, holder],
+    [repoKey, archived, pages, indexVersion, holder, hidden],
     { keepSame: true }
   )
   // null = first page still loading — "no sessions" must never flash during the fetch

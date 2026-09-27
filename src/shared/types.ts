@@ -6,7 +6,14 @@
  * that returns these types lives in contract.ts, which may import from here and
  * from library.ts; keeping it out of this file is what keeps the direction honest.
  */
+/** The agent CLIs Cockpit drives: it starts and resumes their sessions, seats them at
+ *  roundtables, signs them in and reads their usage. */
 export type Provider = 'claude' | 'codex' | 'copilot'
+/** Agents Cockpit reads but does not drive: their sessions are indexed from the logs
+ *  they keep on disk and open read-only, to be continued by a `Provider`. */
+export type ReadOnlyProvider = 'gemini' | 'cursor' | 'cline' | 'roo' | 'opencode' | 'antigravity'
+/** Whoever wrote a session's log — every agent the indexer reads. */
+export type SessionProvider = Provider | ReadOnlyProvider
 
 /** Strip readonly for a local builder/accumulator — never for shared state. */
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -31,9 +38,17 @@ export type RepoGroup = RepoInfo & {
    *  rest are with their agent — what the tree's holder filter counts by */
   readonly heldCount: number
   readonly lastActivity: number
-  readonly providers: Provider[]
+  readonly providers: SessionProvider[]
+  /** The active sessions again, by agent — what the tree's agent filter counts by */
+  readonly byProvider: Partial<Record<SessionProvider, AgentCount>>
   /** User chose not to display this project (still listed here for the chooser UI) */
   readonly hidden: boolean
+}
+
+/** One agent's share of a project's active sessions, and how many of those Cockpit holds. */
+export type AgentCount = {
+  readonly sessions: number
+  readonly held: number
 }
 
 /**
@@ -71,7 +86,7 @@ export type SessionControl = {
 export type SessionMeta = {
   /** Stable id: `${provider}:${nativeId}` */
   readonly id: string
-  readonly provider: Provider
+  readonly provider: SessionProvider
   /** Provider-native session id (uuid, filename stem, etc.) */
   readonly nativeId: string
   /** Which registered source dir this came from (account isolation later) */
@@ -308,7 +323,7 @@ export type SessionMessage = {
 
 export type SourceDir = {
   readonly path: string
-  readonly provider: Provider
+  readonly provider: SessionProvider
   /** User label, e.g. account name ("claude-main") */
   readonly label: string
 }
@@ -325,7 +340,7 @@ export type SourceStats = SourceDir & {
 export type SessionQuery = {
   /** RepoInfo.key to scope to one repository ('general' = sessions with no repo) */
   readonly repoKey?: string
-  readonly providers?: Provider[]
+  readonly providers?: SessionProvider[]
   readonly search?: string
   /** Page only this roundtable's seat-sessions (normal queries exclude them all) */
   readonly roundtableId?: string
@@ -352,7 +367,7 @@ export type TranscriptSearchQuery = {
   readonly text: string
   /** RepoInfo.key to scope to one repository; undefined = every visible repo */
   readonly repoKey?: string
-  readonly providers?: Provider[]
+  readonly providers?: SessionProvider[]
   /** Total hit cap (default 50, at most 200) */
   readonly limit?: number
   /** Hits kept per session, so one chatty transcript can't fill the list (default 3) */
@@ -617,15 +632,24 @@ export type AcpAgent = {
   /** Extra env for the spawned agent; keys that could redirect execution are refused */
   readonly env?: Record<string, string>
   /**
-   * Which CLI family this agent is. It is required, and it is what keeps an ACP session
-   * indexed: `copilot --acp` and `claude-code-acp` write the same session stores their
-   * CLIs always did, so Cockpit sees, resumes and live-tracks those conversations with
-   * no indexer changes. An agent that belongs to no known provider would be a session
-   * Cockpit drives and then loses, which is why there is no 'other' here yet.
+   * Which agent this is. It is required, and it is what keeps an ACP session indexed:
+   * `copilot --acp`, `claude-code-acp` and `gemini --acp` write the same session stores
+   * their agents always did, so Cockpit sees and resumes those conversations with no
+   * indexer changes — and for an agent Cockpit otherwise only reads, an ACP agent is
+   * what lets it start and continue one. An agent that belongs to no known provider
+   * would be a session Cockpit drives and then loses, which is why there is no 'other'.
    */
-  readonly provider: Provider
+  readonly provider: SessionProvider
   /** Shipped in code rather than stored in config, and so not removable */
   readonly builtin?: boolean
+  /**
+   * Built-ins: the `authenticate` method that reuses the CLI's own sign-in, called once when
+   * the agent answers a session with ACP's auth-required error (Cursor's agent wants this
+   * even after `agent login`)
+   */
+  readonly authMethod?: string
+  /** Built-ins: what the person runs in a terminal to sign the CLI in, named when it isn't */
+  readonly signIn?: string
 }
 
 /** Renderer-supplied agent definition — main assigns the id. */
@@ -646,6 +670,17 @@ export type AcpAgentProbe = {
   readonly authMethods?: readonly string[]
   /** Populated instead of the rest when the handshake failed */
   readonly error?: string
+}
+
+/**
+ * Which agents Cockpit can start or continue a session with right now: the three it runs
+ * headless always, and one it otherwise only reads once an ACP agent drives it — a
+ * built-in whose CLI answered the handshake, or one the person defined.
+ */
+export type AcpReadiness = {
+  readonly drivable: readonly SessionProvider[]
+  /** Built-in ACP agents (by id) whose CLI answered the handshake on this machine */
+  readonly builtinsReady: readonly string[]
 }
 
 /** One answer an agent will accept for a permission request. */
@@ -699,7 +734,7 @@ export type AgentModel = {
 }
 
 export type ChatRequest = {
-  readonly provider: Provider
+  readonly provider: SessionProvider
   readonly cwd: string
   readonly prompt: string
   /** Provider-native session id to continue an existing conversation */
@@ -1461,7 +1496,7 @@ export type AttentionFocus =
       readonly kind: 'session'
       /** `${provider}:${nativeId}`; null for a new chat whose agent hasn't named its session yet */
       readonly id: string | null
-      readonly provider: Provider
+      readonly provider: SessionProvider
       readonly cwd: string
     }
   | { readonly kind: 'roundtable'; readonly id: string }
@@ -1803,6 +1838,8 @@ export type CleanupBlock =
    * remove` takes the worktree's reflog with it, and those commits become unreachable
    */
   | 'detached'
+  /** The agent's app holds the database the session lives in open — quit it first */
+  | 'in-use'
 
 /**
  * The worktree a session ran in, carried on the session itself: deleting the
@@ -1820,7 +1857,7 @@ export type SessionWorktree = {
 export type StaleSession = {
   /** Session id: `${provider}:${nativeId}` */
   readonly id: string
-  readonly provider: Provider
+  readonly provider: SessionProvider
   readonly title: string
   readonly repoName: string | null
   readonly cwd: string | null
@@ -1870,6 +1907,8 @@ export type StaleWorktree = {
   readonly lastActivity: number
   /** Sessions Cockpit has indexed running in this directory */
   readonly sessionCount: number
+  /** The agents those sessions belong to — which agent's worktree this is, when one made it */
+  readonly providers: readonly SessionProvider[]
   /** Registered in .git/worktrees but gone from disk — prune territory */
   readonly missing: boolean
   /** Commits on HEAD that no remote has. Informational: removing a worktree keeps

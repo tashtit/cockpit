@@ -29,6 +29,13 @@ import { LineSplitter, MAX_STREAM_LINE_CHARS, truncate } from './parsers/util'
  * the attention desk hears start and stop. Spawning per turn keeps all of that true and
  * costs a process launch; `session/load` makes the conversation continuous regardless.
  * A pooled connection is the follow-up, not a prerequisite.
+ *
+ * Signing in is the agent's: an agent that answers a session with ACP's auth-required error
+ * is asked, once and briefly, to sign in with the method its built-in names (`authMethod`,
+ * which reuses the CLI's own login and never opens a browser), and otherwise the turn says
+ * what to run (`signIn`). Every process Cockpit starts here — a turn's, and the launch-time
+ * `probeAcpAgent` — runs in its own group and is ended as a group, since some agents
+ * re-launch themselves as a child and some ignore EOF.
  */
 
 type TurnOptions = {
@@ -50,10 +57,20 @@ type TurnOptions = {
    */
   readonly asksPermissions?: boolean
   readonly emit: (ev: ChatEvent) => void
+  /**
+   * A resumed turn that cannot reopen its conversation fails rather than starting a
+   * fresh one. Set for an agent Cockpit only reads: whether its ACP server knows a
+   * session by the id its own store gives it is the agent's business, and a quiet new
+   * session would answer the person without any of the history they are looking at.
+   */
+  readonly mustResume?: boolean
 }
 
 /** How long an agent has to exit on its own once its turn is over */
 const EXIT_GRACE_MS = 2_000
+
+/** How long signing in with an agent's own method may take before the turn says how to sign in */
+const AUTHENTICATE_MS = 15_000
 
 type Pending = {
   readonly resolve: (value: unknown) => void
@@ -115,7 +132,7 @@ class JsonRpc {
     if (msg.error) {
       const e = msg.error as { message?: unknown; code?: unknown }
       p.reject(
-        new Error(typeof e?.message === 'string' ? e.message : `agent error ${String(e?.code)}`)
+        new AgentError(typeof e?.message === 'string' ? e.message : `agent error ${String(e?.code)}`, e?.code)
       )
     } else {
       p.resolve(msg.result)
@@ -160,6 +177,29 @@ class JsonRpc {
   }
 }
 
+/** An error the agent answered a request with, its JSON-RPC code kept. */
+class AgentError extends Error {
+  constructor(
+    message: string,
+    readonly code: unknown
+  ) {
+    super(message)
+  }
+}
+
+/** ACP's own code for "sign in first" — what an agent answers a session with before it has been. */
+const AUTH_REQUIRED = -32000
+
+function isAuthRequired(err: unknown): boolean {
+  return err instanceof AgentError && err.code === AUTH_REQUIRED
+}
+
+/** The sign-in methods an agent offered at `initialize`, by id. */
+function authMethodIds(init: Record<string, unknown> | undefined): string[] {
+  const methods = Array.isArray(init?.authMethods) ? init.authMethods : []
+  return methods.flatMap((m) => (m && typeof m === 'object' && typeof (m as { id?: unknown }).id === 'string' ? [(m as { id: string }).id] : []))
+}
+
 /** A permission question put to the user and not yet answered. */
 type OpenPermission = {
   readonly rpcId: number | string
@@ -177,9 +217,15 @@ export class AcpTurn {
   private replaying = false
   private finished = false
   private stderr = ''
+  /** What the person calls this agent, for the errors that name it */
+  private readonly agentLabel: string
+  /** How this agent is signed in, when a built-in says (`AcpAgent.authMethod`, `signIn`) */
+  private readonly auth: Pick<AcpAgent, 'authMethod' | 'signIn'>
 
   constructor(agent: AcpAgent, opts: TurnOptions) {
     this.opts = opts
+    this.agentLabel = agent.label
+    this.auth = { authMethod: agent.authMethod, signIn: agent.signIn }
     this.child = spawn(agent.command, [...(agent.args ?? [])], {
       cwd: opts.cwd,
       env: { ...opts.env, ...(agent.env ?? {}), ...(opts.pinned ?? {}) },
@@ -304,7 +350,8 @@ export class AcpTurn {
         | Record<string, unknown>
         | undefined
       const caps = (init?.agentCapabilities ?? {}) as Record<string, unknown>
-      this.sessionId = await step(this.openSession(Boolean(caps.loadSession), resumeNativeId))
+      const session = (): Promise<string> => this.openSession(Boolean(caps.loadSession), resumeNativeId)
+      this.sessionId = await step(this.signedIn(session, authMethodIds(init)))
       this.emit({ turnId, type: 'session', nativeSessionId: this.sessionId })
       const result = await step(
         this.rpc.request('session/prompt', {
@@ -347,8 +394,46 @@ export class AcpTurn {
     this.child.once('close', () => clearTimeout(timer))
   }
 
+  /**
+   * Open the session, signing in first when the agent says it must. An agent answers a
+   * session it won't open signed out with ACP's auth-required error; a built-in that names
+   * the method reusing its CLI's own sign-in (Cursor's `cursor_login` — its agent wants
+   * this even after `agent login`) is asked to use it, once, and the session tried again.
+   * Anything else is the person's to do, and the error says how.
+   */
+  private async signedIn(open: () => Promise<string>, offered: readonly string[]): Promise<string> {
+    try {
+      return await open()
+    } catch (err) {
+      if (!isAuthRequired(err)) throw err
+      const { authMethod } = this.auth
+      if (authMethod && offered.includes(authMethod)) {
+        try {
+          // an agent may wait on an interactive login here — never longer than this
+          let timer: NodeJS.Timeout | undefined
+          const late = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new AgentError('signing in took too long', AUTH_REQUIRED)), AUTHENTICATE_MS)
+          })
+          try {
+            await Promise.race([this.rpc.request('authenticate', { methodId: authMethod }), late])
+          } finally {
+            clearTimeout(timer)
+          }
+          return await open()
+        } catch (again) {
+          if (!isAuthRequired(again) && !(again instanceof AgentError)) throw again
+        }
+      }
+      throw new Error(signInMessage(this.agentLabel, this.auth.signIn, err))
+    }
+  }
+
   /** Resume the conversation when we can, start a fresh one when we can't. */
   private async openSession(canLoad: boolean, resumeNativeId?: string): Promise<string> {
+    const { mustResume } = this.opts
+    if (resumeNativeId && !canLoad && mustResume) {
+      throw new Error(`${this.agentLabel} can't reopen a conversation over ACP, so this one can't be continued from Cockpit.`)
+    }
     if (resumeNativeId && canLoad) {
       this.replaying = true
       try {
@@ -358,9 +443,14 @@ export class AcpTurn {
           mcpServers: []
         })
         return resumeNativeId
-      } catch {
+      } catch (err) {
+        // signed out is not forgotten: that is the person's to fix, and says so (signedIn)
+        if (isAuthRequired(err)) throw err
         // the agent forgot this session (pruned, or written under another account) —
-        // a fresh one is better than refusing the turn
+        // a fresh one is better than refusing the turn, unless the turn says otherwise
+        if (mustResume) {
+          throw new Error(`${this.agentLabel} couldn't reopen this conversation over ACP: ${messageFor(err)}`)
+        }
       } finally {
         this.replaying = false
       }
@@ -402,6 +492,39 @@ export class AcpTurn {
   }
 }
 
+/**
+ * End a probed agent and everything it started: EOF first (an agent may exit on it), then
+ * SIGTERM to its whole group, then SIGKILL for whatever still ignores that — Cursor's agent
+ * waits past EOF, and a probe runs at every launch, so anything it leaves would pile up.
+ */
+function endProbe(child: ChildProcess): void {
+  const signal = (sig: NodeJS.Signals): void => {
+    try {
+      if (child.pid) process.kill(-child.pid, sig)
+      else child.kill(sig)
+    } catch {
+      /* the group has gone */
+    }
+  }
+  try {
+    child.stdin?.end()
+  } catch {
+    /* already closed */
+  }
+  signal('SIGTERM')
+  if (child.exitCode !== null || child.signalCode !== null) return
+  const timer = setTimeout(() => signal('SIGKILL'), EXIT_GRACE_MS)
+  timer.unref()
+  child.once('exit', () => clearTimeout(timer))
+}
+
+/** What a turn that could not sign in says: the agent's own reason, and what fixes it. */
+function signInMessage(label: string, signIn: string | undefined, err: unknown): string {
+  const why = messageFor(err)
+  const fix = signIn ? ` — sign it in by running \`${signIn}\` in a terminal, then send again` : ''
+  return `${label} needs signing in: ${why}${fix}.`
+}
+
 function messageFor(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err)
   return truncate(raw, 500)
@@ -420,7 +543,10 @@ export function probeAcpAgent(agent: AcpAgent, cwd: string): Promise<AcpAgentPro
         cwd,
         env: { ...cliEnv(), ...(agent.env ?? {}) },
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: false
+        shell: false,
+        // its own process group, so the probe can end all of it: Gemini's launcher re-runs
+        // itself as a child, which a signal to the launcher alone left running for good
+        detached: true
       })
     } catch (err) {
       resolve({ ok: false, error: messageFor(err) })
@@ -432,11 +558,7 @@ export function probeAcpAgent(agent: AcpAgent, cwd: string): Promise<AcpAgentPro
       if (settled) return
       settled = true
       clearTimeout(timer)
-      try {
-        child.kill('SIGTERM')
-      } catch {
-        /* already gone */
-      }
+      endProbe(child)
       resolve(probe)
     }
     const timer = setTimeout(

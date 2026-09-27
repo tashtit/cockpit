@@ -25,7 +25,9 @@ Both `npm run typecheck` and `npm test` must pass before delivering.
 ## Architecture
 
 Cockpit is an Electron desktop hub that indexes and drives Claude Code / Codex / Copilot CLI
-sessions (macOS-focused, dark-only). Three processes with a strict boundary:
+sessions, and reads the sessions of six more agents — Gemini CLI, Cursor, Cline, Roo Code,
+opencode, Antigravity — driving the four with an ACP server through it (macOS-focused,
+dark-only). Three processes with a strict boundary:
 
 - **main** (`src/main/`) — all Node work: fs scanning, git, spawning provider CLIs.
 - **preload** (`src/preload/index.ts`) — contextBridge exposing `window.cockpit`.
@@ -54,7 +56,7 @@ TypeScript compiles a type-only cycle happily. Several of these modules exist be
 same rule was about to be written twice, once per process, and drift — check them before
 writing a helper:
 
-`providers.ts` (the three agents' names, product names and config-home variables — every list of them reads it) · `guards.ts` (`isRecord` / `asRecord` for parsed JSON) · `text.ts` (`clip`, `sliceCodePoints`) · `asks.ts` (the questions agents stop to ask, and what a pick becomes) · `endpoints.ts` (BYOK
+`providers.ts` (every agent Cockpit knows — the three it drives and the ones it only reads — their names, product names and config-home variables; every list of them reads it) · `guards.ts` (`isRecord` / `asRecord` for parsed JSON) · `text.ts` (`clip`, `sliceCodePoints`) · `asks.ts` (the questions agents stop to ask, and what a pick becomes) · `endpoints.ts` (BYOK
 validation, env, `/models`) · `acp.ts` (ACP agent definitions and their sanitizer) ·
 `agent-auth.ts`, `agent-cli.ts`, `agent-models.ts` (sign-in verdicts, CLI install and update
 rules, built-in models and `EFFORT_LEVELS`) · `library.ts`, `mcp-source.ts` (Cockpit's config
@@ -75,7 +77,8 @@ Invariants, all deliberate:
 - The full index is never shipped to or rendered by the UI. Always paginate.
 - Meta parsing reads at most 256KB per file, and parsers are failure-tolerant: provider log formats drift between releases, so skip anything unreadable rather than fail the scan (the `add-session-parser` skill). A parser reports only what its log states (`logBranch`); everything derived from the checkout is the indexer's `annotate()`, recomputed on every scan.
 - A session can span several files (Codex paginates long threads): read or remove a session's log through `sessionLogFiles`, never `sourcePath` alone. Bump `CACHE_VERSION` when parser output changes.
-- Only the providers' session roots are walked and watched (never `pkg/`, `repos/`, logs or SQLite files), with `fs.watch(root, {recursive: true})`.
+- Only the providers' session roots are walked and watched (never `pkg/`, `repos/`, logs or SQLite files — except the databases some agents keep their sessions in), with `fs.watch(root, {recursive: true})`.
+- A session's `provider` is a `SessionProvider`: the three CLIs Cockpit runs (`Provider`) or an agent it only reads (`ReadOnlyProvider`, found on every launch by `agent-homes.ts`). Everything that spawns a CLI takes a `Provider` and asks `isDrivable` first, so the compiler marks each place a read-only session could reach one.
 - What a tool call hands the person — a plan, to-dos, an edit, a check, a shared file, a follow-up — rides its transcript row as `SessionMessage.artifact`, read and bounded in main (`parsers/artifacts.ts`, `parsers/checks.ts`) and folded by `src/shared/work.ts`. The renderer never parses tool JSON, and a check's verdict comes from the runner's own output or a stated exit code — never a guess.
 
 ### Main-process map
@@ -83,18 +86,19 @@ Invariants, all deliberate:
 Each file's header comment has the detail. A `-core.ts` file is the IO-free half of the module
 it is named for and is what the unit tests target; keep IO in the sibling without the suffix.
 
-- **Sessions**: `indexer.ts`, `repos.ts`, `parsers/` (one per provider, plus `artifacts`, `checks`, `util`), `provider-archived.ts` (what the providers' own apps archived or deleted), `liveness` (busy state of sessions Cockpit did not spawn, from their log tails), `transcript-search.ts`, `session-control-core.ts` (who drives a session), `session-files.ts` (files a session shared), `handoff`, `profile.ts`, `config.ts`
+- **Sessions**: `indexer.ts`, `repos.ts`, `parsers/` (one per provider, plus `artifacts`, `checks`, `util`, `sqlite` for the agents that keep a database), `agent-homes.ts` (where the agents Cockpit only reads keep their sessions), `provider-archived.ts` (what the providers' own apps archived or deleted), `liveness` (busy state of sessions Cockpit did not spawn, from their log tails), `transcript-search.ts`, `session-control-core.ts` (who drives a session), `session-files.ts` (files a session shared), `handoff`, `profile.ts`, `config.ts`
 - **Driving agents**: `chat.ts` (headless CLI turns, one process per turn), `claude-permissions.ts` (a Claude turn's permission prompts, answered in the chat), `side-chat.ts` (a question asked of a throwaway copy of a session — nothing reaches its log), `acp` (the Agent Client Protocol transport), `roundtable` (several agents, one transcript), `chat-images.ts`, `endpoint-models.ts` + `secrets.ts` (BYOK model catalogs, keychain-encrypted keys)
 - **Agents & accounts**: `accounts.ts`, `agent-auth`, `agent-cli`, `agent-models`, `usage.ts`
 - **Library**: `extensions` (MCP / skills / plugins inventory and sharing), `library.ts`, `mcp.ts`, `mcp-versions.ts`, `toml.ts`, `marketplace.ts` (what a marketplace offers — read from the agent's clone, from GitHub only on a click), `updates-digest.ts` (everything that could be brought up to date, for the home — on demand, never polled), `mcp-registry.ts` (searching the MCP Registry on submit, and adding a server with a definition Cockpit writes itself), `instructions` + `instructions-share.ts` (shared instructions, and sharing them to a repo by PR)
 - **Git & GitHub**: `workspace.ts` (worktrees and PRs), `diff` (the review before landing), `pr-feedback` (the loop after the PR opens), `github` (PR badges)
-- **Housekeeping**: `cleanup`, `cleanup-reminder`, `archive-watch.ts` (stops what a session left running once it is archived), `backup`
+- **Housekeeping**: `cleanup`, `cleanup-reminder`, `session-disposal.ts` (what deleting a session removes, the way its agent keeps it), `archive-watch.ts` (stops what a session left running once it is archived), `backup`
 - **App**: `index.ts` (the entry: services, handlers, window, quit), `app-menu.ts` (the menu bar: Electron's menus, plus Help), `services.ts` (builds and wires every long-lived service), `ipc/` (every IPC handler, one module per domain, and `guards.ts` for renderer input), `window.ts` (the window and pushes to it), `turn-ledger.ts` (what a turn Cockpit started owes config once it names its session), `attention` (notifications, sounds, the Dock badge), `updates.ts` + `update-install` (self-update), `dev-window.ts`, `link-guard.ts`, `env.ts`, `replace-file.ts`, `paths.ts`, `shell-quote.ts`, `map-limit.ts`, `cache.ts`, `state-file.ts`, `recent-map.ts`
 
 ### Rules that span modules
 
 - **One way to do each thing.** Run a CLI with `execText` (or `execOrThrow`, and `gitRead` for read-only git) and give every spawn `cliEnv()` (`env.ts`) — never another `execFile` wrapper. `cliEnv()` carries the person's login-shell PATH, read once at launch, so a launch-time probe of an agent CLI waits on `loginPathReady` first. Write a whole file with `writeFileAtomic` / `replaceFile` (`replace-file.ts`) — never another temp-and-rename; read and save Cockpit's own state files through `state-file.ts`. Cache a slow answer with `throttled` / `throttledBy` (`cache.ts`); keep a capped most-recent map with `recent-map.ts`; read a bounded file head or a JSONL stream through `parsers/util.ts` (`readHeadBytes`, `streamJsonl`, `LineSplitter`). Check path containment, a provider's default config home and realpath-or-self with `paths.ts`; quote a shell word with `shell-quote.ts`; bound a fan-out with `mapLimit`.
 - **One session, one turn.** `chat:send` refuses to resume a session whose turn is still in flight, or one held by its agent (`session-control-core.ts`). Busy state is Cockpit's spawned turns merged with those observed in the logs (`mergeBusy`; spawned wins).
+- **An agent Cockpit only reads runs over ACP or not at all.** `acpAgentFor` in `services.ts` — the person's own definition, else a built-in whose CLI answered its handshake — is the one answer to "can this agent be sent a turn", for `chat:send`, the take-over and the `acp-readiness` push the renderer mirrors (`acp-readiness.ts`). Its resume must reopen the conversation it names (`mustResume`), never quietly start a fresh one.
 - **Roundtable seat sessions are not independent work**: they stay out of every listing, page only under `SessionQuery.roundtableId`, and `chat:send` refuses their cwd. Only the roundtable manager sets `research` and only `side-chat:ask` sets `sideFork` (`chat:send` strips both); research never grants the shell — no rule keeps a command read-only.
 - **Git is never forced.** Sessions work in worktrees under userData on a `<prefix><name>` branch (config `branchPrefix`, `cockpit/` when unset), never the user's checkout. Never `git worktree prune`, never `--force` a worktree removal, delete branches only through `git branch -d`, stop processes with SIGTERM only, and never give a sandboxed agent a writable `.git` — hooks or objects it can write are a way out of the sandbox.
 - **Secrets stay out of config.** BYOK keys live in the keychain (`secrets.ts`); a turn sets every credential variable its CLI reads, the unused ones empty. `sanitizeAcpAgent` is the most security-sensitive check in the app: an agent definition is "run this binary".
@@ -141,8 +145,8 @@ add the reason to that test.
 A file with one component is PascalCase; a module whose main export is one hook is `use-<name>.ts`.
 
 - **Shell**: `App.tsx` (views and navigation; `use-chat-turns`, `use-nav-history` + `nav-history.ts`, `use-zoom`), `main.tsx`, `api.ts`, `ErrorBoundary`, `DevBanner`
-- **Rail**: `TreeSidebar` → `SessionList`, `RoundtableNode`, `ProjectFilter`; `RailResizer` + `rail.ts`, `UsageMeters`, `UpdateBar` + `update-prompt.ts`, `use-cleanup-notice`
-- **Starting work**: `HomeView` → `HomeUpdates` (what is out of date), `NewSession`, `HandoffView`, all choosing through `agent-choice.ts` (agent, account, mode and their storage) and `agent-options.tsx`; `attachments.tsx`, `task-names.ts`, `branch-prefix.ts`
+- **Rail**: `TreeSidebar` → `SessionList`, `RoundtableNode`, `ProjectFilter`, `agent-filter.ts` (which agents the tree, the palette's transcript search and cleanup show); `RailResizer` + `rail.ts`, `UsageMeters`, `UpdateBar` + `update-prompt.ts`, `use-cleanup-notice`
+- **Starting work**: `HomeView` → `HomeUpdates` (what is out of date), `NewSession`, `HandoffView`, all choosing through `agent-choice.ts` (agent, account, mode and their storage) and `agent-options.tsx`, over the agents `acp-readiness.ts` says an ACP agent drives; `attachments.tsx`, `task-names.ts`, `branch-prefix.ts`
 - **Chat**: `ChatView` → `Message`, `HoldBar`, `PermissionAsk`, `AskPicker`, `ReviewPanel`, `PrStrip`, `SideChat` + `side-chat-log.ts`; the side panel (`SidePanel`, `Sash`, `panel.ts`) holding `WorkPanel` and its `Work*Tab` files (`work-tab.ts`, `use-work-panel`); the transcript's own modules `chat-log.ts`, `transcript-rows.ts`, `transcript-window.tsx`, `transcript-anchor.ts` + `use-transcript-anchor`, `rejoin.ts`, `chat-binding.ts`, `Markdown` + `MarkdownPipeline`
 - **Roundtables**: `RoundtableView` → `RoundtableTable`, `use-roundtable-stream`, `RoundtableLimitFields`, `roundtable-seats.ts`, `SeatEvidencePanel` + `evidence.ts`; `NewRoundtable`, `use-roundtables`
 - **Agents view**: `AiSetup`, `AgentPanel` → `AgentSwitches`, `McpHealth`, `Recommendation`, `MarketBrowse` and `McpBrowse` (Browse: marketplaces, and the MCP Registry); `InstructionsEditor`, `InstructionsCompare`, `instruction-writes.ts`, `InstructionDiff`

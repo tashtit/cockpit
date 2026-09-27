@@ -1,8 +1,9 @@
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import type { BusySession, ChatRequest, PrStatus, Provider, SessionMeta } from '../shared/types'
+import type { AcpAgent, AcpReadiness, BusySession, ChatRequest, PrStatus, SessionMeta, SessionProvider } from '../shared/types'
 import { PUSH } from '../shared/contract'
 import { BUILTIN_ACP_AGENTS, builtinAgentFor } from '../shared/acp'
+import { AGENT_LABEL, isDrivable, SESSION_PROVIDERS } from '../shared/providers'
 import { SessionIndexer } from './indexer'
 import { TranscriptSearcher } from './transcript-search'
 import { ChatManager } from './chat'
@@ -10,6 +11,7 @@ import { probeAcpAgent } from './acp'
 import { loginPathReady } from './env'
 import { mergeBusy } from './liveness-core'
 import {
+  adoptDetectedSources,
   attentionPrefs,
   listAcpAgents,
   listModelEndpoints,
@@ -64,6 +66,15 @@ export type Services = {
   readonly republishConfig: () => void
   /** What the cleanup scan and its actions read — the view's and the daily reminder's alike. */
   readonly cleanupDeps: () => CleanupDeps
+  /**
+   * The ACP agent a turn of this agent runs through when the person picked none — the one
+   * answer to "can this agent be sent a turn" for an agent Cockpit otherwise only reads
+   */
+  readonly acpAgentFor: (provider: SessionProvider) => AcpAgent | undefined
+  /** Which agents a session can be started or continued with; asking re-probes a missing built-in */
+  readonly acpReadiness: (opts?: { readonly reprobe?: boolean }) => AcpReadiness
+  /** Tell the window what `acpReadiness` now says — an ACP agent was added or removed */
+  readonly pushAcpReadiness: () => void
 }
 
 /** The index's view of the config — applied at startup and again after a restore. */
@@ -156,10 +167,20 @@ export function startServices(): Services {
       }
     }
   )
-  const ledger = new TurnLedger(indexer)
+  // the first turn of an agent Cockpit only reads may write into a home that did not
+  // exist at launch — adopted the way launch adopts one, so the session it wrote is listed
+  const ledger = new TurnLedger(indexer, {
+    onReadOnlyTurnDone: () => {
+      const known = loadConfig().sources.length
+      const cfg = adoptDetectedSources()
+      if (cfg.sources.length !== known) void indexer.setSources(cfg.sources)
+    }
+  })
   // candidate files come only from the indexer — the renderer never names a path
   const transcripts = new TranscriptSearcher(indexer)
-  applyConfig(indexer, loadConfig())
+  // an agent installed, or an editor that gained Cline, since the last launch is indexed
+  // from this one on — a source the person removed is never added back
+  applyConfig(indexer, adoptDetectedSources())
 
   const republishConfig = (): void => {
     applyConfig(indexer, loadConfig())
@@ -196,25 +217,52 @@ export function startServices(): Services {
   void indexer.whenScanned().then(() => theDesk.recheckAsks((id) => indexer.getSession(id)))
 
   /**
-   * Built-in ACP agents this machine's CLIs turned out to support, probed once in the
-   * background at startup.
+   * Built-in ACP agents this machine's CLIs turned out to support, by id — probed in the
+   * background at startup, and again for any still missing when the window asks, at most
+   * once a minute, so a CLI installed while Cockpit runs is picked up without a restart.
    *
    * The handshake is the only honest test — a `--acp` flag in `--help` says the flag
-   * parses, not that the protocol answers. It costs one process launch per provider and
-   * creates no session. Until a probe lands, turns take the CLI path, so the worst case
-   * of a slow or missing CLI is the behaviour Cockpit had before ACP existed.
+   * parses, not that the protocol answers. It costs one process launch per agent and
+   * creates no session. Until a probe lands, Copilot's turns take its CLI path, and an
+   * agent Cockpit otherwise only reads stays read-only: the worst case of a slow or
+   * missing CLI is the behaviour Cockpit had before ACP existed.
    */
-  const acpReady = new Set<Provider>()
-  for (const builtin of BUILTIN_ACP_AGENTS) {
-    const provider = builtin.provider
-    if (!provider) continue
-    // after the login shell's PATH: an npm-installed CLI is on no other
-    void loginPathReady()
-      .then(() => probeAcpAgent(builtin, homedir()))
-      .then((probe) => {
-        if (probe.ok) acpReady.add(provider)
-      })
+  const acpReady = new Set<string>()
+  const acpProbing = new Set<string>()
+  let acpProbedAt = 0
+  const acpAgentFor = (provider: SessionProvider): AcpAgent | undefined => {
+    // one the person defined for this agent is a deliberate choice and wins over the built-in
+    const defined = listAcpAgents().find((a) => a.provider === provider)
+    if (defined) return defined
+    const builtin = builtinAgentFor(provider)
+    return builtin && acpReady.has(builtin.id) ? builtin : undefined
   }
+  const currentAcpReadiness = (): AcpReadiness => ({
+    drivable: SESSION_PROVIDERS.filter((p) => isDrivable(p) || acpAgentFor(p) !== undefined),
+    builtinsReady: BUILTIN_ACP_AGENTS.filter((a) => acpReady.has(a.id)).map((a) => a.id)
+  })
+  const pushAcpReadiness = (): void => sendToWin(PUSH.acpReadiness, currentAcpReadiness())
+  const probeAcpBuiltins = (): void => {
+    acpProbedAt = Date.now()
+    for (const builtin of BUILTIN_ACP_AGENTS) {
+      if (acpReady.has(builtin.id) || acpProbing.has(builtin.id)) continue
+      acpProbing.add(builtin.id)
+      // after the login shell's PATH: an npm-installed CLI is on no other
+      void loginPathReady()
+        .then(() => probeAcpAgent(builtin, homedir()))
+        .then((probe) => {
+          if (!probe.ok) return
+          acpReady.add(builtin.id)
+          pushAcpReadiness()
+        })
+        .finally(() => acpProbing.delete(builtin.id))
+    }
+  }
+  const acpReadiness = (opts: { readonly reprobe?: boolean } = {}): AcpReadiness => {
+    if (opts.reprobe && Date.now() - acpProbedAt > 60_000) probeAcpBuiltins()
+    return currentAcpReadiness()
+  }
+  probeAcpBuiltins()
 
   const theChat = new ChatManager(
     (ev) => {
@@ -237,17 +285,11 @@ export function startServices(): Services {
           // user picked a specific agent, and a different one is a different answer
           if (!agent) throw new Error('That ACP agent is no longer configured — re-add it in Settings.')
           if (agent.provider !== req.provider) {
-            throw new Error(`"${agent.label}" drives ${agent.provider}, not ${req.provider}.`)
+            throw new Error(`"${agent.label}" drives ${AGENT_LABEL[agent.provider]}, not ${AGENT_LABEL[req.provider]}.`)
           }
           return agent
         }
-        // an agent the user defined for this provider is a deliberate choice and wins
-        // over the built-in; the built-in only applies once its CLI has answered a
-        // handshake, so a machine without ACP support behaves exactly as before
-        const defined = listAcpAgents().find((a) => a.provider === req.provider)
-        if (defined) return defined
-        const builtin = builtinAgentFor(req.provider)
-        return builtin && acpReady.has(req.provider) ? builtin : undefined
+        return acpAgentFor(req.provider)
       },
       onTurnStart: (turnId, req) => {
         // a seat's turn is its table's business — the table lands once, as a whole
@@ -364,6 +406,9 @@ export function startServices(): Services {
     forgetThrownAway,
     prCarrier,
     republishConfig,
-    cleanupDeps
+    cleanupDeps,
+    acpAgentFor,
+    acpReadiness,
+    pushAcpReadiness
   }
 }

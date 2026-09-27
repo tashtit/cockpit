@@ -12,7 +12,7 @@ import type {
   SessionMessage,
   SessionMeta
 } from '../../shared/types'
-import { PROVIDERS } from '../../shared/library'
+import { isDrivable, isSessionProvider } from '../../shared/providers'
 import { api } from './api'
 import { followUpRepo } from './follow-up'
 import { withImageMarks } from './attachments'
@@ -29,6 +29,7 @@ import { Settings } from './Settings'
 import { branchHint, taskTitle } from './task-names'
 import { ipcErrorText } from './ipc-error'
 import { initLanded } from './landed'
+import { canDrive, drivableNow, initAcpReadiness, useDrivableAgents } from './acp-readiness'
 import { initSideChat } from './side-chat-log'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
@@ -60,8 +61,9 @@ function startedHere(): SessionControl {
  *  (the lineage map lives in a hand-editable config file). */
 function lineageRef(id: string | undefined): ChatBinding['continuedFrom'] | undefined {
   if (!id) return undefined
-  const provider = PROVIDERS.find((p) => p === id.split(':', 1)[0])
-  return provider ? { id, provider } : undefined
+  // any agent the index reads: a session handed off from one Cockpit only reads keeps its chip
+  const provider = id.split(':', 1)[0]
+  return isSessionProvider(provider) ? { id, provider } : undefined
 }
 
 /** Where closing a view lands: the conversation still bound, else home. */
@@ -197,6 +199,17 @@ export function App(): JSX.Element {
     }
   }, [selectedSessionId, indexVersion])
   useEffect(() => initLanded(), [])
+  useEffect(() => initAcpReadiness(), [])
+  // an agent Cockpit only reads opens read-only, and gains its composer the moment an ACP
+  // agent answers for it (or loses it when that agent is removed) — whichever came first
+  const drivable = useDrivableAgents()
+  useEffect(() => {
+    setBinding((b) => {
+      if (!b || b.readOnly === 'seat' || isDrivable(b.provider)) return b
+      const readOnly = canDrive(b.provider, drivable) ? undefined : 'agent'
+      return b.readOnly === readOnly ? b : { ...b, readOnly }
+    })
+  }, [drivable])
   // side questions' answers land while their panel is closed, or another view is up
   useEffect(() => initSideChat(), [])
   // the transcript's markdown pipeline is its own chunk — warm it once the window
@@ -336,7 +349,7 @@ export function App(): JSX.Element {
           configDir: acct && !acct.isDefault ? acct.path : undefined,
           accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
           continuedFrom: lineageRef(s.continuedFrom),
-          readOnly: s.roundtableId ? true : undefined
+          readOnly: s.roundtableId ? 'seat' : canDrive(s.provider, drivableNow()) ? undefined : 'agent'
         },
         control: s.roundtableId ? null : (s.control ?? null),
         anchor: opts.anchor ?? null,
@@ -451,7 +464,8 @@ export function App(): JSX.Element {
 
   const send = useCallback(
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
-      // a session with its agent is taken over first — main refuses it otherwise too
+      // a session with its agent is taken over first — main refuses it otherwise too; an
+      // agent Cockpit only reads is read-only until an ACP agent drives it
       if (!binding || activeTurn || binding.readOnly || elsewhere || control?.holder === 'agent') return
       // from here the view holds what disk does not — no re-read may land on it
       diskLogRef.current = null

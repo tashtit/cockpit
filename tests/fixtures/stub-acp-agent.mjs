@@ -2,9 +2,22 @@
  * A minimal ACP agent, for driving the real client in tests. Speaks newline-delimited
  * JSON-RPC on stdio exactly as `copilot --acp` does; STUB_MODE picks the behaviour.
  */
+import { spawn } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+
 const mode = process.env.STUB_MODE ?? 'basic'
+// 'relaunch': like Gemini's launcher, the agent runs a child of its own that outlives a
+// signal to the parent alone; its pid goes to STUB_PIDFILE for the test to look for
+if (mode === 'relaunch') {
+  const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
+    stdio: 'ignore'
+  })
+  writeFileSync(process.env.STUB_PIDFILE, String(child.pid))
+  process.on('SIGTERM', () => {})
+}
 let sid = 'sess-1'
 let nextId = 1000
+let signedIn = false
 const waiting = new Map()
 
 const send = (o) => process.stdout.write(JSON.stringify(o) + '\n')
@@ -60,7 +73,20 @@ function handle(m) {
         }
       })
       return
+    case 'authenticate':
+      // 'auth': signing in with its own method works; 'auth-fail': it never does
+      if (mode === 'auth' && m.params?.methodId === 'stub-login') {
+        signedIn = true
+        send({ jsonrpc: '2.0', id: m.id, result: {} })
+      } else {
+        send({ jsonrpc: '2.0', id: m.id, error: { code: -32000, message: 'run stub login first' } })
+      }
+      return
     case 'session/new':
+      if ((mode === 'auth' || mode === 'auth-fail') && !signedIn) {
+        send({ jsonrpc: '2.0', id: m.id, error: { code: -32000, message: 'Authentication required' } })
+        return
+      }
       send({
         jsonrpc: '2.0',
         id: m.id,

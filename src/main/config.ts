@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type {
   AcpAgent,
@@ -11,6 +11,7 @@ import type {
   TimeFormat,
   UpdatePrefs
 } from '../shared/types'
+import { detectAgentHomes, reconcileDetected } from './agent-homes'
 import { clampStaleDays } from './cleanup-core'
 import { sanitizeControlMap, withControl, type ControlEntry } from './session-control-core'
 import { writeFileAtomic } from './replace-file'
@@ -24,11 +25,16 @@ import {
   branchPrefixRefusal,
   normalizeBranchPrefix
 } from '../shared/branch-prefix'
-import { isProvider, PROVIDERS } from '../shared/providers'
-import { defaultConfigHome } from './paths'
+import { isSessionProvider } from '../shared/providers'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
+  /**
+   * Agent homes the person removed in Settings (resolved paths), which detection never
+   * adds back. Only Remove writes it, and Add clears a path from it: an older build that
+   * drops sources it cannot read must not look like a removal (see reconcileDetected).
+   */
+  readonly dismissedSources?: string[]
   /** Session ids the user archived in Cockpit (provider logs have no such flag) */
   readonly archived?: string[]
   /** Roundtable ids the user archived — the tables themselves stay on disk */
@@ -124,13 +130,23 @@ export function configFilePath(): string {
   return configPath()
 }
 
-/** First run: auto-detect default provider homes. */
-function detectDefaults(): SourceDir[] {
-  return PROVIDERS.map((provider) => ({
-    path: defaultConfigHome(provider),
-    provider,
-    label: `${provider}-default`
-  })).filter((c) => existsSync(c.path))
+/** First run: every agent home on this machine, nothing yet removed. */
+function firstRunConfig(): AppConfig {
+  return { sources: detectAgentHomes(), dismissedSources: [], archived: [] }
+}
+
+/**
+ * The config with any agent home that appeared since the last launch added — an agent
+ * installed later, an editor that gained Cline — saved when that changed anything.
+ * Homes are added once: removing one in Settings is final (see reconcileDetected).
+ */
+export function adoptDetectedSources(): AppConfig {
+  const cfg = loadConfig()
+  const next = reconcileDetected(cfg.sources, cfg.dismissedSources, detectAgentHomes())
+  if (!next.changed) return cfg
+  const updated = { ...cfg, sources: next.sources, dismissedSources: next.dismissed }
+  saveConfig(updated)
+  return updated
 }
 
 /** The one parse both readers share, so "valid config" can never mean two things. */
@@ -154,13 +170,14 @@ function parseConfig(raw: string): AppConfig {
     archivedRoundtables: stringList(cfg.archivedRoundtables),
     hiddenRepos: stringList(cfg.hiddenRepos),
     repoOrder: stringList(cfg.repoOrder),
+    dismissedSources: stringList(cfg.dismissedSources),
     sessionControl: cfg.sessionControl === undefined ? undefined : sanitizeControlMap(cfg.sessionControl)
   }
 }
 
 function isSource(s: unknown): s is SourceDir {
   const o = s as Partial<SourceDir> | null
-  return !!o && typeof o.path === 'string' && o.path !== '' && isProvider(o.provider)
+  return !!o && typeof o.path === 'string' && o.path !== '' && isSessionProvider(o.provider)
 }
 
 function stringList(v: unknown): string[] | undefined {
@@ -174,7 +191,7 @@ function stringList(v: unknown): string[] | undefined {
  */
 export function readConfigStrict(): AppConfig {
   const raw = readIfPresent(configPath())
-  if (raw === null) return { sources: detectDefaults(), archived: [] }
+  if (raw === null) return firstRunConfig()
   try {
     return parseConfig(raw)
   } catch (err) {
@@ -214,7 +231,7 @@ export function loadConfig(): AppConfig {
       console.error(`[config] unreadable ${configPath()} (backed up to .corrupt):`, err)
     }
   }
-  const cfg = { sources: detectDefaults(), archived: [] }
+  const cfg = firstRunConfig()
   if (missing) saveConfig(cfg)
   return cfg
 }

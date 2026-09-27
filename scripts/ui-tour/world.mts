@@ -17,6 +17,7 @@ import { chmodSync, mkdirSync, realpathSync, rmSync, utimesSync, writeFileSync }
 import { dirname, join, resolve } from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { DatabaseSync } from 'node:sqlite'
+import { writeAntigravityConversation, writeCursorChats, writeOpencodeDb } from './store-fixtures.mts'
 
 export type World = {
   readonly root: string
@@ -76,7 +77,7 @@ export function buildWorld(at: string, { populated = true }: { populated?: boole
 /** One wrapper per CLI name, all running the same stub with the tool as its first arg. */
 function writeStubs(world: World): void {
   mkdirSync(world.bin, { recursive: true })
-  for (const tool of ['claude', 'codex', 'copilot', 'gh']) {
+  for (const tool of ['claude', 'codex', 'copilot', 'gh', 'opencode']) {
     const path = join(world.bin, tool)
     writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${STUB}" ${tool} "$@"\n`)
     chmodSync(path, 0o755)
@@ -524,6 +525,156 @@ function populate(world: World): void {
     ]
   })
   copilot({ cwd: code('lumen-docs'), repository: 'lumenlabs/lumen-docs', title: 'Fix typos in the tutorials', hoursAgo: 55 * 24, events: [['user.message', { content: 'Fix typos.' }], ['assistant.message', { content: 'Fixed 23 typos.' }]] })
+
+  // ---------- agents Cockpit only reads ----------
+  // Nothing in the config below names these homes: the first launch finds them, which is
+  // the detection the tour shows working.
+  const backdate = (file: string, hoursAgo: number): void => {
+    const t = (now - hoursAgo * HOUR) / 1000
+    utimesSync(file, t, t)
+  }
+  // Gemini CLI: a project folder that names its directory, one record log per session
+  const gemini = join(world.home, '.gemini', 'tmp', 'rocket')
+  write(join(gemini, '.project_root'), code('rocket'))
+  const gemAt = iso(3)
+  const gemLog = join(gemini, 'chats', 'session-2026-09-01T10-00-5f1c2a90.jsonl')
+  write(
+    gemLog,
+    jsonl([
+      { sessionId: randomUUID(), projectHash: 'rocket', startTime: gemAt, lastUpdated: gemAt, kind: 'main' },
+      { id: 'u1', timestamp: gemAt, type: 'user', content: [{ text: 'Why does the usage panel flash on load?' }] },
+      {
+        id: 'g1',
+        timestamp: gemAt,
+        type: 'gemini',
+        content: [{ text: 'It renders before the first snapshot arrives. It now shows a skeleton until one does.' }],
+        thoughts: [{ subject: 'Tracing the render', description: 'The panel mounts with an empty snapshot.', timestamp: gemAt }],
+        toolCalls: [
+          { id: 't1', name: 'read_file', args: { file_path: `${code('rocket')}/src/usage.tsx` }, status: 'success', timestamp: gemAt },
+          {
+            id: 't2',
+            name: 'replace',
+            args: { file_path: `${code('rocket')}/src/usage.tsx`, old_string: 'return <Panel data={snapshot} />', new_string: 'return snapshot ? <Panel data={snapshot} /> : <Skeleton />' },
+            status: 'success',
+            timestamp: gemAt
+          }
+        ]
+      },
+      { $set: { summary: 'Stop the usage panel flashing on load', lastUpdated: gemAt } }
+    ])
+  )
+  backdate(gemLog, 3)
+  // Cursor: agent transcripts under a folder named after the workspace path
+  const cursorId = randomUUID()
+  const slug = code('atlas').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  const cursorLog = join(world.home, '.cursor', 'projects', slug, 'agent-transcripts', cursorId, `${cursorId}.jsonl`)
+  write(
+    cursorLog,
+    jsonl([
+      { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nMap which jobs never emit a span.\n</user_query>' }] } },
+      {
+        role: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: "I'll list the job handlers and check each for a span." },
+            { type: 'tool_use', name: 'Grep', input: { pattern: 'registerJob\\(', glob: '**/*.ts' } },
+            { type: 'tool_use', name: 'Read', input: { path: `${code('atlas')}/src/jobs/index.ts` } }
+          ]
+        }
+      },
+      { role: 'assistant', message: { content: [{ type: 'text', text: 'Three jobs never emit one: cleanup, digest and reindex.' }] } },
+      { type: 'turn_ended', status: 'success' }
+    ])
+  )
+  backdate(cursorLog, 9)
+  // Cline, in VS Code's extension storage — found in whichever editor runs it
+  const vscode = join(world.home, 'Library', 'Application Support', 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev')
+  const clineAt = now - 30 * HOUR
+  const clineLog = join(vscode, 'tasks', String(clineAt), 'ui_messages.json')
+  const say = (dt: number, kind: string, text: string): object => ({ ts: clineAt + dt, type: 'say', say: kind, text })
+  write(
+    clineLog,
+    JSON.stringify([
+      say(0, 'text', 'Link every tutorial to its API reference page.'),
+      say(1, 'api_req_started', JSON.stringify({ request: `# Current Working Directory (${code('lumen-docs')}) Files` })),
+      say(2, 'text', "I'll add a See also line to each tutorial."),
+      say(3, 'task_progress', '- [x] Find the tutorials\n- [x] Add the links\n- [ ] Check them in the preview'),
+      {
+        ts: clineAt + 4,
+        type: 'ask',
+        ask: 'tool',
+        text: JSON.stringify({ tool: 'editedExistingFile', path: 'docs/tutorials/quickstart.md', content: '------- SEARCH\n## Next steps\n=======\n## Next steps\n\nSee also: [the API reference](../api/index.md)\n+++++++ REPLACE' })
+      },
+      say(5, 'completion_result', 'Linked 12 tutorials to their API pages.')
+    ])
+  )
+  write(join(vscode, 'state', 'taskHistory.json'), JSON.stringify([{ id: String(clineAt), ts: clineAt + 5, task: 'Link every tutorial to its API reference page.', cwdOnTaskInitialization: code('lumen-docs') }]))
+  backdate(clineLog, 30)
+  // Roo Code, in Cursor's extension storage — the same format, its own history item
+  const rooTask = join(world.home, 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'tasks', randomUUID())
+  const rooAt = now - 50 * HOUR
+  write(join(rooTask, 'history_item.json'), JSON.stringify({ task: 'Pin the Terraform provider versions', ts: rooAt + 2, workspace: code('infra-tools') }))
+  write(
+    join(rooTask, 'ui_messages.json'),
+    JSON.stringify([
+      { ts: rooAt, type: 'say', say: 'text', text: 'Pin the Terraform provider versions' },
+      { ts: rooAt + 1, type: 'say', say: 'text', text: 'Pinned aws to ~> 5.60 and random to ~> 3.6.' }
+    ])
+  )
+  backdate(join(rooTask, 'ui_messages.json'), 50)
+  // the agents that keep sessions in databases: opencode, Cursor's editor chats, Antigravity
+  const ocAt = now - 4 * HOUR
+  writeOpencodeDb(join(world.home, '.local', 'share', 'opencode', 'opencode.db'), [
+    {
+      id: 'ses_4f2a9c1e0ffeTourWorld01',
+      title: 'Cache the tenant lookup in the job runner',
+      directory: code('atlas'),
+      created: ocAt,
+      updated: ocAt + 300_000,
+      turns: [
+        { role: 'user', at: ocAt, parts: [{ type: 'text', text: 'Every job looks its tenant up again. Cache it for the run.' }] },
+        {
+          role: 'assistant',
+          at: ocAt + 60_000,
+          parts: [
+            { type: 'reasoning', text: 'The lookup is pure per job id.' },
+            { type: 'tool', tool: 'edit', state: { status: 'completed', input: { filePath: `${code('atlas')}/src/jobs/tenant.ts`, oldString: 'return db.tenant(id)', newString: 'return cache.get(id) ?? cache.set(id, db.tenant(id))' }, output: '' } },
+            { type: 'tool', tool: 'bash', state: { status: 'completed', input: { command: 'npm test -- jobs' }, output: 'Tests  14 passed', metadata: { exit: 0 } } },
+            { type: 'text', text: 'Cached per run; the job tests pass.' }
+          ]
+        }
+      ]
+    }
+  ])
+  const cursorAt = now - 26 * HOUR
+  writeCursorChats(join(world.home, 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'state.vscdb'), [
+    {
+      id: '4d3c1b2a-0000-4000-8000-00000000c0de',
+      name: 'Tighten the retry backoff',
+      cwd: code('rocket'),
+      created: cursorAt,
+      updated: cursorAt + 120_000,
+      bubbles: [
+        { type: 1, at: cursorAt, text: 'Retries hammer the billing API. Back off properly.' },
+        { type: 2, at: cursorAt + 20_000, thinking: 'Exponential with jitter, capped.' },
+        { type: 2, at: cursorAt + 40_000, tool: { name: 'read_file_v2', params: { targetFile: 'src/billing/retry.ts' } } },
+        { type: 2, at: cursorAt + 120_000, text: 'Backoff is now exponential with full jitter, capped at 30s.' }
+      ]
+    }
+  ])
+  const agyAt = now - 70 * HOUR
+  writeAntigravityConversation(join(world.home, '.gemini', 'antigravity-ide', 'conversations', '6a2ff5b3-0000-4000-8000-00000000a9e7.db'), {
+    cwd: code('lumen-docs'),
+    branch: 'main',
+    repo: 'lumenlabs/lumen-docs',
+    began: agyAt,
+    steps: [
+      { at: agyAt, user: 'Add a getting-started video to the docs home page' },
+      { at: agyAt + 30_000, reply: "I'll plan it first.", thinking: 'A short loop beats a long video.' },
+      { at: agyAt + 60_000, tool: 'write_to_file', args: { TargetFile: `${world.home}/.gemini/antigravity-ide/brain/x/task.md`, CodeContent: '- [x] Storyboard the loop\n- [ ] Record it\n- [ ] Embed it', toolAction: 'Writing the task list' } },
+      { at: agyAt + 90_000, reply: 'Storyboard done; recording is next.' }
+    ]
+  })
 
   // ---------- accounts ----------
   const b64 = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base64url')

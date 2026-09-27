@@ -211,7 +211,7 @@ const WORKTREES: StaleListConfig<StaleWorktree> = {
     </>
   ),
   bar: {
-    defaultPinned: ['origin', 'state'],
+    defaultPinned: ['agent', 'origin', 'state'],
     label: 'Filter worktrees',
     placeholder: 'Filter by project, branch or path…'
   },

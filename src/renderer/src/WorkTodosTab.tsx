@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import type { Provider, TodoStatus } from '../../shared/types'
+import type { SessionProvider, TodoStatus } from '../../shared/types'
 import { todoSummary, type WorkModel } from '../../shared/work'
 import { PROVIDER_LABEL, TodoMark } from './logos'
 
@@ -12,7 +12,7 @@ const TODO_WORD: Record<TodoStatus, string> = {
   blocked: 'blocked'
 }
 
-export function WorkTodosTab({ model, provider }: { model: WorkModel; provider: Provider }): JSX.Element {
+export function WorkTodosTab({ model, provider }: { model: WorkModel; provider: SessionProvider }): JSX.Element {
   if (model.todosKey === null) {
     return (
       <p className="work-empty">

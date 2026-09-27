@@ -107,8 +107,15 @@ describe('savedProvider', () => {
   })
 
   it('falls back to Claude when what is stored is not an agent', () => {
-    window.localStorage.setItem('cockpit:provider', 'gemini')
+    window.localStorage.setItem('cockpit:provider', 'aider')
     expect(savedProvider()).toBe('claude')
+  })
+
+  // an agent Cockpit otherwise only reads is remembered as picked; the form opens on it
+  // only while an ACP agent drives it (useAgentChoice), and on Claude until then
+  it('remembers an agent Cockpit only reads, for when an ACP agent drives it', () => {
+    window.localStorage.setItem('cockpit:provider', 'gemini')
+    expect(savedProvider()).toBe('gemini')
   })
 })
 

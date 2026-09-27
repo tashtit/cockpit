@@ -60,6 +60,7 @@ const repo: RepoGroup = {
   sessionCount: 1,
   archivedCount: 0,
   heldCount: 0,
+  byProvider: {},
   lastActivity: 0,
   providers: ['claude'],
   hidden: false

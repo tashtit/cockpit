@@ -379,6 +379,21 @@ const STATIC: readonly Shot[] = [
       await pause(w, 500)
     }
   },
+  // an agent Cockpit otherwise only reads, offered because its ACP server answered
+  // (the world's `opencode acp`): its card says how it runs, and it has no account,
+  // model or thinking to pick
+  {
+    view: 'new session',
+    name: 'new-session-acp',
+    tall: 1100,
+    go: async (w) => {
+      await home(w)
+      await w.getByRole('treeitem', { name: /acme\/\s*rocket/ }).focus()
+      await w.getByRole('button', { name: 'New session in rocket' }).click()
+      await w.getByRole('group', { name: 'Agent' }).getByRole('button', { name: /opencode/ }).click()
+      await pause(w, 500)
+    }
+  },
   { view: 'roundtable', name: 'new-roundtable', tall: 1000, go: async (w) => { await home(w); await w.getByRole('button', { name: /Start a roundtable/ }).click(); await pause(w, 500) } },
   // a seat row is three controls wide and a twin can be an exact repeat: the state the
   // plain form never shows — the duplicate mark, its hint, and the row wrapping at the floor
@@ -615,6 +630,41 @@ const STATIC: readonly Shot[] = [
   },
   { view: 'chat', name: 'chat-codex', go: (w) => open(w, /Add a fallback when the billing API/) },
   { view: 'chat', name: 'chat-copilot', go: (w) => open(w, /Tidy the usage panel spacing/) },
+  // agents Cockpit reads: found at launch, opened read-only and continued elsewhere — or,
+  // for opencode, whose ACP server the world answers for, taken over and sent to here
+  { view: 'chat', name: 'chat-gemini', go: (w) => open(w, /Stop the usage panel flashing on load/) },
+  { view: 'chat', name: 'chat-cursor', go: (w) => open(w, /Map which jobs never emit a span/) },
+  { view: 'chat', name: 'chat-cursor-editor', go: (w) => open(w, /Tighten the retry backoff/) },
+  { view: 'chat', name: 'chat-opencode', go: (w) => open(w, /Cache the tenant lookup/) },
+  {
+    view: 'chat',
+    name: 'chat-antigravity-work',
+    go: async (w) => {
+      await open(w, /Add a getting-started video/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await pause(w, 400)
+    }
+  },
+  {
+    view: 'chat',
+    name: 'chat-cline-work',
+    go: async (w) => {
+      await open(w, /Link every tutorial to its API reference page/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await pause(w, 400)
+    }
+  },
+  {
+    view: 'settings',
+    name: 'settings-read-only-agents',
+    go: async (w) => {
+      await nav(w, 'Settings')
+      const heading = w.getByRole('heading', { name: 'Other agents · read only' })
+      await heading.waitFor()
+      await heading.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await pause(w, 300)
+    }
+  },
   // Copilot's to-do table, read from its session database — one step blocked
   {
     view: 'chat',
@@ -644,6 +694,18 @@ const STATIC: readonly Shot[] = [
       await w.getByRole('button', { name: /Continue in another agent/ }).click()
       await pause(w, 900)
     }
+  },
+  // a session Cockpit only reads, continued with one it runs: the briefing is built
+  // from the Gemini transcript, and there is no Improve with AI to offer
+  {
+    view: 'chat',
+    name: 'handoff-from-gemini',
+    tall: 1300,
+    go: async (w) => {
+      await open(w, /Stop the usage panel flashing on load/)
+      await w.getByRole('button', { name: 'Continue it with another agent…' }).click()
+      await pause(w, 900)
+    }
   }
 ]
 
@@ -652,7 +714,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'agents-browse-mcp', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'agents-browse-mcp', 'profile', 'profile-agents', 'cleanup', 'new-session', 'new-session-acp', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

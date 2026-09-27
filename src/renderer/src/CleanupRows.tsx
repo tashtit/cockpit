@@ -44,7 +44,8 @@ const BLOCK_LABEL: Record<CleanupBlock, string> = {
   process: 'a process is running',
   dirty: 'uncommitted changes',
   detached: 'commits on no branch',
-  locked: 'locked'
+  locked: 'locked',
+  'in-use': 'open in its app'
 }
 
 /** "running 3d" — how long a left-behind process has outlived its work. */

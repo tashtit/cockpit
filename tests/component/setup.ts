@@ -14,11 +14,15 @@ window.cockpit = freshApi()
 Element.prototype.scrollIntoView ??= () => {}
 Element.prototype.scrollTo ??= () => {}
 
-beforeEach(() => {
+beforeEach(async () => {
   Object.assign(window.cockpit, freshApi())
   window.localStorage.clear()
   // the open conversation lives in a module store (chat-log.ts), not in App's state
   setChatLog([])
+  // so does which agents an ACP agent drives: each test starts from the three CLIs. Loaded
+  // here, not above: it imports api.ts, which must not load before the stub exists
+  const { clearAcpReadiness } = await import('../../src/renderer/src/acp-readiness')
+  clearAcpReadiness()
 })
 
 afterEach(() => {

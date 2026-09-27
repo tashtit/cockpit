@@ -13,7 +13,7 @@ import { listModelEndpoints, sessionEndpointFor, sourceFor } from './config'
 import { getEndpointKey } from './secrets'
 import { parseJsonlText } from './parsers/util'
 import { endpointEnv } from '../shared/endpoints'
-import { CONFIG_HOME_VAR } from '../shared/providers'
+import { CONFIG_HOME_VAR, isDrivable } from '../shared/providers'
 
 /**
  * IO around handoff-core: indexer lookups, git snapshots, and the "Improve with
@@ -69,10 +69,10 @@ export async function getHandoffBriefing(
  * home plus, for BYOK-bound sessions, the endpoint env. A removed endpoint
  * refuses loudly — same contract as resuming the session itself.
  */
-function summarizeEnv(meta: SessionMeta): NodeJS.ProcessEnv {
+function summarizeEnv(meta: SessionMeta, provider: Provider): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   const src = sourceFor(meta)
-  if (src) env[CONFIG_HOME_VAR[meta.provider]] = src.path
+  if (src) env[CONFIG_HOME_VAR[provider]] = src.path
   const endpointId = sessionEndpointFor(meta.id)
   if (endpointId) {
     const ep = listModelEndpoints().find((e) => e.id === endpointId)
@@ -81,7 +81,7 @@ function summarizeEnv(meta: SessionMeta): NodeJS.ProcessEnv {
         'This session runs on a custom model provider that is no longer configured — re-add it, or use the extracted briefing.'
       )
     }
-    Object.assign(env, endpointEnv(meta.provider, ep, ep.hasKey ? getEndpointKey(ep.id) : undefined))
+    Object.assign(env, endpointEnv(provider, ep, ep.hasKey ? getEndpointKey(ep.id) : undefined))
   }
   return env
 }
@@ -130,19 +130,23 @@ export async function improveHandoffBriefing(
 async function improve(indexer: SessionIndexer, sessionId: string): Promise<string> {
   const meta = indexer.getSession(sessionId)
   if (!meta) throw new Error('Unknown session — it may not be indexed yet.')
+  const provider = meta.provider
+  if (!isDrivable(provider)) {
+    throw new Error('Improving the briefing resumes the source agent’s own CLI, which Cockpit does not run for this agent — use the extracted briefing.')
+  }
   const cwd = meta.cwd
   if (cwd === null || !dirExists(cwd)) {
     throw new Error('The working directory no longer exists — handoff needs it.')
   }
-  const { cmd, args } = buildSummarizeCommand(meta.provider, meta.nativeId)
-  const env = summarizeEnv(meta)
+  const { cmd, args } = buildSummarizeCommand(provider, meta.nativeId)
+  const env = summarizeEnv(meta, provider)
   const stdout = await execOrThrow(cmd, args, {
     cwd,
     timeoutMs: 120_000,
     env,
     failure: (r) => `${cmd} could not summarize the session: ${(r.stderr.trim() || r.error || 'unknown error').slice(0, 500)}`
   })
-  const aiText = textFromStream(meta.provider, stdout)
+  const aiText = textFromStream(provider, stdout)
   if (aiText === '') throw new Error(`${cmd} returned no briefing text.`)
   return composeImprovedBriefing(sourceInfo(meta), aiText, await gitSnapshot(cwd))
 }

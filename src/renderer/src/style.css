@@ -53,6 +53,18 @@ ul, ol { padding: 0; }
   /* the OpenAI blossom renders white-on-dark like ChatGPT's own mark; teal stays the
      codex tint/border color */
   --codex-mark: #ececf1;
+  /* the other agents. Gemini's accent is its brand blue; Cursor, Cline, Roo Code, opencode and
+     Antigravity share one neutral accent for tints and borders, told apart by their marks */
+  --gemini: #3186ff; --gemini-rgb: 49, 134, 255;
+  --mono-mark: #d9dde3; --mono-mark-rgb: 217, 221, 227;
+  /* the marks that draw in their own colours (logos.tsx, `.mark-*`): Google's palette, which
+     Gemini's sparkle and Antigravity's arch share; Cursor's shaded cube; opencode's grey core */
+  --google-blue: #3186ff; --google-blue-light: #749bff; --google-red: #fc413d;
+  --google-yellow: #fbbc04; --google-yellow-light: #ffe432; --google-yellow-pale: #ffee48;
+  --google-green: #00b95c;
+  --cursor-shade-1: #72716d; --cursor-shade-2: #55544f; --cursor-shade-3: #43413c;
+  --cursor-light: #d6d5d2; --cursor-edge: #fff;
+  --opencode-frame: #fff; --opencode-core: #5a5858;
   --branch: #79b8ff;
   --pr-open: #3fb950; --pr-merged: #a371f7; --pr-closed: #f85149; --pr-draft: #8b949e;
   --danger: #f85149; --ok: #2ea043; --warn: #d29922;
@@ -223,6 +235,27 @@ summary::-webkit-details-marker { display: none; }
 .logo-claude, .plogo-claude { color: var(--claude); }
 .logo-codex, .plogo-codex { color: var(--codex-mark); }
 .logo-copilot, .plogo-copilot { color: var(--copilot); }
+.logo-gemini, .plogo-gemini { color: var(--gemini); }
+/* a mark in its own colours: each part names the brand colour it is drawn in */
+.mark-google-blue { fill: var(--google-blue); }
+.mark-google-blue-light { fill: var(--google-blue-light); }
+.mark-google-red { fill: var(--google-red); }
+.mark-google-yellow { fill: var(--google-yellow); }
+.mark-google-yellow-light { fill: var(--google-yellow-light); }
+.mark-google-yellow-pale { fill: var(--google-yellow-pale); }
+.mark-google-green { fill: var(--google-green); }
+.mark-stop-google-green { stop-color: var(--google-green); }
+.mark-stop-google-red { stop-color: var(--google-red); }
+.mark-stop-google-yellow { stop-color: var(--google-yellow); }
+.mark-cursor-shade-1 { fill: var(--cursor-shade-1); }
+.mark-cursor-shade-2 { fill: var(--cursor-shade-2); }
+.mark-cursor-shade-3 { fill: var(--cursor-shade-3); }
+.mark-cursor-light { fill: var(--cursor-light); }
+.mark-cursor-edge { fill: var(--cursor-edge); }
+.mark-opencode-frame { fill: var(--opencode-frame); }
+.mark-opencode-core { fill: var(--opencode-core); }
+.logo-cursor, .plogo-cursor, .logo-cline, .plogo-cline, .logo-roo, .plogo-roo,
+.logo-opencode, .plogo-opencode, .logo-antigravity, .plogo-antigravity { color: var(--mono-mark); }
 .plogo { display: inline-flex; flex-shrink: 0; }
 .logo-cockpit { -webkit-user-drag: none; user-select: none; }
 
@@ -236,6 +269,8 @@ summary::-webkit-details-marker { display: none; }
 .acct-claude { border-color: rgba(var(--claude-rgb), 0.5); }
 .acct-codex { border-color: rgba(var(--codex-rgb), 0.5); }
 .acct-copilot { border-color: rgba(var(--copilot-rgb), 0.5); }
+.acct-gemini { border-color: rgba(var(--gemini-rgb), 0.5); }
+.acct-cursor, .acct-cline, .acct-roo, .acct-opencode, .acct-antigravity { border-color: rgba(var(--mono-mark-rgb), 0.4); }
 .acct-chip.missing { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.4);
   font-style: italic; }
 
@@ -447,6 +482,12 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .session-row.selected:has(.plogo-copilot) {
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.14), transparent 70%);
   box-shadow: inset 2px 0 0 var(--copilot); }
+.session-row.selected:has(.plogo-gemini) {
+  background: linear-gradient(90deg, rgba(var(--gemini-rgb), 0.14), transparent 70%);
+  box-shadow: inset 2px 0 0 var(--gemini); }
+.session-row.selected:is(:has(.plogo-cursor), :has(.plogo-cline), :has(.plogo-roo), :has(.plogo-opencode), :has(.plogo-antigravity)) {
+  background: linear-gradient(90deg, rgba(var(--mono-mark-rgb), 0.1), transparent 70%);
+  box-shadow: inset 2px 0 0 var(--mono-mark); }
 .session-row.archived .session-title { color: var(--fg-dim); text-decoration: line-through;
   text-decoration-thickness: 1px; }
 .session-row.archived .plogo svg { color: var(--fg-dim); }
@@ -624,6 +665,8 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .lineage-chip.acct-claude:hover { background: rgba(var(--claude-rgb), 0.12); }
 .lineage-chip.acct-codex:hover { background: rgba(var(--codex-rgb), 0.12); }
 .lineage-chip.acct-copilot:hover { background: rgba(var(--copilot-rgb), 0.12); }
+.lineage-chip.acct-gemini:hover { background: rgba(var(--gemini-rgb), 0.12); }
+.lineage-chip:is(.acct-cursor, .acct-cline, .acct-roo, .acct-opencode, .acct-antigravity):hover { background: rgba(var(--mono-mark-rgb), 0.1); }
 /* who drives the session, first in the subtitle: Cockpit's own chip is a key (it opens
    the hold bar), the agent's a statement in its livery. Text sheds before the mark. */
 .hold-chip { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
@@ -762,6 +805,8 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .badge-codex { background: var(--codex); }
 .badge-codex svg { color: var(--white); }
 .badge-copilot { background: var(--copilot); }
+.badge-gemini { background: var(--gemini); }
+.badge-cursor, .badge-cline, .badge-roo, .badge-opencode, .badge-antigravity { background: var(--mono-mark); }
 
 /* ---------- roundtable: several agents, one discussion ---------- */
 /* outline badge: the multi-agent view belongs to the app accent — solid fills stay per-agent */
@@ -1745,6 +1790,11 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   box-shadow: inset 0 0 0 1.5px var(--codex); }
 .composer-agent.active.plogo-copilot { background: rgba(var(--copilot-rgb), 0.16);
   box-shadow: inset 0 0 0 1.5px var(--copilot); }
+.composer-agent.active.plogo-gemini { background: rgba(var(--gemini-rgb), 0.16);
+  box-shadow: inset 0 0 0 1.5px var(--gemini); }
+.composer-agent.active.plogo-cursor, .composer-agent.active.plogo-cline,
+.composer-agent.active.plogo-opencode { background: rgba(var(--mono-mark-rgb), 0.12);
+  box-shadow: inset 0 0 0 1.5px var(--mono-mark); }
 .composer-agent.no-acct::after { content: ''; position: absolute; top: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
 /* account select sits borderless inside the identity control (quiet variant) */
@@ -1923,6 +1973,11 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   background: rgba(var(--codex-rgb), 0.1); box-shadow: 0 0 16px rgba(var(--codex-rgb), 0.15); }
 .ns-provider.ns-copilot.active { border-color: var(--copilot);
   background: rgba(var(--copilot-rgb), 0.1); box-shadow: 0 0 16px rgba(var(--copilot-rgb), 0.15); }
+/* the agents driven over ACP: Gemini in its blue, the monochrome brands in the shared mark */
+.ns-provider.ns-gemini.active { border-color: var(--gemini);
+  background: rgba(var(--gemini-rgb), 0.1); box-shadow: 0 0 16px rgba(var(--gemini-rgb), 0.15); }
+.ns-provider.ns-cursor.active, .ns-provider.ns-cline.active, .ns-provider.ns-opencode.active {
+  border-color: var(--mono-mark); background: rgba(var(--mono-mark-rgb), 0.08); }
 .ns-provider-name { font-weight: 700; }
 .ns-provider-blurb { font-size: var(--fs-xs); color: var(--fg-dim); text-align: center; }
 .ns-provider .acct-chip { margin-top: 2px; max-width: 100%; }
@@ -1991,6 +2046,10 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.06), var(--surface) 45%); }
 .tint-copilot { box-shadow: inset 2px 0 0 var(--copilot);
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.07), var(--surface) 45%); }
+.tint-gemini { box-shadow: inset 2px 0 0 var(--gemini);
+  background: linear-gradient(90deg, rgba(var(--gemini-rgb), 0.07), var(--surface) 45%); }
+.tint-cursor, .tint-cline, .tint-roo, .tint-opencode, .tint-antigravity { box-shadow: inset 2px 0 0 var(--mono-mark);
+  background: linear-gradient(90deg, rgba(var(--mono-mark-rgb), 0.05), var(--surface) 45%); }
 .source-body { flex: 1 1 260px; min-width: 0; }
 /* a row carrying usage meters needs its two fixed columns and the numbers beside them:
    ask for that width, so the health readout gives way before the meters are squeezed
@@ -2731,6 +2790,8 @@ button.pnl-flag:hover { text-decoration: underline; }
 .avatar.plogo-claude { border-color: rgba(var(--claude-rgb), 0.45); }
 .avatar.plogo-codex { border-color: rgba(var(--codex-rgb), 0.45); }
 .avatar.plogo-copilot { border-color: rgba(var(--copilot-rgb), 0.45); }
+.avatar.plogo-gemini { border-color: rgba(var(--gemini-rgb), 0.45); }
+.avatar:is(.plogo-cursor, .plogo-cline, .plogo-roo, .plogo-opencode, .plogo-antigravity) { border-color: rgba(var(--mono-mark-rgb), 0.35); }
 
 /* flying board rows glow in their livery — the wash extends the lit placard */
 .board-row.flying:has(.pulse-claude) {

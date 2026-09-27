@@ -1,15 +1,17 @@
 import type {
-  Provider,
+  SessionMessage,
   SessionMeta,
+  SessionProvider,
   TranscriptHit,
   TranscriptHitRole,
   TranscriptSearchQuery,
   TranscriptSearchResult,
   TranscriptSearchStop
 } from '../shared/types'
-import { isProvider } from '../shared/providers'
 import { contentToText, jsonText, readHeadBytesAsync, streamJsonl, toMs } from './parsers/util'
 import { legacyTimelineTexts } from './parsers/copilot'
+import { partsText } from './parsers/gemini'
+import { isSessionProvider } from '../shared/providers'
 
 /**
  * Cross-agent full-text search over transcript *contents* — "where did I discuss X",
@@ -131,10 +133,64 @@ const copilotRecords: RecordExtractor = (line, tools) => {
   return []
 }
 
-const EXTRACTORS: Record<Provider, RecordExtractor> = {
+/** One Gemini CLI message record: what the person typed, the reply, its tool calls. */
+function geminiMessageTexts(m: any, tools: boolean): TextRecord[] {
+  const ts = toMs(m?.timestamp)
+  if (m?.type === 'user') {
+    const text = partsText(m.displayContent ?? m.content).trim()
+    // the CLI's context preamble and slash commands are not something anyone said
+    return text && !/^(?:[/?]|<session_context>|<hook_context>)/.test(text) ? [{ role: 'user', text, ts }] : []
+  }
+  if (m?.type !== 'gemini') return []
+  const out: TextRecord[] = []
+  const text = partsText(m.content)
+  if (text) out.push({ role: 'assistant', text, ts })
+  if (tools && Array.isArray(m.toolCalls)) {
+    for (const c of m.toolCalls) {
+      out.push({ role: 'tool', text: `${c?.name ?? 'tool'} ${JSON.stringify(c?.args ?? {})}`, ts })
+      if (typeof c?.resultDisplay === 'string' && c.resultDisplay) out.push({ role: 'tool', text: c.resultDisplay, ts })
+    }
+  }
+  return out
+}
+
+/** A Gemini CLI log record: a message, or a checkpoint (`$set.messages`) holding many. */
+const geminiRecords: RecordExtractor = (line, tools) => {
+  const l = line as any
+  if (typeof l?.id === 'string') return geminiMessageTexts(l, tools)
+  const list = Array.isArray(l?.$set?.messages) ? l.$set.messages : Array.isArray(l?.messages) ? l.messages : []
+  return list.flatMap((m: unknown) => geminiMessageTexts(m, tools))
+}
+
+/** Cursor's agent transcripts: Anthropic-style blocks under `role` rather than `type`. */
+const cursorRecords: RecordExtractor = (line, tools) => {
+  const l = line as any
+  if (l?.role !== 'user' && l?.role !== 'assistant') return []
+  return claudeRecords({ type: l.role, message: l.message }, tools)
+}
+
+/** The logs streamed line by line; every other store is searched through its parser's rows. */
+const EXTRACTORS: Partial<Record<SessionProvider, RecordExtractor>> = {
   claude: claudeRecords,
   codex: codexRecords,
-  copilot: copilotRecords
+  copilot: copilotRecords,
+  gemini: geminiRecords,
+  cursor: cursorRecords
+}
+
+/**
+ * A transcript's rows as searchable records — for the stores that are not a line stream:
+ * the Cline family's JSON arrays, the SQLite databases, an older Gemini CLI's one
+ * document. Their parsers already read them within the transcript budget.
+ */
+function rowRecords(rows: readonly SessionMessage[], tools: boolean): TextRecord[] {
+  return rows.flatMap((m): TextRecord[] => {
+    if (m.kind === 'text' && (m.role === 'user' || m.role === 'assistant')) {
+      return [{ role: m.role, text: m.text, ts: m.ts ?? null }]
+    }
+    const tool = m.kind === 'tool_call' || m.kind === 'tool_result'
+    return tools && tool ? [{ role: 'tool', text: m.text, ts: m.ts ?? null }] : []
+  })
 }
 
 /** A whole-document read under the same cap, for the legacy Copilot JSON layout. */
@@ -187,7 +243,7 @@ type NormalQuery = {
   readonly text: string
   readonly needle: string
   readonly repoKey?: string
-  readonly providers?: readonly Provider[]
+  readonly providers?: readonly SessionProvider[]
   readonly limit: number
   readonly perSession: number
   readonly tools: boolean
@@ -196,9 +252,7 @@ type NormalQuery = {
 /** The query is renderer input — every field is re-derived, never trusted as typed. */
 function normalizeQuery(raw: TranscriptSearchQuery): NormalQuery {
   const text = collapse(String(raw?.text ?? ''))
-  const providers = Array.isArray(raw?.providers)
-    ? raw.providers.filter(isProvider)
-    : []
+  const providers = Array.isArray(raw?.providers) ? raw.providers.filter(isSessionProvider) : []
   return {
     text,
     needle: text.toLowerCase(),
@@ -214,9 +268,11 @@ function normalizeQuery(raw: TranscriptSearchQuery): NormalQuery {
 export type CandidateSource = {
   transcriptCandidates(scope: {
     readonly repoKey?: string
-    readonly providers?: readonly Provider[]
+    readonly providers?: readonly SessionProvider[]
   }): SessionMeta[]
   getSession(id: string): SessionMeta | null
+  /** A session's transcript as its parser reads it — for stores that are not a line stream */
+  getMessages(id: string): SessionMessage[]
 }
 
 export type SearcherOptions = {
@@ -317,6 +373,14 @@ export class TranscriptSearcher {
       hits.push(hit)
       return hits.length < q.perSession
     }
+    const extract = EXTRACTORS[meta.provider]
+    if (!extract || (meta.provider !== 'copilot' && !meta.sourcePath.endsWith('.jsonl'))) {
+      const rows = this.source.getMessages(meta.id)
+      if (!alive()) return { hits, truncated: false }
+      const truncated = rows[0]?.kind === 'system' && rows[0].text.startsWith('(older messages omitted')
+      for (const r of rowRecords(rows, q.tools)) if (!take(r)) break
+      return { hits, truncated }
+    }
     if (meta.provider === 'copilot' && !meta.sourcePath.endsWith('.jsonl')) {
       const { text, truncated } = await readCapped(meta.sourcePath, this.maxBytes)
       let doc: unknown = null
@@ -333,7 +397,6 @@ export class TranscriptSearcher {
       }
       return { hits, truncated }
     }
-    const extract = EXTRACTORS[meta.provider]
     // a thread kept across several files is searched page by page, oldest first,
     // each earlier page only as far as the thread's history in it goes
     const pages = [...(meta.segments ?? []), { path: meta.sourcePath, endByte: undefined }]

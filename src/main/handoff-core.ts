@@ -1,4 +1,4 @@
-import type { Provider, SessionMessage, TodoStatus } from '../shared/types'
+import type { Provider, SessionMessage, SessionProvider, TodoStatus } from '../shared/types'
 import { AGENT_NAME } from '../shared/providers'
 import { buildWork, CHECK_LABEL, todoSummary, type CheckWork } from '../shared/work'
 import { capText, truncate } from './parsers/util'
@@ -20,7 +20,8 @@ export type GitSnapshot = {
 }
 
 export type HandoffSourceInfo = {
-  readonly provider: Provider
+  /** Any agent the index reads — a Cursor or Gemini session hands off like a driven one */
+  readonly provider: SessionProvider
   readonly title: string
   readonly cwd: string | null
   readonly branch: string | null
@@ -46,7 +47,7 @@ const TODO_EACH = 160
 const CHECK_COMMAND = 160
 const SHARED_SHOWN = 10
 
-function preamble(provider: Provider): string {
+function preamble(provider: SessionProvider): string {
   return (
     '# Handoff briefing\n\n' +
     `You are taking over an in-progress task from another AI coding agent (${AGENT_NAME[provider]}). ` +

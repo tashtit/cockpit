@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { Provider } from '../../shared/types'
+import type { SessionProvider } from '../../shared/types'
 import type { WorkModel } from '../../shared/work'
 import { PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
@@ -17,7 +17,7 @@ export function WorkPlanTab({
   model: WorkModel
   focus: WorkFocus
   pendingPlanKey: number | null
-  provider: Provider
+  provider: SessionProvider
 }): JSX.Element {
   const fmt = useTimeFormat()
   const { plans } = model

@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useRef, type JSX } from 'react'
-import type { Provider } from '../../shared/types'
+import type { SessionProvider } from '../../shared/types'
 import { needsLook, type WorkModel, type WorkTab } from '../../shared/work'
 import { XIcon } from './logos'
 import { SidePanel } from './SidePanel'
@@ -46,7 +46,7 @@ export const WorkPanel = memo(function WorkPanel({
   onTab: (tab: WorkTab) => void
   onClose: () => void
   cwd: string
-  provider: Provider
+  provider: SessionProvider
   /** The plan row still waiting for the person's approval, if one is */
   pendingPlanKey: number | null
   /** Swap the transcript for the worktree's diff — absent where there is none */

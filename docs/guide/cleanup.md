@@ -21,6 +21,18 @@ Settings › View › History controls what the **sidebar** shows. Cleanup's thr
 Every session from every agent, oldest first, with its size on disk. Two actions, two very different consequences:
 
 - **Delete** — removes the agent's own log file (for Copilot, the session's state directory) **and the worktree the session ran in**, and the branch when git reports it as fully merged. This cannot be undone. It takes two clicks: the first arms the button, the second commits.
+
+  Every agent's sessions are listed, and deleting one removes what that agent keeps for it, not just the log Cockpit reads:
+
+  | Agent | What goes |
+  | --- | --- |
+  | Gemini CLI | the chat log, and the folder its subagents wrote beside it |
+  | Cursor | an agent transcript's folder, an ACP conversation's folder, or an editor chat's rows in Cursor's database |
+  | Cline, Roo Code | the task's folder, and its entry in the list the extension shows tasks from |
+  | opencode | the session's rows in its database (or its files, from older versions) |
+  | Antigravity | the conversation's database and the notes it wrote for you |
+
+  A session that lives inside a database the agent's app has open right now, such as a Cursor chat while Cursor is running, is marked **open in its app** and can't be selected. Writing to that database under the app could leave the app holding the rows in memory and putting them back. Quit the app and scan again.
 - **Archive** — hides the session in Cockpit. Nothing on disk is touched, nothing is reclaimed, and you can bring it back from the archived toggle in the sidebar. The reversible tier, for getting something out of the sidebar rather than off the disk.
 
 Sessions with an agent currently running in them are listed but never selectable.
@@ -79,7 +91,7 @@ Every list but Processes has a filter bar. Free text on the left searches titles
 |---|---|
 | Sessions | Agent, Project, State (has a worktree, archived, blocked) |
 | Roundtables | Agent (any seat), Project, State (has a worktree, scratch room, archived, blocked) |
-| Worktrees | Origin, Project, State (removable, blocked, unpushed, directory gone) |
+| Worktrees | Agent (whose sessions ran in it), Origin, Project, State (removable, blocked, unpushed, directory gone) |
 
 Click a pill to open it, then click values to include them. Every option also carries a **⊘** on hover that *excludes* it instead — so "every project except docs" is one click. Within a dimension the values are OR-ed; across dimensions they are AND-ed. The pill tells you where it stands: `Any` → `web` → `not docs` → `2 selected, 1 excluded`.
 

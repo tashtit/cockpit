@@ -1,5 +1,5 @@
 /**
- * Stand-in for `claude`, `codex`, `copilot` and `gh` inside the ui-tour's fixture world.
+ * Stand-in for `claude`, `codex`, `copilot`, `gh` and `opencode` inside the ui-tour's fixture world.
  * The world's bin dir holds one tiny shell wrapper per name that runs this file with the
  * tool as its first argument, so the app spawns it exactly as it spawns the real CLI.
  *
@@ -204,13 +204,64 @@ async function copilot() {
   ev('assistant.message', { content: reply, model: 'claude-sonnet-4.5' })
 }
 
+/**
+ * `opencode acp`: the one agent Cockpit otherwise only reads that the world lets it drive,
+ * so the forms offer it and its sessions open with a composer. A minimal ACP server —
+ * the handshake Cockpit probes at launch, a session, and a reply streamed as chunks.
+ * It writes no session of its own; the world's opencode database already holds some.
+ */
+async function opencode() {
+  if (args[0] !== 'acp') return console.log('ok')
+  const send = (o) => process.stdout.write(`${JSON.stringify(o)}\n`)
+  let sid = null
+  const answer = async (m) => {
+    if (m.method === 'initialize') {
+      send({
+        jsonrpc: '2.0',
+        id: m.id,
+        result: { protocolVersion: 1, agentInfo: { name: 'opencode', version: '1.2.0' }, agentCapabilities: { loadSession: true } }
+      })
+    } else if (m.method === 'session/new') {
+      sid = `ses_${randomUUID().replaceAll('-', '').slice(0, 24)}`
+      send({ jsonrpc: '2.0', id: m.id, result: { sessionId: sid } })
+    } else if (m.method === 'session/load') {
+      sid = m.params?.sessionId ?? sid
+      send({ jsonrpc: '2.0', id: m.id, result: null })
+    } else if (m.method === 'session/prompt') {
+      for (const text of ['Looked at the tenant cache. ', 'Added a 60s TTL. ', 'Tests pass.']) {
+        send({
+          jsonrpc: '2.0',
+          method: 'session/update',
+          params: { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } }
+        })
+        await sleep(DELAY)
+      }
+      send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn' } })
+    } else if (m.id !== undefined) {
+      send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: `unknown method ${m.method}` } })
+    }
+  }
+  let buf = ''
+  process.stdin.setEncoding('utf8')
+  process.stdin.on('data', (c) => {
+    buf += c
+    let nl
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const raw = buf.slice(0, nl).trim()
+      buf = buf.slice(nl + 1)
+      if (raw) void answer(JSON.parse(raw))
+    }
+  })
+  await new Promise((r) => process.stdin.once('end', r))
+}
+
 // `--version`, as each real CLI words it — the Agent CLIs group reads these
 const VERSIONS = { claude: '2.1.236 (Claude Code)', codex: 'codex-cli 0.155.1', copilot: 'GitHub Copilot CLI 1.0.87-0.' }
 if (args[0] === '--version' && VERSIONS[tool]) {
   console.log(VERSIONS[tool])
   process.exit(0)
 }
-const run = { gh, claude, codex, copilot }[tool]
+const run = { gh, claude, codex, copilot, opencode }[tool]
 if (!run) {
   console.error(`ui-tour stub: unknown tool ${tool}`)
   process.exit(2)

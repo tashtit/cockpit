@@ -11,6 +11,7 @@ import { CopyPath } from './CopyPath'
 import { MODES, rememberMode, savedMode } from './agent-choice'
 import { cwdLabel } from '../../shared/library'
 import { holdSentence, holderName, placeOf } from './hold'
+import { isDrivable } from '../../shared/providers'
 import { HoldBar } from './HoldBar'
 import {
   BranchChip,
@@ -204,7 +205,7 @@ export function ChatView({
   const sideable = !!binding?.nativeSessionId && !binding.readOnly && sideChatSupported(binding.provider)
   const sideTarget = useMemo<SideTarget | null>(
     () =>
-      binding?.nativeSessionId && sideable
+      binding?.nativeSessionId && sideable && sideChatSupported(binding.provider)
         ? {
             provider: binding.provider,
             cwd: binding.cwd,
@@ -409,17 +410,22 @@ export function ChatView({
       <header className="chat-header">
         {/* the name sheds on narrow windows before the title does; the mark stays */}
         <span className={`badge badge-${binding.provider}`} title={PROVIDER_LABEL[binding.provider]}>
-          <ProviderLogo p={binding.provider} size={11} />
+          {/* on the badge's solid fill a mark's own colours would fight it: one colour */}
+          <ProviderLogo p={binding.provider} size={11} mono />
           <span className="badge-text">{PROVIDER_LABEL[binding.provider]}</span>
         </span>
         {/* compact: the local part identifies the account at a glance; the full
-            identity lives in the tooltip (same pattern as the sidebar footer) */}
-        <span
-          className={`acct-chip acct-${binding.provider}`}
-          title={`Running as ${binding.accountLabel ?? 'default account'}`}
-        >
-          {(binding.accountLabel ?? 'default account').split('@')[0]}
-        </span>
+            identity lives in the tooltip (same pattern as the sidebar footer). An agent
+            Cockpit only reads — or drives over its ACP server — runs as whoever it is
+            signed in as, which Cockpit never learns, so it claims no account */}
+        {isDrivable(binding.provider) && (
+          <span
+            className={`acct-chip acct-${binding.provider}`}
+            title={`Running as ${binding.accountLabel ?? 'default account'}`}
+          >
+            {(binding.accountLabel ?? 'default account').split('@')[0]}
+          </span>
+        )}
         <div className="chat-header-text">
           <h2 className="chat-title">{binding.title}</h2>
           <div className="chat-sub">
@@ -548,8 +554,9 @@ export function ChatView({
         {/* progressive disclosure: only a started session can be handed off; a
             running turn merely disables it. A roundtable seat session is the
             table's internal, not a conversation to continue — main refuses it
-            as a handoff source, so the affordance must not be offered either. */}
-        {binding.nativeSessionId && !binding.readOnly && (
+            as a handoff source, so the affordance must not be offered either.
+            A session of an agent Cockpit only reads is exactly one to continue. */}
+        {binding.nativeSessionId && binding.readOnly !== 'seat' && (
           <button
             className="btn-handoff"
             disabled={busy}
@@ -676,10 +683,22 @@ export function ChatView({
           )}
 
           <footer className="composer">
-            {binding.readOnly ? (
+            {binding.readOnly === 'seat' ? (
               // roundtable seat-session: the table's round loop owns this conversation
               <div className="composer-readonly">
                 Seat session of a roundtable — read-only. Talk to it at the table.
+              </div>
+            ) : binding.readOnly === 'agent' ? (
+              // an agent Cockpit reads but can't run here: the way on is another agent,
+              // or its ACP server once one answers (the composer appears on its own)
+              <div className="composer-readonly">
+                Cockpit runs {PROVIDER_LABEL[binding.provider]} only over its ACP server, and none
+                has answered on this machine.{' '}
+                {binding.nativeSessionId && (
+                  <button className="link-btn" onClick={onOpenHandoff}>
+                    Continue it with another agent…
+                  </button>
+                )}
               </div>
             ) : (
               <>

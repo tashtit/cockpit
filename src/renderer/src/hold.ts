@@ -1,4 +1,4 @@
-import type { Provider, RepoGroup, SessionControl, SessionHolder } from '../../shared/types'
+import type { RepoGroup, SessionControl, SessionHolder, SessionProvider } from '../../shared/types'
 import { PROVIDER_LABEL } from './logos'
 import { storedValue } from './stored-value'
 
@@ -17,7 +17,7 @@ import { storedValue } from './stored-value'
  * wherever it was resumed next), for a headless run (nowhere to go back to) and for a
  * client no log has named yet.
  */
-export function placeOf(control: SessionControl, provider: Provider): string | null {
+export function placeOf(control: SessionControl, provider: SessionProvider): string | null {
   if (control.holder !== 'agent' || control.how !== 'outside') return null
   const agent = PROVIDER_LABEL[provider]
   switch (control.surface) {
@@ -37,13 +37,13 @@ export function placeOf(control: SessionControl, provider: Provider): string | n
 }
 
 /** The holder as a short name — the chip: "In Cockpit", "In the Claude app", "In Codex". */
-export function holderName(control: SessionControl, provider: Provider): string {
+export function holderName(control: SessionControl, provider: SessionProvider): string {
   if (control.holder === 'cockpit') return 'In Cockpit'
   return `In ${placeOf(control, provider) ?? PROVIDER_LABEL[provider]}`
 }
 
 /** The whole story in one line — a row's tooltip, the chip's title. */
-export function holdSentence(control: SessionControl, provider: Provider): string {
+export function holdSentence(control: SessionControl, provider: SessionProvider): string {
   const agent = PROVIDER_LABEL[provider]
   switch (control.how) {
     case 'started':

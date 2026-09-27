@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { act } from 'react'
 import { AcpAgents } from '../../src/renderer/src/AcpAgents'
+import { initAcpReadiness } from '../../src/renderer/src/acp-readiness'
 import type { AcpAgent } from '../../src/shared/types'
 
 const builtin: AcpAgent = {
@@ -38,7 +40,7 @@ describe('ACP agents settings', () => {
   it('lists an agent with the CLI it drives and the command behind it', async () => {
     render(<AcpAgents onStatus={() => {}} />)
     const row = (await screen.findByText('Copilot (ACP)')).closest('li') as HTMLElement
-    expect(within(row).getByText('copilot')).toBeTruthy()
+    expect(within(row).getByText('Copilot')).toBeTruthy()
     expect(within(row).getByText(/copilot --acp/)).toBeTruthy()
   })
 
@@ -47,6 +49,40 @@ describe('ACP agents settings', () => {
     const row = (await screen.findByText('Copilot (ACP)')).closest('li') as HTMLElement
     expect(within(row).queryByRole('button', { name: /Remove agent/i })).toBeNull()
     expect(within(row).getByText('built in')).toBeTruthy()
+  })
+
+  it('says whether a built-in’s CLI answered on this machine', async () => {
+    const gemini: AcpAgent = { ...builtin, id: 'builtin-gemini', label: 'Gemini CLI (ACP)', command: 'gemini', provider: 'gemini' }
+    vi.mocked(api().getAcpAgents).mockResolvedValue([builtin, gemini])
+    vi.mocked(api().getAcpReadiness).mockResolvedValue({
+      drivable: ['claude', 'codex', 'copilot', 'gemini'],
+      builtinsReady: ['builtin-gemini']
+    })
+    await act(async () => {
+      initAcpReadiness()
+    })
+    render(<AcpAgents onStatus={() => {}} />)
+    const row = (name: string): HTMLElement => screen.getByText(name).closest('li') as HTMLElement
+    await screen.findByText('Gemini CLI (ACP)')
+    expect(within(row('Gemini CLI (ACP)')).getByText('answered — in use')).toBeTruthy()
+    expect(within(row('Copilot (ACP)')).getByText('used once its CLI answers')).toBeTruthy()
+  })
+
+  it('lets an agent drive any agent Cockpit knows, one it only reads included', async () => {
+    const say = vi.fn()
+    vi.mocked(api().addAcpAgent).mockResolvedValue([builtin])
+    render(<AcpAgents onStatus={say} />)
+    await userEvent.click(await screen.findByRole('button', { name: /Add an ACP agent/i }))
+    await userEvent.type(screen.getByLabelText('Display name'), 'Cline')
+    await userEvent.click(screen.getByRole('button', { name: /Which agent this CLI drives/ }))
+    await userEvent.click(screen.getByRole('option', { name: 'Cline' }))
+    await userEvent.type(screen.getByLabelText('Command'), 'cline')
+    await userEvent.type(screen.getByLabelText('Arguments'), '--acp')
+    await userEvent.click(screen.getByRole('button', { name: 'Add agent' }))
+    await waitFor(() =>
+      expect(api().addAcpAgent).toHaveBeenCalledWith({ label: 'Cline', provider: 'cline', command: 'cline', args: ['--acp'] })
+    )
+    expect(say).toHaveBeenCalledWith('Added Cline. Cline sessions can be started and continued through it.')
   })
 
   it('says so when there are none', async () => {

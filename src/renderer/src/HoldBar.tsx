@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
-import type { Provider, SessionControl } from '../../shared/types'
+import type { SessionControl, SessionProvider } from '../../shared/types'
+import { isDrivable } from '../../shared/providers'
 import { holderName, placeOf } from './hold'
 import { HeldIcon, ProcessIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 
@@ -21,7 +22,7 @@ export function HoldBar({
   onClose
 }: {
   control: SessionControl
-  provider: Provider
+  provider: SessionProvider
   /** Cockpit's own turn is running — not the moment to hand the session back */
   busy: boolean
   /** The agent is running a turn outside Cockpit — not the moment to take it over */
@@ -71,18 +72,22 @@ export function HoldBar({
         <strong>{holderName(control, provider)}</strong> — {why}
       </p>
       <div className="hold-actions">
-        <button
-          className="btn-ghost small"
-          disabled={resumeBlocked || pending}
-          title={
-            resumeBlocked
-              ? resumeWhy
-              : `${held ? 'Release it and resume' : 'Resume'} it in ${agent}’s own CLI, in a Terminal window`
-          }
-          onClick={onResume}
-        >
-          <ProcessIcon size={11} /> Open in Terminal
-        </button>
+        {/* only a CLI Cockpit runs has a resume command to hand a terminal; one driven
+            over ACP is picked up in its own app */}
+        {isDrivable(provider) && (
+          <button
+            className="btn-ghost small"
+            disabled={resumeBlocked || pending}
+            title={
+              resumeBlocked
+                ? resumeWhy
+                : `${held ? 'Release it and resume' : 'Resume'} it in ${agent}’s own CLI, in a Terminal window`
+            }
+            onClick={onResume}
+          >
+            <ProcessIcon size={11} /> Open in Terminal
+          </button>
+        )}
         {held ? (
           <>
             <button

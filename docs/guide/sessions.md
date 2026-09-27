@@ -6,6 +6,8 @@ Everything in Cockpit starts from the session index: a live, repo-grouped view o
 
 Cockpit watches each provider's session root — `~/.claude`, `~/.codex`, `~/.copilot`, plus any extra config homes you add in Settings. Sessions you run in a plain terminal appear and update live; there's no import step and no daemon.
 
+It also reads the sessions of agents it doesn't run — see [Agents Cockpit reads](#agents-cockpit-reads) below.
+
 Each session's working directory is resolved to its **git repository**, worktree-aware: a session run in a linked worktree groups under the main repository, and the sidebar row is named `owner/repo` from the origin remote. Sessions with no repository land in a flat **Chats** section at the bottom.
 
 ## The sidebar
@@ -33,13 +35,19 @@ Rows on the home board and in the <kbd>⌘K</kbd> palette carry the same hexagon
 
 To see only one side, open the eye button beside the search field and pick **In Cockpit** or **Outside Cockpit** under *Sessions*. The tree keeps only the projects with sessions on that side, the counts follow, and search stays inside the filter. The choice outlives a restart, so while it's on a strip under the search field says *Only sessions in Cockpit* — **Show all** there puts every session back.
 
+### Filtering by agent
+
+The same eye button lists every agent with sessions under *Agents*, each with its count. Untick one to take its sessions out of the tree: projects with no session of a shown agent leave it, the counts follow, and search stays inside the filter. It combines with *Sessions* above, and is remembered the same way. The strip says what is hidden (*Only sessions not Cline*), and **Show all** clears both filters. An agent Cockpit starts reading later shows up ticked, and a hidden agent stays in the list to be ticked again even when it has no sessions right now.
+
 ### Searching inside transcripts
 
 "Where did I discuss X?" — across every agent at once, which no single vendor can
 answer. Press <kbd>⌘K</kbd>, type the words, and pick **search transcripts for …** under
 the session matches. Cockpit streams through the transcripts on demand (nothing is
 indexed or uploaded), scoped to the repo you are looking at — a row in the results widens
-the search to every repo. Each hit shows the message around the match, marked, with who
+the search to every repo. It follows the tree's agent filter too: with an agent hidden,
+the search leaves its transcripts out and says so (*in all repos, not Cline*), and a
+**Search every agent** row takes them back in. Each hit shows the message around the match, marked, with who
 said it; picking one opens that session **at that message** — scrolled into view and
 briefly highlighted, however far back it is.
 
@@ -67,6 +75,29 @@ Backing into the conversation that's currently running just flips the view — t
 A session whose agent is running right now is **flying**: a small turning ring on its row in the sidebar and the ⌘K palette, and a pulsing dot in the agent's color on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot (blue in the sidebar and the palette, the agent's color on the board) and `landed <time>` — until you open it, or archive it here or in the agent's own app. Two more states say a session **needs you**: an agent that has stopped to ask a question or for a permission shows a question glyph and `asks you`, on top of the board whatever else is true of it — in place of the flying ring, and for as long as the question stays open, even after you have opened the session — and an open pull request on the session's branch that has failing checks or changes requested shows GitHub's red x and `#57 checks failing`. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
 
 A session you run in a terminal or the provider's own app counts as flying while its log keeps growing — Cockpit reads the tail of the log on every write. When the log goes quiet for a minute and a half it drops back to the ground without landing; while the last thing written is a tool call still waiting for its result (a test suite, a build), Cockpit waits ten minutes instead, since those write nothing until they finish. An agent stopped on a question writes nothing until you answer, however long that takes, so it keeps its `asks you` mark for as long as the terminal or app that asked is still open and waiting, and drops only once that process has gone.
+
+## Agents Cockpit reads
+
+Cockpit drives Claude Code, Codex and Copilot. It also **reads** the sessions of these agents, so their work sits in the same sidebar, under the same repositories:
+
+| Agent | Where its sessions are found |
+| --- | --- |
+| Gemini CLI | `~/.gemini/tmp/*/chats/` |
+| Cursor | the editor's own chats, in its storage database, the agent transcripts under `~/.cursor/projects/`, and the conversations its ACP server keeps under `~/.cursor/acp-sessions/`, which is where every Cursor session Cockpit starts lives |
+| Cline | the extension's storage in every editor it is installed in — VS Code, Cursor, Windsurf or any other VS Code-family editor — and the Cline CLI's `~/.cline/data` |
+| Roo Code | the extension's storage in every editor it is installed in |
+| opencode | its database, `~/.local/share/opencode/opencode.db`, and the file store older versions kept beside it |
+| Antigravity | one database per conversation under `~/.gemini/antigravity-ide/` and `~/.gemini/antigravity-cli/` |
+
+A few things these agents keep cannot be read. Antigravity's earliest conversations are encrypted, so a home holding only those is not listed. Cursor chats that never got past a draft have nothing in them to show. A chat Cursor keeps both in its database and as an agent transcript appears once, from whichever record holds more of it.
+
+Nothing needs setting up. Each launch looks for these homes, adds any that appeared since the last one, and lists them in **Settings › Accounts** under **Other agents · read only**. A home you remove there stays removed; detection never adds it back.
+
+A session of one of these agents renders as any session does: its transcript, tool calls, edits, to-do lists and test runs, and ⌘K's transcript search covers it. Cleanup lists these sessions like any other, and deleting one removes what its agent keeps for it; see [Cleanup](/guide/cleanup).
+
+Cockpit can also start and continue sessions of Gemini CLI, Cursor, Cline and opencode, through each agent's own ACP server. That works once the agent's CLI answers Cockpit's handshake, or once you add an ACP agent for it yourself; see [ACP agents](/guide/acp-agents#agents-cockpit-otherwise-only-reads). The agent then appears in the New session form, in Home's composer and in **Continue in…**. Its sessions open with a composer, and you take one over from its agent the same way you would a Claude session.
+
+Until then, and for Roo Code and Antigravity, which have no ACP mode, a session opens read-only and has no composer. To pick the work up, use **Continue in…**. It hands the session, with a briefing built from its transcript, to another agent in the same directory. Live status and notifications for turns that run outside Cockpit follow the three agents Cockpit runs headless.
 
 ## Archiving
 

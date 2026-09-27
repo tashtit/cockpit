@@ -1,4 +1,4 @@
-import type { Provider, StaleSession, StaleTable, StaleWorktree } from '../../shared/types'
+import type { SessionProvider, StaleSession, StaleTable, StaleWorktree } from '../../shared/types'
 import type { FilterGroup, FilterOption } from './FilterBar'
 import { ProviderMark, PROVIDER_LABEL } from './logos'
 
@@ -58,6 +58,7 @@ export function tableValues(t: StaleTable, groupId: string): readonly string[] {
 }
 
 export function worktreeValues(w: StaleWorktree, groupId: string): readonly string[] {
+  if (groupId === 'agent') return w.providers
   if (groupId === 'project') return [w.repoName]
   if (groupId === 'origin') return [w.origin]
   const state: string[] = [w.blocks.length > 0 ? 'blocked' : 'removable']
@@ -73,7 +74,7 @@ function presentOptions<T, V extends string>(rows: readonly T[], of: (row: T) =>
 }
 
 /** The Agent dimension over every agent the rows carry, each with its logo. */
-function agentDim(dim: Dim, agents: readonly Provider[]): FilterGroup {
+function agentDim(dim: Dim, agents: readonly SessionProvider[]): FilterGroup {
   return dim(
     'agent',
     'Agent',
@@ -143,6 +144,9 @@ export function worktreeFilters(
 ): FilterGroup[] {
   const dim = dimension(sel, set)
   return [
+    // the agents whose sessions ran in it — Cursor's and Claude Code's own worktrees are
+    // theirs; one no session claims has none
+    agentDim(dim, rows.flatMap((w) => [...w.providers])),
     dim('origin', 'Origin', [
       { value: 'cockpit', label: 'Cut by Cockpit' },
       { value: 'external', label: 'External' }

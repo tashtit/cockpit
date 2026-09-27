@@ -123,6 +123,8 @@ That message means the first-run binary download failed — usually a proxy, fir
 
 On first launch Cockpit auto-detects `~/.claude`, `~/.codex`, and `~/.copilot` and indexes every session it finds there, grouped by git repository. There's nothing to configure: if you've used any of the three CLIs before, your history appears immediately, and the index updates live as you keep working in any terminal.
 
+It finds the sessions of Gemini CLI, Cursor, Cline, Roo Code, opencode and Antigravity the same way. It looks again on every launch, so an agent you install later shows up without a trip to Settings; see [Agents Cockpit reads](/guide/sessions#agents-cockpit-reads).
+
 If a provider directory doesn't exist yet, Cockpit simply shows an empty state for it. You can add further config homes — for example an isolated one for a second account — in **Settings**; see [Accounts & usage](/guide/accounts-and-usage).
 
 ### Everyday commands

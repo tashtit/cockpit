@@ -4,10 +4,12 @@ import type {
   AgentOptions,
   PermissionMode,
   Provider,
-  RepoGroup
+  RepoGroup,
+  SessionProvider
 } from '../../shared/types'
-import { PROVIDERS } from '../../shared/library'
+import { isDrivable, isSessionProvider } from '../../shared/providers'
 import { api } from './api'
+import { canDrive, refreshAcpReadiness, startableAgents, useDrivableAgents } from './acp-readiness'
 import { useLoaded } from './use-loaded'
 
 /**
@@ -19,6 +21,11 @@ import { useLoaded } from './use-loaded'
  * Storage is anyone's to write (a devtools console, another build, a hand edit) and can
  * refuse outright (a private window, blocked site data), so nothing read here trusts it:
  * a refused read is unset, and only a known agent or mode comes out of it.
+ *
+ * Besides the three CLIs, a form offers every agent Cockpit otherwise only reads that an
+ * ACP agent drives right now (`acp-readiness.ts`). Such an agent has no account, model or
+ * thinking to pick — it runs as whoever it is signed in as — and a pick of one whose ACP
+ * agent has since gone falls back to Claude rather than a card that is not there.
  */
 
 export type AccountChoice = {
@@ -38,7 +45,8 @@ export type AccountOption = AccountChoice & {
 /** Everything needed to start a fresh session (worktree + first prompt). */
 export type StartSessionRequest = {
   readonly repo: RepoGroup
-  readonly provider: Provider
+  /** One of the three CLIs, or an agent Cockpit otherwise only reads that an ACP agent drives */
+  readonly provider: SessionProvider
   /** Optional branch/worktree name; '' lets the workspace pick one */
   readonly name: string
   readonly prompt: string
@@ -51,7 +59,7 @@ export type StartSessionRequest = {
 
 const PROVIDER_KEY = 'cockpit:provider'
 const MODE_KEY = 'cockpit:mode'
-const accountStorageKey = (p: Provider): string => `cockpit:account:${p}`
+const accountStorageKey = (p: SessionProvider): string => `cockpit:account:${p}`
 
 /** What storage holds under `key` — nothing, when it refuses to be read. */
 function readStored(key: string): string | null {
@@ -71,8 +79,8 @@ function writeStored(key: string, value: string): void {
   }
 }
 
-/** Flatten the accounts snapshot into selectable options per provider. */
-export function accountOptions(snap: AccountsSnapshot | null, provider: Provider): AccountOption[] {
+/** Flatten the accounts snapshot into selectable options per provider (none for an agent driven over ACP). */
+export function accountOptions(snap: AccountsSnapshot | null, provider: SessionProvider): AccountOption[] {
   if (!snap) return []
   const out: AccountOption[] = []
   for (const a of snap.accounts.filter((x) => x.provider === provider)) {
@@ -102,7 +110,7 @@ export function accountOptions(snap: AccountsSnapshot | null, provider: Provider
 }
 
 /** The account a form opens on for `p`: the user's saved choice, else the first configured. */
-export function savedAccount(snap: AccountsSnapshot | null, p: Provider): AccountOption | undefined {
+export function savedAccount(snap: AccountsSnapshot | null, p: SessionProvider): AccountOption | undefined {
   const opts = accountOptions(snap, p)
   const saved = readStored(accountStorageKey(p))
   return opts.find((o) => o.key === saved) ?? opts[0]
@@ -115,7 +123,7 @@ export function savedAccount(snap: AccountsSnapshot | null, p: Provider): Accoun
  */
 export function chosenAccount(
   snap: AccountsSnapshot | null,
-  p: Provider,
+  p: SessionProvider,
   key: string | null | undefined
 ): AccountOption | undefined {
   return accountOptions(snap, p).find((o) => o.key === key) ?? savedAccount(snap, p)
@@ -138,9 +146,9 @@ export function savedMode(): PermissionMode {
 }
 
 /** The agent the person last started with, or Claude when what is stored is not one. */
-export function savedProvider(): Provider {
+export function savedProvider(): SessionProvider {
   const saved = readStored(PROVIDER_KEY)
-  return PROVIDERS.find((p) => p === saved) ?? 'claude'
+  return isSessionProvider(saved) ? saved : 'claude'
 }
 
 /** Remember the permission mode picked, for every form (and the next chat's composer) to open on. */
@@ -149,13 +157,13 @@ export function rememberMode(mode: PermissionMode): void {
 }
 
 /** Remember the account picked for `provider`, for every form to open on. */
-export function rememberAccount(provider: Provider, key: string): void {
+export function rememberAccount(provider: SessionProvider, key: string): void {
   writeStored(accountStorageKey(provider), key)
 }
 
 /** Remember what a session was started with, for the next form to open on. */
 export function rememberChoice(choice: {
-  readonly provider: Provider
+  readonly provider: SessionProvider
   readonly mode: PermissionMode
   readonly account: AccountOption | undefined
 }): void {
@@ -170,10 +178,17 @@ export const AGENT_BLURB: Record<Provider, string> = {
   copilot: 'GitHub-native, PR-focused'
 }
 
+/** A picker card's line: what the agent is good at, or — for one driven over ACP — how it runs. */
+export function agentBlurb(p: SessionProvider): string {
+  return isDrivable(p) ? AGENT_BLURB[p] : 'Runs over its ACP server'
+}
+
 /** A start form's agent, account and permission mode, as chosen so far. */
 export type AgentChoice = {
-  readonly provider: Provider
-  readonly setProvider: (p: Provider) => void
+  readonly provider: SessionProvider
+  readonly setProvider: (p: SessionProvider) => void
+  /** Every agent the form offers: the three CLIs, then the ones an ACP agent drives now */
+  readonly agents: readonly SessionProvider[]
   readonly mode: PermissionMode
   readonly setMode: (m: PermissionMode) => void
   /** Every signed-in account; null while they load, when absence is unknown — not "signed out" */
@@ -185,7 +200,7 @@ export type AgentChoice = {
   readonly setAccount: (key: string) => void
   /** The account an agent's card names — the rule `account` follows for the active agent, so a
    *  card never shows a different account than the one that would actually run */
-  readonly accountFor: (p: Provider) => AccountOption | undefined
+  readonly accountFor: (p: SessionProvider) => AccountOption | undefined
   /** What the start request carries of the account */
   readonly runAs: AccountChoice
 }
@@ -195,9 +210,14 @@ export type AgentChoice = {
  * and how they change. The accounts are read once; a pick made for one agent is dropped
  * when the agent changes, since accounts differ per agent.
  */
-export function useAgentChoice(initial: () => Provider = savedProvider): AgentChoice {
-  const [provider, setProvider] = useState<Provider>(initial)
+export function useAgentChoice(initial: () => SessionProvider = savedProvider): AgentChoice {
+  const drivable = useDrivableAgents()
+  const [picked, setProvider] = useState<SessionProvider>(initial)
+  // derived, not stored: the picked agent may be one whose ACP agent answers only later
+  const provider = canDrive(picked, drivable) ? picked : 'claude'
   const [mode, setMode] = useState<PermissionMode>(savedMode)
+  // an agent's CLI installed since launch shows up here, once main's probe answers
+  useEffect(() => refreshAcpReadiness(), [])
   const { value: accounts } = useLoaded(() => api.getAccounts(), [])
   const [accountKey, setAccountKey] = useState<string | null>(null)
 
@@ -211,6 +231,7 @@ export function useAgentChoice(initial: () => Provider = savedProvider): AgentCh
   return {
     provider,
     setProvider,
+    agents: startableAgents(drivable),
     mode,
     setMode,
     accounts,

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { Landing, PermissionMode, RepoGroup, RoundtableMeta, SessionMeta } from '../../shared/types'
-import { PROVIDERS } from '../../shared/library'
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
@@ -10,6 +9,7 @@ import { HomeUpdates } from './HomeUpdates'
 import type { SettingsSection } from './Settings'
 import { useLandedMap } from './landed'
 import { MODES, rememberAccount, rememberChoice, useAgentChoice, type StartSessionRequest } from './agent-choice'
+import { isDrivable } from '../../shared/providers'
 import {
   BranchChip,
   CheckIcon,
@@ -118,7 +118,8 @@ export function HomeView({
       busy ||
       (!prompt.trim() && atts.attachments.length === 0) ||
       !selected ||
-      (accounts !== null && !account)
+      // an agent driven over ACP runs as whoever it is signed in as — there is no account to wait for
+      (isDrivable(provider) && accounts !== null && !account)
     )
       return
     setError(null)
@@ -297,16 +298,17 @@ export function HomeView({
                 />
                 <div className="composer-identity">
                   <div className="composer-agents" role="group" aria-label="Agent">
-                    {PROVIDERS.map((p) => {
+                    {choice.agents.map((p) => {
                       const pAcct = choice.accountFor(p)
+                      const cli = isDrivable(p)
                       return (
                         <button
                           key={p}
                           aria-pressed={provider === p}
                           aria-label={PROVIDER_LABEL[p]}
-                          title={`${PROVIDER_LABEL[p]} — ${pAcct?.display ?? 'not signed in'}`}
+                          title={`${PROVIDER_LABEL[p]} — ${cli ? (pAcct?.display ?? 'not signed in') : 'over its ACP server'}`}
                           className={`composer-agent plogo-${p} ${provider === p ? 'active' : ''} ${
-                            accounts !== null && !pAcct ? 'no-acct' : ''
+                            cli && accounts !== null && !pAcct ? 'no-acct' : ''
                           }`}
                           onClick={() => choice.setProvider(p)}
                         >
@@ -315,7 +317,12 @@ export function HomeView({
                       )
                     })}
                   </div>
-                  {accounts === null ? (
+                  {!isDrivable(provider) ? (
+                    // Cockpit never learns who an agent driven over ACP is signed in as
+                    <span className="acct-chip" title={`Cockpit drives ${PROVIDER_LABEL[provider]} over its ACP server`}>
+                      over ACP
+                    </span>
+                  ) : accounts === null ? (
                     // still loading — an empty placeholder, never a false "not signed in"
                     <span className="acct-chip" aria-hidden="true">
                       …
@@ -351,7 +358,7 @@ export function HomeView({
                     busy ||
                     (!prompt.trim() && atts.attachments.length === 0) ||
                     !selected ||
-                    (accounts !== null && !account)
+                    (isDrivable(provider) && accounts !== null && !account)
                   }
                   onClick={() => void start()}
                 >

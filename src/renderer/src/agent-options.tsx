@@ -5,12 +5,12 @@ import type {
   CodexSandbox,
   ModelEndpoint,
   PermissionMode,
-  Provider
+  SessionProvider
 } from '../../shared/types'
 import { effortsFor } from '../../shared/agent-models'
 import { endpointSupports } from '../../shared/endpoints'
-import { PROVIDERS } from '../../shared/library'
-import { AGENT_BLURB, MODES, type AccountOption, type AgentChoice } from './agent-choice'
+import { isDrivable } from '../../shared/providers'
+import { agentBlurb, MODES, type AccountOption, type AgentChoice } from './agent-choice'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -51,8 +51,13 @@ type AgentOptionsState = {
   readonly options: AgentOptions
 }
 
-/** `configDir` is the chosen account's home: each one lists its own models. */
-export function useAgentOptions(provider: Provider, configDir: string | undefined): AgentOptionsState {
+/**
+ * `configDir` is the chosen account's home: each one lists its own models. An agent
+ * driven over ACP has none of these knobs — its model and account are its own settings
+ * — so for one the state is empty and its options are `{}`.
+ */
+export function useAgentOptions(provider: SessionProvider, configDir: string | undefined): AgentOptionsState {
+  const cli = isDrivable(provider) ? provider : null
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
@@ -74,7 +79,7 @@ export function useAgentOptions(provider: Provider, configDir: string | undefine
     setEndpointId('')
   }, [provider])
 
-  const usableEndpoints = endpoints.filter((e) => endpointSupports(provider, e))
+  const usableEndpoints = cli ? endpoints.filter((e) => endpointSupports(cli, e)) : []
   const endpoint = usableEndpoints.find((e) => e.id === endpointId)
 
   // ask the provider itself which models it serves; the cached list covers the meantime
@@ -90,22 +95,24 @@ export function useAgentOptions(provider: Provider, configDir: string | undefine
   // one listing per agent and account home, fetched once
   const agentKey = `${provider}|${configDir ?? ''}`
   useEffect(() => {
-    if (agentModels[agentKey]) return
+    if (agentModels[agentKey] || !cli) return
     const key = agentKey
-    void Promise.resolve(api.listAgentModels?.(provider, configDir) ?? [])
+    void Promise.resolve(api.listAgentModels?.(cli, configDir) ?? [])
       .then((m) => setAgentModels((prev) => ({ ...prev, [key]: m })))
       .catch(() => setAgentModels((prev) => ({ ...prev, [key]: [] })))
   }, [agentKey])
 
-  const catalog: readonly AgentModel[] | null = endpoint
-    ? (endpointModels[endpoint.id] ?? endpoint.models ?? []).map((id) => ({ id, label: id }))
-    : (agentModels[agentKey] ?? null)
+  const catalog: readonly AgentModel[] | null = !cli
+    ? []
+    : endpoint
+      ? (endpointModels[endpoint.id] ?? endpoint.models ?? []).map((id) => ({ id, label: id }))
+      : (agentModels[agentKey] ?? null)
   // a choice the current list doesn't offer (another account, another provider, a
   // catalog that arrived without it) is dropped, never run behind a picker showing default
   const chosen =
     catalog === null ? '' : catalog.length === 0 ? model : catalog.some((m) => m.id === model) ? model : ''
   const info = catalog?.find((m) => m.id === chosen)
-  const efforts = effortsFor(provider, info)
+  const efforts = cli ? effortsFor(cli, info) : []
   const chosenEffort = effort && efforts.includes(effort) ? effort : ''
   const modelMissing = provider === 'copilot' && !!endpoint && !chosen.trim()
 
@@ -125,23 +132,27 @@ export function useAgentOptions(provider: Provider, configDir: string | undefine
     endpoint,
     catalog,
     modelMissing,
-    options: {
-      model: chosen.trim() || undefined,
-      effort: chosenEffort || undefined,
-      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
-      modelEndpoint: endpoint?.id
-    }
+    options: cli
+      ? {
+          model: chosen.trim() || undefined,
+          effort: chosenEffort || undefined,
+          codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
+          modelEndpoint: endpoint?.id
+        }
+      : {}
   }
 }
 
 /**
- * The agent picker: a `.ns-provider` card per agent — logo, name, blurb and the account it
- * would run as, named by the same rule a start resolves it with (`accountFor`).
+ * The agent picker: a `.ns-provider` card per agent the form offers (`choice.agents`) —
+ * logo, name, blurb and the account it would run as, named by the same rule a start
+ * resolves it with (`accountFor`). An agent driven over ACP runs as whoever it is signed
+ * in as, which Cockpit never learns, so its card says how it runs instead.
  */
 export function AgentCards({ choice, label }: { choice: AgentChoice; label: string }): JSX.Element {
   return (
     <div className="ns-providers" role="group" aria-label={label}>
-      {PROVIDERS.map((p) => {
+      {choice.agents.map((p) => {
         const acct = choice.accountFor(p)
         return (
           <button
@@ -152,14 +163,20 @@ export function AgentCards({ choice, label }: { choice: AgentChoice; label: stri
           >
             <ProviderLogo p={p} size={20} />
             <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
-            <span className="ns-provider-blurb">{AGENT_BLURB[p]}</span>
-            {/* while accounts are still loading, absence is unknown — not "signed out" */}
-            <span
-              className={`acct-chip${acct || choice.accounts === null ? '' : ' missing'}`}
-              title={acct?.display}
-            >
-              {acct?.identity ?? (choice.accounts === null ? '…' : 'not signed in')}
-            </span>
+            <span className="ns-provider-blurb">{agentBlurb(p)}</span>
+            {isDrivable(p) ? (
+              // while accounts are still loading, absence is unknown — not "signed out"
+              <span
+                className={`acct-chip${acct || choice.accounts === null ? '' : ' missing'}`}
+                title={acct?.display}
+              >
+                {acct?.identity ?? (choice.accounts === null ? '…' : 'not signed in')}
+              </span>
+            ) : (
+              <span className="acct-chip" title={`Cockpit drives ${PROVIDER_LABEL[p]} over its ACP server`}>
+                over ACP
+              </span>
+            )}
           </button>
         )
       })}
@@ -221,9 +238,11 @@ export function AgentOptionsFields({
   provider,
   o
 }: {
-  provider: Provider
+  provider: SessionProvider
   o: AgentOptionsState
-}): JSX.Element {
+}): JSX.Element | null {
+  // an agent driven over ACP picks its own model and thinking
+  if (!isDrivable(provider)) return null
   return (
     <>
       {o.usableEndpoints.length > 0 && (
@@ -344,9 +363,17 @@ export function AgentOptionsHints({
   provider,
   o
 }: {
-  provider: Provider
+  provider: SessionProvider
   o: AgentOptionsState
 }): JSX.Element | null {
+  if (!isDrivable(provider)) {
+    return (
+      <div className="ns-hint">
+        {PROVIDER_LABEL[provider]} runs over its ACP server, signed in as whoever it is — its model
+        and account are its own settings.
+      </div>
+    )
+  }
   return (
     <>
       {o.endpoint && (

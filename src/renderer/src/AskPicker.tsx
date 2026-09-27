@@ -1,5 +1,5 @@
 import { useId, useState, type JSX } from 'react'
-import type { AskPrompt, Provider } from '../../shared/types'
+import type { AskPrompt, SessionProvider } from '../../shared/types'
 import { formatAskAnswer } from '../../shared/asks'
 import { PROVIDER_LABEL, QuestionIcon } from './logos'
 import { Markdown } from './Markdown'
@@ -28,7 +28,7 @@ export function AskPicker({
   onOpenPlan
 }: {
   prompts: readonly AskPrompt[]
-  provider: Provider
+  provider: SessionProvider
   /** A turn is running (or the session takes no input) — the answer can't go yet */
   disabled: boolean
   /** Where the answer goes instead, when not here — replaces the sends-as-a-message note */

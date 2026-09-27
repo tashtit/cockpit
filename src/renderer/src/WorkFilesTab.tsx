@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { shortPath } from '../../shared/library'
-import type { Provider, SessionFilePreview } from '../../shared/types'
+import type { SessionFilePreview, SessionProvider } from '../../shared/types'
 import { sharedSummary, type SharedFileEntry, type WorkModel } from '../../shared/work'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
@@ -37,7 +37,7 @@ export function WorkFilesTab({
   model: WorkModel
   focus: WorkFocus
   cwd: string
-  provider: Provider
+  provider: SessionProvider
   sessionId: string | null
   onOpenUrl: (url: string) => void
 }): JSX.Element {

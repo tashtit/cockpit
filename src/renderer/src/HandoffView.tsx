@@ -1,8 +1,9 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { AgentOptions, PermissionMode, Provider } from '../../shared/types'
+import type { AgentOptions, PermissionMode, SessionProvider } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { PROVIDERS, shortPath } from '../../shared/library'
+import { isDrivable } from '../../shared/providers'
 import { rememberChoice, useAgentChoice, type AccountChoice } from './agent-choice'
 import {
   AccountField,
@@ -20,7 +21,8 @@ import { ErrorAlert } from './ErrorAlert'
 export type HandoffSourceRef = {
   /** `${provider}:${nativeId}` */
   readonly id: string
-  readonly provider: Provider
+  /** Any agent the index reads — a session of one Cockpit only reads hands off too */
+  readonly provider: SessionProvider
   readonly title: string
   readonly cwd: string
   readonly branch: string | null
@@ -30,7 +32,8 @@ export type HandoffSourceRef = {
 /** Everything needed to continue the source session on another agent. */
 export type StartHandoffRequest = {
   readonly source: HandoffSourceRef
-  readonly provider: Provider
+  /** One of the three CLIs, or an agent Cockpit otherwise only reads that an ACP agent drives */
+  readonly provider: SessionProvider
   /** The final first prompt: edited briefing (+ optional next-step section) */
   readonly briefing: string
   readonly mode: PermissionMode
@@ -147,12 +150,14 @@ export function HandoffView({
         <AgentCards choice={choice} label="Continue with" />
 
         <div className="ns-options ns-agent-options">
-          <AccountField
-            opts={choice.opts}
-            account={choice.account}
-            loading={choice.accounts === null}
-            onChange={choice.setAccount}
-          />
+          {isDrivable(provider) && (
+            <AccountField
+              opts={choice.opts}
+              account={choice.account}
+              loading={choice.accounts === null}
+              onChange={choice.setAccount}
+            />
+          )}
           <AgentOptionsFields provider={provider} o={agent} />
           <ModeField mode={mode} onChange={choice.setMode} />
         </div>
@@ -172,14 +177,17 @@ export function HandoffView({
               Revert to extracted
             </button>
           )}
-          <button
-            className="btn-ghost small"
-            disabled={improving || briefLoading}
-            onClick={improve}
-            title={`Ask the ${PROVIDER_LABEL[source.provider]} session to write its own handoff briefing`}
-          >
-            {improving ? `Asking ${PROVIDER_LABEL[source.provider]}…` : 'Improve with AI'}
-          </button>
+          {/* improving resumes the source session in its own CLI — one Cockpit runs */}
+          {isDrivable(source.provider) && (
+            <button
+              className="btn-ghost small"
+              disabled={improving || briefLoading}
+              onClick={improve}
+              title={`Ask the ${PROVIDER_LABEL[source.provider]} session to write its own handoff briefing`}
+            >
+              {improving ? `Asking ${PROVIDER_LABEL[source.provider]}…` : 'Improve with AI'}
+            </button>
+          )}
         </div>
         <textarea
           id="handoff-brief"

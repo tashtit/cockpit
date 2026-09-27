@@ -1,5 +1,5 @@
 import { memo, type JSX } from 'react'
-import type { Provider, SessionMessage } from '../../shared/types'
+import type { SessionMessage, SessionProvider } from '../../shared/types'
 import { artifactStat, planTitle, tabFor, type WorkTab } from '../../shared/work'
 import { relativeTo } from './format'
 import { DiffStat } from './InstructionDiff'
@@ -19,7 +19,7 @@ export function ToolRun({
   onOpenWork
 }: {
   rows: readonly Row[]
-  provider: Provider
+  provider: SessionProvider
   cwd: string
   onOpenWork?: (key: number, tab: WorkTab) => void
 }): JSX.Element {
@@ -97,7 +97,7 @@ export const Message = memo(function Message({
   onOpenWork
 }: {
   m: SessionMessage
-  provider: Provider
+  provider: SessionProvider
   /** The tool_result answering this tool_call, folded into the same row */
   result?: SessionMessage
   /** The session's directory — paths under it render relative */

@@ -1,6 +1,15 @@
 # Adding a provider
 
-`Provider` in `src/shared/types.ts` is a closed union: `'claude' | 'codex' | 'copilot'`. Adding a value touches the places below. Work through both lists — the second is the one that bites, because nothing fails until a user notices the agent is missing from a picker.
+There are two unions in `src/shared/types.ts`, and a new agent joins one of them:
+
+- `Provider` — `'claude' | 'codex' | 'copilot'`, the CLIs Cockpit **drives** (spawns, resumes, seats, signs in, measures).
+- `ReadOnlyProvider` — the agents Cockpit only **reads** (Gemini CLI, Cursor, Cline, Roo Code, opencode, Antigravity). `SessionProvider` is both: it types every session, source and index query, and `isDrivable` (`src/shared/providers.ts`) is the guard wherever a session reaches something that drives a CLI.
+
+An agent that keeps sessions in SQLite rather than log files reads them through `parsers/sqlite.ts` (read-only opens, a snapshot per database change). A database holding many sessions indexes each as `<db>#<id>` — add its file name to `SHARED_DBS` in `indexer.ts` so the database is watched and stat-checked in the sessions' place. One database per session (Antigravity) needs nothing more than the watcher's `.db`/`-wal` rule already gives it. Test fixtures for these stores are built by `scripts/ui-tour/store-fixtures.mts`, which the tour's world shares.
+
+**A read-only agent** is the short path: add it to `ReadOnlyProvider` and `READ_ONLY_PROVIDERS`, write its parser, register it in the indexer's four maps, teach `src/main/agent-homes.ts` where its home is (so every launch detects it), and give it a `PROVIDER_LABEL`, a `ProviderLogo` mark and its `.plogo-*`/`.tint-*`/`.badge-*`/`.acct-*` rules. Typecheck walks you through the rest — every `Record<SessionProvider, …>` — and everything that drives a CLI already refuses it. Transcript search needs a record extractor for its log (`src/main/transcript-search.ts`).
+
+**A driven agent** touches everything below. Work through both lists — the second is the one that bites, because nothing fails until a user notices the agent is missing from a picker.
 
 ## Typecheck finds these
 
@@ -26,7 +35,7 @@ Hard-coded arrays silently omit the new provider from the UI and from cross-agen
 
 Behavior that is provider-specific by construction:
 
-- `src/main/config.ts` `detectDefaults()` — the config home to auto-detect on first run
+- `src/main/agent-homes.ts` `detectAgentHomes()` — where its home is; every launch adds a home that appeared, and never re-adds one the person removed
 - `src/main/indexer.ts` `auxStamp()` — only if the provider stores session names outside the transcript
 - `src/main/provider-archived.ts` `listProviderArchivedIds()` — how the provider's own app marks sessions archived or deleted, so they stay hidden
 - `src/main/chat.ts` — the provider `switch` near the top (spawn arguments and stream parsing), if the CLI can be driven headless

@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
-import type { ChatEvent, ChatRequest, Provider } from '../shared/types'
+import type { ChatEvent, ChatRequest, SessionProvider } from '../shared/types'
 import type { SessionIndexer } from './indexer'
+import { isDrivable } from '../shared/providers'
 import type { ControlEntry } from './session-control-core'
 import {
   bindSessionControl,
@@ -28,12 +29,20 @@ const COPILOT_LINEAGE_MAX = 20
  * event names the id, and forgotten when the turn is done.
  */
 export class TurnLedger {
-  private readonly byokTurns = new Map<string, { provider: Provider; endpointId: string }>()
-  private readonly handoffTurns = new Map<string, { provider: Provider; sourceId: string }>()
-  private readonly heldTurns = new Map<string, { provider: Provider; entry: ControlEntry }>()
+  private readonly byokTurns = new Map<string, { provider: SessionProvider; endpointId: string }>()
+  private readonly handoffTurns = new Map<string, { provider: SessionProvider; sourceId: string }>()
+  private readonly heldTurns = new Map<string, { provider: SessionProvider; entry: ControlEntry }>()
   private readonly pendingCopilot: PendingCopilotHandoff[] = []
+  /** Turns of an agent Cockpit only reads, driven over its ACP server */
+  private readonly readOnlyTurns = new Set<string>()
 
-  constructor(private readonly indexer: SessionIndexer) {}
+  constructor(
+    private readonly indexer: SessionIndexer,
+    private readonly opts: {
+      /** A read-only agent's turn ended — its first may have written a home launch never saw */
+      readonly onReadOnlyTurnDone?: () => void
+    } = {}
+  ) {}
 
   /**
    * A turn chat:send just started. `resumed` is the session it resumes, if any, and
@@ -44,6 +53,7 @@ export class TurnLedger {
     req: ChatRequest,
     { resumed, recorded }: { readonly resumed: string | null; readonly recorded?: ControlEntry }
   ): void {
+    if (!isDrivable(req.provider)) this.readOnlyTurns.add(turnId)
     const holds: ControlEntry | undefined = resumed ? recorded : { how: 'started', at: Date.now() }
     if (holds) this.heldTurns.set(turnId, { provider: req.provider, entry: holds })
     if (req.options?.modelEndpoint) {
@@ -97,6 +107,7 @@ export class TurnLedger {
       this.byokTurns.delete(ev.turnId)
       this.handoffTurns.delete(ev.turnId)
       this.heldTurns.delete(ev.turnId)
+      if (this.readOnlyTurns.delete(ev.turnId)) this.opts.onReadOnlyTurnDone?.()
     }
   }
 

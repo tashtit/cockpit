@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  adoptDetectedSources,
   addModelEndpoint,
   attentionPrefs,
   bindSessionControl,
@@ -113,7 +114,8 @@ describe('loadConfig / saveConfig', () => {
       JSON.stringify({
         sources: [
           { path: '/tmp/claude-home', provider: 'claude', label: 'main' },
-          { path: '/tmp/gemini-home', provider: 'gemini', label: 'new' },
+          { path: '/tmp/future-home', provider: 'future-agent', label: 'new' },
+          { path: '/tmp/gemini-home', provider: 'gemini', label: 'gemini' },
           { provider: 'codex', label: 'no path' },
           { path: '/tmp/copilot-home', provider: 'copilot' }
         ],
@@ -126,6 +128,7 @@ describe('loadConfig / saveConfig', () => {
     const cfg = loadConfig()
     expect(cfg.sources).toEqual([
       { path: '/tmp/claude-home', provider: 'claude', label: 'main' },
+      { path: '/tmp/gemini-home', provider: 'gemini', label: 'gemini' },
       { path: '/tmp/copilot-home', provider: 'copilot', label: 'copilot' }
     ])
     expect(cfg.archived).toBeUndefined()
@@ -359,5 +362,36 @@ describe('interface zoom', () => {
     expect(setZoom(0.01)).toBe(0.7)
     expect(setZoom(Number.NaN)).toBe(1)
     expect(loadConfig().zoom).toBe(1)
+  })
+})
+
+describe('adoptDetectedSources', () => {
+  it('indexes an agent that appeared since the last launch, and a removal is final', () => {
+    const home = mkdtempSync(join(tmpdir(), 'cockpit-config-home-'))
+    const prevHome = process.env['HOME']
+    process.env['HOME'] = home
+    try {
+      mkdirSync(join(home, '.claude'))
+      mkdirSync(join(home, '.gemini', 'tmp'), { recursive: true })
+      saveConfig({ sources: [{ path: join(home, '.claude'), provider: 'claude', label: 'claude-default' }], archived: ['a'] })
+      const adopted = adoptDetectedSources()
+      expect(adopted.sources.map((s) => s.label)).toEqual(['claude-default', 'gemini-default'])
+      expect(loadConfig()).toMatchObject({ archived: ['a'], dismissedSources: [] })
+      // an older build rewrites the config without the agent it cannot read: not a removal
+      const cfg = loadConfig()
+      saveConfig({ ...cfg, sources: cfg.sources.filter((s) => s.provider !== 'gemini') })
+      expect(adoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude', 'gemini'])
+      // the person removes it in Settings, which records the removal: it stays removed
+      const now = loadConfig()
+      saveConfig({
+        ...now,
+        sources: now.sources.filter((s) => s.provider !== 'gemini'),
+        dismissedSources: [join(home, '.gemini')]
+      })
+      expect(adoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude'])
+    } finally {
+      process.env['HOME'] = prevHome
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })

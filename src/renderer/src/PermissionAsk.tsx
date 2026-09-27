@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from 'react'
-import type { Provider } from '../../shared/types'
+import type { SessionProvider } from '../../shared/types'
 import type { PendingPermission } from './chat-binding'
 import { PROVIDER_LABEL } from './logos'
 
@@ -22,7 +22,7 @@ export function PermissionAsk({
   onAnswer
 }: {
   ask: PendingPermission
-  provider: Provider
+  provider: SessionProvider
   onAnswer: (optionId: string) => void
 }): JSX.Element {
   // a command is what is being allowed, so it is what the card shows; the agent's title

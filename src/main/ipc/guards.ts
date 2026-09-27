@@ -6,7 +6,7 @@ import type {
   Provider,
   SessionMeta
 } from '../../shared/types'
-import { PROVIDERS, isProvider } from '../../shared/providers'
+import { isDrivable, isProvider, isSessionProvider } from '../../shared/providers'
 import type { SessionIndexer } from '../indexer'
 import { defaultConfigHome, isUnder } from '../paths'
 import { loadConfig } from '../config'
@@ -83,6 +83,17 @@ export function knownSession(indexer: SessionIndexer, id: unknown): SessionMeta 
   return s
 }
 
+/** The same, for what only a CLI Cockpit runs can do with it — resume it in a terminal. */
+export function drivenSession(indexer: SessionIndexer, id: unknown): SessionMeta & { readonly provider: Provider } {
+  const s = knownSession(indexer, id)
+  // an agent Cockpit only reads has no CLI of Cockpit's to resume it with
+  const provider = s.provider
+  if (!isDrivable(provider)) {
+    throw new Error('Cockpit has no CLI of this agent’s to resume it with — continue it with another agent instead.')
+  }
+  return { ...s, provider }
+}
+
 /** What the window shows is renderer input: only ever compared, never a path — but still shaped. */
 export function asAttentionFocus(raw: unknown): AttentionFocus {
   const f = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
@@ -90,7 +101,8 @@ export function asAttentionFocus(raw: unknown): AttentionFocus {
     return { kind: 'roundtable', id: f['id'].slice(0, 512) }
   }
   if (f['kind'] === 'cleanup') return { kind: 'cleanup' }
-  const provider = PROVIDERS.find((p) => p === f['provider'])
+  // any agent the index reads: a session Cockpit only reads is still one the window shows
+  const provider = isSessionProvider(f['provider']) ? f['provider'] : null
   if (f['kind'] === 'session' && provider && typeof f['cwd'] === 'string') {
     return {
       kind: 'session',

@@ -22,6 +22,7 @@ import type {
   AccountsSnapshot,
   AcpAgent,
   AcpAgentProbe,
+  AcpReadiness,
   AgentModel,
   CliStatus,
   AppInfo,
@@ -74,6 +75,7 @@ import type {
   SessionMessage,
   SessionMeta,
   SessionPage,
+  SessionProvider,
   SessionQuery,
   SideChatRequest,
   ShareResult,
@@ -115,7 +117,7 @@ export type CockpitApi = {
   readonly getSourceStats: () => Promise<SourceStats[]>
   /** Native directory picker (main-process dialog); null when the user cancels */
   readonly pickDirectory: () => Promise<string | null>
-  readonly addSource: (path: string, provider: Provider, label: string) => Promise<SourceDir[]>
+  readonly addSource: (path: string, provider: SessionProvider, label: string) => Promise<SourceDir[]>
   readonly removeSource: (path: string) => Promise<SourceDir[]>
   readonly listRepos: () => Promise<RepoGroup[]>
   /** Resolves once the index has finished its first full scan — until then no repos means "not read yet" */
@@ -342,6 +344,10 @@ export type CockpitApi = {
   readonly removeAcpAgent: (id: string) => Promise<AcpAgent[]>
   /** Run the `initialize` handshake against a definition to prove it speaks ACP */
   readonly probeAcpAgent: (agent: NewAcpAgent) => Promise<AcpAgentProbe>
+  /** Which agents a session can be started or continued with — asking re-probes a missing built-in */
+  readonly getAcpReadiness: () => Promise<AcpReadiness>
+  /** Pushed when that changes: a built-in's CLI answered, or an ACP agent was added or removed */
+  readonly onAcpReadiness: (cb: (readiness: AcpReadiness) => void) => () => void
 
   /* ---------- backup and restore ---------- */
   /* backup: export to a file the user keeps, restore it here or on another Mac */
@@ -439,6 +445,7 @@ export const CH = {
   acpAdd: 'acp:add',
   acpGet: 'acp:get',
   acpProbe: 'acp:probe',
+  acpReadiness: 'acp:readiness',
   acpRemove: 'acp:remove',
 
   appInfo: 'app:info',
@@ -587,6 +594,7 @@ export const CH = {
 
 /** Main -> renderer events. Pair each with an `onX` member on `CockpitApi`. */
 export const PUSH = {
+  acpReadiness: 'acp-readiness',
   attentionOpen: 'attention-open',
   busySessions: 'busy-sessions',
   chatEvent: 'chat-event',

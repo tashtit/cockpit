@@ -22,7 +22,7 @@ export function registerIpc(services: Services): void {
   registerGithubHandlers(services)
   registerLibraryHandlers(services)
   registerAgentHandlers(services)
-  registerEndpointHandlers()
+  registerEndpointHandlers(services)
   registerBackupHandlers(services)
   registerCleanupHandlers(services)
   registerAppHandlers(services)

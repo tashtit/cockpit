@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { RepoGroup } from '../../shared/types'
+import { isDrivable } from '../../shared/providers'
 import { rememberChoice, useAgentChoice, type StartSessionRequest } from './agent-choice'
 import {
   AccountField,
@@ -110,12 +111,14 @@ export function NewSession({
         <AgentCards choice={choice} label="Agent" />
 
         <div className="ns-options ns-agent-options">
-          <AccountField
-            opts={choice.opts}
-            account={choice.account}
-            loading={choice.accounts === null}
-            onChange={choice.setAccount}
-          />
+          {isDrivable(provider) && (
+            <AccountField
+              opts={choice.opts}
+              account={choice.account}
+              loading={choice.accounts === null}
+              onChange={choice.setAccount}
+            />
+          )}
           <AgentOptionsFields provider={provider} o={agent} />
           <ModeField mode={mode} onChange={choice.setMode} />
         </div>

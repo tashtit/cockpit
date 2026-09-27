@@ -61,7 +61,7 @@ describe('side chat', () => {
   it('is offered on a started Claude or Codex session that takes input — never Copilot, a seat or a new chat', () => {
     renderChat()
     expect(sideKey()).toHaveAttribute('aria-pressed', 'false')
-    for (const b of [{ nativeSessionId: null }, { provider: 'copilot' as const }, { readOnly: true }]) {
+    for (const b of [{ nativeSessionId: null }, { provider: 'copilot' as const }, { readOnly: 'seat' as const }]) {
       document.body.innerHTML = ''
       renderChat({ binding: b })
       expect(screen.queryByRole('button', { name: 'Side chat' })).not.toBeInTheDocument()

@@ -7,6 +7,7 @@ import { execText } from './env'
 import { defaultConfigHome } from './paths'
 import { parseJsonc, readJsoncFile } from './parsers/util'
 import { replaceFile } from './replace-file'
+import { isDrivable } from '../shared/providers'
 
 /**
  * Who is each agent CLI signed in as?
@@ -104,16 +105,18 @@ export function ghUser(): Promise<string | null> {
 export async function getAccounts(sources: SourceDir[]): Promise<AccountsSnapshot> {
   const accounts: AccountInfo[] = []
   for (const s of sources) {
-    if (!existsSync(s.path)) continue
+    // accounts are the CLIs Cockpit signs in and runs; an agent it only reads has none here
+    const provider = s.provider
+    if (!isDrivable(provider) || !existsSync(s.path)) continue
     const base = {
-      provider: s.provider,
+      provider,
       path: s.path,
       label: s.label,
-      isDefault: s.path === defaultConfigHome(s.provider)
+      isDefault: s.path === defaultConfigHome(provider)
     }
-    if (s.provider === 'claude') {
+    if (provider === 'claude') {
       accounts.push({ ...base, identity: claudeIdentity(s.path) })
-    } else if (s.provider === 'codex') {
+    } else if (provider === 'codex') {
       accounts.push({ ...base, identity: codexIdentity(s.path) })
     } else {
       const { users, active } = copilotUsers(s.path)

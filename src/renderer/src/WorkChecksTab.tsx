@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX, type RefObject } from 'react'
-import type { Provider } from '../../shared/types'
+import type { SessionProvider } from '../../shared/types'
 import { CHECK_LABEL, checkSummary, type CheckRun, type CheckWork, type WorkModel } from '../../shared/work'
 import { PROVIDER_LABEL } from './logos'
 import { fmtTime, plural } from './format'
@@ -23,7 +23,7 @@ export function WorkChecksTab({
 }: {
   model: WorkModel
   focus: WorkFocus
-  provider: Provider
+  provider: SessionProvider
   scroller: RefObject<HTMLDivElement | null>
 }): JSX.Element {
   const { checks } = model

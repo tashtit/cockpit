@@ -127,6 +127,34 @@ describe('Settings account rows', () => {
   })
 })
 
+describe('Settings › agents Cockpit only reads', () => {
+  it('lists their homes apart, with no account or sign-in to offer', async () => {
+    vi.mocked(window.cockpit.getSourceStats).mockResolvedValue([
+      ...sources,
+      {
+        path: '/home/dev/Library/Application Support/Cursor/User/globalStorage/saoudrizwan.claude-dev',
+        provider: 'cline',
+        label: 'cline-cursor',
+        count: 7,
+        lastUpdatedAt: Date.now() - 60_000,
+        missing: false
+      }
+    ])
+    render(<Settings onClose={vi.fn()} />)
+    const row = (await screen.findByText('cline-cursor')).closest('li')!
+    expect(screen.getByRole('heading', { name: 'Other agents · read only' })).toBeInTheDocument()
+    expect(within(row).getByText('Cline')).toBeInTheDocument()
+    expect(within(row).getByText('7')).toBeInTheDocument()
+    expect(within(row).queryByText('not signed in')).not.toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /Sign in/ })).not.toBeInTheDocument()
+    // and it can still be removed like any home
+    expect(within(row).getByRole('button', { name: /Remove config home cline-cursor/ })).toBeInTheDocument()
+    // the sign-in check asks only the CLIs Cockpit runs
+    await waitFor(() => expect(window.cockpit.signInState).toHaveBeenCalled())
+    for (const [provider] of vi.mocked(window.cockpit.signInState).mock.calls) expect(provider).not.toBe('cline')
+  })
+})
+
 describe('Settings › the GitHub account', () => {
   it('rides with the agent accounts on their own tab — it is an account too', async () => {
     render(<Settings onClose={vi.fn()} />)

@@ -57,10 +57,14 @@ GitHub PR-state colors match github.com exactly.
 | OK / danger button fills (white text ≥4.5:1) | `#238636` / `#da3633` | `--ok-btn` / `--danger-btn` |
 | Text/icons on a filled button | `#fff` | `--white` |
 | Codex mark (white-on-dark, like ChatGPT's own) | `#ececf1` | `--codex-mark` |
+| Gemini accent (its brand blue) | `#3186ff` | `--gemini` |
+| Cursor / Cline / Roo Code / opencode / Antigravity accent (one neutral, told apart by their marks) | `#d9dde3` | `--mono-mark` |
+| Marks in their own colours: Google's palette (Gemini's sparkle, Antigravity's arch) | `#3186ff` … `#00b95c` | `--google-*` |
+| Cursor's shaded cube / opencode's frame and grey core | `#72716d` … `#fff` / `#fff`, `#5a5858` | `--cursor-*` / `--opencode-*` |
 
 **Alpha companions.** Every color that also appears as a tint or border wash ships an
 `-rgb` triplet so components write `rgba(var(--x-rgb), α)` and never re-type channels:
-`--accent-rgb`, `--claude-rgb`, `--codex-rgb`, `--copilot-rgb`, `--danger-rgb`, `--ok-rgb`,
+`--accent-rgb`, `--claude-rgb`, `--codex-rgb`, `--copilot-rgb`, `--gemini-rgb`, `--mono-mark-rgb`, `--danger-rgb`, `--ok-rgb`,
 `--warn-rgb`, `--branch-rgb`. `--accent-rgb` is deliberately *not* either accent hex — it's the
 deeper wash hue, so glows, selection gradients and user bubbles read as shadow-side accent
 rather than a pale rinse of the button fill.
@@ -71,6 +75,8 @@ rather than a pale rinse of the button fill.
 - Two accents exist on purpose: `--accent` for text/icons on dark (passes contrast), `--accent-btn` for filled buttons under white text. Don't swap them. The same split applies to OK/danger: `--ok`/`--danger` are text colors on dark, `--ok-btn`/`--danger-btn` are the darker button fills that keep white text at 4.5:1.
 - Agent tints use `rgba(var(--*-rgb), 0.10–0.16)` backgrounds with a solid agent-color border/inset — never solid agent-color fills behind text.
 - Codex logo renders `--codex-mark` white-on-dark (like ChatGPT's own mark); teal (`--codex`) is reserved for codex tints/borders.
+- The other agents carry their own identity in the same slots (`.plogo-*`, `.tint-*`, `.badge-*`, `.acct-*`, the selected session row, the avatar ring): Gemini in `--gemini`, and Cursor, Cline, Roo Code, opencode and Antigravity in the one `--mono-mark`, told apart by their marks. A brand with no colour of its own gets none invented for it.
+- A mark draws in the colours its brand draws it in, never re-tinted: Gemini's sparkle and Antigravity's arch in Google's palette, Cursor's cube in its shades, opencode's frame over its grey core; Cline and Roo Code are white marks, and draw in `--mono-mark`. Each coloured part names its colour (`.mark-google-blue`, `.mark-cursor-shade-1` …), and the palette lives in `:root` like every other colour. On a solid fill — the chat header's `.badge` — a coloured mark would fight the fill, so it draws in one colour (`ProviderLogo mono`).
 
 ## Typography
 
@@ -122,7 +128,7 @@ Reuse these; don't invent parallel variants:
 - **`.pv-heat`** — activity heatmap (profile only): GitHub's week-column grid, but squares carry the **agent's** identity color (the agent that led that day) rather than the accent, so the grid doubles as an agent mix. The one sanctioned place agent tints exceed the 0.10–0.16 range — 11px squares hold no text. Every agent split on the profile paints the same three colors in one order, keyed once by the headline's `.pv-mix`. See `pages/profile.md`.
 - **`FilterBar`** (`.fb-bar`) — the app's list-filtering surface: one row of dimension pills over a portaled include/exclude popover, with free text leftmost behind a hairline divider. The pill *is* the active-filter chip (it summarises its own selection: `Any` → `web` → `not docs` → `2 selected, 1 excluded`), so there is never a second row of filter tokens to keep in sync. Dimensions are pinned via a dashed `＋ Add filter`; one carrying a value is always shown whether pinned or not. OR within a dimension, AND across them. Generic over `FilterGroup` — reuse it rather than hand-rolling per-view filters. See `pages/cleanup.md`.
 - **`.palette`** — the ⌘K jump surface (the app's one modal): combobox over sessions/repos/views on a `--scrim` backdrop, z 70 above every popover. Composer-card focus recipe for the frame; sidebar group/empty grammar for the list; empty query opens as the board in miniature (flying first). A jump surface, not an action executor. See `pages/palette.md`.
-- **`.badge-{claude,codex,copilot}`** — solid agent badge (chat header).
+- **`.badge-{agent}`** — solid agent badge (chat header), one per agent the index reads; the mark on it draws in one colour (`ProviderLogo mono`).
 - **`ProviderMark`** (`logos.tsx`) — an agent's logo in its livery box: `.plogo.plogo-{agent}` on rows, filter options and seat cards, `.avatar.plogo-{agent}` beside a transcript speaker. `decorative` where a label beside it already names the agent, `titled` where the mark stands alone. Never hand-write the span.
 - **`RepoName`** (`RepoName.tsx`) — a repository as every list says it: `owner/` dimmed (`.repo-owner`) before a GitHub repo's name, else the directory's name.
 - **`ErrorAlert`** (`.new-error`, `ErrorAlert.tsx`) — a failure said inline where it happened, `role="alert"`, never a toast; `id` for the field that points at it.
@@ -138,7 +144,7 @@ Reuse these; don't invent parallel variants:
 - **`.review`** — the worktree's changes in the transcript's place (chat only, `.btn-review` / ⌘D): the instructions review's `.idiff-*` line grammar with line numbers, a scope switch, and line notes that go back to the agent through the composer. With an open PR it leads with `.review-pr` (what the PR waits on + "Fix with <Agent>") and shows reviewers' unresolved threads (`.review-thread`) under their lines. See `pages/chat.md`.
 - **Semantic count pills:** bordered pill = "session count on a repo"; org counts are plain text.
 - **`Select`** — the one dropdown (see Native Controls); never a raw `<select>`.
-- **`.tint-{claude,codex,copilot}`** — rest-intensity agent identity for bordered rows (2px inset bar + faint gradient); used by settings source rows and ai-setup instruction files.
+- **`.tint-{agent}`** — rest-intensity agent identity for bordered rows (2px inset bar + faint gradient); used by settings source rows and ai-setup instruction files.
 
 ## Native Controls
 

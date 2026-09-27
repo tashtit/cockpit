@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { SessionIndexer } from '../src/main/indexer'
 import { clearRepoCache } from '../src/main/repos'
 import { TranscriptSearcher } from '../src/main/transcript-search'
+import { cursorSlug } from '../src/main/parsers/cursor'
+import { writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 import { writePagedThread } from './codex-paged-thread'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-transcript-search-fixtures-'))
@@ -273,5 +275,105 @@ describe('a Codex thread paginated across rollouts', () => {
     expect(early.truncated).toBe(0)
     expect((await s.search({ text: 'second answer' })).hits).toHaveLength(1)
     expect((await s.search({ text: 'abandoned turn' })).hits).toHaveLength(0)
+  })
+})
+
+describe('agents Cockpit only reads, indexed and searched beside the rest', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cockpit-transcript-search-readonly-'))
+  const repo = join(dir, 'web')
+  const gemini = join(dir, 'gemini')
+  const cline = join(dir, 'cline')
+  const cursor = join(dir, 'cursor')
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    clearRepoCache()
+    gitRepo(repo, 'acme/web')
+    const chats = join(gemini, 'tmp', 'web', 'chats')
+    mkdirSync(chats, { recursive: true })
+    writeFileSync(join(gemini, 'tmp', 'web', '.project_root'), repo)
+    writeFileSync(
+      join(chats, 'session-2026-09-01T10-00-g0000001.jsonl'),
+      jsonl([
+        { sessionId: 'g-1', projectHash: 'h', startTime: TS, lastUpdated: TS },
+        { id: 'a', timestamp: TS, type: 'user', content: [{ text: 'why is the websocket reconnecting?' }] },
+        {
+          id: 'b',
+          timestamp: TS,
+          type: 'gemini',
+          content: [{ text: 'The heartbeat interval is too short.' }],
+          toolCalls: [{ id: 't', name: 'read_file', args: { file_path: 'ws.ts' }, status: 'success', resultDisplay: 'HEARTBEAT_MS = 50' }]
+        }
+      ])
+    )
+    const task = join(cline, 'tasks', '1756700000000')
+    mkdirSync(task, { recursive: true })
+    writeFileSync(
+      join(task, 'ui_messages.json'),
+      JSON.stringify([
+        { ts: 1756700000000, type: 'say', say: 'text', text: 'make the websocket retry with backoff' },
+        { ts: 1756700000001, type: 'say', say: 'api_req_started', text: JSON.stringify({ request: `# Current Working Directory (${repo}) Files` }) },
+        { ts: 1756700000002, type: 'say', say: 'completion_result', text: 'Backoff added.' }
+      ])
+    )
+    // Cursor names the project folder after the workspace path
+    const transcripts = join(cursor, 'projects', cursorSlug(repo), 'agent-transcripts', 'cur-1')
+    mkdirSync(transcripts, { recursive: true })
+    writeFileSync(
+      join(transcripts, 'cur-1.jsonl'),
+      jsonl([
+        { role: 'user', message: { content: [{ type: 'text', text: '<user_query>document the websocket protocol</user_query>' }] } },
+        {
+          role: 'assistant',
+          message: { content: [{ type: 'tool_use', name: 'Read', input: { path: join(repo, 'ws.ts') } }, { type: 'text', text: 'Written up.' }] }
+        }
+      ])
+    )
+    // a database-kept session: searched through what its parser reads
+    writeOpencodeDb(join(dir, 'opencode', 'opencode.db'), [
+      {
+        id: 'ses_ws',
+        title: 'Socket drops',
+        directory: repo,
+        created: Date.parse(TS),
+        updated: Date.parse(TS),
+        turns: [{ role: 'user', at: Date.parse(TS), parts: [{ type: 'text', text: 'the websocket drops every minute' }] }]
+      }
+    ])
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([
+      { path: join(dir, 'opencode'), provider: 'opencode', label: 'opencode-default' },
+      { path: gemini, provider: 'gemini', label: 'gemini-default' },
+      { path: cline, provider: 'cline', label: 'cline-vscode' },
+      { path: cursor, provider: 'cursor', label: 'cursor-default' }
+    ])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => {
+    idx?.stopWatchers()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('groups every agent’s sessions under the repository they ran in', () => {
+    const [group] = idx.listRepos().filter((r) => r.fullName === 'acme/web')
+    expect(group?.providers.sort()).toEqual(['cline', 'cursor', 'gemini', 'opencode'])
+    const page = idx.page({ repoKey: group!.key })
+    expect(page.items.map((s) => s.id).sort()).toEqual(['cline:1756700000000', 'cursor:cur-1', 'gemini:g-1', 'opencode:ses_ws'])
+    expect(idx.getMessages('cursor:cur-1').map((m) => m.text)).toContain('Written up.')
+  })
+
+  it('finds what was said in each, and tool output only when asked', async () => {
+    const s = new TranscriptSearcher(idx)
+    const res = await s.search({ text: 'websocket' })
+    expect(res.hits.map((h) => `${h.sessionId} ${h.role}`).sort()).toEqual([
+      'cline:1756700000000 user',
+      'cursor:cur-1 user',
+      'gemini:g-1 user',
+      'opencode:ses_ws user'
+    ])
+    expect((await s.search({ text: 'HEARTBEAT_MS' })).hits).toHaveLength(0)
+    expect((await s.search({ text: 'HEARTBEAT_MS', includeTools: true })).hits.map((h) => h.sessionId)).toEqual(['gemini:g-1'])
+    expect((await s.search({ text: 'backoff', providers: ['gemini'] })).hits).toHaveLength(0)
   })
 })

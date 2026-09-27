@@ -5,6 +5,7 @@ import { HomeView } from '../../src/renderer/src/HomeView'
 import type { AccountsSnapshot, Landing, RepoGroup, RoundtableMeta, SessionMeta } from '../../src/shared/types'
 import { pasteImage, stubObjectUrls } from './paste'
 import { clearLanded, initLanded } from '../../src/renderer/src/landed'
+import { initAcpReadiness } from '../../src/renderer/src/acp-readiness'
 
 const repo: RepoGroup = {
   key: '/home/dev/cachely',
@@ -14,6 +15,7 @@ const repo: RepoGroup = {
   sessionCount: 2,
   archivedCount: 0,
   heldCount: 0,
+  byProvider: {},
   lastActivity: 1700000000000,
   providers: ['claude'],
   hidden: false
@@ -177,6 +179,24 @@ describe('HomeView composer', () => {
     expect(await screen.findByText('not signed in')).toBeInTheDocument()
     await userEvent.type(screen.getByRole('textbox', { name: 'Task description' }), 'ship it')
     expect(screen.getByRole('button', { name: 'Start with Codex' })).toBeDisabled()
+  })
+
+  it('offers an agent an ACP agent drives, which needs no account to start', async () => {
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
+    vi.mocked(window.cockpit.getAcpReadiness).mockResolvedValue({
+      drivable: ['claude', 'codex', 'copilot', 'cline'],
+      builtinsReady: ['builtin-cline']
+    })
+    await act(async () => {
+      initAcpReadiness()
+    })
+    const { onStart } = renderHome()
+    await screen.findByRole('button', { name: 'Start with Claude' })
+    await userEvent.click(screen.getByRole('button', { name: 'Cline' }))
+    expect(screen.getByText('over ACP')).toBeInTheDocument()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Task description' }), 'ship it')
+    await userEvent.click(screen.getByRole('button', { name: 'Start with Cline' }))
+    expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ provider: 'cline', prompt: 'ship it' }))
   })
 })
 

@@ -1,4 +1,5 @@
-import type { AgentOptions, ChatRequest, SideChatRequest, SideExchange } from '../shared/types'
+import type { AgentOptions, SideChatRequest, SideExchange } from '../shared/types'
+import type { CliRequest } from './chat'
 import { SIDE_QUESTION_MAX, sideChatSupported } from '../shared/side-chat'
 import { capText } from './parsers/util'
 
@@ -74,7 +75,7 @@ function optionsOf(o: AgentOptions | undefined): AgentOptions | undefined {
  * The cwd and config home come back as given — index.ts validates both against what the
  * app derived, as it does for `chat:send`.
  */
-export function sideTurnRequest(raw: SideChatRequest): ChatRequest {
+export function sideTurnRequest(raw: SideChatRequest): CliRequest {
   if (!sideChatSupported(raw.provider)) {
     throw new Error("Side chat isn't available for this agent — its CLI can't answer from a copy of a session.")
   }

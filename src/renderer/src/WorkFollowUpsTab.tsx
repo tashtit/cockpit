@@ -1,6 +1,6 @@
 import type { JSX, RefObject } from 'react'
 import { shortPath } from '../../shared/library'
-import type { Provider } from '../../shared/types'
+import type { SessionProvider } from '../../shared/types'
 import { followUpSummary, type FollowUpEntry, type WorkModel } from '../../shared/work'
 import { PROVIDER_LABEL } from './logos'
 import { storedValue } from './stored-value'
@@ -31,7 +31,7 @@ export function WorkFollowUpsTab({
 }: {
   model: WorkModel
   focus: WorkFocus
-  provider: Provider
+  provider: SessionProvider
   sessionId: string | null
   scroller: RefObject<HTMLDivElement | null>
   onStart?: (followUp: { readonly title: string; readonly prompt: string; readonly cwd?: string }) => void

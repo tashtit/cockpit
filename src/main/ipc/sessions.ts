@@ -4,13 +4,13 @@ import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import type {
   BusySession,
-  Provider,
+  SessionProvider,
   SessionQuery,
   TimeFormat,
   TranscriptSearchQuery
 } from '../../shared/types'
 import { CH } from '../../shared/contract'
-import { AGENT_NAME, isProvider } from '../../shared/providers'
+import { AGENT_NAME, isDrivable, isSessionProvider } from '../../shared/providers'
 import {
   bindSessionControl,
   loadConfig,
@@ -22,14 +22,14 @@ import {
   setTimeFormat,
   sourceFor
 } from '../config'
-import { isValidNativeId } from '../chat'
+import { isValidNativeId, noAcpAgent } from '../chat'
 import { defaultConfigHome } from '../paths'
 import { holdRefusal, resumeLine, resumeScript, type ControlEntry } from '../session-control-core'
 import { assertSharedFile, openSharedFile, readSharedFile } from '../session-files'
 import { getHandoffBriefing, improveHandoffBriefing } from '../handoff'
 import type { Services } from '../services'
 import { currentWindow } from '../window'
-import { knownSession } from './guards'
+import { drivenSession, knownSession } from './guards'
 import { openScript } from './terminal'
 
 /** The session index: sources, repos, pages, one session's log and files, who holds it. */
@@ -53,9 +53,9 @@ export function registerSessionHandlers(s: Services): void {
     const res = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
   })
-  ipcMain.handle(CH.sourcesAdd, (_e, path: string, provider: Provider, label: string) => {
+  ipcMain.handle(CH.sourcesAdd, (_e, path: string, provider: SessionProvider, label: string) => {
     // renderer args are untrusted — an unknown provider would crash the next scan
-    if (!isProvider(provider)) {
+    if (!isSessionProvider(provider)) {
       throw new Error(`Unknown provider: ${String(provider)}`)
     }
     const p = resolve(String(path))
@@ -65,14 +65,19 @@ export function registerSessionHandlers(s: Services): void {
     const cfg = loadConfig()
     if (cfg.sources.some((x) => x.path === p)) return cfg.sources
     const sources = [...cfg.sources, { path: p, provider, label }]
-    saveConfig({ ...cfg, sources })
+    // added back by hand: detection may offer it again after a later removal
+    const dismissedSources = (cfg.dismissedSources ?? []).filter((d) => d !== p)
+    saveConfig({ ...cfg, sources, dismissedSources })
     void indexer.setSources(sources)
     return sources
   })
   ipcMain.handle(CH.sourcesRemove, (_e, path: string) => {
     const cfg = loadConfig()
     const sources = cfg.sources.filter((x) => x.path !== path)
-    saveConfig({ ...cfg, sources })
+    // the one place a removal is recorded: detection never adds this home back
+    const gone = resolve(String(path))
+    const dismissedSources = [...new Set([...(cfg.dismissedSources ?? []), gone])]
+    saveConfig({ ...cfg, sources, dismissedSources })
     void indexer.setSources(sources)
     return sources
   })
@@ -115,6 +120,10 @@ export function registerSessionHandlers(s: Services): void {
   ipcMain.handle(CH.sessionsSetHolder, (_e, id: unknown, holder: unknown) => {
     if (holder !== 'cockpit' && holder !== 'agent') throw new Error('unknown holder')
     const session = knownSession(indexer, id)
+    // an agent Cockpit only reads is taken over only while an ACP agent can drive it
+    if (!isDrivable(session.provider) && !s.acpAgentFor(session.provider)) {
+      throw new Error(noAcpAgent(session.provider))
+    }
     const current = indexer.controlOf(session)
     if (current.holder === holder) return current
     const refusal = holdRefusal(holder, runningWhere(session.id))
@@ -127,7 +136,7 @@ export function registerSessionHandlers(s: Services): void {
   // the session's directory, as the account it was recorded under. Released first, so
   // Cockpit stops sending the moment the agent can
   ipcMain.handle(CH.sessionsResumeInTerminal, async (_e, id: unknown) => {
-    const session = knownSession(indexer, id)
+    const session = drivenSession(indexer, id)
     if (!isValidNativeId(session.nativeId)) throw new Error("This session's id can't be resumed from a terminal.")
     if (!session.cwd || !existsSync(session.cwd)) {
       throw new Error('Its working directory is gone — there is nothing to resume it in.')

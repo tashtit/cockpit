@@ -17,6 +17,7 @@ const repo: RepoGroup = {
   sessionCount: 0,
   archivedCount: 0,
   heldCount: 0,
+  byProvider: {},
   lastActivity: 1700000000000,
   providers: ['claude'],
   hidden: false

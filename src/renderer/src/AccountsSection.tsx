@@ -4,6 +4,7 @@ import type {
   CliStatus,
   Provider,
   ProviderUsage,
+  SessionProvider,
   SignInState,
   SourceDir,
   SourceStats,
@@ -13,7 +14,8 @@ import type {
 } from '../../shared/types'
 import { compareVersions, homebrewUpdateCommand, runsHomebrew } from '../../shared/agent-cli'
 import { DEFAULT_BRANCH_PREFIX, branchPrefixRefusal, normalizeBranchPrefix } from '../../shared/branch-prefix'
-import { PROVIDERS, shortPath } from '../../shared/library'
+import { shortPath } from '../../shared/library'
+import { isDrivable, SESSION_PROVIDERS } from '../../shared/providers'
 import { api } from './api'
 import { saveBranchPrefix, useBranchPrefix } from './branch-prefix'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
@@ -23,6 +25,13 @@ import { BranchIcon, OrgIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
 import { ErrorAlert } from './ErrorAlert'
+
+/** A config home of one of the CLIs Cockpit drives — the ones with accounts to show. */
+type DrivenStats = SourceStats & { readonly provider: Provider }
+
+function drivenHome(s: SourceStats): s is DrivenStats {
+  return isDrivable(s.provider)
+}
 
 /** Where a row's usage numbers come from — the tooltip on its usage readout. */
 const USAGE_SOURCE: Record<Provider, string> = {
@@ -112,7 +121,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
   const [path, setPath] = useState('')
   /** The add form is a task, not a permanent fixture: the tab opens as a readout */
   const [addOpen, setAddOpen] = useState(false)
-  const [provider, setProvider] = useState<Provider>('claude')
+  const [provider, setProvider] = useState<SessionProvider>('claude')
   const [label, setLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [lastRemoved, setLastRemoved] = useState<SourceDir | null>(null)
@@ -152,7 +161,11 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
   const isDefault = (p: string): boolean =>
     accounts?.accounts.find((a) => a.path === p)?.isDefault ?? false
 
-  const askSignIn = (s: SourceStats): void => {
+  const homes = stats.filter(drivenHome)
+  /** Agents Cockpit reads but doesn't run: no account, no usage — their sessions only */
+  const readOnly = stats.filter((s) => !drivenHome(s))
+
+  const askSignIn = (s: DrivenStats): void => {
     const key = `${s.provider}|${s.path}`
     void api
       .signInState?.(s.provider, isDefault(s.path) ? undefined : s.path)
@@ -166,7 +179,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
       })
       .catch(() => {})
   }
-  const signIn = async (s: SourceStats): Promise<void> => {
+  const signIn = async (s: DrivenStats): Promise<void> => {
     setCliError(null)
     try {
       await api.openSignIn(s.provider, isDefault(s.path) ? undefined : s.path)
@@ -178,16 +191,16 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
     }
   }
   useWatchUntil(signingIn.length > 0, () => {
-    for (const s of stats) if (signingIn.includes(`${s.provider}|${s.path}`)) askSignIn(s)
+    for (const s of homes) if (signingIn.includes(`${s.provider}|${s.path}`)) askSignIn(s)
   })
 
   // ask each home's CLI once the accounts say which home is the default: the default
   // runs with no config-home variable, exactly as a session would, since a CLI can
   // keep a home's sign-in under a different name when the variable is set
-  const homesKey = accounts ? stats.map((s) => `${s.provider}|${s.path}`).join('\n') : ''
+  const homesKey = accounts ? homes.map((s) => `${s.provider}|${s.path}`).join('\n') : ''
   useEffect(() => {
     if (!accounts) return
-    for (const s of stats) {
+    for (const s of homes) {
       const key = `${s.provider}|${s.path}`
       if (key in signIns || s.missing) continue
       askSignIn(s)
@@ -252,6 +265,39 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
     }
   }
 
+  /** How much this home holds and when it last moved — or why it holds nothing. */
+  const healthOf = (s: SourceStats): JSX.Element => (
+    <div className="source-health">
+      {s.missing ? (
+        <span className="source-warn">path missing</span>
+      ) : s.count === 0 ? (
+        <span className="source-warn">no sessions yet</span>
+      ) : (
+        <>
+          <span className="repo-count">{s.count}</span>
+          <span>{s.count === 1 ? 'session' : 'sessions'}</span>
+          {s.lastUpdatedAt && (
+            <time dateTime={new Date(s.lastUpdatedAt).toISOString()}>
+              · active {fmtAgo(s.lastUpdatedAt)}
+            </time>
+          )}
+        </>
+      )}
+    </div>
+  )
+  const removeOf = (s: SourceStats): JSX.Element => (
+    <ConfirmRemove
+      id={s.path}
+      armed={confirm.armed}
+      label={`Remove config home ${s.label} — ${s.path}`}
+      confirmLabel={`Confirm removing ${s.label} — it won't be re-detected automatically`}
+      confirmTitle="Stops indexing this directory. Detection won't add it back — you'd re-add it by hand. Files on disk are untouched."
+      onArm={confirm.arm}
+      onDisarm={confirm.disarm}
+      onConfirm={() => void remove(s)}
+    />
+  )
+
   const totalSessions = stats.reduce((n, s) => n + s.count, 0)
 
   return (
@@ -266,7 +312,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
         )}
       </p>
       <ul className="source-list">
-        {stats.map((s) => (
+        {homes.map((s) => (
           <li key={s.path} className={`source-row tint-${s.provider}`}>
             <ProviderMark p={s.provider} decorative />
             <div className="source-body">
@@ -314,36 +360,11 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
               {/* the subscription this home spends — the identity above is whose it is */}
               <UsageBody u={usageFor(s)} loading={usage === null} />
             </div>
-            <div className="source-health">
-              {s.missing ? (
-                <span className="source-warn">path missing</span>
-              ) : s.count === 0 ? (
-                <span className="source-warn">no sessions yet</span>
-              ) : (
-                <>
-                  <span className="repo-count">{s.count}</span>
-                  <span>{s.count === 1 ? 'session' : 'sessions'}</span>
-                  {s.lastUpdatedAt && (
-                    <time dateTime={new Date(s.lastUpdatedAt).toISOString()}>
-                      · active {fmtAgo(s.lastUpdatedAt)}
-                    </time>
-                  )}
-                </>
-              )}
-            </div>
-            <ConfirmRemove
-              id={s.path}
-              armed={confirm.armed}
-              label={`Remove config home ${s.label} — ${s.path}`}
-              confirmLabel={`Confirm removing ${s.label} — it won't be re-detected automatically`}
-              confirmTitle="Stops indexing this directory. Defaults are only auto-detected on first run — you'd re-add it by hand. Files on disk are untouched."
-              onArm={confirm.arm}
-              onDisarm={confirm.disarm}
-              onConfirm={() => void remove(s)}
-            />
+            {healthOf(s)}
+            {removeOf(s)}
           </li>
         ))}
-        {stats.length === 0 && (
+        {homes.length === 0 && (
           <li className="tree-empty">
             no config homes yet — add one below, and Cockpit indexes the sessions it finds
           </li>
@@ -365,6 +386,32 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
           </li>
         ))}
       </ul>
+      {readOnly.length > 0 && (
+        <>
+          <h3 className="ns-label">Other agents · read only</h3>
+          <p className="ns-hint ns-prose">
+            Found on this machine and indexed beside the rest. Open a session to read it, or
+            continue it with another agent. Cockpit doesn&apos;t sign these in; one whose ACP server
+            answers can be started and continued here too (ACP agents, under Providers).
+          </p>
+          <ul className="source-list">
+            {readOnly.map((s) => (
+              <li key={s.path} className={`source-row tint-${s.provider}`}>
+                <ProviderMark p={s.provider} decorative />
+                <div className="source-body">
+                  <div className="source-label">
+                    {s.label}
+                    <span className="source-origin">{PROVIDER_LABEL[s.provider]}</span>
+                  </div>
+                  <div className="source-path" title={s.path}>{s.path}</div>
+                </div>
+                {healthOf(s)}
+                {removeOf(s)}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {removeError && <ErrorAlert>{removeError}</ErrorAlert>}
       {lastRemoved && (
         <p className="ns-hint">
@@ -397,8 +444,8 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
                 id="src-provider"
                 ariaLabel="Agent"
                 value={provider}
-                options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
-                onChange={(v) => setProvider(v as Provider)}
+                options={SESSION_PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
+                onChange={(v) => setProvider(v as SessionProvider)}
               />
             </div>
             <div className="ns-opt source-opt-path">
@@ -433,7 +480,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
           </div>
           <p className="ns-hint">
             Usually a second account&apos;s home — the directory its <code>CLAUDE_CONFIG_DIR</code>{' '}
-            points at. The defaults were found on first run.
+            points at. Every agent home on this machine is found at launch.
           </p>
           {error && <ErrorAlert id="source-add-error">{error}</ErrorAlert>}
           <div className="ns-actions">

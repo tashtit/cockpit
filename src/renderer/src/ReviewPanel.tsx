@@ -7,7 +7,7 @@ import type {
   DiffScope,
   PrReviewThread,
   PrStatus,
-  Provider,
+  SessionProvider,
   WorkspaceDiff
 } from '../../shared/types'
 import { api } from './api'
@@ -104,7 +104,7 @@ export const ReviewPanel = memo(function ReviewPanel({
   onOpenUrl
 }: {
   cwd: string
-  provider: Provider
+  provider: SessionProvider
   /** A turn is running: the tree is changing under the reader — reload when it settles */
   busy: boolean
   /** Hands text for the agent (notes, a fix prompt) to the composer; absent when the session takes no input */

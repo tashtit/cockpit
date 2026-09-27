@@ -307,6 +307,124 @@ export function readJsonlTail(
   }
 }
 
+/**
+ * The complete elements of a JSON array read from a bounded window of it — a log kept as
+ * one array (the Cline family's `ui_messages.json`) cannot be parsed from a head, but
+ * each element in it can. `text` must begin at the array's `[` (for the newest
+ * elements, see readJsonArrayTail). An element cut off at the window's end, or one that
+ * is not valid JSON, is left out.
+ */
+export function jsonArrayItems(text: string): unknown[] {
+  const out: unknown[] = []
+  let depth = 0
+  let start = -1
+  let inString = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (inString) {
+      if (c === 92 /* \\ */) i++
+      else if (c === 34 /* " */) inString = false
+      continue
+    }
+    if (c === 34) inString = true
+    else if (c === 123 /* { */ || c === 91 /* [ */) {
+      depth++
+      if (depth === 2 && c === 123) start = i
+    } else if (c === 125 /* } */ || c === 93 /* ] */) {
+      if (depth === 2 && c === 125 && start >= 0) {
+        try {
+          out.push(JSON.parse(text.slice(start, i + 1)))
+        } catch {
+          /* a malformed element is skipped, like a malformed JSONL line */
+        }
+        start = -1
+      }
+      depth--
+    }
+  }
+  return out
+}
+
+/** How far back from a JSON array's end element boundaries are looked for. */
+const ARRAY_SCAN_BYTES = 64 * 1024 * 1024
+/** One array element larger than this is not parsed — see readJsonArrayTail's `oversized`. */
+const ARRAY_ITEM_BYTES = 1024 * 1024
+const ARRAY_SCAN_CHUNK = 1024 * 1024
+
+/**
+ * The newest elements of a JSON array of objects kept as one file (the Cline family's
+ * `ui_messages.json`), without reading the file whole. Element starts are found from the
+ * end — `{"<key>":` right after `[` or `,`, which cannot occur raw inside a JSON string,
+ * whose quotes would be escaped — and elements are parsed newest first until `maxBytes`
+ * of them are held. A tail cannot simply be resynced: one element can be larger than the
+ * whole budget (Cline keeps each request, whole files and all, inline), so an element
+ * past `ARRAY_ITEM_BYTES` is never parsed. `oversized` is handed its first bytes and
+ * returns what stands for it, or null to leave it out. `truncated` says older elements
+ * were left unread.
+ */
+export function readJsonArrayTail(
+  file: string,
+  opts: {
+    readonly key: string
+    readonly maxBytes?: number
+    readonly oversized?: (head: string) => unknown
+  }
+): { items: unknown[]; truncated: boolean } {
+  const maxBytes = opts.maxBytes ?? TRANSCRIPT_TAIL_BYTES
+  const f = openRegular(file)
+  if (!f) return { items: [], truncated: false }
+  try {
+    const { fd, size } = f
+    const pattern = Buffer.from(`{"${opts.key}":`)
+    // the newest element ends at the array's closing bracket; a file caught mid-write
+    // has none, and its last element then fails to parse and is left out
+    const last = readAt(fd, Math.min(size, 64), Math.max(0, size - 64))
+    const close = last.lastIndexOf(0x5d /* ] */)
+    let nextStart = close >= 0 ? size - last.length + close + 1 : size + 1
+    const items: unknown[] = []
+    let spent = 0
+    let earliest = Infinity
+    const floor = Math.max(0, size - ARRAY_SCAN_BYTES)
+    for (let hi = size; hi > floor && spent < maxBytes; ) {
+      const lo = Math.max(floor, hi - ARRAY_SCAN_CHUNK)
+      // one byte before the chunk to see what precedes a start at its edge, and the
+      // pattern's length after it for a start that straddles the next chunk
+      const from = Math.max(0, lo - 1)
+      const buf = readAt(fd, Math.min(size, hi + pattern.length - 1) - from, from)
+      const starts: number[] = []
+      for (let i = buf.indexOf(pattern); i >= 0; i = buf.indexOf(pattern, i + 1)) {
+        const at = from + i
+        const before = i > 0 ? buf[i - 1] : -1
+        if (at >= lo && at < hi && (before === 0x2c /* , */ || before === 0x5b /* [ */)) starts.push(at)
+      }
+      for (let k = starts.length - 1; k >= 0 && spent < maxBytes; k--) {
+        const start = starts[k]!
+        const span = nextStart - 1 - start
+        if (span <= ARRAY_ITEM_BYTES) {
+          try {
+            items.unshift(JSON.parse(readAt(fd, span, start).toString('utf8')))
+          } catch {
+            /* a malformed element is skipped, like a malformed JSONL line */
+          }
+          spent += span
+        } else {
+          const stand = opts.oversized?.(readAt(fd, 512, start).toString('utf8'))
+          if (stand !== undefined && stand !== null) items.unshift(stand)
+        }
+        nextStart = start
+        earliest = start
+      }
+      hi = lo
+    }
+    // the first element starts right after the array's `[`
+    return { items, truncated: earliest > 1 }
+  } catch {
+    return { items: [], truncated: false }
+  } finally {
+    closeSync(f.fd)
+  }
+}
+
 /** A stream record longer than this is dropped, not held — the bound ACP keeps too. */
 export const MAX_STREAM_LINE_CHARS = 8 * 1024 * 1024
 
@@ -621,7 +739,8 @@ export function toolPreview(name: string, input: unknown): string | null {
     case 'MultiEdit':
     case 'Write':
     case 'Read':
-      return str(i.file_path)
+      // Cursor's agent names its file tools as Claude does, but by `path`
+      return str(i.file_path) ?? str(i.path)
     // the to-do tools: what the list became, not the list as JSON
     case 'TodoWrite':
     case 'update_plan': {
@@ -643,7 +762,7 @@ export function toolPreview(name: string, input: unknown): string | null {
       return pattern && path ? `${pattern} in ${path}` : pattern
     }
     case 'Glob':
-      return str(i.pattern)
+      return str(i.pattern) ?? str(i.glob_pattern)
     case 'WebFetch':
       return str(i.url)
     case 'WebSearch':
@@ -692,6 +811,28 @@ export function toolPreview(name: string, input: unknown): string | null {
       return str(i.title)
     case 'mcp__ccd_session__dismiss_task':
       return str(i.reason) ?? 'withdrew a suggestion'
+    // Gemini CLI's own tool names
+    case 'run_shell_command':
+    case 'Shell':
+      return str(i.command)
+    case 'read_file':
+    case 'write_file':
+    case 'replace':
+      return str(i.file_path) ?? str(i.absolute_path) ?? str(i.path)
+    case 'list_directory':
+      return str(i.dir_path) ?? str(i.path)
+    case 'glob':
+    case 'search_file_content':
+    case 'grep_search':
+      return str(i.pattern)
+    case 'google_web_search':
+      return str(i.query)
+    case 'web_fetch':
+      return str(i.prompt) ?? str(i.url)
+    case 'write_todos': {
+      const list = Array.isArray(i.todos) ? i.todos : null
+      return list ? `${list.length} ${list.length === 1 ? 'step' : 'steps'}` : null
+    }
     // Copilot's to-do list and scratch tables: the call says what it is doing, the
     // query stays in the detail
     case 'sql':

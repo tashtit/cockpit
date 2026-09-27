@@ -16,6 +16,7 @@ import {
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from '../secrets'
 import { fetchEndpointModels } from '../endpoint-models'
 import { probeAcpAgent } from '../acp'
+import type { Services } from '../services'
 
 /** An API key as the renderer typed it — trimmed, and refused if it could not be one. */
 function apiKeyOf(raw: unknown): string {
@@ -25,7 +26,7 @@ function apiKeyOf(raw: unknown): string {
 }
 
 /** Custom model providers (BYOK) and ACP agents — what a turn can run on besides the CLIs' defaults. */
-export function registerEndpointHandlers(): void {
+export function registerEndpointHandlers(s: Services): void {
   ipcMain.handle(CH.endpointsGet, () => listModelEndpoints())
   ipcMain.handle(CH.endpointsAdd, (_e, input: unknown) => {
     // the key never enters the endpoint definition — strip it, encrypt it separately
@@ -61,6 +62,8 @@ export function registerEndpointHandlers(): void {
 
   /* ACP agents: CLIs the user asked Cockpit to drive over the Agent Client Protocol */
   ipcMain.handle(CH.acpGet, () => [...BUILTIN_ACP_AGENTS, ...listAcpAgents()])
+  // which agents a session can be started or continued with — asking re-probes a missing built-in
+  ipcMain.handle(CH.acpReadiness, () => s.acpReadiness({ reprobe: true }))
   ipcMain.handle(CH.acpAdd, (_e, input: unknown) => {
     const agent = sanitizeAcpAgent(input, randomUUID())
     if (!agent) {
@@ -69,14 +72,18 @@ export function registerEndpointHandlers(): void {
       )
     }
     if (listAcpAgents().length >= 32) throw new Error('That is as many custom agents as Cockpit stores.')
-    return [...BUILTIN_ACP_AGENTS, ...addAcpAgent(agent)]
+    const agents = [...BUILTIN_ACP_AGENTS, ...addAcpAgent(agent)]
+    s.pushAcpReadiness()
+    return agents
   })
   ipcMain.handle(CH.acpRemove, (_e, id: string) => {
     // a built-in is defined in code, not config — there is nothing to remove
     if (BUILTIN_ACP_AGENTS.some((a) => a.id === String(id))) {
       throw new Error('Built-in agents cannot be removed.')
     }
-    return [...BUILTIN_ACP_AGENTS, ...removeAcpAgent(String(id))]
+    const agents = [...BUILTIN_ACP_AGENTS, ...removeAcpAgent(String(id))]
+    s.pushAcpReadiness()
+    return agents
   })
   ipcMain.handle(CH.acpProbe, (_e, input: unknown) => {
     const agent = sanitizeAcpAgent(input, 'probe')

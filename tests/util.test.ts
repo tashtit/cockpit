@@ -7,12 +7,14 @@ import {
   LineSplitter,
   capText,
   isRegularFile,
+  jsonArrayItems,
   judgeJsonlTail,
   parseJsonc,
   readHead,
   readHeadBytes,
   readHeadBytesAsync,
   readJson,
+  readJsonArrayTail,
   readSmallFile,
   readTail,
   patchPreview,
@@ -359,6 +361,50 @@ describe('Codex shell and patch previews', () => {
   it('has no headline for a command it cannot read', () => {
     expect(shellPreview(undefined)).toBeNull()
     expect(shellPreview(['bash', '-lc', '   '])).toBeNull()
+  })
+})
+
+describe('JSON arrays read in bounded windows', () => {
+  const doc = [
+    { ts: 1, text: 'plain' },
+    { ts: 2, text: 'has "quotes", {braces} and ] brackets \\ inside', nested: { a: [1, { b: 2 }] } },
+    { ts: 3, text: 'last' }
+  ]
+
+  it('parses the complete elements of a head and leaves the cut one out', () => {
+    const text = JSON.stringify(doc)
+    expect(jsonArrayItems(text)).toEqual(doc)
+    const cut = text.slice(0, text.indexOf('last') + 2)
+    expect(jsonArrayItems(cut)).toEqual(doc.slice(0, 2))
+    expect(jsonArrayItems('not an array')).toEqual([])
+  })
+
+  it('reads the newest elements back from the end, within the budget', () => {
+    const file = join(root, 'array-tail.json')
+    const many = Array.from({ length: 50 }, (_, i) => ({ ts: i, text: 'x'.repeat(100) }))
+    writeFileSync(file, JSON.stringify(many))
+    const whole = readJsonArrayTail(file, { key: 'ts' })
+    expect(whole).toEqual({ items: many, truncated: false })
+    const part = readJsonArrayTail(file, { key: 'ts', maxBytes: 1000 })
+    expect(part.truncated).toBe(true)
+    expect((part.items as { ts: number }[]).map((i) => i.ts)).toEqual([41, 42, 43, 44, 45, 46, 47, 48, 49])
+  })
+
+  it('stands in for an element too large to parse, or leaves it out', () => {
+    const file = join(root, 'array-huge.json')
+    writeFileSync(file, JSON.stringify([{ ts: 1, text: 'before' }, { ts: 2, text: 'y'.repeat(1_200_000) }, { ts: 3, text: 'after' }]))
+    const kept = readJsonArrayTail(file, { key: 'ts', oversized: (head) => ({ stand: head.slice(0, 7) }) })
+    expect(kept.items).toEqual([{ ts: 1, text: 'before' }, { stand: '{"ts":2' }, { ts: 3, text: 'after' }])
+    const dropped = readJsonArrayTail(file, { key: 'ts', oversized: () => null })
+    expect(dropped.items).toEqual([{ ts: 1, text: 'before' }, { ts: 3, text: 'after' }])
+  })
+
+  it('tolerates a file caught mid-write, and anything that is not a file', () => {
+    const file = join(root, 'array-cut.json')
+    writeFileSync(file, '[{"ts":1,"text":"done"},{"ts":2,"text":"half')
+    expect(readJsonArrayTail(file, { key: 'ts' }).items).toEqual([{ ts: 1, text: 'done' }])
+    expect(readJsonArrayTail(join(root, 'no-such.json'), { key: 'ts' })).toEqual({ items: [], truncated: false })
+    expect(readJsonArrayTail(root, { key: 'ts' })).toEqual({ items: [], truncated: false })
   })
 })
 
