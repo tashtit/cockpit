@@ -554,3 +554,47 @@ const OCTICON_ARCHIVE =
 export const ArchiveIcon = ({ size = 11 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_ARCHIVE} size={size} />
 )
+
+/* ---------- popover glyphs: the Select and FilterBar triggers and panels ---------- */
+
+/** The chevron on a dropdown's trigger — a Select or a filter pill; it flips while open. */
+export function SelectChevron(): JSX.Element {
+  return (
+    <svg className="select-chev" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
+      <path
+        d="M1 1l4 4 4-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** `CheckIcon`'s glyph on a Select's chosen option, classed so its row can't squeeze it. */
+export function SelectCheck(): JSX.Element {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className="select-check"
+      aria-hidden="true"
+    >
+      <path d={OCTICON_CHECK} />
+    </svg>
+  )
+}
+
+/** The ⊘ that turns an option into an exclusion — quiet until the row is hovered. */
+export function BanIcon(): JSX.Element {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3.8 3.8l8.4 8.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}

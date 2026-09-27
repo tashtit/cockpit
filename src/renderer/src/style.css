@@ -2108,7 +2108,6 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .fb-clear { min-height: 26px; padding: 2px var(--s2); font-size: var(--fs-xs);
   color: var(--fg-dim); border-radius: var(--radius-sm); }
 .fb-clear:hover { color: var(--fg); background: var(--bg3); }
-.fb-right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
 
 /* the popover: same material as .select-pop (fixed + portaled, so a card with
    overflow:hidden can never clip it) */

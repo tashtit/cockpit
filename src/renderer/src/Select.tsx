@@ -1,7 +1,9 @@
-import { useEffect, useId, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
+import { SelectCheck, SelectChevron } from './logos'
+import { useDismissable } from './popover'
 
-export type SelectOption = {
+type SelectOption = {
   readonly value: string
   readonly label: string
   /** Right-aligned dim annotation (e.g. a count or state) */
@@ -47,7 +49,6 @@ export function Select({
   const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; minWidth: number }>()
   const wrapRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const listRef = useRef<HTMLUListElement>(null)
   const typeahead = useRef({ buf: '', at: 0 })
   const listId = useId()
 
@@ -74,10 +75,16 @@ export function Select({
     setOpen(true)
   }
 
-  const close = (refocus: boolean): void => {
+  // stable, so the dismiss listeners are bound once per opening rather than per render
+  const close = useCallback((refocus: boolean): void => {
     setOpen(false)
     if (refocus) triggerRef.current?.focus()
-  }
+  }, [])
+  // a mousedown on the trigger is not "outside": its own click toggles the list. Page
+  // scroll detaches a fixed-position popup from its trigger → close; but the listbox
+  // scrolls its own overflow (long model catalogs, keyboard scrollIntoView) and must
+  // never close itself. The list takes focus, so its keys are its own (onListKey).
+  const { panelRef: listRef } = useDismissable<HTMLUListElement>(open, close, { inside: wrapRef })
 
   const pick = (idx: number): void => {
     const o = options[idx]
@@ -86,28 +93,7 @@ export function Select({
   }
 
   useEffect(() => {
-    if (!open) return
-    listRef.current?.focus()
-    const onDown = (e: MouseEvent): void => {
-      if (!wrapRef.current?.contains(e.target as Node) && !listRef.current?.contains(e.target as Node))
-        close(false)
-    }
-    const onAway = (): void => close(false)
-    // page scroll detaches a fixed-position popup from its trigger → close; but the
-    // listbox scrolls its own overflow (long model catalogs, keyboard scrollIntoView)
-    // and must never close itself
-    const onScroll = (e: Event): void => {
-      if (e.target instanceof Node && listRef.current?.contains(e.target)) return
-      close(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('resize', onAway)
-    document.addEventListener('scroll', onScroll, true)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('resize', onAway)
-      document.removeEventListener('scroll', onScroll, true)
-    }
+    if (open) listRef.current?.focus()
   }, [open])
 
   useEffect(() => {
@@ -172,10 +158,7 @@ export function Select({
         {/* sr-only is position:absolute — out of flow, so it costs no flex width or gap */}
         {ariaLabel && <span id={nameId} className="sr-only">{ariaLabel}</span>}
         <span id={valueId} className="select-value">{selected?.label ?? ''}</span>
-        <svg className="select-chev" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
-          <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5"
-            strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <SelectChevron />
       </button>
       {/* portaled: ancestors with backdrop-filter (chat header) or overflow:hidden
           (composer card) would otherwise trap or clip a fixed popup */}
@@ -210,12 +193,7 @@ export function Select({
             >
               <span className="select-opt-label">{o.label}</span>
               {o.hint && <span className="select-opt-hint">{o.hint}</span>}
-              {o.value === value && (
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"
-                  className="select-check" aria-hidden="true">
-                  <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" />
-                </svg>
-              )}
+              {o.value === value && <SelectCheck />}
             </li>
           ))}
         </ul>,
