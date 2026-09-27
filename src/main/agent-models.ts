@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { AgentModel, Provider } from '../shared/types'
 import { BUILTIN_MODELS, mergeModels } from '../shared/agent-models'
 import { codexCatalog, codexConfiguredModel, copilotModelsInLog } from './agent-models-core'
+import { mapLimit } from './map-limit'
 import { defaultConfigHome } from './paths'
 
 /** Copilot logs read for models: the newest few, the head of each — bounded like every scan. */
@@ -62,20 +63,19 @@ async function copilotModels(home: string): Promise<AgentModel[]> {
   } catch {
     return []
   }
-  const logs: Array<{ readonly path: string; readonly mtime: number }> = []
-  for (let i = 0; i < names.length; i += STAT_BATCH) {
-    const batch = await Promise.all(
-      names.slice(i, i + STAT_BATCH).map(async (d) => {
-        const path = join(root, d, 'events.jsonl')
-        try {
-          return { path, mtime: (await stat(path)).mtimeMs }
-        } catch {
-          return null
-        }
-      })
-    )
-    for (const log of batch) if (log) logs.push(log)
-  }
+  const stats = await mapLimit(
+    names,
+    async (d) => {
+      const path = join(root, d, 'events.jsonl')
+      try {
+        return { path, mtime: (await stat(path)).mtimeMs }
+      } catch {
+        return null
+      }
+    },
+    STAT_BATCH
+  )
+  const logs = stats.filter((log) => log !== null)
   const seen = new Set<string>()
   for (const log of logs.sort((a, b) => b.mtime - a.mtime).slice(0, COPILOT_LOGS)) {
     for (const id of copilotModelsInLog(await readHead(log.path, COPILOT_LOG_BYTES))) seen.add(id)

@@ -18,7 +18,6 @@ import {
   isStale,
   judgeProcesses,
   lastWorktreeActivity,
-  mapLimit,
   ownProcessTree,
   parseLsofCwds,
   parsePs,
@@ -40,6 +39,7 @@ import {
 } from './cleanup-core'
 import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText } from './env'
+import { mapLimit } from './map-limit'
 import { sessionLogFiles } from './parsers/util'
 import { isUnder, realOrSelf } from './paths'
 

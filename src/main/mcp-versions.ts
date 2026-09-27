@@ -1,5 +1,6 @@
 import { describeMcp, isNewer, registryOf, type Registry } from '../shared/mcp-source'
 import type { McpConfig, McpVersion } from '../shared/types'
+import { mapLimit } from './map-limit'
 
 /*
  * "Is there a newer one?" — asked of the registry a pinned MCP server installs from.
@@ -81,28 +82,6 @@ function latestVersion(registry: Registry, pkg: string): Promise<string> {
   return ask
 }
 
-/**
- * Run `work` over `items`, at most `limit` at a time, keeping the input's order in
- * the output. Rejections are the caller's to handle — here every unit already
- * resolves to a verdict, failure included.
- */
-async function mapLimit<T, R>(
-  items: readonly T[],
-  work: (item: T) => Promise<R>,
-  limit = MAX_PARALLEL
-): Promise<R[]> {
-  const out: R[] = new Array(items.length)
-  let next = 0
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const i = next++
-      out[i] = await work(items[i])
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
-  return out
-}
-
 function failed(err: unknown): string {
   if (err instanceof Error) return err.name === 'TimeoutError' ? 'timed out' : err.message
   return String(err)
@@ -136,5 +115,5 @@ export async function mcpVersions(
     } catch (err) {
       return { ...base, status: 'unknown', detail: failed(err) }
     }
-  })
+  }, MAX_PARALLEL)
 }
