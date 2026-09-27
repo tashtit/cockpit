@@ -12,6 +12,7 @@ import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
 import { holdSentence } from './hold'
+import { HomeUpdates } from './HomeUpdates'
 import { useLandedMap } from './landed'
 import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './NewSession'
 import {
@@ -28,6 +29,7 @@ import {
 } from './logos'
 import { keepSame } from './same'
 import { Select } from './Select'
+import type { SettingsSection } from './Settings'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
@@ -65,7 +67,8 @@ export function HomeView({
   onOpenFull,
   onNewRoundtable,
   onOpenRoundtable,
-  onOpenSettings
+  onOpenSettings,
+  onOpenAgents
 }: {
   repos: RepoGroup[]
   /** The index has finished its first scan, so an empty `repos` means none */
@@ -78,8 +81,10 @@ export function HomeView({
   onOpenFull: (repo: RepoGroup, draft: string, images?: readonly ImageAttachment[]) => void
   onNewRoundtable: () => void
   onOpenRoundtable: (id: string) => void
-  /** First run sends people to Settings for the step that is missing */
-  onOpenSettings: () => void
+  /** First run sends people to Settings for the step that is missing; an update to About */
+  onOpenSettings: (section?: SettingsSection) => void
+  /** Where an update the strip can't make itself is settled: Agents, Global scope */
+  onOpenAgents: () => void
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
@@ -270,7 +275,18 @@ export function HomeView({
           the view's only heading (its masthead); there is no separate hero, because a
           greeting at the top of the page no longer introduces anything. */}
       <div className="home-stack">
-        <div className="home-inner">{fleet}</div>
+        <div className="home-inner">
+          {/* what is out of date, above the board and quieter than it: one line
+              closed, its list only when asked for. It renders nothing at all when
+              nothing is out of date, and never on a first run — that screen is
+              about getting off the ground, not about versions. */}
+          {!needsSetup && (
+            <HomeUpdates
+              jump={{ agents: onOpenAgents, about: () => onOpenSettings('about') }}
+            />
+          )}
+          {fleet}
+        </div>
       </div>
 
       <div className="home-dock">

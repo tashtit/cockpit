@@ -232,3 +232,25 @@ handing you the CLI's own error.
 ::: tip Repo-level skills
 For a shared per-repository setup, a `.agents/skills/` directory with a `.claude/skills` symlink lets Codex and Copilot read skills natively while Claude Code follows the symlink — one source of truth, three consumers.
 :::
+
+## Browse — what the marketplaces offer
+
+Every other section of the panel is a mirror of what your agents already have. **Browse**
+(Global only — plugins and marketplaces are installed per machine) is the one that shows
+what they don't: each marketplace this machine knows, and the plugins inside it.
+
+- **Where the list comes from.** Cockpit reads the catalogue (`marketplace.json`) out of
+  the clone the agent already made when it added the marketplace — no network, every time.
+  A marketplace nobody here has added yet has no catalogue to read, so the row says so and
+  offers **Look it up**, which reads that repository's own catalogue from GitHub. That
+  fetch only ever happens on your click.
+- **Look up a marketplace.** Type `owner/repo` or a github.com URL at the top of the
+  section to read a marketplace you've heard of but nobody here has. Nothing is installed
+  by looking.
+- **Installing.** Each row carries the same three agent chips as the rest of the panel.
+  Clicking one adds the marketplace (`plugin marketplace add`) or installs the plugin
+  (`plugin install <name>@<marketplace>`) in that agent, one agent at a time. A chip for
+  an agent that already has it is lit and inert — taking something out belongs to
+  **Plugins** and **Marketplaces**, where it asks first.
+- **Searching.** The card's search box searches the catalogues while Browse is open —
+  plugin names, descriptions, categories and keywords — instead of the panel's own rows.

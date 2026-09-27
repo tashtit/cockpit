@@ -22,6 +22,7 @@ import {
 } from '../shared/library'
 import { describeMcp, mcpLabel, registryOf, withVersion } from '../shared/mcp-source'
 import type {
+  CatalogInstall,
   ExtensionsInventory,
   LibraryEntry,
   McpConfig,
@@ -563,6 +564,36 @@ export async function setPanelSwitch(
     })
   )
   return getPanel(target.repoRoot)
+}
+
+/**
+ * Add something the person found while browsing: a marketplace, or a plugin from one.
+ *
+ * Browsing shows what no agent here has yet, so unlike every other action in the panel
+ * this one may have no entry to flip — it writes the entry first and then flips it,
+ * which is exactly what the panel's own switch does once the thing exists. Nothing
+ * else is special-cased: the install itself, the reach check ("that agent hasn't got
+ * this marketplace"), and the report all come back through `setPanelSwitch`.
+ */
+export async function addFromCatalog(item: CatalogInstall, agent: Provider): Promise<PanelReport> {
+  const target: PanelTarget = { repoRoot: null, kind: item.kind, name: item.name }
+  assertTarget(target)
+  const { entries } = ensureScope(null)
+  const known = entries.find((e) => e.kind === item.kind && e.name === item.name)
+  // a plugin's source is the marketplace half of its own id; a marketplace's is where
+  // it is cloned from, which is the one thing an add cannot be run without
+  const source =
+    item.kind === 'plugin'
+      ? (known?.source ?? item.name.split('@').pop())
+      : (item.source ?? known?.source)
+  if (item.kind === 'marketplace' && !isAddableSource(source)) {
+    throw new Error(`Cockpit has no source to add the ${item.name} marketplace from.`)
+  }
+  // adding back something removed everywhere is the person asking for it again
+  const was: LibraryEntry = known ?? { kind: item.kind, name: item.name, enabled: {} }
+  const { removed, ...base } = was
+  saveEntries(null, replaceEntry(loadEntries(null), { ...base, ...(source ? { source } : {}) }))
+  return setPanelSwitch(target, agent, true)
 }
 
 /** The entry with a kept difference forgotten for these agents (all of them when none named). */

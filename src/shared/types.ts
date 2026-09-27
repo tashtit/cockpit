@@ -983,6 +983,89 @@ export type ExtensionsInventory = {
   readonly marketplaces: MarketplaceInfo[]
 }
 
+/* ---------- looking a marketplace up: what it offers ---------- */
+
+/** One plugin as its marketplace's own catalogue describes it. */
+export type CatalogPlugin = {
+  /** the plugin's own name, without the `@marketplace` half */
+  readonly name: string
+  /** the id every agent installs it by: `<name>@<marketplace>` */
+  readonly id: string
+  readonly description: string
+  readonly version?: string
+  readonly author?: string
+  readonly category?: string
+  readonly keywords: readonly string[]
+  /** where a person reads more about it, when the catalogue names one */
+  readonly homepage?: string
+}
+
+/** Where a catalogue was read from — a clone on this machine, or the repo it lives in. */
+export type CatalogOrigin = 'local' | 'remote'
+
+/**
+ * A marketplace and what it offers. Read from the clone an agent already made, or —
+ * only when the person asks for it — fetched from the repository it is published in.
+ */
+export type MarketplaceCatalog = {
+  readonly name: string
+  /** the git URL or `owner/repo` an agent would be pointed at, when one is recorded */
+  readonly source?: string
+  /** agents that already have this marketplace */
+  readonly agents: readonly Provider[]
+  readonly plugins: readonly CatalogPlugin[]
+  /** set once a catalogue was actually read */
+  readonly origin?: CatalogOrigin
+  /** why there is no catalogue to show — never fatal, the marketplace still lists */
+  readonly problem?: string
+  /** Cockpit vouches for this one (`RECOMMENDED_MARKETPLACE`) */
+  readonly recommended?: true
+}
+
+/** What the browse surface asks for: a marketplace to add, or a plugin to install. */
+export type CatalogInstall = {
+  readonly kind: 'marketplace' | 'plugin'
+  /** marketplace: its name · plugin: the `<name>@<marketplace>` id every agent installs by */
+  readonly name: string
+  /** marketplace: where to clone it from (a git URL or `owner/repo`) */
+  readonly source?: string
+}
+
+/* ---------- what could be brought up to date ---------- */
+
+/**
+ * One thing this machine could be brought up to date on. The app, an agent CLI, a
+ * pinned MCP server, a plugin the marketplace has moved past — or a disagreement
+ * between the agents, which is not an update but is the same question: "is anything
+ * out of step?".
+ */
+export type UpdateSuggestionKind = 'app' | 'cli' | 'mcp' | 'plugin' | 'drift'
+
+export type UpdateSuggestion = {
+  readonly kind: UpdateSuggestionKind
+  /** `${kind}:${name}` — stable across gatherings, so a row can be acted on by id */
+  readonly id: string
+  /** the CLI, the server, the plugin id, the entry that drifted, or "Cockpit" */
+  readonly name: string
+  /** the agents it concerns; empty for Cockpit itself */
+  readonly agents: readonly Provider[]
+  /** what is installed now, where there is a version to name */
+  readonly current?: string
+  /** what is on offer */
+  readonly latest?: string
+  /** one line: what this is, and where the newer one comes from */
+  readonly detail: string
+}
+
+/** Everything that could be brought up to date, gathered once. */
+export type UpdatesDigest = {
+  readonly items: readonly UpdateSuggestion[]
+  /** when this was gathered (epoch ms) */
+  readonly at: number
+  /** what couldn't be asked — a registry offline, a catalogue missing. Never fatal. */
+  readonly problems: readonly string[]
+}
+
 /* ---------- shared AI instructions ---------- */
 
 export type InstructionStatus =

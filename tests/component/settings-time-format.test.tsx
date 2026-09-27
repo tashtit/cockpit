@@ -138,7 +138,8 @@ describe('session rows follow the time format live', () => {
         onOpenFull={vi.fn()}
         onNewRoundtable={vi.fn()}
         onOpenRoundtable={vi.fn()}
-          onOpenSettings={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenAgents={vi.fn()}
       />
     )
 

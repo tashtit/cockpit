@@ -245,6 +245,33 @@ is no health tab, and there must never be a second place to turn a server on.
     the registry just gave: the pin is rewritten wherever that server is switched on and
     nothing else in the command changes.
 
+## Browse (`MarketBrowse.tsx`)
+
+The one section that shows what the agents **don't** have — every other one is a mirror of
+their config. Global only: plugins and marketplaces are installed per machine, so a repo
+scope has nothing to browse into and the tab is absent there.
+
+- **A marketplace is a `.pnl-row` that opens**, exactly like every other row here: caret ·
+  name · `recommended` tag where it applies · `.pnl-kind` count ("3 plugins", or
+  "catalogue not read") · `.pnl-def` source · the agent chips. Its catalogue entries are
+  `.market-plugin` cards *inside* the opened row, because a plugin here is a thing being
+  offered rather than a thing being managed — the panel's own row grammar would say it
+  has a switch per agent, which it hasn't until it is installed.
+- **The chips are add-only.** An agent that already has it is lit and disabled, titled
+  "already in <Agent> — switch it off under Plugins". Removing runs an uninstall and is an
+  armed confirm in the sections that own it; a browse surface must not be able to
+  uninstall on a mis-click on the row you were reading.
+- **Local is the default answer, the network is a click.** The listing reads the clone the
+  agent already made; a marketplace with no clone here lists with its reason and a
+  **Look it up** button, and the lookup line at the top (`.market-lookup`, a 28px
+  `.ns-opt` input + ghost button) reads one from `owner/repo`. A fetched catalogue says so
+  in a `.pnl-note` under its plugins. Nothing here fetches on arrival.
+- **The card's search belongs to this section while it is open**: it filters catalogues
+  (name, description, category, keywords) instead of the panel's cross-section rows, and a
+  match opens the marketplace it is in. Searching is the whole reason the section exists.
+- The recommendation band steps aside here, as it does for a search: the row it offers is
+  in this list with its own chips.
+
 ## Shared list vocabulary
 
 - Lists here are `.ext-list` of `.ext-row`s: leading agent logo(s), `.ext-body`

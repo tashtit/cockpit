@@ -31,6 +31,7 @@ import type {
   BackupExportResult,
   BackupPreview,
   BusySession,
+  CatalogInstall,
   ChatEvent,
   ChatRequest,
   CleanupNotice,
@@ -41,6 +42,7 @@ import type {
   HandoffBriefing,
   InstructionsState,
   Landing,
+  MarketplaceCatalog,
   McpProbeResult,
   McpVersion,
   ModelEndpoint,
@@ -80,6 +82,7 @@ import type {
   UpdateInstallOutcome,
   UpdateInstallRequest,
   UpdatePrefs,
+  UpdatesDigest,
   UpdateState,
   UsageSnapshot,
   WorkspaceDiff,
@@ -254,6 +257,18 @@ export type CockpitApi = {
   readonly removePanelEntry: (target: PanelTarget) => Promise<PanelReport>
   /** Put a removed entry back on the agents it was on */
   readonly restorePanelEntry: (target: PanelTarget) => Promise<PanelReport>
+
+  /* ---------- browsing marketplaces and their plugins ---------- */
+  /** Every marketplace this machine knows, with what its own clone here offers (no network) */
+  readonly listCatalogs: () => Promise<readonly MarketplaceCatalog[]>
+  /** Read one marketplace's catalogue from the GitHub repo it is published in — a click, never a poll */
+  readonly lookupMarketplace: (source: string) => Promise<MarketplaceCatalog>
+  /** Add a marketplace to an agent, or install a plugin from one, straight off the catalogue */
+  readonly addFromCatalog: (item: CatalogInstall, agent: Provider) => Promise<PanelReport>
+
+  /* ---------- what could be brought up to date ---------- */
+  /** App, agent CLIs, pinned MCP servers, plugins and the agents' own disagreements, in one list */
+  readonly getUpdatesDigest: (force?: boolean) => Promise<UpdatesDigest>
 
   /* ---------- shared AI instructions ---------- */
   readonly getInstructions: (repoRoot: string | null) => Promise<InstructionsState>
@@ -468,6 +483,10 @@ export const CH = {
 
   indexScanned: 'index:scanned',
 
+  marketplacesAdd: 'marketplaces:add',
+  marketplacesList: 'marketplaces:list',
+  marketplacesLookup: 'marketplaces:lookup',
+
   instructionsAdoptFile: 'instructions:adopt-file',
   instructionsApply: 'instructions:apply',
   instructionsGet: 'instructions:get',
@@ -527,6 +546,7 @@ export const CH = {
   transcriptsSearch: 'transcripts:search',
 
   updatesCheck: 'updates:check',
+  updatesDigest: 'updates:digest',
   updatesDownload: 'updates:download',
   updatesGet: 'updates:get',
   updatesInstall: 'updates:install',

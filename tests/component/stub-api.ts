@@ -253,6 +253,15 @@ export function freshApi(): CockpitApi {
     keepPanelDifference: vi.fn(async () => emptyPanel),
     removePanelEntry: vi.fn(async () => emptyPanel),
     restorePanelEntry: vi.fn(async () => emptyPanel),
+    listCatalogs: vi.fn(async () => []),
+    lookupMarketplace: vi.fn(async (source: string) => ({
+      name: source.split('/').pop() ?? source,
+      source,
+      agents: [],
+      plugins: []
+    })),
+    addFromCatalog: vi.fn(async () => emptyPanel),
+    getUpdatesDigest: vi.fn(async () => ({ items: [], at: 0, problems: [] })),
     getInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     saveInstructionsBaseline: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),
     applyInstructions: vi.fn(async () => ({ repoRoot: null, baseline: '', files: [] })),

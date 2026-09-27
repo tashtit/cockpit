@@ -47,10 +47,11 @@ Everything between them stays quiet.
   (`border-top` + `--pane`) over `.home-dock-inner`. Its children carry
   `flex-shrink: 0` — without it the composer card (`overflow: hidden` → zero
   min-content) collapses to a sliver on short windows.
-- Order, always: **stack** — the fleet (`.board`, which carries sessions and
-  roundtables alike); **dock** — `.composer-card` → `.home-more` → YOLO hint → error
-  line. The board renders whenever it has a row; what is happening changes the rows and
-  their order, never either region's place on the page.
+- Order, always: **stack** — the updates strip (`.home-news`, when there is news) then
+  the fleet (`.board`, which carries sessions and roundtables alike); **dock** —
+  `.composer-card` → `.home-more` → YOLO hint → error line. The board renders whenever it
+  has a row; what is happening changes the rows and their order, never either region's
+  place on the page.
 - **There is no page-level hero.** A centred greeting used to open the view, and once
   the composer moved to the dock it introduced nothing — a question 700px from its own
   answer, centred over a left-aligned table. It did not go away; it moved to the thing
@@ -144,6 +145,38 @@ Everything between them stays quiet.
 - ≤780px the row sheds `.board-repo` first — the branch chip carries more identity;
   ≤700px the `.board-branch` slot goes too, because on a ~360px pane the task title is
   the row's content.
+
+## Updates strip (`.home-news`, `HomeUpdates.tsx`)
+
+- **What it is:** the one place that answers "is anything out of date?" — the app, an
+  agent CLI, a pinned MCP server, a plugin the marketplace has moved past, and what the
+  agents no longer agree on. Each half was already answerable somewhere else (About,
+  Settings › Accounts, an MCP row, Needs you); this is the line that means you don't
+  have to visit four views to ask.
+- **It renders nothing when there is nothing** (`digestHeadline` → null). A quiet
+  machine's home is exactly the home it was before the strip existed, and a first run
+  (`needsSetup`) never shows it — that screen is about getting off the ground.
+- **One line closed, and closed is the default.** `.home-news-head` is a disclosure
+  button: caret · the headline (`2 updates · 1 agent difference`, counted apart — one
+  total would hide both) · `show`/`hide`. Open or closed is the person's and is
+  remembered (`localStorage`, `cockpit:home-updates-open`). `aria-controls` is set only
+  while the list is in the DOM.
+- **Quieter than the board, which is this view's panel.** No border and no surface until
+  it is opened; the opened `.home-news-list` is the `--surface` list the panel views use,
+  with a ceiling of its own (`max-height: min(260px, 34vh)`, its own scroll). The strip is
+  `flex: none`: the room above the dock belongs to the board, so the **board** is what
+  gives way on a short window, never the composer and never the news.
+- **Row grammar** (`.home-news-row`): `.news-tag` (mono placard — what kind of thing this
+  is) · the agents it concerns, as 11px logos · `.news-name` · `.news-jump`
+  (`0.150.0 → 0.155.1`, mono, the new one in `--fg`) · `.news-detail` (where the newer one
+  comes from) · one `.btn-ghost.small` action. ≤780px the tag and the detail shed and the
+  name takes the room — the name, the versions and the action are the row.
+- **One action per row, and it is the one that settles it.** An update Cockpit already
+  knows how to make is made here (an MCP pin, the Terminal hand-off a CLI update has
+  always been); anything else leads to the view that owns it (*Open About*, *Settle it*,
+  *Open Agents*). Never grow a second place to do what the Agents panel does.
+- The foot line carries what could not be asked (`problems`, never a silent gap) and
+  **Check again** — on demand, never polled, like every other outward question in the app.
 
 ## First run (`Setup`, `.setup-card`)
 

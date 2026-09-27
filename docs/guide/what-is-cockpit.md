@@ -28,13 +28,30 @@ Sessions that don't belong to any repository land in a flat **Chats** section at
 
 ## What's in the window
 
-- **Home — mission control.** The board of recent agent work reads above, under a masthead that answers the one question the screen is for: while nothing needs you it is a quiet line ("2 flying · 22 on the ground"), and the moment something does the urgent phrase jumps to headline size — "1 waiting on you" — with the rest underneath. The task composer is docked to the bottom edge like a chat's: pick a repo, agent, account, and permission mode, then ⌘Enter to start. The page itself never scrolls — the board's rows do — so the composer is on screen however busy the board is. The sidebar stays the exhaustive list.
+- **Home — mission control.** The board of recent agent work reads above, under a masthead that answers the one question the screen is for: while nothing needs you it is a quiet line ("2 flying · 22 on the ground"), and the moment something does the urgent phrase jumps to headline size — "1 waiting on you" — with the rest underneath. Above the board, a single line says whether anything is out of date — an app release, an agent CLI, a pinned MCP server, a plugin, or something the agents no longer agree on — and opens onto the list. The task composer is docked to the bottom edge like a chat's: pick a repo, agent, account, and permission mode, then ⌘Enter to start. The page itself never scrolls — the board's rows do — so the composer is on screen however busy the board is. The sidebar stays the exhaustive list.
 - **Sessions.** Click any session for a parsed transcript — messages, tool calls, results. Type in an indexed session to continue it. See [Sessions & the index](/guide/sessions).
 - **Chat.** Cockpit spawns the provider CLI headless and streams replies and tool activity live. See [Chat](/guide/chat).
-- **Agents.** Shared instructions with drift detection, MCP/skills/plugins inventory, and one-click sharing across the three agents. See [The Agents view](/guide/agents).
+- **Agents.** Shared instructions with drift detection, MCP/skills/plugins inventory, one-click sharing across the three agents, and **Browse** — what the marketplaces offer, installed by the same click. See [The Agents view](/guide/agents).
 - **Settings.** Accounts and config-home sources, subscription usage, history window, GitHub identity. See [Accounts & usage](/guide/accounts-and-usage).
 
-## Resizing and zoom
+## What's out of date
+
+Home answers that in one line, above the board — and shows nothing at all when the answer
+is "nothing". Open it and every row says what it is, what you have, what is on offer, and
+carries the one action that settles it:
+
+| | |
+| --- | --- |
+| **Cockpit** | a release is out, downloading, or downloaded and ready — *Open About* ([Updating](/guide/getting-started#updating)) |
+| **An agent CLI** | the channel it was installed from has a newer version — *Update in Terminal*, the same hand-off as [Settings › Accounts](/guide/accounts-and-usage) |
+| **An MCP server** | a server pinned to an exact version, and its registry has a newer release — *Update to 0.0.81* pins it wherever it is switched on |
+| **A plugin** | the marketplace's own catalogue on this machine lists a newer version than the one installed |
+| **The agents differ** | something is switched on but not written, added outside Cockpit, or the agents run different definitions — *Settle it* opens [the Agents view](/guide/agents) |
+
+Everything here is asked **on demand and cached** — nothing polls, and nothing about this
+reaches the network except the two questions that always did (the release feed and the
+package registries). **Check again** at the bottom of the list asks everything afresh. The
+line stays closed until you open it, and remembers which you chose.
 
 The window can be dragged down to 560×420, and every view is checked at exactly that size.
 As it narrows, rows shed decorative chips and labels — one at a time, in the order that costs

@@ -57,7 +57,8 @@ writing a helper:
 validation, env, `/models`) · `acp.ts` (ACP agent definitions and their sanitizer) ·
 `agent-auth.ts`, `agent-cli.ts`, `agent-models.ts` (sign-in verdicts, CLI install and update
 rules, built-in models and `EFFORT_LEVELS`) · `library.ts`, `mcp-source.ts` (Cockpit's config
-against each agent's) · `instruction-markers.ts`, `instruction-changes.ts`, `line-diff.ts` ·
+against each agent's) · `marketplace.ts` (a marketplace's catalogue, and the GitHub repo a
+source names) · `updates-digest.ts` (the home's one line of what is out of date) · `instruction-markers.ts`, `instruction-changes.ts`, `line-diff.ts` ·
 `repo-order.ts` · `roundtable.ts` (seat identity, limits) · `side-chat.ts` (which agents can have one) · `branch-prefix.ts` (the prefix of the branches Cockpit cuts) · `pr-feedback.ts` · `work.ts` (the
 Work fold, shared with the handoff briefing) · `cleanup.ts` (how cleanup speaks) · `window.ts`
 (the 560×420 floor, the zoom range, the restored placement) · `feedback.ts`.
@@ -83,7 +84,7 @@ it is named for and is what the unit tests target; keep IO in the sibling withou
 - **Sessions**: `indexer.ts`, `repos.ts`, `parsers/` (one per provider, plus `artifacts`, `checks`, `util`), `provider-archived.ts` (what the providers' own apps archived or deleted), `liveness` (busy state of sessions Cockpit did not spawn, from their log tails), `transcript-search.ts`, `session-control-core.ts` (who drives a session), `session-files.ts` (files a session shared), `handoff`, `profile.ts`, `config.ts`
 - **Driving agents**: `chat.ts` (headless CLI turns, one process per turn), `claude-permissions.ts` (a Claude turn's permission prompts, answered in the chat), `side-chat.ts` (a question asked of a throwaway copy of a session — nothing reaches its log), `acp` (the Agent Client Protocol transport), `roundtable` (several agents, one transcript), `chat-images.ts`, `endpoint-models.ts` + `secrets.ts` (BYOK model catalogs, keychain-encrypted keys)
 - **Agents & accounts**: `accounts.ts`, `agent-auth`, `agent-cli`, `agent-models`, `usage.ts`
-- **Library**: `extensions` (MCP / skills / plugins inventory and sharing), `library.ts`, `mcp.ts`, `mcp-versions.ts`, `toml.ts`, `instructions` + `instructions-share.ts` (shared instructions, and sharing them to a repo by PR)
+- **Library**: `extensions` (MCP / skills / plugins inventory and sharing), `library.ts`, `mcp.ts`, `mcp-versions.ts`, `toml.ts`, `marketplace.ts` (what a marketplace offers — read from the agent's clone, from GitHub only on a click), `updates-digest.ts` (everything that could be brought up to date, for the home — on demand, never polled), `instructions` + `instructions-share.ts` (shared instructions, and sharing them to a repo by PR)
 - **Git & GitHub**: `workspace.ts` (worktrees and PRs), `diff` (the review before landing), `pr-feedback` (the loop after the PR opens), `github` (PR badges)
 - **Housekeeping**: `cleanup`, `cleanup-reminder`, `backup`
 - **App**: `index.ts` (bootstrap and every IPC handler), `attention` (notifications, sounds, the Dock badge), `updates.ts` + `update-install` (self-update), `dev-window.ts`, `link-guard.ts`, `env.ts`, `replace-file.ts`, `paths.ts`

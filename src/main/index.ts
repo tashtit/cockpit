@@ -33,6 +33,7 @@ import { holderOf, holdRefusal, resumeLine, resumeScript, type ControlEntry } fr
 import { sideTurnRequest } from './side-chat'
 import { mergeBusy } from './liveness-core'
 import {
+  addFromCatalog,
   getPanel,
   keepPanelDifference,
   matchPanelEntry,
@@ -42,6 +43,8 @@ import {
   setMcpVersion,
   setPanelSwitch
 } from './library'
+import { listCatalogs, lookupCatalog } from './marketplace'
+import { forgetUpdatesDigest, updatesDigest } from './updates-digest'
 import { assertChatImages, saveChatImage } from './chat-images'
 import { assertSharedFile, openSharedFile, readSharedFile } from './session-files'
 import { probeAcpAgent } from './acp'
@@ -848,18 +851,55 @@ app.whenReady().then(() => {
     kind: asPanelKind(t?.kind),
     name: String(t?.name ?? '')
   })
+  /**
+   * A write the home's updates list reports on. That list is gathered on demand and
+   * cached, so anything settled here has to forget it — otherwise fixing drift in the
+   * Agents view leaves the home claiming it for another quarter of an hour.
+   */
+  const settled = async <T>(work: Promise<T>): Promise<T> => {
+    const done = await work
+    forgetUpdatesDigest()
+    return done
+  }
   ipcMain.handle(CH.panelGet, (_e, repoRoot: string | null) => getPanel(asScope(repoRoot)))
   ipcMain.handle(CH.panelSetSwitch, (_e, target: PanelTarget, agent: Provider, on: boolean) =>
-    setPanelSwitch(asTarget(target), asProvider(agent), Boolean(on))
+    settled(setPanelSwitch(asTarget(target), asProvider(agent), Boolean(on)))
   )
   ipcMain.handle(CH.panelMatch, (_e, target: PanelTarget, source: Provider) =>
-    matchPanelEntry(asTarget(target), asProvider(source))
+    settled(matchPanelEntry(asTarget(target), asProvider(source)))
   )
   ipcMain.handle(CH.panelKeep, (_e, target: PanelTarget, keep: boolean) =>
-    keepPanelDifference(asTarget(target), Boolean(keep))
+    settled(keepPanelDifference(asTarget(target), Boolean(keep)))
   )
-  ipcMain.handle(CH.panelRemove, (_e, target: PanelTarget) => removePanelEntry(asTarget(target)))
-  ipcMain.handle(CH.panelRestore, (_e, target: PanelTarget) => restorePanelEntry(asTarget(target)))
+  ipcMain.handle(CH.panelRemove, (_e, target: PanelTarget) =>
+    settled(removePanelEntry(asTarget(target)))
+  )
+  ipcMain.handle(CH.panelRestore, (_e, target: PanelTarget) =>
+    settled(restorePanelEntry(asTarget(target)))
+  )
+  /*
+   * Browsing: what the marketplaces hold, and adding one of them. The listing reads
+   * the clones on this machine and never the network; a lookup is the one call that
+   * does, and only ever from a click. `source` is renderer input on its way into a
+   * URL and an agent's command line — `lookupCatalog` takes GitHub's `owner/repo`
+   * alone, and `addFromCatalog` refuses a source no agent could be pointed at.
+   */
+  ipcMain.handle(CH.marketplacesList, () => listCatalogs())
+  ipcMain.handle(CH.marketplacesLookup, (_e, source: unknown) => lookupCatalog(String(source ?? '')))
+  ipcMain.handle(CH.marketplacesAdd, (_e, item: unknown, agent: unknown) => {
+    const asked = (item ?? {}) as { kind?: unknown; name?: unknown; source?: unknown }
+    if (asked.kind !== 'marketplace' && asked.kind !== 'plugin') throw new Error('unknown kind')
+    return settled(
+      addFromCatalog(
+        {
+          kind: asked.kind,
+          name: String(asked.name ?? ''),
+          ...(typeof asked.source === 'string' ? { source: asked.source } : {})
+        },
+        asProvider(agent)
+      )
+    )
+  })
   ipcMain.handle(CH.extensionsCheckMcp, (_e, name: string) => probeMcp(getMcpConfig(String(name))))
   ipcMain.handle(CH.extensionsLoginMcp, (_e, name: string, agent: Provider, projectPath?: string) => {
     const provider = asProvider(agent)
@@ -875,7 +915,7 @@ app.whenReady().then(() => {
     mcpVersionsFor(asScope(repoRoot))
   )
   ipcMain.handle(CH.extensionsSetMcpVersion, (_e, target: PanelTarget, version: string) =>
-    setMcpVersion(asTarget(target), String(version))
+    settled(setMcpVersion(asTarget(target), String(version)))
   )
 
   // instruction scopes come from the renderer — null = global, else a repo the
@@ -885,19 +925,22 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.instructionsGet, (_e, repoRoot: string | null) =>
     getInstructions(instructionScope(repoRoot))
   )
+  // each of these can settle (or open) a drift the home's updates list reports
   ipcMain.handle(CH.instructionsSaveBaseline, (_e, repoRoot: string | null, baseline: string) =>
-    saveBaseline(instructionScope(repoRoot), String(baseline))
+    settled(Promise.resolve(saveBaseline(instructionScope(repoRoot), String(baseline))))
   )
   ipcMain.handle(CH.instructionsApply, (_e, repoRoot: string | null, onlyPath?: string) =>
-    applyInstructions(instructionScope(repoRoot), onlyPath ? String(onlyPath) : undefined)
+    settled(
+      Promise.resolve(applyInstructions(instructionScope(repoRoot), onlyPath ? String(onlyPath) : undefined))
+    )
   )
   ipcMain.handle(
     CH.instructionsSaveFile,
     (_e, repoRoot: string | null, path: string, content: string) =>
-      saveInstructionFile(instructionScope(repoRoot), String(path), String(content))
+      settled(Promise.resolve(saveInstructionFile(instructionScope(repoRoot), String(path), String(content))))
   )
   ipcMain.handle(CH.instructionsAdoptFile, (_e, repoRoot: string | null, path: string) =>
-    adoptInstructionsFrom(instructionScope(repoRoot), String(path))
+    settled(Promise.resolve(adoptInstructionsFrom(instructionScope(repoRoot), String(path))))
   )
   ipcMain.handle(CH.instructionsShare, (_e, repoRoot: string) =>
     shareInstructions(assertKnownRepoRoot(repoRoot), branchPrefix())
@@ -1041,7 +1084,12 @@ app.whenReady().then(() => {
 
   // app updates from GitHub Releases — the manager refuses everything but an installed
   // macOS build, so dev runs and e2e never reach the network
-  const updates = new UpdateManager((state) => sendToWin(PUSH.updateState, state))
+  const updates = new UpdateManager((state) => {
+    // the home lists the app beside everything else that could be brought up to date,
+    // and that list is cached — a release arriving or finishing its download is news
+    forgetUpdatesDigest()
+    sendToWin(PUSH.updateState, state)
+  })
   updater = updates
   ipcMain.handle(CH.appInfo, () => appInfo())
   ipcMain.handle(CH.appOpenLicenses, async () => {
@@ -1061,6 +1109,15 @@ app.whenReady().then(() => {
     updates.install({
       runningTurns: chat?.runningTurns() ?? 0,
       stopRunning: (req as { stopRunning?: unknown } | undefined)?.stopRunning === true
+    })
+  )
+  // one list for "is anything out of date?": the app itself, the agent CLIs, pinned
+  // MCP servers, plugins, and what the agents disagree on. On demand, never polled —
+  // the home asks when it opens and the person can ask again.
+  ipcMain.handle(CH.updatesDigest, (_e, force: unknown) =>
+    updatesDigest({
+      app: { state: updates.current, version: app.getVersion() },
+      force: force === true
     })
   )
   ipcMain.handle(CH.updatesPrefs, () => updates.currentPrefs)

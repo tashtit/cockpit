@@ -8,6 +8,7 @@ import type {
   AttentionTone,
   AttentionTarget,
   BusySession,
+  CatalogInstall,
   ChatEvent,
   ChatRequest,
   CleanupNotice,
@@ -149,6 +150,11 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.panelMatch, target, source),
   removePanelEntry: (target: PanelTarget) => ipcRenderer.invoke(CH.panelRemove, target),
   restorePanelEntry: (target: PanelTarget) => ipcRenderer.invoke(CH.panelRestore, target),
+  listCatalogs: () => ipcRenderer.invoke(CH.marketplacesList),
+  lookupMarketplace: (source: string) => ipcRenderer.invoke(CH.marketplacesLookup, source),
+  addFromCatalog: (item: CatalogInstall, agent: Provider) =>
+    ipcRenderer.invoke(CH.marketplacesAdd, item, agent),
+  getUpdatesDigest: (force?: boolean) => ipcRenderer.invoke(CH.updatesDigest, force),
   getInstructions: (repoRoot: string | null) => ipcRenderer.invoke(CH.instructionsGet, repoRoot),
   saveInstructionsBaseline: (repoRoot: string | null, baseline: string) =>
     ipcRenderer.invoke(CH.instructionsSaveBaseline, repoRoot, baseline),

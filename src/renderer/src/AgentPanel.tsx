@@ -14,6 +14,7 @@ import {
 } from '../../shared/library'
 import { fileChange } from '../../shared/instruction-changes'
 import type {
+  CatalogInstall,
   InstructionsState,
   McpProbeResult,
   McpVersion,
@@ -26,6 +27,7 @@ import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, InstructionDiff } from './InstructionDiff'
 import { InstructionsEditor } from './InstructionsEditor'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { MarketBrowse } from './MarketBrowse'
 import { answerRecommendation, recommendationAnswered } from './recommended'
 import { TabList, TabPanel, type TabDef } from './Tabs'
 
@@ -68,7 +70,7 @@ const LOGIN_AGENTS: readonly Provider[] = ['claude', 'codex']
 /** Turning these off runs an uninstall, so they ask first. */
 const CONFIRM_OFF: readonly PanelKind[] = ['plugin', 'marketplace']
 
-type Section = PanelKind | 'attention' | 'removed'
+type Section = PanelKind | 'attention' | 'browse' | 'removed'
 
 /** `link` is for an outcome that lives somewhere else — a PR the share just opened. */
 type Notice = {
@@ -251,6 +253,13 @@ export function AgentPanel({
   const restore = (row: PanelRow): void =>
     void run(row.id, () => api.restorePanelEntry(target(row)), `Put ${row.name} back.`)
 
+  /** Add something found while browsing — a marketplace, or a plugin from one. */
+  const addFound = (item: CatalogInstall, agent: Provider, said: string): void => {
+    // the same key Browse's chips are drawn with, so the one being written pulses
+    const key = `${item.kind === 'plugin' ? 'plugin' : 'market'}:${item.name}|${agent}`
+    void run(key, () => api.addFromCatalog(item, agent), said)
+  }
+
   /** Bump a pinned server to the release the registry offers, wherever it runs. */
   const update = (row: PanelRow, version: string): void => {
     void run(
@@ -281,6 +290,9 @@ export function AgentPanel({
       count: report.rows.filter((r) => r.kind === kind).length,
       dot: report.rows.some((r) => r.kind === kind && r.drift.length > 0)
     })),
+    // what the agents *don't* have yet. Global only — plugins and marketplaces are
+    // installed per machine, so there is nothing for a repo scope to browse into
+    ...(repoRoot === null ? [{ id: 'browse' as const, label: 'Browse' }] : []),
     ...(report.removed.length > 0
       ? [{ id: 'removed' as const, label: 'Removed', count: report.removed.length }]
       : [])
@@ -295,20 +307,25 @@ export function AgentPanel({
       : driftRows.length > 0
         ? 'attention'
         : kinds[0]
+  // Browse is the one section the search belongs to rather than to the panel: what it
+  // lists is catalogues, and "find me a plugin" is the whole reason it exists
+  const browsing = current === 'browse'
   // a search looks everywhere: you rarely know which section a thing ended up in
-  const rows = q
-    ? report.rows.filter((r) =>
-        `${r.name} ${r.saved.detail} ${KIND_LABEL[r.kind]}`.toLowerCase().includes(q)
-      )
-    : current === 'attention'
-      ? driftRows
-      : current === 'removed'
-        ? []
-        : report.rows.filter((r) => r.kind === current)
+  const rows = browsing
+    ? []
+    : q
+      ? report.rows.filter((r) =>
+          `${r.name} ${r.saved.detail} ${KIND_LABEL[r.kind]}`.toLowerCase().includes(q)
+        )
+      : current === 'attention'
+        ? driftRows
+        : current === 'removed'
+          ? []
+          : report.rows.filter((r) => r.kind === current)
 
   return (
     <>
-      {recommended && !q && (
+      {recommended && !q && !browsing && (
         <Recommendation
           row={recommended}
           armed={armed}
@@ -327,7 +344,9 @@ export function AgentPanel({
             above it would say the same thing twice */}
         {(q !== '' || current !== 'instructions') && (
         <p className="pnl-blurb">
-          {q
+          {browsing
+            ? 'Marketplaces this machine knows, and what each one offers. Adding a marketplace installs nothing — you pick the plugins, one agent at a time.'
+            : q
             ? `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
             : current === 'removed'
               ? 'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
@@ -339,7 +358,17 @@ export function AgentPanel({
         </p>
         )}
 
-        {!q && current === 'instructions' && (
+        {browsing && (
+          <MarketBrowse
+            report={report}
+            query={query}
+            busy={busy}
+            onAdd={addFound}
+            setNotice={setNotice}
+          />
+        )}
+
+        {!browsing && !q && current === 'instructions' && (
           <InstructionsEditor repoRoot={repoRoot} setNotice={setNotice} onSaved={load} />
         )}
 
@@ -364,7 +393,7 @@ export function AgentPanel({
           </div>
         )}
 
-        {q && rows.length === 0 && (
+        {!browsing && q && rows.length === 0 && (
           <div className="tree-empty">nothing here matches “{query.trim()}”</div>
         )}
 
