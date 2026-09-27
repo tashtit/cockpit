@@ -40,6 +40,10 @@ import {
   TrashIcon
 } from './logos'
 import { RepoName } from './RepoName'
+import { roveIndex, type RoveKeys } from './roving'
+
+/** The tree's arrows: a row at a time, stopping at either end; Home and End jump */
+const TREE_KEYS: RoveKeys = { next: 'ArrowDown', prev: 'ArrowUp', ends: true }
 
 export function TreeSidebar({
   repos,
@@ -348,17 +352,15 @@ export function TreeSidebar({
           target?.focus()
         }}
         onKeyDown={(e) => {
-          if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
           const rows = Array.from(
             e.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"], .archived-toggle, .tree-more')
           )
           if (rows.length === 0) return
-          const idx = rows.indexOf(document.activeElement as HTMLElement)
+          const at = rows.indexOf(document.activeElement as HTMLElement)
+          const to = roveIndex(e.key, { at, count: rows.length }, TREE_KEYS)
+          if (to === null) return
           e.preventDefault()
-          if (e.key === 'ArrowDown') rows[Math.min(idx + 1, rows.length - 1)]?.focus()
-          else if (e.key === 'ArrowUp') rows[Math.max(idx - 1, 0)]?.focus()
-          else if (e.key === 'Home') rows[0]?.focus()
-          else rows[rows.length - 1]?.focus()
+          rows[to]?.focus()
         }}
       >
         {debounced ? (

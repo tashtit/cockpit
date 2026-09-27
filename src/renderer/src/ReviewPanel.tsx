@@ -18,6 +18,10 @@ import { LinkExternalIcon, PROVIDER_LABEL } from './logos'
 import { PrStrip } from './PrStrip'
 import { useLoaded } from './use-loaded'
 import { plural } from './format'
+import { roveIndex, type RoveKeys } from './roving'
+
+/** The note cursor's arrows: a line at a time, stopping at either end; Home and End jump */
+const NOTE_KEYS: RoveKeys = { next: 'ArrowDown', prev: 'ArrowUp', ends: true }
 
 /**
  * Review before landing: the worktree's changes, in the transcript's place, read
@@ -388,14 +392,10 @@ function useNoteRoving(): {
       if (target !== e.currentTarget && !target.classList.contains('review-note-btn')) return
       const btns = buttons()
       if (btns.length === 0) return
-      const at = btns.indexOf(document.activeElement as HTMLButtonElement)
-      const next =
-        e.key === 'ArrowDown' ? Math.min(Math.max(at, 0) + 1, btns.length - 1)
-        : e.key === 'ArrowUp' ? Math.max(Math.max(at, 0) - 1, 0)
-        : e.key === 'Home' ? 0
-        : e.key === 'End' ? btns.length - 1
-        : -1
-      if (next < 0) return
+      // with the body itself focused, the lines count from the first
+      const at = Math.max(btns.indexOf(document.activeElement as HTMLButtonElement), 0)
+      const next = roveIndex(e.key, { at, count: btns.length }, NOTE_KEYS)
+      if (next === null) return
       e.preventDefault()
       cursor.current = next
       rove(btns[next])

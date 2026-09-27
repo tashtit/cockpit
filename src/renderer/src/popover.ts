@@ -1,4 +1,8 @@
 import { useEffect, useRef, type RefObject } from 'react'
+import { roveIndex, type RoveKeys } from './roving'
+
+/** A panel's ↑/↓ go round its items */
+const ITEM_KEYS: RoveKeys = { next: 'ArrowDown', prev: 'ArrowUp', wrap: true }
 
 type DismissOptions = {
   /** Mousedowns in here are not "outside" either — a trigger wrapped with its panel */
@@ -48,13 +52,14 @@ export function useDismissable<T extends HTMLElement = HTMLDivElement>(
         close(true)
         return
       }
-      if (keyItems === undefined || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
+      if (keyItems === undefined) return
       const items = [...(panelRef.current?.querySelectorAll<HTMLElement>(keyItems) ?? [])]
       if (items.length === 0) return
-      e.preventDefault()
       const at = items.indexOf(document.activeElement as HTMLElement)
-      const step = e.key === 'ArrowDown' ? 1 : -1
-      items[(at + step + items.length) % items.length].focus()
+      const to = roveIndex(e.key, { at, count: items.length }, ITEM_KEYS)
+      if (to === null) return
+      e.preventDefault()
+      items[to].focus()
     }
     // a deferred mousedown waits a tick so the click that opened the panel can't close it
     const t = deferMouseDown
