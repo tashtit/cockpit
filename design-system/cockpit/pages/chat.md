@@ -10,7 +10,10 @@ turns are compact right-aligned bubbles.
 
 Identity + situation in one row, left to right:
 solid agent `.badge` · `.acct-chip` ("running as" — shows the identity's local part,
-full identity in the tooltip; shed entirely ≤780px) · title + sub (lineage chips that open
+full identity in the tooltip; shed entirely ≤780px) · title + sub (first the `.hold-chip` —
+who drives the session: *In Cockpit* with Cockpit's hexagon, an accent-bordered key that
+opens the hold bar, or *In Claude* in the agent's livery, a plain statement since the bar is
+already open for it; ≤382px of `@container chat-sub` it sheds its words to its mark — then lineage chips that open
 the related session — `from <Agent>` for a handoff, `by <title>` (`.parent-chip`, which
 gives way like the branch chip) for a session another session started — then branch chip, clickable
 cwd that copies its full path — displayed via `cwdLabel`: a worktree as `worktree · <slug>`, or bare
@@ -110,7 +113,13 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     legend (the agent's `header`, else `Question N`), the question at `--fs-prose`, then
     full-width option rows — native radios, or checkboxes when the agent allowed several
     (`accent-color`, so the control is the OS's and the row is the target). A picked row
-    takes the accent tint. **Send answer** is disabled until every question has a pick and
+    takes the accent tint. Every question ends in **Other** ("None of these — write your
+    own answer"), the escape the agents' own prompts offer: picked, it opens `.ask-other`
+    under the options — the composer's field in miniature, focused because it was just
+    asked for, Enter sends and Shift+Enter breaks the line — and its words are the answer
+    (one answer on a single-select question, so an offered pick sets it aside and keeps
+    the text; one more beside the picks on a pick-any one). Picked but empty is no answer.
+    **Send answer** is disabled until every question has a pick and
     while a turn runs; the note beside it says the pick sends as the next message, and
     sheds to its own line ≤700px. While the session runs elsewhere the same note says
     where to answer instead (the terminal or app blocked on it), and the `is working
@@ -411,6 +420,26 @@ dim) + body (sans, pre-wrap), "N more replies", Open on GitHub. Quiet `--bg2` su
 with a 2px warn inset bar (still open); read-only — the reviewer's words, not the
 user's. The file head counts the threads it shows (`.review-kind.tone-warn`); outdated
 threads have no line and live in the strip's list only.
+
+## Hold bar (`HoldBar`, `.hold-bar`)
+
+Who drives the session and the way to change it, docked above the composer where the
+permission card sits, in the transcript's column. Its mark, one sentence (`strong` holder,
+then how it got there and what to do), and its keys at the ghost keys' 24px — the one
+filled key, **Take over**, is `.btn-primary.hold-take` at that height (one height per row).
+
+- **A session with its agent** (`control.holder === 'agent'`: opened outside Cockpit, or
+  released) always shows it: **Open in Terminal** and **Take over**. Send stays and is
+  **disabled** with the reason in its title, Enter does nothing and the draft is kept — the
+  elsewhere grammar. An open question card says to answer it in the agent or take it over.
+- **A session Cockpit holds** shows it only from its `.hold-chip` (`aria-expanded`,
+  `aria-controls`): **Open in Terminal** (releases it too), **Release to Claude**, and a 24px
+  × to hide it.
+- A change waits for the other side's turn — Take over while the agent runs one elsewhere,
+  Release and Open in Terminal while Cockpit's own turn runs — disabled, with why in the
+  title. Main re-judges both (`holdRefusal`), and a refusal lands as a chat notice.
+- What happened is said once in the chat's status region ("Taken over — Cockpit sends this
+  session's turns now"). A seat session gets neither chip nor bar: its table drives it.
 
 ## Composer
 

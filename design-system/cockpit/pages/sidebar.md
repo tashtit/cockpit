@@ -54,6 +54,18 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   ⌘N in the tooltip — creates). Icon-only on purpose — the accent fill alone says
   "this one creates"; keep it off the app-name row, which stays purely the
   wordmark. Everything else that starts a session is hover-revealed or keyboard.
+- The eye's popover (`.repo-filter-pop`, "What the tree shows") holds two groups: **Sessions**
+  — a radio group, *All sessions* / *In Cockpit* / *Outside Cockpit*, each with its count —
+  then the projects' checkboxes under a hairline (`.repo-filter-divided`). The holder choice
+  is a per-machine view preference (`hold.ts`, localStorage, like the folds): it narrows every
+  page and search to `SessionQuery.holder`, drops projects with no session on that side
+  (`heldSessions`; a project's tables count as Cockpit's), and the repo pills show the
+  narrowed count. An archived toggle under a filter says *Archived* with no number — its
+  count is every archived session's, and a wrong number is worse than none. Because the
+  choice survives a restart, `.tree-scope` says it in words under the search row while it
+  lasts — an accent-tinted strip, the side's glyph, *Only sessions in Cockpit*, and a
+  **Show all** link — and the eye lights (`.filter-active` + `.filter-dot`) for it as for a
+  hidden project.
 - `.search` input, 250ms debounce (⌘K belongs to the palette, not this field —
   the search filters the tree in place; the palette jumps). Non-empty search swaps the
   whole tree for `SearchResults` grouped by repo name.
@@ -66,12 +78,19 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     local repos show just the name), tiny per-provider logos (10px), bordered
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
-    logo, title, optional `.acct-chip` (only on a **non-default** account's rows when that
+    logo, title, `.held-mark` — Cockpit's hexagon (`HeldIcon`, 10px, `--fg-dim`) when
+    Cockpit drives the session (`SessionMeta.control.holder`), with an `sr-only` "(in Cockpit)"
+    and the whole story in the tooltip (`holdSentence`: *In Cockpit — taken over from Claude*,
+    *In Codex — opened outside Cockpit*). Only Cockpit's side is marked: most rows come from
+    terminals and the agents' own apps, and the exception is what gets marked. Then an optional
+    `.acct-chip` (only on a **non-default** account's rows when that
     provider has several — the exception is what gets marked; the provider prefix is
     dropped, so `claude-work` reads `work`),
     then the exclusive meta slot, in order of urgency: the `.asks-mark` question glyph in
     the agent's color while its agent waits on you (`useSessionLanded` kind `asks` — it
-    beats running, because the process is up but going nowhere), else the neutral
+    beats running, because the process is up but going nowhere; `landed.ts` folds in the
+    questions the busy set says a turn is stopped on, `BusySession.asks`, so the glyph
+    outlives opening the session for as long as the question stays open), else the neutral
     `Spinner` while the session's provider process runs, else the rest of `LandingMark`
     while the session has something unseen — GitHub's x `.fix-mark` in `--danger` for a red
     pull request on its branch, a solid `.landed-dot` in the accent for a turn that ended

@@ -18,6 +18,19 @@ The structured event stream (where the provider has one) is parsed into messages
 
 Open any session from the sidebar and type: Cockpit resumes that conversation with the same provider, in the same working directory. There's no separate "import" — the index *is* the chat history.
 
+### Taking over and releasing
+
+The chat header says who drives the session, first thing under the title: **In Cockpit**, or **In Claude** (Codex, Copilot) for one that lives with its agent — see [In Cockpit or with its agent](/guide/sessions#in-cockpit-or-with-its-agent).
+
+A session that came from a terminal or the agent's own app is Cockpit's to read, not to send to. A bar above the composer says so, and **Send** stays off — your draft is kept — until you press **Take over**. From then on Cockpit sends its turns. Close it where it was open first, so the two don't both write to it. **Take over** waits while the agent is running a turn elsewhere.
+
+A session Cockpit holds opens the same bar from its **In Cockpit** chip:
+
+- **Release to Claude** hands it back. Cockpit stops sending to it and goes back to following its log. It waits while a turn Cockpit started is still running.
+- **Open in Terminal** releases it and resumes it in the agent's own interactive CLI, in the session's directory, as the account it was recorded under: `claude --resume <id>`, `codex resume <id>` or `copilot --resume=<id>`. It is offered on a session with its agent as well.
+
+Cockpit asks nothing of the agent to do this. Who drives a session is Cockpit's own record, kept beside its archive list and carried by [Backup](/guide/backup). Sessions in Cockpit's own worktrees count as started by Cockpit.
+
 ### Coming back to a turn in flight
 
 A turn Cockpit started keeps running while you look elsewhere — another session, the
@@ -44,8 +57,9 @@ quiet — the windows are the ones in [Flying and landed](/guide/sessions#flying
 a minute and a half after the last write, ten minutes while a tool call is still waiting
 for its result. Your draft stays in the composer meanwhile.
 
-Once you send from Cockpit, the turn streams in as usual and the transcript is Cockpit's
-until it ends; a turn typed in the terminal after that shows up here again as it lands.
+Once you take it over and send from Cockpit, the turn streams in as usual and the
+transcript is Cockpit's until it ends; a turn typed in the terminal after that shows up
+here again as it lands.
 
 Long transcripts open on their newest 400 messages; the line at the top says how many
 there are and shows the next 400 when you ask, without moving what you were reading. If
@@ -72,7 +86,9 @@ An agent that stops to ask — Claude Code's `AskUserQuestion` or its plan gate,
 them off the transcript and renders the last unanswered one as a card in the chat: the
 question, its options with the agent's own one-line descriptions, and **Send answer**.
 Multi-select questions take several picks; a question the conversation has moved past
-stays a plain tool row.
+stays a plain tool row. When none of the answers fits, pick **Other** at the bottom of
+the list and write your own — it is sent in place of a pick (or beside the picks, on a
+multi-select question). Enter sends it, Shift+Enter starts a new line.
 
 When the question is a plan gate, the card shows the plan itself above
 **Approve the plan** and **Keep planning**, so you approve what you have read, not a
@@ -81,8 +97,8 @@ whole side of the window.
 
 The pick is sent as your next message, worded from the question (`Answering your
 question: - Which layout…? → packages/<runtime>`), so it stands on its own in the
-transcript the agent resumes from — and you can always ignore the card and type your
-own answer instead. Nothing is sent until you press the key.
+transcript the agent resumes from — and you can always ignore the card and type in
+the message box instead. Nothing is sent until you press the key.
 
 While the agent is still waiting in a terminal or its own app, the card shows the
 question but holds **Send answer**: answer it there, where the process is blocked on it.

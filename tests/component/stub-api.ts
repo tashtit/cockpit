@@ -9,6 +9,7 @@ import type {
   Provider,
   RoundtableLimits,
   RoundtableSnapshot,
+  SessionHolder,
   SignInState,
   UsageSnapshot
 } from '../../src/shared/types'
@@ -143,6 +144,12 @@ export function freshApi(): CockpitApi {
     whenIndexed: vi.fn(async () => {}),
     pageSessions: vi.fn(async () => ({ total: 0, items: [] })),
     getSession: vi.fn(async () => null),
+    setSessionHolder: vi.fn(async (_id: string, holder: SessionHolder) =>
+      holder === 'cockpit'
+        ? { holder, how: 'taken-over' as const, since: Date.now() }
+        : { holder, how: 'released' as const, since: Date.now() }
+    ),
+    resumeInTerminal: vi.fn(async () => {}),
     getSessionMessages: vi.fn(async () => []),
     readSessionFile: vi.fn(async () => ({ kind: 'missing' as const })),
     openSessionFile: vi.fn(async () => null),

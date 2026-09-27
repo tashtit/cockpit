@@ -7,6 +7,8 @@ import type {
   Provider,
   PrStatus,
   RepoGroup,
+  SessionControl,
+  SessionHolder,
   SessionMessage,
   SessionMeta
 } from '../../shared/types'
@@ -56,6 +58,11 @@ const railStyle = (px: number): CSSProperties => ({ '--rail': `${px}px` }) as CS
 
 /** `provider:nativeId` → the chip's {id, provider}; null for anything malformed
  *  (the lineage map lives in a hand-editable config file). */
+/** A conversation Cockpit itself just started — held here until the index says otherwise. */
+function startedHere(): SessionControl {
+  return { holder: 'cockpit', how: 'started', since: Date.now() }
+}
+
 function lineageRef(id: string | undefined): ChatBinding['continuedFrom'] | undefined {
   if (!id) return undefined
   const provider = id.split(':', 1)[0] as Provider
@@ -125,6 +132,9 @@ export function App(): JSX.Element {
   const [prs, setPrs] = useState<PrStatus[]>([])
   const [binding, setBinding] = useState<ChatBinding | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  /** Who drives the open conversation (main's record, re-read as the index changes);
+   *  null while unknown and for a seat, which its table drives */
+  const [control, setControl] = useState<SessionControl | null>(null)
   /** Where the open chat should land: the message a transcript-search hit named */
   const [anchor, setAnchor] = useState<TranscriptAnchor | null>(null)
   const [activeTurn, setActiveTurn] = useState<string | null>(null)
@@ -166,6 +176,23 @@ export function App(): JSX.Element {
   // the open session's agent is running in a terminal or its own app — its log is
   // the live thing, and Send waits (a spawned turn of ours never reads as this)
   const elsewhere = useSessionRunsElsewhere(selectedSessionId)
+  // who drives the open conversation follows main's record: read again whenever the
+  // index moves — a take-over or release (here or in another window), or the id a
+  // resumed claude turn forks. A just-minted id the index can't name yet keeps what
+  // the conversation already had.
+  useEffect(() => {
+    const id = selectedSessionId
+    if (id === null) return
+    let dead = false
+    void api.getSession(id).then((s) => {
+      if (dead || !s) return
+      const next = s.roundtableId ? null : (s.control ?? null)
+      setControl((prev) => keepSame(prev, next))
+    })
+    return () => {
+      dead = true
+    }
+  }, [selectedSessionId, indexVersion])
   useEffect(() => initLanded(), [])
   // the transcript's markdown pipeline is its own chunk — warm it once the window
   // is up, so the first session opened renders formatted with no plain-text flash
@@ -504,6 +531,7 @@ export function App(): JSX.Element {
       setChatLog([])
       diskLogRef.current = null
       setSelectedSessionId(s.id)
+      setControl(s.roundtableId ? null : (s.control ?? null))
       setAnchor(opts.anchor ?? null)
       // restore the account this session's source dir belongs to — otherwise a
       // reopened session would silently continue on the default account.
@@ -559,6 +587,9 @@ export function App(): JSX.Element {
         setChatLog([])
         diskLogRef.current = null
         setSelectedSessionId(entry.sessionId)
+        // a chat that never announced an id is one Cockpit started; any other is read
+        // back from the index as the id lands
+        setControl(entry.sessionId === null && !entry.binding.readOnly ? startedHere() : null)
         setAnchor(null)
         setBinding(entry.binding)
         // an entry with no id is a new chat that never announced one: nothing to rejoin
@@ -640,7 +671,8 @@ export function App(): JSX.Element {
 
   const send = useCallback(
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
-      if (!binding || activeTurn || binding.readOnly || elsewhere) return
+      // a session with its agent is taken over first — main refuses it otherwise too
+      if (!binding || activeTurn || binding.readOnly || elsewhere || control?.holder === 'agent') return
       // `readOnly` already stops an agent Cockpit only reads; this says so to the types
       const provider = binding.provider
       if (!isDrivable(provider)) return
@@ -667,8 +699,39 @@ export function App(): JSX.Element {
         addChatNotice(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
       }
     },
-    [binding, activeTurn, elsewhere, beginTurn]
+    [binding, activeTurn, elsewhere, control, beginTurn]
   )
+
+  /** Take the open session over, or release it back to its agent. */
+  const setHolder = useCallback(async (holder: SessionHolder): Promise<boolean> => {
+    const id = selectedSessionIdRef.current
+    if (id === null) return false
+    try {
+      const next = await api.setSessionHolder(id, holder)
+      if (selectedSessionIdRef.current === id) setControl(next)
+      return true
+    } catch (err) {
+      addChatNotice(
+        `Couldn't ${holder === 'cockpit' ? 'take it over' : 'release it'}: ${err instanceof Error ? err.message : String(err)}`
+      )
+      return false
+    }
+  }, [])
+
+  /** Release the open session and resume it in its agent's own CLI, in Terminal. */
+  const resumeInTerminal = useCallback(async (): Promise<boolean> => {
+    const id = selectedSessionIdRef.current
+    if (id === null) return false
+    try {
+      await api.resumeInTerminal(id)
+      const s = await api.getSession(id)
+      if (s?.control && selectedSessionIdRef.current === id) setControl(s.control)
+      return true
+    } catch (err) {
+      addChatNotice(`Couldn't open it in Terminal: ${err instanceof Error ? err.message : String(err)}`)
+      return false
+    }
+  }, [])
 
   /** New session flow: create worktree, bind chat, fire the first prompt. */
   const startSession = useCallback(
@@ -679,6 +742,7 @@ export function App(): JSX.Element {
       try {
         const ws = await api.createWorkspace(repo.root, name || branchHint(prompt))
         setSelectedSessionId(null)
+        setControl(startedHere())
         setBinding({
           provider,
           cwd: ws.cwd,
@@ -762,6 +826,7 @@ export function App(): JSX.Element {
       setCreating(true)
       try {
         setSelectedSessionId(null)
+        setControl(startedHere())
         setBinding({
           provider,
           cwd: source.cwd,
@@ -1064,6 +1129,9 @@ export function App(): JSX.Element {
           onOpenLineage={(id) => void openLineage(id)}
           permissions={turnPermissions}
           onAnswerPermission={answerPermission}
+          control={control}
+          onSetHolder={setHolder}
+          onResumeInTerminal={resumeInTerminal}
           anchor={anchor}
         />
       )}

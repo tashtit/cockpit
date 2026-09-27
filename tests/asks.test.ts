@@ -120,6 +120,12 @@ describe('formatAskAnswer', () => {
     expect(formatAskAnswer(prompts, [['Yes'], []])).toBe('Answering your question:\n- Apply the changes? → Yes')
   })
 
+  it("keeps the person's own words inside their question, however many lines", () => {
+    expect(formatAskAnswer(prompts, [['Neither — revert the last commit\nand explain why first  '], []])).toBe(
+      'Answering your question:\n- Apply the changes? → Neither — revert the last commit\n  and explain why first'
+    )
+  })
+
   it('sends nothing when nothing was picked', () => {
     expect(formatAskAnswer(prompts, [[], []])).toBe('')
     expect(formatAskAnswer(prompts, [])).toBe('')

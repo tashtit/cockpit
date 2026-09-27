@@ -427,6 +427,10 @@ describe('LivenessTracker — what it tells the attention desk', () => {
     expect(events).toEqual([
       { type: 'asks', id: 'claude:c1', provider: 'claude', cwd: '/x', asks: { kind: 'question', detail: 'Ship it?' }, startedAt: FIXTURES.claude.startedAt }
     ])
+    // the busy set carries it too: the rows show a session waiting, not one working
+    expect(t.sessions()).toEqual([
+      { id: 'claude:c1', startedAt: FIXTURES.claude.startedAt, source: 'observed', asks: { kind: 'question', detail: 'Ship it?' } }
+    ])
     // the same tail again (a bookkeeping write): nothing new
     appendFileSync(file, jsonl([{ type: 'attachment' }]))
     t.observe(file, meta('claude', 'c1', file), mtime(file))
@@ -435,7 +439,34 @@ describe('LivenessTracker — what it tells the attention desk', () => {
     appendFileSync(file, jsonl([{ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_q', content: 'yes' }] }, timestamp: T1 }]))
     t.observe(file, meta('claude', 'c1', file), mtime(file))
     expect(events.at(-1)).toEqual({ type: 'running', id: 'claude:c1', provider: 'claude', cwd: '/x' })
-    expect(t.sessions().map((s) => s.id)).toEqual(['claude:c1'])
+    expect(t.sessions()).toEqual([{ id: 'claude:c1', startedAt: FIXTURES.claude.startedAt, source: 'observed' }])
+  })
+
+  it('asking and moving past the question are both pushed — the rows follow the state', () => {
+    const pushes: BusySession[][] = []
+    const t = tracker((s) => pushes.push(s))
+    const [prompt] = FIXTURES.claude.midTurn
+    const file = writeFixture('claude', [prompt])
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(pushes.at(-1)?.[0]).not.toHaveProperty('asks')
+    appendFileSync(
+      file,
+      jsonl([
+        {
+          type: 'assistant',
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: { questions: [{ question: 'Ship it?' }] } }] },
+          timestamp: T1
+        }
+      ])
+    )
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(pushes.at(-1)).toEqual([
+      { id: 'claude:c1', startedAt: FIXTURES.claude.startedAt, source: 'observed', asks: { kind: 'question', detail: 'Ship it?' } }
+    ])
+    appendFileSync(file, jsonl([{ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_q', content: 'yes' }] }, timestamp: T1 }]))
+    t.observe(file, meta('claude', 'c1', file), mtime(file))
+    expect(pushes.at(-1)).toEqual([{ id: 'claude:c1', startedAt: FIXTURES.claude.startedAt, source: 'observed' }])
+    expect(pushes).toHaveLength(3)
   })
 })
 

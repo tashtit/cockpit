@@ -59,6 +59,7 @@ const repo: RepoGroup = {
   root: '/dev/rocket',
   sessionCount: 1,
   archivedCount: 0,
+  heldCount: 0,
   lastActivity: 0,
   providers: ['claude'],
   hidden: false

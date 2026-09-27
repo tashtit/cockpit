@@ -28,7 +28,8 @@ import { endpointUrlRefusal, sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { isUnder } from './paths'
 import { TranscriptSearcher } from './transcript-search'
-import { ChatManager } from './chat'
+import { ChatManager, isValidNativeId } from './chat'
+import { holderOf, holdRefusal, resumeLine, resumeScript, type ControlEntry } from './session-control-core'
 import { mergeBusy } from './liveness-core'
 import {
   getPanel,
@@ -49,6 +50,7 @@ import {
   addAcpAgent,
   addModelEndpoint,
   attentionPrefs,
+  bindSessionControl,
   bindSessionEndpoint,
   bindSessionLineage,
   listAcpAgents,
@@ -57,6 +59,7 @@ import {
   removeAcpAgent,
   removeModelEndpoint,
   saveConfig,
+  sessionControlFor,
   sessionEndpointFor,
   setAttentionPrefs,
   updateModelEndpoint,
@@ -228,6 +231,8 @@ function resolveCopilotHandoffs(): void {
     if (match) {
       try {
         indexer.setLineage(bindSessionLineage(match.id, p.sourceId))
+        // the handoff started this session, so Cockpit holds it — the id is known only now
+        indexer.setControl(bindSessionControl(match.id, { how: 'started', at: p.spawnedAt }))
       } catch (err) {
         console.error('[handoff] failed to persist copilot lineage:', err)
       }
@@ -639,6 +644,26 @@ function assertKnownConfigDir(configDir: unknown, provider: Provider): string {
   return c
 }
 
+/** An indexed session named by the renderer — refused when the index doesn't know it. */
+function knownSession(id: unknown): SessionMeta & { readonly provider: Provider } {
+  const sid = String(id)
+  const s = sid.length > 256 ? null : indexer.getSession(sid)
+  if (!s) throw new Error(`unknown session: ${sid.slice(0, 80)}`)
+  // a seat's conversation is its table's: never taken over, released or resumed alone
+  if (s.roundtableId) throw new Error('This session belongs to a roundtable — it is driven from the table.')
+  // an agent Cockpit only reads has no CLI of Cockpit's to take it over or resume it with
+  const provider = s.provider
+  if (!isDrivable(provider)) {
+    throw new Error('Cockpit only reads this agent’s sessions — continue it in Claude, Codex or Copilot instead.')
+  }
+  return { ...s, provider }
+}
+
+/** Where a turn runs in this session right now, if one does (the merged busy set). */
+function runningWhere(sessionId: string): BusySession['source'] | null {
+  return busySessions().find((b) => b.id === sessionId)?.source ?? null
+}
+
 app.whenReady().then(() => {
   // an agent installed, or an editor that gained Cline, since the last launch is indexed
   // from this one on — a source the person removed is never added back
@@ -652,6 +677,7 @@ app.whenReady().then(() => {
     },
     {
       cacheFile: join(app.getPath('userData'), 'index-cache.json'),
+      cockpitWorktrees: worktreesDir(),
       onLiveChange: () => pushBusy(),
       // a turn in a terminal or the provider's own app ended, or stopped to ask — news
       // the way a spawned turn's ending is; a seat's turn is its table's business
@@ -668,6 +694,7 @@ app.whenReady().then(() => {
   indexer.setRepoOrder(cfg.repoOrder ?? [])
   indexer.setHistoryDays(cfg.historyDays ?? 0)
   indexer.setLineage(cfg.continuedFrom ?? {})
+  indexer.setControl(cfg.sessionControl ?? {})
   void indexer.setSources(cfg.sources)
 
   ipcMain.handle(CH.sourcesGet, () => loadConfig().sources)
@@ -716,6 +743,19 @@ app.whenReady().then(() => {
   ipcMain.handle(CH.sessionsOpenFile, (_e, id: unknown, path: unknown, how: unknown) =>
     openSharedFile(assertSharedFile(indexer, id, path), how === 'reveal' ? 'reveal' : 'open', shell)
   )
+  // taking a session over or releasing it back: Cockpit's own record, re-judged here
+  // against the turn running in it, whatever the renderer believed when it asked
+  ipcMain.handle(CH.sessionsSetHolder, (_e, id: unknown, holder: unknown) => {
+    if (holder !== 'cockpit' && holder !== 'agent') throw new Error('unknown holder')
+    const s = knownSession(id)
+    const current = indexer.controlOf(s)
+    if (current.holder === holder) return current
+    const refusal = holdRefusal(holder, runningWhere(s.id))
+    if (refusal) throw new Error(refusal)
+    const entry: ControlEntry = { how: holder === 'cockpit' ? 'taken-over' : 'released', at: Date.now() }
+    indexer.setControl(bindSessionControl(s.id, entry))
+    return indexer.controlOf(s)
+  })
   ipcMain.handle(CH.transcriptsSearch, (_e, query: TranscriptSearchQuery) =>
     transcripts.search(query)
   )
@@ -882,6 +922,39 @@ app.whenReady().then(() => {
     const failure = await shell.openPath(file)
     if (failure) throw new Error(`Couldn't open Terminal: ${failure}`)
   }
+  // a released session's way back to where it lives: its agent's own interactive CLI, in
+  // the session's directory, as the account it was recorded under. Released first, so
+  // Cockpit stops sending the moment the agent can
+  ipcMain.handle(CH.sessionsResumeInTerminal, async (_e, id: unknown) => {
+    const s = knownSession(id)
+    if (!isValidNativeId(s.nativeId)) throw new Error("This session's id can't be resumed from a terminal.")
+    if (!s.cwd || !existsSync(s.cwd)) throw new Error('Its working directory is gone — there is nothing to resume it in.')
+    // a second interactive CLI beside a running turn — either side's — writes a second
+    // turn into the same log
+    const running = runningWhere(s.id)
+    if (running) {
+      throw new Error(
+        running === 'spawned'
+          ? 'Cockpit is running a turn in it — stop it, or let it finish, first.'
+          : 'Its agent is working on it right now — open it once that turn ends.'
+      )
+    }
+    // the config home the index found it under; the provider's default needs no variable
+    const source = loadConfig().sources.find((x) => x.provider === s.provider && x.label === s.source)
+    const home =
+      source && resolve(source.path) !== join(homedir(), `.${s.provider}`) ? resolve(source.path) : undefined
+    const line = resumeLine(s.provider, s.nativeId, home)
+    if (indexer.controlOf(s).holder === 'cockpit') {
+      indexer.setControl(bindSessionControl(s.id, { how: 'released', at: Date.now() }))
+    }
+    const file = writeTerminalScript(
+      terminalDir,
+      `resume-${s.provider}`,
+      resumeScript(`Cockpit — resuming in ${SEAT_NAME[s.provider]}`, s.cwd, line)
+    )
+    const failure = await shell.openPath(file)
+    if (failure) throw new Error(`Couldn't open Terminal: ${failure}`)
+  })
   ipcMain.handle(CH.accountsLogin, (_e, agent: unknown, configDir: unknown) => {
     const provider = asProvider(agent)
     const home =
@@ -1089,6 +1162,7 @@ app.whenReady().then(() => {
     indexer.setRepoOrder(cfg.repoOrder ?? [])
     indexer.setHistoryDays(cfg.historyDays ?? 0)
     indexer.setLineage(cfg.continuedFrom ?? {})
+    indexer.setControl(cfg.sessionControl ?? {})
     void indexer.setSources(cfg.sources)
     sendToWin(PUSH.indexUpdated)
   }
@@ -1208,6 +1282,9 @@ app.whenReady().then(() => {
   const byokTurns = new Map<string, { provider: Provider; endpointId: string }>()
   // Handoff turns in flight: same lifecycle, persisting continuedFrom lineage instead
   const handoffTurns = new Map<string, { provider: Provider; sourceId: string }>()
+  // Turns Cockpit drives: the session a new one announces was started here, and the
+  // id claude forks for a resumed turn stays held the way the one it resumed was
+  const heldTurns = new Map<string, { provider: Provider; entry: ControlEntry }>()
   chat = new ChatManager(
     (ev) => {
       // roundtable turns stream on their own channel — never as plain chat events
@@ -1219,6 +1296,14 @@ app.whenReady().then(() => {
         } catch (err) {
           // a config-write failure must not blow up inside the stream handler
           console.error('[chat] failed to persist session endpoint binding:', err)
+        }
+      }
+      const held = heldTurns.get(ev.turnId)
+      if (held && ev.type === 'session') {
+        try {
+          indexer.setControl(bindSessionControl(`${held.provider}:${ev.nativeSessionId}`, held.entry))
+        } catch (err) {
+          console.error('[chat] failed to persist session control:', err)
         }
       }
       const handoff = handoffTurns.get(ev.turnId)
@@ -1234,6 +1319,7 @@ app.whenReady().then(() => {
       if (ev.type === 'done') {
         byokTurns.delete(ev.turnId)
         handoffTurns.delete(ev.turnId)
+        heldTurns.delete(ev.turnId)
       }
       desk.chatEvent(ev)
       sendToWin(PUSH.chatEvent, ev)
@@ -1323,6 +1409,16 @@ app.whenReady().then(() => {
     if (roundtables?.tableIdForCwd(req.cwd)) {
       throw new Error('This session belongs to a roundtable — talk to it at the table instead.')
     }
+    // a session with its agent is the person's to take over first — sending from here
+    // would resume it under whatever still drives it, without anyone having said so
+    const resumed = req.resumeNativeId ? `${req.provider}:${req.resumeNativeId}` : null
+    const recorded = resumed ? sessionControlFor(resumed) : undefined
+    if (resumed) {
+      const holder = indexer.getSession(resumed)?.control?.holder ?? (recorded && holderOf(recorded.how))
+      if (holder === 'agent') {
+        throw new Error(`This session is with ${SEAT_NAME[req.provider]} — take it over to send from Cockpit.`)
+      }
+    }
     // a session already mid-turn gets no second CLI — refused before anything below
     // switches the active Copilot user for a turn that will never run
     chat.assertNotRunning(req)
@@ -1331,6 +1427,8 @@ app.whenReady().then(() => {
       setCopilotActiveUser(req.configDir ?? join(homedir(), '.copilot'), req.copilotUser)
     }
     const turnId = chat.send(req)
+    const holds: ControlEntry | undefined = resumed ? recorded : { how: 'started', at: Date.now() }
+    if (holds) heldTurns.set(turnId, { provider: req.provider, entry: holds })
     if (req.options?.modelEndpoint) {
       byokTurns.set(turnId, { provider: req.provider, endpointId: req.options.modelEndpoint })
     }

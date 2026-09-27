@@ -338,6 +338,20 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .repo-filter-row input { accent-color: var(--accent); flex-shrink: 0; }
 .repo-filter-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
+/* the popover's second group (projects) under its first (who drives the sessions) */
+.repo-filter-divided { border-top: 1px solid var(--border); margin-top: var(--s2);
+  padding-top: var(--s2); }
+/* the tree narrowed to who drives its sessions: said in words while it lasts, because
+   the choice survives a restart and a tree quietly missing sessions reads as data loss */
+.tree-scope { display: flex; align-items: center; gap: var(--s2);
+  margin: calc(-1 * var(--s1)) var(--s4) var(--s3); padding: 0 var(--s1) 0 var(--s3);
+  min-height: 26px; font-size: var(--fs-xs); color: var(--fg);
+  background: rgba(var(--accent-rgb), 0.10); border: 1px solid rgba(var(--accent-rgb), 0.35);
+  border-radius: var(--radius-sm); }
+.tree-scope svg { flex-shrink: 0; color: var(--accent); }
+.tree-scope-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.tree-scope .link-btn { min-height: 24px; padding: 0 var(--s2); flex-shrink: 0; }
 
 /* eye filter + search + the rail's one filled control on a shared 32px line */
 .search-row { display: flex; align-items: stretch; gap: var(--s2);
@@ -453,6 +467,10 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
   text-overflow: ellipsis; }
 .session-row time { color: var(--fg-dim); font-size: var(--fs-xs); flex-shrink: 0; }
 .session-row .acct-chip { font-size: var(--fs-xs); padding: 0 4px; max-width: 72px; }
+/* Cockpit drives this session: its own hexagon after the title, quiet — the rows it
+   marks are the exception in a tree mostly read from terminals and the agents' apps */
+.held-mark { display: inline-flex; flex-shrink: 0; color: var(--fg-dim); }
+.session-row.selected .held-mark { color: var(--fg); }
 /* handoff thread: ancestor rows sit under their continuation with an elbow guide.
    A session another one started hangs from its parent the same way, one indent further
    in per level (`--depth`, set inline from 2 and capped at 3) */
@@ -621,6 +639,19 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .lineage-chip.acct-copilot:hover { background: rgba(var(--copilot-rgb), 0.12); }
 .lineage-chip.acct-gemini:hover { background: rgba(var(--gemini-rgb), 0.12); }
 .lineage-chip:is(.acct-cursor, .acct-cline, .acct-roo, .acct-opencode, .acct-antigravity):hover { background: rgba(var(--mono-mark-rgb), 0.1); }
+/* who drives the session, first in the subtitle: Cockpit's own chip is a key (it opens
+   the hold bar), the agent's a statement in its livery. Text sheds before the mark. */
+.hold-chip { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+.hold-chip svg { flex-shrink: 0; }
+.hold-chip.held { cursor: pointer; border-color: rgba(var(--accent-rgb), 0.55);
+  /* a key: 24px wide even as its bare mark. Not 24px tall — the subtitle's line is the
+     header's height, which the floor audit holds to one line; nothing above or below it
+     is a target, which is WCAG 2.5.8's spacing allowance (the lineage chips' too) */
+  min-width: 24px; justify-content: center;
+  transition: background var(--dur) var(--ease); }
+.hold-chip.held svg { color: var(--accent); }
+.hold-chip.held:hover, .hold-chip.held[aria-expanded='true'] {
+  background: rgba(var(--accent-rgb), 0.14); }
 .link-btn { color: var(--accent); font-size: inherit; padding: 0; }
 /* a quiet dot between inline links in running prose */
 .link-sep { color: var(--fg-dim); margin: 0 var(--s2); }
@@ -1137,6 +1168,12 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .ask-opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ask-opt-label { font-size: var(--fs-base); color: var(--fg); }
 .ask-opt-desc { font-size: var(--fs-sm); line-height: 1.45; color: var(--fg-dim); }
+/* Other's own words: opens under the options once picked, the composer's field in miniature */
+.ask-other { resize: none; background: var(--bg2); color: var(--fg);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: var(--s2) var(--s3); font: inherit; font-size: var(--fs-base); line-height: 1.5;
+  field-sizing: content; min-height: 2lh; max-height: 8lh; }
+.ask-other:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 .ask-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--s4);
   flex-wrap: wrap; }
 .ask-note { flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--fg-dim); }
@@ -1184,6 +1221,26 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .perm-ctl { font-size: var(--fs-xs); color: var(--warn); padding: 0 var(--s1); margin-inline: 1px;
   border: 1px solid rgba(var(--warn-rgb), 0.5); border-radius: var(--radius-sm); }
 .perm-cut { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); color: var(--warn); }
+/* who drives the session and the way to change it, docked where the permission card
+   is: always there for a session with its agent (Take over), on the chip's say-so for
+   one Cockpit holds (Release, Open in Terminal) */
+.hold-bar { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  margin-inline: max(var(--s5), calc((100% - var(--chat-col)) / 2));
+  margin-bottom: var(--s3); padding: var(--s2) var(--s3) var(--s2) var(--s4);
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); }
+.hold-bar.held { border-color: rgba(var(--accent-rgb), 0.45); }
+.hold-bar.held .hold-mark { color: var(--accent); }
+.hold-mark { display: inline-flex; flex-shrink: 0; }
+.hold-text { flex: 1 1 240px; min-width: 0; margin: 0; font-size: var(--fs-sm);
+  color: var(--fg-dim); line-height: 1.45; }
+.hold-text strong { color: var(--fg); font-weight: 600; }
+.hold-actions { display: flex; align-items: center; gap: var(--s2); flex: none;
+  margin-left: auto; }
+.hold-actions .btn-ghost.small { display: inline-flex; align-items: center; gap: var(--s1); }
+/* the bar's one filled key, at the ghost keys' 24px beside it — one height per row */
+.btn-primary.hold-take { padding: 2px var(--s4); min-height: 24px; font-size: var(--fs-xs);
+  border-radius: var(--radius-sm); }
 .composer { display: flex; flex-wrap: wrap; gap: var(--s3);
   padding-block: var(--s4);
   /* the composer types inside the same column the transcript reads in */
@@ -2588,6 +2645,12 @@ button.pnl-flag:hover { text-decoration: underline; }
      with the word in, the header fits at 560px only by squeezing the title instead */
   .chat-header .acct-chip, .btn-review .lbl, .btn-handoff .lbl,
   .chat-header .pr-badge .pr-word { display: none; }
+  /* but who drives the session is state, not decoration — and for a session Cockpit
+     holds its chip is the one way to Release: it stays, as its mark (the words leave the
+     eye only, `.sr-only`'s recipe, so it keeps its name) */
+  .chat-header .acct-chip.hold-chip { display: inline-flex; }
+  .chat-header .hold-chip .chip-text { position: absolute; width: 1px; height: 1px; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   /* the review and handoff keys fold to 28px squares (an icon-btn's footprint) so
      the header's row still holds at the 560px floor — both keep an aria-label */
   .btn-review, .btn-handoff { width: 28px; height: 28px; padding: 0; justify-content: center; }
@@ -2756,6 +2819,10 @@ button.pnl-flag:hover { text-decoration: underline; }
    `.chat-header .acct-chip` family is already gone, this chip with it. */
 @container chat-sub (max-width: 382px) {
   .parent-chip { display: none; }
+  /* the hold chip keeps its mark; its words leave the eye only — `.sr-only`'s recipe, so
+     the chip is still named "In Cockpit" where display: none would have left it nameless */
+  .hold-chip .chip-text { position: absolute; width: 1px; height: 1px; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 
 /* ---------- the Work panel's room: asked of the deck ----------

@@ -482,13 +482,22 @@ test('opening a session lands in chat with its parsed transcript', async () => {
   const messages = win.locator('.messages')
   await expect(messages.getByText('fix the login flake')).toBeVisible()
   await expect(messages.getByText('Patched the retry loop.')).toBeVisible()
-  // composer is live but idle: send stays disabled until there is a draft
+  // a session from a terminal is Claude's, not Cockpit's: the header says so, and a
+  // draft waits for the take-over — one explicit step before anything is sent to it
+  await expect(win.locator('.chat-header .hold-chip')).toHaveText('In Claude')
   const composer = win.getByLabel('Message Claude')
   const send = win.getByRole('button', { name: 'Send' })
-  await expect(send).toBeDisabled()
   await composer.fill('draft that must never be sent')
+  await expect(send).toBeDisabled()
+  await win.getByRole('button', { name: 'Take over' }).click()
+  await expect(win.getByRole('button', { name: 'In Cockpit' })).toBeVisible()
+  await expect(win.getByRole('region', { name: 'Who drives this session' })).toHaveCount(0)
+  // composer is live now, and idle: send stays disabled until there is a draft
   await expect(send).toBeEnabled()
   await composer.fill('')
+  await expect(send).toBeDisabled()
+  // the row says it too, in words
+  await expect(win.getByRole('treeitem', { name: /fix the login flake\s*\(in Cockpit\)/ })).toBeVisible()
 })
 
 test('keyboard routing: settings shortcut, Escape back to chat, new-task shortcut', async () => {

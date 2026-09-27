@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { BusySession } from '../../shared/types'
+import type { BusySession, Landing } from '../../shared/types'
 import { api } from './api'
 
 /**
@@ -13,6 +13,12 @@ let busy: ReadonlyMap<string, number> = new Map()
 let sources: ReadonlyMap<string, BusySession['source']> = new Map()
 /** The live turn behind each spawned entry (`BusySession.turnId`) — spawned keys only. */
 let turns: ReadonlyMap<string, string> = new Map()
+/**
+ * The observed turns stopped on a question (`BusySession.asks`), as the `asks` landing
+ * the rows already draw — `landed.ts` folds them into its map, so every row that shows a
+ * question shows these too, opened or not.
+ */
+let waiting: ReadonlyMap<string, Landing> = new Map()
 const listeners = new Set<() => void>()
 
 function subscribe(cb: () => void): () => void {
@@ -29,6 +35,11 @@ function set(sessions: BusySession[]): void {
   turns = new Map(
     sessions.flatMap((s): [string, string][] =>
       s.source === 'spawned' && s.turnId !== null ? [[s.id, s.turnId]] : []
+    )
+  )
+  waiting = new Map(
+    sessions.flatMap((s): [string, Landing][] =>
+      s.source === 'observed' && s.asks ? [[s.id, { id: s.id, at: s.startedAt, kind: 'asks', asks: s.asks }]] : []
     )
   )
   listeners.forEach((l) => l())
@@ -68,4 +79,10 @@ export function spawnedTurn(id: string): string | null {
  *  The map reference only changes when the set changes, so the snapshot is stable. */
 export function useBusyMap(): ReadonlyMap<string, number> {
   return useSyncExternalStore(subscribe, () => busy)
+}
+
+/** For `landed.ts`: follow the busy set, and read the questions it is stopped on. */
+export const subscribeBusy = subscribe
+export function waitingNow(): ReadonlyMap<string, Landing> {
+  return waiting
 }

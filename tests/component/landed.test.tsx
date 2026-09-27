@@ -15,6 +15,7 @@ const repo: RepoGroup = {
   root: '/home/dev/rocket',
   sessionCount: 2,
   archivedCount: 0,
+  heldCount: 0,
   lastActivity: 1700000000000,
   providers: ['claude'],
   hidden: false
@@ -311,6 +312,31 @@ describe('needs you: questions and red pull requests', () => {
     expect(landed.closest('.session-row')).toHaveTextContent('add pagination')
     // the agent-colored pulse stays the board's
     expect(document.querySelector('.tree-sidebar [class*="pulse"]')).toBeNull()
+    pushBusy([])
+    stop()
+    stopBusy()
+  })
+
+  it('a turn stopped on a question shows the question, not a spinner — even once it has been opened', async () => {
+    const stopBusy = initBusySessions()
+    const stop = initLanded()
+    renderSidebar()
+    await screen.findByText('fix the login flake')
+
+    // no landing at all: main cleared it when the session was opened
+    pushLandings([])
+    pushBusy([
+      { id: 'claude:one', startedAt: Date.now() - 5000, source: 'observed', asks: { kind: 'question', detail: 'Which owner?' } }
+    ])
+    const asks = await screen.findByRole('img', { name: 'asks you: Which owner?' })
+    expect(asks).toHaveClass('asks-mark', 'plogo-claude')
+    expect(asks.closest('.session-row')).toHaveTextContent('fix the login flake')
+    expect(screen.queryByRole('img', { name: 'Claude is working' })).toBeNull()
+
+    // answered where it was asked: the log moves on and the turn is working again
+    pushBusy([{ id: 'claude:one', startedAt: Date.now() - 5000, source: 'observed' }])
+    await screen.findByRole('img', { name: 'Claude is working' })
+    expect(screen.queryByRole('img', { name: /asks you/ })).toBeNull()
     pushBusy([])
     stop()
     stopBusy()

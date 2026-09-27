@@ -238,7 +238,8 @@ export class LivenessTracker {
       const askChanged = !sameAsk(prev.asks, asks)
       prev.asks = asks
       if (askChanged || newTurn) this.turnEvent(session, startedAt, asks)
-      if (!newTurn) return
+      // the busy set carries the question, so asking or moving past it is a change too
+      if (!newTurn && !askChanged) return
       prev.startedAt = startedAt
     } else {
       this.entries.set(meta.id, {
@@ -272,12 +273,14 @@ export class LivenessTracker {
     if (e) e.lastWriteAt = Math.max(e.lastWriteAt, this.now())
   }
 
-  /** Sessions whose logs show a turn in progress, as the busy set wants them. */
+  /** Sessions whose logs show a turn in progress — and what it waits on, if anything —
+   *  as the busy set wants them. */
   sessions(): BusySession[] {
     return [...this.entries.values()].map((e) => ({
       id: e.id,
       startedAt: e.startedAt,
-      source: 'observed' as const
+      source: 'observed' as const,
+      ...(e.asks ? { asks: e.asks } : {})
     }))
   }
 

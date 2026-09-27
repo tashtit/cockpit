@@ -59,6 +59,8 @@ import type {
   RoundtableSnapshot,
   SignInState,
   SessionFilePreview,
+  SessionControl,
+  SessionHolder,
   SessionMessage,
   SessionMeta,
   SessionPage,
@@ -109,6 +111,11 @@ export type CockpitApi = {
   /** Open a file the session shared in its app (documents and images only) or show it in
    *  Finder; resolves to what to tell the person when it can't, else null */
   readonly openSessionFile: (sessionId: string, path: string, how: 'open' | 'reveal') => Promise<string | null>
+  /** Take a session over (`cockpit`) or release it back to its agent (`agent`); resolves
+   *  to where it now stands. Refused while a turn runs where it would be pulled from under */
+  readonly setSessionHolder: (sessionId: string, holder: SessionHolder) => Promise<SessionControl>
+  /** Release a session and resume it in its agent's own CLI, in a Terminal window */
+  readonly resumeInTerminal: (sessionId: string) => Promise<void>
 
   /* ---------- searching transcript contents ---------- */
   /** Full-text search over transcript contents; a newer call cancels the one in flight */
@@ -480,6 +487,8 @@ export const CH = {
   sessionsMessages: 'sessions:messages',
   sessionsOpenFile: 'sessions:open-file',
   sessionsPage: 'sessions:page',
+  sessionsResumeInTerminal: 'sessions:resume-in-terminal',
+  sessionsSetHolder: 'sessions:set-holder',
 
   shellOpen: 'shell:open',
 

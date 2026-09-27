@@ -24,6 +24,17 @@ One row per repository, ordered by last activity, with that repo's sessions unde
 
 Click a session to read its parsed transcript — messages, tool calls, and results. Type below the transcript to continue the conversation with the same provider; see [Chat](/guide/chat).
 
+### In Cockpit or with its agent
+
+Every session is driven from one place at a time:
+
+- **In Cockpit** — Cockpit started it (a new task, a handoff, a follow-up), or you took it over. Cockpit sends its turns, and its row carries Cockpit's hexagon after the title.
+- **In its agent** — it came from a terminal or the agent's own app, or you released it back there. Cockpit shows its log as it grows but sends nothing to it until you take it over.
+
+Hover a row to see which, and how it got there (*In Cockpit — taken over from Claude*, *In Codex — opened outside Cockpit*). To change hands, open the session: see [Taking over and releasing](/guide/chat#taking-over-and-releasing).
+
+To see only one side, open the eye button beside the search field and pick **In Cockpit** or **Outside Cockpit** under *Sessions*. The tree keeps only the projects with sessions on that side, the counts follow, and search stays inside the filter. The choice outlives a restart, so while it's on a strip under the search field says *Only sessions in Cockpit* — **Show all** there puts every session back.
+
 ### Searching inside transcripts
 
 "Where did I discuss X?" — across every agent at once, which no single vendor can
@@ -55,7 +66,7 @@ Backing into the conversation that's currently running just flips the view — t
 
 ### Flying and landed
 
-A session whose agent is running right now is **flying**: a small turning ring on its row in the sidebar and the ⌘K palette, and a pulsing dot in the agent's color on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot (blue in the sidebar and the palette, the agent's color on the board) and `landed <time>` — until you open it, or archive it here or in the agent's own app. Two more states say a session **needs you**: an agent that has stopped to ask a question or for a permission shows a question glyph and `asks you`, on top of the board whatever else is true of it, and an open pull request on the session's branch that has failing checks or changes requested shows GitHub's red x and `#57 checks failing`. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
+A session whose agent is running right now is **flying**: a small turning ring on its row in the sidebar and the ⌘K palette, and a pulsing dot in the agent's color on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot (blue in the sidebar and the palette, the agent's color on the board) and `landed <time>` — until you open it, or archive it here or in the agent's own app. Two more states say a session **needs you**: an agent that has stopped to ask a question or for a permission shows a question glyph and `asks you`, on top of the board whatever else is true of it — in place of the flying ring, and for as long as the question stays open, even after you have opened the session — and an open pull request on the session's branch that has failing checks or changes requested shows GitHub's red x and `#57 checks failing`. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
 
 A session you run in a terminal or the provider's own app counts as flying while its log keeps growing — Cockpit reads the tail of the log on every write. When the log goes quiet for a minute and a half it drops back to the ground without landing; while the last thing written is a tool call still waiting for its result (a test suite, a build), Cockpit waits ten minutes instead, since those write nothing until they finish.
 
