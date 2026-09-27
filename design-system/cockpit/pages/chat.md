@@ -10,7 +10,10 @@ turns are compact right-aligned bubbles.
 
 Identity + situation in one row, left to right:
 solid agent `.badge` · `.acct-chip` ("running as" — shows the identity's local part,
-full identity in the tooltip; shed entirely ≤780px) · title + sub (lineage chips that open
+full identity in the tooltip; shed entirely ≤780px) · title + sub (first the `.hold-chip` —
+who drives the session: *In Cockpit* with Cockpit's hexagon, an accent-bordered key that
+opens the hold bar, or *In Claude* in the agent's livery, a plain statement since the bar is
+already open for it; ≤382px of `@container chat-sub` it sheds its words to its mark — then lineage chips that open
 the related session — `from <Agent>` for a handoff, `by <title>` (`.parent-chip`, which
 gives way like the branch chip) for a session another session started — then branch chip, clickable
 cwd that copies its full path — displayed via `cwdLabel`: a worktree as `worktree · <slug>`, or bare
@@ -417,6 +420,26 @@ dim) + body (sans, pre-wrap), "N more replies", Open on GitHub. Quiet `--bg2` su
 with a 2px warn inset bar (still open); read-only — the reviewer's words, not the
 user's. The file head counts the threads it shows (`.review-kind.tone-warn`); outdated
 threads have no line and live in the strip's list only.
+
+## Hold bar (`HoldBar`, `.hold-bar`)
+
+Who drives the session and the way to change it, docked above the composer where the
+permission card sits, in the transcript's column. Its mark, one sentence (`strong` holder,
+then how it got there and what to do), and its keys at the ghost keys' 24px — the one
+filled key, **Take over**, is `.btn-primary.hold-take` at that height (one height per row).
+
+- **A session with its agent** (`control.holder === 'agent'`: opened outside Cockpit, or
+  released) always shows it: **Open in Terminal** and **Take over**. Send stays and is
+  **disabled** with the reason in its title, Enter does nothing and the draft is kept — the
+  elsewhere grammar. An open question card says to answer it in the agent or take it over.
+- **A session Cockpit holds** shows it only from its `.hold-chip` (`aria-expanded`,
+  `aria-controls`): **Open in Terminal** (releases it too), **Release to Claude**, and a 24px
+  × to hide it.
+- A change waits for the other side's turn — Take over while the agent runs one elsewhere,
+  Release and Open in Terminal while Cockpit's own turn runs — disabled, with why in the
+  title. Main re-judges both (`holdRefusal`), and a refusal lands as a chat notice.
+- What happened is said once in the chat's status region ("Taken over — Cockpit sends this
+  session's turns now"). A seat session gets neither chip nor bar: its table drives it.
 
 ## Composer
 

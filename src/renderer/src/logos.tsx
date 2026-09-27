@@ -221,6 +221,26 @@ export const ProcessIcon = ({ size = 13 }: { size?: number }): JSX.Element => (
     <path d="M4.5 6.5 6.75 8.5 4.5 10.5M8.5 10.75h3" />
   </svg>
 )
+/**
+ * The hexagon at the heart of Cockpit's own mark, drawn as a glyph: "Cockpit drives this
+ * session" — on the rows it holds and on the chat header's hold chip. Line-drawn, not the
+ * logo image, which is a picture at 10px.
+ */
+export const HeldIcon = ({ size = 10 }: { size?: number }): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.4"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {/* a heavy ring and no centre: at 10px a thin one with a dot read as a radio button */}
+    <path d="M8 1.6 13.55 4.8v6.4L8 14.4l-5.55-3.2V4.8Z" />
+  </svg>
+)
 /** octicon arrow-switch-16 — handing a session over to another agent */
 const OCTICON_ARROW_SWITCH =
   'M5.22 14.78a.75.75 0 0 0 1.06-1.06L4.56 12h8.69a.75.75 0 0 0 0-1.5H4.56l1.72-1.72a.75.75 0 0 0-1.06-1.06l-3 3a.75.75 0 0 0 0 1.06l3 3Zm5.56-6.5a.75.75 0 1 1-1.06-1.06l1.72-1.72H2.75a.75.75 0 0 1 0-1.5h8.69L9.72 2.28a.75.75 0 0 1 1.06-1.06l3 3a.75.75 0 0 1 0 1.06l-3 3Z'

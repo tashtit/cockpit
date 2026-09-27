@@ -14,6 +14,7 @@ import type {
   Mutable,
   Provider,
   RepoGroup,
+  SessionControl,
   SessionMeta,
   SessionMessage,
   SessionPage,
@@ -28,6 +29,7 @@ import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos
 import { isRegularFile, timeSlicer } from './parsers/util'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
+import { controlOf, type ControlEntry } from './session-control-core'
 import { isTempFileOf, writeFileAtomic, writeFileAtomicAsync } from './replace-file'
 import {
   listClaudeSessionFiles,
@@ -287,6 +289,10 @@ export class SessionIndexer {
   private archived = new Set<string>()
   /** Handoff lineage (session id → source session id) from cockpit config */
   private lineage = new Map<string, string>()
+  /** Sessions that changed hands (session id → change) from cockpit config */
+  private control = new Map<string, ControlEntry>()
+  /** Where Cockpit cuts its own worktrees: a session there was started by Cockpit */
+  private cockpitWorktrees: string | null
   /** Archived or deleted in the provider's own app — out of every listing (see provider-archived.ts) */
   private providerArchived = new Set<string>()
   /** The deleted part of `providerArchived`: the rest is archived, finished work the profile counts */
@@ -324,9 +330,12 @@ export class SessionIndexer {
       /** An observed turn started, stopped to ask, or wrote its ending record (never an expiry) */
       onLiveTurn?: (ev: ObservedTurn) => void
       liveWindowMs?: number
+      /** Cockpit's own worktree home — sessions there count as started by Cockpit */
+      cockpitWorktrees?: string
     }
   ) {
     this.onUpdate = onUpdate
+    this.cockpitWorktrees = opts?.cockpitWorktrees ?? null
     this.cacheFile = opts?.cacheFile ?? null
     this.watchRetryMs = opts?.watchRetryMs ?? WATCH_RETRY_INTERVAL_MS
     this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
@@ -363,6 +372,17 @@ export class SessionIndexer {
   setLineage(map: Record<string, string>): void {
     this.lineage = new Map(Object.entries(map))
     this.emitUpdate()
+  }
+
+  /** Applied at query time like lineage — who drives a session is Cockpit's own record. */
+  setControl(map: Readonly<Record<string, ControlEntry>>): void {
+    this.control = new Map(Object.entries(map))
+    this.emitUpdate()
+  }
+
+  /** Who drives this session: its recorded change of hands, else where it runs. */
+  controlOf(s: SessionMeta): SessionControl {
+    return controlOf(this.control.get(s.id), s.cwd, this.cockpitWorktrees)
   }
 
   /** Applied at query time; repo groups stay listed (flagged hidden) for the chooser UI. */
@@ -941,6 +961,7 @@ export class SessionIndexer {
           ...info,
           sessionCount: 0,
           archivedCount: 0,
+          heldCount: 0,
           lastActivity: 0,
           providers: [],
           hidden: this.hiddenRepos.has(info.key)
@@ -950,6 +971,7 @@ export class SessionIndexer {
       if (this.archived.has(s.id)) g.archivedCount++
       else {
         g.sessionCount++
+        if (this.controlOf(s).holder === 'cockpit') g.heldCount++
         if (s.updatedAt > g.lastActivity) g.lastActivity = s.updatedAt
       }
       if (!g.providers.includes(s.provider)) g.providers.push(s.provider)
@@ -1056,6 +1078,10 @@ export class SessionIndexer {
       const set = new Set<Provider>(query.providers)
       all = all.filter((s) => set.has(s.provider))
     }
+    if (query.holder) {
+      const holder = query.holder
+      all = all.filter((s) => this.controlOf(s).holder === holder)
+    }
     if (query.search) {
       const q = query.search.toLowerCase()
       all = all.filter(
@@ -1076,6 +1102,7 @@ export class SessionIndexer {
         ...s,
         archived: this.archived.has(s.id),
         continuedFrom: this.lineage.get(s.id),
+        control: this.controlOf(s),
         // stamped so the renderer knows to open these read-only
         ...(query.roundtableId ? { roundtableId: query.roundtableId } : {})
       }))
@@ -1215,6 +1242,7 @@ export class SessionIndexer {
       ...s,
       archived: this.archived.has(s.id),
       continuedFrom: this.lineage.get(s.id),
+      control: this.controlOf(s),
       ...(roundtableId ? { roundtableId } : {})
     }
   }
@@ -1287,7 +1315,8 @@ export class SessionIndexer {
               isWorktree: undefined,
               gitBranch: undefined,
               archived: undefined,
-              continuedFrom: undefined
+              continuedFrom: undefined,
+              control: undefined
             }
           }
         : e

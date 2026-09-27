@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import type { ChatBinding } from '../../src/renderer/src/chat-binding'
-import type { PrStatus, SessionMessage } from '../../src/shared/types'
+import type { PrStatus, SessionControl, SessionHolder, SessionMessage } from '../../src/shared/types'
 import { addChatMessage, setChatLog } from '../../src/renderer/src/chat-log'
 import type { TranscriptAnchor } from '../../src/renderer/src/chat-binding'
 import { pasteImage, stubObjectUrls } from './paste'
@@ -20,7 +20,16 @@ const binding: ChatBinding = {
 
 function renderChat(
   onSend = vi.fn(),
-  over: { binding?: ChatBinding; busy?: boolean; elsewhere?: boolean; prs?: PrStatus[]; anchor?: TranscriptAnchor } = {}
+  over: {
+    binding?: ChatBinding
+    busy?: boolean
+    elsewhere?: boolean
+    prs?: PrStatus[]
+    anchor?: TranscriptAnchor
+    control?: SessionControl | null
+    onSetHolder?: (holder: SessionHolder) => Promise<boolean>
+    onResumeInTerminal?: () => Promise<boolean>
+  } = {}
 ): { onSend: ReturnType<typeof vi.fn>; onOpenHandoff: ReturnType<typeof vi.fn>; onOpenLineage: ReturnType<typeof vi.fn> } {
   const onOpenHandoff = vi.fn()
   const onOpenLineage = vi.fn()
@@ -39,6 +48,9 @@ function renderChat(
       onOpenLineage={onOpenLineage}
       permissions={[]}
       onAnswerPermission={vi.fn()}
+      control={over.control ?? null}
+      onSetHolder={over.onSetHolder}
+      onResumeInTerminal={over.onResumeInTerminal}
       anchor={over.anchor ?? null}
     />
   )
@@ -418,5 +430,92 @@ describe('the permission mode it remembers', () => {
     const { onSend } = renderChat()
     await userEvent.type(composer(), 'go{Enter}')
     expect(onSend).toHaveBeenCalledWith('go', 'yolo', undefined)
+  })
+})
+
+/**
+ * Who drives the session: a session with its agent is read, never sent to, until the
+ * person takes it over; one Cockpit holds can be handed back.
+ */
+describe('ChatView and who drives the session', () => {
+  const started: ChatBinding = { ...binding, nativeSessionId: 'abc-123' }
+  const outside: SessionControl = { holder: 'agent', how: 'outside' }
+  const held: SessionControl = { holder: 'cockpit', how: 'started', since: 1 }
+
+  it('holds Send on a session with its agent and offers Take over instead', async () => {
+    const onSetHolder = vi.fn(async () => true)
+    const { onSend } = renderChat(vi.fn(), { binding: started, control: outside, onSetHolder })
+    expect(screen.getByText('In Claude', { selector: '.hold-chip .chip-text' })).toBeInTheDocument()
+    const bar = screen.getByRole('region', { name: 'Who drives this session' })
+    expect(bar).toHaveTextContent(/opened outside Cockpit/)
+    // the draft is kept — only sending waits for the take-over
+    await userEvent.type(screen.getByLabelText('Message Claude'), 'carry on{Enter}')
+    const send = screen.getByRole('button', { name: 'Send' })
+    expect(send).toBeDisabled()
+    expect(send).toHaveAttribute('title', expect.stringMatching(/take it over to send/))
+    expect(onSend).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Take over' }))
+    expect(onSetHolder).toHaveBeenCalledWith('cockpit')
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Taken over/))
+  })
+
+  it('names a released session as released', () => {
+    renderChat(vi.fn(), { binding: started, control: { holder: 'agent', how: 'released', since: 2 } })
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(/released from Cockpit/)
+  })
+
+  it('will not take over under a turn its agent is running', () => {
+    renderChat(vi.fn(), { binding: started, control: outside, elsewhere: true })
+    expect(screen.getByRole('button', { name: 'Take over' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Open in Terminal/ })).toBeDisabled()
+  })
+
+  it('keeps the bar out of the way on a session Cockpit holds, until its chip opens it', async () => {
+    const onSetHolder = vi.fn(async () => true)
+    renderChat(vi.fn(), { binding: started, control: held, onSetHolder })
+    expect(screen.queryByRole('region', { name: 'Who drives this session' })).not.toBeInTheDocument()
+    const chip = screen.getByRole('button', { name: 'In Cockpit' })
+    expect(chip).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(chip)
+    expect(chip).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(/started here/)
+    await userEvent.click(screen.getByRole('button', { name: 'Release to Claude' }))
+    expect(onSetHolder).toHaveBeenCalledWith('agent')
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Released to Claude/))
+  })
+
+  it('will not release under a turn Cockpit is running', async () => {
+    renderChat(vi.fn(), { binding: started, control: held, busy: true })
+    await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))
+    expect(screen.getByRole('button', { name: 'Release to Claude' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Open in Terminal/ })).toBeDisabled()
+  })
+
+  it('resumes it in Terminal from the bar', async () => {
+    const onResumeInTerminal = vi.fn(async () => true)
+    renderChat(vi.fn(), { binding: started, control: outside, onResumeInTerminal })
+    await userEvent.click(screen.getByRole('button', { name: /Open in Terminal/ }))
+    expect(onResumeInTerminal).toHaveBeenCalledOnce()
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/resumed in Terminal/))
+  })
+
+  it('shows no chip and no bar for a seat, which its table drives', () => {
+    renderChat(vi.fn(), { binding: { ...started, readOnly: true }, control: outside })
+    expect(screen.queryByRole('region', { name: 'Who drives this session' })).not.toBeInTheDocument()
+    expect(document.querySelector('.hold-chip')).toBeNull()
+  })
+})
+
+describe('ChatView hold bar under a turn in a terminal', () => {
+  it('will not open a second CLI on a session Cockpit holds while it runs elsewhere', async () => {
+    renderChat(vi.fn(), {
+      binding: { ...binding, nativeSessionId: 'abc-123' },
+      control: { holder: 'cockpit', how: 'taken-over', since: 1 },
+      elsewhere: true
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))
+    expect(screen.getByRole('button', { name: /Open in Terminal/ })).toBeDisabled()
+    // handing it back to where it is running is exactly right, though
+    expect(screen.getByRole('button', { name: 'Release to Claude' })).toBeEnabled()
   })
 })

@@ -5,11 +5,13 @@ import { join } from 'node:path'
 import {
   addModelEndpoint,
   attentionPrefs,
+  bindSessionControl,
   bindSessionEndpoint,
   bindSessionLineage,
   loadConfig,
   removeModelEndpoint,
   saveConfig,
+  sessionControlFor,
   sessionEndpointFor,
   sessionLineage,
   sessionLineageFor,
@@ -223,6 +225,38 @@ describe('session lineage', () => {
     const map = bindSessionLineage('claude:same', 'claude:same')
     expect(map).toEqual({})
     expect(sessionLineageFor('claude:same')).toBeUndefined()
+  })
+})
+
+describe('session control', () => {
+  it('binds and reads back, returning the updated map', () => {
+    saveConfig({ sources: [] })
+    const map = bindSessionControl('claude:a', { how: 'taken-over', at: 1 })
+    expect(map).toEqual({ 'claude:a': { how: 'taken-over', at: 1 } })
+    expect(sessionControlFor('claude:a')).toEqual({ how: 'taken-over', at: 1 })
+    bindSessionControl('claude:a', { how: 'released', at: 2 })
+    expect(sessionControlFor('claude:a')).toEqual({ how: 'released', at: 2 })
+  })
+
+  it('skips the rewrite when nothing changes (duplicate session events)', () => {
+    saveConfig({ sources: [] })
+    bindSessionControl('claude:a', { how: 'started', at: 1 })
+    writeFileSync(cfgPath(), readFileSync(cfgPath(), 'utf8') + '\n   \n')
+    bindSessionControl('claude:a', { how: 'started', at: 1 })
+    expect(readFileSync(cfgPath(), 'utf8').endsWith('\n   \n')).toBe(true)
+  })
+
+  it('drops a hand-edited entry it cannot read, keeping the rest of the config', () => {
+    writeFileSync(
+      cfgPath(),
+      JSON.stringify({
+        sources: [],
+        historyDays: 7,
+        sessionControl: { 'claude:a': { how: 'started', at: 1 }, 'claude:b': { how: 'mine' }, 'claude:c': null }
+      })
+    )
+    expect(loadConfig().sessionControl).toEqual({ 'claude:a': { how: 'started', at: 1 } })
+    expect(loadConfig().historyDays).toBe(7)
   })
 })
 

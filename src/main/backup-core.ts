@@ -12,7 +12,8 @@ import type {
 import { PROVIDERS, kindsForScope } from '../shared/library'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import type { AppConfig } from './config'
-import { SESSION_ENDPOINT_CAP, SESSION_LINEAGE_CAP, withEndpoint } from './config'
+import { SESSION_CONTROL_CAP, SESSION_ENDPOINT_CAP, SESSION_LINEAGE_CAP, withEndpoint } from './config'
+import { sanitizeControlMap, type ControlEntry } from './session-control-core'
 import { clampStaleDays } from './cleanup-core'
 
 /*
@@ -85,6 +86,8 @@ export type Bundle = {
     readonly sessionEndpoints: Record<string, string>
     readonly continuedFrom: Record<string, string>
     readonly removedEndpoints: Record<string, string>
+    /** who drives each session that changed hands; absent in files written before it existed */
+    readonly sessionControl?: Record<string, ControlEntry>
   }
   readonly secrets?: SealedSecrets
 }
@@ -383,7 +386,8 @@ export function sanitizeBundle(input: unknown): Bundle {
       archived: strList(sessions['archived'], MAX_MAP_KEYS),
       sessionEndpoints: strMap(sessions['sessionEndpoints']),
       continuedFrom: strMap(sessions['continuedFrom']),
-      removedEndpoints: strMap(sessions['removedEndpoints'])
+      removedEndpoints: strMap(sessions['removedEndpoints']),
+      sessionControl: capMap(sanitizeControlMap(sessions['sessionControl']), MAX_MAP_KEYS)
     },
     ...(secrets ? { secrets } : {})
   }
@@ -494,7 +498,7 @@ function localRoot(scope: ScopeRecord, ctx: RestoreContext): string | null | und
   return ctx.knownRepos.get(scope.ref)
 }
 
-function capMap(map: Record<string, string>, cap: number): Record<string, string> {
+function capMap<T>(map: Record<string, T>, cap: number): Record<string, T> {
   const entries = Object.entries(map)
   return Object.fromEntries(entries.slice(Math.max(0, entries.length - cap)))
 }
@@ -668,7 +672,11 @@ export function planRestore(local: AppConfig, bundle: Bundle, ctx: RestoreContex
       { ...bundle.sessions.continuedFrom, ...cfg.continuedFrom },
       SESSION_LINEAGE_CAP
     ),
-    removedEndpoints: { ...bundle.sessions.removedEndpoints, ...cfg.removedEndpoints }
+    removedEndpoints: { ...bundle.sessions.removedEndpoints, ...cfg.removedEndpoints },
+    sessionControl: capMap(
+      { ...bundle.sessions.sessionControl, ...cfg.sessionControl },
+      SESSION_CONTROL_CAP
+    )
   }
 
   return {

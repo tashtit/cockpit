@@ -14,6 +14,7 @@ const repo: RepoGroup = {
   root: '/home/dev/cachely',
   sessionCount: 1,
   archivedCount: 0,
+  heldCount: 0,
   lastActivity: 1700000000000,
   providers: ['claude'],
   hidden: false

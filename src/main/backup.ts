@@ -214,7 +214,8 @@ export function buildBundle(
       archived: cfg.archived ?? [],
       sessionEndpoints: cfg.sessionEndpoints ?? {},
       continuedFrom: cfg.continuedFrom ?? {},
-      removedEndpoints: cfg.removedEndpoints ?? {}
+      removedEndpoints: cfg.removedEndpoints ?? {},
+      sessionControl: cfg.sessionControl ?? {}
     },
     ...(sealed ? { secrets: seal(split.secrets, passphrase, aadFor(header)) } : {})
   }

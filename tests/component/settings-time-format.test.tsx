@@ -106,6 +106,7 @@ describe('session rows follow the time format live', () => {
       root: '/home/dev/cachely',
       sessionCount: 1,
       archivedCount: 0,
+      heldCount: 0,
       lastActivity: todayAt1405(),
       providers: ['claude'],
       hidden: false
