@@ -102,7 +102,8 @@ const BLOCK_LABEL: Record<CleanupBlock, string> = {
   process: 'a process is running',
   dirty: 'uncommitted changes',
   detached: 'commits on no branch',
-  locked: 'locked'
+  locked: 'locked',
+  'in-use': 'open in its app'
 }
 
 /** "running 3d" — how long a left-behind process has outlived its work. */
@@ -666,10 +667,10 @@ function sessionFilters(
       'Agent',
       presentOptions(rows, (s) => s.provider).map((p) => ({
         value: p,
-        label: PROVIDER_LABEL[p as Provider],
+        label: PROVIDER_LABEL[p as SessionProvider],
         icon: (
           <span className={`plogo plogo-${p}`} aria-hidden="true">
-            <ProviderLogo p={p as Provider} size={11} />
+            <ProviderLogo p={p as SessionProvider} size={11} />
           </span>
         )
       }))

@@ -1632,6 +1632,8 @@ export type CleanupBlock =
    * remove` takes the worktree's reflog with it, and those commits become unreachable
    */
   | 'detached'
+  /** The agent's app holds the database the session lives in open — quit it first */
+  | 'in-use'
 
 /**
  * The worktree a session ran in, carried on the session itself: deleting the
@@ -1649,8 +1651,7 @@ export type SessionWorktree = {
 export type StaleSession = {
   /** Session id: `${provider}:${nativeId}` */
   readonly id: string
-  /** Only the CLIs Cockpit drives: other agents' sessions are their own apps' to delete */
-  readonly provider: Provider
+  readonly provider: SessionProvider
   readonly title: string
   readonly repoName: string | null
   readonly cwd: string | null

@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { existsSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import type {
   CleanupBlock,
   CleanupReport,
@@ -40,8 +40,8 @@ import {
 } from './cleanup-core'
 import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText } from './env'
-import { sessionLogFiles } from './parsers/util'
-import { isDrivable, isSessionProvider } from '../shared/providers'
+import { isSessionProvider } from '../shared/providers'
+import { disposalBytes, disposalFiles, disposalOf, dispose, openBy } from './session-disposal'
 import { isUnder } from './paths'
 
 /**
@@ -140,78 +140,15 @@ export type CleanupDeps = {
   readonly roundtableRoot: string
   /** Drop a table's record once its room and seats are gone (the manager owns the file) */
   readonly forgetTable: (id: string) => void
+  /** Which of these databases another process holds open (`openBy`, which tests replace) */
+  readonly heldOpen?: (databases: readonly string[]) => Promise<Set<string>>
 }
 
 /* ---------- sessions ---------- */
 
-/**
- * What a session actually occupies on disk. Copilot keeps each session as a
- * directory (`session-state/<id>/events.jsonl` plus siblings); Claude and Codex
- * are one file. `copilotSessionDir` is the same judgement used for deletion, so
- * what is measured and what is removed can never drift apart.
- */
-function copilotSessionDir(sourcePath: string): string | null {
-  const dir = dirname(sourcePath)
-  return basename(sourcePath) === 'events.jsonl' && basename(dirname(dir)) === 'session-state'
-    ? dir
-    : null
-}
-
-/** The paths deleting this session would remove — every page of a thread kept across several files. */
-function deleteTargets(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): string[] {
-  return sessionLogFiles(meta).map((f) => resolve(copilotSessionDir(f) ?? f))
-}
-
-/**
- * A Copilot session directory is a handful of files a level or two deep. These bound
- * the walk for one that is not — sizing runs synchronously for every stale session.
- */
-const DIR_MAX_DEPTH = 8
-const DIR_MAX_ENTRIES = 10_000
-
-/**
- * What removing `dir` would free. Links are counted as themselves and never followed:
- * `rmSync` removes the link, not what it points at, and a link back up the tree would
- * otherwise be walked until the path grew too long. Past the bounds the walk stops,
- * and the answer is what it counted by then.
- */
-function dirBytes(dir: string): number {
-  let total = 0
-  let entries = 0
-  const walk = (at: string, depth: number): void => {
-    let names: string[]
-    try {
-      names = readdirSync(at)
-    } catch {
-      return
-    }
-    for (const n of names) {
-      if (++entries > DIR_MAX_ENTRIES) return
-      try {
-        const st = lstatSync(join(at, n))
-        if (!st.isDirectory()) total += st.size
-        else if (depth < DIR_MAX_DEPTH) walk(join(at, n), depth + 1)
-      } catch {
-        /* a file that vanished mid-scan simply doesn't count */
-      }
-    }
-  }
-  walk(dir, 0)
-  return total
-}
-
-function sessionBytes(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): number {
-  return sessionLogFiles(meta).reduce((n, f) => n + logBytes(f), 0)
-}
-
-function logBytes(sourcePath: string): number {
-  const dir = copilotSessionDir(sourcePath)
-  if (dir) return dirBytes(dir)
-  try {
-    return statSync(sourcePath).size
-  } catch {
-    return 0
-  }
+/** What a session occupies — measured by the same plan that removes it (session-disposal.ts). */
+function sessionBytes(meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments'>): number {
+  return disposalBytes(disposalOf(meta))
 }
 
 /* ---------- processes ---------- */
@@ -666,16 +603,16 @@ async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey
   // cost far more than the answer is worth
   const sizes = await sizeWorktrees(staleTrees)
 
-  // an agent Cockpit only reads keeps more than the log it reads (Cline's task folder
-  // and history, Cursor's own state), so its sessions are its own app's to delete — not
-  // listed here, while one indexed in a worktree still holds that worktree back
-  const staleMetas = all
-    .filter((s): s is SessionMeta & { readonly provider: Provider } => isStale(s.updatedAt, cutoff) && isDrivable(s.provider))
-    .sort((a, b) => a.updatedAt - b.updatedAt)
+  const staleMetas = all.filter((s) => isStale(s.updatedAt, cutoff)).sort((a, b) => a.updatedAt - b.updatedAt)
+  // what each would take with it, as its agent keeps it — and which of the databases
+  // among those another app holds open right now (asked once per database)
+  const disposals = new Map(staleMetas.map((s) => [s.id, disposalOf(s)]))
+  const held = await (deps.heldOpen ?? openBy)([...disposals.values()].flatMap((d) => d.databases))
   const sessions: StaleSession[] = []
   let n = 0
   for (const s of staleMetas) {
     if (++n % YIELD_EVERY === 0) await yieldToLoop()
+    const d = disposals.get(s.id)!
     const w = worktreeForCwd(staleTrees, s.cwd ? resolve(s.cwd) : null, cutoff)
     sessions.push({
       id: s.id,
@@ -684,7 +621,7 @@ async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey
       repoName: s.repo?.name ?? null,
       cwd: s.cwd,
       updatedAt: s.updatedAt,
-      bytes: sessionBytes(s),
+      bytes: disposalBytes(d),
       archived: s.archived === true,
       worktree: w
         ? {
@@ -694,7 +631,10 @@ async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey
             sessionCount: w.sessionCount
           }
         : null,
-      blocks: busy.has(s.id) ? ['busy'] : []
+      blocks: [
+        ...(busy.has(s.id) ? (['busy'] as const) : []),
+        ...(d.databases.some((db) => held.has(db)) ? (['in-use'] as const) : [])
+      ]
     })
   }
 
@@ -843,10 +783,6 @@ export const deleteSessions = retiringSurveys(async function deleteSessions(
       failed.push({ target: id, reason: 'no longer indexed' })
       continue
     }
-    if (!isDrivable(meta.provider)) {
-      failed.push({ target: meta.title || id, reason: 'Cockpit only reads this agent’s sessions — delete it in its own app' })
-      continue
-    }
     if (busy.has(id)) {
       failed.push({ target: meta.title || id, reason: 'an agent is running in it' })
       continue
@@ -858,18 +794,24 @@ export const deleteSessions = retiringSurveys(async function deleteSessions(
       failed.push({ target: meta.title || id, reason: 'it was used again since the scan' })
       continue
     }
-    const targets = deleteTargets(meta)
+    const plan = disposalOf(meta)
+    const targets = disposalFiles(plan)
     const outside = targets.find((t) => !roots.some((r) => isUnder(t, r)))
     if (outside) {
       audit(`refused session ${id}: ${outside} is outside every configured source`)
       failed.push({ target: meta.title || id, reason: 'outside every configured source' })
       continue
     }
-    const bytes = sessionBytes(meta)
+    // judged again now: the app may have opened its store since the scan
+    if (plan.databases.length > 0 && (await (deps.heldOpen ?? openBy)(plan.databases)).size > 0) {
+      failed.push({ target: meta.title || id, reason: 'its agent’s app has it open — quit the app, then delete it' })
+      continue
+    }
+    const bytes = disposalBytes(plan)
     try {
       // earlier pages first: a failure part-way leaves the session listed on its
       // newest file, never an old page left behind to pose as the whole thread
-      for (const target of targets) rmSync(target, { recursive: true, force: false })
+      dispose(plan)
       cleaned++
       deleted.add(id)
       freedBytes += bytes
@@ -1025,16 +967,17 @@ export const deleteRoundtables = retiringSurveys(async function deleteRoundtable
     // the seats first: their logs are provider files like any other session's
     let seatTrouble: string | null = null
     for (const s of seats.filter((s) => s.roundtableId === id)) {
-      const targets = deleteTargets(s)
+      const plan = disposalOf(s)
+      const targets = disposalFiles(plan)
       const outside = targets.find((t) => !sourceRoots.some((r) => isUnder(t, r)))
       if (outside) {
         audit(`refused seat ${s.id} of table ${id}: ${outside} is outside every configured source`)
         seatTrouble = 'a seat session sits outside every configured source'
         break
       }
-      const bytes = sessionBytes(s)
+      const bytes = disposalBytes(plan)
       try {
-        for (const target of targets) rmSync(target, { recursive: true, force: false })
+        dispose(plan)
         freedBytes += bytes
         audit(`removed seat ${s.id} of table ${id}: ${targets.join(', ')} (${bytes} bytes)`)
       } catch (err) {
@@ -1211,7 +1154,8 @@ function blockReason(blocks: readonly CleanupBlock[]): string {
     process: 'a process is still running in it — stop it first',
     dirty: 'it has uncommitted changes',
     detached: 'its detached HEAD has commits no branch holds — branch them first',
-    locked: 'the worktree is locked'
+    locked: 'the worktree is locked',
+    'in-use': 'its agent’s app has it open — quit the app first'
   }
   return REASONS[blocks[0]] ?? 'it cannot be removed'
 }

@@ -26,6 +26,7 @@ import {
   type CleanupTable
 } from '../src/main/cleanup'
 import type { OrphanProcess, SessionMeta } from '../src/shared/types'
+import { writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 
 /**
  * Cleanup against real git repositories and real files in a tmpdir — the same
@@ -90,6 +91,8 @@ let rooms = new Set<string>()
 let tables: CleanupTable[] = []
 let seats: SessionMeta[] = []
 const forgotten: string[] = []
+/** Databases a test says another app holds open */
+let heldOpen = new Set<string>()
 
 const roundtableRoot = join(root, 'userData', 'roundtables')
 
@@ -107,7 +110,8 @@ const deps: CleanupDeps = {
   tables: () => tables,
   seatSessions: () => seats,
   roundtableRoot,
-  forgetTable: (id) => forgotten.push(id)
+  forgetTable: (id) => forgotten.push(id),
+  heldOpen: async (dbs) => new Set(dbs.filter((d) => heldOpen.has(d)))
 }
 
 const cockpitTree = join(cockpitWorktrees, 'app', 'fix-login')
@@ -539,18 +543,41 @@ describe('deleteSessions', () => {
     sessions = []
   })
 
-  it('leaves an agent Cockpit only reads to its own app: not listed, never deleted', async () => {
+  it('lists and deletes a session of an agent Cockpit only reads, as its agent keeps it', async () => {
     const task = join(sourceDir, 'tasks', '1756700000000')
     mkdirSync(task, { recursive: true })
     const log = join(task, 'ui_messages.json')
     writeFileSync(log, '[]')
     writeFileSync(join(task, 'api_conversation_history.json'), '[]')
-    sessions = [session({ id: 'cline:1756700000000', provider: 'cline', sourcePath: log })]
-    expect((await scanCleanup(deps, 30)).sessions).toEqual([])
+    mkdirSync(join(sourceDir, 'state'), { recursive: true })
+    const history = join(sourceDir, 'state', 'taskHistory.json')
+    writeFileSync(history, JSON.stringify([{ id: '1756700000000' }, { id: 'other' }]))
+    sessions = [session({ id: 'cline:1756700000000', provider: 'cline', nativeId: '1756700000000', sourcePath: log })]
+    const [row] = (await scanCleanup(deps, 30)).sessions
+    expect(row).toMatchObject({ provider: 'cline', blocks: [] })
+    expect(row!.bytes).toBeGreaterThan(0)
     const res = await deleteSessions(deps, ['cline:1756700000000'], 30)
-    expect(res.cleaned).toBe(0)
-    expect(res.failed[0]!.reason).toMatch(/only reads this agent/)
-    expect(existsSync(log)).toBe(true)
+    expect(res.cleaned).toBe(1)
+    expect(existsSync(task)).toBe(false)
+    expect(JSON.parse(readFileSync(history, 'utf8'))).toEqual([{ id: 'other' }])
+    sessions = []
+  })
+
+  it('holds back a session whose agent has its database open, and says so', async () => {
+    const db = join(sourceDir, 'opencode.db')
+    writeOpencodeDb(db, [
+      { id: 'ses_x', title: 'x', directory: '/x', created: OLD, updated: OLD, turns: [{ role: 'user', at: OLD, parts: [{ type: 'text', text: 'hi' }] }] }
+    ])
+    sessions = [session({ id: 'opencode:ses_x', provider: 'opencode', nativeId: 'ses_x', sourcePath: `${db}#ses_x` })]
+    heldOpen = new Set([db])
+    expect((await scanCleanup(deps, 30)).sessions[0]?.blocks).toEqual(['in-use'])
+    const refused = await deleteSessions(deps, ['opencode:ses_x'], 30)
+    expect(refused.cleaned).toBe(0)
+    expect(refused.failed[0]!.reason).toMatch(/app has it open/)
+    // the app quit: the rows go, the database stays
+    heldOpen = new Set()
+    expect((await deleteSessions(deps, ['opencode:ses_x'], 30)).cleaned).toBe(1)
+    expect(existsSync(db)).toBe(true)
     sessions = []
   })
 

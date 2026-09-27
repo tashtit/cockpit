@@ -93,7 +93,7 @@ A few things these agents keep cannot be read. Antigravity's earliest conversati
 
 Nothing needs setting up. Each launch looks for these homes, adds any that appeared since the last one, and lists them in **Settings › Accounts** under **Other agents · read only**. A home you remove there stays removed; detection never adds it back.
 
-A session of one of these agents opens read-only: its transcript, tool calls, edits, to-do lists and test runs render as they do for any session, and ⌘K's transcript search covers it. It has no composer, because Cockpit doesn't run that agent. To pick the work up, use **Continue in…**: it hands the session, with a briefing built from its transcript, to Claude, Codex or Copilot in the same directory. Live status, landings and notifications follow the agents Cockpit runs, and cleanup leaves these sessions to their own apps.
+A session of one of these agents opens read-only: its transcript, tool calls, edits, to-do lists and test runs render as they do for any session, and ⌘K's transcript search covers it. It has no composer, because Cockpit doesn't run that agent. To pick the work up, use **Continue in…**: it hands the session, with a briefing built from its transcript, to Claude, Codex or Copilot in the same directory. Live status, landings and notifications follow the agents Cockpit runs. Cleanup lists these sessions like any other, and deleting one removes what its agent keeps for it; see [Cleanup](/guide/cleanup).
 
 ## Archiving
 
