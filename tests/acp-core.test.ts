@@ -12,7 +12,6 @@ import {
 import {
   acpUpdateToEvents,
   decidePermission,
-  denyOption,
   initializeParams,
   modeIdFor,
   PERMISSION_COMMAND_MAX,
@@ -377,20 +376,6 @@ describe('decidePermission', () => {
     const denyOnly: AcpPermissionOption[] = [{ optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }]
     expect(decidePermission('yolo', denyOnly, 'execute')).toBeNull()
     expect(decidePermission('yolo', [], 'execute')).toBeNull()
-  })
-})
-
-describe('denyOption', () => {
-  it('prefers a one-off refusal over a standing one', () => {
-    expect(
-      denyOption([
-        { optionId: 'reject_always', kind: 'reject_always', name: 'Never' },
-        { optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }
-      ])
-    ).toBe('reject_once')
-  })
-  it('is null when nothing refuses', () => {
-    expect(denyOption([{ optionId: 'allow_once', kind: 'allow_once', name: 'Allow' }])).toBeNull()
   })
 })
 
