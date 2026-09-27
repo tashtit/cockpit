@@ -168,7 +168,7 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 
 ## Width
 
-- The rail is the person's to size. `.rail-resizer` (`RailResizer.tsx`) is an 8px sash astride
+- The rail is the person's to size. `.rail-resizer` (`RailResizer.tsx`, a `Sash`) is an 8px sash astride
   the rail's right border — 5px on the rail, 3px onto the deck — invisible at rest, an accent
   hairline once the pointer has rested on it and while a drag or focus holds it. Drag it; or,
   focused, ← → move it 16px (64 with ⇧) and Home/End reach the bounds; a double-click forgets

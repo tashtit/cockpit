@@ -60,7 +60,8 @@ a new one:
   open.
 - **Layout:** the body is ChatView's deck (`.chat-deck` › `.chat-main` + the panel), so
   the panel sits beside the transcript and composer and covers them under 720px of deck,
-  exactly like the Work panel.
+  exactly like the Work panel. It is the same `SidePanel`, so it is dragged by the same
+  left-edge sash ("Evidence panel width") and keeps the Work panel's width.
 - **Tabs:** `TabList` tabs, one per seat (`seatDisplayName`), each counting its calls.
   Escape closes the panel.
 - **A seat's tab:** `N turns · M calls` in `.work-meta`, a `.work-note`, then an `<ol>` of

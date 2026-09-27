@@ -5,6 +5,7 @@ import { api } from './api'
 import { buildEvidence, EVIDENCE_VERB, seatSessions, type EvidenceTurn } from './evidence'
 import { ipcErrorText } from './ipc-error'
 import { PROVIDER_LABEL, XIcon } from './logos'
+import { SidePanel } from './SidePanel'
 import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
 
@@ -81,16 +82,7 @@ export function SeatEvidencePanel({
   const shown = evidence?.[seat]
 
   return (
-    <aside
-      id="evidence-panel"
-      className="work-panel"
-      aria-label="Evidence"
-      onKeyDown={(e) => {
-        if (e.key !== 'Escape') return
-        e.preventDefault()
-        onClose()
-      }}
-    >
+    <SidePanel id="evidence-panel" label="Evidence" onClose={onClose}>
       <div className="work-head" ref={tabsRef}>
         <TabList id="evidence" label="Seats" tabs={tabs} selected={String(seat)} onSelect={(t) => setSeat(Number(t))} />
         <button className="icon-btn small work-close" aria-label="Close the evidence" title="Close (Esc)" onClick={onClose}>
@@ -115,7 +107,7 @@ export function SeatEvidencePanel({
           <SeatTurns seat={name(seat)} evidence={shown} room={table.cwd} />
         )}
       </div>
-    </aside>
+    </SidePanel>
   )
 }
 

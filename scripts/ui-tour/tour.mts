@@ -450,6 +450,23 @@ const STATIC: readonly Shot[] = [
       await pause(w, 500)
     }
   },
+  // the panel dragged out as far as the conversation can spare — 420px of transcript
+  // and composer beside a diff given the rest; the sash is the lit hairline on its border
+  {
+    view: 'chat',
+    name: 'chat-work-wide',
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.locator('.messages').evaluate((el) => el.scrollTo({ top: 0 }))
+      await w.locator('.tool-run summary').first().click()
+      await w.locator('.tool-open', { hasText: 'src/auth/login.ts' }).first().click()
+      await w.getByRole('separator', { name: 'Work panel width' }).focus()
+      await w.keyboard.press('End')
+      await pause(w, 500)
+    },
+    // a double-click on the sash forgets the width
+    after: (w) => w.getByRole('separator', { name: 'Work panel width' }).dblclick()
+  },
   // ⌘J opens on what matters now — here the task list still under way
   {
     view: 'chat',
