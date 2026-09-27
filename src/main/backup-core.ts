@@ -19,8 +19,14 @@ import { branchPrefixRefusal, normalizeBranchPrefix } from '../shared/branch-pre
 
 /*
  * The backup bundle and every rule about it that needs no disk: what a file may
- * contain (sanitizeBundle), how its secrets are sealed, and what restoring it
- * would do to the config (planRestore). backup.ts does the IO around this.
+ * contain (sanitizeBundle — the file is untrusted input), how its secrets are sealed,
+ * and what restoring it would do to the config (planRestore). backup.ts does the IO.
+ *
+ * A bundle holds everything of Cockpit's own worth keeping — sources, instruction
+ * baselines, library entries and the skills behind them, provider definitions, the
+ * session maps — and never session logs, worktrees or the index (rebuildable or
+ * machine-local). Restore is a merge that only ever adds: re-running a file is a no-op,
+ * and restored library entries land `pending`, never written into agent configs.
  */
 
 export const BUNDLE_FORMAT = 'cockpit-backup'

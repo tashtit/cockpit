@@ -350,6 +350,43 @@ type WatchSpec = {
   readonly handler: (event: string, filename: string | Buffer | null) => void
 }
 
+/**
+ * The session index — Cockpit's core data flow. It walks every registered source dir (the
+ * three providers' homes, the homes of the agents it only reads — `agent-homes.ts` — and
+ * extras from config), hands each session file to its
+ * provider's parser (`parsers/`) for a `SessionMeta`, resolves the session's cwd to a repo
+ * and branch in `annotate()` (`repos.ts`, worktree-aware), and answers the renderer only in
+ * `RepoGroup`s and paged `SessionPage`s: the full index never crosses IPC.
+ *
+ * - Listings hide sessions archived or deleted in the provider's own app
+ *   (`provider-archived.ts`), roundtable seat sessions (`roundtableForCwd`), and anything idle
+ *   past the history window (`historyDays`). `ownSessions()`, the profile's reader, still
+ *   counts archived ones: archiving is how work ends.
+ * - A parser reports only what its log states (`logBranch`). What the checkout says —
+ *   `repo`, `isWorktree`, `gitBranch` — is `annotate()`'s, recomputed on every scan and
+ *   stripped before the stat-cache is written, so a renamed remote or a moved worktree can
+ *   never freeze into it.
+ * - One session can span several files (Codex pages a long thread into a new rollout whose
+ *   `historyBase` names where the last one ends): `foldThread` puts them on the newest file
+ *   with the rest as `segments`, and everything that reads or removes a session's log goes
+ *   through `sessionLogFiles` (parsers/util.ts). Only liveness reads just the newest file.
+ * - The stat-cache (mtime + size, persisted to userData, versioned by CACHE_VERSION) means a
+ *   restart re-parses only what changed; scans yield to the event loop so IPC never waits.
+ * - Only the providers' session roots are walked and watched — `fs.watch(root, {recursive:
+ *   true})` with our own debouncing. chokidar was dropped when its bundled fsevents broke on
+ *   the Electron 43 upgrade.
+ * - Some agents keep many sessions in one SQLite database (Cursor's editor chats, opencode;
+ *   `SHARED_DBS`), each indexed as `<database>#<id>` (`parsers/sqlite.ts`): stat-checked
+ *   through the database, its write-ahead log counting, and its folder watched on its own. A
+ *   write rescans only when the database lists a session the index lacks, and otherwise
+ *   re-judges the known ones, keeping an unchanged session the same object — so Cursor
+ *   saving its editor state announces nothing. A read that fails keeps the last good answer
+ *   (`snapshotCache`) rather than dropping every session in the database.
+ * - When one conversation has two records in different stores (a Cursor chat in its
+ *   database and as a transcript), the fuller wins, then the newer; and sources can nest
+ *   (Cursor's editor storage holds Cline's and Roo's homes), so a file belongs to the most
+ *   specific one (`mostSpecific`).
+ */
 export class SessionIndexer {
   private sessions = new Map<string, SessionMeta>()
   /** file path → parse result keyed on (mtime,size); only changed files get re-read */

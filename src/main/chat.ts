@@ -29,6 +29,25 @@ import {
   userMessageLine,
   type ClaudeControl
 } from './claude-permissions'
+import { EFFORT_LEVELS } from '../shared/agent-models'
+import { AGENT_LABEL, isDrivable } from '../shared/providers'
+
+/**
+ * Driving an agent CLI headless, one process per turn: `claude -p --output-format
+ * stream-json`, `codex exec --json`, `copilot -p` — or the same turn over ACP (`acp.ts`) when
+ * `resolveAcpAgent` picks an agent for it. An agent Cockpit otherwise only reads runs over
+ * ACP or not at all (`noAcpAgent`), and its resume must reopen the conversation it names
+ * (`mustResume`). Either transport gets the same cwd checks, BYOK env, config home, busy
+ * bookkeeping and `cancel()`. Each CLI's stream is parsed into `ChatEvent`s here, and
+ * Codex's old (`msg.type`) and new (`thread.started` / `item.completed`) event shapes both
+ * stay handled. A Claude chat turn asks the person for
+ * what its mode does not allow (`claude-permissions.ts`); a roundtable seat never does.
+ *
+ * One session, one turn: `send` refuses to resume a session whose turn is still in flight
+ * (`assertNotRunning`), and every spawned `BusySession` carries its live `turnId`, so a
+ * window that opens the session mid-turn rejoins it (`rejoin.ts` in the renderer) rather
+ * than showing it idle.
+ */
 
 type Emit = (ev: ChatEvent) => void
 type ResolveEndpoint = (id: string) => ModelEndpoint | undefined
@@ -44,8 +63,6 @@ export function isValidNativeId(id: string): boolean {
 }
 
 export { isValidModel } from '../shared/endpoints'
-import { EFFORT_LEVELS } from '../shared/agent-models'
-import { AGENT_LABEL, isDrivable } from '../shared/providers'
 
 const CODEX_SANDBOXES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 
@@ -62,7 +79,6 @@ export function promptWithImages(req: ChatRequest): string {
   return req.prompt ? `${req.prompt}\n\n${refs}` : refs
 }
 
-/** Build argv for each provider's headless one-turn invocation. */
 /**
  * The thinking level, re-checked here against the provider's own list: it reaches the
  * CLI as an argv value (or a `-c` config value), so only a known word ever gets there.
@@ -99,8 +115,8 @@ export function withTurnFlags(agent: AcpAgent | undefined, req: CliRequest): Acp
 }
 
 /**
- * What a safe-mode Claude seat may use without an approval nobody is there to give: web
- * search and page fetches. Research only — reading the workspace needs no allowance, and
+ * What a safe-mode Claude seat may use without an approval nobody is there to give (as
+ * `--allowedTools`): web search and page fetches. Research only — reading the workspace needs no allowance, and
  * the shell stays refused because no rule can keep a command read-only.
  */
 export const CLAUDE_RESEARCH_TOOLS: readonly string[] = ['WebSearch', 'WebFetch']
@@ -179,6 +195,12 @@ export function noAcpAgent(provider: SessionProvider): string {
  */
 export type CliRequest = ChatRequest & { readonly provider: Provider }
 
+/**
+ * Argv for each provider's headless one-turn invocation, with the turn's knobs: model,
+ * thinking level (claude `--effort`, codex `-c model_reasoning_effort=`, copilot
+ * `--reasoning-effort`), Codex's fast tier (`-c service_tier="priority"`) and Copilot's long
+ * context. Codex takes them in the `-c` form because that also works on `exec resume`.
+ */
 export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCommand {
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
   const effort = effortOf(req)

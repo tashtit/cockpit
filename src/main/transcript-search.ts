@@ -29,6 +29,9 @@ import { isSessionProvider } from '../shared/providers'
  * Only the conversation is searched, user and assistant text, unless the query opts
  * tool calls and results in: a `grep` over a repo would otherwise match every session
  * that ever read the file.
+ *
+ * No persisted index yet: at ~2,500 transcripts a scoped search returns well inside the
+ * budget and a global one may hit it — a full-text index is the follow-up if it does.
  */
 
 export const DEFAULT_HIT_LIMIT = 50

@@ -12,6 +12,14 @@ import {
 import { brewVersion } from './agent-cli-core'
 import { execText, loginPathReady } from './env'
 
+/*
+ * The agent CLIs as installed: the version off `--version`, the install method off the
+ * binary's real path, and two versions to compare it with — the channel the install can
+ * actually update from (Homebrew's own answer for a brew install) and the newest release
+ * anywhere (the npm registry). Updating and signing in both need the person, so they run
+ * as one-off Terminal scripts (`writeTerminalScript`); Cockpit never handles credentials.
+ */
+
 const LATEST_TTL_MS = 60 * 60_000
 /** Homebrew's own answer is a local command, so it is re-read often — that is what
  *  lets a row notice a `brew update` the person just ran without asking again. */
@@ -128,7 +136,8 @@ export async function listCliStatus(opts: { readonly force?: boolean } = {}): Pr
 }
 
 /**
- * Write a Terminal hand-off script under Cockpit's own userData and return its path —
+ * Write a Terminal hand-off script under Cockpit's own userData (`<userData>/terminal/`,
+ * for `accounts:login`, `cli:update` and resume-in-terminal) and return its path —
  * the caller opens it (`.command` files open in Terminal). Owner-only, and rewritten
  * each time, so nothing stale is ever run.
  */

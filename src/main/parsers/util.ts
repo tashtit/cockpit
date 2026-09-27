@@ -203,7 +203,11 @@ export function judgeJsonlTail<T>(
   }
 }
 
-/** Every file a session's log spans, oldest first: a thread's earlier pages, then `sourcePath`. */
+/**
+ * Every file a session's log spans, oldest first: a thread's earlier pages, then
+ * `sourcePath`. Anything that reads or removes a session's log — transcript, search,
+ * profile, cleanup — goes through this, never `sourcePath` alone.
+ */
 export function sessionLogFiles(meta: Pick<SessionMeta, 'sourcePath' | 'segments'>): string[] {
   return [...(meta.segments ?? []).map((s) => s.path), meta.sourcePath]
 }

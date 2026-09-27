@@ -423,7 +423,9 @@ function copilotAsk(data: unknown): AttentionAsk {
  * the instant a prompt is sent. Tool
  * and hook events, assistant messages and compaction all sit inside a bracket — and
  * so does a `permission.requested`, answered by a `permission.completed` with the
- * same `requestId` once the person decides (or the session is aborted).
+ * same `requestId` once the person decides (or the session is aborted). An open
+ * `ask_user` / `exit_plan_mode` call is a question, not a tool, and outranks any tool
+ * started after it: the person is still what the turn waits on.
  */
 export function judgeCopilotTail(records: readonly any[]): TurnVerdict | null {
   const completed = new Set<string>()

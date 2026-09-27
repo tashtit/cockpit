@@ -911,8 +911,8 @@ export class AttentionTracker {
   }
 
   /**
-   * Turn the burst into at most one banner and one sound. Anything opened while it
-   * waited is dropped — the user got there first. `titleFor` names a session from
+   * Turn the burst into at most one banner and one sound (mixed kinds are counted by
+   * kind). Anything opened while it waited is dropped — the user got there first. `titleFor` names a session from
    * the index, which by now has usually caught up with a brand-new one.
    */
   flush(prefs: AttentionPrefs, titleFor: (u: Unseen) => string | null): Flush {
@@ -1048,7 +1048,10 @@ export class AttentionTracker {
     return this.windowFocused && v.kind === 'session' && v.id === id
   }
 
-  /** Is Cockpit itself running a turn in this session? Its flight lands it. */
+  /**
+   * Is Cockpit itself running a turn in this session? Its flight lands it. A Copilot
+   * flight that has not named its session yet is matched by provider + cwd.
+   */
   private spawned(ev: ObservedTurn): boolean {
     for (const f of this.flights.values()) {
       if (f.ids.has(ev.id)) return true
@@ -1100,7 +1103,10 @@ export class AttentionTracker {
     }
   }
 
-  /** A key names its own target — opened or not — except a `turn:` nobody has resolved yet. */
+  /**
+   * A key names its own target — opened or not — except a `turn:` nobody has resolved
+   * yet. `cleanup` opens the Cleanup view.
+   */
   private targetOf(key: string): AttentionTarget {
     let k = key
     for (let hops = 0; hops < 4 && this.aliases.has(k); hops++) k = this.aliases.get(k) as string

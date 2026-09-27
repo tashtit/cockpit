@@ -48,7 +48,7 @@ export type SeatInit = Pick<
 export type NewTable = {
   readonly topic: string
   readonly seats: SeatInit[]
-  /** 'consensus' = auto-rounds until every seat agrees, then a joint synthesis */
+  /** 'consensus' = auto-rounds until every seat agrees; concluding runs no extra AI turn */
   readonly mode?: RoundtableMode
   readonly maxRounds?: number
   /** Already sanitized by the caller; absent = the defaults */

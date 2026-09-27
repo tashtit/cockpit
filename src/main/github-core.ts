@@ -4,7 +4,8 @@ import { nodes, obj } from './pr-feedback-core'
 /**
  * The IO-free half of github.ts: turning what `gh pr list --json` prints into
  * PrStatus rows, and folding in the unresolved-thread counts GitHub's GraphQL
- * API reports beside it. Pure on purpose — the unit tests feed it fixtures, never gh.
+ * API reports beside it (through `pr-feedback-core`'s GraphQL node helpers). Pure on
+ * purpose — the unit tests feed it fixtures, never gh.
  */
 
 /** The `--json` fields the list call asks for, next to the parser that reads them. */
