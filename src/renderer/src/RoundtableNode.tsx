@@ -1,7 +1,8 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { RoundtableMeta, SessionMeta } from '../../shared/types'
 import { api } from './api'
-import { ArchiveIcon, ProviderLogo, PROVIDER_LABEL, Spinner } from './logos'
+import { ArchiveIcon, PROVIDER_LABEL, Spinner } from './logos'
+import { SeatCluster } from './SeatCluster'
 import { keepList, noop, PAGE, SessionRow } from './SessionList'
 import { fmtTime, useTimeFormat } from './time'
 
@@ -62,13 +63,7 @@ export function RoundtableNode({
         >
           ▸
         </span>
-        <span className="rt-seats">
-          {t.providers.map((p) => (
-            <span key={p} className={`rt-seat plogo-${p}`}>
-              <ProviderLogo p={p} size={10} />
-            </span>
-          ))}
-        </span>
+        <SeatCluster providers={t.providers} />
         <span className="session-title">{t.title}</span>
         {t.archived && <span className="sr-only">(archived)</span>}
         <span className="row-actions">

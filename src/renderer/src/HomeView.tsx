@@ -27,6 +27,7 @@ import {
   RepoIcon
 } from './logos'
 import { keepSame } from './same'
+import { SeatCluster } from './SeatCluster'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 import { useRoundtables } from './use-roundtables'
@@ -634,13 +635,12 @@ function TableRow({ t, onOpen }: { t: RoundtableMeta; onOpen: (id: string) => vo
         ) : (
           <span className="board-dot-idle" aria-hidden="true" />
         )}
-        <span className="rt-seats board-lead" role="img" aria-label={`Roundtable: ${t.providers.map((p) => PROVIDER_LABEL[p]).join(', ')}`}>
-          {t.providers.map((p, i) => (
-            <span key={`${p}-${i}`} className={`rt-seat plogo-${p}`}>
-              <ProviderLogo p={p} size={12} />
-            </span>
-          ))}
-        </span>
+        <SeatCluster
+          providers={t.providers}
+          size={12}
+          className="board-lead"
+          label={`Roundtable: ${t.providers.map((p) => PROVIDER_LABEL[p]).join(', ')}`}
+        />
         <span className="board-branch">{t.branch && <BranchChip branch={t.branch} />}</span>
         <span className="board-task">{t.title}</span>
         {t.running ? (
