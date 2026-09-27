@@ -209,7 +209,7 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
 
 - **Beside, not instead of.** Under the header the chat is a row, `.chat-deck`: the
   conversation (`.chat-main` — transcript or review, the permission card, the composer)
-  and the panel (`clamp(300px, 38%, 460px)`, hairline left border, `--pane`). The deck is
+  and the panel (hairline left border, `--pane`, as wide as it is dragged). The deck is
   a `container: chat-deck`, and under 720px of it (the panel's 300px floor beside ~420px
   of conversation) the panel covers `.chat-main` instead, on solid `--bg` — the way
   Changes takes the transcript's place. Asked of the deck, never the window: the rail is
@@ -217,6 +217,19 @@ file rides its `exit_plan_mode` row and its to-do table the `sql` call that last
   conversation first — it would otherwise open unseen behind it; beside the
   conversation the panel stays, so what the agent said and what is on disk read side
   by side.
+- **As wide as the person drags it.** The panel is a `SidePanel` (the Work panel's frame,
+  and the roundtable's Evidence panel's): an `aside` whose left edge is a `Sash`
+  (`.panel-resizer`, named "Work panel width"). Until it is dragged the panel is 38% of the
+  deck up to 460px — the layout every audit and screenshot is taken of; dragged, it is
+  `--panel` on the panel (`panel.ts`, `cockpit:panel-width` in localStorage). Either way
+  `.work-panel`'s flex-basis clamp holds it between its 300px floor and what leaves the
+  conversation 420px, the numbers `panelBounds` mirrors; a stored width past that is held
+  back, not rewritten. The sash lies wholly on the panel's side of the border — the other
+  side is the transcript's scrollbar — and is the panel's first child, so Tab meets it
+  between the conversation and the tabs. Covering the conversation, the panel has no edge
+  beside anything and the sash is gone (`display: none` in the `@container chat-deck`
+  rule). The two panels share one width. The tour's `chat-work-wide` is the one shot of a
+  dragged panel.
 - Opened by the header's **Work** key (`.btn-review.btn-work`, `aria-pressed`, ⌘J —
   offered only once the transcript carries something for it) on the tab that matters
   now (`defaultTab`: a plan waiting for approval, else a list still under way, else the

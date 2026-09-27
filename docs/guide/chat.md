@@ -176,6 +176,14 @@ appears once the conversation holds any of them. It opens the panel on whatever 
 now: a plan waiting for you, else a list still in progress, else a check that failed,
 else what the agent shared, else the edits, else its follow-ups. Escape closes the panel and returns you to where you were.
 
+The panel's width is yours. Drag its left edge — the cursor changes over it — to give a
+long diff more room, or the conversation more; the conversation always keeps enough room
+to read, so on a smaller window the edge stops sooner. The edge is in the Tab order too,
+just before the panel's tabs: <kbd>←</kbd> / <kbd>→</kbd> move it a step, <kbd>Home</kbd> /
+<kbd>End</kbd> take it to its narrowest and widest. Double-click the edge to go back to the
+default width. The width is remembered on this Mac, and a roundtable's **Evidence** panel
+shares it.
+
 When the window is too narrow to hold the conversation and the panel side by side, the
 panel covers the conversation until you close it, the same way **Changes** does.
 

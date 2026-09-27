@@ -97,6 +97,8 @@ describe('the Work key', () => {
     expect(within(panel()).getByText('in progress:')).toBeInTheDocument()
     // the transcript stays: the panel is beside it, not instead of it
     expect(screen.getByText('fix it')).toBeInTheDocument()
+    // as wide as the person drags it, by the sash on its left edge
+    expect(within(panel()).getByRole('separator', { name: 'Work panel width' })).toHaveAttribute('aria-controls', 'work-panel')
 
     fireEvent.keyDown(window, { key: 'j', metaKey: true })
     expect(screen.queryByRole('complementary', { name: 'Work' })).not.toBeInTheDocument()

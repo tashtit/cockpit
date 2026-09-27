@@ -95,7 +95,9 @@ reply, newest first. Each entry shows the command or address and the start of wh
 back. It's marked **failed** when the call failed or the command exited non-zero, and
 **not run** when the seat's safe mode held it for an approval a table can't give. A seat
 whose checks were never run backed its claim with nothing it could verify; the tab counts
-those calls. This is how to check what a claim like "that name is taken" rests on.
+those calls. This is how to check what a claim like "that name is taken" rests on. Drag
+the panel's left edge to widen it, as with the
+[Work panel](/guide/chat#plans-to-dos-and-edits-the-work-panel).
 
 It reads each seat's own log, so a seat that never names its session (Copilot often
 doesn't) is matched by agent. If two such seats run the same agent, each is shown the
