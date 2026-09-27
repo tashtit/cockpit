@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type {
+  AccountsSnapshot,
   AttentionFocus,
   AttentionTarget,
   ChatEvent,
   PermissionMode,
-  Provider,
   PrStatus,
   RepoGroup,
   SessionControl,
@@ -12,21 +12,20 @@ import type {
   SessionMessage,
   SessionMeta
 } from '../../shared/types'
-import { clampZoom } from '../../shared/window'
+import { PROVIDERS } from '../../shared/library'
 import { api } from './api'
 import { followUpRepo } from './follow-up'
-import { withImageMarks, type ImageAttachment } from './attachments'
+import { withImageMarks } from './attachments'
 import { TreeSidebar } from './TreeSidebar'
 import { ChatView } from './ChatView'
 import { CleanupView } from './CleanupView'
 import { CommandPalette, type PaletteViewKey } from './CommandPalette'
 import { NewSession } from './NewSession'
-import { HandoffView } from './HandoffView'
-import type { HandoffSourceRef, StartHandoffRequest } from './HandoffView'
+import { HandoffView, type StartHandoffRequest } from './HandoffView'
 import { NewRoundtable } from './NewRoundtable'
 import { RoundtableView } from './RoundtableView'
 import { PROVIDER_LABEL } from './logos'
-import { Settings, type SettingsSection } from './Settings'
+import { Settings } from './Settings'
 import { branchHint, taskTitle } from './task-names'
 import { initLanded } from './landed'
 import { initSideChat } from './side-chat-log'
@@ -52,80 +51,29 @@ import { initBranchPrefix } from './branch-prefix'
 import { keepSame } from './same'
 import type { StartSessionRequest } from './agent-choice'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
-import type { AccountsSnapshot } from '../../shared/types'
+import type { NavEntry, View } from './nav-history'
+import { useNavHistory } from './use-nav-history'
+import { useZoom } from './use-zoom'
 
 /** `--rail` on the grid: the width the rail was dragged to, in CSS pixels. */
 const railStyle = (px: number): CSSProperties => ({ '--rail': `${px}px` }) as CSSProperties
 
-/** `provider:nativeId` → the chip's {id, provider}; null for anything malformed
- *  (the lineage map lives in a hand-editable config file). */
 /** A conversation Cockpit itself just started — held here until the index says otherwise. */
 function startedHere(): SessionControl {
   return { holder: 'cockpit', how: 'started', since: Date.now() }
 }
 
+/** `provider:nativeId` → the chip's {id, provider}; null for anything malformed
+ *  (the lineage map lives in a hand-editable config file). */
 function lineageRef(id: string | undefined): ChatBinding['continuedFrom'] | undefined {
   if (!id) return undefined
-  const provider = id.split(':', 1)[0] as Provider
-  if (provider !== 'claude' && provider !== 'codex' && provider !== 'copilot') return undefined
-  return { id, provider }
-}
-
-type View =
-  | { kind: 'welcome' }
-  | { kind: 'chat' }
-  | { kind: 'new'; repo: RepoGroup; draft?: string; draftImages?: readonly ImageAttachment[] }
-  | { kind: 'handoff'; source: HandoffSourceRef }
-  | { kind: 'new-roundtable' }
-  | { kind: 'roundtable'; id: string }
-  | { kind: 'settings'; section?: SettingsSection; openCount?: number }
-  | { kind: 'cleanup' }
-  /** repoRoot null = the global agent setup; otherwise one repo's own */
-  | { kind: 'extensions'; repoRoot: string | null }
-  | { kind: 'profile' }
-
-/** One place in the ⌘[/⌘] navigation history. Chat entries snapshot the binding
- *  so a previous conversation can be re-materialized; other views restore by kind. */
-type NavEntry =
-  | { readonly kind: 'view'; readonly view: Exclude<View, { kind: 'chat' }> }
-  | { readonly kind: 'chat'; readonly binding: ChatBinding; readonly sessionId: string | null }
-
-const NAV_MAX = 50
-
-/** Same place = landing there again reuses the current entry instead of growing
- *  history. Chats compare by session id (id-less brand-new chats by binding
- *  identity), the new-session form by target repo + draft. */
-const sameNavEntry = (a: NavEntry, b: NavEntry): boolean => {
-  if (a.kind === 'chat' || b.kind === 'chat')
-    return (
-      a.kind === 'chat' &&
-      b.kind === 'chat' &&
-      a.sessionId === b.sessionId &&
-      (a.sessionId !== null || a.binding === b.binding)
-    )
-  const av = a.view
-  const bv = b.view
-  if (av.kind === 'new' || bv.kind === 'new')
-    return (
-      av.kind === 'new' &&
-      bv.kind === 'new' &&
-      av.repo.key === bv.repo.key &&
-      av.draft === bv.draft &&
-      av.draftImages === bv.draftImages
-    )
-  if (av.kind === 'handoff' || bv.kind === 'handoff')
-    return av.kind === 'handoff' && bv.kind === 'handoff' && av.source.id === bv.source.id
-  // two different tables are different places — compare by id, not by kind
-  if (av.kind === 'roundtable' || bv.kind === 'roundtable')
-    return av.kind === 'roundtable' && bv.kind === 'roundtable' && av.id === bv.id
-  return av.kind === bv.kind
+  const provider = PROVIDERS.find((p) => p === id.split(':', 1)[0])
+  return provider ? { id, provider } : undefined
 }
 
 export function App(): JSX.Element {
   const [repos, setRepos] = useState<RepoGroup[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
-  const [zoom, setZoom] = useState(1)
-  const zoomRef = useRef(1)
   const [view, setView] = useState<View>({ kind: 'welcome' })
   const [indexVersion, setIndexVersion] = useState(0)
   /** The first full scan has finished — an empty repo list is real, not unread */
@@ -142,12 +90,6 @@ export function App(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [creatingPr, setCreatingPr] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [nav, setNav] = useState<{ readonly stack: readonly NavEntry[]; readonly index: number }>({
-    stack: [{ kind: 'view', view: { kind: 'welcome' } }],
-    index: 0
-  })
-  const navRef = useRef(nav)
-  navRef.current = nav
   const selectedSessionIdRef = useRef<string | null>(null)
   selectedSessionIdRef.current = selectedSessionId
   const activeTurnRef = useRef<string | null>(null)
@@ -242,31 +184,7 @@ export function App(): JSX.Element {
     return api.onIndexUpdated(load)
   }, [])
 
-  // Zoom has no event of its own — the menu's ⌘+/- acts in main and the chip's reset in
-  // preload — but every change resizes the layout viewport, so one resize listener sees
-  // all of them (the poll this replaced left the chip up to 1.2s stale). A window drag
-  // fires the same event, hence the ref: work is done only when the level really moved.
-  const syncZoom = useCallback((): void => {
-    const z = clampZoom(api.getZoomFactor())
-    if (z !== api.getZoomFactor()) api.setZoomFactor(z)
-    const level = Math.round(z * 100) / 100
-    if (level === zoomRef.current) return
-    zoomRef.current = level
-    setZoom(level)
-    // the traffic lights are drawn by the OS at a fixed size while everything in the
-    // stylesheet is in CSS pixels — `--traffic-clear` divides by this to keep the one
-    // measurement that has to meet them in the same units they are
-    document.documentElement.style.setProperty('--zoom', String(level))
-    // main keeps the window's minimum size in step: the floor is written in CSS pixels,
-    // and the further in this is zoomed the fewer of them the same window holds
-    void api.reportZoom(level)
-  }, [])
-
-  useEffect(() => {
-    syncZoom()
-    window.addEventListener('resize', syncZoom)
-    return () => window.removeEventListener('resize', syncZoom)
-  }, [syncZoom])
+  const { zoom, resetZoom } = useZoom()
 
   // the rail's width once it has been dragged: it reaches the grid as `--rail`, which
   // the stylesheet holds to the bounds (`.app`) — nothing stored, nothing set
@@ -280,24 +198,7 @@ export function App(): JSX.Element {
   const paletteOpenRef = useRef(false)
   paletteOpenRef.current = paletteOpen
 
-  // every arrival lands in the nav history: a push truncates the forward entries,
-  // and re-landing on the current entry (a ⌘[/⌘] restore, or a session-id mint
-  // that applyEvent already patched in place) dedupes instead of growing the stack
-  useEffect(() => {
-    let entry: NavEntry
-    if (view.kind === 'chat') {
-      if (!binding) return
-      entry = { kind: 'chat', binding, sessionId: selectedSessionId }
-    } else {
-      entry = { kind: 'view', view }
-    }
-    setNav(({ stack, index }) => {
-      const cur = stack[index]
-      if (cur && sameNavEntry(cur, entry)) return { stack, index }
-      const next = [...stack.slice(0, index + 1), entry].slice(-NAV_MAX)
-      return { stack: next, index: next.length - 1 }
-    })
-  }, [view, binding, selectedSessionId])
+  const { step, followMint } = useNavHistory({ view, binding, sessionId: selectedSessionId })
 
   // PR statuses for the repo behind the open chat
   useEffect(() => {
@@ -372,20 +273,7 @@ export function App(): JSX.Element {
           setSelectedSessionId(newId)
           // history entries for this conversation follow the mint — restoring
           // one later must resume the new id, not fork a pre-turn snapshot
-          setNav(({ stack, index }) => {
-            let changed = false
-            const next = stack.map((e) => {
-              if (e.kind !== 'chat' || e.sessionId !== oldId) return e
-              if (oldId === null && e.binding !== bindingRef.current) return e
-              changed = true
-              return {
-                ...e,
-                sessionId: newId,
-                binding: { ...e.binding, nativeSessionId: ev.nativeSessionId }
-              }
-            })
-            return changed ? { stack: next, index } : { stack, index }
-          })
+          followMint({ oldId, newId, nativeSessionId: ev.nativeSessionId, binding: bindingRef.current })
         }
         setBinding((b) => (b ? { ...b, nativeSessionId: ev.nativeSessionId } : b))
       } else if (ev.type === 'text') {
@@ -424,7 +312,7 @@ export function App(): JSX.Element {
         )
       }
     },
-    [speaker, askPermission]
+    [speaker, askPermission, followMint]
   )
 
   useEffect(() => {
@@ -608,20 +496,14 @@ export function App(): JSX.Element {
   )
 
   const goBack = useCallback(() => {
-    const { stack, index } = navRef.current
-    const entry = stack[index - 1]
-    if (!entry) return
-    setNav({ stack, index: index - 1 })
-    restoreNav(entry)
-  }, [restoreNav])
+    const entry = step(-1)
+    if (entry) restoreNav(entry)
+  }, [step, restoreNav])
 
   const goForward = useCallback(() => {
-    const { stack, index } = navRef.current
-    const entry = stack[index + 1]
-    if (!entry) return
-    setNav({ stack, index: index + 1 })
-    restoreNav(entry)
-  }, [restoreNav])
+    const entry = step(1)
+    if (entry) restoreNav(entry)
+  }, [step, restoreNav])
 
   // global shortcuts: ⌘K palette, ⌘N new task, ⌘, settings, ⌘[/⌘] back/forward,
   // Esc backs out of secondary views
@@ -1023,12 +905,7 @@ export function App(): JSX.Element {
         indexVersion={indexVersion}
         accounts={accounts}
         zoom={zoom}
-        onResetZoom={() => {
-          api.setZoomFactor(1)
-          // webFrame is synchronous, so the chip and main settle now rather than on the
-          // resize this triggers — which then sees the level already where it left it
-          syncZoom()
-        }}
+        onResetZoom={resetZoom}
         selectedId={selectedSessionId}
         onSelect={openSession}
         onNewSession={newSession}
