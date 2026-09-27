@@ -159,8 +159,8 @@ describe('ChatView on a session of an agent Cockpit only reads', () => {
   it('says why there is no composer, and offers the way on', async () => {
     const { onOpenHandoff } = renderChat(vi.fn(), { binding: cursor })
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-    expect(screen.getByText(/Cockpit reads Cursor sessions but doesn.t run Cursor/)).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Continue in Claude, Codex or Copilot…' }))
+    expect(screen.getByText(/Cockpit runs Cursor only over its ACP server/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue it with another agent…' }))
     // the header keeps its own handoff key too — a session to continue is exactly this
     await userEvent.click(screen.getByRole('button', { name: 'Continue in another agent…' }))
     expect(onOpenHandoff).toHaveBeenCalledTimes(2)
@@ -171,6 +171,19 @@ describe('ChatView on a session of an agent Cockpit only reads', () => {
     expect(screen.queryByRole('region', { name: 'Who drives this session' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Take over/ })).not.toBeInTheDocument()
     expect(document.querySelector('.hold-chip')).toBeNull()
+  })
+
+  it('once an ACP agent drives it: a composer, taken over like any, never a Terminal resume', async () => {
+    const gemini: ChatBinding = { ...binding, provider: 'gemini', nativeSessionId: 'g-1' }
+    const onSetHolder = vi.fn(async () => true)
+    renderChat(vi.fn(), { binding: gemini, control: { holder: 'agent', how: 'outside' }, onSetHolder })
+    expect(screen.getByRole('textbox', { name: 'Message Gemini' })).toBeInTheDocument()
+    // it runs as whoever it is signed in as — Cockpit claims no account for it
+    expect(document.querySelector('.chat-header .acct-chip.acct-gemini:not(.hold-chip)')).toBeNull()
+    const bar = screen.getByRole('region', { name: 'Who drives this session' })
+    expect(bar).not.toHaveTextContent('Open in Terminal')
+    await userEvent.click(screen.getByRole('button', { name: 'Take over' }))
+    expect(onSetHolder).toHaveBeenCalledWith('cockpit')
   })
 
   it('a roundtable seat stays the table’s: no handoff anywhere', () => {

@@ -17,6 +17,7 @@ import type {
   AccountsSnapshot,
   AcpAgent,
   AcpAgentProbe,
+  AcpReadiness,
   AgentModel,
   CliStatus,
   AppInfo,
@@ -295,6 +296,10 @@ export type CockpitApi = {
   readonly removeAcpAgent: (id: string) => Promise<AcpAgent[]>
   /** Run the `initialize` handshake against a definition to prove it speaks ACP */
   readonly probeAcpAgent: (agent: NewAcpAgent) => Promise<AcpAgentProbe>
+  /** Which agents a session can be started or continued with — asking re-probes a missing built-in */
+  readonly getAcpReadiness: () => Promise<AcpReadiness>
+  /** Pushed when that changes: a built-in's CLI answered, or an ACP agent was added or removed */
+  readonly onAcpReadiness: (cb: (readiness: AcpReadiness) => void) => () => void
 
   /* ---------- backup and restore ---------- */
   /* backup: export to a file the user keeps, restore it here or on another Mac */
@@ -392,6 +397,7 @@ export const CH = {
   acpAdd: 'acp:add',
   acpGet: 'acp:get',
   acpProbe: 'acp:probe',
+  acpReadiness: 'acp:readiness',
   acpRemove: 'acp:remove',
 
   appInfo: 'app:info',
@@ -522,6 +528,7 @@ export const CH = {
 
 /** Main -> renderer events. Pair each with an `onX` member on `CockpitApi`. */
 export const PUSH = {
+  acpReadiness: 'acp-readiness',
   attentionOpen: 'attention-open',
   busySessions: 'busy-sessions',
   chatEvent: 'chat-event',

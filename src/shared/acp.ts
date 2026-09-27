@@ -1,6 +1,5 @@
-import type { AcpAgent, Mutable, NewAcpAgent, Provider } from './types'
-
-const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
+import type { AcpAgent, Mutable, NewAcpAgent, SessionProvider } from './types'
+import { SESSION_PROVIDERS } from './providers'
 
 /**
  * Agent Client Protocol — pure logic shared by main (which spawns agents) and the
@@ -19,19 +18,23 @@ export const ACP_PROTOCOL_VERSION = 1
  * native to a CLI we already index belong here: a built-in writes the provider's own
  * session store, so its conversations are indexed, resumable and live-tracked exactly
  * like the CLI's. Everything else is a user-defined agent.
+ *
+ * Each applies only once its CLI has answered an `initialize` handshake at startup, so a
+ * machine without it — or with a release whose ACP mode is spelled differently — just
+ * has one agent fewer to drive. The commands are the ones each project documents for
+ * editors: Copilot and Gemini take a flag, opencode and Cursor's agent a subcommand, and
+ * Cline's CLI a flag. Copilot's is the one of the three Cockpit also runs headless; for
+ * the others it is the only way Cockpit can start or continue one of their sessions.
  */
 export const BUILTIN_ACP_AGENTS: readonly AcpAgent[] = [
-  {
-    id: 'builtin-copilot',
-    label: 'Copilot (ACP)',
-    command: 'copilot',
-    args: ['--acp'],
-    provider: 'copilot',
-    builtin: true
-  }
+  { id: 'builtin-copilot', label: 'Copilot (ACP)', command: 'copilot', args: ['--acp'], provider: 'copilot', builtin: true },
+  { id: 'builtin-gemini', label: 'Gemini CLI (ACP)', command: 'gemini', args: ['--acp'], provider: 'gemini', builtin: true },
+  { id: 'builtin-opencode', label: 'opencode (ACP)', command: 'opencode', args: ['acp'], provider: 'opencode', builtin: true },
+  { id: 'builtin-cursor', label: 'Cursor Agent (ACP)', command: 'cursor-agent', args: ['acp'], provider: 'cursor', builtin: true },
+  { id: 'builtin-cline', label: 'Cline CLI (ACP)', command: 'cline', args: ['--acp'], provider: 'cline', builtin: true }
 ]
 
-export function builtinAgentFor(provider: Provider): AcpAgent | undefined {
+export function builtinAgentFor(provider: SessionProvider): AcpAgent | undefined {
   return BUILTIN_ACP_AGENTS.find((a) => a.provider === provider)
 }
 
@@ -130,7 +133,7 @@ export function sanitizeAcpAgent(input: unknown, id: string): AcpAgent | null {
   const o = input as Record<string, unknown>
   const label = typeof o.label === 'string' ? o.label.trim().slice(0, 64) : ''
   const command = typeof o.command === 'string' ? o.command.trim() : ''
-  const provider = PROVIDERS.find((p) => p === o.provider)
+  const provider = SESSION_PROVIDERS.find((p) => p === o.provider)
   if (!label || !command || !provider || !isValidAcpCommand(command)) return null
 
   const agent: Mutable<AcpAgent> = { id, label, command, provider }
@@ -172,7 +175,7 @@ export function sanitizeAcpAgent(input: unknown, id: string): AcpAgent | null {
  */
 export function acpAgentRefusal(agent: NewAcpAgent): string | null {
   if (!agent.label?.trim()) return 'Give the agent a name.'
-  if (!PROVIDERS.includes(agent.provider)) return 'Pick which agent this CLI drives.'
+  if (!SESSION_PROVIDERS.includes(agent.provider)) return 'Pick which agent this CLI drives.'
   const command = agent.command?.trim() ?? ''
   if (!command) return 'Enter the command that starts the agent.'
   if (!isValidAcpCommand(command)) {

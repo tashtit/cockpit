@@ -7,7 +7,8 @@ import type {
   ChatEvent,
   ChatRequest,
   ModelEndpoint,
-  Provider
+  Provider,
+  SessionProvider
 } from '../shared/types'
 import { AcpTurn } from './acp'
 import {
@@ -44,6 +45,7 @@ export function isValidNativeId(id: string): boolean {
 
 export { isValidModel } from '../shared/endpoints'
 import { EFFORT_LEVELS } from '../shared/agent-models'
+import { AGENT_LABEL, isDrivable } from '../shared/providers'
 
 const CODEX_SANDBOXES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 
@@ -65,7 +67,7 @@ export function promptWithImages(req: ChatRequest): string {
  * The thinking level, re-checked here against the provider's own list: it reaches the
  * CLI as an argv value (or a `-c` config value), so only a known word ever gets there.
  */
-function effortOf(req: ChatRequest): string | null {
+function effortOf(req: CliRequest): string | null {
   const e = req.options?.effort
   return e && EFFORT_LEVELS[req.provider].includes(e) ? e : null
 }
@@ -75,7 +77,7 @@ function effortOf(req: ChatRequest): string | null {
  * ACP agent (`copilot --acp` takes the same flags), so a seat's model is honoured
  * whichever transport runs it.
  */
-export function copilotFlags(req: ChatRequest): string[] {
+export function copilotFlags(req: CliRequest): string[] {
   const out: string[] = []
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
   if (model) out.push('--model', model)
@@ -91,7 +93,7 @@ export function copilotFlags(req: ChatRequest): string[] {
  * a Copilot seat over ACP ran on the default model whatever was picked. A user-defined
  * agent is any binary, so nothing is ever appended to it. Exported for tests.
  */
-export function withTurnFlags(agent: AcpAgent | undefined, req: ChatRequest): AcpAgent | undefined {
+export function withTurnFlags(agent: AcpAgent | undefined, req: CliRequest): AcpAgent | undefined {
   if (!agent?.builtin || agent.provider !== 'copilot') return agent
   return { ...agent, args: [...(agent.args ?? []), ...copilotFlags(req)] }
 }
@@ -133,7 +135,18 @@ export type BuildOptions = {
   readonly askHost?: boolean
 }
 
-export function buildCommand(req: ChatRequest, opts: BuildOptions = {}): BuiltCommand {
+/** Why a turn for an agent Cockpit only reads could not start — and what would let it. */
+export function noAcpAgent(provider: SessionProvider): string {
+  return `Cockpit runs ${AGENT_LABEL[provider]} only over its ACP server, and none has answered on this machine — install its CLI, or add one under Settings › Providers › ACP agents.`
+}
+
+/**
+ * A turn for one of the CLIs Cockpit runs headless. An agent Cockpit only reads never
+ * gets one of these: its turns run over ACP or not at all (see `start`).
+ */
+export type CliRequest = ChatRequest & { readonly provider: Provider }
+
+export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCommand {
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
   const effort = effortOf(req)
   switch (req.provider) {
@@ -337,7 +350,7 @@ function hostOf(baseUrl: string): string {
  * successfully. Exported for tests.
  */
 export function endpointPreflight(
-  req: ChatRequest,
+  req: CliRequest,
   ep: ModelEndpoint | undefined,
   keyResolved: boolean
 ): string | null {
@@ -365,7 +378,7 @@ type RunningTurn = {
   readonly child: ChildProcess
   /** Flipped when the CLI emits its done event — mutable turn state on purpose */
   doneSent: boolean
-  readonly provider: Provider
+  readonly provider: SessionProvider
   /** Epoch ms this turn was spawned — surfaces as elapsed time on the board */
   readonly startedAt: number
   /** Native session ids this turn is known under — the resumed id plus any the
@@ -438,7 +451,7 @@ export class ChatManager {
    * and every id its stream announced. A turn that has said it is done no longer counts
    * — its process may take a moment to exit, and a follow-up must not wait on that.
    */
-  turnFor(provider: Provider, nativeId: string): string | null {
+  turnFor(provider: SessionProvider, nativeId: string): string | null {
     for (const [turnId, t] of this.turns) {
       if (!t.doneSent && t.provider === provider && t.sessionIds.has(nativeId)) return turnId
     }
@@ -508,8 +521,24 @@ export class ChatManager {
       })
       return
     }
-    const askHost = req.provider === 'claude' && this.hooks.asksPermissions?.(req) === true
-    const { cmd, args, stdin } = buildCommand(req, { askHost })
+    // an agent Cockpit only reads has no headless CLI of Cockpit's: its turn runs over
+    // the agent's own ACP server, answered at startup, or it does not run at all
+    const provider = req.provider
+    if (!isDrivable(provider)) {
+      const agent = this.hooks.resolveAcpAgent?.(req)
+      if (!agent) {
+        queueMicrotask(() => {
+          this.emit({ turnId, type: 'error', message: noAcpAgent(provider) })
+          this.emit({ turnId, type: 'done' })
+        })
+        return
+      }
+      this.startAcpTurn(turnId, req, { agent, env: cliEnv(), pinned: {} })
+      return
+    }
+    const cli: CliRequest = { ...req, provider }
+    const askHost = provider === 'claude' && this.hooks.asksPermissions?.(req) === true
+    const { cmd, args, stdin } = buildCommand(cli, { askHost })
     const env = cliEnv()
     // BYOK: resolve the endpoint and its key, refuse loudly rather than silently
     // falling back to the provider's own backend
@@ -517,7 +546,7 @@ export class ChatManager {
       ? this.hooks.resolveEndpoint?.(req.options.modelEndpoint)
       : undefined
     const apiKey = ep ? this.hooks.resolveKey?.(ep) : undefined
-    const refusal = endpointPreflight(req, ep, Boolean(apiKey))
+    const refusal = endpointPreflight(cli, ep, Boolean(apiKey))
     if (refusal) {
       queueMicrotask(() => {
         this.emit({ turnId, type: 'error', message: refusal })
@@ -526,7 +555,7 @@ export class ChatManager {
       return
     }
     // what this turn itself decides: the BYOK endpoint and the account's config home
-    const pinned: Record<string, string> = ep ? { ...endpointEnv(req.provider, ep, apiKey) } : {}
+    const pinned: Record<string, string> = ep ? { ...endpointEnv(provider, ep, apiKey) } : {}
     // per-account config homes: each provider has its own env var for this
     if (req.configDir) {
       if (req.provider === 'claude') pinned.CLAUDE_CONFIG_DIR = req.configDir
@@ -536,7 +565,7 @@ export class ChatManager {
     // ACP: the same turn, driven over the agent's protocol instead of its headless
     // flags. Everything above — cwd checks, BYOK env, the config home — has already
     // been applied, and the agent inherits it as its environment.
-    const acpAgent = withTurnFlags(this.hooks.resolveAcpAgent?.(req), req)
+    const acpAgent = withTurnFlags(this.hooks.resolveAcpAgent?.(req), cli)
     if (acpAgent) {
       this.startAcpTurn(turnId, req, { agent: acpAgent, env, pinned })
       return
@@ -713,6 +742,8 @@ export class ChatManager {
       env,
       pinned,
       permissionMode: req.permissionMode,
+      // an agent Cockpit only reads continues the conversation the person opened, or not at all
+      mustResume: !isDrivable(req.provider),
       emit: (ev) => {
         const turn = this.turns.get(turnId)
         // a cancelled turn is already off the board; its trailing events are the kill

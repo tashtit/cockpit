@@ -11,11 +11,12 @@ import type {
   PrChecks,
   PrReview,
   PrStatus,
-  Provider,
+  SessionProvider,
   Roundtable,
   RoundtableEntry
 } from '../shared/types'
 import { cleanupCounts, cleanupHeadline } from '../shared/cleanup'
+import { AGENT_LABEL, SESSION_PROVIDERS } from '../shared/providers'
 import type { ObservedTurn } from './liveness-core'
 
 /**
@@ -75,7 +76,6 @@ const SEEN_PRS_MAX = 200
 /** The one entry the cleanup reminder keeps: each reminder replaces the last. */
 export const CLEANUP_KEY = 'cleanup'
 
-const AGENT: Record<Provider, string> = { claude: 'Claude', codex: 'Codex', copilot: 'Copilot' }
 
 /**
  * Something that needs the user and hasn't been looked at — a session's ended turn, a
@@ -91,7 +91,7 @@ export type Unseen = {
   readonly kind: 'session' | 'roundtable' | 'asks' | 'pr' | 'cleanup'
   /** Session id (null until known — copilot never announces one) or table id */
   readonly id: string | null
-  readonly provider?: Provider
+  readonly provider?: SessionProvider
   readonly cwd?: string
   /** When the turn started: how an id-less landing finds the session it became */
   readonly startedAt: number
@@ -107,7 +107,7 @@ export type Unseen = {
 
 export type TurnStart = {
   readonly turnId: string
-  readonly provider: Provider
+  readonly provider: SessionProvider
   readonly cwd: string
   readonly prompt: string
   readonly resumeNativeId?: string
@@ -154,7 +154,7 @@ export type Flush = {
 /** A turn followed from spawn to exit — mutable accumulator on purpose. */
 type Flight = {
   readonly turnId: string
-  readonly provider: Provider
+  readonly provider: SessionProvider
   readonly cwd: string
   readonly prompt: string
   readonly startedAt: number
@@ -288,14 +288,13 @@ const TABLE_VERB: Record<TableOutcome['kind'], string> = {
   failed: 'failed'
 }
 
-const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
 const KINDS: readonly Unseen['kind'][] = ['session', 'roundtable', 'asks', 'pr', 'cleanup']
 const CHECKS: readonly PrChecks[] = ['passing', 'failing', 'pending', 'none']
 const REVIEWS: readonly PrReview[] = ['approved', 'changes_requested', 'review_required', 'none']
 
 /** The provider a session id names, or undefined for a shape this code doesn't know. */
-function providerOf(id: string): Provider | undefined {
-  return PROVIDERS.find((p) => id.startsWith(`${p}:`))
+function providerOf(id: string): SessionProvider | undefined {
+  return SESSION_PROVIDERS.find((p) => id.startsWith(`${p}:`))
 }
 
 const str = (v: unknown, max: number): string | null => (typeof v === 'string' ? v.slice(0, max) : null)
@@ -343,7 +342,7 @@ export function sanitizeUnseen(raw: unknown, now: number): Unseen[] {
     const kind = KINDS.find((k) => k === o['kind'])
     const at = typeof o['at'] === 'number' && Number.isFinite(o['at']) ? o['at'] : NaN
     if (!key || !kind || !(at > now - (kind === 'asks' ? WAIT_TTL_MS : LANDING_TTL_MS))) continue
-    const provider = PROVIDERS.find((p) => p === o['provider'])
+    const provider = SESSION_PROVIDERS.find((p) => p === o['provider'])
     const id = str(o['id'], 512)
     const cwd = str(o['cwd'], 4096)
     const base = {
@@ -622,7 +621,7 @@ export class AttentionTracker {
     const failed = f.error !== null
     this.enqueue({
       key,
-      who: AGENT[f.provider],
+      who: AGENT_LABEL[f.provider],
       verb: failed ? 'failed' : 'finished',
       after: elapsedLabel(at - f.startedAt),
       detail: failed ? failureSnippet(f.error ?? '') : outcomeSnippet(f.text),
@@ -693,7 +692,7 @@ export class AttentionTracker {
         const failed = ev.failed === true
         this.enqueue({
           key: ev.id,
-          who: AGENT[ev.provider],
+          who: AGENT_LABEL[ev.provider],
           verb: failed ? 'failed' : 'finished',
           after: elapsedLabel(ev.endedAt - ev.startedAt),
           detail: failed ? failureSnippet(ev.closing ?? '') : outcomeSnippet(ev.closing ?? ''),
@@ -1044,12 +1043,12 @@ export class AttentionTracker {
   }
 
   /** A question or permission a session waits on: on the board, and a banner once the burst is out. */
-  private raiseAsk(u: Unseen & { readonly id: string; readonly provider: Provider; readonly asks: AttentionAsk }): void {
+  private raiseAsk(u: Unseen & { readonly id: string; readonly provider: SessionProvider; readonly asks: AttentionAsk }): void {
     this.unseen.set(u.key, u)
     const question = u.asks.kind === 'question'
     this.enqueue({
       key: u.key,
-      who: AGENT[u.provider],
+      who: AGENT_LABEL[u.provider],
       verb: question ? 'asks you' : 'needs permission',
       after: null,
       detail: clip(u.asks.detail, SNIPPET_MAX) || (question ? 'Answer in the session.' : 'Approve it where the agent runs.'),

@@ -1665,6 +1665,11 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   box-shadow: inset 0 0 0 1.5px var(--codex); }
 .composer-agent.active.plogo-copilot { background: rgba(var(--copilot-rgb), 0.16);
   box-shadow: inset 0 0 0 1.5px var(--copilot); }
+.composer-agent.active.plogo-gemini { background: rgba(var(--gemini-rgb), 0.16);
+  box-shadow: inset 0 0 0 1.5px var(--gemini); }
+.composer-agent.active.plogo-cursor, .composer-agent.active.plogo-cline,
+.composer-agent.active.plogo-opencode { background: rgba(var(--mono-mark-rgb), 0.12);
+  box-shadow: inset 0 0 0 1.5px var(--mono-mark); }
 .composer-agent.no-acct::after { content: ''; position: absolute; top: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
 /* account select sits borderless inside the identity control (quiet variant) */
@@ -1843,6 +1848,11 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   background: rgba(var(--codex-rgb), 0.1); box-shadow: 0 0 16px rgba(var(--codex-rgb), 0.15); }
 .ns-provider.ns-copilot.active { border-color: var(--copilot);
   background: rgba(var(--copilot-rgb), 0.1); box-shadow: 0 0 16px rgba(var(--copilot-rgb), 0.15); }
+/* the agents driven over ACP: Gemini in its blue, the monochrome brands in the shared mark */
+.ns-provider.ns-gemini.active { border-color: var(--gemini);
+  background: rgba(var(--gemini-rgb), 0.1); box-shadow: 0 0 16px rgba(var(--gemini-rgb), 0.15); }
+.ns-provider.ns-cursor.active, .ns-provider.ns-cline.active, .ns-provider.ns-opencode.active {
+  border-color: var(--mono-mark); background: rgba(var(--mono-mark-rgb), 0.08); }
 .ns-provider-name { font-weight: 700; }
 .ns-provider-blurb { font-size: var(--fs-xs); color: var(--fg-dim); text-align: center; }
 .ns-provider .acct-chip { margin-top: 2px; max-width: 100%; }

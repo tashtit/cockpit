@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../src/renderer/src/App'
-import type { RepoGroup, SessionControl, SessionMeta } from '../../src/shared/types'
+import type { AcpReadiness, RepoGroup, SessionControl, SessionMeta } from '../../src/shared/types'
 
 const repo: RepoGroup = {
   key: '/home/dev/rocket',
@@ -95,5 +95,54 @@ describe('App and who drives the open session', () => {
     expect(window.cockpit.setSessionHolder).toHaveBeenCalledWith('claude:a', 'agent')
     expect(await screen.findByRole('button', { name: 'Take over' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(/released from Cockpit/)
+  })
+})
+
+describe('App and a session of an agent Cockpit only reads', () => {
+  const gemini = (control: SessionControl): SessionMeta => ({
+    ...session(control),
+    id: 'gemini:g',
+    provider: 'gemini',
+    nativeId: 'g',
+    source: 'gemini-default',
+    sourcePath: '/home/dev/.gemini/tmp/p/chats/session-g.jsonl'
+  })
+
+  async function openGemini(control: SessionControl): Promise<(r: AcpReadiness) => void> {
+    let push: (r: AcpReadiness) => void = () => {}
+    vi.mocked(window.cockpit.onAcpReadiness).mockImplementation((cb) => {
+      push = cb
+      return () => {}
+    })
+    vi.mocked(window.cockpit.listRepos).mockResolvedValue([repo])
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [gemini(control)] })
+    vi.mocked(window.cockpit.getSession).mockResolvedValue(gemini(control))
+    vi.mocked(window.cockpit.getSessionMessages).mockResolvedValue([
+      { role: 'user', kind: 'text', text: 'hello transcript' }
+    ])
+    render(<App />)
+    const board = await screen.findByRole('region', { name: 'Session board' })
+    await userEvent.click(await within(board).findByRole('button', { name: /fix the login flake/ }))
+    await screen.findByText('hello transcript')
+    return (r) => act(() => push(r))
+  }
+
+  it('opens read-only, and gains its composer the moment an ACP agent answers for it', async () => {
+    const answered = await openGemini({ holder: 'cockpit', how: 'taken-over', since: 5 })
+    expect(screen.queryByRole('textbox', { name: 'Message Gemini' })).toBeNull()
+    expect(screen.getByText(/Cockpit runs Gemini only over its ACP server/)).toBeInTheDocument()
+
+    answered({ drivable: ['claude', 'codex', 'copilot', 'gemini'], builtinsReady: ['builtin-gemini'] })
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Message Gemini' }), 'carry on')
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() =>
+      expect(window.cockpit.sendChat).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'gemini', resumeNativeId: 'g', prompt: 'carry on' })
+      )
+    )
+
+    // and loses it again when that agent goes
+    answered({ drivable: ['claude', 'codex', 'copilot'], builtinsReady: [] })
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Message Gemini' })).toBeNull())
   })
 })

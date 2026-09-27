@@ -6,10 +6,12 @@ import { fileURLToPath } from 'node:url'
 import {
   buildCommand,
   ChatManager,
+  noAcpAgent,
   parseClaudeStreamLine,
   parseCodexStreamLine,
   promptWithImages,
-  withTurnFlags
+  withTurnFlags,
+  type CliRequest
 } from '../src/main/chat'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
 import type { AcpAgent, BusySession, ChatEvent, ChatRequest } from '../src/shared/types'
@@ -28,7 +30,7 @@ describe('buildCommand', () => {
     expect(args[args.length - 1]).toBe('hi')
   })
   it('claude with someone to ask: the CLI puts its permission prompts to Cockpit, and the prompt goes on stdin', () => {
-    const req: ChatRequest = { provider: 'claude', cwd: '/x', prompt: '- fix this', permissionMode: 'auto-edit', resumeNativeId: 'abc' }
+    const req: CliRequest = { provider: 'claude', cwd: '/x', prompt: '- fix this', permissionMode: 'auto-edit', resumeNativeId: 'abc' }
     const { args, stdin } = buildCommand(req, { askHost: true })
     expect(args.join(' ')).toContain('--input-format stream-json --permission-prompt-tool stdio')
     expect(args).toContain('acceptEdits')
@@ -73,7 +75,7 @@ describe('buildCommand', () => {
     expect(safe.slice(-2)).toEqual(['--', 'hi'])
   })
   it('a read-only Codex seat reaches the network through a permission profile, its files still read-only', () => {
-    const seat = (over: Partial<ChatRequest> = {}): string[] =>
+    const seat = (over: Partial<CliRequest> = {}): string[] =>
       buildCommand({
         provider: 'codex',
         cwd: '/x',
@@ -99,7 +101,7 @@ describe('buildCommand', () => {
     expect(resumed.slice(0, 3)).toEqual(['exec', 'resume', 'sid'])
     expect(overrides(resumed)).toEqual(overrides(fresh))
     // only a seat, only read-only, only safe: every other turn keeps its sandbox as it was
-    const plain = (over: Partial<ChatRequest>): string[] => overrides(seat(over))
+    const plain = (over: Partial<CliRequest>): string[] => overrides(seat(over))
     expect(plain({ research: undefined })).toEqual([])
     expect(seat({ research: undefined })).toContain('--sandbox')
     expect(plain({ options: { codexSandbox: 'workspace-write' } })).toEqual([])
@@ -370,7 +372,7 @@ describe('parseCodexStreamLine', () => {
 })
 
 describe('thinking level, speed and context', () => {
-  const req = (provider: ChatRequest['provider'], options: ChatRequest['options']): ChatRequest => ({
+  const req = (provider: CliRequest['provider'], options: ChatRequest['options']): CliRequest => ({
     provider,
     cwd: '/x',
     prompt: 'hi',
@@ -463,6 +465,62 @@ describe('ChatManager — a turn that cannot start', () => {
     // OS argument limit
     const { events } = await run({}, { prompt: 'a\u0000b' })
     expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+  })
+})
+
+describe('ChatManager — an agent Cockpit only reads', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cockpit-readonly-'))
+  const agent = (mode: string): AcpAgent => ({
+    id: 'gemini-stub',
+    label: 'Gemini stub',
+    command: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/stub-acp-agent.mjs', import.meta.url))],
+    provider: 'gemini',
+    env: { STUB_MODE: mode }
+  })
+
+  /** Run one turn to its done, and what the manager said was running along the way. */
+  async function turn(
+    resolveAcpAgent: (() => AcpAgent | undefined) | undefined,
+    req: Partial<ChatRequest> = {}
+  ): Promise<{ events: ChatEvent[]; busy: string[] }> {
+    const events: ChatEvent[] = []
+    const busy: string[] = []
+    let finish: () => void = () => {}
+    const finished = new Promise<void>((r) => (finish = r))
+    const chat: ChatManager = new ChatManager(
+      (ev) => {
+        events.push(ev)
+        if (ev.type === 'session') busy.push(...chat.busySessions().map((b) => b.id))
+        if (ev.type === 'done') finish()
+      },
+      resolveAcpAgent ? { resolveAcpAgent } : {}
+    )
+    chat.send({ provider: 'gemini', cwd, prompt: 'hi', permissionMode: 'safe', ...req })
+    await finished
+    return { events, busy }
+  }
+
+  it('refuses a turn no ACP agent answers for, and says what would', async () => {
+    const { events } = await turn(() => undefined)
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect(events[0]).toMatchObject({ message: noAcpAgent('gemini') })
+    expect(noAcpAgent('gemini')).toMatch(/^Cockpit runs Gemini only over its ACP server/)
+  })
+
+  it('runs a turn over the ACP agent that answers for it, under its own session id', async () => {
+    const { events, busy } = await turn(() => agent('basic'))
+    expect(events[0]).toMatchObject({ type: 'session', nativeSessionId: 'sess-1' })
+    expect(busy).toEqual(['gemini:sess-1'])
+    expect(events.at(-1)).toMatchObject({ type: 'done' })
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+  })
+
+  it('continues the conversation it was opened on, or fails — never a quiet new one', async () => {
+    const resumed = await turn(() => agent('basic'), { resumeNativeId: 'sess-old' })
+    expect(resumed.events[0]).toMatchObject({ type: 'session', nativeSessionId: 'sess-old' })
+    const forgotten = await turn(() => agent('noload'), { resumeNativeId: 'sess-old' })
+    expect(forgotten.events.map((e) => e.type)).toEqual(['error', 'done'])
   })
 })
 

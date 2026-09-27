@@ -4,6 +4,7 @@ import type { CockpitApi } from '../../src/shared/contract'
 import { DEFAULT_ROUNDTABLE_LIMITS } from '../../src/shared/roundtable'
 import { BUILTIN_MODELS } from '../../src/shared/agent-models'
 import type {
+  AcpReadiness,
   CliStatus,
   PrStatus,
   Provider,
@@ -294,6 +295,8 @@ export function freshApi(): CockpitApi {
     addAcpAgent: vi.fn(async () => []),
     removeAcpAgent: vi.fn(async () => []),
     probeAcpAgent: vi.fn(async () => ({ ok: true })),
+    getAcpReadiness: vi.fn(async (): Promise<AcpReadiness> => ({ drivable: ['claude', 'codex', 'copilot'], builtinsReady: [] })),
+    onAcpReadiness: vi.fn(() => () => {}),
     listRoundtables: vi.fn(async () => []),
     setRoundtableArchived: vi.fn(async () => {}),
     deleteRoundtables: vi.fn(async () => ({ cleaned: 0, freedBytes: 0, failed: [] })),

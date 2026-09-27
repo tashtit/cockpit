@@ -37,7 +37,7 @@ export type PendingPermission = {
 export type TranscriptAnchor = Pick<TranscriptHit, 'role' | 'snippet' | 'timestamp'>
 
 export type ChatBinding = {
-  /** Any agent the index reads; only a driven one (`isDrivable`) is ever sent a turn */
+  /** Any agent the index reads; one Cockpit only reads is sent a turn only while an ACP agent drives it */
   readonly provider: SessionProvider
   readonly cwd: string
   readonly nativeSessionId: string | null
@@ -58,8 +58,10 @@ export type ChatBinding = {
   readonly startedBy?: { readonly id: string; readonly provider: SessionProvider; readonly title: string }
   /**
    * View only, no composer, and why: a roundtable seat-session belongs to its table (main
-   * refuses sends there too); an agent Cockpit only reads has no CLI Cockpit runs — its
-   * session can still be continued with one that it does.
+   * refuses sends there too); an agent Cockpit only reads has no CLI Cockpit runs and no
+   * ACP agent answering for it — its session can still be continued with one that does.
+   * App keeps `'agent'` in step with `acp-readiness.ts`, so an agent whose ACP agent
+   * answers later gains its composer without the session being reopened.
    */
   readonly readOnly?: 'seat' | 'agent'
 }

@@ -3,6 +3,7 @@ import { CH, PUSH } from '../shared/contract'
 import { clampZoom } from '../shared/window'
 import type { CockpitApi } from '../shared/contract'
 import type {
+  AcpReadiness,
   AttentionFocus,
   AttentionPrefs,
   AttentionTarget,
@@ -171,6 +172,12 @@ const api: CockpitApi = {
   addAcpAgent: (agent: NewAcpAgent) => ipcRenderer.invoke(CH.acpAdd, agent),
   removeAcpAgent: (id: string) => ipcRenderer.invoke(CH.acpRemove, id),
   probeAcpAgent: (agent: NewAcpAgent) => ipcRenderer.invoke(CH.acpProbe, agent),
+  getAcpReadiness: () => ipcRenderer.invoke(CH.acpReadiness),
+  onAcpReadiness: (cb: (readiness: AcpReadiness) => void) => {
+    const handler = (_e: unknown, readiness: AcpReadiness): void => cb(readiness)
+    ipcRenderer.on(PUSH.acpReadiness, handler)
+    return () => ipcRenderer.removeListener(PUSH.acpReadiness, handler)
+  },
   exportBackup: (passphrase?: string) => ipcRenderer.invoke(CH.backupExport, passphrase),
   openBackup: () => ipcRenderer.invoke(CH.backupOpen),
   restoreBackup: (token: string, passphrase?: string) =>

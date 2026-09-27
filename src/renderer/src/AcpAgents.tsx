@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import type { AcpAgent, AcpAgentProbe, Provider } from '../../shared/types'
+import type { AcpAgent, AcpAgentProbe, SessionProvider } from '../../shared/types'
 import { acpAgentRefusal } from '../../shared/acp'
+import { isDrivable, SESSION_PROVIDERS } from '../../shared/providers'
 import { api } from './api'
+import { useAcpReadiness } from './acp-readiness'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -17,7 +19,8 @@ import { Select } from './Select'
 export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JSX.Element {
   const [agents, setAgents] = useState<AcpAgent[]>([])
   const [label, setLabel] = useState('')
-  const [provider, setProvider] = useState<Provider>('claude')
+  const [provider, setProvider] = useState<SessionProvider>('claude')
+  const { builtinsReady } = useAcpReadiness()
   const [command, setCommand] = useState('')
   const [args, setArgs] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -42,7 +45,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
   }
 
   /** The definition the form currently describes; `null` when it is not usable yet. */
-  const draft = (): { label: string; provider: Provider; command: string; args?: string[] } | null => {
+  const draft = (): { label: string; provider: SessionProvider; command: string; args?: string[] } | null => {
     const parts = args.trim() ? args.trim().split(/\s+/) : []
     const d = { label: label.trim(), provider, command: command.trim(), ...(parts.length ? { args: parts } : {}) }
     const refusal = acpAgentRefusal(d)
@@ -84,7 +87,11 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
       setArgs('')
       setProbe(null)
       setAddOpen(false)
-      say(`Added ${d.label}. New ${PROVIDER_LABEL[d.provider]} sessions will run through it.`)
+      say(
+        isDrivable(d.provider)
+          ? `Added ${d.label}. New ${PROVIDER_LABEL[d.provider]} sessions will run through it.`
+          : `Added ${d.label}. ${PROVIDER_LABEL[d.provider]} sessions can be started and continued through it.`
+      )
     } catch (err) {
       setError(ipcErrorText(err))
     } finally {
@@ -109,7 +116,9 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
         Agents that speak the Agent Client Protocol, which Cockpit drives over the protocol instead
         of that CLI&apos;s own one-shot flags. It is a better conversation: tool calls arrive as
         events, permission prompts can be answered here, and the session keeps its own id. Each
-        agent says which CLI it drives, so its work still appears in your sessions.
+        agent says which CLI it drives, so its work still appears in your sessions. For an agent
+        Cockpit otherwise only reads, one of these is what lets you start and continue its
+        sessions here.
       </p>
       <ul className="source-list">
         {agents.map((agent) => (
@@ -120,7 +129,7 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
             <div className="source-body">
               <div className="source-label">
                 {agent.label}
-                <span className="acct-chip">{agent.provider}</span>
+                <span className="acct-chip">{PROVIDER_LABEL[agent.provider]}</span>
                 {agent.builtin && <span className="source-origin">built in</span>}
               </div>
               <div className="source-path" title={`${agent.command} ${(agent.args ?? []).join(' ')}`}>
@@ -129,7 +138,11 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
             </div>
             {agent.builtin ? (
               <div className="source-health">
-                <span className="source-note">used when this CLI supports it</span>
+                {/* the handshake at launch is the only test: a CLI that is missing, or
+                    too old to speak ACP, simply never answers */}
+                <span className="source-note">
+                  {builtinsReady.includes(agent.id) ? 'answered — in use' : 'used once its CLI answers'}
+                </span>
               </div>
             ) : (
               <ConfirmRemove
@@ -137,7 +150,11 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
                 armed={confirm.armed}
                 label={`Remove agent ${agent.label} — ${agent.command}`}
                 confirmLabel={`Confirm removing agent ${agent.label}`}
-                confirmTitle={`New ${PROVIDER_LABEL[agent.provider]} sessions go back to its own CLI. Existing sessions are unaffected.`}
+                confirmTitle={
+                  isDrivable(agent.provider)
+                    ? `New ${PROVIDER_LABEL[agent.provider]} sessions go back to its own CLI. Existing sessions are unaffected.`
+                    : `Cockpit stops running ${PROVIDER_LABEL[agent.provider]} through it. Existing sessions are unaffected.`
+                }
                 onArm={confirm.arm}
                 onDisarm={confirm.disarm}
                 onConfirm={() => void remove(agent)}
@@ -189,11 +206,11 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
                 id="acp-provider"
                 ariaLabel="Which agent this CLI drives"
                 value={provider}
-                options={(['claude', 'codex', 'copilot'] as Provider[]).map((p) => ({
+                options={SESSION_PROVIDERS.map((p) => ({
                   value: p,
                   label: PROVIDER_LABEL[p]
                 }))}
-                onChange={(v) => setProvider(v as Provider)}
+                onChange={(v) => setProvider(v as SessionProvider)}
               />
             </div>
             <div className="ns-opt">

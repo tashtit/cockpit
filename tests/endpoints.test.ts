@@ -13,8 +13,8 @@ import {
   parseModelsResponse,
   sanitizeEndpoint
 } from '../src/shared/endpoints'
-import { endpointPreflight } from '../src/main/chat'
-import type { ChatRequest, ModelEndpoint } from '../src/shared/types'
+import { endpointPreflight, type CliRequest } from '../src/main/chat'
+import type { ModelEndpoint } from '../src/shared/types'
 
 const ep = (over: Partial<ModelEndpoint> = {}): ModelEndpoint => ({
   id: 'ep-1',
@@ -316,7 +316,7 @@ describe('modelsRequest / parseModelsResponse', () => {
 })
 
 describe('endpointPreflight', () => {
-  const req = (over: Partial<ChatRequest>): ChatRequest => ({
+  const req = (over: Partial<CliRequest>): CliRequest => ({
     provider: 'copilot',
     cwd: '/x',
     prompt: 'p',

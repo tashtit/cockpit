@@ -1,17 +1,8 @@
 import type { JSX } from 'react'
 import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, SessionProvider, TodoStatus } from '../../shared/types'
+import { AGENT_LABEL } from '../../shared/providers'
 
-export const PROVIDER_LABEL: Record<SessionProvider, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  copilot: 'Copilot',
-  gemini: 'Gemini',
-  cursor: 'Cursor',
-  cline: 'Cline',
-  roo: 'Roo Code',
-  opencode: 'opencode',
-  antigravity: 'Antigravity'
-}
+export const PROVIDER_LABEL = AGENT_LABEL
 
 /* Official brand marks:
  *  - Claude: Anthropic starburst (Simple Icons path data)

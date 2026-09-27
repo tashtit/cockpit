@@ -30,6 +30,7 @@ import { PROVIDER_LABEL } from './logos'
 import { Settings, type SettingsSection } from './Settings'
 import { branchHint, taskTitle } from './task-names'
 import { initLanded } from './landed'
+import { canDrive, drivableNow, initAcpReadiness, useDrivableAgents } from './acp-readiness'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -194,6 +195,17 @@ export function App(): JSX.Element {
     }
   }, [selectedSessionId, indexVersion])
   useEffect(() => initLanded(), [])
+  useEffect(() => initAcpReadiness(), [])
+  // an agent Cockpit only reads opens read-only, and gains its composer the moment an ACP
+  // agent answers for it (or loses it when that agent is removed) — whichever came first
+  const drivable = useDrivableAgents()
+  useEffect(() => {
+    setBinding((b) => {
+      if (!b || b.readOnly === 'seat' || isDrivable(b.provider)) return b
+      const readOnly = canDrive(b.provider, drivable) ? undefined : 'agent'
+      return b.readOnly === readOnly ? b : { ...b, readOnly }
+    })
+  }, [drivable])
   // the transcript's markdown pipeline is its own chunk — warm it once the window
   // is up, so the first session opened renders formatted with no plain-text flash
   useEffect(() => preloadMarkdown(), [])
@@ -550,7 +562,7 @@ export function App(): JSX.Element {
         configDir: acct && !acct.isDefault ? acct.path : undefined,
         accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
         continuedFrom: lineageRef(s.continuedFrom),
-        readOnly: s.roundtableId ? 'seat' : isDrivable(s.provider) ? undefined : 'agent'
+        readOnly: s.roundtableId ? 'seat' : canDrive(s.provider, drivableNow()) ? undefined : 'agent'
       })
       setView({ kind: 'chat' })
       // a seat's turn is its table's, and streams there — the seat's chat only reads
@@ -671,11 +683,10 @@ export function App(): JSX.Element {
 
   const send = useCallback(
     async (prompt: string, permissionMode: PermissionMode, images?: readonly string[]) => {
-      // a session with its agent is taken over first — main refuses it otherwise too
+      // a session with its agent is taken over first — main refuses it otherwise too; an
+      // agent Cockpit only reads is read-only until an ACP agent drives it
       if (!binding || activeTurn || binding.readOnly || elsewhere || control?.holder === 'agent') return
-      // `readOnly` already stops an agent Cockpit only reads; this says so to the types
       const provider = binding.provider
-      if (!isDrivable(provider)) return
       // from here the view holds what disk does not — no re-read may land on it
       diskLogRef.current = null
       // the transcript shows attachments as one marker line per image

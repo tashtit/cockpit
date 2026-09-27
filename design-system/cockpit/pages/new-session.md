@@ -20,9 +20,14 @@ images as `initialImages`) or the sidebar repo-row "+".
 
 - `.ns-label` uppercase micro-labels set the rhythm: far from the previous group
   (`margin-top: --s4`), close to their own field. Inside `.ns-opt` the label sits flush.
-- Agent choice is the hero control: three `.ns-provider` cards (logo, name, one-line
-  blurb, account chip). Active = agent-colored 1.5px border + tint + soft glow;
-  `aria-pressed` on each. Blurbs are fixed copy (`AGENT_BLURB`) — keep them one line.
+- Agent choice is the hero control: `.ns-provider` cards (logo, name, one-line blurb,
+  account chip) — the three CLIs, then each agent Cockpit otherwise only reads that an ACP
+  agent drives right now (`startableAgents`), which wrap onto the next row. Active =
+  agent-colored 1.5px border + tint + soft glow (the monochrome brands share
+  `--mono-mark`); `aria-pressed` on each. Blurbs are fixed copy (`AGENT_BLURB`) — keep them
+  one line. An ACP-driven card's blurb and chip say how it runs ("over ACP"), never an
+  account: Cockpit doesn't learn who that agent is signed in as, so picking one hides
+  Account, Model and Thinking, and a hint says its model and account are its own.
 - Account: single account renders as static `.ns-account-single` (mono); multiple render
   a mono `<select>`. Same `savedAccount` resolution rule as Home — saved choice, else
   first configured.

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import type { AccountsSnapshot, AgentOptions, PermissionMode, Provider, SessionProvider } from '../../shared/types'
+import type { AccountsSnapshot, AgentOptions, PermissionMode, SessionProvider } from '../../shared/types'
 import { api } from './api'
 import { shortPath } from '../../shared/library'
 import { isDrivable } from '../../shared/providers'
 import {
   AccountField,
-  AGENT_BLURB,
+  AgentCard,
   AgentOptionsFields,
   AgentOptionsHints,
   accountOptions,
@@ -17,8 +17,7 @@ import {
 import type { AccountChoice } from './NewSession'
 import { BranchChip, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
-
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
+import { refreshAcpReadiness, startableAgents, useDrivableAgents } from './acp-readiness'
 
 /** The session being handed off, snapshotted from the open chat binding. */
 export type HandoffSourceRef = {
@@ -35,7 +34,8 @@ export type HandoffSourceRef = {
 /** Everything needed to continue the source session on another agent. */
 export type StartHandoffRequest = {
   readonly source: HandoffSourceRef
-  readonly provider: Provider
+  /** One of the three CLIs, or an agent Cockpit otherwise only reads that an ACP agent drives */
+  readonly provider: SessionProvider
   /** The final first prompt: edited briefing (+ optional next-step section) */
   readonly briefing: string
   readonly mode: PermissionMode
@@ -60,11 +60,13 @@ export function HandoffView({
   onStart: (req: StartHandoffRequest) => Promise<string | null>
   onCancel: () => void
 }): JSX.Element {
+  const drivable = useDrivableAgents()
+  const agents = startableAgents(drivable)
   // default to a different agent — continuing on the same one is allowed, but the
   // point of a handoff is usually the switch
-  const [provider, setProvider] = useState<Provider>(
-    () => PROVIDERS.find((p) => p !== source.provider) ?? 'claude'
-  )
+  const [picked, setProvider] = useState<SessionProvider | null>(null)
+  // derived: an ACP-driven pick whose agent went away falls back like no pick at all
+  const provider = picked && agents.includes(picked) ? picked : (agents.find((p) => p !== source.provider) ?? 'claude')
   const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [accountKey, setAccountKey] = useState<string | null>(null)
@@ -85,6 +87,7 @@ export function HandoffView({
 
   useEffect(() => {
     void api.getAccounts().then(setAccounts)
+    refreshAcpReadiness()
   }, [])
 
   useEffect(() => {
@@ -173,37 +176,27 @@ export function HandoffView({
 
         <label className="ns-label">Continue with</label>
         <div className="ns-providers" role="group" aria-label="Continue with">
-          {PROVIDERS.map((p) => {
-            const acct = p === provider ? account : savedAccount(accounts, p)
-            return (
-              <button
-                key={p}
-                aria-pressed={provider === p}
-                className={`ns-provider ns-${p} ${provider === p ? 'active' : ''}`}
-                onClick={() => setProvider(p)}
-              >
-                <ProviderLogo p={p} size={20} />
-                <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
-                <span className="ns-provider-blurb">{AGENT_BLURB[p]}</span>
-                {/* while accounts are still loading, absence is unknown — not "signed out" */}
-                <span
-                  className={`acct-chip${acct || accounts === null ? '' : ' missing'}`}
-                  title={acct?.display}
-                >
-                  {acct?.identity ?? (accounts === null ? '…' : 'not signed in')}
-                </span>
-              </button>
-            )
-          })}
+          {agents.map((p) => (
+            <AgentCard
+              key={p}
+              p={p}
+              active={provider === p}
+              account={p === provider ? account : savedAccount(accounts, p)}
+              accountsLoading={accounts === null}
+              onPick={() => setProvider(p)}
+            />
+          ))}
         </div>
 
         <div className="ns-options ns-agent-options">
-          <AccountField
-            opts={opts}
-            account={account}
-            loading={accounts === null}
-            onChange={setAccountKey}
-          />
+          {isDrivable(provider) && (
+            <AccountField
+              opts={opts}
+              account={account}
+              loading={accounts === null}
+              onChange={setAccountKey}
+            />
+          )}
           <AgentOptionsFields provider={provider} o={agent} />
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ns-mode">Permissions</label>

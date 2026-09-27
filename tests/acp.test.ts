@@ -32,7 +32,12 @@ type Run = { readonly events: ChatEvent[]; readonly turn: AcpTurn }
 /** Start a turn and hand back the live event list; `onEvent` can answer mid-flight. */
 function start(
   mode: string,
-  opts: { permissionMode?: PermissionMode; resume?: string; onEvent?: (ev: ChatEvent, turn: AcpTurn) => void } = {}
+  opts: {
+    permissionMode?: PermissionMode
+    resume?: string
+    mustResume?: boolean
+    onEvent?: (ev: ChatEvent, turn: AcpTurn) => void
+  } = {}
 ): Run & { readonly done: Promise<void> } {
   const events: ChatEvent[] = []
   let turn!: AcpTurn
@@ -41,6 +46,7 @@ function start(
     cwd,
     env: process.env,
     permissionMode: opts.permissionMode ?? 'safe',
+    mustResume: opts.mustResume,
     emit: (ev) => {
       events.push(ev)
       opts.onEvent?.(ev, turn)
@@ -147,6 +153,29 @@ describe('AcpTurn', () => {
 
   it('does not try to load when the agent cannot', async () => {
     const { events, done } = start('noload', { resume: 'sess-old' })
+    await done
+    expect(events[0]).toMatchObject({ type: 'session', nativeSessionId: 'sess-1' })
+  })
+
+  // an agent Cockpit only reads: whether its ACP server knows a session by the id its
+  // store gives it is the agent's business, so a quiet fresh session would answer the
+  // person without the history they are looking at
+  it('fails a resume that must continue the conversation, when the agent has forgotten it', async () => {
+    const { events, done } = start('noload-error', { resume: 'sess-old', mustResume: true })
+    await done
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect(events[0]).toMatchObject({ message: expect.stringMatching(/^Stub couldn't reopen this conversation over ACP/) })
+  })
+
+  it('fails a resume that must continue the conversation, when the agent cannot load one', async () => {
+    const { events, done } = start('noload', { resume: 'sess-old', mustResume: true })
+    await done
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect(events[0]).toMatchObject({ message: expect.stringMatching(/^Stub can't reopen a conversation over ACP/) })
+  })
+
+  it('still starts a new conversation freely when one must resume', async () => {
+    const { events, done } = start('noload', { mustResume: true })
     await done
     expect(events[0]).toMatchObject({ type: 'session', nativeSessionId: 'sess-1' })
   })

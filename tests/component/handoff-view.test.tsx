@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HandoffView } from '../../src/renderer/src/HandoffView'
 import type { HandoffSourceRef, StartHandoffRequest } from '../../src/renderer/src/HandoffView'
+import { initAcpReadiness } from '../../src/renderer/src/acp-readiness'
 
 const source: HandoffSourceRef = {
   id: 'claude:src-1',
@@ -135,5 +136,26 @@ describe('HandoffView', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Improve with AI' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('claude timed out'))
     expect(screen.getByLabelText('Briefing')).toHaveValue('extracted')
+  })
+})
+
+describe('HandoffView and the agents an ACP agent drives', () => {
+  it('offers one as the agent to continue with, and starts it with none of a CLI’s knobs', async () => {
+    vi.mocked(window.cockpit.getHandoffBriefing).mockResolvedValue({ briefing: 'extracted context', cwdExists: true })
+    vi.mocked(window.cockpit.getAcpReadiness).mockResolvedValue({
+      drivable: ['claude', 'codex', 'copilot', 'opencode'],
+      builtinsReady: ['builtin-opencode']
+    })
+    await act(async () => {
+      initAcpReadiness()
+    })
+    const { onStart } = renderHandoff()
+    await waitFor(() => expect(screen.getByLabelText('Briefing')).toHaveValue('extracted context'))
+    await userEvent.click(screen.getByRole('button', { name: /opencode/ }))
+    expect(screen.queryByRole('status', { name: 'Account' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: /^Continue in opencode$/ }))
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'opencode', options: {}, briefing: 'extracted context' })
+    )
   })
 })

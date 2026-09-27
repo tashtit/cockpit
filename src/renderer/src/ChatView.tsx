@@ -10,6 +10,7 @@ import { Markdown } from './Markdown'
 import { MODES, savedMode } from './NewSession'
 import { cwdLabel } from '../../shared/library'
 import { holdSentence, holderName, placeOf } from './hold'
+import { isDrivable } from '../../shared/providers'
 import {
   BranchChip,
   CockpitLogo,
@@ -434,8 +435,9 @@ export function ChatView({
         </span>
         {/* compact: the local part identifies the account at a glance; the full
             identity lives in the tooltip (same pattern as the sidebar footer). An agent
-            Cockpit only reads runs as nobody Cockpit knows, so it claims no account */}
-        {binding.readOnly !== 'agent' && (
+            Cockpit only reads — or drives over its ACP server — runs as whoever it is
+            signed in as, which Cockpit never learns, so it claims no account */}
+        {isDrivable(binding.provider) && (
           <span
             className={`acct-chip acct-${binding.provider}`}
             title={`Running as ${binding.accountLabel ?? 'default account'}`}
@@ -694,13 +696,14 @@ export function ChatView({
                 Seat session of a roundtable — read-only. Talk to it at the table.
               </div>
             ) : binding.readOnly === 'agent' ? (
-              // an agent Cockpit reads but doesn't run: the way on is another agent
+              // an agent Cockpit reads but can't run here: the way on is another agent,
+              // or its ACP server once one answers (the composer appears on its own)
               <div className="composer-readonly">
-                Cockpit reads {PROVIDER_LABEL[binding.provider]} sessions but doesn&apos;t run{' '}
-                {PROVIDER_LABEL[binding.provider]}.{' '}
+                Cockpit runs {PROVIDER_LABEL[binding.provider]} only over its ACP server, and none
+                has answered on this machine.{' '}
                 {binding.nativeSessionId && (
                   <button className="link-btn" onClick={onOpenHandoff}>
-                    Continue in Claude, Codex or Copilot…
+                    Continue it with another agent…
                   </button>
                 )}
               </div>
@@ -1183,18 +1186,22 @@ function HoldBar({
         <strong>{holderName(control, provider)}</strong> — {why}
       </p>
       <div className="hold-actions">
-        <button
-          className="btn-ghost small"
-          disabled={resumeBlocked || pending}
-          title={
-            resumeBlocked
-              ? resumeWhy
-              : `${held ? 'Release it and resume' : 'Resume'} it in ${agent}’s own CLI, in a Terminal window`
-          }
-          onClick={onResume}
-        >
-          <ProcessIcon size={11} /> Open in Terminal
-        </button>
+        {/* only a CLI Cockpit runs has a resume command to hand a terminal; one driven
+            over ACP is picked up in its own app */}
+        {isDrivable(provider) && (
+          <button
+            className="btn-ghost small"
+            disabled={resumeBlocked || pending}
+            title={
+              resumeBlocked
+                ? resumeWhy
+                : `${held ? 'Release it and resume' : 'Resume'} it in ${agent}’s own CLI, in a Terminal window`
+            }
+            onClick={onResume}
+          >
+            <ProcessIcon size={11} /> Open in Terminal
+          </button>
+        )}
         {held ? (
           <>
             <button

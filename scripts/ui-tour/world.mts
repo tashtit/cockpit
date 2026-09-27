@@ -77,7 +77,7 @@ export function buildWorld(at: string, { populated = true }: { populated?: boole
 /** One wrapper per CLI name, all running the same stub with the tool as its first arg. */
 function writeStubs(world: World): void {
   mkdirSync(world.bin, { recursive: true })
-  for (const tool of ['claude', 'codex', 'copilot', 'gh']) {
+  for (const tool of ['claude', 'codex', 'copilot', 'gh', 'opencode']) {
     const path = join(world.bin, tool)
     writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${STUB}" ${tool} "$@"\n`)
     chmodSync(path, 0o755)

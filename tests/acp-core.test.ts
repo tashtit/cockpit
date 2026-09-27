@@ -101,7 +101,7 @@ describe('sanitizeAcpAgent', () => {
 
   it('requires a known provider — an agent Cockpit could not index is refused', () => {
     expect(sanitizeAcpAgent({ ...ok, provider: undefined }, 'a1')).toBeNull()
-    expect(sanitizeAcpAgent({ ...ok, provider: 'gemini' }, 'a1')).toBeNull()
+    expect(sanitizeAcpAgent({ ...ok, provider: 'aider' }, 'a1')).toBeNull()
   })
 })
 
@@ -114,7 +114,7 @@ describe('isValidAcpCommand', () => {
 
 describe('acpAgentRefusal', () => {
   it('asks which CLI an agent drives', () => {
-    expect(acpAgentRefusal({ label: 'x', command: 'agent', provider: 'gemini' as never })).toMatch(/which agent/)
+    expect(acpAgentRefusal({ label: 'x', command: 'agent', provider: 'aider' as never })).toMatch(/which agent/)
   })
 
   it('explains a relative command specifically', () => {
@@ -134,6 +134,25 @@ describe('built-ins', () => {
   it('maps copilot to its native ACP mode', () => {
     const copilot = builtinAgentFor('copilot')
     expect(copilot).toMatchObject({ command: 'copilot', args: ['--acp'] })
+  })
+
+  it('ships the ACP mode of each agent Cockpit otherwise only reads that has one', () => {
+    // the command each project documents for editors: a flag, or a subcommand
+    expect(builtinAgentFor('gemini')).toMatchObject({ command: 'gemini', args: ['--acp'] })
+    expect(builtinAgentFor('opencode')).toMatchObject({ command: 'opencode', args: ['acp'] })
+    expect(builtinAgentFor('cursor')).toMatchObject({ command: 'cursor-agent', args: ['acp'] })
+    expect(builtinAgentFor('cline')).toMatchObject({ command: 'cline', args: ['--acp'] })
+    // and none where the agent has no ACP mode to run
+    expect(builtinAgentFor('roo')).toBeUndefined()
+    expect(new Set(BUILTIN_ACP_AGENTS.map((a) => a.id)).size).toBe(BUILTIN_ACP_AGENTS.length)
+  })
+
+  it('lets a definition drive any agent Cockpit knows, and none it does not', () => {
+    expect(sanitizeAcpAgent({ label: 'x', command: 'agent', provider: 'antigravity' }, 'a')).toMatchObject({
+      provider: 'antigravity'
+    })
+    expect(sanitizeAcpAgent({ label: 'x', command: 'agent', provider: 'other' }, 'a')).toBeNull()
+    expect(acpAgentRefusal({ label: 'x', command: 'agent', provider: 'roo' })).toBeNull()
   })
 
   it('only ships agents that belong to an indexed provider', () => {

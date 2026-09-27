@@ -43,6 +43,13 @@ type TurnOptions = {
   readonly pinned?: Readonly<Record<string, string>>
   readonly permissionMode: PermissionMode
   readonly emit: (ev: ChatEvent) => void
+  /**
+   * A resumed turn that cannot reopen its conversation fails rather than starting a
+   * fresh one. Set for an agent Cockpit only reads: whether its ACP server knows a
+   * session by the id its own store gives it is the agent's business, and a quiet new
+   * session would answer the person without any of the history they are looking at.
+   */
+  readonly mustResume?: boolean
 }
 
 /** Stops one runaway line from growing the heap without bound. */
@@ -173,9 +180,12 @@ export class AcpTurn {
   private replaying = false
   private finished = false
   private stderr = ''
+  /** What the person calls this agent, for the errors that name it */
+  private readonly agentLabel: string
 
   constructor(agent: AcpAgent, opts: TurnOptions) {
     this.opts = opts
+    this.agentLabel = agent.label
     this.child = spawn(agent.command, [...(agent.args ?? [])], {
       cwd: opts.cwd,
       env: { ...opts.env, ...(agent.env ?? {}), ...(opts.pinned ?? {}) },
@@ -340,6 +350,10 @@ export class AcpTurn {
 
   /** Resume the conversation when we can, start a fresh one when we can't. */
   private async openSession(canLoad: boolean, resumeNativeId?: string): Promise<string> {
+    const { mustResume } = this.opts
+    if (resumeNativeId && !canLoad && mustResume) {
+      throw new Error(`${this.agentLabel} can't reopen a conversation over ACP, so this one can't be continued from Cockpit.`)
+    }
     if (resumeNativeId && canLoad) {
       this.replaying = true
       try {
@@ -349,9 +363,12 @@ export class AcpTurn {
           mcpServers: []
         })
         return resumeNativeId
-      } catch {
+      } catch (err) {
         // the agent forgot this session (pruned, or written under another account) —
-        // a fresh one is better than refusing the turn
+        // a fresh one is better than refusing the turn, unless the turn says otherwise
+        if (mustResume) {
+          throw new Error(`${this.agentLabel} couldn't reopen this conversation over ACP: ${messageFor(err)}`)
+        }
       } finally {
         this.replaying = false
       }

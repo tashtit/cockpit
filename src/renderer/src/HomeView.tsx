@@ -3,7 +3,6 @@ import type {
   AccountsSnapshot,
   Landing,
   PermissionMode,
-  Provider,
   RepoGroup,
   RoundtableMeta,
   SessionMeta
@@ -13,7 +12,9 @@ import { AttachRow, useImageAttachments, type ImageAttachment } from './attachme
 import { useBusyMap } from './busy'
 import { holdSentence } from './hold'
 import { useLandedMap } from './landed'
-import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './NewSession'
+import { accountOptions, MODES, savedAccount, savedMode, usableAgent, type StartSessionRequest } from './NewSession'
+import { startableAgents, useDrivableAgents } from './acp-readiness'
+import { isDrivable } from '../../shared/providers'
 import {
   BranchChip,
   CheckIcon,
@@ -29,8 +30,6 @@ import {
 import { keepSame } from './same'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
-
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
 /** "titan-ron" → "Titan": the login's first name-ish segment, capitalized. */
 function firstName(login: string): string {
@@ -83,9 +82,10 @@ export function HomeView({
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
-  const [provider, setProvider] = useState<Provider>(
-    () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
-  )
+  const drivable = useDrivableAgents()
+  const [picked, setProvider] = useState<string | null>(() => window.localStorage.getItem('cockpit:provider'))
+  // derived, not stored: the picked agent may be one whose ACP agent answers only later
+  const provider = usableAgent(picked, drivable)
   const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [prompt, setPrompt] = useState('')
   const atts = useImageAttachments()
@@ -152,7 +152,8 @@ export function HomeView({
       busy ||
       (!prompt.trim() && atts.attachments.length === 0) ||
       !selected ||
-      (accounts !== null && !account)
+      // an agent driven over ACP runs as whoever it is signed in as — there is no account to wait for
+      (isDrivable(provider) && accounts !== null && !account)
     )
       return
     setError(null)
@@ -326,16 +327,17 @@ export function HomeView({
                 />
                 <div className="composer-identity">
                   <div className="composer-agents" role="group" aria-label="Agent">
-                    {PROVIDERS.map((p) => {
+                    {startableAgents(drivable).map((p) => {
                       const pAcct = savedAccount(accounts, p)
+                      const cli = isDrivable(p)
                       return (
                         <button
                           key={p}
                           aria-pressed={provider === p}
                           aria-label={PROVIDER_LABEL[p]}
-                          title={`${PROVIDER_LABEL[p]} — ${pAcct?.display ?? 'not signed in'}`}
+                          title={`${PROVIDER_LABEL[p]} — ${cli ? (pAcct?.display ?? 'not signed in') : 'over its ACP server'}`}
                           className={`composer-agent plogo-${p} ${provider === p ? 'active' : ''} ${
-                            accounts !== null && !pAcct ? 'no-acct' : ''
+                            cli && accounts !== null && !pAcct ? 'no-acct' : ''
                           }`}
                           onClick={() => setProvider(p)}
                         >
@@ -344,7 +346,12 @@ export function HomeView({
                       )
                     })}
                   </div>
-                  {accounts === null ? (
+                  {!isDrivable(provider) ? (
+                    // Cockpit never learns who an agent driven over ACP is signed in as
+                    <span className="acct-chip" title={`Cockpit drives ${PROVIDER_LABEL[provider]} over its ACP server`}>
+                      over ACP
+                    </span>
+                  ) : accounts === null ? (
                     // still loading — an empty placeholder, never a false "not signed in"
                     <span className="acct-chip" aria-hidden="true">
                       …
@@ -380,7 +387,7 @@ export function HomeView({
                     busy ||
                     (!prompt.trim() && atts.attachments.length === 0) ||
                     !selected ||
-                    (accounts !== null && !account)
+                    (isDrivable(provider) && accounts !== null && !account)
                   }
                   onClick={() => void start()}
                 >

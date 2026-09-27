@@ -7,11 +7,14 @@ import type {
   ModelEndpoint,
   PermissionMode,
   Provider,
-  RepoGroup
+  RepoGroup,
+  SessionProvider
 } from '../../shared/types'
 import { effortsFor } from '../../shared/agent-models'
 import { endpointSupports } from '../../shared/endpoints'
+import { isDrivable, isSessionProvider } from '../../shared/providers'
 import { api } from './api'
+import { canDrive, refreshAcpReadiness, startableAgents, useDrivableAgents } from './acp-readiness'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -34,7 +37,8 @@ export type AccountOption = AccountChoice & {
 /** Everything needed to start a fresh session (worktree + first prompt). */
 export type StartSessionRequest = {
   readonly repo: RepoGroup
-  readonly provider: Provider
+  /** One of the three CLIs, or an agent Cockpit otherwise only reads that an ACP agent drives */
+  readonly provider: SessionProvider
   /** Optional branch/worktree name; '' lets the workspace pick one */
   readonly name: string
   readonly prompt: string
@@ -45,8 +49,8 @@ export type StartSessionRequest = {
   readonly images?: readonly string[]
 }
 
-/** Flatten the accounts snapshot into selectable options per provider. */
-export function accountOptions(snap: AccountsSnapshot | null, provider: Provider): AccountOption[] {
+/** Flatten the accounts snapshot into selectable options per provider (none for an agent driven over ACP). */
+export function accountOptions(snap: AccountsSnapshot | null, provider: SessionProvider): AccountOption[] {
   if (!snap) return []
   const out: AccountOption[] = []
   for (const a of snap.accounts.filter((x) => x.provider === provider)) {
@@ -76,12 +80,10 @@ export function accountOptions(snap: AccountsSnapshot | null, provider: Provider
 }
 
 /** The single account-resolution rule: the user's saved choice, else the first configured. */
-export function savedAccount(snap: AccountsSnapshot | null, p: Provider): AccountOption | undefined {
+export function savedAccount(snap: AccountsSnapshot | null, p: SessionProvider): AccountOption | undefined {
   const opts = accountOptions(snap, p)
   return opts.find((o) => o.key === window.localStorage.getItem(`cockpit:account:${p}`)) ?? opts[0]
 }
-
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
 /** The one permission-mode table — HomeView and ChatView import it so wording never drifts. */
 export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = [
@@ -110,6 +112,20 @@ export const AGENT_BLURB: Record<Provider, string> = {
   claude: 'Deep multi-step coding, hooks & skills',
   codex: 'Fast sandboxed execution',
   copilot: 'GitHub-native, PR-focused'
+}
+
+/** A picker card's line: what the agent is good at, or — for one driven over ACP — how it runs. */
+export function agentBlurb(p: SessionProvider): string {
+  return isDrivable(p) ? AGENT_BLURB[p] : 'Runs over its ACP server'
+}
+
+/**
+ * The agent a form opens on: the one stored as last used, while it can still run — an
+ * agent driven over ACP whose agent has gone falls back to Claude rather than offering
+ * a card that isn't there. Storage is anyone's to write, so only a known agent comes out.
+ */
+export function usableAgent(stored: string | null, drivable: readonly SessionProvider[]): SessionProvider {
+  return isSessionProvider(stored) && canDrive(stored, drivable) ? stored : 'claude'
 }
 
 /** Per-agent option state (model / thinking / BYOK endpoint / codex sandbox) shared by the
@@ -142,8 +158,13 @@ export type AgentOptionsState = {
   readonly options: AgentOptions
 }
 
-/** `configDir` is the chosen account's home: each one lists its own models. */
-export function useAgentOptions(provider: Provider, configDir: string | undefined): AgentOptionsState {
+/**
+ * `configDir` is the chosen account's home: each one lists its own models. An agent
+ * driven over ACP has none of these knobs — its model and account are its own settings
+ * — so for one the state is empty and its options are `{}`.
+ */
+export function useAgentOptions(provider: SessionProvider, configDir: string | undefined): AgentOptionsState {
+  const cli = isDrivable(provider) ? provider : null
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [codexSandbox, setCodexSandbox] = useState<CodexSandbox | ''>('')
@@ -166,7 +187,7 @@ export function useAgentOptions(provider: Provider, configDir: string | undefine
     setEndpointId('')
   }, [provider])
 
-  const usableEndpoints = endpoints.filter((e) => endpointSupports(provider, e))
+  const usableEndpoints = cli ? endpoints.filter((e) => endpointSupports(cli, e)) : []
   const endpoint = usableEndpoints.find((e) => e.id === endpointId)
 
   // ask the provider itself which models it serves; the cached list covers the meantime
@@ -182,22 +203,24 @@ export function useAgentOptions(provider: Provider, configDir: string | undefine
   // one listing per agent and account home, fetched once
   const agentKey = `${provider}|${configDir ?? ''}`
   useEffect(() => {
-    if (agentModels[agentKey]) return
+    if (agentModels[agentKey] || !cli) return
     const key = agentKey
-    void Promise.resolve(api.listAgentModels?.(provider, configDir) ?? [])
+    void Promise.resolve(api.listAgentModels?.(cli, configDir) ?? [])
       .then((m) => setAgentModels((prev) => ({ ...prev, [key]: m })))
       .catch(() => setAgentModels((prev) => ({ ...prev, [key]: [] })))
   }, [agentKey])
 
-  const catalog: readonly AgentModel[] | null = endpoint
-    ? (endpointModels[endpoint.id] ?? endpoint.models ?? []).map((id) => ({ id, label: id }))
-    : (agentModels[agentKey] ?? null)
+  const catalog: readonly AgentModel[] | null = !cli
+    ? []
+    : endpoint
+      ? (endpointModels[endpoint.id] ?? endpoint.models ?? []).map((id) => ({ id, label: id }))
+      : (agentModels[agentKey] ?? null)
   // a choice the current list doesn't offer (another account, another provider, a
   // catalog that arrived without it) is dropped, never run behind a picker showing default
   const chosen =
     catalog === null ? '' : catalog.length === 0 ? model : catalog.some((m) => m.id === model) ? model : ''
   const info = catalog?.find((m) => m.id === chosen)
-  const efforts = effortsFor(provider, info)
+  const efforts = cli ? effortsFor(cli, info) : []
   const chosenEffort = effort && efforts.includes(effort) ? effort : ''
   const modelMissing = provider === 'copilot' && !!endpoint && !chosen.trim()
 
@@ -217,12 +240,14 @@ export function useAgentOptions(provider: Provider, configDir: string | undefine
     endpoint,
     catalog,
     modelMissing,
-    options: {
-      model: chosen.trim() || undefined,
-      effort: chosenEffort || undefined,
-      codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
-      modelEndpoint: endpoint?.id
-    }
+    options: cli
+      ? {
+          model: chosen.trim() || undefined,
+          effort: chosenEffort || undefined,
+          codexSandbox: provider === 'codex' && codexSandbox ? codexSandbox : undefined,
+          modelEndpoint: endpoint?.id
+        }
+      : {}
   }
 }
 
@@ -280,9 +305,11 @@ export function AgentOptionsFields({
   provider,
   o
 }: {
-  provider: Provider
+  provider: SessionProvider
   o: AgentOptionsState
-}): JSX.Element {
+}): JSX.Element | null {
+  // an agent driven over ACP picks its own model and thinking
+  if (!isDrivable(provider)) return null
   return (
     <>
       {o.usableEndpoints.length > 0 && (
@@ -372,9 +399,17 @@ export function AgentOptionsHints({
   provider,
   o
 }: {
-  provider: Provider
+  provider: SessionProvider
   o: AgentOptionsState
 }): JSX.Element | null {
+  if (!isDrivable(provider)) {
+    return (
+      <div className="ns-hint">
+        {PROVIDER_LABEL[provider]} runs over its ACP server, signed in as whoever it is — its model
+        and account are its own settings.
+      </div>
+    )
+  }
   return (
     <>
       {o.endpoint && (
@@ -394,6 +429,40 @@ export function AgentOptionsHints({
         </div>
       )}
     </>
+  )
+}
+
+/** One agent in a form's picker: its mark, what it is good at, and who it would run as. */
+export function AgentCard({
+  p,
+  active,
+  account,
+  accountsLoading,
+  onPick
+}: {
+  p: SessionProvider
+  active: boolean
+  account: AccountOption | undefined
+  /** while accounts are still loading, absence is unknown — not "signed out" */
+  accountsLoading: boolean
+  onPick: () => void
+}): JSX.Element {
+  return (
+    <button aria-pressed={active} className={`ns-provider ns-${p} ${active ? 'active' : ''}`} onClick={onPick}>
+      <ProviderLogo p={p} size={20} />
+      <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
+      <span className="ns-provider-blurb">{agentBlurb(p)}</span>
+      {isDrivable(p) ? (
+        <span className={`acct-chip${account || accountsLoading ? '' : ' missing'}`} title={account?.display}>
+          {account?.identity ?? (accountsLoading ? '…' : 'not signed in')}
+        </span>
+      ) : (
+        // an agent driven over ACP runs as whoever it is signed in as — Cockpit never learns who
+        <span className="acct-chip" title={`Cockpit drives ${PROVIDER_LABEL[p]} over its ACP server`}>
+          over ACP
+        </span>
+      )}
+    </button>
   )
 }
 
@@ -417,9 +486,10 @@ export function NewSession({
   onCancel: () => void
 }): JSX.Element {
   const [repoKey, setRepoKey] = useState(repo.key)
-  const [provider, setProvider] = useState<Provider>(
-    () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
-  )
+  const drivable = useDrivableAgents()
+  const [picked, setProvider] = useState<string | null>(() => window.localStorage.getItem('cockpit:provider'))
+  // derived, not stored: the picked agent may be one whose ACP agent answers only later
+  const provider = usableAgent(picked, drivable)
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const atts = useImageAttachments(initialImages)
@@ -440,6 +510,8 @@ export function NewSession({
   useEffect(() => {
     promptRef.current?.focus()
     void api.getAccounts().then(setAccounts)
+    // an agent's CLI installed since launch shows up here, once main's probe answers
+    refreshAcpReadiness()
   }, [])
 
   // accounts differ per agent — reset a stale choice on switch (model/endpoint reset in the hook)
@@ -506,39 +578,29 @@ export function NewSession({
 
         <label className="ns-label">Agent</label>
         <div className="ns-providers" role="group" aria-label="Agent">
-          {PROVIDERS.map((p) => {
-            // same resolution rule as start() — the card must never show a different
-            // account than the one that would actually run
-            const acct = p === provider ? account : savedAccount(accounts, p)
-            return (
-              <button
-                key={p}
-                aria-pressed={provider === p}
-                className={`ns-provider ns-${p} ${provider === p ? 'active' : ''}`}
-                onClick={() => setProvider(p)}
-              >
-                <ProviderLogo p={p} size={20} />
-                <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
-                <span className="ns-provider-blurb">{AGENT_BLURB[p]}</span>
-                {/* while accounts are still loading, absence is unknown — not "signed out" */}
-                <span
-                  className={`acct-chip${acct || accounts === null ? '' : ' missing'}`}
-                  title={acct?.display}
-                >
-                  {acct?.identity ?? (accounts === null ? '…' : 'not signed in')}
-                </span>
-              </button>
-            )
-          })}
+          {startableAgents(drivable).map((p) => (
+            <AgentCard
+              key={p}
+              p={p}
+              active={provider === p}
+              // same resolution rule as start() — the card must never show a different
+              // account than the one that would actually run
+              account={p === provider ? account : savedAccount(accounts, p)}
+              accountsLoading={accounts === null}
+              onPick={() => setProvider(p)}
+            />
+          ))}
         </div>
 
         <div className="ns-options ns-agent-options">
-          <AccountField
-            opts={opts}
-            account={account}
-            loading={accounts === null}
-            onChange={setAccountKey}
-          />
+          {isDrivable(provider) && (
+            <AccountField
+              opts={opts}
+              account={account}
+              loading={accounts === null}
+              onChange={setAccountKey}
+            />
+          )}
           <AgentOptionsFields provider={provider} o={agent} />
           <div className="ns-opt">
             <label className="ns-label" htmlFor="ns-mode">Permissions</label>

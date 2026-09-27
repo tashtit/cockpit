@@ -24,6 +24,23 @@ Nothing about your session history changes either. An ACP session is written to 
 place that CLI always wrote to, so it appears in the sidebar, resumes, and reports live
 status like any other.
 
+## Agents Cockpit otherwise only reads
+
+For Gemini CLI, Cursor, Cline and opencode, ACP is the only way Cockpit runs them. Each has a built-in definition, used once its CLI answers the handshake:
+
+| Agent | Command |
+| --- | --- |
+| Gemini CLI | `gemini --acp` |
+| opencode | `opencode acp` |
+| Cursor | `cursor-agent acp` |
+| Cline | `cline --acp` |
+
+Once one answers, that agent appears in the New session form, in Home's composer and in **Continue in…**, and its sessions open with a composer. It has no Account, Model or Thinking to pick. It runs as whoever it is signed in as, with its own settings, since Cockpit never learns them.
+
+A CLI installed while Cockpit is running is found without a restart. Opening the New session or Continue in… form checks again, at most once a minute. **Settings › Providers** shows which built-ins answered. If your version uses another command, add your own definition for that agent (see below).
+
+Continuing one of these sessions reopens the conversation in its agent. If the agent can't do that, because it can't load a past session over ACP or no longer knows this one, the turn fails and says so. It never starts a fresh conversation without the history you are looking at. **Continue in…** still works either way.
+
 ## Answering a permission request
 
 Over ACP an agent can stop mid-turn and ask before it runs something. The question appears
@@ -51,10 +68,11 @@ holding that process. An ACP permission request is answered directly, down the p
 
 ## Adding your own agent
 
-**Settings › ACP agents** lists what Cockpit will use, and lets you add more. A definition
-is a name, the CLI it drives, a command, and optional arguments — for example
-`claude-code-acp` for Claude Code, or `codex acp` for Codex, depending on what your
-versions support.
+**Settings › Providers**, under **ACP agents**, lists what Cockpit will use, and lets you
+add more. A definition is a name, the agent it drives, a command, and optional arguments —
+for example `claude-code-acp` for Claude Code, or `codex acp` for Codex, depending on what
+your versions support. It can drive any agent Cockpit reads, so a definition is also how
+you run one whose built-in command your version spells differently.
 
 **Test** runs the real handshake before anything is stored, and reports what answered:
 the agent's name and version, the protocol version, whether it can resume sessions, and

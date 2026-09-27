@@ -93,7 +93,11 @@ A few things these agents keep cannot be read. Antigravity's earliest conversati
 
 Nothing needs setting up. Each launch looks for these homes, adds any that appeared since the last one, and lists them in **Settings › Accounts** under **Other agents · read only**. A home you remove there stays removed; detection never adds it back.
 
-A session of one of these agents opens read-only: its transcript, tool calls, edits, to-do lists and test runs render as they do for any session, and ⌘K's transcript search covers it. It has no composer, because Cockpit doesn't run that agent. To pick the work up, use **Continue in…**: it hands the session, with a briefing built from its transcript, to Claude, Codex or Copilot in the same directory. Live status, landings and notifications follow the agents Cockpit runs. Cleanup lists these sessions like any other, and deleting one removes what its agent keeps for it; see [Cleanup](/guide/cleanup).
+A session of one of these agents renders as any session does: its transcript, tool calls, edits, to-do lists and test runs, and ⌘K's transcript search covers it. Cleanup lists these sessions like any other, and deleting one removes what its agent keeps for it; see [Cleanup](/guide/cleanup).
+
+Cockpit can also start and continue sessions of Gemini CLI, Cursor, Cline and opencode, through each agent's own ACP server. That works once the agent's CLI answers Cockpit's handshake, or once you add an ACP agent for it yourself; see [ACP agents](/guide/acp-agents#agents-cockpit-otherwise-only-reads). The agent then appears in the New session form, in Home's composer and in **Continue in…**. Its sessions open with a composer, and you take one over from its agent the same way you would a Claude session.
+
+Until then, and for Roo Code and Antigravity, which have no ACP mode, a session opens read-only and has no composer. To pick the work up, use **Continue in…**. It hands the session, with a briefing built from its transcript, to another agent in the same directory. Live status and notifications for turns that run outside Cockpit follow the three agents Cockpit runs headless.
 
 ## Archiving
 

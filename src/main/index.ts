@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type {
+  AcpAgent,
+  AcpReadiness,
   AttentionFocus,
   AttentionPrefs,
   AttentionTarget,
@@ -28,7 +30,7 @@ import { endpointUrlRefusal, sanitizeEndpoint } from '../shared/endpoints'
 import { SessionIndexer } from './indexer'
 import { isUnder } from './paths'
 import { TranscriptSearcher } from './transcript-search'
-import { ChatManager, isValidNativeId } from './chat'
+import { ChatManager, isValidNativeId, noAcpAgent } from './chat'
 import { holderOf, holdRefusal, resumeLine, resumeScript, type ControlEntry } from './session-control-core'
 import { mergeBusy } from './liveness-core'
 import {
@@ -77,7 +79,7 @@ import {
   setWindowPlacement,
   setZoom
 } from './config'
-import { isDrivable, isSessionProvider } from '../shared/providers'
+import { AGENT_LABEL, isDrivable, isSessionProvider, SESSION_PROVIDERS } from '../shared/providers'
 import {
   deleteRoundtables,
   deleteSessions,
@@ -646,13 +648,19 @@ function assertKnownConfigDir(configDir: unknown, provider: Provider): string {
 }
 
 /** An indexed session named by the renderer — refused when the index doesn't know it. */
-function knownSession(id: unknown): SessionMeta & { readonly provider: Provider } {
+function indexedSession(id: unknown): SessionMeta {
   const sid = String(id)
   const s = sid.length > 256 ? null : indexer.getSession(sid)
   if (!s) throw new Error(`unknown session: ${sid.slice(0, 80)}`)
   // a seat's conversation is its table's: never taken over, released or resumed alone
   if (s.roundtableId) throw new Error('This session belongs to a roundtable — it is driven from the table.')
-  // an agent Cockpit only reads has no CLI of Cockpit's to take it over or resume it with
+  return s
+}
+
+/** The same, for what only a CLI Cockpit runs can do with it — resume it in a terminal. */
+function knownSession(id: unknown): SessionMeta & { readonly provider: Provider } {
+  const s = indexedSession(id)
+  // an agent Cockpit only reads has no CLI of Cockpit's to resume it with
   const provider = s.provider
   if (!isDrivable(provider)) {
     throw new Error('Cockpit only reads this agent’s sessions — continue it in Claude, Codex or Copilot instead.')
@@ -758,7 +766,9 @@ app.whenReady().then(() => {
   // against the turn running in it, whatever the renderer believed when it asked
   ipcMain.handle(CH.sessionsSetHolder, (_e, id: unknown, holder: unknown) => {
     if (holder !== 'cockpit' && holder !== 'agent') throw new Error('unknown holder')
-    const s = knownSession(id)
+    const s = indexedSession(id)
+    // an agent Cockpit only reads is taken over only while an ACP agent can drive it
+    if (!isDrivable(s.provider) && !acpAgentFor(s.provider)) throw new Error(noAcpAgent(s.provider))
     const current = indexer.controlOf(s)
     if (current.holder === holder) return current
     const refusal = holdRefusal(holder, runningWhere(s.id))
@@ -1103,8 +1113,59 @@ app.whenReady().then(() => {
     updateModelEndpoint({ ...ep, hasKey: true })
     return listModelEndpoints()
   })
+  /**
+   * Built-in ACP agents this machine's CLIs turned out to support, by id — probed in the
+   * background at startup, and again for any still missing when the window asks, at most
+   * once a minute, so a CLI installed while Cockpit runs is picked up without a restart.
+   *
+   * The handshake is the only honest test — a `--acp` flag in `--help` says the flag
+   * parses, not that the protocol answers. It costs one process launch per agent and
+   * creates no session. Until a probe lands, Copilot's turns take its CLI path, and an
+   * agent Cockpit otherwise only reads stays read-only: the worst case of a slow or
+   * missing CLI is the behaviour Cockpit had before ACP existed.
+   */
+  const acpReady = new Set<string>()
+  const acpProbing = new Set<string>()
+  let acpProbedAt = 0
+  const probeBuiltins = (): void => {
+    acpProbedAt = Date.now()
+    for (const builtin of BUILTIN_ACP_AGENTS) {
+      if (acpReady.has(builtin.id) || acpProbing.has(builtin.id)) continue
+      acpProbing.add(builtin.id)
+      // after the login shell's PATH: an npm-installed CLI is on no other
+      void loginPathReady()
+        .then(() => probeAcpAgent(builtin, homedir()))
+        .then((probe) => {
+          if (!probe.ok) return
+          acpReady.add(builtin.id)
+          sendToWin(PUSH.acpReadiness, acpReadiness())
+        })
+        .finally(() => acpProbing.delete(builtin.id))
+    }
+  }
+  /**
+   * The ACP agent a turn runs through when the person picked none: one they defined for
+   * this agent is a deliberate choice and wins over the built-in, which applies only once
+   * its CLI has answered a handshake.
+   */
+  const acpAgentFor = (provider: SessionProvider): AcpAgent | undefined => {
+    const defined = listAcpAgents().find((a) => a.provider === provider)
+    if (defined) return defined
+    const builtin = builtinAgentFor(provider)
+    return builtin && acpReady.has(builtin.id) ? builtin : undefined
+  }
+  const acpReadiness = (): AcpReadiness => ({
+    drivable: SESSION_PROVIDERS.filter((p) => isDrivable(p) || acpAgentFor(p) !== undefined),
+    builtinsReady: BUILTIN_ACP_AGENTS.filter((a) => acpReady.has(a.id)).map((a) => a.id)
+  })
+  probeBuiltins()
+
   /* ACP agents: CLIs the user asked Cockpit to drive over the Agent Client Protocol */
   ipcMain.handle(CH.acpGet, () => [...BUILTIN_ACP_AGENTS, ...listAcpAgents()])
+  ipcMain.handle(CH.acpReadiness, () => {
+    if (Date.now() - acpProbedAt > 60_000) probeBuiltins()
+    return acpReadiness()
+  })
   ipcMain.handle(CH.acpAdd, (_e, input: unknown) => {
     const agent = sanitizeAcpAgent(input, randomUUID())
     if (!agent) {
@@ -1113,14 +1174,18 @@ app.whenReady().then(() => {
       )
     }
     if (listAcpAgents().length >= 32) throw new Error('That is as many custom agents as Cockpit stores.')
-    return [...BUILTIN_ACP_AGENTS, ...addAcpAgent(agent)]
+    const agents = [...BUILTIN_ACP_AGENTS, ...addAcpAgent(agent)]
+    sendToWin(PUSH.acpReadiness, acpReadiness())
+    return agents
   })
   ipcMain.handle(CH.acpRemove, (_e, id: string) => {
     // a built-in is defined in code, not config — there is nothing to remove
     if (BUILTIN_ACP_AGENTS.some((a) => a.id === String(id))) {
       throw new Error('Built-in agents cannot be removed.')
     }
-    return [...BUILTIN_ACP_AGENTS, ...removeAcpAgent(String(id))]
+    const agents = [...BUILTIN_ACP_AGENTS, ...removeAcpAgent(String(id))]
+    sendToWin(PUSH.acpReadiness, acpReadiness())
+    return agents
   })
   ipcMain.handle(CH.acpProbe, (_e, input: unknown) => {
     const agent = sanitizeAcpAgent(input, 'probe')
@@ -1271,34 +1336,17 @@ app.whenReady().then(() => {
   })
 
   // BYOK turns in flight: when the stream reveals the native session id, remember which
-  /**
-   * Built-in ACP agents this machine's CLIs turned out to support, probed once in the
-   * background at startup.
-   *
-   * The handshake is the only honest test — a `--acp` flag in `--help` says the flag
-   * parses, not that the protocol answers. It costs one process launch per provider and
-   * creates no session. Until a probe lands, turns take the CLI path, so the worst case
-   * of a slow or missing CLI is the behaviour Cockpit had before ACP existed.
-   */
-  const acpReady = new Set<Provider>()
-  for (const builtin of BUILTIN_ACP_AGENTS) {
-    const provider = builtin.provider
-    if (!provider) continue
-    // after the login shell's PATH: an npm-installed CLI is on no other
-    void loginPathReady()
-      .then(() => probeAcpAgent(builtin, homedir()))
-      .then((probe) => {
-        if (probe.ok) acpReady.add(provider)
-      })
-  }
-
   // endpoint the session runs on so later resumes stay on that backend
-  const byokTurns = new Map<string, { provider: Provider; endpointId: string }>()
+  const byokTurns = new Map<string, { provider: SessionProvider; endpointId: string }>()
   // Handoff turns in flight: same lifecycle, persisting continuedFrom lineage instead
-  const handoffTurns = new Map<string, { provider: Provider; sourceId: string }>()
+  const handoffTurns = new Map<string, { provider: SessionProvider; sourceId: string }>()
   // Turns Cockpit drives: the session a new one announces was started here, and the
   // id claude forks for a resumed turn stays held the way the one it resumed was
-  const heldTurns = new Map<string, { provider: Provider; entry: ControlEntry }>()
+  const heldTurns = new Map<string, { provider: SessionProvider; entry: ControlEntry }>()
+  // Turns of an agent Cockpit only reads, driven over its ACP server: the first one may
+  // write into a home that did not exist at launch, which is adopted the way launch
+  // adopts one when the turn ends — so the session it just wrote is listed
+  const acpReadOnlyTurns = new Set<string>()
   chat = new ChatManager(
     (ev) => {
       // roundtable turns stream on their own channel — never as plain chat events
@@ -1334,6 +1382,11 @@ app.whenReady().then(() => {
         byokTurns.delete(ev.turnId)
         handoffTurns.delete(ev.turnId)
         heldTurns.delete(ev.turnId)
+        if (acpReadOnlyTurns.delete(ev.turnId)) {
+          const known = loadConfig().sources.length
+          const cfg = adoptDetectedSources()
+          if (cfg.sources.length !== known) void indexer.setSources(cfg.sources)
+        }
       }
       desk.chatEvent(ev)
       sendToWin(PUSH.chatEvent, ev)
@@ -1351,17 +1404,11 @@ app.whenReady().then(() => {
           // user picked a specific agent, and a different one is a different answer
           if (!agent) throw new Error('That ACP agent is no longer configured — re-add it in Settings.')
           if (agent.provider !== req.provider) {
-            throw new Error(`"${agent.label}" drives ${agent.provider}, not ${req.provider}.`)
+            throw new Error(`"${agent.label}" drives ${AGENT_LABEL[agent.provider]}, not ${AGENT_LABEL[req.provider]}.`)
           }
           return agent
         }
-        // an agent the user defined for this provider is a deliberate choice and wins
-        // over the built-in; the built-in only applies once its CLI has answered a
-        // handshake, so a machine without ACP support behaves exactly as before
-        const defined = listAcpAgents().find((a) => a.provider === req.provider)
-        if (defined) return defined
-        const builtin = builtinAgentFor(req.provider)
-        return builtin && acpReady.has(req.provider) ? builtin : undefined
+        return acpAgentFor(req.provider)
       },
       onTurnStart: (turnId, req) => {
         // a seat's turn is its table's business — the table lands once, as a whole
@@ -1384,10 +1431,15 @@ app.whenReady().then(() => {
     saveChatImage(chatImagesDir(), data, mime)
   )
   ipcMain.handle(CH.chatSend, (_e, req: ChatRequest) => {
-    // the agent is renderer input like the rest: only a CLI Cockpit drives is spawned, and
-    // a session of an agent Cockpit only reads is continued through a handoff instead
-    if (!isSessionProvider(req.provider) || !isDrivable(req.provider)) {
-      throw new Error('Cockpit only reads this agent’s sessions — continue it in Claude, Codex or Copilot instead.')
+    // the agent is renderer input like the rest: a CLI Cockpit runs, or an agent it
+    // otherwise only reads once an ACP agent answers for it
+    if (!isSessionProvider(req.provider)) throw new Error('unknown agent')
+    if (!isDrivable(req.provider)) {
+      if (!acpAgentFor(req.provider) && !req.options?.acpAgent) throw new Error(noAcpAgent(req.provider))
+      // an account's config home, a Copilot user and a custom model provider are all a
+      // headless CLI's knobs — none of them reaches an agent Cockpit drives over ACP
+      const { model: _model, modelEndpoint: _endpoint, ...options } = req.options ?? {}
+      req = { ...req, configDir: undefined, copilotUser: undefined, options }
     }
     // pasted-image paths are renderer input — only accept files chat:save-image wrote;
     // and a seat's research allowance is the roundtable manager's alone to give
@@ -1402,7 +1454,9 @@ app.whenReady().then(() => {
       ...req,
       cwd: assertKnownCwd(req.cwd),
       configDir:
-        req.configDir === undefined ? undefined : assertKnownConfigDir(req.configDir, req.provider)
+        req.configDir === undefined || !isDrivable(req.provider)
+          ? undefined
+          : assertKnownConfigDir(req.configDir, req.provider)
     }
     // a resumed BYOK session keeps the endpoint it was started with
     if (req.resumeNativeId && !req.options?.modelEndpoint) {
@@ -1433,7 +1487,7 @@ app.whenReady().then(() => {
     if (resumed) {
       const holder = indexer.getSession(resumed)?.control?.holder ?? (recorded && holderOf(recorded.how))
       if (holder === 'agent') {
-        throw new Error(`This session is with ${SEAT_NAME[req.provider]} — take it over to send from Cockpit.`)
+        throw new Error(`This session is with ${AGENT_LABEL[req.provider]} — take it over to send from Cockpit.`)
       }
     }
     // a session already mid-turn gets no second CLI — refused before anything below
@@ -1444,6 +1498,7 @@ app.whenReady().then(() => {
       setCopilotActiveUser(req.configDir ?? join(homedir(), '.copilot'), req.copilotUser)
     }
     const turnId = chat.send(req)
+    if (!isDrivable(req.provider)) acpReadOnlyTurns.add(turnId)
     const holds: ControlEntry | undefined = resumed ? recorded : { how: 'started', at: Date.now() }
     if (holds) heldTurns.set(turnId, { provider: req.provider, entry: holds })
     if (req.options?.modelEndpoint) {

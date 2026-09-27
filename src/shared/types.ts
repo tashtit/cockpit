@@ -632,13 +632,14 @@ export type AcpAgent = {
   /** Extra env for the spawned agent; keys that could redirect execution are refused */
   readonly env?: Record<string, string>
   /**
-   * Which CLI family this agent is. It is required, and it is what keeps an ACP session
-   * indexed: `copilot --acp` and `claude-code-acp` write the same session stores their
-   * CLIs always did, so Cockpit sees, resumes and live-tracks those conversations with
-   * no indexer changes. An agent that belongs to no known provider would be a session
-   * Cockpit drives and then loses, which is why there is no 'other' here yet.
+   * Which agent this is. It is required, and it is what keeps an ACP session indexed:
+   * `copilot --acp`, `claude-code-acp` and `gemini --acp` write the same session stores
+   * their agents always did, so Cockpit sees and resumes those conversations with no
+   * indexer changes — and for an agent Cockpit otherwise only reads, an ACP agent is
+   * what lets it start and continue one. An agent that belongs to no known provider
+   * would be a session Cockpit drives and then loses, which is why there is no 'other'.
    */
-  readonly provider: Provider
+  readonly provider: SessionProvider
   /** Shipped in code rather than stored in config, and so not removable */
   readonly builtin?: boolean
 }
@@ -661,6 +662,17 @@ export type AcpAgentProbe = {
   readonly authMethods?: readonly string[]
   /** Populated instead of the rest when the handshake failed */
   readonly error?: string
+}
+
+/**
+ * Which agents Cockpit can start or continue a session with right now: the three it runs
+ * headless always, and one it otherwise only reads once an ACP agent drives it — a
+ * built-in whose CLI answered the handshake, or one the person defined.
+ */
+export type AcpReadiness = {
+  readonly drivable: readonly SessionProvider[]
+  /** Built-in ACP agents (by id) whose CLI answered the handshake on this machine */
+  readonly builtinsReady: readonly string[]
 }
 
 /** One answer an agent will accept for a permission request. */
@@ -713,7 +725,7 @@ export type AgentModel = {
 }
 
 export type ChatRequest = {
-  readonly provider: Provider
+  readonly provider: SessionProvider
   readonly cwd: string
   readonly prompt: string
   /** Provider-native session id to continue an existing conversation */
