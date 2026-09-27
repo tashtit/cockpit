@@ -1,5 +1,6 @@
 import type { Provider } from './types'
 import { shortPath } from './library'
+import { CONFIG_HOME_VAR } from './providers'
 
 /** The command that signs each agent CLI back in — what a person runs in a terminal. */
 export const SIGN_IN_COMMAND: Record<Provider, string> = {
@@ -27,9 +28,7 @@ export function looksSignedOut(text: string): boolean {
  */
 export function signInCommandLine(provider: Provider, configHome?: string): string {
   if (configHome === undefined) return SIGN_IN_COMMAND[provider]
-  const variable =
-    provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : provider === 'codex' ? 'CODEX_HOME' : 'COPILOT_HOME'
-  return `${variable}=${shortPath(configHome)} ${SIGN_IN_COMMAND[provider]}`
+  return `${CONFIG_HOME_VAR[provider]}=${shortPath(configHome)} ${SIGN_IN_COMMAND[provider]}`
 }
 
 /** The fix as one plain-text line, for an error message that can't carry markup. */

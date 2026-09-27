@@ -9,7 +9,9 @@ import {
   parseVersion,
   updateCommandFor
 } from '../shared/agent-cli'
+import { PROVIDERS } from '../shared/providers'
 import { brewVersion } from './agent-cli-core'
+import { throttledBy } from './cache'
 import { execText, loginPathReady } from './env'
 
 /*
@@ -24,8 +26,6 @@ const LATEST_TTL_MS = 60 * 60_000
 /** Homebrew's own answer is a local command, so it is re-read often — that is what
  *  lets a row notice a `brew update` the person just ran without asking again. */
 const BREW_TTL_MS = 60_000
-const latestCache = new Map<Provider, { at: number; version: string | null }>()
-const brewCache = new Map<string, { at: number; version: string | null }>()
 
 /**
  * The newest release of a CLI, from the npm registry — every one of the three
@@ -44,42 +44,45 @@ async function latestRelease(provider: Provider, force: boolean): Promise<string
       return null
     }
   }
-  const hit = latestCache.get(provider)
-  if (!force && hit && Date.now() - hit.at < LATEST_TTL_MS) return hit.version
-  let version: string | null = null
+  return latestReleases(provider, { force })
+}
+
+/** Unreachable is an answer too — null, kept for the hour like any other. */
+const latestReleases = throttledBy(LATEST_TTL_MS, async (provider: Provider): Promise<string | null> => {
   try {
     const res = await fetch(`https://registry.npmjs.org/${CLI_PACKAGE[provider].npm}/latest`, {
       signal: AbortSignal.timeout(8_000),
       headers: { accept: 'application/json' }
     })
-    if (res.ok) {
-      const j = (await res.json()) as { version?: unknown }
-      version = typeof j.version === 'string' ? parseVersion(j.version) : null
-    }
+    if (!res.ok) return null
+    const j = (await res.json()) as { version?: unknown }
+    return typeof j.version === 'string' ? parseVersion(j.version) : null
   } catch {
-    /* offline, or the registry is down — the check says "couldn't check" */
+    return null // offline, or the registry is down — the check says "couldn't check"
   }
-  latestCache.set(provider, { at: Date.now(), version })
-  return version
-}
+})
 
 /**
  * What Homebrew has packaged for one CLI. A brew install can only ever get this — the
  * newest release upstream is not an update it can run, which is why it is asked for
  * separately rather than assumed from the registry.
  */
-async function brewLatest(provider: Provider, cask: boolean, force: boolean): Promise<string | null> {
-  const token = CLI_PACKAGE[provider].brew
-  const key = `${token}|${cask ? 'cask' : 'formula'}`
-  const hit = brewCache.get(key)
-  if (!force && hit && Date.now() - hit.at < BREW_TTL_MS) return hit.version
-  const r = await execText('brew', ['info', '--json=v2', cask ? '--cask' : '--formula', token], {
-    timeoutMs: 20_000
-  })
-  const version = r.ok ? parseVersion(brewVersion(r.stdout) ?? '') : null
-  brewCache.set(key, { at: Date.now(), version })
-  return version
+function brewLatest(provider: Provider, cask: boolean, force: boolean): Promise<string | null> {
+  return brewPackaged({ token: CLI_PACKAGE[provider].brew, cask }, { force })
 }
+
+type BrewPackage = { readonly token: string; readonly cask: boolean }
+
+const brewPackaged = throttledBy(
+  BREW_TTL_MS,
+  async ({ token, cask }: BrewPackage): Promise<string | null> => {
+    const r = await execText('brew', ['info', '--json=v2', cask ? '--cask' : '--formula', token], {
+      timeoutMs: 20_000
+    })
+    return r.ok ? parseVersion(brewVersion(r.stdout) ?? '') : null
+  },
+  { keyOf: ({ token, cask }) => `${token}|${cask ? 'cask' : 'formula'}` }
+)
 
 /** One CLI as this Mac has it: where, which version, how installed, and whether it is behind. */
 export async function cliStatus(provider: Provider, opts: { readonly force?: boolean } = {}): Promise<CliStatus> {
@@ -132,7 +135,7 @@ export async function cliStatus(provider: Provider, opts: { readonly force?: boo
 }
 
 export async function listCliStatus(opts: { readonly force?: boolean } = {}): Promise<CliStatus[]> {
-  return Promise.all((['claude', 'codex', 'copilot'] as const).map((p) => cliStatus(p, opts)))
+  return Promise.all(PROVIDERS.map((p) => cliStatus(p, opts)))
 }
 
 /**

@@ -1,5 +1,7 @@
 import { isBlockedAgentEnv } from './acp'
+import { asRecord, isRecord } from './guards'
 import { describeMcp } from './mcp-source'
+import { clip } from './text'
 import type { McpConfig, RegistryInput, RegistryServerKind } from './types'
 
 /*
@@ -121,12 +123,6 @@ function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
-function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
 function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
@@ -137,7 +133,7 @@ function field(o: Record<string, unknown>, camel: string, snake: string): unknow
 }
 
 function argumentOf(value: unknown): RegistryArgument | null {
-  const o = record(value)
+  const o = asRecord(value)
   if (!o) return null
   const type = o['type'] === 'named' ? 'named' : o['type'] === 'positional' ? 'positional' : null
   if (!type) return null
@@ -152,7 +148,7 @@ function argumentOf(value: unknown): RegistryArgument | null {
 }
 
 function envOf(value: unknown): RegistryEnv | null {
-  const o = record(value)
+  const o = asRecord(value)
   const name = o ? text(o['name']) : undefined
   if (!o || !name) return null
   return {
@@ -166,12 +162,12 @@ function envOf(value: unknown): RegistryEnv | null {
 }
 
 function packageOf(value: unknown): RegistryPackage | null {
-  const o = record(value)
+  const o = asRecord(value)
   if (!o) return null
   const registryType = text(field(o, 'registryType', 'registry_type'))
   const identifier = text(o['identifier']) ?? text(o['name'])
   if (!registryType || !identifier) return null
-  const transport = record(o['transport'])
+  const transport = asRecord(o['transport'])
   return {
     registryType,
     identifier,
@@ -190,7 +186,7 @@ function packageOf(value: unknown): RegistryPackage | null {
 }
 
 function remoteOf(value: unknown): RegistryRemote | null {
-  const o = record(value)
+  const o = asRecord(value)
   const type = o ? text(o['type']) ?? text(o['transport_type']) : undefined
   const url = o ? text(o['url']) : undefined
   if (!o || !type || !url) return null
@@ -198,8 +194,7 @@ function remoteOf(value: unknown): RegistryRemote | null {
     type,
     url,
     requiredHeaders: list(o['headers'])
-      .map(record)
-      .filter((h): h is Record<string, unknown> => h !== null)
+      .filter(isRecord)
       .filter((h) => field(h, 'isRequired', 'is_required') === true)
       .map((h) => text(h['name']))
       .filter((n): n is string => n !== undefined)
@@ -208,8 +203,8 @@ function remoteOf(value: unknown): RegistryRemote | null {
 
 /** The publisher's own title, which the registry keeps under its `_meta` bag. */
 function metaTitle(server: Record<string, unknown>): string | undefined {
-  const meta = record(server['_meta'])
-  const provided = meta ? record(meta['io.modelcontextprotocol.registry/publisher-provided']) : null
+  const meta = asRecord(server['_meta'])
+  const provided = meta ? asRecord(meta['io.modelcontextprotocol.registry/publisher-provided']) : null
   return provided ? text(provided['title']) : undefined
 }
 
@@ -219,23 +214,23 @@ function metaTitle(server: Record<string, unknown>): string | undefined {
  * that pinned it, not offered to anyone new.
  */
 export function parseRegistryEntry(raw: unknown): RegistryEntry | null {
-  const wrapper = record(raw)
+  const wrapper = asRecord(raw)
   if (!wrapper) return null
-  const server = record(wrapper['server']) ?? wrapper
-  const official = record(record(wrapper['_meta'])?.['io.modelcontextprotocol.registry/official'])
+  const server = asRecord(wrapper['server']) ?? wrapper
+  const official = asRecord(asRecord(wrapper['_meta'])?.['io.modelcontextprotocol.registry/official'])
   const status = official ? text(official['status']) : undefined
   if (status !== undefined && status !== 'active') return null
   const id = text(server['name'])
-  const version = text(server['version']) ?? text(record(server['version_detail'])?.['version'])
+  const version = text(server['version']) ?? text(asRecord(server['version_detail'])?.['version'])
   if (!id || !version) return null
   const description = text(server['description']) ?? ''
-  const repository = text(record(server['repository'])?.['url'])
+  const repository = text(asRecord(server['repository'])?.['url'])
   return {
     id,
     version,
     ...(text(server['title']) ?? metaTitle(server) ? { title: text(server['title']) ?? metaTitle(server) } : {}),
     description:
-      description.length > MAX_DESCRIPTION ? `${description.slice(0, MAX_DESCRIPTION - 1)}…` : description,
+      clip(description, MAX_DESCRIPTION),
     ...(repository && /^https:\/\//.test(repository) ? { repository } : {}),
     ...(text(field(server, 'websiteUrl', 'website_url'))?.startsWith('https://')
       ? { website: text(field(server, 'websiteUrl', 'website_url')) }
@@ -251,12 +246,12 @@ export function parseRegistryEntry(raw: unknown): RegistryEntry | null {
 
 /** A search page: its entries, and the cursor to the next one. */
 export function parseRegistryPage(raw: unknown): { entries: RegistryEntry[]; next?: string } {
-  const o = record(raw)
+  const o = asRecord(raw)
   if (!o) return { entries: [] }
   const entries = list(o['servers'])
     .map(parseRegistryEntry)
     .filter((e): e is RegistryEntry => e !== null)
-  const meta = record(o['metadata'])
+  const meta = asRecord(o['metadata'])
   const next = meta ? text(field(meta, 'nextCursor', 'next_cursor')) : undefined
   return { entries, ...(next ? { next } : {}) }
 }

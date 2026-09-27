@@ -13,9 +13,9 @@ import type {
  * never passes through here except as an opaque string the caller already resolved.
  */
 
-export const ENDPOINT_TYPES: readonly ModelEndpointType[] = ['openai', 'azure', 'anthropic']
-export const WIRE_APIS: readonly WireApi[] = ['completions', 'responses']
-export const ENDPOINT_AUTHS: readonly EndpointAuth[] = ['key', 'bearer']
+const ENDPOINT_TYPES: readonly ModelEndpointType[] = ['openai', 'azure', 'anthropic']
+const WIRE_APIS: readonly WireApi[] = ['completions', 'responses']
+const ENDPOINT_AUTHS: readonly EndpointAuth[] = ['key', 'bearer']
 
 /**
  * Where "Add a model provider" starts: the providers people bring a key for, with the

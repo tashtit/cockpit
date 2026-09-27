@@ -13,11 +13,12 @@ import type {
   Provider,
   SkillInfo
 } from '../shared/types'
+import { isRecord } from '../shared/guards'
+import { PROVIDERS } from '../shared/providers'
 import {
   codexMcpServers,
   codexServerText,
   freshCodexServer,
-  isPlainObject,
   mcpJsonFor,
   normalizeMcp,
   patchCodexServer,
@@ -28,8 +29,10 @@ import {
 } from './extensions-core'
 import { isNewer } from '../shared/mcp-source'
 import { assertLinksWithin } from './link-guard'
+import { defaultConfigHome } from './paths'
 import { parseJsonc, readJsoncFile } from './parsers/util'
 import { replaceFile } from './replace-file'
+import { readIfPresent } from './state-file'
 
 /*
  * Each agent stores MCP servers in its own format:
@@ -58,7 +61,7 @@ const copilotJsonPath = (): string => join(homedir(), '.copilot', 'mcp-config.js
  */
 /** Resolved per call, like every other path here, so a test can point HOME elsewhere. */
 export const skillDir = (agent: Provider): string =>
-  join(homedir(), agent === 'claude' ? '.claude' : agent === 'codex' ? '.codex' : '.copilot', 'skills')
+  join(defaultConfigHome(agent), 'skills')
 
 /**
  * Where a *repo* keeps its skills. Claude Code reads `.claude/skills`; Codex and
@@ -103,7 +106,7 @@ function addFound(
   found: { readonly agent: JsonAgent; readonly cfg: any; readonly scope: Omit<FoundScope, 'config' | 'raw'> }
 ): void {
   const { agent, cfg, scope } = found
-  const own = isPlainObject(cfg) ? cfg : undefined
+  const own = isRecord(cfg) ? cfg : undefined
   const raw: McpRawDefinitions = own === undefined ? {} : agent === 'claude' ? { claude: own } : { copilot: own }
   const entry: FoundScope = { ...scope, config: normalizeMcp(cfg), raw }
   const existing = out.get(name)
@@ -250,7 +253,7 @@ export function adoptSkillInto(src: string, dst: string, repoRoot?: string): voi
 
 function readSkills(): SkillInfo[] {
   const out: SkillInfo[] = []
-  for (const agent of ['claude', 'codex', 'copilot'] as Provider[]) {
+  for (const agent of PROVIDERS) {
     const dir = skillDir(agent)
     if (!existsSync(dir)) continue
     let entries: string[] = []
@@ -563,7 +566,7 @@ export function getMcpConfig(name: string): McpConfig {
  */
 export function assertClaudeProjectServer(name: string, projectPath: string): string {
   const table: any = claudeMcpTables().projects.get(projectPath)
-  const cfg = isPlainObject(table) && Object.hasOwn(table, name) ? table[name] : undefined
+  const cfg = isRecord(table) && Object.hasOwn(table, name) ? table[name] : undefined
   if (!cfg) throw new Error(`no project-scoped server "${name}" in ${projectPath}`)
   return projectPath
 }
@@ -598,14 +601,8 @@ function writeJsonFile(path: string, value: unknown): void {
  * every project Claude Code knows.
  */
 function readJsonForWrite(path: string): any {
-  let raw: string
-  try {
-    raw = readFileSync(path, 'utf8')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {}
-    throw new Error(`cannot read ${path}: ${err instanceof Error ? err.message : err}`)
-  }
-  if (raw.trim() === '') return {}
+  const raw = readIfPresent(path)
+  if (raw === null || raw.trim() === '') return {}
   const j = parseJsonc(raw)
   if (j === null || typeof j !== 'object' || Array.isArray(j)) {
     throw new Error(`${path} isn't valid JSON — Cockpit won't rewrite a file it can't read; fix it first`)

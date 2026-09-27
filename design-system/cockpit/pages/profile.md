@@ -15,10 +15,10 @@ in `src/main/profile.ts` from logs already on disk. The user guide's page is
 
 ## Layout
 
-Reuses the standard secondary-view shell (`.chat.settings-view` > `.ns-card`), same as
-Settings, Agents and Cleanup: `.ns-head` (h2 + Close), the identity line (`.ns-hint.ns-prose`),
-then `.pv-stats` — the headline numbers over the agent mix, which every tab keeps — then the
-card tabs (`tablist` "Profile sections") over one panel.
+Reuses the standard secondary-view shell (`ViewCard.tsx`: `.chat.settings-view` >
+`.ns-card`), same as Settings, Agents and Cleanup: `.ns-head` (h2 + Close), the identity
+line (`.ns-hint.ns-prose`), then `.pv-stats` — the headline numbers over the agent mix,
+which every tab keeps — then the card tabs (`tablist` "Profile sections") over one panel.
 
 Tabs and order are fixed:
 

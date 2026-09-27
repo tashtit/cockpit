@@ -74,8 +74,9 @@ seventh.
   · `AboutSection` — each owning its own reads.
 - Header: `.ns-head` h2 + ghost Close. The heading takes focus on mount
   (`tabIndex={-1}` + `.focus()`) so screen readers land in context after navigation —
-  keep this pattern for any new full-view card. Section headings are real `<h3
-  className="ns-label">` elements, never orphan `<label>`s.
+  `ViewCard.tsx` is that shell, heading and Close included; build any new full-view
+  card on it. Section headings are real `<h3 className="ns-label">` elements, never
+  orphan `<label>`s.
 - The section prose ends with the aggregate: "Currently N config homes · M sessions"
   (live via `getSourceStats()` + `onIndexUpdated`).
 - Account list: `.source-row.source-<provider>` = rest-intensity agent tint (2px inset

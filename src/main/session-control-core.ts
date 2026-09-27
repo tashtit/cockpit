@@ -1,10 +1,11 @@
 import { resolve } from 'node:path'
 import type { Provider, SessionControl, SessionHold, SessionHolder } from '../shared/types'
-import { CONFIG_HOME_VAR, shQuote } from './agent-cli-core'
+import { shQuote, withConfigHome } from './shell-quote'
 import { isUnder } from './paths'
+import { withRecent } from './recent-map'
 
 /**
- * Who drives a session, IO-free (what the tests target; `index.ts` does the IO).
+ * Who drives a session, IO-free (what the tests target; `ipc/sessions.ts` and `ipc/chat.ts` do the IO).
  *
  * A session lives with its agent — a terminal, the provider's own app — until Cockpit
  * starts it or the person takes it over, and goes back when they release it. The
@@ -75,9 +76,7 @@ export function withControl(
 ): Readonly<Record<string, ControlEntry>> {
   const current = map[id]
   if (current && current.how === entry.how && current.at === entry.at) return map
-  const kept = Object.entries(map).filter(([k]) => k !== id)
-  kept.push([id, entry])
-  return Object.fromEntries(kept.slice(Math.max(0, kept.length - cap)))
+  return withRecent(map, { id, value: entry, cap })
 }
 
 /**
@@ -110,7 +109,7 @@ export function resumeLine(provider: Provider, nativeId: string, configDir?: str
         ? `codex resume ${id}`
         : // an optional-value flag: joined, so the id can never be read as a prompt
           `copilot --resume=${id}`
-  return configDir === undefined ? cmd : `${CONFIG_HOME_VAR[provider]}=${shQuote(configDir)} ${cmd}`
+  return withConfigHome(provider, cmd, configDir)
 }
 
 /**

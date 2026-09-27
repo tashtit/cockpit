@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, Provider, TodoStatus } from '../../shared/types'
 import { DEFAULT_BRANCH_PREFIX } from '../../shared/branch-prefix'
 import { useBranchPrefix } from './branch-prefix'
+import { plural } from './format'
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude',
@@ -51,6 +52,37 @@ export function ProviderLogo({ p, size = 14 }: { p: Provider; size?: number }): 
     <svg width={size} height={size} viewBox="0 0 24 24" className="logo-copilot" aria-hidden="true">
       <path fill="currentColor" d={COPILOT_PATH} />
     </svg>
+  )
+}
+
+/**
+ * An agent's logo in its livery box (`.plogo-{agent}` colors it) — a row's agent, a
+ * filter option's, a transcript speaker's. `box` is the box's own class: `plogo` for the
+ * mark in a row, `avatar` for the one beside a message. `decorative` hides the box where
+ * a label beside it already names the agent; `titled` names it on hover where the mark
+ * stands alone.
+ */
+export function ProviderMark({
+  p,
+  size = 13,
+  box = 'plogo',
+  decorative = false,
+  titled = false
+}: {
+  readonly p: Provider
+  readonly size?: number
+  readonly box?: 'plogo' | 'avatar'
+  readonly decorative?: boolean
+  readonly titled?: boolean
+}): JSX.Element {
+  return (
+    <span
+      className={`${box} plogo-${p}`}
+      aria-hidden={decorative ? 'true' : undefined}
+      title={titled ? PROVIDER_LABEL[p] : undefined}
+    >
+      <ProviderLogo p={p} size={size} />
+    </span>
   )
 }
 
@@ -249,6 +281,20 @@ const OCTICON_ARROW_SWITCH =
 export const HandoffIcon = ({ size = 12 }: { size?: number }): JSX.Element => (
   <Octicon d={OCTICON_ARROW_SWITCH} size={size} />
 )
+/** octicon alert-16 — a footer usage cell near its limit, beside the warn color */
+const OCTICON_ALERT =
+  'M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z'
+export const UsageWarnIcon = ({ size = 10 }: { size?: number }): JSX.Element => (
+  <svg className="usage-warn" width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <path d={OCTICON_ALERT} />
+  </svg>
+)
+/** The elbow that hangs a session under the one that started it (the sidebar's family rows) */
+export const ElbowIcon = (): JSX.Element => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+    <path d="M3 0v4a3 3 0 0 0 3 3h4" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
+)
 
 /** Live-status dot: this session's agent is running right now. Color = agent identity. */
 export function LiveDot({ p }: { p: Provider }): JSX.Element {
@@ -415,7 +461,7 @@ const REVIEW_LABEL: Record<Exclude<PrReview, 'none'>, string> = {
 }
 
 /** Why a red PR needs its author: the checks, else the review (the desk raises nothing else). */
-export function prReason(pr: AttentionPr): string {
+function prReason(pr: AttentionPr): string {
   return pr.checks === 'failing' ? 'checks failing' : 'changes requested'
 }
 
@@ -501,7 +547,7 @@ export function PrBadge({
   const detail = [
     checks && CHECKS_LABEL[checks],
     review && REVIEW_LABEL[review],
-    threads && `${threads} unresolved ${threads === 1 ? 'thread' : 'threads'}`
+    threads && plural(threads, 'unresolved thread')
   ].filter((s): s is string => s !== null)
   return (
     <button
@@ -538,5 +584,63 @@ export function PrBadge({
           approved / review required stay in the tooltip */}
       {review === 'changes_requested' && <span className="pr-review-mark" aria-hidden="true" />}
     </button>
+  )
+}
+
+/* Eye (octicon eye): the tree's filter — what the tree shows. */
+const OCTICON_EYE =
+  'M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z'
+export const EyeIcon = ({ size = 16 }: { size?: number }): JSX.Element => (
+  <Octicon d={OCTICON_EYE} size={size} />
+)
+
+/* The archive glyph both a session row and a table row carry (octicon archive). */
+const OCTICON_ARCHIVE =
+  'M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H1.75A1.75 1.75 0 0 1 0 4.25ZM1.75 7a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25Zm4.5 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z'
+export const ArchiveIcon = ({ size = 11 }: { size?: number }): JSX.Element => (
+  <Octicon d={OCTICON_ARCHIVE} size={size} />
+)
+
+/* ---------- popover glyphs: the Select and FilterBar triggers and panels ---------- */
+
+/** The chevron on a dropdown's trigger — a Select or a filter pill; it flips while open. */
+export function SelectChevron(): JSX.Element {
+  return (
+    <svg className="select-chev" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
+      <path
+        d="M1 1l4 4 4-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** `CheckIcon`'s glyph on a Select's chosen option, classed so its row can't squeeze it. */
+export function SelectCheck(): JSX.Element {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className="select-check"
+      aria-hidden="true"
+    >
+      <path d={OCTICON_CHECK} />
+    </svg>
+  )
+}
+
+/** The ⊘ that turns an option into an exclusion — quiet until the row is hovered. */
+export function BanIcon(): JSX.Element {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3.8 3.8l8.4 8.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   )
 }

@@ -12,7 +12,6 @@ import {
   marketReach,
   marketSourceKey,
   mcpFields,
-  PROVIDERS,
   withRecommended,
   type Actual,
   type Desired,
@@ -21,6 +20,7 @@ import {
   type PanelRow
 } from '../shared/library'
 import { describeMcp, mcpLabel, registryOf, withVersion } from '../shared/mcp-source'
+import { AGENT_NAME, PROVIDERS } from '../shared/providers'
 import type {
   CatalogInstall,
   ExtensionsInventory,
@@ -31,7 +31,7 @@ import type {
   Provider
 } from '../shared/types'
 import { loadConfig, saveConfig, userDataDir } from './config'
-import { cliEnv, execText } from './env'
+import { execOrThrow } from './env'
 import {
   adoptSkillInto,
   claudeProjectMcp,
@@ -158,13 +158,6 @@ function scopedInventory(repoRoot: string | null): ExtensionsRead {
 
 /* ---------- an entry's two sides ---------- */
 
-/** The agents' own names, for the sentences that have to name one. */
-const AGENT_LABEL: Record<Provider, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  copilot: 'Copilot'
-}
-
 /** The marketplace a plugin is installed from — the half after the last `@`. */
 function marketOf(entry: LibraryEntry): string | undefined {
   if (entry.kind === 'marketplace') return entry.name
@@ -185,7 +178,7 @@ function marketOf(entry: LibraryEntry): string | undefined {
 function reachReason(entry: LibraryEntry, reach: MarketReach): string {
   const market = marketOf(entry) ?? entry.name
   const verb = entry.kind === 'marketplace' ? 'add it' : `install ${entry.name}`
-  const who = reach.has.map((p) => AGENT_LABEL[p]).join(' and ')
+  const who = reach.has.map((p) => AGENT_NAME[p]).join(' and ')
   return reach.has.length > 0
     ? `${market} ships with ${who} — there’s no source another agent could add it from.`
     : `Cockpit can’t tell where ${market} comes from, so it can’t ${verb} in another agent.`
@@ -463,11 +456,13 @@ const PLUGIN_CMD: Record<Provider, { on: readonly string[]; off: readonly string
 const CLI_TIMEOUT_MS = 120_000
 
 async function runAgentCli(agent: Provider, args: readonly string[]): Promise<void> {
-  const res = await execText(agent, args, { timeoutMs: CLI_TIMEOUT_MS, env: cliEnv() })
-  if (!res.ok) {
-    const detail = (res.stderr || res.stdout || res.error || '').trim().split('\n').slice(-3).join(' ')
-    throw new Error(`${agent} ${args.join(' ')} failed — ${detail || 'no output'}`)
-  }
+  await execOrThrow(agent, args, {
+    timeoutMs: CLI_TIMEOUT_MS,
+    failure: (res) => {
+      const detail = (res.stderr || res.stdout || res.error || '').trim().split('\n').slice(-3).join(' ')
+      return `${agent} ${args.join(' ')} failed — ${detail || 'no output'}`
+    }
+  })
 }
 
 /**
@@ -482,7 +477,7 @@ function assertInstallable(entry: LibraryEntry, agent: Provider): void {
   if (reach.has.includes(agent)) return
   if (!canReach(reach, agent)) throw new Error(reachReason(entry, reach))
   throw new Error(
-    `${AGENT_LABEL[agent]} doesn’t have the ${market} marketplace yet — switch it on under Marketplaces first.`
+    `${AGENT_NAME[agent]} doesn’t have the ${market} marketplace yet — switch it on under Marketplaces first.`
   )
 }
 
@@ -688,7 +683,7 @@ export async function leavePanelOff(target: PanelTarget, agent: Provider): Promi
   const row = getPanel(target.repoRoot).rows.find((r) => r.kind === target.kind && r.name === target.name)
   if (!row) throw new Error(`Cockpit doesn't track ${target.kind} "${target.name}" here`)
   if (row.cells[agent].state !== 'pending') {
-    throw new Error(`${AGENT_LABEL[agent]} isn’t missing ${target.name} — there is nothing to leave off.`)
+    throw new Error(`${AGENT_NAME[agent]} isn’t missing ${target.name} — there is nothing to leave off.`)
   }
   const entry = findEntry(loadEntries(target.repoRoot), target)
   saveEntries(

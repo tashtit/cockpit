@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { UpdateState } from '../../shared/types'
 import { api } from './api'
 import { useArmedConfirm } from './ConfirmRemove'
+import { seedThenFollow } from './seed-then-follow'
 
 /**
  * What the sidebar's update bar has to tell you, if anything. Settings › About is
@@ -42,18 +43,15 @@ export function updatePrompt(s: UpdateState, prev: UpdatePrompt | null): UpdateP
 /** The bar's prompt, following every transition main pushes. */
 export function useUpdatePrompt(): UpdatePrompt | null {
   const [prompt, setPrompt] = useState<UpdatePrompt | null>(null)
-  useEffect(() => {
-    let dead = false
-    const follow = (s: UpdateState): void => {
-      if (!dead) setPrompt((prev) => updatePrompt(s, prev))
-    }
-    void api.getUpdateState().then(follow, () => {})
-    const off = api.onUpdateState(follow)
-    return () => {
-      dead = true
-      off()
-    }
-  }, [])
+  useEffect(
+    () =>
+      seedThenFollow(
+        () => api.getUpdateState(),
+        (on) => api.onUpdateState(on),
+        (s) => setPrompt((prev) => updatePrompt(s, prev))
+      ),
+    []
+  )
   return prompt
 }
 
@@ -89,7 +87,3 @@ export function useRestartToUpdate(): {
   }
 }
 
-/** "1 turn" / "3 turns" — what the armed restart says it will stop. */
-export function turnsWord(n: number): string {
-  return `${n} ${n === 1 ? 'turn' : 'turns'}`
-}

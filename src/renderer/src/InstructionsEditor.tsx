@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { fileChange, type FileChange } from '../../shared/instruction-changes'
-import type { InstructionFile, InstructionsState } from '../../shared/types'
+import type { InstructionFile } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, DiffStat, InstructionDiff, ReadByNote } from './InstructionDiff'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { applyFile, takeFile, type InstructionsWrite } from './instruction-writes'
+import { shortPath } from '../../shared/library'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
+import type { Notice } from './notice'
+import { useLoaded } from './use-loaded'
 
 /**
  * Writing the shared baseline: the one surface here that authors content rather
@@ -21,13 +25,6 @@ const STATUS_LABEL: Record<InstructionFile['status'], string> = {
   missing: 'no file yet'
 }
 
-/** `link` is for an outcome that lives somewhere else — a PR the share just opened. */
-type Notice = {
-  text: string
-  kind: 'ok' | 'error'
-  link?: { href: string; label: string }
-} | null
-
 /** GitHub-comment grammar, plus the PR's own third tab: what the write would change. */
 type EditorTab = 'write' | 'preview' | 'changes'
 
@@ -41,8 +38,12 @@ export function InstructionsEditor({
   /** applying changes each agent's file, so the panel's own row is now stale */
   onSaved: () => void
 }): JSX.Element {
-  const [inst, setInst] = useState<InstructionsState | null>(null)
-  const [draft, setDraft] = useState('')
+  const { value: inst, set: setInst, error } = useLoaded(() => api.getInstructions(repoRoot), [repoRoot], {
+    reset: true
+  })
+  /** What the person typed over the baseline — null while the box holds the baseline as read or written */
+  const [edited, setEdited] = useState<string | null>(null)
+  const draft = edited ?? inst?.baseline ?? ''
   const [mdView, setMdView] = useState<EditorTab>('write')
   const [busy, setBusy] = useState(false)
   /** a file row asked to see its own changes — focus that block once the tab shows */
@@ -52,18 +53,12 @@ export function InstructionsEditor({
   const repoRootRef = useRef(repoRoot)
   repoRootRef.current = repoRoot
 
+  // another scope's baseline replaces the box, typed text and all
+  useEffect(() => setEdited(null), [repoRoot])
+  // a failed read says why on the card's notice line, rather than loading forever
   useEffect(() => {
-    let dead = false
-    setInst(null)
-    void api.getInstructions(repoRoot).then((s) => {
-      if (dead) return
-      setInst(s)
-      setDraft(s.baseline)
-    })
-    return () => {
-      dead = true
-    }
-  }, [repoRoot])
+    if (error) setNotice({ text: error, kind: 'error' })
+  }, [error])
 
   const dirty = inst !== null && draft !== inst.baseline
 
@@ -84,7 +79,7 @@ export function InstructionsEditor({
     setFocusPath(null)
   }, [mdView, focusPath])
 
-  const run = async (op: () => Promise<InstructionsState>, okText: string): Promise<void> => {
+  const run = async ({ op, ok }: InstructionsWrite): Promise<void> => {
     setNotice(null)
     setBusy(true)
     const startedOn = repoRoot
@@ -94,8 +89,8 @@ export function InstructionsEditor({
       // old scope's baseline into the newly loaded one
       if (startedOn !== repoRootRef.current) return
       setInst(s)
-      setDraft(s.baseline)
-      setNotice({ text: okText, kind: 'ok' })
+      setEdited(null)
+      setNotice({ text: ok, kind: 'ok' })
       onSaved()
     } catch (err) {
       if (startedOn !== repoRootRef.current) return
@@ -106,23 +101,16 @@ export function InstructionsEditor({
   }
 
   const saveBaseline = (): Promise<void> =>
-    run(() => api.saveInstructionsBaseline(repoRoot, draft), 'Shared instructions saved.')
+    run({ op: () => api.saveInstructionsBaseline(repoRoot, draft), ok: 'Shared instructions saved.' })
 
   const saveAndApply = (): Promise<void> =>
-    run(
-      async () => {
+    run({
+      op: async () => {
         await api.saveInstructionsBaseline(repoRoot, draft)
         return api.applyInstructions(repoRoot)
       },
-      'Applied to every agent file — running sessions pick it up on their next start.'
-    )
-
-  const applyOne = (path: string): Promise<void> =>
-    run(() => api.applyInstructions(repoRoot, path), 'Applied — restart that agent to pick it up.')
-
-  /** The other side of drift: a teammate's update arrived in the repo's own files. */
-  const takeFile = (path: string): Promise<void> =>
-    run(() => api.adoptInstructionsFrom(repoRoot, path), "Taken as the baseline — it's yours now.")
+      ok: 'Applied to every agent file — running sessions pick it up on their next start.'
+    })
 
   /**
    * Share a repo's instructions the way the repo shares everything else: a PR to
@@ -175,7 +163,7 @@ export function InstructionsEditor({
         on the next apply). Anything outside the markers belongs to that agent and is never touched.
       </p>
 
-      {!inst && <div className="tree-empty">loading…</div>}
+      {!inst && !error && <div className="tree-empty">loading…</div>}
 
       {inst && (
         <>
@@ -216,7 +204,7 @@ export function InstructionsEditor({
                   : '# General instructions every agent should follow, everywhere…\n\nE.g. commit style, language, review rules, what never to touch.'
               }
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setEdited(e.target.value)}
             />
           )}
           {mdView === 'preview' && (
@@ -278,14 +266,14 @@ export function InstructionsEditor({
                 busy={busy}
                 dirty={dirty}
                 baselineEmpty={inst.baseline.trim() === ''}
-                onApply={() => void applyOne(f.path)}
+                onApply={() => void run(applyFile(repoRoot, f.path))}
                 onSeeChanges={() => seeChanges(f.path)}
-                onTakeFile={() => void takeFile(f.path)}
+                onTakeFile={() => void run(takeFile(repoRoot, f.path))}
                 onSaveFile={(content) =>
-                  void run(
-                    () => api.saveInstructionFile(repoRoot, f.path, content),
-                    'File saved.'
-                  )
+                  void run({
+                    op: () => api.saveInstructionFile(repoRoot, f.path, content),
+                    ok: 'File saved.'
+                  })
                 }
               />
             ))}
@@ -399,14 +387,12 @@ function InstructionFileRow({
         aria-label={`Read by ${file.agents.map((a) => PROVIDER_LABEL[a]).join(' and ')}`}
       >
         {file.agents.map((a) => (
-          <span key={a} className={`plogo plogo-${a}`} title={PROVIDER_LABEL[a]}>
-            <ProviderLogo p={a} size={13} />
-          </span>
+          <ProviderMark key={a} p={a} titled />
         ))}
       </div>
       <div className="ext-body">
         <div className="ext-name">
-          <span className="inst-path">{file.path.replace(/^\/Users\/[^/]+/, '~')}</span>
+          <span className="inst-path">{shortPath(file.path)}</span>
           <span className={`inst-status ${file.status}`}>{STATUS_LABEL[file.status]}</span>
           <ReadByNote file={file} />
           {file.status !== 'synced' && (

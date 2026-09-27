@@ -13,11 +13,11 @@ import { storedWidth } from './stored-width'
  */
 
 /** The narrowest rail: the 700px window's own, and the one every rail rule is written for. */
-export const RAIL_MIN = 200
+const RAIL_MIN = 200
 /** Past this the rail is the window. */
-export const RAIL_MAX = 600
+const RAIL_MAX = 600
 /** What the deck keeps whatever the drag: its width at the 560px window every view is audited at. */
-export const DECK_MIN = 360
+const DECK_MIN = 360
 
 /** The widths a rail may take in a viewport this wide. */
 export function railBounds(viewport: number): SashBounds {

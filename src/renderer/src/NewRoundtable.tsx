@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
-  AccountsSnapshot,
   AgentModel,
   ModelEndpoint,
   Provider,
@@ -12,6 +11,7 @@ import type {
 import { endpointSupports } from '../../shared/endpoints'
 import { effortsFor } from '../../shared/agent-models'
 import { signInHint } from '../../shared/agent-auth'
+import { PROVIDERS } from '../../shared/library'
 import {
   DEFAULT_ROUNDTABLE_LIMITS,
   duplicateSeats,
@@ -20,19 +20,19 @@ import {
   sanitizeRoundtableLimits
 } from '../../shared/roundtable'
 import { api } from './api'
-import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './NewSession'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ipcErrorText } from './ipc-error'
+import { accountOptions, AGENT_BLURB, chosenAccount, type AccountOption } from './agent-choice'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
+import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
+import { storedValue } from './stored-value'
+import { useLoaded } from './use-loaded'
+import { ErrorAlert } from './ErrorAlert'
+import { plural } from './format'
 
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
 const ROUND_CHOICES = [1, 2, 3, 4, 5]
-/** Ceiling presets — within ROUNDTABLE_LIMIT_RANGE, which main enforces */
-export const MESSAGE_LIMITS = [4, 8, 12, 16, 24, 32, 64]
-export const TABLE_LIMITS = [20, 40, 80, 160, 320, 0]
-const LIMITS_KEY = 'cockpit:rt-limits'
-const SEATS_KEY = 'cockpit:rt-seats'
 const DEFAULT_SEATS: SeatDraft[] = [{ provider: 'claude' }, { provider: 'codex' }]
 
 /** One seat being configured — every field is the seat's own, the agent included. */
@@ -51,38 +51,32 @@ type SeatDraft = {
   readonly longContext?: boolean
 }
 
-/** A ceiling's options: its presets plus whatever value is current, shown as itself. */
-export function limitOptions(
-  presets: readonly number[],
-  current: number
-): Array<{ value: string; label: string }> {
-  // 0 means "no ceiling", so it sorts as the largest
-  const rank = (n: number): number => (n === 0 ? Infinity : n)
-  const values = presets.includes(current)
-    ? presets
-    : [...presets, current].sort((a, b) => rank(a) - rank(b))
-  return values.map((n) => ({ value: String(n), label: n === 0 ? 'no ceiling' : `${n} turns` }))
-}
+/** The goals the form offers — a stored one that isn't among them is no goal at all */
+const TABLE_MODES: readonly RoundtableMode[] = ['open', 'consensus']
+
+/** The kind of table last opened here (`stored-value.ts`, like the other two below). */
+const savedTableMode = storedValue<RoundtableMode>('cockpit:rt-table-mode', {
+  parse: (raw) => TABLE_MODES.find((m) => m === raw),
+  serialize: (mode) => mode,
+  fallback: 'open'
+})
 
 /** The ceilings last chosen here — the next table starts from them. */
-function savedLimits(): RoundtableLimits {
-  try {
-    const raw = window.localStorage.getItem(LIMITS_KEY)
-    return sanitizeRoundtableLimits(raw ? JSON.parse(raw) : null)
-  } catch {
-    return DEFAULT_ROUNDTABLE_LIMITS
-  }
-}
+const savedLimits = storedValue<RoundtableLimits>('cockpit:rt-limits', {
+  parse: (raw) => sanitizeRoundtableLimits(raw ? JSON.parse(raw) : null),
+  serialize: (limits) => JSON.stringify(limits),
+  fallback: DEFAULT_ROUNDTABLE_LIMITS
+})
 
 /**
  * The seating last opened here, so the next table is one topic away. Stored drafts are
  * only a starting point: anything the lists no longer offer (a removed account, a model
  * gone from a catalog) resolves to its default when the form renders.
  */
-function savedSeats(): SeatDraft[] {
-  try {
-    const raw: unknown = JSON.parse(window.localStorage.getItem(SEATS_KEY) ?? 'null')
-    if (!Array.isArray(raw)) return DEFAULT_SEATS
+const savedSeats = storedValue<SeatDraft[]>('cockpit:rt-seats', {
+  parse: (text) => {
+    const raw: unknown = JSON.parse(text)
+    if (!Array.isArray(raw)) return undefined
     const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
     const seats = raw
       .filter((s) => s && PROVIDERS.includes(s.provider))
@@ -98,11 +92,11 @@ function savedSeats(): SeatDraft[] {
           longContext: s.longContext === true || undefined
         })
       )
-    return seats.length >= 2 ? seats : DEFAULT_SEATS
-  } catch {
-    return DEFAULT_SEATS
-  }
-}
+    return seats.length >= 2 ? seats : undefined
+  },
+  serialize: (seats) => JSON.stringify(seats),
+  fallback: DEFAULT_SEATS
+})
 
 /**
  * Roundtable creation, topic first: what to discuss, then who discusses it — each seat
@@ -120,17 +114,18 @@ export function NewRoundtable({
   onCreated: (id: string) => void
   onCancel: () => void
 }): JSX.Element {
-  const [seats, setSeats] = useState<SeatDraft[]>(savedSeats)
+  const [seats, setSeats] = useState<SeatDraft[]>(savedSeats.get)
   const [repoKey, setRepoKey] = useState('')
   const [topic, setTopic] = useState('')
-  const [tableMode, setTableMode] = useState<RoundtableMode>(
-    () => (window.localStorage.getItem('cockpit:rt-table-mode') as RoundtableMode) ?? 'open'
-  )
+  const [tableMode, setTableMode] = useState<RoundtableMode>(savedTableMode.get)
   const [maxRounds, setMaxRounds] = useState(3)
-  const [limits, setLimits] = useState<RoundtableLimits>(savedLimits)
+  const [limits, setLimits] = useState<RoundtableLimits>(savedLimits.get)
   const [dupConfirmed, setDupConfirmed] = useState(false)
-  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
-  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  const { value: accounts } = useLoaded(() => api.getAccounts(), [])
+  // optional call: a preload from before this method must not crash the form (dev HMR)
+  const { value: endpoints } = useLoaded(api.getModelEndpoints ? () => api.getModelEndpoints() : null, [], {
+    initial: [] as ModelEndpoint[]
+  })
   /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
   /** Every model each agent offers, per config home (`agentKey`) — main reads the CLIs' own lists */
@@ -146,9 +141,6 @@ export function NewRoundtable({
 
   useEffect(() => {
     topicRef.current?.focus()
-    void api.getAccounts().then(setAccounts)
-    // optional call: a preload from before this method must not crash the form (dev HMR)
-    void api.getModelEndpoints?.().then(setEndpoints)
   }, [])
 
   // ask each chosen provider what it serves, once; the cached list covers the meantime
@@ -164,8 +156,7 @@ export function NewRoundtable({
   }, [chosenEndpoints.join('\n')])
 
   const seatAccount = (seat: SeatDraft): AccountOption | undefined =>
-    accountOptions(accounts, seat.provider).find((o) => o.key === seat.account) ??
-    savedAccount(accounts, seat.provider)
+    chosenAccount(accounts, seat.provider, seat.account)
   const agentKey = (seat: SeatDraft): string =>
     `${seat.provider}|${seatAccount(seat)?.configDir ?? ''}`
   // one listing per agent and account home the table uses, fetched once
@@ -208,7 +199,7 @@ export function NewRoundtable({
       await api.openSignIn(seat.provider, seatAccount(seat)?.configDir)
       setSigningIn((k) => (k.includes(key) ? k : [...k, key]))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(ipcErrorText(err))
     }
   }
   // watch the homes being signed in until each reads signed in — then stop asking
@@ -325,13 +316,10 @@ export function NewRoundtable({
     if (busy || !topic.trim() || blocked) return
     setError(null)
     setBusy(true)
-    try {
-      window.localStorage.setItem('cockpit:rt-table-mode', tableMode)
-      window.localStorage.setItem(LIMITS_KEY, JSON.stringify(limits))
-      window.localStorage.setItem(SEATS_KEY, JSON.stringify(seats))
-    } catch {
-      /* storage refused — the table still opens, it just isn't remembered */
-    }
+    // storage may refuse — the table still opens, it just isn't remembered past this run
+    savedTableMode.set(tableMode)
+    savedLimits.set(limits)
+    savedSeats.set(seats)
     try {
       const rt = await api.createRoundtable({
         topic: topic.trim(),
@@ -343,14 +331,13 @@ export function NewRoundtable({
       })
       onCreated(rt.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(ipcErrorText(err))
       setBusy(false)
     }
   }
 
   /** The seat's name without the agent — its ordinal, when the agent sits twice. */
   const ordinal = (index: number): string => seatLabel(index).slice(PROVIDER_LABEL[seats[index].provider].length).trim()
-  const seatWord = seats.length === 1 ? 'seat' : 'seats'
 
   return (
     <main className="chat new-session-view">
@@ -406,9 +393,7 @@ export function NewRoundtable({
                   onClick={() => addSeat(p)}
                 >
                   <span aria-hidden="true">+</span>
-                  <span className={`plogo plogo-${p}`} aria-hidden="true">
-                    <ProviderLogo p={p} size={12} />
-                  </span>
+                  <ProviderMark p={p} size={12} decorative />
                   {PROVIDER_LABEL[p]}
                   {out && (
                     <span className="rt-add-out" aria-hidden="true">
@@ -439,9 +424,7 @@ export function NewRoundtable({
                 aria-label={`${name} seat`}
               >
                 <div className="rt-seat-card-head">
-                  <span className={`plogo plogo-${seat.provider}`} aria-hidden="true">
-                    <ProviderLogo p={seat.provider} size={13} />
-                  </span>
+                  <ProviderMark p={seat.provider} decorative />
                   {/* the seat's agent is its title, and changeable in place */}
                   <Select
                     className="rt-seat-agent"
@@ -710,7 +693,7 @@ export function NewRoundtable({
                 value={String(rounds)}
                 options={roundChoices.map((n) => ({
                   value: String(n),
-                  label: n === 1 ? '1 round' : `${n} rounds`,
+                  label: plural(n, 'round'),
                   title: 'auto discussion rounds per message before the table must conclude'
                 }))}
                 onChange={(v) => setMaxRounds(Number(v))}
@@ -739,52 +722,19 @@ export function NewRoundtable({
 
         <span className="ns-label" id="rt-limits-label">Roundtable spending limits</span>
         <div className="ns-options" role="group" aria-labelledby="rt-limits-label">
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-limit-message">Agent turns per message</label>
-            <Select
-              id="rt-limit-message"
-              ariaLabel="Agent turns per message"
-              value={String(limits.maxTurnsPerMessage)}
-              options={limitOptions(MESSAGE_LIMITS, limits.maxTurnsPerMessage)}
-              onChange={(v) => setLimits((l) => ({ ...l, maxTurnsPerMessage: Number(v) }))}
-            />
-          </div>
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-limit-table">Agent turns for the table</label>
-            <Select
-              id="rt-limit-table"
-              ariaLabel="Agent turns for the table"
-              value={String(limits.maxTurnsPerTable)}
-              options={limitOptions(TABLE_LIMITS, limits.maxTurnsPerTable)}
-              onChange={(v) => setLimits((l) => ({ ...l, maxTurnsPerTable: Number(v) }))}
-            />
-          </div>
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="rt-limit-minutes">Longest a seat may take</label>
-            <Select
-              id="rt-limit-minutes"
-              ariaLabel="Longest a seat may take"
-              value={String(limits.maxTurnMinutes)}
-              options={[5, 10, 15, 30, 60, 0].map((n) => ({
-                value: String(n),
-                label: n === 0 ? 'no limit' : `${n} min`,
-                title: 'a seat still going after this is skipped — the round carries on without it'
-              }))}
-              onChange={(v) => setLimits((l) => ({ ...l, maxTurnMinutes: Number(v) }))}
-            />
-          </div>
+          <RoundtableLimitFields idPrefix="rt-limit" limits={limits} onChange={setLimits} />
         </div>
         {/* the bill, before it is run up: every seat's reply is a full agent turn */}
         <div className="ns-hint">
           {tableMode === 'consensus'
-            ? `Each message costs up to ${turnsPerMessage} agent turns — ${seats.length} seats × ${rounds} ${rounds === 1 ? 'round' : 'rounds'}, fewer if they agree sooner.`
+            ? `Each message costs up to ${turnsPerMessage} agent turns — ${seats.length} seats × ${plural(rounds, 'round')}, fewer if they agree sooner.`
             : `Each message, and each extra round, costs ${turnsPerMessage} agent turns — one per seat.`}{' '}
           {messagesAffordable === null
             ? 'No ceiling for the whole table.'
-            : `The table stops at ${limits.maxTurnsPerTable} turns — about ${messagesAffordable} ${messagesAffordable === 1 ? 'message' : 'messages'} at this size — and you can raise it from the table.`}
+            : `The table stops at ${limits.maxTurnsPerTable} turns — about ${plural(messagesAffordable, 'message')} at this size — and you can raise it from the table.`}
         </div>
 
-        {error && <div className="new-error" role="alert">{error}</div>}
+        {error && <ErrorAlert>{error}</ErrorAlert>}
 
         {/* pinned to the bottom of the view: however many seats, the bill and the way
             to open the table are always in sight */}
@@ -799,7 +749,7 @@ export function NewRoundtable({
               'Checking the seats can run…'
             ) : (
               <>
-                {seats.length} {seatWord} · {tableMode === 'consensus' ? 'up to ' : ''}
+                {plural(seats.length, 'seat')} · {tableMode === 'consensus' ? 'up to ' : ''}
                 {turnsPerMessage} agent turns a message
               </>
             )}

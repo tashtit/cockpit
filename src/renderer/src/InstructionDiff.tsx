@@ -17,7 +17,7 @@ import {
   useDiffLayout,
   type DiffLayout
 } from './diff-layout'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { useSame } from './same'
 
 /**
@@ -44,8 +44,9 @@ export const APPLY_LABEL: Record<Exclude<InstructionStatus, 'synced'>, string> =
   drifted: 'Re-apply'
 }
 
-const GUTTER: Record<DiffLine['op'], string> = { same: ' ', add: '+', del: '−' }
-const SAID: Record<DiffLine['op'], string> = { same: '', add: 'added: ', del: 'removed: ' }
+/** A line's +/− gutter, and what a screen reader hears in its place. Shared with the review. */
+export const GUTTER: Record<DiffLine['op'], string> = { same: ' ', add: '+', del: '−' }
+export const SAID: Record<DiffLine['op'], string> = { same: '', add: 'added: ', del: 'removed: ' }
 
 function bandText(n: number): string {
   return n === 1
@@ -129,9 +130,7 @@ export function InstructionDiff({
       <div className={`idiff-head ${tint}`} ref={headRef} tabIndex={headRef ? -1 : undefined}>
         <span className="ext-agents" role="img" aria-label={`Read by ${readers}`}>
           {file.agents.map((a) => (
-            <span key={a} className={`plogo plogo-${a}`} title={PROVIDER_LABEL[a]}>
-              <ProviderLogo p={a} size={13} />
-            </span>
+            <ProviderMark key={a} p={a} titled />
           ))}
         </span>
         <span className="idiff-path">{path}</span>

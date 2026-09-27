@@ -44,16 +44,6 @@ export function listClaudeSessionFiles(sourceDir: string): string[] {
   )
 }
 
-export function listClaudeSessions(sourceDir: string, sourceLabel: string): SessionMeta[] {
-  const files = listClaudeSessionFiles(sourceDir)
-  const out: SessionMeta[] = []
-  for (const file of files) {
-    const meta = parseClaudeMeta(file, sourceLabel)
-    if (meta) out.push(meta)
-  }
-  return out
-}
-
 export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta | null {
   const head = readHead(file, META_HEAD_BYTES)
   if (!head.text) return null

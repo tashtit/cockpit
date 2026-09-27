@@ -7,6 +7,7 @@ import {
   splitRows,
   type DiffLine
 } from '../src/shared/line-diff'
+import type { DiffHunkLine } from '../src/shared/types'
 
 /* A diff is only right if both sides read back out of it. */
 const left = (d: readonly DiffLine[]): string[] => d.filter((l) => l.op !== 'add').map((l) => l.text)
@@ -165,6 +166,38 @@ describe('splitRows', () => {
       { op: 'pair', left: null, right: L('add', 'new') },
       { op: 'pair', left: null, right: L('add', 'newer') }
     ])
+  })
+
+  // the review's split view: a git hunk's lines carry both line numbers, and each cell
+  // must still be the very line it was handed so its number and note key stay with it
+  it('pairs a hunk’s own numbered lines, numbers and all', () => {
+    const H = (op: DiffHunkLine['op'], text: string, oldNo: number | null, newNo: number | null): DiffHunkLine => ({
+      op,
+      text,
+      oldNo,
+      newNo
+    })
+    const lines = [
+      H('same', 'one', 1, 1),
+      H('del', 'two', 2, null),
+      H('add', 'two changed', null, 2),
+      H('add', 'two and a half', null, 3),
+      H('same', 'three', 3, 4)
+    ]
+    const rows = splitRows(lines)
+    expect(rows.map((r) => [r.left?.text ?? null, r.right?.text ?? null])).toEqual([
+      ['one', 'one'],
+      ['two', 'two changed'],
+      [null, 'two and a half'],
+      ['three', 'three']
+    ])
+    expect(rows.map((r) => [r.left?.oldNo ?? null, r.right?.newNo ?? null])).toEqual([
+      [1, 1],
+      [2, 2],
+      [null, 3],
+      [3, 4]
+    ])
+    expect(rows[1].left).toBe(lines[1])
   })
 
   it('does not pair across a context line — two stretches stay two', () => {

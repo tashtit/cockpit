@@ -1,5 +1,7 @@
-import { useEffect, useId, useRef, useState, type JSX, type ReactNode } from 'react'
+import { useId, useRef, useState, type JSX, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { BanIcon, SelectChevron } from './logos'
+import { anchorTo, useDismissable, type Anchor } from './popover'
 
 /**
  * The filter bar: one sticky row of dimension pills, each summarising its own
@@ -82,97 +84,11 @@ export function matchesFilters(
   return true
 }
 
-/**
- * Popover plumbing shared by the pill and the add-filter menu: outside mousedown
- * closes, Escape closes and hands focus back, page scroll detaches a fixed panel
- * from its trigger so it closes too — but the panel's own scrolling never does.
- *
- * Escape and the arrow keys are bound on the document, not the panel, because the
- * trigger keeps focus when a panel opens — a handler on the panel alone would
- * never see the key that the user actually pressed.
- */
-function useDismissable(
-  open: boolean,
-  close: (refocus: boolean) => void
-): { readonly panelRef: React.RefObject<HTMLDivElement | null> } {
-  const panelRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent): void => {
-      if (!panelRef.current?.contains(e.target as Node)) close(false)
-    }
-    const onAway = (): void => close(false)
-    const onScroll = (e: Event): void => {
-      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return
-      close(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        close(true)
-        return
-      }
-      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
-      const items = [...(panelRef.current?.querySelectorAll<HTMLElement>('[data-fb-item]') ?? [])]
-      if (items.length === 0) return
-      e.preventDefault()
-      const at = items.indexOf(document.activeElement as HTMLElement)
-      const step = e.key === 'ArrowDown' ? 1 : -1
-      items[(at + step + items.length) % items.length].focus()
-    }
-    // mousedown is deferred a tick so the click that opened the panel can't close it
-    const t = setTimeout(() => document.addEventListener('mousedown', onDown))
-    window.addEventListener('resize', onAway)
-    document.addEventListener('scroll', onScroll, true)
-    document.addEventListener('keydown', onKey, true)
-    return () => {
-      clearTimeout(t)
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('resize', onAway)
-      document.removeEventListener('scroll', onScroll, true)
-      document.removeEventListener('keydown', onKey, true)
-    }
-  }, [open, close])
-
-  return { panelRef }
-}
-
-type Anchor = { readonly top: number; readonly left: number }
-
-/** Where a panel goes: under its trigger, nudged left when the window would clip it. */
-function anchorTo(el: HTMLElement | null, width: number): Anchor | null {
-  const r = el?.getBoundingClientRect()
-  if (!r) return null
-  return { top: r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)) }
-}
-
 const PANEL_WIDTH = 232
 
-function Chevron(): JSX.Element {
-  return (
-    <svg className="select-chev" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
-      <path
-        d="M1 1l4 4 4-4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-/** The ⊘ that turns an option into an exclusion — quiet until the row is hovered. */
-function BanIcon(): JSX.Element {
-  return (
-    <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M3.8 3.8l8.4 8.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
+/** The pill's and the menu's panels: the trigger keeps focus, so ↑/↓ and Escape are
+ *  bound on the document, and the opening click must not also close the panel. */
+const DISMISS = { deferMouseDown: true, keyItems: '[data-fb-item]' } as const
 
 function FilterPill({
   group,
@@ -193,7 +109,7 @@ function FilterPill({
     setQuery('')
     if (refocus) triggerRef.current?.focus()
   }
-  const { panelRef } = useDismissable(open, close)
+  const { panelRef } = useDismissable(open, close, DISMISS)
 
   const shown = query.trim()
     ? group.options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
@@ -229,7 +145,7 @@ function FilterPill({
         <span id={`${ids}-value`} className="fb-pill-value">
           {summarizeGroup(group)}
         </span>
-        <Chevron />
+        <SelectChevron />
       </button>
       {open &&
         pos &&
@@ -333,7 +249,7 @@ function AddFilterMenu({
     setOpen(false)
     if (refocus) triggerRef.current?.focus()
   }
-  const { panelRef } = useDismissable(open, close)
+  const { panelRef } = useDismissable(open, close, DISMISS)
 
   return (
     <div className="fb-pill-wrap">
@@ -396,14 +312,12 @@ function AddFilterMenu({
 
 /**
  * `search` occupies the leftmost slot, divided from the pills — free text narrows
- * the same list but is not a dimension, so it never becomes a pill. `right` is for
- * controls that reorder or reshape rather than narrow, which belong outside the bar.
+ * the same list but is not a dimension, so it never becomes a pill.
  */
 export function FilterBar({
   groups,
   defaultPinned,
-  search,
-  right
+  search
 }: {
   groups: readonly FilterGroup[]
   defaultPinned: readonly string[]
@@ -413,7 +327,6 @@ export function FilterBar({
     readonly label: string
     readonly placeholder: string
   }
-  right?: ReactNode
 }): JSX.Element {
   const [pinned, setPinned] = useState<ReadonlySet<string>>(() => new Set(defaultPinned))
   // a dimension carrying a value is always on the bar, pinned or not — otherwise the
@@ -471,7 +384,6 @@ export function FilterBar({
           Clear all
         </button>
       )}
-      {right && <div className="fb-right">{right}</div>}
     </div>
   )
 }

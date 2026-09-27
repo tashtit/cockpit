@@ -1,3 +1,5 @@
+import { asRecord } from './guards'
+import { clip } from './text'
 import type { CatalogPlugin } from './types'
 
 /*
@@ -56,7 +58,8 @@ function text(value: unknown): string | undefined {
 /** An author is a name, or `{name, email}` — the email is never shown. */
 function authorOf(value: unknown): string | undefined {
   if (typeof value === 'string') return text(value)
-  if (value && typeof value === 'object') return text((value as Record<string, unknown>)['name'])
+  const o = asRecord(value)
+  if (o) return text(o['name'])
   return undefined
 }
 
@@ -75,8 +78,8 @@ function pluginOf(value: unknown, marketplace: string): CatalogPlugin | null {
     const name = value.split('/').filter(Boolean).pop()
     return name ? { name, id: `${name}@${marketplace}`, description: '', keywords: [] } : null
   }
-  if (!value || typeof value !== 'object') return null
-  const o = value as Record<string, unknown>
+  const o = asRecord(value)
+  if (!o) return null
   const name = text(o['name'])
   if (!name) return null
   const description = text(o['description']) ?? ''
@@ -84,7 +87,7 @@ function pluginOf(value: unknown, marketplace: string): CatalogPlugin | null {
     name,
     id: `${name}@${marketplace}`,
     description:
-      description.length > MAX_DESCRIPTION ? `${description.slice(0, MAX_DESCRIPTION - 1)}…` : description,
+      clip(description, MAX_DESCRIPTION),
     ...(text(o['version']) ? { version: text(o['version']) } : {}),
     ...(authorOf(o['author']) ? { author: authorOf(o['author']) } : {}),
     ...(text(o['category']) ? { category: text(o['category']) } : {}),
@@ -103,8 +106,8 @@ export function parseCatalog(
   raw: unknown,
   fallback: string
 ): { readonly name: string; readonly plugins: readonly CatalogPlugin[] } | null {
-  if (!raw || typeof raw !== 'object') return null
-  const o = raw as Record<string, unknown>
+  const o = asRecord(raw)
+  if (!o) return null
   const list = o['plugins']
   if (!Array.isArray(list)) return null
   const name = text(o['name']) ?? fallback

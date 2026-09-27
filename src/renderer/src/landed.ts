@@ -2,6 +2,8 @@ import { useSyncExternalStore } from 'react'
 import type { Landing } from '../../shared/types'
 import { api } from './api'
 import { subscribeBusy, waitingNow } from './busy'
+import { seedThenFollow } from './seed-then-follow'
+import { subscribers } from './subscribers'
 
 /**
  * Sessions that need you: a turn has ended and nobody has opened the session since
@@ -25,21 +27,14 @@ import { subscribeBusy, waitingNow } from './busy'
 
 /** id → why it needs you (one reason per session, the most urgent) */
 let landed: ReadonlyMap<string, Landing> = new Map()
-const listeners = new Set<() => void>()
+const changes = subscribers()
 
 /** Where the renderer kept landings before main took them over. */
 const LEGACY_KEY = 'cockpit:landed'
 
 function set(list: readonly Landing[]): void {
   landed = new Map(list.map((l) => [l.id, l]))
-  listeners.forEach((l) => l())
-}
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
+  changes.notify()
 }
 
 /** Seed from main and follow its pushes; returns the unsubscribe (App's mount effect). */
@@ -49,16 +44,11 @@ export function initLanded(): () => void {
   } catch {
     // private windows and blocked storage: nothing to tidy
   }
-  // a push that beats the seed is newer than it — the seed must not overwrite it
-  let pushed = false
-  void api.getLandings().then((list) => {
-    if (!pushed) set(list)
-  })
-  const off = api.onLandings((list) => {
-    pushed = true
-    set(list)
-  })
-  return off
+  return seedThenFollow(
+    () => api.getLandings(),
+    (on) => api.onLandings(on),
+    set
+  )
 }
 
 /** Test seam: forget everything this window was told. */
@@ -67,7 +57,7 @@ export function clearLanded(): void {
 }
 
 function subscribeAll(cb: () => void): () => void {
-  const offLanded = subscribe(cb)
+  const offLanded = changes.subscribe(cb)
   const offBusy = subscribeBusy(cb)
   return () => {
     offLanded()

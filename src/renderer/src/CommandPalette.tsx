@@ -10,6 +10,7 @@ import type {
 import { api } from './api'
 import type { TranscriptAnchor } from './chat-binding'
 import { useBusyMap } from './busy'
+import { HeldMark } from './HeldMark'
 import { useLandedMap } from './landed'
 import {
   AgentIcon,
@@ -17,17 +18,18 @@ import {
   CockpitLogo,
   GearIcon,
   GraphIcon,
-  HeldIcon,
-  LandingMark,
-  ProviderLogo,
+  ProviderMark,
   PROVIDER_LABEL,
   RepoIcon,
   SearchIcon,
   SlidersIcon,
-  Spinner,
   TrashIcon
 } from './logos'
-import { fmtTime, useTimeFormat } from './time'
+import { noop, RowMeta } from './SessionList'
+import { fmtTime, plural } from './format'
+import { useTimeFormat } from './time'
+import { useLoaded } from './use-loaded'
+import { RepoName } from './RepoName'
 
 /** Views the palette can navigate to — App's View kinds, minus chat/new (those need a target). */
 export type PaletteViewKey = 'welcome' | 'extensions' | 'profile' | 'cleanup' | 'settings'
@@ -167,9 +169,6 @@ export function CommandPalette({
   const [debounced, setDebounced] = useState('')
   const [mode, setMode] = useState<Mode>('jump')
   const [allRepos, setAllRepos] = useState(false)
-  // null = first fetch in flight — never flash an empty state before results land
-  const [sessions, setSessions] = useState<SessionMeta[] | null>(null)
-  const [total, setTotal] = useState(0)
   // the last settled transcript search; kept on screen while the next one runs
   const [transcripts, setTranscripts] = useState<TranscriptSearchResult | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -212,24 +211,18 @@ export function CommandPalette({
     return () => clearTimeout(t)
   }, [query, mode])
 
-  useEffect(() => {
-    if (mode !== 'jump') return
-    let dead = false
-    void api
-      .pageSessions(
-        debounced
-          ? { search: debounced, limit: SESSION_LIMIT_QUERY }
-          : { limit: SESSION_LIMIT_RECENT }
-      )
-      .then((p) => {
-        if (dead) return
-        setSessions(p.items)
-        setTotal(p.total)
-      })
-    return () => {
-      dead = true
-    }
-  }, [debounced, mode])
+  const { value: jump } = useLoaded(
+    mode === 'jump'
+      ? () =>
+          api.pageSessions(
+            debounced ? { search: debounced, limit: SESSION_LIMIT_QUERY } : { limit: SESSION_LIMIT_RECENT }
+          )
+      : null,
+    [debounced, mode]
+  )
+  // null = first fetch in flight — never flash an empty state before results land
+  const sessions = jump?.items ?? null
+  const total = jump?.total ?? 0
 
   const scopeKey = !allRepos && scopeRepo ? scopeRepo.key : undefined
   const scopeLabel = scopeKey && scopeRepo ? repoName(scopeRepo) : 'all repos'
@@ -532,14 +525,14 @@ function TranscriptStatus({
     if (scoped) notes.push('try all repos')
   } else {
     notes.push(
-      `${result.hits.length} ${result.hits.length === 1 ? 'hit' : 'hits'} in ${sessions} ${sessions === 1 ? 'session' : 'sessions'}`
+      `${plural(result.hits.length, 'hit')} in ${plural(sessions, 'session')}`
     )
   }
   notes.push(`searched ${result.scanned} of ${result.candidates} transcripts`)
   if (result.stoppedBy === 'hit-cap') notes.push('stopped at the hit cap — narrow the query')
   if (result.stoppedBy === 'time') notes.push('ran out of time — narrow the query or the scope')
   if (result.truncated > 0)
-    notes.push(`${result.truncated} large ${result.truncated === 1 ? 'transcript' : 'transcripts'} read only in part`)
+    notes.push(`${plural(result.truncated, 'large transcript')} read only in part`)
   return (
     <div className="tree-empty">
       {notes.join(' · ')}
@@ -622,36 +615,27 @@ function PaletteOption({
     >
       {it.kind === 'session' && (
         <>
-          <span className={`plogo plogo-${it.s.provider}`}>
-            <ProviderLogo p={it.s.provider} size={13} />
-          </span>
+          <ProviderMark p={it.s.provider} />
           <span className="palette-title">{it.s.title}</span>
-          {held && (
-            <span className="held-mark" aria-hidden="true">
-              <HeldIcon size={10} />
-            </span>
-          )}
+          {/* the option's name already says "(in Cockpit)" */}
+          {held && <HeldMark mute />}
           {it.s.gitBranch && <BranchChip branch={it.s.gitBranch} />}
           {showRepo && it.s.repo && <span className="palette-hint">{it.s.repo.name}</span>}
-          {landing?.kind === 'asks' ? (
-            <LandingMark landing={landing} p={it.s.provider} />
-          ) : flying ? (
-            <Spinner label={`${PROVIDER_LABEL[it.s.provider]} is working`} />
-          ) : landing ? (
-            <LandingMark landing={landing} p={it.s.provider} plainDot />
-          ) : (
-            <time className="palette-meta" dateTime={new Date(it.s.updatedAt).toISOString()}>
-              {fmtTime(it.s.updatedAt, timeFormat)}
-            </time>
-          )}
+          {/* the sidebar row's meta slot — a session here carries no PR */}
+          <RowMeta
+            s={it.s}
+            working={flying}
+            landed={landing}
+            timeFormat={timeFormat}
+            timeClassName="palette-meta"
+            onOpenUrl={noop}
+          />
         </>
       )}
       {it.kind === 'hit' && (
         <>
           <div className="palette-hit-head">
-            <span className={`plogo plogo-${it.s.provider}`}>
-              <ProviderLogo p={it.s.provider} size={13} />
-            </span>
+            <ProviderMark p={it.s.provider} />
             <span className="palette-title">{it.s.title}</span>
             {showRepo && it.s.repo && <span className="palette-hint">{it.s.repo.name}</span>}
             <time
@@ -693,14 +677,7 @@ function PaletteOption({
             <RepoIcon size={13} />
           </span>
           <span className="palette-title">
-            {it.r.fullName ? (
-              <>
-                <span className="repo-owner">{it.r.fullName.split('/')[0]}/</span>
-                {it.r.fullName.split('/')[1]}
-              </>
-            ) : (
-              it.r.name
-            )}
+            <RepoName repo={it.r} />
           </span>
           <span className="palette-hint">new session</span>
         </>
@@ -711,14 +688,7 @@ function PaletteOption({
             <SlidersIcon size={13} />
           </span>
           <span className="palette-title">
-            {it.r.fullName ? (
-              <>
-                <span className="repo-owner">{it.r.fullName.split('/')[0]}/</span>
-                {it.r.fullName.split('/')[1]}
-              </>
-            ) : (
-              it.r.name
-            )}
+            <RepoName repo={it.r} />
           </span>
           <span className="palette-hint">agent setup</span>
         </>

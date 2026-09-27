@@ -4,6 +4,7 @@ import { SUGGESTION_TAG, digestHeadline } from '../../shared/updates-digest'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { storedValue } from './stored-value'
 
 /**
  * What is out of date, on the one screen that opens when nothing else is.
@@ -19,8 +20,12 @@ import { ProviderLogo, PROVIDER_LABEL } from './logos'
  * exactly the home it was before this existed.
  */
 
-/** Open or closed is the person's, and it outlives the visit. */
-const OPEN_KEY = 'cockpit:home-updates-open'
+/** Open or closed is the person's, and it outlives the visit — a reading preference. */
+const openPref = storedValue<boolean>('cockpit:home-updates-open', {
+  parse: (raw) => (raw === '1' ? true : raw === '0' ? false : undefined),
+  serialize: (open) => (open ? '1' : '0'),
+  fallback: false
+})
 
 /**
  * The last answer, kept for the window's lifetime: coming home again paints the strip
@@ -54,7 +59,7 @@ export type UpdatesJump = {
 
 export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null {
   const [digest, setDigest] = useState<UpdatesDigest | null>(lastDigest)
-  const [open, setOpen] = useState(() => window.localStorage.getItem(OPEN_KEY) === '1')
+  const open = openPref.use()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const alive = useRef(true)
@@ -102,12 +107,7 @@ export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null
   // nothing to say, and nothing on screen to say it in: the home is unchanged
   if (headline === null) return null
 
-  const toggle = (): void => {
-    setOpen((was) => {
-      window.localStorage.setItem(OPEN_KEY, was ? '0' : '1')
-      return !was
-    })
-  }
+  const toggle = (): void => openPref.set(!open)
 
   return (
     <section className="home-news" aria-label="Updates">

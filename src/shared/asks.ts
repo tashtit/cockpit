@@ -1,4 +1,5 @@
 import type { AskOption, AskPrompt } from './types'
+import { asRecord } from './guards'
 
 /**
  * Questions an agent stopped to ask, and the answer a pick turns into.
@@ -25,20 +26,16 @@ function text(v: unknown, max: number): string {
   return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : ''
 }
 
-function record(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
-}
-
 /** One offered answer: a bare string, or an object naming the label and what it means. */
 function toOption(v: unknown): AskOption | null {
-  const label = text(v, MAX_LABEL) || text(record(v)?.label ?? record(v)?.name ?? record(v)?.option, MAX_LABEL)
+  const label = text(v, MAX_LABEL) || text(asRecord(v)?.label ?? asRecord(v)?.name ?? asRecord(v)?.option, MAX_LABEL)
   if (!label) return null
-  const description = text(record(v)?.description ?? record(v)?.detail, MAX_TEXT)
+  const description = text(asRecord(v)?.description ?? asRecord(v)?.detail, MAX_TEXT)
   return description ? { label, description } : { label }
 }
 
 function toPrompt(v: unknown): AskPrompt | null {
-  const q = record(v)
+  const q = asRecord(v)
   if (!q) return null
   const question = text(q.question ?? q.title ?? q.prompt, MAX_TEXT)
   const options: AskOption[] = []
@@ -87,7 +84,7 @@ export function parseAsks(toolName: string, input: unknown): AskPrompt[] | undef
     return prompt ? [prompt] : undefined
   }
   if (toolName !== 'AskUserQuestion' && toolName !== 'request_user_input') return undefined
-  const questions = record(input)?.questions
+  const questions = asRecord(input)?.questions
   if (!Array.isArray(questions)) return undefined
   const out: AskPrompt[] = []
   for (const q of questions) {

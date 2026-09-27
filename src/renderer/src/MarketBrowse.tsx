@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState, type JSX } from 'react'
+import { useState, type JSX } from 'react'
 import { PROVIDERS, RECOMMENDED_MARKETPLACE, agentHasIt, type PanelReport } from '../../shared/library'
 import { matchesCatalogQuery } from '../../shared/marketplace'
 import type { CatalogInstall, CatalogPlugin, MarketplaceCatalog, Provider } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
+import type { Notice } from './notice'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { useLoaded } from './use-loaded'
 
 /**
  * Browse: what the marketplaces hold, before any agent holds it.
@@ -21,13 +23,6 @@ import { ProviderLogo, PROVIDER_LABEL } from './logos'
  * automatic fetch: browsing must not quietly call out to the internet.
  */
 
-/** `link` is for an outcome that lives somewhere else — the same shape the card uses. */
-type Notice = {
-  text: string
-  kind: 'ok' | 'error'
-  link?: { href: string; label: string }
-} | null
-
 export function MarketBrowse({
   report,
   query,
@@ -43,30 +38,16 @@ export function MarketBrowse({
   onAdd: (item: CatalogInstall, agent: Provider, said: string) => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
-  const [catalogs, setCatalogs] = useState<readonly MarketplaceCatalog[] | null>(null)
+  // read on arrival, and again whenever the panel's report moves: an install is what
+  // turns a catalogue row from "add" into "already there"
+  const loaded = useLoaded(() => api.listCatalogs(), [report])
+  const catalogs: readonly MarketplaceCatalog[] | null = loaded.value
+  const setCatalogs = loaded.set
   /** marketplaces whose plugin list is open, by name */
   const [open, setOpen] = useState<readonly string[]>([])
   /** the source typed into the lookup line */
   const [source, setSource] = useState('')
   const [looking, setLooking] = useState<string | null>(null)
-
-  const load = useCallback(() => {
-    const asked = api.listCatalogs?.()
-    if (!asked) {
-      setCatalogs([])
-      return
-    }
-    void asked
-      .then((next) => setCatalogs(next))
-      .catch((err) => {
-        setCatalogs([])
-        setNotice({ text: ipcErrorText(err), kind: 'error' })
-      })
-  }, [setNotice])
-
-  // read on arrival, and again whenever the panel's report moves: an install is what
-  // turns a catalogue row from "add" into "already there"
-  useEffect(() => load(), [load, report])
 
   /** Read one marketplace's catalogue from its repository. The one call that fetches. */
   const lookUp = async (ask: string): Promise<void> => {
@@ -90,7 +71,13 @@ export function MarketBrowse({
     }
   }
 
-  if (catalogs === null) return <div className="tree-empty">reading the marketplaces on this machine…</div>
+  if (catalogs === null) {
+    return (
+      <div className="tree-empty">
+        {loaded.error ?? 'reading the marketplaces on this machine…'}
+      </div>
+    )
+  }
 
   const q = query.trim()
   // a search reaches into every catalogue and opens what it matched

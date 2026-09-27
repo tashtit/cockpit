@@ -1,7 +1,8 @@
 import { isNewer } from '../shared/mcp-source'
 import { KIND_LABEL, PROVIDERS, type AgentState, type PanelCell } from '../shared/library'
+import { AGENT_NAME } from '../shared/providers'
 import { sortSuggestions } from '../shared/updates-digest'
-import type { PluginInfo, Provider, UpdateState, UpdateSuggestion, UpdatesDigest } from '../shared/types'
+import type { PluginInfo, UpdateState, UpdateSuggestion, UpdatesDigest } from '../shared/types'
 import { listCliStatus } from './agent-cli'
 import { getExtensions } from './extensions'
 import { getPanel, mcpVersionsFor, refreshMarketplaces } from './library'
@@ -26,12 +27,6 @@ import { localCatalogVersions } from './marketplace'
 
 /** A gathering is reused for this long; the home asks on every visit. */
 const TTL_MS = 15 * 60 * 1000
-
-const AGENT_LABEL: Record<Provider, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  copilot: 'Copilot'
-}
 
 /** What a drifted row is waiting for, in the panel's own words. */
 const DRIFT_WORD: Partial<Record<AgentState, string>> = {
@@ -107,7 +102,7 @@ export async function cliUpdates(force: boolean): Promise<Found> {
         .map((s) => ({
           kind: 'cli' as const,
           id: `cli:${s.provider}`,
-          name: AGENT_LABEL[s.provider],
+          name: AGENT_NAME[s.provider],
           agents: [s.provider],
           current: s.version!,
           latest: s.latest!,
@@ -178,7 +173,7 @@ export function pluginUpdates(): Found {
         latest,
         detail:
           behind.length < agents.length
-            ? `${market} has ${latest} · behind in ${behind.map((p) => AGENT_LABEL[p]).join(' and ')}`
+            ? `${market} has ${latest} · behind in ${behind.map((p) => AGENT_NAME[p]).join(' and ')}`
             : `${market} has ${latest}`
       })
     }

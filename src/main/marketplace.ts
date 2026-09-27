@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { PROVIDERS, RECOMMENDED_MARKETPLACE, isAddableSource } from '../shared/library'
 import { CATALOG_PATHS, catalogUrls, githubRepoOf, parseCatalog } from '../shared/marketplace'
 import type { MarketplaceCatalog, Provider } from '../shared/types'
+import { throttledBy } from './cache'
 import { getExtensions } from './extensions'
 import { parseJsonc } from './parsers/util'
 
@@ -32,8 +33,6 @@ const NAME_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/
 /** A catalogue as `parseCatalog` hands it back: the marketplace's name and its plugins. */
 type Catalog = NonNullable<ReturnType<typeof parseCatalog>>
 
-/** Fetched catalogues by `owner/repo`; a process-lifetime cache, so it mutates. */
-const remoteCache = new Map<string, { readonly at: number; readonly catalog: Catalog }>()
 
 /**
  * Where an agent keeps the marketplaces it cloned. Claude Code is the one that has
@@ -131,9 +130,7 @@ export function localCatalogVersions(): Map<string, string> {
   return out
 }
 
-async function fetchCatalog(repo: string): Promise<Catalog> {
-  const hit = remoteCache.get(repo)
-  if (hit && Date.now() - hit.at < REMOTE_TTL_MS) return hit.catalog
+async function readRemoteCatalog(repo: string): Promise<Catalog> {
   let last = 'no catalogue file in that repository'
   for (const url of catalogUrls(repo)) {
     let res: Response | null = null
@@ -152,14 +149,14 @@ async function fetchCatalog(repo: string): Promise<Catalog> {
     }
     const body = (await res.text()).slice(0, MAX_CATALOG_BYTES)
     const parsed = parseCatalog(parseJsonc(body), repo.split('/')[1] ?? repo)
-    if (parsed) {
-      remoteCache.set(repo, { at: Date.now(), catalog: parsed })
-      return parsed
-    }
+    if (parsed) return parsed
     last = 'that file is not a marketplace catalogue'
   }
   throw new Error(last)
 }
+
+/** A fetched catalogue, by `owner/repo`, kept for the afternoon; a failure is never kept. */
+const fetchCatalog = throttledBy(REMOTE_TTL_MS, readRemoteCatalog)
 
 /**
  * Look one up: a `owner/repo` or git URL the person typed, or a marketplace already

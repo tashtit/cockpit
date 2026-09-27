@@ -233,7 +233,7 @@ Everything between them stays quiet.
   `.no-acct` red dot — never disable them (clicking reveals the "not signed in" chip).
 - ⌘Enter submits; the button label is the action: "Start with Claude Code", or "Starting…"
   while busy. Errors render in `.new-error` directly under the card, never a toast.
-- Mode options and hints come from the shared `MODES` table (exported by NewSession);
+- Mode options and hints come from the shared `MODES` table (`agent-choice.ts`);
   choosing YOLO shows the `.ns-hint.yolo` warning line under the card — the bypass mode is
   never silent.
 - Prompt textarea autofocuses when the composer appears, unless focus is already
@@ -249,7 +249,8 @@ Everything between them stays quiet.
 
 - Provider, mode, and per-provider account choices persist to
   `localStorage` (`cockpit:provider`, `cockpit:mode`, `cockpit:account:<provider>`) on
-  start — HomeView, NewSession, and ChatView must stay in sync on these keys.
+  start — `agent-choice.ts` owns these keys (`useAgentChoice`, `rememberChoice`); HomeView,
+  NewSession and HandoffView read and write them only through it.
 - Start is disabled until: prompt non-empty (or an image attached), a repo selected, and
   (once accounts have loaded) an account resolved. While `accounts === null` (still loading), don't flash the
   missing-account state.

@@ -22,6 +22,7 @@ import type {
 } from '../shared/types'
 import { getExtensions } from './extensions'
 import { addMcpServer, globalMcpEntries } from './library'
+import { withRecent } from './recent-map'
 
 /*
  * Looking MCP servers up in the MCP Registry, and adding one.
@@ -50,14 +51,11 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024
  * Entries seen in a search, by `id@version`, so an add uses exactly what was shown.
  * A process-lifetime cache (it mutates), bounded — the oldest go first.
  */
-const seen = new Map<string, RegistryEntry>()
+let seen: Readonly<Record<string, RegistryEntry>> = {}
 const MAX_SEEN = 1000
 
 function remember(entry: RegistryEntry): void {
-  const key = `${entry.id}@${entry.version}`
-  seen.delete(key)
-  seen.set(key, entry)
-  if (seen.size > MAX_SEEN) seen.delete(seen.keys().next().value as string)
+  seen = withRecent(seen, { id: `${entry.id}@${entry.version}`, value: entry, cap: MAX_SEEN })
 }
 
 /** Read a JSON body without holding more than the cap, however much is sent. */
@@ -146,7 +144,7 @@ export async function searchRegistry(query: string, cursor?: string): Promise<Re
 }
 
 async function entryFor(id: string, version: string): Promise<RegistryEntry> {
-  const hit = seen.get(`${id}@${version}`)
+  const hit = Object.hasOwn(seen, `${id}@${version}`) ? seen[`${id}@${version}`] : undefined
   if (hit) return hit
   const entry = parseRegistryEntry(await readJson(registryVersionUrl(id, version, registryBase())))
   if (!entry || entry.id !== id || entry.version !== version) {

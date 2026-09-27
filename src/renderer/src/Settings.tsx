@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
-import type { AppInfo, TimeFormat, UpdateState } from '../../shared/types'
+import { useEffect, useState, type JSX } from 'react'
+import type { TimeFormat, UpdateState } from '../../shared/types'
 import { AboutSection } from './AboutSection'
 import { AccountsSection } from './AccountsSection'
 import { AcpAgents } from './AcpAgents'
@@ -8,10 +8,14 @@ import { BackupSection } from './BackupSection'
 import { CHAT_WIDTH_OPTIONS, setChatWidth, useChatWidth, type ChatWidth } from './chat-width'
 import { ModelProviders } from './ModelProviders'
 import { NotificationsSection } from './NotificationsSection'
+import { seedThenFollow } from './seed-then-follow'
 import { Select } from './Select'
 import { TabList, TabPanel } from './Tabs'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
 import { initBranchPrefix } from './branch-prefix'
+import { useLoaded } from './use-loaded'
+import { ViewCard } from './ViewCard'
+import { plural } from './format'
 
 /** History window presets; value is days as a string, '0' = all history. */
 const HISTORY_OPTIONS = [
@@ -82,29 +86,30 @@ export function Settings({
   openCount?: number
 }): JSX.Element {
   const [tab, setTab] = useState<SettingsSection>(section ?? SETTINGS_SECTIONS[0].id)
-  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const { value: appInfo } = useLoaded(() => api.getAppInfo(), [])
   /** the shell's, not About's: main pushes transitions whatever tab is on screen */
   const [update, setUpdate] = useState<UpdateState | null>(null)
   /** sr-only announcements (same pattern as ChatView's status region) */
   const [status, setStatus] = useState('')
-  const headingRef = useRef<HTMLHeadingElement>(null)
 
-  useEffect(() => {
-    headingRef.current?.focus()
-  }, [])
   useEffect(() => {
     if (section) setTab(section)
   }, [section, openCount])
-  useEffect(() => {
-    void api.getAppInfo().then(setAppInfo)
-    void api.getUpdateState().then(setUpdate)
-    // main pushes every transition (timer checks included) — announce the ones that matter
-    return api.onUpdateState((s) => {
-      setUpdate(s)
-      const said = updateAnnouncement(s)
-      if (said) setStatus(said)
-    })
-  }, [])
+  useEffect(
+    () =>
+      seedThenFollow(
+        () => api.getUpdateState(),
+        // main pushes every transition (timer checks included) — announce the ones that matter
+        (on) =>
+          api.onUpdateState((s) => {
+            on(s)
+            const said = updateAnnouncement(s)
+            if (said) setStatus(said)
+          }),
+        setUpdate
+      ),
+    []
+  )
 
   /** One panel per tab, keyed by the section id: a `Record<SettingsSection, …>`
    *  will not compile if a tab is added to `SETTINGS_SECTIONS` without one, which a
@@ -148,37 +153,28 @@ export function Settings({
   }
 
   return (
-    <main className="chat settings-view">
-      <div className="ns-card">
-        <div className="ns-head">
-          <h2 ref={headingRef} tabIndex={-1}>Settings</h2>
-          <button className="btn-ghost" onClick={onClose}>Close</button>
-        </div>
-        {/* tabs, not a jump row: each panel is short enough to read whole, and the
-            title, the tabs and Close stay put instead of scrolling away under you */}
-        <TabList
-          id="settings"
-          label="Settings sections"
-          tabs={SETTINGS_SECTIONS}
-          selected={tab}
-          onSelect={setTab}
-        />
-        <TabPanel id="settings" selected={tab}>
-          {panels[tab]}
-        </TabPanel>
-        <div className="sr-only" role="status" aria-live="polite">{status}</div>
-      </div>
-    </main>
+    <ViewCard title="Settings" onClose={onClose}>
+      {/* tabs, not a jump row: each panel is short enough to read whole, and the
+          title, the tabs and Close stay put instead of scrolling away under you */}
+      <TabList
+        id="settings"
+        label="Settings sections"
+        tabs={SETTINGS_SECTIONS}
+        selected={tab}
+        onSelect={setTab}
+      />
+      <TabPanel id="settings" selected={tab}>
+        {panels[tab]}
+      </TabPanel>
+      <div className="sr-only" role="status" aria-live="polite">{status}</div>
+    </ViewCard>
   )
 }
 
 /** How far back sessions are listed — a view filter, never anything on disk. */
 function HistoryPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
   /** null until loaded — the Select only renders with a real value */
-  const [historyDays, setHistoryDays] = useState<number | null>(null)
-  useEffect(() => {
-    void api.getHistoryDays().then(setHistoryDays)
-  }, [])
+  const { value: historyDays, set: setHistoryDays } = useLoaded(() => api.getHistoryDays(), [])
 
   const change = async (days: number): Promise<void> => {
     setHistoryDays(days)
@@ -191,7 +187,7 @@ function HistoryPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Elem
     historyDays !== null && !HISTORY_OPTIONS.some((o) => o.value === String(historyDays))
       ? [
           ...HISTORY_OPTIONS,
-          { value: String(historyDays), label: `Last ${historyDays} day${historyDays === 1 ? '' : 's'}` }
+          { value: String(historyDays), label: `Last ${plural(historyDays, 'day')}` }
         ]
       : HISTORY_OPTIONS
 

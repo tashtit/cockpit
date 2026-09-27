@@ -14,7 +14,7 @@ import { ipcErrorText } from './ipc-error'
  * stream arrives on a channel of its own (`onSideChatEvent`), never the chat's.
  */
 
-export type SideState = 'asking' | 'answered' | 'failed' | 'stopped'
+type SideState = 'asking' | 'answered' | 'failed' | 'stopped'
 
 export type SideEntry = {
   /** Minted here: what the panel renders the exchange under */
@@ -134,7 +134,7 @@ function historyOf(list: readonly SideEntry[]): SideExchange[] {
   return list.filter((e) => e.state === 'answered').map((e) => ({ question: e.question, answer: e.answer }))
 }
 
-export function isAsking(session: string): boolean {
+function isAsking(session: string): boolean {
   return (threads.get(session) ?? NONE).some((e) => e.state === 'asking')
 }
 

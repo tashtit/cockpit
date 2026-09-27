@@ -1,4 +1,5 @@
 import type { CheckKind, WorkArtifact } from '../../shared/types'
+import { clip } from '../../shared/text'
 import { shellScript, truncate } from './util'
 
 /**
@@ -367,7 +368,7 @@ function lastLines(output: string): string[] {
   const lines = output.replace(/\r\n/g, '\n').split('\n').filter((l) => l.trim())
   return lines.slice(-OUTPUT_LINES).map((raw) => {
     const l = raw.replace(/\t/g, '  ').trimEnd()
-    return l.length > OUTPUT_LINE_CHARS ? `${Array.from(l).slice(0, OUTPUT_LINE_CHARS - 1).join('')}…` : l
+    return clip(l, OUTPUT_LINE_CHARS)
   })
 }
 

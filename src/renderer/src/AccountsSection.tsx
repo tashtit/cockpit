@@ -13,17 +13,16 @@ import type {
 } from '../../shared/types'
 import { compareVersions, homebrewUpdateCommand, runsHomebrew } from '../../shared/agent-cli'
 import { DEFAULT_BRANCH_PREFIX, branchPrefixRefusal, normalizeBranchPrefix } from '../../shared/branch-prefix'
-import { shortPath } from '../../shared/library'
+import { PROVIDERS, shortPath } from '../../shared/library'
 import { api } from './api'
 import { saveBranchPrefix, useBranchPrefix } from './branch-prefix'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
-import { fmtAgo, fmtCount, fmtResetIn } from './format'
+import { fmtAgo, fmtCount, fmtResetIn, plural, usageSpent } from './format'
 import { ipcErrorText } from './ipc-error'
-import { BranchIcon, OrgIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { BranchIcon, OrgIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { SignInFix, useWatchUntil } from './SignInFix'
-
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
+import { ErrorAlert } from './ErrorAlert'
 
 /** Where a row's usage numbers come from — the tooltip on its usage readout. */
 const USAGE_SOURCE: Record<Provider, string> = {
@@ -60,6 +59,8 @@ function UsageBody({ u, loading }: { u: ProviderUsage | undefined; loading: bool
 function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow }): JSX.Element {
   const pct = typeof w.usedPercent === 'number' ? Math.round(w.usedPercent) : null
   const idle = w.tokens && w.requests === 0
+  // tokens read beside a percentage; a bare request count only stands in for a missing one
+  const spent = w.tokens || pct === null ? usageSpent(w) : null
   return (
     <div className="usage-window">
       <span className="usage-win-label">{w.label}</span>
@@ -81,21 +82,14 @@ function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow })
           <span className="usage-num">{pct}%</span>
         </>
       )}
-      {w.tokens &&
+      {spent !== null &&
         (idle ? (
-          <span>no activity</span>
+          <span>{spent}</span>
         ) : (
-          <span className="usage-num" title={tokensTitle(w.tokens)}>
-            {fmtCount(w.tokens.input + w.tokens.output)} tokens
-            {typeof w.requests === 'number' && ` · ${fmtCount(w.requests)} requests`}
+          <span className="usage-num" title={w.tokens ? tokensTitle(w.tokens) : undefined}>
+            {spent}
           </span>
         ))}
-      {!w.tokens && pct === null && typeof w.requests === 'number' && (
-        <span className="usage-num">
-          {fmtCount(w.requests)} used
-          {(w.requestsBilled ?? 0) > 0 && ` · ${fmtCount(w.requestsBilled!)} billed beyond plan`}
-        </span>
-      )}
       {w.resetsAt && (
         <time dateTime={new Date(w.resetsAt).toISOString()}>{fmtResetIn(w.resetsAt)}</time>
       )}
@@ -268,15 +262,13 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
         subscription has spent, and whether it&apos;s healthy. Usage comes from each agent&apos;s
         own logs, or GitHub&apos;s billing API for Copilot; nothing here reads credentials.
         {stats.length > 0 && (
-          <> Currently {stats.length} config home{stats.length === 1 ? '' : 's'} · {totalSessions} sessions.</>
+          <> Currently {plural(stats.length, 'config home')} · {totalSessions} sessions.</>
         )}
       </p>
       <ul className="source-list">
         {stats.map((s) => (
           <li key={s.path} className={`source-row tint-${s.provider}`}>
-            <span className={`plogo plogo-${s.provider}`} aria-hidden="true">
-              <ProviderLogo p={s.provider} size={13} />
-            </span>
+            <ProviderMark p={s.provider} decorative />
             <div className="source-body">
               <div className="source-label">
                 {s.label}
@@ -359,9 +351,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
         {/* usage Cockpit measured for a home it no longer indexes still belongs on screen */}
         {orphanUsage.map((u) => (
           <li key={`${u.provider}:${u.path}`} className={`source-row tint-${u.provider}`}>
-            <span className={`plogo plogo-${u.provider}`} aria-hidden="true">
-              <ProviderLogo p={u.provider} size={13} />
-            </span>
+            <ProviderMark p={u.provider} decorative />
             <div className="source-body">
               <div className="source-label">
                 {u.label}
@@ -375,9 +365,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
           </li>
         ))}
       </ul>
-      {removeError && (
-        <div role="alert" className="new-error">{removeError}</div>
-      )}
+      {removeError && <ErrorAlert>{removeError}</ErrorAlert>}
       {lastRemoved && (
         <p className="ns-hint">
           Removed <code>{lastRemoved.label}</code> ({lastRemoved.path}) —{' '}
@@ -447,9 +435,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
             Usually a second account&apos;s home — the directory its <code>CLAUDE_CONFIG_DIR</code>{' '}
             points at. The defaults were found on first run.
           </p>
-          {error && (
-            <div id="source-add-error" role="alert" className="new-error">{error}</div>
-          )}
+          {error && <ErrorAlert id="source-add-error">{error}</ErrorAlert>}
           <div className="ns-actions">
             <button
               type="button"
@@ -468,7 +454,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
         </form>
       )}
 
-      {cliError && <div className="new-error" role="alert">{cliError}</div>}
+      {cliError && <ErrorAlert>{cliError}</ErrorAlert>}
 
       <AgentClis onStatus={onStatus} />
 
@@ -583,11 +569,7 @@ function BranchPrefixRow({ onStatus }: { onStatus: (s: string) => void }): JSX.E
             {saving ? 'Saving…' : 'Save'}
           </button>
         </form>
-        {problem !== null && (
-          <div className="new-error" role="alert" id="branch-prefix-error">
-            {problem}
-          </div>
-        )}
+        {problem !== null && <ErrorAlert id="branch-prefix-error">{problem}</ErrorAlert>}
       </div>
     </li>
   )
@@ -739,16 +721,14 @@ function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.Element
           </>
         )}
       </p>
-      {error && <div className="new-error" role="alert">{error}</div>}
+      {error && <ErrorAlert>{error}</ErrorAlert>}
       <ul className="source-list">
         {clis === null ? (
           <li className="source-row"><span className="ns-hint">checking…</span></li>
         ) : (
           clis.map((c) => (
             <li key={c.provider} className={`source-row tint-${c.provider}`}>
-              <span className={`plogo plogo-${c.provider}`} aria-hidden="true">
-                <ProviderLogo p={c.provider} size={13} />
-              </span>
+              <ProviderMark p={c.provider} decorative />
               <div className="source-body">
                 <div className="source-label">
                   {PROVIDER_LABEL[c.provider]}

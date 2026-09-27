@@ -6,34 +6,37 @@ import {
   PROVIDERS,
   RECOMMENDED_MARKETPLACE,
   agentHasIt,
-  isDrift,
   isRecommended,
   type AgentState,
   type PanelCell,
   type PanelReport,
   type PanelRow
 } from '../../shared/library'
-import { fileChange } from '../../shared/instruction-changes'
 import type {
   CatalogInstall,
-  InstructionsState,
-  McpProbeResult,
   McpVersion,
   PanelKind,
   Provider,
   RegistryAdd,
   UpdateSuggestion
 } from '../../shared/types'
+import { AgentSwitches, ArmedFlag, cellKey, chipArmed, type Switching } from './AgentSwitches'
 import { api } from './api'
+import { useArmedConfirm } from './ConfirmRemove'
+import { disarmOn } from './disarm'
 import { ipcErrorText } from './ipc-error'
-import { useDiffLayout } from './diff-layout'
-import { APPLY_LABEL, DiffLayoutToggle, InstructionDiff } from './InstructionDiff'
+import { InstructionsCompare } from './InstructionsCompare'
 import { InstructionsEditor } from './InstructionsEditor'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { PROVIDER_LABEL } from './logos'
 import { MarketBrowse } from './MarketBrowse'
 import { McpBrowse } from './McpBrowse'
-import { answerRecommendation, recommendationAnswered } from './recommended'
+import { McpHealth, McpVersionLine } from './McpHealth'
+import type { Notice } from './notice'
+import { answerRecommendation } from './recommended'
+import { offerFor, Recommendation, RECOMMENDED_PITCH } from './Recommendation'
 import { TabList, TabPanel, type TabDef } from './Tabs'
+import { plural } from './format'
+import { useLoaded } from './use-loaded'
 
 /**
  * The panel: everything the agents share, one row per thing.
@@ -60,37 +63,10 @@ function cellWord(cell: PanelCell): string | undefined {
   return cell.gone ? 'removed outside' : STATE_WORD[cell.state]
 }
 
-const MCP_STATUS_LABEL: Record<McpProbeResult['status'], string> = {
-  ok: 'answers',
-  'needs-auth': 'needs login',
-  error: 'unreachable'
-}
-
-/** The pill says the state; this says what actually happened. Never both the same. */
-const MCP_STATUS_SAID: Record<McpProbeResult['status'], string> = {
-  ok: 'It answered a handshake.',
-  'needs-auth': 'It answered, but wants you to sign in first.',
-  error: 'It didn’t answer.'
-}
-
-/** Agents whose CLI has an `mcp login` command */
-const LOGIN_AGENTS: readonly Provider[] = ['claude', 'codex']
-
 /** Turning these off runs an uninstall, so they ask first. */
 const CONFIRM_OFF: readonly PanelKind[] = ['plugin', 'marketplace']
 
 type Section = PanelKind | 'attention' | 'browse' | 'removed'
-
-/** `link` is for an outcome that lives somewhere else — a PR the share just opened. */
-type Notice = {
-  text: string
-  kind: 'ok' | 'error'
-  link?: { href: string; label: string }
-} | null
-
-function cellKey(row: PanelRow, agent: Provider): string {
-  return `${row.id}|${agent}`
-}
 
 /** "Claude and Codex", "Claude, Codex and Copilot" — never "A and B and C". */
 function listOf(names: readonly string[]): string {
@@ -135,14 +111,11 @@ export function AgentPanel({
   /** cell key or row id currently being written */
   const [busy, setBusy] = useState<string | null>(null)
   /** key whose destructive action is in its armed step */
-  const [armed, setArmed] = useState<string | null>(null)
-  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { armed, arm, disarm } = useArmedConfirm()
   /** what the registries said about the version-pinned servers, by server name */
   const [versions, setVersions] = useState<Readonly<Record<string, McpVersion>>>({})
   /** the scope whose registries have been asked — this costs the network, so once */
   const asked = useRef<string | null | undefined>(undefined)
-  /** plugins a marketplace clone here has moved past, by plugin id — read off disk, so on every report */
-  const [pluginNews, setPluginNews] = useState<Readonly<Record<string, UpdateSuggestion>>>({})
   /** which half of Browse is showing: the marketplaces' plugins, or the MCP Registry */
   const [browseWhat, setBrowseWhat] = useState<'plugins' | 'mcp'>('plugins')
   /** whether this visit offers the recommended marketplace — decided on the first report */
@@ -176,7 +149,6 @@ export function AgentPanel({
     setOffer(null)
     setSection(null)
     setVersions({})
-    setPluginNews({})
     asked.current = undefined
     load()
   }, [load])
@@ -189,36 +161,21 @@ export function AgentPanel({
     loadVersions()
   }, [report, repoRoot, loadVersions])
 
-  // a plugin's news is local (its marketplace's clone against what is installed), so it
-  // is read again whenever the report moves — an update is what clears it
-  useEffect(() => {
-    if (repoRoot !== null || !report?.rows.some((r) => r.kind === 'plugin')) return
-    let live = true
-    void api
-      .outdatedPlugins?.()
-      .then((list) => live && setPluginNews(Object.fromEntries(list.map((n) => [n.name, n]))))
-      .catch(() => live && setPluginNews({}))
-    return () => {
-      live = false
-    }
-  }, [report, repoRoot])
-
-  useEffect(
-    () => () => {
-      if (armTimer.current) clearTimeout(armTimer.current)
-    },
-    []
+  // plugins a marketplace clone here has moved past, by plugin id. The question is local
+  // (the clone against what is installed), so it is asked again whenever the report
+  // moves — an update is what clears it — and never in a repo scope, which has none
+  const outdated = useLoaded(
+    repoRoot === null && report?.rows.some((r) => r.kind === 'plugin') ? () => api.outdatedPlugins() : null,
+    [report, repoRoot],
+    { initial: [] as readonly UpdateSuggestion[], reset: true }
   )
-
-  const arm = (key: string | null): void => {
-    setArmed(key)
-    if (armTimer.current) clearTimeout(armTimer.current)
-    if (key !== null) armTimer.current = setTimeout(() => setArmed(null), 4000)
-  }
+  const pluginNews: Readonly<Record<string, UpdateSuggestion>> = Object.fromEntries(
+    outdated.value.map((n) => [n.name, n])
+  )
 
   const run = async (key: string, op: () => Promise<PanelReport>, ok: string): Promise<void> => {
     setNotice(null)
-    setArmed(null)
+    disarm()
     setBusy(key)
     try {
       setReport(await op())
@@ -301,7 +258,7 @@ export function AgentPanel({
     void run(`registry:${req.id}|${req.agent}`, () => api.addFromMcpRegistry(req), said)
   }
 
-  /** Update a plugin through each agent's own `plugin update`, wherever it can be. */
+  /** Update a plugin in every agent that has it, each through its own CLI. */
   const updatePlugin = (row: PanelRow, news: UpdateSuggestion): void => {
     void run(
       row.id,
@@ -320,6 +277,9 @@ export function AgentPanel({
   }
 
   if (!report) return <div className="tree-empty">reading every agent’s config…</div>
+
+  /** what every set of chips shares with the panel — the callout's, a row's, the sync line's */
+  const switching: Switching = { armed, busy, onFlip: flip, onDisarm: disarm }
 
   // instructions always has a section, even before a baseline exists: writing one is
   // the point, and an empty screen should be an invitation rather than an absence
@@ -378,10 +338,7 @@ export function AgentPanel({
       {recommended && !q && !browsing && (
         <Recommendation
           row={recommended}
-          armed={armed}
-          busy={busy}
-          onFlip={flip}
-          onArm={arm}
+          {...switching}
           onAnswer={() => {
             answerRecommendation()
             setOffer(false)
@@ -419,7 +376,7 @@ export function AgentPanel({
               ? 'Servers published to the MCP Registry, the open catalogue MCP servers are listed in. Pick one, then the agents to run it.'
               : 'Marketplaces this machine knows, and what each one offers. Adding a marketplace installs nothing — you pick the plugins, one agent at a time.'
             : q
-            ? `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
+            ? `${plural(rows.length, 'match', 'matches')} for “${query.trim()}”`
             : current === 'removed'
               ? 'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
               : current === 'attention'
@@ -479,10 +436,8 @@ export function AgentPanel({
           rows.map((row) => (
             <div key={row.id} className="pnl-sync">
               <span className="pnl-sync-label">Kept in sync for</span>
-              <AgentSwitches row={row} armed={armed} busy={busy} onFlip={flip} onArm={arm} />
-              {armed !== null && armed.startsWith(`${row.id}|`) && (
-                <em className="pnl-flag danger">click again to remove</em>
-              )}
+              <AgentSwitches row={row} {...switching} />
+              {chipArmed(row, armed) && <ArmedFlag />}
             </div>
           ))}
 
@@ -496,11 +451,9 @@ export function AgentPanel({
                 version={row.kind === 'mcp' ? versions[row.name] : undefined}
                 news={row.kind === 'plugin' ? pluginNews[row.name] : undefined}
                 showKind={q !== '' || current === 'attention'}
-                armed={armed}
-                busy={busy}
                 open={open === row.id}
                 onToggle={() => setOpen(open === row.id ? null : row.id)}
-                onFlip={flip}
+                {...switching}
                 onMatch={match}
                 onKeep={keep}
                 onRemove={remove}
@@ -533,187 +486,42 @@ export function AgentPanel({
   )
 }
 
-/**
- * Whether this visit offers the recommended marketplace: to someone who runs it in no
- * agent and hasn't answered the offer before. Decided once per visit, so the callout
- * stays while they add it agent by agent, and is gone the next time the panel opens.
- * Its row only exists in Global — marketplaces are per machine.
- */
-function offerFor(report: PanelReport): boolean {
-  const row = report.rows.find(isRecommended)
-  return row !== undefined && row.holders.length === 0 && !recommendationAnswered()
-}
-
-/** What the recommended marketplace is, said once for the callout and its own row. */
-const RECOMMENDED_PITCH =
-  'Open-source plugins for focused commits and pull requests, secure CI, structured logging, API design and code review. Adding the marketplace installs none of them — you choose which, in each agent.'
-
-/**
- * The panel's one recommendation: Tashtit's marketplace, offered to someone who runs it
- * in no agent. It carries the row's own switches, so adding it is an agent's chip — the
- * same reversible click as anywhere in the panel, and never more than the person picks.
- * Answering it (Not now, or Done once added) puts it away for good; the row stays under
- * Marketplaces either way.
- */
-function Recommendation({
-  row,
-  armed,
-  busy,
-  onFlip,
-  onArm,
-  onAnswer
-}: {
-  row: PanelRow
-  armed: string | null
-  busy: string | null
-  onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
-  onArm: (key: string | null) => void
-  onAnswer: () => void
-}): JSX.Element {
-  return (
-    <section className="pnl-rec" aria-labelledby="pnl-rec-title">
-      <div className="pnl-rec-head">
-        <h3 id="pnl-rec-title" className="pnl-rec-title">
-          Tashtit — engineering standards for your agents
-        </h3>
-        <span className="pnl-rec-tag">recommended</span>
-      </div>
-      <p className="pnl-rec-what">{RECOMMENDED_PITCH}</p>
-      <div className="pnl-rec-act">
-        <span className="pnl-sync-label">Add it to</span>
-        <AgentSwitches row={row} armed={armed} busy={busy} onFlip={onFlip} onArm={onArm} />
-        {armed !== null && armed.startsWith(`${row.id}|`) && (
-          <em className="pnl-flag danger">click again to remove</em>
-        )}
-        <span className="pnl-rec-more">
-          <button className="link-btn" onClick={() => void api.openExternal(RECOMMENDED_MARKETPLACE.page)}>
-            What’s in it
-          </button>
-          <button className="btn-ghost small" disabled={busy !== null} onClick={onAnswer}>
-            {row.holders.length > 0 ? 'Done' : 'Not now'}
-          </button>
-        </span>
-      </div>
-    </section>
-  )
-}
-
-/**
- * The row's signature: one self-labelling switch per agent, in that agent's livery.
- * Its own component because the Instructions section shows the switches without the
- * row around them — the editor above already is that row, opened.
- */
-function AgentSwitches({
-  row,
-  armed,
-  busy,
-  onFlip,
-  onArm
-}: {
-  row: PanelRow
-  armed: string | null
-  busy: string | null
-  onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
-  onArm: (key: string | null) => void
-}): JSX.Element {
-  return (
-    <span className="pnl-chips">
-      {PROVIDERS.map((p) => {
-        const cell = row.cells[p]
-        const key = cellKey(row, p)
-        if (cell.state === 'na') {
-          return (
-            <span key={p} className="ag-chip na" title={cell.reason}>
-              <ProviderLogo p={p} size={11} />
-              {PROVIDER_LABEL[p]}
-              <span className="sr-only">: not available — {cell.reason}</span>
-            </span>
-          )
-        }
-        const isArmed = armed === key
-        return (
-          <button
-            key={p}
-            role="switch"
-            aria-checked={cell.desired}
-            aria-label={`${row.name} in ${PROVIDER_LABEL[p]}`}
-            title={
-              isArmed
-                ? 'Click again to remove it from this agent'
-                : cell.kept
-                  ? `${cell.detail || 'on'} — its own definition, kept on purpose`
-                  : cell.state === 'pending'
-                    ? cell.gone
-                      ? 'on — but removed from its config outside Cockpit'
-                      : 'on — but not written there yet'
-                    : cell.detail || (cell.desired ? 'on' : 'off')
-            }
-            disabled={busy !== null}
-            className={`ag-chip ag-${p} ${cell.desired ? 'on' : 'off'} ${
-              isDrift(cell.state) ? 'drift' : ''
-            } ${isArmed ? 'armed' : ''} ${busy === key ? 'working' : ''}`}
-            onBlur={() => {
-              if (isArmed) onArm(null)
-            }}
-            onClick={() => onFlip(row, p, !cell.desired)}
-          >
-            <ProviderLogo p={p} size={11} />
-            {PROVIDER_LABEL[p]}
-          </button>
-        )
-      })}
-    </span>
-  )
+/** What an opened row needs — everything a row has, which it hands on whole. */
+type DetailProps = Switching & {
+  readonly row: PanelRow
+  readonly repoRoot: string | null
+  /** what the registry said about this server's pinned version, when it pins one */
+  readonly version?: McpVersion
+  readonly onMatch: (row: PanelRow, source: Provider) => void
+  readonly onKeep: (row: PanelRow, on: boolean) => void
+  readonly onRemove: (row: PanelRow) => void
+  readonly onArm: (key: string) => void
+  /** something outside the panel's own ops changed an agent — re-read every config */
+  readonly onReload: () => void
+  readonly onUpdate: (row: PanelRow, version: string) => void
+  /** a plugin its marketplace's clone here has a newer version of */
+  readonly news?: UpdateSuggestion
+  readonly onUpdatePlugin: (row: PanelRow, news: UpdateSuggestion) => void
+  /** switched on, missing from that agent, and meant to be: switch it off, write nothing */
+  readonly onLeaveOff: (row: PanelRow, agent: Provider) => void
+  readonly setNotice: (n: Notice) => void
 }
 
 function Row({
-  row,
-  repoRoot,
-  version,
   showKind,
   open,
-  armed,
-  busy,
   onToggle,
-  onFlip,
-  onMatch,
-  onKeep,
-  onRemove,
-  onArm,
-  onReload,
-  onUpdate,
-  onUpdatePlugin,
-  onLeaveOff,
-  news,
-  setNotice
-}: {
-  row: PanelRow
-  repoRoot: string | null
-  /** what the registry said about this server's pinned version, when it pins one */
-  version?: McpVersion
-  /** a plugin its marketplace's clone here has a newer version of */
-  news?: UpdateSuggestion
+  ...detail
+}: DetailProps & {
   /** the cross-kind views mix sections, so each row says which one it is */
-  showKind: boolean
-  open: boolean
-  armed: string | null
-  busy: string | null
-  onToggle: () => void
-  onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
-  onMatch: (row: PanelRow, source: Provider) => void
-  onKeep: (row: PanelRow, on: boolean) => void
-  onRemove: (row: PanelRow) => void
-  onArm: (key: string | null) => void
-  /** something outside the panel's own ops changed an agent — re-read every config */
-  onReload: () => void
-  onUpdate: (row: PanelRow, version: string) => void
-  onUpdatePlugin: (row: PanelRow, news: UpdateSuggestion) => void
-  onLeaveOff: (row: PanelRow, agent: Provider) => void
-  setNotice: (n: Notice) => void
+  readonly showKind: boolean
+  readonly open: boolean
+  readonly onToggle: () => void
 }): JSX.Element {
+  const { row, version, news, armed } = detail
   // one word for the whole row: the amber chip already says which agent
   const flag = row.drift.length > 0 ? cellWord(row.cells[row.drift[0]]) : null
-  const armedHere = armed !== null && armed.startsWith(`${row.id}|`)
+  const armedHere = chipArmed(row, armed)
   const only = reachWord(row)
   return (
     <>
@@ -742,10 +550,10 @@ function Row({
             {row.saved.detail}
           </span>
         </button>
-        <AgentSwitches row={row} armed={armed} busy={busy} onFlip={onFlip} onArm={onArm} />
+        <AgentSwitches {...detail} />
         <span className="pnl-state">
           {armedHere ? (
-            <em className="pnl-flag danger">click again to remove</em>
+            <ArmedFlag />
           ) : flag ? (
             <button className="pnl-flag" onClick={onToggle} title="Open the row to settle it">
               {flag}
@@ -757,24 +565,7 @@ function Row({
       </div>
       {open && (
         <div className="pnl-detail">
-          <Detail
-            row={row}
-            repoRoot={repoRoot}
-            version={version}
-            armed={armed}
-            busy={busy}
-            onFlip={onFlip}
-            onMatch={onMatch}
-            onKeep={onKeep}
-            onRemove={onRemove}
-            onArm={onArm}
-            onReload={onReload}
-            onUpdate={onUpdate}
-            onUpdatePlugin={onUpdatePlugin}
-            onLeaveOff={onLeaveOff}
-            news={news}
-            setNotice={setNotice}
-          />
+          <Detail {...detail} />
         </div>
       )}
     </>
@@ -797,30 +588,14 @@ function Detail({
   onKeep,
   onRemove,
   onArm,
+  onDisarm,
   onReload,
   onUpdate,
+  news,
   onUpdatePlugin,
   onLeaveOff,
-  news,
   setNotice
-}: {
-  row: PanelRow
-  repoRoot: string | null
-  version?: McpVersion
-  news?: UpdateSuggestion
-  armed: string | null
-  busy: string | null
-  onFlip: (row: PanelRow, agent: Provider, on: boolean) => void
-  onMatch: (row: PanelRow, source: Provider) => void
-  onKeep: (row: PanelRow, on: boolean) => void
-  onRemove: (row: PanelRow) => void
-  onArm: (key: string | null) => void
-  onReload: () => void
-  onUpdate: (row: PanelRow, version: string) => void
-  onUpdatePlugin: (row: PanelRow, news: UpdateSuggestion) => void
-  onLeaveOff: (row: PanelRow, agent: Provider) => void
-  setNotice: (n: Notice) => void
-}): JSX.Element {
+}: DetailProps): JSX.Element {
   const holders = PROVIDERS.filter((p) => agentHasIt(row.cells[p].state))
   const removeArmed = armed === row.id
   // two agents blocked for the same reason state it once
@@ -986,173 +761,10 @@ function Detail({
                 : `Remove ${row.name} everywhere`
             }
             title="Take it out of every agent. Cockpit keeps a copy, so you can put it back."
-            onBlur={() => {
-              if (removeArmed) onArm(null)
-            }}
+            {...(removeArmed ? disarmOn(onDisarm) : {})}
             onClick={() => (removeArmed ? onRemove(row) : onArm(row.id))}
           >
             {removeArmed ? 'Remove everywhere?' : 'Remove everywhere'}
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * The instructions row opened up: what each agent's file holds against the saved
- * baseline, line by line, with the one action that settles it on each. The baseline
- * is the one thing Cockpit really owns a version of, so unlike every other kind the
- * comparison here has a right side — and the fix is always "write it".
- */
-function InstructionsCompare({
-  repoRoot,
-  setNotice,
-  onChanged
-}: {
-  repoRoot: string | null
-  setNotice: (n: Notice) => void
-  /** an apply rewrote an agent's file — the panel's own row is now stale */
-  onChanged: () => void
-}): JSX.Element {
-  const [state, setState] = useState<InstructionsState | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const layout = useDiffLayout()
-
-  useEffect(() => {
-    let dead = false
-    void api.getInstructions(repoRoot).then((s) => {
-      if (!dead) setState(s)
-    })
-    return () => {
-      dead = true
-    }
-  }, [repoRoot])
-
-  const act = async (
-    path: string,
-    op: () => Promise<InstructionsState>,
-    ok: string
-  ): Promise<void> => {
-    setNotice(null)
-    setBusy(path)
-    try {
-      setState(await op())
-      setNotice({ text: ok, kind: 'ok' })
-      onChanged()
-    } catch (err) {
-      setNotice({ text: ipcErrorText(err), kind: 'error' })
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const apply = (path: string): Promise<void> =>
-    act(path, () => api.applyInstructions(repoRoot, path), 'Applied — restart that agent to pick it up.')
-
-  /** The file is the newer one — a teammate's update that arrived with a pull. */
-  const takeFile = (path: string): Promise<void> =>
-    act(path, () => api.adoptInstructionsFrom(repoRoot, path), "Taken as the baseline — it's yours now.")
-
-  if (!state) return <div className="tree-empty">reading each agent’s file…</div>
-  if (state.baseline.trim() === '') {
-    return (
-      <p className="pnl-note">
-        No shared baseline written yet — the <strong>Instructions</strong> section is where it goes.
-      </p>
-    )
-  }
-  const changes = state.files.map((file) => ({ file, change: fileChange(file, state.baseline) }))
-  return (
-    <>
-      {changes.some((c) => c.change.status !== 'synced') && (
-        <div className="idiff-tools">
-          <DiffLayoutToggle />
-        </div>
-      )}
-    <div className="idiff-list">
-      {changes.map(({ file, change }) => {
-        return (
-          <InstructionDiff
-            key={file.path}
-            file={file}
-            change={change}
-            layout={layout}
-            action={
-              change.status !== 'synced' && (
-                <>
-                  {change.status === 'drifted' && (
-                    <button
-                      className="link-btn"
-                      disabled={busy !== null}
-                      aria-label={`Take the shared block in ${file.path} as the baseline`}
-                      onClick={() => void takeFile(file.path)}
-                    >
-                      use this file&apos;s version
-                    </button>
-                  )}
-                  <button
-                    className="btn-ghost small"
-                    disabled={busy !== null}
-                    onClick={() => void apply(file.path)}
-                  >
-                    {busy === file.path ? 'applying…' : APPLY_LABEL[change.status]}
-                  </button>
-                </>
-              )
-            }
-          />
-        )
-      })}
-    </div>
-    </>
-  )
-}
-
-/** What the pill says beside a version line — never the same words as the sentence. */
-const VERSION_LABEL: Record<McpVersion['status'], string> = {
-  update: 'update',
-  current: 'up to date',
-  unknown: 'not checked'
-}
-
-/**
- * The version question, which only a pinned server has: it runs exactly what the
- * definition says, so "there is a newer one" is news, and one button moves every
- * agent that runs it. An unpinned server installs the latest at each launch and
- * never gets this line — its own label already says so.
- */
-function McpVersionLine({
-  row,
-  version,
-  busy,
-  onUpdate
-}: {
-  row: PanelRow
-  version: McpVersion
-  busy: string | null
-  onUpdate: (row: PanelRow, version: string) => void
-}): JSX.Element {
-  const latest = version.latest
-  const said =
-    version.status === 'update'
-      ? `${version.pkg} is pinned to ${version.current}; ${version.registry} has ${version.latest}.`
-      : version.status === 'current'
-        ? `${version.current} is the newest ${version.registry} release of ${version.pkg}.`
-        : `Couldn’t ask ${version.registry} about ${version.pkg} — ${version.detail ?? 'no answer'}.`
-  return (
-    <div className="pnl-ver">
-      <span className="pnl-health-what">{said}</span>
-      <span className={`mcp-status ${version.status}`}>{VERSION_LABEL[version.status]}</span>
-      {version.status === 'update' && latest && (
-        <div className="pnl-fix-actions">
-          <button
-            className="btn-ghost small"
-            disabled={busy !== null}
-            title="Rewrite the pinned version wherever this server is switched on — nothing else in the command changes"
-            onClick={() => onUpdate(row, latest)}
-          >
-            {busy === row.id ? 'pinning…' : `Update to ${latest}`}
           </button>
         </div>
       )}
@@ -1191,7 +803,7 @@ function PluginVersionLine({
   return (
     <div className="pnl-ver">
       <span className="pnl-health-what">{pluginNewsLine(news)}</span>
-      <span className="mcp-status update">{VERSION_LABEL.update}</span>
+      <span className="mcp-status update">update</span>
       <div className="pnl-fix-actions">
         <button
           className="btn-ghost small"
@@ -1200,89 +812,6 @@ function PluginVersionLine({
           onClick={() => onUpdate(row, news)}
         >
           {busy === row.id ? 'updating…' : `Update to ${news.latest}`}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Whether the server answers — the one thing no switch can tell you. It lives on the
- * server's own row rather than in a tab of its own, because it is a fact about this
- * server and nothing else.
- */
-function McpHealth({
-  row,
-  repoRoot,
-  setNotice
-}: {
-  row: PanelRow
-  repoRoot: string | null
-  setNotice: (n: Notice) => void
-}): JSX.Element {
-  const [status, setStatus] = useState<McpProbeResult | 'checking' | null>(null)
-  const [loginBusy, setLoginBusy] = useState<Provider | null>(null)
-
-  const check = async (): Promise<void> => {
-    setStatus('checking')
-    try {
-      setStatus(await api.checkMcp(row.name))
-    } catch (err) {
-      setStatus({ status: 'error', detail: ipcErrorText(err) })
-    }
-  }
-
-  const login = async (agent: Provider): Promise<void> => {
-    setNotice({
-      text: `Logging in to “${row.name}” with ${PROVIDER_LABEL[agent]} — finish the flow in your browser.`,
-      kind: 'ok'
-    })
-    setLoginBusy(agent)
-    try {
-      setNotice({ text: await api.loginMcp(row.name, agent, repoRoot ?? undefined), kind: 'ok' })
-      void check()
-    } catch (err) {
-      setNotice({ text: `Login failed: ${ipcErrorText(err)}`, kind: 'error' })
-    } finally {
-      setLoginBusy(null)
-    }
-  }
-
-  const result = status === 'checking' || status === null ? null : status
-  return (
-    <div className="pnl-health">
-      <span className="pnl-health-what">
-        {status === null
-          ? 'Cockpit hasn’t asked this server anything yet.'
-          : status === 'checking'
-            ? 'Asking the server…'
-            : (result!.detail ?? MCP_STATUS_SAID[result!.status])}
-      </span>
-      {result && (
-        <span className={`mcp-status ${result.status}`}>{MCP_STATUS_LABEL[result.status]}</span>
-      )}
-      <div className="pnl-fix-actions">
-        {result?.status === 'needs-auth' &&
-          row.holders
-            .filter((a) => LOGIN_AGENTS.includes(a))
-            .map((a) => (
-              <button
-                key={a}
-                className="btn-ghost small"
-                disabled={loginBusy !== null}
-                title={`Run “${a} mcp login ${row.name}” — opens your browser`}
-                onClick={() => void login(a)}
-              >
-                {loginBusy === a ? 'waiting…' : `Log in · ${PROVIDER_LABEL[a]}`}
-              </button>
-            ))}
-        <button
-          className="btn-ghost small"
-          disabled={status === 'checking'}
-          title="Run the configured command, or hit the URL"
-          onClick={() => void check()}
-        >
-          {status === 'checking' ? 'checking…' : 'Check'}
         </button>
       </div>
     </div>

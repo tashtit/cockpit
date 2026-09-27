@@ -4,6 +4,7 @@ import { MCP_KIND_TAG } from '../../shared/mcp-source'
 import type { Provider, RegistryAdd, RegistryInput, RegistryServer } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
+import type { Notice } from './notice'
 import { PROVIDER_LABEL } from './logos'
 import { AddChips } from './MarketBrowse'
 
@@ -21,8 +22,6 @@ import { AddChips } from './MarketBrowse'
  * write faithfully — a container image, a sign-in header — says so instead of adding
  * something that won't start.
  */
-
-type Notice = { text: string; kind: 'ok' | 'error' } | null
 
 type Search = {
   readonly query: string
