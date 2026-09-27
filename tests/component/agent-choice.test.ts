@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { accountOptions, savedAccount } from '../../src/renderer/src/NewSession'
+import { accountOptions, savedAccount } from '../../src/renderer/src/agent-choice'
 import type { AccountsSnapshot } from '../../src/shared/types'
 
 const snap: AccountsSnapshot = {

@@ -3,17 +3,14 @@ import type { AccountsSnapshot, AgentOptions, PermissionMode, Provider } from '.
 import { api } from './api'
 import { shortPath } from '../../shared/library'
 import {
-  AccountField,
-  AGENT_BLURB,
-  AgentOptionsFields,
-  AgentOptionsHints,
   accountOptions,
+  AGENT_BLURB,
   MODES,
   savedAccount,
   savedMode,
-  useAgentOptions
-} from './NewSession'
-import type { AccountChoice } from './NewSession'
+  type AccountChoice
+} from './agent-choice'
+import { AccountField, AgentOptionsFields, AgentOptionsHints, useAgentOptions } from './agent-options'
 import { BranchChip, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 

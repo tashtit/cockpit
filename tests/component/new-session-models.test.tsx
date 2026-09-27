@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { NewSession, type StartSessionRequest } from '../../src/renderer/src/NewSession'
+import type { StartSessionRequest } from '../../src/renderer/src/agent-choice'
+import { NewSession } from '../../src/renderer/src/NewSession'
 import { HandoffView, type StartHandoffRequest } from '../../src/renderer/src/HandoffView'
 import type { ModelEndpoint, RepoGroup } from '../../src/shared/types'
 

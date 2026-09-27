@@ -14,7 +14,7 @@ import { useBusyMap } from './busy'
 import { HeldMark } from './HeldMark'
 import { holdSentence } from './hold'
 import { useLandedMap } from './landed'
-import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './NewSession'
+import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './agent-choice'
 import {
   BranchChip,
   CheckIcon,

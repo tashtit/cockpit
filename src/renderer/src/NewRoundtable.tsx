@@ -21,7 +21,7 @@ import {
 } from '../../shared/roundtable'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
-import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './NewSession'
+import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './agent-choice'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { Select } from './Select'

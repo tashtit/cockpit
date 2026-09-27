@@ -50,7 +50,7 @@ import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
 import { initBranchPrefix } from './branch-prefix'
 import { keepSame } from './same'
-import type { StartSessionRequest } from './NewSession'
+import type { StartSessionRequest } from './agent-choice'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import type { AccountsSnapshot } from '../../shared/types'
 
