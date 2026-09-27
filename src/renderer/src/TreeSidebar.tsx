@@ -39,6 +39,7 @@ import {
   SlidersIcon,
   TrashIcon
 } from './logos'
+import { RepoName } from './RepoName'
 
 export function TreeSidebar({
   repos,
@@ -598,14 +599,7 @@ const RepoNode = memo(function RepoNode({
           <RepoIcon size={13} />
         </span>
         <span className="repo-name">
-          {repo.fullName ? (
-            <>
-              <span className="repo-owner">{repo.fullName.split('/')[0]}/</span>
-              {repo.fullName.split('/')[1]}
-            </>
-          ) : (
-            repo.name
-          )}
+          <RepoName repo={repo} />
         </span>
         <ProviderStrip providers={repo.providers} />
         <span className="row-actions">

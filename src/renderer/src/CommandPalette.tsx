@@ -28,6 +28,7 @@ import {
 import { noop, RowMeta } from './SessionList'
 import { fmtTime, useTimeFormat } from './time'
 import { useLoaded } from './use-loaded'
+import { RepoName } from './RepoName'
 
 /** Views the palette can navigate to — App's View kinds, minus chat/new (those need a target). */
 export type PaletteViewKey = 'welcome' | 'extensions' | 'profile' | 'cleanup' | 'settings'
@@ -675,14 +676,7 @@ function PaletteOption({
             <RepoIcon size={13} />
           </span>
           <span className="palette-title">
-            {it.r.fullName ? (
-              <>
-                <span className="repo-owner">{it.r.fullName.split('/')[0]}/</span>
-                {it.r.fullName.split('/')[1]}
-              </>
-            ) : (
-              it.r.name
-            )}
+            <RepoName repo={it.r} />
           </span>
           <span className="palette-hint">new session</span>
         </>
@@ -693,14 +687,7 @@ function PaletteOption({
             <SlidersIcon size={13} />
           </span>
           <span className="palette-title">
-            {it.r.fullName ? (
-              <>
-                <span className="repo-owner">{it.r.fullName.split('/')[0]}/</span>
-                {it.r.fullName.split('/')[1]}
-              </>
-            ) : (
-              it.r.name
-            )}
+            <RepoName repo={it.r} />
           </span>
           <span className="palette-hint">agent setup</span>
         </>

@@ -11,6 +11,7 @@ import { fmtAgo } from './format'
 import { ChatIcon, ProviderMark, PROVIDER_LABEL, RepoIcon } from './logos'
 import { TabList, TabPanel } from './Tabs'
 import { useLoaded } from './use-loaded'
+import { RepoName } from './RepoName'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals.
@@ -695,20 +696,12 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
               order={order}
               rows={profile.repos.map((r) => {
                 const chats = r.key === 'general'
-                const [owner, name] = r.fullName?.includes('/') ? r.fullName.split('/') : [null, r.name]
                 return {
                   key: r.key,
                   name: (
                     <>
                       {chats ? <ChatIcon size={13} /> : <RepoIcon size={13} />}
-                      {chats ? (
-                        'Chats'
-                      ) : (
-                        <>
-                          {owner && <span className="repo-owner">{owner}/</span>}
-                          {name}
-                        </>
-                      )}
+                      {chats ? 'Chats' : <RepoName repo={r} />}
                     </>
                   ),
                   title: reading(
