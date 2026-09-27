@@ -2,6 +2,7 @@ import { useState, type JSX } from 'react'
 import type { BackupPreview, RestoreSummary } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
+import { ErrorAlert } from './ErrorAlert'
 
 /**
  * Backup: export everything of Cockpit's own to a file, and put one back.
@@ -156,9 +157,7 @@ export function BackupSection({
         </p>
         {mismatch && <div className="ns-hint">The two passphrases don&apos;t match yet.</div>}
         {tooShort && <div className="ns-hint">A passphrase needs at least 8 characters.</div>}
-        {exportError && (
-          <div id="backup-export-error" role="alert" className="new-error">{exportError}</div>
-        )}
+        {exportError && <ErrorAlert id="backup-export-error">{exportError}</ErrorAlert>}
         {exported && <p className="ns-hint">{exported}</p>}
         <div className="ns-actions">
           <button
@@ -211,7 +210,7 @@ export function BackupSection({
           />
         </div>
       )}
-      {restoreError && <div role="alert" className="new-error">{restoreError}</div>}
+      {restoreError && <ErrorAlert>{restoreError}</ErrorAlert>}
       {preview && (
         <div className="ns-actions">
           <button

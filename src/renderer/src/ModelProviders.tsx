@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useRef, useState, type JSX } from 'react'
 import type { EndpointAuth, ModelEndpoint, NewModelEndpoint, WireApi } from '../../shared/types'
 import { ENDPOINT_PRESETS, endpointAgents, type EndpointPreset } from '../../shared/endpoints'
 import { api } from './api'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
+import { onEscape } from './disarm'
 import { ipcErrorText } from './ipc-error'
-import { EndpointIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { EndpointIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { useLoaded } from './use-loaded'
+import { ErrorAlert } from './ErrorAlert'
 
 const DEFAULT_PRESET = ENDPOINT_PRESETS[0]
 
@@ -22,7 +25,13 @@ const agentsHint = (p: Pick<EndpointPreset, 'type'>): string =>
  * source state next to it. `onStatus` feeds Settings' sr-only announcer.
  */
 export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }): JSX.Element {
-  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  // optional call: during dev HMR the renderer can outrun a preload that predates
+  // this method — a missing bridge must not take the whole Settings view down
+  const { value: endpoints, set: setEndpoints } = useLoaded(
+    api.getModelEndpoints ? () => api.getModelEndpoints() : null,
+    [],
+    { initial: [] as ModelEndpoint[] }
+  )
   /** The provider the form starts from — it fills every field below with what works */
   const [preset, setPreset] = useState<EndpointPreset>(DEFAULT_PRESET)
   const [epLabel, setEpLabel] = useState(DEFAULT_PRESET.name)
@@ -42,12 +51,6 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
   /** Folded until asked for — the list is the readout, adding one is a task */
   const [addOpen, setAddOpen] = useState(false)
   const confirm = useArmedConfirm()
-
-  useEffect(() => {
-    // optional call: during dev HMR the renderer can outrun a preload that predates
-    // this method — a missing bridge must not take the whole Settings view down
-    void api.getModelEndpoints?.().then(setEndpoints)
-  }, [])
 
   const pickPreset = (id: string): void => {
     const next = ENDPOINT_PRESETS.find((p) => p.id === id) ?? DEFAULT_PRESET
@@ -200,9 +203,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                   </span>
                   <span className="repo-providers" aria-hidden="true">
                     {endpointAgents(ep).map((p) => (
-                      <span key={p} className={`plogo plogo-${p}`}>
-                        <ProviderLogo p={p} size={12} />
-                      </span>
+                      <ProviderMark key={p} p={p} size={12} />
                     ))}
                   </span>
                   <span className="source-origin">works with {agents}</span>
@@ -226,12 +227,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
                       autoFocus
                       value={keying.value}
                       onChange={(e) => setKeying({ id: ep.id, value: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                          e.stopPropagation()
-                          setKeying(null)
-                        }
-                      }}
+                      onKeyDown={onEscape(() => setKeying(null))}
                     />
                     <button type="submit" className="btn-ghost small" disabled={!keying.value.trim()}>
                       Save key
@@ -277,8 +273,8 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
         })}
         {endpoints.length === 0 && <li className="tree-empty">no custom providers</li>}
       </ul>
-      {removeError && <div role="alert" className="new-error">{removeError}</div>}
-      {keyError && <div role="alert" className="new-error">{keyError}</div>}
+      {removeError && <ErrorAlert>{removeError}</ErrorAlert>}
+      {keyError && <ErrorAlert>{keyError}</ErrorAlert>}
       {/* the outcome of an add outlives the form it was typed into: adding folds the
           form away, and "12 models found" / "couldn't list models" is the answer */}
       {epNotice && !epError && <p className="ns-hint">{epNotice}</p>}
@@ -398,7 +394,7 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
           )}
         </div>
         <p id="ep-preset-note" className="ns-hint">{preset.note}</p>
-        {epError && <div id="endpoint-add-error" role="alert" className="new-error">{epError}</div>}
+        {epError && <ErrorAlert id="endpoint-add-error">{epError}</ErrorAlert>}
         <div className="ns-actions">
           <button
             type="button"

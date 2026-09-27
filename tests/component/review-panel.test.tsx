@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import type { JSX } from 'react'
 import userEvent from '@testing-library/user-event'
-import { formatNotes, pairLines, ReviewPanel } from '../../src/renderer/src/ReviewPanel'
+import { formatNotes, ReviewPanel } from '../../src/renderer/src/ReviewPanel'
 import { reloadDiffLayout, setDiffLayout, useDiffLayout } from '../../src/renderer/src/diff-layout'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import { addChatMessage } from '../../src/renderer/src/chat-log'
@@ -253,18 +253,6 @@ describe('ReviewPanel keyboard', () => {
     await userEvent.type(box, 'a note worth two lines')
     await userEvent.keyboard('{ArrowUp}{Home}{ArrowDown}{End}')
     expect(document.activeElement).toBe(box)
-  })
-})
-
-describe('pairLines', () => {
-  it('pairs the n-th removal with the n-th addition and spans context', () => {
-    const rows = pairLines(aTs.hunks[0].lines)
-    expect(rows.map(([l, r]) => [l?.text ?? null, r?.text ?? null])).toEqual([
-      ['one', 'one'],
-      ['two', 'two changed'],
-      [null, 'two and a half'],
-      ['three', 'three']
-    ])
   })
 })
 

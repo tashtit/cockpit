@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { Provider, ProviderUsage, UsageSnapshot, UsageWindow } from '../../shared/types'
+import { PROVIDERS } from '../../shared/library'
 import { api } from './api'
 import { useBusyMap } from './busy'
-import { fmtCount, fmtResetIn } from './format'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
+import { fmtCount, fmtResetIn, usageSpent } from './format'
+import { ProviderMark, PROVIDER_LABEL, UsageWarnIcon } from './logos'
 
 /**
  * The sidebar footer's subscription meters: one compact cell per provider that reports
@@ -15,11 +16,9 @@ import { ProviderLogo, PROVIDER_LABEL } from './logos'
 /** How often the footer re-asks main; main's own caches make a call cheap. */
 export const USAGE_POLL_MS = 60_000
 /** From this percentage on a cell carries the warning glyph next to its color. */
-export const USAGE_WARN_PERCENT = 80
+const USAGE_WARN_PERCENT = 80
 
-const PROVIDER_ORDER: Provider[] = ['claude', 'codex', 'copilot']
-
-export type UsageMeter = {
+type UsageMeter = {
   readonly provider: Provider
   /** The tightest window's percent used, when the provider reports a limit */
   readonly percent: number | null
@@ -34,22 +33,8 @@ export type UsageMeter = {
 
 /** One tooltip line per window: what was used, and when it resets. */
 function windowLine(w: UsageWindow, now: number): string {
-  let used: string
-  if (typeof w.usedPercent === 'number') {
-    used = `${Math.round(w.usedPercent)}% used`
-  } else if (w.tokens) {
-    used =
-      w.requests === 0
-        ? 'no activity'
-        : `${fmtCount(w.tokens.input + w.tokens.output)} tokens` +
-          (typeof w.requests === 'number' ? ` · ${fmtCount(w.requests)} requests` : '')
-  } else if (typeof w.requests === 'number') {
-    used =
-      `${fmtCount(w.requests)} used` +
-      ((w.requestsBilled ?? 0) > 0 ? ` · ${fmtCount(w.requestsBilled!)} billed beyond plan` : '')
-  } else {
-    used = 'no data'
-  }
+  const used =
+    typeof w.usedPercent === 'number' ? `${Math.round(w.usedPercent)}% used` : (usageSpent(w) ?? 'no data')
   return `${w.label}: ${used}${w.resetsAt ? ` · ${fmtResetIn(w.resetsAt, now)}` : ''}`
 }
 
@@ -100,7 +85,7 @@ export function usageMeter(u: ProviderUsage, now = Date.now()): UsageMeter | nul
  * (two claude accounts) shows the home closest to its limit — the footer is a
  * glance; per-account rows live in Settings.
  */
-export function usageMeters(snapshot: UsageSnapshot, now = Date.now()): UsageMeter[] {
+function usageMeters(snapshot: UsageSnapshot, now = Date.now()): UsageMeter[] {
   const best = new Map<Provider, UsageMeter>()
   for (const u of snapshot.providers) {
     const m = usageMeter(u, now)
@@ -108,16 +93,7 @@ export function usageMeters(snapshot: UsageSnapshot, now = Date.now()): UsageMet
     const cur = best.get(u.provider)
     if (!cur || (m.percent ?? -1) > (cur.percent ?? -1)) best.set(u.provider, m)
   }
-  return PROVIDER_ORDER.flatMap((p) => best.get(p) ?? [])
-}
-
-/** 10px warning triangle — local so the sidebar's parallel icon edits stay clear. */
-function WarnGlyph(): JSX.Element {
-  return (
-    <svg className="usage-warn" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" />
-    </svg>
-  )
+  return PROVIDERS.flatMap((p) => best.get(p) ?? [])
 }
 
 /**
@@ -159,15 +135,13 @@ export function UsageMeters({ onOpen }: { onOpen: () => void }): JSX.Element | n
           className={`usage-cell usage-cell-${m.provider}${m.warn ? ' warn' : ''}`}
           title={m.title}
         >
-          <span className={`plogo plogo-${m.provider}`}>
-            <ProviderLogo p={m.provider} size={12} />
-          </span>
+          <ProviderMark p={m.provider} size={12} />
           {m.percent !== null && (
             <span className="usage-mini">
               <span className="usage-mini-fill" style={{ width: `${m.percent}%` }} />
             </span>
           )}
-          {m.warn && <WarnGlyph />}
+          {m.warn && <UsageWarnIcon />}
           <span className="usage-cell-num">{m.text}</span>
         </span>
       ))}

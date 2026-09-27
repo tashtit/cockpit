@@ -223,7 +223,7 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
 - Code blocks get a hover/focus Copy button; highlight.js tokens map to app palette
   variables — no imported highlight theme.
 
-## Work panel (`WorkPanel.tsx`, `.work-panel`)
+## Work panel (`WorkPanel.tsx` and a `Work…Tab.tsx` per tab, `.work-panel`)
 
 What the agent handed the person to look at — a plan, a to-do list, edits — beside the
 conversation. Everything in it comes from the agents' own tool calls, parsed in main

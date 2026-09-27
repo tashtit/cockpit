@@ -133,6 +133,25 @@ never raw hex. Dark mode only. `tests/style-reachability.test.ts` fails on any c
 `style.css` that no source could emit: delete the rule, or, if something really does render it,
 add the reason to that test.
 
+### Renderer map (`src/renderer/src/`, one flat directory)
+
+A file with one component is PascalCase; a module whose main export is one hook is `use-<name>.ts`.
+
+- **Shell**: `App.tsx` (views and navigation; `use-chat-turns`, `use-nav-history` + `nav-history.ts`, `use-zoom`), `main.tsx`, `api.ts`, `ErrorBoundary`, `DevBanner`
+- **Rail**: `TreeSidebar` → `SessionList`, `RoundtableNode`, `ProjectFilter`; `RailResizer` + `rail.ts`, `UsageMeters`, `UpdateBar` + `update-prompt.ts`, `use-cleanup-notice`
+- **Starting work**: `HomeView`, `NewSession`, `HandoffView`, all choosing through `agent-choice.ts` (agent, account, mode and their storage) and `agent-options.tsx`; `attachments.tsx`, `task-names.ts`, `branch-prefix.ts`
+- **Chat**: `ChatView` → `Message`, `HoldBar`, `PermissionAsk`, `AskPicker`, `ReviewPanel`, `PrStrip`, `SideChat` + `side-chat-log.ts`; the side panel (`SidePanel`, `Sash`, `panel.ts`) holding `WorkPanel` and its `Work*Tab` files (`work-tab.ts`, `use-work-panel`); the transcript's own modules `chat-log.ts`, `transcript-rows.ts`, `transcript-window.tsx`, `transcript-anchor.ts` + `use-transcript-anchor`, `rejoin.ts`, `chat-binding.ts`, `Markdown` + `MarkdownPipeline`
+- **Roundtables**: `RoundtableView` → `RoundtableTable`, `use-roundtable-stream`, `RoundtableLimitFields`, `roundtable-seats.ts`, `SeatEvidencePanel` + `evidence.ts`; `NewRoundtable`, `use-roundtables`
+- **Agents view**: `AiSetup`, `AgentPanel` → `AgentSwitches`, `McpHealth`, `Recommendation`; `InstructionsEditor`, `InstructionsCompare`, `instruction-writes.ts`, `InstructionDiff`
+- **Other views**: `Settings` and its `*Section` files, `AcpAgents`, `ModelProviders`, `SignInFix`; `CleanupView` → `StaleList`, `CleanupRows`, `cleanup-filters.tsx`, `use-picks`; `ProfileView`; `CommandPalette`
+- **Shared UI**: `Select` (never a native `<select>`), `Tabs`, `FilterBar`, `ConfirmRemove` (`ArmedButton`, `useArmedConfirm`), `ViewCard`, `ErrorAlert`, `RepoName`, `SeatCluster`, `HeldMark`, `CopyPath`, `logos.tsx` (every icon, and `ProviderMark`), `popover.ts`, `roving.ts`, `disarm.ts`
+
+One way to do each thing here too: read from main with `useLoaded` (`use-loaded.ts`) and show a
+failure through `ipcErrorText` (`ipc-error.ts`) — never Electron's raw "Error invoking remote
+method" text; follow main's pushes with `seedThenFollow`; keep a preference with `storedValue`
+(`stored-value.ts`), never `localStorage` directly; format with `format.ts`; compare a fresh
+answer with `keepSame` (`same.ts`) so an unchanged push never redraws.
+
 ## Running the app
 
 Every session that touches this repo shows the person its work in a running app before

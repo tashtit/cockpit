@@ -1,17 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
 import type {
   ActivityDay,
   AgentSplit,
-  ProfileStats,
   PromptTally,
   Provider,
   ProviderProfile
 } from '../../shared/types'
 import { api } from './api'
 import { fmtAgo } from './format'
-import { ipcErrorText } from './ipc-error'
-import { ChatIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
+import { ChatIcon, ProviderMark, PROVIDER_LABEL, RepoIcon } from './logos'
 import { TabList, TabPanel } from './Tabs'
+import { useLoaded } from './use-loaded'
+import { RepoName } from './RepoName'
+import { ViewCard } from './ViewCard'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals.
@@ -520,9 +521,7 @@ function Compare({ providers }: { providers: readonly ProviderProfile[] }): JSX.
                 style={{ '--pv-agent': `var(--${p.provider}-rgb)` } as CSSProperties}
               >
                 <span className="pv-th">
-                  <span className={`plogo plogo-${p.provider}`} aria-hidden="true">
-                    <ProviderLogo p={p.provider} size={13} />
-                  </span>
+                  <ProviderMark p={p.provider} decorative />
                   {PROVIDER_LABEL[p.provider]}
                 </span>
               </th>
@@ -545,22 +544,8 @@ function Compare({ providers }: { providers: readonly ProviderProfile[] }): JSX.
 }
 
 export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
-  const [profile, setProfile] = useState<ProfileStats | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<ProfileTab>('activity')
-  const headingRef = useRef<HTMLHeadingElement>(null)
-
-  useEffect(() => {
-    headingRef.current?.focus()
-    let live = true
-    api
-      .getProfile()
-      .then((p) => live && setProfile(p))
-      .catch((e) => live && setError(ipcErrorText(e)))
-    return () => {
-      live = false
-    }
-  }, [])
+  const { value: profile, error } = useLoaded(() => api.getProfile(), [])
 
   // scale the grid by the busiest day *in the grid*: busiestDay is all-time and
   // can sit outside the rendered window, which would flatten every square to L1
@@ -652,9 +637,7 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
             <ul className="pv-accounts">
               {profile.accounts.map((a) => (
                 <li key={`${a.provider}:${a.label}`}>
-                  <span className={`plogo plogo-${a.provider}`} aria-hidden="true">
-                    <ProviderLogo p={a.provider} size={13} />
-                  </span>
+                  <ProviderMark p={a.provider} decorative />
                   {a.identity ? (
                     <span className={`acct-chip acct-${a.provider}`}>{a.identity}</span>
                   ) : (
@@ -709,20 +692,12 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
               order={order}
               rows={profile.repos.map((r) => {
                 const chats = r.key === 'general'
-                const [owner, name] = r.fullName?.includes('/') ? r.fullName.split('/') : [null, r.name]
                 return {
                   key: r.key,
                   name: (
                     <>
                       {chats ? <ChatIcon size={13} /> : <RepoIcon size={13} />}
-                      {chats ? (
-                        'Chats'
-                      ) : (
-                        <>
-                          {owner && <span className="repo-owner">{owner}/</span>}
-                          {name}
-                        </>
-                      )}
+                      {chats ? 'Chats' : <RepoName repo={r} />}
                     </>
                   ),
                   title: reading(
@@ -743,65 +718,54 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   return (
-    <main className="chat settings-view">
-      <div className="ns-card">
-        <div className="ns-head">
-          <h2 ref={headingRef} tabIndex={-1}>
-            Profile
-          </h2>
-          <button className="btn-ghost" onClick={onClose}>
-            Close
-          </button>
-        </div>
-
-        {error ? (
-          <p className="ns-hint ns-prose">Couldn&apos;t build the profile — {error}</p>
-        ) : !profile ? (
-          <p className="ns-hint" aria-live="polite">
-            <span className="pulse" aria-hidden="true" /> Reading your session history…
+    <ViewCard title="Profile" onClose={onClose}>
+      {error ? (
+        <p className="ns-hint ns-prose">Couldn&apos;t build the profile — {error}</p>
+      ) : !profile ? (
+        <p className="ns-hint" aria-live="polite">
+          <span className="pulse" aria-hidden="true" /> Reading your session history…
+        </p>
+      ) : profile.totalSessions === 0 ? (
+        <p className="ns-hint ns-prose">No sessions indexed yet — start one and this fills in.</p>
+      ) : (
+        <>
+          <p className="ns-hint ns-prose">
+            {profile.login ? <strong>{profile.login}</strong> : 'Your work'} across every agent
+            Cockpit indexes
+            {profile.since ? <> — since {fmtSince(profile.since)}</> : null}.
           </p>
-        ) : profile.totalSessions === 0 ? (
-          <p className="ns-hint ns-prose">No sessions indexed yet — start one and this fills in.</p>
-        ) : (
-          <>
-            <p className="ns-hint ns-prose">
-              {profile.login ? <strong>{profile.login}</strong> : 'Your work'} across every agent
-              Cockpit indexes
-              {profile.since ? <> — since {fmtSince(profile.since)}</> : null}.
-            </p>
 
-            <div className="pv-stats">
-              <dl className="pv-nums">
-                <Stat label="sessions">{fmtNum(profile.totalSessions)}</Stat>
-                <Stat label="active days">{fmtNum(profile.activeDays)}</Stat>
-                <Stat label="day streak">{fmtNum(profile.currentStreak)}</Stat>
-                <Stat label="longest streak">{fmtNum(profile.longestStreak)}</Stat>
-                <Stat label="lines edited">
-                  {linesAdded === 0 && linesRemoved === 0 ? (
-                    '0'
-                  ) : (
-                    <Diff added={linesAdded} removed={linesRemoved} />
-                  )}
-                </Stat>
-              </dl>
-              {providers.length > 0 && <AgentMix providers={providers} />}
-            </div>
+          <div className="pv-stats">
+            <dl className="pv-nums">
+              <Stat label="sessions">{fmtNum(profile.totalSessions)}</Stat>
+              <Stat label="active days">{fmtNum(profile.activeDays)}</Stat>
+              <Stat label="day streak">{fmtNum(profile.currentStreak)}</Stat>
+              <Stat label="longest streak">{fmtNum(profile.longestStreak)}</Stat>
+              <Stat label="lines edited">
+                {linesAdded === 0 && linesRemoved === 0 ? (
+                  '0'
+                ) : (
+                  <Diff added={linesAdded} removed={linesRemoved} />
+                )}
+              </Stat>
+            </dl>
+            {providers.length > 0 && <AgentMix providers={providers} />}
+          </div>
 
-            <TabList
-              id="profile"
-              label="Profile sections"
-              tabs={PROFILE_TABS.filter(
-                (t) => t.id !== 'code' || profile.languages.length > 0 || profile.repos.length > 0
-              )}
-              selected={tab}
-              onSelect={setTab}
-            />
-            <TabPanel id="profile" selected={tab}>
-              {panels?.[tab]}
-            </TabPanel>
-          </>
-        )}
-      </div>
-    </main>
+          <TabList
+            id="profile"
+            label="Profile sections"
+            tabs={PROFILE_TABS.filter(
+              (t) => t.id !== 'code' || profile.languages.length > 0 || profile.repos.length > 0
+            )}
+            selected={tab}
+            onSelect={setTab}
+          />
+          <TabPanel id="profile" selected={tab}>
+            {panels?.[tab]}
+          </TabPanel>
+        </>
+      )}
+    </ViewCard>
   )
 }

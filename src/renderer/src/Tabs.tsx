@@ -1,4 +1,8 @@
 import { Fragment, useLayoutEffect, useRef, type JSX, type KeyboardEvent, type ReactNode } from 'react'
+import { roveIndex, type RoveKeys } from './roving'
+
+/** A tab list's arrows go round; Home and End jump to the first and last tab */
+const TAB_KEYS: RoveKeys = { next: 'ArrowRight', prev: 'ArrowLeft', ends: true, wrap: true }
 
 /**
  * The card views' one navigation: a row of `.pnl-pill` tabs over one panel. Settings,
@@ -44,17 +48,11 @@ export function TabList<T extends string>({
   onSelect: (tab: T) => void
 }): JSX.Element {
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
     const all = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'))
     const at = all.indexOf(document.activeElement as HTMLButtonElement)
-    if (at < 0) return
+    const to = at < 0 ? null : roveIndex(e.key, { at, count: all.length }, TAB_KEYS)
+    if (to === null) return
     e.preventDefault()
-    const to =
-      e.key === 'Home'
-        ? 0
-        : e.key === 'End'
-          ? all.length - 1
-          : (at + (e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length
     all[to]?.focus()
     all[to]?.click()
   }
