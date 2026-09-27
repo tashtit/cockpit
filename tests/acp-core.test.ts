@@ -18,7 +18,8 @@ import {
   PERMISSION_COMMAND_MAX,
   permissionDetail,
   permissionOptions,
-  promptResultEvents
+  promptResultEvents,
+  unattendedOutcome
 } from '../src/main/acp-core'
 
 /** The shapes here are copied from a real `copilot --acp` transcript, not from the spec. */
@@ -380,6 +381,27 @@ describe('denyOption', () => {
   })
   it('is null when nothing refuses', () => {
     expect(denyOption([{ optionId: 'allow_once', kind: 'allow_once', name: 'Allow' }])).toBeNull()
+  })
+})
+
+describe('unattendedOutcome', () => {
+  it('refuses the one call', () => {
+    expect(
+      unattendedOutcome([
+        { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' },
+        { optionId: 'reject_always', kind: 'reject_always', name: 'Never' },
+        { optionId: 'no', kind: 'reject_once', name: 'Deny' }
+      ])
+    ).toEqual({ outcome: 'selected', optionId: 'no' })
+  })
+
+  it('never leaves a standing refusal in the agent, and never allows', () => {
+    const standing: AcpPermissionOption[] = [
+      { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' },
+      { optionId: 'reject_always', kind: 'reject_always', name: 'Never' }
+    ]
+    expect(unattendedOutcome(standing)).toEqual({ outcome: 'cancelled' })
+    expect(unattendedOutcome([])).toEqual({ outcome: 'cancelled' })
   })
 })
 

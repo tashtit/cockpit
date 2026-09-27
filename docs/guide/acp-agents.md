@@ -43,6 +43,11 @@ work goes ahead without asking, and anything that *executes* still stops for you
 asks about everything; Yolo asks about nothing. Claude Code sessions get the same card
 without ACP — Cockpit answers the CLI's own permission prompts — with *Allow* and *Deny*.
 
+A [roundtable](./roundtables.md) seat has no composer to put the card above, so its
+requests are never shown: each one is refused for that call alone — never with a
+standing refusal, which would stay in the agent's own settings — and the seat carries on
+without it.
+
 ::: tip Not the same as "the agent asked you a question"
 A session running in your own terminal can also stop to ask something, and Cockpit will
 offer you its options — but there it composes your next message, because Cockpit isn't

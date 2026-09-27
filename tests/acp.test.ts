@@ -32,7 +32,13 @@ type Run = { readonly events: ChatEvent[]; readonly turn: AcpTurn }
 /** Start a turn and hand back the live event list; `onEvent` can answer mid-flight. */
 function start(
   mode: string,
-  opts: { permissionMode?: PermissionMode; resume?: string; onEvent?: (ev: ChatEvent, turn: AcpTurn) => void } = {}
+  opts: {
+    permissionMode?: PermissionMode
+    resume?: string
+    /** Whether a question can reach anyone — a chat by default, as most of these are */
+    asksPermissions?: boolean
+    onEvent?: (ev: ChatEvent, turn: AcpTurn) => void
+  } = {}
 ): Run & { readonly done: Promise<void> } {
   const events: ChatEvent[] = []
   let turn!: AcpTurn
@@ -41,6 +47,7 @@ function start(
     cwd,
     env: process.env,
     permissionMode: opts.permissionMode ?? 'safe',
+    asksPermissions: opts.asksPermissions ?? true,
     emit: (ev) => {
       events.push(ev)
       opts.onEvent?.(ev, turn)
@@ -106,6 +113,19 @@ describe('AcpTurn', () => {
     await done
     expect(events.some((e) => e.type === 'permission')).toBe(true)
     expect(texts(events)).toContain('answered:reject_once')
+  })
+
+  it('refuses a question nobody can see, for that call alone, instead of waiting on it', async () => {
+    const { events, done } = start('permission', { asksPermissions: false })
+    await done
+    expect(events.some((e) => e.type === 'permission')).toBe(false)
+    expect(texts(events)).toContain('answered:reject_once')
+  })
+
+  it('still answers what the mode allows when nobody can be asked', async () => {
+    const { events, done } = start('permission-edit', { permissionMode: 'auto-edit', asksPermissions: false })
+    await done
+    expect(texts(events)).toContain('answered:allow_once')
   })
 
   it('ignores an answer that does not match what was asked', async () => {
