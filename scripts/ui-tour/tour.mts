@@ -473,6 +473,17 @@ const STATIC: readonly Shot[] = [
   // agents Cockpit reads but doesn't run: found at launch, opened read-only, continued elsewhere
   { view: 'chat', name: 'chat-gemini', go: (w) => open(w, /Stop the usage panel flashing on load/) },
   { view: 'chat', name: 'chat-cursor', go: (w) => open(w, /Map which jobs never emit a span/) },
+  { view: 'chat', name: 'chat-cursor-editor', go: (w) => open(w, /Tighten the retry backoff/) },
+  { view: 'chat', name: 'chat-opencode', go: (w) => open(w, /Cache the tenant lookup/) },
+  {
+    view: 'chat',
+    name: 'chat-antigravity-work',
+    go: async (w) => {
+      await open(w, /Add a getting-started video/)
+      await w.keyboard.press('ControlOrMeta+j')
+      await pause(w, 400)
+    }
+  },
   {
     view: 'chat',
     name: 'chat-cline-work',

@@ -6,6 +6,7 @@ import { SessionIndexer } from '../src/main/indexer'
 import { clearRepoCache } from '../src/main/repos'
 import { TranscriptSearcher } from '../src/main/transcript-search'
 import { cursorSlug } from '../src/main/parsers/cursor'
+import { writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 import { writePagedThread } from './codex-paged-thread'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-transcript-search-fixtures-'))
@@ -328,8 +329,20 @@ describe('agents Cockpit only reads, indexed and searched beside the rest', () =
         }
       ])
     )
+    // a database-kept session: searched through what its parser reads
+    writeOpencodeDb(join(dir, 'opencode', 'opencode.db'), [
+      {
+        id: 'ses_ws',
+        title: 'Socket drops',
+        directory: repo,
+        created: Date.parse(TS),
+        updated: Date.parse(TS),
+        turns: [{ role: 'user', at: Date.parse(TS), parts: [{ type: 'text', text: 'the websocket drops every minute' }] }]
+      }
+    ])
     idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
     await idx.setSources([
+      { path: join(dir, 'opencode'), provider: 'opencode', label: 'opencode-default' },
       { path: gemini, provider: 'gemini', label: 'gemini-default' },
       { path: cline, provider: 'cline', label: 'cline-vscode' },
       { path: cursor, provider: 'cursor', label: 'cursor-default' }
@@ -344,9 +357,9 @@ describe('agents Cockpit only reads, indexed and searched beside the rest', () =
 
   it('groups every agent’s sessions under the repository they ran in', () => {
     const [group] = idx.listRepos().filter((r) => r.fullName === 'acme/web')
-    expect(group?.providers.sort()).toEqual(['cline', 'cursor', 'gemini'])
+    expect(group?.providers.sort()).toEqual(['cline', 'cursor', 'gemini', 'opencode'])
     const page = idx.page({ repoKey: group!.key })
-    expect(page.items.map((s) => s.id).sort()).toEqual(['cline:1756700000000', 'cursor:cur-1', 'gemini:g-1'])
+    expect(page.items.map((s) => s.id).sort()).toEqual(['cline:1756700000000', 'cursor:cur-1', 'gemini:g-1', 'opencode:ses_ws'])
     expect(idx.getMessages('cursor:cur-1').map((m) => m.text)).toContain('Written up.')
   })
 
@@ -356,7 +369,8 @@ describe('agents Cockpit only reads, indexed and searched beside the rest', () =
     expect(res.hits.map((h) => `${h.sessionId} ${h.role}`).sort()).toEqual([
       'cline:1756700000000 user',
       'cursor:cur-1 user',
-      'gemini:g-1 user'
+      'gemini:g-1 user',
+      'opencode:ses_ws user'
     ])
     expect((await s.search({ text: 'HEARTBEAT_MS' })).hits).toHaveLength(0)
     expect((await s.search({ text: 'HEARTBEAT_MS', includeTools: true })).hits.map((h) => h.sessionId)).toEqual(['gemini:g-1'])

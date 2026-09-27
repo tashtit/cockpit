@@ -2,6 +2,8 @@ import { existsSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { toolArtifact } from './artifacts'
+import { checkArtifact } from './checks'
+import { dbMtime, queryAll, sessionRef, snapshotCache, splitSessionRef } from './sqlite'
 import {
   capText,
   fileTimes,
@@ -9,6 +11,7 @@ import {
   parseJsonlText,
   readHead,
   readJsonlTail,
+  toMs,
   toolPreview,
   truncate,
   usableCwd
@@ -33,9 +36,21 @@ export function listCursorSessionRoots(home: string): string[] {
   return [join(home, 'projects')]
 }
 
+/**
+ * The editor's own chats live elsewhere: one SQLite key-value store for every workspace,
+ * <Cursor app data>/User/globalStorage/state.vscdb, its `cursorDiskKV` table holding a
+ * `composerData:<id>` document per chat (its name, times, workspace and the order of its
+ * messages) and a `bubbleId:<chat id>:<message id>` document per message. That folder is
+ * a home of its own (label `cursor-ide`); a chat is indexed as `<db>#<chat id>`, and a
+ * chat that also has an agent transcript shares its id, so the two are one session.
+ */
+export const CURSOR_IDE_DB = 'state.vscdb'
+
 export function listCursorSessionFiles(home: string): string[] {
   const projects = join(home, 'projects')
   const out: string[] = []
+  const db = join(home, CURSOR_IDE_DB)
+  if (existsSync(db)) for (const id of composerChats(db).keys()) out.push(sessionRef(db, id))
   for (const project of dirEntries(projects)) {
     if (!project.isDirectory()) continue
     const dir = join(projects, project.name, 'agent-transcripts')
@@ -174,6 +189,8 @@ function blocksText(content: unknown): string {
 }
 
 export function parseCursorMeta(file: string, sourceLabel: string): SessionMeta | null {
+  const ref = splitSessionRef(file)
+  if (ref && basename(ref.file) === CURSOR_IDE_DB) return composerMeta(ref.file, ref.id, sourceLabel)
   const slug = projectSlug(file)
   if (!slug || file.includes(`${sep}subagents${sep}`)) return null
   const head = readHead(file, META_HEAD_BYTES)
@@ -212,6 +229,8 @@ export function parseCursorMeta(file: string, sourceLabel: string): SessionMeta 
 }
 
 export function parseCursorMessages(file: string): SessionMessage[] {
+  const ref = splitSessionRef(file)
+  if (ref && basename(ref.file) === CURSOR_IDE_DB) return composerMessages(ref.file, ref.id)
   const { lines, truncated } = readJsonlTail(file)
   const out: SessionMessage[] = []
   for (const l of lines) {
@@ -245,4 +264,166 @@ export function parseCursorMessages(file: string): SessionMessage[] {
   return truncated
     ? [{ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' }, ...out]
     : out
+}
+
+/* ---------- the editor's own chats (state.vscdb) ---------- */
+
+type Composer = {
+  readonly name: string | null
+  readonly created: number | null
+  readonly updated: number | null
+  readonly cwd: string | null
+  readonly messages: number
+  /** the opening message's text, as the chat's own header previews it */
+  readonly preview: string | null
+  /** the chat that started this one as a subagent (its `subagentComposerIds` name it) */
+  readonly parent: string | null
+}
+
+/** Every chat with messages in it, from its document's few fields that matter — one read per change. */
+const composerChats = snapshotCache((db: string): Map<string, Composer> => {
+  const out = new Map<string, Composer>()
+  const parents = new Map<string, string>()
+  const rows = queryAll(
+    db,
+    `SELECT key,
+       json_extract(value, '$.name') AS name,
+       json_extract(value, '$.createdAt') AS created,
+       json_extract(value, '$.lastUpdatedAt') AS updated,
+       json_extract(value, '$.fullConversationHeadersOnly[#-1].createdAt') AS last,
+       json_extract(value, '$.subagentComposerIds') AS subagents,
+       json_extract(value, '$.workspaceIdentifier.uri.fsPath') AS cwd,
+       coalesce(json_array_length(value, '$.fullConversationHeadersOnly'), 0) AS headers,
+       coalesce(json_array_length(value, '$.conversation'), 0) AS inline,
+       coalesce(json_extract(value, '$.fullConversationHeadersOnly[0].grouping.textPreview'),
+                json_extract(value, '$.conversation[0].text')) AS preview
+     FROM cursorDiskKV WHERE key LIKE 'composerData:%' AND json_valid(value)`
+  ) ?? []
+  for (const r of rows) {
+    const id = String(r['key'] ?? '').slice('composerData:'.length)
+    for (const child of parseJson(r['subagents']) ?? []) if (typeof child === 'string') parents.set(child, id)
+  }
+  for (const r of rows) {
+    const id = String(r['key'] ?? '').slice('composerData:'.length)
+    const messages = Math.max(Number(r['headers'] ?? 0), Number(r['inline'] ?? 0))
+    // drafts: every chat Cursor opens starts as one, and most are never sent
+    if (!id || messages === 0) continue
+    out.set(id, {
+      name: typeof r['name'] === 'string' && r['name'].trim() ? r['name'] : null,
+      created: toMs(r['created']),
+      // the chat's own stamp can lag its last message by minutes
+      updated: Math.max(toMs(r['updated']) ?? 0, toMs(r['last']) ?? 0) || null,
+      cwd: usableCwd(r['cwd']),
+      messages,
+      preview: typeof r['preview'] === 'string' && r['preview'].trim() ? r['preview'] : null,
+      parent: parents.get(id) ?? null
+    })
+  }
+  return out
+})
+
+function composerMeta(db: string, id: string, sourceLabel: string): SessionMeta | null {
+  const c = composerChats(db).get(id)
+  if (!c) return null
+  const at = dbMtime(db)
+  return {
+    id: `cursor:${id}`,
+    provider: 'cursor',
+    nativeId: id,
+    source: sourceLabel,
+    title: truncate(c.name ?? c.preview ?? '') || '(untitled)',
+    cwd: c.cwd,
+    logBranch: null,
+    startedAt: c.created ?? at,
+    // never past the store's last write: a clock that ran ahead is not a newer chat
+    updatedAt: Math.min(Math.max(c.updated ?? 0, c.created ?? 0) || at, at),
+    messageCount: c.messages,
+    sourcePath: sessionRef(db, id),
+    ...(c.parent ? { parentId: `cursor:${c.parent}` } : {})
+  }
+}
+
+/** A message document larger than this is not read — context attachments can be huge. */
+const MAX_BUBBLE_BYTES = 512 * 1024
+
+function parseJson(v: unknown): any {
+  if (typeof v !== 'string') return null
+  try {
+    return JSON.parse(v)
+  } catch {
+    return null
+  }
+}
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
+
+/** The headline of one of the editor's tool calls: whatever it names. */
+function composerToolPreview(params: Record<string, unknown>): string | null {
+  return (
+    str(params['command']) ??
+    str(params['targetFile']) ??
+    str(params['relativeWorkspacePath']) ??
+    str(params['path']) ??
+    str(params['pattern']) ??
+    str(params['globPattern']) ??
+    str(params['query']) ??
+    str(params['url']) ??
+    str(params['description'])
+  )
+}
+
+function composerMessages(db: string, id: string): SessionMessage[] {
+  const doc = parseJson(queryAll(db, `SELECT value FROM cursorDiskKV WHERE key = ?`, `composerData:${id}`)?.[0]?.['value'])
+  if (!doc) return []
+  const headers: any[] = Array.isArray(doc.fullConversationHeadersOnly) ? doc.fullConversationHeadersOnly : []
+  // older chats kept every message inside the chat's own document
+  const inline: any[] = Array.isArray(doc.conversation) ? doc.conversation : []
+  const bubbles = new Map<string, any>()
+  if (headers.length > 0) {
+    for (const r of queryAll(
+      db,
+      `SELECT key,
+         json_extract(value, '$.type') AS type,
+         json_extract(value, '$.text') AS text,
+         json_extract(value, '$.createdAt') AS created,
+         json_extract(value, '$.thinking.text') AS thinking,
+         json_extract(value, '$.toolFormerData') AS tool
+       FROM cursorDiskKV WHERE key LIKE ? AND length(value) <= ${MAX_BUBBLE_BYTES}`,
+      `bubbleId:${id}:%`
+    ) ?? []) {
+      bubbles.set(String(r['key']).slice(`bubbleId:${id}:`.length), r)
+    }
+  }
+  const order = headers.length > 0 ? headers.map((h) => bubbles.get(String(h?.bubbleId)) ?? null) : inline
+  const out: SessionMessage[] = []
+  for (const b of order) {
+    if (!b) continue
+    const ts = toMs(b.created ?? b.createdAt) ?? undefined
+    const type = Number(b.type)
+    const text = str(b.text)
+    if (type === 1) {
+      if (text) out.push({ role: 'user', kind: 'text', text: capText(text), ts })
+      continue
+    }
+    const thinking = str(typeof b.thinking === 'string' ? b.thinking : b.thinking?.text)
+    if (thinking) out.push({ role: 'assistant', kind: 'reasoning', text: capText(thinking), ts })
+    if (text) out.push({ role: 'assistant', kind: 'text', text: capText(text), ts })
+    const tool = typeof b.tool === 'string' ? parseJson(b.tool) : b.toolFormerData
+    if (tool && typeof tool === 'object' && typeof tool.name === 'string') {
+      const params = parseJson(tool.params) ?? parseJson(tool.rawArgs) ?? {}
+      const preview = composerToolPreview(params)
+      const artifact = /terminal_command/.test(tool.name) ? checkArtifact(params['command']) : undefined
+      out.push({
+        role: 'assistant',
+        kind: 'tool_call',
+        toolName: tool.name,
+        text: truncate(jsonText(params), 400),
+        ...(preview ? { preview: truncate(preview, 200) } : {}),
+        ...(artifact ? { artifact } : {}),
+        ...(tool.status === 'error' ? { failed: true } : {}),
+        ts
+      })
+    }
+  }
+  return out
 }

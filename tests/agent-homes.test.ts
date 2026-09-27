@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { detectAgentHomes, editorLabel, reconcileDetected } from '../src/main/agent-homes'
@@ -30,6 +30,12 @@ beforeAll(() => {
   dir('.config', 'Brand New Editor', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks')
   // installed but never used: no tasks yet, so nothing to index
   dir('Library', 'Application Support', 'Windsurf', 'User', 'globalStorage', 'saoudrizwan.claude-dev')
+  // Cursor's own chats live in its editor storage's database
+  writeFileSync(join(dir('Library', 'Application Support', 'Cursor', 'User', 'globalStorage'), 'state.vscdb'), '')
+  writeFileSync(join(dir('.local', 'share', 'opencode'), 'opencode.db'), '')
+  // Antigravity: a conversation database counts; the first releases' encrypted .pb does not
+  writeFileSync(join(dir('.gemini', 'antigravity-ide', 'conversations'), 'c1.db'), '')
+  writeFileSync(join(dir('.gemini', 'antigravity', 'conversations'), 'c0.pb'), '')
 })
 
 afterAll(() => rmSync(home, { recursive: true, force: true }))
@@ -39,15 +45,21 @@ describe('detectAgentHomes', () => {
     const found = detectAgentHomes(home)
     const byLabel = Object.fromEntries(found.map((s) => [s.label, s]))
     expect(Object.keys(byLabel).sort()).toEqual([
+      'antigravity-ide',
       'claude-default',
       'cline-brand-new-editor',
       'cline-cli',
       'cline-vscode',
       'codex-default',
       'cursor-default',
+      'cursor-ide',
       'gemini-default',
+      'opencode-default',
       'roo-cursor'
     ])
+    expect(byLabel['cursor-ide']).toMatchObject({ provider: 'cursor', path: storage(join('Library', 'Application Support'), 'Cursor', '').replace(/\/$/, '') })
+    expect(byLabel['opencode-default']).toMatchObject({ provider: 'opencode', path: join(home, '.local', 'share', 'opencode') })
+    expect(byLabel['antigravity-ide']).toMatchObject({ provider: 'antigravity', path: join(home, '.gemini', 'antigravity-ide') })
     expect(byLabel['gemini-default']).toEqual({ path: join(home, '.gemini'), provider: 'gemini', label: 'gemini-default' })
     expect(byLabel['cline-vscode']!.path).toBe(storage(join('Library', 'Application Support'), 'Code', 'saoudrizwan.claude-dev'))
     expect(byLabel['roo-cursor']).toMatchObject({ provider: 'roo' })

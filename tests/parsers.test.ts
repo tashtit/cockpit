@@ -11,6 +11,9 @@ import type { SessionMessage } from '../src/shared/types'
 import { toolPreview } from '../src/main/parsers/util'
 import { listGeminiSessions, parseGeminiMessages, parseGeminiMeta } from '../src/main/parsers/gemini'
 import { listClineSessions, parseClineMessages } from '../src/main/parsers/cline'
+import { listAntigravitySessions, parseAntigravityMessages } from '../src/main/parsers/antigravity'
+import { listOpencodeSessions, parseOpencodeMessages } from '../src/main/parsers/opencode'
+import { writeAntigravityConversation, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 import {
   cursorQueryTime,
   cursorSlug,
@@ -2128,6 +2131,246 @@ describe('cursor parser', () => {
     expect(rows[3]!.preview).toBe('**/*sign*')
     expect(rows[4]!.artifact).toMatchObject({ kind: 'edits', files: [{ path: '/Users/me/dev/web/src/auth.ts' }] })
     expect(rows[5]!.artifact).toMatchObject({ kind: 'check', checks: ['types'] })
+  })
+})
+
+describe('antigravity parser', () => {
+  const home = join(root, 'antigravity-ide')
+  const at = Date.parse('2026-08-22T23:14:00Z')
+  const m = (min: number): number => at + min * 60_000
+
+  beforeAll(() => {
+    writeAntigravityConversation(join(home, 'conversations', '6a2ff5b3-0000-4000-8000-000000000001.db'), {
+      cwd: '/Users/me/dev/cachely',
+      branch: 'titan/quotas',
+      repo: 'acme/cachely',
+      began: at,
+      steps: [
+        { at: m(0), user: 'Make an onboarding video for the home page' },
+        { at: m(1), reply: 'Let me look at the landing page first.', thinking: 'The user wants a demo of setup.' },
+        { at: m(2), tool: 'view_file', args: { AbsolutePath: '/Users/me/dev/cachely/src/landing.tsx', toolAction: 'Reading landing page' } },
+        {
+          at: m(3),
+          tool: 'write_to_file',
+          args: { TargetFile: '/Users/me/.gemini/antigravity-ide/brain/x/implementation_plan.md', CodeContent: '# Plan\n\nAnimate the setup steps.' }
+        },
+        {
+          at: m(4),
+          tool: 'write_to_file',
+          args: { TargetFile: '/Users/me/.gemini/antigravity-ide/brain/x/task.md', CodeContent: '- [x] Read the page\n- [ ] Build the demo' }
+        },
+        {
+          at: m(5),
+          tool: 'replace_file_content',
+          args: { TargetFile: '/Users/me/dev/cachely/src/landing.tsx', TargetContent: '<HowItWorks />', ReplacementContent: '<OnboardingDemo />' }
+        },
+        { at: m(6), tool: 'run_command', args: { CommandLine: 'npx nx test marketing', Cwd: '/Users/me/dev/cachely' }, output: 'Tests  1 failed | 9 passed' },
+        { at: m(7), notice: 'Timer has expired' },
+        { at: m(8), reply: 'The demo is in; one test needs a fix.' }
+      ]
+    })
+    // a conversation from before the database: encrypted, not a session anyone can read
+    writeFileSync(join(home, 'conversations', 'old.pb'), Buffer.from([0x8f, 0x13, 0xa2, 0x00, 0x51]))
+    // a database that is not a conversation's at all
+    writeFileSync(join(home, 'conversations', 'broken.db'), 'not sqlite')
+  })
+
+  it('lists the conversation with its workspace, branch and repository', () => {
+    const [meta, ...rest] = listAntigravitySessions(home, 'antigravity-ide')
+    expect(rest).toEqual([])
+    expect(meta).toMatchObject({
+      id: 'antigravity:6a2ff5b3-0000-4000-8000-000000000001',
+      provider: 'antigravity',
+      source: 'antigravity-ide',
+      title: 'Make an onboarding video for the home page',
+      cwd: '/Users/me/dev/cachely',
+      logBranch: 'titan/quotas',
+      repoFullName: 'acme/cachely',
+      startedAt: at,
+      // the prompt and the two replies
+      messageCount: 3
+    })
+  })
+
+  it('turns its steps into the conversation, the plan and task list onto the Work panel', () => {
+    const rows = parseAntigravityMessages(join(home, 'conversations', '6a2ff5b3-0000-4000-8000-000000000001.db'))
+    expect(rows.map((r) => [r.role, r.kind, r.toolName ?? r.text])).toEqual([
+      ['user', 'text', 'Make an onboarding video for the home page'],
+      ['assistant', 'reasoning', 'The user wants a demo of setup.'],
+      ['assistant', 'text', 'Let me look at the landing page first.'],
+      ['assistant', 'tool_call', 'view_file'],
+      ['assistant', 'tool_call', 'write_to_file'],
+      ['assistant', 'tool_call', 'write_to_file'],
+      ['assistant', 'tool_call', 'replace_file_content'],
+      ['assistant', 'tool_call', 'run_command'],
+      ['tool', 'tool_result', 'Tests 1 failed | 9 passed'],
+      ['system', 'system', 'Timer has expired'],
+      ['assistant', 'text', 'The demo is in; one test needs a fix.']
+    ])
+    // the agent's own words for what the call does
+    expect(rows[3]!.preview).toBe('Reading landing page')
+    expect(rows[4]!.artifact).toEqual({ kind: 'plan', text: '# Plan\n\nAnimate the setup steps.' })
+    expect(rows[5]!.artifact).toEqual({
+      kind: 'todos',
+      items: [
+        { text: 'Read the page', status: 'completed' },
+        { text: 'Build the demo', status: 'pending' }
+      ]
+    })
+    expect(rows[6]!.artifact).toMatchObject({ kind: 'edits', files: [{ path: '/Users/me/dev/cachely/src/landing.tsx' }] })
+    expect(rows[7]!.artifact).toMatchObject({ kind: 'check', checks: ['tests'], status: 'failed' })
+    expect(rows.every((r) => typeof r.ts === 'number')).toBe(true)
+  })
+})
+
+describe('opencode parser', () => {
+  const home = join(root, 'opencode')
+  const at = Date.parse('2026-09-01T09:00:00Z')
+
+  beforeAll(() => {
+    writeOpencodeDb(join(home, 'opencode.db'), [
+      {
+        id: 'ses_one',
+        title: 'Fix the flaky login test',
+        directory: '/Users/me/dev/web',
+        created: at,
+        updated: at + 60_000,
+        turns: [
+          { role: 'user', at, parts: [{ type: 'text', text: 'the login test flakes, fix it' }] },
+          {
+            role: 'assistant',
+            at: at + 10_000,
+            parts: [
+              { type: 'step-start' },
+              { type: 'reasoning', text: 'Probably a race on the redirect.' },
+              { type: 'tool', tool: 'bash', state: { status: 'completed', input: { command: 'npm test' }, output: 'Tests  1 failed', metadata: { exit: 1 } } },
+              { type: 'tool', tool: 'edit', state: { status: 'completed', input: { filePath: 'src/login.ts', oldString: 'await a', newString: 'await b' }, output: '' } },
+              { type: 'tool', tool: 'todowrite', state: { status: 'completed', input: { todos: [{ content: 'Rerun', status: 'pending' }] } } },
+              { type: 'tool', tool: 'read', state: { status: 'error', input: { filePath: 'src/missing.ts' }, error: 'File not found' } },
+              { type: 'text', text: 'Fixed the race.' }
+            ]
+          }
+        ]
+      },
+      // opencode's placeholder title: the opening prompt names it instead
+      {
+        id: 'ses_two',
+        title: 'New session - 2026-09-02T10:00:00.000Z',
+        directory: '/Users/me/dev/api',
+        created: at,
+        updated: at,
+        parent: 'ses_one',
+        turns: [{ role: 'user', at, parts: [{ type: 'text', text: 'explain the rate limiter' }] }]
+      },
+      // archived in opencode, and one never used
+      { id: 'ses_gone', title: 'Old', directory: '/x', created: at, updated: at, archived: at, turns: [{ role: 'user', at, parts: [{ type: 'text', text: 'x' }] }] },
+      { id: 'ses_empty', title: 'Empty', directory: '/x', created: at, updated: at, turns: [] }
+    ])
+    // the older file store: a session the database does not hold
+    const legacy = join(home, 'storage')
+    mkdirSync(join(legacy, 'session', 'proj'), { recursive: true })
+    mkdirSync(join(legacy, 'message', 'ses_legacy'), { recursive: true })
+    mkdirSync(join(legacy, 'part', 'msg_l1'), { recursive: true })
+    writeFileSync(
+      join(legacy, 'session', 'proj', 'ses_legacy.json'),
+      JSON.stringify({ id: 'ses_legacy', title: 'Assistance scope', directory: '/Users/me/dev/old', time: { created: at, updated: at + 5_000 } })
+    )
+    writeFileSync(join(legacy, 'message', 'ses_legacy', 'msg_l1.json'), JSON.stringify({ id: 'msg_l1', role: 'user', time: { created: at } }))
+    writeFileSync(join(legacy, 'part', 'msg_l1', 'prt_1.json'), JSON.stringify({ type: 'text', text: 'what can you do?' }))
+  })
+
+  it('lists the sessions opencode keeps, in its database and in its older file store', () => {
+    const metas = listOpencodeSessions(home, 'opencode-default')
+    expect(metas.map((m) => m.id).sort()).toEqual(['opencode:ses_legacy', 'opencode:ses_one', 'opencode:ses_two'])
+    expect(metas.find((m) => m.nativeId === 'ses_one')).toMatchObject({
+      provider: 'opencode',
+      title: 'Fix the flaky login test',
+      cwd: '/Users/me/dev/web',
+      startedAt: at,
+      updatedAt: at + 60_000,
+      messageCount: 2
+    })
+    expect(metas.find((m) => m.nativeId === 'ses_two')).toMatchObject({ title: 'explain the rate limiter', parentId: 'opencode:ses_one' })
+    expect(metas.find((m) => m.nativeId === 'ses_legacy')).toMatchObject({ title: 'Assistance scope', cwd: '/Users/me/dev/old' })
+  })
+
+  it('turns its parts into the conversation', () => {
+    const one = listOpencodeSessions(home, 'o').find((m) => m.nativeId === 'ses_one')!
+    const rows = parseOpencodeMessages(one.sourcePath)
+    expect(rows.map((r) => [r.role, r.kind, r.toolName ?? r.text])).toEqual([
+      ['user', 'text', 'the login test flakes, fix it'],
+      ['assistant', 'reasoning', 'Probably a race on the redirect.'],
+      ['assistant', 'tool_call', 'bash'],
+      ['tool', 'tool_result', 'Tests 1 failed'],
+      ['assistant', 'tool_call', 'edit'],
+      ['assistant', 'tool_call', 'todowrite'],
+      ['assistant', 'tool_call', 'read'],
+      ['tool', 'tool_result', 'File not found'],
+      ['assistant', 'text', 'Fixed the race.']
+    ])
+    expect(rows[2]).toMatchObject({ preview: 'npm test', artifact: { kind: 'check', status: 'failed', exitCode: 1 } })
+    expect(rows[4]!.artifact).toMatchObject({ kind: 'edits', files: [{ path: 'src/login.ts' }] })
+    expect(rows[5]!.artifact).toEqual({ kind: 'todos', items: [{ text: 'Rerun', status: 'pending' }] })
+    expect(rows[6]!.failed).toBe(true)
+    const legacy = listOpencodeSessions(home, 'o').find((m) => m.nativeId === 'ses_legacy')!
+    expect(parseOpencodeMessages(legacy.sourcePath).map((r) => r.text)).toEqual(['what can you do?'])
+  })
+})
+
+describe('cursor parser: the editor’s own chats', () => {
+  const storage = join(root, 'cursor-editor', 'User', 'globalStorage')
+  const at = Date.parse('2026-08-18T21:54:00Z')
+
+  beforeAll(() => {
+    writeCursorChats(join(storage, 'state.vscdb'), [
+      {
+        id: 'chat-1',
+        name: 'Customer sign-in assistance',
+        cwd: '/Users/me/dev/web',
+        created: at,
+        // the chat's own stamp lags its last message
+        updated: at + 1_000,
+        subagents: ['chat-sub'],
+        bubbles: [
+          { type: 1, at, text: 'why can customers not sign in?' },
+          { type: 2, at: at + 5_000, thinking: 'Check the auth config.' },
+          { type: 2, at: at + 6_000, tool: { name: 'read_file_v2', params: { targetFile: 'src/auth.ts' } } },
+          { type: 2, at: at + 7_000, tool: { name: 'run_terminal_command_v2', params: { command: 'npm test' }, status: 'error' } },
+          { type: 2, at: at + 300_000, text: 'The allow-list was empty.' }
+        ]
+      },
+      { id: 'chat-sub', name: 'Explore auth', cwd: '/Users/me/dev/web', created: at, updated: at, bubbles: [{ type: 1, at, text: 'explore' }] }
+    ])
+  })
+
+  it('lists every chat with messages, drafts left out, a subagent’s chat under its parent', () => {
+    const metas = listCursorSessions(storage, 'cursor-ide')
+    expect(metas.map((m) => m.id).sort()).toEqual(['cursor:chat-1', 'cursor:chat-sub'])
+    const chat = metas.find((m) => m.nativeId === 'chat-1')
+    expect(chat).toMatchObject({
+      provider: 'cursor',
+      title: 'Customer sign-in assistance',
+      cwd: '/Users/me/dev/web',
+      startedAt: at,
+      messageCount: 5
+    })
+    // the last message's time, not the chat's lagging stamp — bounded by the store's last write
+    expect(chat!.updatedAt).toBeGreaterThan(at + 1_000)
+    expect(metas.find((m) => m.nativeId === 'chat-sub')?.parentId).toBe('cursor:chat-1')
+  })
+
+  it('turns its messages into the conversation', () => {
+    const chat = listCursorSessions(storage, 'c').find((m) => m.nativeId === 'chat-1')!
+    const rows = parseCursorMessages(chat.sourcePath)
+    expect(rows.map((r) => [r.role, r.kind, r.toolName ?? r.text])).toEqual([
+      ['user', 'text', 'why can customers not sign in?'],
+      ['assistant', 'reasoning', 'Check the auth config.'],
+      ['assistant', 'tool_call', 'read_file_v2'],
+      ['assistant', 'tool_call', 'run_terminal_command_v2'],
+      ['assistant', 'text', 'The allow-list was empty.']
+    ])
+    expect(rows[2]!.preview).toBe('src/auth.ts')
+    expect(rows[3]).toMatchObject({ failed: true, artifact: { kind: 'check', checks: ['tests'] } })
   })
 })
 

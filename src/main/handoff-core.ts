@@ -53,7 +53,9 @@ const AGENT_NAME: Record<SessionProvider, string> = {
   gemini: 'Gemini CLI',
   cursor: 'Cursor',
   cline: 'Cline',
-  roo: 'Roo Code'
+  roo: 'Roo Code',
+  opencode: 'opencode',
+  antigravity: 'Antigravity'
 }
 
 function preamble(provider: SessionProvider): string {

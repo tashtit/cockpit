@@ -3,7 +3,9 @@
 There are two unions in `src/shared/types.ts`, and a new agent joins one of them:
 
 - `Provider` — `'claude' | 'codex' | 'copilot'`, the CLIs Cockpit **drives** (spawns, resumes, seats, signs in, measures).
-- `ReadOnlyProvider` — the agents Cockpit only **reads** (Gemini CLI, Cursor, Cline, Roo Code). `SessionProvider` is both: it types every session, source and index query, and `isDrivable` (`src/shared/providers.ts`) is the guard wherever a session reaches something that drives a CLI.
+- `ReadOnlyProvider` — the agents Cockpit only **reads** (Gemini CLI, Cursor, Cline, Roo Code, opencode, Antigravity). `SessionProvider` is both: it types every session, source and index query, and `isDrivable` (`src/shared/providers.ts`) is the guard wherever a session reaches something that drives a CLI.
+
+An agent that keeps sessions in SQLite rather than log files reads them through `parsers/sqlite.ts` (read-only opens, a snapshot per database change). A database holding many sessions indexes each as `<db>#<id>` — add its file name to `SHARED_DBS` in `indexer.ts` so the database is watched and stat-checked in the sessions' place. One database per session (Antigravity) needs nothing more than the watcher's `.db`/`-wal` rule already gives it. Test fixtures for these stores are built by `scripts/ui-tour/store-fixtures.mts`, which the tour's world shares.
 
 **A read-only agent** is the short path: add it to `ReadOnlyProvider` and `READ_ONLY_PROVIDERS`, write its parser, register it in the indexer's four maps, teach `src/main/agent-homes.ts` where its home is (so every launch detects it), and give it a `PROVIDER_LABEL`, a `ProviderLogo` mark and its `.plogo-*`/`.tint-*`/`.badge-*`/`.acct-*` rules. Typecheck walks you through the rest — every `Record<SessionProvider, …>` — and everything that drives a CLI already refuses it. Transcript search needs a record extractor for its log (`src/main/transcript-search.ts`).
 

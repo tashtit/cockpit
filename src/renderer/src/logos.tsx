@@ -8,14 +8,17 @@ export const PROVIDER_LABEL: Record<SessionProvider, string> = {
   gemini: 'Gemini',
   cursor: 'Cursor',
   cline: 'Cline',
-  roo: 'Roo Code'
+  roo: 'Roo Code',
+  opencode: 'opencode',
+  antigravity: 'Antigravity'
 }
 
 /* Official brand marks:
  *  - Claude: Anthropic starburst (Simple Icons path data)
  *  - Codex: OpenAI blossom (one petal from the official geometry, rotated ×6)
  *  - Copilot: GitHub Copilot icon (Simple Icons path data)
- *  - Gemini, Cursor, Cline: their Simple Icons path data
+ *  - Gemini, Cursor, Cline, opencode: their Simple Icons path data
+ *  - Antigravity: no published mark to draw from, so its initial in a tile, not an invented logo
  *  - Roo Code: the kangaroo its own extension ships (Apache-2.0, see notices.ts)
  * Rendered in currentColor so the provider palette carries through. */
 const CLAUDE_PATH =
@@ -40,8 +43,11 @@ const CLINE_PATH =
 const ROO_PATH =
   'M88.4719 2.87946L86.5306 9.89906C86.4278 10.2707 86.0399 10.4854 85.6704 10.3752L53.106 0.659112C52.8894 0.594492 52.6549 0.640312 52.4786 0.781722L20.2279 26.6445C20.1338 26.72 20.0214 26.7694 19.9021 26.7878L0.713159 29.745C0.357849 29.7998 0.10453 30.1187 0.13164 30.4772L0.21502 31.5798C0.24165 31.932 0.53052 32.2069 0.88359 32.216L23.1724 32.7922L23.4266 32.7993L39.8958 24.0019C40.1264 23.8788 40.4068 23.8968 40.6197 24.0486L52.2875 32.3659C52.4705 32.4963 52.5783 32.7078 52.5762 32.9325L52.4778 43.9686C52.4765 44.1114 52.5197 44.2511 52.6014 44.3683L69.0144 67.9188C69.1431 68.1034 69.354 68.2135 69.5791 68.2135H74.7748C75.2932 68.2135 75.6255 67.6623 75.3836 67.2039L63.6853 45.0427C63.5709 44.8259 63.5804 44.5647 63.7101 44.3568L69.8094 34.5861C69.8758 34.4797 69.97 34.3935 70.0819 34.3367L91.8879 23.2712C92.1095 23.1588 92.3744 23.1745 92.5812 23.3123L98.8125 27.4657C98.9256 27.5411 99.0584 27.5813 99.1943 27.5813H104.856C105.404 27.5813 105.732 26.9716 105.43 26.514L89.7099 2.6839C89.3844 2.19053 88.6294 2.30979 88.4719 2.87946Z'
 
+const OPENCODE_PATH = 'M22 24H2V0h20zM17 4.8H7v14.4h10z'
+
 /** The single-path marks, each on the 24-unit Simple Icons grid */
-const MARK_PATH: Record<Exclude<SessionProvider, 'claude' | 'codex' | 'roo'>, string> = {
+const MARK_PATH: Record<Exclude<SessionProvider, 'claude' | 'codex' | 'roo' | 'antigravity'>, string> = {
+  opencode: OPENCODE_PATH,
   copilot: COPILOT_PATH,
   gemini: GEMINI_PATH,
   cursor: CURSOR_PATH,
@@ -69,6 +75,14 @@ export function ProviderLogo({ p, size = 14 }: { p: SessionProvider; size?: numb
             transform={deg === 0 ? undefined : `rotate(${deg} 1203 1203)`}
           />
         ))}
+      </svg>
+    )
+  }
+  if (p === 'antigravity') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" className="logo-antigravity" aria-hidden="true">
+        <rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path fill="currentColor" d="M12 6.2 17.2 18h-2.6l-1.1-2.7h-3l-1.1 2.7H6.8L12 6.2Zm0 4.6-.8 2.3h1.6L12 10.8Z" />
       </svg>
     )
   }

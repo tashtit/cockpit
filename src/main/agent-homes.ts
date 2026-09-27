@@ -32,6 +32,14 @@ export function editorLabel(folder: string): string {
   return folder.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'editor'
 }
 
+function hasFile(dir: string, suffix: string): boolean {
+  try {
+    return readdirSync(dir).some((n) => n.endsWith(suffix))
+  } catch {
+    return false
+  }
+}
+
 function subdirs(dir: string): string[] {
   try {
     return readdirSync(dir, { withFileTypes: true })
@@ -61,9 +69,21 @@ export function detectAgentHomes(home: string = homedir()): SourceDir[] {
   add('gemini', join(home, '.gemini'), 'gemini-default', 'tmp')
   add('cursor', join(home, '.cursor'), 'cursor-default', 'projects')
   add('cline', join(home, '.cline', 'data'), 'cline-cli', 'tasks')
+  // opencode's data home: its database, or the file store it kept before one
+  const opencode = join(home, '.local', 'share', 'opencode')
+  if (existsSync(join(opencode, 'opencode.db'))) out.push({ path: opencode, provider: 'opencode', label: 'opencode-default' })
+  else add('opencode', opencode, 'opencode-default', join('storage', 'session'))
+  // Antigravity: the IDE, the CLI, and the first releases' home — counted once it holds a
+  // conversation database; the first releases' encrypted `.pb` conversations cannot be read
+  for (const dir of ['antigravity-ide', 'antigravity-cli', 'antigravity']) {
+    const path = join(home, '.gemini', dir)
+    if (hasFile(join(path, 'conversations'), '.db')) out.push({ path, provider: 'antigravity', label: dir })
+  }
   for (const root of editorDataRoots(home)) {
     for (const editor of subdirs(root)) {
       const storage = join(root, editor, 'User', 'globalStorage')
+      // Cursor's own chats: one database in its editor storage
+      if (editor === 'Cursor') add('cursor', storage, 'cursor-ide', 'state.vscdb')
       for (const provider of ['cline', 'roo'] as const) {
         add(provider, join(storage, EXTENSION_IDS[provider]), `${provider}-${editorLabel(editor)}`, 'tasks')
       }

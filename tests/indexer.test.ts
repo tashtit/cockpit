@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { SessionIndexer, foldThread, groupFamilies, subagentParent } from '../src/main/indexer'
 import { writePagedThread, type PagedThread } from './codex-paged-thread'
 import { makeFifo } from './fifo'
+import { DatabaseSync } from 'node:sqlite'
+import { writeAntigravityConversation, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 import type { BusySession, SessionMeta } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
 
@@ -1485,6 +1487,15 @@ describe('foldThread', () => {
     expect(foldThread([older, newer])).toBe(newer)
   })
 
+  it('prefers the fuller of two records of one conversation kept by different stores', () => {
+    // a Cursor chat: its editor database holds every message, its agent transcript a few,
+    // and the transcript can be written a moment later
+    const chat = meta({ id: 'cursor:c', provider: 'cursor', sourcePath: '/ide/state.vscdb#c', messageCount: 73, updatedAt: 5 })
+    const transcript = meta({ id: 'cursor:c', provider: 'cursor', sourcePath: '/t/c.jsonl', messageCount: 19, updatedAt: 6 })
+    expect(foldThread([chat, transcript])).toBe(chat)
+    expect(foldThread([transcript, chat])).toBe(chat)
+  })
+
   it('chains pages oldest first, and a copy of a page is not a page of its own', () => {
     const p1 = meta({ sourcePath: '/s/p1', startedAt: 10, updatedAt: 20, messageCount: 4, title: 'the question' })
     const p1copy = meta({ ...p1, sourcePath: '/other/p1' })
@@ -1511,3 +1522,89 @@ describe('subagentParent', () => {
     expect(subagentParent('/h/.codex/sessions/2026/09/16/rollout-x.jsonl')).toBeNull()
   })
 })
+
+describe('sessions kept in databases', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cockpit-indexer-stores-'))
+  const opencode = join(dir, 'opencode')
+  const editor = join(dir, 'Cursor', 'User', 'globalStorage')
+  const cursor = join(dir, 'cursor')
+  const antigravity = join(dir, 'antigravity-ide')
+  const cline = join(editor, 'saoudrizwan.claude-dev')
+  const at = Date.parse('2026-09-01T09:00:00Z')
+  const turn = (text: string, role: 'user' | 'assistant' = 'user') => ({ role, at, parts: [{ type: 'text', text }] })
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    writeOpencodeDb(join(opencode, 'opencode.db'), [
+      { id: 'ses_a', title: 'First', directory: '/x', created: at, updated: at, turns: [turn('one')] }
+    ])
+    writeCursorChats(join(editor, 'state.vscdb'), [
+      {
+        id: 'chat-1',
+        name: 'From the editor',
+        cwd: '/x',
+        created: at,
+        updated: at,
+        bubbles: [
+          { type: 1, at, text: 'hi' },
+          { type: 2, at, text: 'hello' }
+        ]
+      }
+    ])
+    // Cline installed in the same editor: its tasks sit under the editor's storage
+    const task = join(cline, 'tasks', '1756700000000')
+    mkdirSync(task, { recursive: true })
+    writeFileSync(join(task, 'ui_messages.json'), JSON.stringify([{ ts: at, type: 'say', say: 'text', text: 'a cline task' }]))
+    writeAntigravityConversation(join(antigravity, 'conversations', 'conv-1.db'), {
+      cwd: '/x',
+      began: at,
+      steps: [{ at, user: 'an antigravity prompt' }]
+    })
+    // the same chat as an agent transcript, with fewer messages than the editor holds
+    const transcript = join(cursor, 'projects', 'x', 'agent-transcripts', 'chat-1')
+    mkdirSync(transcript, { recursive: true })
+    writeFileSync(join(transcript, 'chat-1.jsonl'), '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>hi</user_query>"}]}}\n')
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([
+      { path: opencode, provider: 'opencode', label: 'opencode-default' },
+      { path: editor, provider: 'cursor', label: 'cursor-ide' },
+      { path: cline, provider: 'cline', label: 'cline-cursor' },
+      { path: cursor, provider: 'cursor', label: 'cursor-default' },
+      { path: antigravity, provider: 'antigravity', label: 'antigravity-ide' }
+    ])
+  })
+
+  afterAll(() => {
+    idx?.stopWatchers()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const ids = (): string[] => idx.page({ repoKey: 'general', limit: 100 }).items.map((s) => s.id).sort()
+
+  it('indexes each, the editor’s own record of a Cursor chat over its transcript', () => {
+    expect(ids()).toEqual(['antigravity:conv-1', 'cline:1756700000000', 'cursor:chat-1', 'opencode:ses_a'])
+    expect(idx.getSession('cursor:chat-1')).toMatchObject({ title: 'From the editor', source: 'cursor-ide' })
+    // the Cline task under Cursor's storage is Cline's, not the editor's
+    expect(idx.getSession('cline:1756700000000')?.source).toBe('cline-cursor')
+    expect(idx.getMessages('opencode:ses_a').map((m) => m.text)).toEqual(['one'])
+    expect(idx.getMessages('antigravity:conv-1').map((m) => m.text)).toEqual(['an antigravity prompt'])
+  })
+
+  it('follows a database as it is written: a session that grows, and one that is new', async () => {
+    const db = new DatabaseSync(join(opencode, 'opencode.db'))
+    db.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)').run(
+      'msg_ses_a_001', 'ses_a', at + 1, at + 1, JSON.stringify({ role: 'assistant' })
+    )
+    db.prepare('INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)').run(
+      'prt_x', 'msg_ses_a_001', 'ses_a', at + 1, at + 1, JSON.stringify({ type: 'text', text: 'two' })
+    )
+    db.close()
+    await vi.waitFor(() => expect(idx.getSession('opencode:ses_a')?.messageCount).toBe(2), { timeout: 8000, interval: 100 })
+    writeOpencodeDb(join(opencode, 'opencode.db'), [
+      { id: 'ses_a', title: 'First', directory: '/x', created: at, updated: at, turns: [turn('one'), turn('two', 'assistant')] },
+      { id: 'ses_b', title: 'Second', directory: '/x', created: at, updated: at, turns: [turn('three')] }
+    ])
+    await vi.waitFor(() => expect(idx.getSession('opencode:ses_b')?.title).toBe('Second'), { timeout: 8000, interval: 100 })
+  })
+})
+

@@ -58,7 +58,7 @@ GitHub PR-state colors match github.com exactly.
 | Text/icons on a filled button | `#fff` | `--white` |
 | Codex mark (white-on-dark, like ChatGPT's own) | `#ececf1` | `--codex-mark` |
 | Gemini (read-only agent, its brand blue) | `#4f8ff7` | `--gemini` |
-| Cursor / Cline / Roo Code (monochrome brands, one white-on-dark mark) | `#d9dde3` | `--mono-mark` |
+| Cursor / Cline / Roo Code / opencode / Antigravity (monochrome or no published colour, one white-on-dark mark) | `#d9dde3` | `--mono-mark` |
 
 **Alpha companions.** Every color that also appears as a tint or border wash ships an
 `-rgb` triplet so components write `rgba(var(--x-rgb), α)` and never re-type channels:
@@ -73,7 +73,7 @@ rather than a pale rinse of the button fill.
 - Two accents exist on purpose: `--accent` for text/icons on dark (passes contrast), `--accent-btn` for filled buttons under white text. Don't swap them. The same split applies to OK/danger: `--ok`/`--danger` are text colors on dark, `--ok-btn`/`--danger-btn` are the darker button fills that keep white text at 4.5:1.
 - Agent tints use `rgba(var(--*-rgb), 0.10–0.16)` backgrounds with a solid agent-color border/inset — never solid agent-color fills behind text.
 - Codex logo renders `--codex-mark` white-on-dark (like ChatGPT's own mark); teal (`--codex`) is reserved for codex tints/borders.
-- The agents Cockpit only reads carry their own identity in the same slots (`.plogo-*`, `.tint-*`, `.badge-*`, `.acct-*`, the selected session row, the avatar ring): Gemini in `--gemini`, and Cursor, Cline and Roo Code — brands that are black-and-white themselves — in the one `--mono-mark`, told apart by their logos. A brand with no colour of its own gets none invented for it.
+- The agents Cockpit only reads carry their own identity in the same slots (`.plogo-*`, `.tint-*`, `.badge-*`, `.acct-*`, the selected session row, the avatar ring): Gemini in `--gemini`, and Cursor, Cline, Roo Code and opencode — brands that are black-and-white themselves — and Antigravity, which publishes no mark (its initial in a tile stands in, never an invented logo), in the one `--mono-mark`, told apart by their marks. A brand with no colour of its own gets none invented for it.
 
 ## Typography
 

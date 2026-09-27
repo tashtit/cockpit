@@ -11,7 +11,7 @@
 export type Provider = 'claude' | 'codex' | 'copilot'
 /** Agents Cockpit reads but does not drive: their sessions are indexed from the logs
  *  they keep on disk and open read-only, to be continued by a `Provider`. */
-export type ReadOnlyProvider = 'gemini' | 'cursor' | 'cline' | 'roo'
+export type ReadOnlyProvider = 'gemini' | 'cursor' | 'cline' | 'roo' | 'opencode' | 'antigravity'
 /** Whoever wrote a session's log — every agent the indexer reads. */
 export type SessionProvider = Provider | ReadOnlyProvider
 

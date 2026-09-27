@@ -6,7 +6,7 @@ import type { Provider, ReadOnlyProvider, SessionProvider } from './types'
  * spawns a CLI takes a `Provider` and asks `isDrivable` first.
  */
 export const DRIVABLE_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
-export const READ_ONLY_PROVIDERS: readonly ReadOnlyProvider[] = ['gemini', 'cursor', 'cline', 'roo']
+export const READ_ONLY_PROVIDERS: readonly ReadOnlyProvider[] = ['gemini', 'cursor', 'cline', 'roo', 'opencode', 'antigravity']
 export const SESSION_PROVIDERS: readonly SessionProvider[] = [...DRIVABLE_PROVIDERS, ...READ_ONLY_PROVIDERS]
 
 export function isDrivable(p: SessionProvider): p is Provider {

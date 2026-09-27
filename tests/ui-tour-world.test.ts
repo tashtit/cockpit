@@ -9,6 +9,8 @@ import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/c
 import { listGeminiSessions } from '../src/main/parsers/gemini'
 import { listCursorSessions } from '../src/main/parsers/cursor'
 import { listClineSessions } from '../src/main/parsers/cline'
+import { listOpencodeSessions } from '../src/main/parsers/opencode'
+import { listAntigravitySessions } from '../src/main/parsers/antigravity'
 import { detectAgentHomes } from '../src/main/agent-homes'
 import { sanitizeRoundtable } from '../src/main/roundtable-core'
 import { buildWork } from '../src/shared/work'
@@ -46,19 +48,37 @@ describe('ui-tour fixture world', () => {
 
   it('holds sessions of the agents Cockpit only reads, where detection finds them', () => {
     const homes = detectAgentHomes(world.home).filter((h) => !['claude', 'codex', 'copilot'].includes(h.provider))
-    expect(homes.map((h) => h.label).sort()).toEqual(['cline-vscode', 'cursor-default', 'gemini-default', 'roo-cursor'])
-    const read = homes.flatMap((h) =>
-      h.provider === 'gemini'
-        ? listGeminiSessions(h.path, h.label)
-        : h.provider === 'cursor'
-          ? listCursorSessions(h.path, h.label)
-          : listClineSessions(h.path, h.label, h.provider === 'roo' ? 'roo' : 'cline')
-    )
+    expect(homes.map((h) => h.label).sort()).toEqual([
+      'antigravity-ide',
+      'cline-vscode',
+      'cursor-default',
+      'cursor-ide',
+      'gemini-default',
+      'opencode-default',
+      'roo-cursor'
+    ])
+    const read = homes.flatMap((h) => {
+      switch (h.provider) {
+        case 'gemini':
+          return listGeminiSessions(h.path, h.label)
+        case 'cursor':
+          return listCursorSessions(h.path, h.label)
+        case 'opencode':
+          return listOpencodeSessions(h.path, h.label)
+        case 'antigravity':
+          return listAntigravitySessions(h.path, h.label)
+        default:
+          return listClineSessions(h.path, h.label, h.provider === 'roo' ? 'roo' : 'cline')
+      }
+    })
     // each lands in a repository of the world, so the tour's sidebar shows it there
     expect(read.map((s) => [s.provider, s.title, s.cwd?.split('/').pop()]).sort()).toEqual([
+      ['antigravity', 'Add a getting-started video to the docs home page', 'lumen-docs'],
       ['cline', 'Link every tutorial to its API reference page.', 'lumen-docs'],
       ['cursor', 'Map which jobs never emit a span.', 'atlas'],
+      ['cursor', 'Tighten the retry backoff', 'rocket'],
       ['gemini', 'Stop the usage panel flashing on load', 'rocket'],
+      ['opencode', 'Cache the tenant lookup in the job runner', 'atlas'],
       ['roo', 'Pin the Terraform provider versions', 'infra-tools']
     ])
   })

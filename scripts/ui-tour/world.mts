@@ -17,6 +17,7 @@ import { chmodSync, mkdirSync, realpathSync, rmSync, utimesSync, writeFileSync }
 import { dirname, join, resolve } from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { DatabaseSync } from 'node:sqlite'
+import { writeAntigravityConversation, writeCursorChats, writeOpencodeDb } from './store-fixtures.mts'
 
 export type World = {
   readonly root: string
@@ -617,6 +618,59 @@ function populate(world: World): void {
     ])
   )
   backdate(join(rooTask, 'ui_messages.json'), 50)
+  // the agents that keep sessions in databases: opencode, Cursor's editor chats, Antigravity
+  const ocAt = now - 4 * HOUR
+  writeOpencodeDb(join(world.home, '.local', 'share', 'opencode', 'opencode.db'), [
+    {
+      id: 'ses_4f2a9c1e0ffeTourWorld01',
+      title: 'Cache the tenant lookup in the job runner',
+      directory: code('atlas'),
+      created: ocAt,
+      updated: ocAt + 300_000,
+      turns: [
+        { role: 'user', at: ocAt, parts: [{ type: 'text', text: 'Every job looks its tenant up again. Cache it for the run.' }] },
+        {
+          role: 'assistant',
+          at: ocAt + 60_000,
+          parts: [
+            { type: 'reasoning', text: 'The lookup is pure per job id.' },
+            { type: 'tool', tool: 'edit', state: { status: 'completed', input: { filePath: `${code('atlas')}/src/jobs/tenant.ts`, oldString: 'return db.tenant(id)', newString: 'return cache.get(id) ?? cache.set(id, db.tenant(id))' }, output: '' } },
+            { type: 'tool', tool: 'bash', state: { status: 'completed', input: { command: 'npm test -- jobs' }, output: 'Tests  14 passed', metadata: { exit: 0 } } },
+            { type: 'text', text: 'Cached per run; the job tests pass.' }
+          ]
+        }
+      ]
+    }
+  ])
+  const cursorAt = now - 26 * HOUR
+  writeCursorChats(join(world.home, 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'state.vscdb'), [
+    {
+      id: '4d3c1b2a-0000-4000-8000-00000000c0de',
+      name: 'Tighten the retry backoff',
+      cwd: code('rocket'),
+      created: cursorAt,
+      updated: cursorAt + 120_000,
+      bubbles: [
+        { type: 1, at: cursorAt, text: 'Retries hammer the billing API. Back off properly.' },
+        { type: 2, at: cursorAt + 20_000, thinking: 'Exponential with jitter, capped.' },
+        { type: 2, at: cursorAt + 40_000, tool: { name: 'read_file_v2', params: { targetFile: 'src/billing/retry.ts' } } },
+        { type: 2, at: cursorAt + 120_000, text: 'Backoff is now exponential with full jitter, capped at 30s.' }
+      ]
+    }
+  ])
+  const agyAt = now - 70 * HOUR
+  writeAntigravityConversation(join(world.home, '.gemini', 'antigravity-ide', 'conversations', '6a2ff5b3-0000-4000-8000-00000000a9e7.db'), {
+    cwd: code('lumen-docs'),
+    branch: 'main',
+    repo: 'lumenlabs/lumen-docs',
+    began: agyAt,
+    steps: [
+      { at: agyAt, user: 'Add a getting-started video to the docs home page' },
+      { at: agyAt + 30_000, reply: "I'll plan it first.", thinking: 'A short loop beats a long video.' },
+      { at: agyAt + 60_000, tool: 'write_to_file', args: { TargetFile: `${world.home}/.gemini/antigravity-ide/brain/x/task.md`, CodeContent: '- [x] Storyboard the loop\n- [ ] Record it\n- [ ] Embed it', toolAction: 'Writing the task list' } },
+      { at: agyAt + 90_000, reply: 'Storyboard done; recording is next.' }
+    ]
+  })
 
   // ---------- accounts ----------
   const b64 = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base64url')

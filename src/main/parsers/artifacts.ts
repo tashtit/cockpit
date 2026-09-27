@@ -454,6 +454,11 @@ export function searchReplaceArtifact(path: unknown, diff: unknown): WorkArtifac
   return pairs.length > 0 ? edits([replaceEdit(path, pairs)]) : undefined
 }
 
+/** Search-and-replace edits to one file, as before/after pairs, when a log names them apart. */
+export function replaceArtifact(path: unknown, pairs: ReadonlyArray<readonly [unknown, unknown]>): WorkArtifact | undefined {
+  return edits([replaceEdit(path, pairs)])
+}
+
 /** A file an agent created or rewrote whole, when its log names only the path and the text. */
 export function fileWriteArtifact(path: unknown, content: unknown, change: 'add' | 'write'): WorkArtifact | undefined {
   return edits([wholeFile(path, content, change)])

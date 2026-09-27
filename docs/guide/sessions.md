@@ -66,9 +66,13 @@ Cockpit drives Claude Code, Codex and Copilot. It also **reads** the sessions of
 | Agent | Where its sessions are found |
 | --- | --- |
 | Gemini CLI | `~/.gemini/tmp/*/chats/` |
-| Cursor | the agent transcripts under `~/.cursor/projects/` |
+| Cursor | the editor's own chats, in its storage database, and the agent transcripts under `~/.cursor/projects/` |
 | Cline | the extension's storage in every editor it is installed in — VS Code, Cursor, Windsurf or any other VS Code-family editor — and the Cline CLI's `~/.cline/data` |
 | Roo Code | the extension's storage in every editor it is installed in |
+| opencode | its database, `~/.local/share/opencode/opencode.db`, and the file store older versions kept beside it |
+| Antigravity | one database per conversation under `~/.gemini/antigravity-ide/` and `~/.gemini/antigravity-cli/` |
+
+A few things these agents keep cannot be read. Antigravity's earliest conversations are encrypted, so a home holding only those is not listed. Cursor chats that never got past a draft have nothing in them to show. A chat Cursor keeps both in its database and as an agent transcript appears once, from whichever record holds more of it.
 
 Nothing needs setting up. Each launch looks for these homes, adds any that appeared since the last one, and lists them in **Settings › Accounts** under **Other agents · read only**. A home you remove there stays removed; detection never adds it back.
 

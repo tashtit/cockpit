@@ -19,7 +19,7 @@ Identity chips appear throughout the app, so it's always visible which account a
 
 A **source** is a provider config home Cockpit indexes. The defaults are `~/.claude`, `~/.codex`, and `~/.copilot`; you can add more in **Settings › Accounts** — typically an isolated config home for a second account (e.g. work vs. personal).
 
-Homes of the agents Cockpit only reads (Gemini CLI, Cursor, Cline, Roo Code) are listed apart, under **Other agents · read only**: no identity or usage, just how many sessions each holds and when it last moved. Every launch adds any agent home that appeared since the one before. Removing a home is final; detection never adds it back, and you can re-add it by hand.
+Homes of the agents Cockpit only reads (Gemini CLI, Cursor, Cline, Roo Code, opencode, Antigravity) are listed apart, under **Other agents · read only**: no identity or usage, just how many sessions each holds and when it last moved. Every launch adds any agent home that appeared since the one before. Removing a home is final; detection never adds it back, and you can re-add it by hand.
 
 Each source shows its own identity and health, and extra sources are stored in the app config (`~/Library/Application Support/Cockpit/cockpit-config.json`) as `{path, provider, label}`.
 

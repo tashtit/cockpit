@@ -8,7 +8,7 @@ import {
   watch,
   type FSWatcher
 } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type {
   BusySession,
   Mutable,
@@ -26,6 +26,7 @@ import { orderRepos } from '../shared/repo-order'
 import { isUnder } from './paths'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
 import { isRegularFile, timeSlicer } from './parsers/util'
+import { splitSessionRef } from './parsers/sqlite'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
 import { isTempFileOf, writeFileAtomic, writeFileAtomicAsync } from './replace-file'
@@ -52,7 +53,26 @@ import {
   parseCopilotMessages
 } from './parsers/copilot'
 import { listGeminiSessionFiles, listGeminiSessionRoots, parseGeminiMeta, parseGeminiMessages } from './parsers/gemini'
-import { listCursorSessionFiles, listCursorSessionRoots, parseCursorMeta, parseCursorMessages } from './parsers/cursor'
+import {
+  CURSOR_IDE_DB,
+  listCursorSessionFiles,
+  listCursorSessionRoots,
+  parseCursorMeta,
+  parseCursorMessages
+} from './parsers/cursor'
+import {
+  OPENCODE_DB,
+  listOpencodeSessionFiles,
+  listOpencodeSessionRoots,
+  parseOpencodeMessages,
+  parseOpencodeMeta
+} from './parsers/opencode'
+import {
+  listAntigravitySessionFiles,
+  listAntigravitySessionRoots,
+  parseAntigravityMessages,
+  parseAntigravityMeta
+} from './parsers/antigravity'
 import {
   listClineSessionFiles,
   listClineSessionRoots,
@@ -68,7 +88,9 @@ const FILE_LISTERS: Record<SessionProvider, (home: string) => string[]> = {
   gemini: listGeminiSessionFiles,
   cursor: listCursorSessionFiles,
   cline: listClineSessionFiles,
-  roo: listClineSessionFiles
+  roo: listClineSessionFiles,
+  opencode: listOpencodeSessionFiles,
+  antigravity: listAntigravitySessionFiles
 }
 
 const ROOT_LISTERS: Record<SessionProvider, (home: string) => string[]> = {
@@ -78,7 +100,9 @@ const ROOT_LISTERS: Record<SessionProvider, (home: string) => string[]> = {
   gemini: listGeminiSessionRoots,
   cursor: listCursorSessionRoots,
   cline: listClineSessionRoots,
-  roo: listClineSessionRoots
+  roo: listClineSessionRoots,
+  opencode: listOpencodeSessionRoots,
+  antigravity: listAntigravitySessionRoots
 }
 
 const META_PARSERS: Record<SessionProvider, (file: string, label: string) => SessionMeta | null> = {
@@ -88,7 +112,9 @@ const META_PARSERS: Record<SessionProvider, (file: string, label: string) => Ses
   gemini: parseGeminiMeta,
   cursor: parseCursorMeta,
   cline: parseClineMeta,
-  roo: parseRooMeta
+  roo: parseRooMeta,
+  opencode: parseOpencodeMeta,
+  antigravity: parseAntigravityMeta
 }
 
 const MESSAGE_PARSERS: Record<SessionProvider, (file: string) => SessionMessage[]> = {
@@ -98,7 +124,43 @@ const MESSAGE_PARSERS: Record<SessionProvider, (file: string) => SessionMessage[
   gemini: parseGeminiMessages,
   cursor: parseCursorMessages,
   cline: parseClineMessages,
-  roo: parseClineMessages
+  roo: parseClineMessages,
+  opencode: parseOpencodeMessages,
+  antigravity: parseAntigravityMessages
+}
+
+/**
+ * Agents that keep many sessions in one database. Each session is indexed as
+ * `<database>#<id>` (see parsers/sqlite.ts); the database itself is watched, since
+ * nothing about it is a file per session.
+ */
+const SHARED_DBS: Partial<Record<SessionProvider, string>> = {
+  cursor: CURSOR_IDE_DB,
+  opencode: OPENCODE_DB
+}
+
+/** The file on disk that holds a session: the database, for a session kept inside one. */
+function storeFile(file: string): string {
+  const ref = splitSessionRef(file)
+  return ref && Object.values(SHARED_DBS).includes(basename(ref.file)) ? ref.file : file
+}
+
+/** A database written through a write-ahead log: its main file's stamp does not move. */
+function isDatabase(file: string): boolean {
+  return file.endsWith('.db') || file.endsWith('.vscdb')
+}
+
+/**
+ * The source a path belongs to when several contain it — Cursor's editor storage holds
+ * the Cline and Roo Code homes of the extensions installed in it, and a file of theirs
+ * belongs to them, not to Cursor: the most specific root wins.
+ */
+function mostSpecific<T>(candidates: ReadonlyArray<{ readonly root: string; readonly value: T }>, path: string): T | null {
+  let best: { readonly root: string; readonly value: T } | null = null
+  for (const c of candidates) {
+    if (isUnder(path, c.root) && (!best || c.root.length > best.root.length)) best = c
+  }
+  return best?.value ?? null
 }
 
 export const DEFAULT_PAGE_SIZE = 30
@@ -180,6 +242,14 @@ type CacheEntry = {
  * see CacheEntry.threadName.)
  */
 function auxStamp(file: string, source: SourceDir): number {
+  const store = storeFile(file)
+  if (isDatabase(store)) {
+    try {
+      return statSync(`${store}-wal`).mtimeMs
+    } catch {
+      return 0
+    }
+  }
   if (source.provider !== 'copilot' || !file.endsWith('events.jsonl')) return 0
   try {
     return statSync(copilotWorkspaceFile(file)).mtimeMs
@@ -230,14 +300,19 @@ function collect(files: Map<string, SessionMeta[]>, meta: SessionMeta): SessionM
 
 /**
  * One session from every file that carries its id. Usually that is one file, or the
- * same log found under two sources — the most recently updated copy wins. A Codex
+ * same log found under two sources — the most recently updated copy wins. Two records
+ * of one conversation kept by different stores (a Cursor chat in the editor's database
+ * and in an agent transcript) are not copies: the one that holds more of it wins, and
+ * only equally full ones fall back to the newer. A Codex
  * thread paginated into a new rollout (`historyBase`) is several files: they fold
  * into one session on the newest file (what liveness tails and a resume continues),
  * with the earlier ones as `segments` so its start, title, count and transcript are
  * the whole thread's.
  */
 export function foldThread(metas: readonly SessionMeta[]): SessionMeta {
-  const newest = metas.reduce((a, b) => (b.updatedAt >= a.updatedAt ? b : a))
+  const newest = metas.reduce((a, b) =>
+    b.messageCount !== a.messageCount ? (b.messageCount > a.messageCount ? b : a) : b.updatedAt >= a.updatedAt ? b : a
+  )
   if (metas.length === 1 || !metas.some((m) => m.historyBase)) return newest
   const order = [...metas].sort((a, b) => a.startedAt - b.startedAt || a.updatedAt - b.updatedAt)
   const tip = order[order.length - 1]
@@ -433,7 +508,7 @@ export class SessionIndexer {
       if (!entry.meta) continue
       // `resolve` here, not in `isUnder`: a source path comes from config, which a
       // hand edit can leave unnormalized, while `file` is already the indexer's own
-      const from = this.sources.find((s) => isUnder(file, resolve(s.path)))
+      const from = mostSpecific(this.sources.map((s) => ({ root: resolve(s.path), value: s })), file)
       // a source removed since last run: its cached files are not ours to show
       if (!from) continue
       source.set(file, from)
@@ -498,6 +573,17 @@ export class SessionIndexer {
           dir: root,
           recursive: true,
           handler: (event, filename) => this.sessionRootEvent(root, event, filename)
+        })
+      }
+      // A shared database is one file for many sessions: watch its folder (not
+      // recursively — Cursor's holds every extension's storage) for its own files
+      const db = SHARED_DBS[s.provider]
+      if (db) {
+        this.ensureWatch({
+          dir: s.path,
+          handler: (_event, filename) => {
+            if (filename?.toString().startsWith(db)) this.sharedDbChanged(s)
+          }
         })
       }
       // Codex thread names live in <CODEX_HOME>/session_index.jsonl, outside the sessions
@@ -591,6 +677,13 @@ export class SessionIndexer {
       this.liveness.heartbeat(parent)
       return
     }
+    // a conversation kept as its own database (Antigravity) is written through its
+    // `-wal`: a write there is a change to the conversation, a new `.db` a new one
+    const db = /^(.*\.db)(-wal|-shm|-journal)?$/.exec(full)?.[1]
+    if (db && this.sourceForFile(db)?.provider === 'antigravity') {
+      this.markDirty(this.fileSource.has(db) ? 'change' : 'rename', db)
+      return
+    }
     if (watchIgnored(full)) return
     this.markDirty(event, full)
   }
@@ -675,12 +768,10 @@ export class SessionIndexer {
 
   /** The source whose session roots contain this path — watcher events carry no source. */
   private sourceForFile(path: string): SourceDir | null {
-    for (const s of this.sources) {
-      for (const root of ROOT_LISTERS[s.provider](s.path)) {
-        if (isUnder(path, root)) return s
-      }
-    }
-    return null
+    return mostSpecific(
+      this.sources.flatMap((s) => ROOT_LISTERS[s.provider](s.path).map((root) => ({ root, value: s }))),
+      path
+    )
   }
 
   /**
@@ -706,6 +797,33 @@ export class SessionIndexer {
       if (s.provider === source.provider && s.path === source.path) this.dirty.add(file)
     }
     if (this.dirty.size > 0) this.scheduleDirtyFlush()
+  }
+
+  /** Shared databases whose change is waiting to be looked at, by source (see sharedDbChanged). */
+  private sharedDbTimers = new Map<SourceDir, NodeJS.Timeout>()
+
+  /**
+   * A shared database changed. A session added to it is a path no scan has seen, so it
+   * takes a rescan; anything else — a session that grew, one deleted, or (Cursor) the
+   * editor saving its own state — is its known sessions re-judged through the stat
+   * cache, one query for all of them. Throttled: one write touches three files.
+   */
+  private sharedDbChanged(source: SourceDir): void {
+    if (this.sharedDbTimers.has(source)) return
+    this.sharedDbTimers.set(
+      source,
+      setTimeout(() => {
+        this.sharedDbTimers.delete(source)
+        let listed: string[]
+        try {
+          listed = FILE_LISTERS[source.provider](source.path)
+        } catch {
+          return
+        }
+        if (listed.some((f) => !this.fileSource.has(f))) this.scheduleRescan()
+        else this.markSourceDirty(source)
+      }, DIRTY_FLUSH_MS)
+    )
   }
 
   private applyDirty(): void {
@@ -832,8 +950,9 @@ export class SessionIndexer {
     let st
     try {
       // the file itself, never through a link: the listers only ever name regular files,
-      // but the watcher's probe names whatever appeared (see openRegular in parsers/util)
-      st = lstatSync(file)
+      // but the watcher's probe names whatever appeared (see openRegular in parsers/util).
+      // A session kept inside a shared database is as fresh as the database.
+      st = lstatSync(storeFile(file))
     } catch {
       return null
     }
@@ -871,6 +990,12 @@ export class SessionIndexer {
       // inside the try: a throw here escaped as far as the scan, which then failed
       // the same way on every rescan — and out of a watcher callback, uncaught
       if (meta) this.annotate(meta)
+      // a database changes for every session it holds (and Cursor's for its editor's own
+      // state): a session that reads the same as before stays the same object, so an
+      // unrelated write announces nothing
+      if (meta && cached?.meta && isDatabase(storeFile(file)) && JSON.stringify(meta) === JSON.stringify(cached.meta)) {
+        meta = cached.meta
+      }
     } catch (err) {
       console.error(`[indexer] parse failed for ${file}:`, err)
       meta = null
@@ -1370,6 +1495,8 @@ export class SessionIndexer {
       this.rescanTimer = null
     }
     this.dirty.clear()
+    for (const t of this.sharedDbTimers.values()) clearTimeout(t)
+    this.sharedDbTimers.clear()
     if (this.providerArchivedTimer) {
       clearTimeout(this.providerArchivedTimer)
       this.providerArchivedTimer = null

@@ -16,7 +16,7 @@ Each agent CLI keeps its own world:
 
 Cockpit indexes all three, groups everything by **git repository**, and gives you one place to read transcripts, resume conversations, launch new work, and keep instructions and MCP servers in sync across agents.
 
-It also reads the sessions of **Gemini CLI**, **Cursor**, **Cline** and **Roo Code**, found wherever they are installed, so their work sits beside the rest, and any of it can be continued with one of the three. See [Agents Cockpit reads](/guide/sessions#agents-cockpit-reads).
+It also reads the sessions of **Gemini CLI**, **Cursor**, **Cline**, **Roo Code**, **opencode** and **Antigravity**, found wherever they are installed, so their work sits beside the rest, and any of it can be continued with one of the three. See [Agents Cockpit reads](/guide/sessions#agents-cockpit-reads).
 
 ## GitHub-first by design
 
