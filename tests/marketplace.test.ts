@@ -135,6 +135,15 @@ describe('what the marketplaces on this machine hold', () => {
         ]
       })
     )
+    // a marketplace only Codex has: Codex keeps its snapshot under .tmp/
+    write(
+      join(home, '.codex', 'config.toml'),
+      '[marketplaces.codex-only]\nsource_type = "git"\nsource = "https://github.com/acme/codex-only.git"\n'
+    )
+    write(
+      join(home, '.codex', '.tmp', 'marketplaces', 'codex-only', '.claude-plugin', 'marketplace.json'),
+      JSON.stringify({ name: 'codex-only', plugins: [{ name: 'trace', version: '0.3.0' }] })
+    )
   })
 
   afterAll(() => {
@@ -161,6 +170,12 @@ describe('what the marketplaces on this machine hold', () => {
     expect(rec?.recommended).toBe(true)
     expect(rec?.agents).toEqual([])
     expect(rec?.source).toBe(RECOMMENDED_MARKETPLACE.source)
+  })
+
+  it('reads the snapshot Codex keeps under .tmp/', () => {
+    const codex = listCatalogs().find((c) => c.name === 'codex-only')
+    expect(codex?.agents).toEqual(['codex'])
+    expect(codex?.plugins.map((p) => p.id)).toEqual(['trace@codex-only'])
   })
 
   it('says what each catalogue offers a plugin at, for the update check', () => {

@@ -631,30 +631,54 @@ export async function addMcpServer(
 }
 
 /**
- * The agents that can update a plugin in place. Codex has no `plugin update`, and it
- * records no version for a plugin either — so it is never told one is out of date.
+ * The other answer to "switched on, but the agent doesn't have it": that is how it is
+ * meant to be. Taken out in the agent's own config, or never wanted there — either way
+ * the switch follows the agent, and nothing is written into it. Refused while the
+ * agent does have it, where switching off would have to take it out.
  */
-export const PLUGIN_UPDATERS: readonly Provider[] = ['claude', 'copilot']
+export async function leavePanelOff(target: PanelTarget, agent: Provider): Promise<PanelReport> {
+  assertTarget(target)
+  const row = getPanel(target.repoRoot).rows.find((r) => r.kind === target.kind && r.name === target.name)
+  if (!row) throw new Error(`Cockpit doesn't track ${target.kind} "${target.name}" here`)
+  if (row.cells[agent].state !== 'pending') {
+    throw new Error(`${AGENT_LABEL[agent]} isn’t missing ${target.name} — there is nothing to leave off.`)
+  }
+  const entry = findEntry(loadEntries(target.repoRoot), target)
+  saveEntries(
+    target.repoRoot,
+    replaceEntry(loadEntries(target.repoRoot), { ...entry, enabled: { ...entry.enabled, [agent]: false } })
+  )
+  return getPanel(target.repoRoot)
+}
 
 /**
- * Update a plugin in every agent that has it and can update one, through that
- * agent's own `plugin update` — the same CLI the install went through. Every agent is
- * tried; what failed is said together at the end, after the ones that worked.
+ * How an agent brings one plugin up to date. Claude Code and Copilot have `plugin update`.
+ * Codex has none: adding the plugin again installs whatever its marketplace snapshot
+ * holds, replacing the version it had — so the snapshot is pulled first.
+ */
+function pluginUpdateSteps(agent: Provider, id: string): ReadonlyArray<readonly string[]> {
+  if (agent !== 'codex') return [['plugin', 'update', id]]
+  return [
+    ['plugin', 'marketplace', 'upgrade', id.slice(id.lastIndexOf('@') + 1)],
+    ['plugin', 'add', id]
+  ]
+}
+
+/**
+ * Update a plugin in every agent that has it — an update that left one agent on the old
+ * version would be a disagreement of Cockpit's own making. Every agent is tried; what
+ * failed is said together at the end, after the ones that worked.
  */
 export async function updatePlugin(id: string): Promise<PanelReport> {
-  if (!NAME_RE.test(id) || !id.includes('@')) throw new Error('invalid plugin id')
-  const agents = [
-    ...new Set(
-      getExtensions()
-        .plugins.filter((p) => p.name === id && PLUGIN_UPDATERS.includes(p.agent))
-        .map((p) => p.agent)
-    )
-  ]
-  if (agents.length === 0) throw new Error(`No agent here can update ${id} — it isn’t installed in Claude Code or Copilot.`)
+  if (!NAME_RE.test(id) || id.lastIndexOf('@') <= 0) throw new Error('invalid plugin id')
+  const agents = PROVIDERS.filter((agent) =>
+    getExtensions().plugins.some((p) => p.name === id && p.agent === agent)
+  )
+  if (agents.length === 0) throw new Error(`No agent here has ${id} installed.`)
   const failed: string[] = []
   for (const agent of agents) {
     try {
-      await runAgentCli(agent, ['plugin', 'update', id])
+      for (const step of pluginUpdateSteps(agent, id)) await runAgentCli(agent, step)
     } catch (err) {
       failed.push(err instanceof Error ? err.message : String(err))
     }

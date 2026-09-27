@@ -251,6 +251,7 @@ export function freshApi(): CockpitApi {
     setPanelSwitch: vi.fn(async () => emptyPanel),
     matchPanelEntry: vi.fn(async () => emptyPanel),
     keepPanelDifference: vi.fn(async () => emptyPanel),
+    leavePanelOff: vi.fn(async () => emptyPanel),
     removePanelEntry: vi.fn(async () => emptyPanel),
     restorePanelEntry: vi.fn(async () => emptyPanel),
     listCatalogs: vi.fn(async () => []),

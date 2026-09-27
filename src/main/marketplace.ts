@@ -38,13 +38,14 @@ const remoteCache = new Map<string, { readonly at: number; readonly catalog: Cat
 /**
  * Where an agent keeps the marketplaces it cloned. Claude Code is the one that has
  * moved (`repos/` before `marketplaces/`), and both spellings are still on disk on a
- * machine that has been through the change.
+ * machine that has been through the change. Codex keeps its snapshots under `.tmp/`.
  */
 function cloneDirs(name: string): string[] {
   const home = homedir()
   return [
     join(home, '.claude', 'plugins', 'marketplaces', name),
     join(home, '.claude', 'plugins', 'repos', name),
+    join(home, '.codex', '.tmp', 'marketplaces', name),
     join(home, '.codex', 'plugins', 'marketplaces', name),
     join(home, '.copilot', 'plugins', 'marketplaces', name)
   ]

@@ -256,6 +256,8 @@ export type CockpitApi = {
    * the difference as drift again (`keep` false).
    */
   readonly keepPanelDifference: (target: PanelTarget, keep: boolean) => Promise<PanelReport>
+  /** Switched on, but the agent doesn't have it — and that is on purpose: switch it off, write nothing */
+  readonly leavePanelOff: (target: PanelTarget, agent: Provider) => Promise<PanelReport>
   /** Take it out of every agent. Cockpit keeps its copy, so it can be put back. */
   readonly removePanelEntry: (target: PanelTarget) => Promise<PanelReport>
   /** Put a removed entry back on the agents it was on */
@@ -510,6 +512,7 @@ export const CH = {
 
   panelGet: 'panel:get',
   panelKeep: 'panel:keep',
+  panelLeaveOff: 'panel:leave-off',
   panelMatch: 'panel:match',
   panelRemove: 'panel:remove',
   panelRestore: 'panel:restore',

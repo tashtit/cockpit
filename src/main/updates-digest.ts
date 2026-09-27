@@ -1,7 +1,7 @@
 import { isNewer } from '../shared/mcp-source'
 import { KIND_LABEL, PROVIDERS, type AgentState } from '../shared/library'
 import { sortSuggestions } from '../shared/updates-digest'
-import type { Provider, UpdateState, UpdateSuggestion, UpdatesDigest } from '../shared/types'
+import type { PluginInfo, Provider, UpdateState, UpdateSuggestion, UpdatesDigest } from '../shared/types'
 import { listCliStatus } from './agent-cli'
 import { getExtensions } from './extensions'
 import { getPanel, mcpVersionsFor, refreshMarketplaces } from './library'
@@ -35,7 +35,9 @@ const AGENT_LABEL: Record<Provider, string> = {
 
 /** What a drifted row is waiting for, in the panel's own words. */
 const DRIFT_WORD: Partial<Record<AgentState, string>> = {
-  pending: 'switched on, but not written yet',
+  // on here and missing there — never applied, or taken out in the agent on purpose;
+  // the row can't tell which, so it says only what is true
+  pending: 'switched on, but missing from its config',
   changed: 'the agents run different definitions',
   extra: 'added outside Cockpit'
 }
@@ -142,26 +144,41 @@ export async function mcpUpdates(): Promise<Found> {
  * A plugin the marketplace beside it has moved past. Only the catalogue cloned on
  * this machine is read — the one the agent would install from — so this never
  * reaches the network, and a marketplace with no clone here has nothing to say.
+ *
+ * The row names every agent that has the plugin, because the update brings them all
+ * to one version; `behind` says which of them it is news for, and `current` is the
+ * oldest version among those.
  */
 export function pluginUpdates(): Found {
   try {
     const offered = localCatalogVersions()
-    const out = new Map<string, UpdateSuggestion>()
-    for (const plugin of getExtensions().plugins) {
-      const latest = offered.get(plugin.name)
-      if (!latest || !plugin.version || !isNewer(latest, plugin.version)) continue
-      const had = out.get(plugin.name)
-      out.set(plugin.name, {
+    const held = new Map<string, PluginInfo[]>()
+    for (const plugin of getExtensions().plugins) held.set(plugin.name, [...(held.get(plugin.name) ?? []), plugin])
+    const items: UpdateSuggestion[] = []
+    for (const [id, copies] of held) {
+      const latest = offered.get(id)
+      if (!latest) continue
+      const stale = copies.filter((c) => c.version !== undefined && isNewer(latest, c.version))
+      if (stale.length === 0) continue
+      const oldest = stale.reduce((a, b) => (isNewer(a.version!, b.version!) ? b : a))
+      const agents = PROVIDERS.filter((p) => copies.some((c) => c.agent === p))
+      const behind = PROVIDERS.filter((p) => stale.some((c) => c.agent === p))
+      const market = copies.find((c) => c.marketplace)?.marketplace ?? 'its marketplace'
+      items.push({
         kind: 'plugin',
-        id: `plugin:${plugin.name}`,
-        name: plugin.name,
-        agents: [...(had?.agents ?? []), plugin.agent],
-        current: plugin.version,
+        id: `plugin:${id}`,
+        name: id,
+        agents,
+        behind,
+        current: oldest.version,
         latest,
-        detail: `${plugin.marketplace ?? 'its marketplace'} has ${latest}`
+        detail:
+          behind.length < agents.length
+            ? `${market} has ${latest} · behind in ${behind.map((p) => AGENT_LABEL[p]).join(' and ')}`
+            : `${market} has ${latest}`
       })
     }
-    return { items: [...out.values()], problems: [] }
+    return { items, problems: [] }
   } catch (err) {
     return { items: [], problems: [`couldn’t read the plugin catalogues — ${reason(err)}`] }
   }

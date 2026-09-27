@@ -45,8 +45,8 @@ carries the one action that settles it:
 | **Cockpit** | a release is out, downloading, or downloaded and ready — *Open About* ([Updating](/guide/getting-started#updating)) |
 | **An agent CLI** | the channel it was installed from has a newer version — *Update in Terminal*, the same hand-off as [Settings › Accounts](/guide/accounts-and-usage) |
 | **An MCP server** | a server pinned to an exact version, and its registry has a newer release — *Update to 0.0.81* pins it wherever it is switched on |
-| **A plugin** | the marketplace's own catalogue on this machine lists a newer version than the one installed — *Update to 1.4.0* runs each agent's own `plugin update` |
-| **The agents differ** | something is switched on but not written, added outside Cockpit, or the agents run different definitions — *Settle it* opens [the Agents view](/guide/agents) |
+| **A plugin** | the marketplace's own catalogue on this machine lists a newer version than one installed — *Update to 1.4.0* updates it in every agent that has it, and the row says which were behind |
+| **The agents differ** | something is switched on but missing from an agent, added outside Cockpit, or the agents run different definitions — *Settle it* opens [the Agents view](/guide/agents), where a difference you meant can be kept as it is |
 
 Everything here is asked **on demand and cached** — nothing polls, and nothing about this
 reaches the network except the two questions that always did (the release feed and the

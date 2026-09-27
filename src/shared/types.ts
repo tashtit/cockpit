@@ -1053,6 +1053,11 @@ export type UpdateSuggestion = {
   readonly current?: string
   /** what is on offer */
   readonly latest?: string
+  /**
+   * plugin: the agents on an older version than `latest` — `agents` is every agent that
+   * has it, since an update brings them all to the same one
+   */
+  readonly behind?: readonly Provider[]
   /** one line: what this is, and where the newer one comes from */
   readonly detail: string
 }

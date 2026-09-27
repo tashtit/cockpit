@@ -272,6 +272,14 @@ export function AgentPanel({
         : `Flagging ${row.name} again wherever the agents differ.`
     )
 
+  /** The other answer to a missing one: it is meant to be missing — the switch follows the agent. */
+  const leaveOff = (row: PanelRow, agent: Provider): void =>
+    void run(
+      cellKey(row, agent),
+      () => api.leavePanelOff(target(row), agent),
+      `${row.name} stays off for ${PROVIDER_LABEL[agent]} — Cockpit won’t write it there.`
+    )
+
   const restore = (row: PanelRow): void =>
     void run(row.id, () => api.restorePanelEntry(target(row)), `Put ${row.name} back.`)
 
@@ -494,6 +502,7 @@ export function AgentPanel({
                 onReload={load}
                 onUpdate={update}
                 onUpdatePlugin={updatePlugin}
+                onLeaveOff={leaveOff}
                 setNotice={setNotice}
               />
             ))}
@@ -664,6 +673,7 @@ function Row({
   onReload,
   onUpdate,
   onUpdatePlugin,
+  onLeaveOff,
   news,
   setNotice
 }: {
@@ -688,6 +698,7 @@ function Row({
   onReload: () => void
   onUpdate: (row: PanelRow, version: string) => void
   onUpdatePlugin: (row: PanelRow, news: UpdateSuggestion) => void
+  onLeaveOff: (row: PanelRow, agent: Provider) => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
   // one word for the whole row: the amber chip already says which agent
@@ -750,6 +761,7 @@ function Row({
             onReload={onReload}
             onUpdate={onUpdate}
             onUpdatePlugin={onUpdatePlugin}
+            onLeaveOff={onLeaveOff}
             news={news}
             setNotice={setNotice}
           />
@@ -778,6 +790,7 @@ function Detail({
   onReload,
   onUpdate,
   onUpdatePlugin,
+  onLeaveOff,
   news,
   setNotice
 }: {
@@ -795,6 +808,7 @@ function Detail({
   onReload: () => void
   onUpdate: (row: PanelRow, version: string) => void
   onUpdatePlugin: (row: PanelRow, news: UpdateSuggestion) => void
+  onLeaveOff: (row: PanelRow, agent: Provider) => void
   setNotice: (n: Notice) => void
 }): JSX.Element {
   const holders = PROVIDERS.filter((p) => agentHasIt(row.cells[p].state))
@@ -913,7 +927,7 @@ function Detail({
           <div key={p} className="pnl-fix">
             <span className="pnl-fix-what">
               {row.cells[p].state === 'pending'
-                ? `${PROVIDER_LABEL[p]} doesn’t have ${row.name}, but it’s switched on.`
+                ? `${PROVIDER_LABEL[p]} doesn’t have ${row.name}, but it’s switched on — never written there, or taken out of its config.`
                 : `${PROVIDER_LABEL[p]} has ${row.name} even though it’s switched off.`}
             </span>
             <div className="pnl-fix-actions">
@@ -924,6 +938,18 @@ function Detail({
               >
                 {row.cells[p].state === 'pending' ? 'Write it now' : 'Switch it on'}
               </button>
+              {/* the answer when it was taken out on purpose: the switch follows the
+                  agent and nothing is written — the mirror of Take it out below */}
+              {row.cells[p].state === 'pending' && (
+                <button
+                  className="btn-ghost small"
+                  disabled={busy !== null}
+                  title={`Switch it off for ${PROVIDER_LABEL[p]} — nothing in its config changes`}
+                  onClick={() => onLeaveOff(row, p)}
+                >
+                  Leave it off
+                </button>
+              )}
               {row.cells[p].state === 'extra' && (
                 <button
                   className="btn-ghost small"
@@ -1122,10 +1148,22 @@ function McpVersionLine({
   )
 }
 
+/** `Claude has 1.2.0; 1.4.0 is out. Copilot already does.` */
+function pluginNewsLine(news: UpdateSuggestion): string {
+  const behind = news.behind ?? news.agents
+  const current = news.agents.filter((p) => !behind.includes(p))
+  return [
+    `${listOf(behind.map((p) => PROVIDER_LABEL[p]))} ${behind.length === 1 ? 'has' : 'have'} ${news.current}; ${news.latest} is out.`,
+    current.length > 0 ? `${listOf(current.map((p) => PROVIDER_LABEL[p]))} already ${current.length === 1 ? 'does' : 'do'}.` : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
 /**
  * A plugin's version question, asked of the marketplace clone beside it — the catalogue
- * the agent itself would update from. One button runs each agent's own `plugin update`;
- * Codex has none and records no version, so it is never part of this line.
+ * the agent itself would update from. One button updates it in every agent that has it,
+ * each through its own CLI, so an update never leaves the agents on different versions.
  */
 function PluginVersionLine({
   row,
@@ -1140,16 +1178,13 @@ function PluginVersionLine({
 }): JSX.Element {
   return (
     <div className="pnl-ver">
-      <span className="pnl-health-what">
-        {listOf(news.agents.map((p) => PROVIDER_LABEL[p]))} {news.agents.length === 1 ? 'has' : 'have'}{' '}
-        {news.current}; {news.detail}.
-      </span>
+      <span className="pnl-health-what">{pluginNewsLine(news)}</span>
       <span className="mcp-status update">{VERSION_LABEL.update}</span>
       <div className="pnl-fix-actions">
         <button
           className="btn-ghost small"
           disabled={busy !== null}
-          title="Runs each agent’s own plugin update — restart those CLIs to pick it up"
+          title={`Updates it in ${listOf(news.agents.map((p) => PROVIDER_LABEL[p]))}, each through its own CLI — restart them to pick it up`}
           onClick={() => onUpdate(row, news)}
         >
           {busy === row.id ? 'updating…' : `Update to ${news.latest}`}

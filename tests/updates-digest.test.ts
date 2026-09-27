@@ -124,8 +124,22 @@ describe('against a machine’s own agent config', () => {
     )
     write(
       join(home, '.claude', 'plugins', 'installed_plugins.json'),
-      JSON.stringify({ plugins: { 'review@acme-market': [{ version: '1.0.0' }], 'deploy@acme-market': [{ version: '3.0.0' }] } })
+      JSON.stringify({
+        plugins: {
+          'review@acme-market': [{ version: '1.0.0' }],
+          'deploy@acme-market': [{ version: '3.0.0' }],
+          'lint@acme-market': [{ version: '0.5.0' }]
+        }
+      })
     )
+    // lint is in all three agents: Copilot is current, Codex (its version is the
+    // directory the install went into) is further behind than Claude Code
+    write(
+      join(home, '.copilot', 'installed-plugins', 'acme-market', 'lint', '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'lint', version: '1.0.0' })
+    )
+    write(join(home, '.codex', 'config.toml'), '[plugins."lint@acme-market"]\nenabled = true\n')
+    mkdirSync(join(home, '.codex', 'plugins', 'cache', 'acme-market', 'lint', '0.4.0'), { recursive: true })
     write(
       join(home, '.claude', 'plugins', 'known_marketplaces.json'),
       JSON.stringify({ 'acme-market': { source: 'acme/agent-plugins' } })
@@ -136,6 +150,7 @@ describe('against a machine’s own agent config', () => {
         name: 'acme-market',
         plugins: [
           { name: 'review', version: '1.4.0' },
+          { name: 'lint', version: '1.0.0' },
           // the machine is ahead of the catalogue — not an update, and never a downgrade
           { name: 'deploy', version: '2.9.0' }
         ]
@@ -153,10 +168,23 @@ describe('against a machine’s own agent config', () => {
   it('offers the newer plugin its own marketplace clone lists', () => {
     const { items } = pluginUpdates()
     expect(items.map((i) => [i.name, i.current, i.latest])).toEqual([
-      ['review@acme-market', '1.0.0', '1.4.0']
+      ['review@acme-market', '1.0.0', '1.4.0'],
+      ['lint@acme-market', '0.4.0', '1.0.0']
     ])
-    expect(items[0].agents).toEqual(['claude'])
-    expect(items[0].detail).toBe('acme-market has 1.4.0')
+    const review = items[0]
+    expect(review.agents).toEqual(['claude'])
+    expect(review.behind).toEqual(['claude'])
+    expect(review.detail).toBe('acme-market has 1.4.0')
+  })
+
+  // the update brings every agent that has it to one version, so the row names them all
+  // — and which of them it is news for, from the oldest version among those
+  it('names every agent that has a plugin, and which of them are behind', () => {
+    const lint = pluginUpdates().items.find((i) => i.name === 'lint@acme-market')
+    expect(lint?.agents).toEqual(['claude', 'codex', 'copilot'])
+    expect(lint?.behind).toEqual(['claude', 'codex'])
+    expect(lint?.current).toBe('0.4.0')
+    expect(lint?.detail).toBe('acme-market has 1.0.0 · behind in Claude Code and Codex')
   })
 
   it('names what the agents disagree on, and which agent is out of step', () => {
@@ -164,6 +192,7 @@ describe('against a machine’s own agent config', () => {
     const row = items.find((i) => i.name === 'linear')
     expect(row?.kind).toBe('drift')
     expect(row?.agents).toEqual(['codex'])
-    expect(row?.detail).toBe('MCP servers — switched on, but not written yet')
+    // never applied, or taken out of Codex on purpose: the row says only what is true
+    expect(row?.detail).toBe('MCP servers — switched on, but missing from its config')
   })
 })

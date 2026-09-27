@@ -82,6 +82,13 @@ would open, so the panel is never named by a tab that is not there.
   fingerprint no longer matches and it is `differs` again — a warning the user can
   clear, never one they can only silence. Matching every agent to one definition, or
   switching a kept agent off, forgets the kept difference.
+- **Every disagreement has an "on purpose" answer.** `differs` has *Keep as they are*;
+  `added outside` has *Switch it on* beside *Take it out*; `not applied` has *Leave it off*
+  beside *Write it now* (`.pnl-fix`, ghost-small, in that order). Leave it off switches the
+  entry off for that agent and writes nothing — the agent was taken off by hand, and the
+  switch follows it. Its sentence names both causes (`never written there, or taken out of
+  its config`), because Cockpit can't tell which, and the home's row says only what is true
+  (`switched on, but missing from its config`), never "not written yet".
 - **Remove everywhere is recoverable**, under a `Removed` section with *Put it back*.
 - **One recommendation, and it only offers** (`.pnl-rec`). Tashtit's marketplace
   (`RECOMMENDED_MARKETPLACE`) is the one thing the panel vouches for. Its row is always
@@ -245,11 +252,12 @@ is no health tab, and there must never be a second place to turn a server on.
     the registry just gave: the pin is rewritten wherever that server is switched on and
     nothing else in the command changes.
 - **A plugin gets the same line** (`PluginVersionLine`): the `.mcp-bump` in its entry,
-  and opened, one fact (`Claude and Copilot have 1.2.0; tashtit has 1.4.0.`), the
-  `update` pill and `Update to <version>`, which runs each agent's own `plugin update`.
-  The question is local — the marketplace clone against what is installed — so it is
-  asked again on every report rather than once. Codex has no update command and records
-  no plugin version, so it is never named on this line.
+  and opened, one fact that names who is behind and who is not (`Claude and Codex have
+  1.2.0; 1.4.0 is out. Copilot already does.`), the `update` pill and `Update to
+  <version>`, which updates it in **every** agent that has it, each through its own CLI —
+  an update that left one agent behind would be drift of Cockpit's making. The question
+  is local — the marketplace clone against what is installed — so it is asked again on
+  every report rather than once.
 
 ## Browse (`MarketBrowse.tsx`, `McpBrowse.tsx`)
 

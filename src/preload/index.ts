@@ -147,6 +147,8 @@ const api: CockpitApi = {
     ipcRenderer.invoke(CH.panelSetSwitch, target, agent, on),
   keepPanelDifference: (target: PanelTarget, keep: boolean) =>
     ipcRenderer.invoke(CH.panelKeep, target, keep),
+  leavePanelOff: (target: PanelTarget, agent: Provider) =>
+    ipcRenderer.invoke(CH.panelLeaveOff, target, agent),
   matchPanelEntry: (target: PanelTarget, source: Provider) =>
     ipcRenderer.invoke(CH.panelMatch, target, source),
   removePanelEntry: (target: PanelTarget) => ipcRenderer.invoke(CH.panelRemove, target),

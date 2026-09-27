@@ -327,10 +327,33 @@ describe('Agents › a plugin its marketplace has moved past', () => {
     await openPlugins()
     expect(await screen.findByText('update 0.4.2')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /evalkit@tashtit/ }))
-    expect(screen.getByText(/Claude has 0.1.0; tashtit has 0.4.2/)).toBeInTheDocument()
+    expect(screen.getByText('Claude has 0.1.0; 0.4.2 is out.')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Update to 0.4.2' }))
     expect(window.cockpit.updatePlugin).toHaveBeenCalledWith('evalkit@tashtit')
     expect(await screen.findByText(/evalkit@tashtit is at 0.4.2 in Claude — restart it/)).toBeInTheDocument()
+  })
+
+  // an update brings every agent that has it to one version, so the line says who is
+  // behind and who already has it
+  it('says which agents are behind, and which already have it', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(report)
+    vi.mocked(window.cockpit.outdatedPlugins).mockResolvedValue([
+      {
+        kind: 'plugin',
+        id: 'plugin:evalkit@tashtit',
+        name: 'evalkit@tashtit',
+        agents: ['claude', 'codex', 'copilot'],
+        behind: ['claude', 'codex'],
+        current: '0.1.0',
+        latest: '0.4.2',
+        detail: 'tashtit has 0.4.2 · behind in Claude Code and Codex'
+      }
+    ])
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByRole('tab', { name: /^Plugins/ })
+    await section('Plugins')
+    await userEvent.click(await screen.findByRole('button', { name: /evalkit@tashtit/ }))
+    expect(screen.getByText('Claude and Codex have 0.1.0; 0.4.2 is out. Copilot already does.')).toBeInTheDocument()
   })
 
   // the news is local — a clone against what is installed — so a repo scope, which
@@ -340,6 +363,27 @@ describe('Agents › a plugin its marketplace has moved past', () => {
     render(<AiSetup repos={[repo]} repoRoot="/dev/rocket" onScope={vi.fn()} onClose={vi.fn()} />)
     await screen.findByRole('tab', { name: /^Instructions/ })
     expect(window.cockpit.outdatedPlugins).not.toHaveBeenCalled()
+  })
+})
+
+describe('Agents › missing from an agent on purpose', () => {
+  const gone = buildReport(null, [
+    mcpRow('gcloud', { claude: true, copilot: true }, { claude: present(COCKPIT_GH), codex: absent, copilot: absent })
+  ])
+
+  it('leaves it off for that agent — the switch follows the agent, nothing is written', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(gone)
+    vi.mocked(window.cockpit.leavePanelOff).mockResolvedValue(gone)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: /^▸?\s*gcloud/ }))
+    // it can't know whether it was never written or taken out, so it says both
+    expect(
+      screen.getByText(/Copilot doesn’t have gcloud, but it’s switched on — never written there, or taken out of its config/)
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Leave it off' }))
+    expect(window.cockpit.leavePanelOff).toHaveBeenCalledWith({ repoRoot: null, kind: 'mcp', name: 'gcloud' }, 'copilot')
+    expect(await screen.findByText(/gcloud stays off for Copilot — Cockpit won’t write it there/)).toBeInTheDocument()
+    expect(window.cockpit.setPanelSwitch).not.toHaveBeenCalled()
   })
 })
 

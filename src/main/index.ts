@@ -36,6 +36,7 @@ import {
   addFromCatalog,
   getPanel,
   keepPanelDifference,
+  leavePanelOff,
   matchPanelEntry,
   mcpVersionsFor,
   removePanelEntry,
@@ -872,6 +873,9 @@ app.whenReady().then(() => {
   )
   ipcMain.handle(CH.panelKeep, (_e, target: PanelTarget, keep: boolean) =>
     settled(keepPanelDifference(asTarget(target), Boolean(keep)))
+  )
+  ipcMain.handle(CH.panelLeaveOff, (_e, target: PanelTarget, agent: Provider) =>
+    settled(leavePanelOff(asTarget(target), asProvider(agent)))
   )
   ipcMain.handle(CH.panelRemove, (_e, target: PanelTarget) =>
     settled(removePanelEntry(asTarget(target)))

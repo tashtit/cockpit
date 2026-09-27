@@ -198,7 +198,7 @@ function Row({
       case 'plugin':
         return {
           label: `Update to ${item.latest}`,
-          title: 'Runs each agent’s own plugin update — restart those CLIs to pick it up',
+          title: 'Updates it in every agent that has it, each through its own CLI — restart them to pick it up',
           onClick: () => void onAct(item, () => api.updatePlugin(item.name))
         }
       case 'app':
