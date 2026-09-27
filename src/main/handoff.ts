@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs'
 import type { HandoffBriefing, Provider, SessionMeta } from '../shared/types'
 import type { SessionIndexer } from './indexer'
-import { execText } from './env'
+import { execOrThrow, gitRead } from './env'
 import {
   buildHandoffBriefing,
   buildSummarizeCommand,
@@ -39,12 +39,9 @@ function dirExists(cwd: string): boolean {
 
 /** Four independent probes, each fail-soft — a session cwd may be a deleted worktree. */
 async function gitSnapshot(cwd: string): Promise<GitSnapshot> {
-  const run = async (args: string[]): Promise<string | null> => {
-    // read-only: a plain status refreshes the index under index.lock, in a worktree
-    // whose agent may be committing right now
-    const r = await execText('git', ['--no-optional-locks', ...args], { cwd, timeoutMs: 5_000 })
-    return r.ok ? r.stdout : null
-  }
+  // read-only: a plain status refreshes the index under index.lock, in a worktree
+  // whose agent may be committing right now
+  const run = (args: readonly string[]): Promise<string | null> => gitRead(cwd, args, { timeoutMs: 5_000 })
   const [branch, status, diffStat, log] = await Promise.all([
     run(['rev-parse', '--abbrev-ref', 'HEAD']),
     run(['status', '--porcelain']),
@@ -139,12 +136,13 @@ async function improve(indexer: SessionIndexer, sessionId: string): Promise<stri
   }
   const { cmd, args } = buildSummarizeCommand(meta.provider, meta.nativeId)
   const env = summarizeEnv(meta)
-  const r = await execText(cmd, args, { cwd, timeoutMs: 120_000, env })
-  if (!r.ok) {
-    const detail = (r.stderr.trim() || r.error || 'unknown error').slice(0, 500)
-    throw new Error(`${cmd} could not summarize the session: ${detail}`)
-  }
-  const aiText = textFromStream(meta.provider, r.stdout)
+  const stdout = await execOrThrow(cmd, args, {
+    cwd,
+    timeoutMs: 120_000,
+    env,
+    failure: (r) => `${cmd} could not summarize the session: ${(r.stderr.trim() || r.error || 'unknown error').slice(0, 500)}`
+  })
+  const aiText = textFromStream(meta.provider, stdout)
   if (aiText === '') throw new Error(`${cmd} returned no briefing text.`)
   return composeImprovedBriefing(sourceInfo(meta), aiText, await gitSnapshot(cwd))
 }

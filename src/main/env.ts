@@ -209,3 +209,45 @@ export function execText(
     }, timeoutMs + KILL_GRACE_MS)
   })
 }
+
+/** What a failed run says for itself: its stderr, else its stdout, else why it failed. */
+export function failureText(cmd: string, r: ExecResult): string {
+  return r.stderr.trim() || r.stdout.trim() || r.error || `${cmd} failed`
+}
+
+export type ExecOrThrowOptions = ExecOptions & {
+  /** What a failed run throws, when failureText is not the message the caller wants */
+  readonly failure?: (r: ExecResult) => string
+}
+
+/** execText for a caller with no fallback: the trimmed stdout, or an Error saying why not. */
+export async function execOrThrow(
+  cmd: string,
+  args: readonly string[],
+  options: ExecOrThrowOptions = {}
+): Promise<string> {
+  const { failure, ...exec } = options
+  const r = await execText(cmd, args, exec)
+  if (!r.ok) throw new Error(failure ? failure(r) : failureText(cmd, r))
+  return r.stdout.trim()
+}
+
+/**
+ * What makes a git call one that only reads, and says so. Without `--no-optional-locks`,
+ * `git status` or `git diff` refreshes a stale index and writes it back under
+ * `index.lock` — in worktrees agents are working in, whose own `git commit` then fails
+ * on the lock a read holds. fsmonitor is off because a read must not start a watcher
+ * daemon in every repository it looks at; it only ever speeds status up, so the answer
+ * is the same without it.
+ */
+export const GIT_READ_ONLY: readonly string[] = ['--no-optional-locks', '-c', 'core.fsmonitor=false']
+
+/** A read-only git call in `dir` (GIT_READ_ONLY): its stdout, or null when git failed. */
+export async function gitRead(
+  dir: string,
+  args: readonly string[],
+  options: Pick<ExecOptions, 'timeoutMs' | 'maxBuffer'> = {}
+): Promise<string | null> {
+  const r = await execText('git', [...GIT_READ_ONLY, '-C', dir, ...args], { timeoutMs: 20_000, ...options })
+  return r.ok ? r.stdout : null
+}

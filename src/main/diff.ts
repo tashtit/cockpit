@@ -11,7 +11,7 @@ import {
   untrackedFile,
   withNumstat
 } from './diff-core'
-import { execText } from './env'
+import { execText, GIT_READ_ONLY, gitRead } from './env'
 import { readHeadBytes } from './parsers/util'
 import { isUnder } from './paths'
 
@@ -41,25 +41,9 @@ export function asDiffScope(scope: unknown): DiffScope {
   throw new Error('unknown diff scope')
 }
 
-/**
- * Every call here reads, and says so: without `--no-optional-locks` a `git status`
- * or `git diff` refreshes the index as a side effect and holds `index.lock` while it
- * does — and the worktree under review is usually one an agent is committing in.
- */
-const READ_ONLY = ['--no-optional-locks']
-
-async function git(cwd: string, args: readonly string[], maxBuffer?: number): Promise<string | null> {
-  const r = await execText('git', [...READ_ONLY, ...args], {
-    cwd,
-    timeoutMs: 20_000,
-    ...(maxBuffer ? { maxBuffer } : {})
-  })
-  return r.ok ? r.stdout : null
-}
-
 async function findBase(cwd: string): Promise<string | null> {
-  const originHead = (await git(cwd, ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD']))?.trim()
-  const listed = await git(cwd, ['for-each-ref', '--format=%(refname:short)', ...BASE_CANDIDATES])
+  const originHead = (await gitRead(cwd, ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD']))?.trim()
+  const listed = await gitRead(cwd, ['for-each-ref', '--format=%(refname:short)', ...BASE_CANDIDATES])
   const existing = (listed ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
   return pickBase(originHead || null, existing)
 }
@@ -105,10 +89,10 @@ function untrackedFiles(cwd: string, paths: readonly string[]): DiffFile[] {
  */
 export async function getWorkspaceDiff(cwd: string, scope: DiffScope): Promise<WorkspaceDiff> {
   const c = resolve(cwd)
-  if ((await git(c, ['rev-parse', '--is-inside-work-tree']))?.trim() !== 'true') {
+  if ((await gitRead(c, ['rev-parse', '--is-inside-work-tree']))?.trim() !== 'true') {
     throw new Error('Not a git repository — nothing to review here.')
   }
-  const branchOut = (await git(c, ['rev-parse', '--abbrev-ref', 'HEAD']))?.trim()
+  const branchOut = (await gitRead(c, ['rev-parse', '--abbrev-ref', 'HEAD']))?.trim()
   const branch = branchOut && branchOut !== 'HEAD' ? branchOut : null
 
   let base: string | null = null
@@ -118,22 +102,24 @@ export async function getWorkspaceDiff(cwd: string, scope: DiffScope): Promise<W
   if (scope === 'branch') {
     base = await findBase(c)
     if (base) {
-      mergeBase = (await git(c, ['merge-base', base, 'HEAD']))?.trim() || null
+      mergeBase = (await gitRead(c, ['merge-base', base, 'HEAD']))?.trim() || null
       if (!mergeBase) base = null
       else {
-        const counts = await git(c, ['rev-list', '--left-right', '--count', `${base}...HEAD`])
+        const counts = await gitRead(c, ['rev-list', '--left-right', '--count', `${base}...HEAD`])
         ;({ ahead, behind } = parseAheadBehind(counts ?? ''))
       }
     }
   }
 
-  const status = parseStatus((await git(c, ['status', '--porcelain', '-z', '--untracked-files=all'])) ?? '')
+  const status = parseStatus((await gitRead(c, ['status', '--porcelain', '-z', '--untracked-files=all'])) ?? '')
 
   // branch: working tree against where the branch left the base (falls back to
   // HEAD when there is no base); staged / unstaged: the index's two sides
   const target =
     scope === 'staged' ? ['--cached'] : scope === 'unstaged' ? [] : [mergeBase ?? 'HEAD']
-  const patch = await execText('git', [...READ_ONLY, 'diff', ...DIFF_ARGS, ...target, '--'], {
+  // every call here reads (GIT_READ_ONLY): the worktree under review is usually one an
+  // agent is committing in
+  const patch = await execText('git', [...GIT_READ_ONLY, 'diff', ...DIFF_ARGS, ...target, '--'], {
     cwd: c,
     timeoutMs: 30_000,
     maxBuffer: PATCH_MAX_BYTES
@@ -142,7 +128,9 @@ export async function getWorkspaceDiff(cwd: string, scope: DiffScope): Promise<W
     const reason = patch.stderr.trim() || patch.error || 'git diff failed'
     throw new Error(/maxBuffer/i.test(reason) ? 'The diff is too large to show here.' : reason)
   }
-  const numstat = await git(c, ['diff', '--numstat', '-z', ...DIFF_ARGS, ...target, '--'], PATCH_MAX_BYTES)
+  const numstat = await gitRead(c, ['diff', '--numstat', '-z', ...DIFF_ARGS, ...target, '--'], {
+    maxBuffer: PATCH_MAX_BYTES
+  })
 
   const parsed = parseUnifiedDiff(patch.stdout, DEFAULT_CAPS)
   let files = withNumstat(parsed.files, parseNumstat(numstat ?? ''))

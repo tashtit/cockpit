@@ -38,7 +38,7 @@ import {
   type WorktreeHome
 } from './cleanup-core'
 import { processKey, type CleanupReady } from './cleanup-reminder-core'
-import { execText } from './env'
+import { execText, gitRead } from './env'
 import { mapLimit } from './map-limit'
 import { sessionLogFiles } from './parsers/util'
 import { isUnder, realOrSelf } from './paths'
@@ -275,24 +275,6 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessSnapshot> {
  * hundred worktrees' worth at once would starve the agents working in them.
  */
 const GIT_PARALLEL = 4
-
-/**
- * Every git call cleanup makes to *read* goes through here; what changes a repository
- * (`worktree remove`, `branch -d`) is spelled out where it happens. Without
- * `--no-optional-locks`, `git status` refreshes a stale index and writes it back under
- * `index.lock` — in worktrees agents are working in, whose own `git commit` then fails
- * on the lock this scan holds. fsmonitor is off because a survey must not start a
- * watcher daemon in every repository it looks at; it only ever speeds status up, so
- * the answer is the same without it.
- */
-async function gitRead(dir: string, args: readonly string[]): Promise<string | null> {
-  const r = await execText(
-    'git',
-    ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', dir, ...args],
-    { timeoutMs: 20_000 }
-  )
-  return r.ok ? r.stdout : null
-}
 
 /**
  * True when HEAD is detached on commits nothing else holds — no branch, tag or

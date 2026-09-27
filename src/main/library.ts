@@ -30,7 +30,7 @@ import type {
   Provider
 } from '../shared/types'
 import { loadConfig, saveConfig, userDataDir } from './config'
-import { cliEnv, execText } from './env'
+import { execOrThrow } from './env'
 import {
   adoptSkillInto,
   claudeProjectMcp,
@@ -408,11 +408,13 @@ const PLUGIN_CMD: Record<Provider, { on: readonly string[]; off: readonly string
 const CLI_TIMEOUT_MS = 120_000
 
 async function runAgentCli(agent: Provider, args: readonly string[]): Promise<void> {
-  const res = await execText(agent, args, { timeoutMs: CLI_TIMEOUT_MS, env: cliEnv() })
-  if (!res.ok) {
-    const detail = (res.stderr || res.stdout || res.error || '').trim().split('\n').slice(-3).join(' ')
-    throw new Error(`${agent} ${args.join(' ')} failed — ${detail || 'no output'}`)
-  }
+  await execOrThrow(agent, args, {
+    timeoutMs: CLI_TIMEOUT_MS,
+    failure: (res) => {
+      const detail = (res.stderr || res.stdout || res.error || '').trim().split('\n').slice(-3).join(' ')
+      return `${agent} ${args.join(' ')} failed — ${detail || 'no output'}`
+    }
+  })
 }
 
 /**

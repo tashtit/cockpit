@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { cliPath, execText, loginPathFrom } from '../src/main/env'
+import { cliPath, execOrThrow, execText, gitRead, loginPathFrom } from '../src/main/env'
 
 describe('execText', () => {
   it('answers ok with the output of a CLI that succeeds', async () => {
@@ -26,6 +26,29 @@ describe('execText', () => {
     expect(r.ok).toBe(false)
     expect(r.cutShort).toBe(true)
     expect(Date.now() - started).toBeLessThan(3_500)
+  })
+})
+
+describe('execOrThrow', () => {
+  it('hands back the trimmed output of a run that succeeds', async () => {
+    await expect(execOrThrow('/bin/sh', ['-c', 'printf "  done\\n"'])).resolves.toBe('done')
+  })
+
+  it('throws what the failed run said, stderr first, or the caller’s own words', async () => {
+    await expect(execOrThrow('/bin/sh', ['-c', 'echo out; echo err >&2; exit 2'])).rejects.toThrow(/^err$/)
+    await expect(execOrThrow('/bin/sh', ['-c', 'echo out; exit 2'])).rejects.toThrow(/^out$/)
+    await expect(
+      execOrThrow('/bin/sh', ['-c', 'exit 2'], { failure: (r) => `nope: ${r.stderr || 'silent'}` })
+    ).rejects.toThrow('nope: silent')
+  })
+})
+
+describe('gitRead', () => {
+  it('reads without taking locks, and is null where git cannot answer', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cockpit-git-read-'))
+    await expect(gitRead(dir, ['rev-parse', '--is-inside-work-tree'])).resolves.toBeNull()
+    await execText('git', ['init', '-q', dir])
+    await expect(gitRead(dir, ['rev-parse', '--is-inside-work-tree'])).resolves.toBe('true\n')
   })
 })
 
