@@ -125,6 +125,8 @@ const api: CockpitApi = {
   getDefaultBranch: (repoRoot: string) => ipcRenderer.invoke(CH.githubDefaultBranch, repoRoot),
   createWorkspace: (repoRoot: string, name?: string) =>
     ipcRenderer.invoke(CH.workspaceCreate, repoRoot, name),
+  getBranchPrefix: () => ipcRenderer.invoke(CH.workspaceBranchPrefix),
+  setBranchPrefix: (prefix: string) => ipcRenderer.invoke(CH.workspaceSetBranchPrefix, prefix),
   createPr: (cwd: string) => ipcRenderer.invoke(CH.workspacePr, cwd),
   getWorkspaceDiff: (cwd: string, scope: DiffScope) => ipcRenderer.invoke(CH.workspaceDiff, cwd, scope),
   getPrFeedback: (repoRoot: string, prNumber: number) =>

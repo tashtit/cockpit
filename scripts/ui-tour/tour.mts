@@ -215,6 +215,18 @@ const STATIC: readonly Shot[] = [
       await pause(w, 300)
     }
   },
+  // the GitHub group at the foot of Accounts: gh, and the branch prefix being edited
+  {
+    view: 'settings',
+    name: 'settings-branch-prefix',
+    go: async (w) => {
+      await nav(w, 'Settings')
+      const input = w.getByRole('textbox', { name: 'Branch prefix' })
+      await input.fill('users/titan')
+      await input.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await pause(w, 300)
+    }
+  },
   // one shot per tab: each is its own page now, and a tab nobody opens is a tab
   // nobody sees break
   ...['View', 'Notifications', 'Providers', 'Backup', 'About'].map(
@@ -578,7 +590,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'profile', 'profile-agents', 'cleanup', 'new-session', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

@@ -13,6 +13,8 @@ Each provider records its signed-in identity in its config home, and Cockpit rea
 | Copilot CLI | `config.json` (native multi-account) |
 | GitHub CLI | `gh` signed-in user — used for PR operations |
 
+Under GitHub, **Branch prefix** sets what the branches Cockpit cuts for new work start with — `cockpit/` unless your team's rules ask for something else. See [Branch prefix](/guide/worktrees-and-prs#branch-prefix).
+
 Identity chips appear throughout the app, so it's always visible which account a session ran under — and when a provider has several config homes, starting a task lets you pick the account.
 
 ## Sources: multiple config homes

@@ -52,6 +52,7 @@ import {
   addModelEndpoint,
   attentionPrefs,
   bindSessionControl,
+  branchPrefix,
   bindSessionEndpoint,
   bindSessionLineage,
   listAcpAgents,
@@ -65,6 +66,7 @@ import {
   setAttentionPrefs,
   updateModelEndpoint,
   sessionLineageFor,
+  setBranchPrefix,
   setHistoryDays,
   setRepoHidden,
   setRepoOrder,
@@ -800,8 +802,11 @@ app.whenReady().then(() => {
     getDefaultBranch(assertKnownRepoRoot(repoRoot))
   )
   ipcMain.handle(CH.workspaceCreate, (_e, repoRoot: string, name?: string) =>
-    createWorkspace(assertKnownRepoRoot(repoRoot), name)
+    createWorkspace(assertKnownRepoRoot(repoRoot), name, { prefix: branchPrefix() })
   )
+  ipcMain.handle(CH.workspaceBranchPrefix, () => branchPrefix())
+  // renderer input: normalized and checked in main against the same rule the form shows
+  ipcMain.handle(CH.workspaceSetBranchPrefix, (_e, prefix: unknown) => setBranchPrefix(String(prefix ?? '')))
   ipcMain.handle(CH.workspacePr, (_e, cwd: string) => {
     const c = resolve(String(cwd))
     // the worktrees dir itself is not a workspace — only something cut inside it
@@ -895,7 +900,7 @@ app.whenReady().then(() => {
     adoptInstructionsFrom(instructionScope(repoRoot), String(path))
   )
   ipcMain.handle(CH.instructionsShare, (_e, repoRoot: string) =>
-    shareInstructions(assertKnownRepoRoot(repoRoot))
+    shareInstructions(assertKnownRepoRoot(repoRoot), branchPrefix())
   )
   ipcMain.handle(CH.shellOpen, (_e, url: string) => {
     const external = externalUrl(url)
@@ -1579,7 +1584,7 @@ app.whenReady().then(() => {
     let place: TablePlace | null = null
     if (req.repoRoot !== null && req.repoRoot !== undefined) {
       const root = assertKnownRepoRoot(req.repoRoot)
-      const ws = await createWorkspace(root, `table ${topic.slice(0, 30)}`)
+      const ws = await createWorkspace(root, `table ${topic.slice(0, 30)}`, { prefix: branchPrefix() })
       place = { cwd: ws.cwd, branch: ws.branch, repoRoot: root }
     }
     return tables.create({ topic, seats, mode: tableMode, maxRounds, limits }, place)

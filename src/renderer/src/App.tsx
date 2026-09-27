@@ -48,6 +48,7 @@ import {
 } from './chat-log'
 import { preloadMarkdown } from './Markdown'
 import { initTimeFormat } from './time'
+import { initBranchPrefix } from './branch-prefix'
 import { keepSame } from './same'
 import type { StartSessionRequest } from './NewSession'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
@@ -202,6 +203,7 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     void initTimeFormat()
+    void initBranchPrefix()
     // the open transcript follows its log: when the index says the session moved
     // past the read on screen, read it again (a session run elsewhere keeps writing)
     const refreshOpenLog = (): void => {

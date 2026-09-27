@@ -16,6 +16,7 @@ import { AttachRow, useImageAttachments, type ImageAttachment } from './attachme
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { branchHint } from './task-names'
+import { useBranchPrefix } from './branch-prefix'
 
 export type AccountChoice = {
   readonly configDir?: string
@@ -86,7 +87,7 @@ const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** The one permission-mode table — HomeView and ChatView import it so wording never drifts. */
 export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = [
   { v: 'safe', label: 'Safe', hint: 'asks you before any tool that needs approval (Codex: blocked headless)' },
-  { v: 'auto-edit', label: 'Auto-edit', hint: 'file edits go ahead; commands ask you first (Codex: sandboxed)' },
+  { v: 'auto-edit', label: 'Auto-edit', hint: 'file edits go ahead; commands ask you first (Codex: sandboxed, its reviewer decides the rest)' },
   { v: 'yolo', label: 'YOLO', hint: 'bypass all approvals — trusted repos only' }
 ]
 
@@ -421,6 +422,7 @@ export function NewSession({
     () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
   )
   const [name, setName] = useState('')
+  const branchPrefix = useBranchPrefix()
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const atts = useImageAttachments(initialImages)
   const [mode, setMode] = useState<PermissionMode>(savedMode)
@@ -558,7 +560,7 @@ export function NewSession({
 
         <label className="ns-label" htmlFor="ns-branch">Branch</label>
         <div className="ns-branch-row">
-          <span className="ns-branch-prefix">cockpit/</span>
+          <span className="ns-branch-prefix" title="Set in Settings › Accounts">{branchPrefix}</span>
           <input
             id="ns-branch"
             // the name the task will actually produce, not a promise that one exists

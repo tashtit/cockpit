@@ -135,6 +135,24 @@ export const CLAUDE_SIDE_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob']
  */
 export const CODEX_SIDE_ARGS: readonly string[] = ['-c', 'sandbox_mode="read-only"', '-c', 'approval_policy="never"']
 
+/**
+ * Auto-edit's "anything more still asks", for Codex. Its workspace sandbox keeps `.git`
+ * read-only — and a Cockpit worktree's git data lives in the main checkout besides — so
+ * even `git add` failed there, along with anything that needs the network (`npm ci`,
+ * `git push`, `gh`). Codex's answer is escalation: the command runs again outside the
+ * sandbox once approved. Headless, nobody can approve, so each escalation goes to Codex's
+ * own approvals reviewer — what `codex exec --approve-for-me` sets, in the `-c` form that
+ * `exec resume` also takes. Verified on 0.157: without it a commit in a linked worktree is
+ * refused, with it the commit is reviewed and lands. Deliberately not a writable `.git`:
+ * a sandboxed agent that can write hooks or objects can run code outside the sandbox.
+ */
+export const CODEX_REVIEWED_ARGS: readonly string[] = [
+  '-c',
+  'approval_policy="on-request"',
+  '-c',
+  'approvals_reviewer="auto_review"'
+]
+
 /** A turn's command line, and what it is handed on stdin when its prompt does not ride argv. */
 export type BuiltCommand = { readonly cmd: string; readonly args: string[]; readonly stdin?: string }
 
@@ -209,6 +227,9 @@ export function buildCommand(req: ChatRequest, opts: BuildOptions = {}): BuiltCo
         if (resume || research) args.push('-c', `sandbox_mode="${sandbox}"`)
         else args.push('--sandbox', sandbox)
       }
+      // only the workspace sandbox auto-edit means: a read-only one the person picked stays
+      // read-only, and nothing is reviewed out of a safe turn
+      if (req.permissionMode === 'auto-edit' && sandbox === 'workspace-write') args.push(...CODEX_REVIEWED_ARGS)
       if (research) args.push(...CODEX_RESEARCH_ARGS)
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
       args.push('--', promptWithImages(req))

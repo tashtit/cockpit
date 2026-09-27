@@ -213,6 +213,8 @@ export function freshApi(): CockpitApi {
     getPrs: vi.fn(async () => []),
     getDefaultBranch: vi.fn(async () => 'main'),
     createWorkspace: vi.fn(async () => ({ cwd: '/tmp/wt', branch: 'main' })),
+    getBranchPrefix: vi.fn(async () => 'cockpit/'),
+    setBranchPrefix: vi.fn(async (prefix: string) => prefix || 'cockpit/'),
     createPr: vi.fn(async () => 'https://github.com/o/r/pull/1'),
     getWorkspaceDiff: vi.fn(async () => ({
       cwd: '/tmp/wt',

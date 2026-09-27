@@ -11,6 +11,7 @@ import { NotificationsSection } from './NotificationsSection'
 import { Select } from './Select'
 import { TabList, TabPanel } from './Tabs'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
+import { initBranchPrefix } from './branch-prefix'
 
 /** History window presets; value is days as a string, '0' = all history. */
 const HISTORY_OPTIONS = [
@@ -137,6 +138,7 @@ export function Settings({
           // unmounted and re-read on open; the display stores are app-wide, so they
           // are re-initialised here.
           void initTimeFormat()
+          void initBranchPrefix()
         }}
       />
     ),

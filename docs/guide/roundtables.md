@@ -80,7 +80,7 @@ Roundtables have no permission mode. Every turn runs in the safest mode the prov
 
 Either way the seats only read what's there:
 
-- **With a project attached**, the seats read it from an isolated worktree on a `cockpit/` branch. They can ground their arguments in the actual code; they cannot change it.
+- **With a project attached**, the seats read it from an isolated worktree on a branch of its own, under your [branch prefix](./worktrees-and-prs.md#branch-prefix). They can ground their arguments in the actual code; they cannot change it.
 - **With no project**, the table runs in a scratch room — a pure discussion.
 
 The provider sessions the seats spawn are the table's internals, not work of yours: they never appear in the board, tree, or search, they can't be handed off, and opening one (behind the table row's chevron) is read-only.

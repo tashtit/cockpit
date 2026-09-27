@@ -123,6 +123,18 @@ describe('createWorkspace — a failing post-checkout hook', () => {
   })
 })
 
+describe('createWorkspace — the person’s branch prefix', () => {
+  it('names the branch under it, fallback name included; the worktree lives where it always did', async () => {
+    const dir = repo('#!/bin/sh\nexit 0\n')
+    const first = await createWorkspace(dir, 'Fix login', { prefix: 'titan/' })
+    expect(first).toEqual({ cwd: home(dir, 'fix-login'), branch: 'titan/fix-login' })
+    expect(git(first.cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('titan/fix-login')
+    const second = await createWorkspace(dir, 'Fix login', { prefix: 'titan/' })
+    expect(second.branch).toMatch(/^titan\/fix-login-[a-z0-9]{4}$/)
+    expect(cockpitBranches(dir)).toEqual([])
+  })
+})
+
 describe('createWorkspace — what a failed add leaves behind', () => {
   it('removes the branch a failed checkout made, and the worktree with it', async () => {
     // a required smudge filter that fails: git-lfs missing from the GUI PATH is the real one

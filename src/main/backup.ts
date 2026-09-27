@@ -204,6 +204,7 @@ export function buildBundle(
       ...(cfg.historyDays !== undefined ? { historyDays: cfg.historyDays } : {}),
       ...(cfg.staleDays !== undefined ? { staleDays: cfg.staleDays } : {}),
       ...(cfg.timeFormat !== undefined ? { timeFormat: cfg.timeFormat } : {}),
+      ...(cfg.branchPrefix !== undefined ? { branchPrefix: cfg.branchPrefix } : {}),
       hiddenRepos: cfg.hiddenRepos ?? [],
       ...(cfg.repoOrder?.length ? { repoOrder: cfg.repoOrder } : {}),
       sources: cfg.sources

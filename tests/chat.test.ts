@@ -11,6 +11,7 @@ import {
   promptWithImages,
   withTurnFlags,
   CLAUDE_SIDE_TOOLS,
+  CODEX_REVIEWED_ARGS,
   CODEX_SIDE_ARGS
 } from '../src/main/chat'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
@@ -134,6 +135,26 @@ describe('buildCommand', () => {
     })
     expect(args).not.toContain('--full-auto')
     expect(args[args.indexOf('--sandbox') + 1]).toBe('workspace-write')
+  })
+  it('codex auto-edit hands what its sandbox refuses to Codex’s reviewer, on exec and exec resume', () => {
+    const codex = (over: Partial<ChatRequest> = {}): string[] =>
+      buildCommand({ provider: 'codex', cwd: '/x', prompt: 'commit it', permissionMode: 'auto-edit', ...over }).args
+    const reviewed = (args: string[]): boolean =>
+      args.join(' ').includes(CODEX_REVIEWED_ARGS.join(' '))
+    // git writes and the network escalate out of the workspace sandbox; headless, the
+    // reviewer is the one who can say yes
+    expect(reviewed(codex())).toBe(true)
+    expect(reviewed(codex({ resumeNativeId: 'sid' }))).toBe(true)
+    expect(CODEX_REVIEWED_ARGS).toEqual(['-c', 'approval_policy="on-request"', '-c', 'approvals_reviewer="auto_review"'])
+    // the prompt still comes last
+    expect(codex().slice(-2)).toEqual(['--', 'commit it'])
+    // nothing is reviewed out of a sandbox the person chose to keep read-only, out of a
+    // safe turn, a roundtable seat, or a side question's copy — and yolo asks nobody
+    expect(reviewed(codex({ options: { codexSandbox: 'read-only' } }))).toBe(false)
+    expect(reviewed(codex({ permissionMode: 'safe' }))).toBe(false)
+    expect(reviewed(codex({ permissionMode: 'safe', options: { codexSandbox: 'read-only' }, research: true }))).toBe(false)
+    expect(reviewed(codex({ resumeNativeId: 'sid', sideFork: true }))).toBe(false)
+    expect(reviewed(codex({ permissionMode: 'yolo' }))).toBe(false)
   })
   it('codex skip-git-repo-check rides both exec forms, only when asked', () => {
     for (const resumeNativeId of [undefined, 'sid']) {
