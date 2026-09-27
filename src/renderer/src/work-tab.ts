@@ -13,6 +13,11 @@ export type WorkFocus = {
   readonly at: number
 }
 
+/** A path under the session's directory reads relative to it, like the transcript's rows. */
+export function relative(path: string, cwd: string): string {
+  return path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path
+}
+
 /** How long the item a row opened the panel at stays ringed */
 export const RING_MS = 2_000
 
