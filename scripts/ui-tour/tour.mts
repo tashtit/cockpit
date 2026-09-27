@@ -21,6 +21,12 @@ import { startRegistry } from './registry.mts'
 import { buildWorld, type World } from './world.mts'
 
 const MAIN = resolve('out/main/index.js')
+/**
+ * Electron is launched on the package, not its entry file: handed `out/main/index.js` it
+ * never reads package.json, so the app ran as "Electron" at Electron's own version and
+ * About showed that instead of the package's. package.json's `main` is that same file.
+ */
+const APP = resolve('.')
 const OUT = resolve('test-results', 'ui-tour')
 const DESKTOP = { width: 1280, height: 820 } as const
 /**
@@ -754,7 +760,7 @@ let registryUrl = ''
 
 async function launch(world: World, extraEnv: NodeJS.ProcessEnv = {}): Promise<{ app: ElectronApplication; win: Page }> {
   const app = await electron.launch({
-    args: [MAIN],
+    args: [APP],
     env: {
       ...process.env,
       ...PINNED,
