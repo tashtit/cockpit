@@ -55,7 +55,8 @@ under one would run a second turn on the same log (Claude forks the conversation
 and Copilot append to the same file). The button lifts on its own once the log goes
 quiet — the windows are the ones in [Flying and landed](/guide/sessions#flying-and-landed):
 a minute and a half after the last write, ten minutes while a tool call is still waiting
-for its result. Your draft stays in the composer meanwhile.
+for its result, and for as long as the agent is still waiting there on a question it asked.
+Your draft stays in the composer meanwhile.
 
 Once you take it over and send from Cockpit, the turn streams in as usual and the
 transcript is Cockpit's until it ends; a turn typed in the terminal after that shows up
