@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import type { Provider, SessionControl, SessionHold, SessionHolder } from '../shared/types'
 import { shQuote, withConfigHome } from './shell-quote'
 import { isUnder } from './paths'
+import { withRecent } from './recent-map'
 
 /**
  * Who drives a session, IO-free (what the tests target; `ipc/sessions.ts` and `ipc/chat.ts` do the IO).
@@ -75,9 +76,7 @@ export function withControl(
 ): Readonly<Record<string, ControlEntry>> {
   const current = map[id]
   if (current && current.how === entry.how && current.at === entry.at) return map
-  const kept = Object.entries(map).filter(([k]) => k !== id)
-  kept.push([id, entry])
-  return Object.fromEntries(kept.slice(Math.max(0, kept.length - cap)))
+  return withRecent(map, { id, value: entry, cap })
 }
 
 /**

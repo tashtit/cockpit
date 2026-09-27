@@ -18,6 +18,7 @@ import { SESSION_CONTROL_CAP, SESSION_ENDPOINT_CAP, SESSION_LINEAGE_CAP, withEnd
 import { sanitizeControlMap, type ControlEntry } from './session-control-core'
 import { clampStaleDays } from './cleanup-core'
 import { branchPrefixRefusal, normalizeBranchPrefix } from '../shared/branch-prefix'
+import { capRecent } from './recent-map'
 
 /*
  * The backup bundle and every rule about it that needs no disk: what a file may
@@ -395,7 +396,7 @@ export function sanitizeBundle(input: unknown): Bundle {
       sessionEndpoints: strMap(sessions['sessionEndpoints']),
       continuedFrom: strMap(sessions['continuedFrom']),
       removedEndpoints: strMap(sessions['removedEndpoints']),
-      sessionControl: capMap(sanitizeControlMap(sessions['sessionControl']), MAX_MAP_KEYS)
+      sessionControl: capRecent(sanitizeControlMap(sessions['sessionControl']), MAX_MAP_KEYS)
     },
     ...(secrets ? { secrets } : {})
   }
@@ -504,11 +505,6 @@ function localRoot(scope: ScopeRecord, ctx: RestoreContext): string | null | und
   // a repo's data onto a different clone of the same GitHub repo
   if (scope.root !== null && ctx.knownRoots.has(scope.root)) return scope.root
   return ctx.knownRepos.get(scope.ref)
-}
-
-function capMap<T>(map: Record<string, T>, cap: number): Record<string, T> {
-  const entries = Object.entries(map)
-  return Object.fromEntries(entries.slice(Math.max(0, entries.length - cap)))
 }
 
 /**
@@ -683,13 +679,13 @@ export function planRestore(local: AppConfig, bundle: Bundle, ctx: RestoreContex
   cfg = {
     ...cfg,
     archived: [...new Set([...(cfg.archived ?? []), ...bundle.sessions.archived])],
-    sessionEndpoints: capMap(bound, SESSION_ENDPOINT_CAP),
-    continuedFrom: capMap(
+    sessionEndpoints: capRecent(bound, SESSION_ENDPOINT_CAP),
+    continuedFrom: capRecent(
       { ...bundle.sessions.continuedFrom, ...cfg.continuedFrom },
       SESSION_LINEAGE_CAP
     ),
     removedEndpoints: { ...bundle.sessions.removedEndpoints, ...cfg.removedEndpoints },
-    sessionControl: capMap(
+    sessionControl: capRecent(
       { ...bundle.sessions.sessionControl, ...cfg.sessionControl },
       SESSION_CONTROL_CAP
     )
