@@ -89,7 +89,7 @@ If an update cannot be installed, the version you had is put back and About says
 
 The two reports open with your Cockpit version, macOS version and architecture, and each agent CLI's version and how it was installed already filled in. Nothing else goes into the form — no paths, usernames, accounts or session content — and nothing is filed until you have read it and pressed **Submit** on GitHub yourself.
 
-**Settings › About** links this guide too: **User guide**, under the updates, opens it in your browser.
+This guide is always a click away: **Help › Cockpit User Guide** in the menu bar, or **User guide** under the updates in **Settings › About**. **Help › Release Notes** opens what changed in each version.
 
 ## Run from source
 
