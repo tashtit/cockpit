@@ -41,7 +41,8 @@ A row raises a flag when something disagrees:
 
 | Flag | What happened |
 | --- | --- |
-| `not applied` | The switch is on, but the agent doesn't have it — never written there, or taken out of its config |
+| `not applied` | The switch is on, but Cockpit hasn't written it into that agent yet |
+| `removed outside` | The agent had it, and something outside Cockpit took it out of its config — you, by hand, or the agent's own CLI |
 | `differs` | This agent runs something different from the other agents |
 | `added outside` | The switch is off, yet the agent has it anyway |
 
@@ -55,11 +56,14 @@ again; the row's detail says who runs their own on purpose, with *Treat as drift
 undo. Env var *values* are never shown or compared, only their names, so a row never
 claims a difference you can't see.
 
-An agent that hasn't got something switched on for it gets two answers: **Write it now**,
-or **Leave it off** — for when it was taken out of that agent on purpose. Leaving it off
-switches it off for that agent and writes nothing, so the row goes quiet and the other
-agents keep it. (Its mirror, for something an agent has that is switched off, is
-**Switch it on** or **Take it out**.)
+Cockpit remembers which agents it has seen hold each thing, so it can tell `not applied`
+from `removed outside`: an agent it saw with a server that no longer has it lost it outside Cockpit, and one
+it never saw with it simply hasn't been written to. What Cockpit takes out itself is
+forgotten, so it is never mistaken for a removal outside. Either way there are two answers:
+**Write it now** (*Write it back* when it was removed), or **Leave it off** — for when that
+agent is meant to be without it. Leaving it off switches it off for that agent and writes
+nothing, so the row goes quiet and the other agents keep it. (Its mirror, for something an
+agent has that is switched off, is **Switch it on** or **Take it out**.)
 
 The shared instructions are the exception: you write that baseline in Cockpit, so a file
 that's out of step with it is simply out of date, whatever the other agents are doing.

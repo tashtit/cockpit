@@ -9,6 +9,7 @@ import {
   isDrift,
   isRecommended,
   type AgentState,
+  type PanelCell,
   type PanelReport,
   type PanelRow
 } from '../../shared/library'
@@ -52,6 +53,11 @@ const STATE_WORD: Partial<Record<AgentState, string>> = {
   pending: 'not applied',
   changed: 'differs',
   extra: 'added outside'
+}
+
+/** A missing one the agent had until something outside Cockpit took it out says so. */
+function cellWord(cell: PanelCell): string | undefined {
+  return cell.gone ? 'removed outside' : STATE_WORD[cell.state]
 }
 
 const MCP_STATUS_LABEL: Record<McpProbeResult['status'], string> = {
@@ -636,7 +642,11 @@ function AgentSwitches({
                 ? 'Click again to remove it from this agent'
                 : cell.kept
                   ? `${cell.detail || 'on'} — its own definition, kept on purpose`
-                  : cell.detail || (cell.desired ? 'on' : 'off')
+                  : cell.state === 'pending'
+                    ? cell.gone
+                      ? 'on — but removed from its config outside Cockpit'
+                      : 'on — but not written there yet'
+                    : cell.detail || (cell.desired ? 'on' : 'off')
             }
             disabled={busy !== null}
             className={`ag-chip ag-${p} ${cell.desired ? 'on' : 'off'} ${
@@ -702,7 +712,7 @@ function Row({
   setNotice: (n: Notice) => void
 }): JSX.Element {
   // one word for the whole row: the amber chip already says which agent
-  const flag = row.drift.length > 0 ? STATE_WORD[row.cells[row.drift[0]].state] : null
+  const flag = row.drift.length > 0 ? cellWord(row.cells[row.drift[0]]) : null
   const armedHere = armed !== null && armed.startsWith(`${row.id}|`)
   const only = reachWord(row)
   return (
@@ -926,9 +936,11 @@ function Detail({
         .map((p) => (
           <div key={p} className="pnl-fix">
             <span className="pnl-fix-what">
-              {row.cells[p].state === 'pending'
-                ? `${PROVIDER_LABEL[p]} doesn’t have ${row.name}, but it’s switched on — never written there, or taken out of its config.`
-                : `${PROVIDER_LABEL[p]} has ${row.name} even though it’s switched off.`}
+              {row.cells[p].state !== 'pending'
+                ? `${PROVIDER_LABEL[p]} has ${row.name} even though it’s switched off.`
+                : row.cells[p].gone
+                  ? `${PROVIDER_LABEL[p]} had ${row.name}, and it was taken out of its config outside Cockpit.`
+                  : `${PROVIDER_LABEL[p]} doesn’t have ${row.name} yet — it’s switched on, but hasn’t been written there.`}
             </span>
             <div className="pnl-fix-actions">
               <button
@@ -936,7 +948,7 @@ function Detail({
                 disabled={busy !== null}
                 onClick={() => onFlip(row, p, row.cells[p].state === 'pending')}
               >
-                {row.cells[p].state === 'pending' ? 'Write it now' : 'Switch it on'}
+                {row.cells[p].state !== 'pending' ? 'Switch it on' : row.cells[p].gone ? 'Write it back' : 'Write it now'}
               </button>
               {/* the answer when it was taken out on purpose: the switch follows the
                   agent and nothing is written — the mirror of Take it out below */}

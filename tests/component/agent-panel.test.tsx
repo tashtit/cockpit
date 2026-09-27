@@ -376,14 +376,37 @@ describe('Agents › missing from an agent on purpose', () => {
     vi.mocked(window.cockpit.leavePanelOff).mockResolvedValue(gone)
     render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
     await userEvent.click(await screen.findByRole('button', { name: /^▸?\s*gcloud/ }))
-    // it can't know whether it was never written or taken out, so it says both
+    // Cockpit never saw Copilot hold it: it was never written there
+    expect(screen.getByText('not applied')).toBeInTheDocument()
     expect(
-      screen.getByText(/Copilot doesn’t have gcloud, but it’s switched on — never written there, or taken out of its config/)
+      screen.getByText('Copilot doesn’t have gcloud yet — it’s switched on, but hasn’t been written there.')
     ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Write it now' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Leave it off' }))
     expect(window.cockpit.leavePanelOff).toHaveBeenCalledWith({ repoRoot: null, kind: 'mcp', name: 'gcloud' }, 'copilot')
     expect(await screen.findByText(/gcloud stays off for Copilot — Cockpit won’t write it there/)).toBeInTheDocument()
     expect(window.cockpit.setPanelSwitch).not.toHaveBeenCalled()
+  })
+
+  // Copilot was seen holding it, and no longer does: something outside Cockpit took it out
+  it('says so when the agent had it and lost it outside Cockpit', async () => {
+    const removed = buildReport(null, [
+      buildRow(
+        { kind: 'mcp', name: 'gcloud', enabled: { claude: true, copilot: true }, config: COCKPIT_GH, seen: { claude: true, copilot: true } },
+        { detail: 'gh-mcp --stdio', fields: mcpFields(COCKPIT_GH) },
+        { claude: present(COCKPIT_GH), codex: absent, copilot: absent }
+      )
+    ])
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(removed)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    expect(await screen.findByText('removed outside')).toBeInTheDocument()
+    expect(sw('gcloud', 'Copilot')).toHaveAttribute('title', 'on — but removed from its config outside Cockpit')
+    await userEvent.click(screen.getByRole('button', { name: /^▸?\s*gcloud/ }))
+    expect(
+      screen.getByText('Copilot had gcloud, and it was taken out of its config outside Cockpit.')
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Write it back' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Leave it off' })).toBeInTheDocument()
   })
 })
 

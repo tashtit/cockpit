@@ -113,6 +113,14 @@ describe('against a machine’s own agent config', () => {
               name: 'linear',
               enabled: { claude: true, codex: true },
               config: { type: 'sse', url: 'https://mcp.linear.app/sse' }
+            },
+            // Copilot had gcloud (its own definition was read from it), and no longer does
+            {
+              kind: 'mcp',
+              name: 'gcloud',
+              enabled: { claude: true, copilot: true },
+              config: { command: 'npx', args: ['-y', '@google-cloud/gcloud-mcp@0.5.3'] },
+              raw: { copilot: { command: 'npx', args: ['-y', '@google-cloud/gcloud-mcp@0.5.3'] } }
             }
           ]
         }
@@ -120,7 +128,12 @@ describe('against a machine’s own agent config', () => {
     )
     write(
       join(home, '.claude.json'),
-      JSON.stringify({ mcpServers: { linear: { type: 'sse', url: 'https://mcp.linear.app/sse' } } })
+      JSON.stringify({
+        mcpServers: {
+          linear: { type: 'sse', url: 'https://mcp.linear.app/sse' },
+          gcloud: { command: 'npx', args: ['-y', '@google-cloud/gcloud-mcp@0.5.3'] }
+        }
+      })
     )
     write(
       join(home, '.claude', 'plugins', 'installed_plugins.json'),
@@ -192,7 +205,13 @@ describe('against a machine’s own agent config', () => {
     const row = items.find((i) => i.name === 'linear')
     expect(row?.kind).toBe('drift')
     expect(row?.agents).toEqual(['codex'])
-    // never applied, or taken out of Codex on purpose: the row says only what is true
-    expect(row?.detail).toBe('MCP servers — switched on, but missing from its config')
+    // Cockpit never saw Codex hold it: it was never written there
+    expect(row?.detail).toBe('MCP servers — switched on, but not written yet')
+  })
+
+  it('says an agent that had something lost it outside Cockpit', () => {
+    const row = agentDrift().items.find((i) => i.name === 'gcloud')
+    expect(row?.agents).toEqual(['copilot'])
+    expect(row?.detail).toBe('MCP servers — removed outside Cockpit')
   })
 })

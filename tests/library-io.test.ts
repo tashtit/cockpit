@@ -780,3 +780,59 @@ describe('a server switched on, but missing from an agent on purpose', () => {
     ).rejects.toThrow(/isn’t missing gcloud/)
   })
 })
+
+describe('telling a server removed outside Cockpit from one never written', () => {
+  const stored = (): any[] => JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8')).library.global
+  const gcloud = { command: 'npx', args: ['-y', '@google-cloud/gcloud-mcp@0.5.3'] }
+
+  it('says an agent that had it lost it outside Cockpit', async () => {
+    seedClaudeMcp('gcloud', gcloud)
+    getPanel(null)
+    expect(stored().find((e) => e.name === 'gcloud')?.seen).toEqual({ claude: true })
+    // taken out of Claude Code's own config, by hand
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: {} }))
+    const cellNow = cell(getPanel(null), 'gcloud', 'claude')
+    expect(cellNow.state).toBe('pending')
+    expect(cellNow.gone).toBe(true)
+  })
+
+  it('never calls one Cockpit never saw there removed', async () => {
+    seedClaudeMcp('gcloud', gcloud)
+    getPanel(null)
+    // switched on for Copilot in Cockpit's config, but Copilot never had it
+    const cfg = JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8'))
+    cfg.library.global = cfg.library.global.map((e: any) =>
+      e.name === 'gcloud' ? { ...e, enabled: { ...e.enabled, copilot: true } } : e
+    )
+    writeFileSync(join(userData, 'cockpit-config.json'), JSON.stringify(cfg))
+    const copilot = cell(getPanel(null), 'gcloud', 'copilot')
+    expect(copilot.state).toBe('pending')
+    expect(copilot.gone).toBeUndefined()
+  })
+
+  // raw is each agent's own definition, only ever read from that agent — so an entry
+  // recorded before Cockpit kept `seen` still knows where it was
+  it('starts from each agent’s own definition for an entry recorded before it kept track', async () => {
+    writeFileSync(
+      join(userData, 'cockpit-config.json'),
+      JSON.stringify({
+        sources: [],
+        library: { global: [{ kind: 'mcp', name: 'gcloud', enabled: { copilot: true }, config: gcloud, raw: { copilot: gcloud } }] }
+      })
+    )
+    const copilot = cell(getPanel(null), 'gcloud', 'copilot')
+    expect(copilot.gone).toBe(true)
+    expect(stored()[0].seen).toEqual({ copilot: true })
+  })
+
+  // what Cockpit takes out itself was not removed behind its back — a later write that
+  // doesn't land is "not written yet", never "removed outside"
+  it('forgets what it saw once Cockpit takes it out itself', async () => {
+    seedClaudeMcp('gcloud', gcloud)
+    getPanel(null)
+    await setPanelSwitch({ repoRoot: null, kind: 'mcp', name: 'gcloud' }, 'claude', false)
+    expect(stored().find((e) => e.name === 'gcloud')?.seen).toEqual({})
+    await removePanelEntry({ repoRoot: null, kind: 'mcp', name: 'gcloud' })
+    expect(stored().find((e) => e.name === 'gcloud')?.seen).toEqual({})
+  })
+})

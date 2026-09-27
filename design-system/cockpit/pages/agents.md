@@ -62,8 +62,8 @@ would open, so the panel is never named by a tab that is not there.
     (`.ag-chip.on.drift`, not `.ag-chip.drift`) — `.ag-chip.on.ag-*` is 0,3,0 and silently
     wins otherwise, which is exactly how the warning went missing once already.
 - **One word per row** (`.pnl-flag`, amber, right-aligned): the ringed chip already says
-  *which* agent, so the row only has to say *what* — `not applied` / `differs` /
-  `added outside`. The same slot carries a dim `.pnl-only` word when some agent has no
+  *which* agent, so the row only has to say *what* — `not applied` / `removed outside` /
+  `differs` / `added outside`. The same slot carries a dim `.pnl-only` word when some agent has no
   switch at all — `Codex only`, `not for Copilot` — and the amber flag outranks it: one
   is a fact about the thing, the other is waiting on you. A "not available" reason is
   also spelled out in full in the opened row (`.pnl-note`); a `title` is unreadable to a
@@ -83,12 +83,16 @@ would open, so the panel is never named by a tab that is not there.
   clear, never one they can only silence. Matching every agent to one definition, or
   switching a kept agent off, forgets the kept difference.
 - **Every disagreement has an "on purpose" answer.** `differs` has *Keep as they are*;
-  `added outside` has *Switch it on* beside *Take it out*; `not applied` has *Leave it off*
-  beside *Write it now* (`.pnl-fix`, ghost-small, in that order). Leave it off switches the
-  entry off for that agent and writes nothing — the agent was taken off by hand, and the
-  switch follows it. Its sentence names both causes (`never written there, or taken out of
-  its config`), because Cockpit can't tell which, and the home's row says only what is true
-  (`switched on, but missing from its config`), never "not written yet".
+  `added outside` has *Switch it on* beside *Take it out*; `not applied` and `removed
+  outside` have *Leave it off* beside *Write it now* / *Write it back* (`.pnl-fix`,
+  ghost-small, in that order). Leave it off switches the entry off for that agent and
+  writes nothing — the switch follows the agent.
+- **A missing one says why** (`PanelCell.gone`, from `LibraryEntry.seen`): an agent
+  Cockpit saw hold it and that no longer does lost it outside Cockpit — flag `removed
+  outside`, chip title `on — but removed from its config outside Cockpit`, sentence `Copilot
+  had gcloud, and it was taken out of its config outside Cockpit.`, home row `removed outside
+  Cockpit`. One never seen there is `not applied` / `not written yet`. Never a sentence that
+  names both causes: the record exists so the row can say which.
 - **Remove everywhere is recoverable**, under a `Removed` section with *Put it back*.
 - **One recommendation, and it only offers** (`.pnl-rec`). Tashtit's marketplace
   (`RECOMMENDED_MARKETPLACE`) is the one thing the panel vouches for. Its row is always

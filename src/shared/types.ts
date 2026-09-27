@@ -966,6 +966,13 @@ export type LibraryEntry = {
    * definition.
    */
   readonly withheld?: readonly string[]
+  /**
+   * The agents Cockpit has seen hold it since it last took it out of them itself. One
+   * of these that no longer has it lost it outside Cockpit — the row says "removed
+   * outside" rather than "not written yet". Machine-local, like `raw`: a backup leaves
+   * it out, since another machine's agents are not the ones that were seen.
+   */
+  readonly seen?: Partial<Record<Provider, true>>
 }
 
 /** One entry in one scope — every panel action names its target this way. */

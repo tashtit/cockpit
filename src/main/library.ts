@@ -60,6 +60,17 @@ import { adoptInventory } from '../shared/library'
  * is what makes a switch reversible instead of a delete, and it is why Cockpit
  * needs a config of its own rather than just editing the agents'.
  *
+ * Every read also records which agents hold each entry (`seen`, `markSeen`), and
+ * Cockpit forgets that wherever it takes something out itself (`unseen`). That is how a
+ * switched-on entry an agent lacks says why: seen there and gone is "removed outside
+ * Cockpit", never seen is "not written yet" — and `leavePanelOff` is the answer when
+ * that agent is meant to be without it. The record is machine-local; a backup drops it.
+ *
+ * A plugin is updated in every agent that has it (`updatePlugin`) — Codex, which has
+ * no update command, by pulling its marketplace and adding the plugin again — and the
+ * agents' marketplace clones are pulled only on the person's Check again
+ * (`refreshMarketplaces`).
+ *
  * Everything here is IO. The comparison logic is in shared/library.ts.
  */
 
@@ -333,7 +344,7 @@ function ensureScope(repoRoot: string | null): {
   const inv = scopedInventory(repoRoot)
   const before = loadEntries(repoRoot)
   const adopted = adoptInventory(before, inv)
-  const refreshed = adopted.map((entry) => refreshSaved(entry, inv))
+  const refreshed = adopted.map((entry) => markSeen(refreshSaved(entry, inv), inv, repoRoot))
   if (JSON.stringify(refreshed) !== JSON.stringify(before)) saveEntries(repoRoot, refreshed)
   // offered, not recorded: the recommended marketplace joins what the panel reads but
   // not Cockpit's config — opening a view is not a decision. Marketplaces are per
@@ -358,6 +369,42 @@ function refreshSaved(entry: LibraryEntry, inv: ExtensionsRead): LibraryEntry {
   // an agent's own definition carries the values a passphrase-less restore left
   // out, so adopting it is exactly what clears the "needs values" state
   return config ? withoutWithheld({ ...next, config }) : next
+}
+
+/**
+ * Record which agents hold the entry right now. That is what later tells an agent
+ * that lost something outside Cockpit (it was seen there, and is gone) from one it
+ * was never written to. An entry recorded before Cockpit kept this record starts from
+ * `raw` — each agent's own MCP definition, which is only ever read from that agent —
+ * and from then on only from what is seen, since `raw` outlives Cockpit's own
+ * switch-off by design.
+ */
+function markSeen(entry: LibraryEntry, inv: ExtensionsRead, repoRoot: string | null): LibraryEntry {
+  if (entry.kind === 'instructions') return entry
+  const actual = actualOf(entry, inv, repoRoot)
+  const before = seenOf(entry)
+  const now = PROVIDERS.filter((p) => actual[p]?.present === true && before[p] !== true)
+  const seen = { ...before, ...Object.fromEntries(now.map((p) => [p, true])) }
+  // bookkeeping with nothing to record writes nothing: an entry no agent was ever seen
+  // holding stays exactly as it was, so a read never rewrites the config for it
+  if (entry.seen === undefined ? Object.keys(seen).length === 0 : now.length === 0) return entry
+  return { ...entry, seen }
+}
+
+/** What Cockpit has seen — for an entry recorded before it kept track, what `raw` shows. */
+function seenOf(entry: LibraryEntry): Partial<Record<Provider, true>> {
+  return entry.seen ?? Object.fromEntries(PROVIDERS.filter((p) => entry.raw?.[p] !== undefined).map((p) => [p, true]))
+}
+
+/**
+ * Cockpit took it out of these agents itself: having seen it there says nothing any
+ * more. The record is written out even when it started from `raw`, which outlives a
+ * switch-off by design and would otherwise bring the agent straight back.
+ */
+function unseen(entry: LibraryEntry, agents: readonly Provider[]): LibraryEntry {
+  const seen: { -readonly [P in Provider]?: true } = { ...seenOf(entry) }
+  for (const agent of agents) delete seen[agent]
+  return { ...entry, seen }
 }
 
 /**
@@ -559,7 +606,7 @@ export async function setPanelSwitch(
     replaceEntry(loadEntries(target.repoRoot), {
       // an agent switched off has nothing left to differ with; switching one on
       // leaves every difference the user kept exactly as it was
-      ...(on ? entry : withoutKept(entry, [agent])),
+      ...(on ? entry : unseen(withoutKept(entry, [agent]), [agent])),
       enabled: { ...entry.enabled, [agent]: on }
     })
   )
@@ -646,7 +693,7 @@ export async function leavePanelOff(target: PanelTarget, agent: Provider): Promi
   const entry = findEntry(loadEntries(target.repoRoot), target)
   saveEntries(
     target.repoRoot,
-    replaceEntry(loadEntries(target.repoRoot), { ...entry, enabled: { ...entry.enabled, [agent]: false } })
+    replaceEntry(loadEntries(target.repoRoot), { ...unseen(entry, [agent]), enabled: { ...entry.enabled, [agent]: false } })
   )
   return getPanel(target.repoRoot)
 }
@@ -817,7 +864,7 @@ export async function removePanelEntry(target: PanelTarget): Promise<PanelReport
     }
   }
   if (failed.length > 0) throw new Error(`couldn't remove it everywhere — ${failed.join(' · ')}`)
-  saveEntries(target.repoRoot, replaceEntry(loadEntries(target.repoRoot), { ...entry, removed: true }))
+  saveEntries(target.repoRoot, replaceEntry(loadEntries(target.repoRoot), { ...unseen(entry, PROVIDERS), removed: true }))
   return getPanel(target.repoRoot)
 }
 

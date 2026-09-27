@@ -1,5 +1,5 @@
 import { isNewer } from '../shared/mcp-source'
-import { KIND_LABEL, PROVIDERS, type AgentState } from '../shared/library'
+import { KIND_LABEL, PROVIDERS, type AgentState, type PanelCell } from '../shared/library'
 import { sortSuggestions } from '../shared/updates-digest'
 import type { PluginInfo, Provider, UpdateState, UpdateSuggestion, UpdatesDigest } from '../shared/types'
 import { listCliStatus } from './agent-cli'
@@ -35,11 +35,15 @@ const AGENT_LABEL: Record<Provider, string> = {
 
 /** What a drifted row is waiting for, in the panel's own words. */
 const DRIFT_WORD: Partial<Record<AgentState, string>> = {
-  // on here and missing there — never applied, or taken out in the agent on purpose;
-  // the row can't tell which, so it says only what is true
-  pending: 'switched on, but missing from its config',
+  // never applied there — the agent Cockpit saw hold it and lost it is `gone` below
+  pending: 'switched on, but not written yet',
   changed: 'the agents run different definitions',
   extra: 'added outside Cockpit'
+}
+
+/** An agent that had it and lost it outside Cockpit says so; the rest in the panel's words. */
+function driftWord(cell: PanelCell): string {
+  return cell.gone ? 'removed outside Cockpit' : (DRIFT_WORD[cell.state] ?? 'out of step')
 }
 
 /** One source's answer: what it found, and what it couldn't ask. */
@@ -209,7 +213,7 @@ export function agentDrift(): Found {
           id: `drift:${row.id}`,
           name: row.name,
           agents: PROVIDERS.filter((p) => row.drift.includes(p)),
-          detail: `${KIND_LABEL[row.kind]} — ${DRIFT_WORD[row.cells[row.drift[0]].state] ?? 'out of step'}`
+          detail: `${KIND_LABEL[row.kind]} — ${driftWord(row.cells[row.drift[0]])}`
         })),
       problems: []
     }
