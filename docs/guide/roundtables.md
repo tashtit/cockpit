@@ -77,6 +77,7 @@ Roundtables have no permission mode. Every turn runs in the safest mode the prov
 
 - **A Claude seat** may search the web and fetch pages without an approval nobody is there to give. It still has no shell and can't edit anything, so it looks things up instead of trying commands that would be refused.
 - **A Codex seat** runs read-only commands, and its sandbox lets them reach the network — `curl` a package registry or a domain lookup to see whether a name is taken. Nothing it runs can write a file.
+- **A Copilot seat** runs in Copilot's own safe mode. Anything it stops to ask permission for — a command, an edit — is refused for that one call, since nobody is there to answer, and it carries on without it.
 
 Either way the seats only read what's there:
 
