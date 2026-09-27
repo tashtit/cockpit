@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { listClaudeSessions, parseClaudeMessages, parseClaudeMeta } from '../src/main/parsers/claude'
 import { listCodexSessions, parseCodexMessages, parseCodexMeta } from '../src/main/parsers/codex'
-import { listCopilotSessions, parseCopilotMessages } from '../src/main/parsers/copilot'
+import { listCopilotSessions, parseCopilotMessages, parseCopilotMeta } from '../src/main/parsers/copilot'
 import { parseCodexStreamLine } from '../src/main/chat'
 import type { SessionMessage } from '../src/shared/types'
 import { toolPreview } from '../src/main/parsers/util'
@@ -1691,3 +1691,86 @@ describe('work agents keep outside their own log', () => {
 })
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))
+
+/**
+ * Where a session was opened — the one thing that tells "in the Claude app" from "in a
+ * terminal" — read off what each agent's own log says about its client, and nothing
+ * guessed: a client no log has named yet says nothing.
+ */
+describe('where a session was opened', () => {
+  const dir = join(root, 'surfaces')
+  const claude = (name: string, entrypoints: readonly unknown[]): string => {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${name}.jsonl`)
+    writeFileSync(
+      file,
+      jsonl(
+        entrypoints.map((entrypoint, i) => ({
+          type: i % 2 ? 'assistant' : 'user',
+          message: { role: i % 2 ? 'assistant' : 'user', content: `line ${i}` },
+          timestamp: `2026-08-01T10:00:0${i}Z`,
+          sessionId: name,
+          cwd: '/Users/titan/dev/myrepo',
+          ...(entrypoint === undefined ? {} : { entrypoint })
+        }))
+      )
+    )
+    return file
+  }
+
+  it("reads Claude's entrypoint — the one it was opened in, not where it was resumed since", () => {
+    expect(parseClaudeMeta(claude('desk', ['claude-desktop', 'claude-desktop']), 'x')?.surface).toBe('app')
+    expect(parseClaudeMeta(claude('term', ['cli', 'cli']), 'x')?.surface).toBe('terminal')
+    expect(parseClaudeMeta(claude('head', ['sdk-cli', 'sdk-cli']), 'x')?.surface).toBe('headless')
+    expect(parseClaudeMeta(claude('moved', ['claude-desktop', 'cli']), 'x')?.surface).toBe('app')
+    // an older log states none, and a client no log has named yet says nothing
+    expect(parseClaudeMeta(claude('old', [undefined, undefined]), 'x')?.surface).toBeUndefined()
+    expect(parseClaudeMeta(claude('new', ['claude-hologram', 'x']), 'x')?.surface).toBeUndefined()
+    expect(parseClaudeMeta(claude('odd', [{ app: true }, 7]), 'x')?.surface).toBeUndefined()
+  })
+
+  it("reads Codex's originator", () => {
+    const codex = (name: string, originator: unknown): string => {
+      mkdirSync(dir, { recursive: true })
+      const file = join(dir, `rollout-${name}.jsonl`)
+      writeFileSync(
+        file,
+        jsonl([
+          { timestamp: '2026-08-01T10:00:00Z', type: 'session_meta', payload: { id: name, cwd: '/x', originator } },
+          { timestamp: '2026-08-01T10:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] } }
+        ])
+      )
+      return file
+    }
+    expect(parseCodexMeta(codex('c-app', 'Codex Desktop'), 'x')?.surface).toBe('app')
+    expect(parseCodexMeta(codex('c-tui', 'codex-tui'), 'x')?.surface).toBe('terminal')
+    expect(parseCodexMeta(codex('c-exec', 'codex_exec'), 'x')?.surface).toBe('headless')
+    expect(parseCodexMeta(codex('c-ide', 'codex_vscode'), 'x')?.surface).toBe('ide')
+    expect(parseCodexMeta(codex('c-web', 'codex-chrome-extension-sidepanel'), 'x')?.surface).toBe('browser')
+    expect(parseCodexMeta(codex('c-new', 'codex_somewhere_else'), 'x')?.surface).toBeUndefined()
+  })
+
+  it("tells Copilot's app from its CLI by the build that opened it", () => {
+    const copilot = (id: string, start: Record<string, unknown>, kickoff?: string): string => {
+      const sdir = join(dir, 'copilot', 'session-state', id)
+      mkdirSync(sdir, { recursive: true })
+      const file = join(sdir, 'events.jsonl')
+      writeFileSync(
+        file,
+        jsonl([
+          { type: 'session.start', timestamp: '2026-08-22T18:51:09Z', data: { sessionId: id, context: { cwd: '/x' }, ...start } },
+          { type: 'user.message', timestamp: '2026-08-22T18:51:10Z', data: { content: 'hi', ...(kickoff ? { transformedContent: kickoff } : {}) } }
+        ])
+      )
+      return file
+    }
+    expect(parseCopilotMeta(copilot('p-app', { copilotVersion: '0.0.0' }), 'x')?.surface).toBe('app')
+    expect(parseCopilotMeta(copilot('p-cli', { copilotVersion: '1.0.80' }), 'x')?.surface).toBe('cli')
+    // the app's workspace block says so whatever the build
+    expect(
+      parseCopilotMeta(copilot('p-ws', {}, '<copilot_tauri_workspace>\nproject_name: site\n</copilot_tauri_workspace>\nhi'), 'x')
+        ?.surface
+    ).toBe('app')
+    expect(parseCopilotMeta(copilot('p-none', {}), 'x')?.surface).toBeUndefined()
+  })
+})

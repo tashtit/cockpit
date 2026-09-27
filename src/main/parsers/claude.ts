@@ -4,6 +4,7 @@ import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { parseAsks } from '../../shared/asks'
 import { followUpTaskId, publishedUrl, toolArtifact } from './artifacts'
 import { checkOutcome, exitCodeIn } from './checks'
+import { claudeSurface } from './surface'
 import {
   capText,
   contentToText,
@@ -64,6 +65,8 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
 
   let cwd: string | null = null
   let logBranch: string | null = null
+  /** The client the session was opened in — the first line to name one */
+  let entrypoint: unknown = undefined
   // Generated names: custom-title (user-set) beats ai-title beats legacy summary
   // beats first-prompt fallback. Later lines supersede earlier ones.
   let customTitle = ''
@@ -91,6 +94,7 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
     // outside the parser's own failure tolerance, on every scan — and path-sized ones
     if (!cwd) cwd = usableCwd(l.cwd)
     if (typeof l.gitBranch === 'string' && l.gitBranch && !logBranch) logBranch = l.gitBranch
+    if (entrypoint === undefined && typeof l.entrypoint === 'string') entrypoint = l.entrypoint
     const ts = toMs(l.timestamp)
     if (ts) {
       if (!firstTs) firstTs = ts
@@ -136,6 +140,7 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
   const title = truncate(customTitle || aiTitle || summary || firstPrompt)
 
   const ft = fileTimes(file)
+  const surface = claudeSurface(entrypoint)
   return {
     id: `claude:${nativeId}`,
     provider: 'claude',
@@ -144,6 +149,7 @@ export function parseClaudeMeta(file: string, sourceLabel: string): SessionMeta 
     title: title || '(untitled)',
     cwd,
     logBranch,
+    ...(surface ? { surface } : {}),
     startedAt: firstTs ?? ft.start,
     // truncated head can't see the last line's timestamp — mtime is the truth anyway
     updatedAt: head.truncated ? ft.end : (lastTs ?? ft.end),

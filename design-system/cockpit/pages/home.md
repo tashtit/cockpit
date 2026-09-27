@@ -84,6 +84,8 @@ Everything between them stays quiet.
 - Grammar per row (`.board-row`, a button that opens the session): status dot ·
   `.board-agent` placard (`.board-lead`, fixed 68px column, uppercase micro-caps) ·
   `.board-branch` slot (fixed 150px, holding the `BranchChip`) · title (truncates) ·
+  `.held-mark` (Cockpit's hexagon, only on a session Cockpit drives — the sidebar row's
+  mark and `sr-only` words, the whole story in the tooltip) ·
   `.board-repo` pill · `.board-meta` (mono, `tabular-nums`). The branch slot renders
   **even when empty**, so every title starts on one grid line; roundtable rows put their
   seat cluster in the same `.board-lead` column.
