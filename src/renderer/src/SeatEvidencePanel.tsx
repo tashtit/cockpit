@@ -3,12 +3,12 @@ import type { RoundtableParticipant } from '../../shared/types'
 import { api } from './api'
 import { buildEvidence, EVIDENCE_VERB, seatSessions, type EvidenceTurn } from './evidence'
 import { relativeTo } from './format'
-import { ipcErrorText } from './ipc-error'
 import { XIcon } from './logos'
 import { uiSeatName } from './roundtable-seats'
 import { SidePanel } from './SidePanel'
 import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
+import { useLoaded } from './use-loaded'
 
 /**
  * Beside a roundtable, what each seat's replies rest on — the commands it ran, what it
@@ -27,6 +27,22 @@ type SeatEvidence = {
   readonly shared: boolean
 }
 
+/** Every seat's evidence, read off the newest of the sessions it ran. */
+async function readEvidence(
+  tableId: string,
+  participants: readonly RoundtableParticipant[]
+): Promise<SeatEvidence[]> {
+  const page = await api.pageSessions({ roundtableId: tableId, limit: 200 })
+  return Promise.all(
+    seatSessions(participants, page.items).map(async ({ sessions, shared }) => {
+      const newest = [...sessions].sort((a, b) => b.startedAt - a.startedAt).slice(0, SESSIONS_PER_SEAT)
+      const logs = await Promise.all(newest.map((s) => api.getSessionMessages(s.id)))
+      const turns = logs.flatMap((log) => buildEvidence(log)).sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
+      return { turns, sessions: sessions.length, shared }
+    })
+  )
+}
+
 export function SeatEvidencePanel({
   table,
   participants,
@@ -41,8 +57,6 @@ export function SeatEvidencePanel({
   onClose: () => void
 }): JSX.Element {
   const [seat, setSeat] = useState(0)
-  const [evidence, setEvidence] = useState<readonly SeatEvidence[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -53,26 +67,10 @@ export function SeatEvidencePanel({
     if (bodyRef.current) bodyRef.current.scrollTop = 0
   }, [seat])
 
-  useEffect(() => {
-    let live = true
-    const read = async (): Promise<SeatEvidence[]> => {
-      const page = await api.pageSessions({ roundtableId: table.id, limit: 200 })
-      return Promise.all(
-        seatSessions(participants, page.items).map(async ({ sessions, shared }) => {
-          const newest = [...sessions].sort((a, b) => b.startedAt - a.startedAt).slice(0, SESSIONS_PER_SEAT)
-          const logs = await Promise.all(newest.map((s) => api.getSessionMessages(s.id)))
-          const turns = logs.flatMap((log) => buildEvidence(log)).sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
-          return { turns, sessions: sessions.length, shared }
-        })
-      )
-    }
-    read()
-      .then((e) => live && (setEvidence(e), setError(null)))
-      .catch((err: unknown) => live && setError(ipcErrorText(err)))
-    return () => {
-      live = false
-    }
-  }, [table.id, participants, refresh])
+  const { value: evidence, error } = useLoaded(
+    () => readEvidence(table.id, participants),
+    [table.id, participants, refresh]
+  )
 
   const name = (i: number): string => uiSeatName(participants, i)
   const tabs: readonly TabDef<string>[] = participants.map((_, i) => ({

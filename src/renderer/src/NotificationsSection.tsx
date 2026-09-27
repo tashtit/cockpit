@@ -1,7 +1,8 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useState, type JSX } from 'react'
 import type { AttentionPrefs, AttentionTone, NotificationDelivery } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
+import { useLoaded } from './use-loaded'
 
 const SWITCHES: ReadonlyArray<{
   readonly key: keyof AttentionPrefs
@@ -75,12 +76,8 @@ export function NotificationsSection({
   packaged: boolean | null
   onStatus: (msg: string) => void
 }): JSX.Element {
-  const [prefs, setPrefs] = useState<AttentionPrefs | null>(null)
+  const { value: prefs, set: setPrefs } = useLoaded(() => api.getAttentionPrefs(), [])
   const [test, setTest] = useState<TestState>('idle')
-
-  useEffect(() => {
-    void api.getAttentionPrefs().then(setPrefs)
-  }, [])
 
   const flip = async (key: keyof AttentionPrefs, on: boolean): Promise<void> => {
     if (!prefs) return

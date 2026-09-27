@@ -27,6 +27,7 @@ import {
 } from './logos'
 import { noop, RowMeta } from './SessionList'
 import { fmtTime, useTimeFormat } from './time'
+import { useLoaded } from './use-loaded'
 
 /** Views the palette can navigate to — App's View kinds, minus chat/new (those need a target). */
 export type PaletteViewKey = 'welcome' | 'extensions' | 'profile' | 'cleanup' | 'settings'
@@ -166,9 +167,6 @@ export function CommandPalette({
   const [debounced, setDebounced] = useState('')
   const [mode, setMode] = useState<Mode>('jump')
   const [allRepos, setAllRepos] = useState(false)
-  // null = first fetch in flight — never flash an empty state before results land
-  const [sessions, setSessions] = useState<SessionMeta[] | null>(null)
-  const [total, setTotal] = useState(0)
   // the last settled transcript search; kept on screen while the next one runs
   const [transcripts, setTranscripts] = useState<TranscriptSearchResult | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -211,24 +209,18 @@ export function CommandPalette({
     return () => clearTimeout(t)
   }, [query, mode])
 
-  useEffect(() => {
-    if (mode !== 'jump') return
-    let dead = false
-    void api
-      .pageSessions(
-        debounced
-          ? { search: debounced, limit: SESSION_LIMIT_QUERY }
-          : { limit: SESSION_LIMIT_RECENT }
-      )
-      .then((p) => {
-        if (dead) return
-        setSessions(p.items)
-        setTotal(p.total)
-      })
-    return () => {
-      dead = true
-    }
-  }, [debounced, mode])
+  const { value: jump } = useLoaded(
+    mode === 'jump'
+      ? () =>
+          api.pageSessions(
+            debounced ? { search: debounced, limit: SESSION_LIMIT_QUERY } : { limit: SESSION_LIMIT_RECENT }
+          )
+      : null,
+    [debounced, mode]
+  )
+  // null = first fetch in flight — never flash an empty state before results land
+  const sessions = jump?.items ?? null
+  const total = jump?.total ?? 0
 
   const scopeKey = !allRepos && scopeRepo ? scopeRepo.key : undefined
   const scopeLabel = scopeKey && scopeRepo ? repoName(scopeRepo) : 'all repos'

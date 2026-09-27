@@ -16,11 +16,11 @@ import { heldSessions, setHolderFilter, useHolderFilter } from './hold'
 import { ProjectFilter } from './ProjectFilter'
 import { RailResizer } from './RailResizer'
 import { RoundtableNode } from './RoundtableNode'
-import { keepSame } from './same'
 import { noop, SessionList, SessionRow } from './SessionList'
 import type { SettingsSection } from './Settings'
 import { UpdateBar } from './UpdateBar'
 import { UsageMeters } from './UsageMeters'
+import { useLoaded } from './use-loaded'
 import { useRoundtables } from './use-roundtables'
 import {
   AgentIcon,
@@ -540,19 +540,14 @@ const RepoNode = memo(function RepoNode({
   drop: 'before' | 'after' | null
   reorder: RepoReorder
 }): JSX.Element {
-  const [prs, setPrs] = useState<PrStatus[]>([])
+  const root = repo.root
+  const { value: prs } = useLoaded(open && root ? () => api.getPrs(root) : null, [open, repo.root, indexVersion], {
+    initial: NO_PRS,
+    keepSame: true
+  })
   const [showArchived, setShowArchived] = useState(false)
   const toggleThis = (): void => onToggle(repo.key)
   const holder = useHolderFilter()
-
-  useEffect(() => {
-    if (!open || !repo.root) return
-    let dead = false
-    void api.getPrs(repo.root).then((p) => !dead && setPrs((prev) => keepSame(prev, p)))
-    return () => {
-      dead = true
-    }
-  }, [open, repo.root, indexVersion])
 
   return (
     <div
@@ -902,21 +897,13 @@ function SearchResults({
   selectedId: string | null
   onSelect: (s: SessionMeta) => void
 }): JSX.Element {
+  const { value: page } = useLoaded(
+    () => api.pageSessions({ search: query, limit: 100, ...(holder ? { holder } : {}) }),
+    [query, holder, indexVersion]
+  )
   // null = search in flight — don't flash "no matches" while waiting
-  const [items, setItems] = useState<SessionMeta[] | null>(null)
-  const [total, setTotal] = useState(0)
-
-  useEffect(() => {
-    let dead = false
-    void api.pageSessions({ search: query, limit: 100, ...(holder ? { holder } : {}) }).then((p) => {
-      if (dead) return
-      setItems(p.items)
-      setTotal(p.total)
-    })
-    return () => {
-      dead = true
-    }
-  }, [query, holder, indexVersion])
+  const items = page?.items ?? null
+  const total = page?.total ?? 0
 
   if (items === null) return <div className="tree-empty">searching…</div>
 

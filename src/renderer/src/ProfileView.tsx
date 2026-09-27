@@ -2,16 +2,15 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, typ
 import type {
   ActivityDay,
   AgentSplit,
-  ProfileStats,
   PromptTally,
   Provider,
   ProviderProfile
 } from '../../shared/types'
 import { api } from './api'
 import { fmtAgo } from './format'
-import { ipcErrorText } from './ipc-error'
 import { ChatIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { TabList, TabPanel } from './Tabs'
+import { useLoaded } from './use-loaded'
 
 /**
  * The cross-agent work profile: an activity heatmap plus per-agent totals.
@@ -545,22 +544,13 @@ function Compare({ providers }: { providers: readonly ProviderProfile[] }): JSX.
 }
 
 export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
-  const [profile, setProfile] = useState<ProfileStats | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<ProfileTab>('activity')
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
     headingRef.current?.focus()
-    let live = true
-    api
-      .getProfile()
-      .then((p) => live && setProfile(p))
-      .catch((e) => live && setError(ipcErrorText(e)))
-    return () => {
-      live = false
-    }
   }, [])
+  const { value: profile, error } = useLoaded(() => api.getProfile(), [])
 
   // scale the grid by the busiest day *in the grid*: busiestDay is all-time and
   // can sit outside the rendered window, which would flatten every square to L1

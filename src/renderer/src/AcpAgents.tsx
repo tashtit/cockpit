@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useRef, useState, type JSX } from 'react'
 import type { AcpAgent, AcpAgentProbe, Provider } from '../../shared/types'
 import { acpAgentRefusal } from '../../shared/acp'
 import { api } from './api'
@@ -6,6 +6,7 @@ import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { useLoaded } from './use-loaded'
 
 /**
  * Agents Cockpit drives over ACP: the list, the add form, and removal.
@@ -15,7 +16,11 @@ import { Select } from './Select'
  * feeds Settings' sr-only announcer.
  */
 export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JSX.Element {
-  const [agents, setAgents] = useState<AcpAgent[]>([])
+  // optional call: during dev HMR the renderer can outrun a preload that predates
+  // this method — a missing bridge must not take the whole Settings view down
+  const { value: agents, set: setAgents } = useLoaded(api.getAcpAgents ? () => api.getAcpAgents() : null, [], {
+    initial: [] as AcpAgent[]
+  })
   const [label, setLabel] = useState('')
   const [provider, setProvider] = useState<Provider>('claude')
   const [command, setCommand] = useState('')
@@ -29,12 +34,6 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
   /** Folded until asked for — the list is the readout, adding one is a task */
   const [addOpen, setAddOpen] = useState(false)
   const confirm = useArmedConfirm()
-
-  useEffect(() => {
-    // optional call: during dev HMR the renderer can outrun a preload that predates
-    // this method — a missing bridge must not take the whole Settings view down
-    void api.getAcpAgents?.().then(setAgents)
-  }, [])
 
   const say = (msg: string): void => {
     setNotice(msg)

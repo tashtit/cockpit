@@ -35,6 +35,7 @@ import { promptsOf, samePrompts, usePromptNav, type Prompt } from './prompt-nav'
 import { PromptRail } from './PromptRail'
 import { foldToolRuns, isPendingAsk, transcriptRows } from './transcript-rows'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
+import { useLoaded } from './use-loaded'
 import { useWorkPanel } from './work-panel-state'
 import { WorkPanel } from './WorkPanel'
 
@@ -296,17 +297,12 @@ export function ChatView({
   // a session sitting on the branch a PR would target (the main checkout on `main`)
   // can't open one — gh refuses a PR from a branch onto itself. Unknown default =
   // offer it anyway: a missing answer must never hide a working affordance.
-  const [defaultBranch, setDefaultBranch] = useState<string | null>(null)
-  useEffect(() => {
-    setDefaultBranch(null)
-    const root = binding?.repoRoot
-    if (!root) return
-    let dead = false
-    void api.getDefaultBranch(root).then((b) => !dead && setDefaultBranch(b))
-    return () => {
-      dead = true
-    }
-  }, [binding?.repoRoot])
+  const repoRoot = binding?.repoRoot
+  const { value: defaultBranch } = useLoaded(
+    repoRoot ? () => api.getDefaultBranch(repoRoot) : null,
+    [binding?.repoRoot],
+    { reset: true }
+  )
   const onDefaultBranch = !!binding?.branch && binding.branch === defaultBranch
 
   // a long stretch of tool calls is one piece of work, not twenty rows of it: four or

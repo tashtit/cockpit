@@ -5,7 +5,6 @@ import type {
   DiffHunk,
   DiffHunkLine,
   DiffScope,
-  PrFeedback,
   PrReviewThread,
   PrStatus,
   Provider,
@@ -17,6 +16,7 @@ import { useDiffLayout, type DiffLayout } from './diff-layout'
 import { DiffLayoutToggle, DiffStat, GUTTER, SAID } from './InstructionDiff'
 import { LinkExternalIcon, PROVIDER_LABEL } from './logos'
 import { PrStrip } from './PrStrip'
+import { useLoaded } from './use-loaded'
 
 /**
  * Review before landing: the worktree's changes, in the transcript's place, read
@@ -111,9 +111,6 @@ export const ReviewPanel = memo(function ReviewPanel({
   onOpenUrl?: (url: string) => void
 }): JSX.Element {
   const [scope, setScope] = useState<DiffScope>('branch')
-  const [diff, setDiff] = useState<WorkspaceDiff | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const [version, setVersion] = useState(0)
   const [notes, setNotes] = useState<ReadonlyMap<string, ReviewNote>>(new Map())
   const [editing, setEditing] = useState<string | null>(null)
@@ -124,9 +121,6 @@ export const ReviewPanel = memo(function ReviewPanel({
   // the open PR's side of the review — read on demand, never polled
   const openPr = pr && pr.state === 'OPEN' && repoRoot ? pr : undefined
   const prNumber = openPr?.number
-  const [feedback, setFeedback] = useState<PrFeedback | null>(null)
-  const [fbError, setFbError] = useState<string | null>(null)
-  const [fbLoading, setFbLoading] = useState(false)
   const [fixing, setFixing] = useState(false)
   const [notice, setNotice] = useState<readonly string[]>([])
   /** A fix prompt that arrives after the panel closed must not land in another session's composer */
@@ -138,27 +132,12 @@ export const ReviewPanel = memo(function ReviewPanel({
     []
   )
 
-  useEffect(() => {
-    if (busy) return
-    let dead = false
-    setLoading(true)
-    api.getWorkspaceDiff(cwd, scope).then(
-      (d) => {
-        if (dead) return
-        setDiff(d)
-        setError(null)
-        setLoading(false)
-      },
-      (err) => {
-        if (dead) return
-        setError(ipcErrorText(err))
-        setLoading(false)
-      }
-    )
-    return () => {
-      dead = true
-    }
-  }, [cwd, scope, busy, version])
+  // mid-turn the tree is changing under the reader: read once the turn settles
+  const read = useLoaded(busy ? null : () => api.getWorkspaceDiff(cwd, scope), [cwd, scope, busy, version])
+  const { value: diff, error } = read
+  // until the first diff lands the bar says one is coming — a panel opened mid-turn too,
+  // where the read waits for the turn to settle
+  const loading = read.loading || (diff === null && error === null)
 
   // notes belong to the worktree they were written on
   useEffect(() => {
@@ -166,33 +145,18 @@ export const ReviewPanel = memo(function ReviewPanel({
     setEditing(null)
   }, [cwd])
 
+  const fb = useLoaded(
+    prNumber === undefined || !repoRoot || busy ? null : () => api.getPrFeedback(repoRoot, prNumber),
+    [repoRoot, prNumber, busy, version]
+  )
+  const { value: feedback, error: fbError, setError: setFbError, loading: fbLoading } = fb
+
+  // another PR, or none: what was read about the last one goes with it
   useEffect(() => {
-    setFeedback(null)
+    fb.set(null)
     setFbError(null)
     setNotice([])
   }, [repoRoot, prNumber])
-
-  useEffect(() => {
-    if (prNumber === undefined || !repoRoot || busy) return
-    let dead = false
-    setFbLoading(true)
-    api.getPrFeedback(repoRoot, prNumber).then(
-      (fb) => {
-        if (dead) return
-        setFeedback(fb)
-        setFbError(null)
-        setFbLoading(false)
-      },
-      (err) => {
-        if (dead) return
-        setFbError(ipcErrorText(err))
-        setFbLoading(false)
-      }
-    )
-    return () => {
-      dead = true
-    }
-  }, [repoRoot, prNumber, busy, version])
 
   // reviewers' threads sit under the lines they are about — but only against the
   // branch scope: the index's line numbers are not the PR's

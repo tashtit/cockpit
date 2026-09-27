@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useState, type JSX } from 'react'
 import {
   feedbackPrefills,
   feedbackUrl,
@@ -12,6 +12,7 @@ import { fmtAgo } from './format'
 import { ipcErrorText } from './ipc-error'
 import { CockpitLogo } from './logos'
 import { turnsWord, useRestartToUpdate } from './update-prompt'
+import { useLoaded } from './use-loaded'
 
 const UPDATE_SWITCHES: ReadonlyArray<{
   readonly key: keyof UpdatePrefs
@@ -154,13 +155,9 @@ export function AboutSection({
   onUpdate: (u: UpdateState) => void
   onStatus: (s: string) => void
 }): JSX.Element {
-  const [prefs, setPrefs] = useState<UpdatePrefs | null>(null)
+  const { value: prefs, set: setPrefs } = useLoaded(() => api.getUpdatePrefs(), [])
   const [licensesError, setLicensesError] = useState<string | null>(null)
   const restart = useRestartToUpdate()
-
-  useEffect(() => {
-    void api.getUpdatePrefs().then(setPrefs)
-  }, [])
 
   const checkUpdates = async (): Promise<void> => {
     onUpdate({ status: 'checking' })

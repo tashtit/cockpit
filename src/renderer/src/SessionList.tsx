@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type CSSProperties, type JSX } from 'react'
+import { memo, useMemo, useState, type CSSProperties, type JSX } from 'react'
 import type { AccountsSnapshot, Landing, PrStatus, SessionMeta, TimeFormat } from '../../shared/types'
 import { api } from './api'
 import { useBusyMap, useSessionBusy } from './busy'
@@ -7,24 +7,13 @@ import { HeldMark } from './HeldMark'
 import { holdSentence, useHolderFilter } from './hold'
 import { useLandedMap, useSessionLanded } from './landed'
 import { ArchiveIcon, landingLabel, LandingMark, PrBadge, ProviderLogo, PROVIDER_LABEL, Spinner } from './logos'
-import { keepSame } from './same'
 import { fmtTime, useTimeFormat } from './time'
+import { useLoaded } from './use-loaded'
 
 /** Rows a tree list asks for at a time — "more…" adds another page. */
 export const PAGE = 20
 /** Server-side page clamp — hide "more" past this. */
 const MAX_LOADED = 1000
-
-/**
- * A live-index refetch keeps the list it replaces when nothing in it changed, so the
- * rows keep their identity — but by every field, not a chosen few: a row draws its
- * branch (re-derived from the checkout on every scan) and the PR found by it, its place
- * in a family and a handoff chain, its account, and hands the whole session to
- * `onSelect`. A list compared on four of them left a moved branch on the old PR.
- */
-export function keepList(prev: SessionMeta[] | null, next: SessionMeta[]): SessionMeta[] {
-  return prev === null ? next : keepSame(prev, next)
-}
 
 /** Stable identity for a row with no PR to open: a new () => {} each render would
  *  re-trigger the memoized rows. */
@@ -102,31 +91,26 @@ export function SessionList({
   onOpenUrl: (url: string) => void
 }): JSX.Element {
   const [pages, setPages] = useState(1)
-  // null = first page still loading — "no sessions" must never flash during the fetch
-  const [items, setItems] = useState<SessionMeta[] | null>(null)
-  const [total, setTotal] = useState(0)
   const holder = useHolderFilter()
-
-  useEffect(() => {
-    let dead = false
-    void api
-      .pageSessions({
+  // a live-index refetch keeps the page it replaces when nothing in it changed, so the
+  // rows keep their identity (`keepSame`: by every field, not a chosen few — a row draws
+  // its branch, re-derived on every scan, and the PR found by it, its place in a family
+  // and a handoff chain, its account, and hands the whole session to `onSelect`)
+  const { value: page } = useLoaded(
+    () =>
+      api.pageSessions({
         repoKey,
         archived,
         offset: 0,
         limit: Math.min(PAGE * pages, MAX_LOADED),
         ...(holder ? { holder } : {})
-      })
-      .then((p) => {
-        if (dead) return
-        setTotal(p.total)
-        // keep row identity stable across live-index refetches when nothing changed
-        setItems((prev) => keepList(prev, p.items))
-      })
-    return () => {
-      dead = true
-    }
-  }, [repoKey, archived, pages, indexVersion, holder])
+      }),
+    [repoKey, archived, pages, indexVersion, holder],
+    { keepSame: true }
+  )
+  // null = first page still loading — "no sessions" must never flash during the fetch
+  const items = page?.items ?? null
+  const total = page?.total ?? 0
 
   const folds = useFoldedFamilies()
   const rows = useMemo(() => nesting(items ?? [], folds, selectedId), [items, folds, selectedId])

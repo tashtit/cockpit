@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import type { AppInfo, TimeFormat, UpdateState } from '../../shared/types'
+import type { TimeFormat, UpdateState } from '../../shared/types'
 import { AboutSection } from './AboutSection'
 import { AccountsSection } from './AccountsSection'
 import { AcpAgents } from './AcpAgents'
@@ -12,6 +12,7 @@ import { Select } from './Select'
 import { TabList, TabPanel } from './Tabs'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
 import { initBranchPrefix } from './branch-prefix'
+import { useLoaded } from './use-loaded'
 
 /** History window presets; value is days as a string, '0' = all history. */
 const HISTORY_OPTIONS = [
@@ -82,7 +83,7 @@ export function Settings({
   openCount?: number
 }): JSX.Element {
   const [tab, setTab] = useState<SettingsSection>(section ?? SETTINGS_SECTIONS[0].id)
-  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const { value: appInfo } = useLoaded(() => api.getAppInfo(), [])
   /** the shell's, not About's: main pushes transitions whatever tab is on screen */
   const [update, setUpdate] = useState<UpdateState | null>(null)
   /** sr-only announcements (same pattern as ChatView's status region) */
@@ -96,7 +97,6 @@ export function Settings({
     if (section) setTab(section)
   }, [section, openCount])
   useEffect(() => {
-    void api.getAppInfo().then(setAppInfo)
     void api.getUpdateState().then(setUpdate)
     // main pushes every transition (timer checks included) — announce the ones that matter
     return api.onUpdateState((s) => {
@@ -175,10 +175,7 @@ export function Settings({
 /** How far back sessions are listed — a view filter, never anything on disk. */
 function HistoryPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
   /** null until loaded — the Select only renders with a real value */
-  const [historyDays, setHistoryDays] = useState<number | null>(null)
-  useEffect(() => {
-    void api.getHistoryDays().then(setHistoryDays)
-  }, [])
+  const { value: historyDays, set: setHistoryDays } = useLoaded(() => api.getHistoryDays(), [])
 
   const change = async (days: number): Promise<void> => {
     setHistoryDays(days)

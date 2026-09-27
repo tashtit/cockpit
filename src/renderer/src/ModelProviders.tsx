@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useRef, useState, type JSX } from 'react'
 import type { EndpointAuth, ModelEndpoint, NewModelEndpoint, WireApi } from '../../shared/types'
 import { ENDPOINT_PRESETS, endpointAgents, type EndpointPreset } from '../../shared/endpoints'
 import { api } from './api'
@@ -7,6 +7,7 @@ import { onEscape } from './disarm'
 import { ipcErrorText } from './ipc-error'
 import { EndpointIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
+import { useLoaded } from './use-loaded'
 
 const DEFAULT_PRESET = ENDPOINT_PRESETS[0]
 
@@ -23,7 +24,13 @@ const agentsHint = (p: Pick<EndpointPreset, 'type'>): string =>
  * source state next to it. `onStatus` feeds Settings' sr-only announcer.
  */
 export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }): JSX.Element {
-  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([])
+  // optional call: during dev HMR the renderer can outrun a preload that predates
+  // this method — a missing bridge must not take the whole Settings view down
+  const { value: endpoints, set: setEndpoints } = useLoaded(
+    api.getModelEndpoints ? () => api.getModelEndpoints() : null,
+    [],
+    { initial: [] as ModelEndpoint[] }
+  )
   /** The provider the form starts from — it fills every field below with what works */
   const [preset, setPreset] = useState<EndpointPreset>(DEFAULT_PRESET)
   const [epLabel, setEpLabel] = useState(DEFAULT_PRESET.name)
@@ -43,12 +50,6 @@ export function ModelProviders({ onStatus }: { onStatus: (msg: string) => void }
   /** Folded until asked for — the list is the readout, adding one is a task */
   const [addOpen, setAddOpen] = useState(false)
   const confirm = useArmedConfirm()
-
-  useEffect(() => {
-    // optional call: during dev HMR the renderer can outrun a preload that predates
-    // this method — a missing bridge must not take the whole Settings view down
-    void api.getModelEndpoints?.().then(setEndpoints)
-  }, [])
 
   const pickPreset = (id: string): void => {
     const next = ENDPOINT_PRESETS.find((p) => p.id === id) ?? DEFAULT_PRESET

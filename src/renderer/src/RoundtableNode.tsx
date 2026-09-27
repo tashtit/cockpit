@@ -1,10 +1,11 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useState, type JSX } from 'react'
 import type { RoundtableMeta, SessionMeta } from '../../shared/types'
 import { api } from './api'
 import { ArchiveIcon, PROVIDER_LABEL, Spinner } from './logos'
 import { SeatCluster } from './SeatCluster'
-import { keepList, noop, PAGE, SessionRow } from './SessionList'
+import { noop, PAGE, SessionRow } from './SessionList'
 import { fmtTime, useTimeFormat } from './time'
+import { useLoaded } from './use-loaded'
 
 /**
  * A roundtable as a tree item — it sits inside its project (or Chats) like any
@@ -113,18 +114,11 @@ function SeatSessionList({
   selectedId: string | null
   onSelect: (s: SessionMeta) => void
 }): JSX.Element {
-  const [items, setItems] = useState<SessionMeta[] | null>(null)
-
-  useEffect(() => {
-    let dead = false
-    void api.pageSessions({ roundtableId: tableId, limit: PAGE }).then((p) => {
-      if (dead) return
-      setItems((prev) => keepList(prev, p.items))
-    })
-    return () => {
-      dead = true
-    }
-  }, [tableId, indexVersion])
+  const { value: items } = useLoaded(
+    () => api.pageSessions({ roundtableId: tableId, limit: PAGE }).then((p) => p.items),
+    [tableId, indexVersion],
+    { keepSame: true }
+  )
 
   if (items === null) return <div className="tree-empty">loading…</div>
   if (items.length === 0) return <div className="tree-empty">no seat sessions yet</div>

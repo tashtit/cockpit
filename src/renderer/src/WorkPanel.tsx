@@ -11,6 +11,7 @@ import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
 import { samePlain } from './same'
 import { storedValue } from './stored-value'
+import { useLoaded } from './use-loaded'
 import {
   CHECK_LABEL,
   checkSummary,
@@ -685,8 +686,6 @@ function SharedFileBlock({
 }): JSX.Element {
   const fmt = useTimeFormat()
   const [open, setOpen] = useState(openByDefault)
-  const [preview, setPreview] = useState<SessionFilePreview | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [ringed, setRinged] = useState(false)
   const ref = useRef<HTMLLIElement>(null)
   const name = file.path.split('/').pop() ?? file.path
@@ -704,18 +703,18 @@ function SharedFileBlock({
     return () => clearTimeout(t)
   }, [focusAt])
 
-  // read on opening, and again when the agent hands the same path over anew
-  useEffect(() => {
-    if (!open || !sessionId) return
-    let live = true
-    api
-      .readSessionFile(sessionId, file.path)
-      .then((p) => live && setPreview(p))
-      .catch((err: unknown) => live && setError(ipcErrorText(err)))
-    return () => {
-      live = false
-    }
-  }, [open, sessionId, file.path, file.key])
+  // read on opening, and again when the agent hands the same path over anew; the error
+  // line is shared with Open and Show in Finder
+  const {
+    value: preview,
+    error,
+    setError
+  } = useLoaded(open && sessionId ? () => api.readSessionFile(sessionId, file.path) : null, [
+    open,
+    sessionId,
+    file.path,
+    file.key
+  ])
 
   const act = (how: 'open' | 'reveal'): void => {
     if (!sessionId) return
