@@ -20,6 +20,7 @@ describe('usageSpent', () => {
   it('reads a measured window as tokens, with its requests when it counts them', () => {
     expect(usageSpent({ label: '5h', tokens })).toBe('1.3k tokens')
     expect(usageSpent({ label: '5h', tokens, requests: 12 })).toBe('1.3k tokens · 12 requests')
+    expect(usageSpent({ label: '5h', tokens, requests: 1 })).toBe('1.3k tokens · 1 request')
   })
 
   it('says a measured window with no requests in it had no activity', () => {

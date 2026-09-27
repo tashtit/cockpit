@@ -38,7 +38,7 @@ export function usageSpent(w: UsageWindow): string | null {
     if (w.requests === 0) return 'no activity'
     return (
       `${fmtCount(w.tokens.input + w.tokens.output)} tokens` +
-      (typeof w.requests === 'number' ? ` · ${fmtCount(w.requests)} requests` : '')
+      (typeof w.requests === 'number' ? ` · ${fmtCount(w.requests)} ${w.requests === 1 ? 'request' : 'requests'}` : '')
     )
   }
   if (typeof w.requests === 'number') {
