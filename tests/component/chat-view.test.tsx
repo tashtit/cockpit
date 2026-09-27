@@ -519,3 +519,46 @@ describe('ChatView hold bar under a turn in a terminal', () => {
     expect(screen.getByRole('button', { name: 'Release to Claude' })).toBeEnabled()
   })
 })
+
+describe('ChatView names where a session with its agent lives', () => {
+  const started: ChatBinding = { ...binding, nativeSessionId: 'abc-123' }
+
+  it('says the place its log names — and to close it there before taking it over', () => {
+    renderChat(vi.fn(), { binding: started, control: { holder: 'agent', how: 'outside', surface: 'app' } })
+    expect(screen.getByText('In the Claude app', { selector: '.hold-chip .chip-text' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(
+      /close it in the Claude app and take it over/
+    )
+  })
+
+  it('says where the turn it waits on is running', () => {
+    renderChat(vi.fn(), {
+      binding: started,
+      control: { holder: 'agent', how: 'outside', surface: 'app' },
+      elsewhere: true
+    })
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(
+      /Claude is working on it in the Claude app right now/
+    )
+    expect(screen.getByRole('button', { name: 'Send' })).toHaveAttribute(
+      'title',
+      expect.stringContaining('working on this session in the Claude app')
+    )
+  })
+
+  it('names a terminal', () => {
+    renderChat(vi.fn(), { binding: started, control: { holder: 'agent', how: 'outside', surface: 'terminal' } })
+    expect(screen.getByText('In a terminal', { selector: '.hold-chip .chip-text' })).toBeInTheDocument()
+  })
+
+  it('says a headless run was one, with no place to close it in', () => {
+    renderChat(vi.fn(), { binding: started, control: { holder: 'agent', how: 'outside', surface: 'headless' } })
+    expect(screen.getByText('In Claude', { selector: '.hold-chip .chip-text' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(/run headless outside Cockpit/)
+  })
+
+  it('does not name the place it was opened once it was released — it went wherever it was resumed', () => {
+    renderChat(vi.fn(), { binding: started, control: { holder: 'agent', how: 'released', since: 2, surface: 'app' } })
+    expect(screen.getByText('In Claude', { selector: '.hold-chip .chip-text' })).toBeInTheDocument()
+  })
+})

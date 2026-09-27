@@ -9,7 +9,7 @@ import { announceChat, useChatKeys, useChatLog, useChatStatus } from './chat-log
 import { Markdown } from './Markdown'
 import { MODES, savedMode } from './NewSession'
 import { cwdLabel } from '../../shared/library'
-import { holdSentence, holderName } from './hold'
+import { holdSentence, holderName, placeOf } from './hold'
 import {
   BranchChip,
   CockpitLogo,
@@ -350,9 +350,11 @@ export function ChatView({
   // a turn running in a terminal is not Cockpit's to interrupt, and resuming the
   // session under it would run a second turn on the same log — Send waits for it
   const sendBlocked = busy || elsewhere || withAgent
+  // where the turn elsewhere runs, when the log named the place it was opened in
+  const where = (control && binding && placeOf(control, binding.provider)) || 'a terminal or its own app'
   const elsewhereHint = binding
     ? elsewhere
-      ? `${PROVIDER_LABEL[binding.provider]} is working on this session in a terminal or its own app — Send waits for that turn to finish`
+      ? `${PROVIDER_LABEL[binding.provider]} is working on this session in ${where} — Send waits for that turn to finish`
       : withAgent
         ? `This session is with ${PROVIDER_LABEL[binding.provider]} — take it over to send from Cockpit`
         : undefined
@@ -361,7 +363,7 @@ export function ChatView({
   // resume the session under it, so the card says where the answer goes instead
   const askElsewhereNote =
     elsewhere && binding
-      ? `${PROVIDER_LABEL[binding.provider]} is waiting for this in a terminal or its own app — answer it there. Send waits for that turn to finish.`
+      ? `${PROVIDER_LABEL[binding.provider]} is waiting for this in ${where} — answer it there. Send waits for that turn to finish.`
       : withAgent && binding
         ? `This session is with ${PROVIDER_LABEL[binding.provider]} — answer it there, or take it over to answer here.`
         : undefined
@@ -454,7 +456,7 @@ export function ChatView({
                   onClick={() => setHoldOpen((v) => !v)}
                 >
                   <HeldIcon size={10} />
-                  <span className="chip-text">{holderName('cockpit', binding.provider)}</span>
+                  <span className="chip-text">{holderName(control, binding.provider)}</span>
                 </button>
               ) : (
                 <span
@@ -462,7 +464,7 @@ export function ChatView({
                   title={holdSentence(control, binding.provider)}
                 >
                   <ProviderLogo p={binding.provider} size={10} />
-                  <span className="chip-text">{holderName('agent', binding.provider)}</span>
+                  <span className="chip-text">{holderName(control, binding.provider)}</span>
                 </span>
               ))}
             {binding.continuedFrom && (
@@ -1130,15 +1132,20 @@ function HoldBar({
 }): JSX.Element {
   const agent = PROVIDER_LABEL[provider]
   const held = control.holder === 'cockpit'
+  const place = placeOf(control, provider)
   const why = held
     ? control.how === 'taken-over'
       ? `taken over from ${agent}, so Cockpit sends its turns. Release it to hand it back.`
       : `started here, so Cockpit sends its turns. Release it to carry on in ${agent} instead.`
     : elsewhere
-      ? `${agent} is working on it outside Cockpit right now — take it over once that turn ends.`
+      ? `${agent} is working on it ${place ? `in ${place}` : 'outside Cockpit'} right now — take it over once that turn ends.`
       : control.how === 'released'
         ? `released from Cockpit, which only follows its log. Take it over to send from here.`
-        : `opened outside Cockpit — in a terminal or ${agent}’s own app. Cockpit only follows its log; take it over to send from here.`
+        : place
+          ? `opened outside Cockpit. Cockpit only follows its log; to send from here, close it in ${place} and take it over.`
+          : control.surface === 'headless'
+            ? `run headless outside Cockpit — a script, or ${agent}’s own -p mode. Cockpit only follows its log; take it over to send from here.`
+            : `opened outside Cockpit — in a terminal or ${agent}’s own app. Cockpit only follows its log; take it over to send from here.`
   // a turn running would be pulled from under: Cockpit's own holds up a release, the
   // agent's a take-over, and either one a second CLI opened on the same log
   const ourTurn = 'Cockpit is running a turn in it — stop it, or let it finish, first'
@@ -1158,7 +1165,7 @@ function HoldBar({
         {held ? <HeldIcon size={12} /> : <ProviderLogo p={provider} size={12} />}
       </span>
       <p className="hold-text">
-        <strong>{holderName(control.holder, provider)}</strong> — {why}
+        <strong>{holderName(control, provider)}</strong> — {why}
       </p>
       <div className="hold-actions">
         <button

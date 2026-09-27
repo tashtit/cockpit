@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { planArtifact, sharedArtifact, todoTableArtifact, toolArtifact } from './artifacts'
 import { checkOutcome, exitCodeIn } from './checks'
+import { copilotSurface } from './surface'
 import { parseAsks } from '../../shared/asks'
 import {
   capText,
@@ -167,6 +168,9 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
   let sawStart = false
   let sawPrompt = false
   let creator: string | null = null
+  /** The build that opened it, and whether the app's workspace block framed its kickoff */
+  let version: unknown = undefined
+  let appWorkspace = false
 
   for (const ev of events) {
     const ts = toMs(ev.timestamp)
@@ -176,10 +180,15 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
       if (ev.type === 'system.message') creator = creatorId(ev.data?.content)
       else if (ev.type === 'user.message') creator = creatorId(ev.data?.transformedContent)
     }
+    if (!sawPrompt && !appWorkspace) {
+      const kickoff = ev.type === 'system.message' ? ev.data?.content : ev.type === 'user.message' ? ev.data?.transformedContent : null
+      appWorkspace = typeof kickoff === 'string' && kickoff.includes('<copilot_tauri_workspace>')
+    }
     if (ev.type === 'user.message') sawPrompt = true
     if (ev.type === 'session.start' && ev.data) {
       sawStart = true
       if (ev.data.sessionId) nativeId = String(ev.data.sessionId)
+      if (version === undefined) version = ev.data.copilotVersion
       const ctx = ev.data.context ?? {}
       cwd = usableCwd(ctx.cwd) ?? cwd
       // branch/repository stopped being written after CLI 1.0.80 — current sessions
@@ -209,6 +218,7 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
   if (generated) title = truncate(generated)
 
   const ft = fileTimes(file)
+  const surface = copilotSurface(version, appWorkspace)
   return {
     id: `copilot:${nativeId}`,
     provider: 'copilot',
@@ -218,6 +228,7 @@ function parseEventsMeta(file: string, sourceLabel: string): SessionMeta | null 
     cwd,
     logBranch,
     repoFullName,
+    ...(surface ? { surface } : {}),
     startedAt: firstTs ?? ft.start,
     updatedAt: ft.end,
     messageCount,

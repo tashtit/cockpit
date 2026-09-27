@@ -29,7 +29,7 @@ Every session is driven from one place at a time:
 - **In Cockpit** — Cockpit started it (a new task, a handoff, a follow-up), or you took it over. Cockpit sends its turns, and its row carries Cockpit's hexagon after the title.
 - **In its agent** — it came from a terminal or the agent's own app, or you released it back there. Cockpit shows its log as it grows but sends nothing to it until you take it over.
 
-Hover a row to see which, and how it got there (*In Cockpit — taken over from Claude*, *In Codex — opened outside Cockpit*). To change hands, open the session: see [Taking over and releasing](/guide/chat#taking-over-and-releasing).
+Rows on the home board and in the <kbd>⌘K</kbd> palette carry the same hexagon. Hover a row to see which, and how it got there. For a session from outside Cockpit that includes where it was opened, as its log records it: *In the Claude app*, *In a terminal*, *In an editor*, *In the Codex app*. A session a script ran with `claude -p` or `codex exec` reads *run headless*. Copilot's CLI doesn't record whether it ran in a terminal or headless, so its sessions read *In the Copilot CLI*. To change hands, open the session: see [Taking over and releasing](/guide/chat#taking-over-and-releasing).
 
 To see only one side, open the eye button beside the search field and pick **In Cockpit** or **Outside Cockpit** under *Sessions*. The tree keeps only the projects with sessions on that side, the counts follow, and search stays inside the filter. The choice outlives a restart, so while it's on a strip under the search field says *Only sessions in Cockpit* — **Show all** there puts every session back.
 

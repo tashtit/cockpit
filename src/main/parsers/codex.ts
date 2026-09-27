@@ -5,6 +5,7 @@ import { parseAsks } from '../../shared/asks'
 import { fileChangeArtifact, toolArtifact } from './artifacts'
 import { checkOutcome, commandItemCheck, exitCodeIn } from './checks'
 import { cellToolCalls } from './code-mode'
+import { codexSurface } from './surface'
 import {
   capText,
   contentToText,
@@ -503,6 +504,8 @@ export function readCodexMeta(file: string, sourceLabel: string): CodexMetaRead 
   let lastTs: number | null = null
   let messageCount = 0
   let historyBase: SessionMeta['historyBase']
+  /** The client the thread was opened in — the first `session_meta` to name one */
+  let surface: SessionMeta['surface']
   const countEchoes = usesEventEchoes(lines)
 
   for (const l of lines) {
@@ -525,6 +528,7 @@ export function readCodexMeta(file: string, sourceLabel: string): CodexMetaRead 
       // only a commit hash. The indexer reads the checkout itself when it's missing.
       if (typeof p.git?.branch === 'string' && p.git.branch) logBranch = p.git.branch
       if (!historyBase && threadId) historyBase = continuesThread(p.history_base, threadId)
+      surface ??= codexSurface(p.originator)
     }
     const isMessage =
       isItemMessage(l) ||
@@ -558,6 +562,7 @@ export function readCodexMeta(file: string, sourceLabel: string): CodexMetaRead 
     title: title || '(untitled)',
     cwd,
     logBranch,
+    ...(surface ? { surface } : {}),
     startedAt: firstTs ?? ft.start,
     updatedAt: head.truncated ? ft.end : (lastTs ?? ft.end),
     messageCount,

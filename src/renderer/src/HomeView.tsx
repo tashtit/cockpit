@@ -11,12 +11,14 @@ import type {
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
+import { holdSentence } from './hold'
 import { useLandedMap } from './landed'
 import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './NewSession'
 import {
   BranchChip,
   CheckIcon,
   landingLabel,
+  HeldIcon,
   LandingMark,
   landingWord,
   LiveDot,
@@ -693,13 +695,15 @@ function BoardRow({
   const fix = !flying && landing?.kind === 'pr'
   const landed = !flying && landing?.kind === 'landed'
   const state = asks ? 'asks' : flying ? 'flying' : fix ? 'fix' : landed ? 'landed' : ''
+  // who drives it, as on the sidebar row: Cockpit's hexagon only where Cockpit does
+  const held = s.control?.holder === 'cockpit'
   return (
     <li>
       <button
         className={`board-row ${state}`}
         title={`${PROVIDER_LABEL[s.provider]} — ${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${
-          landed ? '\nfinished while you were away' : landing && !flying ? `\n${landingLabel(landing)}` : ''
-        }`}
+          s.control ? `\n${holdSentence(s.control, s.provider)}` : ''
+        }${landed ? '\nfinished while you were away' : landing && !flying ? `\n${landingLabel(landing)}` : ''}`}
         onClick={() => onOpen(s)}
       >
         {landing && !flying ? (
@@ -716,6 +720,12 @@ function BoardRow({
         {/* the slot renders even without a branch, so every task starts on one grid line */}
         <span className="board-branch">{s.gitBranch && <BranchChip branch={s.gitBranch} />}</span>
         <span className="board-task">{s.title}</span>
+        {held && (
+          <span className="held-mark" aria-hidden="true">
+            <HeldIcon size={10} />
+          </span>
+        )}
+        {held && <span className="sr-only">(in Cockpit)</span>}
         {s.repo && <span className="board-repo">{s.repo.name}</span>}
         {flying ? (
           <span className="board-meta">{fmtElapsed(now - startedAt)}</span>
