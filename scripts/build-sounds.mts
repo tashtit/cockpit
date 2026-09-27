@@ -10,12 +10,12 @@ import { encodeWav, loudness, render, SAMPLE_RATE, SOUND_NAMES } from './sounds-
 const dir = join(import.meta.dirname, '..', 'resources', 'sounds')
 mkdirSync(dir, { recursive: true })
 for (const name of SOUND_NAMES) {
-  const samples = render(name)
+  const sound = render(name)
   const file = join(dir, `${name}.wav`)
-  writeFileSync(file, encodeWav(samples))
-  const peak = samples.reduce((m, v) => Math.max(m, Math.abs(v)), 0)
+  writeFileSync(file, encodeWav(sound))
+  const peak = [...sound.left, ...sound.right].reduce((m, v) => Math.max(m, Math.abs(v)), 0)
   console.log(
-    `${file}: ${(samples.length / SAMPLE_RATE).toFixed(2)}s, ` +
-      `loudest 50ms ${loudness(samples).toFixed(1)} dBFS, peak ${(20 * Math.log10(peak)).toFixed(1)} dBFS`
+    `${file}: ${(sound.left.length / SAMPLE_RATE).toFixed(2)}s, ` +
+      `${loudness(sound).toFixed(1)} LUFS, peak ${(20 * Math.log10(peak)).toFixed(1)} dBFS`
   )
 }
