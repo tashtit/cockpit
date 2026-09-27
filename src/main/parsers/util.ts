@@ -13,6 +13,15 @@ import { join } from 'node:path'
 import type { SessionMeta } from '../../shared/types'
 import { clip, sliceCodePoints } from '../../shared/text'
 
+type OpenOptions = {
+  /** Refuse a symlink at the path itself: the caller judged the path by lstat and must read that very file */
+  readonly noFollow?: boolean
+}
+
+function readFlags(opts: OpenOptions): number {
+  return constants.O_RDONLY | constants.O_NONBLOCK | (opts.noFollow ? constants.O_NOFOLLOW : 0)
+}
+
 /**
  * Open a file for reading only if it is a regular file, and say how big it is.
  * Session roots and checkouts are written by other programs and anything can sit in
@@ -21,10 +30,10 @@ import { clip, sliceCodePoints } from '../../shared/text'
  * non-blocking so a FIFO returns at once, and the fstat of what was opened decides —
  * not a stat of the path, which a swap between the two would fool.
  */
-function openRegular(file: string): { readonly fd: number; readonly size: number } | null {
+function openRegular(file: string, opts: OpenOptions = {}): { readonly fd: number; readonly size: number } | null {
   let fd: number
   try {
-    fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK)
+    fd = openSync(file, readFlags(opts))
   } catch {
     return null
   }
@@ -59,6 +68,26 @@ export function isRegularFile(path: string): boolean {
   }
 }
 
+/** The start of a file as bytes: how big the whole file is, and whether the bytes are all of it. */
+export type HeadBytes = { readonly bytes: Buffer; readonly size: number; readonly truncated: boolean }
+
+/**
+ * At most maxBytes from the start of a file, as bytes; null when it is missing or
+ * anything but a regular file (see openRegular), or cannot be read.
+ */
+export function readHeadBytes(file: string, maxBytes: number, opts: OpenOptions = {}): HeadBytes | null {
+  const f = openRegular(file, opts)
+  if (!f) return null
+  try {
+    const bytes = readAt(f.fd, Math.min(f.size, maxBytes), 0)
+    return { bytes, size: f.size, truncated: f.size > maxBytes }
+  } catch {
+    return null
+  } finally {
+    closeSync(f.fd)
+  }
+}
+
 /**
  * Read at most maxBytes from the start of a file. Session logs put their metadata
  * in the first lines — this lets meta parsing stay O(1) even for 50MB+ transcripts.
@@ -68,17 +97,9 @@ export function readHead(
   file: string,
   maxBytes: number
 ): { text: string; truncated: boolean; size: number } {
-  const f = openRegular(file)
-  if (!f) return { text: '', truncated: false, size: 0 }
-  try {
-    const want = Math.min(f.size, maxBytes)
-    const text = want > 0 ? readAt(f.fd, want, 0).toString('utf8') : ''
-    return { text, truncated: f.size > maxBytes, size: f.size }
-  } catch {
-    return { text: '', truncated: false, size: 0 }
-  } finally {
-    closeSync(f.fd)
-  }
+  const head = readHeadBytes(file, maxBytes)
+  if (!head) return { text: '', truncated: false, size: 0 }
+  return { text: head.bytes.toString('utf8'), truncated: head.truncated, size: head.size }
 }
 
 /**

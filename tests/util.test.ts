@@ -10,6 +10,7 @@ import {
   judgeJsonlTail,
   parseJsonc,
   readHead,
+  readHeadBytes,
   readJson,
   readSmallFile,
   readTail,
@@ -74,6 +75,7 @@ describe('reading only regular files', () => {
     stops.push(makeFifo(pipe))
     const started = Date.now()
     expect(readHead(pipe, 1000)).toEqual({ text: '', truncated: false, size: 0 })
+    expect(readHeadBytes(pipe, 1000)).toBeNull()
     expect(readTail(pipe, 1000)).toEqual({ text: '', truncated: false, size: 0 })
     expect(readJsonlTail(pipe)).toEqual({ lines: [], truncated: false, bytes: 0 })
     expect(readSmallFile(pipe, 1000)).toBeNull()
@@ -101,6 +103,19 @@ describe('reading only regular files', () => {
     symlinkSync(target, link)
     expect(isRegularFile(target)).toBe(true)
     expect(isRegularFile(link)).toBe(false)
+    // a reader that judged the path itself by lstat must not be handed a link swapped in
+    expect(readHeadBytes(link, 100)?.bytes.toString()).toBe('{}\n')
+    expect(readHeadBytes(link, 100, { noFollow: true })).toBeNull()
+  })
+
+  it('reads the head of a file as bytes, and says whether that was all of it', () => {
+    const f = join(root, 'bytes.bin')
+    writeFileSync(f, Buffer.from([1, 0, 2, 3]))
+    const head = readHeadBytes(f, 2)
+    expect(head && [...head.bytes]).toEqual([1, 0])
+    expect(head).toMatchObject({ size: 4, truncated: true })
+    expect(readHeadBytes(f, 4)).toMatchObject({ size: 4, truncated: false })
+    expect(readHeadBytes(join(root, 'nowhere.bin'), 4)).toBeNull()
   })
 })
 
