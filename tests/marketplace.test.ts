@@ -1,14 +1,14 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   catalogUrls,
   githubRepoOf,
   matchesCatalogQuery,
   parseCatalog
 } from '../src/shared/marketplace'
-import { listCatalogs, localCatalogVersions } from '../src/main/marketplace'
+import { listCatalogs, localCatalogVersions, lookupCatalog } from '../src/main/marketplace'
 import { RECOMMENDED_MARKETPLACE } from '../src/shared/library'
 
 /**
@@ -176,6 +176,56 @@ describe('what the marketplaces on this machine hold', () => {
     const codex = listCatalogs().find((c) => c.name === 'codex-only')
     expect(codex?.agents).toEqual(['codex'])
     expect(codex?.plugins.map((p) => p.id)).toEqual(['trace@codex-only'])
+  })
+
+  describe('looking one up on GitHub', () => {
+    /** Serves `files` by URL; anything else is a 404. Returns the URLs asked for. */
+    function serve(files: Record<string, unknown>): string[] {
+      const asked: string[] = []
+      vi.stubGlobal('fetch', async (url: string) => {
+        asked.push(url)
+        return url in files
+          ? new Response(typeof files[url] === 'string' ? (files[url] as string) : JSON.stringify(files[url]), { status: 200 })
+          : new Response('not found', { status: 404 })
+      })
+      return asked
+    }
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('refuses anything that is not a GitHub repository, without asking the network', async () => {
+      const asked = serve({})
+      await expect(lookupCatalog('file:///etc')).rejects.toThrow(/owner\/repo or a github.com URL/)
+      await expect(lookupCatalog('https://gitlab.com/acme/plugins')).rejects.toThrow(/owner\/repo/)
+      expect(asked).toEqual([])
+    })
+
+    // the name the agents already know a marketplace by is the half of every plugin id
+    // an install is spelled with, so it wins over the file's own
+    it('reads the older spelling when the newer one is missing, under the name agents know it by', async () => {
+      const [newer, older] = catalogUrls('acme/agent-plugins')
+      const asked = serve({ [older]: { name: 'acme-upstream', plugins: [{ name: 'lint', version: '2.0.0' }] } })
+      const found = await lookupCatalog('https://github.com/acme/agent-plugins.git')
+      expect(asked).toEqual([newer, older])
+      expect(found).toMatchObject({ name: 'acme-market', agents: ['claude'], origin: 'remote' })
+      expect(found.plugins.map((p) => p.id)).toEqual(['lint@acme-market'])
+    })
+
+    it('keeps what it fetched for the afternoon, and never keeps a failure', async () => {
+      const [newer] = catalogUrls('acme/kept')
+      let asked = serve({})
+      await expect(lookupCatalog('acme/kept')).rejects.toThrow(/no catalogue file in that repository/)
+      asked = serve({ [newer]: { name: 'kept', plugins: [{ name: 'a' }] } })
+      expect((await lookupCatalog('acme/kept')).plugins).toHaveLength(1)
+      asked = serve({})
+      expect((await lookupCatalog('acme/kept')).name).toBe('kept')
+      expect(asked).toEqual([])
+    })
+
+    it('says so when the file is not a catalogue at all', async () => {
+      const [newer, older] = catalogUrls('acme/odd')
+      serve({ [newer]: '{"not": "a catalogue"}', [older]: 'plain text' })
+      await expect(lookupCatalog('acme/odd')).rejects.toThrow(/not a marketplace catalogue/)
+    })
   })
 
   it('says what each catalogue offers a plugin at, for the update check', () => {

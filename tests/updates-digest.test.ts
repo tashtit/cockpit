@@ -1,16 +1,22 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { UpdateState, UpdateSuggestion } from '../src/shared/types'
 import { digestHeadline, sortSuggestions, SUGGESTION_TAG } from '../src/shared/updates-digest'
-import { agentDrift, appUpdate, pluginUpdates } from '../src/main/updates-digest'
+import {
+  agentDrift,
+  appUpdate,
+  forgetUpdatesDigest,
+  pluginUpdates,
+  updatesDigest
+} from '../src/main/updates-digest'
 
 /*
  * The home's "is anything out of date?" strip. The fold is pure and is tested as
  * such; the sources that read disk are tested against a throwaway HOME, one at a
- * time. `updatesDigest` itself is not tested here: it is the assembly, and asking it
- * anything spawns three agent CLIs.
+ * time. `updatesDigest` — the assembly and its cache — runs against an empty HOME with
+ * no agent CLI on PATH but the stubs a test puts there.
  */
 
 const item = (over: Partial<UpdateSuggestion> & Pick<UpdateSuggestion, 'kind' | 'name'>): UpdateSuggestion => ({
@@ -213,5 +219,78 @@ describe('against a machine’s own agent config', () => {
     const row = agentDrift().items.find((i) => i.name === 'gcloud')
     expect(row?.agents).toEqual(['copilot'])
     expect(row?.detail).toBe('MCP servers — removed outside Cockpit')
+  })
+})
+
+describe('gathering it all, on demand', () => {
+  const saved = { HOME: process.env.HOME, PATH: process.env.PATH, ud: process.env.COCKPIT_USER_DATA, latest: process.env.COCKPIT_CLI_LATEST }
+  const roots: string[] = []
+  let home = ''
+  let bin = ''
+  const app = { state: { status: 'available', version: '2.0.0' } as UpdateState, version: '1.0.0' }
+
+  beforeEach(() => {
+    const root = mkdtempSync(join(tmpdir(), 'cockpit-gather-'))
+    roots.push(root)
+    home = join(root, 'home')
+    bin = join(root, 'bin')
+    mkdirSync(home, { recursive: true })
+    mkdirSync(bin, { recursive: true })
+    mkdirSync(join(root, 'ud'), { recursive: true })
+    writeFileSync(join(root, 'ud', 'cockpit-config.json'), JSON.stringify({ sources: [] }))
+    process.env.HOME = home
+    process.env.COCKPIT_USER_DATA = join(root, 'ud')
+    // no agent CLI but a test's stubs, and no registry asked for the newest release
+    process.env.PATH = `${bin}:/usr/bin:/bin`
+    process.env.COCKPIT_CLI_LATEST = JSON.stringify({ claude: '1.0.0', codex: '1.0.0', copilot: '1.0.0' })
+    forgetUpdatesDigest()
+  })
+
+  afterEach(() => {
+    for (const [key, value] of [['HOME', saved.HOME], ['PATH', saved.PATH], ['COCKPIT_USER_DATA', saved.ud], ['COCKPIT_CLI_LATEST', saved.latest]] as const) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
+  })
+
+  it('asks once, and hands the same answer back until something changes', async () => {
+    const first = await updatesDigest({ app })
+    expect(first.items.map((i) => i.kind)).toEqual(['app'])
+    expect(first.problems).toEqual([])
+    expect(await updatesDigest({ app })).toBe(first)
+  })
+
+  it('shares one gathering between callers that ask at once', async () => {
+    const [a, b] = await Promise.all([updatesDigest({ app }), updatesDigest({ app })])
+    expect(a).toBe(b)
+  })
+
+  it('asks afresh when told to, and after a write says the answer is stale', async () => {
+    const first = await updatesDigest({ app })
+    const forced = await updatesDigest({ app, force: true })
+    expect(forced).not.toBe(first)
+    forgetUpdatesDigest()
+    expect(await updatesDigest({ app })).not.toBe(forced)
+  })
+
+  // a marketplace's clone is what the plugin rows read, and a third-party one never
+  // refreshes itself — so the person's Check again pulls them first, and only then
+  it('pulls the agents’ marketplaces only on Check again, and names one that could not be', async () => {
+    mkdirSync(join(home, '.claude', 'plugins'), { recursive: true })
+    writeFileSync(join(home, '.claude', 'plugins', 'known_marketplaces.json'), JSON.stringify({ acme: { source: 'acme/plugins' } }))
+    const log = join(home, 'claude-calls.log')
+    writeFileSync(
+      join(bin, 'claude'),
+      ['#!/bin/sh', `echo "$@" >> '${log}'`, '[ "$1 $2" = "plugin marketplace" ] && { echo "offline" >&2; exit 1; }', 'exit 0'].join('\n')
+    )
+    chmodSync(join(bin, 'claude'), 0o755)
+    await updatesDigest({ app })
+    const pulls = (): string[] =>
+      existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter((l) => l.startsWith('plugin marketplace')) : []
+    expect(pulls()).toEqual([])
+    const forced = await updatesDigest({ app, force: true })
+    expect(pulls()).toEqual(['plugin marketplace update'])
+    expect(forced.problems).toEqual([expect.stringMatching(/^couldn’t refresh claude’s marketplaces — .*offline/)])
   })
 })
