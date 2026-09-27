@@ -48,7 +48,9 @@ narrower than it is at the smallest window, so on a small window the edge simply
 sooner. The edge is in the Tab order too, after the sidebar's footer: <kbd>←</kbd> /
 <kbd>→</kbd> move it a step, <kbd>Home</kbd> / <kbd>End</kbd> take it to either end.
 Double-click the edge to go back to the default width. The width is remembered on this Mac;
-a narrower window holds it back and hands it back when you widen again.
+a narrower window holds it back and hands it back when you widen again. The panel beside a
+conversation — [Work](/guide/chat#plans-to-dos-and-edits-the-work-panel), or a roundtable's
+Evidence — is dragged by its left edge the same way.
 
 ⌘+ and ⌘− zoom the whole interface between 70% and 200%; ⌘0 returns to 100%, as does clicking
 the percentage beside the wordmark, which appears whenever you are not at 100%. The level is

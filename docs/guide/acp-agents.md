@@ -40,7 +40,8 @@ code, such as `U+202E`, rather than passed through. Only *Allow once* is highlig
 
 This is also what finally makes the **Auto-edit** permission mode mean what it says: file
 work goes ahead without asking, and anything that *executes* still stops for you. Safe
-asks about everything; Yolo asks about nothing.
+asks about everything; Yolo asks about nothing. Claude Code sessions get the same card
+without ACP — Cockpit answers the CLI's own permission prompts — with *Allow* and *Deny*.
 
 ::: tip Not the same as "the agent asked you a question"
 A session running in your own terminal can also stop to ask something, and Cockpit will

@@ -55,7 +55,8 @@ under one would run a second turn on the same log (Claude forks the conversation
 and Copilot append to the same file). The button lifts on its own once the log goes
 quiet — the windows are the ones in [Flying and landed](/guide/sessions#flying-and-landed):
 a minute and a half after the last write, ten minutes while a tool call is still waiting
-for its result. Your draft stays in the composer meanwhile.
+for its result, and for as long as the agent is still waiting there on a question it asked.
+Your draft stays in the composer meanwhile.
 
 Once you take it over and send from Cockpit, the turn streams in as usual and the
 transcript is Cockpit's until it ends; a turn typed in the terminal after that shows up
@@ -174,6 +175,14 @@ item; a check's row also says whether it passed or failed. The header's **Work**
 appears once the conversation holds any of them. It opens the panel on whatever matters
 now: a plan waiting for you, else a list still in progress, else a check that failed,
 else what the agent shared, else the edits, else its follow-ups. Escape closes the panel and returns you to where you were.
+
+The panel's width is yours. Drag its left edge — the cursor changes over it — to give a
+long diff more room, or the conversation more; the conversation always keeps enough room
+to read, so on a smaller window the edge stops sooner. The edge is in the Tab order too,
+just before the panel's tabs: <kbd>←</kbd> / <kbd>→</kbd> move it a step, <kbd>Home</kbd> /
+<kbd>End</kbd> take it to its narrowest and widest. Double-click the edge to go back to the
+default width. The width is remembered on this Mac, and a roundtable's **Evidence** panel
+shares it.
 
 When the window is too narrow to hold the conversation and the panel side by side, the
 panel covers the conversation until you close it, the same way **Changes** does.

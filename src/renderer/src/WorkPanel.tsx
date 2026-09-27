@@ -6,6 +6,7 @@ import { ipcErrorText } from './ipc-error'
 import { DiffLines, DiffStat } from './InstructionDiff'
 import { PROVIDER_LABEL, TodoMark, XIcon } from './logos'
 import { Markdown } from './Markdown'
+import { SidePanel } from './SidePanel'
 import { TabList, type TabDef } from './Tabs'
 import { fmtTime, useTimeFormat } from './time'
 import { samePlain } from './same'
@@ -138,16 +139,7 @@ export const WorkPanel = memo(function WorkPanel({
   ]
 
   return (
-    <aside
-      id="work-panel"
-      className="work-panel"
-      aria-label="Work"
-      onKeyDown={(e) => {
-        if (e.key !== 'Escape') return
-        e.preventDefault()
-        onClose()
-      }}
-    >
+    <SidePanel id="work-panel" label="Work" onClose={onClose}>
       <div className="work-head" ref={tabsRef}>
         <TabList id="work" label="Work" tabs={tabs} selected={focus.tab} onSelect={onTab} />
         <button className="icon-btn small work-close" aria-label="Close the Work panel" title="Close (Esc)" onClick={onClose}>
@@ -191,7 +183,7 @@ export const WorkPanel = memo(function WorkPanel({
           <EditsTab model={model} focus={focus} cwd={cwd} scroller={bodyRef} onOpenChanges={onOpenChanges} />
         )}
       </div>
-    </aside>
+    </SidePanel>
   )
 })
 

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { homedir } from 'node:os'
+import { homedir, userInfo } from 'node:os'
 
 /** GUI apps on macOS get a minimal PATH; make sure common CLI install dirs are present. */
 export function cliEnv(): NodeJS.ProcessEnv {
@@ -7,21 +7,104 @@ export function cliEnv(): NodeJS.ProcessEnv {
 }
 
 /**
- * The inherited PATH with the common install dirs after it, keeping only absolute
- * entries. An empty entry (a leading or trailing `:`, or `::`) or a relative one
- * like `.` is resolved against the spawn's cwd — the repo being worked on — so a
- * clone that ships an executable `gh` or `git` at its root would win every lookup.
- * A Finder launch gets launchd's clean PATH; `npm run dev` from a shell may not.
+ * The PATH the person's own login shell ends up with, once `loadLoginShellPath` has read
+ * it. A Finder launch starts from launchd's `/usr/bin:/bin:/usr/sbin:/sbin`, and what a
+ * terminal adds — nvm, fnm, asdf, pyenv, Homebrew's shellenv — lives in startup files an
+ * app never runs: an agent Cockpit spawned had no `node` or `npm` for its tools at all.
  */
-export function cliPath(inherited: string | undefined): string {
+let loginPath: string | null = null
+let loginPathLoad: Promise<void> | null = null
+
+/**
+ * The PATH every CLI is spawned with, keeping only absolute entries. An empty entry (a
+ * leading or trailing `:`, or `::`) or a relative one like `.` is resolved against the
+ * spawn's cwd — the repo being worked on — so a clone that ships an executable `gh` or
+ * `git` at its root would win every lookup.
+ *
+ * What this launch put on PATH that the login shell does not have comes first — a test
+ * world's stub CLIs, the `nvm use` of the terminal `npm run dev` ran in — then the login
+ * shell's PATH in its own order, then the common install dirs. A Finder launch inherits
+ * only system dirs the login shell also has, so it gets exactly what a terminal gets.
+ */
+export function cliPath(inherited: string | undefined, login: string | null = loginPath): string {
+  const own = (inherited ?? '').split(':')
+  const shell = (login ?? '').split(':')
+  const fromShell = new Set(shell)
   const entries = [
-    ...(inherited ?? '').split(':'),
+    ...own.filter((p) => !fromShell.has(p)),
+    ...shell,
     '/opt/homebrew/bin',
     '/usr/local/bin',
     `${homedir()}/.local/bin`,
     `${homedir()}/bin`
   ]
   return [...new Set(entries.filter((p) => p.startsWith('/')))].join(':')
+}
+
+/** What brackets the PATH in the login shell's output, apart from whatever its startup files print. */
+const LOGIN_PATH_MARK = '__COCKPIT_LOGIN_PATH__'
+
+/** nvm alone takes seconds to load; a startup file that waits on input never finishes. */
+const LOGIN_SHELL_TIMEOUT_MS = 10_000
+
+/** The PATH between the last two marks of a login shell's output, or null when there is none. */
+export function loginPathFrom(stdout: string): string | null {
+  const end = stdout.lastIndexOf(LOGIN_PATH_MARK)
+  const start = end > 0 ? stdout.lastIndexOf(LOGIN_PATH_MARK, end - 1) : -1
+  if (start < 0) return null
+  const path = stdout.slice(start + LOGIN_PATH_MARK.length, end).trim()
+  return path.split(':').some((p) => p.startsWith('/')) ? path : null
+}
+
+/**
+ * Read the login shell's PATH once, in the background — never awaited by the window. Until
+ * it lands (a few seconds with nvm) spawns get the inherited PATH and the install dirs, as
+ * they always have; `loginPathReady` is for the launch-time probes of the agent CLIs, which
+ * an npm-installed CLI would otherwise fail.
+ */
+export function loadLoginShellPath(): Promise<void> {
+  loginPathLoad ??= readLoginShellPath().then((path) => {
+    loginPath = path
+  })
+  return loginPathLoad
+}
+
+/** Settles once the login shell's PATH is read or given up on — at once when nothing asked for it. */
+export function loginPathReady(): Promise<void> {
+  return loginPathLoad ?? Promise.resolve()
+}
+
+async function readLoginShellPath(): Promise<string | null> {
+  if (process.platform === 'win32') return null
+  const shell = loginShell()
+  // interactive as well as login: nvm and most version managers are set up in .zshrc /
+  // .bashrc, which a login shell alone never reads. Run from home, so a version manager
+  // that follows `.nvmrc` answers with the person's default, not this checkout's
+  const r = await execText(shell, ['-i', '-l', '-c', `echo ${LOGIN_PATH_MARK}; /usr/bin/printenv PATH; echo ${LOGIN_PATH_MARK}`], {
+    cwd: homedir(),
+    timeoutMs: LOGIN_SHELL_TIMEOUT_MS,
+    // a startup file can skip its slow parts for this
+    env: { COCKPIT_RESOLVING_ENVIRONMENT: '1' }
+  })
+  // a startup file that ends in a failing command has still printed the PATH before that
+  const path = loginPathFrom(r.stdout)
+  if (path === null) {
+    console.warn(`[env] no PATH from the login shell (${shell}): ${r.error ?? 'none in its output'}`)
+  }
+  return path
+}
+
+/** The person's login shell: $SHELL, else the account's own, else the platform's default. */
+function loginShell(): string {
+  const fromEnv = process.env.SHELL
+  if (fromEnv?.startsWith('/')) return fromEnv
+  try {
+    const own = userInfo().shell
+    if (own?.startsWith('/')) return own
+  } catch {
+    /* no passwd entry */
+  }
+  return process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh'
 }
 
 export type ExecResult = {

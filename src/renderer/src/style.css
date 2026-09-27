@@ -260,29 +260,32 @@ summary::-webkit-details-marker { display: none; }
      backdrop-filter above already makes this a containing block, so the containment
      inline-size adds moves nothing that was positioned against it. */
   container: rail / inline-size; }
-/* The sash (RailResizer.tsx): an 8px grab strip astride the rail's right border — 5px on
-   the rail, 3px onto the deck — invisible at rest, an accent hairline once the pointer
-   has rested on it and for as long as a drag or focus holds it. The delay is a delay,
-   not a duration: a pointer crossing the border on its way into the tree must not
-   flash it. Positioned against the rail (the containment above makes it the containing
-   block), so it lives in the rail's own stacking context: above the sticky Chats header
-   (z 2) and the drop marks (z 1), while a deck element with a z-index of its own may
-   paint over the 3px it reaches across — the 5px on this side always answer. Narrower
-   than the 24px target floor on purpose: a sash *is* the edge it moves, and the keyboard
-   (← → in 16px steps, Home/End to the bounds) is the wide target. */
-.rail-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 8px; z-index: 3;
+/* A sash (Sash.tsx): an 8px grab strip on a pane's border, invisible at rest, an accent
+   hairline once the pointer has rested on it and for as long as a drag or focus holds
+   it. The delay is a delay, not a duration: a pointer crossing the border on its way
+   into the pane must not flash it. Narrower than the 24px target floor on purpose: a
+   sash *is* the edge it moves, and the keyboard (← → in 16px steps, Home/End to the
+   bounds) is the wide target. Where each one sits on its edge is its own rule. */
+.sash { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 3;
   cursor: col-resize; touch-action: none; -webkit-app-region: no-drag; }
-.rail-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px;
+.sash::after { content: ''; position: absolute; top: 0; bottom: 0; width: 2px;
   background: transparent; transition: background var(--dur) var(--ease) 240ms; }
-.rail-resizer:hover::after, .rail-resizer.dragging::after,
-.rail-resizer:focus-visible::after { background: var(--accent); transition-delay: 0s; }
+.sash:hover::after, .sash.dragging::after,
+.sash:focus-visible::after { background: var(--accent); transition-delay: 0s; }
 /* the global ring on an 8px strip would be a hollow slot: the lit hairline and the
    input glow are the focus indicator here, the way an input's accent border is */
-.rail-resizer:focus-visible { outline: none; }
-.rail-resizer:focus-visible::after, .rail-resizer.dragging::after { box-shadow: 0 0 0 3px var(--accent-glow); }
-/* while a drag runs the whole window is the sash: the cursor holds across the deck and
-   the text under it is not selected on the way */
-body.rail-dragging { cursor: col-resize; user-select: none; }
+.sash:focus-visible { outline: none; }
+.sash:focus-visible::after, .sash.dragging::after { box-shadow: 0 0 0 3px var(--accent-glow); }
+/* while a drag runs the whole window is the sash: the cursor holds across the other pane
+   and the text under it is not selected on the way */
+body.sash-dragging { cursor: col-resize; user-select: none; }
+/* The rail's (RailResizer.tsx) is astride its right border — 5px on the rail, 3px onto
+   the deck. Positioned against the rail (the containment above makes it the containing
+   block), so it lives in the rail's own stacking context: above the sticky Chats header
+   (z 2) and the drop marks (z 1), while a deck element with a z-index of its own may
+   paint over the 3px it reaches across — the 5px on this side always answer. */
+.rail-resizer { right: -3px; }
+.rail-resizer::after { left: 2px; }
 .tree-top { display: flex; align-items: center; gap: var(--s1);
   /* clears the macOS traffic lights (hiddenInset) — see --traffic-clear */
   padding: var(--traffic-clear) var(--s4) var(--s3); }
@@ -1029,8 +1032,6 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
   width: 24px; height: 24px; border-radius: var(--radius); background: var(--surface);
   border: 1px solid var(--border); flex-shrink: 0; margin-top: 2px; }
 .assistant-body { min-width: 0; max-width: min(85%, 76ch); }
-.msg-assistant.streaming .assistant-body { border-left: 2px solid var(--accent);
-  padding-left: var(--s3); margin-left: -10px; }
 /* in-flight text renders unmarkdowned (see Message) — keep the author's line breaks */
 .streaming-plain { white-space: pre-wrap; word-break: break-word; }
 
@@ -1400,9 +1401,21 @@ body.rail-dragging { cursor: col-resize; user-select: none; }
 .chat-deck { flex: 1; min-height: 0; display: flex; position: relative;
   container: chat-deck / inline-size; }
 .chat-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.work-panel { flex: 0 0 clamp(300px, 38%, 460px); min-width: 0; min-height: 0;
+/* The panel is as wide as the person dragged it (`--panel`, which SidePanel.tsx sets
+   while one is stored — panel.ts) and, until they ever have, 38% of the deck up to 460px.
+   Either way it is held between its 300px floor and what the conversation can spare: it
+   keeps 420px beside the panel. A stored width past this deck is held back, not
+   rewritten — widen the window and it is back. The numbers mirror panel.ts. */
+.work-panel { position: relative;
+  flex: 0 0 clamp(300px, var(--panel, min(38%, 460px)), max(300px, 100% - 420px));
+  min-width: 0; min-height: 0;
   display: flex; flex-direction: column; border-left: 1px solid var(--border);
   background: var(--pane); }
+/* Its sash (SidePanel.tsx) lies wholly on the panel's side of the border, over the
+   border itself and into the panel's padding: the other side of that border is the
+   transcript's scrollbar, which must stay whole. */
+.panel-resizer { left: -1px; }
+.panel-resizer::after { left: 0; }
 .work-head { display: flex; align-items: center; gap: var(--s2);
   padding: var(--s3) var(--s3) var(--s3) var(--s4); border-bottom: 1px solid var(--border); }
 /* the card tabs' row, without the card's own rule under it — the head draws that */
@@ -2830,10 +2843,12 @@ button.pnl-flag:hover { text-decoration: underline; }
    about 420px to stay a conversation — below that an assistant reply wraps every few
    words and the composer's controls leave its row. So under 720px of deck (the 900px
    window with the default rail is already under it) the panel covers the conversation
-   instead, the way Changes takes the transcript's place, and closing it gives it back. */
+   instead, the way Changes takes the transcript's place, and closing it gives it back.
+   Covering, it has no edge beside anything, so its sash leaves with the border. */
 @container chat-deck (max-width: 719px) {
   .work-panel { position: absolute; inset: 0; z-index: 2; border-left: none;
     background: var(--bg); }
+  .panel-resizer { display: none; }
 }
 
 /* ---------- the profile's lists: asked of their own width ----------

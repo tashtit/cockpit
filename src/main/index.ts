@@ -44,6 +44,7 @@ import {
 import { assertChatImages, saveChatImage } from './chat-images'
 import { assertSharedFile, openSharedFile, readSharedFile } from './session-files'
 import { probeAcpAgent } from './acp'
+import { loadLoginShellPath, loginPathReady } from './env'
 import { BUILTIN_ACP_AGENTS, builtinAgentFor, sanitizeAcpAgent } from '../shared/acp'
 import {
   adoptDetectedSources,
@@ -664,6 +665,11 @@ function runningWhere(sessionId: string): BusySession['source'] | null {
   return busySessions().find((b) => b.id === sessionId)?.source ?? null
 }
 
+// the person's own PATH (nvm, Homebrew's shellenv, …) for every CLI and every tool an agent
+// runs — read from their login shell in the background, because a Finder launch never
+// ran their shell startup files; nothing waits on it but the launch-time CLI probes
+void loadLoginShellPath()
+
 app.whenReady().then(() => {
   // an agent installed, or an editor that gained Cline, since the last launch is indexed
   // from this one on — a source the person removed is never added back
@@ -1278,9 +1284,12 @@ app.whenReady().then(() => {
   for (const builtin of BUILTIN_ACP_AGENTS) {
     const provider = builtin.provider
     if (!provider) continue
-    void probeAcpAgent(builtin, homedir()).then((probe) => {
-      if (probe.ok) acpReady.add(provider)
-    })
+    // after the login shell's PATH: an npm-installed CLI is on no other
+    void loginPathReady()
+      .then(() => probeAcpAgent(builtin, homedir()))
+      .then((probe) => {
+        if (probe.ok) acpReady.add(provider)
+      })
   }
 
   // endpoint the session runs on so later resumes stay on that backend
@@ -1331,6 +1340,9 @@ app.whenReady().then(() => {
     },
     {
       onBusyChange: () => pushBusy(),
+      // a seat's turn has no chat to put a permission question in: it keeps the refusal
+      // a headless CLI gives anything it would have asked
+      asksPermissions: (req) => !roundtables?.tableIdForCwd(req.cwd),
       resolveAcpAgent: (req) => {
         const chosen = req.options?.acpAgent
         if (chosen && chosen !== 'auto') {

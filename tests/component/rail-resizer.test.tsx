@@ -64,7 +64,7 @@ describe('the sash on the rail', () => {
       </aside>
     )
     fireEvent.pointerDown(sash(), { button: 0, pointerId: 1, clientX: 260 })
-    expect(document.body).toHaveClass('rail-dragging')
+    expect(document.body).toHaveClass('sash-dragging')
     fireEvent.pointerMove(sash(), { pointerId: 1, clientX: 340 })
     expect(sash()).toHaveAttribute('aria-valuenow', '340')
     fireEvent.pointerMove(sash(), { pointerId: 1, clientX: 1000 })
@@ -74,7 +74,7 @@ describe('the sash on the rail', () => {
     // nothing is written while the drag runs — only where it ends
     expect(stored()).toBeNull()
     fireEvent.pointerUp(sash(), { pointerId: 1 })
-    expect(document.body).not.toHaveClass('rail-dragging')
+    expect(document.body).not.toHaveClass('sash-dragging')
     expect(stored()).toBe('200')
     // a released pointer moves nothing
     fireEvent.pointerMove(sash(), { pointerId: 1, clientX: 400 })

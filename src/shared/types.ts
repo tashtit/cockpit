@@ -1354,9 +1354,10 @@ export type ChatEvent =
   | { readonly turnId: string; readonly type: 'done'; readonly costUsd?: number }
   | { readonly turnId: string; readonly type: 'error'; readonly message: string }
   /**
-   * ACP only: the agent is blocked until the user picks an option. Nothing else about
-   * the turn moves until `respondPermission` answers it — an unanswered request is
-   * exactly the "agent is waiting for you" state the log tails can only guess at.
+   * An ACP agent's, or Claude's (claude-permissions.ts): the agent is blocked until the
+   * user picks an option. Nothing else about the turn moves until `respondPermission`
+   * answers it — an unanswered request is exactly the "agent is waiting for you" state
+   * the log tails can only guess at.
    */
   | {
       readonly turnId: string

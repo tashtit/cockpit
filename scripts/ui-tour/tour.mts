@@ -450,6 +450,23 @@ const STATIC: readonly Shot[] = [
       await pause(w, 500)
     }
   },
+  // the panel dragged out as far as the conversation can spare — 420px of transcript
+  // and composer beside a diff given the rest; the sash is the lit hairline on its border
+  {
+    view: 'chat',
+    name: 'chat-work-wide',
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.locator('.messages').evaluate((el) => el.scrollTo({ top: 0 }))
+      await w.locator('.tool-run summary').first().click()
+      await w.locator('.tool-open', { hasText: 'src/auth/login.ts' }).first().click()
+      await w.getByRole('separator', { name: 'Work panel width' }).focus()
+      await w.keyboard.press('End')
+      await pause(w, 500)
+    },
+    // a double-click on the sash forgets the width
+    after: (w) => w.getByRole('separator', { name: 'Work panel width' }).dblclick()
+  },
   // ⌘J opens on what matters now — here the task list still under way
   {
     view: 'chat',
@@ -612,7 +629,10 @@ const LIVE: readonly Shot[] = [
     name: 'chat-streaming',
     go: async (w) => {
       await send(w, /Fix the login flake/, 'Run the whole suite once more.')
-      await pause(w, 1500)
+      // a fixed pause landed before the stub's first line, so the shot showed the working
+      // line alone: wait for the reply itself to be arriving
+      await w.locator('.streaming-plain').first().waitFor({ timeout: 15_000 })
+      await pause(w, 300)
     }
   },
   // a turn read from the top: the reply keeps arriving below, and the key says so. The

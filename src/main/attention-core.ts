@@ -167,6 +167,8 @@ type Flight = {
   text: string
   error: string | null
   cancelled: boolean
+  /** The `asks:` key raised while the turn waits on a permission; whatever it does next clears it */
+  asking: string | null
 }
 
 /** What a burst counts: how each pending banner reads in a summary title. */
@@ -488,24 +490,76 @@ export class AttentionTracker {
       latest: resumeId,
       text: '',
       error: null,
-      cancelled: false
+      cancelled: false,
+      asking: null
     })
   }
 
-  /** Follow one ChatManager stream event; turns the tracker never saw start are ignored. */
-  chatEvent(ev: ChatEvent): void {
+  /**
+   * Follow one ChatManager stream event; turns the tracker never saw start are ignored.
+   * True when what shows may have changed — this runs for every streamed chunk, so the
+   * desk syncs only then.
+   */
+  chatEvent(ev: ChatEvent): boolean {
+    if (ev.type === 'permission') {
+      return this.turnAsks(ev.turnId, { kind: 'permission', detail: ev.preview ?? ev.detail })
+    }
+    const answered = this.turnMoved(ev.turnId)
     switch (ev.type) {
       case 'session':
-        return this.turnSession(ev.turnId, ev.nativeSessionId)
+        this.turnSession(ev.turnId, ev.nativeSessionId)
+        break
       case 'text':
-        return this.turnText(ev.turnId, ev.text)
+        this.turnText(ev.turnId, ev.text)
+        break
       case 'tool':
-        return this.turnTool(ev.turnId)
+        this.turnTool(ev.turnId)
+        break
       case 'error':
-        return this.turnError(ev.turnId, ev.message)
+        this.turnError(ev.turnId, ev.message)
+        break
       case 'done':
-        return this.turnDone(ev.turnId)
+        this.turnDone(ev.turnId)
+        return true
     }
+    return answered
+  }
+
+  /**
+   * A turn Cockpit runs stopped on a permission only the person can give — an ACP agent's,
+   * or Claude's. It waits until they answer, so it is news the way an observed question
+   * is; nothing reaches the log to say so, which is why the tail never raised it.
+   */
+  turnAsks(turnId: string, asks: AttentionAsk): boolean {
+    const f = this.flights.get(turnId)
+    // no session id yet: nothing a banner could open
+    if (!f || f.cancelled || f.latest === null) return false
+    const askKey = `asks:${f.latest}`
+    const prior = this.unseen.get(askKey)
+    if (prior?.asks && sameAsk(prior.asks, asks)) return false
+    this.drop(askKey)
+    if (this.watching(f)) return false
+    f.asking = askKey
+    this.raiseAsk({
+      key: askKey,
+      kind: 'asks',
+      id: f.latest,
+      provider: f.provider,
+      cwd: f.cwd,
+      startedAt: f.startedAt,
+      at: this.now(),
+      asks
+    })
+    return true
+  }
+
+  /** Whatever a turn does after it asked means it was answered: the question is not news any more. */
+  private turnMoved(turnId: string): boolean {
+    const f = this.flights.get(turnId)
+    if (!f?.asking) return false
+    this.drop(f.asking)
+    f.asking = null
+    return true
   }
 
   turnSession(turnId: string, nativeSessionId: string): void {
@@ -610,31 +664,16 @@ export class AttentionTracker {
         if (prior?.asks && sameAsk(prior.asks, ev.asks)) return
         this.drop(askKey)
         if (this.watchingId(ev.id)) return
-        const at = this.now()
-        this.unseen.set(askKey, {
+        this.raiseAsk({
           key: askKey,
           kind: 'asks',
           id: ev.id,
           provider: ev.provider,
           ...(ev.cwd ? { cwd: ev.cwd } : {}),
           startedAt: ev.startedAt,
-          at,
+          at: this.now(),
           asks: ev.asks
         })
-        const question = ev.asks.kind === 'question'
-        this.enqueue({
-          key: askKey,
-          who: AGENT[ev.provider],
-          verb: question ? 'asks you' : 'needs permission',
-          after: null,
-          detail: clip(ev.asks.detail, SNIPPET_MAX) || (question ? 'Answer in the session.' : 'Approve it where the agent runs.'),
-          title: null,
-          fallbackTitle: 'Session',
-          failed: false,
-          tone: 'finish',
-          group: 'asks'
-        })
-        this.trim()
         return
       }
       case 'ended': {
@@ -1002,6 +1041,25 @@ export class AttentionTracker {
     if (!ev.cwd) return false
     const byPlace = this.recentEnds.get(`${ev.provider}|${trimSep(normalize(ev.cwd))}`)
     return byPlace !== undefined && byPlace > since
+  }
+
+  /** A question or permission a session waits on: on the board, and a banner once the burst is out. */
+  private raiseAsk(u: Unseen & { readonly id: string; readonly provider: Provider; readonly asks: AttentionAsk }): void {
+    this.unseen.set(u.key, u)
+    const question = u.asks.kind === 'question'
+    this.enqueue({
+      key: u.key,
+      who: AGENT[u.provider],
+      verb: question ? 'asks you' : 'needs permission',
+      after: null,
+      detail: clip(u.asks.detail, SNIPPET_MAX) || (question ? 'Answer in the session.' : 'Approve it where the agent runs.'),
+      title: null,
+      fallbackTitle: 'Session',
+      failed: false,
+      tone: 'finish',
+      group: 'asks'
+    })
+    this.trim()
   }
 
   private rememberPr(key: string, sha: string): void {

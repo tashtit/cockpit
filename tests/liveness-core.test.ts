@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   IDLE,
+  claudeProcessHolds,
+  claudeProcessPids,
+  codexWriterLock,
   copilotLockPids,
   judgeClaudeTail,
   judgeCodexTail,
@@ -455,6 +458,52 @@ describe('inTool: the newest record is a tool call waiting for its result', () =
     const both = judgeCopilotTail([turn, ask, bash])
     expect(both?.asks).toEqual({ kind: 'question', detail: 'older' })
     expect(both?.inTool).toBeUndefined()
+  })
+})
+
+describe('who holds a session that asked: claude\'s process files, codex\'s writer lock', () => {
+  const SESSION = 'cc507148-2452-4b94-ba0f-40548fbbb6ea'
+  /** The shape confirmed against a real `~/.claude/sessions/<pid>.json` (2026-09). */
+  const file = (over: object = {}): object => ({
+    pid: 65339,
+    sessionId: SESSION,
+    cwd: '/r',
+    kind: 'interactive',
+    status: 'waiting',
+    waitingFor: 'input needed',
+    ...over
+  })
+
+  it('reads the pid out of every process file, and nothing else', () => {
+    const names = ['65339.json', '65339.6e28d6c6.key', '7214.json', 'x.json', '12.json.bak', '-1.json', '.json']
+    expect(claudeProcessPids(names)).toEqual([65339, 7214])
+  })
+
+  it('a process file naming the session holds it — unless the process says it waits on nothing', () => {
+    expect(claudeProcessHolds(file(), 65339, SESSION)).toBe(true)
+    expect(claudeProcessHolds(file({ status: 'busy' }), 65339, SESSION)).toBe(true)
+    // a status Claude adds later still leaves the pid as the evidence
+    expect(claudeProcessHolds(file({ status: 'thinking-hard' }), 65339, SESSION)).toBe(true)
+    expect(claudeProcessHolds(file({ status: undefined }), 65339, SESSION)).toBe(true)
+    expect(claudeProcessHolds(file({ status: 'idle' }), 65339, SESSION)).toBe(false)
+  })
+
+  it('holds nothing for another session, a pid that disagrees with its name, or no file', () => {
+    expect(claudeProcessHolds(file({ sessionId: 'other' }), 65339, SESSION)).toBe(false)
+    expect(claudeProcessHolds(file({ pid: 1 }), 65339, SESSION)).toBe(false)
+    expect(claudeProcessHolds(null, 65339, SESSION)).toBe(false)
+    expect(claudeProcessHolds('not json', 65339, SESSION)).toBe(false)
+  })
+
+  it("finds a codex thread's writer lock from its rollout's path", () => {
+    const id = '01a0da73-d921-7a10-8c1c-baed7386db10'
+    expect(codexWriterLock(`/h/.codex/sessions/2026/09/26/rollout-2026-09-26T00-23-40-${id}.jsonl`, id)).toBe(
+      `/h/.codex/thread-writer-locks/${id}.lock`
+    )
+    // an id that is not a thread's is never joined into a path; a path of another shape has no home
+    expect(codexWriterLock('/h/.codex/sessions/2026/09/26/rollout-x.jsonl', '../../etc/passwd')).toBeNull()
+    expect(codexWriterLock(`/h/.codex/archived_sessions/rollout-${id}.jsonl`, id)).toBeNull()
+    expect(codexWriterLock(`rollout-${id}.jsonl`, id)).toBeNull()
   })
 })
 

@@ -21,6 +21,13 @@ import { LineSplitter, capText, contentToText, shellPreview, toolPreview, trunca
 import { fileChangeArtifact, todoListArtifact, toolArtifact } from './parsers/artifacts'
 import { commandItemCheck } from './parsers/checks'
 import { cliEnv } from './env'
+import {
+  CLAUDE_HOST_ARGS,
+  claudeAnswer,
+  claudeControl,
+  userMessageLine,
+  type ClaudeControl
+} from './claude-permissions'
 
 type Emit = (ev: ChatEvent) => void
 type ResolveEndpoint = (id: string) => ModelEndpoint | undefined
@@ -114,7 +121,19 @@ export const CODEX_RESEARCH_ARGS: readonly string[] = [
   `default_permissions="${CODEX_RESEARCH_PROFILE}"`
 ]
 
-export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } {
+/** A turn's command line, and what it is handed on stdin when its prompt does not ride argv. */
+export type BuiltCommand = { readonly cmd: string; readonly args: string[]; readonly stdin?: string }
+
+export type BuildOptions = {
+  /**
+   * Claude only: someone can answer this turn's permission prompts in the chat, so the CLI
+   * asks Cockpit (claude-permissions.ts) instead of refusing every call its mode does not
+   * already allow. Never for a roundtable seat — no card exists to show one on.
+   */
+  readonly askHost?: boolean
+}
+
+export function buildCommand(req: ChatRequest, opts: BuildOptions = {}): BuiltCommand {
   const model = req.options?.model && isValidModel(req.options.model) ? req.options.model : null
   const effort = effortOf(req)
   switch (req.provider) {
@@ -126,6 +145,10 @@ export function buildCommand(req: ChatRequest): { cmd: string; args: string[] } 
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
       if (req.research && req.permissionMode === 'safe') args.push('--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
+      if (opts.askHost) {
+        args.push(...CLAUDE_HOST_ARGS)
+        return { cmd: 'claude', args, stdin: userMessageLine(promptWithImages(req)) }
+      }
       // after `--`: a message that starts with "-" (a pasted list, or typed flags) is
       // otherwise parsed as options — claude refuses "- fix this" as an unknown one
       args.push('--', promptWithImages(req))
@@ -351,6 +374,10 @@ type RunningTurn = {
   /** Set when the turn is driven over ACP: it answers permission questions and can be
    *  asked to stop through the protocol before anything is signalled. */
   readonly acp?: AcpTurn
+  /** Set when a Claude turn asks Cockpit for permission over its stdin: each call it is
+   *  waiting on, by request id, with the input an allow hands back — mutated as they
+   *  are asked and answered */
+  readonly claudeAsks?: Map<string, unknown>
 }
 
 /** Optional collaborators wired by index.ts (busy board, attention, BYOK endpoint/keychain store). */
@@ -364,6 +391,8 @@ type ChatManagerHooks = {
   readonly resolveKey?: ResolveKey
   /** The ACP agent to drive this request with, or undefined for the CLI's own flags */
   readonly resolveAcpAgent?: (req: ChatRequest) => AcpAgent | undefined
+  /** Whether this turn's permission prompts can be put to someone in the chat (see BuildOptions) */
+  readonly asksPermissions?: (req: ChatRequest) => boolean
 }
 
 /** What an ACP turn is started with: the agent, the inherited env, and what the turn itself sets. */
@@ -479,7 +508,8 @@ export class ChatManager {
       })
       return
     }
-    const { cmd, args } = buildCommand(req)
+    const askHost = req.provider === 'claude' && this.hooks.asksPermissions?.(req) === true
+    const { cmd, args, stdin } = buildCommand(req, { askHost })
     const env = cliEnv()
     // BYOK: resolve the endpoint and its key, refuse loudly rather than silently
     // falling back to the provider's own backend
@@ -516,7 +546,7 @@ export class ChatManager {
     const child = spawn(cmd, args, {
       cwd: req.cwd,
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       shell: false,
       // own process group so cancel() can reach grandchildren (bash tools, MCP servers)
       detached: true
@@ -526,10 +556,16 @@ export class ChatManager {
       doneSent: false,
       provider: req.provider,
       startedAt: Date.now(),
-      sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : [])
+      sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : []),
+      ...(stdin === undefined ? {} : { claudeAsks: new Map<string, unknown>() })
     }
     this.turns.set(turnId, turn)
     this.notifyBusy()
+    if (stdin !== undefined) {
+      // a CLI that dies early closes the pipe under a write: the close handler reports it
+      child.stdin!.on('error', () => {})
+      child.stdin!.write(stdin)
+    }
 
     const sendDone = (): void => {
       if (!turn.doneSent) {
@@ -562,6 +598,11 @@ export class ChatManager {
           continue
         }
         sawStructured = true
+        const control = turn.claudeAsks ? claudeControl(turnId, parsed) : null
+        if (control) {
+          this.onClaudeControl(turn, control)
+          continue
+        }
         let events: ChatEvent[]
         try {
           events =
@@ -575,6 +616,9 @@ export class ChatManager {
           continue
         }
         for (const ev of events) this.deliver(turn, ev)
+        // stream-json input keeps the CLI reading for another message: the result is the
+        // turn's last word, so nothing more is coming from this side
+        if (turn.claudeAsks && parsed?.type === 'result') child.stdin?.end()
       }
     })
 
@@ -694,12 +738,32 @@ export class ChatManager {
     })
   }
 
+  /** What one of Claude's control messages asks of the turn (claude-permissions.ts). */
+  private onClaudeControl(turn: RunningTurn, control: ClaudeControl): void {
+    if (control.kind === 'ask') {
+      turn.claudeAsks?.set(control.requestId, control.input)
+      this.deliver(turn, control.event)
+    } else if (control.kind === 'reply') {
+      writeLine(turn.child, control.line)
+    } else {
+      turn.claudeAsks?.delete(control.requestId)
+    }
+  }
+
   /**
-   * Answer a permission question an ACP turn asked. Silently ignored for a turn that has
-   * already ended — the click raced the agent giving up on it.
+   * Answer a permission question an ACP or Claude turn asked. Silently ignored for a turn
+   * that has already ended, and for a request it is not waiting on — the click raced the
+   * agent giving up on it, or names an option the card never offered.
    */
   respondPermission(turnId: string, requestId: string, optionId: string): void {
-    this.turns.get(turnId)?.acp?.respondPermission(requestId, optionId)
+    const turn = this.turns.get(turnId)
+    turn?.acp?.respondPermission(requestId, optionId)
+    const asks = turn?.claudeAsks
+    if (!turn || !asks?.has(requestId)) return
+    const line = claudeAnswer(requestId, optionId, asks.get(requestId))
+    if (line === null) return
+    asks.delete(requestId)
+    writeLine(turn.child, line)
   }
 
   cancel(turnId: string): void {
@@ -733,6 +797,11 @@ export class ChatManager {
   cancelAll(): void {
     for (const [id] of this.turns) this.cancel(id)
   }
+}
+
+/** One line to a CLI's stdin, unless the pipe is already gone (the process exited or was stopped). */
+function writeLine(child: ChildProcess, line: string): void {
+  if (child.stdin && child.stdin.writable) child.stdin.write(line)
 }
 
 /** Why a turn could not start, in words — a bare `spawn E2BIG` tells the user nothing. */

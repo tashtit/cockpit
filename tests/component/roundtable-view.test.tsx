@@ -562,6 +562,8 @@ describe('RoundtableView evidence', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Evidence' }))
     const panel = screen.getByRole('complementary', { name: 'Evidence' })
     expect(within(panel).getByRole('tab', { name: /Claude/ })).toHaveAttribute('aria-selected', 'true')
+    // the Work panel's frame, its sash included
+    expect(within(panel).getByRole('separator', { name: 'Evidence panel width' })).toBeInTheDocument()
     expect(await within(panel).findByText('npx biome --version')).toBeInTheDocument()
     expect(within(panel).getByText('ran')).toBeInTheDocument()
     expect(within(panel).getByText('failed')).toHaveClass('review-kind', 'tone-danger')

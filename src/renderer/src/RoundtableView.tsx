@@ -512,7 +512,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                     part.kind === 'tool' ? (
                       <Message key={i} m={part.m} provider={seat.provider} />
                     ) : (
-                      <div key={i} className="msg msg-assistant streaming">
+                      <div key={i} className="msg msg-assistant">
                         <span className={`avatar plogo-${seat.provider}`} aria-hidden="true">
                           <ProviderLogo p={seat.provider} size={14} />
                         </span>

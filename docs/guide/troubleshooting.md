@@ -73,7 +73,17 @@ Session log formats are provider-internal and drift between releases — Cockpit
 
 ## The agent says it can't use tools
 
-That's the **Safe** permission mode: in headless mode, provider defaults may block tool use entirely. Re-run the task with **Auto-edit** (or, on a trusted repo, YOLO). See [permission modes](/guide/worktrees-and-prs#permission-modes).
+Claude and ACP agents ask before anything their [permission mode](/guide/worktrees-and-prs#permission-modes) doesn't allow: look for the request just above the composer. Codex can't ask when it runs headless, so in **Safe** it refuses instead — re-run the task with **Auto-edit** (or, on a trusted repo, YOLO).
+
+## The agent can't find `node`, `npm` or another command
+
+Cockpit starts every agent with the `PATH` your login shell sets up, read once when Cockpit launches — nvm, Homebrew and the like live in shell startup files a Mac app never runs. If a command is still missing, check what your shell reports on its own:
+
+```bash
+$SHELL -ilc 'printenv PATH'
+```
+
+Startup files that take longer than ten seconds, or wait for input, are given up on, and agents fall back to the system's `PATH` plus the usual install folders. Cockpit sets `COCKPIT_RESOLVING_ENVIRONMENT=1` while it reads, so a slow part of your startup files can be skipped for it. Restart Cockpit after changing them.
 
 ## Wrong Node version
 
