@@ -11,6 +11,7 @@ import { entrySeatIndex, roundRefusal, turnsSpent } from '../../shared/roundtabl
 import { api } from './api'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { CopyPath } from './CopyPath'
+import { ipcErrorText } from './ipc-error'
 import { Message } from './Message'
 import { Markdown } from './Markdown'
 import { looksSignedOut } from '../../shared/agent-auth'
@@ -101,7 +102,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     try {
       await api.sendRoundtableMessage(id, p, { seats: to ?? undefined, whenBusy })
     } catch (err) {
-      setNote(`Send failed: ${err instanceof Error ? err.message : String(err)}`)
+      setNote(`Send failed: ${ipcErrorText(err)}`)
       setDraft(p) // a rejected send must not eat the typed message
     }
   }
@@ -111,7 +112,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
     try {
       await api.continueRoundtable(id, seats ?? undefined)
     } catch (err) {
-      setNote(err instanceof Error ? err.message : String(err))
+      setNote(ipcErrorText(err))
     }
   }
 
@@ -127,7 +128,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
       setLimitsDraft(null)
       setNote(null)
     } catch (err) {
-      setNote(err instanceof Error ? err.message : String(err))
+      setNote(ipcErrorText(err))
     }
   }
 

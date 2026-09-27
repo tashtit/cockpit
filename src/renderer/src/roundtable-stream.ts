@@ -7,6 +7,7 @@ import type {
   SessionMessage
 } from '../../shared/types'
 import { api } from './api'
+import { ipcErrorText } from './ipc-error'
 
 type LivePart =
   | { readonly kind: 'text'; readonly text: string }
@@ -188,7 +189,7 @@ export function useRoundtableStream(id: string, onLoad: (snap: RoundtableSnapsho
         onLoadRef.current(snap)
       })
       .catch((err) => {
-        if (!dead) setNote(err instanceof Error ? err.message : String(err))
+        if (!dead) setNote(ipcErrorText(err))
       })
     return () => {
       dead = true

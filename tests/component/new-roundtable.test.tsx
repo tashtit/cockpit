@@ -181,6 +181,16 @@ describe('NewRoundtable', () => {
     ])
   })
 
+  it('says why the table would not open in main’s words, not Electron’s', async () => {
+    vi.mocked(window.cockpit.createRoundtable).mockRejectedValue(
+      new Error("Error invoking remote method 'roundtable:create': Error: Claude isn't signed in — run claude /login")
+    )
+    render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
+    await userEvent.type(screen.getByLabelText('Topic'), 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Open roundtable' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^Claude isn't signed in — run claude \/login$/)
+  })
+
   it('needs a topic and at least two seats, and stops adding at eight', async () => {
     render(<NewRoundtable repos={[]} onCreated={vi.fn()} onCancel={() => {}} />)
     const open = screen.getByRole('button', { name: 'Open roundtable' })

@@ -107,6 +107,20 @@ describe('RoundtableView', () => {
     expect(window.cockpit.continueRoundtable).toHaveBeenCalledWith('rt-1', undefined)
   })
 
+  it('says why a send failed in main’s words, and keeps the typed message', async () => {
+    vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(fixture())
+    vi.mocked(window.cockpit.sendRoundtableMessage).mockRejectedValue(
+      new Error("Error invoking remote method 'roundtable:send': Error: This table has spent its agent turns.")
+    )
+    render(<RoundtableView id="rt-1" />)
+    const box = await screen.findByRole('textbox', { name: 'Message the roundtable' })
+    await userEvent.type(box, 'and CI?')
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    // Electron's wrapper is plumbing, not an explanation
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^Send failed: This table has spent its agent turns\.$/)
+    expect(box).toHaveValue('and CI?')
+  })
+
   it('a running round shows the speaking seat and swaps Send for Stop', async () => {
     vi.mocked(window.cockpit.getRoundtable).mockResolvedValue(
       fixture({ running: true, speaking: [1] })

@@ -20,6 +20,7 @@ import {
   sanitizeRoundtableLimits
 } from '../../shared/roundtable'
 import { api } from './api'
+import { ipcErrorText } from './ipc-error'
 import { accountOptions, AGENT_BLURB, savedAccount, type AccountOption } from './NewSession'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { RoundtableLimitFields } from './RoundtableLimitFields'
@@ -193,7 +194,7 @@ export function NewRoundtable({
       await api.openSignIn(seat.provider, seatAccount(seat)?.configDir)
       setSigningIn((k) => (k.includes(key) ? k : [...k, key]))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(ipcErrorText(err))
     }
   }
   // watch the homes being signed in until each reads signed in — then stop asking
@@ -328,7 +329,7 @@ export function NewRoundtable({
       })
       onCreated(rt.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(ipcErrorText(err))
       setBusy(false)
     }
   }
