@@ -231,6 +231,24 @@ export function denyOption(options: readonly AcpPermissionOption[]): string | nu
   )
 }
 
+/** What a `session/request_permission` is answered with. */
+export type PermissionOutcome =
+  | { readonly outcome: 'selected'; readonly optionId: string }
+  | { readonly outcome: 'cancelled' }
+
+/**
+ * The answer to a question nobody is there to see — a roundtable seat has no chat to put
+ * a card in. It is refused, as a headless CLI refuses whatever its mode does not already
+ * allow; left open, the agent waits on it until the seat's timer gives up on the turn.
+ * Only ever a one-off refusal: `reject_always` would outlive the turn inside the agent's
+ * own config and deny that tool in the person's own sessions too. An agent that offers
+ * no one-off refusal is told the question was cancelled, which it may not act on either.
+ */
+export function unattendedOutcome(options: readonly AcpPermissionOption[]): PermissionOutcome {
+  const reject = options.find((o) => o.kind === 'reject_once')?.optionId
+  return reject ? { outcome: 'selected', optionId: reject } : { outcome: 'cancelled' }
+}
+
 /**
  * The end of a turn. `stopReason` distinguishes a finished answer from a refusal the
  * agent made silently — without this a turn stopped for hitting its token budget or a

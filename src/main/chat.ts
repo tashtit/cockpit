@@ -40,8 +40,9 @@ import { AGENT_LABEL, CONFIG_HOME_VAR, isDrivable } from '../shared/providers'
  * (`mustResume`). Either transport gets the same cwd checks, BYOK env, config home, busy
  * bookkeeping and `cancel()`. Each CLI's stream is parsed into `ChatEvent`s here, and
  * Codex's old (`msg.type`) and new (`thread.started` / `item.completed`) event shapes both
- * stay handled. A Claude chat turn asks the person for
- * what its mode does not allow (`claude-permissions.ts`); a roundtable seat never does.
+ * stay handled. A chat turn asks the person for what its mode does not allow — Claude's
+ * through `claude-permissions.ts`, an ACP agent's over the protocol; a roundtable seat
+ * never does, and an ACP seat's questions are refused.
  *
  * One session, one turn: `send` refuses to resume a session whose turn is still in flight
  * (`assertNotRunning`), and every spawned `BusySession` carries its live `turnId`, so a
@@ -483,15 +484,18 @@ type ChatManagerHooks = {
   readonly resolveKey?: ResolveKey
   /** The ACP agent to drive this request with, or undefined for the CLI's own flags */
   readonly resolveAcpAgent?: (req: ChatRequest) => AcpAgent | undefined
-  /** Whether this turn's permission prompts can be put to someone in the chat (see BuildOptions) */
+  /** Whether this turn's permission prompts can be put to someone in the chat (see
+   *  BuildOptions). Unwired, nobody can: Claude refuses them itself, an ACP agent's are refused for it */
   readonly asksPermissions?: (req: ChatRequest) => boolean
 }
 
-/** What an ACP turn is started with: the agent, the inherited env, and what the turn itself sets. */
+/** What an ACP turn is started with: the agent, the inherited env, what the turn itself
+ *  sets, and whether its permission questions can reach anyone. */
 type AcpLaunch = {
   readonly agent: AcpAgent
   readonly env: NodeJS.ProcessEnv
   readonly pinned: Readonly<Record<string, string>>
+  readonly asksPermissions: boolean
 }
 
 export class ChatManager {
@@ -600,6 +604,8 @@ export class ChatManager {
       })
       return
     }
+    // whether a question this turn asks can reach anyone: a chat can, a roundtable seat can't
+    const asksPermissions = this.hooks.asksPermissions?.(req) === true
     // an agent Cockpit only reads has no headless CLI of Cockpit's: its turn runs over
     // the agent's own ACP server, answered at startup, or it does not run at all
     const provider = req.provider
@@ -612,11 +618,11 @@ export class ChatManager {
         })
         return
       }
-      this.startAcpTurn(turnId, req, { agent, env: cliEnv(), pinned: {} })
+      this.startAcpTurn(turnId, req, { agent, env: cliEnv(), pinned: {}, asksPermissions })
       return
     }
     const cli: CliRequest = { ...req, provider }
-    const askHost = provider === 'claude' && this.hooks.asksPermissions?.(req) === true
+    const askHost = provider === 'claude' && asksPermissions
     const { cmd, args, stdin } = buildCommand(cli, { askHost })
     const env = cliEnv()
     // BYOK: resolve the endpoint and its key, refuse loudly rather than silently
@@ -642,7 +648,7 @@ export class ChatManager {
     // been applied, and the agent inherits it as its environment.
     const acpAgent = withTurnFlags(this.hooks.resolveAcpAgent?.(req), cli)
     if (acpAgent) {
-      this.startAcpTurn(turnId, req, { agent: acpAgent, env, pinned })
+      this.startAcpTurn(turnId, req, { agent: acpAgent, env, pinned, asksPermissions })
       return
     }
     Object.assign(env, pinned)
@@ -812,13 +818,14 @@ export class ChatManager {
     req: ChatRequest,
     launch: AcpLaunch
   ): void {
-    const { agent, env, pinned } = launch
+    const { agent, env, pinned, asksPermissions } = launch
     const acp = new AcpTurn(agent, {
       turnId,
       cwd: req.cwd,
       env,
       pinned,
       permissionMode: req.permissionMode,
+      asksPermissions,
       // an agent Cockpit only reads continues the conversation the person opened, or not at all
       mustResume: !isDrivable(req.provider),
       emit: (ev) => {

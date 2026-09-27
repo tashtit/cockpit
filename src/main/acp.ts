@@ -14,7 +14,8 @@ import {
   modeIdFor,
   permissionDetail,
   permissionOptions,
-  promptResultEvents
+  promptResultEvents,
+  unattendedOutcome
 } from './acp-core'
 import { cliEnv } from './env'
 import { LineSplitter, MAX_STREAM_LINE_CHARS, truncate } from './parsers/util'
@@ -42,6 +43,12 @@ type TurnOptions = {
    */
   readonly pinned?: Readonly<Record<string, string>>
   readonly permissionMode: PermissionMode
+  /**
+   * Someone can answer this turn's permission questions in the chat. Unset — a roundtable
+   * seat — every question the mode does not answer itself is refused (`unattendedOutcome`)
+   * instead of put on a card nobody will see.
+   */
+  readonly asksPermissions?: boolean
   readonly emit: (ev: ChatEvent) => void
   /**
    * A resumed turn that cannot reopen its conversation fails rather than starting a
@@ -234,6 +241,11 @@ export class AcpTurn {
     const auto = decidePermission(this.opts.permissionMode, options, kind)
     if (auto) {
       this.rpc.respond(rpcId, { outcome: { outcome: 'selected', optionId: auto } })
+      return
+    }
+    if (!this.opts.asksPermissions) {
+      // before the no-options case: an agent's own default may be to go ahead
+      this.rpc.respond(rpcId, { outcome: unattendedOutcome(options) })
       return
     }
     if (options.length === 0) {

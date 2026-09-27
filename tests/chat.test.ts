@@ -648,7 +648,7 @@ describe('ChatManager: one turn per session', () => {
         if (ev.type === 'permission') onAsk(ev)
         if (ev.type === 'done') onDone({ busy: chat.busySessions(), running: chat.turnFor('copilot', id) })
       },
-      { resolveAcpAgent: () => stub }
+      { resolveAcpAgent: () => stub, asksPermissions: () => true }
     )
     const turnId = chat.send(resume(id))
     return { chat, turnId, ask: await asked, atDone }
@@ -687,6 +687,37 @@ describe('ChatManager: one turn per session', () => {
     expect(chat.turnFor('copilot', 'sess-9')).toBeNull()
     expect(chat.busySessions()).toEqual([])
     expect(() => chat.assertNotRunning(resume('sess-9'))).not.toThrow()
+  })
+})
+
+describe('ChatManager: an ACP turn nobody can answer', () => {
+  const stub: AcpAgent = {
+    id: 'stub',
+    label: 'Stub',
+    command: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/stub-acp-agent.mjs', import.meta.url))],
+    provider: 'copilot',
+    env: { STUB_MODE: 'permission' }
+  }
+
+  it('refuses the question for that call alone, rather than leaving the agent waiting', async () => {
+    const events: ChatEvent[] = []
+    let finish: () => void = () => {}
+    const finished = new Promise<void>((r) => (finish = r))
+    // a roundtable seat: no chat exists to put a card in
+    const chat = new ChatManager(
+      (ev) => {
+        events.push(ev)
+        if (ev.type === 'done') finish()
+      },
+      { resolveAcpAgent: () => stub, asksPermissions: () => false }
+    )
+    chat.send({ provider: 'copilot', cwd: tmpdir(), prompt: 'hello', permissionMode: 'safe' })
+    await finished
+    expect(events.some((e) => e.type === 'permission')).toBe(false)
+    const said = events.filter((e): e is Extract<ChatEvent, { type: 'text' }> => e.type === 'text').map((e) => e.text)
+    expect(said.join('')).toContain('answered:reject_once')
+    await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
   })
 })
 

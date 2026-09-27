@@ -36,6 +36,8 @@ function start(
     permissionMode?: PermissionMode
     resume?: string
     mustResume?: boolean
+    /** Whether a question can reach anyone — a chat by default, as most of these are */
+    asksPermissions?: boolean
     onEvent?: (ev: ChatEvent, turn: AcpTurn) => void
   } = {}
 ): Run & { readonly done: Promise<void> } {
@@ -47,6 +49,7 @@ function start(
     env: process.env,
     permissionMode: opts.permissionMode ?? 'safe',
     mustResume: opts.mustResume,
+    asksPermissions: opts.asksPermissions ?? true,
     emit: (ev) => {
       events.push(ev)
       opts.onEvent?.(ev, turn)
@@ -112,6 +115,19 @@ describe('AcpTurn', () => {
     await done
     expect(events.some((e) => e.type === 'permission')).toBe(true)
     expect(texts(events)).toContain('answered:reject_once')
+  })
+
+  it('refuses a question nobody can see, for that call alone, instead of waiting on it', async () => {
+    const { events, done } = start('permission', { asksPermissions: false })
+    await done
+    expect(events.some((e) => e.type === 'permission')).toBe(false)
+    expect(texts(events)).toContain('answered:reject_once')
+  })
+
+  it('still answers what the mode allows when nobody can be asked', async () => {
+    const { events, done } = start('permission-edit', { permissionMode: 'auto-edit', asksPermissions: false })
+    await done
+    expect(texts(events)).toContain('answered:allow_once')
   })
 
   it('ignores an answer that does not match what was asked', async () => {
