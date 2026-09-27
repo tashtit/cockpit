@@ -21,6 +21,7 @@ import { cycleReplies, uiSeatName } from './roundtable-seats'
 import { useRoundtableStream } from './roundtable-stream'
 import { RoundtableTable } from './RoundtableTable'
 import { Select } from './Select'
+import { fmtElapsed } from './time'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
 import { BranchChip, ChatIcon, ProviderLogo, SearchIcon } from './logos'
 import { SeatEvidencePanel } from './SeatEvidencePanel'
@@ -340,21 +341,26 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                     the rest of the round carries on without that seat */}
                 {speaking.length > 0 && (
                   <span className="rt-waiting">
-                    {speaking.map((i) => (
-                      <span key={i} className="rt-waiting-seat">
-                        <span className="rt-waiting-time">
-                          {uiSeatName(rt.participants, i)} · {elapsed(now, live[i]?.since)}
+                    {speaking.map((i) => {
+                      // how long, on the board's own clock; "just now" until the start is known
+                      const since = live[i]?.since
+                      return (
+                        <span key={i} className="rt-waiting-seat">
+                          <span className="rt-waiting-time">
+                            {uiSeatName(rt.participants, i)} ·{' '}
+                            {since === undefined ? 'just now' : fmtElapsed(now - since)}
+                          </span>
+                          <button
+                            className="link-btn"
+                            aria-label={`Skip ${uiSeatName(rt.participants, i)} — go on without it`}
+                            title="Stop waiting: end this seat's turn and carry on without it"
+                            onClick={() => void api.skipRoundtableSeat(id, i).catch(() => {})}
+                          >
+                            skip
+                          </button>
                         </span>
-                        <button
-                          className="link-btn"
-                          aria-label={`Skip ${uiSeatName(rt.participants, i)} — go on without it`}
-                          title="Stop waiting: end this seat's turn and carry on without it"
-                          onClick={() => void api.skipRoundtableSeat(id, i).catch(() => {})}
-                        >
-                          skip
-                        </button>
-                      </span>
-                    ))}
+                      )
+                    })}
                   </span>
                 )}
               </div>
@@ -532,15 +538,6 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
       </div>
     </main>
   )
-}
-
-/** "42s", "3m", "1h 5m" since a turn started; blank until the start is known. */
-function elapsed(now: number, since: number | undefined): string {
-  if (since === undefined) return 'just now'
-  const sec = Math.max(0, Math.round((now - since) / 1000))
-  if (sec < 60) return `${sec}s`
-  const min = Math.floor(sec / 60)
-  return min < 60 ? `${min}m` : `${Math.floor(min / 60)}h ${min % 60}m`
 }
 
 /**

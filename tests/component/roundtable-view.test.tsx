@@ -492,8 +492,8 @@ describe('RoundtableView while a round runs', () => {
     render(<RoundtableView id="rt-1" />)
     const box = await screen.findByRole('textbox', { name: 'Message the roundtable' })
     expect(box).toBeEnabled()
-    // the stuck seat shows how long it has been at it, and can be skipped
-    expect(await screen.findByText('Claude · 3m')).toBeInTheDocument()
+    // the stuck seat shows how long it has been at it — on the board's clock — and can be skipped
+    expect(await screen.findByText(/^Claude · 3m \d\ds$/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Skip Claude — go on without it' }))
     expect(window.cockpit.skipRoundtableSeat).toHaveBeenCalledWith('rt-1', 0)
 
