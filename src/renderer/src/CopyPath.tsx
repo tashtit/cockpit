@@ -1,4 +1,5 @@
-import { useEffect, useState, type JSX } from 'react'
+import type { JSX } from 'react'
+import { useTransient } from './use-transient'
 
 /** How long "copied" stays beside the path after a click */
 const COPIED_MS = 1500
@@ -20,13 +21,7 @@ export function CopyPath({
   /** A line the tooltip adds under the path (the session's id) */
   detail?: string
 }): JSX.Element {
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(false), COPIED_MS)
-    return () => clearTimeout(t)
-  }, [copied])
+  const [copied, setCopied] = useTransient<true>(COPIED_MS)
 
   return (
     <>

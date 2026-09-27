@@ -12,6 +12,8 @@ import { fmtTime, useTimeFormat } from './time'
 import { samePlain } from './same'
 import { storedValue } from './stored-value'
 import { useLoaded } from './use-loaded'
+import { useTransient } from './use-transient'
+import { RING_MS, useRing, type WorkFocus } from './work-tab'
 import {
   CHECK_LABEL,
   checkSummary,
@@ -42,8 +44,6 @@ import {
  * opens the panel at itself — its plan version, or its file with the edit ringed.
  */
 
-/** How long an edit a row opened the panel at stays ringed */
-const RING_MS = 2_000
 /** Up to this many files open expanded; past it they open on demand */
 const OPEN_FILES = 3
 
@@ -71,15 +71,6 @@ const CHANGE_WORD: Record<FileEdit['change'], string | null> = {
 /** A path under the session's directory reads relative to it, like the transcript's rows. */
 function relative(path: string, cwd: string): string {
   return path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path
-}
-
-export type WorkFocus = {
-  readonly tab: WorkTab
-  /** The row that opened the panel, if one did — by the key the model names it by
-   *  (ChatView keeps its own row keys and translates them at the panel's edge) */
-  readonly key: number | null
-  /** Bumped on every open, so opening the same row again scrolls to it again */
-  readonly at: number
 }
 
 /**
@@ -302,7 +293,6 @@ function EditsTab({
   )
   const openByDefault = files.length <= OPEN_FILES
   const isOpen = (path: string): boolean => toggled.get(path) ?? openByDefault
-  const [ringed, setRinged] = useState<number | null>(null)
   // one handler for every file, so a memoized block is not redrawn for a new closure
   const onToggle = useCallback(
     (path: string, on: boolean): void =>
@@ -312,17 +302,11 @@ function EditsTab({
   )
 
   // a row opened the panel at its edit: open that file, bring the edit into view, ring it
+  const ringed = useRing(scroller, focus, () => focusFile !== undefined)
   useEffect(() => {
     if (!focusFile || focus.key === null) return
     setToggled((m) => (m.get(focusFile.path) ? m : new Map([...m, [focusFile.path, true]])))
-    setRinged(focus.key)
   }, [focus.at])
-  useLayoutEffect(() => {
-    if (ringed === null) return
-    scroller.current?.querySelector(`[data-work-key="${ringed}"]`)?.scrollIntoView({ block: 'nearest' })
-    const t = setTimeout(() => setRinged(null), RING_MS)
-    return () => clearTimeout(t)
-  }, [ringed])
 
   if (files.length === 0) {
     return (
@@ -476,18 +460,8 @@ function ChecksTab({
   scroller: RefObject<HTMLDivElement | null>
 }): JSX.Element {
   const { checks } = model
-  const [ringed, setRinged] = useState<number | null>(null)
-
   // a row opened the panel at its run: bring that run into view and ring it
-  useEffect(() => {
-    if (focus.key !== null && checks.some((c) => c.runs.some((r) => r.key === focus.key))) setRinged(focus.key)
-  }, [focus.at])
-  useLayoutEffect(() => {
-    if (ringed === null) return
-    scroller.current?.querySelector(`[data-work-key="${ringed}"]`)?.scrollIntoView({ block: 'nearest' })
-    const t = setTimeout(() => setRinged(null), RING_MS)
-    return () => clearTimeout(t)
-  }, [ringed])
+  const ringed = useRing(scroller, focus, (key) => checks.some((c) => c.runs.some((r) => r.key === key)))
 
   if (checks.length === 0) {
     return (
@@ -686,7 +660,7 @@ function SharedFileBlock({
 }): JSX.Element {
   const fmt = useTimeFormat()
   const [open, setOpen] = useState(openByDefault)
-  const [ringed, setRinged] = useState(false)
+  const [ringed, setRinged] = useTransient<true>(RING_MS)
   const ref = useRef<HTMLLIElement>(null)
   const name = file.path.split('/').pop() ?? file.path
   // where it is, as a person reads a path: under the session's directory relative to it,
@@ -699,8 +673,6 @@ function SharedFileBlock({
     setOpen(true)
     setRinged(true)
     ref.current?.scrollIntoView({ block: 'nearest' })
-    const t = setTimeout(() => setRinged(false), RING_MS)
-    return () => clearTimeout(t)
   }, [focusAt])
 
   // read on opening, and again when the agent hands the same path over anew; the error
@@ -855,16 +827,7 @@ function FollowUpsTab({
   const fmt = useTimeFormat()
   const { followUps } = model
   const started = startedAt.use()
-  const [ringed, setRinged] = useState<number | null>(null)
-  useEffect(() => {
-    if (focus.key !== null && followUps.some((f) => f.key === focus.key)) setRinged(focus.key)
-  }, [focus.at])
-  useLayoutEffect(() => {
-    if (ringed === null) return
-    scroller.current?.querySelector(`[data-work-key="${ringed}"]`)?.scrollIntoView({ block: 'nearest' })
-    const t = setTimeout(() => setRinged(null), RING_MS)
-    return () => clearTimeout(t)
-  }, [ringed])
+  const ringed = useRing(scroller, focus, (key) => followUps.some((f) => f.key === key))
 
   if (followUps.length === 0) {
     return (

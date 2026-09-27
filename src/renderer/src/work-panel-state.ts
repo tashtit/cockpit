@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionMessage } from '../../shared/types'
 import { buildWork, type WorkModel, type WorkTab } from '../../shared/work'
-import type { WorkFocus } from './WorkPanel'
+import type { WorkFocus } from './work-tab'
 
 /** The rows that carry a plan, to-dos, an edit or a check — all the Work panel folds — with their keys. */
 type ArtifactRows = { readonly rows: readonly SessionMessage[]; readonly keys: readonly number[] }

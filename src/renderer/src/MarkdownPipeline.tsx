@@ -1,8 +1,9 @@
-import { useEffect, useState, type JSX, type ReactElement, type ReactNode } from 'react'
+import type { JSX, ReactElement, ReactNode } from 'react'
 import ReactMarkdown, { type Options } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { api } from './api'
+import { useTransient } from './use-transient'
 
 function nodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -15,12 +16,7 @@ function nodeText(node: ReactNode): string {
 
 function CodeBlock({ children }: { children?: ReactNode }): JSX.Element {
   // copy must acknowledge — a click with no visible result reads as broken
-  const [copied, setCopied] = useState(false)
-  useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(false), 1200)
-    return () => clearTimeout(t)
-  }, [copied])
+  const [copied, setCopied] = useTransient<true>(1200)
   return (
     <div className="codeblock">
       <button

@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import type { SessionMessage } from '../../shared/types'
 import type { TranscriptAnchor } from './chat-binding'
 import { announceChat } from './chat-log'
 import { findAnchor } from './transcript-anchor'
+import { useTransient } from './use-transient'
 
 /** Rows kept above a message a search landed on, so it reads in its context */
 const ANCHOR_CONTEXT = 8
@@ -37,7 +38,7 @@ export function useTranscriptAnchor(
     readonly atBottomRef: RefObject<boolean>
   }
 ): number | null {
-  const [anchoredKey, setAnchoredKey] = useState<number | null>(null)
+  const [anchoredKey, setAnchoredKey] = useTransient<number>(ANCHOR_RING_MS)
   const appliedAnchor = useRef<TranscriptAnchor | null>(null)
   const scrolledKey = useRef<number | null>(null)
   useEffect(() => {
@@ -65,10 +66,5 @@ export function useTranscriptAnchor(
     el.scrollIntoView({ block: 'center' })
     announceChat('Showing the message that matched your search')
   }, [anchoredKey, limit])
-  useEffect(() => {
-    if (anchoredKey === null) return
-    const t = setTimeout(() => setAnchoredKey(null), ANCHOR_RING_MS)
-    return () => clearTimeout(t)
-  }, [anchoredKey])
   return anchoredKey
 }
