@@ -1,5 +1,7 @@
 import type { JSX } from 'react'
 import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, Provider, TodoStatus } from '../../shared/types'
+import { DEFAULT_BRANCH_PREFIX } from '../../shared/branch-prefix'
+import { useBranchPrefix } from './branch-prefix'
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude',
@@ -267,21 +269,28 @@ export function Spinner({ label }: { label?: string }): JSX.Element {
   )
 }
 
+/** A branch prefix as the pill shows it: `cockpit/` → `c/`, `users/titan/` → `u/`; a short one stays whole. */
+function shortPrefix(prefix: string): string {
+  return prefix.length > 3 ? `${prefix[0]}${prefix.slice(-1)}` : prefix
+}
+
 /**
- * Branch pill. Cockpit worktree branches all share the `cockpit/` prefix, so it
- * carries no information — abbreviate it to a dimmed `c/` and spend the chip's
- * width on the part that distinguishes branches. Full name stays in the tooltip.
+ * Branch pill. Cockpit worktree branches all share one prefix — the person's own
+ * (Settings › Accounts), or `cockpit/`, which branches cut before they set one still
+ * carry — so it carries no information: abbreviate it to a dimmed `c/` and spend the
+ * chip's width on the part that distinguishes branches. Full name stays in the tooltip.
  */
 export function BranchChip({ branch }: { branch: string }): JSX.Element {
-  const suffix = branch.startsWith('cockpit/') ? branch.slice('cockpit/'.length) : null
+  const own = useBranchPrefix()
+  const prefix = [own, DEFAULT_BRANCH_PREFIX].find((p) => branch.length > p.length && branch.startsWith(p))
   return (
     <span className="branch-chip" title={`⎇ ${branch}`}>
       <BranchIcon size={10} />
       <span className="chip-text">
-        {suffix !== null ? (
+        {prefix !== undefined ? (
           <>
-            <span className="chip-pre">c/</span>
-            {suffix}
+            <span className="chip-pre">{shortPrefix(prefix)}</span>
+            {branch.slice(prefix.length)}
           </>
         ) : (
           branch

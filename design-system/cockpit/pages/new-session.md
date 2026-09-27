@@ -46,8 +46,10 @@ images as `initialImages`) or the sidebar repo-row "+".
   makes Model required (Start disabled until chosen). When providers exist but none fits
   the active agent, an `.ns-hint` says why (Codex has no provider override; Claude needs
   anthropic-type) — the control disappearing silently reads as a bug.
-- Branch: `.ns-branch-row` shows the fixed prefix as dimmed mono with a mono input beside
-  it — worktree branch naming is visible, not hidden (product rule: always worktrees + PRs).
+- Branch: `.ns-branch-row` shows the person's branch prefix (Settings › Accounts,
+  `useBranchPrefix`; `cockpit/` by default) as dimmed mono with a mono input beside it —
+  worktree branch naming is visible, not hidden (product rule: always worktrees + PRs). A
+  long prefix gives way (ellipsis, 45% at most) before the name field does.
   Left empty, the task's words name it (see above).
 - Hints are `.ns-hint`; the YOLO warning uses `.ns-hint.yolo` (danger color). Permission
   mode labels/hints come from the shared `MODES` table — identical wording in ChatView.

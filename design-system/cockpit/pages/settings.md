@@ -144,6 +144,18 @@ seventh.
   sidebar footer already shows the two together; it never gets a tab of its own. One row — `OrgIcon` · "gh CLI" · `@login`
   acct-chip (or `.missing`) · `.source-note` prose (NOT mono; mono is machine identifiers
   only). Copy references real commands in `<code>` (`gh auth login`).
+  Under it, the **Branch prefix** row (`BranchPrefixRow`): `BranchIcon` · "Branch prefix"
+  with the prefix in force as an `.acct-chip` · a `.source-note` that shows the name it
+  makes (`<prefix>fix-login-flake`, live while typing, the saved one while the typed one is
+  refused) and that empty means `cockpit/` · a real `<form>` on the `.ns-branch-row`
+  recipe: a mono input (`aria-label` "Branch prefix", placeholder `cockpit/`) and a
+  `.btn-ghost.small` Save, disabled until the typed prefix differs and passes. The rule is
+  `src/shared/branch-prefix.ts`, the one main enforces — a refusal is a `.new-error
+  role="alert"` under the form, linked by `aria-describedby`/`aria-invalid`, and so is
+  main's own refusal (`ipcErrorText`). Escape backs out of the edit before it reaches the
+  view. A save announces "Branch prefix set to …" through the card's status region. It
+  belongs with GitHub, not a tab of its own: a prefix like `titan/` is how the person's
+  branches are known on the remote.
 - Model providers section (BYOK): `.source-row` per provider — `EndpointIcon` · display
   name · `.acct-chip` type (+ wire api) · `.repo-providers` agent logos (decorative, 12px)
   **and the words** "works with Claude and Copilot" as a `.source-origin` — agent

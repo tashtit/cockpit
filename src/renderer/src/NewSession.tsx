@@ -16,6 +16,7 @@ import { AttachRow, useImageAttachments, type ImageAttachment } from './attachme
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { branchHint } from './task-names'
+import { useBranchPrefix } from './branch-prefix'
 
 export type AccountChoice = {
   readonly configDir?: string
@@ -421,6 +422,7 @@ export function NewSession({
     () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
   )
   const [name, setName] = useState('')
+  const branchPrefix = useBranchPrefix()
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const atts = useImageAttachments(initialImages)
   const [mode, setMode] = useState<PermissionMode>(savedMode)
@@ -558,7 +560,7 @@ export function NewSession({
 
         <label className="ns-label" htmlFor="ns-branch">Branch</label>
         <div className="ns-branch-row">
-          <span className="ns-branch-prefix">cockpit/</span>
+          <span className="ns-branch-prefix" title="Set in Settings › Accounts">{branchPrefix}</span>
           <input
             id="ns-branch"
             // the name the task will actually produce, not a promise that one exists

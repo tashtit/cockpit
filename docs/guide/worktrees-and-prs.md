@@ -8,13 +8,17 @@ Hit **New task** (⌘N) or use the composer on the Home view: pick a repository,
 
 Cockpit then:
 
-1. creates a `cockpit/<name>` branch — named from the first words of your task (`cockpit/add-changelog-entry-retry-fix`) unless you set one in the full New session form,
+1. creates a `cockpit/<name>` branch — named from the first words of your task (`cockpit/add-changelog-entry-retry-fix`) unless you set one in the full New session form. The `cockpit/` part is the [branch prefix](#branch-prefix), which you can change,
 2. checks it out in an **isolated git worktree** under the app's own data directory — outside your checkout,
 3. runs the agent there.
 
 Your working copy stays untouched no matter what the agent does. Uncommitted work in your checkout can't be clobbered, and parallel tasks on the same repo can't collide with each other.
 
-If the repository has a `post-checkout` hook that fails (husky is the usual one, when it can't find `node`), the task still starts: git has finished the checkout before the hook runs. The chat opens with what the hook printed, since whatever it sets up is missing from that worktree. Any other failure removes the half-made worktree and its branch, so trying again doesn't leave extra `cockpit/*` branches behind.
+### Branch prefix
+
+If your team names branches its own way — `titan/…`, `users/titan/…` — set the prefix in **Settings › Accounts**, under GitHub. Type `titan` and branches become `titan/add-changelog-entry-retry-fix`; leave it empty to go back to `cockpit/`. It applies to every branch Cockpit cuts from then on: new sessions, roundtables with a project, and shared-instructions pull requests. Branches already made keep their names. An agent told to work only on branches with your prefix can then commit and push without renaming the branch first.
+
+If the repository has a `post-checkout` hook that fails (husky is the usual one, when it can't find `node`), the task still starts: git has finished the checkout before the hook runs. The chat opens with what the hook printed, since whatever it sets up is missing from that worktree. Any other failure removes the half-made worktree and its branch, so trying again doesn't leave extra branches behind.
 
 ## Reviewing before you ship
 

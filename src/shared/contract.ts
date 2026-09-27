@@ -208,6 +208,10 @@ export type CockpitApi = {
   /** The branch a PR from this repo would target; null when git can't say */
   readonly getDefaultBranch: (repoRoot: string) => Promise<string | null>
   readonly createWorkspace: (repoRoot: string, name?: string) => Promise<WorkspaceInfo>
+  /** What the branches of new worktrees start with — `cockpit/` unless the person set their own */
+  readonly getBranchPrefix: () => Promise<string>
+  /** Set it ('' restores the default); resolves to the prefix now in force, rejects with why git would refuse it */
+  readonly setBranchPrefix: (prefix: string) => Promise<string>
   readonly createPr: (cwd: string) => Promise<string>
   /** The worktree's changes for review before they ship; `cwd` must be a known session/worktree dir */
   readonly getWorkspaceDiff: (cwd: string, scope: DiffScope) => Promise<WorkspaceDiff>
@@ -529,9 +533,11 @@ export const CH = {
 
   windowZoom: 'window:zoom',
 
+  workspaceBranchPrefix: 'workspace:branch-prefix',
   workspaceCreate: 'workspace:create',
   workspaceDiff: 'workspace:diff',
-  workspacePr: 'workspace:pr'
+  workspacePr: 'workspace:pr',
+  workspaceSetBranchPrefix: 'workspace:set-branch-prefix'
 } as const
 
 /** Main -> renderer events. Pair each with an `onX` member on `CockpitApi`. */

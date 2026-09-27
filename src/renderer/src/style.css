@@ -722,7 +722,7 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .branch-chip svg { flex-shrink: 0; }
 /* the text inside an icon chip — flex containers can't ellipsize bare text nodes */
 .chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* the constant cockpit/ worktree prefix, abbreviated and receded — the suffix is the signal */
+/* the worktree branch prefix every branch shares, abbreviated and receded — the suffix is the signal */
 .chip-pre { opacity: 0.85; }
 /* ---------- Select: the app's own dropdown (native popups can't be styled) ---------- */
 .select-wrap { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
@@ -1873,7 +1873,9 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   padding: 4px var(--s3); min-height: 28px; font-size: var(--fs-sm);
   display: flex; align-items: center; }
 .ns-branch-row { display: flex; align-items: center; gap: var(--s2); }
-.ns-branch-prefix { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-sm); }
+/* the person's own prefix can run to 40 characters: it gives way before the name field does */
+.ns-branch-prefix { color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-sm);
+  max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-branch-row input { flex: 1; min-width: 0; font-family: var(--mono); }
 .ns-hint { color: var(--fg-dim); font-size: var(--fs-xs); }
 /* a section's explanation is prose, read once: body size and a reading line-height.
