@@ -10,6 +10,7 @@ import type {
 import { api } from './api'
 import type { TranscriptAnchor } from './chat-binding'
 import { useBusyMap } from './busy'
+import { HeldMark } from './HeldMark'
 import { useLandedMap } from './landed'
 import {
   AgentIcon,
@@ -17,16 +18,14 @@ import {
   CockpitLogo,
   GearIcon,
   GraphIcon,
-  HeldIcon,
-  LandingMark,
   ProviderLogo,
   PROVIDER_LABEL,
   RepoIcon,
   SearchIcon,
   SlidersIcon,
-  Spinner,
   TrashIcon
 } from './logos'
+import { noop, RowMeta } from './SessionList'
 import { fmtTime, useTimeFormat } from './time'
 
 /** Views the palette can navigate to — App's View kinds, minus chat/new (those need a target). */
@@ -626,24 +625,19 @@ function PaletteOption({
             <ProviderLogo p={it.s.provider} size={13} />
           </span>
           <span className="palette-title">{it.s.title}</span>
-          {held && (
-            <span className="held-mark" aria-hidden="true">
-              <HeldIcon size={10} />
-            </span>
-          )}
+          {/* the option's name already says "(in Cockpit)" */}
+          {held && <HeldMark mute />}
           {it.s.gitBranch && <BranchChip branch={it.s.gitBranch} />}
           {showRepo && it.s.repo && <span className="palette-hint">{it.s.repo.name}</span>}
-          {landing?.kind === 'asks' ? (
-            <LandingMark landing={landing} p={it.s.provider} />
-          ) : flying ? (
-            <Spinner label={`${PROVIDER_LABEL[it.s.provider]} is working`} />
-          ) : landing ? (
-            <LandingMark landing={landing} p={it.s.provider} plainDot />
-          ) : (
-            <time className="palette-meta" dateTime={new Date(it.s.updatedAt).toISOString()}>
-              {fmtTime(it.s.updatedAt, timeFormat)}
-            </time>
-          )}
+          {/* the sidebar row's meta slot — a session here carries no PR */}
+          <RowMeta
+            s={it.s}
+            working={flying}
+            landed={landing}
+            timeFormat={timeFormat}
+            timeClassName="palette-meta"
+            onOpenUrl={noop}
+          />
         </>
       )}
       {it.kind === 'hit' && (

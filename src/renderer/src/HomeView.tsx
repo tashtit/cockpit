@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AccountsSnapshot,
   Landing,
@@ -11,6 +11,7 @@ import type {
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
+import { HeldMark } from './HeldMark'
 import { holdSentence } from './hold'
 import { useLandedMap } from './landed'
 import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './NewSession'
@@ -18,7 +19,6 @@ import {
   BranchChip,
   CheckIcon,
   landingLabel,
-  HeldIcon,
   LandingMark,
   landingWord,
   LiveDot,
@@ -29,6 +29,7 @@ import {
 import { keepSame } from './same'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
+import { useRoundtables } from './use-roundtables'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
@@ -92,7 +93,6 @@ export function HomeView({
   const [error, setError] = useState<string | null>(null)
   const [recent, setRecent] = useState<SessionMeta[]>([])
   const [recentTotal, setRecentTotal] = useState(0)
-  const [tables, setTables] = useState<RoundtableMeta[]>([])
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
   const [accountKey, setAccountKey] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
@@ -124,26 +124,8 @@ export function HomeView({
     }
   }, [indexVersion])
 
-  // roundtable strip: reload on mount, on every index push and whenever a round starts
-  // or ends elsewhere — listening once: a push is a reason to read the list again, not
-  // to drop the listener and add it back. Only the newest answer lands.
-  const tablesSeq = useRef(0)
-  const loadTables = useCallback((): void => {
-    const seq = ++tablesSeq.current
-    void api.listRoundtables?.().then((r) => {
-      if (seq === tablesSeq.current) setTables((prev) => keepSame(prev, r.filter((t) => !t.archived)))
-    })
-  }, [])
-  useEffect(() => loadTables(), [indexVersion, loadTables])
-  useEffect(() => {
-    const unsub = api.onRoundtableEvent?.((ev) => {
-      if (ev.type === 'round') loadTables()
-    })
-    return () => {
-      tablesSeq.current++
-      unsub?.()
-    }
-  }, [loadTables])
+  // roundtable strip: the tables not archived, read again whenever a round starts or ends
+  const tables = useRoundtables(indexVersion, { activeOnly: true })
 
   const start = async (): Promise<void> => {
     // same guard the Start button enforces — ⌘Enter must not start a session
@@ -720,12 +702,7 @@ function BoardRow({
         {/* the slot renders even without a branch, so every task starts on one grid line */}
         <span className="board-branch">{s.gitBranch && <BranchChip branch={s.gitBranch} />}</span>
         <span className="board-task">{s.title}</span>
-        {held && (
-          <span className="held-mark" aria-hidden="true">
-            <HeldIcon size={10} />
-          </span>
-        )}
-        {held && <span className="sr-only">(in Cockpit)</span>}
+        {held && <HeldMark />}
         {s.repo && <span className="board-repo">{s.repo.name}</span>}
         {flying ? (
           <span className="board-meta">{fmtElapsed(now - startedAt)}</span>
