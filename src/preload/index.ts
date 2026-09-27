@@ -5,6 +5,7 @@ import type { CockpitApi } from '../shared/contract'
 import type {
   AttentionFocus,
   AttentionPrefs,
+  AttentionTone,
   AttentionTarget,
   BusySession,
   ChatEvent,
@@ -72,6 +73,7 @@ const api: CockpitApi = {
   getAttentionPrefs: () => ipcRenderer.invoke(CH.attentionPrefs),
   setAttentionPrefs: (prefs: AttentionPrefs) => ipcRenderer.invoke(CH.attentionSetPrefs, prefs),
   testNotification: () => ipcRenderer.invoke(CH.attentionTest),
+  playSound: (tone: AttentionTone) => ipcRenderer.invoke(CH.attentionPlay, tone),
   setAttentionFocus: (focus: AttentionFocus) => ipcRenderer.invoke(CH.attentionFocus, focus),
   getLandings: () => ipcRenderer.invoke(CH.attentionLandings),
   onLandings: (cb: (landings: Landing[]) => void) => {

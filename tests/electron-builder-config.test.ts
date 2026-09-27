@@ -48,3 +48,12 @@ describe('electron-builder.config.js Apple credentials', () => {
     expect(result.stderr).toContain('APPLE_ID, APPLE_TEAM_ID missing')
   })
 })
+
+describe('electron-builder.config.js resources', () => {
+  it('ships the notification sounds outside the asar, where afplay can read them', () => {
+    const script = `process.stdout.write(JSON.stringify(require(${JSON.stringify(CONFIG)}).extraResources))`
+    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' })
+    expect(r.status, r.stderr).toBe(0)
+    expect(JSON.parse(r.stdout)).toContainEqual({ from: 'resources/sounds', to: 'sounds', filter: ['*.wav'] })
+  })
+})

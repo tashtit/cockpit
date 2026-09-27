@@ -22,6 +22,7 @@ import type {
   AppInfo,
   AttentionFocus,
   AttentionPrefs,
+  AttentionTone,
   AttentionTarget,
   BackupExportResult,
   BackupPreview,
@@ -142,6 +143,8 @@ export type CockpitApi = {
   readonly setAttentionPrefs: (prefs: AttentionPrefs) => Promise<AttentionPrefs>
   /** Post a sample notification (with the sound, when that is on) and report what macOS did */
   readonly testNotification: () => Promise<NotificationDelivery>
+  /** Play one of the notification sounds once, whatever the Sound switch says (the Settings preview) */
+  readonly playSound: (tone: AttentionTone) => Promise<void>
   /** Tell main what the window shows — it never notifies about that, and opening clears a landing */
   readonly setAttentionFocus: (focus: AttentionFocus) => Promise<void>
   /** Sessions that landed while nobody was looking, newest first */
@@ -399,6 +402,7 @@ export const CH = {
   attentionCleanup: 'attention:cleanup',
   attentionFocus: 'attention:focus',
   attentionLandings: 'attention:landings',
+  attentionPlay: 'attention:play',
   attentionPrefs: 'attention:prefs',
   attentionSetPrefs: 'attention:set-prefs',
   attentionTakeOpen: 'attention:take-open',

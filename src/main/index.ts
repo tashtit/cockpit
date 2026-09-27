@@ -136,7 +136,7 @@ import { getUsage } from './usage'
 import { getProfile } from './profile'
 import { appInfo, UpdateManager } from './updates'
 import { AttentionDesk, electronSurface } from './attention'
-import { tableOutcome } from './attention-core'
+import { asAttentionTone, tableOutcome } from './attention-core'
 import { homedir } from 'node:os'
 
 // e2e/dev isolation only — a packaged app must never honor a data-dir override
@@ -1245,6 +1245,7 @@ app.whenReady().then(() => {
     return saved
   })
   ipcMain.handle(CH.attentionTest, () => desk.test())
+  ipcMain.handle(CH.attentionPlay, (_e, tone: unknown) => desk.play(asAttentionTone(tone)))
   ipcMain.handle(CH.attentionFocus, (_e, focus: unknown) => desk.setFocus(asAttentionFocus(focus)))
   ipcMain.handle(CH.attentionLandings, () => desk.landings())
   ipcMain.handle(CH.attentionCleanup, () => desk.cleanupNotice())

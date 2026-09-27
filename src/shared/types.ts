@@ -1253,12 +1253,15 @@ export type BusySession = {
 
 /* ---------- attention: notifications, sounds and the Dock badge ---------- */
 
+/** The sounds a landing makes: a turn done, an agent waiting on you, something gone wrong. */
+export type AttentionTone = 'finish' | 'asks' | 'fail'
+
 /** Settings › Notifications — how Cockpit tells you an agent needs you. */
 export type AttentionPrefs = {
   /** A desktop notification when a turn finishes or fails, an agent waits on you, a
    *  roundtable concludes, or a pull request turns red */
   readonly notifications: boolean
-  /** A short macOS system sound on finish and on failure */
+  /** A short sound of Cockpit's own on finish, on a question and on failure */
   readonly sound: boolean
   /** The number of landed, unopened sessions on the Dock icon */
   readonly badge: boolean

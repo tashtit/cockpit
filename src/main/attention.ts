@@ -1,9 +1,11 @@
 import { app, Notification } from 'electron'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type {
   AttentionFocus,
   AttentionPrefs,
   AttentionTarget,
+  AttentionTone,
   ChatEvent,
   CleanupNotice,
   Landing,
@@ -13,6 +15,7 @@ import type {
 } from '../shared/types'
 import {
   AttentionTracker,
+  alertGain,
   sanitizeSeenPrs,
   sanitizeUnseen,
   type Notice,
@@ -40,7 +43,7 @@ export type AttentionSurface = {
   /** Take delivered banners out of Notification Center */
   readonly withdraw: (ids: readonly string[]) => void
   readonly setBadge: (count: number) => void
-  readonly play: (sound: 'finish' | 'fail') => void
+  readonly play: (sound: AttentionTone) => void
   /** One Dock bounce — how a refused banner still gets noticed */
   readonly bounce: () => void
 }
@@ -203,6 +206,11 @@ export class AttentionDesk {
     return this.deps.surface.notify(SAMPLE, () => this.deps.onOpen(null))
   }
 
+  /** The Settings preview: the one sound asked for, whatever the Sound switch says — pressing it is the request. */
+  play(tone: AttentionTone): void {
+    this.deps.surface.play(tone)
+  }
+
   dispose(): void {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
@@ -269,10 +277,14 @@ export class AttentionDesk {
   }
 }
 
-/** macOS system sounds: on every Mac already, so nothing third-party ships with the app. */
-const SOUND_FILE: Record<'finish' | 'fail', string> = {
-  finish: '/System/Library/Sounds/Glass.aiff',
-  fail: '/System/Library/Sounds/Basso.aiff'
+/**
+ * Cockpit's own sounds, synthesized by `npm run sounds` (scripts/sounds-core.mts) into
+ * resources/sounds. afplay reads a real file, so a packaged build carries them outside the
+ * asar; any other run reads the checkout's copy, beside out/.
+ */
+function soundFile(sound: AttentionTone): string {
+  const dir = app.isPackaged ? join(process.resourcesPath, 'sounds') : join(__dirname, '..', '..', 'resources', 'sounds')
+  return join(dir, `${sound}.wav`)
 }
 
 /** No answer from macOS within this long means the permission prompt is probably up. */
@@ -328,7 +340,14 @@ export function electronSurface(): AttentionSurface {
       app.setBadgeCount(count)
     },
     play: (sound) => {
-      if (mac) void execText('/usr/bin/afplay', [SOUND_FILE[sound]], { timeoutMs: 10_000 })
+      if (!mac) return
+      // afplay plays at the output volume; alert sounds follow the Alert volume slider
+      void execText('/usr/bin/defaults', ['read', '-g', 'com.apple.sound.beep.volume'], {
+        timeoutMs: 2_000
+      }).then(({ stdout }) => {
+        const gain = alertGain(stdout)
+        if (gain > 0) void execText('/usr/bin/afplay', ['-v', String(gain), soundFile(sound)], { timeoutMs: 10_000 })
+      })
     },
     bounce: () => {
       app.dock?.bounce('informational')
