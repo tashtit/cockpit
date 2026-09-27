@@ -53,7 +53,7 @@ import { writeFileAtomic } from './replace-file'
  * The disk around backup-core: reading skills, writing the file, and putting a
  * restore into place with a snapshot behind it. Everything that belongs to the
  * app rather than to the data — the dialogs, the indexer, the keychain — is
- * injected by index.ts, which is what lets a test run the whole round trip.
+ * injected by ipc/backup.ts, which is what lets a test run the whole round trip.
  */
 
 /** The keychain, injected — `safeStorage` has no runtime outside the packaged app. */

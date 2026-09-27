@@ -25,7 +25,7 @@ Hard-coded arrays silently omit the new provider from the UI and from cross-agen
 - `src/shared/library.ts` — `PROVIDERS`
 - `src/main/roundtable-core.ts` — `PROVIDERS`
 - `src/main/extensions.ts` — the `for (const agent of […])` loop
-- `src/main/index.ts` — the inline provider checks in `assertKnownConfigDir` and the chat handler
+- `src/main/ipc/guards.ts` — `asProvider`, `assertKnownConfigDir`, `asAttentionFocus`; and the `sources:add` check in `src/main/ipc/sessions.ts`
 - `src/renderer/src/NewSession.tsx`, `NewRoundtable.tsx`, `HandoffView.tsx`, `HomeView.tsx`, `Settings.tsx` — each view's `PROVIDERS`
 
 Behavior that is provider-specific by construction:

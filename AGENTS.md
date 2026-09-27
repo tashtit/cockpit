@@ -36,12 +36,12 @@ sessions (macOS-focused, dark-only). Three processes with a strict boundary:
 The whole surface is the `CockpitApi` type in `src/shared/contract.ts`, and the
 `add-ipc-capability` skill is the recipe. A capability is four edits, in order: `contract.ts`
 (the method and its `CH` channel, `PUSH` for an event; request/response types in `types.ts`) →
-`ipcMain.handle(CH.x, …)` in `src/main/index.ts` → the bridge in `src/preload/index.ts` →
+`ipcMain.handle(CH.x, …)` in the domain's module under `src/main/ipc/` → the bridge in `src/preload/index.ts` →
 `tests/component/stub-api.ts`. Components then call `api.x()`; `src/renderer/src/api.ts` is
 never edited.
 
 - Channel names are never string literals: `tests/ipc-channels.test.ts` fails on a bare literal, on a `CH` member only one side uses, and on a name off the `domain:verb` shape.
-- **Renderer input is untrusted.** Coerce every argument, and validate any path against roots main derived itself (`assertKnownRepoRoot`, `assertKnownCwd`, `assertKnownConfigDir` in `src/main/index.ts`). Never act on an arbitrary renderer-supplied path.
+- **Renderer input is untrusted.** Coerce every argument, and validate any path against roots main derived itself (`assertKnownRepoRoot`, `assertKnownCwd`, `assertKnownConfigDir` in `src/main/ipc/guards.ts`). Never act on an arbitrary renderer-supplied path.
 
 ### `src/shared/` — pure, and the first place to look for a helper
 
@@ -86,7 +86,7 @@ it is named for and is what the unit tests target; keep IO in the sibling withou
 - **Library**: `extensions` (MCP / skills / plugins inventory and sharing), `library.ts`, `mcp.ts`, `mcp-versions.ts`, `toml.ts`, `instructions` + `instructions-share.ts` (shared instructions, and sharing them to a repo by PR)
 - **Git & GitHub**: `workspace.ts` (worktrees and PRs), `diff` (the review before landing), `pr-feedback` (the loop after the PR opens), `github` (PR badges)
 - **Housekeeping**: `cleanup`, `cleanup-reminder`, `backup`
-- **App**: `index.ts` (bootstrap and every IPC handler), `attention` (notifications, sounds, the Dock badge), `updates.ts` + `update-install` (self-update), `dev-window.ts`, `link-guard.ts`, `env.ts`, `replace-file.ts`, `paths.ts`
+- **App**: `index.ts` (the entry: services, handlers, window, quit), `services.ts` (builds and wires every long-lived service), `ipc/` (every IPC handler, one module per domain, and `guards.ts` for renderer input), `window.ts` (the window and pushes to it), `turn-ledger.ts` (what a turn Cockpit started owes config once it names its session), `attention` (notifications, sounds, the Dock badge), `updates.ts` + `update-install` (self-update), `dev-window.ts`, `link-guard.ts`, `env.ts`, `replace-file.ts`, `paths.ts`
 
 ### Rules that span modules
 

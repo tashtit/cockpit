@@ -62,7 +62,7 @@ export type TablePlace = {
   readonly repoRoot: string | null
 }
 
-/** The chat plumbing this manager drives — index.ts wires it to the one ChatManager. */
+/** The chat plumbing this manager drives — services.ts wires it to the one ChatManager. */
 type Hooks = {
   readonly sendTurn: (req: ChatRequest) => string
   readonly cancelTurn: (turnId: string) => void

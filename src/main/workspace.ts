@@ -155,6 +155,11 @@ type WorkspaceOptions = {
 // else here is creating worktrees in between.
 let creating: Promise<unknown> = Promise.resolve()
 
+/** Where Cockpit cuts its worktrees: under its own userData, never inside a repo. */
+export function worktreesDir(): string {
+  return join(userDataDir(), 'worktrees')
+}
+
 /**
  * Every new session gets its own linked worktree + branch (`<prefix><slug>`, `cockpit/`
  * unless the person set their own), kept outside the repo (under userData) so checkouts
@@ -176,7 +181,7 @@ async function create(
   opts: WorkspaceOptions
 ): Promise<WorkspaceInfo> {
   const baseSlug = (name && slugify(name)) || `ws-${Date.now().toString(36)}`
-  const parent = join(userDataDir(), 'worktrees', slugify(basename(repoRoot)) || 'repo')
+  const parent = join(worktreesDir(), slugify(basename(repoRoot)) || 'repo')
   mkdirSync(parent, { recursive: true })
   const baseCommit = await commitOf(repoRoot, opts.base ?? 'HEAD')
   const prefix = opts.prefix ?? DEFAULT_BRANCH_PREFIX

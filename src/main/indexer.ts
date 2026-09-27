@@ -1047,7 +1047,7 @@ export class SessionIndexer {
     return this.providerArchived.has(s.id) || (s.provider === 'codex' && isArchivedRollout(s.sourcePath))
   }
 
-  /** Wired by index.ts to the roundtable manager: cwd → owning table id, if any. */
+  /** Wired by services.ts to the roundtable manager: cwd → owning table id, if any. */
   private roundtableForCwd: (cwd: string) => string | null = () => null
 
   setRoundtableResolver(fn: (cwd: string) => string | null): void {

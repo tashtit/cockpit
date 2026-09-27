@@ -47,7 +47,7 @@ import { EFFORT_LEVELS } from '../shared/agent-models'
 
 type Emit = (ev: ChatEvent) => void
 type ResolveEndpoint = (id: string) => ModelEndpoint | undefined
-/** Decrypts the endpoint's stored API key (index.ts wires this to the keychain store). */
+/** Decrypts the endpoint's stored API key (services.ts wires this to the keychain store). */
 type ResolveKey = (ep: ModelEndpoint) => string | undefined
 
 /**
@@ -457,7 +457,7 @@ type RunningTurn = {
   readonly claudeAsks?: Map<string, unknown>
 }
 
-/** Optional collaborators wired by index.ts (busy board, attention, BYOK endpoint/keychain store). */
+/** Optional collaborators wired by services.ts (busy board, attention, BYOK endpoint/keychain store). */
 type ChatManagerHooks = {
   readonly onBusyChange?: (sessions: BusySession[]) => void
   /** Every turn, before any of its events — fast failures included */

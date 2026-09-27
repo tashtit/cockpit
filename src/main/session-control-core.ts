@@ -4,7 +4,7 @@ import { CONFIG_HOME_VAR, shQuote } from './agent-cli-core'
 import { isUnder } from './paths'
 
 /**
- * Who drives a session, IO-free (what the tests target; `index.ts` does the IO).
+ * Who drives a session, IO-free (what the tests target; `ipc/sessions.ts` and `ipc/chat.ts` do the IO).
  *
  * A session lives with its agent — a terminal, the provider's own app — until Cockpit
  * starts it or the person takes it over, and goes back when they release it. The
