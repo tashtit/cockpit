@@ -1,4 +1,4 @@
-import type { JSX } from 'react'
+import { useId, type JSX } from 'react'
 import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, SessionProvider, TodoStatus } from '../../shared/types'
 import { AGENT_LABEL } from '../../shared/providers'
 import { DEFAULT_BRANCH_PREFIX } from '../../shared/branch-prefix'
@@ -6,14 +6,20 @@ import { useBranchPrefix } from './branch-prefix'
 
 export const PROVIDER_LABEL = AGENT_LABEL
 
-/* Official brand marks:
+/* Official brand marks, in the colours each agent draws its own in:
  *  - Claude: Anthropic starburst (Simple Icons path data)
  *  - Codex: OpenAI blossom (one petal from the official geometry, rotated ×6)
  *  - Copilot: GitHub Copilot icon (Simple Icons path data)
- *  - Gemini, Cursor, Cline, opencode: their Simple Icons path data
- *  - Antigravity: no published mark to draw from, so its initial in a tile, not an invented logo
- *  - Roo Code: the kangaroo its own extension ships (Apache-2.0, see notices.ts)
- * Rendered in currentColor so the provider palette carries through. */
+ *  - Gemini: the sparkle in Google's 2025 colours (Lobe Icons, MIT)
+ *  - Antigravity: its arch over the same palette, as its app draws it (Lobe Icons, MIT);
+ *    the one-colour arch is the "jetski" mark its app also ships
+ *  - Cursor: the shaded cube of its app icon (Lobe Icons, MIT); flat, the Simple Icons cube
+ *  - opencode: its favicon's white frame over a grey core (opencode, MIT)
+ *  - Cline: its robot (Simple Icons path data); Roo Code: the kangaroo its own extension
+ *    ships (Apache-2.0) — both brands draw in white alone
+ * Colours come from the brand tokens in style.css (`.mark-*`). On a solid fill — the chat
+ * header's badge — a mark draws in currentColor instead (`mono`): the palette would fight
+ * the fill. See notices.ts for the licences. */
 const CLAUDE_PATH =
   'm4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z'
 
@@ -22,9 +28,6 @@ const OPENAI_PETAL =
 
 const COPILOT_PATH =
   'M23.922 16.997C23.061 18.492 18.063 22.02 12 22.02 5.937 22.02.939 18.492.078 16.997A.641.641 0 0 1 0 16.741v-2.869a.883.883 0 0 1 .053-.22c.372-.935 1.347-2.292 2.605-2.656.167-.429.414-1.055.644-1.517a10.098 10.098 0 0 1-.052-1.086c0-1.331.282-2.499 1.132-3.368.397-.406.89-.717 1.474-.952C7.255 2.937 9.248 1.98 11.978 1.98c2.731 0 4.767.957 6.166 2.093.584.235 1.077.546 1.474.952.85.869 1.132 2.037 1.132 3.368 0 .368-.014.733-.052 1.086.23.462.477 1.088.644 1.517 1.258.364 2.233 1.721 2.605 2.656a.841.841 0 0 1 .053.22v2.869a.641.641 0 0 1-.078.256Zm-11.75-5.992h-.344a4.359 4.359 0 0 1-.355.508c-.77.947-1.918 1.492-3.508 1.492-1.725 0-2.989-.359-3.782-1.259a2.137 2.137 0 0 1-.085-.104L4 11.746v6.585c1.435.779 4.514 2.179 8 2.179 3.486 0 6.565-1.4 8-2.179v-6.585l-.098-.104s-.033.045-.085.104c-.793.9-2.057 1.259-3.782 1.259-1.59 0-2.738-.545-3.508-1.492a4.359 4.359 0 0 1-.355-.508Zm2.328 3.25c.549 0 1 .451 1 1v2c0 .549-.451 1-1 1-.549 0-1-.451-1-1v-2c0-.549.451-1 1-1Zm-5 0c.549 0 1 .451 1 1v2c0 .549-.451 1-1 1-.549 0-1-.451-1-1v-2c0-.549.451-1 1-1Zm3.313-6.185c.136 1.057.403 1.913.878 2.497.442.544 1.134.938 2.344.938 1.573 0 2.292-.337 2.657-.751.384-.435.558-1.15.558-2.361 0-1.14-.243-1.847-.705-2.319-.477-.488-1.319-.862-2.824-1.025-1.487-.161-2.192.138-2.533.529-.269.307-.437.808-.438 1.578v.021c0 .265.021.562.063.893Zm-1.626 0c.042-.331.063-.628.063-.894v-.02c-.001-.77-.169-1.271-.438-1.578-.341-.391-1.046-.69-2.533-.529-1.505.163-2.347.537-2.824 1.025-.462.472-.705 1.179-.705 2.319 0 1.211.175 1.926.558 2.361.365.414 1.084.751 2.657.751 1.21 0 1.902-.394 2.344-.938.475-.584.742-1.44.878-2.497Z'
-
-const GEMINI_PATH =
-  'M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81'
 
 const CURSOR_PATH =
   'M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23'
@@ -36,20 +39,199 @@ const CLINE_PATH =
 const ROO_PATH =
   'M88.4719 2.87946L86.5306 9.89906C86.4278 10.2707 86.0399 10.4854 85.6704 10.3752L53.106 0.659112C52.8894 0.594492 52.6549 0.640312 52.4786 0.781722L20.2279 26.6445C20.1338 26.72 20.0214 26.7694 19.9021 26.7878L0.713159 29.745C0.357849 29.7998 0.10453 30.1187 0.13164 30.4772L0.21502 31.5798C0.24165 31.932 0.53052 32.2069 0.88359 32.216L23.1724 32.7922L23.4266 32.7993L39.8958 24.0019C40.1264 23.8788 40.4068 23.8968 40.6197 24.0486L52.2875 32.3659C52.4705 32.4963 52.5783 32.7078 52.5762 32.9325L52.4778 43.9686C52.4765 44.1114 52.5197 44.2511 52.6014 44.3683L69.0144 67.9188C69.1431 68.1034 69.354 68.2135 69.5791 68.2135H74.7748C75.2932 68.2135 75.6255 67.6623 75.3836 67.2039L63.6853 45.0427C63.5709 44.8259 63.5804 44.5647 63.7101 44.3568L69.8094 34.5861C69.8758 34.4797 69.97 34.3935 70.0819 34.3367L91.8879 23.2712C92.1095 23.1588 92.3744 23.1745 92.5812 23.3123L98.8125 27.4657C98.9256 27.5411 99.0584 27.5813 99.1943 27.5813H104.856C105.404 27.5813 105.732 26.9716 105.43 26.514L89.7099 2.6839C89.3844 2.19053 88.6294 2.30979 88.4719 2.87946Z'
 
-const OPENCODE_PATH = 'M22 24H2V0h20zM17 4.8H7v14.4h10z'
+/** Gemini's sparkle, on the 24-unit grid (Lobe Icons) */
+const GEMINI_PATH =
+  'M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z'
 
-/** The single-path marks, each on the 24-unit Simple Icons grid */
-const MARK_PATH: Record<Exclude<SessionProvider, 'claude' | 'codex' | 'roo' | 'antigravity'>, string> = {
-  opencode: OPENCODE_PATH,
+/** The colour washes over the blue sparkle: each fades out toward the centre */
+const GEMINI_WASHES: ReadonlyArray<{
+  readonly mark: string
+  readonly from: readonly [number, number]
+  readonly to: readonly [number, number]
+  readonly fade: number
+}> = [
+  { mark: 'google-green', from: [7, 15.5], to: [11, 12], fade: 1 },
+  { mark: 'google-red', from: [8, 5.5], to: [11.5, 11], fade: 1 },
+  { mark: 'google-yellow', from: [3.5, 13.5], to: [17.5, 12], fade: 0.46 }
+]
+
+/** Antigravity's arch, on the 24-unit grid — the shape its colours are cut to */
+const ANTIGRAVITY_ARCH =
+  'M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z'
+
+/** The blurred colour fields under the arch, each with its blur's own region (Lobe Icons) */
+const ANTIGRAVITY_FIELDS: ReadonlyArray<{
+  readonly mark: string
+  readonly d: string
+  readonly blur: number
+  readonly region: readonly [number, number, number, number]
+}> = [
+  { mark: 'google-yellow-light', blur: 1.117, region: [-3.288, -11.917, 19.838, 17.587],
+    d: 'M-1.018-3.992c-.408 3.591 2.686 6.89 6.91 7.37 4.225.48 7.98-2.043 8.387-5.633.408-3.59-2.686-6.89-6.91-7.37-4.225-.479-7.98 2.043-8.387 5.633z' },
+  { mark: 'google-red', blur: 5.4, region: [4.251, -13.493, 38.9, 38.565],
+    d: 'M15.269 7.747c1.058 4.557 5.691 7.374 10.348 6.293 4.657-1.082 7.575-5.653 6.516-10.21-1.058-4.556-5.691-7.374-10.348-6.292-4.657 1.082-7.575 5.653-6.516 10.21z' },
+  { mark: 'google-green', blur: 4.591, region: [-21.889, -10.592, 40.955, 36.517],
+    d: 'M-12.443 10.804c1.338 4.703 7.36 7.11 13.453 5.378 6.092-1.733 9.947-6.95 8.61-11.652C8.282-.173 2.26-2.58-3.833-.848-9.925.884-13.78 6.1-12.443 10.804z' },
+  { mark: 'google-green', blur: 4.591, region: [-21.889, -10.592, 40.955, 36.517],
+    d: 'M-12.443 10.804c1.338 4.703 7.36 7.11 13.453 5.378 6.092-1.733 9.947-6.95 8.61-11.652C8.282-.173 2.26-2.58-3.833-.848-9.925.884-13.78 6.1-12.443 10.804z' },
+  { mark: 'google-green', blur: 4.591, region: [-19.099, -10.278, 36.632, 36.595],
+    d: 'M-7.608 14.703c3.352 3.424 9.126 3.208 12.896-.483 3.77-3.69 4.108-9.459.756-12.883C2.69-2.087-3.083-1.871-6.853 1.82c-3.77 3.69-4.108 9.458-.755 12.883z' },
+  { mark: 'google-blue', blur: 4.363, region: [0.981, 8.758, 33.533, 34.087],
+    d: 'M9.932 27.617c1.04 4.482 5.384 7.303 9.7 6.3 4.316-1.002 6.971-5.448 5.93-9.93-1.04-4.483-5.384-7.304-9.7-6.301-4.316 1.002-6.971 5.448-5.93 9.93z' },
+  { mark: 'google-yellow', blur: 3.954, region: [-6.143, -21.659, 35.978, 35.276],
+    d: 'M2.572-8.185C.392-3.329 2.778 2.472 7.9 4.771c5.122 2.3 11.042.227 13.222-4.63 2.18-4.855-.205-10.656-5.327-12.955-5.122-2.3-11.042-.227-13.222 4.63z' },
+  { mark: 'google-blue', blur: 3.531, region: [-11.96, -0.46, 45.114, 46.523],
+    d: 'M-3.267 38.686c-5.277-2.072 3.742-19.117 5.984-24.83 2.243-5.712 8.34-8.664 13.616-6.592 5.278 2.071 11.533 13.482 9.29 19.195-2.242 5.713-23.613 14.298-28.89 12.227z' },
+  { mark: 'google-blue-light', blur: 3.159, region: [10.485, 0.58, 25.094, 24.054],
+    d: 'M28.71 17.471c-1.413 1.649-5.1.808-8.236-1.878-3.135-2.687-4.531-6.201-3.118-7.85 1.412-1.649 5.1-.808 8.235 1.878s4.532 6.2 3.119 7.85z' },
+  { mark: 'google-red', blur: 2.669, region: [5.833, -12.467, 33.508, 30.007],
+    d: 'M18.163 9.077c5.81 3.93 12.502 4.19 14.946.577 2.443-3.612-.287-9.727-6.098-13.658-5.81-3.931-12.502-4.19-14.946-.577-2.443 3.612.287 9.727 6.098 13.658z' },
+  { mark: 'google-yellow-pale', blur: 3.303, region: [-8.355, -8.876, 22.194, 26.151],
+    d: 'M-.915 2.684c-1.44 3.473-.97 6.967 1.05 7.804 2.02.837 4.824-1.3 6.264-4.772 1.44-3.473.97-6.967-1.05-7.804-2.02-.837-4.824 1.3-6.264 4.772z' }
+]
+
+/** Cursor's shaded cube, 466.73×533.32 — its faces back to front (Lobe Icons) */
+const CURSOR_FACES: ReadonlyArray<{ readonly mark: string; readonly d: string }> = [
+  { mark: 'cursor-shade-1',
+    d: 'm233.37 266.66 231.16 133.46a16.45 16.45 0 0 1-6.03 6.03L242.44 530.89a18.142 18.142 0 0 1-18.14 0L8.24 406.15a16.45 16.45 0 0 1-6.03-6.03l231.16-133.46Z' },
+  { mark: 'cursor-shade-2',
+    d: 'M233.37 0v266.66L2.21 400.12C.79 397.66 0 394.82 0 391.88V141.44c0-5.89 3.14-11.32 8.24-14.27L224.29 2.43C227.1.81 230.23 0 233.36 0h.01Z' },
+  { mark: 'cursor-shade-3',
+    d: 'M464.52 133.2a16.45 16.45 0 0 0-6.03-6.03L242.43 2.43C239.63.81 236.5 0 233.37 0v266.66l231.16 133.46c1.42-2.46 2.21-5.3 2.21-8.24V141.44c0-2.95-.78-5.77-2.21-8.24h-.01Z' },
+  { mark: 'cursor-light',
+    d: 'M448.35 142.54c1.31 2.26 1.49 5.16 0 7.74L238.52 513.7c-1.41 2.46-5.16 1.45-5.16-1.38V272.84c0-1.91-.51-3.75-1.44-5.36l216.42-124.95h.01Z' },
+  { mark: 'cursor-edge',
+    d: 'M448.35 142.54 231.93 267.49a10.68 10.68 0 0 0-3.92-3.92L20.62 143.83c-2.46-1.41-1.45-5.16 1.38-5.16h419.65c2.98 0 5.4 1.61 6.7 3.87Z' }
+]
+
+/** opencode's favicon on the 24-unit grid: the frame, and the grey core in its lower half */
+const OPENCODE_FRAME = 'M20 22H4V2h16zM16 6H8v12h8z'
+const OPENCODE_CORE = 'M8 10h8v8H8z'
+
+/** The single-path marks drawn in currentColor, each on the 24-unit Simple Icons grid */
+const MARK_PATH: Record<'copilot' | 'cline', string> = {
   copilot: COPILOT_PATH,
-  gemini: GEMINI_PATH,
-  cursor: CURSOR_PATH,
   cline: CLINE_PATH
+}
+
+/** Ids for one mark's own gradients, masks and filters: unique on the page, and plain
+ *  enough for a `url(#…)` reference (React's own carry characters it would have to escape). */
+function useMarkIds(): string {
+  return `mk${useId().replace(/[^A-Za-z0-9]/g, '')}`
+}
+
+type MarkProps = { readonly size: number; readonly mono: boolean }
+
+function GeminiMark({ size, mono }: MarkProps): JSX.Element {
+  const id = useMarkIds()
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className="logo-gemini" aria-hidden="true">
+      <path className={mono ? undefined : 'mark-google-blue'} fill="currentColor" d={GEMINI_PATH} />
+      {!mono && (
+        <>
+          {GEMINI_WASHES.map((w, i) => (
+            <path key={w.mark} fill={`url(#${id}-${i})`} d={GEMINI_PATH} />
+          ))}
+          <defs>
+            {GEMINI_WASHES.map((w, i) => (
+              <linearGradient
+                key={w.mark}
+                id={`${id}-${i}`}
+                gradientUnits="userSpaceOnUse"
+                x1={w.from[0]}
+                y1={w.from[1]}
+                x2={w.to[0]}
+                y2={w.to[1]}
+              >
+                <stop className={`mark-stop-${w.mark}`} />
+                <stop className={`mark-stop-${w.mark}`} offset={w.fade} stopOpacity={0} />
+              </linearGradient>
+            ))}
+          </defs>
+        </>
+      )}
+    </svg>
+  )
+}
+
+function AntigravityMark({ size, mono }: MarkProps): JSX.Element {
+  const id = useMarkIds()
+  if (mono) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" className="logo-antigravity" aria-hidden="true">
+        <path fill="currentColor" d={ANTIGRAVITY_ARCH} />
+      </svg>
+    )
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className="logo-antigravity" aria-hidden="true">
+      <mask id={`${id}-arch`} maskUnits="userSpaceOnUse" x="0" y="1" width="24" height="23">
+        <path fill="white" d={ANTIGRAVITY_ARCH} />
+      </mask>
+      <g mask={`url(#${id}-arch)`}>
+        {ANTIGRAVITY_FIELDS.map((f, i) => (
+          <path key={i} className={`mark-${f.mark}`} filter={`url(#${id}-${i})`} d={f.d} />
+        ))}
+      </g>
+      <defs>
+        {ANTIGRAVITY_FIELDS.map((f, i) => (
+          <filter
+            key={i}
+            id={`${id}-${i}`}
+            filterUnits="userSpaceOnUse"
+            colorInterpolationFilters="sRGB"
+            x={f.region[0]}
+            y={f.region[1]}
+            width={f.region[2]}
+            height={f.region[3]}
+          >
+            <feGaussianBlur stdDeviation={f.blur} />
+          </filter>
+        ))}
+      </defs>
+    </svg>
+  )
+}
+
+function CursorMark({ size, mono }: MarkProps): JSX.Element {
+  if (mono) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" className="logo-cursor" aria-hidden="true">
+        <path fill="currentColor" d={CURSOR_PATH} />
+      </svg>
+    )
+  }
+  // the cube is taller than wide: a square box centred on it keeps it sized like the others
+  return (
+    <svg width={size} height={size} viewBox="-33.3 0 533.32 533.32" className="logo-cursor" aria-hidden="true">
+      {CURSOR_FACES.map((f) => (
+        <path key={f.mark} className={`mark-${f.mark}`} d={f.d} />
+      ))}
+    </svg>
+  )
+}
+
+function OpencodeMark({ size, mono }: MarkProps): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className="logo-opencode" aria-hidden="true">
+      <path className={mono ? undefined : 'mark-opencode-frame'} fill="currentColor" fillRule="evenodd" d={OPENCODE_FRAME} />
+      {!mono && <path className="mark-opencode-core" d={OPENCODE_CORE} />}
+    </svg>
+  )
 }
 
 /* Decorative marks: every usage sits next to a text label, an aria-label, or a
  * titled wrapper — aria-hidden avoids double announcements ("Claude Claude"). */
-export function ProviderLogo({ p, size = 14 }: { p: SessionProvider; size?: number }): JSX.Element {
+export function ProviderLogo({
+  p,
+  size = 14,
+  mono = false
+}: {
+  p: SessionProvider
+  size?: number
+  /** One colour, currentColor: for a mark on a solid fill */
+  mono?: boolean
+}): JSX.Element {
   if (p === 'claude') {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" className="logo-claude" aria-hidden="true">
@@ -71,14 +253,10 @@ export function ProviderLogo({ p, size = 14 }: { p: SessionProvider; size?: numb
       </svg>
     )
   }
-  if (p === 'antigravity') {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" className="logo-antigravity" aria-hidden="true">
-        <rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="currentColor" strokeWidth="2" />
-        <path fill="currentColor" d="M12 6.2 17.2 18h-2.6l-1.1-2.7h-3l-1.1 2.7H6.8L12 6.2Zm0 4.6-.8 2.3h1.6L12 10.8Z" />
-      </svg>
-    )
-  }
+  if (p === 'gemini') return <GeminiMark size={size} mono={mono} />
+  if (p === 'antigravity') return <AntigravityMark size={size} mono={mono} />
+  if (p === 'cursor') return <CursorMark size={size} mono={mono} />
+  if (p === 'opencode') return <OpencodeMark size={size} mono={mono} />
   if (p === 'roo') {
     return (
       <svg width={size} height={size} viewBox="0 -18.5 106 106" className="logo-roo" aria-hidden="true">

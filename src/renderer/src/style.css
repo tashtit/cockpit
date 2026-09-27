@@ -53,11 +53,18 @@ ul, ol { padding: 0; }
   /* the OpenAI blossom renders white-on-dark like ChatGPT's own mark; teal stays the
      codex tint/border color */
   --codex-mark: #ececf1;
-  /* agents Cockpit reads but doesn't drive. Gemini keeps its brand blue; Cursor, Cline, Roo
-     Code and opencode are monochrome brands, and Antigravity publishes no mark to take a
-     colour from, so they share one white-on-dark mark, as Codex's does */
-  --gemini: #4f8ff7; --gemini-rgb: 79, 143, 247;
+  /* the other agents. Gemini's accent is its brand blue; Cursor, Cline, Roo Code, opencode and
+     Antigravity share one neutral accent for tints and borders, told apart by their marks */
+  --gemini: #3186ff; --gemini-rgb: 49, 134, 255;
   --mono-mark: #d9dde3; --mono-mark-rgb: 217, 221, 227;
+  /* the marks that draw in their own colours (logos.tsx, `.mark-*`): Google's palette, which
+     Gemini's sparkle and Antigravity's arch share; Cursor's shaded cube; opencode's grey core */
+  --google-blue: #3186ff; --google-blue-light: #749bff; --google-red: #fc413d;
+  --google-yellow: #fbbc04; --google-yellow-light: #ffe432; --google-yellow-pale: #ffee48;
+  --google-green: #00b95c;
+  --cursor-shade-1: #72716d; --cursor-shade-2: #55544f; --cursor-shade-3: #43413c;
+  --cursor-light: #d6d5d2; --cursor-edge: #fff;
+  --opencode-frame: #fff; --opencode-core: #5a5858;
   --branch: #79b8ff;
   --pr-open: #3fb950; --pr-merged: #a371f7; --pr-closed: #f85149; --pr-draft: #8b949e;
   --danger: #f85149; --ok: #2ea043; --warn: #d29922;
@@ -229,6 +236,24 @@ summary::-webkit-details-marker { display: none; }
 .logo-codex, .plogo-codex { color: var(--codex-mark); }
 .logo-copilot, .plogo-copilot { color: var(--copilot); }
 .logo-gemini, .plogo-gemini { color: var(--gemini); }
+/* a mark in its own colours: each part names the brand colour it is drawn in */
+.mark-google-blue { fill: var(--google-blue); }
+.mark-google-blue-light { fill: var(--google-blue-light); }
+.mark-google-red { fill: var(--google-red); }
+.mark-google-yellow { fill: var(--google-yellow); }
+.mark-google-yellow-light { fill: var(--google-yellow-light); }
+.mark-google-yellow-pale { fill: var(--google-yellow-pale); }
+.mark-google-green { fill: var(--google-green); }
+.mark-stop-google-green { stop-color: var(--google-green); }
+.mark-stop-google-red { stop-color: var(--google-red); }
+.mark-stop-google-yellow { stop-color: var(--google-yellow); }
+.mark-cursor-shade-1 { fill: var(--cursor-shade-1); }
+.mark-cursor-shade-2 { fill: var(--cursor-shade-2); }
+.mark-cursor-shade-3 { fill: var(--cursor-shade-3); }
+.mark-cursor-light { fill: var(--cursor-light); }
+.mark-cursor-edge { fill: var(--cursor-edge); }
+.mark-opencode-frame { fill: var(--opencode-frame); }
+.mark-opencode-core { fill: var(--opencode-core); }
 .logo-cursor, .plogo-cursor, .logo-cline, .plogo-cline, .logo-roo, .plogo-roo,
 .logo-opencode, .plogo-opencode, .logo-antigravity, .plogo-antigravity { color: var(--mono-mark); }
 .plogo { display: inline-flex; flex-shrink: 0; }

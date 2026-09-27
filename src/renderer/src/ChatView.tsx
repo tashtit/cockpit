@@ -495,7 +495,8 @@ export function ChatView({
       <header className="chat-header">
         {/* the name sheds on narrow windows before the title does; the mark stays */}
         <span className={`badge badge-${binding.provider}`} title={PROVIDER_LABEL[binding.provider]}>
-          <ProviderLogo p={binding.provider} size={11} />
+          {/* on the badge's solid fill a mark's own colours would fight it: one colour */}
+          <ProviderLogo p={binding.provider} size={11} mono />
           <span className="badge-text">{PROVIDER_LABEL[binding.provider]}</span>
         </span>
         {/* compact: the local part identifies the account at a glance; the full

@@ -114,6 +114,26 @@ export function fixedNotices(root: string): Notice[] {
         'Cockpit ships the path data of its kangaroo mark (logos.tsx). The mark remains a trademark of its owner.'
     },
     {
+      name: 'Lobe Icons',
+      version: '(icon path data)',
+      license: 'MIT',
+      homepage: 'https://github.com/lobehub/lobe-icons',
+      text:
+        mitLicense('2023 LobeHub') +
+        '\n\nCockpit ships the path data and colours of the Gemini, Antigravity and Cursor marks' +
+        ' (logos.tsx). The marks remain trademarks of their owners.'
+    },
+    {
+      name: 'opencode',
+      version: '(logo path data)',
+      license: 'MIT',
+      homepage: 'https://github.com/sst/opencode',
+      text:
+        mitLicense('2025 opencode') +
+        '\n\nCockpit ships the geometry and colours of its favicon mark (logos.tsx). The mark remains' +
+        ' a trademark of its owner.'
+    },
+    {
       name: 'Simple Icons',
       version: '(icon path data)',
       license: 'CC0-1.0',
@@ -126,11 +146,7 @@ export function fixedNotices(root: string): Notice[] {
   ]
 }
 
-const OCTICONS_MIT = `MIT License
-
-Copyright (c) 2023 GitHub Inc.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
+const MIT_BODY = `Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
@@ -147,6 +163,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.`
+
+/** The MIT licence text, under one copyright line — every MIT source here uses it word for word. */
+function mitLicense(copyright: string): string {
+  return `MIT License
+
+Copyright (c) ${copyright}
+
+${MIT_BODY}`
+}
+
+const OCTICONS_MIT = mitLicense('2023 GitHub Inc.')
 
 /**
  * Compose and write the notices. A license that needs a person's look is a warning, never
