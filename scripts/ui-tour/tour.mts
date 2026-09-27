@@ -462,6 +462,20 @@ const STATIC: readonly Shot[] = [
       await pause(w, 300)
     }
   },
+  // the rail of the person's own messages: pointing at a mark shows the message, ⌥⌘↑
+  // took the transcript to the first one
+  {
+    view: 'chat',
+    name: 'chat-prompt-rail',
+    go: async (w) => {
+      await open(w, /Fix the login flake/)
+      await w.keyboard.press('Alt+Meta+ArrowUp')
+      await w.keyboard.press('Alt+Meta+ArrowUp')
+      await w.getByRole('button', { name: /^Message 2 of \d+:/ }).hover()
+      await w.locator('.prompt-peek').waitFor()
+      await pause(w, 300)
+    }
+  },
   { view: 'chat', name: 'chat-worktree', go: (w) => open(w, /Add pagination to the sessions list/) },
   // the agent stopped to ask: its options, answerable in place
   { view: 'chat', name: 'chat-asks', go: (w) => open(w, /Split the SDK into a monorepo/) },

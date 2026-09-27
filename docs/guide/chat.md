@@ -79,6 +79,22 @@ transcript formatted as usual.
 Quitting Cockpit stops the turns it started, tools and all; closing the window stops them
 too, but on macOS Cockpit keeps running in the Dock and keeps watching everything else.
 
+## Moving between your messages
+
+A long session is mostly the agent talking, and what you asked gets buried under it. Once
+you have sent two messages, a column of short marks runs down the right edge of the
+transcript, one per message you sent, oldest at the top. Point at a mark to read the
+message. Click it and the transcript scrolls so that message sits at the top with the
+agent's answer below it. The mark of the part you are reading is the longer blue one.
+
+From the keyboard, **⌥⌘↑** and **⌥⌘↓** go to your previous and next message from wherever
+you are. Part-way through a long answer, ⌥⌘↑ first goes back to the message that asked for
+it. The rail is also a single Tab stop: ↑ and ↓ walk the marks, Home and End go to your first
+and latest message.
+
+The chat draws only the newest 400 messages at first, but every message you sent has a mark.
+Going to an older one draws the transcript back to it.
+
 ## When the agent asks you something
 
 An agent that stops to ask — Claude Code's `AskUserQuestion` or its plan gate, Codex's
