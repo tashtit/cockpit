@@ -16,6 +16,7 @@ import {
 } from '../shared/roundtable'
 import { endpointSupports, isValidModel } from '../shared/endpoints'
 import { EFFORT_LEVELS } from '../shared/agent-models'
+import { isProvider } from '../shared/providers'
 
 export { SEAT_NAME } from '../shared/roundtable'
 
@@ -185,12 +186,6 @@ export function deriveTitle(topic: string): string {
   const cut = line.slice(0, 56)
   const sp = cut.lastIndexOf(' ')
   return (sp > 24 ? cut.slice(0, sp) : cut) + '…'
-}
-
-const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
-
-function isProvider(v: unknown): v is Provider {
-  return PROVIDERS.includes(v as Provider)
 }
 
 /**

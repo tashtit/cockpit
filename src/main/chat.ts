@@ -29,6 +29,7 @@ import {
   type ClaudeControl
 } from './claude-permissions'
 import { EFFORT_LEVELS } from '../shared/agent-models'
+import { CONFIG_HOME_VAR } from '../shared/providers'
 
 /**
  * Driving an agent CLI headless, one process per turn: `claude -p --output-format
@@ -605,11 +606,7 @@ export class ChatManager {
     // what this turn itself decides: the BYOK endpoint and the account's config home
     const pinned: Record<string, string> = ep ? { ...endpointEnv(req.provider, ep, apiKey) } : {}
     // per-account config homes: each provider has its own env var for this
-    if (req.configDir) {
-      if (req.provider === 'claude') pinned.CLAUDE_CONFIG_DIR = req.configDir
-      else if (req.provider === 'codex') pinned.CODEX_HOME = req.configDir
-      else pinned.COPILOT_HOME = req.configDir
-    }
+    if (req.configDir) pinned[CONFIG_HOME_VAR[req.provider]] = req.configDir
     // ACP: the same turn, driven over the agent's protocol instead of its headless
     // flags. Everything above — cwd checks, BYOK env, the config home — has already
     // been applied, and the agent inherits it as its environment.

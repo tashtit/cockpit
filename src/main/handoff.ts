@@ -9,9 +9,10 @@ import {
 } from './handoff-core'
 import type { GitSnapshot, HandoffSourceInfo } from './handoff-core'
 import { parseClaudeStreamLine, parseCodexStreamLine } from './chat'
-import { listModelEndpoints, loadConfig, sessionEndpointFor } from './config'
+import { listModelEndpoints, sessionEndpointFor, sourceFor } from './config'
 import { getEndpointKey } from './secrets'
 import { endpointEnv } from '../shared/endpoints'
+import { CONFIG_HOME_VAR } from '../shared/providers'
 
 /**
  * IO around handoff-core: indexer lookups, git snapshots, and the "Improve with
@@ -72,14 +73,8 @@ export async function getHandoffBriefing(
  */
 function summarizeEnv(meta: SessionMeta): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
-  const src = loadConfig().sources.find(
-    (s) => s.provider === meta.provider && s.label === meta.source
-  )
-  if (src) {
-    if (meta.provider === 'claude') env['CLAUDE_CONFIG_DIR'] = src.path
-    else if (meta.provider === 'codex') env['CODEX_HOME'] = src.path
-    else env['COPILOT_HOME'] = src.path
-  }
+  const src = sourceFor(meta)
+  if (src) env[CONFIG_HOME_VAR[meta.provider]] = src.path
   const endpointId = sessionEndpointFor(meta.id)
   if (endpointId) {
     const ep = listModelEndpoints().find((e) => e.id === endpointId)

@@ -1,12 +1,12 @@
 import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { homedir } from 'node:os'
 import type {
   AcpAgent,
   AttentionPrefs,
   LibraryEntry,
   ModelEndpoint,
+  SessionMeta,
   SourceDir,
   TimeFormat,
   UpdatePrefs
@@ -22,6 +22,8 @@ import {
   branchPrefixRefusal,
   normalizeBranchPrefix
 } from '../shared/branch-prefix'
+import { isProvider, PROVIDERS } from '../shared/providers'
+import { defaultConfigHome } from './paths'
 
 export type AppConfig = {
   readonly sources: SourceDir[]
@@ -122,13 +124,11 @@ export function configFilePath(): string {
 
 /** First run: auto-detect default provider homes. */
 function detectDefaults(): SourceDir[] {
-  const h = homedir()
-  const candidates: SourceDir[] = [
-    { path: join(h, '.claude'), provider: 'claude', label: 'claude-default' },
-    { path: join(h, '.codex'), provider: 'codex', label: 'codex-default' },
-    { path: join(h, '.copilot'), provider: 'copilot', label: 'copilot-default' }
-  ]
-  return candidates.filter((c) => existsSync(c.path))
+  return PROVIDERS.map((provider) => ({
+    path: defaultConfigHome(provider),
+    provider,
+    label: `${provider}-default`
+  })).filter((c) => existsSync(c.path))
 }
 
 /** The one parse both readers share, so "valid config" can never mean two things. */
@@ -156,11 +156,9 @@ function parseConfig(raw: string): AppConfig {
   }
 }
 
-const PROVIDER_NAMES: ReadonlySet<unknown> = new Set(['claude', 'codex', 'copilot'])
-
 function isSource(s: unknown): s is SourceDir {
   const o = s as Partial<SourceDir> | null
-  return !!o && typeof o.path === 'string' && o.path !== '' && PROVIDER_NAMES.has(o.provider)
+  return !!o && typeof o.path === 'string' && o.path !== '' && isProvider(o.provider)
 }
 
 function stringList(v: unknown): string[] | undefined {
@@ -185,6 +183,11 @@ export function readConfigStrict(): AppConfig {
   } catch (err) {
     throw new Error(`${configPath()} is unreadable (${(err as Error).message}) — fix or move it first`)
   }
+}
+
+/** The configured source a session was indexed under — its config home — while it is still configured. */
+export function sourceFor(session: Pick<SessionMeta, 'provider' | 'source'>): SourceDir | undefined {
+  return loadConfig().sources.find((s) => s.provider === session.provider && s.label === session.source)
 }
 
 export function loadConfig(): AppConfig {

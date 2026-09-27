@@ -1,4 +1,5 @@
 import type { Provider, SessionMessage, TodoStatus } from '../shared/types'
+import { AGENT_NAME } from '../shared/providers'
 import { buildWork, CHECK_LABEL, todoSummary, type CheckWork } from '../shared/work'
 import { capText, truncate } from './parsers/util'
 import { isValidNativeId } from './chat'
@@ -44,12 +45,6 @@ const TODOS_SHOWN = 30
 const TODO_EACH = 160
 const CHECK_COMMAND = 160
 const SHARED_SHOWN = 10
-
-const AGENT_NAME: Record<Provider, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  copilot: 'Copilot'
-}
 
 function preamble(provider: Provider): string {
   return (

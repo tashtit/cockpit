@@ -9,6 +9,7 @@ import {
   parseVersion,
   updateCommandFor
 } from '../shared/agent-cli'
+import { PROVIDERS } from '../shared/providers'
 import { brewVersion } from './agent-cli-core'
 import { execText, loginPathReady } from './env'
 
@@ -132,7 +133,7 @@ export async function cliStatus(provider: Provider, opts: { readonly force?: boo
 }
 
 export async function listCliStatus(opts: { readonly force?: boolean } = {}): Promise<CliStatus[]> {
-  return Promise.all((['claude', 'codex', 'copilot'] as const).map((p) => cliStatus(p, opts)))
+  return Promise.all(PROVIDERS.map((p) => cliStatus(p, opts)))
 }
 
 /**

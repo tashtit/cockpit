@@ -9,6 +9,7 @@ import type {
   TranscriptSearchResult,
   TranscriptSearchStop
 } from '../shared/types'
+import { isProvider } from '../shared/providers'
 import { contentToText, toMs } from './parsers/util'
 import { legacyTimelineTexts } from './parsers/copilot'
 
@@ -44,8 +45,6 @@ const MIN_QUERY_LENGTH = 2
 /** Snippet window around the match, in UTF-16 units of the whitespace-collapsed text */
 const SNIPPET_BEFORE = 48
 const SNIPPET_AFTER = 120
-
-const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
 
 /** One searchable piece of a transcript line: who said it, what, when. */
 type TextRecord = {
@@ -279,7 +278,7 @@ type NormalQuery = {
 function normalizeQuery(raw: TranscriptSearchQuery): NormalQuery {
   const text = collapse(String(raw?.text ?? ''))
   const providers = Array.isArray(raw?.providers)
-    ? raw.providers.filter((p): p is Provider => PROVIDERS.includes(p))
+    ? raw.providers.filter(isProvider)
     : []
   return {
     text,

@@ -7,6 +7,7 @@ import type {
   PanelKind,
   Provider
 } from './types'
+import { PROVIDERS } from './providers'
 
 /**
  * Reconciliation: Cockpit's own config (what you asked for) against each agent's
@@ -101,7 +102,8 @@ export type PanelReport = {
   readonly globalOnly: readonly PanelKind[]
 }
 
-export const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
+/** Defined in providers.ts; re-exported for the panels that read it beside the rest of this module. */
+export { PROVIDERS }
 
 export const KIND_LABEL: Record<PanelKind, string> = {
   instructions: 'Instructions',

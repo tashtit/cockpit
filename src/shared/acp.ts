@@ -1,6 +1,5 @@
 import type { AcpAgent, Mutable, NewAcpAgent, Provider } from './types'
-
-const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
+import { isProvider } from './providers'
 
 /**
  * Agent Client Protocol — pure logic shared by main (which spawns agents) and the
@@ -130,7 +129,7 @@ export function sanitizeAcpAgent(input: unknown, id: string): AcpAgent | null {
   const o = input as Record<string, unknown>
   const label = typeof o.label === 'string' ? o.label.trim().slice(0, 64) : ''
   const command = typeof o.command === 'string' ? o.command.trim() : ''
-  const provider = PROVIDERS.find((p) => p === o.provider)
+  const provider = isProvider(o.provider) ? o.provider : undefined
   if (!label || !command || !provider || !isValidAcpCommand(command)) return null
 
   const agent: Mutable<AcpAgent> = { id, label, command, provider }
@@ -172,7 +171,7 @@ export function sanitizeAcpAgent(input: unknown, id: string): AcpAgent | null {
  */
 export function acpAgentRefusal(agent: NewAcpAgent): string | null {
   if (!agent.label?.trim()) return 'Give the agent a name.'
-  if (!PROVIDERS.includes(agent.provider)) return 'Pick which agent this CLI drives.'
+  if (!isProvider(agent.provider)) return 'Pick which agent this CLI drives.'
   const command = agent.command?.trim() ?? ''
   if (!command) return 'Enter the command that starts the agent.'
   if (!isValidAcpCommand(command)) {

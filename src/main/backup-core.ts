@@ -9,7 +9,8 @@ import type {
   SourceDir,
   TimeFormat
 } from '../shared/types'
-import { PROVIDERS, kindsForScope } from '../shared/library'
+import { kindsForScope } from '../shared/library'
+import { PROVIDERS } from '../shared/providers'
 import { sanitizeEndpoint } from '../shared/endpoints'
 import type { AppConfig } from './config'
 import { SESSION_CONTROL_CAP, SESSION_ENDPOINT_CAP, SESSION_LINEAGE_CAP, withEndpoint } from './config'

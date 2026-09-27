@@ -12,7 +12,6 @@ import {
   marketReach,
   marketSourceKey,
   mcpFields,
-  PROVIDERS,
   withRecommended,
   type Actual,
   type Desired,
@@ -21,6 +20,7 @@ import {
   type PanelRow
 } from '../shared/library'
 import { describeMcp, mcpLabel, registryOf, withVersion } from '../shared/mcp-source'
+import { AGENT_NAME, PROVIDERS } from '../shared/providers'
 import type {
   ExtensionsInventory,
   LibraryEntry,
@@ -146,13 +146,6 @@ function scopedInventory(repoRoot: string | null): ExtensionsRead {
 
 /* ---------- an entry's two sides ---------- */
 
-/** The agents' own names, for the sentences that have to name one. */
-const AGENT_LABEL: Record<Provider, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  copilot: 'Copilot'
-}
-
 /** The marketplace a plugin is installed from — the half after the last `@`. */
 function marketOf(entry: LibraryEntry): string | undefined {
   if (entry.kind === 'marketplace') return entry.name
@@ -173,7 +166,7 @@ function marketOf(entry: LibraryEntry): string | undefined {
 function reachReason(entry: LibraryEntry, reach: MarketReach): string {
   const market = marketOf(entry) ?? entry.name
   const verb = entry.kind === 'marketplace' ? 'add it' : `install ${entry.name}`
-  const who = reach.has.map((p) => AGENT_LABEL[p]).join(' and ')
+  const who = reach.has.map((p) => AGENT_NAME[p]).join(' and ')
   return reach.has.length > 0
     ? `${market} ships with ${who} — there’s no source another agent could add it from.`
     : `Cockpit can’t tell where ${market} comes from, so it can’t ${verb} in another agent.`
@@ -434,7 +427,7 @@ function assertInstallable(entry: LibraryEntry, agent: Provider): void {
   if (reach.has.includes(agent)) return
   if (!canReach(reach, agent)) throw new Error(reachReason(entry, reach))
   throw new Error(
-    `${AGENT_LABEL[agent]} doesn’t have the ${market} marketplace yet — switch it on under Marketplaces first.`
+    `${AGENT_NAME[agent]} doesn’t have the ${market} marketplace yet — switch it on under Marketplaces first.`
   )
 }
 

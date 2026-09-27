@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import type { Provider, SessionControl, SessionHold, SessionHolder } from '../shared/types'
-import { CONFIG_HOME_VAR, shQuote } from './agent-cli-core'
+import { CONFIG_HOME_VAR } from '../shared/providers'
+import { shQuote } from './agent-cli-core'
 import { isUnder } from './paths'
 
 /**

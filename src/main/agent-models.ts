@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentModel, Provider } from '../shared/types'
 import { BUILTIN_MODELS, mergeModels } from '../shared/agent-models'
 import { codexCatalog, codexConfiguredModel, copilotModelsInLog } from './agent-models-core'
+import { defaultConfigHome } from './paths'
 
 /** Copilot logs read for models: the newest few, the head of each — bounded like every scan. */
 const COPILOT_LOGS = 60
@@ -89,8 +89,7 @@ async function copilotModels(home: string): Promise<AgentModel[]> {
  * served. Claude keeps no catalog, so its built-ins are the list. Cached for ten minutes.
  */
 export function listAgentModels(provider: Provider, configDir?: string): Promise<AgentModel[]> {
-  const home =
-    configDir ?? join(homedir(), provider === 'claude' ? '.claude' : provider === 'codex' ? '.codex' : '.copilot')
+  const home = configDir ?? defaultConfigHome(provider)
   const key = `${provider}|${home}`
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.models

@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { AccountInfo, AccountsSnapshot, Provider, SourceDir } from '../shared/types'
+import type { AccountInfo, AccountsSnapshot, SourceDir } from '../shared/types'
 import { execText } from './env'
+import { defaultConfigHome } from './paths'
 import { parseJsonc, readJsoncFile } from './parsers/util'
 import { replaceFile } from './replace-file'
 
@@ -24,7 +25,7 @@ const readJsonFile = readJsoncFile
 const claudeIdCache = new Map<string, { mtime: number; size: number; value: string | null }>()
 
 export function claudeIdentity(configDir: string): string | null {
-  const isDefault = configDir === join(homedir(), '.claude')
+  const isDefault = configDir === defaultConfigHome('claude')
   const statePath = isDefault ? join(homedir(), '.claude.json') : join(configDir, '.claude.json')
   let st
   try {
@@ -100,11 +101,6 @@ export async function ghUser(): Promise<string | null> {
 }
 
 export async function getAccounts(sources: SourceDir[]): Promise<AccountsSnapshot> {
-  const defaults: Record<Provider, string> = {
-    claude: join(homedir(), '.claude'),
-    codex: join(homedir(), '.codex'),
-    copilot: join(homedir(), '.copilot')
-  }
   const accounts: AccountInfo[] = []
   for (const s of sources) {
     if (!existsSync(s.path)) continue
@@ -112,7 +108,7 @@ export async function getAccounts(sources: SourceDir[]): Promise<AccountsSnapsho
       provider: s.provider,
       path: s.path,
       label: s.label,
-      isDefault: s.path === defaults[s.provider]
+      isDefault: s.path === defaultConfigHome(s.provider)
     }
     if (s.provider === 'claude') {
       accounts.push({ ...base, identity: claudeIdentity(s.path) })

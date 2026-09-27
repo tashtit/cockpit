@@ -17,6 +17,7 @@ import type {
   RoundtableEntry
 } from '../shared/types'
 import { cleanupCounts, cleanupHeadline } from '../shared/cleanup'
+import { PROVIDERS } from '../shared/providers'
 import type { ObservedTurn } from './liveness-core'
 
 /**
@@ -313,7 +314,6 @@ const TABLE_VERB: Record<TableOutcome['kind'], string> = {
   failed: 'failed'
 }
 
-const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot']
 const KINDS: readonly Unseen['kind'][] = ['session', 'roundtable', 'asks', 'pr', 'cleanup']
 const CHECKS: readonly PrChecks[] = ['passing', 'failing', 'pending', 'none']
 const REVIEWS: readonly PrReview[] = ['approved', 'changes_requested', 'review_required', 'none']

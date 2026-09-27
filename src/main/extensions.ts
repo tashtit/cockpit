@@ -13,6 +13,7 @@ import type {
   Provider,
   SkillInfo
 } from '../shared/types'
+import { PROVIDERS } from '../shared/providers'
 import {
   codexMcpServers,
   codexServerText,
@@ -27,6 +28,7 @@ import {
   type JsonAgent
 } from './extensions-core'
 import { assertLinksWithin } from './link-guard'
+import { defaultConfigHome } from './paths'
 import { parseJsonc, readJsoncFile } from './parsers/util'
 import { replaceFile } from './replace-file'
 
@@ -57,7 +59,7 @@ const copilotJsonPath = (): string => join(homedir(), '.copilot', 'mcp-config.js
  */
 /** Resolved per call, like every other path here, so a test can point HOME elsewhere. */
 export const skillDir = (agent: Provider): string =>
-  join(homedir(), agent === 'claude' ? '.claude' : agent === 'codex' ? '.codex' : '.copilot', 'skills')
+  join(defaultConfigHome(agent), 'skills')
 
 /**
  * Where a *repo* keeps its skills. Claude Code reads `.claude/skills`; Codex and
@@ -249,7 +251,7 @@ export function adoptSkillInto(src: string, dst: string, repoRoot?: string): voi
 
 function readSkills(): SkillInfo[] {
   const out: SkillInfo[] = []
-  for (const agent of ['claude', 'codex', 'copilot'] as Provider[]) {
+  for (const agent of PROVIDERS) {
     const dir = skillDir(agent)
     if (!existsSync(dir)) continue
     let entries: string[] = []
