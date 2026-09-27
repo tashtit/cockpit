@@ -197,7 +197,7 @@ jobs:
 
   # Publishes what the package job built, on main only and only when a release is due:
   # semantic-release reads the commits since the last tag, decides the version (feat →
-  # minor; fix, perf, build → patch; a `!` or a BREAKING CHANGE footer → major), refuses to
+  # minor; fix, perf, revert, build → patch; a `!` or a BREAKING CHANGE footer → major), refuses to
   # go on if that is not the version the package job stamped, then pushes the tag and
   # creates the GitHub Release with the disk images and the updater manifest. Nothing is
   # committed back — the tag is the version — and a re-run on an already-released commit

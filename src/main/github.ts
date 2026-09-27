@@ -19,7 +19,8 @@ type CacheEntry = {
 const cache = new Map<string, CacheEntry>()
 
 /**
- * PRs for a repo via the `gh` CLI, cached per repo root. Fails soft to [] —
+ * PRs for a repo via the `gh` CLI, cached per repo root — the list and its thread counts
+ * share one TTL_MS entry. Fails soft to [] —
  * no gh installed / not a GitHub repo / offline just means no badges.
  */
 export function getPrs(repoRoot: string): Promise<PrStatus[]> {

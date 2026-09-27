@@ -2,9 +2,10 @@
 /**
  * electron-builder packaging — macOS only (Linux stays a dev/CI host, nothing ships there).
  *
- * The version is never set here: semantic-release stamps package.json with `npm version`
- * right before packaging (see .releaserc.json), so a release build carries the tag's
- * version and every other build (`npm run package`, the PR job) packages as 0.0.0.
+ * The version is never set here: CI's package job stamps package.json with `npm version`
+ * right before packaging when a release is due (scripts/next-version.mts, which decides as
+ * semantic-release will), so a release build carries the tag's version and every other
+ * build (`npm run package`, a PR with nothing to release) packages as 0.0.0.
  *
  * Signing and notarization switch on by the presence of Apple credentials and off
  * otherwise, so the same config yields an ad-hoc build on a laptop or a fork and a

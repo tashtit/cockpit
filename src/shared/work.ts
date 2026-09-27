@@ -5,7 +5,8 @@ import type { CheckKind, EditLine, FileEdit, SessionMessage, TodoStatus, WorkArt
  * over the whole transcript — the plan it last proposed, where its to-do list stands
  * now, and every edit it made, file by file. Pure: ChatView builds it from the log
  * on every render the panel is open, which is cheap (a pass over rows that already
- * carry parsed artifacts; no diffing happens here — main did that).
+ * carry parsed artifacts; no diffing happens here — main did that). The handoff
+ * briefing (`handoff-core.ts`) folds with it too, so the next agent sees the same work.
  *
  * A row's `key` is its place among the rows it was given. ChatView hands over only the
  * rows that carry an artifact and translates between these and the transcript's own

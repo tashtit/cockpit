@@ -80,45 +80,13 @@ A dev run has no bundle of its own: `npm run dev` launches the stock `Electron.a
 
 ## Where the code lives
 
-A map for finding your way in; [AGENTS.md](AGENTS.md) has the architecture in depth.
+[AGENTS.md](AGENTS.md) has the map of the code and the rules that span modules. It is written for AI agents, and reads fine for people. Each module's own header comment is its spec: read it before changing the module, and keep it true in the same change.
 
-```
-src/shared/types.ts       domain vocabulary (SessionMeta, RepoInfo, …) — imports nothing from src/
-src/shared/contract.ts    the whole renderer↔main IPC surface (CockpitApi, CH, PUSH)
-src/main/parsers/         per-provider session log parsers (failure-tolerant)
-src/main/repos.ts         cwd → git repo resolution (worktree-aware, GitHub remote)
-src/main/indexer.ts       scan + stat-cache + fs.watch(recursive) + repo grouping + paging
-src/main/extensions.ts    MCP/skills/plugins inventory + cross-agent MCP/skill sharing
-src/main/instructions-core.ts  shared-instructions pure logic (markers, drift, targets)
-src/main/instructions.ts  shared-instructions IO (baseline storage + fan-out)
-src/main/github.ts        PR status per repo via `gh pr list` (cached)
-src/main/workspace.ts     worktree/branch creation + push/`gh pr create`
-src/main/chat.ts          ChatManager: spawn provider CLIs, parse stream events
-src/main/attention-core.ts  which turn endings are news: landings, Dock badge count, notification bursts (IO-free)
-src/main/attention.ts     notifications, system sounds, Dock badge + bounce (Electron), landings persisted to userData
-src/main/accounts.ts      who each agent CLI is signed in as, per config home + `gh` user
-src/main/usage.ts         subscription usage per provider (local measurement / CLI snapshots / GitHub billing API)
-src/main/provider-archived.ts  sessions archived/deleted in the provider's own app → hidden
-src/main/env.ts           PATH fix for GUI-launched CLI spawns (macOS)
-src/main/updates.ts       app updates from GitHub Releases (electron-updater; installed builds only)
-src/main/config.ts        source-dir registry + history window
-src/main/index.ts         electron bootstrap + IPC
-src/preload/index.ts      contextBridge → window.cockpit
-src/renderer/             React UI (HomeView, TreeSidebar, ChatView, NewSession, AiSetup, Settings, Select, logos.tsx)
-```
-
-### Notes
-
-- File watching uses Node's `fs.watch(root, {recursive: true})` (FSEvents on macOS) — chokidar was dropped after its bundled `fsevents` native module broke on the Electron 43 upgrade; the indexer does its own debouncing and stat-based dirty tracking.
-- Session log formats are provider-internal and drift between releases; parsers skip anything they can't read rather than fail.
-- The Copilot parser is best-effort (least documented format). Reports of sessions that don't show up arrive through the **Sessions missing or wrong** issue form, with the agent and its CLI version; the fix usually lives in `src/main/parsers/copilot.ts`.
-- No SQLite yet on purpose — in-memory index is plenty for M1 and avoids native-module rebuild pain. Revisit at M6 (full-text search).
-- Copilot chat streams plain text (no structured events), so a *new* Copilot chat doesn't learn its session id mid-conversation — the session appears in the sidebar after the first turn; click it to continue with proper resume. Claude/Codex bind their session id from the first response.
-- Codex event stream shapes changed between releases; both the old (`msg.type`) and new (`thread.started`/`item.completed`) shapes are handled.
+The Copilot parser is the most best-effort of the three (its log format is the least documented). Reports of sessions that don't show up arrive through the **Sessions missing or wrong** issue form, with the agent and its CLI version; the fix usually lives in `src/main/parsers/copilot.ts`.
 
 ## Runtime dependencies
 
-Cockpit ships three runtime packages; everything else in `package.json` is dev tooling. Each one is here because the platform does not cover it, and this table is what a reviewer checks when one of them is bumped or replaced.
+Cockpit ships four runtime packages; everything else in `package.json` is dev tooling. Each one is here because the platform does not cover it, and this table is what a reviewer checks when one of them is bumped or replaced.
 
 | Package | Purpose | License | Why not the platform |
 | --- | --- | --- | --- |
@@ -191,7 +159,7 @@ An installed Cockpit uses `electron-updater` (`src/main/updates.ts`) for the che
 
 Downloading and installing are Cockpit's own (`src/main/update-install.ts`, decisions in `-core.ts`) rather than electron-updater's. Its macOS installer is Squirrel.Mac, which only swaps in a bundle carrying the same Developer ID signature as the running one — so with releases ad-hoc signed (above), *every* install ended in an error and the app could only announce versions it could not fetch for you. Installing here works signed or not, and it is the one place that can clear the quarantine flag before the new bundle lands rather than leaving Gatekeeper to block it afterwards.
 
-What Squirrel's signature check stood for is done explicitly instead: the zip must hash to the `sha512` the feed publishes, and the bundle inside must carry the same `CFBundleIdentifier`, be the version that was offered, and — once releases are signed — be signed by the same team as the bundle it replaces. The swap itself is a detached `/bin/sh` script that waits for the app's pid to go, renames the old bundle aside within the same folder, `ditto`s the new one in and puts the old one back if that fails. A failed install leaves a line in `<userData>/updates/last-install`; the next launch reads it, says so in About and holds the automatic path until the user checks by hand, so a build that cannot be installed is never fetched again and again in silence.
+What Squirrel's signature check stood for is done explicitly instead: the zip must hash to the `sha512` the feed publishes, and the bundle inside must carry the same `CFBundleIdentifier`, be the version that was offered, and — once releases are signed — be signed by the same team as the bundle it replaces. The swap itself is a detached `/bin/sh` script that waits for the app's pid to go, `ditto`s the new bundle in beside the old one, then renames the old one aside and the new one into place — putting the old one back if the last step fails — so an interruption never leaves no app. A failed install leaves a line in `<userData>/updates/last-install`; the next launch reads it, says so in About and holds the automatic path until the user checks by hand, so a build that cannot be installed is never fetched again and again in silence.
 
 ## Adoption numbers
 

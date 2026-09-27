@@ -7,6 +7,16 @@ import { getDefaultBranch } from './github'
 import { userDataDir } from './config'
 import { DEFAULT_BRANCH_PREFIX } from '../shared/branch-prefix'
 
+/*
+ * "Always worktrees, always PRs": a new session gets a `<prefix><name>` branch (the prefix
+ * is the caller's — `WorkspaceOptions.prefix`, from config, `cockpit/` by default) in its
+ * own linked worktree under userData — never the user's checkout — and its PR goes
+ * through `gh`. Creation is careful because `git worktree add -b` makes the branch before anything
+ * else can fail: the name is checked free first, a failed add is undone, and a failing
+ * post-checkout hook keeps the finished worktree with its output on
+ * `WorkspaceInfo.warning`. Never `git worktree prune` (see `nameTaken`).
+ */
+
 const TIMEOUT_MS = 120_000
 /** A hook that fails mid-install can print pages; the reason is at the end. */
 const HOOK_OUTPUT_LINES = 20
