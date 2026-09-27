@@ -1,22 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { AccountsSnapshot, PermissionMode, Provider, RepoGroup } from '../../shared/types'
+import type { RepoGroup } from '../../shared/types'
+import { rememberChoice, useAgentChoice, type StartSessionRequest } from './agent-choice'
 import {
-  accountOptions,
-  AGENT_BLURB,
-  MODES,
-  savedAccount,
-  savedMode,
-  type StartSessionRequest
-} from './agent-choice'
-import { AccountField, AgentOptionsFields, AgentOptionsHints, useAgentOptions } from './agent-options'
-import { api } from './api'
+  AccountField,
+  AgentCards,
+  AgentOptionsFields,
+  AgentOptionsHints,
+  ModeField,
+  ModeHint,
+  useAgentOptions
+} from './agent-options'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
-import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 import { branchHint } from './task-names'
 import { useBranchPrefix } from './branch-prefix'
-
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
 export function NewSession({
   repo,
@@ -38,44 +35,30 @@ export function NewSession({
   onCancel: () => void
 }): JSX.Element {
   const [repoKey, setRepoKey] = useState(repo.key)
-  const [provider, setProvider] = useState<Provider>(
-    () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
-  )
   const [name, setName] = useState('')
   const branchPrefix = useBranchPrefix()
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const atts = useImageAttachments(initialImages)
-  const [mode, setMode] = useState<PermissionMode>(savedMode)
   const [error, setError] = useState<string | null>(null)
-  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
-  const [accountKey, setAccountKey] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
 
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const selected = selectable.find((r) => r.key === repoKey) ?? repo
 
-  const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
-  const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider)
-  const agent = useAgentOptions(provider, account?.configDir)
+  const choice = useAgentChoice()
+  const { provider, mode } = choice
+  const agent = useAgentOptions(provider, choice.account?.configDir)
 
   // keyboard users land in the task field instead of tabbing through the sidebar
   useEffect(() => {
     promptRef.current?.focus()
-    void api.getAccounts().then(setAccounts)
   }, [])
-
-  // accounts differ per agent — reset a stale choice on switch (model/endpoint reset in the hook)
-  useEffect(() => {
-    setAccountKey(null)
-  }, [provider])
 
   const start = async (): Promise<void> => {
     // the button is held for a missing model; ⌘Enter in the task field must be too
     if (busy || agent.modelMissing || (!prompt.trim() && atts.attachments.length === 0)) return
     setError(null)
-    window.localStorage.setItem('cockpit:provider', provider)
-    window.localStorage.setItem('cockpit:mode', mode)
-    if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
+    rememberChoice(choice)
     const err = await onStart({
       repo: selected,
       provider,
@@ -83,11 +66,7 @@ export function NewSession({
       prompt: prompt.trim(),
       mode,
       options: agent.options,
-      account: {
-        configDir: account?.configDir,
-        copilotUser: account?.copilotUser,
-        display: account?.display
-      },
+      account: choice.runAs,
       images: atts.paths()
     })
     if (err) setError(err)
@@ -127,55 +106,19 @@ export function NewSession({
         />
 
         <label className="ns-label">Agent</label>
-        <div className="ns-providers" role="group" aria-label="Agent">
-          {PROVIDERS.map((p) => {
-            // same resolution rule as start() — the card must never show a different
-            // account than the one that would actually run
-            const acct = p === provider ? account : savedAccount(accounts, p)
-            return (
-              <button
-                key={p}
-                aria-pressed={provider === p}
-                className={`ns-provider ns-${p} ${provider === p ? 'active' : ''}`}
-                onClick={() => setProvider(p)}
-              >
-                <ProviderLogo p={p} size={20} />
-                <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
-                <span className="ns-provider-blurb">{AGENT_BLURB[p]}</span>
-                {/* while accounts are still loading, absence is unknown — not "signed out" */}
-                <span
-                  className={`acct-chip${acct || accounts === null ? '' : ' missing'}`}
-                  title={acct?.display}
-                >
-                  {acct?.identity ?? (accounts === null ? '…' : 'not signed in')}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        <AgentCards choice={choice} label="Agent" />
 
         <div className="ns-options ns-agent-options">
           <AccountField
-            opts={opts}
-            account={account}
-            loading={accounts === null}
-            onChange={setAccountKey}
+            opts={choice.opts}
+            account={choice.account}
+            loading={choice.accounts === null}
+            onChange={choice.setAccount}
           />
           <AgentOptionsFields provider={provider} o={agent} />
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="ns-mode">Permissions</label>
-            <Select
-              id="ns-mode"
-              ariaLabel="Permissions"
-              value={mode}
-              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-              onChange={(v) => setMode(v as PermissionMode)}
-            />
-          </div>
+          <ModeField mode={mode} onChange={choice.setMode} />
         </div>
-        <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>
-          {MODES.find((m) => m.v === mode)?.hint}
-        </div>
+        <ModeHint mode={mode} />
         <AgentOptionsHints provider={provider} o={agent} />
 
         <label className="ns-label" htmlFor="ns-branch">Branch</label>

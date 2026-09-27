@@ -1,15 +1,24 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { AgentModel, AgentOptions, CodexSandbox, ModelEndpoint, Provider } from '../../shared/types'
+import type {
+  AgentModel,
+  AgentOptions,
+  CodexSandbox,
+  ModelEndpoint,
+  PermissionMode,
+  Provider
+} from '../../shared/types'
 import { effortsFor } from '../../shared/agent-models'
 import { endpointSupports } from '../../shared/endpoints'
-import type { AccountOption } from './agent-choice'
+import { PROVIDERS } from '../../shared/library'
+import { AGENT_BLURB, MODES, type AccountOption, type AgentChoice } from './agent-choice'
 import { api } from './api'
+import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
 
 /**
- * The pieces the New session and handoff forms are built from: the `.ns-opt` cells of the
- * option grid and the hints under it, and the per-agent option state behind them — shared
- * so the two forms can never drift apart.
+ * The pieces the New session and handoff forms are built from: the agent cards, the
+ * `.ns-opt` cells of the option grid and the hints under it, and the per-agent option
+ * state behind them — shared so the two forms can never drift apart.
  */
 
 /** Per-agent option state (model / thinking / BYOK endpoint / codex sandbox). */
@@ -125,6 +134,39 @@ export function useAgentOptions(provider: Provider, configDir: string | undefine
   }
 }
 
+/**
+ * The agent picker: a `.ns-provider` card per agent — logo, name, blurb and the account it
+ * would run as, named by the same rule a start resolves it with (`accountFor`).
+ */
+export function AgentCards({ choice, label }: { choice: AgentChoice; label: string }): JSX.Element {
+  return (
+    <div className="ns-providers" role="group" aria-label={label}>
+      {PROVIDERS.map((p) => {
+        const acct = choice.accountFor(p)
+        return (
+          <button
+            key={p}
+            aria-pressed={choice.provider === p}
+            className={`ns-provider ns-${p} ${choice.provider === p ? 'active' : ''}`}
+            onClick={() => choice.setProvider(p)}
+          >
+            <ProviderLogo p={p} size={20} />
+            <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
+            <span className="ns-provider-blurb">{AGENT_BLURB[p]}</span>
+            {/* while accounts are still loading, absence is unknown — not "signed out" */}
+            <span
+              className={`acct-chip${acct || choice.accounts === null ? '' : ' missing'}`}
+              title={acct?.display}
+            >
+              {acct?.identity ?? (choice.accounts === null ? '…' : 'not signed in')}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /** The account `.ns-opt` cell: a mono Select when several accounts exist, static text otherwise. */
 export function AccountField({
   opts,
@@ -132,7 +174,7 @@ export function AccountField({
   loading,
   onChange
 }: {
-  opts: AccountOption[]
+  opts: readonly AccountOption[]
   account: AccountOption | undefined
   /** while accounts are still loading, absence is unknown — not "signed out" */
   loading: boolean
@@ -263,6 +305,37 @@ export function AgentOptionsFields({
         </div>
       )}
     </>
+  )
+}
+
+/** The Permissions `.ns-opt` cell, over the shared `MODES` table. */
+export function ModeField({
+  mode,
+  onChange
+}: {
+  mode: PermissionMode
+  onChange: (m: PermissionMode) => void
+}): JSX.Element {
+  return (
+    <div className="ns-opt">
+      <label className="ns-label" htmlFor="ns-mode">Permissions</label>
+      <Select
+        id="ns-mode"
+        ariaLabel="Permissions"
+        value={mode}
+        options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+        onChange={(v) => onChange(v as PermissionMode)}
+      />
+    </div>
+  )
+}
+
+/** What the chosen mode lets the agent do, under the option grid — in danger color for YOLO. */
+export function ModeHint({ mode }: { mode: PermissionMode }): JSX.Element {
+  return (
+    <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>
+      {MODES.find((m) => m.v === mode)?.hint}
+    </div>
   )
 }
 

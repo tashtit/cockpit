@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import type {
   AccountsSnapshot,
   AgentOptions,
@@ -5,6 +6,7 @@ import type {
   Provider,
   RepoGroup
 } from '../../shared/types'
+import { api } from './api'
 
 /**
  * Who runs a new session and how far it may go unasked: the agent, the account it runs as
@@ -100,8 +102,89 @@ export function savedMode(): PermissionMode {
   return MODES.find((m) => m.v === stored)?.v ?? 'auto-edit'
 }
 
+/** The agent the person last started with, or Claude when nothing is stored. */
+export function savedProvider(): Provider {
+  return (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
+}
+
+/** Remember the account picked for `provider`, for every form to open on. */
+export function rememberAccount(provider: Provider, key: string): void {
+  window.localStorage.setItem(`cockpit:account:${provider}`, key)
+}
+
+/** Remember what a session was started with, for the next form to open on. */
+export function rememberChoice(choice: {
+  readonly provider: Provider
+  readonly mode: PermissionMode
+  readonly account: AccountOption | undefined
+}): void {
+  window.localStorage.setItem('cockpit:provider', choice.provider)
+  window.localStorage.setItem('cockpit:mode', choice.mode)
+  if (choice.account) rememberAccount(choice.provider, choice.account.key)
+}
+
 export const AGENT_BLURB: Record<Provider, string> = {
   claude: 'Deep multi-step coding, hooks & skills',
   codex: 'Fast sandboxed execution',
   copilot: 'GitHub-native, PR-focused'
+}
+
+/** A start form's agent, account and permission mode, as chosen so far. */
+export type AgentChoice = {
+  readonly provider: Provider
+  readonly setProvider: (p: Provider) => void
+  readonly mode: PermissionMode
+  readonly setMode: (m: PermissionMode) => void
+  /** Every signed-in account; null while they load, when absence is unknown — not "signed out" */
+  readonly accounts: AccountsSnapshot | null
+  /** The active agent's accounts to pick from */
+  readonly opts: readonly AccountOption[]
+  /** The account the session would run as: the one picked here, else the saved one, else the first */
+  readonly account: AccountOption | undefined
+  readonly setAccount: (key: string) => void
+  /** The account an agent's card names — the rule `account` follows for the active agent, so a
+   *  card never shows a different account than the one that would actually run */
+  readonly accountFor: (p: Provider) => AccountOption | undefined
+  /** What the start request carries of the account */
+  readonly runAs: AccountChoice
+}
+
+/**
+ * The agent, account and mode a start form opens on — the saved ones, or `initial`'s agent —
+ * and how they change. The accounts are read once; a pick made for one agent is dropped
+ * when the agent changes, since accounts differ per agent.
+ */
+export function useAgentChoice(initial: () => Provider = savedProvider): AgentChoice {
+  const [provider, setProvider] = useState<Provider>(initial)
+  const [mode, setMode] = useState<PermissionMode>(savedMode)
+  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
+  const [accountKey, setAccountKey] = useState<string | null>(null)
+
+  const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
+  const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider)
+
+  useEffect(() => {
+    void api.getAccounts().then(setAccounts)
+  }, [])
+
+  useEffect(() => {
+    setAccountKey(null)
+  }, [provider])
+
+  return {
+    provider,
+    setProvider,
+    mode,
+    setMode,
+    accounts,
+    opts,
+    account,
+    setAccount: setAccountKey,
+    accountFor: (p) => (p === provider ? account : savedAccount(accounts, p)),
+    runAs: {
+      configDir: account?.configDir,
+      copilotUser: account?.copilotUser,
+      display: account?.display
+    }
+  }
 }

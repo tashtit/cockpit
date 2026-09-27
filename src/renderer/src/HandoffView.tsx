@@ -1,20 +1,18 @@
-import { useEffect, useMemo, useState, type JSX } from 'react'
-import type { AccountsSnapshot, AgentOptions, PermissionMode, Provider } from '../../shared/types'
+import { useEffect, useState, type JSX } from 'react'
+import type { AgentOptions, PermissionMode, Provider } from '../../shared/types'
 import { api } from './api'
-import { shortPath } from '../../shared/library'
+import { PROVIDERS, shortPath } from '../../shared/library'
+import { rememberChoice, useAgentChoice, type AccountChoice } from './agent-choice'
 import {
-  accountOptions,
-  AGENT_BLURB,
-  MODES,
-  savedAccount,
-  savedMode,
-  type AccountChoice
-} from './agent-choice'
-import { AccountField, AgentOptionsFields, AgentOptionsHints, useAgentOptions } from './agent-options'
+  AccountField,
+  AgentCards,
+  AgentOptionsFields,
+  AgentOptionsHints,
+  ModeField,
+  ModeHint,
+  useAgentOptions
+} from './agent-options'
 import { BranchChip, ProviderLogo, PROVIDER_LABEL } from './logos'
-import { Select } from './Select'
-
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
 /** The session being handed off, snapshotted from the open chat binding. */
 export type HandoffSourceRef = {
@@ -57,12 +55,9 @@ export function HandoffView({
 }): JSX.Element {
   // default to a different agent — continuing on the same one is allowed, but the
   // point of a handoff is usually the switch
-  const [provider, setProvider] = useState<Provider>(
-    () => PROVIDERS.find((p) => p !== source.provider) ?? 'claude'
-  )
-  const [mode, setMode] = useState<PermissionMode>(savedMode)
-  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
-  const [accountKey, setAccountKey] = useState<string | null>(null)
+  const choice = useAgentChoice(() => PROVIDERS.find((p) => p !== source.provider) ?? 'claude')
+  const { provider, mode } = choice
+  const agent = useAgentOptions(provider, choice.account?.configDir)
   const [briefing, setBriefing] = useState('')
   const [cwdExists, setCwdExists] = useState(true)
   const [warnings, setWarnings] = useState<string[]>([])
@@ -73,18 +68,6 @@ export function HandoffView({
   /** The pre-AI text, so an unwanted rewrite is one click away from undone */
   const [preAi, setPreAi] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
-  const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider)
-  const agent = useAgentOptions(provider, account?.configDir)
-
-  useEffect(() => {
-    void api.getAccounts().then(setAccounts)
-  }, [])
-
-  useEffect(() => {
-    setAccountKey(null)
-  }, [provider])
 
   const loadBriefing = (): void => {
     setBriefLoading(true)
@@ -125,9 +108,7 @@ export function HandoffView({
   const start = async (): Promise<void> => {
     if (busy || improving || !cwdExists || !briefing.trim() || agent.modelMissing) return
     setError(null)
-    window.localStorage.setItem('cockpit:provider', provider)
-    window.localStorage.setItem('cockpit:mode', mode)
-    if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
+    rememberChoice(choice)
     const finalBriefing = next.trim()
       ? `${briefing.trimEnd()}\n\n## What to do next\n\n${next.trim()}`
       : briefing
@@ -137,11 +118,7 @@ export function HandoffView({
       briefing: finalBriefing,
       mode,
       options: agent.options,
-      account: {
-        configDir: account?.configDir,
-        copilotUser: account?.copilotUser,
-        display: account?.display
-      }
+      account: choice.runAs
     })
     if (err) setError(err)
   }
@@ -167,53 +144,19 @@ export function HandoffView({
         </div>
 
         <label className="ns-label">Continue with</label>
-        <div className="ns-providers" role="group" aria-label="Continue with">
-          {PROVIDERS.map((p) => {
-            const acct = p === provider ? account : savedAccount(accounts, p)
-            return (
-              <button
-                key={p}
-                aria-pressed={provider === p}
-                className={`ns-provider ns-${p} ${provider === p ? 'active' : ''}`}
-                onClick={() => setProvider(p)}
-              >
-                <ProviderLogo p={p} size={20} />
-                <span className="ns-provider-name">{PROVIDER_LABEL[p]}</span>
-                <span className="ns-provider-blurb">{AGENT_BLURB[p]}</span>
-                {/* while accounts are still loading, absence is unknown — not "signed out" */}
-                <span
-                  className={`acct-chip${acct || accounts === null ? '' : ' missing'}`}
-                  title={acct?.display}
-                >
-                  {acct?.identity ?? (accounts === null ? '…' : 'not signed in')}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        <AgentCards choice={choice} label="Continue with" />
 
         <div className="ns-options ns-agent-options">
           <AccountField
-            opts={opts}
-            account={account}
-            loading={accounts === null}
-            onChange={setAccountKey}
+            opts={choice.opts}
+            account={choice.account}
+            loading={choice.accounts === null}
+            onChange={choice.setAccount}
           />
           <AgentOptionsFields provider={provider} o={agent} />
-          <div className="ns-opt">
-            <label className="ns-label" htmlFor="ns-mode">Permissions</label>
-            <Select
-              id="ns-mode"
-              ariaLabel="Permissions"
-              value={mode}
-              options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-              onChange={(v) => setMode(v as PermissionMode)}
-            />
-          </div>
+          <ModeField mode={mode} onChange={choice.setMode} />
         </div>
-        <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>
-          {MODES.find((m) => m.v === mode)?.hint}
-        </div>
+        <ModeHint mode={mode} />
         <AgentOptionsHints provider={provider} o={agent} />
 
         <div className="handoff-brief-head">

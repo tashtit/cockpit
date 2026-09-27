@@ -1,20 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type {
-  AccountsSnapshot,
-  Landing,
-  PermissionMode,
-  Provider,
-  RepoGroup,
-  RoundtableMeta,
-  SessionMeta
-} from '../../shared/types'
+import type { Landing, PermissionMode, RepoGroup, RoundtableMeta, SessionMeta } from '../../shared/types'
+import { PROVIDERS } from '../../shared/library'
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
 import { useBusyMap } from './busy'
 import { HeldMark } from './HeldMark'
 import { holdSentence } from './hold'
 import { useLandedMap } from './landed'
-import { accountOptions, MODES, savedAccount, savedMode, type StartSessionRequest } from './agent-choice'
+import { MODES, rememberAccount, rememberChoice, useAgentChoice, type StartSessionRequest } from './agent-choice'
 import {
   BranchChip,
   CheckIcon,
@@ -31,8 +24,6 @@ import { SeatCluster } from './SeatCluster'
 import { Select } from './Select'
 import { fmtElapsed, fmtTime, useTimeFormat } from './time'
 import { useRoundtables } from './use-roundtables'
-
-const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 
 /** "titan-ron" → "Titan": the login's first name-ish segment, capitalized. */
 function firstName(login: string): string {
@@ -85,32 +76,17 @@ export function HomeView({
 }): JSX.Element {
   const selectable = useMemo(() => repos.filter((r) => r.root), [repos])
   const [repoKey, setRepoKey] = useState<string | null>(null)
-  const [provider, setProvider] = useState<Provider>(
-    () => (window.localStorage.getItem('cockpit:provider') as Provider) ?? 'claude'
-  )
-  const [mode, setMode] = useState<PermissionMode>(savedMode)
+  const choice = useAgentChoice()
+  const { provider, mode, accounts, account } = choice
   const [prompt, setPrompt] = useState('')
   const atts = useImageAttachments()
   const [error, setError] = useState<string | null>(null)
   const [recent, setRecent] = useState<SessionMeta[]>([])
   const [recentTotal, setRecentTotal] = useState(0)
-  const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null)
-  const [accountKey, setAccountKey] = useState<string | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
-
-  const opts = useMemo(() => accountOptions(accounts, provider), [accounts, provider])
-  const account = opts.find((o) => o.key === accountKey) ?? savedAccount(accounts, provider) ?? null
-
-  useEffect(() => {
-    setAccountKey(null)
-  }, [provider])
 
   const selected =
     selectable.find((r) => r.key === repoKey) ?? (selectable.length > 0 ? selectable[0] : null)
-
-  useEffect(() => {
-    void api.getAccounts().then(setAccounts)
-  }, [])
 
   useEffect(() => {
     let dead = false
@@ -139,9 +115,7 @@ export function HomeView({
     )
       return
     setError(null)
-    window.localStorage.setItem('cockpit:provider', provider)
-    window.localStorage.setItem('cockpit:mode', mode)
-    if (account) window.localStorage.setItem(`cockpit:account:${provider}`, account.key)
+    rememberChoice(choice)
     const err = await onStart({
       repo: selected,
       provider,
@@ -149,11 +123,7 @@ export function HomeView({
       prompt: prompt.trim(),
       mode,
       options: {},
-      account: {
-        configDir: account?.configDir,
-        copilotUser: account?.copilotUser,
-        display: account?.display
-      },
+      account: choice.runAs,
       images: atts.paths()
     })
     if (err) setError(err)
@@ -310,7 +280,7 @@ export function HomeView({
                 <div className="composer-identity">
                   <div className="composer-agents" role="group" aria-label="Agent">
                     {PROVIDERS.map((p) => {
-                      const pAcct = savedAccount(accounts, p)
+                      const pAcct = choice.accountFor(p)
                       return (
                         <button
                           key={p}
@@ -320,7 +290,7 @@ export function HomeView({
                           className={`composer-agent plogo-${p} ${provider === p ? 'active' : ''} ${
                             accounts !== null && !pAcct ? 'no-acct' : ''
                           }`}
-                          onClick={() => setProvider(p)}
+                          onClick={() => choice.setProvider(p)}
                         >
                           <ProviderLogo p={p} size={15} />
                         </button>
@@ -332,7 +302,7 @@ export function HomeView({
                     <span className="acct-chip" aria-hidden="true">
                       …
                     </span>
-                  ) : opts.length > 0 ? (
+                  ) : choice.opts.length > 0 ? (
                     <Select
                       className="composer-acct-wrap"
                       mono
@@ -340,10 +310,10 @@ export function HomeView({
                       ariaLabel={`${PROVIDER_LABEL[provider]} account`}
                       title={`${PROVIDER_LABEL[provider]} account in use`}
                       value={account?.key ?? ''}
-                      options={opts.map((o) => ({ value: o.key, label: o.display }))}
+                      options={choice.opts.map((o) => ({ value: o.key, label: o.display }))}
                       onChange={(v) => {
-                        window.localStorage.setItem(`cockpit:account:${provider}`, v)
-                        setAccountKey(v)
+                        rememberAccount(provider, v)
+                        choice.setAccount(v)
                       }}
                     />
                   ) : (
@@ -354,7 +324,7 @@ export function HomeView({
                   ariaLabel="Permission mode"
                   value={mode}
                   options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
-                  onChange={(v) => setMode(v as PermissionMode)}
+                  onChange={(v) => choice.setMode(v as PermissionMode)}
                 />
                 <button
                   className="btn-primary"
