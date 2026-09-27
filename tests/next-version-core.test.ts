@@ -4,8 +4,8 @@ import { nextVersion, parseLog, tagVersion } from '../scripts/next-version-core.
 describe('parseLog', () => {
   it('splits `git log --format=%H%x1f%B%x1e` output into commits with full messages', () => {
     const raw =
-      'aaafeat(indexer): a thing\n\nbody line\n\nBREAKING CHANGE: gone\n\n' +
-      'bbbdocs: words\n\n'
+      'aaa\u001ffeat(indexer): a thing\n\nbody line\n\nBREAKING CHANGE: gone\n\u001e\n' +
+      'bbb\u001fdocs: words\n\u001e\n'
     expect(parseLog(raw)).toEqual([
       { hash: 'aaa', message: 'feat(indexer): a thing\n\nbody line\n\nBREAKING CHANGE: gone' },
       { hash: 'bbb', message: 'docs: words' }

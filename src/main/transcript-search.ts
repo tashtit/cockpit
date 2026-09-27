@@ -393,7 +393,7 @@ export class TranscriptSearcher {
     const take = (r: TextRecord): boolean => {
       const hit = matchRecord(r, q.needle, meta.id)
       if (!hit) return true
-      const key = `${hit.role} ${hit.snippet}`
+      const key = `${hit.role}\u0000${hit.snippet}`
       if (seen.has(key)) return true
       seen.add(key)
       hits.push(hit)
