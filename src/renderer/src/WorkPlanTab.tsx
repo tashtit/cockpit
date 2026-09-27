@@ -3,7 +3,8 @@ import type { Provider } from '../../shared/types'
 import type { WorkModel } from '../../shared/work'
 import { PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
-import { fmtTime, useTimeFormat } from './time'
+import { fmtTime } from './format'
+import { useTimeFormat } from './time'
 import type { WorkFocus } from './work-tab'
 
 /** The Work panel's Plan tab: the plan the agent proposed, every version of it. */

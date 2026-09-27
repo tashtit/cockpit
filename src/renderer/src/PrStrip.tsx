@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { checkStateWord, failingChecks, needsFix } from '../../shared/pr-feedback'
 import type { PrFeedback, PrStatus } from '../../shared/types'
 import { LinkExternalIcon, PrBadge } from './logos'
+import { plural } from './format'
 
 /**
  * The branch's open PR, at the head of the review: what it is waiting on —
@@ -14,10 +15,6 @@ export type Readout = { readonly text: string; readonly tone: 'ok' | 'warn' | 'd
 
 /** Rows per kind before the list points at GitHub for the rest. */
 const LIST_MAX = 5
-
-function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`
-}
 
 /** What the PR is waiting on, as the strip's readout words. */
 export function prReadout(fb: PrFeedback): Readout[] {

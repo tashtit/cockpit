@@ -17,6 +17,7 @@ import { DiffLayoutToggle, DiffStat, GUTTER, SAID } from './InstructionDiff'
 import { LinkExternalIcon, PROVIDER_LABEL } from './logos'
 import { PrStrip } from './PrStrip'
 import { useLoaded } from './use-loaded'
+import { plural } from './format'
 
 /**
  * Review before landing: the worktree's changes, in the transcript's place, read
@@ -246,7 +247,7 @@ export const ReviewPanel = memo(function ReviewPanel({
         <span className="review-right">
           {onCompose && notes.size > 0 && (
             <button className="btn-ghost small" onClick={send} title="Put the notes in the composer, ready to send">
-              Send {notes.size} {notes.size === 1 ? 'note' : 'notes'} to {agent}
+              Send {plural(notes.size, 'note')} to {agent}
             </button>
           )}
           <button
@@ -292,7 +293,7 @@ export const ReviewPanel = memo(function ReviewPanel({
       {diff && diff.droppedFiles > 0 && (
         <div className="idiff-band">
           <span aria-hidden="true">⋯</span>
-          {diff.droppedFiles} more {diff.droppedFiles === 1 ? 'file' : 'files'} not shown
+          {plural(diff.droppedFiles, 'more file')} not shown
         </div>
       )}
     </section>
@@ -305,7 +306,7 @@ function Summary({ diff }: { diff: WorkspaceDiff }): JSX.Element {
     <>
       <DiffStat added={diff.added} removed={diff.removed} />
       <span>
-        {n} {n === 1 ? 'file' : 'files'}
+        {plural(n, 'file')}
       </span>
       {diff.scope === 'branch' && diff.base && (
         <span title={`Commits on ${diff.branch ?? 'this branch'} the base doesn't have, and the other way round`}>
@@ -426,7 +427,7 @@ const FileBlock = memo(function FileBlock({ file, layout, ...line }: LineProps &
           <span className={`review-kind ${kind}`}>{file.binary ? 'binary' : file.untracked ? 'untracked' : KIND_LABEL[file.status]}</span>
         )}
         {threadCount > 0 && (
-          <span className="review-kind tone-warn">{threadCount === 1 ? '1 thread' : `${threadCount} threads`}</span>
+          <span className="review-kind tone-warn">{plural(threadCount, 'thread')}</span>
         )}
         {!file.binary && <DiffStat added={file.added} removed={file.removed} />}
       </summary>
@@ -568,7 +569,7 @@ function ThreadRow({ thread, onOpenUrl }: { thread: PrReviewThread; onOpenUrl: (
         </div>
       ))}
       <div className="review-thread-foot">
-        {more > 0 && <span>{more === 1 ? '1 more reply' : `${more} more replies`}</span>}
+        {more > 0 && <span>{plural(more, 'more reply', 'more replies')}</span>}
         {first.url && (
           <button className="link-btn" onClick={() => onOpenUrl(first.url)}>
             Open on GitHub <LinkExternalIcon size={10} />

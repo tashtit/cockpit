@@ -25,6 +25,7 @@ import type { Notice } from './notice'
 import { answerRecommendation } from './recommended'
 import { offerFor, Recommendation, RECOMMENDED_PITCH } from './Recommendation'
 import { TabList, TabPanel, type TabDef } from './Tabs'
+import { plural } from './format'
 
 /**
  * The panel: everything the agents share, one row per thing.
@@ -284,7 +285,7 @@ export function AgentPanel({
         {(q !== '' || current !== 'instructions') && (
         <p className="pnl-blurb">
           {q
-            ? `${rows.length} match${rows.length === 1 ? '' : 'es'} for “${query.trim()}”`
+            ? `${plural(rows.length, 'match', 'matches')} for “${query.trim()}”`
             : current === 'removed'
               ? 'Taken out of every agent. Cockpit kept a copy of each, so you can put them back.'
               : current === 'attention'

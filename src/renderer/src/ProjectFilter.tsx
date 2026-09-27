@@ -3,6 +3,7 @@ import type { RepoGroup, SessionHolder } from '../../shared/types'
 import { api } from './api'
 import { HOLDER_FILTER_LABEL, setHolderFilter, useHolderFilter } from './hold'
 import { ChatIcon, EyeIcon, HeldIcon, ProcessIcon, RepoIcon } from './logos'
+import { plural } from './format'
 
 /**
  * Eye popover: what the tree shows — sessions by who drives them (every one, only
@@ -31,7 +32,7 @@ export function ProjectFilter({
   }
   const scoped = [
     holder ? HOLDER_FILTER_LABEL[holder].toLowerCase() : null,
-    hiddenCount > 0 ? `${hiddenCount} ${hiddenCount === 1 ? 'project' : 'projects'} hidden` : null
+    hiddenCount > 0 ? `${plural(hiddenCount, 'project')} hidden` : null
   ].filter((x): x is string => x !== null)
 
   useEffect(() => {

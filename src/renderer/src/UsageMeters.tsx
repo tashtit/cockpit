@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { Provider, ProviderUsage, UsageSnapshot, UsageWindow } from '../../shared/types'
 import { api } from './api'
 import { useBusyMap } from './busy'
-import { fmtCount, fmtResetIn } from './format'
+import { fmtCount, fmtResetIn, usageSpent } from './format'
 import { ProviderMark, PROVIDER_LABEL, UsageWarnIcon } from './logos'
 
 /**
@@ -34,22 +34,8 @@ export type UsageMeter = {
 
 /** One tooltip line per window: what was used, and when it resets. */
 function windowLine(w: UsageWindow, now: number): string {
-  let used: string
-  if (typeof w.usedPercent === 'number') {
-    used = `${Math.round(w.usedPercent)}% used`
-  } else if (w.tokens) {
-    used =
-      w.requests === 0
-        ? 'no activity'
-        : `${fmtCount(w.tokens.input + w.tokens.output)} tokens` +
-          (typeof w.requests === 'number' ? ` · ${fmtCount(w.requests)} requests` : '')
-  } else if (typeof w.requests === 'number') {
-    used =
-      `${fmtCount(w.requests)} used` +
-      ((w.requestsBilled ?? 0) > 0 ? ` · ${fmtCount(w.requestsBilled!)} billed beyond plan` : '')
-  } else {
-    used = 'no data'
-  }
+  const used =
+    typeof w.usedPercent === 'number' ? `${Math.round(w.usedPercent)}% used` : (usageSpent(w) ?? 'no data')
   return `${w.label}: ${used}${w.resetsAt ? ` · ${fmtResetIn(w.resetsAt, now)}` : ''}`
 }
 

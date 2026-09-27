@@ -87,7 +87,3 @@ export function useRestartToUpdate(): {
   }
 }
 
-/** "1 turn" / "3 turns" — what the armed restart says it will stop. */
-export function turnsWord(n: number): string {
-  return `${n} ${n === 1 ? 'turn' : 'turns'}`
-}

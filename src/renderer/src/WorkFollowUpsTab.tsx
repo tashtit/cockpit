@@ -4,7 +4,8 @@ import type { Provider } from '../../shared/types'
 import { followUpSummary, type FollowUpEntry, type WorkModel } from '../../shared/work'
 import { PROVIDER_LABEL } from './logos'
 import { storedValue } from './stored-value'
-import { fmtTime, useTimeFormat } from './time'
+import { fmtTime } from './format'
+import { useTimeFormat } from './time'
 import { useRing, type WorkFocus } from './work-tab'
 
 /** The Work panel's Follow-ups tab: work the agent suggested for sessions of their own. */

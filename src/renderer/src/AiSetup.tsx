@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { RepoGroup } from '../../shared/types'
+import { shortPath } from '../../shared/library'
 import { AgentPanel } from './AgentPanel'
 import { api } from './api'
 import type { Notice } from './notice'
@@ -83,7 +84,7 @@ export function AiSetup({
           </>
         ) : (
           <>
-            Applies to sessions in <code>{project.replace(/^\/Users\/[^/]+/, '~')}</code> only.
+            Applies to sessions in <code>{shortPath(project)}</code> only.
             Global settings apply here too, on top of these.
           </>
         )}

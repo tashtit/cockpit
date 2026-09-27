@@ -26,7 +26,8 @@ import {
   TrashIcon
 } from './logos'
 import { noop, RowMeta } from './SessionList'
-import { fmtTime, useTimeFormat } from './time'
+import { fmtTime, plural } from './format'
+import { useTimeFormat } from './time'
 import { useLoaded } from './use-loaded'
 import { RepoName } from './RepoName'
 
@@ -524,14 +525,14 @@ function TranscriptStatus({
     if (scoped) notes.push('try all repos')
   } else {
     notes.push(
-      `${result.hits.length} ${result.hits.length === 1 ? 'hit' : 'hits'} in ${sessions} ${sessions === 1 ? 'session' : 'sessions'}`
+      `${plural(result.hits.length, 'hit')} in ${plural(sessions, 'session')}`
     )
   }
   notes.push(`searched ${result.scanned} of ${result.candidates} transcripts`)
   if (result.stoppedBy === 'hit-cap') notes.push('stopped at the hit cap — narrow the query')
   if (result.stoppedBy === 'time') notes.push('ran out of time — narrow the query or the scope')
   if (result.truncated > 0)
-    notes.push(`${result.truncated} large ${result.truncated === 1 ? 'transcript' : 'transcripts'} read only in part`)
+    notes.push(`${plural(result.truncated, 'large transcript')} read only in part`)
   return (
     <div className="tree-empty">
       {notes.join(' · ')}

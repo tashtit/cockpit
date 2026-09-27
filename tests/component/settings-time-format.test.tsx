@@ -3,7 +3,8 @@ import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings } from '../../src/renderer/src/Settings'
 import { HomeView } from '../../src/renderer/src/HomeView'
-import { fmtElapsed, fmtTime, initTimeFormat, setTimeFormat } from '../../src/renderer/src/time'
+import { fmtElapsed, fmtTime } from '../../src/renderer/src/format'
+import { initTimeFormat, setTimeFormat } from '../../src/renderer/src/time'
 import type { RepoGroup, SessionMeta } from '../../src/shared/types'
 
 /** Today at 14:05 local — always "today" whatever the wall clock says. */

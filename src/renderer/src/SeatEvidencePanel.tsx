@@ -2,12 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { RoundtableParticipant } from '../../shared/types'
 import { api } from './api'
 import { buildEvidence, EVIDENCE_VERB, seatSessions, type EvidenceTurn } from './evidence'
-import { relativeTo } from './format'
+import { fmtTime, plural, relativeTo } from './format'
 import { XIcon } from './logos'
 import { uiSeatName } from './roundtable-seats'
 import { SidePanel } from './SidePanel'
 import { TabList, type TabDef } from './Tabs'
-import { fmtTime, useTimeFormat } from './time'
+import { useTimeFormat } from './time'
 import { useLoaded } from './use-loaded'
 
 /**
@@ -132,8 +132,7 @@ function SeatTurns({ seat, evidence, room }: { seat: string; evidence: SeatEvide
     <>
       <div className="work-meta">
         <span>
-          {evidence.turns.length === 1 ? '1 turn' : `${evidence.turns.length} turns`} ·{' '}
-          {calls === 1 ? '1 call' : `${calls} calls`}
+          {plural(evidence.turns.length, 'turn')} · {plural(calls, 'call')}
         </span>
         {/* a seat whose calls never ran backed its claims with nothing it could check */}
         {refused > 0 && <span className="work-flag">{refused} not run</span>}

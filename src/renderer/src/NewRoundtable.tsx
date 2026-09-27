@@ -28,6 +28,7 @@ import { SignInFix, useWatchUntil } from './SignInFix'
 import { storedValue } from './stored-value'
 import { useLoaded } from './use-loaded'
 import { ErrorAlert } from './ErrorAlert'
+import { plural } from './format'
 
 const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** Round caps the form offers — the per-message ceiling may allow fewer, never more */
@@ -335,7 +336,6 @@ export function NewRoundtable({
 
   /** The seat's name without the agent — its ordinal, when the agent sits twice. */
   const ordinal = (index: number): string => seatLabel(index).slice(PROVIDER_LABEL[seats[index].provider].length).trim()
-  const seatWord = seats.length === 1 ? 'seat' : 'seats'
 
   return (
     <main className="chat new-session-view">
@@ -691,7 +691,7 @@ export function NewRoundtable({
                 value={String(rounds)}
                 options={roundChoices.map((n) => ({
                   value: String(n),
-                  label: n === 1 ? '1 round' : `${n} rounds`,
+                  label: plural(n, 'round'),
                   title: 'auto discussion rounds per message before the table must conclude'
                 }))}
                 onChange={(v) => setMaxRounds(Number(v))}
@@ -725,11 +725,11 @@ export function NewRoundtable({
         {/* the bill, before it is run up: every seat's reply is a full agent turn */}
         <div className="ns-hint">
           {tableMode === 'consensus'
-            ? `Each message costs up to ${turnsPerMessage} agent turns — ${seats.length} seats × ${rounds} ${rounds === 1 ? 'round' : 'rounds'}, fewer if they agree sooner.`
+            ? `Each message costs up to ${turnsPerMessage} agent turns — ${seats.length} seats × ${plural(rounds, 'round')}, fewer if they agree sooner.`
             : `Each message, and each extra round, costs ${turnsPerMessage} agent turns — one per seat.`}{' '}
           {messagesAffordable === null
             ? 'No ceiling for the whole table.'
-            : `The table stops at ${limits.maxTurnsPerTable} turns — about ${messagesAffordable} ${messagesAffordable === 1 ? 'message' : 'messages'} at this size — and you can raise it from the table.`}
+            : `The table stops at ${limits.maxTurnsPerTable} turns — about ${plural(messagesAffordable, 'message')} at this size — and you can raise it from the table.`}
         </div>
 
         {error && <ErrorAlert>{error}</ErrorAlert>}
@@ -747,7 +747,7 @@ export function NewRoundtable({
               'Checking the seats can run…'
             ) : (
               <>
-                {seats.length} {seatWord} · {tableMode === 'consensus' ? 'up to ' : ''}
+                {plural(seats.length, 'seat')} · {tableMode === 'consensus' ? 'up to ' : ''}
                 {turnsPerMessage} agent turns a message
               </>
             )}

@@ -8,10 +8,10 @@ import {
 import type { AppInfo, UpdatePrefs, UpdateState } from '../../shared/types'
 import { api } from './api'
 import { disarmOn } from './disarm'
-import { fmtAgo } from './format'
+import { fmtAgo, plural } from './format'
 import { ipcErrorText } from './ipc-error'
 import { CockpitLogo } from './logos'
-import { turnsWord, useRestartToUpdate } from './update-prompt'
+import { useRestartToUpdate } from './update-prompt'
 import { useLoaded } from './use-loaded'
 import { ErrorAlert } from './ErrorAlert'
 
@@ -232,9 +232,9 @@ export function AboutSection({
                 className="btn-ghost danger small armed"
                 onClick={restart.restart}
                 {...disarmOn(restart.disarm)}
-                title={`Cockpit is running ${turnsWord(restart.armed)}, and restarting stops them. Click again to restart now, or let them finish first.`}
+                title={`Cockpit is running ${plural(restart.armed, 'turn')}, and restarting stops them. Click again to restart now, or let them finish first.`}
               >
-                Stop {turnsWord(restart.armed)} and restart?
+                Stop {plural(restart.armed, 'turn')} and restart?
               </button>
             )}
           </>

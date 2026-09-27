@@ -22,7 +22,8 @@ import {
 import { keepSame } from './same'
 import { SeatCluster } from './SeatCluster'
 import { Select } from './Select'
-import { fmtElapsed, fmtTime, useTimeFormat } from './time'
+import { fmtElapsed, fmtTime, plural } from './format'
+import { useTimeFormat } from './time'
 import { useRoundtables } from './use-roundtables'
 import { ErrorAlert } from './ErrorAlert'
 
@@ -518,7 +519,7 @@ function Board({
   // news — an agent working is the normal condition — so it never leads.
   const needs = [
     asking.length > 0 && `${asking.length} waiting on you`,
-    red > 0 && `${red} red ${red === 1 ? 'PR' : 'PRs'}`,
+    red > 0 && plural(red, 'red PR'),
     landedCount > 0 && `${landedCount} landed`
   ].filter((c): c is string => typeof c === 'string')
   // the board is a taste, not the list: what is happening always shows, the ground fills

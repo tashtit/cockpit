@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import type { AttentionPr, Landing, PrChecks, PrReview, PrStatus, Provider, TodoStatus } from '../../shared/types'
 import { DEFAULT_BRANCH_PREFIX } from '../../shared/branch-prefix'
 import { useBranchPrefix } from './branch-prefix'
+import { plural } from './format'
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   claude: 'Claude',
@@ -546,7 +547,7 @@ export function PrBadge({
   const detail = [
     checks && CHECKS_LABEL[checks],
     review && REVIEW_LABEL[review],
-    threads && `${threads} unresolved ${threads === 1 ? 'thread' : 'threads'}`
+    threads && plural(threads, 'unresolved thread')
   ].filter((s): s is string => s !== null)
   return (
     <button

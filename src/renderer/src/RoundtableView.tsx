@@ -21,7 +21,7 @@ import { cycleReplies, uiSeatName } from './roundtable-seats'
 import { useRoundtableStream } from './roundtable-stream'
 import { RoundtableTable } from './RoundtableTable'
 import { Select } from './Select'
-import { fmtElapsed } from './time'
+import { fmtElapsed, plural } from './format'
 import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from './transcript-window'
 import { BranchChip, ChatIcon, ProviderLogo, ProviderMark, SearchIcon } from './logos'
 import { SeatEvidencePanel } from './SeatEvidencePanel'
@@ -238,7 +238,7 @@ export function RoundtableView({ id }: { id: string }): JSX.Element {
                     value={String(roundsDraft)}
                     options={[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({
                       value: String(n),
-                      label: n === 1 ? '1 round' : `${n} rounds`
+                      label: plural(n, 'round')
                     }))}
                     onChange={(v) => setRoundsDraft(Number(v))}
                   />
@@ -571,7 +571,7 @@ function ConsensusOutcome({
       <div className="rt-outcome-head">
         {allAgree ? 'Shared understanding' : 'No full agreement'}
         <span className="rt-outcome-sub">
-          the seats&#8217; own closing lines · {rounds} round{rounds === 1 ? '' : 's'} — a new
+          the seats&#8217; own closing lines · {plural(rounds, 'round')} — a new
           message reopens the table
         </span>
       </div>

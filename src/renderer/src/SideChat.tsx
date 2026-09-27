@@ -16,6 +16,7 @@ import {
   type SideLook,
   type SideTarget
 } from './side-chat-log'
+import { plural } from './format'
 
 /**
  * Side chat: questions about the session on screen, asked of a throwaway copy of it —
@@ -164,7 +165,7 @@ export function lookSummary(looked: readonly SideLook[]): string {
   const counts = new Map<string, number>()
   for (const l of looked) counts.set(l.tool, (counts.get(l.tool) ?? 0) + 1)
   const tools = [...counts].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(' · ')
-  return `${looked.length} ${looked.length === 1 ? 'step' : 'steps'} · ${tools}`
+  return `${plural(looked.length, 'step')} · ${tools}`
 }
 
 /** One question and what came back, in the transcript's own row grammar. */

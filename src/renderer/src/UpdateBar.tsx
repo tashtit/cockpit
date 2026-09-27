@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { api } from './api'
 import { disarmOn } from './disarm'
 import { UpdateIcon } from './logos'
-import { turnsWord, useRestartToUpdate, useUpdatePrompt, type UpdatePrompt } from './update-prompt'
+import { useRestartToUpdate, useUpdatePrompt, type UpdatePrompt } from './update-prompt'
+import { plural } from './format'
 
 /** What the status region says when the bar changes — progress ticks stay silent. */
 function announcement(p: UpdatePrompt | null): string {
@@ -40,7 +41,7 @@ export function UpdateBar({ onOpenAbout }: { onOpenAbout: () => void }): JSX.Ele
     if (text) setSaid(text)
   }, [prompt])
   useEffect(() => {
-    if (armed !== null) setSaid(`Restarting stops ${turnsWord(armed)} Cockpit is running — press again to restart anyway`)
+    if (armed !== null) setSaid(`Restarting stops ${plural(armed, 'turn')} Cockpit is running — press again to restart anyway`)
   }, [armed])
 
   return (
@@ -102,11 +103,11 @@ function Bar({
             className="footer-update armed"
             onClick={onRestart}
             {...disarmOn(onDisarm)}
-            aria-label={`Confirm: restarting stops ${turnsWord(armed)} Cockpit is running`}
-            title={`Cockpit is running ${turnsWord(armed)}, and restarting stops them. Click again to restart now, or let them finish first.`}
+            aria-label={`Confirm: restarting stops ${plural(armed, 'turn')} Cockpit is running`}
+            title={`Cockpit is running ${plural(armed, 'turn')}, and restarting stops them. Click again to restart now, or let them finish first.`}
           >
             <UpdateIcon />
-            <span className="footer-update-label">Stop {turnsWord(armed)} and restart?</span>
+            <span className="footer-update-label">Stop {plural(armed, 'turn')} and restart?</span>
           </button>
         )
       }

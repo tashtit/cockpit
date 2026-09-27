@@ -7,7 +7,8 @@ import { HeldMark } from './HeldMark'
 import { holdSentence, useHolderFilter } from './hold'
 import { useLandedMap, useSessionLanded } from './landed'
 import { ArchiveIcon, ElbowIcon, landingLabel, LandingMark, PrBadge, ProviderMark, PROVIDER_LABEL, Spinner } from './logos'
-import { fmtTime, useTimeFormat } from './time'
+import { fmtTime, plural } from './format'
+import { useTimeFormat } from './time'
 import { useLoaded } from './use-loaded'
 
 /** Rows a tree list asks for at a time — "more…" adds another page. */
@@ -190,7 +191,7 @@ export const SessionRow = memo(function SessionRow({
   const parent = family?.parent
   const under = family?.descendants.length ?? 0
   const folded = family?.folded ?? false
-  const foldLabel = `${folded ? 'Show' : 'Hide'} the ${under} ${under === 1 ? 'session' : 'sessions'} under it`
+  const foldLabel = `${folded ? 'Show' : 'Hide'} the ${plural(under, 'session')} under it`
   // the row's own claim on its meta slot, in the slot's order of urgency
   const ownRank = landed?.kind === 'asks' ? 3 : working ? 2 : landed ? 1 : 0
   // who drives it: marked only where Cockpit does — the exception in a tree mostly

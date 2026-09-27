@@ -6,6 +6,7 @@ import { ipcErrorText } from './ipc-error'
 import { useDiffLayout } from './diff-layout'
 import { APPLY_LABEL, DiffLayoutToggle, DiffStat, InstructionDiff, ReadByNote } from './InstructionDiff'
 import { applyFile, takeFile, type InstructionsWrite } from './instruction-writes'
+import { shortPath } from '../../shared/library'
 import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
 import type { Notice } from './notice'
@@ -391,7 +392,7 @@ function InstructionFileRow({
       </div>
       <div className="ext-body">
         <div className="ext-name">
-          <span className="inst-path">{file.path.replace(/^\/Users\/[^/]+/, '~')}</span>
+          <span className="inst-path">{shortPath(file.path)}</span>
           <span className={`inst-status ${file.status}`}>{STATUS_LABEL[file.status]}</span>
           <ReadByNote file={file} />
           {file.status !== 'synced' && (

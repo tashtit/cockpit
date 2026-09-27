@@ -4,7 +4,8 @@ import { api } from './api'
 import { ArchiveIcon, PROVIDER_LABEL, Spinner } from './logos'
 import { SeatCluster } from './SeatCluster'
 import { noop, PAGE, SessionRow } from './SessionList'
-import { fmtTime, useTimeFormat } from './time'
+import { fmtTime } from './format'
+import { useTimeFormat } from './time'
 import { useLoaded } from './use-loaded'
 
 /**

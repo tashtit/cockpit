@@ -3,7 +3,8 @@ import type { FileEdit } from '../../shared/types'
 import { fileChange, type EditEntry, type FileWork, type WorkModel } from '../../shared/work'
 import { DiffLines, DiffStat } from './InstructionDiff'
 import { samePlain } from './same'
-import { fmtTime, useTimeFormat } from './time'
+import { fmtTime, plural } from './format'
+import { useTimeFormat } from './time'
 import { relative, useRing, type WorkFocus } from './work-tab'
 
 /** The Work panel's Edits tab: every edit the agent made, file by file, as its calls described them. */
@@ -70,8 +71,7 @@ export function WorkEditsTab({
     <>
       <div className="work-meta">
         <span>
-          {model.editCount === 1 ? '1 edit' : `${model.editCount} edits`} ·{' '}
-          {files.length === 1 ? '1 file' : `${files.length} files`}
+          {plural(model.editCount, 'edit')} · {plural(files.length, 'file')}
         </span>
         <DiffStat added={landed.added} removed={landed.removed} />
       </div>

@@ -18,6 +18,7 @@ import {
 } from './logos'
 import { formatBytes } from '../../shared/cleanup'
 import { shortPath } from '../../shared/library'
+import { plural } from './format'
 
 /**
  * The Cleanup view's rows and the head over each list. Rows arrive pre-judged from
@@ -208,7 +209,7 @@ export function SessionRow({ row: s, now, picked, onPick }: RowProps<StaleSessio
  */
 export function TableRow({ row: t, now, picked, onPick }: RowProps<StaleTable>): JSX.Element {
   const carry = [
-    t.seatCount > 0 && `${t.seatCount} seat session${t.seatCount === 1 ? '' : 's'}`,
+    t.seatCount > 0 && plural(t.seatCount, 'seat session'),
     t.worktree ? 'its worktree' : 'its room'
   ].filter(Boolean)
   return (
@@ -228,7 +229,7 @@ export function TableRow({ row: t, now, picked, onPick }: RowProps<StaleTable>):
           {t.worktree?.branch && <BranchChip branch={t.worktree.branch} />}
         </div>
         <div className="cl-sub">
-          {t.entryCount} message{t.entryCount === 1 ? '' : 's'} · takes {carry.join(' · ')}
+          {plural(t.entryCount, 'message')} · takes {carry.join(' · ')}
         </div>
       </div>
       <div className="cl-meta">

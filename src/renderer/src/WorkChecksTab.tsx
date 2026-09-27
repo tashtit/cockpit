@@ -2,7 +2,8 @@ import { useEffect, useState, type JSX, type RefObject } from 'react'
 import type { Provider } from '../../shared/types'
 import { CHECK_LABEL, checkSummary, type CheckRun, type CheckWork, type WorkModel } from '../../shared/work'
 import { PROVIDER_LABEL } from './logos'
-import { fmtTime, useTimeFormat } from './time'
+import { fmtTime, plural } from './format'
+import { useTimeFormat } from './time'
 import { useRing, type WorkFocus } from './work-tab'
 
 /** The Work panel's Checks tab: how each check the agent ran last ended. */
@@ -78,7 +79,7 @@ function CheckBlock({ check, ringed }: { check: CheckWork; ringed: number | null
         )}
         {check.editedSince > 0 && (
           <span className="work-flag">
-            {check.editedSince === 1 ? '1 file' : `${check.editedSince} files`} edited since
+            {plural(check.editedSince, 'file')} edited since
           </span>
         )}
         {shown.ts && <span className="work-check-meta work-check-time">{fmtTime(shown.ts, fmt)}</span>}
@@ -97,7 +98,7 @@ function CheckBlock({ check, ringed }: { check: CheckWork; ringed: number | null
           }}
         >
           <summary>
-            {earlier.length === 1 ? '1 earlier run' : `${earlier.length} earlier runs`}
+            {plural(earlier.length, 'earlier run')}
             {failedEarlier > 0 && ` · ${failedEarlier} failed`}
           </summary>
           <ol className="work-check-list">

@@ -15,6 +15,7 @@ import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
 import { initBranchPrefix } from './branch-prefix'
 import { useLoaded } from './use-loaded'
 import { ViewCard } from './ViewCard'
+import { plural } from './format'
 
 /** History window presets; value is days as a string, '0' = all history. */
 const HISTORY_OPTIONS = [
@@ -186,7 +187,7 @@ function HistoryPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Elem
     historyDays !== null && !HISTORY_OPTIONS.some((o) => o.value === String(historyDays))
       ? [
           ...HISTORY_OPTIONS,
-          { value: String(historyDays), label: `Last ${historyDays} day${historyDays === 1 ? '' : 's'}` }
+          { value: String(historyDays), label: `Last ${plural(historyDays, 'day')}` }
         ]
       : HISTORY_OPTIONS
 

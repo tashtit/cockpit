@@ -4,6 +4,7 @@ import type { Selections, SetSelections } from './cleanup-filters'
 import { usePicks, type Picks } from './cleanup-picks'
 import { GroupHead, type RowProps } from './CleanupRows'
 import { FilterBar, matchesFilters, type FilterGroup } from './FilterBar'
+import { plural } from './format'
 
 /** What a selection would free: its bytes, and how many worktrees go along with it. */
 export type Freed = { readonly bytes: number; readonly trees: number }
@@ -133,7 +134,7 @@ export function StaleList<T>({
           picked.size > 0 ? (
             <>
               <strong>{picked.size}</strong> selected · {formatBytes(gain.bytes)}
-              {gain.trees > 0 && ` · ${gain.trees} worktree${gain.trees === 1 ? '' : 's'}`}
+              {gain.trees > 0 && ` · ${plural(gain.trees, 'worktree')}`}
               {hidden > 0 && <span className="cl-hidden"> · {hidden} not shown</span>}
             </>
           ) : (

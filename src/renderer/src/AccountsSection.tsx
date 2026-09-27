@@ -17,7 +17,7 @@ import { shortPath } from '../../shared/library'
 import { api } from './api'
 import { saveBranchPrefix, useBranchPrefix } from './branch-prefix'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
-import { fmtAgo, fmtCount, fmtResetIn } from './format'
+import { fmtAgo, fmtCount, fmtResetIn, plural, usageSpent } from './format'
 import { ipcErrorText } from './ipc-error'
 import { BranchIcon, OrgIcon, ProviderMark, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -61,6 +61,8 @@ function UsageBody({ u, loading }: { u: ProviderUsage | undefined; loading: bool
 function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow }): JSX.Element {
   const pct = typeof w.usedPercent === 'number' ? Math.round(w.usedPercent) : null
   const idle = w.tokens && w.requests === 0
+  // tokens read beside a percentage; a bare request count only stands in for a missing one
+  const spent = w.tokens || pct === null ? usageSpent(w) : null
   return (
     <div className="usage-window">
       <span className="usage-win-label">{w.label}</span>
@@ -82,21 +84,14 @@ function UsageWindowRow({ provider, w }: { provider: Provider; w: UsageWindow })
           <span className="usage-num">{pct}%</span>
         </>
       )}
-      {w.tokens &&
+      {spent !== null &&
         (idle ? (
-          <span>no activity</span>
+          <span>{spent}</span>
         ) : (
-          <span className="usage-num" title={tokensTitle(w.tokens)}>
-            {fmtCount(w.tokens.input + w.tokens.output)} tokens
-            {typeof w.requests === 'number' && ` · ${fmtCount(w.requests)} requests`}
+          <span className="usage-num" title={w.tokens ? tokensTitle(w.tokens) : undefined}>
+            {spent}
           </span>
         ))}
-      {!w.tokens && pct === null && typeof w.requests === 'number' && (
-        <span className="usage-num">
-          {fmtCount(w.requests)} used
-          {(w.requestsBilled ?? 0) > 0 && ` · ${fmtCount(w.requestsBilled!)} billed beyond plan`}
-        </span>
-      )}
       {w.resetsAt && (
         <time dateTime={new Date(w.resetsAt).toISOString()}>{fmtResetIn(w.resetsAt)}</time>
       )}
@@ -269,7 +264,7 @@ export function AccountsSection({ onStatus }: { onStatus: (s: string) => void })
         subscription has spent, and whether it&apos;s healthy. Usage comes from each agent&apos;s
         own logs, or GitHub&apos;s billing API for Copilot; nothing here reads credentials.
         {stats.length > 0 && (
-          <> Currently {stats.length} config home{stats.length === 1 ? '' : 's'} · {totalSessions} sessions.</>
+          <> Currently {plural(stats.length, 'config home')} · {totalSessions} sessions.</>
         )}
       </p>
       <ul className="source-list">

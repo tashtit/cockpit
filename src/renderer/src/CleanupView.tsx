@@ -33,6 +33,7 @@ import { TabList, TabPanel } from './Tabs'
 import { formatBytes } from '../../shared/cleanup'
 import { ErrorAlert } from './ErrorAlert'
 import { ViewCard } from './ViewCard'
+import { plural } from './format'
 
 /**
  * Cleanup: one place for everything that has gone quiet, across every agent and
@@ -307,9 +308,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
       const failed = res.failed.length
       const freed = res.freedBytes > 0 ? ` · ${formatBytes(res.freedBytes)} freed` : ''
       const branches = res.branchesDeleted?.length
-        ? ` · ${res.branchesDeleted.length} merged branch${
-            res.branchesDeleted.length === 1 ? '' : 'es'
-          } deleted`
+        ? ` · ${plural(res.branchesDeleted.length, 'merged branch', 'merged branches')} deleted`
         : ''
       setStatus(`${verb} ${res.cleaned}${freed}${branches}${failed ? ` · ${failed} kept` : ''}`)
       if (failed) setError(res.failed.map((f) => `${f.target} — ${f.reason}`).join('\n'))
@@ -395,7 +394,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
               slot={armed}
               disabled={working || pPicked.size === 0}
               rest={counted('Stop', pPicked.size)}
-              ask={`Stop ${pPicked.size} process${pPicked.size === 1 ? '' : 'es'}?`}
+              ask={`Stop ${plural(pPicked.size, 'process', 'processes')}?`}
               title="Sends SIGTERM to each, asking it to exit. Anything unsaved inside those processes is lost; one that ignores the signal is reported, never killed."
               onConfirm={() =>
                 void run('Stopped', () =>
@@ -439,7 +438,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           slot={armed}
           disabled={working || tPicked.size === 0}
           rest={counted('Delete', tPicked.size)}
-          ask={`Delete ${tPicked.size} roundtable${tPicked.size === 1 ? '' : 's'}?`}
+          ask={`Delete ${plural(tPicked.size, 'roundtable')}?`}
           title="Takes each table, its seat sessions and the directory it ran in. This cannot be undone."
           onConfirm={() => void run('Deleted', () => api.deleteRoundtables([...tPicked]))}
         />
@@ -452,7 +451,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           slot={armed}
           disabled={working || wPicked.size === 0}
           rest={counted('Remove', wPicked.size)}
-          ask={`Remove ${wPicked.size} worktree${wPicked.size === 1 ? '' : 's'}?`}
+          ask={`Remove ${plural(wPicked.size, 'worktree')}?`}
           title="Runs git worktree remove on each — the directory goes, the branch stays unless git says it is fully merged."
           onConfirm={() => void run('Removed', () => api.removeWorktrees([...wPicked]))}
         />
@@ -499,9 +498,7 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
             {report.totalTables > 0 &&
               ` · ${report.staleTableCount} of ${report.totalTables} roundtables`}
             {report.processes.length > 0 &&
-              ` · ${report.processes.length} process${
-                report.processes.length === 1 ? '' : 'es'
-              } left running`}
+              ` · ${plural(report.processes.length, 'process', 'processes')} left running`}
             {status && ` — ${status}`}
           </>
         ) : (
