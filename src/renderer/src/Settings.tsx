@@ -8,6 +8,7 @@ import { BackupSection } from './BackupSection'
 import { CHAT_WIDTH_OPTIONS, setChatWidth, useChatWidth, type ChatWidth } from './chat-width'
 import { ModelProviders } from './ModelProviders'
 import { NotificationsSection } from './NotificationsSection'
+import { seedThenFollow } from './seed-then-follow'
 import { Select } from './Select'
 import { TabList, TabPanel } from './Tabs'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
@@ -96,15 +97,21 @@ export function Settings({
   useEffect(() => {
     if (section) setTab(section)
   }, [section, openCount])
-  useEffect(() => {
-    void api.getUpdateState().then(setUpdate)
-    // main pushes every transition (timer checks included) — announce the ones that matter
-    return api.onUpdateState((s) => {
-      setUpdate(s)
-      const said = updateAnnouncement(s)
-      if (said) setStatus(said)
-    })
-  }, [])
+  useEffect(
+    () =>
+      seedThenFollow(
+        () => api.getUpdateState(),
+        // main pushes every transition (timer checks included) — announce the ones that matter
+        (on) =>
+          api.onUpdateState((s) => {
+            on(s)
+            const said = updateAnnouncement(s)
+            if (said) setStatus(said)
+          }),
+        setUpdate
+      ),
+    []
+  )
 
   /** One panel per tab, keyed by the section id: a `Record<SettingsSection, …>`
    *  will not compile if a tab is added to `SETTINGS_SECTIONS` without one, which a
