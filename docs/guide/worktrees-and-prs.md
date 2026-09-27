@@ -54,10 +54,12 @@ Every chat runs under one of three permission modes, mapped to each provider's o
 | Mode | What it means | Under the hood |
 | --- | --- | --- |
 | **Safe** | Provider defaults: anything that needs approval asks you first. Codex, which can't ask when it runs headless, refuses it instead. | no extra flags |
-| **Auto-edit** | File edits proceed without asking; anything that runs a command asks you first. Codex runs commands inside its workspace sandbox instead. | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
+| **Auto-edit** | File edits proceed without asking; anything that runs a command asks you first. Codex runs commands inside its workspace sandbox instead, and hands what the sandbox refuses to its own reviewer (below). | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` + `approvals_reviewer="auto_review"` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
 | **YOLO** | All approvals bypassed. | provider bypass flags |
 
 When Claude or an [ACP agent](./acp-agents.md#answering-a-permission-request) wants to do something its mode doesn't already allow — `npm test`, `git commit`, a file outside the worktree — the turn stops and the request appears just above the composer, with the command itself. **Allow** lets that one call run; **Deny** tells the agent you said no, and it carries on without it. If you're not looking at that session, the request is also a [notification](./notifications.md). A roundtable seat never asks: seats only read.
+
+Codex can't put a question to you while Cockpit runs it, so in **Auto-edit** its sandbox has the final say on most things: file edits and ordinary commands in the worktree just run. What the sandbox refuses — every git write (Codex keeps `.git` read-only, and a worktree's git data lives in your main checkout), and anything that needs the network, like `npm ci`, `git push` or `gh pr create` — is re-run outside the sandbox only once Codex's own approvals reviewer agrees, the same reviewer `codex exec --approve-for-me` uses. That is what lets a Codex session commit and open its pull request; a reviewer that says no ends that step, not the session.
 
 Agents run with your own `PATH`, as your terminal has it: Cockpit reads it from your login shell when it starts, so `node`, `npm` and whatever else your shell sets up (nvm, Homebrew, asdf) are there for the agent's commands too.
 

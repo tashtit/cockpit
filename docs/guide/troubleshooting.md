@@ -73,7 +73,7 @@ Session log formats are provider-internal and drift between releases — Cockpit
 
 ## The agent says it can't use tools
 
-Claude and ACP agents ask before anything their [permission mode](/guide/worktrees-and-prs#permission-modes) doesn't allow: look for the request just above the composer. Codex can't ask when it runs headless, so in **Safe** it refuses instead — re-run the task with **Auto-edit** (or, on a trusted repo, YOLO).
+Claude and ACP agents ask before anything their [permission mode](/guide/worktrees-and-prs#permission-modes) doesn't allow: look for the request just above the composer. Codex can't ask when it runs headless, so in **Safe** it refuses instead — re-run the task with **Auto-edit**, where what its sandbox refuses (git, the network) goes to Codex's own reviewer (or, on a trusted repo, YOLO).
 
 ## The agent can't find `node`, `npm` or another command
 

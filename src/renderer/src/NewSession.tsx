@@ -87,7 +87,7 @@ const PROVIDERS: Provider[] = ['claude', 'codex', 'copilot']
 /** The one permission-mode table — HomeView and ChatView import it so wording never drifts. */
 export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = [
   { v: 'safe', label: 'Safe', hint: 'asks you before any tool that needs approval (Codex: blocked headless)' },
-  { v: 'auto-edit', label: 'Auto-edit', hint: 'file edits go ahead; commands ask you first (Codex: sandboxed)' },
+  { v: 'auto-edit', label: 'Auto-edit', hint: 'file edits go ahead; commands ask you first (Codex: sandboxed, its reviewer decides the rest)' },
   { v: 'yolo', label: 'YOLO', hint: 'bypass all approvals — trusted repos only' }
 ]
 
