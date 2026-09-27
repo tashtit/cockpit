@@ -54,6 +54,22 @@ describe('parseAsks', () => {
   it('gives ExitPlanMode its two answers — it offers no list of its own', () => {
     const plan = parseAsks('ExitPlanMode', { plan: '# Plan' })
     expect(plan?.[0].options.map((o) => o.label)).toEqual(['Approve the plan', 'Keep planning'])
+    // Copilot's plan gate is the same question
+    expect(parseAsks('exit_plan_mode', { summary: 'Two steps', recommendedAction: 'autopilot' })).toEqual(plan)
+  })
+
+  it("reads copilot ask_user: one question, its choices as plain strings", () => {
+    // the shape confirmed against real Copilot CLI logs (2026-09)
+    const input = {
+      question: 'Which of these should I fix?',
+      choices: ['Fix #2–#5 (Recommended)', 'Fix #2 and #3 only']
+    }
+    expect(parseAsks('ask_user', input)).toEqual([
+      { question: 'Which of these should I fix?', options: [{ label: 'Fix #2–#5 (Recommended)' }, { label: 'Fix #2 and #3 only' }] }
+    ])
+    // a free-form question is prose, which the composer already takes
+    expect(parseAsks('ask_user', { question: 'What should the release be called?' })).toBeUndefined()
+    expect(parseAsks('ask_user', { choices: ['a', 'b'] })).toBeUndefined()
   })
 
   it('is not a question when there is nothing to pick', () => {

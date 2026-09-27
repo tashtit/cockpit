@@ -112,12 +112,17 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
     (`accent-color`, so the control is the OS's and the row is the target). A picked row
     takes the accent tint. **Send answer** is disabled until every question has a pick and
     while a turn runs; the note beside it says the pick sends as the next message, and
-    sheds to its own line ≤700px. Only the *last* row qualifies, and only while nothing
-    has answered it (`isPendingAsk` — a folded `tool_result` is the answer); an older
+    sheds to its own line ≤700px. While the session runs elsewhere the same note says
+    where to answer instead (the terminal or app blocked on it), and the `is working
+    elsewhere…` line under the transcript gives way to the card — a turn stopped on a
+    question is not working. Only the *last* row qualifies, and only while nothing
+    has answered it (`isPendingAsk` — a folded `tool_result` is the answer; Copilot's log
+    has no result row, so its parser drops `asks` off the call once it completes); an older
     question is history and renders as the ordinary tool row. A read-only seat session
     gets none: the table owns that conversation. Parsed in main
     (`src/shared/asks.ts` — Claude's `AskUserQuestion`/`ExitPlanMode`, Codex's
-    `request_user_input`), never from the raw JSON in the renderer. **A plan gate shows
+    `request_user_input`, Copilot's `ask_user`/`exit_plan_mode`), never from the raw JSON
+    in the renderer. **A plan gate shows
     the plan** above its two answers (`.ask-plan-body`: the plan's markdown on
     `--bg-deep`, 320px max, a named, focusable `role=region` so the keyboard can scroll
     it), with `Open in the Work panel` (`.btn-ghost.small`) under it — approving a title

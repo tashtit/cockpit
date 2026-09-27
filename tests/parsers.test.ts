@@ -1600,6 +1600,23 @@ describe('work agents keep outside their own log', () => {
     expect(calls[0].artifact).toBeUndefined()
   })
 
+  it('copilot: a question asks until the log records its answer', () => {
+    const question = { question: 'Which of these should I fix?', choices: ['All of them', 'Only #2'] }
+    const waiting = copilotSession('ask-1', [call('q1', 'ask_user', question, 1)])
+    const [asked] = parseCopilotMessages(waiting.file)
+    expect(asked).toMatchObject({
+      kind: 'tool_call',
+      toolName: 'ask_user',
+      preview: 'Which of these should I fix?',
+      asks: [{ question: 'Which of these should I fix?', options: [{ label: 'All of them' }, { label: 'Only #2' }] }]
+    })
+    // answered where it was asked: no result row follows, so the call itself stops asking
+    const answered = copilotSession('ask-2', [call('q1', 'ask_user', question, 1), done('q1', true, 2)])
+    const [row] = parseCopilotMessages(answered.file)
+    expect(row).toMatchObject({ toolName: 'ask_user', preview: 'Which of these should I fix?' })
+    expect(row.asks).toBeUndefined()
+  })
+
   it('copilot: with no plan file anywhere, the summary is still the plan', () => {
     const { file } = copilotSession('plan-3', [call('c1', 'exit_plan_mode', { summary: 'Only a summary' }, 1)])
     expect(parseCopilotMessages(file)[0].artifact).toEqual({ kind: 'plan', text: 'Only a summary' })

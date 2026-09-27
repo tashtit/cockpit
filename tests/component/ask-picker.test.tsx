@@ -35,7 +35,7 @@ const ask: SessionMessage = {
 
 function renderChat(
   log: SessionMessage[],
-  over: { busy?: boolean; binding?: ChatBinding } = {}
+  over: { busy?: boolean; elsewhere?: boolean; binding?: ChatBinding } = {}
 ): ReturnType<typeof vi.fn> {
   const onSend = vi.fn()
   setChatLog(log)
@@ -44,7 +44,7 @@ function renderChat(
       binding={over.binding ?? binding}
       prs={[]}
       busy={over.busy ?? false}
-      elsewhere={false}
+      elsewhere={over.elsewhere ?? false}
       prBusy={false}
       onSend={onSend}
       onCancel={() => {}}
@@ -119,6 +119,14 @@ describe('AskPicker in the transcript', () => {
     renderChat([ask], { busy: true })
     expect((screen.getByRole('radio', { name: /tashtit/ }) as HTMLInputElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Send answer' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('a question still open in a terminal says to answer it there, not that the agent is working', () => {
+    renderChat([ask], { elsewhere: true })
+    expect((screen.getByRole('button', { name: 'Send answer' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText(/waiting for this in a terminal or its own app — answer it there/)).toBeTruthy()
+    expect(screen.queryByText(/is working elsewhere/)).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('Claude is waiting for your answer elsewhere…')
   })
 
   it('a read-only seat session gets no picker — the table owns its conversation', () => {

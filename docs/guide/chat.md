@@ -67,13 +67,14 @@ too, but on macOS Cockpit keeps running in the Dock and keeps watching everythin
 ## When the agent asks you something
 
 An agent that stops to ask — Claude Code's `AskUserQuestion` or its plan gate, Codex's
-`request_user_input` — records the question *and the answers it offered*. Cockpit reads
+`request_user_input`, Copilot CLI's `ask_user` or its plan gate — records the question
+*and the answers it offered*. Cockpit reads
 them off the transcript and renders the last unanswered one as a card in the chat: the
 question, its options with the agent's own one-line descriptions, and **Send answer**.
 Multi-select questions take several picks; a question the conversation has moved past
 stays a plain tool row.
 
-When the question is Claude's plan gate, the card shows the plan itself above
+When the question is a plan gate, the card shows the plan itself above
 **Approve the plan** and **Keep planning**, so you approve what you have read, not a
 title. A long plan scrolls inside the card, or **Open in the Work panel** gives it the
 whole side of the window.
@@ -82,6 +83,11 @@ The pick is sent as your next message, worded from the question (`Answering your
 question: - Which layout…? → packages/<runtime>`), so it stands on its own in the
 transcript the agent resumes from — and you can always ignore the card and type your
 own answer instead. Nothing is sent until you press the key.
+
+While the agent is still waiting in a terminal or its own app, the card shows the
+question but holds **Send answer**: answer it there, where the process is blocked on it.
+Answering here as well would start a second turn on the same session. Once that turn
+ends, the card can send.
 
 ::: tip A question is also a badge
 The same stopped-to-ask state puts `asks you` on the session's row, on the home board

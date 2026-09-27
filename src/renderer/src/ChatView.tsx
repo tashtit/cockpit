@@ -303,7 +303,9 @@ export function ChatView({
   const status =
     (permissions.length ? `Permission needed: ${permissions[0].preview}` : announced) ||
     (busy && binding ? `${PROVIDER_LABEL[binding.provider]} is working…` : '') ||
-    (elsewhere && binding ? `${PROVIDER_LABEL[binding.provider]} is working elsewhere…` : '')
+    (elsewhere && binding
+      ? `${PROVIDER_LABEL[binding.provider]} is ${pendingAsk ? 'waiting for your answer' : 'working'} elsewhere…`
+      : '')
 
   // a turn running in a terminal is not Cockpit's to interrupt, and resuming the
   // session under it would run a second turn on the same log — Send waits for it
@@ -311,6 +313,12 @@ export function ChatView({
   const elsewhereHint = binding
     ? `${PROVIDER_LABEL[binding.provider]} is working on this session in a terminal or its own app — Send waits for that turn to finish`
     : undefined
+  // the process that asked is still waiting on its own prompt: answering here too would
+  // resume the session under it, so the card says where the answer goes instead
+  const askElsewhereNote =
+    elsewhere && binding
+      ? `${PROVIDER_LABEL[binding.provider]} is waiting for this in a terminal or its own app — answer it there. Send waits for that turn to finish.`
+      : undefined
 
   /** A pick from the agent's own options: the same send path a typed message takes. */
   const sendAnswer = (text: string): void => {
@@ -511,6 +519,7 @@ export function ChatView({
                     prompts={b.row.m.asks}
                     provider={binding.provider}
                     disabled={sendBlocked}
+                    note={askElsewhereNote}
                     onAnswer={sendAnswer}
                     // a plan is approved with the plan in view, never on its title alone
                     plan={b.row.m.artifact?.kind === 'plan' ? b.row.m.artifact.text : undefined}
@@ -535,8 +544,9 @@ export function ChatView({
                 </div>
               )}
               {/* the same annunciator for a turn someone else is running: the log grows
-                  under this view (App re-reads it as the index sees each write) */}
-              {!busy && elsewhere && (
+                  under this view (App re-reads it as the index sees each write). A turn
+                  stopped on a question is not working — the card above says what it waits on */}
+              {!busy && elsewhere && !pendingAsk && (
                 <div className="thinking" title={elsewhereHint}>
                   <span className="pulse" /> {PROVIDER_LABEL[binding.provider]} is working elsewhere…
                 </div>
