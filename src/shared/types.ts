@@ -675,9 +675,10 @@ export type AgentOptions = {
   /** Copilot only: the long-context window tier (`--context long_context`) */
   readonly longContext?: boolean
   /**
-   * Drive this turn over ACP with the named agent (`AcpAgent.id`) instead of the CLI's
-   * own headless flags. Absent means the provider's native path; `'auto'` asks main to
-   * use ACP when the provider's CLI is new enough to speak it.
+   * Drive this turn over ACP with the named agent (`AcpAgent.id`), refused if it is gone
+   * or drives another provider. Absent, or `'auto'`, main picks: an agent the person
+   * defined for this provider, else the built-in once its CLI has answered the startup
+   * handshake, else the CLI's own headless flags.
    */
   readonly acpAgent?: string
 }
