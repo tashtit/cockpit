@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { fileChange, type FileChange } from '../../shared/instruction-changes'
-import type { InstructionFile, InstructionsState } from '../../shared/types'
+import type { InstructionFile } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { useDiffLayout } from './diff-layout'
@@ -9,6 +9,7 @@ import { applyFile, takeFile, type InstructionsWrite } from './instruction-write
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Markdown } from './Markdown'
 import type { Notice } from './notice'
+import { useLoaded } from './use-loaded'
 
 /**
  * Writing the shared baseline: the one surface here that authors content rather
@@ -36,8 +37,12 @@ export function InstructionsEditor({
   /** applying changes each agent's file, so the panel's own row is now stale */
   onSaved: () => void
 }): JSX.Element {
-  const [inst, setInst] = useState<InstructionsState | null>(null)
-  const [draft, setDraft] = useState('')
+  const { value: inst, set: setInst, error } = useLoaded(() => api.getInstructions(repoRoot), [repoRoot], {
+    reset: true
+  })
+  /** What the person typed over the baseline — null while the box holds the baseline as read or written */
+  const [edited, setEdited] = useState<string | null>(null)
+  const draft = edited ?? inst?.baseline ?? ''
   const [mdView, setMdView] = useState<EditorTab>('write')
   const [busy, setBusy] = useState(false)
   /** a file row asked to see its own changes — focus that block once the tab shows */
@@ -47,18 +52,12 @@ export function InstructionsEditor({
   const repoRootRef = useRef(repoRoot)
   repoRootRef.current = repoRoot
 
+  // another scope's baseline replaces the box, typed text and all
+  useEffect(() => setEdited(null), [repoRoot])
+  // a failed read says why on the card's notice line, rather than loading forever
   useEffect(() => {
-    let dead = false
-    setInst(null)
-    void api.getInstructions(repoRoot).then((s) => {
-      if (dead) return
-      setInst(s)
-      setDraft(s.baseline)
-    })
-    return () => {
-      dead = true
-    }
-  }, [repoRoot])
+    if (error) setNotice({ text: error, kind: 'error' })
+  }, [error])
 
   const dirty = inst !== null && draft !== inst.baseline
 
@@ -89,7 +88,7 @@ export function InstructionsEditor({
       // old scope's baseline into the newly loaded one
       if (startedOn !== repoRootRef.current) return
       setInst(s)
-      setDraft(s.baseline)
+      setEdited(null)
       setNotice({ text: ok, kind: 'ok' })
       onSaved()
     } catch (err) {
@@ -163,7 +162,7 @@ export function InstructionsEditor({
         on the next apply). Anything outside the markers belongs to that agent and is never touched.
       </p>
 
-      {!inst && <div className="tree-empty">loading…</div>}
+      {!inst && !error && <div className="tree-empty">loading…</div>}
 
       {inst && (
         <>
@@ -204,7 +203,7 @@ export function InstructionsEditor({
                   : '# General instructions every agent should follow, everywhere…\n\nE.g. commit style, language, review rules, what never to touch.'
               }
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setEdited(e.target.value)}
             />
           )}
           {mdView === 'preview' && (

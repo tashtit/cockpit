@@ -627,6 +627,29 @@ describe('Agents › the instructions row', () => {
     await userEvent.click(codex)
     expect(window.cockpit.setPanelSwitch).toHaveBeenCalled()
   })
+
+  // a read that failed used to leave "loading…" up for good, with nothing said
+  const refused = new Error("Error invoking remote method 'instructions:get': Error: EACCES: permission denied")
+
+  it('says why the editor could not read the files, instead of loading forever', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(buildReport(null, [instructionRow(inst, entry)]))
+    vi.mocked(window.cockpit.getInstructions).mockRejectedValue(refused)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('tab', { name: /^Instructions/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('EACCES: permission denied')
+    expect(screen.queryByText('loading…')).not.toBeInTheDocument()
+  })
+
+  it('says why an opened row could not read the files, instead of reading forever', async () => {
+    vi.mocked(window.cockpit.getPanel).mockResolvedValue(buildReport(null, [instructionRow(inst, entry)]))
+    vi.mocked(window.cockpit.getInstructions).mockRejectedValue(refused)
+    render(<AiSetup repos={[repo]} repoRoot={null} onScope={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: /Shared baseline/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('EACCES: permission denied')
+    expect(screen.queryByText('reading each agent’s file…')).not.toBeInTheDocument()
+  })
 })
 
 describe('Agents › the recommended marketplace', () => {
