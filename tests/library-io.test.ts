@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   addFromCatalog,
+  addMcpServer,
   getPanel,
   keepPanelDifference,
   leavePanelOff,
@@ -780,6 +781,35 @@ describe('adding what Browse found', () => {
     )
     expect(calls(log)).toEqual(['plugin marketplace add https://github.com/acme/real.git'])
     expect(stored().find((e) => e.name === 'acme')?.source).toBe('https://github.com/acme/real.git')
+  })
+
+  // an install that failed must leave no all-off row claiming it was added
+  it('records nothing when the agent’s own add fails', async () => {
+    stubCli('claude', true)
+    await expect(
+      addFromCatalog({ kind: 'marketplace', name: 'fresh', source: 'https://github.com/acme/fresh.git' }, 'claude')
+    ).rejects.toThrow(/network is down/)
+    expect(stored().some((e) => e.name === 'fresh')).toBe(false)
+    expect(getPanel(null).rows.some((r) => r.name === 'fresh')).toBe(false)
+  })
+
+  it('puts back the entry an add replaced when the add fails', async () => {
+    getPanel(null)
+    await removePanelEntry({ repoRoot: null, kind: 'marketplace', name: 'tashtit' })
+    stubCli('codex', true)
+    await expect(addFromCatalog({ kind: 'marketplace', name: 'tashtit' }, 'codex')).rejects.toThrow(/network is down/)
+    expect(stored().find((e) => e.name === 'tashtit')).toMatchObject({ removed: true })
+  })
+
+  // nor keep the values typed for a server that never reached the agent
+  it('keeps no server, and none of its secrets, when writing it into the agent fails', async () => {
+    // a config the write can't replace: Claude Code's file is a directory
+    mkdirSync(join(home, '.claude.json'), { recursive: true })
+    await expect(
+      addMcpServer('probe', 'claude', { command: 'npx', args: ['-y', 'probe-mcp@1.0.0'], env: { PROBE_KEY: 'sk-secret' } })
+    ).rejects.toThrow(/EISDIR|directory/)
+    expect(stored().some((e) => e.name === 'probe')).toBe(false)
+    expect(readFileSync(join(userData, 'cockpit-config.json'), 'utf8')).not.toContain('sk-secret')
   })
 })
 
