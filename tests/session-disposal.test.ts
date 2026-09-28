@@ -115,6 +115,36 @@ describe('what deleting a session removes, as its agent keeps it', () => {
     ])
   })
 
+  it('Cursor: what an editor chat is sized at is exactly what deleting it removes', () => {
+    const db = join(dir, 'state.vscdb')
+    writeCursorChats(db, [
+      { id: 'a', created: 1, updated: 1, bubbles: [{ type: 1, at: 1, text: 'x'.repeat(300) }, { type: 2, at: 2, text: 'y' }] },
+      { id: 'b', created: 1, updated: 1, bubbles: [{ type: 1, at: 1, text: 'z' }] }
+    ])
+    const w = new DatabaseSync(db)
+    const put = w.prepare('INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)')
+    // what else Cursor keys per chat, and what it keys otherwise
+    put.run('checkpointId:a:cp1', 'c'.repeat(100))
+    put.run('messageRequestContext:a:m1', 'r'.repeat(50))
+    put.run('composerVirtualRowHeights:a', 'h'.repeat(20))
+    put.run('agentKv:blob:0a1b', 'k'.repeat(70))
+    w.close()
+    const total = (): number =>
+      Number((new DatabaseSync(db, { readOnly: true }).prepare('SELECT sum(length(value)) AS n FROM cursorDiskKV').get() as { n: number }).n)
+    const plan = (id: string) => disposalOf(meta({ provider: 'cursor', nativeId: id, sourcePath: `${db}#${id}` }))
+    const before = total()
+    const a = disposalBytes(plan('a'))
+    expect(a).toBeGreaterThan(450)
+    dispose(plan('a'))
+    expect(before - total()).toBe(a)
+    // the database changed: sizes are read again, not served from before
+    const b = disposalBytes(plan('b'))
+    const more = new DatabaseSync(db)
+    more.prepare('INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)').run('bubbleId:b:late', 'l'.repeat(1_000))
+    more.close()
+    expect(disposalBytes(plan('b'))).toBe(b + 1_000)
+  })
+
   it('Cursor: a chat kept both in the editor’s database and as an agent transcript goes whole', () => {
     const db = join(dir, 'ide', 'state.vscdb')
     writeCursorChats(db, [

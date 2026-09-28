@@ -5,7 +5,7 @@ import type { SessionMeta } from '../shared/types'
 import { execText, type ExecResult } from './env'
 import { CURSOR_IDE_DB, isCursorAcpStore } from './parsers/cursor'
 import { OPENCODE_DB } from './parsers/opencode'
-import { queryAll, splitSessionRef } from './parsers/sqlite'
+import { queryAll, snapshotCache, splitSessionRef } from './parsers/sqlite'
 import { readJson, sessionLogFiles } from './parsers/util'
 import { realOrSelf } from './paths'
 import { replaceFile } from './replace-file'
@@ -179,14 +179,39 @@ function pathBytes(p: string): number {
   }
 }
 
-const CURSOR_CHAT_ROWS = 'FROM cursorDiskKV WHERE key = ? OR instr(key, ?) > 0'
-const cursorChatParams = (id: string): string[] => [`composerData:${id}`, `:${id}:`]
+/** A `cursorDiskKV` key past its first segment (`bubbleId:<chat>:<message>` → `<chat>:<message>`). */
+const KEY_REST = "substr(key, instr(key, ':') + 1)"
+
+/**
+ * The chat a `cursorDiskKV` row belongs to, or null: its `composerData:<id>` document,
+ * and every key whose second segment is its id with more after it — `bubbleId:<id>:…`,
+ * `checkpointId:<id>:…`, `messageRequestContext:<id>:…`, anything Cursor keys per chat
+ * that way. One expression both sizes and deletes, so what is counted is what goes;
+ * and it reads the id off any key, so one pass over the table sizes every chat in it.
+ */
+const CURSOR_CHAT_OF =
+  `CASE WHEN key >= 'composerData:' AND key < 'composerData;' AND instr(${KEY_REST}, ':') = 0 THEN ${KEY_REST}` +
+  ` WHEN instr(${KEY_REST}, ':') > 1 THEN substr(${KEY_REST}, 1, instr(${KEY_REST}, ':') - 1) END`
+
+/**
+ * What each chat in an editor database occupies, in one grouped pass, kept until the
+ * database changes. Asked per chat, every question was a scan of the whole table — the
+ * key holds the id mid-string, where the index can't help — once per stale chat: 27ms
+ * each on a 474MB database, five seconds of a blocked main process per 200 chats.
+ */
+const cursorChatBytes = snapshotCache((db) => {
+  const rows = queryAll(db, `SELECT ${CURSOR_CHAT_OF} AS chat, sum(length(value)) AS n FROM cursorDiskKV GROUP BY chat`)
+  if (!rows) return null
+  const bytes = new Map<string, number>()
+  for (const r of rows) if (typeof r['chat'] === 'string') bytes.set(r['chat'], Number(r['n'] ?? 0))
+  return bytes
+}, new Map<string, number>())
 
 /** What the session occupies: its files, or its rows' share of a database. */
 export function disposalBytes(d: Disposal): number {
   let n = d.paths.reduce((sum, p) => sum + pathBytes(p), 0)
   if (d.rows?.kind === 'cursor-chat') {
-    n += Number(queryAll(d.rows.db, `SELECT coalesce(sum(length(value)), 0) AS n ${CURSOR_CHAT_ROWS}`, ...cursorChatParams(d.rows.id))?.[0]?.['n'] ?? 0)
+    n += cursorChatBytes(d.rows.db).get(d.rows.id) ?? 0
   } else if (d.rows?.kind === 'opencode-session') {
     // a table this version lacks reads as null, and adds nothing
     const sum = (table: string, key: string): number =>
@@ -288,7 +313,7 @@ function deleteRows(rows: NonNullable<Disposal['rows']>): void {
     db.exec('BEGIN IMMEDIATE')
     try {
       if (rows.kind === 'cursor-chat') {
-        db.prepare(`DELETE ${CURSOR_CHAT_ROWS}`).run(...cursorChatParams(rows.id))
+        db.prepare(`DELETE FROM cursorDiskKV WHERE (${CURSOR_CHAT_OF}) = ?`).run(rows.id)
       } else {
         // every table this version keeps per session, whatever it has added since
         const tables = db
