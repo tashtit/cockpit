@@ -114,13 +114,24 @@ export async function getAccounts(sources: SourceDir[]): Promise<AccountsSnapsho
       label: s.label,
       isDefault: s.path === defaultConfigHome(provider)
     }
-    if (provider === 'claude') {
-      accounts.push({ ...base, identity: claudeIdentity(s.path) })
-    } else if (provider === 'codex') {
-      accounts.push({ ...base, identity: codexIdentity(s.path) })
-    } else {
-      const { users, active } = copilotUsers(s.path)
-      accounts.push({ ...base, identity: active, users, activeUser: active })
+    // a switch, not an if/else ending in Copilot: a fourth driven agent is a type error
+    // here until it says how it signs in
+    switch (provider) {
+      case 'claude':
+        accounts.push({ ...base, identity: claudeIdentity(s.path) })
+        break
+      case 'codex':
+        accounts.push({ ...base, identity: codexIdentity(s.path) })
+        break
+      case 'copilot': {
+        const { users, active } = copilotUsers(s.path)
+        accounts.push({ ...base, identity: active, users, activeUser: active })
+        break
+      }
+      default: {
+        const unhandled: never = provider
+        throw new Error(`no account reader for ${String(unhandled)}`)
+      }
     }
   }
   return { accounts, githubUser: await ghUser() }
