@@ -1,3 +1,9 @@
+/**
+ * The session index (`SessionIndexer`, below): every agent's sessions, found, parsed,
+ * resolved to their repositories and served to the renderer a page at a time. Its
+ * invariants — what is walked and watched, the stat cache, shared databases, passes —
+ * are on the class; the tables above it say which parser reads which store.
+ */
 import {
   existsSync,
   lstatSync,
@@ -381,7 +387,7 @@ type PageScope = {
 
 /**
  * The session index — Cockpit's core data flow. It walks every registered source dir (the
- * three providers' homes, the homes of the agents it only reads — `agent-homes.ts` — and
+ * homes of the agents Cockpit drives, the homes of the ones it only reads — `agent-homes.ts` — and
  * extras from config), hands each session file to its
  * provider's parser (`parsers/`) for a `SessionMeta`, resolves the session's cwd to a repo
  * and branch in `annotate()` (`repos.ts`, worktree-aware), and answers the renderer only in

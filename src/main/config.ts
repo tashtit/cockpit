@@ -1,3 +1,12 @@
+/**
+ * Cockpit's own config, `cockpit-config.json` in userData: the agent homes it indexes and
+ * the ones the person removed, what they archived, hid or ordered, the library, shared
+ * instructions, BYOK and ACP definitions, and the view preferences. Read defensively
+ * (`parseConfig` drops what this build can't use from the lists startup builds on; the
+ * rest is checked where it is read, as `sanitizeAcpAgent` does), never overwritten while it cannot be read
+ * (`assertOverwritable` — a setter must not write defaults over the person's file), and
+ * written whole and owner-only: it holds MCP servers' env values in the clear.
+ */
 import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'

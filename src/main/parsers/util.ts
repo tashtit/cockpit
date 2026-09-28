@@ -1,3 +1,12 @@
+/**
+ * What every parser shares, and main's one way to read a file another program wrote:
+ * bounded reads of regular files only (`readHeadBytes`, `readSmallFile`, `readTail`,
+ * `readJson`), JSONL streamed or tailed and JSON arrays tailed (`streamJsonl`,
+ * `readJsonlTail`, `readJsonArrayTail`), every file a session's log spans
+ * (`sessionLogFiles`), sanity for the times and cwds a log states (`toMs`,
+ * `plausibleTime`, `usableCwd`), and the one-line previews a tool call shows in a
+ * transcript (`toolPreview`, `shellPreview`, `patchPreview`).
+ */
 import {
   closeSync,
   constants,
