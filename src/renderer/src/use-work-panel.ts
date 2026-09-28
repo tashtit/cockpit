@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionMessage } from '../../shared/types'
 import { buildWork, type WorkModel, type WorkTab } from '../../shared/work'
 import type { WorkFocus } from './work-tab'
+import { commandKey } from './command-key'
 
 /** The rows that carry a plan, to-dos, an edit or a check — all the Work panel folds — with their keys. */
 type ArtifactRows = { readonly rows: readonly SessionMessage[]; readonly keys: readonly number[] }
@@ -149,7 +150,7 @@ export function useWorkPanel({
   useEffect(() => {
     if (!workable && !work) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!(e.metaKey || e.ctrlKey) || e.key !== 'j' || document.querySelector('[role="dialog"]')) return
+      if (!commandKey(e) || e.key !== 'j' || document.querySelector('[role="dialog"]')) return
       e.preventDefault()
       toggleWorkRef.current()
     }

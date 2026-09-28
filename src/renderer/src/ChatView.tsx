@@ -39,6 +39,7 @@ import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from '.
 import { useLoaded } from './use-loaded'
 import { useWorkPanel } from './use-work-panel'
 import { WorkPanel } from './WorkPanel'
+import { commandKey } from './command-key'
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too — the
  *  newest rows first, and "show earlier" brings the next batch of this size. */
@@ -228,12 +229,11 @@ export function ChatView({
   const toggleSide = (): void => (side !== null ? closeSide() : openSide())
   const toggleSideRef = useRef(toggleSide)
   toggleSideRef.current = toggleSide
-  // ⌘L opens and closes it (the palette owns the keyboard while it is open). ⌘ only:
-  // Ctrl+L is the text field's own on macOS (centre the line), as Ctrl+D is below
+  // ⌘L opens and closes it (the palette owns the keyboard while it is open)
   useEffect(() => {
     if (!sideable) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!e.metaKey || e.key !== 'l' || document.querySelector('[role="dialog"]')) return
+      if (!commandKey(e) || e.key !== 'l' || document.querySelector('[role="dialog"]')) return
       e.preventDefault()
       toggleSideRef.current()
     }
@@ -259,12 +259,11 @@ export function ChatView({
   }, [toggleReview])
 
   // ⌘D flips between the conversation and its changes (the palette owns the
-  // keyboard while it is open — a dialog on screen means leave it alone). ⌘ only:
-  // Ctrl+D is forward-delete in every macOS text field, the composer included
+  // keyboard while it is open — a dialog on screen means leave it alone)
   useEffect(() => {
     if (!reviewable) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!e.metaKey || e.key !== 'd' || document.querySelector('[role="dialog"]')) return
+      if (!commandKey(e) || e.key !== 'd' || document.querySelector('[role="dialog"]')) return
       e.preventDefault()
       toggleReview()
     }

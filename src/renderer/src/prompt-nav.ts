@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { SessionMessage } from '../../shared/types'
 import { announceChat } from './chat-log'
+import { commandKey } from './command-key'
 
 /**
  * Moving between the messages the person sent, in a transcript that has grown long: the
@@ -269,7 +270,7 @@ export function usePromptNav(
   useEffect(() => {
     if (!enabled) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!e.altKey || !(e.metaKey || e.ctrlKey) || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+      if (!e.altKey || !commandKey(e) || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
       if (e.defaultPrevented || document.querySelector('[role="dialog"]')) return
       if (promptsRef.current.length === 0 || !scrollRef.current) return
       e.preventDefault()

@@ -48,6 +48,7 @@ import type { NavEntry, View } from './nav-history'
 import { useChatTurns } from './use-chat-turns'
 import { useNavHistory } from './use-nav-history'
 import { useZoom } from './use-zoom'
+import { commandKey } from './command-key'
 
 /** `--rail` on the grid: the width the rail was dragged to, in CSS pixels. */
 const railStyle = (px: number): CSSProperties => ({ '--rail': `${px}px` }) as CSSProperties
@@ -425,7 +426,7 @@ export function App(): JSX.Element {
   // Esc backs out of secondary views
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const mod = e.metaKey || e.ctrlKey
+      const mod = commandKey(e)
       if (mod && e.key === 'k') {
         e.preventDefault()
         setPaletteOpen((v) => !v)

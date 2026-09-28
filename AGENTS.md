@@ -158,7 +158,9 @@ One way to do each thing here too: read from main with `useLoaded` (`use-loaded.
 failure through `ipcErrorText` (`ipc-error.ts`) — never Electron's raw "Error invoking remote
 method" text; follow main's pushes with `seedThenFollow` (`seed-then-follow.ts`); keep a preference with `storedValue`
 (`stored-value.ts`), never `localStorage` directly; format with `format.ts`; compare a fresh
-answer with `keepSame` (`same.ts`) so an unchanged push never redraws.
+answer with `keepSame` (`same.ts`) so an unchanged push never redraws; bind a shortcut's
+modifier with `commandKey` (`command-key.ts`) — ⌘ on a Mac, never Ctrl as well, which is the
+text field's own there (Ctrl+K, Ctrl+N, Ctrl+D).
 
 ## Running the app
 
