@@ -1,6 +1,6 @@
 ---
 name: cockpit-ui
-description: Build, change or review Cockpit renderer UI — React components in src/renderer, views (sidebar, chat, home, new-session, settings, agents, profile, roundtable, cleanup, palette), CSS in style.css, design tokens, layout, colors, chips and badges, accessibility (aria, focus rings, reduced motion). Use before writing renderer code so it follows the in-repo design system. Not for main-process or IPC work (see add-ipc-capability).
+description: Build, change or review Cockpit renderer UI — React components in src/renderer, views (sidebar, chat, home, new-session, handoff, settings, agents, profile, roundtable, cleanup, palette), CSS in style.css, design tokens, layout, colors, chips and badges, accessibility (aria, focus rings, reduced motion). Use before writing renderer code so it follows the in-repo design system. Not for main-process or IPC work (see add-ipc-capability).
 ---
 
 # Cockpit UI work
