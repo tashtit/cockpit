@@ -685,6 +685,12 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 /* a quiet dot between inline links in running prose */
 .link-sep { color: var(--fg-dim); margin: 0 var(--s2); }
 .link-btn:hover { text-decoration: underline; }
+/* busy rather than disabled: a button that keeps keyboard focus while the work it
+   started runs (aria-disabled, and a guard in its handler) rests the way a disabled
+   one would, and does not answer the pointer */
+.btn-ghost[aria-disabled='true'], .link-btn[aria-disabled='true'] { opacity: 0.55; cursor: default; }
+.btn-ghost[aria-disabled='true']:hover { color: var(--fg-dim); background: none; border-color: var(--border); }
+.link-btn[aria-disabled='true']:hover { text-decoration: none; }
 /* first run: the composer's shell holding what Cockpit still needs, one step per
    line. Satisfied steps stay on screen, ticked — the card is a progress readout,
    not a gate that empties as you go. */
@@ -2432,7 +2438,7 @@ button.ag-chip:hover { border-color: var(--border-strong); color: var(--fg); }
   box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.2); }
 .ag-chip.na { border-style: dashed; border-color: var(--border-strong); color: var(--fg-dim); }
 .ag-chip.na svg { opacity: 0.3; }
-.ag-chip:disabled { opacity: 0.5; }
+.ag-chip:disabled, .ag-chip[aria-disabled='true'] { opacity: 0.5; }
 .ag-chip.working { animation: pulse 1.2s ease-in-out infinite; }
 .ag-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
 

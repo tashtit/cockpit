@@ -1,9 +1,10 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { agentHasIt, PROVIDERS, type PanelReport } from '../../shared/library'
 import { MCP_KIND_TAG } from '../../shared/mcp-source'
 import type { Provider, RegistryAdd, RegistryInput, RegistryServer } from '../../shared/types'
 import { api } from './api'
 import { useArmedConfirm } from './ConfirmRemove'
+import { plural } from './format'
 import { ipcErrorText } from './ipc-error'
 import type { Notice } from './notice'
 import { PROVIDER_LABEL } from './logos'
@@ -27,6 +28,10 @@ import { AddChips } from './MarketBrowse'
  * command line with every argument the publisher fixed, and the env it sets. The first
  * add of a server that downloads and runs a package is an armed confirm naming that
  * command, like every other click here that runs code.
+ *
+ * Keyboard focus is never dropped under the person: the search line stays typeable
+ * while a search runs, busy buttons are `aria-disabled` rather than disabled, an add that
+ * lands hands focus to its row, and how many servers came back is said politely.
  */
 
 type Search = {
@@ -44,6 +49,11 @@ let lastSearch: Search | null = null
 function listOf(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? ''
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** The id of a row's toggle — where focus goes when the control it was on goes away. */
+function rowDomId(server: RegistryServer): string {
+  return `registry-row-${server.id}@${server.version}`.replace(/[^A-Za-z0-9_-]/g, '-')
 }
 
 /** The chip's key, shared with the panel's busy key so the one being written pulses. */
@@ -87,7 +97,8 @@ export function McpBrowse({
   /** the card's search: it narrows the results shown, never asks the registry again */
   query: string
   busy: string | null
-  onAdd: (req: RegistryAdd, said: string) => void
+  /** resolves true once the add landed */
+  onAdd: (req: RegistryAdd, said: string) => Promise<boolean>
   setNotice: (n: Notice) => void
 }): JSX.Element {
   const [typed, setTyped] = useState(lastSearch?.query ?? '')
@@ -98,6 +109,14 @@ export function McpBrowse({
   const [values, setValues] = useState<Readonly<Record<string, Readonly<Record<string, string>>>>>({})
   /** the chip whose add is in its confirm step */
   const { armed, arm, disarm } = useArmedConfirm()
+  /** the row to focus once the next page is on screen — More results goes away on the last */
+  const focusNext = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (focusNext.current === null) return
+    document.getElementById(focusNext.current)?.focus()
+    focusNext.current = null
+  }, [search])
 
   const run = async (more: boolean): Promise<void> => {
     const q = more ? (search?.query ?? '') : typed.trim()
@@ -112,6 +131,7 @@ export function McpBrowse({
         ...(page.next ? { next: page.next } : {})
       }
       lastSearch = next
+      if (more && page.servers[0]) focusNext.current = rowDomId(page.servers[0])
       setSearch(next)
       if (!more) setOpen(null)
     } catch (err) {
@@ -127,7 +147,8 @@ export function McpBrowse({
     return row ? PROVIDERS.filter((p) => agentHasIt(row.cells[p].state)) : [...server.agents]
   }
 
-  const add = (server: RegistryServer, agent: Provider): void => {
+  /** Resolves true once the server was added — false when the click only asked or armed. */
+  const add = (server: RegistryServer, agent: Provider): Promise<boolean> => {
     const had = holders(server)
     const given = values[server.id] ?? {}
     // a server already here brings its own env: its inputs were answered the first time
@@ -139,18 +160,18 @@ export function McpBrowse({
         text: `${server.title} needs ${listOf(missing.map((i) => i.name))} before it can be added — fill ${missing.length === 1 ? 'it' : 'them'} in on its row.`,
         kind: 'error'
       })
-      return
+      return Promise.resolve(false)
     }
     // the first add of a server that downloads and runs a package asks, naming it
     const key = chipKey(server, agent)
     if (had.length === 0 && server.commandLine !== undefined && armed !== key) {
       arm(key)
       setOpen(server.id)
-      return
+      return Promise.resolve(false)
     }
     disarm()
     const filled = Object.fromEntries(Object.entries(given).filter(([, v]) => v.trim() !== ''))
-    onAdd(
+    return onAdd(
       { id: server.id, version: server.version, agent, values: had.length > 0 ? {} : filled },
       `${server.name} is on for ${PROVIDER_LABEL[agent]} — restart that CLI to pick it up.`
     )
@@ -172,7 +193,6 @@ export function McpBrowse({
               type="text"
               placeholder="what it does, or who makes it — github, postgres, browser…"
               value={typed}
-              disabled={searching !== null}
               onChange={(e) => setTyped(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void run(false)
@@ -181,7 +201,7 @@ export function McpBrowse({
           </div>
           <button
             className="btn-ghost small"
-            disabled={typed.trim() === '' || searching !== null}
+            aria-disabled={typed.trim() === '' || searching !== null}
             onClick={() => void run(false)}
           >
             {searching === 'first' ? 'searching…' : 'Search'}
@@ -190,6 +210,10 @@ export function McpBrowse({
         <p className="ns-hint">
           Anyone can publish to the registry — check who made a server before you add it. Nothing is
           added until you click an agent.
+        </p>
+        {/* how many came back, said once the answer is in — the list itself is silent */}
+        <p className="sr-only" role="status">
+          {search !== null && searching === null ? plural(search.servers.length, 'server') : ''}
         </p>
       </div>
 
@@ -227,7 +251,7 @@ export function McpBrowse({
 
       {search?.next && q === '' && (
         <div className="registry-more">
-          <button className="btn-ghost small" disabled={searching !== null} onClick={() => void run(true)}>
+          <button className="btn-ghost small" aria-disabled={searching !== null} onClick={() => void run(true)}>
             {searching === 'more' ? 'reading…' : 'More results'}
           </button>
         </div>
@@ -260,16 +284,17 @@ function Server({
   values: Readonly<Record<string, string>>
   onToggle: () => void
   onType: (name: string, value: string) => void
-  onAdd: (agent: Provider) => void
+  onAdd: (agent: Provider) => Promise<boolean>
 }): JSX.Element {
   // once it runs somewhere its env is settled — the other agents get the same definition
   const inputs = had.length > 0 ? [] : server.inputs
+  const toggle = useRef<HTMLButtonElement>(null)
   const asking = PROVIDERS.find((p) => armed === chipKey(server, p))
   const fixed = Object.entries(server.fixedEnv ?? {})
   return (
     <>
       <div className={`pnl-row ${open ? 'open' : ''}`}>
-        <button className="pnl-entry" aria-expanded={open} onClick={onToggle}>
+        <button ref={toggle} id={rowDomId(server)} className="pnl-entry" aria-expanded={open} onClick={onToggle}>
           <span className={`pnl-caret ${open ? 'open' : ''}`} aria-hidden="true">
             ▸
           </span>
@@ -289,6 +314,7 @@ function Server({
             server.refusal ? `Cockpit can’t add it — ${server.refusal}` : (server.unsupported[agent] ?? null)
           }
           onAdd={onAdd}
+          focusAfterAdd={toggle}
           armed={armed}
           armedSays={(agent) =>
             `Add ${server.title} to ${PROVIDER_LABEL[agent]}? It runs ${server.commandLine ?? defOf(server)} — click again to add it`

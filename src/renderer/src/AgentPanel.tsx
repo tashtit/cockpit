@@ -173,16 +173,19 @@ export function AgentPanel({
     outdated.value.map((n) => [n.name, n])
   )
 
-  const run = async (key: string, op: () => Promise<PanelReport>, ok: string): Promise<void> => {
+  /** One write at a time; resolves true when it landed, so a caller can move focus on. */
+  const run = async (key: string, op: () => Promise<PanelReport>, ok: string): Promise<boolean> => {
     setNotice(null)
     disarm()
     setBusy(key)
     try {
       setReport(await op())
       setNotice({ text: ok, kind: 'ok' })
+      return true
     } catch (err) {
       setNotice({ text: ipcErrorText(err), kind: 'error' })
       load()
+      return false
     } finally {
       setBusy(null)
     }
@@ -247,16 +250,15 @@ export function AgentPanel({
     void run(row.id, () => api.restorePanelEntry(target(row)), `Put ${row.name} back.`)
 
   /** Add something found while browsing — a marketplace, or a plugin from one. */
-  const addFound = (item: CatalogInstall, agent: Provider, said: string): void => {
+  const addFound = (item: CatalogInstall, agent: Provider, said: string): Promise<boolean> => {
     // the same key Browse's chips are drawn with, so the one being written pulses
     const key = `${item.kind === 'plugin' ? 'plugin' : 'market'}:${item.name}|${agent}`
-    void run(key, () => api.addFromCatalog(item, agent), said)
+    return run(key, () => api.addFromCatalog(item, agent), said)
   }
 
   /** Add a server found in the MCP Registry to one agent. */
-  const addServer = (req: RegistryAdd, said: string): void => {
-    void run(`registry:${req.id}|${req.agent}`, () => api.addFromMcpRegistry(req), said)
-  }
+  const addServer = (req: RegistryAdd, said: string): Promise<boolean> =>
+    run(`registry:${req.id}|${req.agent}`, () => api.addFromMcpRegistry(req), said)
 
   /** Update a plugin in every agent that has it, each through its own CLI. */
   const updatePlugin = (row: PanelRow, news: UpdateSuggestion): void => {

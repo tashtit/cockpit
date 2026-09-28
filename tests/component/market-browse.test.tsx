@@ -145,6 +145,53 @@ describe('Agents › Browse', () => {
     expect(await screen.findByText('Focused commits')).toBeInTheDocument()
   })
 
+  // disabling the control the person is on drops keyboard focus to the page
+  it('keeps the lookup line and its button where focus is while a lookup runs', async () => {
+    await openBrowse([])
+    let answer: (c: MarketplaceCatalog) => void = () => {}
+    vi.mocked(window.cockpit.lookupMarketplace).mockReturnValue(new Promise((r) => (answer = r)))
+    const line = screen.getByLabelText('Look up a marketplace')
+    await userEvent.type(line, 'tashtit/marketplace')
+    const button = screen.getByRole('button', { name: 'Look it up' })
+    await userEvent.click(button)
+    expect(line).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'reading…' })).toHaveAttribute('aria-disabled', 'true')
+    expect(document.activeElement).toBe(button)
+    // a second click while it reads asks nothing more
+    await userEvent.click(button)
+    expect(window.cockpit.lookupMarketplace).toHaveBeenCalledTimes(1)
+    answer({ ...unread, origin: 'remote', problem: undefined, plugins: [] })
+    expect(await screen.findByRole('button', { name: 'Look it up' })).toBe(document.activeElement)
+  })
+
+  it('keeps the chip it was clicked on focused while the add runs, then hands focus to the card', async () => {
+    await openBrowse()
+    let land: (r: typeof installed) => void = () => {}
+    vi.mocked(window.cockpit.addFromCatalog).mockReturnValue(new Promise((r) => (land = r)))
+    await userEvent.click(screen.getByRole('button', { name: /^acme-market/ }))
+    const chip = screen.getByRole('button', { name: 'Add secure-ci to Claude' })
+    await userEvent.click(chip)
+    expect(document.activeElement).toBe(chip)
+    expect(chip).toBeEnabled()
+    expect(chip).toHaveAttribute('aria-disabled', 'true')
+    // busy is one write at a time across the card: another chip does nothing now
+    await userEvent.click(screen.getByRole('button', { name: 'Add the acme-market marketplace to Codex' }))
+    expect(window.cockpit.addFromCatalog).toHaveBeenCalledTimes(1)
+    // it landed: the chip is lit and inert, and focus is on the plugin it added
+    land(
+      buildReport(null, [
+        buildRow(
+          { kind: 'plugin', name: 'secure-ci@acme-market', enabled: { claude: true }, source: 'acme-market' },
+          { detail: 'from acme-market', fields: {} },
+          { claude: { present: true, detail: 'v1.0.0', fields: {} } }
+        )
+      ])
+    )
+    expect(await screen.findByRole('button', { name: 'secure-ci is in Claude' })).toBeDisabled()
+    expect(document.activeElement).toHaveTextContent('secure-ci')
+    expect(document.activeElement?.tagName).not.toBe('BODY')
+  })
+
   it('looks up a repository the person types, without installing anything', async () => {
     await openBrowse([])
     vi.mocked(window.cockpit.lookupMarketplace).mockResolvedValue({

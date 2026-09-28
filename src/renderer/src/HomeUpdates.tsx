@@ -18,6 +18,9 @@ import { storedValue } from './stored-value'
  *
  * It renders nothing at all when nothing is out of date. A quiet machine's home is
  * exactly the home it was before this existed.
+ *
+ * A button stays focusable while something runs — busy is `aria-disabled` and a guard,
+ * never `disabled`, which would drop keyboard focus to the page mid-click.
  */
 
 /** Open or closed is the person's, and it outlives the visit — a reading preference. */
@@ -139,9 +142,9 @@ export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null
               </span>
               <button
                 className="link-btn"
-                disabled={busy !== null}
+                aria-disabled={busy !== null}
                 title="Asks every source again, and pulls each agent’s marketplaces first"
-                onClick={() => load(true)}
+                onClick={() => busy === null && load(true)}
               >
                 {busy === 'all' ? 'checking…' : 'Check again'}
               </button>
@@ -233,9 +236,9 @@ function Row({
       </span>
       <button
         className="btn-ghost small"
-        disabled={busy !== null}
+        aria-disabled={busy !== null}
         title={action.title}
-        onClick={action.onClick}
+        onClick={() => busy === null && action.onClick()}
       >
         {working ? 'working…' : action.label}
       </button>

@@ -106,6 +106,24 @@ describe('the home’s updates strip', () => {
     expect(window.cockpit.getUpdatesDigest).toHaveBeenCalledWith(true)
   })
 
+  // a disabled button drops keyboard focus to the page the moment it is clicked
+  it('keeps focus on the button it was clicked on while the update runs', async () => {
+    let done: (v: unknown) => void = () => {}
+    vi.mocked(window.cockpit.updatePlugin).mockReturnValue(new Promise((r) => (done = r)) as never)
+    renderStrip([plugin, mcp])
+    await userEvent.click(await screen.findByRole('button', { name: /2 updates/ }))
+    const button = screen.getByRole('button', { name: 'Update to 1.4.0' })
+    await userEvent.click(button)
+    expect(document.activeElement).toBe(button)
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    // and nothing else starts meanwhile
+    await userEvent.click(screen.getByRole('button', { name: 'Update to 0.0.81' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(window.cockpit.setMcpVersion).not.toHaveBeenCalled()
+    expect(window.cockpit.getUpdatesDigest).not.toHaveBeenCalledWith(true)
+    done(undefined)
+  })
+
   it('hands a CLI update to Terminal, where the person can answer it', async () => {
     renderStrip([cli])
     await userEvent.click(await screen.findByRole('button', { name: /1 update/ }))

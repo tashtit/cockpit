@@ -197,6 +197,30 @@ describe('Agents › Browse › MCP servers', () => {
     expect(window.cockpit.addFromMcpRegistry).toHaveBeenCalled()
   })
 
+  it('keeps the search line typeable while it asks, and says how many came back', async () => {
+    await openRegistry()
+    let answer: (p: { servers: readonly RegistryServer[] }) => void = () => {}
+    vi.mocked(window.cockpit.searchMcpRegistry).mockReturnValue(new Promise((r) => (answer = r)))
+    const box = screen.getByLabelText('Search the MCP Registry')
+    await userEvent.clear(box)
+    await userEvent.type(box, 'acme{Enter}')
+    expect(box).toBeEnabled()
+    expect(document.activeElement).toBe(box)
+    expect(screen.getByRole('button', { name: 'searching…' })).toHaveAttribute('aria-disabled', 'true')
+    answer({ servers: [search, image] })
+    expect(await screen.findByRole('status')).toHaveTextContent('2 servers')
+  })
+
+  it('hands focus to the row once an add lands, rather than to the page', async () => {
+    await openRegistry()
+    await searchFor('acme', [{ ...search, name: 'search', agents: ['claude'] }])
+    const chip = screen.getByRole('button', { name: 'Add Acme Search to Copilot' })
+    await userEvent.click(chip)
+    // the row's own toggle: the one Acme Search control that opens the row
+    await vi.waitFor(() => expect(document.activeElement).toHaveAttribute('aria-expanded'))
+    expect(document.activeElement).toHaveTextContent('Acme Search')
+  })
+
   it('narrows the results with the card’s search, and reads more only when asked', async () => {
     await openRegistry()
     await searchFor('acme', [search, image], 'io.github.acme/image-mcp:2.0.0')

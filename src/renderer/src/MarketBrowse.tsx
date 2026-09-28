@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react'
+import { useRef, useState, type JSX, type RefObject } from 'react'
 import { PROVIDERS, RECOMMENDED_MARKETPLACE, agentHasIt, type PanelReport } from '../../shared/library'
 import { matchesCatalogQuery } from '../../shared/marketplace'
 import type { CatalogInstall, CatalogPlugin, MarketplaceCatalog, Provider } from '../../shared/types'
@@ -22,6 +22,11 @@ import { useLoaded } from './use-loaded'
  * A marketplace with no clone here — one nobody has added yet — has a catalogue only
  * its repository can answer for, so that is a **Look it up** button and never an
  * automatic fetch: browsing must not quietly call out to the internet.
+ *
+ * Nothing the person is on is disabled under them. While a lookup or an add runs, the
+ * line stays typeable and the buttons say they are busy (`aria-disabled`, with a guard)
+ * rather than dropping keyboard focus to the page; an add that lands, lighting the chip
+ * it was made from, hands focus to its row.
  */
 
 export function MarketBrowse({
@@ -36,7 +41,8 @@ export function MarketBrowse({
   query: string
   /** the panel's busy key, so one write at a time across the whole card */
   busy: string | null
-  onAdd: (item: CatalogInstall, agent: Provider, said: string) => void
+  /** resolves true once the add landed */
+  onAdd: (item: CatalogInstall, agent: Provider, said: string) => Promise<boolean>
   setNotice: (n: Notice) => void
 }): JSX.Element {
   // read on arrival, and again whenever the panel's report moves: an install is what
@@ -51,9 +57,9 @@ export function MarketBrowse({
   const [looking, setLooking] = useState<string | null>(null)
 
   /** Read one marketplace's catalogue from its repository. The one call that fetches. */
-  const lookUp = async (ask: string): Promise<void> => {
+  const lookUp = async (ask: string): Promise<MarketplaceCatalog | null> => {
     const wanted = ask.trim()
-    if (wanted === '' || looking !== null) return
+    if (wanted === '' || looking !== null) return null
     setLooking(wanted)
     setNotice(null)
     try {
@@ -65,8 +71,10 @@ export function MarketBrowse({
         text: `${found.name} offers ${found.plugins.length} plugin${found.plugins.length === 1 ? '' : 's'}.`,
         kind: 'ok'
       })
+      return found
     } catch (err) {
       setNotice({ text: ipcErrorText(err), kind: 'error' })
+      return null
     } finally {
       setLooking(null)
     }
@@ -104,7 +112,6 @@ export function MarketBrowse({
               type="text"
               placeholder="owner/repo, or a github.com URL"
               value={source}
-              disabled={looking !== null}
               onChange={(e) => setSource(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void lookUp(source)
@@ -113,7 +120,7 @@ export function MarketBrowse({
           </div>
           <button
             className="btn-ghost small"
-            disabled={source.trim() === '' || looking !== null}
+            aria-disabled={source.trim() === '' || looking !== null}
             onClick={() => void lookUp(source)}
           >
             {looking !== null ? 'reading…' : 'Look it up'}
@@ -151,7 +158,7 @@ export function MarketBrowse({
                   : [...names, catalog.name]
               )
             }
-            onLookUp={() => void lookUp(catalog.source ?? '')}
+            onLookUp={() => lookUp(catalog.source ?? '')}
             onAdd={onAdd}
           />
         ))}
@@ -180,18 +187,20 @@ function Market({
   open: boolean
   looking: boolean
   onToggle: () => void
-  onLookUp: () => void
-  onAdd: (item: CatalogInstall, agent: Provider, said: string) => void
+  onLookUp: () => Promise<MarketplaceCatalog | null>
+  onAdd: (item: CatalogInstall, agent: Provider, said: string) => Promise<boolean>
 }): JSX.Element {
   const item: CatalogInstall = {
     kind: 'marketplace',
     name: catalog.name,
     ...(catalog.source ? { source: catalog.source } : {})
   }
+  /** where focus lands once the control it was on goes away — a lit chip, a read catalogue */
+  const toggle = useRef<HTMLButtonElement>(null)
   return (
     <>
       <div className={`pnl-row ${open ? 'open' : ''}`}>
-        <button className="pnl-entry" aria-expanded={open} onClick={onToggle}>
+        <button ref={toggle} className="pnl-entry" aria-expanded={open} onClick={onToggle}>
           <span className={`pnl-caret ${open ? 'open' : ''}`} aria-hidden="true">
             ▸
           </span>
@@ -213,6 +222,7 @@ function Market({
           what={`the ${catalog.name} marketplace`}
           where="Marketplaces"
           disabledFor={() => (catalog.source ? null : 'Cockpit has no source to add it from')}
+          focusAfterAdd={toggle}
           onAdd={(agent) =>
             onAdd(
               item,
@@ -243,8 +253,9 @@ function Market({
                     <button
                       className="btn-ghost small"
                       aria-label={looking ? undefined : `Look it up: ${catalog.name}`}
-                      disabled={looking}
-                      onClick={onLookUp}
+                      aria-disabled={looking}
+                      // a read catalogue takes this button away: focus goes back to the row
+                      onClick={() => void onLookUp().then((found) => found && toggle.current?.focus())}
                     >
                       {looking ? 'reading…' : 'Look it up'}
                     </button>
@@ -292,15 +303,19 @@ function Plugin({
   market: MarketplaceCatalog
   report: PanelReport
   busy: string | null
-  onAdd: (item: CatalogInstall, agent: Provider, said: string) => void
+  onAdd: (item: CatalogInstall, agent: Provider, said: string) => Promise<boolean>
 }): JSX.Element {
   const row = report.rows.find((r) => r.kind === 'plugin' && r.name === plugin.id)
   const has = PROVIDERS.filter((p) => row !== undefined && agentHasIt(row.cells[p].state))
+  // a catalogue card has no toggle of its own: its name takes focus once an add lands
+  const title = useRef<HTMLSpanElement>(null)
   return (
     <li className="market-plugin">
       <span className="market-plugin-body">
         <span className="market-plugin-head">
-          <span className="pnl-title">{plugin.name}</span>
+          <span ref={title} className="pnl-title" tabIndex={-1}>
+            {plugin.name}
+          </span>
           {plugin.version && <span className="market-ver">v{plugin.version}</span>}
           {plugin.category && <span className="pnl-kind">{plugin.category}</span>}
         </span>
@@ -319,6 +334,7 @@ function Plugin({
             ? null
             : `${PROVIDER_LABEL[agent]} hasn’t got the ${market.name} marketplace yet — add it on the row above`
         }
+        focusAfterAdd={title}
         onAdd={(agent) =>
           onAdd(
             { kind: 'plugin', name: plugin.id },
@@ -339,6 +355,10 @@ function Plugin({
  *
  * An add that writes code to run (a registry server launched by `npx -y` or `uvx`) asks
  * first: `armed` is the chip in its confirm step, which backs out on blur or Escape.
+ *
+ * While any write runs the chips are `aria-disabled`, not disabled — the one clicked
+ * keeps keyboard focus — and a click then does nothing. The add that lands lights the
+ * chip, which is inert from then on, so focus moves to `focusAfterAdd` first.
  */
 export function AddChips({
   agents,
@@ -350,7 +370,8 @@ export function AddChips({
   onAdd,
   armed = null,
   armedSays,
-  onDisarm
+  onDisarm,
+  focusAfterAdd
 }: {
   /** agents that already have it */
   agents: readonly Provider[]
@@ -362,7 +383,10 @@ export function AddChips({
   where: string
   /** why this agent can't be given it, when it can't */
   disabledFor: (agent: Provider) => string | null
-  onAdd: (agent: Provider) => void
+  /** resolves true once the add landed */
+  onAdd: (agent: Provider) => Promise<boolean>
+  /** where focus goes once an add lands: the row's toggle, or the card's name */
+  focusAfterAdd?: RefObject<HTMLElement | null>
   /** the chip key in its confirm step, if any */
   armed?: string | null
   /** what the armed chip asks — its screen-reader name and its tooltip */
@@ -389,9 +413,15 @@ export function AddChips({
                 ? `already in ${PROVIDER_LABEL[p]} — switch it off under ${where}`
                 : (refused ?? asks ?? `Add ${what} to ${PROVIDER_LABEL[p]}`)
             }
-            disabled={had || refused !== null || busy !== null}
+            disabled={had || refused !== null}
+            aria-disabled={busy !== null}
             {...(isArmed && onDisarm ? disarmOn(onDisarm) : {})}
-            onClick={() => onAdd(p)}
+            onClick={() => {
+              if (busy !== null) return
+              void onAdd(p).then((added) => {
+                if (added) focusAfterAdd?.current?.focus()
+              })
+            }}
           >
             <ProviderLogo p={p} size={11} />
             {PROVIDER_LABEL[p]}
