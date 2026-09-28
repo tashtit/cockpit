@@ -46,6 +46,8 @@ A CLI installed while Cockpit is running is found without a restart. Opening the
 
 Continuing one of these sessions reopens the conversation in its agent. If the agent can't do that, because it can't load a past session over ACP or no longer knows this one, the turn fails and says so. It never starts a fresh conversation without the history you are looking at. **Continue in…** still works either way.
 
+Some sessions are kept where an agent's ACP server never looks, so they open read-only even once it answers. Cursor's server keeps its own conversations, apart from the editor's chats and the agent transcripts. The Cline CLI keeps its own tasks, apart from those of the Cline extension in your editor. Use **Continue in…** for those.
+
 ### Signing them in
 
 Each agent signs in on its own; Cockpit never handles the credentials. When an agent refuses a turn until it is signed in, the turn says so and names the command to run in a terminal. Then send again:

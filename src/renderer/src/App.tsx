@@ -29,7 +29,7 @@ import { Settings } from './Settings'
 import { branchHint, taskTitle } from './task-names'
 import { ipcErrorText } from './ipc-error'
 import { initLanded } from './landed'
-import { canDrive, drivableNow, initAcpReadiness, useDrivableAgents } from './acp-readiness'
+import { canContinue, drivableNow, initAcpReadiness, useDrivableAgents } from './acp-readiness'
 import { followSideMint, initSideChat, sideKey } from './side-chat-log'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
@@ -214,7 +214,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     setBinding((b) => {
       if (!b || b.readOnly === 'seat' || isDrivable(b.provider)) return b
-      const readOnly = canDrive(b.provider, drivable) ? undefined : 'agent'
+      const readOnly = canContinue(b, drivable) ? undefined : 'agent'
       return b.readOnly === readOnly ? b : { ...b, readOnly }
     })
   }, [drivable])
@@ -357,7 +357,8 @@ export function App(): JSX.Element {
           configDir: acct && !acct.isDefault ? acct.path : undefined,
           accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
           continuedFrom: lineageRef(s.continuedFrom),
-          readOnly: s.roundtableId ? 'seat' : canDrive(s.provider, drivableNow()) ? undefined : 'agent'
+          sourcePath: s.sourcePath,
+          readOnly: s.roundtableId ? 'seat' : canContinue(s, drivableNow()) ? undefined : 'agent'
         },
         control: s.roundtableId ? null : (s.control ?? null),
         anchor: opts.anchor ?? null,

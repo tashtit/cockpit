@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { AcpReadiness, SessionProvider } from '../../shared/types'
+import { acpCanReopen } from '../../shared/acp'
 import { isDrivable, PROVIDERS, READ_ONLY_PROVIDERS } from '../../shared/providers'
 import { api } from './api'
 import { seedThenFollow } from './seed-then-follow'
@@ -57,6 +58,17 @@ export function useDrivableAgents(): readonly SessionProvider[] {
 /** Whether a session of this agent can be sent a turn from Cockpit right now. */
 export function canDrive(provider: SessionProvider, drivable: readonly SessionProvider[]): boolean {
   return isDrivable(provider) || drivable.includes(provider)
+}
+
+/**
+ * Whether this session can: its agent can be driven, and the ACP server that drives it
+ * keeps the session (`acpCanReopen` — an editor's Cursor chat or Cline task it can't).
+ */
+export function canContinue(
+  session: { readonly provider: SessionProvider; readonly sourcePath?: string },
+  drivable: readonly SessionProvider[]
+): boolean {
+  return canDrive(session.provider, drivable) && acpCanReopen(session)
 }
 
 /** Every agent a form may offer: the three CLIs, then the ones an ACP agent drives, in the one agent order. */

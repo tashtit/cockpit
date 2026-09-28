@@ -103,7 +103,7 @@ A session of one of these agents renders as any session does: its transcript, to
 
 Cockpit can also start and continue sessions of Gemini CLI, Cursor, Cline and opencode, through each agent's own ACP server. That works once the agent's CLI answers Cockpit's handshake, or once you add an ACP agent for it yourself; see [ACP agents](/guide/acp-agents#agents-cockpit-otherwise-only-reads). The agent then appears in the New session form, in Home's composer and in **Continue in…**. Its sessions open with a composer, and you take one over from its agent the same way you would a Claude session.
 
-Until then, and for Roo Code and Antigravity, which have no ACP mode, a session opens read-only and has no composer. To pick the work up, use **Continue in…**. It hands the session, with a briefing built from its transcript, to another agent in the same directory. Live status and notifications for turns that run outside Cockpit follow the three agents Cockpit runs headless.
+Until then, and for Roo Code and Antigravity, which have no ACP mode, a session opens read-only and has no composer. So do Cursor's editor chats and agent transcripts, and Cline's tasks from the extension in an editor: those agents' ACP servers keep their own conversations and can't reopen these. To pick the work up, use **Continue in…**. It hands the session, with a briefing built from its transcript, to another agent in the same directory. Live status and notifications for turns that run outside Cockpit follow the three agents Cockpit runs headless.
 
 ## Archiving
 

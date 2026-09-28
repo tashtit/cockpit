@@ -12,6 +12,7 @@ import { MODES, rememberMode, savedMode } from './agent-choice'
 import { cwdLabel } from '../../shared/library'
 import { holdSentence, holderName, placeOf } from './hold'
 import { isDrivable } from '../../shared/providers'
+import { acpCanReopen, acpStoreRefusal } from '../../shared/acp'
 import { HoldBar } from './HoldBar'
 import {
   BranchChip,
@@ -702,10 +703,17 @@ export function ChatView({
               </div>
             ) : binding.readOnly === 'agent' ? (
               // an agent Cockpit reads but can't run here: the way on is another agent,
-              // or its ACP server once one answers (the composer appears on its own)
+              // or its ACP server once one answers (the composer appears on its own) —
+              // unless that server doesn't keep this session (an editor's chat)
               <div className="composer-readonly">
-                Cockpit runs {PROVIDER_LABEL[binding.provider]} only over its ACP server, and none
-                has answered on this machine.{' '}
+                {acpCanReopen(binding) ? (
+                  <>
+                    Cockpit runs {PROVIDER_LABEL[binding.provider]} only over its ACP server, and none
+                    has answered on this machine.
+                  </>
+                ) : (
+                  acpStoreRefusal(binding.provider)
+                )}{' '}
                 {binding.nativeSessionId && (
                   <button className="link-btn" onClick={onOpenHandoff}>
                     Continue it with another agent…

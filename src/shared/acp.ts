@@ -1,5 +1,5 @@
 import type { AcpAgent, Mutable, NewAcpAgent, SessionProvider } from './types'
-import { isSessionProvider } from './providers'
+import { AGENT_LABEL, isSessionProvider } from './providers'
 
 /**
  * Agent Client Protocol — pure logic shared by main (which spawns agents) and the
@@ -48,6 +48,33 @@ export const BUILTIN_ACP_AGENTS: readonly AcpAgent[] = [
 
 export function builtinAgentFor(provider: SessionProvider): AcpAgent | undefined {
   return BUILTIN_ACP_AGENTS.find((a) => a.provider === provider)
+}
+
+/**
+ * Whether the ACP server that drives a session's agent keeps that session, so a turn can
+ * reopen it. Its server keeps the agent's own store, but not every store Cockpit reads an
+ * agent's sessions from is that one:
+ *
+ * - Cursor's server keeps each conversation in `acp-sessions/<id>/store.db`, apart from
+ *   the editor's chats (`state.vscdb`) and the agent transcripts under `projects/`.
+ * - Cline's CLI keeps its tasks in its own home; the extension's, in an editor's
+ *   `globalStorage`, stay the editor's.
+ *
+ * Every other agent's server reads the store its sessions are indexed from, and a session
+ * with no path yet — just started here, through that server — is its own. One it can't
+ * reopen still opens, read-only, and continues with another agent (`acpStoreRefusal`).
+ */
+export function acpCanReopen(session: { readonly provider: SessionProvider; readonly sourcePath?: string }): boolean {
+  if (!session.sourcePath) return true
+  const parts = session.sourcePath.split(/[\\/]/)
+  if (session.provider === 'cursor') return parts.at(-1) === 'store.db' && parts.at(-3) === 'acp-sessions'
+  if (session.provider === 'cline') return !parts.includes('globalStorage')
+  return true
+}
+
+/** Why a session its agent's ACP server does not keep (`acpCanReopen`) can't be continued here. */
+export function acpStoreRefusal(provider: SessionProvider): string {
+  return `${AGENT_LABEL[provider]}'s ACP server keeps its own conversations, and this one isn't among them, so it can't be continued from Cockpit.`
 }
 
 /**

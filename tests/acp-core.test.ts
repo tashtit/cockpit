@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import type { AcpPermissionOption, ChatEvent } from '../src/shared/types'
 import {
   acpAgentRefusal,
+  acpCanReopen,
+  acpStoreRefusal,
   BLOCKED_AGENT_ENV,
   isBlockedAgentEnv,
   BUILTIN_ACP_AGENTS,
@@ -162,6 +164,44 @@ describe('built-ins', () => {
 
   it('survives sanitize — a built-in must obey the same rules as a user definition', () => {
     for (const a of BUILTIN_ACP_AGENTS) expect(sanitizeAcpAgent(a, a.id)).not.toBeNull()
+  })
+})
+
+describe('acpCanReopen', () => {
+  it('reopens only the Cursor conversations its ACP server keeps', () => {
+    expect(acpCanReopen({ provider: 'cursor', sourcePath: '/Users/me/.cursor/acp-sessions/abc/store.db' })).toBe(true)
+    // the editor's chats, and the agent transcripts, are kept elsewhere
+    expect(
+      acpCanReopen({
+        provider: 'cursor',
+        sourcePath: '/Users/me/Library/Application Support/Cursor/User/globalStorage/state.vscdb#abc'
+      })
+    ).toBe(false)
+    expect(
+      acpCanReopen({ provider: 'cursor', sourcePath: '/Users/me/.cursor/projects/p/agent-transcripts/abc/abc.jsonl' })
+    ).toBe(false)
+  })
+
+  it('reopens the Cline CLI’s tasks, and not the extension’s in an editor', () => {
+    expect(acpCanReopen({ provider: 'cline', sourcePath: '/Users/me/.cline/data/tasks/1/ui_messages.json' })).toBe(true)
+    expect(
+      acpCanReopen({
+        provider: 'cline',
+        sourcePath: '/Users/me/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/1/ui_messages.json'
+      })
+    ).toBe(false)
+  })
+
+  it('reopens every other agent’s sessions, and one just started here', () => {
+    expect(acpCanReopen({ provider: 'gemini', sourcePath: '/Users/me/.gemini/tmp/h/chats/session-1.json' })).toBe(true)
+    expect(acpCanReopen({ provider: 'cursor' })).toBe(true)
+    expect(acpCanReopen({ provider: 'cline', sourcePath: '' })).toBe(true)
+  })
+
+  it('says why, naming the agent', () => {
+    expect(acpStoreRefusal('cursor')).toBe(
+      "Cursor's ACP server keeps its own conversations, and this one isn't among them, so it can't be continued from Cockpit."
+    )
   })
 })
 

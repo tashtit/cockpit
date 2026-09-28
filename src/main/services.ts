@@ -2,7 +2,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { AcpAgent, AcpReadiness, BusySession, ChatRequest, PrStatus, SessionMeta, SessionProvider } from '../shared/types'
 import { PUSH } from '../shared/contract'
-import { BUILTIN_ACP_AGENTS, builtinAgentFor } from '../shared/acp'
+import { acpCanReopen, acpStoreRefusal, BUILTIN_ACP_AGENTS, builtinAgentFor } from '../shared/acp'
 import { AGENT_LABEL, isDrivable, SESSION_PROVIDERS } from '../shared/providers'
 import { SessionIndexer } from './indexer'
 import { TranscriptSearcher } from './transcript-search'
@@ -278,6 +278,14 @@ export function startServices(): Services {
       // a headless CLI gives anything it would have asked
       asksPermissions: (req) => !tables?.tableIdForCwd(req.cwd),
       resolveAcpAgent: (req) => {
+        // a session kept where its agent's ACP server can't reopen it (an editor's chat) is
+        // refused before any agent starts — the renderer offers no composer for one either
+        if (!isDrivable(req.provider) && req.resumeNativeId) {
+          const session = indexer.getSession(`${req.provider}:${req.resumeNativeId}`)
+          if (session && !acpCanReopen(session)) {
+            throw new Error(`${acpStoreRefusal(req.provider)} Continue it with another agent instead.`)
+          }
+        }
         const chosen = req.options?.acpAgent
         if (chosen && chosen !== 'auto') {
           const agent = [...listAcpAgents(), ...BUILTIN_ACP_AGENTS].find((a) => a.id === chosen)

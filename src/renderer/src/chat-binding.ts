@@ -57,11 +57,18 @@ export type ChatBinding = {
    *  the parent is found in the index — a parent Cockpit can't open gets no chip */
   readonly startedBy?: { readonly id: string; readonly provider: SessionProvider; readonly title: string }
   /**
+   * Where the index read this session — which of its agent's stores keeps it, and so
+   * whether the ACP server driving it can reopen it (`acpCanReopen`). Unset for a session
+   * started here, which that server keeps.
+   */
+  readonly sourcePath?: string
+  /**
    * View only, no composer, and why: a roundtable seat-session belongs to its table (main
    * refuses sends there too); an agent Cockpit only reads has no CLI Cockpit runs and no
-   * ACP agent answering for it — its session can still be continued with one that does.
-   * App keeps `'agent'` in step with `acp-readiness.ts`, so an agent whose ACP agent
-   * answers later gains its composer without the session being reopened.
+   * ACP agent answering for it, or its ACP server can't reopen this session — it can
+   * still be continued with another agent. App keeps `'agent'` in step with
+   * `acp-readiness.ts` (`canContinue`), so an agent whose ACP agent answers later gains
+   * its composer without the session being reopened.
    */
   readonly readOnly?: 'seat' | 'agent'
 }
