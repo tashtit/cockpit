@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { detectAgentHomes, editorLabel, reconcileDetected } from '../src/main/agent-homes'
+import { detectAgentHomes, editorLabel, isAppleFolder, reconcileDetected } from '../src/main/agent-homes'
 import type { SourceDir } from '../src/shared/types'
 
 /** A fake HOME with agents installed the way they lay themselves out on disk. */
@@ -83,6 +83,31 @@ describe('detectAgentHomes', () => {
       expect(detectAgentHomes(acpOnly)).toEqual([{ path: join(acpOnly, '.cursor'), provider: 'cursor', label: 'cursor-default' }])
     } finally {
       rmSync(acpOnly, { recursive: true, force: true })
+    }
+  })
+
+  // macOS guards some of Apple's folders (AddressBook is Contacts, Music the media
+  // library): a look inside can prompt, so the scan never takes one
+  it("never looks inside Apple's own folders in Application Support", () => {
+    const mac = mkdtempSync(join(tmpdir(), 'cockpit-agent-homes-apple-'))
+    try {
+      for (const folder of ['AddressBook', 'Music', 'com.apple.TCC', 'Code']) {
+        mkdirSync(join(mac, 'Library', 'Application Support', folder, 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks'), {
+          recursive: true
+        })
+      }
+      expect(detectAgentHomes(mac).map((s) => s.label)).toEqual(['cline-vscode'])
+    } finally {
+      rmSync(mac, { recursive: true, force: true })
+    }
+  })
+
+  it('tells Apple’s folders from an editor’s by name alone', () => {
+    for (const name of ['AddressBook', 'Music', 'CallHistoryDB', 'com.apple.sharedfilelist', 'com.Apple.Foo']) {
+      expect(isAppleFolder(name)).toBe(true)
+    }
+    for (const name of ['Code', 'Code - Insiders', 'Cursor', 'Antigravity IDE', 'music-app', 'com.applesauce.editor']) {
+      expect(isAppleFolder(name)).toBe(false)
     }
   })
 

@@ -11,7 +11,8 @@ import { isDrivable, PROVIDERS } from '../shared/providers'
  * inside an editor's extension storage instead, and the same extension can be installed
  * in any VS Code-family editor (VS Code, its Insiders build, Cursor, Windsurf, …), so
  * every editor's storage is listed rather than a known set: an editor released next
- * month is found the same way, with nothing to add here.
+ * month is found the same way, with nothing to add here. Apple's own folders there are
+ * the exception, never looked inside (`isAppleFolder`).
  */
 
 /** Extension ids, as editors name their storage folders. */
@@ -23,6 +24,47 @@ const EXTENSION_IDS: Readonly<Record<'cline' | 'roo', string>> = {
 /** Where VS Code-family editors keep per-user state: macOS, then Linux (XDG). */
 function editorDataRoots(home: string): string[] {
   return [join(home, 'Library', 'Application Support'), join(home, '.config')]
+}
+
+/**
+ * Apple's own folders in Application Support, which are never an editor's. Some are
+ * behind macOS's privacy controls (AddressBook is the person's contacts, Music their
+ * media library), and looking inside one — even for a path that is not there — can have
+ * macOS ask the person to let Cockpit into it. Apple's frameworks name theirs
+ * `com.apple.*`; these are the ones that don't.
+ */
+const APPLE_FOLDERS: ReadonlySet<string> = new Set([
+  'AddressBook',
+  'Animoji',
+  'App Store',
+  'CallHistoryDB',
+  'CallHistoryTransactions',
+  'CloudDocs',
+  'ControlCenter',
+  'CrashReporter',
+  'DifferentialPrivacy',
+  'DiskImages',
+  'Dock',
+  'FaceTime',
+  'FileProvider',
+  'iCloud',
+  'Knowledge',
+  'MobileSync',
+  'Music',
+  'Spotlight',
+  'SyncServices',
+  'contactsd',
+  'homeenergyd',
+  'icdd',
+  'identityservicesd',
+  'locationaccessstored',
+  'networkserviceproxy',
+  'stickersd',
+  'tipsd'
+])
+
+export function isAppleFolder(name: string): boolean {
+  return name.toLowerCase().startsWith('com.apple.') || APPLE_FOLDERS.has(name)
 }
 
 /** A short, stable name for an editor's data folder: `Code` → `vscode`, `Cursor` → `cursor`. */
@@ -85,7 +127,8 @@ export function detectAgentHomes(home: string = homedir()): SourceDir[] {
     if (hasFile(join(path, 'conversations'), '.db')) out.push({ path, provider: 'antigravity', label: dir })
   }
   for (const root of editorDataRoots(home)) {
-    for (const editor of subdirs(root)) {
+    // listing the folder names is harmless; only looking inside an Apple one can prompt
+    for (const editor of subdirs(root).filter((name) => !isAppleFolder(name))) {
       const storage = join(root, editor, 'User', 'globalStorage')
       // Cursor's own chats: one database in its editor storage
       if (editor === 'Cursor') add('cursor', storage, 'cursor-ide', 'state.vscdb')
