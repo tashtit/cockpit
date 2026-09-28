@@ -746,10 +746,11 @@ type LogRemoval =
  * folder, its rows in a shared database, its entry in the agent's own index). Every file
  * the plan touches is re-validated against the configured sources first, and a database
  * another process holds open refuses the session, judged again now: the app may have
- * opened its store since the scan. An agent's own list is left while the editor its
- * extension runs in is open (`indexLeft`). `label` names the session in the audit. Earlier pages
- * go first: a failure part-way leaves the session listed on its newest file, never an old
- * page left behind to pose as the whole thread.
+ * opened its store since the scan, and neither does one lsof could not clear. An
+ * agent's own list is left while the editor its extension runs in is open
+ * (`indexLeft`). `label` names the session in the audit. Earlier pages go first: a
+ * failure part-way leaves the session listed on its newest file, never an old page
+ * left behind to pose as the whole thread.
  */
 async function removeSessionLogs(
   meta: DisposableSession,
