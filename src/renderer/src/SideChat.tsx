@@ -139,10 +139,12 @@ export const SideChat = memo(function SideChat({
               submit()
             } else if (e.key === 'Escape') {
               // a habitual Escape must not close on a half-typed question: the first one
-              // leaves the field (the draft is kept either way), the next closes the panel
+              // leaves the field for the thread (the draft is kept either way), so the next
+              // reaches the panel and closes it — a blur would drop focus to the body,
+              // where the second Escape never reaches the panel
               e.preventDefault()
               e.stopPropagation()
-              e.currentTarget.blur()
+              bodyRef.current?.focus()
             }
           }}
         />

@@ -206,10 +206,11 @@ describe('side chat', () => {
     await userEvent.click(sideKey())
     expect(screen.queryByRole('complementary', { name: 'Work' })).not.toBeInTheDocument()
     expect(question()).toHaveValue('half a thought')
-    // first Escape leaves the field, the second closes the panel and hands focus back
+    // first Escape leaves the field for the thread, the second closes the panel and hands
+    // focus back — two presses in a row, nothing between them
     await userEvent.keyboard('{Escape}')
-    expect(question()).not.toHaveFocus()
-    await userEvent.click(screen.getByRole('region', { name: 'Side questions and answers' }))
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Side questions and answers' }))
+    expect(screen.getByRole('complementary', { name: 'Side chat' })).toBeInTheDocument()
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('complementary', { name: 'Side chat' })).not.toBeInTheDocument()
     expect(sideKey()).toHaveFocus()
