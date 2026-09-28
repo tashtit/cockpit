@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { promptLine, type Prompt } from './prompt-nav'
 
 /** Where a peek hangs: from its mark's top in the rail's upper half, from its bottom below */
@@ -15,16 +15,21 @@ type Peek = { readonly index: number; readonly top?: number; readonly bottom?: n
  * the latest. More messages than the rail holds scroll inside it, keeping the one being
  * read in view.
  */
-export function PromptRail({
+export const PromptRail = memo(function PromptRail({
   prompts,
   current,
   onJump
 }: {
+  /** The same array until a message arrives, changes or leaves (ChatView keeps it so) */
   prompts: readonly Prompt[]
   /** The message being read, by its place in `prompts` */
   current: number | null
+  /** Stable (`usePromptNav`) — with the two above, what keeps a keystroke or a stream
+   *  flush in the chat from redrawing the rail */
   onJump: (i: number) => void
 }): JSX.Element {
+  // each mark's name, worked out when the messages change rather than on every render
+  const labels = useMemo(() => prompts.map((p) => promptLine(p.text, 80)), [prompts])
   const railRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const [peek, setPeek] = useState<Peek | null>(null)
@@ -80,7 +85,7 @@ export function PromptRail({
               type="button"
               className={`prompt-tick${i === current ? ' on' : ''}`}
               tabIndex={i === stop ? 0 : -1}
-              aria-label={`Message ${i + 1} of ${n}: ${promptLine(p.text, 80)}`}
+              aria-label={`Message ${i + 1} of ${n}: ${labels[i]}`}
               aria-current={i === current ? 'location' : undefined}
               onClick={() => onJump(i)}
               onMouseEnter={(e) => show(i, e.currentTarget)}
@@ -123,4 +128,4 @@ export function PromptRail({
       )}
     </nav>
   )
-}
+})

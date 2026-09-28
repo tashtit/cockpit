@@ -118,7 +118,7 @@ export function ChatView({
   const { limit, showEarlier, raise } = useTranscriptWindow(scrollRef, RENDER_LAST, conversation)
   const below = useUnseenBelow(scrollRef, atBottomRef, log)
   // the person's own messages, for the rail and ⌥⌘↑/↓: the same array until one of them
-  // arrives, changes or leaves, so a stream flush never redraws the rail
+  // arrives, changes or leaves, so the memoized rail sits out a stream flush or a keystroke
   const promptsRef = useRef<readonly Prompt[]>([])
   const prompts = useMemo(() => {
     const next = promptsOf(log, keys)
