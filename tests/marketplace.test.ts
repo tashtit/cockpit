@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -282,6 +282,30 @@ describe('what the marketplaces on this machine hold', () => {
   it('says what each catalogue offers a plugin at, for the update check', () => {
     expect(localCatalogVersions().get('review@acme-market')).toBe('1.4.0')
   })
+})
+
+describe('a clone whose catalogue is not a file', () => {
+  const home = mkdtempSync(join(tmpdir(), 'cockpit-market-zero-'))
+  const oldHome = process.env.HOME
+
+  beforeAll(() => {
+    process.env.HOME = home
+    const plugins = join(home, '.claude', 'plugins')
+    mkdirSync(join(plugins, 'marketplaces', 'zero', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(plugins, 'known_marketplaces.json'), JSON.stringify({ zero: { source: 'acme/zero' } }))
+    // a link to a device stats as empty, and reads without end
+    symlinkSync('/dev/zero', join(plugins, 'marketplaces', 'zero', '.claude-plugin', 'marketplace.json'))
+  })
+
+  afterAll(() => {
+    process.env.HOME = oldHome
+  })
+
+  it('is left unread rather than read without bound', () => {
+    const zero = listCatalogs().find((c) => c.name === 'zero')
+    expect(zero?.plugins).toEqual([])
+    expect(zero?.problem).toContain('no catalogue')
+  }, 5000)
 })
 
 describe('a marketplace that only borrows the recommended name', () => {

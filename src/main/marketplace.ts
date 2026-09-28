@@ -1,4 +1,3 @@
-import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { PROVIDERS, RECOMMENDED_MARKETPLACE, isAddableSource, marketSourceKey } from '../shared/library'
@@ -6,7 +5,8 @@ import { CATALOG_PATHS, catalogUrls, githubRepoOf, parseCatalog } from '../share
 import type { MarketplaceCatalog, Provider } from '../shared/types'
 import { throttledBy } from './cache'
 import { getExtensions } from './extensions'
-import { parseJsonc } from './parsers/util'
+import { fetchBounded } from './fetch-bounded'
+import { parseJsonc, readSmallFile } from './parsers/util'
 import { withRecent } from './recent-map'
 
 /*
@@ -31,7 +31,7 @@ import { withRecent } from './recent-map'
  * marketplace here records, or one a lookup this session handed back.
  */
 
-/** A catalogue is JSON a person wrote; the head of it is the whole file in practice. */
+/** A catalogue is JSON a person wrote: one past this is not one to read, here or fetched. */
 const MAX_CATALOG_BYTES = 512 * 1024
 const FETCH_TIMEOUT_MS = 8000
 /** Fetched catalogues are cached for the session's afternoon, never polled. */
@@ -72,21 +72,14 @@ function cloneDirs(name: string): string[] {
   ]
 }
 
-function readBounded(path: string): string | null {
-  try {
-    if (statSync(path).size > MAX_CATALOG_BYTES) return null
-    return readFileSync(path, 'utf8')
-  } catch {
-    return null
-  }
-}
-
 /** The catalogue in a clone on this machine, or null when there is none to read. */
 function localCatalog(name: string): Catalog | null {
   if (!NAME_RE.test(name)) return null
   for (const dir of cloneDirs(name)) {
     for (const path of CATALOG_PATHS) {
-      const raw = readBounded(join(dir, path))
+      // a regular file under the cap only: a clone is someone else's tree, and a link
+      // in it to /dev/zero stats as empty and then reads forever
+      const raw = readSmallFile(join(dir, path), MAX_CATALOG_BYTES)
       if (raw === null) continue
       const parsed = parseCatalog(parseJsonc(raw), name)
       if (parsed) return parsed
@@ -155,21 +148,15 @@ export function localCatalogVersions(): Map<string, string> {
 async function readRemoteCatalog(repo: string): Promise<Catalog> {
   let last = 'no catalogue file in that repository'
   for (const url of catalogUrls(repo)) {
-    let res: Response | null = null
+    let body: string | null
     try {
-      res = await fetch(url, {
-        headers: { accept: 'application/json' },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-      })
+      body = await fetchBounded(url, { what: 'GitHub', maxBytes: MAX_CATALOG_BYTES, timeoutMs: FETCH_TIMEOUT_MS })
     } catch (err) {
-      last = err instanceof Error && err.name === 'TimeoutError' ? 'timed out' : String(err)
-    }
-    if (res === null) continue
-    if (!res.ok) {
-      if (res.status !== 404) last = `HTTP ${res.status}`
+      last = err instanceof Error ? err.message : String(err)
       continue
     }
-    const body = (await res.text()).slice(0, MAX_CATALOG_BYTES)
+    // not at this spelling: the next one may have it
+    if (body === null) continue
     const parsed = parseCatalog(parseJsonc(body), repo.split('/')[1] ?? repo)
     if (parsed) return parsed
     last = 'that file is not a marketplace catalogue'

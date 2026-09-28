@@ -433,6 +433,8 @@ describe('searching the registry and adding a server', () => {
     }
     vi.stubGlobal('fetch', async (url: string) => {
       asked.push(url)
+      // a version the registry never had is a 404, as the registry answers it
+      if (url.includes('/versions/') && !(url in versions)) return new Response('not found', { status: 404 })
       const body = url in versions ? versions[url] : page
       return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
     })

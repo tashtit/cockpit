@@ -21,6 +21,7 @@ import type {
   RegistryServer
 } from '../shared/types'
 import { getExtensions } from './extensions'
+import { fetchBounded } from './fetch-bounded'
 import { addMcpServer, globalMcpEntries } from './library'
 import { withRecent } from './recent-map'
 import { shellWord } from './shell-quote'
@@ -61,34 +62,15 @@ function remember(entry: RegistryEntry): void {
   seen = withRecent(seen, { id: `${entry.id}@${entry.version}`, value: entry, cap: MAX_SEEN })
 }
 
-/** Read a JSON body without holding more than the cap, however much is sent. */
+/** A JSON body, read without holding more than the cap; null when the registry has no such thing. */
 async function readJson(url: string): Promise<unknown> {
-  let res: Response
+  const body = await fetchBounded(url, { what: 'the MCP Registry', maxBytes: MAX_BODY_BYTES, timeoutMs: FETCH_TIMEOUT_MS })
+  if (body === null) return null
   try {
-    res = await fetch(url, {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-    })
-  } catch (err) {
-    const timedOut = err instanceof Error && err.name === 'TimeoutError'
-    throw new Error(timedOut ? 'The MCP Registry didn’t answer in time — try again.' : 'Couldn’t reach the MCP Registry.')
+    return JSON.parse(body)
+  } catch {
+    throw new Error('The MCP Registry answered with something that isn’t JSON.')
   }
-  if (!res.ok) throw new Error(`The MCP Registry answered HTTP ${res.status}.`)
-  const reader = res.body?.getReader()
-  if (!reader) return JSON.parse(await res.text())
-  const chunks: Uint8Array[] = []
-  let size = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    size += value.byteLength
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel()
-      throw new Error('The MCP Registry sent more than a page.')
-    }
-    chunks.push(value)
-  }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
 type Known = ReadonlyArray<{ readonly name: string; readonly config?: McpConfig }>
