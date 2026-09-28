@@ -11,7 +11,7 @@ import {
   registryVersionUrl,
   runsSame,
   type RegistryEntry
-} from '../shared/mcp-registry'
+} from './mcp-registry-core'
 import type {
   McpConfig,
   McpServerInfo,
@@ -29,10 +29,13 @@ import { shellWord } from './shell-quote'
 /*
  * Looking MCP servers up in the MCP Registry, and adding one.
  *
- * The network is a click here as everywhere in Cockpit: a search runs when the person
- * submits one, and nothing is fetched on arrival. What an add writes is decided in main
- * from the registry's own entry (`registryConfig`) — the renderer names a server and
- * hands over what was typed for its inputs, never a command.
+ * The MCP Registry is only ever asked on a click: a search runs when the person submits
+ * one, an add reads the one version it installs, and nothing is fetched on arrival.
+ * That is this module's rule, not all of Cockpit's — the home's updates list asks npm
+ * and PyPI about pinned servers and the agent CLIs on a visit (`updates-digest.ts`),
+ * cached — but nothing asks the registry unbidden. What an add writes is decided in main
+ * from the registry's own entry (`registryConfig`, in `mcp-registry-core.ts`) — the
+ * renderer names a server and hands over what was typed for its inputs, never a command.
  */
 
 /**

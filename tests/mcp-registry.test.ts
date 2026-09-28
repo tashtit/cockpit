@@ -12,7 +12,7 @@ import {
   registryVersionUrl,
   runsSame,
   type RegistryEntry
-} from '../src/shared/mcp-registry'
+} from '../src/main/mcp-registry-core'
 import { addFromRegistry, describeForHere, searchRegistry } from '../src/main/mcp-registry'
 
 /*

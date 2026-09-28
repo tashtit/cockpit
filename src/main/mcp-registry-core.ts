@@ -1,8 +1,8 @@
-import { isBlockedAgentEnv } from './acp'
-import { asRecord, isRecord } from './guards'
-import { describeMcp } from './mcp-source'
-import { clip } from './text'
-import type { McpConfig, RegistryInput, RegistryServerKind } from './types'
+import { isBlockedAgentEnv } from '../shared/acp'
+import { asRecord, isRecord } from '../shared/guards'
+import { describeMcp } from '../shared/mcp-source'
+import { clip } from '../shared/text'
+import type { McpConfig, RegistryInput, RegistryServerKind } from '../shared/types'
 
 /*
  * The MCP Registry: servers nobody on this machine runs yet, and what adding one writes.
@@ -30,7 +30,10 @@ import type { McpConfig, RegistryInput, RegistryServerKind } from './types'
  *    needs no header to start — headers are a sign-in Cockpit has no place to keep yet.
  *
  * Pure, like the session parsers: the registry's shape drifts, so anything unreadable
- * is left out rather than failing the page. Nothing here does IO.
+ * is left out rather than failing the page. Nothing here does IO — `mcp-registry.ts`
+ * fetches and writes; this is its IO-free half, and what the unit tests target. Only
+ * main reads an entry, so it lives here rather than in `src/shared/`: the renderer
+ * sees a registry server as `RegistryServer` (`types.ts`) and nothing more.
  */
 
 export const MCP_REGISTRY = 'https://registry.modelcontextprotocol.io'

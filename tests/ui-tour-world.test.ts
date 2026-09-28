@@ -18,7 +18,7 @@ import { buildWork } from '../src/shared/work'
 import { buildEvidence } from '../src/renderer/src/evidence'
 import { buildWorld, type World } from '../scripts/ui-tour/world.mts'
 import { REGISTRY_PAGE } from '../scripts/ui-tour/registry.mts'
-import { parseRegistryPage, registryPlan } from '../src/shared/mcp-registry'
+import { parseRegistryPage, registryPlan } from '../src/main/mcp-registry-core'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
 
 /**
