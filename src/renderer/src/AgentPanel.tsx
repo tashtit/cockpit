@@ -157,12 +157,16 @@ export function AgentPanel({
 
   // plugins a marketplace clone here has moved past, by plugin id. The question is local
   // (the clone against what is installed), so it is asked again whenever the report
-  // moves — an update is what clears it — and never in a repo scope, which has none
+  // moves — an update is what clears it — and never in a repo scope, which has none.
+  // Each re-ask keeps the last answer on screen until its own lands: only a new scope
+  // starts from nothing, or every chip flip would blink the update badges off and on
   const outdated = useLoaded(
     repoRoot === null && report?.rows.some((r) => r.kind === 'plugin') ? () => api.outdatedPlugins() : null,
     [report, repoRoot],
-    { initial: [] as readonly UpdateSuggestion[], reset: true }
+    { initial: [] as readonly UpdateSuggestion[], keepSame: true }
   )
+  const clearOutdated = outdated.set
+  useEffect(() => clearOutdated([]), [repoRoot, clearOutdated])
   const pluginNews: Readonly<Record<string, UpdateSuggestion>> = Object.fromEntries(
     outdated.value.map((n) => [n.name, n])
   )
