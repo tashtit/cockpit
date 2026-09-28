@@ -32,7 +32,7 @@ Every session from every agent, oldest first, with its size on disk. Two actions
   | opencode | the session's rows in its database (or its files, from older versions) |
   | Antigravity | the conversation's database and the notes it wrote for you |
 
-  A session that lives inside a database the agent's app has open right now, such as a Cursor chat while Cursor is running, is marked **open in its app** and can't be selected. Writing to that database under the app could leave the app holding the rows in memory and putting them back. Quit the app and scan again.
+  A session that lives inside a database the agent's app has open right now, such as a Cursor chat while Cursor is running, is marked **open in its app** and can't be selected. Writing to that database under the app could leave the app holding the rows in memory and putting them back. Quit the app and scan again. When Cockpit can't tell whether the app has it open — the check timed out or couldn't read the file — it treats the database the same way, and a delete says it couldn't check rather than writing.
 - **Archive** — hides the session in Cockpit. Nothing on disk is touched, nothing is reclaimed, and you can bring it back from the archived toggle in the sidebar. The reversible tier, for getting something out of the sidebar rather than off the disk.
 
 Sessions with an agent currently running in them are listed but never selectable.

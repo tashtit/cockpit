@@ -2,11 +2,12 @@ import { existsSync, lstatSync, readdirSync, rmSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta } from '../shared/types'
-import { execText } from './env'
+import { execText, type ExecResult } from './env'
 import { CURSOR_IDE_DB, isCursorAcpStore } from './parsers/cursor'
 import { OPENCODE_DB } from './parsers/opencode'
 import { queryAll, splitSessionRef } from './parsers/sqlite'
 import { readJson, sessionLogFiles } from './parsers/util'
+import { realOrSelf } from './paths'
 import { replaceFile } from './replace-file'
 
 /**
@@ -23,8 +24,8 @@ import { replaceFile } from './replace-file'
  *
  * Writing another app's store is the one risky part: a database another process holds
  * open is not written (`databases`, `openBy`) — that app would keep the rows in memory,
- * write them back, or read a session half gone. Cursor has to be quit to delete one of
- * its chats.
+ * write them back, or read a session half gone — and neither is one lsof could not
+ * clear. Cursor has to be quit to delete one of its chats.
  */
 export type Disposal = {
   /** Files and folders that are the session's own — removed whole */
@@ -183,15 +184,80 @@ export function disposalFiles(d: Disposal): string[] {
   return [...d.paths, ...(d.rows ? [d.rows.db] : []), ...(d.index ? [d.index.file] : [])]
 }
 
-/** The databases among these another process holds open right now (`lsof`). */
-export async function openBy(databases: readonly string[]): Promise<Set<string>> {
-  const held = new Set<string>()
-  for (const db of new Set(databases)) {
-    const r = await execText('lsof', ['-t', '--', db], { timeoutMs: 5_000 })
-    const pids = r.stdout.split('\n').map((l) => Number(l.trim())).filter((p) => p > 0 && p !== process.pid)
-    if (pids.length > 0) held.add(db)
+/**
+ * What stands between a database and a write: another process holds it open, or lsof
+ * could not say whether one does — which is no proof that none does.
+ */
+export type DbHold = 'held' | 'unchecked'
+
+/** A database as lsof is asked about it, and as it reports it: the real path, links resolved. */
+export type LsofName = { readonly db: string; readonly real: string }
+
+/**
+ * What one `lsof -w -F pn -- <db>…` run says of each database; one it leaves out is free.
+ * lsof exits 1 both when a named file is open nowhere and when it could not look, so
+ * the status alone says nothing: only a run that finished with nothing on stderr
+ * proves a database free. Cut short (its timeout, its buffer), never started (no
+ * lsof), or reporting a file it could not examine, the database it did not clear is
+ * `unchecked` — and a write waits, as it would for one held.
+ */
+export function lsofHolds(r: ExecResult, ctx: { readonly names: readonly LsofName[]; readonly selfPid: number }): Map<string, DbHold> {
+  const out = new Map<string, DbHold>()
+  const unchecked = (names: readonly LsofName[]): void => {
+    for (const n of names) if (!out.has(n.db)) out.set(n.db, 'unchecked')
   }
-  return held
+  if (r.cutShort) {
+    unchecked(ctx.names)
+    return out
+  }
+  const byPath = new Map<string, string>()
+  for (const n of ctx.names) byPath.set(n.db, n.db).set(n.real, n.db)
+  let pid = 0
+  for (const line of r.stdout.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1))
+    const db = line.startsWith('n') ? byPath.get(line.slice(1)) : undefined
+    if (db !== undefined && pid > 0 && pid !== ctx.selfPid) out.set(db, 'held')
+  }
+  // a non-zero exit that was lsof's own answer reads `Command failed`; anything else
+  // (`spawn lsof ENOENT`) is lsof never having looked
+  if (!r.ok && !/^Command failed/.test(r.error ?? '')) {
+    unchecked(ctx.names)
+    return out
+  }
+  // `lsof: status error on <name>: …` names the file it could not examine; the usage
+  // banner that may follow is not an error of its own
+  for (const line of r.stderr.split('\n').filter((l) => l.startsWith('lsof:'))) {
+    const named = ctx.names.filter((n) => line.includes(n.db) || line.includes(n.real))
+    unchecked(named.length > 0 ? named : ctx.names)
+  }
+  return out
+}
+
+/** Databases asked about in one lsof run — a command line stays well inside ARG_MAX. */
+const LSOF_BATCH = 200
+
+/** lsof walks every process's open files once per run, however many names it is given. */
+const LSOF_TIMEOUT_MS = 10_000
+
+/**
+ * Which of these databases another process holds open right now, or could not be
+ * checked (`lsofHolds`); a database absent from the answer is free. One lsof run
+ * answers for a whole batch: each run walks every process's open files, so asking
+ * per database cost a third of a second each.
+ */
+export async function openBy(databases: readonly string[]): Promise<Map<string, DbHold>> {
+  const out = new Map<string, DbHold>()
+  const names = [...new Set(databases)].map((db) => ({ db, real: realOrSelf(db) }))
+  for (let i = 0; i < names.length; i += LSOF_BATCH) {
+    const batch = names.slice(i, i + LSOF_BATCH)
+    const r = await execText('lsof', ['-w', '-F', 'pn', '--', ...batch.map((n) => n.db)], {
+      timeoutMs: LSOF_TIMEOUT_MS,
+      // without a UTF-8 locale lsof escapes non-ASCII bytes in the names it prints
+      env: { LC_ALL: 'C.UTF-8' }
+    })
+    for (const [db, hold] of lsofHolds(r, { names: batch, selfPid: process.pid })) out.set(db, hold)
+  }
+  return out
 }
 
 function deleteRows(rows: NonNullable<Disposal['rows']>): void {

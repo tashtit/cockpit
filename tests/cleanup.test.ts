@@ -27,6 +27,7 @@ import {
   type CleanupTable
 } from '../src/main/cleanup'
 import { RUN_START_SLACK_MS } from '../src/main/cleanup-core'
+import type { DbHold } from '../src/main/session-disposal'
 import type { OrphanProcess, SessionMeta } from '../src/shared/types'
 import { writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 
@@ -94,7 +95,7 @@ let tables: CleanupTable[] = []
 let seats: SessionMeta[] = []
 const forgotten: string[] = []
 /** Databases a test says another app holds open */
-let heldOpen = new Set<string>()
+let heldOpen = new Map<string, DbHold>()
 
 const roundtableRoot = join(root, 'userData', 'roundtables')
 
@@ -113,7 +114,7 @@ const deps: CleanupDeps = {
   seatSessions: () => seats,
   roundtableRoot,
   forgetTable: (id) => forgotten.push(id),
-  heldOpen: async (dbs) => new Set(dbs.filter((d) => heldOpen.has(d)))
+  heldOpen: async (dbs) => new Map(dbs.flatMap((d) => (heldOpen.has(d) ? [[d, heldOpen.get(d)!] as const] : [])))
 }
 
 const cockpitTree = join(cockpitWorktrees, 'app', 'fix-login')
@@ -571,13 +572,19 @@ describe('deleteSessions', () => {
       { id: 'ses_x', title: 'x', directory: '/x', created: OLD, updated: OLD, turns: [{ role: 'user', at: OLD, parts: [{ type: 'text', text: 'hi' }] }] }
     ])
     sessions = [session({ id: 'opencode:ses_x', provider: 'opencode', nativeId: 'ses_x', sourcePath: `${db}#ses_x` })]
-    heldOpen = new Set([db])
+    heldOpen = new Map([[db, 'held']])
     expect((await scanCleanup(deps, 30)).sessions[0]?.blocks).toEqual(['in-use'])
     const refused = await deleteSessions(deps, ['opencode:ses_x'], 30)
     expect(refused.cleaned).toBe(0)
     expect(refused.failed[0]!.reason).toMatch(/app has it open/)
+    // lsof could not clear it: no proof it is free, so no write either
+    heldOpen = new Map([[db, 'unchecked']])
+    expect((await scanCleanup(deps, 30)).sessions[0]?.blocks).toEqual(['in-use'])
+    const unchecked = await deleteSessions(deps, ['opencode:ses_x'], 30)
+    expect(unchecked.cleaned).toBe(0)
+    expect(unchecked.failed[0]!.reason).toMatch(/couldn’t check/)
     // the app quit: the rows go, the database stays
-    heldOpen = new Set()
+    heldOpen = new Map()
     expect((await deleteSessions(deps, ['opencode:ses_x'], 30)).cleaned).toBe(1)
     expect(existsSync(db)).toBe(true)
     sessions = []

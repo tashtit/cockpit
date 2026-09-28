@@ -45,7 +45,7 @@ import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText, gitRead } from './env'
 import { mapLimit } from './map-limit'
 import { isSessionProvider } from '../shared/providers'
-import { disposalBytes, disposalFiles, disposalOf, dispose, openBy } from './session-disposal'
+import { disposalBytes, disposalFiles, disposalOf, dispose, openBy, type DbHold } from './session-disposal'
 import { isUnder, realOrSelf } from './paths'
 
 /**
@@ -146,8 +146,8 @@ export type CleanupDeps = {
   readonly roundtableRoot: string
   /** Drop a table's record once its room and seats are gone (the manager owns the file) */
   readonly forgetTable: (id: string) => void
-  /** Which of these databases another process holds open (`openBy`, which tests replace) */
-  readonly heldOpen?: (databases: readonly string[]) => Promise<Set<string>>
+  /** Which of these databases another process holds open, or could not be cleared (`openBy`, which tests replace) */
+  readonly heldOpen?: (databases: readonly string[]) => Promise<ReadonlyMap<string, DbHold>>
 }
 
 /* ---------- sessions ---------- */
@@ -592,7 +592,7 @@ async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey
 
   const staleMetas = all.filter((s) => isStale(s.updatedAt, cutoff)).sort((a, b) => a.updatedAt - b.updatedAt)
   // what each would take with it, as its agent keeps it — and which of the databases
-  // among those another app holds open right now (asked once per database)
+  // among those another app holds open right now, or lsof could not clear
   const disposals = new Map(staleMetas.map((s) => [s.id, disposalOf(s)]))
   const held = await (deps.heldOpen ?? openBy)([...disposals.values()].flatMap((d) => d.databases))
   const sessions: StaleSession[] = []
@@ -746,7 +746,7 @@ async function removeSessionLogs(
   ctx: {
     readonly roots: readonly string[]
     readonly label: string
-    readonly heldOpen: (databases: readonly string[]) => Promise<Set<string>>
+    readonly heldOpen: (databases: readonly string[]) => Promise<ReadonlyMap<string, DbHold>>
   }
 ): Promise<LogRemoval> {
   const plan = disposalOf(meta)
@@ -756,8 +756,12 @@ async function removeSessionLogs(
     audit(`refused ${ctx.label}: ${outside} is outside every configured source`)
     return { ok: false, outside: true, reason: 'outside every configured source' }
   }
-  if (plan.databases.length > 0 && (await ctx.heldOpen(plan.databases)).size > 0) {
+  const holds = plan.databases.length > 0 ? [...(await ctx.heldOpen(plan.databases)).values()] : []
+  if (holds.includes('held')) {
     return { ok: false, outside: false, reason: 'its agent’s app has it open — quit the app, then delete it' }
+  }
+  if (holds.length > 0) {
+    return { ok: false, outside: false, reason: 'couldn’t check whether its agent’s app has it open — try again' }
   }
   const bytes = disposalBytes(plan)
   try {

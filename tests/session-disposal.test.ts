@@ -1,9 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { disposalBytes, disposalFiles, disposalOf, dispose, openBy } from '../src/main/session-disposal'
+import { execFileSync, spawn } from 'node:child_process'
+import { disposalBytes, disposalFiles, disposalOf, dispose, lsofHolds, openBy } from '../src/main/session-disposal'
+import type { ExecResult } from '../src/main/env'
 import type { SessionMeta } from '../src/shared/types'
 import { writeAntigravityConversation, writeCursorAcpSession, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 
@@ -28,6 +30,16 @@ const meta = (over: Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath'>): 
   messageCount: 1,
   ...over
 })
+
+/** lsof is how a database held open is seen; a CI image may lack it */
+const hasLsof = (() => {
+  try {
+    execFileSync('lsof', ['-v'], { stdio: 'ignore' })
+    return true
+  } catch (err) {
+    return (err as { status?: number }).status !== undefined
+  }
+})()
 
 const write = (path: string, text: string): string => {
   mkdirSync(join(path, '..'), { recursive: true })
@@ -165,6 +177,61 @@ describe('what deleting a session removes, as its agent keeps it', () => {
   it('a database nobody has open is free to write', async () => {
     const db = join(dir, 'free.db')
     new DatabaseSync(db).close()
-    expect(await openBy([db])).toEqual(new Set())
+    expect(await openBy([db])).toEqual(new Map())
+  })
+
+  it.runIf(hasLsof)('a database another process has open is held, the rest of the batch free', async () => {
+    const held = join(dir, 'held.db')
+    const free = join(dir, 'free.db')
+    new DatabaseSync(held).close()
+    new DatabaseSync(free).close()
+    const fd = openSync(held, 'r')
+    const holder = spawn('sleep', ['30'], { stdio: [fd, 'ignore', 'ignore'] })
+    closeSync(fd)
+    try {
+      await new Promise((r) => setTimeout(r, 300))
+      expect(await openBy([held, free])).toEqual(new Map([[held, 'held']]))
+    } finally {
+      holder.kill()
+    }
+  })
+})
+
+describe('what lsof says of the databases it was asked about', () => {
+  const a = { db: '/tmp/x/a.db', real: '/private/tmp/x/a.db' }
+  const b = { db: '/tmp/x/b.db', real: '/private/tmp/x/b.db' }
+  const names = [a, b]
+  const run = (over: Partial<ExecResult>): ExecResult => ({ ok: false, stdout: '', stderr: '', error: 'Command failed: lsof -w -F pn -- …', ...over })
+
+  it('frees what a finished run found open nowhere — lsof exits 1 then', () => {
+    expect(lsofHolds(run({}), { names, selfPid: 5 })).toEqual(new Map())
+  })
+
+  it('holds what another process has open, by the real path lsof prints', () => {
+    const stdout = 'p77\nf12\nn/private/tmp/x/a.db\np5\nf3\nn/private/tmp/x/b.db\n'
+    // pid 5 is Cockpit itself, reading it
+    expect(lsofHolds(run({ stdout }), { names, selfPid: 5 })).toEqual(new Map([[a.db, 'held']]))
+    expect(lsofHolds(run({ ok: true, error: null, stdout }), { names, selfPid: 9 })).toEqual(
+      new Map([
+        [a.db, 'held'],
+        [b.db, 'held']
+      ])
+    )
+  })
+
+  it('clears nothing when lsof was cut short or never ran', () => {
+    const cut = run({ stdout: 'p77\nf12\nn/private/tmp/x/a.db\n', cutShort: true })
+    expect(lsofHolds(cut, { names, selfPid: 5 })).toEqual(new Map([[a.db, 'unchecked'], [b.db, 'unchecked']]))
+    const missing = run({ error: 'spawn lsof ENOENT' })
+    expect(lsofHolds(missing, { names, selfPid: 5 })).toEqual(new Map([[a.db, 'unchecked'], [b.db, 'unchecked']]))
+  })
+
+  it('leaves a file lsof could not examine unchecked, and only that one', () => {
+    const stderr = 'lsof: status error on /tmp/x/b.db: No such file or directory\nlsof 4.91\n usage: [-?abhlnNoOPRtUvVX]\n'
+    expect(lsofHolds(run({ stderr }), { names, selfPid: 5 })).toEqual(new Map([[b.db, 'unchecked']]))
+    // an error that names none of them: none is cleared
+    expect(lsofHolds(run({ stderr: 'lsof: can’t read kernel name list\n' }), { names, selfPid: 5 })).toEqual(
+      new Map([[a.db, 'unchecked'], [b.db, 'unchecked']])
+    )
   })
 })
