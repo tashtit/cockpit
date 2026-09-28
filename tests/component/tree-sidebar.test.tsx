@@ -95,6 +95,13 @@ describe('session rows state that is not colour-coded', () => {
     expect(await screen.findByRole('treeitem', { name: /old work\s*\(archived\)/ })).toBeVisible()
   })
 
+  it('counts a session of one message in the singular in its tooltip', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session({ messageCount: 1 })] })
+    renderSidebar()
+    const row = await screen.findByRole('treeitem', { name: /fix the login flake/ })
+    expect(row.getAttribute('title')).toMatch(/\n~1 message$/)
+  })
+
   it('names a compact PR badge with its state, which is otherwise only a border colour', async () => {
     const pr = openPr({ isDraft: true, checks: 'none' })
     vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session()] })

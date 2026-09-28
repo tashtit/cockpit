@@ -210,7 +210,7 @@ export const SessionRow = memo(function SessionRow({
       aria-expanded={under > 0 ? !folded : undefined}
       data-session-id={s.id}
       tabIndex={-1}
-      title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${parent ? `\nstarted by ${parent.title}` : ''}${hold ? `\n${hold}` : ''}\n~${s.messageCount} messages${landed ? `\n${landingLabel(landed)}` : ''}`}
+      title={`${PROVIDER_LABEL[s.provider]}${acct ? ` — ${acct.identity ?? acct.label}` : ''}\n${s.title}${s.gitBranch ? `\n⎇ ${s.gitBranch}` : ''}${parent ? `\nstarted by ${parent.title}` : ''}${hold ? `\n${hold}` : ''}\n~${plural(s.messageCount, 'message')}${landed ? `\n${landingLabel(landed)}` : ''}`}
       onClick={() => onSelect(s)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

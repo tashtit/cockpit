@@ -492,11 +492,11 @@ export function CleanupView({ onClose }: { onClose: () => void }): JSX.Element {
           </>
         ) : report ? (
           <>
-            {report.staleSessionCount} of {report.totalSessions} sessions ·{' '}
+            {report.staleSessionCount} of {plural(report.totalSessions, 'session')} ·{' '}
             {formatBytes(report.staleSessionBytes)} · {report.staleWorktreeCount} of{' '}
-            {report.totalWorktrees} worktrees
+            {plural(report.totalWorktrees, 'worktree')}
             {report.totalTables > 0 &&
-              ` · ${report.staleTableCount} of ${report.totalTables} roundtables`}
+              ` · ${report.staleTableCount} of ${plural(report.totalTables, 'roundtable')}`}
             {report.processes.length > 0 &&
               ` · ${plural(report.processes.length, 'process', 'processes')} left running`}
             {status && ` — ${status}`}

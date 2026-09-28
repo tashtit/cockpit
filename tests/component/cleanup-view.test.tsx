@@ -150,6 +150,12 @@ describe('CleanupView — what it shows', () => {
     expect(screen.getByText(/of 9 worktrees/)).toBeInTheDocument()
   })
 
+  it('counts one of a kind in the singular', async () => {
+    mount(report({ totalSessions: 1, totalWorktrees: 1, tables: [] }))
+    const line = await screen.findByText(/of 1 session ·/)
+    expect(line).toHaveTextContent(/1 of 1 session · .* · 1 of 1 worktree$/)
+  })
+
   it('lists stale sessions with their age and size', async () => {
     mount()
     expect(await screen.findByText('Refactor the parser')).toBeInTheDocument()
