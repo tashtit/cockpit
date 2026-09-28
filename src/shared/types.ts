@@ -755,7 +755,7 @@ export type ChatRequest = {
   readonly handoffFrom?: string
   /** A roundtable seat's turn: in safe mode Claude may also search the web and fetch pages
    *  (`CLAUDE_RESEARCH_TOOLS`) — research, never a shell or an edit — and a read-only Codex
-   *  sandbox gets the network (`CODEX_RESEARCH_ARGS`), its files still read-only. Only the
+   *  sandbox gets the network (`codexSeatArgs`), its files still read-only. Only the
    *  roundtable manager sets it; `chat:send` strips it, so no renderer request loosens a chat */
   readonly research?: boolean
   /** A side question (`SideChatRequest`): the resumed session is copied, never continued —

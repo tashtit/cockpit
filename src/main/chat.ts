@@ -23,6 +23,7 @@ import { LineSplitter, capText, contentToText, jsonText, shellPreview, toolPrevi
 import { fileChangeArtifact, todoListArtifact, toolArtifact } from './parsers/artifacts'
 import { commandItemCheck } from './parsers/checks'
 import { cliEnv } from './env'
+import { codexSeatArgs, seatFence } from './seat-fence'
 import {
   CLAUDE_HOST_ARGS,
   claudeAnswer,
@@ -125,23 +126,6 @@ export function withTurnFlags(agent: AcpAgent | undefined, req: CliRequest): Acp
  */
 export const CLAUDE_RESEARCH_TOOLS: readonly string[] = ['WebSearch', 'WebFetch']
 
-/**
- * A read-only Codex seat's reach: its sandbox with the network on, so a `curl` to a
- * registry or an RDAP page can check a claim — the files stay read-only. A permission
- * profile is the one way to give a read-only sandbox the network (`network_access` is
- * workspace-write's alone). The profile beats a `sandbox_mode` set with `-c`, which stays
- * as the floor for a Codex that predates profiles; the `--sandbox` flag would beat the
- * profile. The filesystem is listed as well as extended, since a Codex whose profiles
- * predate `extends` (0.120's do) ignores it. Without this a seat's lookups ran only where the
- * person's own Codex config had its auto-reviewer approve each one out of the sandbox.
- */
-const CODEX_RESEARCH_PROFILE = 'cockpit-roundtable-seat'
-export const CODEX_RESEARCH_ARGS: readonly string[] = [
-  '-c',
-  `permissions.${CODEX_RESEARCH_PROFILE}={ extends = ":read-only", filesystem = { ":root" = "read" }, network = { enabled = true } }`,
-  '-c',
-  `default_permissions="${CODEX_RESEARCH_PROFILE}"`
-]
 
 /**
  * What a side question's copy of a Claude session may use: it reads, it never writes or
@@ -173,7 +157,7 @@ export const CLAUDE_NO_HOOKS: readonly string[] = ['--settings', JSON.stringify(
  * A side question's copy of a Codex session: a read-only sandbox, and nothing escalates
  * out of it — an approvals reviewer in the person's own config would otherwise wave a
  * write through. `exec fork` takes no `--sandbox` flag, so each is a config override. The
- * built-in `:read-only` permission profile (the one `CODEX_RESEARCH_ARGS` extends) goes
+ * built-in `:read-only` permission profile (the one a seat's, `codexSeatArgs`, extends) goes
  * with the sandbox mode, since a profile beats `sandbox_mode`: a `default_permissions` in
  * the person's own config.toml ran the copy under that profile, a writable one included.
  * `sandbox_mode` stays as the floor for a Codex that predates profiles.
@@ -223,6 +207,8 @@ export type BuildOptions = {
    * side question's copy, which may only read.
    */
   readonly askHost?: boolean
+  /** A Codex seat: the paths its sandbox denies (`seatFence` in seat-fence.ts) */
+  readonly seatDenied?: readonly string[]
 }
 
 /** Why a turn for an agent Cockpit only reads could not start — and what would let it. */
@@ -313,7 +299,7 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
       // only the workspace sandbox auto-edit means: a read-only one the person picked stays
       // read-only, and nothing is reviewed out of a safe turn
       if (req.permissionMode === 'auto-edit' && sandbox === 'workspace-write') args.push(...CODEX_REVIEWED_ARGS)
-      if (research) args.push(...CODEX_RESEARCH_ARGS)
+      if (research) args.push(...codexSeatArgs(opts.seatDenied))
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
       args.push('--', promptWithImages(req))
       return { cmd: 'codex', args }
@@ -677,7 +663,8 @@ export class ChatManager {
     }
     const cli: CliRequest = { ...req, provider }
     const askHost = provider === 'claude' && asksPermissions
-    const { cmd, args, stdin } = buildCommand(cli, { askHost })
+    const seatDenied = cli.research === true && provider === 'codex' ? seatFence(cli.cwd) : undefined
+    const { cmd, args, stdin } = buildCommand(cli, { askHost, seatDenied })
     const env = cliEnv()
     // BYOK: resolve the endpoint and its key, refuse loudly rather than silently
     // falling back to the provider's own backend

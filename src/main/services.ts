@@ -10,6 +10,7 @@ import { ChatManager } from './chat'
 import { probeAcpAgent } from './acp'
 import { BuiltinReadiness } from './acp-core'
 import { loginPathReady } from './env'
+import { probeSeatFence } from './seat-fence'
 import { mergeBusy } from './liveness-core'
 import {
   archiveWatchOn,
@@ -250,6 +251,8 @@ export function startServices(): Services {
     return currentAcpReadiness()
   }
   builtins.probe('missing')
+  // whether this Codex takes a seat's secret fence: asked once, off the launch path
+  void loginPathReady().then(() => probeSeatFence())
 
   const theChat = new ChatManager(
     (ev) => {

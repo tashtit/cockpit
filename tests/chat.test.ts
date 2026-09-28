@@ -14,11 +14,11 @@ import {
   CLAUDE_NO_HOOKS,
   CLAUDE_SEAT_TOOLS,
   CLAUDE_SIDE_TOOLS,
-  CODEX_RESEARCH_ARGS,
   CODEX_REVIEWED_ARGS,
   CODEX_SIDE_ARGS,
   type CliRequest
 } from '../src/main/chat'
+import { codexSeatArgs } from '../src/main/seat-fence'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
 import type { AcpAgent, BusySession, ChatEvent, ChatRequest } from '../src/shared/types'
 
@@ -292,7 +292,7 @@ describe('side chat: a copy of the session, never the session', () => {
     // a profile beats sandbox_mode, so the person's own default_permissions would win it:
     // the copy names Codex's built-in read-only profile, the one a seat's profile extends
     expect(CODEX_SIDE_ARGS).toContain('default_permissions=":read-only"')
-    expect(CODEX_RESEARCH_ARGS.join(' ')).toContain('extends = ":read-only"')
+    expect(codexSeatArgs().join(' ')).toContain('extends = ":read-only"')
     expect(args.filter((a) => a.startsWith('default_permissions='))).toEqual(['default_permissions=":read-only"'])
     expect(args).toContain('--skip-git-repo-check')
     expect(args).not.toContain('--sandbox')
