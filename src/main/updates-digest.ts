@@ -239,13 +239,34 @@ async function gather(inputs: DigestInputs): Promise<UpdatesDigest> {
  */
 const digest = throttledBy(TTL_MS, gather, { keyOf: () => 'digest' })
 
+/** The digest last handed out: asked for again, it is a kept one. */
+let handedOut: UpdatesDigest | null = null
+
+/**
+ * A kept digest with the CLI rows as the CLIs are now. An agent CLI's update runs in
+ * Terminal, outside anything Cockpit settles, so its row would otherwise outlive the
+ * update for the rest of the TTL. Only the CLIs' own versions are asked again — the
+ * channels' newest releases are cached apart — and only while there is a CLI row.
+ */
+async function withCliNow(kept: UpdatesDigest): Promise<UpdatesDigest> {
+  if (!kept.items.some((i) => i.kind === 'cli')) return kept
+  const now = await cliUpdates(false)
+  if (now.problems.length > 0) return kept
+  const was = kept.items.filter((i) => i.kind === 'cli')
+  if (JSON.stringify(now.items) === JSON.stringify(was)) return kept
+  return { ...kept, items: sortSuggestions([...kept.items.filter((i) => i.kind !== 'cli'), ...now.items]) }
+}
+
 /**
  * Everything that could be brought up to date. Cached; `force` asks again — and a
  * forced ask never rides on a gathering already in flight, which is the one it was
- * asked to go past.
+ * asked to go past. A kept answer's CLI rows are checked against the CLIs first.
  */
-export function updatesDigest(inputs: DigestInputs = {}): Promise<UpdatesDigest> {
-  return digest(inputs, { force: inputs.force === true })
+export async function updatesDigest(inputs: DigestInputs = {}): Promise<UpdatesDigest> {
+  const found = await digest(inputs, { force: inputs.force === true })
+  const kept = found === handedOut
+  handedOut = found
+  return kept ? withCliNow(found) : found
 }
 
 /**

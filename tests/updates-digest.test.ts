@@ -293,9 +293,26 @@ describe('gathering it all, on demand', () => {
     const plain = updatesDigest({ app })
     const forced = updatesDigest({ app, force: true })
     // a visit while Check again is gathering shares that gathering
-    expect(updatesDigest({ app })).toBe(forced)
-    const [, fresh] = await Promise.all([plain, forced])
+    const rider = updatesDigest({ app })
+    const [, fresh, rode] = await Promise.all([plain, forced, rider])
+    expect(rode).toBe(fresh)
     expect(await updatesDigest({ app })).toBe(fresh)
+  })
+
+  // the update itself runs in Terminal, which settles nothing in Cockpit: a kept
+  // answer checks its CLI rows against the CLIs before it is handed out again
+  it('drops a CLI row once that CLI is up to date, without gathering the rest again', async () => {
+    const version = join(home, 'claude-version')
+    writeFileSync(version, '0.9.0\n')
+    writeFileSync(join(bin, 'claude'), `#!/bin/sh\ncat '${version}'\n`)
+    chmodSync(join(bin, 'claude'), 0o755)
+    const first = await updatesDigest({ app })
+    expect(first.items.map((i) => i.id)).toEqual(['app:cockpit', 'cli:claude'])
+    writeFileSync(version, '1.0.0\n')
+    const after = await updatesDigest({ app })
+    expect(after.items.map((i) => i.id)).toEqual(['app:cockpit'])
+    // the same gathering, its CLI rows brought up to date
+    expect(after.at).toBe(first.at)
   })
 
   // a marketplace's clone is what the plugin rows read, and a third-party one never

@@ -131,6 +131,42 @@ describe('the home’s updates strip', () => {
     expect(window.cockpit.openCliUpdate).toHaveBeenCalledWith('codex')
   })
 
+  // Settings › Accounts' own flow: one Terminal per click, the row saying where the
+  // update is, and the list asked again once the version moved on
+  it('says the update is in Terminal, opens one window per click, and lets the row go once it lands', async () => {
+    let opened: () => void = () => {}
+    vi.mocked(window.cockpit.openCliUpdate).mockReturnValue(new Promise<void>((r) => (opened = r)))
+    renderStrip([cli])
+    await userEvent.click(await screen.findByRole('button', { name: /1 update/ }))
+    const button = screen.getByRole('button', { name: 'Update in Terminal' })
+    await userEvent.dblClick(button)
+    expect(window.cockpit.openCliUpdate).toHaveBeenCalledTimes(1)
+    opened()
+    expect(await screen.findByRole('button', { name: 'Open Terminal again' })).toBeInTheDocument()
+    expect(screen.getByText('Finish the update in the Terminal window — this row updates by itself.')).toBeInTheDocument()
+    expect(screen.queryByText('Homebrew has 0.155.1')).not.toBeInTheDocument()
+
+    // Codex moved on: the list is asked again, and the digest no longer has the row
+    vi.mocked(window.cockpit.getUpdatesDigest).mockResolvedValue({ items: [mcp], at: 1, problems: [] })
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+      {
+        provider: 'codex',
+        installed: true,
+        version: '0.155.1',
+        path: '/opt/homebrew/bin/codex',
+        install: 'brew-cask',
+        latest: '0.155.1',
+        upstream: '0.155.1',
+        channel: 'Homebrew',
+        updateAvailable: false,
+        updateCommand: 'brew update && brew upgrade --cask codex'
+      }
+    ])
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() => expect(screen.queryByText('Codex')).not.toBeInTheDocument())
+    expect(screen.getByText('playwright')).toBeInTheDocument()
+  })
+
   it('sends a disagreement to the view that settles it', async () => {
     const jump = renderStrip([drift])
     await userEvent.click(await screen.findByRole('button', { name: /1 agent difference/ }))
