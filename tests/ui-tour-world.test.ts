@@ -19,6 +19,7 @@ import { buildEvidence } from '../src/renderer/src/evidence'
 import { buildWorld, type World } from '../scripts/ui-tour/world.mts'
 import { REGISTRY_PAGE } from '../scripts/ui-tour/registry.mts'
 import { parseRegistryPage, registryPlan } from '../src/shared/mcp-registry'
+import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
 
 /**
  * The ui-tour renders whatever the app makes of this world. If a provider's log format
@@ -166,7 +167,10 @@ describe('ui-tour fixture world', () => {
   })
 
   it('puts a runnable stub first on PATH for every CLI the app spawns', () => {
-    for (const tool of ['claude', 'codex', 'copilot', 'gh']) {
+    // every built-in ACP agent's CLI included: one this Mac has installed would otherwise
+    // answer the launch probe, and the tour would draw that agent as one Cockpit drives
+    const acp = BUILTIN_ACP_AGENTS.map((a) => a.command)
+    for (const tool of new Set(['claude', 'codex', 'copilot', 'gh', ...acp])) {
       const path = join(world.bin, tool)
       expect(existsSync(path)).toBe(true)
       expect(statSync(path).mode & 0o111).not.toBe(0)
