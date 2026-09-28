@@ -187,7 +187,7 @@ function dbTurns(db: string, id: string): { turns: Turn[]; truncated: boolean } 
   const messages = queryAll(db, 'SELECT id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created, id', id) ?? []
   // newest parts first, so a long session opens on its latest turns: their sizes, stepped
   // through until the budget is spent (octet_length reads none of a part's content), then
-  // the content of those alone — every part was read, all of it, before the budget applied
+  // the content of those alone — never every part whole, only to throw most of them away
   const window: string[] = []
   let budget = TRANSCRIPT_TAIL_BYTES
   let truncated = false

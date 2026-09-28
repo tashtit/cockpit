@@ -181,11 +181,12 @@ const EXTRACTORS: Partial<Record<SessionProvider, RecordExtractor>> = {
 
 /**
  * A transcript's rows as searchable records — for the stores that are not a line stream:
- * the Cline family's JSON arrays, the SQLite databases, an older Gemini CLI's one
- * document. Their parsers read them synchronously, not in chunks, and bound the read by
- * the transcript budget (TRANSCRIPT_TAIL_BYTES, the newest messages that fit), not by
- * this search's per-file cap: what is older is not searched, and the parser's
- * "(older messages omitted" row says so.
+ * the Cline family's JSON arrays, the SQLite databases, opencode's older file store, an
+ * older Gemini CLI's one document. Their parsers read them synchronously, not in chunks,
+ * and bound the read by the transcript budget (TRANSCRIPT_TAIL_BYTES, the newest messages
+ * that fit), not by this search's per-file cap: what is older is not searched, and the
+ * parser's "(older messages omitted" row says so — a Gemini document past the budget is
+ * not read at all.
  */
 function rowRecords(rows: readonly SessionMessage[], tools: boolean): TextRecord[] {
   return rows.flatMap((m): TextRecord[] => {
