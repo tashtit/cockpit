@@ -313,7 +313,25 @@ describe('attention prefs', () => {
     expect(loadConfig().attention).toEqual({ sound: true })
 
     setAttentionPrefs({ notifications: false, sound: false, badge: false, cleanup: true })
-    expect(loadConfig().attention).toEqual({ sound: false, cleanup: true })
+    expect(loadConfig().attention).toEqual({ cleanup: true })
+  })
+
+  // off and on again in the installed app used to store `true`, which every dev run
+  // sharing its userData then read as someone having turned notifications on
+  it('forgets a switch flipped back to what the build does by default', () => {
+    saveConfig({ sources: [] })
+    setAttentionPrefs({ notifications: true, sound: false, badge: false, cleanup: false })
+    expect(loadConfig().attention).toEqual({ notifications: true })
+    setAttentionPrefs({ notifications: false, sound: false, badge: false, cleanup: false })
+    expect(loadConfig().attention).toEqual({})
+    expect(attentionPrefs()).toEqual({ notifications: false, sound: false, badge: false, cleanup: false })
+  })
+
+  it('keeps what another build stored for a switch this one leaves alone', () => {
+    // the installed app turned sound off; a dev run flipping notifications leaves it be
+    saveConfig({ sources: [], attention: { sound: false } })
+    setAttentionPrefs({ notifications: true, sound: false, badge: false, cleanup: false })
+    expect(loadConfig().attention).toEqual({ sound: false, notifications: true })
   })
 
   it('treats renderer input as untrusted: anything but true is off, garbage in the file is ignored', () => {

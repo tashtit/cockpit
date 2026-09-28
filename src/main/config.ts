@@ -360,13 +360,19 @@ export function attentionPrefs(): AttentionPrefs {
 export function setAttentionPrefs(next: AttentionPrefs): AttentionPrefs {
   const cfg = loadConfig()
   const current = attentionPrefs()
-  // only a flipped switch is written: an untouched one keeps following the build, so
-  // turning sound off in the installed app never switches a dev run's banners on
+  const byDefault = app?.isPackaged === true
+  // only a switch flipped away from this build's default is written: an untouched one
+  // keeps following the build, so turning sound off in the installed app never switches
+  // a dev run's banners on. One flipped back is forgotten rather than stored — turning
+  // notifications off and on again in the installed app would otherwise leave `true`
+  // behind, and every dev run sharing its userData would notify
   const stored: { -readonly [K in keyof AttentionPrefs]?: boolean } = { ...cfg.attention }
   for (const key of ATTENTION_KEYS) {
     // renderer input is untrusted — anything but true is off
     const value = next?.[key] === true
-    if (value !== current[key]) stored[key] = value
+    if (value === current[key]) continue
+    if (value === byDefault) delete stored[key]
+    else stored[key] = value
   }
   saveConfig({ ...cfg, attention: stored })
   return attentionPrefs()
