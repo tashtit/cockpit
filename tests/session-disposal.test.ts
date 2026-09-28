@@ -49,6 +49,23 @@ const write = (path: string, text: string): string => {
 }
 
 describe('what deleting a session removes, as its agent keeps it', () => {
+  it('Claude: the log, and the folder of subagents and saved tool results beside it', () => {
+    const log = write(join(dir, 'projects', 'p', 'sess-1.jsonl'), '{}\n')
+    write(join(dir, 'projects', 'p', 'sess-1', 'subagents', 'agent-a.jsonl'), '{}\n')
+    write(join(dir, 'projects', 'p', 'sess-1', 'tool-results', 'r.txt'), 'result')
+    const other = write(join(dir, 'projects', 'p', 'sess-2', 'subagents', 'agent-b.jsonl'), '{}\n')
+    const plan = disposalOf(meta({ provider: 'claude', nativeId: 'sess-1', sourcePath: log }))
+    expect(plan.paths).toEqual([log, join(dir, 'projects', 'p', 'sess-1')])
+    expect(disposalBytes(plan)).toBe(3 + 3 + 6)
+    dispose(plan)
+    expect(existsSync(log)).toBe(false)
+    expect(existsSync(join(dir, 'projects', 'p', 'sess-1'))).toBe(false)
+    expect(existsSync(other)).toBe(true)
+    // a session with none: its log alone
+    const lone = write(join(dir, 'projects', 'p', 'sess-3.jsonl'), '{}\n')
+    expect(disposalOf(meta({ provider: 'claude', nativeId: 'sess-3', sourcePath: lone })).paths).toEqual([lone])
+  })
+
   it('Gemini CLI: the log, and the folder its subagents wrote beside it', () => {
     const log = write(join(dir, 'tmp', 'p', 'chats', 'session-1.jsonl'), '{}\n')
     write(join(dir, 'tmp', 'p', 'chats', 'sess-1', 'sub.jsonl'), '{}\n')

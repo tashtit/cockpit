@@ -20,7 +20,7 @@ Settings › View › History controls what the **sidebar** shows. Cleanup's thr
 
 Every session from every agent, oldest first, with its size on disk. Two actions, two very different consequences:
 
-- **Delete** — removes the agent's own log file (for Copilot, the session's state directory) **and the worktree the session ran in**, and the branch when git reports it as fully merged. This cannot be undone. It takes two clicks: the first arms the button, the second commits.
+- **Delete** — removes the agent's own log file (for Claude, with the folder of subagent transcripts and saved tool results beside it; for Copilot, the session's state directory) **and the worktree the session ran in**, and the branch when git reports it as fully merged. This cannot be undone. It takes two clicks: the first arms the button, the second commits.
 
   Every agent's sessions are listed, and deleting one removes what that agent keeps for it, not just the log Cockpit reads:
 

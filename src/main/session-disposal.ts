@@ -15,8 +15,9 @@ import { replaceFile } from './replace-file'
  * one source for what a session occupies and how it goes, so what is measured and what
  * is removed can never drift apart.
  *
- * Most agents keep a session as files: one log (Claude, Codex), a folder (Copilot's
- * session state, a Cline or Roo Code task, a Cursor transcript beside its subagents),
+ * Most agents keep a session as files: one log (Codex; Claude's, with a folder of its
+ * subagents and saved tool results beside it), a folder (Copilot's session state, a
+ * Cline or Roo Code task, a Cursor transcript beside its subagents),
  * or a database of its own (Antigravity). Two keep many sessions in one database —
  * Cursor's editor chats and opencode — and there only the session's rows go: every
  * table opencode keys by `session_id`, and its event store, keyed by the session's id
@@ -68,6 +69,15 @@ function fileNames(dir: string): string[] {
   }
 }
 
+/** A directory itself — never through a link, which `rmSync` would take for the link alone. */
+function isDir(path: string): boolean {
+  try {
+    return lstatSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 /** opencode's older file store: a session's record, its turns, each turn's parts, its diff and to-dos. */
 function opencodeFiles(file: string, id: string): string[] {
   const storage = dirname(dirname(dirname(file)))
@@ -112,7 +122,12 @@ export type DisposableSession = Pick<SessionMeta, 'provider' | 'nativeId' | 'sou
 export function disposalOf(meta: DisposableSession): Disposal {
   const file = meta.sourcePath
   switch (meta.provider) {
-    case 'claude':
+    case 'claude': {
+      // its subagents' transcripts and the tool results it saved aside sit in a folder
+      // named for the session, beside its log
+      const beside = join(dirname(file), basename(file, '.jsonl'))
+      return none(isDir(beside) ? [...sessionLogFiles(meta), beside] : sessionLogFiles(meta))
+    }
     case 'codex':
     case 'copilot':
       // every page of a thread kept across several files
