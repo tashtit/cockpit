@@ -351,6 +351,7 @@ export function ChatView({
         : undefined
 
   /** Change hands: the bar's buttons, each saying what happened once main agrees. */
+  const takeOverRef = useRef<HTMLButtonElement>(null)
   const changeHands = (to: SessionHolder): void => {
     if (!onSetHolder || holdPending || !binding) return
     setHoldPending(true)
@@ -363,6 +364,9 @@ export function ChatView({
         } else {
           announceChat(`Released to ${PROVIDER_LABEL[binding.provider]} — Cockpit only follows its log now`)
           setHoldOpen(false)
+          // the key pressed gives way to Take over: land there once it is drawn and
+          // enabled, or focus falls to the page body with the key that held it
+          requestAnimationFrame(() => takeOverRef.current?.focus())
         }
       })
       .finally(() => setHoldPending(false))
@@ -678,6 +682,7 @@ export function ChatView({
               elsewhere={elsewhere}
               asking={!!pendingAsk}
               pending={holdPending}
+              takeRef={takeOverRef}
               onTakeOver={() => changeHands('cockpit')}
               onRelease={() => changeHands('agent')}
               onResume={resumeThere}

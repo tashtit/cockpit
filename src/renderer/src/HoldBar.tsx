@@ -1,4 +1,4 @@
-import type { JSX } from 'react'
+import type { JSX, Ref } from 'react'
 import type { SessionControl, SessionProvider } from '../../shared/types'
 import { isDrivable } from '../../shared/providers'
 import { holderName, placeOf } from './hold'
@@ -20,7 +20,8 @@ export function HoldBar({
   onTakeOver,
   onRelease,
   onResume,
-  onClose
+  onClose,
+  takeRef
 }: {
   control: SessionControl
   provider: SessionProvider
@@ -38,6 +39,8 @@ export function HoldBar({
   onResume: () => void
   /** Hide the bar (a session Cockpit holds) — the caller hands focus back to its chip */
   onClose: () => void
+  /** Take over, for the caller to land focus on once Release has swapped it in */
+  takeRef?: Ref<HTMLButtonElement>
 }): JSX.Element {
   const agent = PROVIDER_LABEL[provider]
   const held = control.holder === 'cockpit'
@@ -128,6 +131,7 @@ export function HoldBar({
           </>
         ) : (
           <button
+            ref={takeRef}
             className="btn-primary hold-take"
             disabled={blocked || pending}
             title={blocked ? blockedWhy : 'Cockpit sends its turns from here on'}

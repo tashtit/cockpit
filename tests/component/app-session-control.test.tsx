@@ -107,6 +107,8 @@ describe('App and who drives the open session', () => {
     expect(window.cockpit.setSessionHolder).toHaveBeenCalledWith('claude:a', 'agent')
     expect(await screen.findByRole('button', { name: 'Take over' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(/released from Cockpit/)
+    // the key pressed is gone: focus lands on the one that took its place, not the body
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Take over' })).toHaveFocus())
   })
 })
 
