@@ -1720,6 +1720,49 @@ describe('a shared database written while the index re-judges it', () => {
   })
 })
 
+/**
+ * A write that takes the database for itself fails every read while it holds it, and the
+ * last good answer stands in. Recorded against the stamp that write left, the stand-in
+ * stood until the database was next written — a renamed session kept its old name, and
+ * a new one went unlisted, for as long as the app stayed quiet.
+ */
+describe('a shared database read while its app holds it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cockpit-indexer-held-db-'))
+  const opencode = join(dir, 'opencode')
+  const at = Date.parse('2026-09-01T09:00:00Z')
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    writeOpencodeDb(join(opencode, 'opencode.db'), [
+      { id: 'ses_a', title: 'First', directory: '/x', created: at, updated: at, turns: [{ role: 'user', at, parts: [{ type: 'text', text: 'one' }] }] }
+    ])
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: opencode, provider: 'opencode', label: 'opencode-default' }])
+  })
+
+  afterAll(() => {
+    idx?.stopWatchers()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('is looked at again once the app lets go, with nothing written after', async () => {
+    expect(idx.getSession('opencode:ses_a')?.title).toBe('First')
+    const app = new DatabaseSync(join(opencode, 'opencode.db'))
+    try {
+      // a rename, then the database held — no file changes — while the watcher's news
+      // of the rename is acted on and every read of it fails
+      app.exec("UPDATE session SET title = 'Renamed' WHERE id = 'ses_a'")
+      app.exec('BEGIN EXCLUSIVE')
+      await new Promise((r) => setTimeout(r, 2500))
+      expect(idx.getSession('opencode:ses_a')?.title).toBe('First')
+      app.exec('ROLLBACK')
+    } finally {
+      app.close()
+    }
+    await vi.waitFor(() => expect(idx.getSession('opencode:ses_a')?.title).toBe('Renamed'), { timeout: 12_000, interval: 100 })
+  })
+})
+
 describe('who drives a session (control)', () => {
   const home = join(root, 'claude-control')
   const worktrees = join(root, 'cockpit-userdata', 'worktrees')

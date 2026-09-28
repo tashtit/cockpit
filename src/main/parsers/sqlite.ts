@@ -159,6 +159,15 @@ export function inPass<T>(pass: SnapshotPass, fn: () => T): T {
   }
 }
 
+/**
+ * Did a read of this database fail in the pass running now, the last good answer
+ * standing in for it? What was read from a stand-in cannot be vouched for by the
+ * database's stamp: recorded against it, it would stand until the next write.
+ */
+export function readFailed(file: string): boolean {
+  return current?.failed(file) ?? false
+}
+
 function look(file: string): DbLook {
   return current ? current.look(file) : lookAt(file)
 }
@@ -201,7 +210,10 @@ export function splitSessionRef(ref: string): { readonly file: string; readonly 
  * (the next pass, inside one). Taken as "no sessions", it dropped every session in the
  * database from the index until the next good read put them back — a session flickering
  * in and out of the sidebar, and out of search, every few seconds while its agent was at
- * work. A database that is not there at all is an answer: nothing in it (`empty`).
+ * work. The pass is told (`readFailed`, `unsettled`), so the indexer neither records the
+ * stand-in against the database's new stamp nor waits for another write to look again —
+ * a write that took its lock may be the last one for a while. A database that is not
+ * there at all is an answer: nothing in it (`empty`).
  */
 export function snapshotCache<T>(read: (file: string) => T | null, empty: T): (file: string) => T {
   const cache = new Map<string, { readonly stamp: string; readonly value: T }>()
