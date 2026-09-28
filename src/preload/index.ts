@@ -1,3 +1,9 @@
+/**
+ * The bridge: `window.cockpit`, exposed to the sandboxed renderer through contextBridge.
+ * Each member is one `ipcRenderer.invoke` on its `CH` channel, or a `subscribe` to its
+ * `PUSH` channel, typed by `CockpitApi` in `shared/contract.ts` — the one place the IPC
+ * surface is declared. Nothing here validates: main treats every argument as untrusted.
+ */
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { CH, PUSH } from '../shared/contract'
 import { clampZoom } from '../shared/window'

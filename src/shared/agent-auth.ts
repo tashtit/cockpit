@@ -1,3 +1,8 @@
+/**
+ * Signing an agent CLI back in: the command a person runs in a terminal for each agent
+ * (with its config-home variable when the home is not the default), and whether a failed
+ * turn's message is a sign-in failure — fixed at a terminal, not by retrying.
+ */
 import type { Provider } from './types'
 import { shortPath } from './library'
 import { CONFIG_HOME_VAR } from './providers'

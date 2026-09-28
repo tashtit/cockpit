@@ -1,3 +1,9 @@
+/**
+ * The models each agent's picker offers under one config home: the built-ins
+ * (`shared/agent-models.ts`), then what the home itself shows — Codex's model catalog and
+ * configured model, the models Copilot's recent logs record. Every read is bounded and
+ * fails soft; the parsing is `agent-models-core.ts`.
+ */
 import { readFileSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'

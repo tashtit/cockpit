@@ -1,5 +1,6 @@
 /*
- * Line diff for the renderer (pure, no DOM). Small inputs are the norm here — a
+ * Line diff (pure, no DOM), for the renderer's instruction diffs and main's edit
+ * artifacts (parsers/artifacts.ts). Small inputs are the norm here — a
  * shared-instructions block is a few dozen lines — so the algorithm is the plain
  * longest-common-subsequence table over whatever remains after the common head and
  * tail are peeled off. That keeps the table tiny for the usual "one paragraph

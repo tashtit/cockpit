@@ -20,7 +20,8 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
 
 /**
  * Live status for the sessions Cockpit did not spawn — the ones running in a terminal
- * or in the provider's own app, which is most of them. Nothing announces their turns,
+ * or in the provider's own app, which is most of them — for the agents Cockpit drives:
+ * an agent it only reads keeps turn records nothing here parses, so it is never busy. Nothing announces their turns,
  * but every provider streams its log as it works, so the indexer's watcher is the
  * signal: on each write the tracker reads a bounded tail (never the file), asks
  * liveness-core what it says, and keeps the session in the busy set while the log

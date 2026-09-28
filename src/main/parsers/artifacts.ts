@@ -8,7 +8,7 @@ import { capText, shellScript, truncate } from './util'
  * What a tool call hands the person to look at — a plan, a to-do list, an edit, a
  * check it ran (`checks.ts`) —
  * read off the call's own input, for every agent and both paths a call arrives by
- * (the log on disk — the three parsers — and the live stream — chat.ts, acp-core.ts). The Work panel renders these; without them
+ * (the log on disk — every agent's parser — and the live stream — chat.ts, acp-core.ts). The Work panel renders these; without them
  * a plan was 400 characters of JSON behind a collapsed row.
  *
  * Tool inputs are provider-internal and drift between releases, so every field is

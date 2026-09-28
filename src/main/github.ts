@@ -1,3 +1,9 @@
+/**
+ * What GitHub says about a repository, through the person's own `gh` CLI: its pull
+ * requests with their checks, review decision and open threads (the badges on rows and
+ * the PR strip), and its default branch. Everything fails soft — no `gh`, no sign-in, no
+ * GitHub remote or no network just means no badges. The parsing is `github-core.ts`.
+ */
 import type { PrStatus } from '../shared/types'
 import { throttledBy } from './cache'
 import { execText } from './env'
