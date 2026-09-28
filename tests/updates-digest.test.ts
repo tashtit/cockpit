@@ -243,6 +243,12 @@ describe('gathering it all, on demand', () => {
     // no agent CLI but a test's stubs, and no registry asked for the newest release
     process.env.PATH = `${bin}:/usr/bin:/bin`
     process.env.COCKPIT_CLI_LATEST = JSON.stringify({ claude: '1.0.0', codex: '1.0.0', copilot: '1.0.0' })
+    // every spawn also searches the install dirs (`cliPath`), so a CLI this Mac installed
+    // with Homebrew is found anyway — and its channel's newest release is asked of brew,
+    // which the pin above doesn't reach. A brew that knows nothing keeps that question
+    // off the machine the tests happen to run on
+    writeFileSync(join(bin, 'brew'), '#!/bin/sh\nexit 1\n')
+    chmodSync(join(bin, 'brew'), 0o755)
     forgetUpdatesDigest()
   })
 
