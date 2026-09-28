@@ -26,6 +26,7 @@ import {
   type CleanupDeps,
   type CleanupTable
 } from '../src/main/cleanup'
+import { RUN_START_SLACK_MS } from '../src/main/cleanup-core'
 import type { OrphanProcess, SessionMeta } from '../src/shared/types'
 import { writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 
@@ -1034,6 +1035,10 @@ describe('processes left in old worktrees', () => {
   it.runIf(hasLsof)('stops what an archived session left running in its worktree, and only that', async (ctx) => {
     const tree = join(cockpitWorktrees, 'app', 'archived-server')
     git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/archived-server', tree])
+    // one the person started there before the session: theirs, whatever its shape
+    const before = await orphanIn(tree)
+    await new Promise((r) => setTimeout(r, RUN_START_SLACK_MS + 2_500))
+    const startedAt = Date.now()
     const server = await orphanIn(tree)
     // a Linux subreaper adopts orphans in init's place — nothing there reads as left behind
     if (parentOf(server) !== 1) ctx.skip()
@@ -1043,6 +1048,8 @@ describe('processes left in old worktrees', () => {
       id: 'claude:archived-server',
       sourcePath: join(sourceDir, 'archived-server.jsonl'),
       cwd: tree,
+      startedAt,
+      updatedAt: Date.now(),
       repo: { key: 'app', name: 'app', fullName: null, root: mainRepo }
     })
 
@@ -1054,6 +1061,7 @@ describe('processes left in old worktrees', () => {
     const res = await stopLeftBehind(deps, { archived: [s], listed: [] })
     expect(res).toMatchObject({ cleaned: 1, failed: [] })
     expect(alive(server)).toBe(false)
+    expect(alive(before)).toBe(true)
     expect(held.exitCode === null && held.signalCode === null).toBe(true)
     held.kill('SIGKILL')
     await exited(held)
@@ -1066,6 +1074,8 @@ describe('processes left in old worktrees', () => {
       id: 'claude:in-checkout',
       sourcePath: join(sourceDir, 'in-checkout.jsonl'),
       cwd: mainRepo,
+      startedAt: Date.now() - 60_000,
+      updatedAt: Date.now(),
       repo: { key: 'app', name: 'app', fullName: null, root: mainRepo }
     })
     const res = await stopLeftBehind(deps, { archived: [s], listed: [] })

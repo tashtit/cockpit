@@ -32,6 +32,7 @@ import {
   worktreeBlocks,
   worktreeOrigin,
   worktreesWithProcesses,
+  type ArchivedRun,
   type CwdSessions,
   type JudgedProcess,
   type PlacedWorktree,
@@ -1212,8 +1213,8 @@ export const stopProcesses = retiringSurveys(async function stopProcesses(
  * what was just archived or deleted, here or in its provider's app; `listed` is every
  * session still listed, since a worktree one of them runs in is still in use. Which
  * processes go is `leftBehind`'s judgement: nothing a live parent still answers for,
- * never the repository's own checkout, never Cockpit's own tree. SIGTERM only, as
- * everywhere in cleanup.
+ * nothing started before the session or after it ended, never the repository's own
+ * checkout, never Cockpit's own tree. SIGTERM only, as everywhere in cleanup.
  */
 export const stopLeftBehind = retiringSurveys(async function stopLeftBehind(
   deps: CleanupDeps,
@@ -1222,7 +1223,9 @@ export const stopLeftBehind = retiringSurveys(async function stopLeftBehind(
   const resolve = resolvedOnce(realish)
   const cwdsOf = (list: readonly SessionMeta[]): string[] =>
     list.flatMap((s) => (s.cwd ? [resolve(s.cwd)] : []))
-  const archived = cwdsOf(sessions.archived)
+  const archived: ArchivedRun[] = sessions.archived.flatMap((s) =>
+    s.cwd ? [{ cwd: resolve(s.cwd), startedAt: s.startedAt, updatedAt: s.updatedAt }] : []
+  )
   if (archived.length === 0) return { cleaned: 0, freedBytes: 0, failed: [] }
   const busy = deps.busyIds()
   const inUse = [

@@ -16,6 +16,8 @@ import {
   parseWorktreeList,
   providerWorktreeHomes,
   resolvedOnce,
+  RUN_END_SLACK_MS,
+  RUN_START_SLACK_MS,
   sameProcess,
   sessionsByCwd,
   sessionsUnder,
@@ -448,13 +450,17 @@ describe('judgeProcesses', () => {
 })
 
 describe('leftBehind', () => {
-  const proc = (pid: number, cwd: string, ppid = 1) => ({
+  /** The archived session's first and last log writes */
+  const T0 = 1_750_000_000_000
+  const T1 = T0 + 3_600_000
+  const proc = (pid: number, cwd: string, ppid = 1, startedAt = T0 + pid * 1_000) => ({
     pid,
     ppid,
     command: `node server-${pid}.js`,
-    startedAt: pid,
+    startedAt,
     cwd
   })
+  const run = (cwd: string) => ({ cwd, startedAt: T0, updatedAt: T1 })
   const tree = { repoName: 'app', branch: 'cockpit/fix', isMain: false, missing: false }
   const worktrees = [
     { ...tree, path: '/repos/app', isMain: true, branch: 'main' },
@@ -472,7 +478,7 @@ describe('leftBehind', () => {
     where: { archived?: string[]; inUse?: string[] } = {}
   ) =>
     leftBehind({
-      archived: where.archived ?? ['/wt/app/fix'],
+      archived: (where.archived ?? ['/wt/app/fix']).map(run),
       inUse: where.inUse ?? [],
       processes,
       worktrees,
@@ -509,7 +515,7 @@ describe('leftBehind', () => {
   it('takes one whose worktree was removed with the session', () => {
     const gone = '/repos/app/.claude/worktrees/done'
     const [p] = leftBehind({
-      archived: [gone],
+      archived: [run(gone)],
       inUse: [],
       processes: [proc(10, `${gone}/web`)],
       worktrees,
@@ -527,6 +533,59 @@ describe('leftBehind', () => {
   it('takes nothing when no session was archived in a worktree', () => {
     expect(left([proc(10, '/wt/app/fix')], { archived: [] })).toEqual([])
     expect(left([proc(10, '/tmp/scratch')], { archived: ['/tmp/scratch'] })).toEqual([])
+  })
+
+  it('leaves a multiplexer the person started there before the session, and the agent idle in it', () => {
+    // tmux daemonizes (launchd adopts it) and keeps the cwd it was first started in
+    const W = '/wt/app/fix'
+    const tmux = [
+      proc(100, W, 1, T0 - 20_000),
+      proc(101, W, 100, T0 - 19_000), // a pane's shell
+      proc(102, W, 101, T0 - 15_000), // the interactive agent, idle in it
+      proc(103, `${W}/web`, 100, T0 + 600_000), // a pane opened mid-session
+      proc(50, W, 40, T0 - 30_000), // the terminal's shell the person attached from
+      proc(200, W, 50, T0 - 20_000) // the attached client
+    ]
+    expect(left(tmux)).toEqual([])
+    // an `ssh -fN` tunnel, the same shape with no children
+    expect(left([proc(300, W, 1, T0 - RUN_START_SLACK_MS - 1_000)])).toEqual([])
+  })
+
+  it('takes a tree the session started, ps’s whole-second start and all', () => {
+    expect(left([proc(10, '/wt/app/fix', 1, T0 + 120_000), proc(11, '/wt/app/fix', 10, T0 + 121_000)])).toEqual([10, 11])
+    expect(left([proc(10, '/wt/app/fix', 1, T0 - 1_000)])).toEqual([10])
+    // a turn cut short mid-command writes its last line before the server is up
+    expect(left([proc(10, '/wt/app/fix', 1, T1 + 5_000)])).toEqual([10])
+  })
+
+  it('leaves what began after the session’s last write', () => {
+    expect(left([proc(10, '/wt/app/fix', 1, T1 + RUN_END_SLACK_MS + 1_000)])).toEqual([])
+  })
+
+  it('takes nothing whose start, or whose session’s lifetime, is unknown', () => {
+    expect(left([proc(10, '/wt/app/fix', 1, 0)])).toEqual([])
+    const unknown = leftBehind({
+      archived: [{ cwd: '/wt/app/fix', startedAt: 0, updatedAt: T1 }],
+      inUse: [],
+      processes: [proc(10, '/wt/app/fix')],
+      worktrees,
+      homes,
+      exists: (p) => onDisk.has(p)
+    })
+    expect(unknown).toEqual([])
+  })
+
+  it('takes a tree any session archived in its worktree could have started', () => {
+    const earlier = { cwd: '/wt/app/fix', startedAt: T0 - 86_400_000, updatedAt: T0 - 82_800_000 }
+    const found = leftBehind({
+      archived: [earlier, run('/wt/app/fix/web')],
+      inUse: [],
+      processes: [proc(10, '/wt/app/fix', 1, T0 - 85_000_000), proc(11, '/wt/app/fix', 1, T0 - 40_000_000)],
+      worktrees,
+      homes,
+      exists: (p) => onDisk.has(p)
+    })
+    expect(found.map((p) => p.pid)).toEqual([10])
   })
 })
 
