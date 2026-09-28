@@ -274,6 +274,24 @@ describe('gathering it all, on demand', () => {
     expect(await updatesDigest({ app })).not.toBe(forced)
   })
 
+  // a gathering under way when a write settles saw the machine before the write: it
+  // answers whoever asked it, but the next ask must not be handed it for 15 minutes
+  it('keeps nothing a gathering found when a write lands during it', async () => {
+    const during = updatesDigest({ app })
+    forgetUpdatesDigest()
+    const stale = await during
+    expect(await updatesDigest({ app })).not.toBe(stale)
+  })
+
+  it('lets a forced gathering win over a plain one already under way', async () => {
+    const plain = updatesDigest({ app })
+    const forced = updatesDigest({ app, force: true })
+    // a visit while Check again is gathering shares that gathering
+    expect(updatesDigest({ app })).toBe(forced)
+    const [, fresh] = await Promise.all([plain, forced])
+    expect(await updatesDigest({ app })).toBe(fresh)
+  })
+
   // a marketplace's clone is what the plugin rows read, and a third-party one never
   // refreshes itself — so the person's Check again pulls them first, and only then
   it('pulls the agents’ marketplaces only on Check again, and names one that could not be', async () => {
