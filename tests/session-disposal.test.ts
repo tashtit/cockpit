@@ -73,10 +73,24 @@ describe('what deleting a session removes, as its agent keeps it', () => {
       ])
     )
     const plan = disposalOf(meta({ provider: 'cline', nativeId: '17', sourcePath: log }))
+    // Cline's CLI: no editor beside its storage
     expect(plan.index).toEqual({ file: history, id: '17' })
-    dispose(plan)
+    expect(dispose(plan)).toEqual({ indexLeft: false })
     expect(existsSync(join(dir, 'tasks', '17'))).toBe(false)
     expect(JSON.parse(readFileSync(history, 'utf8'))).toEqual([{ id: '18', task: 'kept' }])
+  })
+
+  it('Cline in an editor: the list is left while the editor, holding it in memory, is open', () => {
+    const storage = join(dir, 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev')
+    const log = write(join(storage, 'tasks', '17', 'ui_messages.json'), '[]')
+    const list = JSON.stringify([{ id: '17' }, { id: '18' }])
+    const history = write(join(storage, 'state', 'taskHistory.json'), list)
+    const editorDb = write(join(dir, 'Code', 'User', 'globalStorage', 'state.vscdb'), '')
+    const plan = disposalOf(meta({ provider: 'cline', nativeId: '17', sourcePath: log }))
+    expect(plan.index).toEqual({ file: history, id: '17', editorDb })
+    expect(dispose(plan, { keepIndex: true })).toEqual({ indexLeft: true })
+    expect(existsSync(join(storage, 'tasks', '17'))).toBe(false)
+    expect(readFileSync(history, 'utf8')).toBe(list)
   })
 
   it('Roo Code: the task folder, and its entry in the tasks index', () => {

@@ -736,7 +736,8 @@ async function deleteMergedBranch(repoRoot: string, branch: string): Promise<boo
 }
 
 type LogRemoval =
-  | { readonly ok: true; readonly bytes: number }
+  /** `indexLeft`: its agent's own list still names it — the editor holding the list is open */
+  | { readonly ok: true; readonly bytes: number; readonly indexLeft: boolean }
   /** `outside`: refused before anything went, for a file outside every configured source */
   | { readonly ok: false; readonly outside: boolean; readonly reason: string }
 
@@ -745,7 +746,8 @@ type LogRemoval =
  * folder, its rows in a shared database, its entry in the agent's own index). Every file
  * the plan touches is re-validated against the configured sources first, and a database
  * another process holds open refuses the session, judged again now: the app may have
- * opened its store since the scan. `label` names the session in the audit. Earlier pages
+ * opened its store since the scan. An agent's own list is left while the editor its
+ * extension runs in is open (`indexLeft`). `label` names the session in the audit. Earlier pages
  * go first: a failure part-way leaves the session listed on its newest file, never an old
  * page left behind to pose as the whole thread.
  */
@@ -764,7 +766,11 @@ async function removeSessionLogs(
     audit(`refused ${ctx.label}: ${outside} is outside every configured source`)
     return { ok: false, outside: true, reason: 'outside every configured source' }
   }
-  const holds = plan.databases.length > 0 ? [...(await ctx.heldOpen(plan.databases)).values()] : []
+  // the editor a task list's extension runs in is asked about with them: one lsof
+  const editorDb = plan.index?.editorDb
+  const asked = [...plan.databases, ...(editorDb ? [editorDb] : [])]
+  const found = asked.length > 0 ? await ctx.heldOpen(asked) : new Map<string, DbHold>()
+  const holds = plan.databases.flatMap((db) => found.get(db) ?? [])
   if (holds.includes('held')) {
     return { ok: false, outside: false, reason: 'its agent’s app has it open — quit the app, then delete it' }
   }
@@ -772,13 +778,19 @@ async function removeSessionLogs(
     return { ok: false, outside: false, reason: 'couldn’t check whether its agent’s app has it open — try again' }
   }
   const bytes = disposalBytes(plan)
+  // an editor open, or not proven closed, keeps its extension's list in memory
+  const keepIndex = editorDb !== undefined && found.has(editorDb)
+  let done: { readonly indexLeft: boolean }
   try {
-    dispose(plan)
+    done = dispose(plan, { keepIndex })
   } catch (err) {
     return { ok: false, outside: false, reason: err instanceof Error ? err.message : String(err) }
   }
   audit(`removed ${ctx.label}: ${targets.join(', ')} (${bytes} bytes)`)
-  return { ok: true, bytes }
+  if (done.indexLeft) {
+    audit(`left ${ctx.label} in ${plan.index?.file}: its editor is open, and its extension drops the entry once it is opened`)
+  }
+  return { ok: true, bytes, indexLeft: done.indexLeft }
 }
 
 type WorktreeRemoval =

@@ -566,6 +566,28 @@ describe('deleteSessions', () => {
     sessions = []
   })
 
+  it('leaves an extension’s task list alone while the editor it runs in is open', async () => {
+    const storage = join(sourceDir, 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev')
+    const task = join(storage, 'tasks', '1756700000001')
+    mkdirSync(task, { recursive: true })
+    const log = join(task, 'ui_messages.json')
+    writeFileSync(log, '[]')
+    mkdirSync(join(storage, 'state'), { recursive: true })
+    const history = join(storage, 'state', 'taskHistory.json')
+    writeFileSync(history, JSON.stringify([{ id: '1756700000001' }, { id: 'other' }]))
+    const editorDb = join(sourceDir, 'Code', 'User', 'globalStorage', 'state.vscdb')
+    writeFileSync(editorDb, '')
+    sessions = [session({ id: 'cline:1756700000001', provider: 'cline', nativeId: '1756700000001', sourcePath: log })]
+    // VS Code is running: Cline holds its list in memory and would write it back
+    heldOpen = new Map([[editorDb, 'held']])
+    const res = await deleteSessions(deps, ['cline:1756700000001'], 30)
+    expect(res).toMatchObject({ cleaned: 1, failed: [] })
+    expect(existsSync(task)).toBe(false)
+    expect(JSON.parse(readFileSync(history, 'utf8'))).toEqual([{ id: '1756700000001' }, { id: 'other' }])
+    heldOpen = new Map()
+    sessions = []
+  })
+
   it('holds back a session whose agent has its database open, and says so', async () => {
     const db = join(sourceDir, 'opencode.db')
     writeOpencodeDb(db, [

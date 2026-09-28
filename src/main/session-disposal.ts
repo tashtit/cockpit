@@ -35,7 +35,16 @@ export type Disposal = {
   /** A database the session is rows in: the rows go, never the file */
   readonly rows?: { readonly db: string; readonly kind: 'cursor-chat' | 'opencode-session'; readonly id: string }
   /** The agent's own list of its sessions, which would otherwise still name this one */
-  readonly index?: { readonly file: string; readonly id: string }
+  readonly index?: {
+    readonly file: string
+    readonly id: string
+    /**
+     * The database of the editor the extension runs in, when there is one: while the
+     * editor holds it open the extension is running, holding the list in memory, and
+     * the list is left alone (`dispose`'s `keepIndex`)
+     */
+    readonly editorDb?: string
+  }
   /** Databases no other process may hold open while the session goes */
   readonly databases: readonly string[]
 }
@@ -85,6 +94,19 @@ function cursorDisposal(file: string): Disposal {
   return none([basename(dir) === basename(file, '.jsonl') ? dir : file])
 }
 
+/** What every VS Code-based editor keeps its own state in, beside its extensions' storage. */
+const EDITOR_DB = 'state.vscdb'
+
+/**
+ * A Cline or Roo Code task list, and the editor database beside the extension's storage
+ * (`<editor>/User/globalStorage/<extension>` → `…/globalStorage/state.vscdb`) when the
+ * extension runs in one — Cline's CLI keeps its storage in a home of its own.
+ */
+function taskIndex(storage: string, list: { readonly file: string; readonly id: string }): NonNullable<Disposal['index']> {
+  const editorDb = join(dirname(storage), EDITOR_DB)
+  return { file: resolve(list.file), id: list.id, ...(existsSync(editorDb) ? { editorDb: resolve(editorDb) } : {}) }
+}
+
 export type DisposableSession = Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments' | 'otherRecords'>
 
 export function disposalOf(meta: DisposableSession): Disposal {
@@ -110,13 +132,14 @@ export function disposalOf(meta: DisposableSession): Disposal {
         return { paths: [...a.paths, ...b.paths], ...(rows ? { rows } : {}), databases: [...a.databases, ...b.databases] }
       }, own)
     }
-    case 'cline':
-      return {
-        ...none([dirname(file)]),
-        index: { file: resolve(dirname(dirname(dirname(file))), 'state', 'taskHistory.json'), id: meta.nativeId }
-      }
-    case 'roo':
-      return { ...none([dirname(file)]), index: { file: resolve(dirname(dirname(file)), '_index.json'), id: meta.nativeId } }
+    case 'cline': {
+      const storage = dirname(dirname(dirname(file)))
+      return { ...none([dirname(file)]), index: taskIndex(storage, { file: join(storage, 'state', 'taskHistory.json'), id: meta.nativeId }) }
+    }
+    case 'roo': {
+      const storage = dirname(dirname(dirname(file)))
+      return { ...none([dirname(file)]), index: taskIndex(storage, { file: join(storage, 'tasks', '_index.json'), id: meta.nativeId }) }
+    }
     case 'opencode': {
       const ref = splitSessionRef(file)
       if (ref && basename(ref.file) === OPENCODE_DB) {
@@ -360,14 +383,21 @@ function dropFromIndex(index: NonNullable<Disposal['index']>): void {
 
 /**
  * Remove the session. The rows go first, in one transaction, so a database that
- * refuses the write leaves every file where it was; then the files; then the index.
+ * refuses the write leaves every file where it was; then the files; then the index —
+ * unless `keepIndex`: the editor the extension runs in is open (`index.editorDb`), and
+ * the extension holds its list in memory, to write back over an edit or to lose its own
+ * write to one. It drops an entry whose task is gone once the entry is opened. Says
+ * whether the index was left.
  */
-export function dispose(d: Disposal): void {
+export function dispose(d: Disposal, opts: { readonly keepIndex?: boolean } = {}): { readonly indexLeft: boolean } {
   if (d.rows) deleteRows(d.rows)
   for (const p of d.paths) {
     if (!existsSync(p) && /-(wal|shm)$/.test(p)) continue
     rmSync(p, { recursive: true, force: false })
   }
-  if (d.index && existsSync(d.index.file)) dropFromIndex(d.index)
+  if (!d.index || !existsSync(d.index.file)) return { indexLeft: false }
+  if (opts.keepIndex) return { indexLeft: true }
+  dropFromIndex(d.index)
+  return { indexLeft: false }
 }
 

@@ -27,9 +27,9 @@ Every session from every agent, oldest first, with its size on disk. Two actions
   | Agent | What goes |
   | --- | --- |
   | Gemini CLI | the chat log, and the folder its subagents wrote beside it |
-  | Cursor | an agent transcript's folder, an ACP conversation's folder, or an editor chat's rows in Cursor's database |
-  | Cline, Roo Code | the task's folder, and its entry in the list the extension shows tasks from |
-  | opencode | the session's rows in its database (or its files, from older versions) |
+  | Cursor | an agent transcript's folder, an ACP conversation's folder, or an editor chat's rows in Cursor's database — both, when the chat is kept in each |
+  | Cline, Roo Code | the task's folder, and its entry in the list the extension shows tasks from — unless the editor it runs in is open, when the entry stays and the extension drops it the first time you open it |
+  | opencode | the session's rows in its database, its event history included (or its files, from older versions) |
   | Antigravity | the conversation's database and the notes it wrote for you |
 
   A session that lives inside a database the agent's app has open right now, such as a Cursor chat while Cursor is running, is marked **open in its app** and can't be selected. Writing to that database under the app could leave the app holding the rows in memory and putting them back. Quit the app and scan again. When Cockpit can't tell whether the app has it open — the check timed out or couldn't read the file — it treats the database the same way, and a delete says it couldn't check rather than writing.
