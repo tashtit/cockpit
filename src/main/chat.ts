@@ -172,9 +172,20 @@ export const CLAUDE_NO_HOOKS: readonly string[] = ['--settings', JSON.stringify(
 /**
  * A side question's copy of a Codex session: a read-only sandbox, and nothing escalates
  * out of it — an approvals reviewer in the person's own config would otherwise wave a
- * write through. `exec fork` takes no `--sandbox` flag, so both are config overrides.
+ * write through. `exec fork` takes no `--sandbox` flag, so each is a config override. The
+ * built-in `:read-only` permission profile (the one `CODEX_RESEARCH_ARGS` extends) goes
+ * with the sandbox mode, since a profile beats `sandbox_mode`: a `default_permissions` in
+ * the person's own config.toml ran the copy under that profile, a writable one included.
+ * `sandbox_mode` stays as the floor for a Codex that predates profiles.
  */
-export const CODEX_SIDE_ARGS: readonly string[] = ['-c', 'sandbox_mode="read-only"', '-c', 'approval_policy="never"']
+export const CODEX_SIDE_ARGS: readonly string[] = [
+  '-c',
+  'sandbox_mode="read-only"',
+  '-c',
+  'default_permissions=":read-only"',
+  '-c',
+  'approval_policy="never"'
+]
 
 /**
  * Auto-edit's "anything more still asks", for Codex. Its workspace sandbox keeps `.git`

@@ -14,6 +14,7 @@ import {
   CLAUDE_NO_HOOKS,
   CLAUDE_SEAT_TOOLS,
   CLAUDE_SIDE_TOOLS,
+  CODEX_RESEARCH_ARGS,
   CODEX_REVIEWED_ARGS,
   CODEX_SIDE_ARGS,
   type CliRequest
@@ -288,6 +289,11 @@ describe('side chat: a copy of the session, never the session', () => {
     expect(args.slice(-2 - CODEX_SIDE_ARGS.length, -2)).toEqual([...CODEX_SIDE_ARGS])
     expect(CODEX_SIDE_ARGS).toContain('sandbox_mode="read-only"')
     expect(CODEX_SIDE_ARGS).toContain('approval_policy="never"')
+    // a profile beats sandbox_mode, so the person's own default_permissions would win it:
+    // the copy names Codex's built-in read-only profile, the one a seat's profile extends
+    expect(CODEX_SIDE_ARGS).toContain('default_permissions=":read-only"')
+    expect(CODEX_RESEARCH_ARGS.join(' ')).toContain('extends = ":read-only"')
+    expect(args.filter((a) => a.startsWith('default_permissions='))).toEqual(['default_permissions=":read-only"'])
     expect(args).toContain('--skip-git-repo-check')
     expect(args).not.toContain('--sandbox')
     expect(args[args.indexOf('--model') + 1]).toBe('gpt-5')

@@ -237,7 +237,7 @@ is answered by a throwaway copy of the conversation as it stands, so:
 | Agent | How the copy is made |
 | --- | --- |
 | Claude Code | `claude -p --resume <id> --fork-session --no-session-persistence`, with only the Read, Grep and Glob tools, no MCP servers and no hooks — yours, the repo's or a plugin's |
-| Codex | `codex exec fork <id> --ephemeral`, in a read-only sandbox that never asks to leave it |
+| Codex | `codex exec fork <id> --ephemeral`, in a read-only sandbox that never asks to leave it, whatever permission profile your own Codex config sets |
 
 Copilot CLI can't copy a session or run without saving one, so its sessions have no side
 chat. A roundtable seat's session doesn't have one either. The copy runs as the session's
