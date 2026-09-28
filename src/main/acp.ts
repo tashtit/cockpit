@@ -66,7 +66,22 @@ type TurnOptions = {
    * session would answer the person without any of the history they are looking at.
    */
   readonly mustResume?: boolean
+  /** How long the handshake may take (`HANDSHAKE_MS`, `OPEN_SESSION_MS`) — tests shorten them */
+  readonly deadlines?: { readonly handshake?: number; readonly openSession?: number }
 }
+
+/**
+ * How long an agent has to answer `initialize`, a turn's or a probe's: it needs nothing
+ * but its process started, so one silent past this is stuck — or waiting on input nobody
+ * can give it — and the turn fails rather than spinning until Stop.
+ */
+const HANDSHAKE_MS = 15_000
+
+/**
+ * How long opening the session may take once the agent has answered: `session/new` can
+ * start the agent's own MCP servers, and `session/load` replays the whole conversation.
+ */
+const OPEN_SESSION_MS = 60_000
 
 /** How long an agent has to exit on its own once its turn is over */
 const EXIT_GRACE_MS = 2_000
@@ -360,12 +375,20 @@ export class AcpTurn {
     // exit and its stderr rather than as a promise that never settles
     const step = <T>(p: Promise<T>): Promise<T> => Promise.race([p, exited]) as Promise<T>
 
+    const { handshake = HANDSHAKE_MS, openSession = OPEN_SESSION_MS } = this.opts.deadlines ?? {}
+    const label = this.agentLabel
     try {
-      const init = (await step(this.rpc.request('initialize', initializeParams()))) as
-        | Record<string, unknown>
-        | undefined
+      const init = (await step(
+        within(this.rpc.request('initialize', initializeParams()), handshake, () => handshakeLate(label, handshake))
+      )) as Record<string, unknown> | undefined
       const caps = (init?.agentCapabilities ?? {}) as Record<string, unknown>
-      const session = (): Promise<string> => this.openSession(Boolean(caps.loadSession), resumeNativeId)
+      // each attempt at the session has the deadline — signing in between has its own
+      const session = (): Promise<string> =>
+        within(
+          this.openSession(Boolean(caps.loadSession), resumeNativeId),
+          openSession,
+          () => new Error(`${label} did not open the session within ${inSeconds(openSession)}.`)
+        )
       this.sessionId = await step(this.signedIn(session, authMethodIds(init)))
       this.emit({ turnId, type: 'session', nativeSessionId: this.sessionId })
       const result = await step(
@@ -420,15 +443,11 @@ export class AcpTurn {
       if (authMethod && offered.includes(authMethod)) {
         try {
           // an agent may wait on an interactive login here — never longer than this
-          let timer: NodeJS.Timeout | undefined
-          const late = new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new AgentError('signing in took too long', AUTH_REQUIRED)), AUTHENTICATE_MS)
-          })
-          try {
-            await Promise.race([this.rpc.request('authenticate', { methodId: authMethod }), late])
-          } finally {
-            clearTimeout(timer)
-          }
+          await within(
+            this.rpc.request('authenticate', { methodId: authMethod }),
+            AUTHENTICATE_MS,
+            () => new AgentError('signing in took too long', AUTH_REQUIRED)
+          )
           return await open()
         } catch (again) {
           if (!isAuthRequired(again) && !(again instanceof AgentError)) throw again
@@ -558,6 +577,27 @@ export function stopAcpProbes(): void {
   probeGroups.clear()
 }
 
+/** `p`, or — once `ms` pass without it settling — a rejection with `late()`'s error. */
+function within<T>(p: Promise<T>, ms: number, late: () => Error): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(late()), ms)
+  })
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer))
+}
+
+function inSeconds(ms: number): string {
+  const s = Math.round(ms / 1000)
+  return `${s} second${s === 1 ? '' : 's'}`
+}
+
+/** What a turn or a probe says of an agent that never answered `initialize`. */
+function handshakeLate(who: string, ms: number): Error {
+  return new Error(
+    `${who} did not answer the ACP handshake within ${inSeconds(ms)} — it may be stuck, or waiting for input it can't get here.`
+  )
+}
+
 /** What a turn that could not sign in says: the agent's own reason, and what fixes it. */
 function signInMessage(label: string, signIn: string | undefined, err: unknown): string {
   const why = messageFor(err)
@@ -603,8 +643,8 @@ export function probeAcpAgent(agent: AcpAgent, cwd: string): Promise<AcpAgentPro
       resolve(probe)
     }
     const timer = setTimeout(
-      () => done({ ok: false, error: 'the agent did not answer the ACP handshake within 15 seconds' }),
-      15_000
+      () => done({ ok: false, error: handshakeLate('the agent', HANDSHAKE_MS).message }),
+      HANDSHAKE_MS
     )
     child.stderr!.setEncoding('utf8')
     child.stderr!.on('data', (c: string) => {

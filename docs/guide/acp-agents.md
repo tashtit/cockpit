@@ -24,6 +24,11 @@ Nothing about your session history changes either. An ACP session is written to 
 place that CLI always wrote to, so it appears in the sidebar, resumes, and reports live
 status like any other.
 
+An agent that starts but never answers, because it is stuck or waiting for input only a
+terminal could give it, doesn't leave the turn spinning until you stop it. The turn fails
+and names the agent if the handshake takes more than 15 seconds, or opening the
+conversation more than a minute.
+
 ## Agents Cockpit otherwise only reads
 
 For Gemini CLI, Cursor, Cline and opencode, ACP is the only way Cockpit runs them. Each has a built-in definition, used once its CLI answers the handshake:

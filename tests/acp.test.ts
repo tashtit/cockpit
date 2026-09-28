@@ -41,18 +41,22 @@ function start(
     asksPermissions?: boolean
     /** How the agent is signed in, as a built-in names it */
     auth?: Pick<AcpAgent, 'authMethod' | 'signIn'>
+    deadlines?: { handshake?: number; openSession?: number }
+    /** Extra env for the stub (a pid file) */
+    env?: Record<string, string>
     onEvent?: (ev: ChatEvent, turn: AcpTurn) => void
   } = {}
 ): Run & { readonly done: Promise<void> } {
   const events: ChatEvent[] = []
   let turn!: AcpTurn
-  turn = new AcpTurn(stubAgent(mode, opts.auth), {
+  turn = new AcpTurn(stubAgent(mode, { ...opts.auth, env: { STUB_MODE: mode, ...opts.env } }), {
     turnId: 't1',
     cwd,
     env: process.env,
     permissionMode: opts.permissionMode ?? 'safe',
     mustResume: opts.mustResume,
     asksPermissions: opts.asksPermissions ?? true,
+    deadlines: opts.deadlines,
     emit: (ev) => {
       events.push(ev)
       opts.onEvent?.(ev, turn)
@@ -267,6 +271,29 @@ describe('AcpTurn', () => {
     expect(err.message).toMatch(/exited with code 3/)
     expect(err.message).toMatch(/exploded during startup/)
     expect(events.at(-1)).toMatchObject({ type: 'done' })
+  })
+
+  // a probe gives up on a silent agent; a turn used to spin until someone pressed Stop
+  it('fails a turn whose agent never answers the handshake, naming the agent, and ends it', async () => {
+    const pidFile = join(cwd, `mute-${Date.now()}.pid`)
+    const { events, done } = start('mute', { deadlines: { handshake: 1000 }, env: { STUB_PIDFILE: pidFile } })
+    await done
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect((events[0] as { message: string }).message).toMatch(/^Stub did not answer the ACP handshake within 1 second\b/)
+    // it ignores EOF too: the turn's reaping still ends it
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    try {
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 8000, interval: 100 })
+    } finally {
+      if (alive(pid)) process.kill(pid, 'SIGKILL')
+    }
+  })
+
+  it('fails a turn whose agent never opens the session', async () => {
+    const { events, done } = start('no-session', { deadlines: { openSession: 1000 } })
+    await done
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect((events[0] as { message: string }).message).toBe('Stub did not open the session within 1 second.')
   })
 
   it('reports a command that is not installed, rather than failing silently', async () => {

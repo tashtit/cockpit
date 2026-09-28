@@ -106,6 +106,8 @@ function handle(m) {
       }
       return
     case 'session/new':
+      // 'no-session': answers the handshake, then never opens a session
+      if (mode === 'no-session') return
       if ((mode === 'auth' || mode === 'auth-fail') && !signedIn) {
         send({ jsonrpc: '2.0', id: m.id, error: { code: -32000, message: 'Authentication required' } })
         return
