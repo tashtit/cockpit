@@ -1,6 +1,6 @@
 # Sessions & the index
 
-Everything in Cockpit starts from the session index: a live, repo-grouped view of every conversation you've had with any of the three agents, on any machine account, in any terminal.
+Everything in Cockpit starts from the session index: a live, repo-grouped view of every conversation you've had with Claude Code, Codex or Copilot — or with one of the six agents Cockpit also reads — on any machine account, in any terminal.
 
 ## Where sessions come from
 
@@ -67,6 +67,12 @@ normal palette; <kbd>Esc</kbd> closes it.
 | <kbd>⌘[</kbd> / <kbd>⌘]</kbd> | back and forward through views you've visited |
 | <kbd>⌘,</kbd> | settings |
 | <kbd>Esc</kbd> | back out of a secondary view |
+| <kbd>⌘J</kbd> | in a chat: open or close the Work panel |
+| <kbd>⌘D</kbd> | in a chat: open or close the changes to review |
+| <kbd>⌘L</kbd> | in a chat: open or close the side chat |
+| <kbd>⌥⌘↑</kbd> / <kbd>⌥⌘↓</kbd> | in a chat: move between the messages you sent |
+
+Every shortcut rides <kbd>⌘</kbd> alone: <kbd>Ctrl</kbd>+K, <kbd>Ctrl</kbd>+N and <kbd>Ctrl</kbd>+D stay the text field's own, as everywhere on a Mac.
 
 Backing into the conversation that's currently running just flips the view — the live log keeps streaming, untouched.
 
@@ -116,7 +122,7 @@ By default Cockpit shows your full history. If years of sessions make the sideba
 
 The index stays snappy on huge histories because of a few deliberate constraints:
 
-- Only per-provider session roots are walked and watched — never package caches, cloned repos, logs, or SQLite files.
+- Only each agent's session roots are walked and watched — never package caches, cloned repos or logs. An agent that keeps its sessions in a database (Cursor, opencode, Antigravity) is read from that database, read-only, and never held open.
 - Meta parsing reads at most 256&nbsp;KB per file, and parsers are failure-tolerant: session formats are provider-internal and drift between releases, so anything unreadable is skipped rather than failing the scan.
 - A stat-cache (mtime + size) persists across restarts, so relaunching only re-parses files that actually changed.
 - Scans yield to the event loop, so the UI never blocks behind indexing.

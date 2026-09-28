@@ -1,6 +1,6 @@
 # Cleanup
 
-Agent work leaves residue. Every task cuts a worktree, every conversation leaves a transcript, and both outlive the work that produced them — across three CLIs and every repository you touch. **Cleanup** is the one place that shows what has gone quiet and lets you throw it away.
+Agent work leaves residue. Every task cuts a worktree, every conversation leaves a transcript, and both outlive the work that produced them — across every agent and every repository you touch. **Cleanup** is the one place that shows what has gone quiet and lets you throw it away.
 
 Open it from the trash icon in the sidebar rail, with ⌘K → "Cleanup", or by clicking a [reminder](#reminders).
 
