@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { ChatEvent, SideChatRequest, SideExchange } from '../../shared/types'
+import type { ChatEvent, SessionProvider, SideChatRequest, SideExchange } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 
@@ -11,7 +11,8 @@ import { ipcErrorText } from './ipc-error'
  *
  * A module store rather than panel state, so an answer still lands while the panel is
  * closed or another session is on screen, and a half-typed question survives Escape. Its
- * stream arrives on a channel of its own (`onSideChatEvent`), never the chat's.
+ * stream arrives on a channel of its own (`onSideChatEvent`), never the chat's. A thread
+ * is keyed by the session's id, and follows it when a turn mints a new one (`followSideMint`).
  */
 
 type SideState = 'asking' | 'answered' | 'failed' | 'stopped'
@@ -34,13 +35,18 @@ export type SideLook = { readonly tool: string; readonly what: string }
 /** Which session a side chat is about — the binding, as a side question names it. */
 export type SideTarget = Omit<SideChatRequest, 'question' | 'history'>
 
-/** The key a session's thread lives under. */
-export function sideKey(t: Pick<SideTarget, 'provider' | 'nativeSessionId'>): string {
+/** The key a session's thread lives under — any agent's, so a mint of one can be followed. */
+export function sideKey(t: { readonly provider: SessionProvider; readonly nativeSessionId: string }): string {
   return `${t.provider}:${t.nativeSessionId}`
 }
 
 /** A question the store has handed main, known by its turn once main answers. */
-type Flight = { readonly session: string; readonly key: number; turnId: string | null }
+type Flight = {
+  /** Mutable: a question in flight follows its session's id when a turn mints a new one */
+  session: string
+  readonly key: number
+  turnId: string | null
+}
 
 const NONE: readonly SideEntry[] = []
 /** Calls a copy reads to answer are few; past this the list stops growing, the count doesn't matter */
@@ -51,6 +57,8 @@ const EARLY_MAX = 16
 let threads: ReadonlyMap<string, readonly SideEntry[]> = new Map()
 let drafts: ReadonlyMap<string, string> = new Map()
 const flights = new Map<string, Flight>()
+/** Questions main has not yet named the turn of — `flights` knows them only once it has */
+const unnamed = new Set<Flight>()
 const early = new Map<string, ChatEvent[]>()
 let nextKey = 0
 const listeners = new Set<() => void>()
@@ -149,9 +157,11 @@ export function askSide(target: SideTarget, question: string): void {
   drafts = new Map(drafts).set(session, '')
   emit()
   const f: Flight = { session, key, turnId: null }
+  unnamed.add(f)
   api
     .askSideChat({ ...target, question: q, history: historyOf(list) })
     .then((turnId) => {
+      unnamed.delete(f)
       if (entryOf(f)?.state !== 'asking') {
         // stopped or cleared before main said which turn it was: stop that turn now
         void api.cancelSideChat(turnId)
@@ -164,7 +174,8 @@ export function askSide(target: SideTarget, question: string): void {
       for (const ev of held ?? []) apply(f, ev)
     })
     .catch((err: unknown) => {
-      patch(session, key, (e) => (e.state === 'asking' ? { ...e, state: 'failed', error: ipcErrorText(err) } : e))
+      unnamed.delete(f)
+      patch(f.session, key, (e) => (e.state === 'asking' ? { ...e, state: 'failed', error: ipcErrorText(err) } : e))
     })
 }
 
@@ -190,6 +201,34 @@ export function clearSide(session: string): void {
   emit()
 }
 
+/**
+ * The session's id was minted anew — claude forks one for every resumed turn, so a Send
+ * in the chat's own composer changes the key the side chat is looked up by. Its thread,
+ * its draft and a question still being answered follow the new id, as the window's
+ * history does (`followMint`): left under the old one, they vanished from the open panel,
+ * and a second copy of a question already in flight could be asked.
+ */
+export function followSideMint(from: string, to: string): void {
+  if (from === to) return
+  let moved = false
+  const list = threads.get(from)
+  if (list && !threads.has(to)) {
+    const next = new Map(threads)
+    next.delete(from)
+    threads = next.set(to, list)
+    moved = true
+  }
+  const draft = drafts.get(from)
+  if (draft !== undefined && !drafts.has(to)) {
+    const next = new Map(drafts)
+    next.delete(from)
+    drafts = next.set(to, draft)
+    moved = true
+  }
+  for (const f of [...flights.values(), ...unnamed]) if (f.session === from) f.session = to
+  if (moved) emit()
+}
+
 export function setSideDraft(session: string, text: string): void {
   drafts = new Map(drafts).set(session, text)
   emit()
@@ -208,6 +247,7 @@ export function resetSideChat(): void {
   threads = new Map()
   drafts = new Map()
   flights.clear()
+  unnamed.clear()
   early.clear()
   emit()
 }

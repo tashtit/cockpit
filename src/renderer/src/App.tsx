@@ -30,7 +30,7 @@ import { branchHint, taskTitle } from './task-names'
 import { ipcErrorText } from './ipc-error'
 import { initLanded } from './landed'
 import { canDrive, drivableNow, initAcpReadiness, useDrivableAgents } from './acp-readiness'
-import { initSideChat } from './side-chat-log'
+import { followSideMint, initSideChat, sideKey } from './side-chat-log'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -149,16 +149,23 @@ export function App(): JSX.Element {
    */
   const followSession = useCallback(
     (nativeSessionId: string) => {
-      const provider = bindingRef.current?.provider
-      if (provider) {
+      const b = bindingRef.current
+      if (b) {
+        const provider = b.provider
         const newId = `${provider}:${nativeSessionId}`
         const oldId = selectedSessionIdRef.current
         setSelectedSessionId(newId)
         // history entries for this conversation follow the mint — restoring
         // one later must resume the new id, not fork a pre-turn snapshot
-        followMint({ oldId, newId, nativeSessionId, binding: bindingRef.current })
+        followMint({ oldId, newId, nativeSessionId, binding: b })
+        // and so does its side chat: the thread, the draft and a question in flight
+        if (b.nativeSessionId)
+          followSideMint(
+            sideKey({ provider, nativeSessionId: b.nativeSessionId }),
+            sideKey({ provider, nativeSessionId })
+          )
       }
-      setBinding((b) => (b ? { ...b, nativeSessionId } : b))
+      setBinding((cur) => (cur ? { ...cur, nativeSessionId } : cur))
     },
     [followMint]
   )
