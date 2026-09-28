@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -379,6 +379,14 @@ describe('probeAcpAgent', () => {
     const probe = await probeAcpAgent({ ...stubAgent('basic'), env: { STUB_MODE: 'basic', STUB_CWDFILE: cwdFile } }, dir)
     expect(probe.ok).toBe(true)
     expect(readFileSync(cwdFile, 'utf8')).toBe(realpathSync(dir))
+  })
+
+  it('says so when the folder cannot be made, instead of blaming the command', async () => {
+    const file = join(cwd, `probe-file-${Date.now()}`)
+    writeFileSync(file, '')
+    const probe = await probeAcpAgent(stubAgent('basic'), join(file, 'inside'))
+    expect(probe.ok).toBe(false)
+    expect(probe.error).toMatch(/could not make the folder the check runs in/)
   })
 
   it('reports what the agent said about itself and what it can do', async () => {
