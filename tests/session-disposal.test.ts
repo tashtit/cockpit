@@ -126,7 +126,23 @@ describe('what deleting a session removes, as its agent keeps it', () => {
     w.exec("CREATE TABLE todo (session_id text, content text); INSERT INTO todo VALUES ('ses_gone', 'x'), ('ses_kept', 'y');")
     w.close()
     const plan = disposalOf(meta({ provider: 'opencode', nativeId: 'ses_gone', sourcePath: `${db}#ses_gone` }))
-    expect(disposalBytes(plan)).toBeGreaterThan(0)
+    const withoutEvents = disposalBytes(plan)
+    expect(withoutEvents).toBeGreaterThan(0)
+    // 1.18's event store, as it declares it: the session is the aggregate
+    const e = new DatabaseSync(db, { enableForeignKeyConstraints: false })
+    e.exec(
+      'CREATE TABLE `event_sequence` (`aggregate_id` text PRIMARY KEY, `seq` integer NOT NULL, `owner_id` text);' +
+        'CREATE TABLE `event` (`id` text PRIMARY KEY, `aggregate_id` text NOT NULL, `seq` integer NOT NULL, `type` text NOT NULL, `data` text NOT NULL,' +
+        ' CONSTRAINT `fk_event_aggregate_id_event_sequence_aggregate_id_fk` FOREIGN KEY (`aggregate_id`) REFERENCES `event_sequence`(`aggregate_id`) ON DELETE CASCADE);'
+    )
+    const event = e.prepare('INSERT INTO event VALUES (?, ?, ?, ?, ?)')
+    for (const id of ['ses_gone', 'ses_kept']) {
+      e.prepare('INSERT INTO event_sequence VALUES (?, 2, NULL)').run(id)
+      event.run(`evt_${id}_1`, id, 1, 'session.created.1', 'c'.repeat(500))
+      event.run(`evt_${id}_2`, id, 2, 'message.updated.1', 'm'.repeat(500))
+    }
+    e.close()
+    expect(disposalBytes(plan)).toBe(withoutEvents + 1_000)
     dispose(plan)
     const r = new DatabaseSync(db, { readOnly: true })
     const ids = (sql: string): unknown[] => r.prepare(sql).all().map((x) => Object.values(x as object)[0])
@@ -134,6 +150,8 @@ describe('what deleting a session removes, as its agent keeps it', () => {
     expect(ids('SELECT DISTINCT session_id FROM message')).toEqual(['ses_kept'])
     expect(ids('SELECT DISTINCT session_id FROM part')).toEqual(['ses_kept'])
     expect(ids('SELECT session_id FROM todo')).toEqual(['ses_kept'])
+    expect(ids('SELECT DISTINCT aggregate_id FROM event')).toEqual(['ses_kept'])
+    expect(ids('SELECT aggregate_id FROM event_sequence')).toEqual(['ses_kept'])
     r.close()
   })
 

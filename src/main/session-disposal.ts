@@ -18,7 +18,9 @@ import { replaceFile } from './replace-file'
  * Most agents keep a session as files: one log (Claude, Codex), a folder (Copilot's
  * session state, a Cline or Roo Code task, a Cursor transcript beside its subagents),
  * or a database of its own (Antigravity). Two keep many sessions in one database —
- * Cursor's editor chats and opencode — and there only the session's rows go. An agent
+ * Cursor's editor chats and opencode — and there only the session's rows go: every
+ * table opencode keys by `session_id`, and its event store, keyed by the session's id
+ * as `aggregate_id`. An agent
  * that lists its sessions in an index file (Cline, Roo Code) has the entry taken out,
  * so its list does not name a session that is gone.
  *
@@ -172,9 +174,10 @@ export function disposalBytes(d: Disposal): number {
   if (d.rows?.kind === 'cursor-chat') {
     n += Number(queryAll(d.rows.db, `SELECT coalesce(sum(length(value)), 0) AS n ${CURSOR_CHAT_ROWS}`, ...cursorChatParams(d.rows.id))?.[0]?.['n'] ?? 0)
   } else if (d.rows?.kind === 'opencode-session') {
-    const sum = (table: string): number =>
-      Number(queryAll(d.rows!.db, `SELECT coalesce(sum(length(data)), 0) AS n FROM ${table} WHERE session_id = ?`, d.rows!.id)?.[0]?.['n'] ?? 0)
-    n += sum('message') + sum('part')
+    // a table this version lacks reads as null, and adds nothing
+    const sum = (table: string, key: string): number =>
+      Number(queryAll(d.rows!.db, `SELECT coalesce(sum(length(data)), 0) AS n FROM ${table} WHERE ${key} = ?`, d.rows!.id)?.[0]?.['n'] ?? 0)
+    n += sum('message', 'session_id') + sum('part', 'session_id') + sum('event', 'aggregate_id')
   }
   return n
 }
@@ -260,6 +263,9 @@ export async function openBy(databases: readonly string[]): Promise<Map<string, 
   return out
 }
 
+/** opencode's event store, where an aggregate is a session: each event, then the sequence they hang off. */
+const OPENCODE_EVENT_TABLES = ['event', 'event_sequence'] as const
+
 function deleteRows(rows: NonNullable<Disposal['rows']>): void {
   const db = new DatabaseSync(rows.db)
   try {
@@ -278,6 +284,12 @@ function deleteRows(rows: NonNullable<Disposal['rows']>): void {
           .all() as Array<{ name: string }>
         for (const { name } of tables) {
           if (/^\w+$/.test(name)) db.prepare(`DELETE FROM "${name}" WHERE session_id = ?`).run(rows.id)
+        }
+        // 1.18 also keeps the session as an event stream — most of its conversation —
+        // keyed by the session's id; the events before the sequence they belong to
+        for (const table of OPENCODE_EVENT_TABLES) {
+          const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)
+          if (exists) db.prepare(`DELETE FROM "${table}" WHERE aggregate_id = ?`).run(rows.id)
         }
         db.prepare('DELETE FROM session WHERE id = ?').run(rows.id)
       }
