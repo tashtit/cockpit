@@ -289,7 +289,12 @@ type Composer = {
   readonly parent: string | null
 }
 
-/** Every chat with messages in it, from its document's few fields that matter — one read per change. */
+/**
+ * Every chat with messages in it, from its document's few fields that matter — one read
+ * per change, and at most one per indexer pass (see SnapshotPass). The keys are asked for
+ * as a range (`:` is followed by `;`), which the key's index answers; a `LIKE` prefix
+ * cannot use it and scanned every row of the table, each message's among them.
+ */
 const composerChats = snapshotCache((db: string): Map<string, Composer> | null => {
   const out = new Map<string, Composer>()
   const parents = new Map<string, string>()
@@ -306,7 +311,7 @@ const composerChats = snapshotCache((db: string): Map<string, Composer> | null =
        coalesce(json_array_length(value, '$.conversation'), 0) AS inline,
        coalesce(json_extract(value, '$.fullConversationHeadersOnly[0].grouping.textPreview'),
                 json_extract(value, '$.conversation[0].text')) AS preview
-     FROM cursorDiskKV WHERE key LIKE 'composerData:%' AND json_valid(value)`
+     FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;' AND json_valid(value)`
   )
   // a failed read is no answer, not "no chats" (see snapshotCache)
   if (!rows) return null

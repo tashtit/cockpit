@@ -28,7 +28,7 @@ import { orderRepos } from '../shared/repo-order'
 import { isUnder } from './paths'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
 import { isRegularFile, timeSlicer } from './parsers/util'
-import { splitSessionRef } from './parsers/sqlite'
+import { SnapshotPass, dbStamp, inPass, splitSessionRef } from './parsers/sqlite'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
 import { controlOf, type ControlEntry } from './session-control-core'
@@ -241,6 +241,13 @@ type CacheEntry = {
   /** mtime of copilot's out-of-band name source, workspace.yaml (see auxStamp) */
   readonly aux?: number
   /**
+   * A session kept in a database: the database's stamp (`dbStamp`, its write-ahead log
+   * counted) as it stood before its meta was read — for such a session the whole of "has
+   * it changed", in place of mtime, size and aux. Entries written before it existed have
+   * none, and are read again once.
+   */
+  readonly db?: string
+  /**
    * Codex: the thread its title was looked up under in session_index.jsonl, and the
    * name found. The index is one file for every rollout, so its mtime cannot stand for
    * any one of them — the entry is stale only when its own thread's name changed.
@@ -254,17 +261,9 @@ type CacheEntry = {
  * Copilot stores the generated session name beside the transcript, so a rename doesn't
  * touch the transcript's (mtime,size). Stamp the side file's mtime into the cache entry
  * so name changes invalidate it. (Codex keeps its names in one shared index instead —
- * see CacheEntry.threadName.)
+ * see CacheEntry.threadName; a database's sessions go by its stamp — CacheEntry.db.)
  */
 function auxStamp(file: string, source: SourceDir): number {
-  const store = storeFile(file)
-  if (isDatabase(store)) {
-    try {
-      return statSync(`${store}-wal`).mtimeMs
-    } catch {
-      return 0
-    }
-  }
   if (source.provider !== 'copilot' || !file.endsWith('events.jsonl')) return 0
   try {
     return statSync(copilotWorkspaceFile(file)).mtimeMs
@@ -401,11 +400,14 @@ type PageScope = {
  *   true})` with our own debouncing. chokidar was dropped when its bundled fsevents broke on
  *   the Electron 43 upgrade.
  * - Some agents keep many sessions in one SQLite database (Cursor's editor chats, opencode;
- *   `SHARED_DBS`), each indexed as `<database>#<id>` (`parsers/sqlite.ts`): stat-checked
- *   through the database, its write-ahead log counting, and its folder watched on its own. A
+ *   `SHARED_DBS`), each indexed as `<database>#<id>` (`parsers/sqlite.ts`): checked by the
+ *   database's stamp, its write-ahead log counting, and its folder watched on its own. A
  *   write rescans only when the database lists a session the index lacks, and otherwise
  *   re-judges the known ones, keeping an unchanged session the same object — so Cursor
- *   saving its editor state announces nothing. A read that fails keeps the last good answer
+ *   saving its editor state announces nothing. Every scan and every batch of re-judged
+ *   files is one pass (`SnapshotPass`): a database is read at most once in it however often
+ *   its app writes meanwhile, and one written while the pass read it is looked at again
+ *   once the pass ends (`settle`). A read that fails keeps the last good answer
  *   (`snapshotCache`) rather than dropping every session in the database. Others keep one
  *   database per conversation under a session root (Antigravity, Cursor's ACP server;
  *   `OWN_DBS`): its `-wal` writes are that conversation's changes.
@@ -902,42 +904,67 @@ export class SessionIndexer {
       source,
       setTimeout(() => {
         this.sharedDbTimers.delete(source)
+        const pass = new SnapshotPass()
         let listed: string[]
         try {
-          listed = FILE_LISTERS[source.provider](source.path)
+          listed = inPass(pass, () => FILE_LISTERS[source.provider](source.path))
         } catch {
           return
         }
         if (listed.some((f) => !this.fileSource.has(f))) this.scheduleRescan()
         else this.markSourceDirty(source)
+        this.settle(pass)
       }, DIRTY_FLUSH_MS)
     )
+  }
+
+  /**
+   * After a pass over the index (see SnapshotPass in parsers/sqlite.ts): a shared
+   * database written while the pass was reading it may hold what the pass did not see.
+   * Its entries were recorded against the stamp the pass pinned, so the next look reads
+   * again — but a rescan spans awaits, and the watcher's own look at that write can come
+   * and go in between, leaving the rescan's older answer the last one recorded and
+   * nothing due to look again. So look again.
+   */
+  private settle(pass: SnapshotPass): void {
+    const { moved } = pass.unsettled()
+    if (moved.size === 0) return
+    for (const s of this.sources) {
+      const db = SHARED_DBS[s.provider]
+      if (db && moved.has(join(s.path, db))) this.sharedDbChanged(s)
+    }
   }
 
   private applyDirty(): void {
     const paths = [...this.dirty]
     this.dirty.clear()
-    let changed = false
-    for (const file of paths) {
-      const source = this.fileSource.get(file)
-      if (!source) continue
-      const before = this.fileCache.get(file)?.meta ?? null
-      const after = this.metaFor(file, source)
-      if (before === after) continue
-      changed = true
-      // re-fold every session this file was or is part of — a thread kept across
-      // several files is all of them, never just the one that moved
-      for (const id of new Set([before?.id, after?.id])) {
-        if (!id) continue
-        const folded = this.foldFiles(id)
-        if (folded) this.sessions.set(id, folded)
-        else this.sessions.delete(id)
+    // one pass: a shared database is read at most once for all of its sessions here
+    const pass = new SnapshotPass()
+    const changed = inPass(pass, () => {
+      let any = false
+      for (const file of paths) {
+        const source = this.fileSource.get(file)
+        if (!source) continue
+        const before = this.fileCache.get(file)?.meta ?? null
+        const after = this.metaFor(file, source)
+        if (before === after) continue
+        any = true
+        // re-fold every session this file was or is part of — a thread kept across
+        // several files is all of them, never just the one that moved
+        for (const id of new Set([before?.id, after?.id])) {
+          if (!id) continue
+          const folded = this.foldFiles(id)
+          if (folded) this.sessions.set(id, folded)
+          else this.sessions.delete(id)
+        }
       }
-    }
+      return any
+    })
     if (changed) {
       this.emitUpdate()
       this.scheduleSaveCache()
     }
+    this.settle(pass)
   }
 
   private scheduleRescan(): void {
@@ -981,11 +1008,13 @@ export class SessionIndexer {
       const nextSource = new Map<string, SourceDir>()
       const seenFiles = new Set<string>()
       const pace = timeSlicer(SCAN_SLICE_MS)
+      // one pass for the whole scan, installed only between its awaits (see SnapshotPass)
+      const pass = new SnapshotPass()
       let processed = 0
       for (const s of this.sources) {
         let files: string[]
         try {
-          files = FILE_LISTERS[s.provider](s.path)
+          files = inPass(pass, () => FILE_LISTERS[s.provider](s.path))
         } catch (err) {
           console.error(`[indexer] scan failed for ${s.path}:`, err)
           continue
@@ -993,7 +1022,7 @@ export class SessionIndexer {
         for (const file of files) {
           seenFiles.add(file)
           nextSource.set(file, s)
-          const meta = this.metaFor(file, s)
+          const meta = inPass(pass, () => this.metaFor(file, s))
           if (meta) next.set(meta.id, foldThread(collect(nextFiles, meta)))
           processed++
           await pace()
@@ -1010,6 +1039,7 @@ export class SessionIndexer {
       this.fileSource = nextSource
       this.emitUpdate()
       this.scheduleSaveCache()
+      this.settle(pass)
     } catch (err) {
       // every caller fires rescan without awaiting — an escaped throw would be an
       // unhandled rejection that silently leaves a half-published index behind
@@ -1035,12 +1065,13 @@ export class SessionIndexer {
   }
 
   private metaFor(file: string, source: SourceDir): SessionMeta | null {
+    const store = storeFile(file)
     let st
     try {
       // the file itself, never through a link: the listers only ever name regular files,
       // but the watcher's probe names whatever appeared (see openRegular in parsers/util).
       // A session kept inside a shared database is as fresh as the database.
-      st = lstatSync(storeFile(file))
+      st = lstatSync(store)
     } catch {
       return null
     }
@@ -1048,14 +1079,20 @@ export class SessionIndexer {
       this.fileCache.delete(file)
       return null
     }
-    const aux = auxStamp(file, source)
+    // A database — written through its write-ahead log, and for every session it holds —
+    // goes by its stamp alone: pinned for the pass (parsers/sqlite.ts) and taken before
+    // anything of it is read, so what is recorded against it is never older than it
+    const db = isDatabase(store) ? dbStamp(store) : null
+    const aux = db === null ? auxStamp(file, source) : 0
     const cached = this.fileCache.get(file)
     if (
       cached &&
-      cached.mtimeMs === st.mtimeMs &&
-      cached.size === st.size &&
-      (cached.aux ?? 0) === aux &&
-      sameThreadName(file, cached)
+      (db !== null
+        ? cached.db === db
+        : cached.mtimeMs === st.mtimeMs &&
+          cached.size === st.size &&
+          (cached.aux ?? 0) === aux &&
+          sameThreadName(file, cached))
     ) {
       // the session file is unchanged, but its repo identity may not be (a renamed
       // origin remote) and neither may its branch (the worktree moved) — re-resolve,
@@ -1081,14 +1118,14 @@ export class SessionIndexer {
       // a database changes for every session it holds (and Cursor's for its editor's own
       // state): a session that reads the same as before stays the same object, so an
       // unrelated write announces nothing
-      if (meta && cached?.meta && isDatabase(storeFile(file)) && JSON.stringify(meta) === JSON.stringify(cached.meta)) {
+      if (meta && cached?.meta && db !== null && JSON.stringify(meta) === JSON.stringify(cached.meta)) {
         meta = cached.meta
       }
     } catch (err) {
       console.error(`[indexer] parse failed for ${file}:`, err)
       meta = null
     }
-    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, ...naming, meta })
+    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, ...naming, ...(db !== null ? { db } : {}), meta })
     this.cacheDirty = true
     // a fresh parse means the file changed — the only time its tail can say something new
     if (meta) {

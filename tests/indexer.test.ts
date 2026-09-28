@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -1652,6 +1652,71 @@ describe('sessions kept in databases', () => {
       { id: 'ses_b', title: 'Second', directory: '/x', created: at, updated: at, turns: [turn('three')] }
     ])
     await vi.waitFor(() => expect(idx.getSession('opencode:ses_b')?.title).toBe('Second'), { timeout: 8000, interval: 100 })
+  })
+})
+
+/**
+ * Cursor writes its editor state many times a second, and every write re-judges every
+ * chat in the database. Each re-judging is one pass that reads the database once, so it
+ * answers from a snapshot pinned before later writes — which must never be recorded
+ * against a stamp that covers those writes, or the last write of a burst is lost until
+ * the next one.
+ */
+describe('a shared database written while the index re-judges it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cockpit-indexer-busy-db-'))
+  const editor = join(dir, 'Cursor', 'User', 'globalStorage')
+  const db = join(editor, 'state.vscdb')
+  const at = Date.parse('2026-09-01T09:00:00Z')
+  const CHATS = 40
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    writeCursorChats(
+      db,
+      Array.from({ length: CHATS }, (_, i) => ({
+        id: `c${String(i).padStart(2, '0')}`,
+        name: 'first',
+        cwd: '/x',
+        created: at,
+        updated: at,
+        bubbles: [{ type: 1 as const, at, text: 'hi' }]
+      }))
+    )
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: editor, provider: 'cursor', label: 'cursor-ide' }])
+  })
+
+  afterAll(() => {
+    idx?.stopWatchers()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('ends on the last write, wherever in a pass it landed', async () => {
+    expect(idx.page({ limit: 100 }).items.filter((s) => s.title === 'first')).toHaveLength(CHATS)
+    // the editor at work, from a process of its own: one chat after another renamed as
+    // fast as it can write, through the write-ahead log — a new stamp under every chat
+    // a pass looks at — and last of all every one named 'final'
+    const writer = `
+      const { DatabaseSync } = require('node:sqlite')
+      const db = new DatabaseSync(process.argv[1])
+      db.exec('PRAGMA journal_mode = WAL')
+      const rename = db.prepare("UPDATE cursorDiskKV SET value = json_set(value, '$.name', ?) WHERE key = ?")
+      const end = Date.now() + 1500
+      for (let i = 0; Date.now() < end; i++) {
+        rename.run('busy ' + i, 'composerData:c' + String(i % ${CHATS}).padStart(2, '0'))
+      }
+      db.exec("UPDATE cursorDiskKV SET value = json_set(value, '$.name', 'final') WHERE key >= 'composerData:c' AND key < 'composerData:d'")
+      db.close()
+    `
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(process.execPath, ['-e', writer, db], { stdio: 'ignore' })
+      child.on('error', reject)
+      child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`writer exited ${code}`))))
+    })
+    await vi.waitFor(
+      () => expect(idx.page({ limit: 100 }).items.filter((s) => s.title === 'final')).toHaveLength(CHATS),
+      { timeout: 8000, interval: 100 }
+    )
   })
 })
 
