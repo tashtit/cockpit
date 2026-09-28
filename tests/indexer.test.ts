@@ -834,6 +834,38 @@ describe.skipIf(!hasSqlite3())('provider-archived persistence across launches', 
     expect(ids).toContain('p1')
     expect(ids).not.toContain('p2')
   })
+
+  // an upgrade that changes what the parsers say bumps the cache's version and drops its
+  // entries — but the archived ids are not parser output. Dropped with them, a first
+  // sweep that failed listed every session archived in its app, and the next good one
+  // archived them all at once
+  it('keeps the archived set across an upgrade that drops the rest of the cache', async () => {
+    const upgradeCache = join(root, 'cache-upgrade', 'stat-cache.json')
+    writeCpSession('u1', 'active session', '2026-08-01T10:00:00Z')
+    writeCpSession('u2', 'archived in the copilot app', '2026-08-02T10:00:00Z')
+    rmSync(join(cpDir, 'data.db'), { force: true })
+    execFileSync('sqlite3', [
+      join(cpDir, 'data.db'),
+      'CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, archived_at TEXT);' +
+        "INSERT INTO sessions VALUES ('p1', NULL), ('p2', '2026-08-02T11:00:00Z'), ('u1', NULL), ('u2', '2026-08-02T11:00:00Z');"
+    ])
+    const before = new SessionIndexer(() => {}, { cacheFile: upgradeCache, claudeStoreDir: null })
+    await before.setSources([{ path: cpDir, provider: 'copilot', label: 'cp' }])
+    before.stopWatchers()
+    expect(before.page({}).items.map((s) => s.nativeId)).not.toContain('u2')
+    before.saveCache()
+
+    // the cache as an older release wrote it, and a first sweep that fails
+    const saved = JSON.parse(readFileSync(upgradeCache, 'utf8'))
+    writeFileSync(upgradeCache, JSON.stringify({ ...saved, v: saved.v - 1 }))
+    writeFileSync(join(cpDir, 'data.db'), 'not a sqlite database')
+    const after = new SessionIndexer(() => {}, { cacheFile: upgradeCache, claudeStoreDir: null })
+    await after.setSources([{ path: cpDir, provider: 'copilot', label: 'cp' }])
+    after.stopWatchers()
+    const ids = after.page({}).items.map((s) => s.nativeId)
+    expect(ids).toContain('u1')
+    expect(ids).not.toContain('u2')
+  })
 })
 
 describe('first tree from the stat cache', () => {

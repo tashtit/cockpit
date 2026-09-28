@@ -1584,24 +1584,21 @@ export class SessionIndexer {
     sweepCacheTmps(this.cacheFile)
     try {
       const raw = JSON.parse(readFileSync(this.cacheFile, 'utf8'))
+      // Last-known provider-archived ids: refreshProviderArchived keeps these when a
+      // sweep fails, so a locked copilot db at launch can't unhide archived sessions.
+      // They are session ids, not parser output, so they outlive a CACHE_VERSION bump:
+      // dropped with the entries, an upgrade whose first sweep failed listed every
+      // session archived in its app, and the next good sweep then archived them all at
+      // once — which stops what each left running (archive-watch.ts).
+      const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((id): id is string => typeof id === 'string') : [])
+      if (Array.isArray(raw?.providerArchived)) this.providerArchived = new Set(ids(raw.providerArchived))
+      if (Array.isArray(raw?.providerDeleted)) this.providerDeleted = new Set(ids(raw.providerDeleted))
       if (raw?.v !== CACHE_VERSION || !Array.isArray(raw.entries)) return
       for (const [path, entry] of raw.entries) {
         if (typeof path === 'string' && entry && typeof entry.mtimeMs === 'number') {
           if (entry.meta) this.annotate(entry.meta)
           this.fileCache.set(path, entry)
         }
-      }
-      // Last-known provider-archived ids: refreshProviderArchived keeps these when a
-      // sweep fails, so a locked copilot db at launch can't unhide archived sessions.
-      if (Array.isArray(raw.providerArchived)) {
-        this.providerArchived = new Set(
-          raw.providerArchived.filter((id: unknown): id is string => typeof id === 'string')
-        )
-      }
-      if (Array.isArray(raw.providerDeleted)) {
-        this.providerDeleted = new Set(
-          raw.providerDeleted.filter((id: unknown): id is string => typeof id === 'string')
-        )
       }
     } catch {
       /* no cache yet */
