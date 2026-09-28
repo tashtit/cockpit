@@ -291,7 +291,6 @@ function sourceLabel(v: unknown): string {
   return ''
 }
 
-/** `name@marketplace` split — the id every agent uses for a plugin. */
 /** One path segment: a marketplace or plugin name must never walk out of the cache. */
 const SEGMENT = /^(?!\.+$)[A-Za-z0-9._-]{1,80}$/
 
@@ -309,6 +308,7 @@ function codexPluginVersion(marketplace: string, name: string): string | undefin
   return versions.reduce<string | undefined>((best, v) => (best === undefined || isNewer(v, best) ? v : best), undefined)
 }
 
+/** `name@marketplace` split — the id every agent uses for a plugin. */
 function splitPluginId(id: string): { name: string; marketplace?: string } {
   const at = id.lastIndexOf('@')
   return at > 0 ? { name: id.slice(0, at), marketplace: id.slice(at + 1) } : { name: id }

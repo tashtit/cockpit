@@ -1,5 +1,5 @@
 import { afterAll, describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
@@ -1857,6 +1857,39 @@ describe('gemini parser', () => {
     const rows = parseGeminiMessages(join(home, 'tmp', 'other', 'chats', 'session-2026-08-01T09-00-legacy01.json'))
     expect(rows.map((r) => r.text)).toEqual(['explain the build', 'It uses vite.'])
   })
+
+  // a document is cut at the meta read's 256KB like any log, and a cut document does not
+  // parse: every older session longer than that was left out of the index
+  it('lists an older one-document log longer than the meta head', () => {
+    const big = join(root, 'gemini-big')
+    const dir = join(big, 'tmp', 'bigrepo', 'chats')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(big, 'tmp', 'bigrepo', '.project_root'), '/Users/me/dev/bigrepo\n')
+    const file = join(dir, 'session-2026-08-03T09-00-bigdoc01.json')
+    writeFileSync(
+      file,
+      JSON.stringify({
+        sessionId: 'bigdoc-0001',
+        projectHash: 'h3',
+        startTime: '2026-08-03T09:00:00.000Z',
+        lastUpdated: '2026-08-03T09:30:00.000Z',
+        messages: [
+          { id: 'a', timestamp: '2026-08-03T09:00:00.000Z', type: 'user', content: 'summarize this log' },
+          { id: 'b', timestamp: '2026-08-03T09:01:00.000Z', type: 'gemini', content: [{ text: 'x'.repeat(400 * 1024) }] },
+          { id: 'c', timestamp: '2026-08-03T09:02:00.000Z', type: 'user', content: 'and the errors?' }
+        ]
+      })
+    )
+    expect(parseGeminiMeta(file, 'gemini-default')).toMatchObject({
+      id: 'gemini:bigdoc-0001',
+      title: 'summarize this log',
+      cwd: '/Users/me/dev/bigrepo',
+      startedAt: Date.parse('2026-08-03T09:00:00.000Z'),
+      updatedAt: Date.parse('2026-08-03T09:30:00.000Z'),
+      messageCount: 3
+    })
+    expect(listGeminiSessions(big, 'gemini-default').map((m) => m.id)).toEqual(['gemini:bigdoc-0001'])
+  })
 })
 
 describe('cline family parser', () => {
@@ -2226,6 +2259,55 @@ describe('cursor parser — the conversations its ACP server keeps', () => {
       expect.objectContaining({ id: 'cursor:bare-1', title: 'hello', cwd: '/Users/me/dev/api', messageCount: 2 })
     ])
   })
+
+  // meta reads a message's size without its content, and reads whole only what fits the
+  // 256KB a log's head is read within: a tool result holding a file is passed over, and
+  // a long conversation's count is carried over from the part read
+  describe('within the meta budget', () => {
+    const reply = (i: number) => ({ role: 'assistant', content: [{ type: 'text', text: `step ${i}` }, call(`c${i}`, 'Read', { path: `f${i}.ts` })] })
+    const file = (i: number) => result(`c${i}`, `${i} `.repeat(50 * 1024))
+
+    it('counts the conversation, its big tool results passed over', () => {
+      const h = join(root, 'cursor-acp-big-results')
+      writeCursorAcpSession(h, {
+        id: 'big-results',
+        cwd: '/x',
+        created,
+        messages: [
+          { role: 'system', content: 'You are an AI coding assistant.' },
+          { role: 'user', content: '<user_info>\nOS Version: darwin\n</user_info>' },
+          query('read every file'),
+          ...Array.from({ length: 10 }, (_, i) => [reply(i), file(i)]).flat(),
+          { role: 'assistant', content: [{ type: 'text', text: 'Read them all.' }] }
+        ]
+      })
+      expect(listCursorSessions(h, 'c')).toEqual([expect.objectContaining({ title: 'read every file', messageCount: 12 })])
+    })
+
+    it('carries the count over a conversation longer than the budget', () => {
+      const h = join(root, 'cursor-acp-long')
+      writeCursorAcpSession(h, {
+        id: 'long',
+        cwd: '/x',
+        created,
+        messages: [query('go'), ...Array.from({ length: 600 }, (_, i) => ({ role: 'assistant', content: [{ type: 'text', text: `${i} ${'y'.repeat(1000)}` }] }))]
+      })
+      const [meta] = listCursorSessions(h, 'c')
+      expect(meta!.messageCount).toBeGreaterThan(590)
+      expect(meta!.messageCount).toBeLessThanOrEqual(601)
+    })
+
+    it('still finds an opening prompt too big to read with the rest', () => {
+      const h = join(root, 'cursor-acp-big-prompt')
+      writeCursorAcpSession(h, {
+        id: 'big-prompt',
+        cwd: '/x',
+        created,
+        messages: [query(`summarize ${'z'.repeat(100 * 1024)}`), { role: 'assistant', content: [{ type: 'text', text: 'ok' }] }]
+      })
+      expect(listCursorSessions(h, 'c')).toEqual([expect.objectContaining({ title: expect.stringMatching(/^summarize z+/), messageCount: 2 })])
+    })
+  })
 })
 
 describe('antigravity parser', () => {
@@ -2314,6 +2396,50 @@ describe('antigravity parser', () => {
     expect(rows[6]!.artifact).toMatchObject({ kind: 'edits', files: [{ path: '/Users/me/dev/cachely/src/landing.tsx' }] })
     expect(rows[7]!.artifact).toMatchObject({ kind: 'check', checks: ['tests'], status: 'failed' })
     expect(rows.every((r) => typeof r.ts === 'number')).toBe(true)
+  })
+
+  // when the opening prompt is not where step type 14 says, meta looks through the first
+  // steps — passing over one carrying a screenshot rather than reading megabytes of it
+  it('finds the opening prompt past a big step when the numbering has moved', () => {
+    const file = join(root, 'antigravity-moved', 'conversations', 'moved.db')
+    writeAntigravityConversation(file, {
+      cwd: '/Users/me/dev/cachely',
+      began: at,
+      steps: [
+        { at: m(0), user: 'Record the onboarding flow' },
+        { at: m(1), reply: 'Opening the browser.' }
+      ]
+    })
+    const db = new DatabaseSync(file)
+    try {
+      db.exec('UPDATE steps SET step_type = 99 WHERE step_type = 14')
+      db.prepare('INSERT INTO steps (idx, step_type, step_payload) VALUES (-1, 60, ?)').run(new Uint8Array(2 * 1024 * 1024).fill(7))
+    } finally {
+      db.close()
+    }
+    expect(listAntigravitySessions(join(root, 'antigravity-moved'), 'a')).toEqual([
+      expect.objectContaining({ id: 'antigravity:moved', title: 'Record the onboarding flow' })
+    ])
+  })
+
+  // its fields are read without a schema: one that drifted decodes to any number at all,
+  // which showed as Invalid Date and sorted the conversation above every other
+  it('falls back to the file’s own time for a timestamp no conversation can have', () => {
+    const home2 = join(root, 'antigravity-drifted')
+    const file = join(home2, 'conversations', 'drifted.db')
+    const drifted = 1e18
+    writeAntigravityConversation(file, {
+      cwd: '/Users/me/dev/cachely',
+      began: drifted,
+      steps: [
+        { at: drifted, user: 'Make the landing page faster' },
+        { at: m(1), reply: 'Profiling it.' }
+      ]
+    })
+    const [meta] = listAntigravitySessions(home2, 'a')
+    expect(meta!.startedAt).toBe(statSync(file).mtimeMs)
+    const rows = parseAntigravityMessages(file)
+    expect(rows.map((r) => r.ts)).toEqual([undefined, m(1)])
   })
 })
 
@@ -2428,6 +2554,78 @@ describe('opencode parser', () => {
     // and the next read after it lets go is the database as it now stands
     expect(listOpencodeSessions(home, 'o').find((m) => m.nativeId === 'ses_two')?.title).toBe('renamed while held')
   })
+
+  it('opens a very long session on its newest turns, saying the older ones were left out', () => {
+    const long = join(root, 'opencode-long')
+    // twenty parts of ~250KB: sixteen fit the 4MB budget
+    writeOpencodeDb(join(long, 'opencode.db'), [
+      {
+        id: 'ses_long',
+        title: 'Long',
+        directory: '/Users/me/dev/web',
+        created: at,
+        updated: at,
+        turns: Array.from({ length: 20 }, (_, i) => ({
+          role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+          at: at + i,
+          parts: [{ type: 'text', text: `p${i} ${'x'.repeat(250 * 1024)}` }]
+        }))
+      }
+    ])
+    const rows = parseOpencodeMessages(listOpencodeSessions(long, 'o')[0]!.sourcePath)
+    expect(rows[0]).toEqual({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
+    expect(rows.slice(1).map((r) => r.text.split(' ')[0])).toEqual(Array.from({ length: 16 }, (_, i) => `p${i + 4}`))
+  })
+
+  describe('the older file store, read within a budget', () => {
+    /** A session of the older store: its turns in order, each with its parts. */
+    function legacySession(h: string, id: string, turns: ReadonlyArray<{ readonly role: string; readonly parts: readonly object[] }>): string {
+      const store = join(h, 'storage')
+      mkdirSync(join(store, 'session', 'proj'), { recursive: true })
+      mkdirSync(join(store, 'message', id), { recursive: true })
+      const file = join(store, 'session', 'proj', `${id}.json`)
+      writeFileSync(file, JSON.stringify({ id, title: 'New session - 2026-09-01T09:00:00.000Z', directory: '/x', time: { created: at, updated: at } }))
+      turns.forEach((t, i) => {
+        const mid = `msg_${String(i).padStart(4, '0')}`
+        writeFileSync(join(store, 'message', id, `${mid}.json`), JSON.stringify({ id: mid, role: t.role, time: { created: at + i } }))
+        mkdirSync(join(store, 'part', mid), { recursive: true })
+        t.parts.forEach((p, j) => writeFileSync(join(store, 'part', mid, `prt_${j}.json`), JSON.stringify(p)))
+      })
+      return file
+    }
+
+    it('names an untitled session by its opening prompt', () => {
+      const h = join(root, 'opencode-legacy-untitled')
+      legacySession(h, 'ses_u', [
+        { role: 'user', parts: [{ type: 'text', text: 'why is the build slow?' }] },
+        { role: 'assistant', parts: [{ type: 'text', text: 'Profiling it.' }] }
+      ])
+      expect(listOpencodeSessions(h, 'o')).toEqual([expect.objectContaining({ id: 'opencode:ses_u', title: 'why is the build slow?' })])
+    })
+
+    // meta reads a log's head, never all of it: an untitled session read every one of up
+    // to four thousand files to name itself, on every scan that found it changed
+    it('looks for that prompt no further than the meta budget', () => {
+      const h = join(root, 'opencode-legacy-far')
+      legacySession(h, 'ses_far', [
+        ...Array.from({ length: 70 }, () => ({ role: 'assistant', parts: [] })),
+        { role: 'user', parts: [{ type: 'text', text: 'a prompt far in' }] }
+      ])
+      expect(listOpencodeSessions(h, 'o')).toEqual([expect.objectContaining({ id: 'opencode:ses_far', title: '(untitled)' })])
+    })
+
+    it('opens a very long session on its newest turns', () => {
+      const h = join(root, 'opencode-legacy-long')
+      const file = legacySession(
+        h,
+        'ses_long',
+        Array.from({ length: 20 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', parts: [{ type: 'text', text: `p${i} ${'x'.repeat(250 * 1024)}` }] }))
+      )
+      const rows = parseOpencodeMessages(file)
+      expect(rows[0]).toEqual({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
+      expect(rows.slice(1).map((r) => r.text.split(' ')[0])).toEqual(Array.from({ length: 16 }, (_, i) => `p${i + 4}`))
+    })
+  })
 })
 
 describe('cursor parser: the editor’s own chats', () => {
@@ -2484,6 +2682,52 @@ describe('cursor parser: the editor’s own chats', () => {
     ])
     expect(rows[2]!.preview).toBe('src/auth.ts')
     expect(rows[3]).toMatchObject({ failed: true, artifact: { kind: 'check', checks: ['tests'] } })
+  })
+
+  // a remote workspace's path names a directory on another machine: taken as this one's,
+  // it grouped the chat under whatever local checkout happened to share the path
+  it('places a chat in a remote workspace nowhere on this machine', () => {
+    const remote = join(root, 'cursor-editor-remote', 'User', 'globalStorage')
+    writeCursorChats(join(remote, 'state.vscdb'), [
+      { id: 'r', name: 'Over SSH', cwd: '/home/me/dev/web', scheme: 'vscode-remote', created: at, updated: at, bubbles: [{ type: 1, at, text: 'hi' }] },
+      { id: 'l', name: 'Here', cwd: '/Users/me/dev/web', created: at, updated: at, bubbles: [{ type: 1, at, text: 'hi' }] }
+    ])
+    const metas = listCursorSessions(remote, 'c')
+    expect(metas.find((m) => m.nativeId === 'r')?.cwd).toBeNull()
+    expect(metas.find((m) => m.nativeId === 'l')?.cwd).toBe('/Users/me/dev/web')
+  })
+
+  it('falls back to the store’s own time for a chat time no chat can have', () => {
+    const drifted = join(root, 'cursor-editor-drifted', 'User', 'globalStorage')
+    const db = join(drifted, 'state.vscdb')
+    writeCursorChats(db, [
+      { id: 'd', name: 'Drifted', cwd: '/x', created: 1.8e22, updated: 1.8e22, bubbles: [{ type: 1, at, text: 'hi' }] }
+    ])
+    const store = Math.max(statSync(db).mtimeMs, existsSync(`${db}-wal`) ? statSync(`${db}-wal`).mtimeMs : 0)
+    expect(listCursorSessions(drifted, 'c')).toEqual([expect.objectContaining({ id: 'cursor:d', startedAt: store })])
+  })
+
+  // every other store opens a long conversation on its newest messages within the
+  // transcript budget; a chat's messages were all read, however many megabytes they held
+  it('opens a very long chat on its newest messages, saying the older ones were left out', () => {
+    const big = join(root, 'cursor-editor-long', 'User', 'globalStorage')
+    const text = (i: number): string => `m${i} ${'x'.repeat(500 * 1024)}`
+    writeCursorChats(join(big, 'state.vscdb'), [
+      {
+        id: 'long',
+        name: 'A long one',
+        cwd: '/Users/me/dev/web',
+        created: at,
+        updated: at,
+        bubbles: Array.from({ length: 9 }, (_, i) => ({ type: (i % 2 === 0 ? 1 : 2) as 1 | 2, at: at + i, text: text(i) }))
+      }
+    ])
+    const chat = listCursorSessions(big, 'c').find((m) => m.nativeId === 'long')!
+    expect(chat.messageCount).toBe(9)
+    const rows = parseCursorMessages(chat.sourcePath)
+    expect(rows[0]).toEqual({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
+    // eight of ~512KB fit the 4MB budget: the newest eight, in order
+    expect(rows.slice(1).map((r) => r.text.split(' ')[0])).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8'])
   })
 })
 

@@ -14,6 +14,12 @@ export function fmtCount(n: number): string {
   return String(n)
 }
 
+/** "Claude and Codex", "Claude, Codex and Copilot" — never "A and B and C". */
+export function listOf(names: readonly string[]): string {
+  if (names.length < 3) return names.join(' and ')
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
 /** A count and its noun: "1 file", "3 files" — `many` for a plural that isn't one + "s". */
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`

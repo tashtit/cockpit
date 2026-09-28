@@ -270,6 +270,22 @@ describe('ChatView review', () => {
     expect(screen.queryByRole('region', { name: 'Changes to review' })).not.toBeInTheDocument()
   })
 
+  it('leaves Ctrl+D to the composer, where macOS deletes forward with it', () => {
+    renderChat(vi.fn(), { binding: { ...binding, nativeSessionId: 'abc-123' } })
+    const composer = screen.getByRole('textbox', { name: 'Message Claude' })
+    composer.focus()
+    const d = new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true, cancelable: true })
+    composer.dispatchEvent(d)
+    expect(d.defaultPrevented).toBe(false)
+    expect(screen.queryByRole('region', { name: 'Changes to review' })).not.toBeInTheDocument()
+    // and Ctrl+L to the field too: the side chat is ⌘L
+    const l = new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, bubbles: true, cancelable: true })
+    composer.dispatchEvent(l)
+    expect(l.defaultPrevented).toBe(false)
+    expect(screen.queryByRole('complementary', { name: 'Side chat' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(composer)
+  })
+
   it('has nothing to review outside a repository or on a seat session', () => {
     renderChat(vi.fn(), { binding: { ...binding, repoRoot: null } })
     expect(screen.queryByRole('button', { name: 'Changes' })).not.toBeInTheDocument()
@@ -524,11 +540,42 @@ describe('ChatView and who drives the session', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Released to Claude/))
   })
 
-  it('will not release under a turn Cockpit is running', async () => {
+  it('says a change of hands even after a step through your messages spoke', async () => {
+    const onSetHolder = vi.fn(async () => true)
+    setChatLog([
+      { role: 'user', kind: 'text', text: 'first' },
+      { role: 'assistant', kind: 'text', text: 'done' },
+      { role: 'user', kind: 'text', text: 'second' }
+    ])
+    renderChat(vi.fn(), { binding: started, control: held, onSetHolder })
+    fireEvent.keyDown(window, { key: 'ArrowUp', altKey: true, metaKey: true })
+    expect(screen.getByRole('status')).toHaveTextContent(/message/)
+    await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Release to Claude' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Released to Claude/))
+  })
+
+  it('will not release under a turn Cockpit is running, and says so where everyone reads it', async () => {
     renderChat(vi.fn(), { binding: started, control: held, busy: true })
     await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))
     expect(screen.getByRole('button', { name: 'Release to Claude' })).toBeDisabled()
     expect(screen.getByRole('button', { name: /Open in Terminal/ })).toBeDisabled()
+    // a disabled key can't be focused, so its title alone reaches no keyboard
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(
+      /Cockpit is running a turn in it — stop it, or let it finish, to release it/
+    )
+  })
+
+  it('hides the bar from its ×, handing focus back to the chip that opened it', async () => {
+    renderChat(vi.fn(), { binding: started, control: held })
+    const chip = screen.getByRole('button', { name: 'In Cockpit' })
+    await userEvent.click(chip)
+    const hide = screen.getByRole('button', { name: 'Hide this bar' })
+    expect(hide.querySelector('svg')).not.toBeNull()
+    expect(hide).not.toHaveTextContent('×')
+    await userEvent.click(hide)
+    expect(screen.queryByRole('region', { name: 'Who drives this session' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(chip)
   })
 
   it('resumes it in Terminal from the bar', async () => {
@@ -555,6 +602,9 @@ describe('ChatView hold bar under a turn in a terminal', () => {
     })
     await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))
     expect(screen.getByRole('button', { name: /Open in Terminal/ })).toBeDisabled()
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(
+      /Open in Terminal waits for that turn to end/
+    )
     // handing it back to where it is running is exactly right, though
     expect(screen.getByRole('button', { name: 'Release to Claude' })).toBeEnabled()
   })
@@ -583,6 +633,34 @@ describe('ChatView names where a session with its agent lives', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toHaveAttribute(
       'title',
       expect.stringContaining('working on this session in the Claude app')
+    )
+  })
+
+  it('says a turn stopped on its question waits for an answer there, not for the turn to end', () => {
+    setChatLog([
+      {
+        role: 'assistant',
+        kind: 'tool_call',
+        toolName: 'AskUserQuestion',
+        text: '{}',
+        asks: [{ question: 'Which org?', multiSelect: false, options: [{ label: 'acme' }, { label: 'tashtit' }] }]
+      }
+    ])
+    renderChat(vi.fn(), {
+      binding: started,
+      control: { holder: 'agent', how: 'outside', surface: 'terminal' },
+      elsewhere: true
+    })
+    const bar = screen.getByRole('region', { name: 'Who drives this session' })
+    expect(bar).toHaveTextContent(/Claude is waiting for your answer in a terminal — answer it there, then take it over/)
+    expect(bar).not.toHaveTextContent(/once that turn ends/)
+    expect(screen.getByRole('button', { name: 'Take over' })).toHaveAttribute(
+      'title',
+      expect.stringContaining('waiting for your answer in it — answer it there first')
+    )
+    expect(screen.getByRole('button', { name: 'Send' })).toHaveAttribute(
+      'title',
+      'Claude is waiting for your answer in a terminal — answer it there, then take it over'
     )
   })
 

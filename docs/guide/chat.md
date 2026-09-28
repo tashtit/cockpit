@@ -22,7 +22,7 @@ Open any session from the sidebar and type: Cockpit resumes that conversation wi
 
 The chat header says who drives the session, first thing under the title: **In Cockpit**, or, for one that lives with its agent, where it was opened — **In the Claude app**, **In a terminal** — or just **In Claude** when its log doesn't say. See [In Cockpit or with its agent](/guide/sessions#in-cockpit-or-with-its-agent).
 
-A session that came from a terminal or the agent's own app is Cockpit's to read, not to send to. A bar above the composer says so, and **Send** stays off — your draft is kept — until you press **Take over**. From then on Cockpit sends its turns. Close it where it was open first — the bar names the place when the log does — so the two don't both write to it. **Take over** waits while the agent is running a turn elsewhere.
+A session that came from a terminal or the agent's own app is Cockpit's to read, not to send to. A bar above the composer says so, and **Send** stays off — your draft is kept — until you press **Take over**. From then on Cockpit sends its turns. Close it where it was open first — the bar names the place when the log does — so the two don't both write to it. **Take over** waits while the agent is running a turn elsewhere; if that turn is waiting on a question the agent asked there, the bar says so — answer it there, then take the session over.
 
 A session Cockpit holds opens the same bar from its **In Cockpit** chip:
 
@@ -37,7 +37,8 @@ A turn Cockpit started keeps running while you look elsewhere — another sessio
 board, ⌘[ back through your history, even a reload of the window. Open its session again
 and you are back in the turn: the transcript is read from the log, the reply streams in
 from there without repeating a line, and **Stop** stands where **Send** was. A permission
-question the agent asked while you were in another chat is waiting for you.
+question the agent is still waiting on is waiting for you too — one it asked while you were
+in another chat, and one whose card was up when the window reloaded.
 
 A session runs one turn at a time. Cockpit won't start a second one beside a turn that is
 still going; stop it, or wait for it to finish.
@@ -235,8 +236,8 @@ is answered by a throwaway copy of the conversation as it stands, so:
 
 | Agent | How the copy is made |
 | --- | --- |
-| Claude Code | `claude -p --resume <id> --fork-session --no-session-persistence`, with only the Read, Grep and Glob tools and no MCP servers |
-| Codex | `codex exec fork <id> --ephemeral`, in a read-only sandbox that never asks to leave it |
+| Claude Code | `claude -p --resume <id> --fork-session --no-session-persistence`, with only the Read, Grep and Glob tools, no MCP servers and no hooks — yours, the repo's or a plugin's |
+| Codex | `codex exec fork <id> --ephemeral`, in a read-only sandbox that never asks to leave it, whatever permission profile your own Codex config sets |
 
 Copilot CLI can't copy a session or run without saving one, so its sessions have no side
 chat. A roundtable seat's session doesn't have one either. The copy runs as the session's

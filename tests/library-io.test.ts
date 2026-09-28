@@ -3,6 +3,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  addFromCatalog,
+  addMcpServer,
   getPanel,
   keepPanelDifference,
   leavePanelOff,
@@ -63,6 +65,20 @@ function seedClaudeMcp(name: string, cfg: Record<string, unknown>): void {
 function seedSkill(agentDir: string, name: string, description: string): void {
   write(join(home, agentDir, 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n`)
 }
+
+/** An agent CLI in `$HOME/bin` that writes down what it was asked, and fails when told to. */
+function stubCli(agent: string, fail = false): string {
+  const log = join(home, `${agent}-calls.log`)
+  write(
+    join(home, 'bin', agent),
+    ['#!/bin/sh', `echo "$@" >> '${log}'`, ...(fail ? ['echo "network is down" >&2', 'exit 1'] : [])].join('\n')
+  )
+  chmodSync(join(home, 'bin', agent), 0o755)
+  return log
+}
+
+const calls = (log: string): string[] =>
+  existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []
 
 const cell = (report: Awaited<ReturnType<typeof getPanel>>, name: string, agent: 'claude' | 'codex' | 'copilot') => {
   const row = report.rows.find((r) => r.name === name)
@@ -663,20 +679,6 @@ describe('updating a plugin, and refreshing the marketplaces it comes from', () 
     process.env.PATH = savedPath
   })
 
-  /** An agent CLI that writes down what it was asked, and fails when told to. */
-  function stubCli(agent: string, fail = false): string {
-    const log = join(home, `${agent}-calls.log`)
-    write(
-      join(home, 'bin', agent),
-      ['#!/bin/sh', `echo "$@" >> '${log}'`, ...(fail ? ['echo "network is down" >&2', 'exit 1'] : [])].join('\n')
-    )
-    chmodSync(join(home, 'bin', agent), 0o755)
-    return log
-  }
-
-  const calls = (log: string): string[] =>
-    existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []
-
   function installed(id: string, where: { claude?: boolean; codex?: boolean; copilot?: boolean }): void {
     const [name, market] = id.split('@')
     if (where.claude) {
@@ -746,6 +748,68 @@ describe('updating a plugin, and refreshing the marketplaces it comes from', () 
     expect(problems).toEqual([expect.stringMatching(/^couldn’t refresh codex’s marketplaces — .*network is down/)])
     // copilot has no marketplace here, so there is nothing of its to pull
     expect(calls(logs.copilot)).toEqual([])
+  })
+})
+
+describe('adding what Browse found', () => {
+  let savedPath: string | undefined
+
+  beforeEach(() => {
+    savedPath = process.env.PATH
+    process.env.PATH = `${join(home, 'bin')}:${savedPath}`
+  })
+
+  afterEach(() => {
+    process.env.PATH = savedPath
+  })
+
+  const stored = (): any[] =>
+    JSON.parse(readFileSync(join(userData, 'cockpit-config.json'), 'utf8')).library?.global ?? []
+
+  // a browse row is renderer input: one naming a marketplace the library already
+  // clones from somewhere must not repoint every later switch-on at another repository
+  it('keeps the source the library already records for a marketplace', async () => {
+    write(
+      join(home, '.claude', 'plugins', 'known_marketplaces.json'),
+      JSON.stringify({ acme: { source: { source: 'git', url: 'https://github.com/acme/real.git' } } })
+    )
+    getPanel(null)
+    const log = stubCli('codex')
+    await addFromCatalog(
+      { kind: 'marketplace', name: 'acme', source: 'https://github.com/mallory/acme.git' },
+      'codex'
+    )
+    expect(calls(log)).toEqual(['plugin marketplace add https://github.com/acme/real.git'])
+    expect(stored().find((e) => e.name === 'acme')?.source).toBe('https://github.com/acme/real.git')
+  })
+
+  // an install that failed must leave no all-off row claiming it was added
+  it('records nothing when the agent’s own add fails', async () => {
+    stubCli('claude', true)
+    await expect(
+      addFromCatalog({ kind: 'marketplace', name: 'fresh', source: 'https://github.com/acme/fresh.git' }, 'claude')
+    ).rejects.toThrow(/network is down/)
+    expect(stored().some((e) => e.name === 'fresh')).toBe(false)
+    expect(getPanel(null).rows.some((r) => r.name === 'fresh')).toBe(false)
+  })
+
+  it('puts back the entry an add replaced when the add fails', async () => {
+    getPanel(null)
+    await removePanelEntry({ repoRoot: null, kind: 'marketplace', name: 'tashtit' })
+    stubCli('codex', true)
+    await expect(addFromCatalog({ kind: 'marketplace', name: 'tashtit' }, 'codex')).rejects.toThrow(/network is down/)
+    expect(stored().find((e) => e.name === 'tashtit')).toMatchObject({ removed: true })
+  })
+
+  // nor keep the values typed for a server that never reached the agent
+  it('keeps no server, and none of its secrets, when writing it into the agent fails', async () => {
+    // a config the write can't replace: Claude Code's file is a directory
+    mkdirSync(join(home, '.claude.json'), { recursive: true })
+    await expect(
+      addMcpServer('probe', 'claude', { command: 'npx', args: ['-y', 'probe-mcp@1.0.0'], env: { PROBE_KEY: 'sk-secret' } })
+    ).rejects.toThrow(/EISDIR|directory/)
+    expect(stored().some((e) => e.name === 'probe')).toBe(false)
+    expect(readFileSync(join(userData, 'cockpit-config.json'), 'utf8')).not.toContain('sk-secret')
   })
 })
 

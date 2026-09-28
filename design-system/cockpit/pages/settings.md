@@ -206,11 +206,16 @@ seventh.
 - ACP agents section (second group on the Providers tab, `AcpAgents.tsx`): borrows the
   Model providers grammar exactly —
   `.source-list` rows, a folded `Add an ACP agent…` affordance, `ConfirmRemove` per row.
-  A row is tinted with the CLI it drives (`.tint-{provider}`) and carries that provider's
-  logo: an ACP agent is a *way of running* one of the three agents, not a fourth agent,
-  and the row has to say so at a glance. **Built-ins have no remove control** and read
+  A row is tinted with the agent it drives (`.tint-{provider}`) and carries that agent's
+  logo: an ACP agent is a *way of running* an agent Cockpit already knows — one of the three
+  CLIs, or one it otherwise only reads — never a new agent, and the row has to say so at a
+  glance. **Built-ins have no remove control** and read
   `built in` — they are defined in code, not config, so their `.source-health` states
-  what is true of them ("used when this CLI supports it") rather than offering an action.
+  what is true of them (whether its CLI answered, and the agent the person defined for
+  that CLI when one is used instead) rather than offering an action. The one action on
+  them is section-wide, **Check the built-ins again**, a `.btn-ghost.small` in the fold
+  row before `Add an ACP agent…`: it re-probes every built-in, so one whose CLI has gone
+  stops reading as answered.
   The add form's **Test** button runs the real ACP handshake and reports what answered
   (name, version, protocol, whether it can resume, how to sign in), so a command is never
   stored on faith; a failure shows the agent's own reason in an `alert`. Field validation

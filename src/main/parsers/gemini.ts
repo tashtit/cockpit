@@ -169,7 +169,7 @@ function projectDir(file: string, messages: Iterable<any>): string | null {
   return null
 }
 
-/** A log's records from a bounded read: JSONL line by line, or an older CLI's one document. */
+/** A log's records from a bounded read: JSONL line by line, or an older CLI's one document (whole). */
 function recordsOf(file: string, text: string, truncated: boolean): unknown[] {
   if (file.endsWith('.jsonl')) return parseJsonlText(text, truncated)
   if (truncated) return []
@@ -180,14 +180,25 @@ function recordsOf(file: string, text: string, truncated: boolean): unknown[] {
   }
 }
 
+/**
+ * The records meta is read from. A log of lines: its head, as every parser reads meta. An
+ * older CLI's one document: whole, up to the transcript budget — a document cut at the
+ * head's end does not parse, and one over 256KB was never listed at all.
+ */
+function metaRecords(file: string): { readonly records: unknown[]; readonly truncated: boolean; readonly size: number } | null {
+  if (file.endsWith('.json')) {
+    const raw = readSmallFile(file, TRANSCRIPT_TAIL_BYTES)
+    return raw ? { records: recordsOf(file, raw, false), truncated: false, size: Buffer.byteLength(raw) } : null
+  }
+  const head = readHead(file, META_HEAD_BYTES)
+  return head.text ? { records: recordsOf(file, head.text, head.truncated), truncated: head.truncated, size: head.size } : null
+}
+
 export function parseGeminiMeta(file: string, sourceLabel: string): SessionMeta | null {
   if (!isSessionName(basename(file))) return null
-  const head = readHead(file, META_HEAD_BYTES)
-  if (!head.text) return null
-  // an older one-document log too big for the head is read whole-or-not-at-all below
-  const records = recordsOf(file, head.text, head.truncated)
-  if (records.length === 0 && !(head.truncated && file.endsWith('.json'))) return null
-  const { meta, messages } = foldGeminiRecords(records, false)
+  const head = metaRecords(file)
+  if (!head || head.records.length === 0) return null
+  const { meta, messages } = foldGeminiRecords(head.records, false)
   const nativeId = typeof meta.sessionId === 'string' ? meta.sessionId : null
   if (!nativeId || meta.kind === 'subagent') return null
 

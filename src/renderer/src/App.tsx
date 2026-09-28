@@ -29,8 +29,8 @@ import { Settings } from './Settings'
 import { branchHint, taskTitle } from './task-names'
 import { ipcErrorText } from './ipc-error'
 import { initLanded } from './landed'
-import { canDrive, drivableNow, initAcpReadiness, useDrivableAgents } from './acp-readiness'
-import { initSideChat } from './side-chat-log'
+import { canContinue, drivableNow, initAcpReadiness, useDrivableAgents } from './acp-readiness'
+import { followSideMint, initSideChat, sideKey } from './side-chat-log'
 import { ProfileView } from './ProfileView'
 import { AiSetup } from './AiSetup'
 import { HomeView } from './HomeView'
@@ -48,6 +48,7 @@ import type { NavEntry, View } from './nav-history'
 import { useChatTurns } from './use-chat-turns'
 import { useNavHistory } from './use-nav-history'
 import { useZoom } from './use-zoom'
+import { commandKey } from './command-key'
 
 /** `--rail` on the grid: the width the rail was dragged to, in CSS pixels. */
 const railStyle = (px: number): CSSProperties => ({ '--rail': `${px}px` }) as CSSProperties
@@ -149,16 +150,23 @@ export function App(): JSX.Element {
    */
   const followSession = useCallback(
     (nativeSessionId: string) => {
-      const provider = bindingRef.current?.provider
-      if (provider) {
+      const b = bindingRef.current
+      if (b) {
+        const provider = b.provider
         const newId = `${provider}:${nativeSessionId}`
         const oldId = selectedSessionIdRef.current
         setSelectedSessionId(newId)
         // history entries for this conversation follow the mint — restoring
         // one later must resume the new id, not fork a pre-turn snapshot
-        followMint({ oldId, newId, nativeSessionId, binding: bindingRef.current })
+        followMint({ oldId, newId, nativeSessionId, binding: b })
+        // and so does its side chat: the thread, the draft and a question in flight
+        if (b.nativeSessionId)
+          followSideMint(
+            sideKey({ provider, nativeSessionId: b.nativeSessionId }),
+            sideKey({ provider, nativeSessionId })
+          )
       }
-      setBinding((b) => (b ? { ...b, nativeSessionId } : b))
+      setBinding((cur) => (cur ? { ...cur, nativeSessionId } : cur))
     },
     [followMint]
   )
@@ -206,7 +214,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     setBinding((b) => {
       if (!b || b.readOnly === 'seat' || isDrivable(b.provider)) return b
-      const readOnly = canDrive(b.provider, drivable) ? undefined : 'agent'
+      const readOnly = canContinue(b, drivable) ? undefined : 'agent'
       return b.readOnly === readOnly ? b : { ...b, readOnly }
     })
   }, [drivable])
@@ -349,7 +357,8 @@ export function App(): JSX.Element {
           configDir: acct && !acct.isDefault ? acct.path : undefined,
           accountLabel: acct ? (acct.identity ?? acct.label) : undefined,
           continuedFrom: lineageRef(s.continuedFrom),
-          readOnly: s.roundtableId ? 'seat' : canDrive(s.provider, drivableNow()) ? undefined : 'agent'
+          sourcePath: s.sourcePath,
+          readOnly: s.roundtableId ? 'seat' : canContinue(s, drivableNow()) ? undefined : 'agent'
         },
         control: s.roundtableId ? null : (s.control ?? null),
         anchor: opts.anchor ?? null,
@@ -418,7 +427,7 @@ export function App(): JSX.Element {
   // Esc backs out of secondary views
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const mod = e.metaKey || e.ctrlKey
+      const mod = commandKey(e)
       if (mod && e.key === 'k') {
         e.preventDefault()
         setPaletteOpen((v) => !v)

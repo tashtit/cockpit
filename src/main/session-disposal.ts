@@ -2,11 +2,12 @@ import { existsSync, lstatSync, readdirSync, rmSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionMeta } from '../shared/types'
-import { execText } from './env'
+import { execText, type ExecResult } from './env'
 import { CURSOR_IDE_DB, isCursorAcpStore } from './parsers/cursor'
 import { OPENCODE_DB } from './parsers/opencode'
-import { queryAll, splitSessionRef } from './parsers/sqlite'
+import { queryAll, snapshotCache, splitSessionRef } from './parsers/sqlite'
 import { readJson, sessionLogFiles } from './parsers/util'
+import { realOrSelf } from './paths'
 import { replaceFile } from './replace-file'
 
 /**
@@ -14,17 +15,20 @@ import { replaceFile } from './replace-file'
  * one source for what a session occupies and how it goes, so what is measured and what
  * is removed can never drift apart.
  *
- * Most agents keep a session as files: one log (Claude, Codex), a folder (Copilot's
- * session state, a Cline or Roo Code task, a Cursor transcript beside its subagents),
+ * Most agents keep a session as files: one log (Codex; Claude's, with a folder of its
+ * subagents and saved tool results beside it), a folder (Copilot's session state, a
+ * Cline or Roo Code task, a Cursor transcript beside its subagents),
  * or a database of its own (Antigravity). Two keep many sessions in one database —
- * Cursor's editor chats and opencode — and there only the session's rows go. An agent
+ * Cursor's editor chats and opencode — and there only the session's rows go: every
+ * table opencode keys by `session_id`, and its event store, keyed by the session's id
+ * as `aggregate_id`. A Cursor chat kept in both its stores goes from both. An agent
  * that lists its sessions in an index file (Cline, Roo Code) has the entry taken out,
  * so its list does not name a session that is gone.
  *
  * Writing another app's store is the one risky part: a database another process holds
  * open is not written (`databases`, `openBy`) — that app would keep the rows in memory,
- * write them back, or read a session half gone. Cursor has to be quit to delete one of
- * its chats.
+ * write them back, or read a session half gone — and neither is one lsof could not
+ * clear. Cursor has to be quit to delete one of its chats.
  */
 export type Disposal = {
   /** Files and folders that are the session's own — removed whole */
@@ -32,7 +36,16 @@ export type Disposal = {
   /** A database the session is rows in: the rows go, never the file */
   readonly rows?: { readonly db: string; readonly kind: 'cursor-chat' | 'opencode-session'; readonly id: string }
   /** The agent's own list of its sessions, which would otherwise still name this one */
-  readonly index?: { readonly file: string; readonly id: string }
+  readonly index?: {
+    readonly file: string
+    readonly id: string
+    /**
+     * The database of the editor the extension runs in, when there is one: while the
+     * editor holds it open the extension is running, holding the list in memory, and
+     * the list is left alone (`dispose`'s `keepIndex`)
+     */
+    readonly editorDb?: string
+  }
   /** Databases no other process may hold open while the session goes */
   readonly databases: readonly string[]
 }
@@ -56,6 +69,15 @@ function fileNames(dir: string): string[] {
   }
 }
 
+/** A directory itself — never through a link, which `rmSync` would take for the link alone. */
+function isDir(path: string): boolean {
+  try {
+    return lstatSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 /** opencode's older file store: a session's record, its turns, each turn's parts, its diff and to-dos. */
 function opencodeFiles(file: string, id: string): string[] {
   const storage = dirname(dirname(dirname(file)))
@@ -68,10 +90,44 @@ function opencodeFiles(file: string, id: string): string[] {
   )
 }
 
-export function disposalOf(meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments'>): Disposal {
+/** One record of a Cursor chat, as the store holding it keeps it. */
+function cursorDisposal(file: string): Disposal {
+  const ref = splitSessionRef(file)
+  if (ref && basename(ref.file) === CURSOR_IDE_DB) {
+    const db = resolve(ref.file)
+    return { paths: [], rows: { db, kind: 'cursor-chat', id: ref.id }, databases: [db] }
+  }
+  // a conversation its ACP server keeps: the folder holds its database and meta.json
+  if (isCursorAcpStore(file)) return { paths: [resolve(dirname(file))], databases: [resolve(file)] }
+  // `<id>/<id>.jsonl` with its subagents beside it: the folder is the transcript
+  const dir = dirname(file)
+  return none([basename(dir) === basename(file, '.jsonl') ? dir : file])
+}
+
+/** What every VS Code-based editor keeps its own state in, beside its extensions' storage. */
+const EDITOR_DB = 'state.vscdb'
+
+/**
+ * A Cline or Roo Code task list, and the editor database beside the extension's storage
+ * (`<editor>/User/globalStorage/<extension>` → `…/globalStorage/state.vscdb`) when the
+ * extension runs in one — Cline's CLI keeps its storage in a home of its own.
+ */
+function taskIndex(storage: string, list: { readonly file: string; readonly id: string }): NonNullable<Disposal['index']> {
+  const editorDb = join(dirname(storage), EDITOR_DB)
+  return { file: resolve(list.file), id: list.id, ...(existsSync(editorDb) ? { editorDb: resolve(editorDb) } : {}) }
+}
+
+export type DisposableSession = Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments' | 'otherRecords'>
+
+export function disposalOf(meta: DisposableSession): Disposal {
   const file = meta.sourcePath
   switch (meta.provider) {
-    case 'claude':
+    case 'claude': {
+      // its subagents' transcripts and the tool results it saved aside sit in a folder
+      // named for the session, beside its log
+      const beside = join(dirname(file), basename(file, '.jsonl'))
+      return none(isDir(beside) ? [...sessionLogFiles(meta), beside] : sessionLogFiles(meta))
+    }
     case 'codex':
     case 'copilot':
       // every page of a thread kept across several files
@@ -82,24 +138,23 @@ export function disposalOf(meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'so
       return none(existsSync(sub) ? [file, sub] : [file])
     }
     case 'cursor': {
-      const ref = splitSessionRef(file)
-      if (ref && basename(ref.file) === CURSOR_IDE_DB) {
-        const db = resolve(ref.file)
-        return { paths: [], rows: { db, kind: 'cursor-chat', id: ref.id }, databases: [db] }
-      }
-      // a conversation its ACP server keeps: the folder holds its database and meta.json
-      if (isCursorAcpStore(file)) return { paths: [resolve(dirname(file))], databases: [resolve(file)] }
-      // `<id>/<id>.jsonl` with its subagents beside it: the folder is the transcript
-      const dir = dirname(file)
-      return none([basename(dir) === basename(file, '.jsonl') ? dir : file])
+      // a chat kept in the editor's database and as an agent transcript is one session
+      // (`otherRecords`): both go, or the next scan lists the chat again. Cursor keeps
+      // one editor database, so at most one of them is rows.
+      const [own, ...others] = [file, ...(meta.otherRecords ?? [])].map(cursorDisposal)
+      return others.reduce<Disposal>((a, b) => {
+        const rows = a.rows ?? b.rows
+        return { paths: [...a.paths, ...b.paths], ...(rows ? { rows } : {}), databases: [...a.databases, ...b.databases] }
+      }, own)
     }
-    case 'cline':
-      return {
-        ...none([dirname(file)]),
-        index: { file: resolve(dirname(dirname(dirname(file))), 'state', 'taskHistory.json'), id: meta.nativeId }
-      }
-    case 'roo':
-      return { ...none([dirname(file)]), index: { file: resolve(dirname(dirname(file)), '_index.json'), id: meta.nativeId } }
+    case 'cline': {
+      const storage = dirname(dirname(dirname(file)))
+      return { ...none([dirname(file)]), index: taskIndex(storage, { file: join(storage, 'state', 'taskHistory.json'), id: meta.nativeId }) }
+    }
+    case 'roo': {
+      const storage = dirname(dirname(dirname(file)))
+      return { ...none([dirname(file)]), index: taskIndex(storage, { file: join(storage, 'tasks', '_index.json'), id: meta.nativeId }) }
+    }
     case 'opencode': {
       const ref = splitSessionRef(file)
       if (ref && basename(ref.file) === OPENCODE_DB) {
@@ -162,18 +217,44 @@ function pathBytes(p: string): number {
   }
 }
 
-const CURSOR_CHAT_ROWS = 'FROM cursorDiskKV WHERE key = ? OR instr(key, ?) > 0'
-const cursorChatParams = (id: string): string[] => [`composerData:${id}`, `:${id}:`]
+/** A `cursorDiskKV` key past its first segment (`bubbleId:<chat>:<message>` → `<chat>:<message>`). */
+const KEY_REST = "substr(key, instr(key, ':') + 1)"
+
+/**
+ * The chat a `cursorDiskKV` row belongs to, or null: its `composerData:<id>` document,
+ * and every key whose second segment is its id with more after it — `bubbleId:<id>:…`,
+ * `checkpointId:<id>:…`, `messageRequestContext:<id>:…`, anything Cursor keys per chat
+ * that way. One expression both sizes and deletes, so what is counted is what goes;
+ * and it reads the id off any key, so one pass over the table sizes every chat in it.
+ */
+const CURSOR_CHAT_OF =
+  `CASE WHEN key >= 'composerData:' AND key < 'composerData;' AND instr(${KEY_REST}, ':') = 0 THEN ${KEY_REST}` +
+  ` WHEN instr(${KEY_REST}, ':') > 1 THEN substr(${KEY_REST}, 1, instr(${KEY_REST}, ':') - 1) END`
+
+/**
+ * What each chat in an editor database occupies, in one grouped pass, kept until the
+ * database changes. Asked per chat, every question was a scan of the whole table — the
+ * key holds the id mid-string, where the index can't help — once per stale chat: 27ms
+ * each on a 474MB database, five seconds of a blocked main process per 200 chats.
+ */
+const cursorChatBytes = snapshotCache((db) => {
+  const rows = queryAll(db, `SELECT ${CURSOR_CHAT_OF} AS chat, sum(length(value)) AS n FROM cursorDiskKV GROUP BY chat`)
+  if (!rows) return null
+  const bytes = new Map<string, number>()
+  for (const r of rows) if (typeof r['chat'] === 'string') bytes.set(r['chat'], Number(r['n'] ?? 0))
+  return bytes
+}, new Map<string, number>())
 
 /** What the session occupies: its files, or its rows' share of a database. */
 export function disposalBytes(d: Disposal): number {
   let n = d.paths.reduce((sum, p) => sum + pathBytes(p), 0)
   if (d.rows?.kind === 'cursor-chat') {
-    n += Number(queryAll(d.rows.db, `SELECT coalesce(sum(length(value)), 0) AS n ${CURSOR_CHAT_ROWS}`, ...cursorChatParams(d.rows.id))?.[0]?.['n'] ?? 0)
+    n += cursorChatBytes(d.rows.db).get(d.rows.id) ?? 0
   } else if (d.rows?.kind === 'opencode-session') {
-    const sum = (table: string): number =>
-      Number(queryAll(d.rows!.db, `SELECT coalesce(sum(length(data)), 0) AS n FROM ${table} WHERE session_id = ?`, d.rows!.id)?.[0]?.['n'] ?? 0)
-    n += sum('message') + sum('part')
+    // a table this version lacks reads as null, and adds nothing
+    const sum = (table: string, key: string): number =>
+      Number(queryAll(d.rows!.db, `SELECT coalesce(sum(length(data)), 0) AS n FROM ${table} WHERE ${key} = ?`, d.rows!.id)?.[0]?.['n'] ?? 0)
+    n += sum('message', 'session_id') + sum('part', 'session_id') + sum('event', 'aggregate_id')
   }
   return n
 }
@@ -183,16 +264,84 @@ export function disposalFiles(d: Disposal): string[] {
   return [...d.paths, ...(d.rows ? [d.rows.db] : []), ...(d.index ? [d.index.file] : [])]
 }
 
-/** The databases among these another process holds open right now (`lsof`). */
-export async function openBy(databases: readonly string[]): Promise<Set<string>> {
-  const held = new Set<string>()
-  for (const db of new Set(databases)) {
-    const r = await execText('lsof', ['-t', '--', db], { timeoutMs: 5_000 })
-    const pids = r.stdout.split('\n').map((l) => Number(l.trim())).filter((p) => p > 0 && p !== process.pid)
-    if (pids.length > 0) held.add(db)
+/**
+ * What stands between a database and a write: another process holds it open, or lsof
+ * could not say whether one does — which is no proof that none does.
+ */
+export type DbHold = 'held' | 'unchecked'
+
+/** A database as lsof is asked about it, and as it reports it: the real path, links resolved. */
+export type LsofName = { readonly db: string; readonly real: string }
+
+/**
+ * What one `lsof -w -F pn -- <db>…` run says of each database; one it leaves out is free.
+ * lsof exits 1 both when a named file is open nowhere and when it could not look, so
+ * the status alone says nothing: only a run that finished with nothing on stderr
+ * proves a database free. Cut short (its timeout, its buffer), never started (no
+ * lsof), or reporting a file it could not examine, the database it did not clear is
+ * `unchecked` — and a write waits, as it would for one held.
+ */
+export function lsofHolds(r: ExecResult, ctx: { readonly names: readonly LsofName[]; readonly selfPid: number }): Map<string, DbHold> {
+  const out = new Map<string, DbHold>()
+  const unchecked = (names: readonly LsofName[]): void => {
+    for (const n of names) if (!out.has(n.db)) out.set(n.db, 'unchecked')
   }
-  return held
+  if (r.cutShort) {
+    unchecked(ctx.names)
+    return out
+  }
+  const byPath = new Map<string, string>()
+  for (const n of ctx.names) byPath.set(n.db, n.db).set(n.real, n.db)
+  let pid = 0
+  for (const line of r.stdout.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1))
+    const db = line.startsWith('n') ? byPath.get(line.slice(1)) : undefined
+    if (db !== undefined && pid > 0 && pid !== ctx.selfPid) out.set(db, 'held')
+  }
+  // a non-zero exit that was lsof's own answer reads `Command failed`; anything else
+  // (`spawn lsof ENOENT`) is lsof never having looked
+  if (!r.ok && !/^Command failed/.test(r.error ?? '')) {
+    unchecked(ctx.names)
+    return out
+  }
+  // `lsof: status error on <name>: …` names the file it could not examine; the usage
+  // banner that may follow is not an error of its own
+  for (const line of r.stderr.split('\n').filter((l) => l.startsWith('lsof:'))) {
+    const named = ctx.names.filter((n) => line.includes(n.db) || line.includes(n.real))
+    unchecked(named.length > 0 ? named : ctx.names)
+  }
+  return out
 }
+
+/** Databases asked about in one lsof run — a command line stays well inside ARG_MAX. */
+const LSOF_BATCH = 200
+
+/** lsof walks every process's open files once per run, however many names it is given. */
+const LSOF_TIMEOUT_MS = 10_000
+
+/**
+ * Which of these databases another process holds open right now, or could not be
+ * checked (`lsofHolds`); a database absent from the answer is free. One lsof run
+ * answers for a whole batch: each run walks every process's open files, so asking
+ * per database cost a third of a second each.
+ */
+export async function openBy(databases: readonly string[]): Promise<Map<string, DbHold>> {
+  const out = new Map<string, DbHold>()
+  const names = [...new Set(databases)].map((db) => ({ db, real: realOrSelf(db) }))
+  for (let i = 0; i < names.length; i += LSOF_BATCH) {
+    const batch = names.slice(i, i + LSOF_BATCH)
+    const r = await execText('lsof', ['-w', '-F', 'pn', '--', ...batch.map((n) => n.db)], {
+      timeoutMs: LSOF_TIMEOUT_MS,
+      // without a UTF-8 locale lsof escapes non-ASCII bytes in the names it prints
+      env: { LC_ALL: 'C.UTF-8' }
+    })
+    for (const [db, hold] of lsofHolds(r, { names: batch, selfPid: process.pid })) out.set(db, hold)
+  }
+  return out
+}
+
+/** opencode's event store, where an aggregate is a session: each event, then the sequence they hang off. */
+const OPENCODE_EVENT_TABLES = ['event', 'event_sequence'] as const
 
 function deleteRows(rows: NonNullable<Disposal['rows']>): void {
   const db = new DatabaseSync(rows.db)
@@ -202,7 +351,7 @@ function deleteRows(rows: NonNullable<Disposal['rows']>): void {
     db.exec('BEGIN IMMEDIATE')
     try {
       if (rows.kind === 'cursor-chat') {
-        db.prepare(`DELETE ${CURSOR_CHAT_ROWS}`).run(...cursorChatParams(rows.id))
+        db.prepare(`DELETE FROM cursorDiskKV WHERE (${CURSOR_CHAT_OF}) = ?`).run(rows.id)
       } else {
         // every table this version keeps per session, whatever it has added since
         const tables = db
@@ -212,6 +361,12 @@ function deleteRows(rows: NonNullable<Disposal['rows']>): void {
           .all() as Array<{ name: string }>
         for (const { name } of tables) {
           if (/^\w+$/.test(name)) db.prepare(`DELETE FROM "${name}" WHERE session_id = ?`).run(rows.id)
+        }
+        // 1.18 also keeps the session as an event stream — most of its conversation —
+        // keyed by the session's id; the events before the sequence they belong to
+        for (const table of OPENCODE_EVENT_TABLES) {
+          const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)
+          if (exists) db.prepare(`DELETE FROM "${table}" WHERE aggregate_id = ?`).run(rows.id)
         }
         db.prepare('DELETE FROM session WHERE id = ?').run(rows.id)
       }
@@ -243,14 +398,21 @@ function dropFromIndex(index: NonNullable<Disposal['index']>): void {
 
 /**
  * Remove the session. The rows go first, in one transaction, so a database that
- * refuses the write leaves every file where it was; then the files; then the index.
+ * refuses the write leaves every file where it was; then the files; then the index —
+ * unless `keepIndex`: the editor the extension runs in is open (`index.editorDb`), and
+ * the extension holds its list in memory, to write back over an edit or to lose its own
+ * write to one. It drops an entry whose task is gone once the entry is opened. Says
+ * whether the index was left.
  */
-export function dispose(d: Disposal): void {
+export function dispose(d: Disposal, opts: { readonly keepIndex?: boolean } = {}): { readonly indexLeft: boolean } {
   if (d.rows) deleteRows(d.rows)
   for (const p of d.paths) {
     if (!existsSync(p) && /-(wal|shm)$/.test(p)) continue
     rmSync(p, { recursive: true, force: false })
   }
-  if (d.index && existsSync(d.index.file)) dropFromIndex(d.index)
+  if (!d.index || !existsSync(d.index.file)) return { indexLeft: false }
+  if (opts.keepIndex) return { indexLeft: true }
+  dropFromIndex(d.index)
+  return { indexLeft: false }
 }
 

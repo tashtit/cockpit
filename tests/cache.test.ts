@@ -39,6 +39,15 @@ describe('throttled', () => {
     expect(await get()).toBe('ok')
     expect(runs).toBe(2)
   })
+
+  it('asks again once forgotten', async () => {
+    let runs = 0
+    const get = throttled(60_000, async () => ++runs)
+    expect(await get()).toBe(1)
+    expect(await get()).toBe(1)
+    get.forget()
+    expect(await get()).toBe(2)
+  })
 })
 
 describe('throttledBy', () => {
@@ -92,6 +101,67 @@ describe('throttledBy', () => {
     await expect(get('bad')).rejects.toThrow('offline')
     expect(await get('bad')).toBeNull()
     expect(runs).toBe(3)
+  })
+
+  it('forgets what it remembered, for one key or for all of them', async () => {
+    let runs = 0
+    const get = throttledBy(60_000, async (key: string) => `${key}#${++runs}`)
+    expect(await get('a')).toBe('a#1')
+    expect(await get('b')).toBe('b#2')
+    get.forget('a')
+    expect(await get('a')).toBe('a#3')
+    expect(await get('b')).toBe('b#2')
+    get.forget()
+    expect(await get('b')).toBe('b#4')
+  })
+
+  // a write settled while a gathering is under way makes that gathering's answer stale:
+  // it still reaches the callers that asked, but must not be kept for the next one
+  it('answers a run forgotten mid-flight, and keeps nothing it found', async () => {
+    const release: Array<(v: string) => void> = []
+    const get = throttledBy(60_000, () => new Promise<string>((r) => release.push(r)))
+    const before = get('k')
+    get.forget('k')
+    // a call after the forget does not ride on the stale run
+    const after = get('k')
+    expect(after).not.toBe(before)
+    release[0]!('pre-write')
+    expect(await before).toBe('pre-write')
+    release[1]!('post-write')
+    expect(await after).toBe('post-write')
+    expect(await get('k')).toBe('post-write')
+    expect(release).toHaveLength(2)
+  })
+
+  it('does not keep a run forgotten mid-flight, even when nothing asked after it', async () => {
+    const release: Array<(v: string) => void> = []
+    const get = throttledBy(60_000, () => new Promise<string>((r) => release.push(r)))
+    const stale = get('k')
+    get.forget()
+    release[0]!('pre-write')
+    expect(await stale).toBe('pre-write')
+    const fresh = get('k')
+    release[1]!('post-write')
+    expect(await fresh).toBe('post-write')
+  })
+
+  // a plain call made while a forced one runs shares it; an older plain run landing
+  // after the forced one neither clears it nor replaces what it kept
+  it('lets a forced run win over a plain one, whichever lands last', async () => {
+    const release: Array<(v: string) => void> = []
+    const get = throttledBy(60_000, () => new Promise<string>((r) => release.push(r)))
+    const plain = get('k')
+    const forced = get('k', { force: true })
+    const rider = get('k')
+    expect(rider).toBe(forced)
+    release[0]!('plain')
+    expect(await plain).toBe('plain')
+    // the older run landing did not clear the forced one out of flight
+    expect(get('k')).toBe(forced)
+    release[1]!('forced')
+    expect(await forced).toBe('forced')
+    expect(await get('k')).toBe('forced')
+    expect(release).toHaveLength(2)
   })
 
   it('turns a compute that throws before its promise into a rejection', async () => {

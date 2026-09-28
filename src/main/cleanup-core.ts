@@ -522,6 +522,38 @@ export function judgeProcesses(input: {
   return out.sort(byAge)
 }
 
+/** A session just archived or deleted, as `leftBehind` weighs it: where it ran, and when. */
+export type ArchivedRun = {
+  /** Resolved, so it compares with the real paths git reports */
+  readonly cwd: string
+  /** Epoch ms of its first and last log write; 0 when unknown */
+  readonly startedAt: number
+  readonly updatedAt: number
+}
+
+/**
+ * How much earlier than a session's first log write something it started may seem to
+ * have begun: `ps` gives a start to the whole second and some logs stamp to the
+ * second. Kept this small on purpose — a multiplexer the person opened in the worktree
+ * and then ran the agent inside began a few seconds before the session at the least,
+ * and is theirs.
+ */
+export const RUN_START_SLACK_MS = 5_000
+
+/**
+ * How much later than a session's last log write something it started may begin: a
+ * turn cut short mid-command writes its last line before the command's process tree is
+ * up, and a dev server's own start can take its time.
+ */
+export const RUN_END_SLACK_MS = 60_000
+
+/** Whether a process that started at `startedAt` began while `run` was going on. */
+function startedDuring(startedAt: number, run: ArchivedRun): boolean {
+  // an unknown start, or a session with no known lifetime, proves nothing
+  if (startedAt <= 0 || run.startedAt <= 0 || run.updatedAt <= 0) return false
+  return startedAt >= run.startedAt - RUN_START_SLACK_MS && startedAt <= run.updatedAt + RUN_END_SLACK_MS
+}
+
 /**
  * What archived sessions left running: the dev server a turn started and nobody
  * stopped, still serving a worktree whose work is over. A worktree's work is over when
@@ -534,22 +566,34 @@ export function judgeProcesses(input: {
  * one of those worktrees too: a server the agent is still running, a shell a terminal
  * or an app still holds, or a turn Cockpit runs have a live parent elsewhere, and
  * answer to it. A tree that also works outside those worktrees — a multiplexer whose
- * other windows sit elsewhere — is left whole.
+ * other windows sit elsewhere — is left whole, and so is one with a member whose cwd
+ * is unknown (lsof could not read it, it sits at `/`, it is Cockpit's own): nothing
+ * proves that one works only there.
+ *
+ * And only what the session could have started: the top of the tree must have begun
+ * during the life of a session archived in its worktree (`startedDuring`). Daemons
+ * the person started there before the session — a tmux server with the agent idle in
+ * one of its panes, an `ssh -fN` tunnel, an editor's first instance — are adopted by
+ * launchd and keep their cwd just like a forgotten dev server; their start is what
+ * tells them apart. So is one started after the session's last write.
  */
 export function leftBehind(input: {
-  /** Where the sessions just archived or deleted ran — resolved cwds */
-  readonly archived: readonly string[]
+  /** The sessions just archived or deleted, where and when they ran */
+  readonly archived: readonly ArchivedRun[]
   readonly inUse: readonly string[]
   /** Every process with a known cwd, outside those worktrees too — how a tree working elsewhere is seen */
   readonly processes: readonly ProcessFacts[]
+  /** Every process `ps` listed, whatever lsof said of its cwd — whose children a tree has */
+  readonly table: readonly Pick<ProcessFacts, 'pid' | 'ppid'>[]
   readonly worktrees: readonly PlacedWorktree[]
   readonly homes: readonly WorktreeHome[]
   readonly exists: (path: string) => boolean
 }): JudgedProcess[] {
-  const over = new Set<string>()
-  for (const cwd of input.archived) {
-    const at = worktreeAround(cwd, input)
-    if (at && !input.inUse.some((c) => isUnder(c, at.path))) over.add(at.path)
+  /** worktree → the archived sessions that ran in it */
+  const over = new Map<string, ArchivedRun[]>()
+  for (const run of input.archived) {
+    const at = worktreeAround(run.cwd, input)
+    if (at && !input.inUse.some((c) => isUnder(c, at.path))) over.set(at.path, [...(over.get(at.path) ?? []), run])
   }
   if (over.size === 0) return []
   const inside = new Map<number, JudgedProcess>()
@@ -558,7 +602,7 @@ export function leftBehind(input: {
     if (at && over.has(at.path)) inside.set(p.pid, judged(p, at))
   }
   const children = new Map<number, number[]>()
-  for (const p of input.processes) children.set(p.ppid, [...(children.get(p.ppid) ?? []), p.pid])
+  for (const p of input.table) children.set(p.ppid, [...(children.get(p.ppid) ?? []), p.pid])
   /** The top of the tree this process is in, when that tree was left to launchd */
   const orphanRoot = (p: JudgedProcess): number | null => {
     const seen = new Set<number>()
@@ -569,7 +613,7 @@ export function leftBehind(input: {
     }
     return top.ppid === 1 ? top.pid : null
   }
-  /** Every member of the tree `processes` knows is in one of those worktrees */
+  /** Every member of the tree is known to be in one of those worktrees */
   const whollyInside = (root: number): boolean => {
     const queue = [root]
     const seen = new Set(queue)
@@ -583,12 +627,17 @@ export function leftBehind(input: {
     }
     return true
   }
+  /** The session archived in its worktree could have started this tree's top */
+  const startedByRun = (root: number): boolean => {
+    const top = inside.get(root)
+    return !!top && (over.get(top.worktreePath) ?? []).some((run) => startedDuring(top.startedAt, run))
+  }
   const roots = new Map<number, boolean>()
   const out: JudgedProcess[] = []
   for (const p of inside.values()) {
     const root = orphanRoot(p)
     if (root === null) continue
-    if (!roots.has(root)) roots.set(root, whollyInside(root))
+    if (!roots.has(root)) roots.set(root, startedByRun(root) && whollyInside(root))
     if (roots.get(root)) out.push(p)
   }
   return out.sort(byAge)

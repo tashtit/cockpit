@@ -4,7 +4,8 @@ import { CH } from '../../shared/contract'
 import { branchPrefix, setBranchPrefix } from '../config'
 import { isUnder } from '../paths'
 import { getDefaultBranch, getPrs } from '../github'
-import { createPr, createWorkspace, worktreesDir } from '../workspace'
+import { branchPrefixClashAmong, createPr, createWorkspace, worktreesDir } from '../workspace'
+import { DEFAULT_BRANCH_PREFIX, branchPrefixRefusal, normalizeBranchPrefix } from '../../shared/branch-prefix'
 import { asDiffScope, getWorkspaceDiff } from '../diff'
 import { asPrNumber, getPrFeedback, getPrFixBriefing } from '../pr-feedback'
 import type { Services } from '../services'
@@ -38,8 +39,19 @@ export function registerGithubHandlers(s: Services): void {
     createWorkspace(assertKnownRepoRoot(indexer, repoRoot), name, { prefix: branchPrefix() })
   )
   ipcMain.handle(CH.workspaceBranchPrefix, () => branchPrefix())
-  // renderer input: normalized and checked in main against the same rule the form shows
-  ipcMain.handle(CH.workspaceSetBranchPrefix, (_e, prefix: unknown) => setBranchPrefix(String(prefix ?? '')))
+  // renderer input: normalized and checked in main against the same rule the form shows,
+  // then against the branches of every repository Cockpit knows — `main/` where there is
+  // a `main` would fail every new session there
+  ipcMain.handle(CH.workspaceSetBranchPrefix, async (_e, prefix: unknown) => {
+    const raw = String(prefix ?? '')
+    const next = normalizeBranchPrefix(raw)
+    // the default is what an empty prefix means, so refusing it would leave nothing to go back to
+    if (next !== '' && next !== DEFAULT_BRANCH_PREFIX && branchPrefixRefusal(next) === null) {
+      const clash = await branchPrefixClashAmong([...indexer.knownRepoRoots()], next)
+      if (clash) throw new Error(clash)
+    }
+    return setBranchPrefix(raw)
+  })
   ipcMain.handle(CH.workspacePr, (_e, cwd: string) => {
     const c = resolve(String(cwd))
     // the worktrees dir itself is not a workspace — only something cut inside it

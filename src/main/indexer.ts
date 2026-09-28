@@ -1,3 +1,9 @@
+/**
+ * The session index (`SessionIndexer`, below): every agent's sessions, found, parsed,
+ * resolved to their repositories and served to the renderer a page at a time. Its
+ * invariants — what is walked and watched, the stat cache, shared databases, passes —
+ * are on the class; the tables above it say which parser reads which store.
+ */
 import {
   existsSync,
   lstatSync,
@@ -28,7 +34,7 @@ import { orderRepos } from '../shared/repo-order'
 import { isUnder } from './paths'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
 import { isRegularFile, timeSlicer } from './parsers/util'
-import { splitSessionRef } from './parsers/sqlite'
+import { SnapshotPass, dbStamp, inPass, readFailed, splitSessionRef } from './parsers/sqlite'
 import { LivenessTracker, type ObservedTurn } from './liveness'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
 import { controlOf, type ControlEntry } from './session-control-core'
@@ -180,7 +186,7 @@ function mostSpecific<T>(candidates: ReadonlyArray<{ readonly root: string; read
 
 const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 11
+const CACHE_VERSION = 14
 /** Yield to the event loop after this much scanning so scans never starve IPC (a frame). */
 const SCAN_SLICE_MS = 16
 /** Publish partial results during a cold scan so the tree fills in progressively. */
@@ -190,6 +196,10 @@ const UPDATE_THROTTLE_MS = 800
 const CACHE_SAVE_INTERVAL_MS = 30_000
 /** How often to re-check watch roots that didn't exist when sources were set. */
 const WATCH_RETRY_INTERVAL_MS = 30_000
+/** A shared database whose read failed is looked at again after this, times the attempt… */
+const DB_RETRY_MS = 1000
+/** …this many times in a row at most; the next write to it starts over (see retryDb) */
+const MAX_DB_RETRIES = 5
 
 /** Floor for re-judging a not-a-session verdict (see knownNonSessions). */
 const PROBE_REGROW_BYTES = 4096
@@ -241,6 +251,14 @@ type CacheEntry = {
   /** mtime of copilot's out-of-band name source, workspace.yaml (see auxStamp) */
   readonly aux?: number
   /**
+   * A session kept in a database: the database's stamp (`dbStamp`, its write-ahead log
+   * counted) as it stood before its meta was read — for such a session the whole of "has
+   * it changed", in place of mtime, size and aux. None when the read failed and the last
+   * good answer stood in (nothing vouches for it), or the entry was written before this
+   * existed: either is read again at the next look.
+   */
+  readonly db?: string
+  /**
    * Codex: the thread its title was looked up under in session_index.jsonl, and the
    * name found. The index is one file for every rollout, so its mtime cannot stand for
    * any one of them — the entry is stale only when its own thread's name changed.
@@ -254,17 +272,9 @@ type CacheEntry = {
  * Copilot stores the generated session name beside the transcript, so a rename doesn't
  * touch the transcript's (mtime,size). Stamp the side file's mtime into the cache entry
  * so name changes invalidate it. (Codex keeps its names in one shared index instead —
- * see CacheEntry.threadName.)
+ * see CacheEntry.threadName; a database's sessions go by its stamp — CacheEntry.db.)
  */
 function auxStamp(file: string, source: SourceDir): number {
-  const store = storeFile(file)
-  if (isDatabase(store)) {
-    try {
-      return statSync(`${store}-wal`).mtimeMs
-    } catch {
-      return 0
-    }
-  }
   if (source.provider !== 'copilot' || !file.endsWith('events.jsonl')) return 0
   try {
     return statSync(copilotWorkspaceFile(file)).mtimeMs
@@ -328,7 +338,10 @@ export function foldThread(metas: readonly SessionMeta[]): SessionMeta {
   const newest = metas.reduce((a, b) =>
     b.messageCount !== a.messageCount ? (b.messageCount > a.messageCount ? b : a) : b.updatedAt >= a.updatedAt ? b : a
   )
-  if (metas.length === 1 || !metas.some((m) => m.historyBase)) return newest
+  if (metas.length === 1) return newest
+  // the records it wins over are the same session: what deletes it reads them
+  const otherRecords = metas.filter((m) => m.sourcePath !== newest.sourcePath).map((m) => m.sourcePath)
+  if (!metas.some((m) => m.historyBase)) return otherRecords.length > 0 ? { ...newest, otherRecords } : newest
   const order = [...metas].sort((a, b) => a.startedAt - b.startedAt || a.updatedAt - b.updatedAt)
   const tip = order[order.length - 1]
   const chain = [tip]
@@ -374,7 +387,7 @@ type PageScope = {
 
 /**
  * The session index — Cockpit's core data flow. It walks every registered source dir (the
- * three providers' homes, the homes of the agents it only reads — `agent-homes.ts` — and
+ * homes of the agents Cockpit drives, the homes of the ones it only reads — `agent-homes.ts` — and
  * extras from config), hands each session file to its
  * provider's parser (`parsers/`) for a `SessionMeta`, resolves the session's cwd to a repo
  * and branch in `annotate()` (`repos.ts`, worktree-aware), and answers the renderer only in
@@ -398,12 +411,16 @@ type PageScope = {
  *   true})` with our own debouncing. chokidar was dropped when its bundled fsevents broke on
  *   the Electron 43 upgrade.
  * - Some agents keep many sessions in one SQLite database (Cursor's editor chats, opencode;
- *   `SHARED_DBS`), each indexed as `<database>#<id>` (`parsers/sqlite.ts`): stat-checked
- *   through the database, its write-ahead log counting, and its folder watched on its own. A
+ *   `SHARED_DBS`), each indexed as `<database>#<id>` (`parsers/sqlite.ts`): checked by the
+ *   database's stamp, its write-ahead log counting, and its folder watched on its own. A
  *   write rescans only when the database lists a session the index lacks, and otherwise
  *   re-judges the known ones, keeping an unchanged session the same object — so Cursor
- *   saving its editor state announces nothing. A read that fails keeps the last good answer
- *   (`snapshotCache`) rather than dropping every session in the database. Others keep one
+ *   saving its editor state announces nothing. Every scan and every batch of re-judged
+ *   files is one pass (`SnapshotPass`): a database is read at most once in it however often
+ *   its app writes meanwhile, and one written while the pass read it is looked at again
+ *   once the pass ends (`settle`). A read that fails keeps the last good answer
+ *   (`snapshotCache`) rather than dropping every session in the database, records it
+ *   against no stamp, and looks again shortly (`retryDb`). Others keep one
  *   database per conversation under a session root (Antigravity, Cursor's ACP server;
  *   `OWN_DBS`): its `-wal` writes are that conversation's changes.
  * - When one conversation has two records in different stores (a Cursor chat in its
@@ -666,7 +683,9 @@ export class SessionIndexer {
         this.ensureWatch({
           dir: s.path,
           handler: (_event, filename) => {
-            if (filename?.toString().startsWith(db)) this.sharedDbChanged(s)
+            if (!filename?.toString().startsWith(db)) return
+            this.dbRetries.delete(s)
+            this.sharedDbChanged(s)
           }
         })
       }
@@ -899,42 +918,98 @@ export class SessionIndexer {
       source,
       setTimeout(() => {
         this.sharedDbTimers.delete(source)
+        const pass = new SnapshotPass()
         let listed: string[]
         try {
-          listed = FILE_LISTERS[source.provider](source.path)
+          listed = inPass(pass, () => FILE_LISTERS[source.provider](source.path))
         } catch {
           return
         }
         if (listed.some((f) => !this.fileSource.has(f))) this.scheduleRescan()
         else this.markSourceDirty(source)
+        this.settle(pass)
       }, DIRTY_FLUSH_MS)
+    )
+  }
+
+  /** Shared databases whose last read failed: the look again that is pending, by source (see retryDb) */
+  private dbRetryTimers = new Map<SourceDir, NodeJS.Timeout>()
+  /** …and how many such looks each has had in a row */
+  private dbRetries = new Map<SourceDir, number>()
+
+  /**
+   * After a pass over the index (see SnapshotPass in parsers/sqlite.ts): a shared
+   * database written while the pass was reading it may hold what the pass did not see.
+   * Its entries were recorded against the stamp the pass pinned, so the next look reads
+   * again — but a rescan spans awaits, and the watcher's own look at that write can come
+   * and go in between, leaving the rescan's older answer the last one recorded and
+   * nothing due to look again. So look again. One whose read failed is looked at again
+   * too, a little later (retryDb).
+   */
+  private settle(pass: SnapshotPass): void {
+    const { failed, moved, settled } = pass.unsettled()
+    if (failed.size + moved.size + settled.size === 0) return
+    for (const s of this.sources) {
+      const name = SHARED_DBS[s.provider]
+      if (!name) continue
+      const db = join(s.path, name)
+      if (failed.has(db)) this.retryDb(s)
+      else if (moved.has(db) || settled.has(db)) this.dbRetries.delete(s)
+      if (moved.has(db)) this.sharedDbChanged(s)
+    }
+  }
+
+  /**
+   * A read of a shared database failed — its app held it — and the last good answer stood
+   * in, recorded against no stamp (metaFor). The write that held it may be the last one
+   * for a while, so no watcher news is due, and a session added by it would go unlisted
+   * until the next: look again shortly, a few times, each later than the last, then leave
+   * it to the next write, which starts the count over.
+   */
+  private retryDb(source: SourceDir): void {
+    if (this.dbRetryTimers.has(source)) return
+    const attempt = (this.dbRetries.get(source) ?? 0) + 1
+    if (attempt > MAX_DB_RETRIES) return
+    this.dbRetries.set(source, attempt)
+    this.dbRetryTimers.set(
+      source,
+      setTimeout(() => {
+        this.dbRetryTimers.delete(source)
+        this.sharedDbChanged(source)
+      }, DB_RETRY_MS * attempt)
     )
   }
 
   private applyDirty(): void {
     const paths = [...this.dirty]
     this.dirty.clear()
-    let changed = false
-    for (const file of paths) {
-      const source = this.fileSource.get(file)
-      if (!source) continue
-      const before = this.fileCache.get(file)?.meta ?? null
-      const after = this.metaFor(file, source)
-      if (before === after) continue
-      changed = true
-      // re-fold every session this file was or is part of — a thread kept across
-      // several files is all of them, never just the one that moved
-      for (const id of new Set([before?.id, after?.id])) {
-        if (!id) continue
-        const folded = this.foldFiles(id)
-        if (folded) this.sessions.set(id, folded)
-        else this.sessions.delete(id)
+    // one pass: a shared database is read at most once for all of its sessions here
+    const pass = new SnapshotPass()
+    const changed = inPass(pass, () => {
+      let any = false
+      for (const file of paths) {
+        const source = this.fileSource.get(file)
+        if (!source) continue
+        const before = this.fileCache.get(file)?.meta ?? null
+        const after = this.metaFor(file, source)
+        if (before === after) continue
+        any = true
+        // re-fold every session this file was or is part of — a thread kept across
+        // several files is all of them, never just the one that moved
+        for (const id of new Set([before?.id, after?.id])) {
+          if (!id) continue
+          const folded = this.foldFiles(id)
+          if (folded) this.sessions.set(id, folded)
+          else this.sessions.delete(id)
+        }
       }
-    }
+      return any
+    })
     if (changed) {
       this.emitUpdate()
       this.scheduleSaveCache()
     }
+    this.settle(pass)
   }
 
   private scheduleRescan(): void {
@@ -978,11 +1053,13 @@ export class SessionIndexer {
       const nextSource = new Map<string, SourceDir>()
       const seenFiles = new Set<string>()
       const pace = timeSlicer(SCAN_SLICE_MS)
+      // one pass for the whole scan, installed only between its awaits (see SnapshotPass)
+      const pass = new SnapshotPass()
       let processed = 0
       for (const s of this.sources) {
         let files: string[]
         try {
-          files = FILE_LISTERS[s.provider](s.path)
+          files = inPass(pass, () => FILE_LISTERS[s.provider](s.path))
         } catch (err) {
           console.error(`[indexer] scan failed for ${s.path}:`, err)
           continue
@@ -990,7 +1067,7 @@ export class SessionIndexer {
         for (const file of files) {
           seenFiles.add(file)
           nextSource.set(file, s)
-          const meta = this.metaFor(file, s)
+          const meta = inPass(pass, () => this.metaFor(file, s))
           if (meta) next.set(meta.id, foldThread(collect(nextFiles, meta)))
           processed++
           await pace()
@@ -1007,6 +1084,7 @@ export class SessionIndexer {
       this.fileSource = nextSource
       this.emitUpdate()
       this.scheduleSaveCache()
+      this.settle(pass)
     } catch (err) {
       // every caller fires rescan without awaiting — an escaped throw would be an
       // unhandled rejection that silently leaves a half-published index behind
@@ -1032,12 +1110,13 @@ export class SessionIndexer {
   }
 
   private metaFor(file: string, source: SourceDir): SessionMeta | null {
+    const store = storeFile(file)
     let st
     try {
       // the file itself, never through a link: the listers only ever name regular files,
       // but the watcher's probe names whatever appeared (see openRegular in parsers/util).
       // A session kept inside a shared database is as fresh as the database.
-      st = lstatSync(storeFile(file))
+      st = lstatSync(store)
     } catch {
       return null
     }
@@ -1045,14 +1124,20 @@ export class SessionIndexer {
       this.fileCache.delete(file)
       return null
     }
-    const aux = auxStamp(file, source)
+    // A database — written through its write-ahead log, and for every session it holds —
+    // goes by its stamp alone: pinned for the pass (parsers/sqlite.ts) and taken before
+    // anything of it is read, so what is recorded against it is never older than it
+    const db = isDatabase(store) ? dbStamp(store) : null
+    const aux = db === null ? auxStamp(file, source) : 0
     const cached = this.fileCache.get(file)
     if (
       cached &&
-      cached.mtimeMs === st.mtimeMs &&
-      cached.size === st.size &&
-      (cached.aux ?? 0) === aux &&
-      sameThreadName(file, cached)
+      (db !== null
+        ? cached.db === db
+        : cached.mtimeMs === st.mtimeMs &&
+          cached.size === st.size &&
+          (cached.aux ?? 0) === aux &&
+          sameThreadName(file, cached))
     ) {
       // the session file is unchanged, but its repo identity may not be (a renamed
       // origin remote) and neither may its branch (the worktree moved) — re-resolve,
@@ -1078,14 +1163,17 @@ export class SessionIndexer {
       // a database changes for every session it holds (and Cursor's for its editor's own
       // state): a session that reads the same as before stays the same object, so an
       // unrelated write announces nothing
-      if (meta && cached?.meta && isDatabase(storeFile(file)) && JSON.stringify(meta) === JSON.stringify(cached.meta)) {
+      if (meta && cached?.meta && db !== null && JSON.stringify(meta) === JSON.stringify(cached.meta)) {
         meta = cached.meta
       }
     } catch (err) {
       console.error(`[indexer] parse failed for ${file}:`, err)
       meta = null
     }
-    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, ...naming, meta })
+    // a stand-in for a read that failed (snapshotCache) is recorded against no stamp: the
+    // next look reads again rather than keep it until the database next changes
+    const vouched = db !== null && !readFailed(store)
+    this.fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, aux, ...naming, ...(vouched ? { db } : {}), meta })
     this.cacheDirty = true
     // a fresh parse means the file changed — the only time its tail can say something new
     if (meta) {
@@ -1502,24 +1590,21 @@ export class SessionIndexer {
     sweepCacheTmps(this.cacheFile)
     try {
       const raw = JSON.parse(readFileSync(this.cacheFile, 'utf8'))
+      // Last-known provider-archived ids: refreshProviderArchived keeps these when a
+      // sweep fails, so a locked copilot db at launch can't unhide archived sessions.
+      // They are session ids, not parser output, so they outlive a CACHE_VERSION bump:
+      // dropped with the entries, an upgrade whose first sweep failed listed every
+      // session archived in its app, and the next good sweep then archived them all at
+      // once — which stops what each left running (archive-watch.ts).
+      const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((id): id is string => typeof id === 'string') : [])
+      if (Array.isArray(raw?.providerArchived)) this.providerArchived = new Set(ids(raw.providerArchived))
+      if (Array.isArray(raw?.providerDeleted)) this.providerDeleted = new Set(ids(raw.providerDeleted))
       if (raw?.v !== CACHE_VERSION || !Array.isArray(raw.entries)) return
       for (const [path, entry] of raw.entries) {
         if (typeof path === 'string' && entry && typeof entry.mtimeMs === 'number') {
           if (entry.meta) this.annotate(entry.meta)
           this.fileCache.set(path, entry)
         }
-      }
-      // Last-known provider-archived ids: refreshProviderArchived keeps these when a
-      // sweep fails, so a locked copilot db at launch can't unhide archived sessions.
-      if (Array.isArray(raw.providerArchived)) {
-        this.providerArchived = new Set(
-          raw.providerArchived.filter((id: unknown): id is string => typeof id === 'string')
-        )
-      }
-      if (Array.isArray(raw.providerDeleted)) {
-        this.providerDeleted = new Set(
-          raw.providerDeleted.filter((id: unknown): id is string => typeof id === 'string')
-        )
       }
     } catch {
       /* no cache yet */
@@ -1607,6 +1692,9 @@ export class SessionIndexer {
     this.dirty.clear()
     for (const t of this.sharedDbTimers.values()) clearTimeout(t)
     this.sharedDbTimers.clear()
+    for (const t of this.dbRetryTimers.values()) clearTimeout(t)
+    this.dbRetryTimers.clear()
+    this.dbRetries.clear()
     if (this.providerArchivedTimer) {
       clearTimeout(this.providerArchivedTimer)
       this.providerArchivedTimer = null

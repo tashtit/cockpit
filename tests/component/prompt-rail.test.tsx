@@ -4,7 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import { addChatMessage, setChatLog } from '../../src/renderer/src/chat-log'
 import type { ChatBinding } from '../../src/renderer/src/chat-binding'
+import { promptLine } from '../../src/renderer/src/prompt-nav'
 import type { SessionMessage } from '../../src/shared/types'
+
+// counted, not changed: the rail names every mark from its message's words, so the calls
+// say whether a render of the chat redrew it
+vi.mock('../../src/renderer/src/prompt-nav', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/renderer/src/prompt-nav')>()
+  return { ...real, promptLine: vi.fn(real.promptLine) }
+})
 
 const binding: ChatBinding = {
   provider: 'claude',
@@ -117,6 +125,16 @@ describe('the rail of your own messages', () => {
     await waitFor(() => expect(mark(1, 3)).toHaveAttribute('aria-current', 'location'))
   })
 
+  it('sits out a keystroke in the composer and a streamed reply, and names a new message', async () => {
+    renderChat(logWith(6, [0, 3]))
+    vi.mocked(promptLine).mockClear()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Message Claude' }), 'more')
+    act(() => addChatMessage(say('streamed on')))
+    expect(promptLine).not.toHaveBeenCalled()
+    act(() => addChatMessage(ask('a third question')))
+    expect(mark(3, 3)).toHaveAccessibleName('Message 3 of 3: a third question')
+  })
+
   it('shows the message a mark stands for on pointing at it', async () => {
     renderChat(logWith(6, [0, 3]))
     await userEvent.hover(mark(1, 2))
@@ -166,6 +184,15 @@ describe('the rail of your own messages', () => {
     list.scrollTop = 0
     fireEvent.scroll(list)
     expect(peek()).toBeNull()
+  })
+
+  it('says what it is and names the keys that step through it from anywhere', () => {
+    renderChat(logWith(6, [0, 3]))
+    const bar = screen.getByRole('toolbar')
+    expect(bar).toHaveAttribute('aria-orientation', 'vertical')
+    expect(bar.querySelectorAll('button')).toHaveLength(2)
+    expect(mark(1, 2)).toHaveAttribute('aria-keyshortcuts', 'Alt+Meta+ArrowUp Alt+Meta+ArrowDown')
+    expect(mark(2, 2)).toHaveAttribute('aria-keyshortcuts', 'Alt+Meta+ArrowUp Alt+Meta+ArrowDown')
   })
 
   it('is one tab stop whose arrow keys walk the messages from the one being read', async () => {

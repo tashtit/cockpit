@@ -1,3 +1,12 @@
+/**
+ * What every parser shares, and main's one way to read a file another program wrote:
+ * bounded reads of regular files only (`readHeadBytes`, `readSmallFile`, `readTail`,
+ * `readJson`), JSONL streamed or tailed and JSON arrays tailed (`streamJsonl`,
+ * `readJsonlTail`, `readJsonArrayTail`), every file a session's log spans
+ * (`sessionLogFiles`), sanity for the times and cwds a log states (`toMs`,
+ * `plausibleTime`, `usableCwd`), and the one-line previews a tool call shows in a
+ * transcript (`toolPreview`, `shellPreview`, `patchPreview`).
+ */
 import {
   closeSync,
   constants,
@@ -690,6 +699,19 @@ export const MAX_CWD_CHARS = 1024
 /** A log's cwd when it can be one: a non-empty string no longer than MAX_CWD_CHARS. */
 export function usableCwd(v: unknown): string | null {
   return typeof v === 'string' && v !== '' && v.length <= MAX_CWD_CHARS ? v : null
+}
+
+/** No session any agent keeps is older than this (2000-01-01T00:00:00Z). */
+const EARLIEST_TIME_MS = Date.UTC(2000, 0, 1)
+
+/**
+ * A decoded time when it can be one: epoch ms from 2000 to a day from now, else null for
+ * the caller to fall back on the file's own time. A field read without a schema (a
+ * protobuf's), or from a format that drifted, decodes to whatever its bytes say — ~1e22
+ * ms showed as Invalid Date and sorted to the top of every list.
+ */
+export function plausibleTime(ms: number | null | undefined): number | null {
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= EARLIEST_TIME_MS && ms <= Date.now() + 86_400_000 ? ms : null
 }
 
 export function toMs(v: unknown): number | null {

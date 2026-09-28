@@ -2,20 +2,23 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { AcpAgent, AcpReadiness, BusySession, ChatRequest, PrStatus, SessionMeta, SessionProvider } from '../shared/types'
 import { PUSH } from '../shared/contract'
-import { BUILTIN_ACP_AGENTS, builtinAgentFor } from '../shared/acp'
+import { acpCanReopen, acpStoreRefusal, BUILTIN_ACP_AGENTS, builtinAgentFor } from '../shared/acp'
 import { AGENT_LABEL, isDrivable, SESSION_PROVIDERS } from '../shared/providers'
 import { SessionIndexer } from './indexer'
 import { TranscriptSearcher } from './transcript-search'
 import { ChatManager } from './chat'
 import { probeAcpAgent } from './acp'
+import { BuiltinReadiness } from './acp-core'
 import { loginPathReady } from './env'
+import { probeSeatFence } from './seat-fence'
 import { mergeBusy } from './liveness-core'
 import {
-  adoptDetectedSources,
+  archiveWatchOn,
   attentionPrefs,
   listAcpAgents,
   listModelEndpoints,
   loadConfig,
+  tryAdoptDetectedSources,
   userDataDir,
   type AppConfig
 } from './config'
@@ -71,8 +74,11 @@ export type Services = {
    * answer to "can this agent be sent a turn" for an agent Cockpit otherwise only reads
    */
   readonly acpAgentFor: (provider: SessionProvider) => AcpAgent | undefined
-  /** Which agents a session can be started or continued with; asking re-probes a missing built-in */
-  readonly acpReadiness: (opts?: { readonly reprobe?: boolean }) => AcpReadiness
+  /**
+   * Which agents a session can be started or continued with. Asking re-probes a missing
+   * built-in, at most once a minute; `recheck` re-probes every built-in now
+   */
+  readonly acpReadiness: (opts?: { readonly recheck?: boolean }) => AcpReadiness
   /** Tell the window what `acpReadiness` now says — an ACP agent was added or removed */
   readonly pushAcpReadiness: () => void
 }
@@ -172,7 +178,7 @@ export function startServices(): Services {
   const ledger = new TurnLedger(indexer, {
     onReadOnlyTurnDone: () => {
       const known = loadConfig().sources.length
-      const cfg = adoptDetectedSources()
+      const cfg = tryAdoptDetectedSources()
       if (cfg.sources.length !== known) void indexer.setSources(cfg.sources)
     }
   })
@@ -180,7 +186,7 @@ export function startServices(): Services {
   const transcripts = new TranscriptSearcher(indexer)
   // an agent installed, or an editor that gained Cline, since the last launch is indexed
   // from this one on — a source the person removed is never added back
-  applyConfig(indexer, adoptDetectedSources())
+  applyConfig(indexer, tryAdoptDetectedSources())
 
   const republishConfig = (): void => {
     applyConfig(indexer, loadConfig())
@@ -217,52 +223,36 @@ export function startServices(): Services {
   void indexer.whenScanned().then(() => theDesk.recheckAsks((id) => indexer.getSession(id)))
 
   /**
-   * Built-in ACP agents this machine's CLIs turned out to support, by id — probed in the
-   * background at startup, and again for any still missing when the window asks, at most
-   * once a minute, so a CLI installed while Cockpit runs is picked up without a restart.
-   *
-   * The handshake is the only honest test — a `--acp` flag in `--help` says the flag
-   * parses, not that the protocol answers. It costs one process launch per agent and
-   * creates no session. Until a probe lands, Copilot's turns take its CLI path, and an
-   * agent Cockpit otherwise only reads stays read-only: the worst case of a slow or
-   * missing CLI is the behaviour Cockpit had before ACP existed.
+   * Built-in ACP agents this machine's CLIs answer for (`BuiltinReadiness`) — probed in
+   * the background at startup, again for any still missing when the window asks, and all
+   * of them when Settings asks to check again. Until a probe lands, Copilot's turns take
+   * its CLI path, and an agent Cockpit otherwise only reads stays read-only: the worst case
+   * of a slow or missing CLI is the behaviour Cockpit had before ACP existed.
    */
-  const acpReady = new Set<string>()
-  const acpProbing = new Set<string>()
-  let acpProbedAt = 0
+  const builtins = new BuiltinReadiness({
+    // after the login shell's PATH: an npm-installed CLI is on no other
+    probe: (agent) => loginPathReady().then(() => probeAcpAgent(agent, homedir())),
+    onChange: () => pushAcpReadiness()
+  })
   const acpAgentFor = (provider: SessionProvider): AcpAgent | undefined => {
     // one the person defined for this agent is a deliberate choice and wins over the built-in
     const defined = listAcpAgents().find((a) => a.provider === provider)
     if (defined) return defined
     const builtin = builtinAgentFor(provider)
-    return builtin && acpReady.has(builtin.id) ? builtin : undefined
+    return builtin && builtins.isReady(builtin.id) ? builtin : undefined
   }
   const currentAcpReadiness = (): AcpReadiness => ({
     drivable: SESSION_PROVIDERS.filter((p) => isDrivable(p) || acpAgentFor(p) !== undefined),
-    builtinsReady: BUILTIN_ACP_AGENTS.filter((a) => acpReady.has(a.id)).map((a) => a.id)
+    builtinsReady: builtins.ready()
   })
   const pushAcpReadiness = (): void => sendToWin(PUSH.acpReadiness, currentAcpReadiness())
-  const probeAcpBuiltins = (): void => {
-    acpProbedAt = Date.now()
-    for (const builtin of BUILTIN_ACP_AGENTS) {
-      if (acpReady.has(builtin.id) || acpProbing.has(builtin.id)) continue
-      acpProbing.add(builtin.id)
-      // after the login shell's PATH: an npm-installed CLI is on no other
-      void loginPathReady()
-        .then(() => probeAcpAgent(builtin, homedir()))
-        .then((probe) => {
-          if (!probe.ok) return
-          acpReady.add(builtin.id)
-          pushAcpReadiness()
-        })
-        .finally(() => acpProbing.delete(builtin.id))
-    }
-  }
-  const acpReadiness = (opts: { readonly reprobe?: boolean } = {}): AcpReadiness => {
-    if (opts.reprobe && Date.now() - acpProbedAt > 60_000) probeAcpBuiltins()
+  const acpReadiness = (opts: { readonly recheck?: boolean } = {}): AcpReadiness => {
+    builtins.probe(opts.recheck ? 'all' : 'missing')
     return currentAcpReadiness()
   }
-  probeAcpBuiltins()
+  builtins.probe('missing')
+  // whether this Codex takes a seat's secret fence: asked once, off the launch path
+  void loginPathReady().then(() => probeSeatFence())
 
   const theChat = new ChatManager(
     (ev) => {
@@ -278,6 +268,14 @@ export function startServices(): Services {
       // a headless CLI gives anything it would have asked
       asksPermissions: (req) => !tables?.tableIdForCwd(req.cwd),
       resolveAcpAgent: (req) => {
+        // a session kept where its agent's ACP server can't reopen it (an editor's chat) is
+        // refused before any agent starts — the renderer offers no composer for one either
+        if (!isDrivable(req.provider) && req.resumeNativeId) {
+          const session = indexer.getSession(`${req.provider}:${req.resumeNativeId}`)
+          if (session && !acpCanReopen(session)) {
+            throw new Error(`${acpStoreRefusal(req.provider)} Continue it with another agent instead.`)
+          }
+        }
         const chosen = req.options?.acpAgent
         if (chosen && chosen !== 'auto') {
           const agent = [...listAcpAgents(), ...BUILTIN_ACP_AGENTS].find((a) => a.id === chosen)
@@ -382,15 +380,19 @@ export function startServices(): Services {
   })
   void indexer.whenScanned().then(() => reminder.start())
   // archiving a session ends its work: the dev server it left running in its worktree
-  // is stopped with it, whichever app it was archived in
-  const watch = new ArchiveWatch({
-    listed: () => indexer.allSessions(),
-    thrownAway: (id) => indexer.thrownAway(id),
-    session: (id) => indexer.getSession(id),
-    stop: (sessions) => stopLeftBehind(cleanupDeps(), sessions)
-  })
-  archiveWatch = watch
-  void indexer.whenScanned().then(() => watch.start())
+  // is stopped with it, whichever app it was archived in — by an installed app only
+  if (archiveWatchOn()) {
+    const watch = new ArchiveWatch({
+      listed: () => indexer.allSessions(),
+      // what was thrown away before the watch started is not news when it flickers back
+      held: () => indexer.ownSessions(),
+      thrownAway: (id) => indexer.thrownAway(id),
+      session: (id) => indexer.getSession(id),
+      stop: (sessions) => stopLeftBehind(cleanupDeps(), sessions)
+    })
+    archiveWatch = watch
+    void indexer.whenScanned().then(() => watch.start())
+  }
 
   return {
     indexer,

@@ -10,8 +10,8 @@ Cockpit's own state — the config homes it indexes, your shared instructions, t
 | Shared instruction baselines, global and per repo | The session index (rebuilt on first scan) |
 | Library entries and the skills behind them | Worktrees and their branches |
 | Custom provider definitions | Roundtable transcripts |
-| Archived sessions, provider bindings, handoff lineage | Chat images |
-| History window, stale threshold, time format, hidden repos | |
+| Archived sessions, provider bindings, handoff lineage, who drives each session | Chat images |
+| History window, stale threshold, time format, branch prefix, hidden repos | |
 
 Repos are recorded as `owner/repo` wherever Cockpit knows the GitHub remote, so a repo's instructions and skills still find it on another Mac, whatever the checkout is called there.
 

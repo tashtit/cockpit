@@ -1,6 +1,6 @@
 # Sessions & the index
 
-Everything in Cockpit starts from the session index: a live, repo-grouped view of every conversation you've had with any of the three agents, on any machine account, in any terminal.
+Everything in Cockpit starts from the session index: a live, repo-grouped view of every conversation you've had with Claude Code, Codex or Copilot — or with one of the six agents Cockpit also reads — on any machine account, in any terminal.
 
 ## Where sessions come from
 
@@ -67,6 +67,12 @@ normal palette; <kbd>Esc</kbd> closes it.
 | <kbd>⌘[</kbd> / <kbd>⌘]</kbd> | back and forward through views you've visited |
 | <kbd>⌘,</kbd> | settings |
 | <kbd>Esc</kbd> | back out of a secondary view |
+| <kbd>⌘J</kbd> | in a chat: open or close the Work panel |
+| <kbd>⌘D</kbd> | in a chat: open or close the changes to review |
+| <kbd>⌘L</kbd> | in a chat: open or close the side chat |
+| <kbd>⌥⌘↑</kbd> / <kbd>⌥⌘↓</kbd> | in a chat: move between the messages you sent |
+
+Every shortcut rides <kbd>⌘</kbd> alone: <kbd>Ctrl</kbd>+K, <kbd>Ctrl</kbd>+N and <kbd>Ctrl</kbd>+D stay the text field's own, as everywhere on a Mac.
 
 Backing into the conversation that's currently running just flips the view — the live log keeps streaming, untouched.
 
@@ -97,7 +103,7 @@ A session of one of these agents renders as any session does: its transcript, to
 
 Cockpit can also start and continue sessions of Gemini CLI, Cursor, Cline and opencode, through each agent's own ACP server. That works once the agent's CLI answers Cockpit's handshake, or once you add an ACP agent for it yourself; see [ACP agents](/guide/acp-agents#agents-cockpit-otherwise-only-reads). The agent then appears in the New session form, in Home's composer and in **Continue in…**. Its sessions open with a composer, and you take one over from its agent the same way you would a Claude session.
 
-Until then, and for Roo Code and Antigravity, which have no ACP mode, a session opens read-only and has no composer. To pick the work up, use **Continue in…**. It hands the session, with a briefing built from its transcript, to another agent in the same directory. Live status and notifications for turns that run outside Cockpit follow the three agents Cockpit runs headless.
+Until then, and for Roo Code and Antigravity, which have no ACP mode, a session opens read-only and has no composer. So do Cursor's editor chats and agent transcripts, and Cline's tasks from the extension in an editor: those agents' ACP servers keep their own conversations and can't reopen these. To pick the work up, use **Continue in…**. It hands the session, with a briefing built from its transcript, to another agent in the same directory. Live status and notifications for turns that run outside Cockpit follow the three agents Cockpit runs headless.
 
 ## Archiving
 
@@ -106,7 +112,7 @@ Two kinds of "gone", handled differently:
 - **Archived in Cockpit** — you can archive sessions in-app; they collapse into a dimmed per-repo section. Provider logs have no archive flag, so this state lives in Cockpit's own config.
 - **Archived or deleted in the provider's own app** — Cockpit reads each provider's native archived/deleted state (Copilot's `data.db`, Codex's `archived_sessions/`, the Claude desktop app's session store) and hides those sessions entirely.
 
-Either way, archiving a session ends its work, so Cockpit stops what it left running in its worktree — the dev server a turn started in the background and nobody stopped. Only what outlived whatever launched it goes: a server the agent is still running, or a shell a terminal or the agent's app still holds, is left alone. Nothing is stopped while another session still listed, a running turn or a roundtable uses the same worktree, and nothing ever in the repository's own checkout. It happens once, as the session is archived, with the same polite SIGTERM the Cleanup view's **Stop** sends; start a server there again later and it is yours to keep. Anything left over still shows on the Cleanup view's [Processes](/guide/cleanup#processes) tab.
+Either way, archiving a session ends its work, so Cockpit stops what it left running in its worktree — the dev server a turn started in the background and nobody stopped. Only what outlived whatever launched it goes: a server the agent is still running, or a shell a terminal or the agent's app still holds, is left alone. And only what started while the session was going: a tmux server or an SSH tunnel you opened in the worktree before the session began, or anything started after its last message, is yours and stays. Nothing is stopped while another session still listed, a running turn or a roundtable uses the same worktree, and nothing ever in the repository's own checkout. It happens once, as the session is archived, with the same polite SIGTERM the Cleanup view's **Stop** sends; start a server there again later and it is yours to keep. Anything left over still shows on the Cleanup view's [Processes](/guide/cleanup#processes) tab.
 
 ## The history window
 
@@ -116,7 +122,7 @@ By default Cockpit shows your full history. If years of sessions make the sideba
 
 The index stays snappy on huge histories because of a few deliberate constraints:
 
-- Only per-provider session roots are walked and watched — never package caches, cloned repos, logs, or SQLite files.
+- Only each agent's session roots are walked and watched — never package caches, cloned repos or logs. An agent that keeps its sessions in a database (Cursor, opencode, Antigravity) is read from that database, read-only, and never held open.
 - Meta parsing reads at most 256&nbsp;KB per file, and parsers are failure-tolerant: session formats are provider-internal and drift between releases, so anything unreadable is skipped rather than failing the scan.
 - A stat-cache (mtime + size) persists across restarts, so relaunching only re-parses files that actually changed.
 - Scans yield to the event loop, so the UI never blocks behind indexing.

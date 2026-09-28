@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type { Landing, PermissionMode, RepoGroup, RoundtableMeta, SessionMeta } from '../../shared/types'
 import { api } from './api'
 import { AttachRow, useImageAttachments, type ImageAttachment } from './attachments'
@@ -561,7 +561,7 @@ function Board({
   ].filter((c): c is string => typeof c === 'string')
 
   return (
-    <section className="board" aria-label="Session board">
+    <section className="board" aria-label="Session board" style={BOARD_LEAD}>
       <div className="board-head">
         {/* The view's heading, and a polite live region so turn starts, completions
             and questions announce the new counts. Its size is the alarm: one quiet
@@ -608,6 +608,15 @@ function Board({
  * two-thirds empty.
  */
 const BOARD_ROWS = 30
+
+/**
+ * The board's lead column, in placard characters: the longest agent's name (ANTIGRAVITY),
+ * so no placard is cut. `.board-lead` turns it into a width, and gives it back rather than
+ * clipping where a narrow row needs it for its reason.
+ */
+const BOARD_LEAD: CSSProperties = {
+  '--board-lead-ch': Math.max(...Object.values(PROVIDER_LABEL).map((l) => l.length))
+} as CSSProperties
 /** Needs-you rows fetched beyond the page — main keeps no more landings than this (LANDING_MAX). */
 const NEEDS_FETCH_MAX = 60
 

@@ -349,10 +349,11 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   border-radius: var(--radius-pill); background: var(--accent); }
 /* fixed so it can't overflow the window edge — the sidebar hugs the left.
    no-drag: the popover hangs off .tree-top (a drag region); without the opt-out its
-   checkbox rows would start a window drag instead of receiving clicks */
+   checkbox rows would start a window drag instead of receiving clicks. Its height
+   stops 8px short of the bottom edge: 108 + 340 ran past the 420px floor */
 .repo-filter-pop { position: fixed; top: 108px; left: 10px; z-index: 20;
   -webkit-app-region: no-drag;
-  width: 260px; max-height: 340px; overflow-y: auto;
+  width: 260px; max-height: min(340px, calc(100vh - 116px)); overflow-y: auto;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow-pop); padding: var(--s2); }
 .repo-filter-head { font-size: var(--fs-xs); font-weight: 700; text-transform: lowercase;
@@ -684,6 +685,12 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 /* a quiet dot between inline links in running prose */
 .link-sep { color: var(--fg-dim); margin: 0 var(--s2); }
 .link-btn:hover { text-decoration: underline; }
+/* busy rather than disabled: a button that keeps keyboard focus while the work it
+   started runs (aria-disabled, and a guard in its handler) rests the way a disabled
+   one would, and does not answer the pointer */
+.btn-ghost[aria-disabled='true'], .link-btn[aria-disabled='true'] { opacity: 0.55; cursor: default; }
+.btn-ghost[aria-disabled='true']:hover { color: var(--fg-dim); background: none; border-color: var(--border); }
+.link-btn[aria-disabled='true']:hover { text-decoration: none; }
 /* first run: the composer's shell holding what Cockpit still needs, one step per
    line. Satisfied steps stay on screen, ticked — the card is a progress readout,
    not a gate that empties as you go. */
@@ -1254,6 +1261,10 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .pulse-claude { background: var(--claude); }
 .pulse-codex { background: var(--codex); }
 .pulse-copilot { background: var(--copilot); }
+/* the agents driven over ACP pulse in their own livery too: Gemini in its blue, the
+   monochrome brands in the one shared mark — never the accent, which is nobody's */
+.pulse-gemini { background: var(--gemini); }
+.pulse-cursor, .pulse-cline, .pulse-roo, .pulse-opencode, .pulse-antigravity { background: var(--mono-mark); }
 /* the sidebar's running mark (Spinner) is neutral: the row's logo already carries the
    agent, and a rail of several at work lit up in three liveries at once. A turning ring
    is shape and motion, never color; under reduced motion it holds still, one quarter lit */
@@ -1275,11 +1286,11 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .perm-what { font-size: var(--fs-sm); color: var(--fg); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .perm-actions { display: flex; gap: var(--s2); flex: none; }
-/* a command asking to run: the command is the card's content, the agent's title the lesser
-   line above it, and the answers take their own row at the right */
-.perm-exec .perm-what { color: var(--fg-dim); }
-.perm-exec .perm-actions { margin-left: auto; }
-.perm-command { flex-basis: 100%; min-width: 0; max-height: 220px; overflow-y: auto; margin: 0;
+/* what is being allowed — a command, or any other tool's input — is the card's content,
+   the agent's title the lesser line above it, and the answers take their own row at the right */
+.perm-detailed .perm-what { color: var(--fg-dim); }
+.perm-detailed .perm-actions { margin-left: auto; }
+.perm-detail { flex-basis: 100%; min-width: 0; max-height: 220px; overflow-y: auto; margin: 0;
   padding: var(--s3) var(--s4); background: var(--bg-deep); border: 1px solid var(--border);
   border-radius: var(--radius-sm); font-family: var(--mono); font-size: var(--fs-base);
   line-height: 1.5; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere;
@@ -1287,6 +1298,15 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .perm-ctl { font-size: var(--fs-xs); color: var(--warn); padding: 0 var(--s1); margin-inline: 1px;
   border: 1px solid rgba(var(--warn-rgb), 0.5); border-radius: var(--radius-sm); }
 .perm-cut { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); color: var(--warn); }
+/* what the request says of itself: why it asks, the path that made it */
+.perm-note { flex-basis: 100%; min-width: 0; margin: 0; font-size: var(--fs-sm); color: var(--fg-dim);
+  overflow-wrap: anywhere; user-select: text; }
+.perm-note-k { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: 0.9px; text-transform: uppercase; margin-right: var(--s2); }
+/* a command asking to run with the sandbox off: the edge and a line in the danger colour,
+   and the line says it in words */
+.perm-unsandboxed { border-color: rgba(var(--danger-rgb), 0.6); }
+.perm-flag { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--danger); }
 /* who drives the session and the way to change it, docked where the permission card
    is: always there for a session with its agent (Take over), on the chip's say-so for
    one Cockpit holds (Release, Open in Terminal) */
@@ -1793,7 +1813,8 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .composer-agent.active.plogo-gemini { background: rgba(var(--gemini-rgb), 0.16);
   box-shadow: inset 0 0 0 1.5px var(--gemini); }
 .composer-agent.active.plogo-cursor, .composer-agent.active.plogo-cline,
-.composer-agent.active.plogo-opencode { background: rgba(var(--mono-mark-rgb), 0.12);
+.composer-agent.active.plogo-roo, .composer-agent.active.plogo-opencode,
+.composer-agent.active.plogo-antigravity { background: rgba(var(--mono-mark-rgb), 0.12);
   box-shadow: inset 0 0 0 1.5px var(--mono-mark); }
 .composer-agent.no-acct::after { content: ''; position: absolute; top: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
@@ -1832,10 +1853,15 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .board-row:hover { background: var(--bg3); }
 /* the lead column (placard, or a table's seat cluster) and the branch slot are both
    fixed-width, so every task title starts on one grid line — a ragged title edge
-   made the list read as a pile instead of a board. The lead asks for its 68px and
+   made the list read as a pile instead of a board. The lead asks for the longest
+   agent's name in placard characters (`--board-lead-ch`, from HomeView: a mono `ch`
+   plus the placard's 0.7px tracking each — 68px cut ANTIGRAVITY to ANTIGRAV…) and
    gives them back rather than clipping: past the floor a row's reason ("#57 checks
-   failing") no longer fits beside it, and the placard is the part that can afford to. */
-.board-lead { flex: 0 1 68px; min-width: 0; overflow: hidden;
+   failing") no longer fits beside it, and the placard is the part that can afford to.
+   The placard's face is set on the column itself, so a table's seat cluster measures
+   the same `ch` and its titles start on the same line. */
+.board-lead { flex: 0 1 calc(var(--board-lead-ch, 7) * (1ch + 0.7px)); min-width: 0; overflow: hidden;
+  font-family: var(--mono); font-size: var(--fs-xs);
   text-overflow: ellipsis; white-space: nowrap; }
 .board-branch { flex: 0 0 150px; min-width: 0; display: flex; }
 .board-branch .branch-chip { max-width: 100%; }
@@ -1845,6 +1871,9 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .board-row.flying .board-agent-claude { color: var(--claude); }
 .board-row.flying .board-agent-codex { color: var(--codex); }
 .board-row.flying .board-agent-copilot { color: var(--copilot); }
+.board-row.flying .board-agent-gemini { color: var(--gemini); }
+.board-row.flying :is(.board-agent-cursor, .board-agent-cline, .board-agent-roo, .board-agent-opencode,
+  .board-agent-antigravity) { color: var(--mono-mark); }
 .board-dot-idle { width: 7px; height: 7px; border-radius: 50%;
   background: var(--fg-dim); opacity: 0.35; flex-shrink: 0; }
 /* needs you, the two marks beside the landed dot: the question glyph in the agent's
@@ -1976,7 +2005,8 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 /* the agents driven over ACP: Gemini in its blue, the monochrome brands in the shared mark */
 .ns-provider.ns-gemini.active { border-color: var(--gemini);
   background: rgba(var(--gemini-rgb), 0.1); box-shadow: 0 0 16px rgba(var(--gemini-rgb), 0.15); }
-.ns-provider.ns-cursor.active, .ns-provider.ns-cline.active, .ns-provider.ns-opencode.active {
+.ns-provider.ns-cursor.active, .ns-provider.ns-cline.active, .ns-provider.ns-roo.active,
+.ns-provider.ns-opencode.active, .ns-provider.ns-antigravity.active {
   border-color: var(--mono-mark); background: rgba(var(--mono-mark-rgb), 0.08); }
 .ns-provider-name { font-weight: 700; }
 .ns-provider-blurb { font-size: var(--fs-xs); color: var(--fg-dim); text-align: center; }
@@ -2099,7 +2129,7 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .usage-num { color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* the fold: the button that opens an add form sits under the list it extends */
-.source-add-open { display: flex; }
+.source-add-open { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .source-add { display: flex; flex-direction: column; gap: var(--s2); }
 .source-add input { min-width: 0; }
 /* the path is a machine identifier — mono, like .ns-branch-row input */
@@ -2266,9 +2296,13 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .cl-empty { padding: var(--s3) 0; }
 
 /* ---------- extensions ---------- */
-.ext-notice { background: var(--surface); border: 1px solid var(--border);
+/* what the last click did — often far down a long list (Browse, a section of fifty
+   rows), so it holds at the top of the scrolled card instead of scrolling away above
+   the tabs; the surface tint is laid over the card's own paper to hide what passes under */
+.ext-notice { background: linear-gradient(var(--surface), var(--surface)), var(--bg2);
+  border: 1px solid var(--border);
   border-radius: var(--radius); padding: var(--s2) var(--s3); font-size: var(--fs-sm);
-  color: var(--accent); }
+  color: var(--accent); position: sticky; top: var(--s3); z-index: 2; box-shadow: var(--shadow-pop); }
 .ext-notice.error { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.4); }
 .ext-list { list-style: none; display: flex; flex-direction: column; gap: var(--s1); }
 .ext-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3);
@@ -2408,7 +2442,7 @@ button.ag-chip:hover { border-color: var(--border-strong); color: var(--fg); }
   box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.2); }
 .ag-chip.na { border-style: dashed; border-color: var(--border-strong); color: var(--fg-dim); }
 .ag-chip.na svg { opacity: 0.3; }
-.ag-chip:disabled { opacity: 0.5; }
+.ag-chip:disabled, .ag-chip[aria-disabled='true'] { opacity: 0.5; }
 .ag-chip.working { animation: pulse 1.2s ease-in-out infinite; }
 .ag-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
 
@@ -2800,11 +2834,20 @@ button.pnl-flag:hover { text-decoration: underline; }
   background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.08), transparent 55%); }
 .board-row.flying:has(.pulse-copilot) {
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.09), transparent 55%); }
+.board-row.flying:has(.pulse-gemini) {
+  background: linear-gradient(90deg, rgba(var(--gemini-rgb), 0.09), transparent 55%); }
+/* the shared mark is near-white: a step quieter, or its wash reads as a highlight */
+.board-row.flying:is(:has(.pulse-cursor), :has(.pulse-cline), :has(.pulse-roo), :has(.pulse-opencode),
+  :has(.pulse-antigravity)) {
+  background: linear-gradient(90deg, rgba(var(--mono-mark-rgb), 0.07), transparent 55%); }
 /* landed rows carry the same livery, one step quieter than flying: an inset bar
    instead of a wash, so the group reads as arrivals without shouting over them */
 .board-row.landed:has(.plogo-claude), .board-row.asks:has(.plogo-claude) { box-shadow: inset 2px 0 0 var(--claude); }
 .board-row.landed:has(.plogo-codex), .board-row.asks:has(.plogo-codex) { box-shadow: inset 2px 0 0 var(--codex); }
 .board-row.landed:has(.plogo-copilot), .board-row.asks:has(.plogo-copilot) { box-shadow: inset 2px 0 0 var(--copilot); }
+.board-row.landed:has(.plogo-gemini), .board-row.asks:has(.plogo-gemini) { box-shadow: inset 2px 0 0 var(--gemini); }
+.board-row:is(.landed, .asks):is(:has(.plogo-cursor), :has(.plogo-cline), :has(.plogo-roo), :has(.plogo-opencode),
+  :has(.plogo-antigravity)) { box-shadow: inset 2px 0 0 var(--mono-mark); }
 /* a red PR wears GitHub's red, not the agent's livery: it is the branch that needs you */
 .board-row.fix { box-shadow: inset 2px 0 0 var(--danger); }
 /* :has beats .board-row:hover on specificity, so restate hover feedback */

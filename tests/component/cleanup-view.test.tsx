@@ -150,6 +150,12 @@ describe('CleanupView — what it shows', () => {
     expect(screen.getByText(/of 9 worktrees/)).toBeInTheDocument()
   })
 
+  it('counts one of a kind in the singular', async () => {
+    mount(report({ totalSessions: 1, totalWorktrees: 1, tables: [] }))
+    const line = await screen.findByText(/of 1 session ·/)
+    expect(line).toHaveTextContent(/1 of 1 session · .* · 1 of 1 worktree$/)
+  })
+
   it('lists stale sessions with their age and size', async () => {
     mount()
     expect(await screen.findByText('Refactor the parser')).toBeInTheDocument()
@@ -468,6 +474,25 @@ describe('CleanupView — filtering', () => {
     await user.click(screen.getByRole('button', { name: 'Cursor' }))
     await user.keyboard('{Escape}')
     expect(summary()).toMatch(/1 shown of 2/)
+  })
+
+  it('isolates the worktrees no session claims under No agent', async () => {
+    const user = userEvent.setup()
+    mount(
+      report({
+        worktrees: [
+          worktree({ path: '/h/.cursor/worktrees/cockpit/a1', origin: 'external', providers: ['cursor'], sessionCount: 1 }),
+          worktree({ path: '/userData/worktrees/cockpit/left-1' }),
+          worktree({ path: '/userData/worktrees/cockpit/left-2' })
+        ]
+      })
+    )
+    await openTab('Worktrees')
+    await openPill(user, /^Agent Any/)
+    await user.click(screen.getByRole('button', { name: 'No agent' }))
+    await user.keyboard('{Escape}')
+    expect(summary()).toMatch(/2 shown of 3/)
+    expect(screen.queryByTitle('/h/.cursor/worktrees/cockpit/a1')).not.toBeInTheDocument()
   })
 
   it('only offers dimension values the rows actually carry', async () => {

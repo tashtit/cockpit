@@ -3,7 +3,8 @@
  *
  * Main resolves every agent path through os.homedir(), so launching Electron with
  * HOME=<world>/home, COCKPIT_USER_DATA=<world>/user-data and <world>/bin first on PATH
- * gives a hermetic app — three agents, two Claude accounts, five repositories with real
+ * gives a hermetic app — every agent Cockpit reads (opencode the one of the read-only ones
+ * it drives), two Claude accounts, five repositories with real
  * worktrees, rich and long transcripts, stale work for Cleanup, agent config with drift,
  * two roundtables, PR states — without a single real session or credential in sight.
  * Everything here is invented (acme/rocket and friends); nothing is fetched.
@@ -74,12 +75,26 @@ export function buildWorld(at: string, { populated = true }: { populated?: boole
   return world
 }
 
+/**
+ * The agent CLIs the world does not run. Main always appends the common install dirs to
+ * PATH (`cliPath`), so without a stub in front of it a Gemini or Cursor installed on this
+ * Mac answers the launch-time ACP probe and the tour screenshots a different app than it
+ * does on a machine without one. Each is shadowed by one that is not there (exit 127).
+ * tests/ui-tour-world.test.ts keeps this in step with the built-in ACP agents.
+ */
+const ABSENT_CLIS = ['gemini', 'cursor-agent', 'cline']
+
 /** One wrapper per CLI name, all running the same stub with the tool as its first arg. */
 function writeStubs(world: World): void {
   mkdirSync(world.bin, { recursive: true })
   for (const tool of ['claude', 'codex', 'copilot', 'gh', 'opencode']) {
     const path = join(world.bin, tool)
     writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${STUB}" ${tool} "$@"\n`)
+    chmodSync(path, 0o755)
+  }
+  for (const tool of ABSENT_CLIS) {
+    const path = join(world.bin, tool)
+    writeFileSync(path, `#!/bin/sh\necho "${tool}: not installed in the ui-tour world" >&2\nexit 127\n`)
     chmodSync(path, 0o755)
   }
 }

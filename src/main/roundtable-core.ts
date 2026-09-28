@@ -102,7 +102,7 @@ function framing(table: TableInfo, seatIndex: number): string {
 const CLAUDE_RESEARCH =
   'To check a claim you can search the web and fetch pages; you have no shell, so rather than running commands, look things up — a registry or RDAP page answers whether a name is taken.'
 
-/** A Codex seat's reach (`CODEX_RESEARCH_ARGS` in chat.ts): read-only commands that reach the network. */
+/** A Codex seat's reach (`codexSeatArgs` in seat-fence.ts): read-only commands that reach the network. */
 const CODEX_RESEARCH =
   'To check a claim you can run read-only commands, and they reach the network: curl a registry or an RDAP page to see whether a name is taken. Nothing you run can write a file.'
 

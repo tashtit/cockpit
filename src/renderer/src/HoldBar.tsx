@@ -1,8 +1,8 @@
-import type { JSX } from 'react'
+import type { JSX, Ref } from 'react'
 import type { SessionControl, SessionProvider } from '../../shared/types'
 import { isDrivable } from '../../shared/providers'
 import { holderName, placeOf } from './hold'
-import { HeldIcon, ProcessIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { HeldIcon, ProcessIcon, ProviderLogo, PROVIDER_LABEL, XIcon } from './logos'
 
 /**
  * Who drives the session, and the way to change it — docked above the composer like a
@@ -15,11 +15,13 @@ export function HoldBar({
   provider,
   busy,
   elsewhere,
+  asking = false,
   pending,
   onTakeOver,
   onRelease,
   onResume,
-  onClose
+  onClose,
+  takeRef
 }: {
   control: SessionControl
   provider: SessionProvider
@@ -27,12 +29,18 @@ export function HoldBar({
   busy: boolean
   /** The agent is running a turn outside Cockpit — not the moment to take it over */
   elsewhere: boolean
+  /** That turn is stopped on a question the agent asked there: it waits for as long as the
+   *  question does, so it ends when the person answers it — never on its own */
+  asking?: boolean
   /** A change of hands is on its way to main */
   pending: boolean
   onTakeOver: () => void
   onRelease: () => void
   onResume: () => void
+  /** Hide the bar (a session Cockpit holds) — the caller hands focus back to its chip */
   onClose: () => void
+  /** Take over, for the caller to land focus on once Release has swapped it in */
+  takeRef?: Ref<HTMLButtonElement>
 }): JSX.Element {
   const agent = PROVIDER_LABEL[provider]
   const held = control.holder === 'cockpit'
@@ -42,7 +50,9 @@ export function HoldBar({
       ? `taken over from ${agent}, so Cockpit sends its turns. Release it to hand it back.`
       : `started here, so Cockpit sends its turns. Release it to carry on in ${agent} instead.`
     : elsewhere
-      ? `${agent} is working on it ${place ? `in ${place}` : 'outside Cockpit'} right now — take it over once that turn ends.`
+      ? asking
+        ? `${agent} is waiting for your answer ${place ? `in ${place}` : 'outside Cockpit'} — answer it there, then take it over.`
+        : `${agent} is working on it ${place ? `in ${place}` : 'outside Cockpit'} right now — take it over once that turn ends.`
       : control.how === 'released'
         ? `released from Cockpit, which only follows its log. Take it over to send from here.`
         : place
@@ -53,11 +63,27 @@ export function HoldBar({
   // a turn running would be pulled from under: Cockpit's own holds up a release, the
   // agent's a take-over, and either one a second CLI opened on the same log
   const ourTurn = 'Cockpit is running a turn in it — stop it, or let it finish, first'
-  const theirTurn = `${agent} is running a turn in it — wait for that turn to end`
+  const theirTurn = asking
+    ? `${agent} is waiting for your answer in it — answer it there first`
+    : `${agent} is running a turn in it — wait for that turn to end`
   const blocked = held ? busy : elsewhere
   const blockedWhy = held ? ourTurn : theirTurn
   const resumeBlocked = busy || elsewhere
   const resumeWhy = busy ? ourTurn : theirTurn
+  // a disabled key can't take focus, so its title reaches neither the keyboard nor a
+  // screen reader: what holds one back is said in the sentence everyone reads too. A
+  // session with its agent already says it — the turn elsewhere is what it waits on
+  const holdup = held
+    ? busy
+      ? 'Cockpit is running a turn in it — stop it, or let it finish, to release it.'
+      : elsewhere && isDrivable(provider)
+        ? asking
+          ? `${agent} is waiting for your answer outside Cockpit — answer it there; Open in Terminal waits for it.`
+          : `${agent} is running a turn in it outside Cockpit — Open in Terminal waits for that turn to end.`
+        : null
+    : busy && isDrivable(provider)
+      ? 'Cockpit is running a turn in it — Open in Terminal waits for it to end.'
+      : null
   return (
     <div
       className={`hold-bar ${held ? 'held' : `acct-${provider}`}`}
@@ -70,6 +96,7 @@ export function HoldBar({
       </span>
       <p className="hold-text">
         <strong>{holderName(control, provider)}</strong> — {why}
+        {holdup && ` ${holdup}`}
       </p>
       <div className="hold-actions">
         {/* only a CLI Cockpit runs has a resume command to hand a terminal; one driven
@@ -98,12 +125,13 @@ export function HoldBar({
             >
               Release to {agent}
             </button>
-            <button className="icon-btn small" aria-label="Hide" title="Hide" onClick={onClose}>
-              ×
+            <button className="icon-btn small" aria-label="Hide this bar" title="Hide" onClick={onClose}>
+              <XIcon />
             </button>
           </>
         ) : (
           <button
+            ref={takeRef}
             className="btn-primary hold-take"
             disabled={blocked || pending}
             title={blocked ? blockedWhy : 'Cockpit sends its turns from here on'}

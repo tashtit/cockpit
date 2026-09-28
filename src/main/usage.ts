@@ -508,9 +508,10 @@ async function buildSnapshot(sources: SourceDir[]): Promise<UsageSnapshot> {
         entry.unavailable = 'no rate-limit data in recent codex sessions'
       }
       providers.push(entry)
-    } else {
+    } else if (s.provider === 'copilot') {
       sawCopilot = true
     }
+    // an agent Cockpit only reads (Gemini, Cursor, …) has no usage it can measure
   }
   if (sawCopilot) providers.push(await copilotSnapshot())
   return { at: Date.now(), providers }

@@ -94,6 +94,8 @@ describe('Agents › Browse › MCP servers', () => {
     expect(screen.getByText(/needs ACME_TOKEN before it can be added/)).toBeInTheDocument()
     const token = screen.getByLabelText('ACME_TOKEN')
     expect(token).toHaveAttribute('type', 'password')
+    // the notice may be scrolled out of sight: the field it names takes focus
+    await vi.waitFor(() => expect(document.activeElement).toBe(token))
 
     await userEvent.type(token, 'sk-1')
     await userEvent.click(screen.getByRole('button', { name: 'Add Acme Search to Claude' }))
@@ -126,6 +128,99 @@ describe('Agents › Browse › MCP servers', () => {
       agent: 'copilot',
       values: {}
     })
+  })
+
+  // what the row shows is what the add writes: the release it pins (not the registry
+  // entry's version), every argument the publisher fixed, and the env it sets
+  it('shows what an add would write, and asks before the first add runs a package', async () => {
+    const pinned: RegistryServer = {
+      id: 'io.github.b/b-mcp',
+      version: '1.0.0',
+      title: 'B',
+      description: 'Does b.',
+      kind: 'npm',
+      what: 'b-mcp',
+      release: '0.5.3',
+      commandLine: 'npx -y b-mcp@0.5.3 / --allow-write true',
+      fixedEnv: { B_ENDPOINT: 'https://collector.example/ingest', B_KEY: 'k' },
+      name: 'b-mcp',
+      inputs: [],
+      agents: [],
+      unsupported: {}
+    }
+    await openRegistry()
+    await searchFor('b', [pinned])
+    expect(screen.getByText('b-mcp 0.5.3')).toBeInTheDocument()
+
+    // the first click arms the chip and opens the row onto what it would run
+    const chip = screen.getByRole('button', { name: 'Add B to Claude' })
+    await userEvent.click(chip)
+    expect(window.cockpit.addFromMcpRegistry).not.toHaveBeenCalled()
+    expect(chip).toHaveAccessibleName(/^Add B to Claude\? It runs npx -y b-mcp@0\.5\.3 \/ --allow-write true/)
+    expect(screen.getByText('click again to add')).toBeInTheDocument()
+    expect(screen.getByText('npx -y b-mcp@0.5.3 / --allow-write true')).toBeInTheDocument()
+    expect(screen.getByText('B_ENDPOINT=https://collector.example/ingest')).toBeInTheDocument()
+    expect(screen.getByText('B_KEY=k')).toBeInTheDocument()
+
+    // Escape backs out; the next click asks again, and the one after adds
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByText('click again to add')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add B to Claude' }))
+    expect(window.cockpit.addFromMcpRegistry).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: /^Add B to Claude\?/ }))
+    expect(window.cockpit.addFromMcpRegistry).toHaveBeenCalledWith({
+      id: 'io.github.b/b-mcp',
+      version: '1.0.0',
+      agent: 'claude',
+      values: {}
+    })
+  })
+
+  it('names a remote server by the host it connects to, and gives the whole address opened', async () => {
+    const remote: RegistryServer = {
+      id: 'com.acme/remote',
+      version: '1.0.0',
+      title: 'Acme Remote',
+      description: 'Hosted.',
+      kind: 'remote',
+      what: 'https://mcp.acme.dev/v1/mcp',
+      name: 'remote',
+      inputs: [],
+      agents: [],
+      unsupported: {}
+    }
+    await openRegistry()
+    await searchFor('acme', [remote])
+    expect(screen.getByText('mcp.acme.dev')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^Acme Remote/ }))
+    expect(screen.getByText('https://mcp.acme.dev/v1/mcp')).toBeInTheDocument()
+    // a remote server downloads nothing: its first add is one click
+    await userEvent.click(screen.getByRole('button', { name: 'Add Acme Remote to Claude' }))
+    expect(window.cockpit.addFromMcpRegistry).toHaveBeenCalled()
+  })
+
+  it('keeps the search line typeable while it asks, and says how many came back', async () => {
+    await openRegistry()
+    let answer: (p: { servers: readonly RegistryServer[] }) => void = () => {}
+    vi.mocked(window.cockpit.searchMcpRegistry).mockReturnValue(new Promise((r) => (answer = r)))
+    const box = screen.getByLabelText('Search the MCP Registry')
+    await userEvent.clear(box)
+    await userEvent.type(box, 'acme{Enter}')
+    expect(box).toBeEnabled()
+    expect(document.activeElement).toBe(box)
+    expect(screen.getByRole('button', { name: 'searching…' })).toHaveAttribute('aria-disabled', 'true')
+    answer({ servers: [search, image] })
+    expect(await screen.findByRole('status')).toHaveTextContent('2 servers')
+  })
+
+  it('hands focus to the row once an add lands, rather than to the page', async () => {
+    await openRegistry()
+    await searchFor('acme', [{ ...search, name: 'search', agents: ['claude'] }])
+    const chip = screen.getByRole('button', { name: 'Add Acme Search to Copilot' })
+    await userEvent.click(chip)
+    // the row's own toggle: the one Acme Search control that opens the row
+    await vi.waitFor(() => expect(document.activeElement).toHaveAttribute('aria-expanded'))
+    expect(document.activeElement).toHaveTextContent('Acme Search')
   })
 
   it('narrows the results with the card’s search, and reads more only when asked', async () => {

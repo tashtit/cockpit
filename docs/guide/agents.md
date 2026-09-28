@@ -252,8 +252,9 @@ marketplace can't be given the plugin. Some marketplaces ship inside an agent �
 could be pointed at. Cockpit doesn't offer a switch it knows would fail: those agents get
 a dashed *not available* chip, the row reads **Codex only**, and opening it spells out why.
 
-A marketplace that *is* addable (a git remote, or a GitHub `owner/repo`) stays switchable
-everywhere. It does have to be added to an agent before that agent can install anything
+A marketplace that *is* addable (a git remote over https or ssh, or a GitHub `owner/repo`)
+stays switchable everywhere. A plain `http://` or `git://` source, which anyone along the
+way can answer for, and a relative path such as `./plugins` are not offered to another agent. It does have to be added to an agent before that agent can install anything
 from it — if it isn't yet, the switch says which marketplace to turn on first rather than
 handing you the CLI's own error.
 
@@ -282,7 +283,9 @@ its top picks between two catalogues: **Plugins**, what each marketplace offers,
   Clicking one adds the marketplace (`plugin marketplace add`) or installs the plugin
   (`plugin install <name>@<marketplace>`) in that agent, one agent at a time. A chip for
   an agent that already has it is lit and inert — taking something out belongs to
-  **Plugins** and **Marketplaces**, where it asks first.
+  **Plugins** and **Marketplaces**, where it asks first. A plugin installs only from a
+  marketplace that agent already has, so an opened marketplace names the agents that need
+  it added first, and their plugin chips wait until it is.
 - **Searching.** The card's search box searches the catalogues while Browse is open —
   plugin names, descriptions, categories and keywords — instead of the panel's own rows.
 
@@ -299,6 +302,13 @@ that is the only time this half of Browse reaches the network.
   itself from the registry's entry: an npm package runs as `npx -y <package>@<version>`, a
   PyPI one as `uvx <package>==<version>` — pinned, so [Is there a newer
   one?](#is-there-a-newer-one) covers it from then on — and a remote server by its URL.
+  An optional argument nobody can fill in is left off, its default with it.
+- **What an add writes is on the row first.** The row names the package and the release
+  it pins, which isn't always the registry entry's own version. Open it for the whole
+  command line, every argument its publisher fixed included, and any environment variable
+  the publisher sets, with its value. The first add of a package server asks: its chip
+  says *click again to add* and the row says what it downloads and runs. A second click
+  adds it; moving away or pressing Escape backs out.
 - **What it needs from you.** A server that needs an API key or a setting lists it on its
   row, one field each (a token's field is masked). They are written into each agent's own
   config as environment variables, the way every server's settings are kept. Adding it to

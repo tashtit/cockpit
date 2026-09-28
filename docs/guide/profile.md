@@ -1,6 +1,6 @@
 # Profile
 
-The **Profile** is your work across every agent Cockpit indexes, side by side: when you work, which agent did it, and what it touched. Open it from the chart icon in the sidebar rail, or with ⌘K → "Profile".
+The **Profile** is your work across the agents Cockpit runs — Claude Code, Codex and Copilot — side by side: when you work, which agent did it, and what it touched. Open it from the chart icon in the sidebar rail, or with ⌘K → "Profile".
 
 Everything on it is computed on your machine from the session logs already on disk. Nothing is published, exported or fetched. The first time you open it, Cockpit reads every log once, which can take a few seconds; after that it only re-reads logs that have changed, even across restarts.
 

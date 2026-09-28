@@ -1,12 +1,13 @@
-import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { PROVIDERS, RECOMMENDED_MARKETPLACE, isAddableSource } from '../shared/library'
+import { PROVIDERS, RECOMMENDED_MARKETPLACE, isAddableSource, marketSourceKey } from '../shared/library'
 import { CATALOG_PATHS, catalogUrls, githubRepoOf, parseCatalog } from '../shared/marketplace'
 import type { MarketplaceCatalog, Provider } from '../shared/types'
 import { throttledBy } from './cache'
 import { getExtensions } from './extensions'
-import { parseJsonc } from './parsers/util'
+import { fetchBounded } from './fetch-bounded'
+import { parseJsonc, readSmallFile } from './parsers/util'
+import { withRecent } from './recent-map'
 
 /*
  * Looking a marketplace up: what it offers, and where that answer came from.
@@ -19,13 +20,30 @@ import { parseJsonc } from './parsers/util'
  *
  * Failure is soft and named. A marketplace whose catalogue can't be read still lists,
  * with the reason on the row, because "you have this marketplace" is true either way.
+ *
+ * A catalogue's own `name` is never its identity. Anyone can publish a fork that calls
+ * itself `tashtit`, or by the name of a marketplace this machine already has: the
+ * repository is what is vouched for (`recommended`), and a looked-up name another
+ * repository already holds here is refused rather than listed in its place.
+ *
+ * An add names its source from the renderer, and that source becomes an agent's command
+ * line: it is taken only when this module offered it (`isOfferedSource`) — the source a
+ * marketplace here records, or one a lookup this session handed back.
  */
 
-/** A catalogue is JSON a person wrote; the head of it is the whole file in practice. */
+/** A catalogue is JSON a person wrote: one past this is not one to read, here or fetched. */
 const MAX_CATALOG_BYTES = 512 * 1024
 const FETCH_TIMEOUT_MS = 8000
 /** Fetched catalogues are cached for the session's afternoon, never polled. */
 const REMOTE_TTL_MS = 6 * 60 * 60 * 1000
+
+/**
+ * The source each lookup this session named its marketplace with, by name — what an add
+ * may be pointed at besides the marketplaces already here. A process-lifetime record
+ * (it mutates), capped to the newest.
+ */
+let lookedUp: Readonly<Record<string, string>> = {}
+const MAX_LOOKED_UP = 200
 
 /** A marketplace name becomes a path segment — dots-only would escape the plugins dir. */
 const NAME_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/
@@ -33,6 +51,10 @@ const NAME_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/
 /** A catalogue as `parseCatalog` hands it back: the marketplace's name and its plugins. */
 type Catalog = NonNullable<ReturnType<typeof parseCatalog>>
 
+/** Is this the repository Cockpit recommends — not merely a marketplace by that name? */
+function isRecommendedSource(source: string | undefined): boolean {
+  return source !== undefined && marketSourceKey(source) === marketSourceKey(RECOMMENDED_MARKETPLACE.source)
+}
 
 /**
  * Where an agent keeps the marketplaces it cloned. Claude Code is the one that has
@@ -50,21 +72,14 @@ function cloneDirs(name: string): string[] {
   ]
 }
 
-function readBounded(path: string): string | null {
-  try {
-    if (statSync(path).size > MAX_CATALOG_BYTES) return null
-    return readFileSync(path, 'utf8')
-  } catch {
-    return null
-  }
-}
-
 /** The catalogue in a clone on this machine, or null when there is none to read. */
 function localCatalog(name: string): Catalog | null {
   if (!NAME_RE.test(name)) return null
   for (const dir of cloneDirs(name)) {
     for (const path of CATALOG_PATHS) {
-      const raw = readBounded(join(dir, path))
+      // a regular file under the cap only: a clone is someone else's tree, and a link
+      // in it to /dev/zero stats as empty and then reads forever
+      const raw = readSmallFile(join(dir, path), MAX_CATALOG_BYTES)
       if (raw === null) continue
       const parsed = parseCatalog(parseJsonc(raw), name)
       if (parsed) return parsed
@@ -100,7 +115,7 @@ function knownMarketplaces(): Array<{ name: string; agents: Provider[]; source?:
 export function listCatalogs(): MarketplaceCatalog[] {
   return knownMarketplaces().map((market) => {
     const local = localCatalog(market.name)
-    const recommended = market.name === RECOMMENDED_MARKETPLACE.name
+    const recommended = market.name === RECOMMENDED_MARKETPLACE.name && isRecommendedSource(market.source)
     return {
       name: market.name,
       ...(market.source ? { source: market.source } : {}),
@@ -133,21 +148,15 @@ export function localCatalogVersions(): Map<string, string> {
 async function readRemoteCatalog(repo: string): Promise<Catalog> {
   let last = 'no catalogue file in that repository'
   for (const url of catalogUrls(repo)) {
-    let res: Response | null = null
+    let body: string | null
     try {
-      res = await fetch(url, {
-        headers: { accept: 'application/json' },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-      })
+      body = await fetchBounded(url, { what: 'GitHub', maxBytes: MAX_CATALOG_BYTES, timeoutMs: FETCH_TIMEOUT_MS })
     } catch (err) {
-      last = err instanceof Error && err.name === 'TimeoutError' ? 'timed out' : String(err)
-    }
-    if (res === null) continue
-    if (!res.ok) {
-      if (res.status !== 404) last = `HTTP ${res.status}`
+      last = err instanceof Error ? err.message : String(err)
       continue
     }
-    const body = (await res.text()).slice(0, MAX_CATALOG_BYTES)
+    // not at this spelling: the next one may have it
+    if (body === null) continue
     const parsed = parseCatalog(parseJsonc(body), repo.split('/')[1] ?? repo)
     if (parsed) return parsed
     last = 'that file is not a marketplace catalogue'
@@ -173,15 +182,40 @@ export async function lookupCatalog(source: string): Promise<MarketplaceCatalog>
   const known = knownMarketplaces()
   const catalog = await fetchCatalog(repo)
   // the name the agents already know it by wins: it is the half of every plugin id
-  const here = known.find((m) => githubRepoOf(m.source) === repo)
-  const name = here?.name ?? catalog.name
+  const key = marketSourceKey(repo)
+  const sameRepo = known.find((m) => m.source !== undefined && marketSourceKey(m.source) === key)
+  const name = sameRepo?.name ?? catalog.name
+  // the file's own name is only a claim: one another repository already holds here
+  // would take that marketplace's row, and every later add would clone this one
+  const byName = sameRepo ? undefined : known.find((m) => m.name === name)
+  if (byName?.source !== undefined) {
+    throw new Error(
+      `${repo} calls itself “${name}”, but the ${name} marketplace here comes from ${byName.source} — Cockpit won’t list one repository under another’s name.`
+    )
+  }
+  // a marketplace of that name with no recorded source (Copilot records none) is the
+  // one an install by `<plugin>@<name>` reaches in the agents that have it
+  const here = sameRepo ?? byName
   const plugins = catalog.plugins.map((p) => ({ ...p, id: `${p.name}@${name}` }))
+  const from = sameRepo?.source ?? `https://github.com/${repo}.git`
+  lookedUp = withRecent(lookedUp, { id: name, value: from, cap: MAX_LOOKED_UP })
   return {
     name,
-    source: here?.source ?? `https://github.com/${repo}.git`,
+    source: from,
     agents: PROVIDERS.filter((p) => here?.agents.includes(p)),
     plugins,
     origin: 'remote',
-    ...(name === RECOMMENDED_MARKETPLACE.name ? { recommended: true as const } : {})
+    ...(isRecommendedSource(repo) ? { recommended: true as const } : {})
   }
+}
+
+/**
+ * Did Cockpit offer this source for this marketplace — the one a marketplace here
+ * records, or the one a lookup this session handed back? Anything else arriving with an
+ * add is the renderer's word alone, and never reaches an agent's command line.
+ */
+export function isOfferedSource(name: string, source: string): boolean {
+  if (!isAddableSource(source)) return false
+  if (Object.hasOwn(lookedUp, name) && lookedUp[name] === source) return true
+  return knownMarketplaces().some((m) => m.name === name && m.source === source)
 }

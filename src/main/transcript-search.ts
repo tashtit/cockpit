@@ -19,10 +19,11 @@ import { isSessionProvider } from '../shared/providers'
  *
  * On demand, never from a shipped index: the candidate list is what the indexer would
  * page for the same scope (its paths are the trust boundary — nothing here takes a path
- * from the renderer), every file is streamed in chunks under a per-file byte cap, the
- * loop yields to the event loop between files so IPC never stalls, and a newer query
- * cancels the one in flight. Hits are capped per session and in total, and a wall-clock
- * budget guarantees a search always returns — partial results say so.
+ * from the renderer), a log kept as lines is streamed in chunks under a per-file byte cap,
+ * a store that is not (see rowRecords) is read in one go through its parser, the loop
+ * yields to the event loop between files so IPC never stalls, and a newer query cancels
+ * the one in flight. Hits are capped per session and in total, and a wall-clock budget
+ * guarantees a search always returns — partial results say so.
  *
  * Only the conversation is searched, user and assistant text, unless the query opts
  * tool calls and results in: a `grep` over a repo would otherwise match every session
@@ -180,8 +181,12 @@ const EXTRACTORS: Partial<Record<SessionProvider, RecordExtractor>> = {
 
 /**
  * A transcript's rows as searchable records — for the stores that are not a line stream:
- * the Cline family's JSON arrays, the SQLite databases, an older Gemini CLI's one
- * document. Their parsers already read them within the transcript budget.
+ * the Cline family's JSON arrays, the SQLite databases, opencode's older file store, an
+ * older Gemini CLI's one document. Their parsers read them synchronously, not in chunks,
+ * and bound the read by the transcript budget (TRANSCRIPT_TAIL_BYTES, the newest messages
+ * that fit), not by this search's per-file cap: what is older is not searched, and the
+ * parser's "(older messages omitted" row says so — a Gemini document past the budget is
+ * not read at all.
  */
 function rowRecords(rows: readonly SessionMessage[], tools: boolean): TextRecord[] {
   return rows.flatMap((m): TextRecord[] => {

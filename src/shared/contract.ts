@@ -35,6 +35,7 @@ import type {
   BusySession,
   CatalogInstall,
   ChatEvent,
+  ChatPermission,
   ChatRequest,
   CleanupNotice,
   CleanupReport,
@@ -78,6 +79,7 @@ import type {
   SessionProvider,
   SessionQuery,
   SideChatRequest,
+  SoundPlayback,
   ShareResult,
   SourceDir,
   SourceStats,
@@ -102,6 +104,8 @@ export type CockpitApi = {
   readonly onChatEvent: (cb: (ev: ChatEvent) => void) => () => void
   /** Answer a 'permission' chat event; the agent stays blocked until this lands */
   readonly respondPermission: (turnId: string, requestId: string, optionId: string) => Promise<void>
+  /** The questions a running turn is blocked on now — asked again by a window rejoining it */
+  readonly getPendingPermissions: (turnId: string) => Promise<readonly ChatPermission[]>
   /** Persist a pasted image in main's image dir; resolves to the absolute file path */
   readonly saveChatImage: (data: Uint8Array, mime: string) => Promise<string>
 
@@ -165,7 +169,7 @@ export type CockpitApi = {
   /** Post a sample notification (with the sound, when that is on) and report what macOS did */
   readonly testNotification: () => Promise<NotificationDelivery>
   /** Play one of the notification sounds once, whatever the Sound switch says (the Settings preview) */
-  readonly playSound: (tone: AttentionTone) => Promise<void>
+  readonly playSound: (tone: AttentionTone) => Promise<SoundPlayback>
   /** Tell main what the window shows — it never notifies about that, and opening clears a landing */
   readonly setAttentionFocus: (focus: AttentionFocus) => Promise<void>
   /** Sessions that landed while nobody was looking, newest first */
@@ -344,8 +348,11 @@ export type CockpitApi = {
   readonly removeAcpAgent: (id: string) => Promise<AcpAgent[]>
   /** Run the `initialize` handshake against a definition to prove it speaks ACP */
   readonly probeAcpAgent: (agent: NewAcpAgent) => Promise<AcpAgentProbe>
-  /** Which agents a session can be started or continued with — asking re-probes a missing built-in */
-  readonly getAcpReadiness: () => Promise<AcpReadiness>
+  /**
+   * Which agents a session can be started or continued with — asking re-probes a missing
+   * built-in (at most once a minute), and `recheck` every built-in, one that stopped answering too
+   */
+  readonly getAcpReadiness: (opts?: { readonly recheck?: boolean }) => Promise<AcpReadiness>
   /** Pushed when that changes: a built-in's CLI answered, or an ACP agent was added or removed */
   readonly onAcpReadiness: (cb: (readiness: AcpReadiness) => void) => () => void
 
@@ -466,6 +473,7 @@ export const CH = {
   backupUndoRestore: 'backup:undo-restore',
 
   chatCancel: 'chat:cancel',
+  chatPendingPermissions: 'chat:pending-permissions',
   chatRespondPermission: 'chat:respond-permission',
   chatSaveImage: 'chat:save-image',
   chatSend: 'chat:send',

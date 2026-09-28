@@ -5,8 +5,8 @@ import type { SessionMeta, SessionMessage, WorkArtifact } from '../../shared/typ
 import { checklistArtifact, fileWriteArtifact, planArtifact, replaceArtifact } from './artifacts'
 import { checkArtifact, checkOutcome } from './checks'
 import { protoAll, protoString, protoStrings, protoTime } from './protobuf'
-import { dbMtime, queryAll } from './sqlite'
-import { capText, jsonText, TRANSCRIPT_TAIL_BYTES, truncate, usableCwd } from './util'
+import { dbMtime, queryAll, queryEach } from './sqlite'
+import { capText, jsonText, plausibleTime, TRANSCRIPT_TAIL_BYTES, truncate, usableCwd } from './util'
 
 /**
  * Antigravity — the agent IDE and its CLI — keeps one SQLite database per conversation,
@@ -48,8 +48,12 @@ export function listAntigravitySessions(home: string, sourceLabel: string): Sess
 
 /** A step's payload bigger than this is not read — a browser step can carry screenshots. */
 const MAX_STEP_BYTES = 1024 * 1024
-/** The steps a meta read looks through for the opening prompt when the numbering has moved */
+/** The steps a meta read looks through for the opening prompt when the numbering has moved… */
 const PROMPT_SCAN_STEPS = 24
+/** …reading no more of them than a log's head is read within, */
+const PROMPT_SCAN_BYTES = 256 * 1024
+/** …and passing over a step bigger than this unread: typed words are small, screenshots are not */
+const PROMPT_STEP_BYTES = 64 * 1024
 
 function bytes(v: unknown): Uint8Array | null {
   return v instanceof Uint8Array ? v : null
@@ -72,7 +76,7 @@ function workspace(file: string): { cwd: string | null; branch: string | null; r
     cwd,
     branch: protoString(data, [1, 4]) || null,
     repo: repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? repo : null,
-    began: protoTime(data, [2])
+    began: plausibleTime(protoTime(data, [2]))
   }
 }
 
@@ -86,16 +90,32 @@ export function parseAntigravityMeta(file: string, sourceLabel: string): Session
   if (!file.endsWith('.db')) return null
   const counted = queryAll(file, 'SELECT count(*) AS n FROM steps WHERE step_type IN (14, 15)')
   if (!counted) return null
-  // the opening prompt: step type 14 today; the first steps otherwise
+  // the opening prompt: step type 14 today; the first steps otherwise, stepped through
+  // under a budget (length() reads a payload's size, not the payload)
   let prompt: string | null = null
-  const first = bytes(queryAll(file, 'SELECT step_payload FROM steps WHERE step_type = 14 ORDER BY idx LIMIT 1')?.[0]?.['step_payload'])
+  const first = bytes(
+    queryAll(
+      file,
+      `SELECT CASE WHEN length(step_payload) <= ${MAX_STEP_BYTES} THEN step_payload END AS p FROM steps WHERE step_type = 14 ORDER BY idx LIMIT 1`
+    )?.[0]?.['p']
+  )
   if (first) prompt = userText(first)
   if (!prompt) {
-    for (const r of queryAll(file, `SELECT step_payload FROM steps ORDER BY idx LIMIT ${PROMPT_SCAN_STEPS}`) ?? []) {
-      const p = bytes(r['step_payload'])
-      prompt = p ? userText(p) : null
-      if (prompt) break
-    }
+    let budget = PROMPT_SCAN_BYTES
+    queryEach(
+      file,
+      {
+        sql: `SELECT CASE WHEN length(step_payload) <= ${PROMPT_STEP_BYTES} THEN step_payload END AS p
+              FROM steps ORDER BY idx LIMIT ${PROMPT_SCAN_STEPS}`
+      },
+      (r) => {
+        const p = bytes(r['p'])
+        if (!p) return true
+        budget -= p.length
+        prompt = userText(p)
+        return !prompt && budget > 0
+      }
+    )
   }
   const messageCount = Number(counted[0]?.['n'] ?? 0) || (prompt ? 1 : 0)
   if (!prompt || messageCount === 0) return null
@@ -110,7 +130,7 @@ export function parseAntigravityMeta(file: string, sourceLabel: string): Session
     cwd: ws.cwd,
     logBranch: ws.branch,
     ...(ws.repo ? { repoFullName: ws.repo } : {}),
-    startedAt: ws.began ?? (first ? protoTime(first, [5, 1]) : null) ?? dbMtime(file),
+    startedAt: ws.began ?? (first ? plausibleTime(protoTime(first, [5, 1])) : null) ?? dbMtime(file),
     updatedAt: dbMtime(file),
     messageCount,
     sourcePath: file
@@ -174,7 +194,7 @@ function artifactOf(name: string, a: Record<string, unknown>): WorkArtifact | un
 
 /** One step as transcript rows. */
 export function stepRows(p: Uint8Array): SessionMessage[] {
-  const ts = protoTime(p, [5, 1]) ?? undefined
+  const ts = plausibleTime(protoTime(p, [5, 1])) ?? undefined
   const user = userText(p)
   if (user) return [{ role: 'user', kind: 'text', text: capText(user), ts }]
   if (protoAll(p, [20]).length > 0) {

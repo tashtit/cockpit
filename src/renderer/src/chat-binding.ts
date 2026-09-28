@@ -23,9 +23,13 @@ export type PendingPermission = {
   readonly toolName: string
   /** The agent's own one-line headline for what it wants to do */
   readonly preview: string
-  /** The raw tool input behind the headline — the tooltip, so a click is informed */
+  /** What would run behind the headline — the command, else the tool's input — shown on the card */
   readonly detail: string
   readonly options: readonly AcpPermissionOption[]
+  /** Why the agent asks, the path that made it, a command asking to run unsandboxed (ChatEvent) */
+  readonly reason?: string
+  readonly blockedPath?: string
+  readonly sandboxBypass?: true
 }
 
 /**
@@ -57,11 +61,18 @@ export type ChatBinding = {
    *  the parent is found in the index — a parent Cockpit can't open gets no chip */
   readonly startedBy?: { readonly id: string; readonly provider: SessionProvider; readonly title: string }
   /**
+   * Where the index read this session — which of its agent's stores keeps it, and so
+   * whether the ACP server driving it can reopen it (`acpCanReopen`). Unset for a session
+   * started here, which that server keeps.
+   */
+  readonly sourcePath?: string
+  /**
    * View only, no composer, and why: a roundtable seat-session belongs to its table (main
    * refuses sends there too); an agent Cockpit only reads has no CLI Cockpit runs and no
-   * ACP agent answering for it — its session can still be continued with one that does.
-   * App keeps `'agent'` in step with `acp-readiness.ts`, so an agent whose ACP agent
-   * answers later gains its composer without the session being reopened.
+   * ACP agent answering for it, or its ACP server can't reopen this session — it can
+   * still be continued with another agent. App keeps `'agent'` in step with
+   * `acp-readiness.ts` (`canContinue`), so an agent whose ACP agent answers later gains
+   * its composer without the session being reopened.
    */
   readonly readOnly?: 'seat' | 'agent'
 }

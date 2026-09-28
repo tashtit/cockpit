@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { AcpReadiness, SessionProvider } from '../../shared/types'
+import { acpCanReopen } from '../../shared/acp'
 import { isDrivable, PROVIDERS, READ_ONLY_PROVIDERS } from '../../shared/providers'
 import { api } from './api'
 import { seedThenFollow } from './seed-then-follow'
@@ -26,8 +27,8 @@ function set(next: AcpReadiness): void {
 /**
  * Seed from main and follow its pushes; returns the unsubscribe (App's mount effect).
  * Asking also has main re-probe a built-in that has not answered yet (at most once a
- * minute), so a CLI installed since launch is found — the forms that pick an agent ask
- * again when they open (`refreshAcpReadiness`).
+ * minute), so a CLI installed since launch is found — the forms that pick an agent, and
+ * Settings' list of ACP agents, ask again when they open (`refreshAcpReadiness`).
  */
 export function initAcpReadiness(): () => void {
   // optional calls: a preload from before these methods must not take a view down (dev HMR)
@@ -35,10 +36,14 @@ export function initAcpReadiness(): () => void {
   return seedThenFollow(api.getAcpReadiness, api.onAcpReadiness, set)
 }
 
-/** Ask again — a form that picks an agent, on opening. The answer, or a probe it starts, arrives as usual. */
-export function refreshAcpReadiness(): void {
+/**
+ * Ask again — a form that picks an agent, on opening. The answer, or a probe it starts,
+ * arrives as usual. `recheck` re-probes every built-in, so one whose CLI has gone stops
+ * being offered (Settings' Check again).
+ */
+export function refreshAcpReadiness(opts?: { readonly recheck?: boolean }): void {
   void api
-    .getAcpReadiness?.()
+    .getAcpReadiness?.(opts)
     .then(set)
     .catch(() => {})
 }
@@ -57,6 +62,17 @@ export function useDrivableAgents(): readonly SessionProvider[] {
 /** Whether a session of this agent can be sent a turn from Cockpit right now. */
 export function canDrive(provider: SessionProvider, drivable: readonly SessionProvider[]): boolean {
   return isDrivable(provider) || drivable.includes(provider)
+}
+
+/**
+ * Whether this session can: its agent can be driven, and the ACP server that drives it
+ * keeps the session (`acpCanReopen` — an editor's Cursor chat or Cline task it can't).
+ */
+export function canContinue(
+  session: { readonly provider: SessionProvider; readonly sourcePath?: string },
+  drivable: readonly SessionProvider[]
+): boolean {
+  return canDrive(session.provider, drivable) && acpCanReopen(session)
 }
 
 /** Every agent a form may offer: the three CLIs, then the ones an ACP agent drives, in the one agent order. */

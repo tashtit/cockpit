@@ -6,12 +6,13 @@ import { AskPicker } from './AskPicker'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
-import { useChatKeys, useChatLog, useChatStatus } from './chat-log'
+import { announceChat, useChatKeys, useChatLog, useChatStatus } from './chat-log'
 import { CopyPath } from './CopyPath'
 import { MODES, rememberMode, savedMode } from './agent-choice'
 import { cwdLabel } from '../../shared/library'
 import { holdSentence, holderName, placeOf } from './hold'
 import { isDrivable } from '../../shared/providers'
+import { acpCanReopen, acpStoreRefusal } from '../../shared/acp'
 import { HoldBar } from './HoldBar'
 import {
   BranchChip,
@@ -39,6 +40,7 @@ import { EarlierRow, JumpToLatest, useTranscriptWindow, useUnseenBelow } from '.
 import { useLoaded } from './use-loaded'
 import { useWorkPanel } from './use-work-panel'
 import { WorkPanel } from './WorkPanel'
+import { commandKey } from './command-key'
 
 /** Big transcripts are already tail-capped in main; this bounds the DOM too — the
  *  newest rows first, and "show earlier" brings the next batch of this size. */
@@ -118,7 +120,7 @@ export function ChatView({
   const { limit, showEarlier, raise } = useTranscriptWindow(scrollRef, RENDER_LAST, conversation)
   const below = useUnseenBelow(scrollRef, atBottomRef, log)
   // the person's own messages, for the rail and ⌥⌘↑/↓: the same array until one of them
-  // arrives, changes or leaves, so a stream flush never redraws the rail
+  // arrives, changes or leaves, so the memoized rail sits out a stream flush or a keystroke
   const promptsRef = useRef<readonly Prompt[]>([])
   const prompts = useMemo(() => {
     const next = promptsOf(log, keys)
@@ -149,18 +151,15 @@ export function ChatView({
   }, [binding?.cwd, binding?.nativeSessionId === null])
 
   /** The hold bar opened from the header chip on a session Cockpit holds (one with its
-   *  agent always shows it), and what the last change of hands said, for the status line */
+   *  agent always shows it). What a change of hands says goes to the status line as any
+   *  other announcement does (`announceChat`): kept beside it, an earlier announcement —
+   *  a ⌥⌘↑ step — outranked it for good, and the live region never spoke */
   const [holdOpen, setHoldOpen] = useState(false)
   const [holdPending, setHoldPending] = useState(false)
-  const [holdSaid, setHoldSaid] = useState('')
+  const holdChipRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     setHoldOpen(false)
-    setHoldSaid('')
   }, [conversation])
-  // a turn's own announcements take the status line back
-  useEffect(() => {
-    if (busy) setHoldSaid('')
-  }, [busy])
 
   // a freshly opened session always starts pinned to the bottom — per conversation,
   // not per binding object: App re-makes the binding mid-turn (the native id from the
@@ -235,7 +234,7 @@ export function ChatView({
   useEffect(() => {
     if (!sideable) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!(e.metaKey || e.ctrlKey) || e.key !== 'l' || document.querySelector('[role="dialog"]')) return
+      if (!commandKey(e) || e.key !== 'l' || document.querySelector('[role="dialog"]')) return
       e.preventDefault()
       toggleSideRef.current()
     }
@@ -265,7 +264,7 @@ export function ChatView({
   useEffect(() => {
     if (!reviewable) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!(e.metaKey || e.ctrlKey) || e.key !== 'd' || document.querySelector('[role="dialog"]')) return
+      if (!commandKey(e) || e.key !== 'd' || document.querySelector('[role="dialog"]')) return
       e.preventDefault()
       toggleReview()
     }
@@ -322,7 +321,6 @@ export function ChatView({
   const withAgent = control?.holder === 'agent' && !binding?.readOnly
   const status =
     (permissions.length ? `Permission needed: ${permissions[0].preview}` : announced) ||
-    holdSaid ||
     (busy && binding ? `${PROVIDER_LABEL[binding.provider]} is working…` : '') ||
     (elsewhere && binding
       ? `${PROVIDER_LABEL[binding.provider]} is ${pendingAsk ? 'waiting for your answer' : 'working'} elsewhere…`
@@ -333,9 +331,13 @@ export function ChatView({
   const sendBlocked = busy || elsewhere || withAgent
   // where the turn elsewhere runs, when the log named the place it was opened in
   const where = (control && binding && placeOf(control, binding.provider)) || 'a terminal or its own app'
+  // a turn stopped on a question never ends on its own — it waits for as long as the
+  // question does — so the way on is to answer it there, not to wait
   const elsewhereHint = binding
     ? elsewhere
-      ? `${PROVIDER_LABEL[binding.provider]} is working on this session in ${where} — Send waits for that turn to finish`
+      ? pendingAsk
+        ? `${PROVIDER_LABEL[binding.provider]} is waiting for your answer in ${where} — answer it there${withAgent ? ', then take it over' : ''}`
+        : `${PROVIDER_LABEL[binding.provider]} is working on this session in ${where} — Send waits for that turn to finish`
       : withAgent
         ? `This session is with ${PROVIDER_LABEL[binding.provider]} — take it over to send from Cockpit`
         : undefined
@@ -350,6 +352,7 @@ export function ChatView({
         : undefined
 
   /** Change hands: the bar's buttons, each saying what happened once main agrees. */
+  const takeOverRef = useRef<HTMLButtonElement>(null)
   const changeHands = (to: SessionHolder): void => {
     if (!onSetHolder || holdPending || !binding) return
     setHoldPending(true)
@@ -357,11 +360,14 @@ export function ChatView({
       .then((ok) => {
         if (!ok) return
         if (to === 'cockpit') {
-          setHoldSaid('Taken over — Cockpit sends this session’s turns now')
+          announceChat('Taken over — Cockpit sends this session’s turns now')
           composerRef.current?.focus()
         } else {
-          setHoldSaid(`Released to ${PROVIDER_LABEL[binding.provider]} — Cockpit only follows its log now`)
+          announceChat(`Released to ${PROVIDER_LABEL[binding.provider]} — Cockpit only follows its log now`)
           setHoldOpen(false)
+          // the key pressed gives way to Take over: land there once it is drawn and
+          // enabled, or focus falls to the page body with the key that held it
+          requestAnimationFrame(() => takeOverRef.current?.focus())
         }
       })
       .finally(() => setHoldPending(false))
@@ -371,7 +377,7 @@ export function ChatView({
     setHoldPending(true)
     void onResumeInTerminal()
       .then((ok) => {
-        if (ok) setHoldSaid(`Released and resumed in Terminal — continue it with ${PROVIDER_LABEL[binding.provider]} there`)
+        if (ok) announceChat(`Released and resumed in Terminal — continue it with ${PROVIDER_LABEL[binding.provider]} there`)
       })
       .finally(() => setHoldPending(false))
   }
@@ -435,6 +441,7 @@ export function ChatView({
               !binding.readOnly &&
               (control.holder === 'cockpit' ? (
                 <button
+                  ref={holdChipRef}
                   className="acct-chip hold-chip held"
                   aria-expanded={holdOpen}
                   aria-controls={holdOpen ? 'hold-bar' : undefined}
@@ -674,11 +681,17 @@ export function ChatView({
               provider={binding.provider}
               busy={busy}
               elsewhere={elsewhere}
+              asking={!!pendingAsk}
               pending={holdPending}
+              takeRef={takeOverRef}
               onTakeOver={() => changeHands('cockpit')}
               onRelease={() => changeHands('agent')}
               onResume={resumeThere}
-              onClose={() => setHoldOpen(false)}
+              onClose={() => {
+                // the × goes with the bar: focus goes back to the chip that opened it
+                setHoldOpen(false)
+                holdChipRef.current?.focus()
+              }}
             />
           )}
 
@@ -690,10 +703,17 @@ export function ChatView({
               </div>
             ) : binding.readOnly === 'agent' ? (
               // an agent Cockpit reads but can't run here: the way on is another agent,
-              // or its ACP server once one answers (the composer appears on its own)
+              // or its ACP server once one answers (the composer appears on its own) —
+              // unless that server doesn't keep this session (an editor's chat)
               <div className="composer-readonly">
-                Cockpit runs {PROVIDER_LABEL[binding.provider]} only over its ACP server, and none
-                has answered on this machine.{' '}
+                {acpCanReopen(binding) ? (
+                  <>
+                    Cockpit runs {PROVIDER_LABEL[binding.provider]} only over its ACP server, and none
+                    has answered on this machine.
+                  </>
+                ) : (
+                  acpStoreRefusal(binding.provider)
+                )}{' '}
                 {binding.nativeSessionId && (
                   <button className="link-btn" onClick={onOpenHandoff}>
                     Continue it with another agent…

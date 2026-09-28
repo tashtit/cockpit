@@ -12,6 +12,8 @@ import { ProviderMark, PROVIDER_LABEL } from './logos'
 /** Stands in for "no repository" as a filter value; a leading space keeps it out
  *  of the space of real repository names. */
 const NO_REPO = ' none'
+/** Stands in for "no agent" — a worktree no session claims; out of the agents' names the same way */
+const NO_AGENT = ' none'
 
 /** One include/exclude pair per dimension, keyed by group id. */
 export type Selections = Record<
@@ -58,7 +60,7 @@ export function tableValues(t: StaleTable, groupId: string): readonly string[] {
 }
 
 export function worktreeValues(w: StaleWorktree, groupId: string): readonly string[] {
-  if (groupId === 'agent') return w.providers
+  if (groupId === 'agent') return w.providers.length > 0 ? w.providers : [NO_AGENT]
   if (groupId === 'project') return [w.repoName]
   if (groupId === 'origin') return [w.origin]
   const state: string[] = [w.blocks.length > 0 ? 'blocked' : 'removable']
@@ -73,18 +75,21 @@ function presentOptions<T, V extends string>(rows: readonly T[], of: (row: T) =>
   return [...new Set(rows.map(of))].sort()
 }
 
-/** The Agent dimension over every agent the rows carry, each with its logo. */
-function agentDim(dim: Dim, agents: readonly SessionProvider[]): FilterGroup {
+/** The Agent dimension over every agent the rows carry, each with its logo — none (null,
+ *  a worktree no session claims) is a value too, as "no repository" is for Project. */
+function agentDim(dim: Dim, agents: readonly (SessionProvider | null)[]): FilterGroup {
   return dim(
     'agent',
     'Agent',
-    presentOptions(agents, (p) => p).map((p) => ({
-      value: p,
-      label: PROVIDER_LABEL[p],
-      icon: (
-        <ProviderMark p={p} size={11} decorative />
-      )
-    }))
+    presentOptions(agents, (p) => p ?? NO_AGENT).map((p) =>
+      p === NO_AGENT
+        ? { value: p, label: 'No agent' }
+        : {
+            value: p,
+            label: PROVIDER_LABEL[p],
+            icon: <ProviderMark p={p} size={11} decorative />
+          }
+    )
   )
 }
 
@@ -145,8 +150,8 @@ export function worktreeFilters(
   const dim = dimension(sel, set)
   return [
     // the agents whose sessions ran in it — Cursor's and Claude Code's own worktrees are
-    // theirs; one no session claims has none
-    agentDim(dim, rows.flatMap((w) => [...w.providers])),
+    // theirs; one no session claims has none, and "No agent" isolates those leftovers
+    agentDim(dim, rows.flatMap((w) => (w.providers.length > 0 ? [...w.providers] : [null]))),
     dim('origin', 'Origin', [
       { value: 'cockpit', label: 'Cut by Cockpit' },
       { value: 'external', label: 'External' }

@@ -7,8 +7,9 @@ import { capText } from './parsers/util'
  * Side chat: a question about a session, asked of a throwaway copy of it (`sideFork` in
  * `buildCommand`). The copy holds the session up to now — mid-turn included — and nothing
  * the side chat said, so what it asked and was told before rides in the prompt. IO-free:
- * index.ts validates the directories and runs the turn on a ChatManager of its own, whose
- * turns never reach the busy board, the attention desk or the chat's own stream.
+ * `side-chat:ask` in ipc/chat.ts validates the directories and runs the turn on the
+ * ChatManager services.ts builds for side questions alone, whose turns never reach the
+ * busy board, the attention desk or the chat's own stream.
  */
 
 /** Earlier exchanges carried into the next question: the latest ones */
@@ -72,8 +73,8 @@ function optionsOf(o: AgentOptions | undefined): AgentOptions | undefined {
 /**
  * The turn a side question runs as. Throws (the ask is refused before anything spawns) on
  * an agent with no side chat, a session not named, or a question empty or past the limit.
- * The cwd and config home come back as given — index.ts validates both against what the
- * app derived, as it does for `chat:send`.
+ * The cwd and config home come back as given — ipc/chat.ts validates both against what
+ * the app derived, as it does for `chat:send`.
  */
 export function sideTurnRequest(raw: SideChatRequest): CliRequest {
   if (!sideChatSupported(raw.provider)) {

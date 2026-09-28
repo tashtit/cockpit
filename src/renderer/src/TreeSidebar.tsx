@@ -332,7 +332,10 @@ export function TreeSidebar({
       {filtered && (
         <div className="tree-scope">
           {holder === 'cockpit' ? <HeldIcon size={10} /> : holder === 'agent' ? <ProcessIcon size={10} /> : <ChatIcon size={10} />}
-          <span className="tree-scope-text">{scopeSentence(holder, hidden)}</span>
+          {/* it ellipsizes in a narrow rail: the whole sentence in the tooltip */}
+          <span className="tree-scope-text" title={scopeSentence(holder, hidden)}>
+            {scopeSentence(holder, hidden)}
+          </span>
           <button
             className="link-btn"
             onClick={() => {
@@ -810,9 +813,9 @@ function GroupChildren({
             onClick={onToggleArchived}
           >
             <span className={`chev ${showArchived ? 'open' : ''}`} aria-hidden="true">▸</span>
-            {/* the count is every archived session's: under a holder filter the list
-                is narrower than it, so no number rather than a wrong one */}
-            {holder ? 'Archived' : `Archived (${repo.archivedCount + archivedTables.length})`}
+            {/* the count is every archived session's: under a holder filter or with an
+                agent hidden the list is narrower than it, so no number rather than a wrong one */}
+            {holder || hidden.length > 0 ? 'Archived' : `Archived (${repo.archivedCount + archivedTables.length})`}
           </button>
           {showArchived &&
             archivedTables.map((t) => (

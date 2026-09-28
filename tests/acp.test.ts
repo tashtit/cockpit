@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { AcpAgent, ChatEvent, PermissionMode } from '../src/shared/types'
-import { AcpTurn, probeAcpAgent } from '../src/main/acp'
+import { AcpTurn, probeAcpAgent, stopAcpProbes } from '../src/main/acp'
 
 /**
  * The real ACP client, driven against a stub agent that speaks the protocol the way
@@ -41,18 +41,22 @@ function start(
     asksPermissions?: boolean
     /** How the agent is signed in, as a built-in names it */
     auth?: Pick<AcpAgent, 'authMethod' | 'signIn'>
+    deadlines?: { handshake?: number; openSession?: number }
+    /** Extra env for the stub (a pid file) */
+    env?: Record<string, string>
     onEvent?: (ev: ChatEvent, turn: AcpTurn) => void
   } = {}
 ): Run & { readonly done: Promise<void> } {
   const events: ChatEvent[] = []
   let turn!: AcpTurn
-  turn = new AcpTurn(stubAgent(mode, opts.auth), {
+  turn = new AcpTurn(stubAgent(mode, { ...opts.auth, env: { STUB_MODE: mode, ...opts.env } }), {
     turnId: 't1',
     cwd,
     env: process.env,
     permissionMode: opts.permissionMode ?? 'safe',
     mustResume: opts.mustResume,
     asksPermissions: opts.asksPermissions ?? true,
+    deadlines: opts.deadlines,
     emit: (ev) => {
       events.push(ev)
       opts.onEvent?.(ev, turn)
@@ -269,6 +273,29 @@ describe('AcpTurn', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done' })
   })
 
+  // a probe gives up on a silent agent; a turn used to spin until someone pressed Stop
+  it('fails a turn whose agent never answers the handshake, naming the agent, and ends it', async () => {
+    const pidFile = join(cwd, `mute-${Date.now()}.pid`)
+    const { events, done } = start('mute', { deadlines: { handshake: 1000 }, env: { STUB_PIDFILE: pidFile } })
+    await done
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect((events[0] as { message: string }).message).toMatch(/^Stub did not answer the ACP handshake within 1 second\b/)
+    // it ignores EOF too: the turn's reaping still ends it
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    try {
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 8000, interval: 100 })
+    } finally {
+      if (alive(pid)) process.kill(pid, 'SIGKILL')
+    }
+  })
+
+  it('fails a turn whose agent never opens the session', async () => {
+    const { events, done } = start('no-session', { deadlines: { openSession: 1000 } })
+    await done
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+    expect((events[0] as { message: string }).message).toBe('Stub did not open the session within 1 second.')
+  })
+
   it('reports a command that is not installed, rather than failing silently', async () => {
     const events: ChatEvent[] = []
     const turn = new AcpTurn(
@@ -303,22 +330,45 @@ describe('AcpTurn', () => {
   })
 })
 
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 describe('probeAcpAgent', () => {
-  // a probe runs for every built-in at every launch: what it starts must not outlive it
+  // a probe runs for every built-in at every launch: what it starts must not outlive it.
+  // The stub's launcher exits on SIGTERM while its child ignores it — a SIGKILL keyed to
+  // the launcher's exit would never reach the child
   it('ends the agent and everything it started, even what ignores SIGTERM', async () => {
     const pidFile = join(cwd, `probe-${Date.now()}.pid`)
     const probe = await probeAcpAgent({ ...stubAgent('relaunch'), env: { STUB_MODE: 'relaunch', STUB_PIDFILE: pidFile } }, cwd)
     expect(probe.ok).toBe(true)
     const pid = Number(readFileSync(pidFile, 'utf8'))
-    const alive = (): boolean => {
-      try {
-        process.kill(pid, 0)
-        return true
-      } catch {
-        return false
-      }
+    try {
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 8000, interval: 100 })
+    } finally {
+      if (alive(pid)) process.kill(pid, 'SIGKILL')
     }
-    await vi.waitFor(() => expect(alive()).toBe(false), { timeout: 8000, interval: 100 })
+  })
+
+  // each probe is detached: one still waiting on its handshake when Cockpit quits would
+  // outlive it, and so would one whose group has not had its SIGKILL yet
+  it('ends every probe still running when Cockpit quits', async () => {
+    const pidFile = join(cwd, `probe-mute-${Date.now()}.pid`)
+    const pending = probeAcpAgent({ ...stubAgent('mute'), env: { STUB_MODE: 'mute', STUB_PIDFILE: pidFile } }, cwd)
+    await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true), { timeout: 5000 })
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    try {
+      stopAcpProbes()
+      expect((await pending).ok).toBe(false)
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 1000, interval: 50 })
+    } finally {
+      if (alive(pid)) process.kill(pid, 'SIGKILL')
+    }
   })
 
   it('reports what the agent said about itself and what it can do', async () => {

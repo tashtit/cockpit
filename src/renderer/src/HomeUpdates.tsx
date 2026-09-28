@@ -5,6 +5,7 @@ import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { storedValue } from './stored-value'
+import { useCliUpdates, type CliUpdates } from './use-cli-updates'
 
 /**
  * What is out of date, on the one screen that opens when nothing else is.
@@ -18,6 +19,14 @@ import { storedValue } from './stored-value'
  *
  * It renders nothing at all when nothing is out of date. A quiet machine's home is
  * exactly the home it was before this existed.
+ *
+ * A button stays focusable while something runs — busy is `aria-disabled` and a guard,
+ * never `disabled`, which would drop keyboard focus to the page mid-click.
+ *
+ * A CLI update is Settings › Accounts' own flow (`useCliUpdates`): one Terminal per
+ * click, the row saying to finish there and offering "Open Terminal again", and the
+ * CLIs watched until the version moves on — when the list is asked again and the row
+ * goes.
  */
 
 /** Open or closed is the person's, and it outlives the visit — a reading preference. */
@@ -79,6 +88,9 @@ export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null
       .finally(() => alive.current && setBusy(null))
   }, [])
 
+  // an update finished in Terminal: main checks a kept list's CLI rows on the next ask
+  const cli = useCliUpdates({ onLanded: () => load(false) })
+
   useEffect(() => {
     alive.current = true
     const cancel = whenIdle(() => load(false))
@@ -128,7 +140,7 @@ export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null
       {open && (
         <ul className="home-news-list" id="home-news-list">
           {items.map((item) => (
-            <Row key={item.id} item={item} busy={busy} jump={jump} onAct={act} />
+            <Row key={item.id} item={item} busy={busy} jump={jump} cli={cli} onAct={act} />
           ))}
           {digest !== null && (
             <li className="home-news-foot">
@@ -139,18 +151,18 @@ export function HomeUpdates({ jump }: { jump: UpdatesJump }): JSX.Element | null
               </span>
               <button
                 className="link-btn"
-                disabled={busy !== null}
+                aria-disabled={busy !== null}
                 title="Asks every source again, and pulls each agent’s marketplaces first"
-                onClick={() => load(true)}
+                onClick={() => busy === null && load(true)}
               >
                 {busy === 'all' ? 'checking…' : 'Check again'}
               </button>
             </li>
           )}
-          {error && (
+          {(error ?? cli.error) && (
             <li className="home-news-foot">
               <span className="home-news-note danger" role="alert">
-                {error}
+                {error ?? cli.error}
               </span>
             </li>
           )}
@@ -170,21 +182,28 @@ function Row({
   item,
   busy,
   jump,
+  cli,
   onAct
 }: {
   item: UpdateSuggestion
   busy: string | null
   jump: UpdatesJump
+  /** the CLI updates opened in Terminal, shared with Settings › Accounts' flow */
+  cli: CliUpdates
   onAct: (item: UpdateSuggestion, run: () => Promise<unknown>) => Promise<void>
 }): JSX.Element {
   const working = busy === item.id
+  const agent = item.agents[0]
+  // a CLI row whose update is open in Terminal says so until the version moves on
+  const inTerminal = item.kind === 'cli' && agent !== undefined && cli.updating[agent] !== undefined
   const action = ((): { label: string; onClick: () => void; title?: string } => {
     switch (item.kind) {
       case 'cli':
         return {
-          label: 'Update in Terminal',
+          label: inTerminal ? 'Open Terminal again' : 'Update in Terminal',
           title: 'Opens Terminal on the command this CLI was installed with',
-          onClick: () => void onAct(item, () => api.openCliUpdate(item.agents[0]))
+          // not the list's busy: opening Terminal is quick, and the update runs there
+          onClick: () => void (agent && cli.update(agent, item.current ?? null))
         }
       case 'mcp':
         return {
@@ -228,14 +247,20 @@ function Row({
           {item.current} → <strong>{item.latest}</strong>
         </span>
       )}
-      <span className="news-detail" title={item.detail}>
-        {item.detail}
-      </span>
+      {inTerminal && agent ? (
+        <span className="news-detail" role="status">
+          {cli.inTerminal('Finish the update in the Terminal window', agent, null)}
+        </span>
+      ) : (
+        <span className="news-detail" title={item.detail}>
+          {item.detail}
+        </span>
+      )}
       <button
         className="btn-ghost small"
-        disabled={busy !== null}
+        aria-disabled={busy !== null}
         title={action.title}
-        onClick={action.onClick}
+        onClick={() => busy === null && action.onClick()}
       >
         {working ? 'working…' : action.label}
       </button>

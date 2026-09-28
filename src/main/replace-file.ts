@@ -2,6 +2,14 @@ import { chmodSync, mkdirSync, realpathSync, renameSync, rmSync, statSync, write
 import { rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 
+/**
+ * Writing a whole file so that nothing ever reads half of it: the one temp-and-rename in
+ * main (AGENTS.md: "never another temp-and-rename"). `writeFileAtomic` for Cockpit's own
+ * files, sync or async; `replaceFile` for a file that belongs to someone else — an agent's
+ * config or instructions — which keeps its mode and writes through a symlink to the file
+ * it points at rather than replacing the link.
+ */
+
 let seq = 0
 
 /**

@@ -4,6 +4,7 @@ import { AGENT_NAME } from '../shared/providers'
 import { sortSuggestions } from '../shared/updates-digest'
 import type { PluginInfo, UpdateState, UpdateSuggestion, UpdatesDigest } from '../shared/types'
 import { listCliStatus } from './agent-cli'
+import { throttledBy } from './cache'
 import { getExtensions } from './extensions'
 import { getPanel, mcpVersionsFor, refreshMarketplaces } from './library'
 import { localCatalogVersions } from './marketplace'
@@ -17,8 +18,10 @@ import { localCatalogVersions } from './marketplace'
  * them together so the home can answer "is anything out of date?" without the person
  * touring four views to find out.
  *
- * On demand and cached, never polled — the same rule every other outward question in
- * Cockpit follows. Every source fails soft and says what it couldn't ask (`problems`):
+ * On demand and cached (`throttledBy`, like every other remembered answer), never
+ * polled — the same rule every other outward question in Cockpit follows. A write the
+ * list reports on forgets it (`forgetUpdatesDigest`), which also keeps a gathering
+ * already under way from caching what it saw before the write. Every source fails soft and says what it couldn't ask (`problems`):
  * a registry that can't be reached must leave the rest of the list standing.
  *
  * Each source is exported on its own, because that is what can be tested without
@@ -48,10 +51,6 @@ export type Found = {
 }
 
 const NOTHING: Found = { items: [], problems: [] }
-
-let cached: UpdatesDigest | null = null
-/** One gathering at a time: two windows opening home together ask one set of questions. */
-let inFlight: Promise<UpdatesDigest> | null = null
 
 export type DigestInputs = {
   /** The app's own update state and the version running — the UpdateManager owns both */
@@ -217,44 +216,63 @@ export function agentDrift(): Found {
   }
 }
 
+async function gather(inputs: DigestInputs): Promise<UpdatesDigest> {
+  const force = inputs.force === true
+  const [cli, mcp, refreshed] = await Promise.all([
+    cliUpdates(force),
+    mcpUpdates(),
+    // the person asked again: the plugin question is only as fresh as the clones it
+    // reads, so bring those up to date first — and only then, never on a plain visit
+    force ? marketplaceRefresh() : Promise.resolve(NOTHING)
+  ])
+  const found = [appUpdate(inputs.app), cli, mcp, refreshed, pluginUpdates(), agentDrift()]
+  return {
+    items: sortSuggestions(found.flatMap((f) => f.items)),
+    at: Date.now(),
+    problems: found.flatMap((f) => f.problems)
+  }
+}
+
+/**
+ * One gathering at a time — two windows opening home together ask one set of
+ * questions — kept for the TTL. There is one digest, so every ask shares one key.
+ */
+const digest = throttledBy(TTL_MS, gather, { keyOf: () => 'digest' })
+
+/** The digest last handed out: asked for again, it is a kept one. */
+let handedOut: UpdatesDigest | null = null
+
+/**
+ * A kept digest with the CLI rows as the CLIs are now. An agent CLI's update runs in
+ * Terminal, outside anything Cockpit settles, so its row would otherwise outlive the
+ * update for the rest of the TTL. Only the CLIs' own versions are asked again — the
+ * channels' newest releases are cached apart — and only while there is a CLI row.
+ */
+async function withCliNow(kept: UpdatesDigest): Promise<UpdatesDigest> {
+  if (!kept.items.some((i) => i.kind === 'cli')) return kept
+  const now = await cliUpdates(false)
+  if (now.problems.length > 0) return kept
+  const was = kept.items.filter((i) => i.kind === 'cli')
+  if (JSON.stringify(now.items) === JSON.stringify(was)) return kept
+  return { ...kept, items: sortSuggestions([...kept.items.filter((i) => i.kind !== 'cli'), ...now.items]) }
+}
+
 /**
  * Everything that could be brought up to date. Cached; `force` asks again — and a
  * forced ask never rides on a gathering already in flight, which is the one it was
- * asked to go past.
+ * asked to go past. A kept answer's CLI rows are checked against the CLIs first.
  */
-export function updatesDigest(inputs: DigestInputs = {}): Promise<UpdatesDigest> {
-  if (inputs.force !== true) {
-    if (cached && Date.now() - cached.at < TTL_MS) return Promise.resolve(cached)
-    if (inFlight) return inFlight
-  }
-  const gather = async (): Promise<UpdatesDigest> => {
-    const force = inputs.force === true
-    const [cli, mcp, refreshed] = await Promise.all([
-      cliUpdates(force),
-      mcpUpdates(),
-      // the person asked again: the plugin question is only as fresh as the clones it
-      // reads, so bring those up to date first — and only then, never on a plain visit
-      force ? marketplaceRefresh() : Promise.resolve(NOTHING)
-    ])
-    const found = [appUpdate(inputs.app), cli, mcp, refreshed, pluginUpdates(), agentDrift()]
-    return {
-      items: sortSuggestions(found.flatMap((f) => f.items)),
-      at: Date.now(),
-      problems: found.flatMap((f) => f.problems)
-    }
-  }
-  inFlight = gather()
-    .then((digest) => {
-      cached = digest
-      return digest
-    })
-    .finally(() => {
-      inFlight = null
-    })
-  return inFlight
+export async function updatesDigest(inputs: DigestInputs = {}): Promise<UpdatesDigest> {
+  const found = await digest(inputs, { force: inputs.force === true })
+  const kept = found === handedOut
+  handedOut = found
+  return kept ? withCliNow(found) : found
 }
 
-/** Something the digest reports on changed — the next ask gathers afresh. */
+/**
+ * Something the digest reports on changed — the next ask gathers afresh, and a
+ * gathering already under way answers its callers without being kept.
+ */
 export function forgetUpdatesDigest(): void {
-  cached = null
+  digest.forget()
 }

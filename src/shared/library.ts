@@ -197,12 +197,23 @@ export type MarketReach = {
   readonly source?: string
 }
 
+/** A path segment that walks — `./tmp` or `../..` is a directory the CLI resolves locally. */
+const DOT_SEGMENT = /(^|[/:])\.{1,2}(?=$|[/:])/
+
+/**
+ * A source another agent can be pointed at: a git remote over a transport that
+ * authenticates its host (https, ssh), or the GitHub `owner/repo` shorthand. Never plain
+ * `http://` or `git://`, which anyone on the path can answer for, and never a spelling
+ * with a `.`/`..` segment — `plugin marketplace add ./tmp` resolves against the working
+ * directory of whoever runs it, which here is Cockpit.
+ */
 export function isAddableSource(source: string | undefined): boolean {
-  if (!source) return false
-  if (/^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(source)) return true
+  if (!source || /\s/.test(source) || DOT_SEGMENT.test(source)) return false
+  if (/^(https:\/\/|ssh:\/\/|git@)/.test(source)) return true
   // GitHub shorthand — the other spelling an agent records. One segment each side,
-  // so an absolute path or a marketplace unpacked under a home directory never passes.
-  return /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(source)
+  // so an absolute path or a marketplace unpacked under a home directory never passes,
+  // and neither side starts like a flag.
+  return /^[A-Za-z0-9._][A-Za-z0-9._-]*\/[A-Za-z0-9._][A-Za-z0-9._-]*$/.test(source)
 }
 
 export function marketReach(

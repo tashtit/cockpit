@@ -26,6 +26,8 @@ import {
   type CleanupDeps,
   type CleanupTable
 } from '../src/main/cleanup'
+import { RUN_START_SLACK_MS } from '../src/main/cleanup-core'
+import type { DbHold } from '../src/main/session-disposal'
 import type { OrphanProcess, SessionMeta } from '../src/shared/types'
 import { writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 
@@ -93,7 +95,7 @@ let tables: CleanupTable[] = []
 let seats: SessionMeta[] = []
 const forgotten: string[] = []
 /** Databases a test says another app holds open */
-let heldOpen = new Set<string>()
+let heldOpen = new Map<string, DbHold>()
 
 const roundtableRoot = join(root, 'userData', 'roundtables')
 
@@ -112,7 +114,7 @@ const deps: CleanupDeps = {
   seatSessions: () => seats,
   roundtableRoot,
   forgetTable: (id) => forgotten.push(id),
-  heldOpen: async (dbs) => new Set(dbs.filter((d) => heldOpen.has(d)))
+  heldOpen: async (dbs) => new Map(dbs.flatMap((d) => (heldOpen.has(d) ? [[d, heldOpen.get(d)!] as const] : [])))
 }
 
 const cockpitTree = join(cockpitWorktrees, 'app', 'fix-login')
@@ -564,19 +566,47 @@ describe('deleteSessions', () => {
     sessions = []
   })
 
+  it('leaves an extension’s task list alone while the editor it runs in is open', async () => {
+    const storage = join(sourceDir, 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev')
+    const task = join(storage, 'tasks', '1756700000001')
+    mkdirSync(task, { recursive: true })
+    const log = join(task, 'ui_messages.json')
+    writeFileSync(log, '[]')
+    mkdirSync(join(storage, 'state'), { recursive: true })
+    const history = join(storage, 'state', 'taskHistory.json')
+    writeFileSync(history, JSON.stringify([{ id: '1756700000001' }, { id: 'other' }]))
+    const editorDb = join(sourceDir, 'Code', 'User', 'globalStorage', 'state.vscdb')
+    writeFileSync(editorDb, '')
+    sessions = [session({ id: 'cline:1756700000001', provider: 'cline', nativeId: '1756700000001', sourcePath: log })]
+    // VS Code is running: Cline holds its list in memory and would write it back
+    heldOpen = new Map([[editorDb, 'held']])
+    const res = await deleteSessions(deps, ['cline:1756700000001'], 30)
+    expect(res).toMatchObject({ cleaned: 1, failed: [] })
+    expect(existsSync(task)).toBe(false)
+    expect(JSON.parse(readFileSync(history, 'utf8'))).toEqual([{ id: '1756700000001' }, { id: 'other' }])
+    heldOpen = new Map()
+    sessions = []
+  })
+
   it('holds back a session whose agent has its database open, and says so', async () => {
     const db = join(sourceDir, 'opencode.db')
     writeOpencodeDb(db, [
       { id: 'ses_x', title: 'x', directory: '/x', created: OLD, updated: OLD, turns: [{ role: 'user', at: OLD, parts: [{ type: 'text', text: 'hi' }] }] }
     ])
     sessions = [session({ id: 'opencode:ses_x', provider: 'opencode', nativeId: 'ses_x', sourcePath: `${db}#ses_x` })]
-    heldOpen = new Set([db])
+    heldOpen = new Map([[db, 'held']])
     expect((await scanCleanup(deps, 30)).sessions[0]?.blocks).toEqual(['in-use'])
     const refused = await deleteSessions(deps, ['opencode:ses_x'], 30)
     expect(refused.cleaned).toBe(0)
     expect(refused.failed[0]!.reason).toMatch(/app has it open/)
+    // lsof could not clear it: no proof it is free, so no write either
+    heldOpen = new Map([[db, 'unchecked']])
+    expect((await scanCleanup(deps, 30)).sessions[0]?.blocks).toEqual(['in-use'])
+    const unchecked = await deleteSessions(deps, ['opencode:ses_x'], 30)
+    expect(unchecked.cleaned).toBe(0)
+    expect(unchecked.failed[0]!.reason).toMatch(/couldn’t check/)
     // the app quit: the rows go, the database stays
-    heldOpen = new Set()
+    heldOpen = new Map()
     expect((await deleteSessions(deps, ['opencode:ses_x'], 30)).cleaned).toBe(1)
     expect(existsSync(db)).toBe(true)
     sessions = []
@@ -1034,6 +1064,10 @@ describe('processes left in old worktrees', () => {
   it.runIf(hasLsof)('stops what an archived session left running in its worktree, and only that', async (ctx) => {
     const tree = join(cockpitWorktrees, 'app', 'archived-server')
     git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/archived-server', tree])
+    // one the person started there before the session: theirs, whatever its shape
+    const before = await orphanIn(tree)
+    await new Promise((r) => setTimeout(r, RUN_START_SLACK_MS + 2_500))
+    const startedAt = Date.now()
     const server = await orphanIn(tree)
     // a Linux subreaper adopts orphans in init's place — nothing there reads as left behind
     if (parentOf(server) !== 1) ctx.skip()
@@ -1043,6 +1077,8 @@ describe('processes left in old worktrees', () => {
       id: 'claude:archived-server',
       sourcePath: join(sourceDir, 'archived-server.jsonl'),
       cwd: tree,
+      startedAt,
+      updatedAt: Date.now(),
       repo: { key: 'app', name: 'app', fullName: null, root: mainRepo }
     })
 
@@ -1054,6 +1090,7 @@ describe('processes left in old worktrees', () => {
     const res = await stopLeftBehind(deps, { archived: [s], listed: [] })
     expect(res).toMatchObject({ cleaned: 1, failed: [] })
     expect(alive(server)).toBe(false)
+    expect(alive(before)).toBe(true)
     expect(held.exitCode === null && held.signalCode === null).toBe(true)
     held.kill('SIGKILL')
     await exited(held)
@@ -1066,11 +1103,45 @@ describe('processes left in old worktrees', () => {
       id: 'claude:in-checkout',
       sourcePath: join(sourceDir, 'in-checkout.jsonl'),
       cwd: mainRepo,
+      startedAt: Date.now() - 60_000,
+      updatedAt: Date.now(),
       repo: { key: 'app', name: 'app', fullName: null, root: mainRepo }
     })
     const res = await stopLeftBehind(deps, { archived: [s], listed: [] })
     expect(res.cleaned).toBe(0)
     expect(alive(server)).toBe(true)
+  }, PROCESS_TIMEOUT_MS)
+
+  it.runIf(hasLsof)('stops nothing on a process table lsof could not give whole', async (ctx) => {
+    const tree = join(cockpitWorktrees, 'app', 'unchecked-server')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/unchecked-server', tree])
+    const startedAt = Date.now()
+    const server = await orphanIn(tree)
+    if (parentOf(server) !== 1) ctx.skip()
+    const s = session({
+      id: 'claude:unchecked-server',
+      sourcePath: join(sourceDir, 'unchecked-server.jsonl'),
+      cwd: tree,
+      startedAt,
+      updatedAt: Date.now(),
+      repo: { key: 'app', name: 'app', fullName: null, root: mainRepo }
+    })
+    // an lsof that gives up without an answer, first on PATH
+    const bin = mkdtempSync(join(tmpdir(), 'cockpit-lsof-'))
+    writeFileSync(join(bin, 'lsof'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const res = await stopLeftBehind(deps, { archived: [s], listed: [] })
+      expect(res.cleaned).toBe(0)
+      expect(res.failed).toEqual([{ target: realpathSync(tree), reason: expect.stringMatching(/couldn’t check/) }])
+      expect(alive(server)).toBe(true)
+    } finally {
+      process.env.PATH = path
+      rmSync(bin, { recursive: true, force: true })
+    }
+    // with the real one, it goes
+    expect(await stopLeftBehind(deps, { archived: [s], listed: [] })).toMatchObject({ cleaned: 1, failed: [] })
   }, PROCESS_TIMEOUT_MS)
 
   it.runIf(hasLsof)('refuses a pid that is not left in an old worktree', async () => {

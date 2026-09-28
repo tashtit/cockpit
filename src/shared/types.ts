@@ -118,6 +118,10 @@ export type SessionMeta = {
    *  set by the indexer when one thread spans several files. Everything that reads or
    *  removes a session's log (transcript, search, cleanup) reads these, then `sourcePath`. */
   readonly segments?: readonly SessionSegment[]
+  /** The other files the indexer found this session in and folded away (`foldThread`).
+   *  A Cursor chat kept both in the editor's database and as an agent transcript is one
+   *  session, and deleting it removes both (session-disposal.ts). */
+  readonly otherRecords?: readonly string[]
   /** Stable id of the session that started this one, as this session's own log states
    *  it — a Copilot session another session created with its `create_session` tool
    *  (the kickoff's `<copilot_tauri_workspace>` block names the creator). The tree
@@ -751,7 +755,7 @@ export type ChatRequest = {
   readonly handoffFrom?: string
   /** A roundtable seat's turn: in safe mode Claude may also search the web and fetch pages
    *  (`CLAUDE_RESEARCH_TOOLS`) — research, never a shell or an edit — and a read-only Codex
-   *  sandbox gets the network (`CODEX_RESEARCH_ARGS`), its files still read-only. Only the
+   *  sandbox gets the network (`codexSeatArgs`), its files still read-only. Only the
    *  roundtable manager sets it; `chat:send` strips it, so no renderer request loosens a chat */
   readonly research?: boolean
   /** A side question (`SideChatRequest`): the resumed session is copied, never continued —
@@ -1144,6 +1148,16 @@ export type RegistryServer = {
   readonly kind?: RegistryServerKind
   /** the package, or the url a remote server is reached at */
   readonly what?: string
+  /** the package release an add pins — the entry's `version` names the server, not always its package */
+  readonly release?: string
+  /**
+   * What an add writes an agent to launch, as shell words: the command and every argument
+   * the publisher fixed. Absent for a remote server, and for one already set up here —
+   * that one's own definition is what the next agent gets.
+   */
+  readonly commandLine?: string
+  /** env the publisher fixes, written as it is and never asked for — names and values */
+  readonly fixedEnv?: Readonly<Record<string, string>>
   /** what it is called in each agent's config — an existing server's name when one here runs it */
   readonly name: string
   readonly inputs: readonly RegistryInput[]
@@ -1474,6 +1488,12 @@ export type BusySession = {
 /** The sounds a landing makes: a turn done, an agent waiting on you, something gone wrong. */
 export type AttentionTone = 'finish' | 'asks' | 'fail'
 
+/** What playing a sound did — heard, or why not: the Alert volume is at zero (`muted`), the
+ *  system has no player Cockpit uses (`unsupported`, off macOS), or the player failed. */
+export type SoundPlayback =
+  | { readonly played: true }
+  | { readonly played: false; readonly why: 'muted' | 'unsupported' | 'failed'; readonly message?: string }
+
 /** Settings › Notifications — how Cockpit tells you an agent needs you. */
 export type AttentionPrefs = {
   /** A desktop notification when a turn finishes or fails, an agent waits on you, a
@@ -1578,10 +1598,30 @@ export type ChatEvent =
       readonly type: 'permission'
       readonly requestId: string
       readonly toolName: string
+      /** What would run: a command whole, else the tool's input — bounded in main */
       readonly detail: string
       readonly preview?: string
       readonly options: readonly AcpPermissionOption[]
+      /** Why the agent's own rules put this to the person, when it says (Claude's `decision_reason`) */
+      readonly reason?: string
+      /** The path outside what the turn may touch that made it ask (Claude's `blocked_path`) */
+      readonly blockedPath?: string
+      /** The command asks to run with the sandbox off (Claude's Bash `dangerouslyDisableSandbox`) */
+      readonly sandboxBypass?: true
     }
+  /**
+   * The agent gave up on a question it had put to the person (Claude's
+   * `control_cancel_request`: the call was aborted). Nothing is left to answer, so its
+   * card goes — an answer clicked on it would land in the transcript though nothing ran.
+   */
+  | { readonly turnId: string; readonly type: 'permission-withdrawn'; readonly requestId: string }
+
+/**
+ * A question a live turn is blocked on. Main keeps each turn's open ones until they are
+ * answered, so a window that reloads while a card is up is handed them again as it
+ * rejoins the turn (`getPendingPermissions`) — the stream says each only once.
+ */
+export type ChatPermission = Extract<ChatEvent, { readonly type: 'permission' }>
 
 /* ---------- roundtable (multi-agent shared discussion) ---------- */
 

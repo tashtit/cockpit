@@ -32,10 +32,12 @@ import {
   worktreeBlocks,
   worktreeOrigin,
   worktreesWithProcesses,
+  type ArchivedRun,
   type CwdSessions,
   type JudgedProcess,
   type PlacedWorktree,
   type ProcessFacts,
+  type PsRow,
   type WorktreeEntry,
   type WorktreeHome
 } from './cleanup-core'
@@ -43,7 +45,15 @@ import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText, gitRead } from './env'
 import { mapLimit } from './map-limit'
 import { isSessionProvider } from '../shared/providers'
-import { disposalBytes, disposalFiles, disposalOf, dispose, openBy } from './session-disposal'
+import {
+  disposalBytes,
+  disposalFiles,
+  disposalOf,
+  dispose,
+  openBy,
+  type DbHold,
+  type DisposableSession
+} from './session-disposal'
 import { isUnder, realOrSelf } from './paths'
 
 /**
@@ -144,14 +154,14 @@ export type CleanupDeps = {
   readonly roundtableRoot: string
   /** Drop a table's record once its room and seats are gone (the manager owns the file) */
   readonly forgetTable: (id: string) => void
-  /** Which of these databases another process holds open (`openBy`, which tests replace) */
-  readonly heldOpen?: (databases: readonly string[]) => Promise<Set<string>>
+  /** Which of these databases another process holds open, or could not be cleared (`openBy`, which tests replace) */
+  readonly heldOpen?: (databases: readonly string[]) => Promise<ReadonlyMap<string, DbHold>>
 }
 
 /* ---------- sessions ---------- */
 
 /** What a session occupies — measured by the same plan that removes it (session-disposal.ts). */
-function sessionBytes(meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments'>): number {
+function sessionBytes(meta: DisposableSession): number {
   return disposalBytes(disposalOf(meta))
 }
 
@@ -165,6 +175,8 @@ const STOP_GRACE_MS = 2_000
 
 type ProcessSnapshot = {
   readonly procs: ProcessFacts[]
+  /** Every row ps gave — Cockpit's own tree and the processes with no readable cwd too */
+  readonly rows: readonly PsRow[]
   /**
    * False when lsof or ps did not give a full answer — lsof missing, or cut short by
    * its timeout or its buffer, which leaves the processes it never reached out of the
@@ -176,6 +188,9 @@ type ProcessSnapshot = {
 
 /** Why a removal was held back when the process check came back partial. */
 const UNCHECKED = 'couldn’t check for processes running in it — try again'
+
+/** Why nothing an archived session left running was stopped: the process check came back partial. */
+const UNCHECKED_LEFT = 'couldn’t check what is running in it — nothing was stopped'
 
 /**
  * Every process the user owns that has a working directory, minus Cockpit's own
@@ -197,7 +212,7 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessSnapshot> {
   // lsof exits 1 when some process could not be read, with the readable ones on
   // stdout — the output is what counts, not the status. Unless it was cut short.
   const complete = ps.ok && !lsof.cutShort && lsof.stdout !== ''
-  if (!lsof.stdout || !ps.ok) return { procs: [], complete }
+  if (!lsof.stdout || !ps.ok) return { procs: [], rows: [], complete }
   const cwds = parseLsofCwds(lsof.stdout)
   const rows = parsePs(ps.stdout, Date.now())
   const own = ownProcessTree(rows, deps.selfPid)
@@ -207,7 +222,7 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessSnapshot> {
     if (!cwd || own.has(r.pid) || cwd === '/') continue
     out.push({ ...r, cwd })
   }
-  return { procs: out, complete }
+  return { procs: out, rows, complete }
 }
 
 /* ---------- worktrees ---------- */
@@ -585,7 +600,7 @@ async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey
 
   const staleMetas = all.filter((s) => isStale(s.updatedAt, cutoff)).sort((a, b) => a.updatedAt - b.updatedAt)
   // what each would take with it, as its agent keeps it — and which of the databases
-  // among those another app holds open right now (asked once per database)
+  // among those another app holds open right now, or lsof could not clear
   const disposals = new Map(staleMetas.map((s) => [s.id, disposalOf(s)]))
   const held = await (deps.heldOpen ?? openBy)([...disposals.values()].flatMap((d) => d.databases))
   const sessions: StaleSession[] = []
@@ -721,7 +736,8 @@ async function deleteMergedBranch(repoRoot: string, branch: string): Promise<boo
 }
 
 type LogRemoval =
-  | { readonly ok: true; readonly bytes: number }
+  /** `indexLeft`: its agent's own list still names it — the editor holding the list is open */
+  | { readonly ok: true; readonly bytes: number; readonly indexLeft: boolean }
   /** `outside`: refused before anything went, for a file outside every configured source */
   | { readonly ok: false; readonly outside: boolean; readonly reason: string }
 
@@ -730,16 +746,18 @@ type LogRemoval =
  * folder, its rows in a shared database, its entry in the agent's own index). Every file
  * the plan touches is re-validated against the configured sources first, and a database
  * another process holds open refuses the session, judged again now: the app may have
- * opened its store since the scan. `label` names the session in the audit. Earlier pages
- * go first: a failure part-way leaves the session listed on its newest file, never an old
- * page left behind to pose as the whole thread.
+ * opened its store since the scan, and neither does one lsof could not clear. An
+ * agent's own list is left while the editor its extension runs in is open
+ * (`indexLeft`). `label` names the session in the audit. Earlier pages go first: a
+ * failure part-way leaves the session listed on its newest file, never an old page
+ * left behind to pose as the whole thread.
  */
 async function removeSessionLogs(
-  meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments'>,
+  meta: DisposableSession,
   ctx: {
     readonly roots: readonly string[]
     readonly label: string
-    readonly heldOpen: (databases: readonly string[]) => Promise<Set<string>>
+    readonly heldOpen: (databases: readonly string[]) => Promise<ReadonlyMap<string, DbHold>>
   }
 ): Promise<LogRemoval> {
   const plan = disposalOf(meta)
@@ -749,17 +767,31 @@ async function removeSessionLogs(
     audit(`refused ${ctx.label}: ${outside} is outside every configured source`)
     return { ok: false, outside: true, reason: 'outside every configured source' }
   }
-  if (plan.databases.length > 0 && (await ctx.heldOpen(plan.databases)).size > 0) {
+  // the editor a task list's extension runs in is asked about with them: one lsof
+  const editorDb = plan.index?.editorDb
+  const asked = [...plan.databases, ...(editorDb ? [editorDb] : [])]
+  const found = asked.length > 0 ? await ctx.heldOpen(asked) : new Map<string, DbHold>()
+  const holds = plan.databases.flatMap((db) => found.get(db) ?? [])
+  if (holds.includes('held')) {
     return { ok: false, outside: false, reason: 'its agent’s app has it open — quit the app, then delete it' }
   }
+  if (holds.length > 0) {
+    return { ok: false, outside: false, reason: 'couldn’t check whether its agent’s app has it open — try again' }
+  }
   const bytes = disposalBytes(plan)
+  // an editor open, or not proven closed, keeps its extension's list in memory
+  const keepIndex = editorDb !== undefined && found.has(editorDb)
+  let done: { readonly indexLeft: boolean }
   try {
-    dispose(plan)
+    done = dispose(plan, { keepIndex })
   } catch (err) {
     return { ok: false, outside: false, reason: err instanceof Error ? err.message : String(err) }
   }
   audit(`removed ${ctx.label}: ${targets.join(', ')} (${bytes} bytes)`)
-  return { ok: true, bytes }
+  if (done.indexLeft) {
+    audit(`left ${ctx.label} in ${plan.index?.file}: its editor is open, and its extension drops the entry once it is opened`)
+  }
+  return { ok: true, bytes, indexLeft: done.indexLeft }
 }
 
 type WorktreeRemoval =
@@ -1212,8 +1244,8 @@ export const stopProcesses = retiringSurveys(async function stopProcesses(
  * what was just archived or deleted, here or in its provider's app; `listed` is every
  * session still listed, since a worktree one of them runs in is still in use. Which
  * processes go is `leftBehind`'s judgement: nothing a live parent still answers for,
- * never the repository's own checkout, never Cockpit's own tree. SIGTERM only, as
- * everywhere in cleanup.
+ * nothing started before the session or after it ended, never the repository's own
+ * checkout, never Cockpit's own tree. SIGTERM only, as everywhere in cleanup.
  */
 export const stopLeftBehind = retiringSurveys(async function stopLeftBehind(
   deps: CleanupDeps,
@@ -1222,7 +1254,9 @@ export const stopLeftBehind = retiringSurveys(async function stopLeftBehind(
   const resolve = resolvedOnce(realish)
   const cwdsOf = (list: readonly SessionMeta[]): string[] =>
     list.flatMap((s) => (s.cwd ? [resolve(s.cwd)] : []))
-  const archived = cwdsOf(sessions.archived)
+  const archived: ArchivedRun[] = sessions.archived.flatMap((s) =>
+    s.cwd ? [{ cwd: resolve(s.cwd), startedAt: s.startedAt, updatedAt: s.updatedAt }] : []
+  )
   if (archived.length === 0) return { cleaned: 0, freedBytes: 0, failed: [] }
   const busy = deps.busyIds()
   const inUse = [
@@ -1233,11 +1267,19 @@ export const stopLeftBehind = retiringSurveys(async function stopLeftBehind(
   // only the repositories the archived sessions ran in: one `git worktree list` each
   const roots = new Set(sessions.archived.flatMap((s) => (s.repo?.root ? [s.repo.root] : [])))
   const scoped: CleanupDeps = { ...deps, repoRoots: () => deps.repoRoots().filter((r) => roots.has(r)) }
-  const [{ procs }, listed] = await Promise.all([processSnapshot(deps), listWorktrees(scoped, resolve)])
+  // the listing first, so the process table is read as close to the signal as it can be
+  const listed = await listWorktrees(scoped, resolve)
+  const snapshot = await processSnapshot(deps)
+  // a partial table hides the members of a tree that work elsewhere: stop nothing on it
+  if (!snapshot.complete) {
+    const where = [...new Set(archived.map((a) => a.cwd))]
+    return { cleaned: 0, freedBytes: 0, failed: where.map((target) => ({ target, reason: UNCHECKED_LEFT })) }
+  }
   const left = leftBehind({
     archived,
     inUse,
-    processes: procs,
+    processes: snapshot.procs,
+    table: snapshot.rows,
     worktrees: listed.map(placed),
     homes: worktreeHomes(deps),
     exists: existsSync

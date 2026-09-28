@@ -3,8 +3,8 @@ import { basename, dirname, join } from 'node:path'
 import type { SessionMeta, SessionMessage, WorkArtifact } from '../../shared/types'
 import { fileWriteArtifact, replaceArtifact, toolArtifact } from './artifacts'
 import { checkArtifact, checkOutcome } from './checks'
-import { dbMtime, queryAll, sessionRef, snapshotCache, splitSessionRef } from './sqlite'
-import { capText, fileTimes, jsonText, readJson, toMs, TRANSCRIPT_TAIL_BYTES, truncate, usableCwd } from './util'
+import { dbMtime, queryAll, queryEach, sessionRef, snapshotCache, splitSessionRef } from './sqlite'
+import { capText, fileTimes, jsonText, readJson, readSmallFile, toMs, TRANSCRIPT_TAIL_BYTES, truncate, usableCwd } from './util'
 
 /**
  * opencode keeps its sessions in <home>/opencode.db (home: ~/.local/share/opencode):
@@ -133,7 +133,7 @@ export function parseOpencodeMeta(file: string, sourceLabel: string): SessionMet
     sourcePath: file,
     sourceLabel,
     fallbackTime: ft.end,
-    firstPrompt: () => legacyTurns(home, s.id).find((t) => t.role === 'user')?.parts.find((p) => p?.type === 'text')?.text ?? ''
+    firstPrompt: () => legacyFirstPrompt(home, s.id)
   })
 }
 
@@ -185,26 +185,46 @@ const MAX_PART_BYTES = 256 * 1024
 
 function dbTurns(db: string, id: string): { turns: Turn[]; truncated: boolean } {
   const messages = queryAll(db, 'SELECT id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created, id', id) ?? []
-  const parts = new Map<string, any[]>()
+  // newest parts first, so a long session opens on its latest turns: their sizes, stepped
+  // through until the budget is spent (octet_length reads none of a part's content), then
+  // the content of those alone — never every part whole, only to throw most of them away
+  const window: string[] = []
   let budget = TRANSCRIPT_TAIL_BYTES
   let truncated = false
-  // newest parts first, so a long session opens on its latest turns
+  queryEach(
+    db,
+    { sql: 'SELECT id, octet_length(data) AS n FROM part WHERE session_id = ? ORDER BY message_id DESC, id DESC', params: [id] },
+    (r) => {
+      const n = Number(r['n'] ?? 0)
+      // a part too big to parse is left out, and costs nothing
+      if (n > MAX_PART_BYTES) return true
+      budget -= n
+      if (budget < 0) {
+        truncated = true
+        return false
+      }
+      window.push(String(r['id']))
+      return true
+    }
+  )
+  const read = new Map<string, Record<string, unknown>>()
   for (const r of queryAll(
     db,
-    `SELECT message_id, CASE WHEN length(data) > ${MAX_PART_BYTES} THEN NULL ELSE data END AS data
-     FROM part WHERE session_id = ? ORDER BY message_id DESC, id DESC`,
-    id
+    `SELECT id, message_id, data FROM part WHERE id IN (SELECT value FROM json_each(?)) AND octet_length(data) <= ${MAX_PART_BYTES}`,
+    JSON.stringify(window)
   ) ?? []) {
-    const raw = typeof r['data'] === 'string' ? r['data'] : null
-    if (!raw) continue
-    budget -= raw.length
-    if (budget < 0) {
-      truncated = true
-      break
-    }
+    read.set(String(r['id']), r)
+  }
+  const parts = new Map<string, any[]>()
+  for (const pid of window.reverse()) {
+    const r = read.get(pid)
+    if (typeof r?.['data'] !== 'string') continue
     try {
+      const part = JSON.parse(r['data'])
       const mid = String(r['message_id'])
-      parts.set(mid, [JSON.parse(raw), ...(parts.get(mid) ?? [])])
+      const own = parts.get(mid)
+      if (own) own.push(part)
+      else parts.set(mid, [part])
     } catch {
       /* a malformed part is skipped */
     }
@@ -224,25 +244,79 @@ function dbTurns(db: string, id: string): { turns: Turn[]; truncated: boolean } 
   return { turns, truncated }
 }
 
-/** The older file store: a directory of turns, a directory of parts per turn — bounded. */
+/**
+ * The older file store: a directory of turns, a directory of parts per turn — read under
+ * a budget of bytes and of files, each file whole or not at all. A transcript gets the
+ * transcript budget; a meta read, the 256KB a log's head is read within.
+ */
 const MAX_LEGACY_FILES = 4000
+const META_LEGACY_BYTES = 256 * 1024
+const MAX_META_LEGACY_FILES = 64
+/** One message's own file: its role and time, never large */
+const MAX_LEGACY_MESSAGE_BYTES = 256 * 1024
 
-function legacyTurns(home: string, id: string): Turn[] {
-  let seen = 0
+/** What a read of the older store may still spend — mutable on purpose: spent as files are read. */
+type LegacyBudget = { bytes: number; files: number }
+
+const spent = (b: LegacyBudget): boolean => b.bytes <= 0 || b.files <= 0
+
+/** One file of the older store as JSON, charged to the budget; null past it, or unreadable. */
+function readLegacy(file: string, budget: LegacyBudget, maxBytes: number): any | null {
+  if (spent(budget)) return null
+  budget.files--
+  const cap = Math.min(maxBytes, budget.bytes)
+  const raw = readSmallFile(file, cap)
+  if (raw === null) {
+    // too big for what is left of the budget: nothing more fits
+    if (cap < maxBytes) budget.bytes = 0
+    return null
+  }
+  budget.bytes -= raw.length
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function messageNames(home: string, id: string): string[] {
+  return files(join(home, 'storage', 'message', id))
+    .filter((n) => n.endsWith('.json'))
+    .sort()
+}
+
+/** A session's turns, the newest that fit the transcript budget — message ids sort by time. */
+function legacyTurns(home: string, id: string): { turns: Turn[]; truncated: boolean } {
+  const budget: LegacyBudget = { bytes: TRANSCRIPT_TAIL_BYTES, files: MAX_LEGACY_FILES }
+  const names = messageNames(home, id)
   const turns: Turn[] = []
-  const dir = join(home, 'storage', 'message', id)
-  for (const name of files(dir).sort()) {
-    if (!name.endsWith('.json') || ++seen > MAX_LEGACY_FILES) continue
-    const m = readJson(join(dir, name), 256 * 1024)
+  let left = names.length
+  while (left > 0 && !spent(budget)) {
+    const m = readLegacy(join(home, 'storage', 'message', id, names[--left]!), budget, MAX_LEGACY_MESSAGE_BYTES)
     if (!m || typeof m.id !== 'string') continue
     const partDir = join(home, 'storage', 'part', m.id)
     const parts = files(partDir)
       .sort()
-      .flatMap((p) => (++seen > MAX_LEGACY_FILES ? [] : [readJson(join(partDir, p), MAX_PART_BYTES)]))
-      .filter(Boolean)
+      .flatMap((p) => readLegacy(join(partDir, p), budget, MAX_PART_BYTES) ?? [])
     turns.push({ role: typeof m.role === 'string' ? m.role : 'assistant', ts: toMs(m.time?.created) ?? undefined, parts })
   }
-  return turns.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0))
+  return { turns: turns.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0)), truncated: left > 0 }
+}
+
+/** An untitled session's opening prompt: the first text of its first turn the person wrote, found within the meta budget. */
+function legacyFirstPrompt(home: string, id: string): string {
+  const budget: LegacyBudget = { bytes: META_LEGACY_BYTES, files: MAX_META_LEGACY_FILES }
+  for (const name of messageNames(home, id)) {
+    if (spent(budget)) break
+    const m = readLegacy(join(home, 'storage', 'message', id, name), budget, MAX_LEGACY_MESSAGE_BYTES)
+    if (m?.role !== 'user' || typeof m.id !== 'string') continue
+    const partDir = join(home, 'storage', 'part', m.id)
+    for (const p of files(partDir).sort()) {
+      const part = readLegacy(join(partDir, p), budget, MAX_PART_BYTES)
+      if (part?.type === 'text' && typeof part.text === 'string') return part.text
+    }
+  }
+  return ''
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
@@ -303,14 +377,15 @@ function turnRows(turn: Turn): SessionMessage[] {
 
 export function parseOpencodeMessages(file: string): SessionMessage[] {
   const ref = splitSessionRef(file)
-  if (ref && basename(ref.file) === OPENCODE_DB) {
-    const { turns, truncated } = dbTurns(ref.file, ref.id)
-    const rows = turns.flatMap(turnRows)
-    return truncated
-      ? [{ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' }, ...rows]
-      : rows
+  let read: { readonly turns: Turn[]; readonly truncated: boolean }
+  if (ref && basename(ref.file) === OPENCODE_DB) read = dbTurns(ref.file, ref.id)
+  else {
+    const s = readJson(file, 1024 * 1024)
+    if (!s || typeof s.id !== 'string') return []
+    read = legacyTurns(dirname(dirname(dirname(dirname(file)))), s.id)
   }
-  const s = readJson(file, 1024 * 1024)
-  if (!s || typeof s.id !== 'string') return []
-  return legacyTurns(dirname(dirname(dirname(dirname(file)))), s.id).flatMap(turnRows)
+  const rows = read.turns.flatMap(turnRows)
+  return read.truncated
+    ? [{ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' }, ...rows]
+    : rows
 }

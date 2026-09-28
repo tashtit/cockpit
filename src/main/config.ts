@@ -1,3 +1,12 @@
+/**
+ * Cockpit's own config, `cockpit-config.json` in userData: the agent homes it indexes and
+ * the ones the person removed, what they archived, hid or ordered, the library, shared
+ * instructions, BYOK and ACP definitions, and the view preferences. Read defensively
+ * (`parseConfig` drops what this build can't use from the lists startup builds on; the
+ * rest is checked where it is read, as `sanitizeAcpAgent` does), never overwritten while it cannot be read
+ * (`assertOverwritable` — a setter must not write defaults over the person's file), and
+ * written whole and owner-only: it holds MCP servers' env values in the clear.
+ */
 import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -147,6 +156,21 @@ export function adoptDetectedSources(): AppConfig {
   const updated = { ...cfg, sources: next.sources, dismissedSources: next.dismissed }
   saveConfig(updated)
   return updated
+}
+
+/**
+ * `adoptDetectedSources` for a caller that must carry on whatever happens: startup, where
+ * a throw leaves an app in the Dock with no window, and the end of a turn, inside the
+ * stream handler. A home that could not be saved is logged and adopted on a later try;
+ * the config as it stands runs meanwhile.
+ */
+export function tryAdoptDetectedSources(): AppConfig {
+  try {
+    return adoptDetectedSources()
+  } catch (err) {
+    console.error('[config] could not save the agent homes found since the last launch:', err)
+    return loadConfig()
+  }
 }
 
 /** The one parse both readers share, so "valid config" can never mean two things. */
@@ -345,16 +369,32 @@ export function attentionPrefs(): AttentionPrefs {
 export function setAttentionPrefs(next: AttentionPrefs): AttentionPrefs {
   const cfg = loadConfig()
   const current = attentionPrefs()
-  // only a flipped switch is written: an untouched one keeps following the build, so
-  // turning sound off in the installed app never switches a dev run's banners on
+  const byDefault = app?.isPackaged === true
+  // only a switch flipped away from this build's default is written: an untouched one
+  // keeps following the build, so turning sound off in the installed app never switches
+  // a dev run's banners on. One flipped back is forgotten rather than stored — turning
+  // notifications off and on again in the installed app would otherwise leave `true`
+  // behind, and every dev run sharing its userData would notify
   const stored: { -readonly [K in keyof AttentionPrefs]?: boolean } = { ...cfg.attention }
   for (const key of ATTENTION_KEYS) {
     // renderer input is untrusted — anything but true is off
     const value = next?.[key] === true
-    if (value !== current[key]) stored[key] = value
+    if (value === current[key]) continue
+    if (value === byDefault) delete stored[key]
+    else stored[key] = value
   }
   saveConfig({ ...cfg, attention: stored })
   return attentionPrefs()
+}
+
+/**
+ * Whether archiving a session stops what it left running (`archive-watch.ts`): in an
+ * installed app, as the attention switches are on. A dev run indexes the real HOME, so
+ * every one running would otherwise act on every archive — the providers' own apps'
+ * included — unless COCKPIT_ARCHIVE_WATCH=1 asks for it.
+ */
+export function archiveWatchOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return app?.isPackaged === true || env['COCKPIT_ARCHIVE_WATCH'] === '1'
 }
 
 const UPDATE_KEYS = ['download', 'install'] as const

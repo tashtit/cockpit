@@ -196,7 +196,9 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   most, aria-hidden since the button's name already carries it. A click scrolls the
   message to 16px under the transcript's top edge — where the first row sits — so its
   answer reads under it. The rail is one tab stop (roving `tabIndex`; ↑ ↓ walk and jump,
-  Home/End). **⌥⌘↑ / ⌥⌘↓** (Copilot's own keys for this) step from wherever the reader
+  Home/End — `roveIndex`), and its list says so: a `toolbar` with
+  `aria-orientation="vertical"`, each mark naming ⌥⌘↑ / ⌥⌘↓ in `aria-keyshortcuts`, since
+  the peek that shows them is aria-hidden. **⌥⌘↑ / ⌥⌘↓** (Copilot's own keys for this) step from wherever the reader
   is; part-way through an answer, up goes to its own message first. After a jump, steps
   go on from it while the transcript stays where the jump put it: near the end a message
   cannot reach the top, and reading positions back would land on it again. Each step says
@@ -401,8 +403,8 @@ placed in the transcript. Same livery, different mechanism; keep both.
   every other answer — *Allow always* included, since it hands the agent every later call
   of that kind unasked — is `.btn-ghost`. The answer styled to be clicked without reading
   must never be the one that gives away the most.
-- **A command is what is being allowed, so it is the card's content** (`.perm-exec`): the
-  command itself, whole, in a `.perm-command` block (`--bg-deep`, mono at `--fs-base`,
+- **What is being allowed is the card's content** (`.perm-detailed`). For a command, the
+  command itself, whole, in a `.perm-detail` block (`--bg-deep`, mono at `--fs-base`,
   wrapped rather than cut at the edge, 220px then it scrolls — a named, focusable
   `role=region`). Main sends it exactly as it would run (`permissionDetail` in
   `acp-core.ts`: every line and argument, the shell wrapper included, up to 16,000
@@ -412,9 +414,19 @@ placed in the transcript. Same livery, different mechanism; keep both.
   — are drawn as their code point in a warn-bordered `.perm-ctl` mark, never passed
   through. The agent's `title` (`.perm-what`) is the lesser line above it, in `--fg-dim`:
   it is the agent's own account of the command, and the card is where it is checked.
-- Anything that does not execute keeps the one-line grammar: the agent's `title` as the
-  headline (`.perm-what`, ellipsised) with the raw tool input in its `title` attribute.
-  The tool kind sits left in the micro-label register (`.perm-tool`) either way.
+- Any other tool shows its input in the same block, named "What the tool would be given"
+  (Claude's as indented JSON up to 4,000 characters, an ACP agent's raw input up to 400) —
+  never only in a hover `title`, which a keyboard or a screen reader can't reach, and an
+  MCP tool's name alone says nothing of what it would do. An agent that named no input
+  keeps the one-line grammar: its `title` as the headline (`.perm-what`, ellipsised) and
+  no block. The tool kind sits left in the micro-label register (`.perm-tool`) either way.
+- **What the request says of itself** is on the card too: why the CLI asks (Claude's
+  `decision_reason`) and the path that made it (`blocked_path`), each a `.perm-note` line
+  in `--fg-dim` behind a micro-label (`.perm-note-k`: *Why it asks*, *Path*), invisible
+  characters drawn as in the block. A command asking to run with the sandbox off
+  (`dangerouslyDisableSandbox`) turns the card's edge `--danger` (`.perm-unsandboxed`) and
+  says so in words — a `.perm-flag` line in `--danger`, and "to run outside the sandbox"
+  in the card's accessible name — never by the colour alone.
 - It never autofocuses. A question that arrives while someone is typing must not steal
   the caret out of the composer.
 - The `aria-live` status announces the question over the generic working line — a blocked
@@ -513,10 +525,12 @@ filled key, **Take over**, is `.btn-primary.hold-take` at that height (one heigh
   elsewhere grammar. An open question card says to answer it in the agent or take it over.
 - **A session Cockpit holds** shows it only from its `.hold-chip` (`aria-expanded`,
   `aria-controls`): **Open in Terminal** (releases it too), **Release to Claude**, and a 24px
-  × to hide it.
+  × (`XIcon`, named "Hide this bar") to hide it, which hands focus back to the chip.
 - A change waits for the other side's turn — Take over while the agent runs one elsewhere,
   Release and Open in Terminal while Cockpit's own turn runs — disabled, with why in the
-  title. Main re-judges both (`holdRefusal`), and a refusal lands as a chat notice.
+  title **and in the bar's sentence**: a disabled key can't be focused, so a title alone
+  reaches no keyboard or screen reader. Main re-judges both (`holdRefusal`), and a refusal
+  lands as a chat notice.
 - What happened is said once in the chat's status region ("Taken over — Cockpit sends this
   session's turns now"). A seat session gets neither chip nor bar: its table drives it.
 

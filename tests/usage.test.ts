@@ -298,7 +298,9 @@ describe('getUsage', () => {
       { provider: 'codex' as const, path: codexHome, label: 'codex' },
       // never walked: the copilot path has nothing local to measure, and without a
       // copilot source the snapshot never reaches for gh at all
-      { provider: 'copilot' as const, path: join(root, 'missing-copilot'), label: 'copilot' }
+      { provider: 'copilot' as const, path: join(root, 'missing-copilot'), label: 'copilot' },
+      // an agent Cockpit only reads has no usage here — and is not taken for Copilot
+      { provider: 'gemini' as const, path: root, label: 'gemini' }
     ]
     const first = await getUsage(sources)
     expect(first.providers.map((p) => p.provider)).toEqual(['claude', 'codex'])

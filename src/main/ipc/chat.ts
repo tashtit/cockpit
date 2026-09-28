@@ -100,6 +100,7 @@ export function registerChatHandlers(s: Services): void {
       // against what it actually asked, so a stale or invented answer is dropped
       chat.respondPermission(String(turnId), String(requestId), String(optionId))
   )
+  ipcMain.handle(CH.chatPendingPermissions, (_e, turnId: string) => chat.pendingPermissions(String(turnId)))
 
   // side chat: questions asked of a throwaway copy of a session, on a ChatManager of its own
   ipcMain.handle(CH.sideChatAsk, (_e, raw: SideChatRequest) => {

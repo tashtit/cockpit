@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -834,6 +834,38 @@ describe.skipIf(!hasSqlite3())('provider-archived persistence across launches', 
     expect(ids).toContain('p1')
     expect(ids).not.toContain('p2')
   })
+
+  // an upgrade that changes what the parsers say bumps the cache's version and drops its
+  // entries — but the archived ids are not parser output. Dropped with them, a first
+  // sweep that failed listed every session archived in its app, and the next good one
+  // archived them all at once
+  it('keeps the archived set across an upgrade that drops the rest of the cache', async () => {
+    const upgradeCache = join(root, 'cache-upgrade', 'stat-cache.json')
+    writeCpSession('u1', 'active session', '2026-08-01T10:00:00Z')
+    writeCpSession('u2', 'archived in the copilot app', '2026-08-02T10:00:00Z')
+    rmSync(join(cpDir, 'data.db'), { force: true })
+    execFileSync('sqlite3', [
+      join(cpDir, 'data.db'),
+      'CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, archived_at TEXT);' +
+        "INSERT INTO sessions VALUES ('p1', NULL), ('p2', '2026-08-02T11:00:00Z'), ('u1', NULL), ('u2', '2026-08-02T11:00:00Z');"
+    ])
+    const before = new SessionIndexer(() => {}, { cacheFile: upgradeCache, claudeStoreDir: null })
+    await before.setSources([{ path: cpDir, provider: 'copilot', label: 'cp' }])
+    before.stopWatchers()
+    expect(before.page({}).items.map((s) => s.nativeId)).not.toContain('u2')
+    before.saveCache()
+
+    // the cache as an older release wrote it, and a first sweep that fails
+    const saved = JSON.parse(readFileSync(upgradeCache, 'utf8'))
+    writeFileSync(upgradeCache, JSON.stringify({ ...saved, v: saved.v - 1 }))
+    writeFileSync(join(cpDir, 'data.db'), 'not a sqlite database')
+    const after = new SessionIndexer(() => {}, { cacheFile: upgradeCache, claudeStoreDir: null })
+    await after.setSources([{ path: cpDir, provider: 'copilot', label: 'cp' }])
+    after.stopWatchers()
+    const ids = after.page({}).items.map((s) => s.nativeId)
+    expect(ids).toContain('u1')
+    expect(ids).not.toContain('u2')
+  })
 })
 
 describe('first tree from the stat cache', () => {
@@ -1491,8 +1523,8 @@ describe('foldThread', () => {
   it('keeps the most recently updated copy of one log found under two sources', () => {
     const older = meta({ sourcePath: '/one/a', updatedAt: 5 })
     const newer = meta({ sourcePath: '/two/a', updatedAt: 9 })
-    expect(foldThread([newer, older])).toBe(newer)
-    expect(foldThread([older, newer])).toBe(newer)
+    expect(foldThread([newer, older])).toEqual({ ...newer, otherRecords: ['/one/a'] })
+    expect(foldThread([older, newer])).toEqual({ ...newer, otherRecords: ['/one/a'] })
   })
 
   it('prefers the fuller of two records of one conversation kept by different stores', () => {
@@ -1500,8 +1532,9 @@ describe('foldThread', () => {
     // and the transcript can be written a moment later
     const chat = meta({ id: 'cursor:c', provider: 'cursor', sourcePath: '/ide/state.vscdb#c', messageCount: 73, updatedAt: 5 })
     const transcript = meta({ id: 'cursor:c', provider: 'cursor', sourcePath: '/t/c.jsonl', messageCount: 19, updatedAt: 6 })
-    expect(foldThread([chat, transcript])).toBe(chat)
-    expect(foldThread([transcript, chat])).toBe(chat)
+    // the transcript rides along, so deleting the chat takes it too
+    expect(foldThread([chat, transcript])).toEqual({ ...chat, otherRecords: ['/t/c.jsonl'] })
+    expect(foldThread([transcript, chat])).toEqual({ ...chat, otherRecords: ['/t/c.jsonl'] })
   })
 
   it('chains pages oldest first, and a copy of a page is not a page of its own', () => {
@@ -1651,6 +1684,114 @@ describe('sessions kept in databases', () => {
       { id: 'ses_b', title: 'Second', directory: '/x', created: at, updated: at, turns: [turn('three')] }
     ])
     await vi.waitFor(() => expect(idx.getSession('opencode:ses_b')?.title).toBe('Second'), { timeout: 8000, interval: 100 })
+  })
+})
+
+/**
+ * Cursor writes its editor state many times a second, and every write re-judges every
+ * chat in the database. Each re-judging is one pass that reads the database once, so it
+ * answers from a snapshot pinned before later writes — which must never be recorded
+ * against a stamp that covers those writes, or the last write of a burst is lost until
+ * the next one.
+ */
+describe('a shared database written while the index re-judges it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cockpit-indexer-busy-db-'))
+  const editor = join(dir, 'Cursor', 'User', 'globalStorage')
+  const db = join(editor, 'state.vscdb')
+  const at = Date.parse('2026-09-01T09:00:00Z')
+  const CHATS = 40
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    writeCursorChats(
+      db,
+      Array.from({ length: CHATS }, (_, i) => ({
+        id: `c${String(i).padStart(2, '0')}`,
+        name: 'first',
+        cwd: '/x',
+        created: at,
+        updated: at,
+        bubbles: [{ type: 1 as const, at, text: 'hi' }]
+      }))
+    )
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: editor, provider: 'cursor', label: 'cursor-ide' }])
+  })
+
+  afterAll(() => {
+    idx?.stopWatchers()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('ends on the last write, wherever in a pass it landed', async () => {
+    expect(idx.page({ limit: 100 }).items.filter((s) => s.title === 'first')).toHaveLength(CHATS)
+    // the editor at work, from a process of its own: one chat after another renamed as
+    // fast as it can write, through the write-ahead log — a new stamp under every chat
+    // a pass looks at — and last of all every one named 'final'
+    const writer = `
+      const { DatabaseSync } = require('node:sqlite')
+      const db = new DatabaseSync(process.argv[1])
+      db.exec('PRAGMA journal_mode = WAL')
+      const rename = db.prepare("UPDATE cursorDiskKV SET value = json_set(value, '$.name', ?) WHERE key = ?")
+      const end = Date.now() + 1500
+      for (let i = 0; Date.now() < end; i++) {
+        rename.run('busy ' + i, 'composerData:c' + String(i % ${CHATS}).padStart(2, '0'))
+      }
+      db.exec("UPDATE cursorDiskKV SET value = json_set(value, '$.name', 'final') WHERE key >= 'composerData:c' AND key < 'composerData:d'")
+      db.close()
+    `
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(process.execPath, ['-e', writer, db], { stdio: 'ignore' })
+      child.on('error', reject)
+      child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`writer exited ${code}`))))
+    })
+    await vi.waitFor(
+      () => expect(idx.page({ limit: 100 }).items.filter((s) => s.title === 'final')).toHaveLength(CHATS),
+      { timeout: 8000, interval: 100 }
+    )
+  })
+})
+
+/**
+ * A write that takes the database for itself fails every read while it holds it, and the
+ * last good answer stands in. Recorded against the stamp that write left, the stand-in
+ * stood until the database was next written — a renamed session kept its old name, and
+ * a new one went unlisted, for as long as the app stayed quiet.
+ */
+describe('a shared database read while its app holds it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cockpit-indexer-held-db-'))
+  const opencode = join(dir, 'opencode')
+  const at = Date.parse('2026-09-01T09:00:00Z')
+  let idx: SessionIndexer
+
+  beforeAll(async () => {
+    writeOpencodeDb(join(opencode, 'opencode.db'), [
+      { id: 'ses_a', title: 'First', directory: '/x', created: at, updated: at, turns: [{ role: 'user', at, parts: [{ type: 'text', text: 'one' }] }] }
+    ])
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null })
+    await idx.setSources([{ path: opencode, provider: 'opencode', label: 'opencode-default' }])
+  })
+
+  afterAll(() => {
+    idx?.stopWatchers()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('is looked at again once the app lets go, with nothing written after', async () => {
+    expect(idx.getSession('opencode:ses_a')?.title).toBe('First')
+    const app = new DatabaseSync(join(opencode, 'opencode.db'))
+    try {
+      // a rename, then the database held — no file changes — while the watcher's news
+      // of the rename is acted on and every read of it fails
+      app.exec("UPDATE session SET title = 'Renamed' WHERE id = 'ses_a'")
+      app.exec('BEGIN EXCLUSIVE')
+      await new Promise((r) => setTimeout(r, 2500))
+      expect(idx.getSession('opencode:ses_a')?.title).toBe('First')
+      app.exec('ROLLBACK')
+    } finally {
+      app.close()
+    }
+    await vi.waitFor(() => expect(idx.getSession('opencode:ses_a')?.title).toBe('Renamed'), { timeout: 12_000, interval: 100 })
   })
 })
 

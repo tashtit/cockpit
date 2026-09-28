@@ -101,7 +101,7 @@ Cockpit is an Electron app: clone, install, run.
 - **Node 24** — pinned in `.nvmrc`; run `nvm use` (or your version manager's equivalent) before installing.
 - **npm 11** — the one Node 24 bundles, pinned as `packageManager` in `package.json`. It is also the npm Dependabot regenerates the lockfile with, so CI, the bot and your machine all write the same lockfile shape (npm 10 reads that shape as out of sync). The repo ships a `package-lock.json`; install with `npm ci` to match CI exactly.
 - **git**, and the **GitHub CLI (`gh`)** if you want the PR features to work at runtime (not needed to build).
-- Optional: the `claude` / `codex` / `copilot` CLIs. Without them Cockpit runs with an empty session index.
+- Optional: the agents themselves — the `claude` / `codex` / `copilot` CLIs, or Gemini CLI, Cursor, Cline, Roo Code, opencode or Antigravity. Cockpit lists the sessions of whichever it finds; with none, the index is empty.
 
 ### Install and run
 

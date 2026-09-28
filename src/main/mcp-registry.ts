@@ -11,7 +11,7 @@ import {
   registryVersionUrl,
   runsSame,
   type RegistryEntry
-} from '../shared/mcp-registry'
+} from './mcp-registry-core'
 import type {
   McpConfig,
   McpServerInfo,
@@ -21,16 +21,21 @@ import type {
   RegistryServer
 } from '../shared/types'
 import { getExtensions } from './extensions'
+import { fetchBounded } from './fetch-bounded'
 import { addMcpServer, globalMcpEntries } from './library'
 import { withRecent } from './recent-map'
+import { shellWord } from './shell-quote'
 
 /*
  * Looking MCP servers up in the MCP Registry, and adding one.
  *
- * The network is a click here as everywhere in Cockpit: a search runs when the person
- * submits one, and nothing is fetched on arrival. What an add writes is decided in main
- * from the registry's own entry (`registryConfig`) — the renderer names a server and
- * hands over what was typed for its inputs, never a command.
+ * The MCP Registry is only ever asked on a click: a search runs when the person submits
+ * one, an add reads the one version it installs, and nothing is fetched on arrival.
+ * That is this module's rule, not all of Cockpit's — the home's updates list asks npm
+ * and PyPI about pinned servers and the agent CLIs on a visit (`updates-digest.ts`),
+ * cached — but nothing asks the registry unbidden. What an add writes is decided in main
+ * from the registry's own entry (`registryConfig`, in `mcp-registry-core.ts`) — the
+ * renderer names a server and hands over what was typed for its inputs, never a command.
  */
 
 /**
@@ -48,8 +53,10 @@ const FETCH_TIMEOUT_MS = 20_000
 const MAX_BODY_BYTES = 4 * 1024 * 1024
 
 /**
- * Entries seen in a search, by `id@version`, so an add uses exactly what was shown.
- * A process-lifetime cache (it mutates), bounded — the oldest go first.
+ * Entries seen in a search, by `id@version` — what each row showed, so an add can
+ * refuse an entry that would now write something else. A process-lifetime cache (it
+ * mutates), bounded — the oldest go first. Never what an add installs from: that is
+ * read afresh (`entryFor`).
  */
 let seen: Readonly<Record<string, RegistryEntry>> = {}
 const MAX_SEEN = 1000
@@ -58,34 +65,15 @@ function remember(entry: RegistryEntry): void {
   seen = withRecent(seen, { id: `${entry.id}@${entry.version}`, value: entry, cap: MAX_SEEN })
 }
 
-/** Read a JSON body without holding more than the cap, however much is sent. */
+/** A JSON body, read without holding more than the cap; null when the registry has no such thing. */
 async function readJson(url: string): Promise<unknown> {
-  let res: Response
+  const body = await fetchBounded(url, { what: 'the MCP Registry', maxBytes: MAX_BODY_BYTES, timeoutMs: FETCH_TIMEOUT_MS })
+  if (body === null) return null
   try {
-    res = await fetch(url, {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-    })
-  } catch (err) {
-    const timedOut = err instanceof Error && err.name === 'TimeoutError'
-    throw new Error(timedOut ? 'The MCP Registry didn’t answer in time — try again.' : 'Couldn’t reach the MCP Registry.')
+    return JSON.parse(body)
+  } catch {
+    throw new Error('The MCP Registry answered with something that isn’t JSON.')
   }
-  if (!res.ok) throw new Error(`The MCP Registry answered HTTP ${res.status}.`)
-  const reader = res.body?.getReader()
-  if (!reader) return JSON.parse(await res.text())
-  const chunks: Uint8Array[] = []
-  let size = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    size += value.byteLength
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel()
-      throw new Error('The MCP Registry sent more than a page.')
-    }
-    chunks.push(value)
-  }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
 type Known = ReadonlyArray<{ readonly name: string; readonly config?: McpConfig }>
@@ -115,7 +103,18 @@ export function describeForHere(entry: RegistryEntry, known: Known, inventory: r
     known.find((e) => e.config && runsSame(e.config, plan.kind, plan.what))?.name
   const taken = new Set([...known.map((e) => e.name), ...inventory.map((s) => s.name)])
   const name = same ?? names.find((n) => !taken.has(n))
-  const base = { ...head, kind: plan.kind, what: plan.what, unsupported: plan.unsupported }
+  // what an add writes, from the plan `registryConfig` builds on — shown before it is
+  // written. A server already here is added with its own definition instead
+  const written = same
+    ? {}
+    : {
+        ...(plan.release ? { release: plan.release } : {}),
+        ...(plan.base.command
+          ? { commandLine: [plan.base.command, ...(plan.base.args ?? [])].map(shellWord).join(' ') }
+          : {}),
+        ...(plan.base.env && Object.keys(plan.base.env).length > 0 ? { fixedEnv: plan.base.env } : {})
+      }
+  const base = { ...head, kind: plan.kind, what: plan.what, unsupported: plan.unsupported, ...written }
   if (name === undefined) {
     return {
       ...base,
@@ -143,14 +142,29 @@ export async function searchRegistry(query: string, cursor?: string): Promise<Re
   }
 }
 
+/** Would these two entries write the same definition and ask for the same values? */
+function samePlan(a: RegistryEntry, b: RegistryEntry): boolean {
+  return JSON.stringify(registryPlan(a)) === JSON.stringify(registryPlan(b))
+}
+
+/**
+ * The entry an add writes from, read afresh from the registry every time: a version
+ * marked deleted or deprecated since a search showed it is no longer offered
+ * (`parseRegistryEntry` skips it), and a page kept for the session would still install
+ * it. One that would now write something other than what its row showed is refused too.
+ */
 async function entryFor(id: string, version: string): Promise<RegistryEntry> {
-  const hit = Object.hasOwn(seen, `${id}@${version}`) ? seen[`${id}@${version}`] : undefined
-  if (hit) return hit
   const entry = parseRegistryEntry(await readJson(registryVersionUrl(id, version, registryBase())))
   if (!entry || entry.id !== id || entry.version !== version) {
     throw new Error(`The MCP Registry no longer offers ${id} ${version}.`)
   }
-  remember(entry)
+  const key = `${id}@${version}`
+  const shown = Object.hasOwn(seen, key) ? seen[key] : undefined
+  if (shown && !samePlan(shown, entry)) {
+    throw new Error(
+      `${registryTitle(entry)} changed in the MCP Registry since it was shown — search again to see what it runs now.`
+    )
+  }
   return entry
 }
 

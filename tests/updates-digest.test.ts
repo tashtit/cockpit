@@ -243,6 +243,12 @@ describe('gathering it all, on demand', () => {
     // no agent CLI but a test's stubs, and no registry asked for the newest release
     process.env.PATH = `${bin}:/usr/bin:/bin`
     process.env.COCKPIT_CLI_LATEST = JSON.stringify({ claude: '1.0.0', codex: '1.0.0', copilot: '1.0.0' })
+    // every spawn also searches the install dirs (`cliPath`), so a CLI this Mac installed
+    // with Homebrew is found anyway — and its channel's newest release is asked of brew,
+    // which the pin above doesn't reach. A brew that knows nothing keeps that question
+    // off the machine the tests happen to run on
+    writeFileSync(join(bin, 'brew'), '#!/bin/sh\nexit 1\n')
+    chmodSync(join(bin, 'brew'), 0o755)
     forgetUpdatesDigest()
   })
 
@@ -272,6 +278,41 @@ describe('gathering it all, on demand', () => {
     expect(forced).not.toBe(first)
     forgetUpdatesDigest()
     expect(await updatesDigest({ app })).not.toBe(forced)
+  })
+
+  // a gathering under way when a write settles saw the machine before the write: it
+  // answers whoever asked it, but the next ask must not be handed it for 15 minutes
+  it('keeps nothing a gathering found when a write lands during it', async () => {
+    const during = updatesDigest({ app })
+    forgetUpdatesDigest()
+    const stale = await during
+    expect(await updatesDigest({ app })).not.toBe(stale)
+  })
+
+  it('lets a forced gathering win over a plain one already under way', async () => {
+    const plain = updatesDigest({ app })
+    const forced = updatesDigest({ app, force: true })
+    // a visit while Check again is gathering shares that gathering
+    const rider = updatesDigest({ app })
+    const [, fresh, rode] = await Promise.all([plain, forced, rider])
+    expect(rode).toBe(fresh)
+    expect(await updatesDigest({ app })).toBe(fresh)
+  })
+
+  // the update itself runs in Terminal, which settles nothing in Cockpit: a kept
+  // answer checks its CLI rows against the CLIs before it is handed out again
+  it('drops a CLI row once that CLI is up to date, without gathering the rest again', async () => {
+    const version = join(home, 'claude-version')
+    writeFileSync(version, '0.9.0\n')
+    writeFileSync(join(bin, 'claude'), `#!/bin/sh\ncat '${version}'\n`)
+    chmodSync(join(bin, 'claude'), 0o755)
+    const first = await updatesDigest({ app })
+    expect(first.items.map((i) => i.id)).toEqual(['app:cockpit', 'cli:claude'])
+    writeFileSync(version, '1.0.0\n')
+    const after = await updatesDigest({ app })
+    expect(after.items.map((i) => i.id)).toEqual(['app:cockpit'])
+    // the same gathering, its CLI rows brought up to date
+    expect(after.at).toBe(first.at)
   })
 
   // a marketplace's clone is what the plugin rows read, and a third-party one never

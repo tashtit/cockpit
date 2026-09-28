@@ -609,13 +609,35 @@ export async function setPanelSwitch(
 }
 
 /**
+ * Record `next` in the global library for as long as `flip` runs, and keep it only if
+ * the flip lands. An add from Browse has no entry to switch until it writes one, but an
+ * install that failed must leave nothing behind: no all-off row claiming the thing was
+ * added, and none of the values typed for it in Cockpit's config. On a throw the entry
+ * `next` replaced is put back as it was — or taken out, when there was none.
+ */
+async function recordWhile(next: LibraryEntry, flip: () => Promise<PanelReport>): Promise<PanelReport> {
+  const same = (e: LibraryEntry): boolean => e.kind === next.kind && e.name === next.name
+  const before = loadEntries(null).find(same)
+  saveEntries(null, replaceEntry(loadEntries(null), next))
+  try {
+    return await flip()
+  } catch (err) {
+    // re-read: the flip can take minutes, and other entries may have moved meanwhile
+    const now = loadEntries(null)
+    saveEntries(null, before ? replaceEntry(now, before) : now.filter((e) => !same(e)))
+    throw err
+  }
+}
+
+/**
  * Add something the person found while browsing: a marketplace, or a plugin from one.
  *
  * Browsing shows what no agent here has yet, so unlike every other action in the panel
- * this one may have no entry to flip — it writes the entry first and then flips it,
- * which is exactly what the panel's own switch does once the thing exists. Nothing
- * else is special-cased: the install itself, the reach check ("that agent hasn't got
- * this marketplace"), and the report all come back through `setPanelSwitch`.
+ * this one may have no entry to flip — it records the entry for the length of the flip
+ * (`recordWhile`), which is exactly what the panel's own switch does once the thing
+ * exists. Nothing else is special-cased: the install itself, the reach check ("that
+ * agent hasn't got this marketplace"), and the report all come back through
+ * `setPanelSwitch`.
  */
 export async function addFromCatalog(item: CatalogInstall, agent: Provider): Promise<PanelReport> {
   const target: PanelTarget = { repoRoot: null, kind: item.kind, name: item.name }
@@ -623,19 +645,22 @@ export async function addFromCatalog(item: CatalogInstall, agent: Provider): Pro
   const { entries } = ensureScope(null)
   const known = entries.find((e) => e.kind === item.kind && e.name === item.name)
   // a plugin's source is the marketplace half of its own id; a marketplace's is where
-  // it is cloned from, which is the one thing an add cannot be run without
+  // it is cloned from, which is the one thing an add cannot be run without. One the
+  // library already records a real source for keeps it: a browse row is not a reason
+  // to point every later switch-on at another repository
   const source =
     item.kind === 'plugin'
       ? (known?.source ?? item.name.split('@').pop())
-      : (item.source ?? known?.source)
+      : isAddableSource(known?.source)
+        ? known?.source
+        : (item.source ?? known?.source)
   if (item.kind === 'marketplace' && !isAddableSource(source)) {
     throw new Error(`Cockpit has no source to add the ${item.name} marketplace from.`)
   }
   // adding back something removed everywhere is the person asking for it again
   const was: LibraryEntry = known ?? { kind: item.kind, name: item.name, enabled: {} }
   const { removed, ...base } = was
-  saveEntries(null, replaceEntry(loadEntries(null), { ...base, ...(source ? { source } : {}) }))
-  return setPanelSwitch(target, agent, true)
+  return recordWhile({ ...base, ...(source ? { source } : {}) }, () => setPanelSwitch(target, agent, true))
 }
 
 /**
@@ -651,7 +676,8 @@ export function globalMcpEntries(): ReadonlyArray<{ readonly name: string; reado
 
 /**
  * Switch an MCP server on for one agent — one Cockpit already knows by `name`, or a
- * new one with `config`, written as an entry first and then flipped like any other.
+ * new one with `config`, recorded as an entry and flipped like any other, and kept only
+ * when the write lands (`recordWhile`).
  * An existing entry keeps its own definition: the one the agents run wins over what
  * was just looked up, since that is what the other agents will be compared against.
  */
@@ -668,8 +694,7 @@ export async function addMcpServer(
   // adding back something removed everywhere is the person asking for it again
   const was: LibraryEntry = known ?? { kind: 'mcp', name, enabled: {}, config }
   const { removed, ...base } = was
-  saveEntries(null, replaceEntry(loadEntries(null), base))
-  return setPanelSwitch(target, agent, true)
+  return recordWhile(base, () => setPanelSwitch(target, agent, true))
 }
 
 /**

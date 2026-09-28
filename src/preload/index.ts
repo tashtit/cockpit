@@ -1,3 +1,9 @@
+/**
+ * The bridge: `window.cockpit`, exposed to the sandboxed renderer through contextBridge.
+ * Each member is one `ipcRenderer.invoke` on its `CH` channel, or a `subscribe` to its
+ * `PUSH` channel, typed by `CockpitApi` in `shared/contract.ts` — the one place the IPC
+ * surface is declared. Nothing here validates: main treats every argument as untrusted.
+ */
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { CH, PUSH } from '../shared/contract'
 import { clampZoom } from '../shared/window'
@@ -21,6 +27,7 @@ const api: CockpitApi = {
   cancelChat: (turnId) => ipcRenderer.invoke(CH.chatCancel, turnId),
   respondPermission: (turnId, requestId, optionId) =>
     ipcRenderer.invoke(CH.chatRespondPermission, turnId, requestId, optionId),
+  getPendingPermissions: (turnId) => ipcRenderer.invoke(CH.chatPendingPermissions, turnId),
   saveChatImage: (data, mime) => ipcRenderer.invoke(CH.chatSaveImage, data, mime),
   onChatEvent: subscribe(PUSH.chatEvent),
   askSideChat: (req) => ipcRenderer.invoke(CH.sideChatAsk, req),
@@ -135,7 +142,7 @@ const api: CockpitApi = {
   addAcpAgent: (agent) => ipcRenderer.invoke(CH.acpAdd, agent),
   removeAcpAgent: (id) => ipcRenderer.invoke(CH.acpRemove, id),
   probeAcpAgent: (agent) => ipcRenderer.invoke(CH.acpProbe, agent),
-  getAcpReadiness: () => ipcRenderer.invoke(CH.acpReadiness),
+  getAcpReadiness: (opts) => ipcRenderer.invoke(CH.acpReadiness, opts),
   onAcpReadiness: subscribe(PUSH.acpReadiness),
   exportBackup: (passphrase) => ipcRenderer.invoke(CH.backupExport, passphrase),
   openBackup: () => ipcRenderer.invoke(CH.backupOpen),

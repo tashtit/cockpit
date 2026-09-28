@@ -10,7 +10,8 @@ import type {
   Landing,
   NotificationDelivery,
   PrStatus,
-  SessionMeta
+  SessionMeta,
+  SoundPlayback
 } from '../shared/types'
 import {
   AttentionTracker,
@@ -43,7 +44,8 @@ export type AttentionSurface = {
   /** Take delivered banners out of Notification Center */
   readonly withdraw: (ids: readonly string[]) => void
   readonly setBadge: (count: number) => void
-  readonly play: (sound: AttentionTone) => void
+  /** Play a sound; resolves once it has played, or with why it did not */
+  readonly play: (sound: AttentionTone) => Promise<SoundPlayback>
   /** One Dock bounce — how a refused banner still gets noticed */
   readonly bounce: () => void
 }
@@ -204,14 +206,15 @@ export class AttentionDesk {
 
   /** The Settings button: a sample banner whatever the switch says (the user asked); the sound keeps its own switch. */
   async test(): Promise<NotificationDelivery> {
-    if (this.prefs.sound) this.deps.surface.play('finish')
+    if (this.prefs.sound) void this.deps.surface.play('finish')
     // clicking the sample must not navigate away from the Settings that sent it
     return this.deps.surface.notify(SAMPLE, () => this.deps.onOpen(null))
   }
 
-  /** The Settings preview: the one sound asked for, whatever the Sound switch says — pressing it is the request. */
-  play(tone: AttentionTone): void {
-    this.deps.surface.play(tone)
+  /** The Settings preview: the one sound asked for, whatever the Sound switch says — pressing it
+   *  is the request. Says whether it was heard, so the button never claims a sound it muted. */
+  play(tone: AttentionTone): Promise<SoundPlayback> {
+    return this.deps.surface.play(tone)
   }
 
   dispose(): void {
@@ -254,7 +257,7 @@ export class AttentionDesk {
   private flush(): void {
     this.timer = null
     const { notice, sound } = this.tracker.flush(this.prefs, this.deps.titleFor)
-    if (sound) this.deps.surface.play(sound)
+    if (sound) void this.deps.surface.play(sound)
     if (notice) {
       void this.deps.surface
         .notify(notice, () => this.deps.onOpen(this.tracker.targetFor(notice)))
@@ -338,15 +341,16 @@ export function electronSurface(): AttentionSurface {
     setBadge: (count) => {
       app.setBadgeCount(count)
     },
-    play: (sound) => {
-      if (!mac) return
+    play: async (sound) => {
+      if (!mac) return { played: false, why: 'unsupported' }
       // afplay plays at the output volume; alert sounds follow the Alert volume slider
-      void execText('/usr/bin/defaults', ['read', '-g', 'com.apple.sound.beep.volume'], {
+      const { stdout } = await execText('/usr/bin/defaults', ['read', '-g', 'com.apple.sound.beep.volume'], {
         timeoutMs: 2_000
-      }).then(({ stdout }) => {
-        const gain = alertGain(stdout)
-        if (gain > 0) void execText('/usr/bin/afplay', ['-v', String(gain), soundFile(sound)], { timeoutMs: 10_000 })
       })
+      const gain = alertGain(stdout)
+      if (gain <= 0) return { played: false, why: 'muted' }
+      const r = await execText('/usr/bin/afplay', ['-v', String(gain), soundFile(sound)], { timeoutMs: 10_000 })
+      return r.ok ? { played: true } : { played: false, why: 'failed', ...(r.error ? { message: r.error } : {}) }
     },
     bounce: () => {
       app.dock?.bounce('informational')

@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { promptLine, type Prompt } from './prompt-nav'
+import { roveIndex, type RoveKeys } from './roving'
+
+/** The rail's own arrows: up and down the marks, Home and End to either end, no wrap */
+const RAIL_KEYS: RoveKeys = { next: 'ArrowDown', prev: 'ArrowUp', ends: true }
 
 /** Where a peek hangs: from its mark's top in the rail's upper half, from its bottom below */
 type Peek = { readonly index: number; readonly top?: number; readonly bottom?: number }
@@ -11,20 +15,27 @@ type Peek = { readonly index: number; readonly top?: number; readonly bottom?: n
  * shape too; pointing at a mark (or reaching it by keyboard) shows the message, a click
  * scrolls to it (`usePromptNav`).
  *
- * One tab stop, as a toolbar is: ↑ ↓ walk the messages, Home and End take the first and
- * the latest. More messages than the rail holds scroll inside it, keeping the one being
- * read in view.
+ * One tab stop, as a toolbar is (and says it is — a vertical `toolbar`): ↑ ↓ walk the
+ * messages, Home and End take the first and the latest. Every mark names ⌥⌘↑ / ⌥⌘↓, the
+ * same step from anywhere in the transcript, in `aria-keyshortcuts` — the peek that shows
+ * them is hidden from a screen reader. More messages than the rail holds scroll inside
+ * it, keeping the one being read in view.
  */
-export function PromptRail({
+export const PromptRail = memo(function PromptRail({
   prompts,
   current,
   onJump
 }: {
+  /** The same array until a message arrives, changes or leaves (ChatView keeps it so) */
   prompts: readonly Prompt[]
   /** The message being read, by its place in `prompts` */
   current: number | null
+  /** Stable (`usePromptNav`) — with the two above, what keeps a keystroke or a stream
+   *  flush in the chat from redrawing the rail */
   onJump: (i: number) => void
 }): JSX.Element {
+  // each mark's name, worked out when the messages change rather than on every render
+  const labels = useMemo(() => prompts.map((p) => promptLine(p.text, 80)), [prompts])
   const railRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const [peek, setPeek] = useState<Peek | null>(null)
@@ -73,14 +84,22 @@ export function PromptRail({
 
   return (
     <nav className="prompt-rail" aria-label="Your messages" ref={railRef}>
-      <ol className="prompt-rail-list" ref={listRef} onScroll={follow}>
+      <ol
+        className="prompt-rail-list"
+        ref={listRef}
+        role="toolbar"
+        aria-orientation="vertical"
+        onScroll={follow}
+      >
         {prompts.map((p, i) => (
-          <li key={p.key}>
+          // a toolbar owns its buttons: the list item is layout, nothing to announce
+          <li key={p.key} role="none">
             <button
               type="button"
               className={`prompt-tick${i === current ? ' on' : ''}`}
               tabIndex={i === stop ? 0 : -1}
-              aria-label={`Message ${i + 1} of ${n}: ${promptLine(p.text, 80)}`}
+              aria-label={`Message ${i + 1} of ${n}: ${labels[i]}`}
+              aria-keyshortcuts="Alt+Meta+ArrowUp Alt+Meta+ArrowDown"
               aria-current={i === current ? 'location' : undefined}
               onClick={() => onJump(i)}
               onMouseEnter={(e) => show(i, e.currentTarget)}
@@ -90,15 +109,9 @@ export function PromptRail({
               onKeyDown={(e) => {
                 // ⌥⌘↑ / ⌥⌘↓ are the transcript's own step, and pass through
                 if (e.altKey || e.metaKey || e.ctrlKey) return
-                const to =
-                  e.key === 'ArrowUp' ? i - 1
-                  : e.key === 'ArrowDown' ? i + 1
-                  : e.key === 'Home' ? 0
-                  : e.key === 'End' ? n - 1
-                  : null
-                if (to === null) return
+                const k = roveIndex(e.key, { at: i, count: n }, RAIL_KEYS)
+                if (k === null) return
                 e.preventDefault()
-                const k = Math.max(0, Math.min(n - 1, to))
                 if (k === i) return
                 focusMark(k)
                 onJump(k)
@@ -123,4 +136,4 @@ export function PromptRail({
       )}
     </nav>
   )
-}
+})

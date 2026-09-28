@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
 
 /** GUI apps on macOS get a minimal PATH; make sure common CLI install dirs are present. */
@@ -102,7 +102,10 @@ async function readLoginShellPath(): Promise<string | null> {
     cwd: homedir(),
     timeoutMs: LOGIN_SHELL_TIMEOUT_MS,
     // a startup file can skip its slow parts for this
-    env: { COCKPIT_RESOLVING_ENVIRONMENT: '1' }
+    env: { COCKPIT_RESOLVING_ENVIRONMENT: '1' },
+    // an interactive shell takes over the terminal it can reach for its job control — the
+    // one `npm run dev` runs in. In a session of its own it has none to take
+    detached: true
   })
   // a startup file that ends in a failing command has still printed the PATH before that
   const path = loginPathFrom(r.stdout)
@@ -148,6 +151,12 @@ export type ExecOptions = {
   readonly maxBuffer?: number
   /** Extra variables layered over cliEnv() (config homes, BYOK endpoints) */
   readonly env?: NodeJS.ProcessEnv
+  /**
+   * Run in a session of its own, with no controlling terminal — and as a process group
+   * of its own, which the timeout signals whole. For an interactive shell, which would
+   * otherwise take over the terminal Cockpit was started from.
+   */
+  readonly detached?: boolean
 }
 
 /**
@@ -155,6 +164,14 @@ export type ExecOptions = {
  * failure means (throw, fall back to empty, log and continue), which is why the
  * result is a value rather than an exception. Always spawns with cliEnv(), since
  * every CLI Cockpit shells out to is user-installed and off the GUI PATH.
+ *
+ * Nothing is ever written to its stdin, so it reads end-of-file at once. Left an open
+ * pipe, a CLI that reads it — a startup file's prompt, a `read` — waited out the whole
+ * timeout, and an interactive shell ignores the SIGTERM that ends it.
+ *
+ * Spawned rather than `execFile`d, which ignores `detached`; otherwise what execFile did:
+ * each stream kept up to `maxBuffer`, past which the run is stopped, and the same words
+ * for a failure (`Command failed: …`, `spawn … ENOENT`).
  */
 export function execText(
   cmd: string,
@@ -162,43 +179,89 @@ export function execText(
   options: ExecOptions = {}
 ): Promise<ExecResult> {
   const timeoutMs = options.timeoutMs ?? 15_000
+  const maxBuffer = options.maxBuffer ?? 4 * 1024 * 1024
   return new Promise((resolve) => {
     let settled = false
+    let deadline: NodeJS.Timeout | undefined
+    let timer: NodeJS.Timeout | undefined
     const settle = (result: ExecResult): void => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       clearTimeout(deadline)
       resolve(result)
     }
-    const child = execFile(
-      cmd,
-      [...args],
-      {
+    let child: ChildProcess
+    try {
+      child = spawn(cmd, [...args], {
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         env: options.env === undefined ? cliEnv() : { ...cliEnv(), ...options.env },
-        timeout: timeoutMs,
-        maxBuffer: options.maxBuffer ?? 4 * 1024 * 1024
-      },
-      (err, stdout, stderr) => {
-        settle({
-          ok: !err,
-          stdout: stdout ?? '',
-          stderr: stderr ?? '',
-          error: err ? (err.message ?? String(err)) : null,
-          ...(err?.killed ? { cutShort: true as const } : {})
-        })
-      }
-    )
-    // execFile's timeout sends SIGTERM and then waits for the child to close: one that
-    // traps the signal — or sits in the kernel on a dead network mount — held its
-    // caller, and every await behind it, for as long as it liked. SIGTERM first still
-    // lets git drop its index.lock; past the grace, the answer is a timeout.
-    const deadline = setTimeout(() => {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: options.detached === true
+      })
+    } catch (err) {
+      settle({ ok: false, stdout: '', stderr: '', error: err instanceof Error ? err.message : String(err) })
+      return
+    }
+    /** Stopped by us — the timeout, or output past maxBuffer — so what it said is partial */
+    let stopped = false
+    let overflow: string | null = null
+    const signal = (sig: NodeJS.Signals): void => {
       try {
-        child.kill('SIGKILL')
+        // a detached run leads a process group of its own, and what it started goes with it
+        if (options.detached === true && child.pid !== undefined) process.kill(-child.pid, sig)
+        else child.kill(sig)
       } catch {
         /* already gone */
       }
+    }
+    const stop = (): void => {
+      stopped = true
+      signal('SIGTERM')
+    }
+    const keep = (stream: NodeJS.ReadableStream, name: string): Buffer[] => {
+      const chunks: Buffer[] = []
+      let size = 0
+      stream.on('data', (chunk: Buffer) => {
+        if (overflow !== null) return
+        const room = maxBuffer - size
+        chunks.push(chunk.length > room ? chunk.subarray(0, room) : chunk)
+        size += Math.min(chunk.length, room)
+        if (chunk.length > room) {
+          overflow = `${name} maxBuffer length exceeded`
+          stop()
+        }
+      })
+      return chunks
+    }
+    const out = keep(child.stdout!, 'stdout')
+    const err = keep(child.stderr!, 'stderr')
+    const text = (chunks: Buffer[]): string => Buffer.concat(chunks).toString('utf8')
+    child.on('error', (e) => {
+      settle({ ok: false, stdout: text(out), stderr: text(err), error: e.message })
+    })
+    child.on('close', (code, sig) => {
+      const stdout = text(out)
+      const stderr = text(err)
+      if (overflow === null && code === 0 && sig === null) {
+        settle({ ok: true, stdout, stderr, error: null })
+        return
+      }
+      settle({
+        ok: false,
+        stdout,
+        stderr,
+        error: overflow ?? `Command failed: ${[cmd, ...args].join(' ')}\n${stderr}`,
+        ...(stopped ? { cutShort: true as const } : {})
+      })
+    })
+    // SIGTERM at the timeout lets git drop its index.lock. Past a grace the answer is a
+    // timeout whether or not the child has gone: one that traps the signal — or sits in
+    // the kernel on a dead network mount — held its caller, and every await behind it,
+    // for as long as it liked.
+    timer = setTimeout(stop, timeoutMs)
+    deadline = setTimeout(() => {
+      signal('SIGKILL')
       settle({
         ok: false,
         stdout: '',

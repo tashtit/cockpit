@@ -1,6 +1,6 @@
 import { basename, dirname, join, sep } from 'node:path'
 import { existsSync, readdirSync } from 'node:fs'
-import { DatabaseSync } from 'node:sqlite'
+import { queryAll } from './sqlite'
 import type { SessionMeta, SessionMessage } from '../../shared/types'
 import { planArtifact, sharedArtifact, todoTableArtifact, toolArtifact } from './artifacts'
 import { checkOutcome, exitCodeIn } from './checks'
@@ -382,18 +382,8 @@ function changesTodos(toolName: string, args: unknown): boolean {
  * query, never an empty list that would read as "cleared".
  */
 function todoTable(sessionDir: string): unknown[] | null {
-  const file = join(sessionDir, TODO_DB)
-  // sqlite's own open would block on a FIFO there, as a plain read did
-  if (!isRegularFile(file)) return null
-  let db: DatabaseSync | null = null
-  try {
-    db = new DatabaseSync(file, { readOnly: true })
-    return db.prepare(`SELECT title, status FROM todos ORDER BY rowid LIMIT ${TODO_ROWS}`).all()
-  } catch {
-    return null
-  } finally {
-    db?.close()
-  }
+  // read-only, regular files only (sqlite's own open would block on a FIFO), closed after
+  return queryAll(join(sessionDir, TODO_DB), `SELECT title, status FROM todos ORDER BY rowid LIMIT ${TODO_ROWS}`)
 }
 
 /**

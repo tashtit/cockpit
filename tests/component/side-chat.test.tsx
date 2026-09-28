@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { App } from '../../src/renderer/src/App'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import type { ChatBinding } from '../../src/renderer/src/chat-binding'
 import { setChatLog } from '../../src/renderer/src/chat-log'
 import { initSideChat, resetSideChat } from '../../src/renderer/src/side-chat-log'
-import type { ChatEvent, SessionMessage } from '../../src/shared/types'
+import type { ChatEvent, SessionMessage, SessionMeta } from '../../src/shared/types'
 
 const binding: ChatBinding = {
   provider: 'claude',
@@ -99,9 +100,13 @@ describe('side chat', () => {
     expect(within(panel).getByText('Claude is looking: Read src/login.ts')).toBeInTheDocument()
     act(() => {
       emitSide({ turnId: 'side-turn-1', type: 'text', text: 'Two retries still flaked under load.' })
+    })
+    // a reply still coming wears no mark of its own: the line under it says it is live
+    expect(await within(panel).findByText('Two retries still flaked under load.')).toBeInTheDocument()
+    expect(panel.querySelector('.msg-assistant')).not.toHaveClass('streaming')
+    act(() => {
       emitSide({ turnId: 'side-turn-1', type: 'done' })
     })
-    expect(await within(panel).findByText('Two retries still flaked under load.')).toBeInTheDocument()
     expect(within(panel).getByText('1 step · Read')).toBeInTheDocument()
     // the conversation never heard of it
     const transcript = document.querySelector('.messages') as HTMLElement
@@ -206,10 +211,11 @@ describe('side chat', () => {
     await userEvent.click(sideKey())
     expect(screen.queryByRole('complementary', { name: 'Work' })).not.toBeInTheDocument()
     expect(question()).toHaveValue('half a thought')
-    // first Escape leaves the field, the second closes the panel and hands focus back
+    // first Escape leaves the field for the thread, the second closes the panel and hands
+    // focus back — two presses in a row, nothing between them
     await userEvent.keyboard('{Escape}')
-    expect(question()).not.toHaveFocus()
-    await userEvent.click(screen.getByRole('region', { name: 'Side questions and answers' }))
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Side questions and answers' }))
+    expect(screen.getByRole('complementary', { name: 'Side chat' })).toBeInTheDocument()
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('complementary', { name: 'Side chat' })).not.toBeInTheDocument()
     expect(sideKey()).toHaveFocus()
@@ -218,5 +224,57 @@ describe('side chat', () => {
     expect(question()).toHaveValue('half a thought')
     await userEvent.keyboard('{Meta>}l{/Meta}')
     expect(screen.queryByRole('complementary', { name: 'Side chat' })).not.toBeInTheDocument()
+  })
+
+  it('follows the id a resumed turn mints: the thread, the draft and the answer in flight stay', async () => {
+    const meta: SessionMeta = {
+      id: 'claude:sid-1',
+      provider: 'claude',
+      nativeId: 'sid-1',
+      source: 'claude-default',
+      title: 'Fix the login flake',
+      cwd: '/tmp/wt',
+      logBranch: 'cockpit/login-flake',
+      startedAt: 1700000000000,
+      updatedAt: 1700000600000,
+      messageCount: 2,
+      sourcePath: '/Users/me/.claude/projects/p/sid-1.jsonl'
+    }
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [meta] })
+    let emitChat: (ev: ChatEvent) => void = () => {}
+    vi.mocked(window.cockpit.onChatEvent).mockImplementation((cb) => {
+      emitChat = cb
+      return () => {}
+    })
+    render(<App />)
+    const board = await screen.findByRole('region', { name: 'Session board' })
+    await userEvent.click(await within(board).findByRole('button', { name: /Fix the login flake/ }))
+    await userEvent.click(sideKey())
+    await ask('why retries = 3?')
+    await userEvent.type(question(), 'and the timeout')
+
+    // a message in the chat's own composer resumes claude, which forks a new session id
+    await userEvent.type(screen.getByRole('textbox', { name: 'Message Claude' }), 'go on{Enter}')
+    await waitFor(() => expect(window.cockpit.sendChat).toHaveBeenCalledTimes(1))
+    act(() => emitChat({ turnId: 'turn-1', type: 'session', nativeSessionId: 'sid-2' }))
+
+    const panel = screen.getByRole('complementary', { name: 'Side chat' })
+    expect(within(panel).getByText('why retries = 3?')).toBeInTheDocument()
+    expect(within(panel).getByText('Claude is answering…')).toBeInTheDocument()
+    expect(question()).toHaveValue('and the timeout')
+    // still one question at a time: the one in flight is the one being answered
+    expect(within(panel).getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+    act(() => {
+      emitSide({ turnId: 'side-turn-1', type: 'text', text: 'Two retries still flaked under load.' })
+      emitSide({ turnId: 'side-turn-1', type: 'done' })
+    })
+    expect(await within(panel).findByText('Two retries still flaked under load.')).toBeInTheDocument()
+    // and the next question asks a copy of the conversation as it is now
+    await userEvent.clear(question())
+    await ask('and now?')
+    expect(vi.mocked(window.cockpit.askSideChat).mock.calls[1][0]).toMatchObject({
+      nativeSessionId: 'sid-2',
+      history: [{ question: 'why retries = 3?', answer: 'Two retries still flaked under load.' }]
+    })
   })
 })

@@ -9,8 +9,8 @@ the sidebar remains the exhaustive, paginated session list. ⌘K toggles it from
 the same data path as everything else (`pageSessions`, never a shipped index).
 
 It has a second mode, **transcripts**: the same input searching *inside* the
-conversations, across all three agents at once — "where did I discuss X" is the one
-question no vendor can answer for the other two. On demand (`searchTranscripts`,
+conversations, across every agent Cockpit reads at once — "where did I discuss X" is the
+one question no vendor can answer for the others. On demand (`searchTranscripts`,
 `main/transcript-search.ts`), never from a shipped index; hits are capped, and the line
 under them says how much was read and why a search stopped early.
 
@@ -46,8 +46,9 @@ under them says how much was read and why a search stopped early.
   agent's logo, and the palette adds no decoration of its own.
 - **With a query:** `sessions` (server search, capped at 6; overflow states the count —
   "N more — keep typing to narrow") · `start a session in` (name-matched repos with a
-  root, max 4) · `go to` (views matched on label *or* keywords — "skills" and "mcp"
-  find Agents; keep keywords current when tabs change).
+  root, max 4) · `agent setup for` (the same repos, each opening its agent setup — the one
+  way to it besides its sidebar row) · `go to` (views matched on label *or* keywords —
+  "skills" and "mcp" find Agents; keep keywords current when tabs change).
 - **The door into transcripts:** every query also lists `in transcripts` → one row,
   `search transcripts for “q”` (`SearchIcon`, scope name as the `.palette-hint`), directly
   under the session hits so it is one ArrowDown from the name matches and the top row
@@ -58,7 +59,11 @@ under them says how much was read and why a search stopped early.
   chat's repo, the new-session repo, a repo's agent setup) and is named in the group
   head, the placeholder and the door row; the scope row (`RepoIcon`, `all repos` /
   `only owner/repo`, hint `search scope`) widens or narrows it without leaving the mode.
-  No repo on screen = global, no scope row. Below the rows, `TranscriptStatus` is the one
+  No repo on screen = global, no scope row. Agents the tree hides (`agent-filter.ts`, see
+  `pages/sidebar.md`) are left out of the search too, and the scope's name says so
+  (`all repos, not Gemini`); an agents row (`ChatIcon`, `every agent` / `without Gemini`,
+  hint `search scope`) widens or narrows it the same way, and exists only while an agent
+  is hidden. Below the rows, `TranscriptStatus` is the one
   `.tree-empty` line: the hint before a query (what is searched, that tool output stays
   out), `searching transcripts…` while the first scan runs, then `N hits in M sessions ·
   searched X of Y transcripts` with, when true, `stopped at the hit cap`, `ran out of
@@ -102,8 +107,8 @@ chat finds the row by its words (see `pages/chat.md`), rings it and says so. Row
   chip is deliberately not a stop). Backspace on an empty query in transcripts mode
   returns to jump. App ignores its other global shortcuts while the palette is open;
   ⌘K toggles.
-- Enter on the door row or the scope row re-shapes the palette and keeps it open; focus
-  never leaves the input. Every other row closes it.
+- Enter on the door row, the scope row or the agents row re-shapes the palette and keeps it
+  open; focus never leaves the input. Every other row closes it.
 - Mouse: hover sets active; mousedown picks (focus stays in the input until close).
 - One polite `sr-only` status line announces the result count when a query settles.
 - New results reset the cursor to the top hit; the active row scrolls into view

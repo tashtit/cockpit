@@ -12,7 +12,7 @@ import {
   registryVersionUrl,
   runsSame,
   type RegistryEntry
-} from '../src/shared/mcp-registry'
+} from '../src/main/mcp-registry-core'
 import { addFromRegistry, describeForHere, searchRegistry } from '../src/main/mcp-registry'
 
 /*
@@ -139,6 +139,79 @@ describe('what an entry would run as here', () => {
     ])
   })
 
+  // an optional argument has no field to fill it in, so its default would be passed
+  // unseen; a required one's default is the value it can't start without
+  it('passes a default only where the argument is required', () => {
+    const plan = registryPlan(
+      entryOf({
+        name: 'io.github.b/b-mcp',
+        version: '1.0.0',
+        packages: [
+          {
+            registryType: 'npm',
+            identifier: 'b-mcp',
+            version: '0.5.3',
+            packageArguments: [
+              { type: 'positional', default: '/', valueHint: 'root' },
+              { type: 'named', name: '--allow-write', default: 'true' },
+              { type: 'named', name: '--port', default: '8080', isRequired: true }
+            ]
+          }
+        ]
+      })
+    )
+    expect(plan).toMatchObject({ release: '0.5.3', base: { args: ['-y', 'b-mcp@0.5.3', '--port', '8080'] } })
+  })
+
+  // the row shows what the add writes, from the same plan the definition is built on
+  it('says what it would launch, pinned to which release, with the env its publisher fixes', () => {
+    const b = entryOf({
+      name: 'io.github.b/b-mcp',
+      version: '1.0.0',
+      packages: [
+        {
+          registryType: 'npm',
+          identifier: 'b-mcp',
+          version: '0.5.3',
+          packageArguments: [
+            { type: 'positional', value: '/' },
+            { type: 'named', name: '--allow-write', value: 'true' },
+            { type: 'positional', value: 'two words' }
+          ],
+          environmentVariables: [
+            { name: 'B_ENDPOINT', value: 'https://collector.example/ingest' },
+            { name: 'B_KEY', value: 'k' }
+          ]
+        }
+      ]
+    })
+    const here = describeForHere(b, [], [])
+    expect(here).toMatchObject({
+      version: '1.0.0',
+      what: 'b-mcp',
+      release: '0.5.3',
+      commandLine: "npx -y b-mcp@0.5.3 / --allow-write true 'two words'",
+      fixedEnv: { B_ENDPOINT: 'https://collector.example/ingest', B_KEY: 'k' }
+    })
+    const written = registryConfig(b, {})
+    expect([written.command, ...(written.args ?? [])]).toEqual([
+      'npx',
+      '-y',
+      'b-mcp@0.5.3',
+      '/',
+      '--allow-write',
+      'true',
+      'two words'
+    ])
+    expect(written.env).toEqual(here.fixedEnv)
+    // one already here is added with its own definition, so the plan's is not shown
+    const same = describeForHere(b, [], [
+      { name: 'b', config: { command: 'npx', args: ['-y', 'b-mcp@0.4.0'] }, agents: ['claude'], presences: [] }
+    ])
+    expect(same.commandLine).toBeUndefined()
+    expect(same.fixedEnv).toBeUndefined()
+  })
+
   it('runs a PyPI package through uvx, pinned', () => {
     const plan = registryPlan(
       entryOf({
@@ -241,6 +314,14 @@ describe('what it refuses, and says why', () => {
     expect(remote({ type: 'streamable-http', url: 'https://{tenant}.acme.dev/mcp' })).toContain('https')
   })
 
+  // what reads as github.com before the @ is a user name; the host is evil.example
+  it('a remote whose address names a user before its host', () => {
+    const remote = (url: string): string =>
+      refusalOf({ name: 'com.acme/r', version: '1.0.0', remotes: [{ type: 'streamable-http', url }] })
+    expect(remote('https://github.com@evil.example/mcp')).toContain('user name before the host')
+    expect(remote('https://user:pass@mcp.acme.dev/mcp')).toContain('user name before the host')
+  })
+
   it('an entry that lists no way to run it at all', () => {
     expect(refusalOf({ name: 'com.acme/empty', version: '1.0.0' })).toContain('no way to run it')
   })
@@ -330,6 +411,9 @@ describe('searching the registry and adding a server', () => {
   const realUserData = process.env.COCKPIT_USER_DATA
   const roots: string[] = []
   const asked: string[] = []
+  const stream = { name: 'com.acme/stream', version: '2.0.0', remotes: [{ type: 'sse', url: 'https://mcp.acme.dev/sse' }] }
+  /** What the registry holds for one exact version, by its url — a test may change it after a search */
+  let versions: Record<string, unknown> = {}
 
   beforeEach(() => {
     const root = mkdtempSync(join(tmpdir(), 'cockpit-registry-'))
@@ -342,16 +426,17 @@ describe('searching the registry and adding a server', () => {
     process.env.COCKPIT_USER_DATA = userData
     writeFileSync(join(userData, 'cockpit-config.json'), JSON.stringify({ sources: [] }))
     asked.length = 0
-    const page = {
-      servers: [
-        served(npmServer),
-        served({ name: 'com.acme/stream', version: '2.0.0', remotes: [{ type: 'sse', url: 'https://mcp.acme.dev/sse' }] })
-      ],
-      metadata: { count: 2 }
+    const page = { servers: [served(npmServer), served(stream)], metadata: { count: 2 } }
+    versions = {
+      [registryVersionUrl(npmServer.name, npmServer.version)]: served(npmServer),
+      [registryVersionUrl(stream.name, stream.version)]: served(stream)
     }
     vi.stubGlobal('fetch', async (url: string) => {
       asked.push(url)
-      return new Response(JSON.stringify(page), { status: 200, headers: { 'content-type': 'application/json' } })
+      // a version the registry never had is a 404, as the registry answers it
+      if (url.includes('/versions/') && !(url in versions)) return new Response('not found', { status: 404 })
+      const body = url in versions ? versions[url] : page
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
     })
   })
 
@@ -415,6 +500,30 @@ describe('searching the registry and adding a server', () => {
 
   // a version no search here has shown: main asks for exactly that one, and refuses
   // when what comes back is not it
+  // a search page kept for the session is no licence to install: the registry marks a
+  // version deleted or deprecated after it was shown
+  it('reads the version afresh on every add, and refuses one the registry has since withdrawn', async () => {
+    await searchRegistry('acme')
+    versions[registryVersionUrl(npmServer.name, npmServer.version)] = served(npmServer, 'deprecated')
+    await expect(
+      addFromRegistry({ id: npmServer.name, version: npmServer.version, agent: 'claude', values: { ACME_TOKEN: 'sk-1' } })
+    ).rejects.toThrow(/no longer offers io.github.acme\/search-mcp 1.4.0/)
+    expect(asked.at(-1)).toBe(registryVersionUrl(npmServer.name, npmServer.version))
+    expect(() => readFileSync(join(home, '.claude.json'))).toThrow()
+  })
+
+  it('refuses an entry that would now write something other than what its row showed', async () => {
+    await searchRegistry('acme')
+    const pkg = npmServer.packages[0]
+    versions[registryVersionUrl(npmServer.name, npmServer.version)] = served({
+      ...npmServer,
+      packages: [{ ...pkg, packageArguments: [...pkg.packageArguments, { type: 'positional', value: '--unsafe' }] }]
+    })
+    await expect(
+      addFromRegistry({ id: npmServer.name, version: npmServer.version, agent: 'claude', values: { ACME_TOKEN: 'sk-1' } })
+    ).rejects.toThrow(/changed in the MCP Registry since it was shown/)
+  })
+
   it('reads the exact version from the registry when no search here showed it', async () => {
     await expect(
       addFromRegistry({ id: 'com.acme/stream', version: '1.9.0', agent: 'claude', values: {} })

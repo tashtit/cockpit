@@ -223,3 +223,20 @@ describe('App child sessions', () => {
     expect(screen.queryByRole('button', { name: /Started by/ })).not.toBeInTheDocument()
   })
 })
+
+describe('App shortcuts', () => {
+  it('ride ⌘ alone, leaving Ctrl+K, Ctrl+N and the rest to the text field', async () => {
+    render(<App />)
+    await homeHero()
+    // on a Mac Ctrl+K deletes to the end of the line and Ctrl+N moves down one: a
+    // shortcut that answered to Ctrl too took them from the composer
+    for (const key of ['k', 'n', ',', '[', 'j']) {
+      const e = new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true })
+      window.dispatchEvent(e)
+      expect(e.defaultPrevented).toBe(false)
+    }
+    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument()
+    cmd(',')
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+  })
+})

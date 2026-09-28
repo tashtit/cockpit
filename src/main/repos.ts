@@ -1,3 +1,12 @@
+/**
+ * Which repository and branch a session's cwd belongs to, read from the checkout's own
+ * git files — never by running git, since every cwd a log names is walked on every scan.
+ * A linked worktree resolves to its main repository, so all of a repo's worktrees group
+ * under one `RepoInfo`; a cwd that no longer exists (a removed worktree) resolves through
+ * its nearest existing ancestor. Answers are cached per cwd until `clearRepoCache`.
+ * A parser reports only what its log states; this is what the indexer's `annotate()`
+ * derives from the checkout on top of it.
+ */
 import { existsSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { RepoInfo } from '../shared/types'

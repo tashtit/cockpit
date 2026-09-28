@@ -14,7 +14,7 @@ import {
   setPanelSwitch,
   updatePlugin
 } from '../library'
-import { listCatalogs, lookupCatalog } from '../marketplace'
+import { isOfferedSource, listCatalogs, lookupCatalog } from '../marketplace'
 import { addFromRegistry, searchRegistry } from '../mcp-registry'
 import { forgetUpdatesDigest, pluginUpdates } from '../updates-digest'
 import { assertClaudeProjectServer, getExtensions, getMcpConfig } from '../extensions'
@@ -100,22 +100,21 @@ export function registerLibraryHandlers(s: Services): void {
    * the clones on this machine and never the network; a lookup is the one call that
    * does, and only ever from a click. `source` is renderer input on its way into a
    * URL and an agent's command line — `lookupCatalog` takes GitHub's `owner/repo`
-   * alone, and `addFromCatalog` refuses a source no agent could be pointed at.
+   * alone, and an add's source must be one listing or a lookup offered for that very
+   * marketplace (`isOfferedSource`); a plugin's source is its own id and never taken.
    */
   ipcMain.handle(CH.marketplacesList, () => listCatalogs())
   ipcMain.handle(CH.marketplacesLookup, (_e, source: unknown) => lookupCatalog(String(source ?? '')))
   ipcMain.handle(CH.marketplacesAdd, (_e, item: unknown, agent: unknown) => {
     const asked = (item ?? {}) as { kind?: unknown; name?: unknown; source?: unknown }
     if (asked.kind !== 'marketplace' && asked.kind !== 'plugin') throw new Error('unknown kind')
+    const name = String(asked.name ?? '')
+    const source = asked.kind === 'marketplace' && typeof asked.source === 'string' ? asked.source : undefined
+    if (source !== undefined && !isOfferedSource(name, source)) {
+      throw new Error(`Cockpit didn’t offer ${source.slice(0, 120)} for the ${name.slice(0, 64)} marketplace.`)
+    }
     return settled(
-      addFromCatalog(
-        {
-          kind: asked.kind,
-          name: String(asked.name ?? ''),
-          ...(typeof asked.source === 'string' ? { source: asked.source } : {})
-        },
-        asProvider(agent)
-      )
+      addFromCatalog({ kind: asked.kind, name, ...(source !== undefined ? { source } : {}) }, asProvider(agent))
     )
   })
 

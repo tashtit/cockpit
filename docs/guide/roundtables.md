@@ -75,8 +75,8 @@ On an open table, the header shows what it has spent ("12 of 80 agent turns"). C
 
 Roundtables have no permission mode. Every turn runs in the safest mode the provider offers, Codex is sandboxed read-only, and the seats are told the workspace is read-only. So a seat can back its claims, each agent gets a way to look things up, and it's told what that is:
 
-- **A Claude seat** may search the web and fetch pages without an approval nobody is there to give. It still has no shell and can't edit anything, so it looks things up instead of trying commands that would be refused.
-- **A Codex seat** runs read-only commands, and its sandbox lets them reach the network — `curl` a package registry or a domain lookup to see whether a name is taken. Nothing it runs can write a file.
+- **A Claude seat** may search the web and fetch pages without an approval nobody is there to give. It still has no shell and can't edit anything, so it looks things up instead of trying commands that would be refused. Reading files and the web are the only tools it has, whatever your own or the repo's Claude settings allow elsewhere: no MCP servers are loaded for it, and no hooks run.
+- **A Codex seat** runs read-only commands, and its sandbox lets them reach the network — `curl` a package registry or a domain lookup to see whether a name is taken. Nothing it runs can write a file, and it can't read where secrets live — your SSH, cloud and registry credentials, the agents' sign-ins and MCP configs, Cockpit's own settings, and the repository's `.env` files — so a page another seat fetched can't talk it into sending one anywhere. (That fence needs a Codex that accepts it; Cockpit checks once at launch, and an older Codex runs its seats as before.)
 - **A Copilot seat** runs in Copilot's own safe mode. Anything it stops to ask permission for — a command, an edit — is refused for that one call, since nobody is there to answer, and it carries on without it.
 
 Either way the seats only read what's there:

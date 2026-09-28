@@ -323,6 +323,36 @@ describe('HomeView recent activity', () => {
   })
 })
 
+describe('HomeView board columns', () => {
+  it('sizes the placard column to the longest agent name, so none is cut', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: 'antigravity:ag1',
+          provider: 'antigravity',
+          nativeId: 'ag1',
+          source: '/home/dev/.gemini/antigravity',
+          title: 'Add a getting-started video',
+          cwd: repo.root,
+          logBranch: 'main',
+          startedAt: 1700000000000,
+          updatedAt: 1700000100000,
+          messageCount: 3,
+          sourcePath: '/home/dev/.gemini/antigravity/ag1.pb',
+          repo: { key: repo.key, name: repo.name, fullName: repo.fullName, root: repo.root }
+        }
+      ]
+    })
+    renderHome()
+    const row = await screen.findByRole('button', { name: /Add a getting-started video/ })
+    const board = screen.getByRole('region', { name: 'Session board' })
+    // ANTIGRAVITY is eleven placard characters; the column was 68px, which held nine
+    expect(board.style.getPropertyValue('--board-lead-ch')).toBe(String('Antigravity'.length))
+    expect(row.querySelector('.board-lead')).toHaveTextContent('Antigravity')
+  })
+})
+
 describe('HomeView and who drives each session', () => {
   const base = (id: string, title: string, over: Partial<SessionMeta>): SessionMeta => ({
     id: `claude:${id}`,

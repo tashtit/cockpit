@@ -11,6 +11,9 @@ import { execText } from './env'
  * apart all the same (`ProviderHidden`): the tree hides both, but an archived session
  * is finished work the profile still counts, while a deleted one was thrown away.
  *
+ * This covers the three agents Cockpit drives. An agent it only reads states its own
+ * archive in the store its parser reads (opencode's `time_archived`), or keeps none.
+ *
  * Where each provider keeps that state:
  * - copilot: data.db is the app's source of truth, and the transcript under
  *   session-state/ is left untouched either way, so the state has to be read from the db.

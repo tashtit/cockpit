@@ -38,7 +38,7 @@ attribution, never a parallel message grammar.
 ## Transcript
 
 - Row vocabulary is ChatView's: user → `.bubble-user`; agent → avatar + `.rt-speaker` +
-  `.markdown` body via `MarkdownBody` (one markdown pipeline, exported from ChatView);
+  `.markdown` body via `Markdown` (`Markdown.tsx`, the one markdown pipeline the chat uses too);
   failed turns → `.sys-row` annotations ("<Agent> turn failed: …"), never bubbles; live
   tool calls → the shared `Message` tool rows, transient (cleared when the entry lands).
 - Streaming renders plain text (`.streaming-plain`) like chat — markdownify on entry.

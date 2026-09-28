@@ -11,11 +11,14 @@ import {
   parseCodexStreamLine,
   promptWithImages,
   withTurnFlags,
+  CLAUDE_NO_HOOKS,
+  CLAUDE_SEAT_TOOLS,
   CLAUDE_SIDE_TOOLS,
   CODEX_REVIEWED_ARGS,
   CODEX_SIDE_ARGS,
   type CliRequest
 } from '../src/main/chat'
+import { codexSeatArgs } from '../src/main/seat-fence'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
 import type { AcpAgent, BusySession, ChatEvent, ChatRequest } from '../src/shared/types'
 
@@ -66,11 +69,22 @@ describe('buildCommand', () => {
       buildCommand({ provider: 'claude', cwd: '/x', prompt: 'hi', permissionMode, ...(research ? { research } : {}) }).args
     const safe = seat('safe')
     expect(safe[safe.indexOf('--allowedTools') + 1]).toBe('WebSearch,WebFetch')
+    // the tools themselves, not just an allowance: the person's or the repo's default mode
+    // and allow rules otherwise reached a seat told it has no shell
+    expect(safe[safe.indexOf('--tools') + 1]).toBe(CLAUDE_SEAT_TOOLS.join(','))
+    expect(CLAUDE_SEAT_TOOLS).toEqual(['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'])
+    // and no hooks, which run whatever they say — a SessionStart one that syncs the checkout
+    expect(safe.slice(safe.indexOf('--settings'), safe.indexOf('--settings') + 2)).toEqual([...CLAUDE_NO_HOOKS])
+    // nor an MCP server's tools, which --tools does not name
+    expect(safe).toContain('--strict-mcp-config')
     expect(safe.join(' ')).not.toMatch(/Bash|Edit|Write/)
     // only a seat, and only in safe mode: the other modes already say what they allow
-    expect(seat('safe', false)).not.toContain('--allowedTools')
-    expect(seat('auto-edit')).not.toContain('--allowedTools')
-    expect(seat('yolo')).not.toContain('--allowedTools')
+    for (const other of [seat('safe', false), seat('auto-edit'), seat('yolo')]) {
+      expect(other).not.toContain('--allowedTools')
+      expect(other).not.toContain('--tools')
+      expect(other).not.toContain('--settings')
+      expect(other).not.toContain('--strict-mcp-config')
+    }
     // the flag is Claude's alone
     const codex = buildCommand({ provider: 'codex', cwd: '/x', prompt: 'hi', permissionMode: 'safe', research: true }).args
     expect(codex).not.toContain('--allowedTools')
@@ -253,6 +267,10 @@ describe('side chat: a copy of the session, never the session', () => {
     expect(args[args.indexOf('--tools') + 1]).toBe(CLAUDE_SIDE_TOOLS.join(','))
     expect(CLAUDE_SIDE_TOOLS).toEqual(['Read', 'Grep', 'Glob'])
     expect(args).toContain('--strict-mcp-config')
+    // nor a hook: `claude -p` fires SessionStart, and a hook that syncs the checkout moved
+    // the session's worktree for a question that may only read
+    expect(args.slice(args.indexOf('--settings'), args.indexOf('--settings') + 2)).toEqual([...CLAUDE_NO_HOOKS])
+    expect(JSON.parse(CLAUDE_NO_HOOKS[1])).toEqual({ disableAllHooks: true })
     expect(args.join(' ')).not.toMatch(/permission-mode|dangerously|allowedTools/)
     expect(args.slice(-2)).toEqual(['--', 'why?'])
     // a plain resume is the session itself, and is kept
@@ -260,6 +278,7 @@ describe('side chat: a copy of the session, never the session', () => {
     expect(plain).not.toContain('--fork-session')
     expect(plain).not.toContain('--no-session-persistence')
     expect(plain).not.toContain('--tools')
+    expect(plain).not.toContain('--settings')
   })
 
   it('codex forks ephemerally — never `exec resume`, which appends the turn to the rollout', () => {
@@ -270,6 +289,11 @@ describe('side chat: a copy of the session, never the session', () => {
     expect(args.slice(-2 - CODEX_SIDE_ARGS.length, -2)).toEqual([...CODEX_SIDE_ARGS])
     expect(CODEX_SIDE_ARGS).toContain('sandbox_mode="read-only"')
     expect(CODEX_SIDE_ARGS).toContain('approval_policy="never"')
+    // a profile beats sandbox_mode, so the person's own default_permissions would win it:
+    // the copy names Codex's built-in read-only profile, the one a seat's profile extends
+    expect(CODEX_SIDE_ARGS).toContain('default_permissions=":read-only"')
+    expect(codexSeatArgs().join(' ')).toContain('extends = ":read-only"')
+    expect(args.filter((a) => a.startsWith('default_permissions='))).toEqual(['default_permissions=":read-only"'])
     expect(args).toContain('--skip-git-repo-check')
     expect(args).not.toContain('--sandbox')
     expect(args[args.indexOf('--model') + 1]).toBe('gpt-5')
@@ -672,12 +696,24 @@ describe('ChatManager: one turn per session', () => {
 
     chat.respondPermission(turnId, ask.requestId, 'allow_once')
     // once the turn says done there is nothing to rejoin and nothing for a follow-up to
-    // wait on, though its process may take a moment more to exit
-    expect(await atDone).toEqual({
-      busy: [{ id: 'copilot:sess-7', startedAt: expect.any(Number), source: 'spawned', turnId: null }],
-      running: null
-    })
+    // wait on, and an ACP turn is off the busy board, though its process may take a
+    // moment more to exit (chat-acp.test.ts)
+    expect(await atDone).toEqual({ busy: [], running: null })
     expect(() => chat.assertNotRunning(resume('sess-7'))).not.toThrow()
+    await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
+  })
+
+  it('keeps the question the turn is blocked on for a window that comes back, until it is answered', async () => {
+    // a window that reloads while the card is up has lost it; the stream said it once
+    const { chat, turnId, ask, atDone } = await midTurn('sess-11')
+    expect(chat.pendingPermissions(turnId)).toEqual([ask])
+    expect(chat.pendingPermissions('no-such-turn')).toEqual([])
+    // a click naming an option the card never offered answers nothing
+    chat.respondPermission(turnId, ask.requestId, 'allow_always')
+    expect(chat.pendingPermissions(turnId)).toEqual([ask])
+    chat.respondPermission(turnId, ask.requestId, 'allow_once')
+    expect(chat.pendingPermissions(turnId)).toEqual([])
+    await atDone
     await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
   })
 
@@ -853,16 +889,22 @@ describe('ChatManager: Claude asks Cockpit before what its mode does not allow',
     process.env.PATH = `${bin}:${path}`
     try {
       const events: ChatEvent[] = []
+      // what main would hand a window rejoining the turn, as each question is shown and answered
+      const pending: string[][] = []
       let finish: () => void = () => {}
       const finished = new Promise<void>((r) => (finish = r))
       const chat: ChatManager = new ChatManager(
         (ev) => {
           events.push(ev)
           if (ev.type === 'permission') {
+            const open = (): string[] => chat.pendingPermissions(ev.turnId).map((a) => a.requestId)
+            pending.push(open())
             // a click on an option the card never had, and on a request it is not waiting on, do nothing
             chat.respondPermission(ev.turnId, ev.requestId, 'allow_always')
             chat.respondPermission(ev.turnId, 'p-404', 'allow')
+            pending.push(open())
             chat.respondPermission(ev.turnId, ev.requestId, ev.requestId === 'p-1' ? 'allow' : 'deny')
+            pending.push(open())
           }
           if (ev.type === 'done') finish()
         },
@@ -889,10 +931,72 @@ describe('ChatManager: Claude asks Cockpit before what its mode does not allow',
         ['p-2', 'deny']
       ])
       expect(got[3].response.response.updatedInput).toEqual({ command: 'npm test', description: 'Run the tests' })
+      expect(pending).toEqual([['p-1'], ['p-1'], [], ['p-2'], ['p-2'], []])
       expect(events.filter((e) => e.type === 'error')).toEqual([])
       // stdin closed after the result, so the CLI exited and nothing is left running
       await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
       expect(chat.runningTurns()).toBe(0)
+    } finally {
+      process.env.PATH = path
+    }
+  })
+})
+
+describe('ChatManager: a question Claude withdraws', () => {
+  // a stub `claude` that asks, then aborts the call itself before anyone answers — as the
+  // CLI does when the tool call is cancelled — and ends the turn a moment later
+  const bin = mkdtempSync(join(tmpdir(), 'cockpit-chat-withdraw-'))
+  writeFileSync(
+    join(bin, 'stub.mjs'),
+    [
+      `import { createInterface } from 'node:readline'`,
+      `const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n')`,
+      `const got = []`,
+      `createInterface({ input: process.stdin }).on('line', (line) => {`,
+      `  got.push(JSON.parse(line))`,
+      `  if (got.length > 1) return`,
+      `  out({ type: 'system', subtype: 'init', session_id: 'stub-withdraw' })`,
+      `  out({ type: 'control_request', request_id: 'p-1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'rm -rf build' } } })`,
+      `  setTimeout(() => out({ type: 'control_cancel_request', request_id: 'p-1' }), 50)`,
+      `  setTimeout(() => {`,
+      `    out({ type: 'assistant', message: { content: [{ type: 'text', text: JSON.stringify({ got }) }] } })`,
+      `    out({ type: 'result', session_id: 'stub-withdraw' })`,
+      `  }, 300)`,
+      `}).on('close', () => process.exit(0))`
+    ].join('\n')
+  )
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}" "$@"\n`)
+  chmodSync(join(bin, 'claude'), 0o755)
+
+  it('takes the card down, and an answer clicked after it writes nothing', async () => {
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const events: ChatEvent[] = []
+      let pendingAfter: string[] | null = null
+      let finish: () => void = () => {}
+      const finished = new Promise<void>((r) => (finish = r))
+      const chat: ChatManager = new ChatManager(
+        (ev) => {
+          events.push(ev)
+          if (ev.type === 'permission-withdrawn') {
+            pendingAfter = chat.pendingPermissions(ev.turnId).map((a) => a.requestId)
+            // the click that raced the withdrawal: nothing is left for it to answer
+            chat.respondPermission(ev.turnId, ev.requestId, 'allow')
+          }
+          if (ev.type === 'done') finish()
+        },
+        { asksPermissions: () => true }
+      )
+      chat.send({ provider: 'claude', cwd: tmpdir(), prompt: 'clean up', permissionMode: 'auto-edit' })
+      await finished
+      expect(events.map((e) => e.type)).toEqual(['session', 'permission', 'permission-withdrawn', 'text', 'session', 'done'])
+      expect(events[2]).toMatchObject({ type: 'permission-withdrawn', requestId: 'p-1' })
+      expect(pendingAfter).toEqual([])
+      // only the prompt ever reached the CLI: no answer to a call it had already dropped
+      const report = events.find((e): e is Extract<ChatEvent, { type: 'text' }> => e.type === 'text')
+      expect(JSON.parse(report?.text ?? '{}').got).toHaveLength(1)
+      await vi.waitFor(() => expect(chat.runningTurns()).toBe(0))
     } finally {
       process.env.PATH = path
     }

@@ -1,13 +1,14 @@
-import type { AcpPermissionOption, ChatEvent, PermissionMode } from '../shared/types'
-import { ACP_PROTOCOL_VERSION } from '../shared/acp'
+import type { AcpAgent, AcpAgentProbe, AcpPermissionOption, ChatEvent, PermissionMode } from '../shared/types'
+import { ACP_PROTOCOL_VERSION, BUILTIN_ACP_AGENTS } from '../shared/acp'
 import { capText, jsonText, shellPreview, truncate } from './parsers/util'
 import { acpDiffArtifact, acpPlanArtifact } from './parsers/artifacts'
 import { shellWord } from './shell-quote'
 
 /**
  * The IO-free half of the ACP client: everything that turns protocol JSON into Cockpit's
- * own vocabulary, and everything that decides what to answer. `acp.ts` owns the process
- * and the socket; this file is what the unit tests drive.
+ * own vocabulary, everything that decides what to answer, and which built-ins answer at
+ * all (`BuiltinReadiness`, handed its probe). `acp.ts` owns the process and the socket;
+ * this file is what the unit tests drive.
  */
 
 /**
@@ -268,4 +269,70 @@ export function modeIdFor(
   if (mode !== 'yolo') return null
   const autopilot = availableModes.find((m) => m.id.endsWith('#autopilot'))
   return autopilot?.id ?? null
+}
+
+/** How often asking may re-probe the built-ins not answering yet — every start form asks */
+export const REPROBE_EVERY_MS = 60_000
+
+type BuiltinReadinessDeps = {
+  /** The handshake against one built-in (`probeAcpAgent`, once the login shell's PATH is read) */
+  readonly probe: (agent: AcpAgent) => Promise<AcpAgentProbe>
+  /** A built-in started or stopped answering */
+  readonly onChange: () => void
+  readonly now?: () => number
+}
+
+/**
+ * Which built-in ACP agents this machine's CLIs answer for. The handshake is the only
+ * honest test — a `--acp` flag in `--help` says the flag parses, not that the protocol
+ * answers — and costs one process launch per agent, creating no session.
+ *
+ * `missing` probes the built-ins not answering yet, at most once a minute: at launch, and
+ * whenever a form that picks an agent opens, so a CLI installed while Cockpit runs is
+ * found without a restart. `all` probes every one now (Settings' Check again), so a CLI
+ * removed or broken since stops being used: a probe that fails clears what an earlier one
+ * found. One agent is never probed twice at once.
+ */
+export class BuiltinReadiness {
+  private readonly answered = new Set<string>()
+  private readonly probing = new Set<string>()
+  private probedAt = Number.NEGATIVE_INFINITY
+
+  constructor(
+    private readonly deps: BuiltinReadinessDeps,
+    private readonly builtins: readonly AcpAgent[] = BUILTIN_ACP_AGENTS
+  ) {}
+
+  isReady(id: string): boolean {
+    return this.answered.has(id)
+  }
+
+  /** The ids of the built-ins answering, in their own order. */
+  ready(): string[] {
+    return this.builtins.filter((a) => this.answered.has(a.id)).map((a) => a.id)
+  }
+
+  probe(which: 'missing' | 'all'): void {
+    const now = this.deps.now?.() ?? Date.now()
+    if (which === 'missing' && now - this.probedAt < REPROBE_EVERY_MS) return
+    this.probedAt = now
+    for (const agent of this.builtins) {
+      if (this.probing.has(agent.id) || (which === 'missing' && this.answered.has(agent.id))) continue
+      this.probing.add(agent.id)
+      void this.deps
+        .probe(agent)
+        .then(
+          (res) => this.settle(agent.id, res.ok),
+          () => this.settle(agent.id, false)
+        )
+        .finally(() => this.probing.delete(agent.id))
+    }
+  }
+
+  private settle(id: string, ok: boolean): void {
+    if (ok === this.answered.has(id)) return
+    if (ok) this.answered.add(id)
+    else this.answered.delete(id)
+    this.deps.onChange()
+  }
 }

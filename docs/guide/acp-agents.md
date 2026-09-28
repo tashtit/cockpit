@@ -24,6 +24,11 @@ Nothing about your session history changes either. An ACP session is written to 
 place that CLI always wrote to, so it appears in the sidebar, resumes, and reports live
 status like any other.
 
+An agent that starts but never answers, because it is stuck or waiting for input only a
+terminal could give it, doesn't leave the turn spinning until you stop it. The turn fails
+and names the agent if the handshake takes more than 15 seconds, or opening the
+conversation more than a minute.
+
 ## Agents Cockpit otherwise only reads
 
 For Gemini CLI, Cursor, Cline and opencode, ACP is the only way Cockpit runs them. Each has a built-in definition, used once its CLI answers the handshake:
@@ -37,9 +42,11 @@ For Gemini CLI, Cursor, Cline and opencode, ACP is the only way Cockpit runs the
 
 Once one answers, that agent appears in the New session form, in Home's composer and in **Continue in…**, and its sessions open with a composer. It has no Account, Model or Thinking to pick. It runs as whoever it is signed in as, with its own settings, since Cockpit never learns them.
 
-A CLI installed while Cockpit is running is found without a restart. Opening the New session or Continue in… form checks again, at most once a minute. **Settings › Providers** shows which built-ins answered. If your version uses another command, add your own definition for that agent (see below).
+A CLI installed while Cockpit is running is found without a restart. Opening the New session or Continue in… form, or **Settings › Providers**, checks again, at most once a minute. **Settings › Providers** shows which built-ins answered, and names the agent used instead when you defined your own for the same CLI. **Check the built-ins again** there checks every one at once, so one whose CLI you removed, or an update broke, stops being offered. If your version uses another command, add your own definition for that agent (see below).
 
 Continuing one of these sessions reopens the conversation in its agent. If the agent can't do that, because it can't load a past session over ACP or no longer knows this one, the turn fails and says so. It never starts a fresh conversation without the history you are looking at. **Continue in…** still works either way.
+
+Some sessions are kept where an agent's ACP server never looks, so they open read-only even once it answers. Cursor's server keeps its own conversations, apart from the editor's chats and the agent transcripts. The Cline CLI keeps its own tasks, apart from those of the Cline extension in your editor. Use **Continue in…** for those.
 
 ### Signing them in
 
@@ -56,7 +63,9 @@ Each agent signs in on its own; Cockpit never handles the credentials. When an a
 Over ACP an agent can stop mid-turn and ask before it runs something. The question appears
 just above the composer with the agent's own options — *Allow once*, *Always allow*,
 *Deny* — and the turn stays stopped until you pick one. The answer is recorded in the
-transcript, since it is what the rest of the turn was conditioned on.
+transcript, since it is what the rest of the turn was conditioned on. If the agent drops
+the request itself before you answer — Claude does when the call is cancelled — the card
+goes with it.
 
 When what it wants to run is a command, the card shows the command itself — every line,
 exactly as it would run — with the agent's own description of it above. A command too long
@@ -64,6 +73,11 @@ to show whole says how much is missing, and characters that would hide or reorde
 it (a right-to-left override, a carriage return, a zero-width space) are shown as their
 code, such as `U+202E`, rather than passed through. Only *Allow once* is highlighted:
 *Always allow* lets every later call of that kind through without asking.
+
+Any other tool shows what it would be given the same way — a file edit's path and change,
+an MCP tool's arguments — since a tool's name alone rarely says what it would do. When
+Claude says why it asks, or which path made it ask, the card says so too. A command that
+asks to run with the sandbox off is marked in red on the card, and says so in words.
 
 This is also what finally makes the **Auto-edit** permission mode mean what it says: file
 work goes ahead without asking, and anything that *executes* still stops for you. Safe

@@ -139,10 +139,12 @@ export const SideChat = memo(function SideChat({
               submit()
             } else if (e.key === 'Escape') {
               // a habitual Escape must not close on a half-typed question: the first one
-              // leaves the field (the draft is kept either way), the next closes the panel
+              // leaves the field for the thread (the draft is kept either way), so the next
+              // reaches the panel and closes it — a blur would drop focus to the body,
+              // where the second Escape never reaches the panel
               e.preventDefault()
               e.stopPropagation()
-              e.currentTarget.blur()
+              bodyRef.current?.focus()
             }
           }}
         />
@@ -189,7 +191,8 @@ const Exchange = memo(function Exchange({
         </div>
       </div>
       {entry.answer && (
-        <div className={`msg msg-assistant${asking ? ' streaming' : ''}`}>
+        // a reply still coming wears no mark of its own (MASTER): the `.thinking` line under it says so
+        <div className="msg msg-assistant">
           <ProviderMark p={provider} size={14} box="avatar" decorative />
           <div className="assistant-body markdown">
             <Markdown text={entry.answer} />

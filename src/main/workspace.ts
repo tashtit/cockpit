@@ -5,14 +5,16 @@ import { parseWorktreeList, type WorktreeEntry } from './cleanup-core'
 import { execOrThrow, execText, failureText } from './env'
 import { getDefaultBranch } from './github'
 import { userDataDir } from './config'
-import { DEFAULT_BRANCH_PREFIX } from '../shared/branch-prefix'
+import { DEFAULT_BRANCH_PREFIX, branchPrefixClash, branchPrefixParents } from '../shared/branch-prefix'
+import { mapLimit } from './map-limit'
 
 /*
  * "Always worktrees, always PRs": a new session gets a `<prefix><name>` branch (the prefix
  * is the caller's — `WorkspaceOptions.prefix`, from config, `cockpit/` by default) in its
  * own linked worktree under userData — never the user's checkout — and its PR goes
  * through `gh`. Creation is careful because `git worktree add -b` makes the branch before anything
- * else can fail: the name is checked free first, a failed add is undone, and a failing
+ * else can fail: the name is checked free first (and the prefix against a branch named
+ * for a part of it, `branchPrefixClashIn`), a failed add is undone, and a failing
  * post-checkout hook keeps the finished worktree with its output on
  * `WorkspaceInfo.warning`. Never `git worktree prune` (see `nameTaken`).
  */
@@ -73,6 +75,25 @@ async function nameTaken(repoRoot: string, { dest, branch }: Target): Promise<bo
     return (await registeredAt(repoRoot, dest)) !== null
   }
   return held !== null || existsSync(dest)
+}
+
+/**
+ * Why `prefix` can't name branches in this repository — it has a branch named for a part
+ * of it (`main` under `main/`), and git keeps a branch inside the folders its name spells —
+ * or null when it can. Only the one repository's; see `branchPrefixClashAmong` for all.
+ */
+export async function branchPrefixClashIn(repoRoot: string, prefix: string): Promise<string | null> {
+  for (const parent of branchPrefixParents(prefix)) {
+    if (await commitOf(repoRoot, `refs/heads/${parent}`)) return branchPrefixClash(prefix, parent, basename(repoRoot))
+  }
+  return null
+}
+
+/** The first of these repositories `prefix` can't name branches in, as the reason; null when none. */
+export async function branchPrefixClashAmong(repoRoots: readonly string[], prefix: string): Promise<string | null> {
+  if (branchPrefixParents(prefix).length === 0) return null
+  const found = await mapLimit(repoRoots, (root) => branchPrefixClashIn(root, prefix), 8)
+  return found.find((c) => c !== null) ?? null
 }
 
 /**
@@ -179,6 +200,9 @@ async function create(
   mkdirSync(parent, { recursive: true })
   const baseCommit = await commitOf(repoRoot, opts.base ?? 'HEAD')
   const prefix = opts.prefix ?? DEFAULT_BRANCH_PREFIX
+  // no slug gets past a branch named for a part of the prefix: say why, not git's "cannot lock ref"
+  const clash = await branchPrefixClashIn(repoRoot, prefix)
+  if (clash) throw new Error(clash)
   for (const slug of [baseSlug, `${baseSlug}-${Date.now().toString(36).slice(-4)}`]) {
     const target = { dest: join(parent, slug), branch: `${prefix}${slug}` }
     if (await nameTaken(repoRoot, target)) continue

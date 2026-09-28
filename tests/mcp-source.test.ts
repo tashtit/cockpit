@@ -249,6 +249,20 @@ describe('what a marketplace can reach', () => {
     expect(isAddableSource(undefined)).toBe(false)
   })
 
+  // `plugin marketplace add ./tmp` resolves against Cockpit's own working directory,
+  // and plain http or git:// can be answered by anyone on the path
+  it('refuses a path that walks, a transport that can’t vouch for its host, and a flag', () => {
+    for (const walks of ['./tmp', '../..', '.././x', 'https://github.com/a/../b.git', 'git@github.com:./b']) {
+      expect(isAddableSource(walks), walks).toBe(false)
+    }
+    expect(isAddableSource('http://github.com/a/b.git')).toBe(false)
+    expect(isAddableSource('git://github.com/a/b.git')).toBe(false)
+    expect(isAddableSource('-c/x')).toBe(false)
+    expect(isAddableSource('https://github.com/a/b.git --upload-pack=x')).toBe(false)
+    expect(isAddableSource('ssh://git@github.com/a/b.git')).toBe(true)
+    expect(isAddableSource('a.b/c.d')).toBe(true)
+  })
+
   it('lets every agent reach a marketplace with a real source', () => {
     const reach = marketReach('tashtit', markets)
     expect(reach.has).toEqual(['claude', 'codex'])

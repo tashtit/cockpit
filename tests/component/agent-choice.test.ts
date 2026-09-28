@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   accountOptions,
   chosenAccount,
+  rememberAccount,
   rememberChoice,
   rememberMode,
   savedAccount,
@@ -151,6 +152,31 @@ describe('storage that refuses access', () => {
     } finally {
       restore()
     }
+  })
+
+  // the one way to keep a preference here (storedValue): what storage refused to save
+  // still holds for this run, so the next form opens on what was just picked
+  it('keeps a choice it could not save for the rest of the run', () => {
+    const restore = refuseStorage()
+    try {
+      rememberChoice({ provider: 'codex', mode: 'safe', account: undefined })
+      expect(savedProvider()).toBe('codex')
+      expect(savedMode()).toBe('safe')
+    } finally {
+      restore()
+    }
+    // and storage that takes the next save holds that one
+    rememberMode('auto-edit')
+    expect(window.localStorage.getItem('cockpit:mode')).toBe('auto-edit')
+    expect(savedMode()).toBe('auto-edit')
+  })
+
+  it('stores each choice as the plain text earlier builds wrote', () => {
+    rememberChoice({ provider: 'gemini', mode: 'yolo', account: accountOptions(snap, 'gemini')[0] })
+    rememberAccount('claude', '/home/dev/.claude-work')
+    expect(window.localStorage.getItem('cockpit:provider')).toBe('gemini')
+    expect(window.localStorage.getItem('cockpit:mode')).toBe('yolo')
+    expect(window.localStorage.getItem('cockpit:account:claude')).toBe('/home/dev/.claude-work')
   })
 
   it('never stops a start that cannot be remembered', () => {

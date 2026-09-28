@@ -27,8 +27,9 @@ import { writeFileAtomicAsync } from './replace-file'
 import { isDrivable } from '../shared/providers'
 
 /**
- * The cross-agent work profile: an activity heatmap plus per-agent totals, built
- * entirely from session logs already on disk. Nothing is fetched, and only the
+ * The work profile across the agents Cockpit drives: an activity heatmap plus per-agent
+ * totals, built entirely from session logs already on disk. An agent Cockpit only reads
+ * is left out (`driven`): its logs record no usage this module has been taught to count. Nothing is fetched, and only the
  * aggregate crosses the IPC bridge — never the sessions behind it.
  *
  * Two passes with very different costs:

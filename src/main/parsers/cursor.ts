@@ -11,6 +11,7 @@ import {
   fileTimes,
   jsonText,
   parseJsonlText,
+  plausibleTime,
   readHead,
   readJsonlTail,
   readSmallFile,
@@ -162,7 +163,7 @@ function pathHints(lines: readonly any[]): string[] {
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
-/** `Aug 19, 2026, 12:56 AM (UTC+3)` → epoch ms; null for anything else. */
+/** `Aug 19, 2026, 12:56 AM (UTC+3)` → epoch ms; null for anything else, a time no chat can have included. */
 export function cursorQueryTime(text: string): number | null {
   const m =
     /<timestamp>[^<]*?([A-Za-z]{3})[a-z]* (\d{1,2}), (\d{4}),? (\d{1,2}):(\d{2})\s*(AM|PM)?\s*\((?:UTC|GMT)(?:([+-])(\d{1,2})(?::?(\d{2}))?)?\)/.exec(
@@ -175,7 +176,7 @@ export function cursorQueryTime(text: string): number | null {
   if (m[6] === 'PM') hour += 12
   if (!m[6]) hour = Number(m[4])
   const offset = (m[7] === '-' ? -1 : 1) * (Number(m[8] ?? 0) * 60 + Number(m[9] ?? 0))
-  return Date.UTC(Number(m[3]), month, Number(m[2]), hour, Number(m[5])) - offset * 60_000
+  return plausibleTime(Date.UTC(Number(m[3]), month, Number(m[2]), hour, Number(m[5])) - offset * 60_000)
 }
 
 /** What the person asked: the `<user_query>` inside the wrapper Cursor sends, else the text. */
@@ -289,7 +290,12 @@ type Composer = {
   readonly parent: string | null
 }
 
-/** Every chat with messages in it, from its document's few fields that matter — one read per change. */
+/**
+ * Every chat with messages in it, from its document's few fields that matter — one read
+ * per change, and at most one per indexer pass (see SnapshotPass). The keys are asked for
+ * as a range (`:` is followed by `;`), which the key's index answers; a `LIKE` prefix
+ * cannot use it and scanned every row of the table, each message's among them.
+ */
 const composerChats = snapshotCache((db: string): Map<string, Composer> | null => {
   const out = new Map<string, Composer>()
   const parents = new Map<string, string>()
@@ -302,11 +308,12 @@ const composerChats = snapshotCache((db: string): Map<string, Composer> | null =
        json_extract(value, '$.fullConversationHeadersOnly[#-1].createdAt') AS last,
        json_extract(value, '$.subagentComposerIds') AS subagents,
        json_extract(value, '$.workspaceIdentifier.uri.fsPath') AS cwd,
+       json_extract(value, '$.workspaceIdentifier.uri.scheme') AS scheme,
        coalesce(json_array_length(value, '$.fullConversationHeadersOnly'), 0) AS headers,
        coalesce(json_array_length(value, '$.conversation'), 0) AS inline,
        coalesce(json_extract(value, '$.fullConversationHeadersOnly[0].grouping.textPreview'),
                 json_extract(value, '$.conversation[0].text')) AS preview
-     FROM cursorDiskKV WHERE key LIKE 'composerData:%' AND json_valid(value)`
+     FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;' AND json_valid(value)`
   )
   // a failed read is no answer, not "no chats" (see snapshotCache)
   if (!rows) return null
@@ -321,10 +328,13 @@ const composerChats = snapshotCache((db: string): Map<string, Composer> | null =
     if (!id || messages === 0) continue
     out.set(id, {
       name: typeof r['name'] === 'string' && r['name'].trim() ? r['name'] : null,
-      created: toMs(r['created']),
+      // a drifted field decodes to any number at all: the store's own time stands in
+      created: plausibleTime(toMs(r['created'])),
       // the chat's own stamp can lag its last message by minutes
-      updated: Math.max(toMs(r['updated']) ?? 0, toMs(r['last']) ?? 0) || null,
-      cwd: usableCwd(r['cwd']),
+      updated: Math.max(plausibleTime(toMs(r['updated'])) ?? 0, plausibleTime(toMs(r['last'])) ?? 0) || null,
+      // a workspace on this machine: a remote one's path (`vscode-remote`, over SSH or in a
+      // container) names a directory somewhere else, and the chat belongs in General
+      cwd: r['scheme'] === 'file' ? usableCwd(r['cwd']) : null,
       messages,
       preview: typeof r['preview'] === 'string' && r['preview'].trim() ? r['preview'] : null,
       parent: parents.get(id) ?? null
@@ -383,14 +393,49 @@ function composerToolPreview(params: Record<string, unknown>): string | null {
   )
 }
 
+/**
+ * The newest of a chat's messages that fit the transcript budget, as the other parsers
+ * read a log's tail: the last ones counted back until the next would overspend it. A
+ * message too big to read counts at the most one is read at.
+ */
+function newestWithin(sizes: readonly number[]): number {
+  let budget = TRANSCRIPT_TAIL_BYTES
+  let from = sizes.length
+  while (from > 0) {
+    const size = Math.min(sizes[from - 1]!, MAX_BUBBLE_BYTES)
+    if (budget - size < 0) break
+    budget -= size
+    from--
+  }
+  return from
+}
+
+/**
+ * A chat's messages. Its document lists them in order (`fullConversationHeadersOnly`);
+ * each is a `bubbleId:<chat id>:<message id>` row, asked for as a key range (`:` is
+ * followed by `;`) that the key's index answers — a `LIKE` prefix scanned the table. The
+ * sizes come first, none of the content, so only the newest that fit the transcript
+ * budget are read.
+ */
 function composerMessages(db: string, id: string): SessionMessage[] {
   const doc = parseJson(queryAll(db, `SELECT value FROM cursorDiskKV WHERE key = ?`, `composerData:${id}`)?.[0]?.['value'])
   if (!doc) return []
   const headers: any[] = Array.isArray(doc.fullConversationHeadersOnly) ? doc.fullConversationHeadersOnly : []
   // older chats kept every message inside the chat's own document
   const inline: any[] = Array.isArray(doc.conversation) ? doc.conversation : []
-  const bubbles = new Map<string, any>()
+  let order: any[]
+  let from: number
   if (headers.length > 0) {
+    const prefix = `bubbleId:${id}:`
+    const range = [prefix, `bubbleId:${id};`] as const
+    // octet_length reads a value's size without its content
+    const sizes = new Map<string, number>()
+    for (const r of queryAll(db, `SELECT key, octet_length(value) AS n FROM cursorDiskKV WHERE key >= ? AND key < ?`, ...range) ?? []) {
+      sizes.set(String(r['key']).slice(prefix.length), Number(r['n'] ?? 0))
+    }
+    from = newestWithin(headers.map((h) => sizes.get(String(h?.bubbleId)) ?? 0))
+    const window = headers.slice(from).map((h) => `${prefix}${String(h?.bubbleId)}`)
+    const bubbles = new Map<string, any>()
     for (const r of queryAll(
       db,
       `SELECT key,
@@ -399,17 +444,20 @@ function composerMessages(db: string, id: string): SessionMessage[] {
          json_extract(value, '$.createdAt') AS created,
          json_extract(value, '$.thinking.text') AS thinking,
          json_extract(value, '$.toolFormerData') AS tool
-       FROM cursorDiskKV WHERE key LIKE ? AND length(value) <= ${MAX_BUBBLE_BYTES}`,
-      `bubbleId:${id}:%`
+       FROM cursorDiskKV WHERE key IN (SELECT value FROM json_each(?)) AND octet_length(value) <= ${MAX_BUBBLE_BYTES}`,
+      JSON.stringify(window)
     ) ?? []) {
-      bubbles.set(String(r['key']).slice(`bubbleId:${id}:`.length), r)
+      bubbles.set(String(r['key']).slice(prefix.length), r)
     }
+    order = headers.slice(from).map((h) => bubbles.get(String(h?.bubbleId)) ?? null)
+  } else {
+    from = newestWithin(inline.map((m) => JSON.stringify(m ?? null).length))
+    order = inline.slice(from)
   }
-  const order = headers.length > 0 ? headers.map((h) => bubbles.get(String(h?.bubbleId)) ?? null) : inline
   const out: SessionMessage[] = []
   for (const b of order) {
     if (!b) continue
-    const ts = toMs(b.created ?? b.createdAt) ?? undefined
+    const ts = plausibleTime(toMs(b.created ?? b.createdAt)) ?? undefined
     const type = Number(b.type)
     const text = str(b.text)
     if (type === 1) {
@@ -436,7 +484,9 @@ function composerMessages(db: string, id: string): SessionMessage[] {
       })
     }
   }
-  return out
+  return from > 0
+    ? [{ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' }, ...out]
+    : out
 }
 
 /* ---------- the ACP server's sessions (acp-sessions/<id>/store.db) ---------- */
@@ -472,8 +522,12 @@ function acpStoreFiles(home: string): string[] {
 const MAX_ACP_BLOB_BYTES = 1024 * 1024
 /** The messages a meta read looks through for the person's first prompt */
 const ACP_PROMPT_SCAN = 24
-/** What a message's head must hold to be told apart by role, without reading it whole */
-const ACP_HEAD_BYTES = 64
+/** What a meta read loads of a conversation's messages — the 256KB a log's head is read within */
+const ACP_META_BYTES = 256 * 1024
+/** A message bigger than this is passed over by a meta read — a tool result holding a file, as a rule */
+const ACP_META_BLOB_BYTES = 64 * 1024
+/** Opening messages bigger than that, read whole when none of the rest was the person's prompt */
+const ACP_BIG_OPENINGS = 2
 
 type AcpStore = {
   readonly id: string
@@ -496,33 +550,42 @@ function acpStore(file: string): AcpStore | null {
   return {
     id: str(meta?.agentId) ?? basename(dirname(file)),
     name: str(meta?.name),
-    createdAt: toMs(meta?.createdAt),
+    createdAt: plausibleTime(toMs(meta?.createdAt)),
     order,
     uri: protoString(root, [9])
   }
 }
 
 /**
- * Some of a conversation's blobs by id, with their sizes: `data` whole up to `maxBytes`,
- * else only its first `ACP_HEAD_BYTES` (`whole: false`).
+ * The sizes of some of a conversation's blobs, by id — none of their content: `length()`
+ * of a blob is read from the record's header, where any other use of the value (a
+ * `substr` of its first bytes included) loads the whole of it.
  */
+function acpSizes(file: string, ids: readonly string[]): Map<string, number> {
+  const out = new Map<string, number>()
+  if (ids.length === 0) return out
+  for (const r of queryAll(file, 'SELECT id, length(data) AS n FROM blobs WHERE id IN (SELECT value FROM json_each(?))', JSON.stringify(ids)) ?? []) {
+    out.set(String(r['id']), Number(r['n'] ?? 0))
+  }
+  return out
+}
+
+/** Some of a conversation's blobs by id: `data` whole up to `maxBytes`, else not read (`whole: false`). */
 function acpBlobs(
   file: string,
   ids: readonly string[],
   maxBytes: number
-): Map<string, { readonly size: number; readonly data: Uint8Array | null; readonly whole: boolean }> {
-  const out = new Map<string, { size: number; data: Uint8Array | null; whole: boolean }>()
+): Map<string, { readonly data: Uint8Array | null; readonly whole: boolean }> {
+  const out = new Map<string, { data: Uint8Array | null; whole: boolean }>()
   if (ids.length === 0) return out
   for (const r of queryAll(
     file,
-    `SELECT id, length(data) AS n,
-       CASE WHEN length(data) > ${maxBytes} THEN substr(data, 1, ${ACP_HEAD_BYTES}) ELSE data END AS d
+    `SELECT id, length(data) AS n, CASE WHEN length(data) > ${maxBytes} THEN NULL ELSE data END AS d
      FROM blobs WHERE id IN (SELECT value FROM json_each(?))`,
     JSON.stringify(ids)
   ) ?? []) {
     const d = r['d']
-    const size = Number(r['n'] ?? 0)
-    out.set(String(r['id']), { size, data: d instanceof Uint8Array ? d : null, whole: size <= maxBytes })
+    out.set(String(r['id']), { data: d instanceof Uint8Array ? d : null, whole: Number(r['n'] ?? 0) <= maxBytes })
   }
   return out
 }
@@ -550,30 +613,62 @@ function acpWorkspace(file: string, store: AcpStore): string | null {
   }
 }
 
+/** A message the person wrote, with words in it — not the context Cursor opens with. */
+function isAcpPrompt(m: any): boolean {
+  return m?.role === 'user' && !isAcpContext(m) && queryText(m.content) !== ''
+}
+
+/**
+ * A conversation's meta, within the 256KB every parser reads a log's head in. Its
+ * messages' sizes first, none of their content; then, in order, the ones small enough to
+ * read whole until the budget is spent — a bigger one, a tool result holding a file as a
+ * rule, is passed over uncounted — their roles counted and the count carried over the
+ * rest. The person's first prompt is among them; failing that, one of the first few big
+ * ones read whole.
+ */
 function acpStoreMeta(file: string, sourceLabel: string): SessionMeta | null {
   const store = acpStore(file)
   if (!store || store.order.length === 0) return null
-  // role by each message's head; the person's first prompt by reading the first few whole
-  const heads = acpBlobs(file, store.order, 0)
-  let messageCount = 0
-  for (const id of store.order) {
-    const head = heads.get(id)?.data
-    const text = head ? Buffer.from(head).toString('utf8') : ''
-    const role = /^\{"role":"(user|assistant)"/.exec(text)?.[1]
-    if (role === 'assistant' || (role === 'user' && !text.includes('"content":"<user_info>'))) messageCount++
+  const sizes = acpSizes(file, store.order)
+  const present = store.order.filter((id) => sizes.has(id))
+  let budget = ACP_META_BYTES
+  let considered = 0
+  const scan: string[] = []
+  for (const id of present) {
+    const n = sizes.get(id)!
+    if (n <= ACP_META_BLOB_BYTES) {
+      if (n > budget) break
+      budget -= n
+      scan.push(id)
+    }
+    considered++
   }
-  let firstPrompt = ''
-  let startedAt: number | null = null
-  const opening = acpBlobs(file, store.order.slice(0, ACP_PROMPT_SCAN), MAX_ACP_BLOB_BYTES)
-  for (const id of store.order.slice(0, ACP_PROMPT_SCAN)) {
-    const b = opening.get(id)
-    const m = b?.whole ? acpMessage(b.data) : null
-    if (m?.role !== 'user' || isAcpContext(m)) continue
-    firstPrompt = queryText(m.content)
-    startedAt = cursorQueryTime(blocksText(m.content))
-    if (firstPrompt) break
+  const blobs = acpBlobs(file, scan, ACP_META_BLOB_BYTES)
+  const opening = new Set(store.order.slice(0, ACP_PROMPT_SCAN))
+  let counted = 0
+  let prompt: any = null
+  for (const id of scan) {
+    const m = acpMessage(blobs.get(id)?.data)
+    if (m?.role === 'assistant' || (m?.role === 'user' && !isAcpContext(m))) counted++
+    if (!prompt && opening.has(id) && isAcpPrompt(m)) prompt = m
   }
-  if (messageCount === 0 || !firstPrompt) return null
+  let messageCount = considered > 0 && considered < present.length ? Math.round((counted * present.length) / considered) : counted
+  if (!prompt) {
+    const big = store.order.slice(0, ACP_PROMPT_SCAN).filter((id) => sizes.has(id) && !blobs.has(id)).slice(0, ACP_BIG_OPENINGS)
+    const read = acpBlobs(file, big, MAX_ACP_BLOB_BYTES)
+    for (const id of big) {
+      const b = read.get(id)
+      const m = b?.whole ? acpMessage(b.data) : null
+      if (!isAcpPrompt(m)) continue
+      prompt = m
+      // passed over uncounted above
+      messageCount++
+      break
+    }
+  }
+  if (messageCount === 0 || !prompt) return null
+  const firstPrompt = queryText(prompt.content)
+  const startedAt = cursorQueryTime(blocksText(prompt.content))
   const at = dbMtime(file)
   return {
     id: `cursor:${store.id}`,
@@ -600,11 +695,11 @@ function acpStoreMessages(file: string): SessionMessage[] {
   const store = acpStore(file)
   if (!store) return []
   // the newest messages that fit the transcript budget, each read only if it is not huge
-  const sizes = acpBlobs(file, store.order, 0)
+  const sizes = acpSizes(file, store.order)
   let budget = TRANSCRIPT_TAIL_BYTES
   let from = store.order.length
   while (from > 0) {
-    const size = Math.min(sizes.get(store.order[from - 1]!)?.size ?? 0, MAX_ACP_BLOB_BYTES)
+    const size = Math.min(sizes.get(store.order[from - 1]!) ?? 0, MAX_ACP_BLOB_BYTES)
     if (budget - size < 0) break
     budget -= size
     from--

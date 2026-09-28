@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AiSetup } from '../../src/renderer/src/AiSetup'
 import {
@@ -364,6 +364,20 @@ describe('Agents › a plugin its marketplace has moved past', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Update to 0.4.2' }))
     expect(window.cockpit.updatePlugin).toHaveBeenCalledWith('evalkit@tashtit')
     expect(await screen.findByText(/evalkit@tashtit is at 0.4.2 in Claude — restart it/)).toBeInTheDocument()
+  })
+
+  // the question is asked again after every write; the badge holds until the new answer
+  it('keeps the update badge up while the question is asked again after a flip', async () => {
+    await openPlugins()
+    expect(await screen.findByText('update 0.4.2')).toBeInTheDocument()
+    let answer: (v: never[]) => void = () => {}
+    vi.mocked(window.cockpit.outdatedPlugins).mockReturnValue(new Promise((r) => (answer = r)))
+    vi.mocked(window.cockpit.setPanelSwitch).mockResolvedValue({ ...report })
+    await userEvent.click(screen.getByRole('switch', { name: 'evalkit@tashtit in Codex' }))
+    await waitFor(() => expect(window.cockpit.outdatedPlugins).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('update 0.4.2')).toBeInTheDocument()
+    answer([])
+    await waitFor(() => expect(screen.queryByText('update 0.4.2')).not.toBeInTheDocument())
   })
 
   // an update brings every agent that has it to one version, so the line says who is

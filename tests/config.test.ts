@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   adoptDetectedSources,
+  archiveWatchOn,
   addModelEndpoint,
   attentionPrefs,
   bindSessionControl,
@@ -22,6 +23,7 @@ import {
   setUpdatePrefs,
   setWindowPlacement,
   setZoom,
+  tryAdoptDetectedSources,
   updateModelEndpoint,
   updatePrefs
 } from '../src/main/config'
@@ -311,7 +313,25 @@ describe('attention prefs', () => {
     expect(loadConfig().attention).toEqual({ sound: true })
 
     setAttentionPrefs({ notifications: false, sound: false, badge: false, cleanup: true })
-    expect(loadConfig().attention).toEqual({ sound: false, cleanup: true })
+    expect(loadConfig().attention).toEqual({ cleanup: true })
+  })
+
+  // off and on again in the installed app used to store `true`, which every dev run
+  // sharing its userData then read as someone having turned notifications on
+  it('forgets a switch flipped back to what the build does by default', () => {
+    saveConfig({ sources: [] })
+    setAttentionPrefs({ notifications: true, sound: false, badge: false, cleanup: false })
+    expect(loadConfig().attention).toEqual({ notifications: true })
+    setAttentionPrefs({ notifications: false, sound: false, badge: false, cleanup: false })
+    expect(loadConfig().attention).toEqual({})
+    expect(attentionPrefs()).toEqual({ notifications: false, sound: false, badge: false, cleanup: false })
+  })
+
+  it('keeps what another build stored for a switch this one leaves alone', () => {
+    // the installed app turned sound off; a dev run flipping notifications leaves it be
+    saveConfig({ sources: [], attention: { sound: false } })
+    setAttentionPrefs({ notifications: true, sound: false, badge: false, cleanup: false })
+    expect(loadConfig().attention).toEqual({ sound: false, notifications: true })
   })
 
   it('treats renderer input as untrusted: anything but true is off, garbage in the file is ignored', () => {
@@ -321,6 +341,15 @@ describe('attention prefs', () => {
       typeof setAttentionPrefs
     >[0])
     expect(saved).toEqual({ notifications: false, sound: false, badge: false, cleanup: false })
+  })
+})
+
+describe('stopping what an archived session left running', () => {
+  // a dev run indexes the real HOME: each one running would signal processes on every archive
+  it('is off outside an installed app, unless asked for', () => {
+    expect(archiveWatchOn({})).toBe(false)
+    expect(archiveWatchOn({ COCKPIT_ARCHIVE_WATCH: '1' })).toBe(true)
+    expect(archiveWatchOn({ COCKPIT_ARCHIVE_WATCH: 'yes' })).toBe(false)
   })
 })
 
@@ -390,6 +419,32 @@ describe('adoptDetectedSources', () => {
       })
       expect(adoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude'])
     } finally {
+      process.env['HOME'] = prevHome
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  // startup, and a turn's end in the stream handler: a throw there left an app with no
+  // window, or kept the turn's done from everything after it
+  it('carries on with the config as it stands when the new home cannot be saved', () => {
+    const home = mkdtempSync(join(tmpdir(), 'cockpit-config-home-'))
+    const prevHome = process.env['HOME']
+    process.env['HOME'] = home
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      mkdirSync(join(home, '.claude'))
+      mkdirSync(join(home, '.gemini', 'tmp'), { recursive: true })
+      saveConfig({ sources: [{ path: join(home, '.claude'), provider: 'claude', label: 'claude-default' }] })
+      chmodSync(dir, 0o500)
+      expect(() => adoptDetectedSources()).toThrow()
+      expect(tryAdoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude'])
+      expect(errors).toHaveBeenCalled()
+      // and adopts it once the config can be written again
+      chmodSync(dir, 0o700)
+      expect(tryAdoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude', 'gemini'])
+    } finally {
+      chmodSync(dir, 0o700)
+      errors.mockRestore()
       process.env['HOME'] = prevHome
       rmSync(home, { recursive: true, force: true })
     }

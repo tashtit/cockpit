@@ -83,7 +83,9 @@ Everything between them stays quiet.
   is the scroll affordance, don't pad it away. On a full screen the same board runs from
   the hero to the dock, which is why the row budget below is 30 and not ten.
 - Grammar per row (`.board-row`, a button that opens the session): status dot ·
-  `.board-agent` placard (`.board-lead`, fixed 68px column, uppercase micro-caps) ·
+  `.board-agent` placard (`.board-lead`, uppercase micro-caps, a fixed column as wide as the
+  longest agent's name in placard characters — `--board-lead-ch`, set from the labels, so
+  ANTIGRAVITY is never cut; it gives way before a narrow row's reason does) ·
   `.board-branch` slot (fixed 150px, holding the `BranchChip`) · title (truncates) ·
   `.held-mark` (Cockpit's hexagon, only on a session Cockpit drives — the sidebar row's
   mark and `sr-only` words, the whole story in the tooltip) ·
@@ -231,6 +233,9 @@ Everything between them stays quiet.
 - Agent picker: `.composer-agent` logo buttons, `aria-pressed` + `aria-label`; active =
   agent-tinted background + 1.5px inset ring in the agent color. Signed-out agents get the
   `.no-acct` red dot — never disable them (clicking reveals the "not signed in" chip).
+  After the three CLIs come the agents an ACP agent drives right now (`useAgentChoice`'s
+  `agents`); Cockpit never learns who one is signed in as, so it gets no dot and the
+  account slot reads `over ACP`.
 - ⌘Enter submits; the button label is the action: "Start with Claude Code", or "Starting…"
   while busy. Errors render in `.new-error` directly under the card, never a toast.
 - Mode options and hints come from the shared `MODES` table (`agent-choice.ts`);

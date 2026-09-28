@@ -35,7 +35,7 @@ import type { Notice } from './notice'
 import { answerRecommendation } from './recommended'
 import { offerFor, Recommendation, RECOMMENDED_PITCH } from './Recommendation'
 import { TabList, TabPanel, type TabDef } from './Tabs'
-import { plural } from './format'
+import { listOf, plural } from './format'
 import { useLoaded } from './use-loaded'
 
 /**
@@ -67,12 +67,6 @@ function cellWord(cell: PanelCell): string | undefined {
 const CONFIRM_OFF: readonly PanelKind[] = ['plugin', 'marketplace']
 
 type Section = PanelKind | 'attention' | 'browse' | 'removed'
-
-/** "Claude and Codex", "Claude, Codex and Copilot" — never "A and B and C". */
-function listOf(names: readonly string[]): string {
-  if (names.length < 3) return names.join(' and ')
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
-}
 
 /**
  * Who can run this at all, when not everyone can — "Codex only" for a plugin from a
@@ -163,26 +157,33 @@ export function AgentPanel({
 
   // plugins a marketplace clone here has moved past, by plugin id. The question is local
   // (the clone against what is installed), so it is asked again whenever the report
-  // moves — an update is what clears it — and never in a repo scope, which has none
+  // moves — an update is what clears it — and never in a repo scope, which has none.
+  // Each re-ask keeps the last answer on screen until its own lands: only a new scope
+  // starts from nothing, or every chip flip would blink the update badges off and on
   const outdated = useLoaded(
     repoRoot === null && report?.rows.some((r) => r.kind === 'plugin') ? () => api.outdatedPlugins() : null,
     [report, repoRoot],
-    { initial: [] as readonly UpdateSuggestion[], reset: true }
+    { initial: [] as readonly UpdateSuggestion[], keepSame: true }
   )
+  const clearOutdated = outdated.set
+  useEffect(() => clearOutdated([]), [repoRoot, clearOutdated])
   const pluginNews: Readonly<Record<string, UpdateSuggestion>> = Object.fromEntries(
     outdated.value.map((n) => [n.name, n])
   )
 
-  const run = async (key: string, op: () => Promise<PanelReport>, ok: string): Promise<void> => {
+  /** One write at a time; resolves true when it landed, so a caller can move focus on. */
+  const run = async (key: string, op: () => Promise<PanelReport>, ok: string): Promise<boolean> => {
     setNotice(null)
     disarm()
     setBusy(key)
     try {
       setReport(await op())
       setNotice({ text: ok, kind: 'ok' })
+      return true
     } catch (err) {
       setNotice({ text: ipcErrorText(err), kind: 'error' })
       load()
+      return false
     } finally {
       setBusy(null)
     }
@@ -247,16 +248,15 @@ export function AgentPanel({
     void run(row.id, () => api.restorePanelEntry(target(row)), `Put ${row.name} back.`)
 
   /** Add something found while browsing — a marketplace, or a plugin from one. */
-  const addFound = (item: CatalogInstall, agent: Provider, said: string): void => {
+  const addFound = (item: CatalogInstall, agent: Provider, said: string): Promise<boolean> => {
     // the same key Browse's chips are drawn with, so the one being written pulses
     const key = `${item.kind === 'plugin' ? 'plugin' : 'market'}:${item.name}|${agent}`
-    void run(key, () => api.addFromCatalog(item, agent), said)
+    return run(key, () => api.addFromCatalog(item, agent), said)
   }
 
   /** Add a server found in the MCP Registry to one agent. */
-  const addServer = (req: RegistryAdd, said: string): void => {
-    void run(`registry:${req.id}|${req.agent}`, () => api.addFromMcpRegistry(req), said)
-  }
+  const addServer = (req: RegistryAdd, said: string): Promise<boolean> =>
+    run(`registry:${req.id}|${req.agent}`, () => api.addFromMcpRegistry(req), said)
 
   /** Update a plugin in every agent that has it, each through its own CLI. */
   const updatePlugin = (row: PanelRow, news: UpdateSuggestion): void => {

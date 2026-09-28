@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseWorktreeList } from '../src/main/cleanup-core'
-import { createWorkspace } from '../src/main/workspace'
+import { branchPrefixClashAmong, createWorkspace } from '../src/main/workspace'
 
 /**
  * createWorkspace against real repositories in a tmpdir — the cleanup tests'
@@ -132,6 +132,37 @@ describe('createWorkspace — the person’s branch prefix', () => {
     const second = await createWorkspace(dir, 'Fix login', { prefix: 'titan/' })
     expect(second.branch).toMatch(/^titan\/fix-login-[a-z0-9]{4}$/)
     expect(cockpitBranches(dir)).toEqual([])
+  })
+
+  it('refuses a prefix a branch of the repository is named for, saying why, and makes nothing', async () => {
+    // `main/fix-login` beside `main`: git answered only "cannot lock ref"
+    const dir = repo('#!/bin/sh\nexit 0\n')
+    await expect(createWorkspace(dir, 'Fix login', { prefix: 'main/' })).rejects.toThrow(
+      /^main\/ can't be used in repo-\d+: it has a branch named main/
+    )
+    git(dir, ['branch', 'users/titan'])
+    await expect(createWorkspace(dir, 'Fix login', { prefix: 'users/titan/' })).rejects.toThrow(
+      /has a branch named users\/titan/
+    )
+    expect(linked(dir)).toEqual([])
+    expect(git(dir, ['branch', '--format=%(refname:short)']).split('\n').filter(Boolean).sort()).toEqual([
+      'main',
+      'users/titan'
+    ])
+    // a prefix that merely starts like a branch is fine
+    await expect(createWorkspace(dir, 'Fix login', { prefix: 'mainline/' })).resolves.toMatchObject({
+      branch: 'mainline/fix-login'
+    })
+  })
+
+  it('names the first known repository a prefix could not be used in', async () => {
+    const plain = repo()
+    const held = repo()
+    git(held, ['branch', 'titan'])
+    expect(await branchPrefixClashAmong([plain, held], 'titan/')).toMatch(/can't be used in repo-\d+: it has a branch named titan/)
+    expect(await branchPrefixClashAmong([plain, held], 'ron/')).toBeNull()
+    // nothing to put a branch inside: nothing to ask git
+    expect(await branchPrefixClashAmong([held], 'titan-')).toBeNull()
   })
 })
 

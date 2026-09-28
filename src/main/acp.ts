@@ -35,7 +35,9 @@ import { LineSplitter, MAX_STREAM_LINE_CHARS, truncate } from './parsers/util'
  * which reuses the CLI's own login and never opens a browser), and otherwise the turn says
  * what to run (`signIn`). Every process Cockpit starts here — a turn's, and the launch-time
  * `probeAcpAgent` — runs in its own group and is ended as a group, since some agents
- * re-launch themselves as a child and some ignore EOF.
+ * re-launch themselves as a child and some ignore EOF: SIGTERM, then SIGKILL for whatever
+ * in the group still ignores it (`endGroup`). Quitting stops a turn through ChatManager,
+ * and kills any probe still about (`stopAcpProbes`).
  */
 
 type TurnOptions = {
@@ -64,10 +66,28 @@ type TurnOptions = {
    * session would answer the person without any of the history they are looking at.
    */
   readonly mustResume?: boolean
+  /** How long the handshake may take (`HANDSHAKE_MS`, `OPEN_SESSION_MS`) — tests shorten them */
+  readonly deadlines?: { readonly handshake?: number; readonly openSession?: number }
 }
+
+/**
+ * How long an agent has to answer `initialize`, a turn's or a probe's: it needs nothing
+ * but its process started, so one silent past this is stuck — or waiting on input nobody
+ * can give it — and the turn fails rather than spinning until Stop.
+ */
+const HANDSHAKE_MS = 15_000
+
+/**
+ * How long opening the session may take once the agent has answered: `session/new` can
+ * start the agent's own MCP servers, and `session/load` replays the whole conversation.
+ */
+const OPEN_SESSION_MS = 60_000
 
 /** How long an agent has to exit on its own once its turn is over */
 const EXIT_GRACE_MS = 2_000
+
+/** How long a group sent SIGTERM has before SIGKILL — ChatManager.cancel's wait */
+const KILL_AFTER_MS = 3_000
 
 /** How long signing in with an agent's own method may take before the turn says how to sign in */
 const AUTHENTICATE_MS = 15_000
@@ -208,6 +228,11 @@ type OpenPermission = {
 
 export class AcpTurn {
   readonly child: ChildProcess
+  /**
+   * Settles once the agent's own process is gone — exited, or never started. The turn
+   * can be over well before: an agent may keep running past EOF until `reap` stops it.
+   */
+  readonly exited: Promise<void>
   private readonly rpc: JsonRpc
   private readonly opts: TurnOptions
   private readonly seenToolCalls = new Set<string>()
@@ -233,6 +258,11 @@ export class AcpTurn {
       shell: false,
       // own process group, so cancelling reaches the tools the agent spawned
       detached: true
+    })
+    // 'exit' is the process; a spawn that failed emits only 'close'
+    this.exited = new Promise((resolve) => {
+      this.child.once('exit', () => resolve())
+      this.child.once('close', () => resolve())
     })
     this.child.stderr!.setEncoding('utf8')
     this.child.stderr!.on('data', (c: string) => {
@@ -345,12 +375,20 @@ export class AcpTurn {
     // exit and its stderr rather than as a promise that never settles
     const step = <T>(p: Promise<T>): Promise<T> => Promise.race([p, exited]) as Promise<T>
 
+    const { handshake = HANDSHAKE_MS, openSession = OPEN_SESSION_MS } = this.opts.deadlines ?? {}
+    const label = this.agentLabel
     try {
-      const init = (await step(this.rpc.request('initialize', initializeParams()))) as
-        | Record<string, unknown>
-        | undefined
+      const init = (await step(
+        within(this.rpc.request('initialize', initializeParams()), handshake, () => handshakeLate(label, handshake))
+      )) as Record<string, unknown> | undefined
       const caps = (init?.agentCapabilities ?? {}) as Record<string, unknown>
-      const session = (): Promise<string> => this.openSession(Boolean(caps.loadSession), resumeNativeId)
+      // each attempt at the session has the deadline — signing in between has its own
+      const session = (): Promise<string> =>
+        within(
+          this.openSession(Boolean(caps.loadSession), resumeNativeId),
+          openSession,
+          () => new Error(`${label} did not open the session within ${inSeconds(openSession)}.`)
+        )
       this.sessionId = await step(this.signedIn(session, authMethodIds(init)))
       this.emit({ turnId, type: 'session', nativeSessionId: this.sessionId })
       const result = await step(
@@ -377,19 +415,14 @@ export class AcpTurn {
   /**
    * The turn is over and the agent has been sent EOF, which a well-behaved one exits
    * on. One that doesn't — it failed mid-turn and is still working, or it just keeps
-   * running — is stopped, its group with it, rather than left editing a worktree
-   * where nothing shows it and nothing will ever cancel it.
+   * running (Cursor's waits past EOF) — is stopped, its group with it, rather than left
+   * editing a worktree where nothing shows it and nothing will ever cancel it. Until it
+   * has gone, ChatManager keeps the turn (`exited`), so quitting stops it too.
    */
   private reap(): void {
     const pid = this.child.pid
     if (!pid || this.child.exitCode !== null || this.child.signalCode !== null) return
-    const timer = setTimeout(() => {
-      try {
-        process.kill(-pid, 'SIGTERM')
-      } catch {
-        /* the group has gone */
-      }
-    }, EXIT_GRACE_MS)
+    const timer = setTimeout(() => endGroup(this.child), EXIT_GRACE_MS)
     timer.unref()
     this.child.once('close', () => clearTimeout(timer))
   }
@@ -410,15 +443,11 @@ export class AcpTurn {
       if (authMethod && offered.includes(authMethod)) {
         try {
           // an agent may wait on an interactive login here — never longer than this
-          let timer: NodeJS.Timeout | undefined
-          const late = new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new AgentError('signing in took too long', AUTH_REQUIRED)), AUTHENTICATE_MS)
-          })
-          try {
-            await Promise.race([this.rpc.request('authenticate', { methodId: authMethod }), late])
-          } finally {
-            clearTimeout(timer)
-          }
+          await within(
+            this.rpc.request('authenticate', { methodId: authMethod }),
+            AUTHENTICATE_MS,
+            () => new AgentError('signing in took too long', AUTH_REQUIRED)
+          )
           return await open()
         } catch (again) {
           if (!isAuthRequired(again) && !(again instanceof AgentError)) throw again
@@ -482,9 +511,11 @@ export class AcpTurn {
    * Stop the turn. Open questions are answered first — an agent left holding one would
    * sit waiting through its own cancellation — and answered `cancelled`, which the spec
    * requires of a client that cancels. Never with an option: a refusal the agent offers
-   * may be a standing one, kept in its own config long after this turn.
+   * may be a standing one, kept in its own config long after this turn. A turn already
+   * over has told the agent all it will: only its process is left, which the caller ends.
    */
   cancel(): void {
+    if (this.finished) return
     const cancelled: PermissionOutcome = { outcome: 'cancelled' }
     for (const [, open] of this.open) this.rpc.respond(open.rpcId, { outcome: cancelled })
     this.open.clear()
@@ -492,30 +523,79 @@ export class AcpTurn {
   }
 }
 
+/** Signal a child's whole process group (each is spawned `detached`), or the child alone without a pid. */
+function signalGroup(child: ChildProcess, sig: NodeJS.Signals): void {
+  try {
+    if (child.pid) process.kill(-child.pid, sig)
+    else child.kill(sig)
+  } catch {
+    /* the group has gone */
+  }
+}
+
+/**
+ * SIGTERM to the group now, and SIGKILL to it once `KILL_AFTER_MS` pass, whether or not
+ * the agent itself has gone by then: it usually exits on SIGTERM at once, while a tool it
+ * started that ignores the signal is still in the group (the lesson ChatManager.cancel
+ * records). For a group that is already empty the SIGKILL is a no-op.
+ */
+function endGroup(child: ChildProcess, onKilled?: () => void): void {
+  signalGroup(child, 'SIGTERM')
+  setTimeout(() => {
+    signalGroup(child, 'SIGKILL')
+    onKilled?.()
+  }, KILL_AFTER_MS).unref()
+}
+
+/**
+ * Probes whose group has not had its SIGKILL yet: each is detached, so one Cockpit quits
+ * under would outlive it — five built-ins at every launch, and every re-probe after.
+ */
+const probeGroups = new Set<ChildProcess>()
+
 /**
  * End a probed agent and everything it started: EOF first (an agent may exit on it), then
- * SIGTERM to its whole group, then SIGKILL for whatever still ignores that — Cursor's agent
- * waits past EOF, and a probe runs at every launch, so anything it leaves would pile up.
+ * the group's SIGTERM and SIGKILL (`endGroup`) — Cursor's agent waits past EOF, Gemini's
+ * launcher re-runs itself as a child, and a probe runs at every launch, so anything it
+ * leaves would pile up.
  */
 function endProbe(child: ChildProcess): void {
-  const signal = (sig: NodeJS.Signals): void => {
-    try {
-      if (child.pid) process.kill(-child.pid, sig)
-      else child.kill(sig)
-    } catch {
-      /* the group has gone */
-    }
-  }
   try {
     child.stdin?.end()
   } catch {
     /* already closed */
   }
-  signal('SIGTERM')
-  if (child.exitCode !== null || child.signalCode !== null) return
-  const timer = setTimeout(() => signal('SIGKILL'), EXIT_GRACE_MS)
-  timer.unref()
-  child.once('exit', () => clearTimeout(timer))
+  endGroup(child, () => probeGroups.delete(child))
+}
+
+/**
+ * Quitting: kill every probe's group that has not been killed yet, at once. A probe holds
+ * no work — only a handshake — and the timer that would have ended it will not run.
+ */
+export function stopAcpProbes(): void {
+  for (const child of probeGroups) signalGroup(child, 'SIGKILL')
+  probeGroups.clear()
+}
+
+/** `p`, or — once `ms` pass without it settling — a rejection with `late()`'s error. */
+function within<T>(p: Promise<T>, ms: number, late: () => Error): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(late()), ms)
+  })
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer))
+}
+
+function inSeconds(ms: number): string {
+  const s = Math.round(ms / 1000)
+  return `${s} second${s === 1 ? '' : 's'}`
+}
+
+/** What a turn or a probe says of an agent that never answered `initialize`. */
+function handshakeLate(who: string, ms: number): Error {
+  return new Error(
+    `${who} did not answer the ACP handshake within ${inSeconds(ms)} — it may be stuck, or waiting for input it can't get here.`
+  )
 }
 
 /** What a turn that could not sign in says: the agent's own reason, and what fixes it. */
@@ -552,6 +632,7 @@ export function probeAcpAgent(agent: AcpAgent, cwd: string): Promise<AcpAgentPro
       resolve({ ok: false, error: messageFor(err) })
       return
     }
+    probeGroups.add(child)
     let stderr = ''
     let settled = false
     const done = (probe: AcpAgentProbe): void => {
@@ -562,8 +643,8 @@ export function probeAcpAgent(agent: AcpAgent, cwd: string): Promise<AcpAgentPro
       resolve(probe)
     }
     const timer = setTimeout(
-      () => done({ ok: false, error: 'the agent did not answer the ACP handshake within 15 seconds' }),
-      15_000
+      () => done({ ok: false, error: handshakeLate('the agent', HANDSHAKE_MS).message }),
+      HANDSHAKE_MS
     )
     child.stderr!.setEncoding('utf8')
     child.stderr!.on('data', (c: string) => {

@@ -5,6 +5,7 @@ import type {
   AcpAgent,
   BusySession,
   ChatEvent,
+  ChatPermission,
   ChatRequest,
   ModelEndpoint,
   Provider,
@@ -22,6 +23,7 @@ import { LineSplitter, capText, contentToText, jsonText, shellPreview, toolPrevi
 import { fileChangeArtifact, todoListArtifact, toolArtifact } from './parsers/artifacts'
 import { commandItemCheck } from './parsers/checks'
 import { cliEnv } from './env'
+import { codexSeatArgs, seatFence } from './seat-fence'
 import {
   CLAUDE_HOST_ARGS,
   claudeAnswer,
@@ -47,7 +49,8 @@ import { AGENT_LABEL, CONFIG_HOME_VAR, isDrivable } from '../shared/providers'
  * One session, one turn: `send` refuses to resume a session whose turn is still in flight
  * (`assertNotRunning`), and every spawned `BusySession` carries its live `turnId`, so a
  * window that opens the session mid-turn rejoins it (`rejoin.ts` in the renderer) rather
- * than showing it idle.
+ * than showing it idle — and is handed back the questions the turn is still blocked on
+ * (`pendingPermissions`), which no log holds and the stream said only once.
  */
 
 type Emit = (ev: ChatEvent) => void
@@ -117,28 +120,12 @@ export function withTurnFlags(agent: AcpAgent | undefined, req: CliRequest): Acp
 
 /**
  * What a safe-mode Claude seat may use without an approval nobody is there to give (as
- * `--allowedTools`): web search and page fetches. Research only — reading the workspace needs no allowance, and
- * the shell stays refused because no rule can keep a command read-only.
+ * `--allowedTools`): web search and page fetches. Research only — reading the workspace
+ * needs no allowance, and the shell is not in a seat's tools at all (`CLAUDE_SEAT_TOOLS`)
+ * because no rule can keep a command read-only.
  */
 export const CLAUDE_RESEARCH_TOOLS: readonly string[] = ['WebSearch', 'WebFetch']
 
-/**
- * A read-only Codex seat's reach: its sandbox with the network on, so a `curl` to a
- * registry or an RDAP page can check a claim — the files stay read-only. A permission
- * profile is the one way to give a read-only sandbox the network (`network_access` is
- * workspace-write's alone). The profile beats a `sandbox_mode` set with `-c`, which stays
- * as the floor for a Codex that predates profiles; the `--sandbox` flag would beat the
- * profile. The filesystem is listed as well as extended, since a Codex whose profiles
- * predate `extends` (0.120's do) ignores it. Without this a seat's lookups ran only where the
- * person's own Codex config had its auto-reviewer approve each one out of the sandbox.
- */
-const CODEX_RESEARCH_PROFILE = 'cockpit-roundtable-seat'
-export const CODEX_RESEARCH_ARGS: readonly string[] = [
-  '-c',
-  `permissions.${CODEX_RESEARCH_PROFILE}={ extends = ":read-only", filesystem = { ":root" = "read" }, network = { enabled = true } }`,
-  '-c',
-  `default_permissions="${CODEX_RESEARCH_PROFILE}"`
-]
 
 /**
  * What a side question's copy of a Claude session may use: it reads, it never writes or
@@ -148,11 +135,41 @@ export const CODEX_RESEARCH_ARGS: readonly string[] = [
 export const CLAUDE_SIDE_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob']
 
 /**
+ * A safe-mode Claude seat's whole tool set: reading the workspace, and the research tools
+ * (`CLAUDE_RESEARCH_TOOLS`). As `--tools` it is the built-in set itself, not a pre-approval:
+ * the person's or the repo's default mode (`acceptEdits`, `bypassPermissions`) and allow
+ * rules such as `Bash(git:*)` otherwise reached a seat that was told it has no shell.
+ */
+export const CLAUDE_SEAT_TOOLS: readonly string[] = [...CLAUDE_SIDE_TOOLS, ...CLAUDE_RESEARCH_TOOLS]
+
+/**
+ * No hooks at all — the person's, the repo's or a plugin's — for a turn that may only read:
+ * a side question's copy, a roundtable seat. `--tools` and `--strict-mcp-config` leave them
+ * on, and `claude -p` fires SessionStart: a hook that syncs the checkout when a session
+ * starts (a `git fetch` and a fast-forward merge, say) moved the session's worktree for a
+ * question that was never to change a file. Verified: a project SessionStart hook fires
+ * under `-p --no-session-persistence --tools Read --strict-mcp-config`, and not once these
+ * settings are added.
+ */
+export const CLAUDE_NO_HOOKS: readonly string[] = ['--settings', JSON.stringify({ disableAllHooks: true })]
+
+/**
  * A side question's copy of a Codex session: a read-only sandbox, and nothing escalates
  * out of it — an approvals reviewer in the person's own config would otherwise wave a
- * write through. `exec fork` takes no `--sandbox` flag, so both are config overrides.
+ * write through. `exec fork` takes no `--sandbox` flag, so each is a config override. The
+ * built-in `:read-only` permission profile (the one a seat's, `codexSeatArgs`, extends) goes
+ * with the sandbox mode, since a profile beats `sandbox_mode`: a `default_permissions` in
+ * the person's own config.toml ran the copy under that profile, a writable one included.
+ * `sandbox_mode` stays as the floor for a Codex that predates profiles.
  */
-export const CODEX_SIDE_ARGS: readonly string[] = ['-c', 'sandbox_mode="read-only"', '-c', 'approval_policy="never"']
+export const CODEX_SIDE_ARGS: readonly string[] = [
+  '-c',
+  'sandbox_mode="read-only"',
+  '-c',
+  'default_permissions=":read-only"',
+  '-c',
+  'approval_policy="never"'
+]
 
 /**
  * Auto-edit's "anything more still asks", for Codex. Its workspace sandbox keeps `.git`
@@ -162,8 +179,15 @@ export const CODEX_SIDE_ARGS: readonly string[] = ['-c', 'sandbox_mode="read-onl
  * sandbox once approved. Headless, nobody can approve, so each escalation goes to Codex's
  * own approvals reviewer — what `codex exec --approve-for-me` sets, in the `-c` form that
  * `exec resume` also takes. Verified on 0.157: without it a commit in a linked worktree is
- * refused, with it the commit is reviewed and lands. Deliberately not a writable `.git`:
- * a sandboxed agent that can write hooks or objects can run code outside the sandbox.
+ * refused, with it the commit is reviewed and lands.
+ *
+ * What the reviewer can approve, plainly: an approved escalation re-runs the command
+ * outside the sandbox, with the person's own access, and whatever code that command runs
+ * goes with it — code the agent wrote included, such as a hook the repository's hooks path
+ * points into (husky's) or a package script behind `npm test`. So an approval reaches as
+ * far as that code does, not only as far as the command reads. A writable `.git` was not
+ * the alternative taken because it is no smaller: a sandboxed agent that can write hooks
+ * or objects runs code outside the sandbox with no review at all.
  */
 export const CODEX_REVIEWED_ARGS: readonly string[] = [
   '-c',
@@ -183,6 +207,8 @@ export type BuildOptions = {
    * side question's copy, which may only read.
    */
   readonly askHost?: boolean
+  /** A Codex seat: the paths its sandbox denies (`seatFence` in seat-fence.ts) */
+  readonly seatDenied?: readonly string[]
 }
 
 /** Why a turn for an agent Cockpit only reads could not start — and what would let it. */
@@ -214,9 +240,16 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
       if (effort) args.push('--effort', effort)
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
-      if (req.research && req.permissionMode === 'safe') args.push('--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
+      // a roundtable seat reads and looks things up, nothing more: the tools it may use at
+      // all, the web pre-approved among them, and no hooks, which run whatever they say.
+      // No MCP servers either — `--tools` names built-ins only, so a server's tools stayed
+      // within reach of a default mode that bypasses permissions, or of an allow rule
+      if (req.research && req.permissionMode === 'safe' && !fork) {
+        args.push('--tools', CLAUDE_SEAT_TOOLS.join(','), '--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
+        args.push('--strict-mcp-config', ...CLAUDE_NO_HOOKS)
+      }
       // no MCP servers either: a copy answering a question needs none, and starts faster
-      if (fork) args.push('--tools', CLAUDE_SIDE_TOOLS.join(','), '--strict-mcp-config')
+      if (fork) args.push('--tools', CLAUDE_SIDE_TOOLS.join(','), '--strict-mcp-config', ...CLAUDE_NO_HOOKS)
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
       if (fork) args.push('--fork-session', '--no-session-persistence')
       if (opts.askHost && !fork) {
@@ -266,7 +299,7 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
       // only the workspace sandbox auto-edit means: a read-only one the person picked stays
       // read-only, and nothing is reviewed out of a safe turn
       if (req.permissionMode === 'auto-edit' && sandbox === 'workspace-write') args.push(...CODEX_REVIEWED_ARGS)
-      if (research) args.push(...CODEX_RESEARCH_ARGS)
+      if (research) args.push(...codexSeatArgs(opts.seatDenied))
       if (req.permissionMode === 'yolo') args.push('--dangerously-bypass-approvals-and-sandbox')
       args.push('--', promptWithImages(req))
       return { cmd: 'codex', args }
@@ -471,6 +504,11 @@ type RunningTurn = {
    *  waiting on, by request id, with the input an allow hands back — mutated as they
    *  are asked and answered */
   readonly claudeAsks?: Map<string, unknown>
+  /** The questions the person has been shown and not yet answered, ACP's and Claude's
+   *  alike, by request id: what a window that reloaded while a card was up is handed back
+   *  (`pendingPermissions`). Made with the first one — assigned once and then mutated as
+   *  they are asked, answered and withdrawn, so not readonly */
+  openAsks?: Map<string, ChatPermission>
 }
 
 /** Optional collaborators wired by services.ts (busy board, attention, BYOK endpoint/keychain store). */
@@ -519,6 +557,8 @@ export class ChatManager {
       (a.turnId === null) !== (b.turnId === null) ? a.turnId !== null : a.startedAt < b.startedAt
     const byId = new Map<string, Entry>()
     for (const [turnId, t] of this.turns) {
+      // an ACP turn that said done is over: its agent is only being reaped (startAcpTurn)
+      if (t.acp && t.doneSent) continue
       const entry: Entry = { startedAt: t.startedAt, turnId: t.doneSent ? null : turnId }
       for (const nativeId of t.sessionIds) {
         const id = `${t.provider}:${nativeId}`
@@ -623,7 +663,8 @@ export class ChatManager {
     }
     const cli: CliRequest = { ...req, provider }
     const askHost = provider === 'claude' && asksPermissions
-    const { cmd, args, stdin } = buildCommand(cli, { askHost })
+    const seatDenied = cli.research === true && provider === 'codex' ? seatFence(cli.cwd) : undefined
+    const { cmd, args, stdin } = buildCommand(cli, { askHost, seatDenied })
     const env = cliEnv()
     // BYOK: resolve the endpoint and its key, refuse loudly rather than silently
     // falling back to the provider's own backend
@@ -796,11 +837,12 @@ export class ChatManager {
 
   /**
    * Emit one event and keep the turn's bookkeeping with it: a session id the stream
-   * announces is a new id this turn is busy under, and a `done` is what stops the close
-   * handler from reporting a failure on top of it — and leaves nothing to rejoin while
-   * the process exits.
+   * announces is a new id this turn is busy under, a question is one the turn now waits
+   * on, and a `done` is what stops the close handler from reporting a failure on top of
+   * it — and leaves nothing to rejoin while the process exits.
    */
   private deliver(turn: RunningTurn, ev: ChatEvent): void {
+    if (ev.type === 'permission') (turn.openAsks ??= new Map()).set(ev.requestId, ev)
     if (ev.type === 'done' && !turn.doneSent) {
       turn.doneSent = true
       this.notifyBusy()
@@ -812,7 +854,12 @@ export class ChatManager {
     this.emit(ev)
   }
 
-  /** Spawn and run an ACP turn, with the same busy/cancel bookkeeping as a CLI turn. */
+  /**
+   * Spawn and run an ACP turn, with the same busy/cancel bookkeeping as a CLI turn. The
+   * turn is over, and off the busy board, once `run()` resolves — but its agent may keep
+   * running past EOF (Cursor's does) until `reap` stops it. The entry stays, marked done,
+   * until that process has gone (`exited`), so quitting (`cancelAll`) still reaches it.
+   */
   private startAcpTurn(
     turnId: string,
     req: ChatRequest,
@@ -829,9 +876,8 @@ export class ChatManager {
       // an agent Cockpit only reads continues the conversation the person opened, or not at all
       mustResume: !isDrivable(req.provider),
       emit: (ev) => {
-        const turn = this.turns.get(turnId)
         // a cancelled turn is already off the board; its trailing events are the kill
-        if (turn) this.deliver(turn, ev)
+        if (this.turns.get(turnId) === turn) this.deliver(turn, ev)
       }
     })
     const turn: RunningTurn = {
@@ -844,12 +890,14 @@ export class ChatManager {
     }
     this.turns.set(turnId, turn)
     this.notifyBusy()
-    void acp.run(promptWithImages(req), req.resumeNativeId).then(() => {
+    const over = acp.run(promptWithImages(req), req.resumeNativeId).then(() => {
       // run() reports every outcome as events and never rejects, so reaching here means
-      // the turn is over one way or another
+      // the turn is over one way or another — a cancelled one's done is the kill's
       if (!turn.doneSent) this.emit({ turnId, type: 'done' })
-      this.turns.delete(turnId)
-      this.notifyBusy()
+    })
+    // settled, not resolved: a listener that throws on the done must not keep the entry
+    void Promise.allSettled([over, acp.exited]).then(() => {
+      if (this.turns.get(turnId) === turn) this.turns.delete(turnId)
     })
   }
 
@@ -862,7 +910,22 @@ export class ChatManager {
       writeLine(turn.child, control.line)
     } else {
       turn.claudeAsks?.delete(control.requestId)
+      // a question the person was shown has a card to take down; one already answered,
+      // or never shown (a question the chat offers as picks), has none
+      if (turn.openAsks?.delete(control.requestId)) this.deliver(turn, control.event)
     }
+  }
+
+  /**
+   * The questions a turn is blocked on now. A window keeps its cards in its own state and
+   * the stream says each one once, so a window that reloaded while one was up — ⌘R, or
+   * the reload after a renderer crash — asks for them as it rejoins the turn; without
+   * them it showed "working…" while the agent waited on an answer nobody could give.
+   * Empty once the turn has said it is done.
+   */
+  pendingPermissions(turnId: string): ChatPermission[] {
+    const turn = this.turns.get(turnId)
+    return turn && !turn.doneSent ? [...(turn.openAsks?.values() ?? [])] : []
   }
 
   /**
@@ -872,6 +935,10 @@ export class ChatManager {
    */
   respondPermission(turnId: string, requestId: string, optionId: string): void {
     const turn = this.turns.get(turnId)
+    // one of the card's own options answers it, whichever transport then carries it
+    if (turn?.openAsks?.get(requestId)?.options.some((o) => o.optionId === optionId)) {
+      turn.openAsks.delete(requestId)
+    }
     turn?.acp?.respondPermission(requestId, optionId)
     const asks = turn?.claudeAsks
     if (!turn || !asks?.has(requestId)) return
