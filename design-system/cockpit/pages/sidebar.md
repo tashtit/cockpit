@@ -54,21 +54,27 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   ⌘N in the tooltip — creates). Icon-only on purpose — the accent fill alone says
   "this one creates"; keep it off the app-name row, which stays purely the
   wordmark. Everything else that starts a session is hover-revealed or keyboard.
-- The eye's popover (`.repo-filter-pop`, "What the tree shows") holds two groups: **Sessions**
-  — a radio group, *All sessions* / *In Cockpit* / *Outside Cockpit*, each with what it would
-  leave in the tree, hidden agents still hidden (`shownSessions`) — then the projects'
-  checkboxes under a hairline (`.repo-filter-divided`). Its height stops 8px short of the
-  window's bottom edge (`min(340px, 100vh − 116px)`), so the floor never clips it. The holder choice
-  is a per-machine view preference (`hold.ts`, localStorage, like the folds): it narrows every
-  page and search to `SessionQuery.holder`, drops projects with no session on that side
-  (`heldSessions`; a project's tables count as Cockpit's), and the repo pills show the
-  narrowed count. An archived toggle under a filter (a holder, or an agent hidden) says
-  *Archived* with no number — its count is every archived session's, and a wrong number is
-  worse than none. Because the choice survives a restart, `.tree-scope` says it in words under the search row while it
-  lasts — an accent-tinted strip, the side's glyph, *Only sessions in Cockpit* (the whole
-  sentence in its tooltip, since a narrow rail ellipsizes it), and a
-  **Show all** link — and the eye lights (`.filter-active` + `.filter-dot`) for it as for a
-  hidden project.
+- The eye's popover (`.repo-filter-pop`, "What the tree shows") holds three groups: **Sessions**
+  — a radio group, *All sessions* / *In Cockpit* / *Outside Cockpit*, each with what it would leave in the tree, hidden agents still hidden (`shownSessions`) —
+  then **Agents**, a checkbox per agent with sessions in the shown projects (its logo in its
+  livery, its count; in the one order every agent list uses, `SESSION_PROVIDERS`), then
+  **Projects**, the projects' checkboxes; each group after the first under a hairline
+  (`.repo-filter-divided`). Its height stops 8px short of the window's bottom edge
+  (`min(340px, 100vh − 116px)`), so the floor never clips it. The Agents group appears only once there is a choice — more than
+  one agent, or one hidden — and a hidden agent keeps its row, at 0 when nothing of it is left
+  in the shown projects, so it can always be switched back on. Both choices are per-machine view preferences (`hold.ts`, `agent-filter.ts`: localStorage
+  through `stored-value.ts`, like the folds); the agents are kept as the ones *hidden*, so an
+  agent Cockpit starts reading later shows up unasked. Together they narrow every page and
+  search (`SessionQuery.holder`, `SessionQuery.providers` via `shownProviders`), drop projects
+  with nothing left to show (`shownSessions`; a project's tables count as Cockpit's), and the
+  repo pills show the narrowed count. An archived toggle under a filter (a holder, or an agent hidden) says *Archived* with no
+  number — its count is every archived session's, and a wrong number is worse than none.
+  Because the choices survive a restart, `.tree-scope` says them in words under the search
+  row while they last — an accent-tinted strip, the side's glyph, *Only sessions in Cockpit,
+  not Gemini or Cursor* (the whole sentence in its tooltip, since a narrow rail ellipsizes it), and a **Show all** link that clears both — and the eye lights
+  (`.filter-active` + `.filter-dot`) for them as for a hidden project, its tooltip saying how
+  many agents and projects are hidden. The ⌘K palette's transcript search follows the hidden agents too (see
+  `pages/palette.md`).
 - `.search` input, 250ms debounce (⌘K belongs to the palette, not this field —
   the search filters the tree in place; the palette jumps). Non-empty search swaps the
   whole tree for `SearchResults` grouped by repo name.
@@ -81,7 +87,7 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
     local repos show just the name), tiny per-provider logos (10px), bordered
     `.repo-count` pill = session count (the pill shape is reserved for this meaning).
   - `.session-row` — indented under a 1px left indent guide (`.repo-children`), agent
-    logo, title, `.held-mark` — Cockpit's hexagon (`HeldIcon`, 10px, `--fg-dim`) when
+    logo, title, `.held-mark` — Cockpit's hexagon (`HeldMark`, 10px, `--fg-dim`) when
     Cockpit drives the session (`SessionMeta.control.holder`), with an `sr-only` "(in Cockpit)"
     and the whole story in the tooltip (`holdSentence`: *In Cockpit — taken over from Claude*,
     *In Codex — opened outside Cockpit*). Only Cockpit's side is marked: most rows come from
@@ -203,8 +209,9 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 - Sessions load `PAGE` (20) at a time via `pageSessions`; `.tree-more` shows
   `more… (loaded/total)`. Hard clamp `MAX_LOADED` (1000) matches the server-side page cap.
 - Search caps at 100 items and says `N more — refine your search` — it never dumps everything.
-- Live-index refetches must not churn row identity: `sameList` keeps the previous array
-  when nothing visible changed. Preserve this when touching fetch logic.
+- Live-index refetches must not churn row identity: the page loads through `useLoaded` with
+  `keepSame` (`same.ts`), which keeps the previous page when the new one says the same thing,
+  field for field. Preserve this when touching fetch logic.
 
 ## Keyboard & ARIA
 
@@ -223,4 +230,5 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
 
 - Selected session = agent-colored gradient + 2px inset bar via `:has(.plogo-*)` —
   the agent's identity survives selection. New agents must slot into the same pattern
-  (`--<agent>-rgb` token + `:has` rule), not a new selection style.
+  (their `--<agent>-rgb` token, or the shared `--mono-mark-rgb`, + a `:has` rule), not a new
+  selection style.
