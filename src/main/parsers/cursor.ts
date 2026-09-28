@@ -11,6 +11,7 @@ import {
   fileTimes,
   jsonText,
   parseJsonlText,
+  plausibleTime,
   readHead,
   readJsonlTail,
   readSmallFile,
@@ -162,7 +163,7 @@ function pathHints(lines: readonly any[]): string[] {
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
-/** `Aug 19, 2026, 12:56 AM (UTC+3)` → epoch ms; null for anything else. */
+/** `Aug 19, 2026, 12:56 AM (UTC+3)` → epoch ms; null for anything else, a time no chat can have included. */
 export function cursorQueryTime(text: string): number | null {
   const m =
     /<timestamp>[^<]*?([A-Za-z]{3})[a-z]* (\d{1,2}), (\d{4}),? (\d{1,2}):(\d{2})\s*(AM|PM)?\s*\((?:UTC|GMT)(?:([+-])(\d{1,2})(?::?(\d{2}))?)?\)/.exec(
@@ -175,7 +176,7 @@ export function cursorQueryTime(text: string): number | null {
   if (m[6] === 'PM') hour += 12
   if (!m[6]) hour = Number(m[4])
   const offset = (m[7] === '-' ? -1 : 1) * (Number(m[8] ?? 0) * 60 + Number(m[9] ?? 0))
-  return Date.UTC(Number(m[3]), month, Number(m[2]), hour, Number(m[5])) - offset * 60_000
+  return plausibleTime(Date.UTC(Number(m[3]), month, Number(m[2]), hour, Number(m[5])) - offset * 60_000)
 }
 
 /** What the person asked: the `<user_query>` inside the wrapper Cursor sends, else the text. */
@@ -326,9 +327,10 @@ const composerChats = snapshotCache((db: string): Map<string, Composer> | null =
     if (!id || messages === 0) continue
     out.set(id, {
       name: typeof r['name'] === 'string' && r['name'].trim() ? r['name'] : null,
-      created: toMs(r['created']),
+      // a drifted field decodes to any number at all: the store's own time stands in
+      created: plausibleTime(toMs(r['created'])),
       // the chat's own stamp can lag its last message by minutes
-      updated: Math.max(toMs(r['updated']) ?? 0, toMs(r['last']) ?? 0) || null,
+      updated: Math.max(plausibleTime(toMs(r['updated'])) ?? 0, plausibleTime(toMs(r['last'])) ?? 0) || null,
       cwd: usableCwd(r['cwd']),
       messages,
       preview: typeof r['preview'] === 'string' && r['preview'].trim() ? r['preview'] : null,
@@ -452,7 +454,7 @@ function composerMessages(db: string, id: string): SessionMessage[] {
   const out: SessionMessage[] = []
   for (const b of order) {
     if (!b) continue
-    const ts = toMs(b.created ?? b.createdAt) ?? undefined
+    const ts = plausibleTime(toMs(b.created ?? b.createdAt)) ?? undefined
     const type = Number(b.type)
     const text = str(b.text)
     if (type === 1) {
@@ -545,7 +547,7 @@ function acpStore(file: string): AcpStore | null {
   return {
     id: str(meta?.agentId) ?? basename(dirname(file)),
     name: str(meta?.name),
-    createdAt: toMs(meta?.createdAt),
+    createdAt: plausibleTime(toMs(meta?.createdAt)),
     order,
     uri: protoString(root, [9])
   }

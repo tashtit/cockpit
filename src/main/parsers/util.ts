@@ -692,6 +692,19 @@ export function usableCwd(v: unknown): string | null {
   return typeof v === 'string' && v !== '' && v.length <= MAX_CWD_CHARS ? v : null
 }
 
+/** No session any agent keeps is older than this (2000-01-01T00:00:00Z). */
+const EARLIEST_TIME_MS = Date.UTC(2000, 0, 1)
+
+/**
+ * A decoded time when it can be one: epoch ms from 2000 to a day from now, else null for
+ * the caller to fall back on the file's own time. A field read without a schema (a
+ * protobuf's), or from a format that drifted, decodes to whatever its bytes say — ~1e22
+ * ms showed as Invalid Date and sorted to the top of every list.
+ */
+export function plausibleTime(ms: number | null | undefined): number | null {
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= EARLIEST_TIME_MS && ms <= Date.now() + 86_400_000 ? ms : null
+}
+
 export function toMs(v: unknown): number | null {
   if (typeof v === 'number') return v > 1e12 ? v : v * 1000
   if (typeof v === 'string') {

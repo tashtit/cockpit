@@ -1,5 +1,5 @@
 import { afterAll, describe, it, expect, beforeAll } from 'vitest'
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
@@ -2421,6 +2421,26 @@ describe('antigravity parser', () => {
       expect.objectContaining({ id: 'antigravity:moved', title: 'Record the onboarding flow' })
     ])
   })
+
+  // its fields are read without a schema: one that drifted decodes to any number at all,
+  // which showed as Invalid Date and sorted the conversation above every other
+  it('falls back to the file’s own time for a timestamp no conversation can have', () => {
+    const home2 = join(root, 'antigravity-drifted')
+    const file = join(home2, 'conversations', 'drifted.db')
+    const drifted = 1e18
+    writeAntigravityConversation(file, {
+      cwd: '/Users/me/dev/cachely',
+      began: drifted,
+      steps: [
+        { at: drifted, user: 'Make the landing page faster' },
+        { at: m(1), reply: 'Profiling it.' }
+      ]
+    })
+    const [meta] = listAntigravitySessions(home2, 'a')
+    expect(meta!.startedAt).toBe(statSync(file).mtimeMs)
+    const rows = parseAntigravityMessages(file)
+    expect(rows.map((r) => r.ts)).toEqual([undefined, m(1)])
+  })
 })
 
 describe('opencode parser', () => {
@@ -2662,6 +2682,16 @@ describe('cursor parser: the editor’s own chats', () => {
     ])
     expect(rows[2]!.preview).toBe('src/auth.ts')
     expect(rows[3]).toMatchObject({ failed: true, artifact: { kind: 'check', checks: ['tests'] } })
+  })
+
+  it('falls back to the store’s own time for a chat time no chat can have', () => {
+    const drifted = join(root, 'cursor-editor-drifted', 'User', 'globalStorage')
+    const db = join(drifted, 'state.vscdb')
+    writeCursorChats(db, [
+      { id: 'd', name: 'Drifted', cwd: '/x', created: 1.8e22, updated: 1.8e22, bubbles: [{ type: 1, at, text: 'hi' }] }
+    ])
+    const store = Math.max(statSync(db).mtimeMs, existsSync(`${db}-wal`) ? statSync(`${db}-wal`).mtimeMs : 0)
+    expect(listCursorSessions(drifted, 'c')).toEqual([expect.objectContaining({ id: 'cursor:d', startedAt: store })])
   })
 
   // every other store opens a long conversation on its newest messages within the

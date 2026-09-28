@@ -10,6 +10,7 @@ import {
   jsonArrayItems,
   judgeJsonlTail,
   parseJsonc,
+  plausibleTime,
   readHead,
   readHeadBytes,
   readHeadBytesAsync,
@@ -286,6 +287,20 @@ describe('parseJsonc', () => {
   })
   it('leaves // inside string values alone', () => {
     expect(parseJsonc('{"url":"https://example.com"}')).toEqual({ url: 'https://example.com' })
+  })
+})
+
+describe('plausibleTime', () => {
+  it('takes a time from 2000 to a day from now, and nothing a drifted field decodes to', () => {
+    const now = Date.now()
+    expect(plausibleTime(Date.parse('2026-08-22T23:14:00Z'))).toBe(Date.parse('2026-08-22T23:14:00Z'))
+    expect(plausibleTime(now + 3_600_000)).toBe(now + 3_600_000)
+    expect(plausibleTime(1.8e22)).toBeNull()
+    expect(plausibleTime(now + 2 * 86_400_000)).toBeNull()
+    expect(plausibleTime(Date.parse('1999-12-31T23:59:59Z'))).toBeNull()
+    expect(plausibleTime(0)).toBeNull()
+    expect(plausibleTime(Number.NaN)).toBeNull()
+    expect(plausibleTime(null)).toBeNull()
   })
 })
 

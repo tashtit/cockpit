@@ -6,7 +6,7 @@ import { checklistArtifact, fileWriteArtifact, planArtifact, replaceArtifact } f
 import { checkArtifact, checkOutcome } from './checks'
 import { protoAll, protoString, protoStrings, protoTime } from './protobuf'
 import { dbMtime, queryAll, queryEach } from './sqlite'
-import { capText, jsonText, TRANSCRIPT_TAIL_BYTES, truncate, usableCwd } from './util'
+import { capText, jsonText, plausibleTime, TRANSCRIPT_TAIL_BYTES, truncate, usableCwd } from './util'
 
 /**
  * Antigravity — the agent IDE and its CLI — keeps one SQLite database per conversation,
@@ -76,7 +76,7 @@ function workspace(file: string): { cwd: string | null; branch: string | null; r
     cwd,
     branch: protoString(data, [1, 4]) || null,
     repo: repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? repo : null,
-    began: protoTime(data, [2])
+    began: plausibleTime(protoTime(data, [2]))
   }
 }
 
@@ -130,7 +130,7 @@ export function parseAntigravityMeta(file: string, sourceLabel: string): Session
     cwd: ws.cwd,
     logBranch: ws.branch,
     ...(ws.repo ? { repoFullName: ws.repo } : {}),
-    startedAt: ws.began ?? (first ? protoTime(first, [5, 1]) : null) ?? dbMtime(file),
+    startedAt: ws.began ?? (first ? plausibleTime(protoTime(first, [5, 1])) : null) ?? dbMtime(file),
     updatedAt: dbMtime(file),
     messageCount,
     sourcePath: file
@@ -194,7 +194,7 @@ function artifactOf(name: string, a: Record<string, unknown>): WorkArtifact | un
 
 /** One step as transcript rows. */
 export function stepRows(p: Uint8Array): SessionMessage[] {
-  const ts = protoTime(p, [5, 1]) ?? undefined
+  const ts = plausibleTime(protoTime(p, [5, 1])) ?? undefined
   const user = userText(p)
   if (user) return [{ role: 'user', kind: 'text', text: capText(user), ts }]
   if (protoAll(p, [20]).length > 0) {
