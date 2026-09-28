@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, shell } from 'electron'
 import { join, resolve } from 'node:path'
+import { stopAcpProbes } from './acp'
 import { appMenuTemplate } from './app-menu'
 import { loadLoginShellPath } from './env'
 import { startServices, type Services } from './services'
@@ -85,9 +86,12 @@ app.on('window-all-closed', () => {
 // process group of its own (so a cancel reaches its tools), which is also what lets
 // it outlive Cockpit — still editing a worktree, still spending — unless it is
 // stopped here. SIGTERM only: the SIGKILL a cancel escalates to later needs a timer
-// this process won't be alive to run.
+// this process won't be alive to run. The ACP handshake probes are detached too, and
+// hold no work, so they are killed outright — here only, since a window closing is no
+// reason to cut a launch-time probe short.
 app.on('will-quit', () => {
   stopSpawnedWork()
+  stopAcpProbes()
   services?.indexer.stopWatchers()
   services?.indexer.saveCache()
 })

@@ -36,7 +36,8 @@ import { LineSplitter, MAX_STREAM_LINE_CHARS, truncate } from './parsers/util'
  * what to run (`signIn`). Every process Cockpit starts here — a turn's, and the launch-time
  * `probeAcpAgent` — runs in its own group and is ended as a group, since some agents
  * re-launch themselves as a child and some ignore EOF: SIGTERM, then SIGKILL for whatever
- * in the group still ignores it (`endGroup`).
+ * in the group still ignores it (`endGroup`). Quitting stops a turn through ChatManager,
+ * and kills any probe still about (`stopAcpProbes`).
  */
 
 type TurnOptions = {
@@ -519,35 +520,42 @@ function signalGroup(child: ChildProcess, sig: NodeJS.Signals): void {
  * started that ignores the signal is still in the group (the lesson ChatManager.cancel
  * records). For a group that is already empty the SIGKILL is a no-op.
  */
-function endGroup(child: ChildProcess): void {
+function endGroup(child: ChildProcess, onKilled?: () => void): void {
   signalGroup(child, 'SIGTERM')
-  setTimeout(() => signalGroup(child, 'SIGKILL'), KILL_AFTER_MS).unref()
+  setTimeout(() => {
+    signalGroup(child, 'SIGKILL')
+    onKilled?.()
+  }, KILL_AFTER_MS).unref()
 }
 
 /**
+ * Probes whose group has not had its SIGKILL yet: each is detached, so one Cockpit quits
+ * under would outlive it — five built-ins at every launch, and every re-probe after.
+ */
+const probeGroups = new Set<ChildProcess>()
+
+/**
  * End a probed agent and everything it started: EOF first (an agent may exit on it), then
- * SIGTERM to its whole group, then SIGKILL for whatever still ignores that — Cursor's agent
- * waits past EOF, and a probe runs at every launch, so anything it leaves would pile up.
+ * the group's SIGTERM and SIGKILL (`endGroup`) — Cursor's agent waits past EOF, Gemini's
+ * launcher re-runs itself as a child, and a probe runs at every launch, so anything it
+ * leaves would pile up.
  */
 function endProbe(child: ChildProcess): void {
-  const signal = (sig: NodeJS.Signals): void => {
-    try {
-      if (child.pid) process.kill(-child.pid, sig)
-      else child.kill(sig)
-    } catch {
-      /* the group has gone */
-    }
-  }
   try {
     child.stdin?.end()
   } catch {
     /* already closed */
   }
-  signal('SIGTERM')
-  if (child.exitCode !== null || child.signalCode !== null) return
-  const timer = setTimeout(() => signal('SIGKILL'), EXIT_GRACE_MS)
-  timer.unref()
-  child.once('exit', () => clearTimeout(timer))
+  endGroup(child, () => probeGroups.delete(child))
+}
+
+/**
+ * Quitting: kill every probe's group that has not been killed yet, at once. A probe holds
+ * no work — only a handshake — and the timer that would have ended it will not run.
+ */
+export function stopAcpProbes(): void {
+  for (const child of probeGroups) signalGroup(child, 'SIGKILL')
+  probeGroups.clear()
 }
 
 /** What a turn that could not sign in says: the agent's own reason, and what fixes it. */
@@ -584,6 +592,7 @@ export function probeAcpAgent(agent: AcpAgent, cwd: string): Promise<AcpAgentPro
       resolve({ ok: false, error: messageFor(err) })
       return
     }
+    probeGroups.add(child)
     let stderr = ''
     let settled = false
     const done = (probe: AcpAgentProbe): void => {

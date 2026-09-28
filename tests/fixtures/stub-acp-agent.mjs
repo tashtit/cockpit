@@ -3,17 +3,28 @@
  * JSON-RPC on stdio exactly as `copilot --acp` does; STUB_MODE picks the behaviour.
  */
 import { spawn } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 
 const mode = process.env.STUB_MODE ?? 'basic'
 // 'relaunch': like Gemini's launcher, the agent runs a child of its own that outlives a
-// signal to the parent alone; its pid goes to STUB_PIDFILE for the test to look for
+// signal to the parent alone. The launcher exits on SIGTERM and its child ignores it, so
+// only a SIGKILL to the group that outlasts the launcher ends the child. The child writes
+// its pid to STUB_PIDFILE once it ignores SIGTERM, and the launcher answers no handshake
+// before then — a signal that beat the child's handler would prove nothing
 if (mode === 'relaunch') {
-  const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
-    stdio: 'ignore'
-  })
-  writeFileSync(process.env.STUB_PIDFILE, String(child.pid))
-  process.on('SIGTERM', () => {})
+  spawn(
+    process.execPath,
+    [
+      '-e',
+      "process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(process.env.STUB_PIDFILE, String(process.pid)); setInterval(() => {}, 1000)"
+    ],
+    { stdio: 'ignore' }
+  )
+}
+// 'mute': starts, and never answers anything, EOF included; its own pid goes to STUB_PIDFILE
+if (mode === 'mute') {
+  writeFileSync(process.env.STUB_PIDFILE, String(process.pid))
+  setInterval(() => {}, 1000)
 }
 // 'linger': like Cursor's agent, it answers the turn and then keeps running past EOF, until
 // a signal ends it; 'linger-hard' ignores SIGTERM too. Its own pid goes to STUB_PIDFILE
@@ -49,6 +60,7 @@ process.stdin.on('data', (c) => {
 })
 
 function handle(m) {
+  if (mode === 'mute') return
   if (m.method === undefined && waiting.has(m.id)) {
     waiting.get(m.id)(m.result)
     waiting.delete(m.id)
@@ -56,6 +68,10 @@ function handle(m) {
   }
   switch (m.method) {
     case 'initialize':
+      if (mode === 'relaunch' && !existsSync(process.env.STUB_PIDFILE)) {
+        setTimeout(() => handle(m), 20)
+        return
+      }
       if (mode === 'banner') process.stdout.write('StubAgent v9 starting up\n')
       if (mode === 'huge') {
         // one message past the client's size cap, and never the newline that would end it
