@@ -49,8 +49,10 @@ const FETCH_TIMEOUT_MS = 20_000
 const MAX_BODY_BYTES = 4 * 1024 * 1024
 
 /**
- * Entries seen in a search, by `id@version`, so an add uses exactly what was shown.
- * A process-lifetime cache (it mutates), bounded — the oldest go first.
+ * Entries seen in a search, by `id@version` — what each row showed, so an add can
+ * refuse an entry that would now write something else. A process-lifetime cache (it
+ * mutates), bounded — the oldest go first. Never what an add installs from: that is
+ * read afresh (`entryFor`).
  */
 let seen: Readonly<Record<string, RegistryEntry>> = {}
 const MAX_SEEN = 1000
@@ -155,14 +157,29 @@ export async function searchRegistry(query: string, cursor?: string): Promise<Re
   }
 }
 
+/** Would these two entries write the same definition and ask for the same values? */
+function samePlan(a: RegistryEntry, b: RegistryEntry): boolean {
+  return JSON.stringify(registryPlan(a)) === JSON.stringify(registryPlan(b))
+}
+
+/**
+ * The entry an add writes from, read afresh from the registry every time: a version
+ * marked deleted or deprecated since a search showed it is no longer offered
+ * (`parseRegistryEntry` skips it), and a page kept for the session would still install
+ * it. One that would now write something other than what its row showed is refused too.
+ */
 async function entryFor(id: string, version: string): Promise<RegistryEntry> {
-  const hit = Object.hasOwn(seen, `${id}@${version}`) ? seen[`${id}@${version}`] : undefined
-  if (hit) return hit
   const entry = parseRegistryEntry(await readJson(registryVersionUrl(id, version, registryBase())))
   if (!entry || entry.id !== id || entry.version !== version) {
     throw new Error(`The MCP Registry no longer offers ${id} ${version}.`)
   }
-  remember(entry)
+  const key = `${id}@${version}`
+  const shown = Object.hasOwn(seen, key) ? seen[key] : undefined
+  if (shown && !samePlan(shown, entry)) {
+    throw new Error(
+      `${registryTitle(entry)} changed in the MCP Registry since it was shown — search again to see what it runs now.`
+    )
+  }
   return entry
 }
 

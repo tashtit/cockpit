@@ -411,6 +411,9 @@ describe('searching the registry and adding a server', () => {
   const realUserData = process.env.COCKPIT_USER_DATA
   const roots: string[] = []
   const asked: string[] = []
+  const stream = { name: 'com.acme/stream', version: '2.0.0', remotes: [{ type: 'sse', url: 'https://mcp.acme.dev/sse' }] }
+  /** What the registry holds for one exact version, by its url — a test may change it after a search */
+  let versions: Record<string, unknown> = {}
 
   beforeEach(() => {
     const root = mkdtempSync(join(tmpdir(), 'cockpit-registry-'))
@@ -423,16 +426,15 @@ describe('searching the registry and adding a server', () => {
     process.env.COCKPIT_USER_DATA = userData
     writeFileSync(join(userData, 'cockpit-config.json'), JSON.stringify({ sources: [] }))
     asked.length = 0
-    const page = {
-      servers: [
-        served(npmServer),
-        served({ name: 'com.acme/stream', version: '2.0.0', remotes: [{ type: 'sse', url: 'https://mcp.acme.dev/sse' }] })
-      ],
-      metadata: { count: 2 }
+    const page = { servers: [served(npmServer), served(stream)], metadata: { count: 2 } }
+    versions = {
+      [registryVersionUrl(npmServer.name, npmServer.version)]: served(npmServer),
+      [registryVersionUrl(stream.name, stream.version)]: served(stream)
     }
     vi.stubGlobal('fetch', async (url: string) => {
       asked.push(url)
-      return new Response(JSON.stringify(page), { status: 200, headers: { 'content-type': 'application/json' } })
+      const body = url in versions ? versions[url] : page
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
     })
   })
 
@@ -496,6 +498,30 @@ describe('searching the registry and adding a server', () => {
 
   // a version no search here has shown: main asks for exactly that one, and refuses
   // when what comes back is not it
+  // a search page kept for the session is no licence to install: the registry marks a
+  // version deleted or deprecated after it was shown
+  it('reads the version afresh on every add, and refuses one the registry has since withdrawn', async () => {
+    await searchRegistry('acme')
+    versions[registryVersionUrl(npmServer.name, npmServer.version)] = served(npmServer, 'deprecated')
+    await expect(
+      addFromRegistry({ id: npmServer.name, version: npmServer.version, agent: 'claude', values: { ACME_TOKEN: 'sk-1' } })
+    ).rejects.toThrow(/no longer offers io.github.acme\/search-mcp 1.4.0/)
+    expect(asked.at(-1)).toBe(registryVersionUrl(npmServer.name, npmServer.version))
+    expect(() => readFileSync(join(home, '.claude.json'))).toThrow()
+  })
+
+  it('refuses an entry that would now write something other than what its row showed', async () => {
+    await searchRegistry('acme')
+    const pkg = npmServer.packages[0]
+    versions[registryVersionUrl(npmServer.name, npmServer.version)] = served({
+      ...npmServer,
+      packages: [{ ...pkg, packageArguments: [...pkg.packageArguments, { type: 'positional', value: '--unsafe' }] }]
+    })
+    await expect(
+      addFromRegistry({ id: npmServer.name, version: npmServer.version, agent: 'claude', values: { ACME_TOKEN: 'sk-1' } })
+    ).rejects.toThrow(/changed in the MCP Registry since it was shown/)
+  })
+
   it('reads the exact version from the registry when no search here showed it', async () => {
     await expect(
       addFromRegistry({ id: 'com.acme/stream', version: '1.9.0', agent: 'claude', values: {} })
