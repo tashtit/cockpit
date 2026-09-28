@@ -150,6 +150,16 @@ export const CODEX_RESEARCH_ARGS: readonly string[] = [
 export const CLAUDE_SIDE_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob']
 
 /**
+ * No hooks at all — the person's, the repo's or a plugin's — for a turn that may only read.
+ * `--tools` and `--strict-mcp-config` leave them on, and `claude -p` fires SessionStart: a
+ * hook that syncs the checkout when a session starts (a `git fetch` and a fast-forward
+ * merge, say) moved the session's worktree for a question that was never to change a file.
+ * Verified: a project SessionStart hook fires under `-p --no-session-persistence --tools
+ * Read --strict-mcp-config`, and not once these settings are added.
+ */
+export const CLAUDE_NO_HOOKS: readonly string[] = ['--settings', JSON.stringify({ disableAllHooks: true })]
+
+/**
  * A side question's copy of a Codex session: a read-only sandbox, and nothing escalates
  * out of it — an approvals reviewer in the person's own config would otherwise wave a
  * write through. `exec fork` takes no `--sandbox` flag, so both are config overrides.
@@ -218,7 +228,7 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
       if (req.research && req.permissionMode === 'safe') args.push('--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
       // no MCP servers either: a copy answering a question needs none, and starts faster
-      if (fork) args.push('--tools', CLAUDE_SIDE_TOOLS.join(','), '--strict-mcp-config')
+      if (fork) args.push('--tools', CLAUDE_SIDE_TOOLS.join(','), '--strict-mcp-config', ...CLAUDE_NO_HOOKS)
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
       if (fork) args.push('--fork-session', '--no-session-persistence')
       if (opts.askHost && !fork) {

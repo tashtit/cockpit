@@ -11,6 +11,7 @@ import {
   parseCodexStreamLine,
   promptWithImages,
   withTurnFlags,
+  CLAUDE_NO_HOOKS,
   CLAUDE_SIDE_TOOLS,
   CODEX_REVIEWED_ARGS,
   CODEX_SIDE_ARGS,
@@ -253,6 +254,10 @@ describe('side chat: a copy of the session, never the session', () => {
     expect(args[args.indexOf('--tools') + 1]).toBe(CLAUDE_SIDE_TOOLS.join(','))
     expect(CLAUDE_SIDE_TOOLS).toEqual(['Read', 'Grep', 'Glob'])
     expect(args).toContain('--strict-mcp-config')
+    // nor a hook: `claude -p` fires SessionStart, and a hook that syncs the checkout moved
+    // the session's worktree for a question that may only read
+    expect(args.slice(args.indexOf('--settings'), args.indexOf('--settings') + 2)).toEqual([...CLAUDE_NO_HOOKS])
+    expect(JSON.parse(CLAUDE_NO_HOOKS[1])).toEqual({ disableAllHooks: true })
     expect(args.join(' ')).not.toMatch(/permission-mode|dangerously|allowedTools/)
     expect(args.slice(-2)).toEqual(['--', 'why?'])
     // a plain resume is the session itself, and is kept
@@ -260,6 +265,7 @@ describe('side chat: a copy of the session, never the session', () => {
     expect(plain).not.toContain('--fork-session')
     expect(plain).not.toContain('--no-session-persistence')
     expect(plain).not.toContain('--tools')
+    expect(plain).not.toContain('--settings')
   })
 
   it('codex forks ephemerally — never `exec resume`, which appends the turn to the rollout', () => {
