@@ -27,6 +27,39 @@ describe('execText', () => {
     expect(r.cutShort).toBe(true)
     expect(Date.now() - started).toBeLessThan(3_500)
   })
+
+  it('gives a CLI that reads its stdin end-of-file at once, rather than a pipe that never ends', async () => {
+    // a startup file's prompt waited out the whole timeout on the open pipe
+    const started = Date.now()
+    const r = await execText('/bin/sh', ['-c', 'read -r answer; echo "read $? [$answer]"'], { timeoutMs: 5_000 })
+    expect(r).toMatchObject({ ok: true, stdout: 'read 1 []\n' })
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
+
+  it('runs a detached CLI as the leader of a session and process group of its own', async () => {
+    const own = async (detached: boolean): Promise<boolean> => {
+      const r = await execText('/bin/sh', ['-c', 'echo $$ $(ps -o pgid= -p $$)'], { detached })
+      const [pid, pgid] = r.stdout.trim().split(/\s+/)
+      return pid === pgid
+    }
+    expect(await own(true)).toBe(true)
+    expect(await own(false)).toBe(false)
+  })
+
+  it('stops a CLI past maxBuffer and keeps what fitted', async () => {
+    const r = await execText('/bin/sh', ['-c', 'printf %05000d 0; sleep 5'], { maxBuffer: 1_000 })
+    expect(r).toMatchObject({ ok: false, error: 'stdout maxBuffer length exceeded', cutShort: true })
+    expect(r.stdout).toHaveLength(1_000)
+  })
+
+  it('says why a CLI failed the way callers read it', async () => {
+    const missing = await execText('/no/such/cli', ['--version'])
+    expect(missing.ok).toBe(false)
+    expect(missing.error).toMatch(/\bENOENT\b/)
+    const failed = await execText('/bin/sh', ['-c', 'echo nope >&2; exit 3'])
+    expect(failed).toMatchObject({ ok: false, stderr: 'nope\n', error: "Command failed: /bin/sh -c echo nope >&2; exit 3\nnope\n" })
+    expect(failed.cutShort).toBeUndefined()
+  })
 })
 
 describe('execOrThrow', () => {
@@ -142,6 +175,39 @@ describe('loadLoginShellPath', () => {
       expect(args.startsWith('-i -l -c ')).toBe(true)
       expect(cwd).toBe(homedir())
       expect(flag).toBe('1')
+    } finally {
+      process.env.SHELL = shell
+      vi.resetModules()
+    }
+  })
+
+  it('a startup file that prompts does not hold the PATH up, and the shell never shares a terminal', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cockpit-prompt-shell-'))
+    const seen = join(dir, 'seen')
+    writeFileSync(
+      join(dir, 'shell'),
+      [
+        '#!/bin/sh',
+        // a startup file asking something, as an update check or a theme picker does
+        'printf "Update now? [y/N] "; read -r answer',
+        `echo "$$ $(ps -o pgid= -p $$)" > '${seen}'`,
+        'PATH=/login/prompted/bin:/usr/bin:/bin; export PATH',
+        'eval "$4"'
+      ].join('\n')
+    )
+    chmodSync(join(dir, 'shell'), 0o755)
+    const shell = process.env.SHELL
+    process.env.SHELL = join(dir, 'shell')
+    try {
+      vi.resetModules()
+      const env = await import('../src/main/env')
+      const started = Date.now()
+      await env.loadLoginShellPath()
+      expect(Date.now() - started).toBeLessThan(5_000)
+      expect(env.cliEnv().PATH?.split(':')).toContain('/login/prompted/bin')
+      // detached: a session and process group of its own, so no terminal to take over
+      const [pid, pgid] = readFileSync(seen, 'utf8').trim().split(/\s+/)
+      expect(pgid).toBe(pid)
     } finally {
       process.env.SHELL = shell
       vi.resetModules()
