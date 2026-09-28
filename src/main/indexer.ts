@@ -328,7 +328,10 @@ export function foldThread(metas: readonly SessionMeta[]): SessionMeta {
   const newest = metas.reduce((a, b) =>
     b.messageCount !== a.messageCount ? (b.messageCount > a.messageCount ? b : a) : b.updatedAt >= a.updatedAt ? b : a
   )
-  if (metas.length === 1 || !metas.some((m) => m.historyBase)) return newest
+  if (metas.length === 1) return newest
+  // the records it wins over are the same session: what deletes it reads them
+  const otherRecords = metas.filter((m) => m.sourcePath !== newest.sourcePath).map((m) => m.sourcePath)
+  if (!metas.some((m) => m.historyBase)) return otherRecords.length > 0 ? { ...newest, otherRecords } : newest
   const order = [...metas].sort((a, b) => a.startedAt - b.startedAt || a.updatedAt - b.updatedAt)
   const tip = order[order.length - 1]
   const chain = [tip]

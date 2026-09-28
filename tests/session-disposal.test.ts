@@ -1,11 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { execFileSync, spawn } from 'node:child_process'
 import { disposalBytes, disposalFiles, disposalOf, dispose, lsofHolds, openBy } from '../src/main/session-disposal'
 import type { ExecResult } from '../src/main/env'
+import { foldThread } from '../src/main/indexer'
 import type { SessionMeta } from '../src/shared/types'
 import { writeAntigravityConversation, writeCursorAcpSession, writeCursorChats, writeOpencodeDb } from '../scripts/ui-tour/store-fixtures.mts'
 
@@ -112,6 +113,28 @@ describe('what deleting a session removes, as its agent keeps it', () => {
       'composerData:draft-1',
       'composerData:kept'
     ])
+  })
+
+  it('Cursor: a chat kept both in the editor’s database and as an agent transcript goes whole', () => {
+    const db = join(dir, 'ide', 'state.vscdb')
+    writeCursorChats(db, [
+      { id: 'both', created: 1, updated: 1, bubbles: [{ type: 1, at: 1, text: 'a' }, { type: 2, at: 2, text: 'b' }] },
+      { id: 'kept', created: 1, updated: 1, bubbles: [{ type: 1, at: 1, text: 'c' }] }
+    ])
+    const log = write(join(dir, 'home', 'projects', 'x', 'agent-transcripts', 'both', 'both.jsonl'), '{}\n')
+    // the indexer finds the one chat twice and keeps the fuller record
+    const session = foldThread([
+      { ...meta({ provider: 'cursor', nativeId: 'both', sourcePath: log }), messageCount: 1 },
+      { ...meta({ provider: 'cursor', nativeId: 'both', sourcePath: `${db}#both` }), messageCount: 2 }
+    ])
+    expect(session).toMatchObject({ sourcePath: `${db}#both`, otherRecords: [log] })
+    const plan = disposalOf(session)
+    expect(plan).toMatchObject({ paths: [dirname(log)], rows: { db, kind: 'cursor-chat', id: 'both' }, databases: [db] })
+    expect(disposalFiles(plan)).toEqual([dirname(log), db])
+    dispose(plan)
+    expect(existsSync(dirname(log))).toBe(false)
+    const keys = new DatabaseSync(db, { readOnly: true }).prepare('SELECT key FROM cursorDiskKV ORDER BY key').all()
+    expect(keys.map((k) => (k as { key: string }).key)).toEqual(['bubbleId:kept:kept-b0', 'composerData:draft-1', 'composerData:kept'])
   })
 
   it('opencode: the session’s rows in every table that keeps one per session', () => {

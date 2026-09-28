@@ -20,7 +20,7 @@ import { replaceFile } from './replace-file'
  * or a database of its own (Antigravity). Two keep many sessions in one database —
  * Cursor's editor chats and opencode — and there only the session's rows go: every
  * table opencode keys by `session_id`, and its event store, keyed by the session's id
- * as `aggregate_id`. An agent
+ * as `aggregate_id`. A Cursor chat kept in both its stores goes from both. An agent
  * that lists its sessions in an index file (Cline, Roo Code) has the entry taken out,
  * so its list does not name a session that is gone.
  *
@@ -71,7 +71,23 @@ function opencodeFiles(file: string, id: string): string[] {
   )
 }
 
-export function disposalOf(meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments'>): Disposal {
+/** One record of a Cursor chat, as the store holding it keeps it. */
+function cursorDisposal(file: string): Disposal {
+  const ref = splitSessionRef(file)
+  if (ref && basename(ref.file) === CURSOR_IDE_DB) {
+    const db = resolve(ref.file)
+    return { paths: [], rows: { db, kind: 'cursor-chat', id: ref.id }, databases: [db] }
+  }
+  // a conversation its ACP server keeps: the folder holds its database and meta.json
+  if (isCursorAcpStore(file)) return { paths: [resolve(dirname(file))], databases: [resolve(file)] }
+  // `<id>/<id>.jsonl` with its subagents beside it: the folder is the transcript
+  const dir = dirname(file)
+  return none([basename(dir) === basename(file, '.jsonl') ? dir : file])
+}
+
+export type DisposableSession = Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments' | 'otherRecords'>
+
+export function disposalOf(meta: DisposableSession): Disposal {
   const file = meta.sourcePath
   switch (meta.provider) {
     case 'claude':
@@ -85,16 +101,14 @@ export function disposalOf(meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'so
       return none(existsSync(sub) ? [file, sub] : [file])
     }
     case 'cursor': {
-      const ref = splitSessionRef(file)
-      if (ref && basename(ref.file) === CURSOR_IDE_DB) {
-        const db = resolve(ref.file)
-        return { paths: [], rows: { db, kind: 'cursor-chat', id: ref.id }, databases: [db] }
-      }
-      // a conversation its ACP server keeps: the folder holds its database and meta.json
-      if (isCursorAcpStore(file)) return { paths: [resolve(dirname(file))], databases: [resolve(file)] }
-      // `<id>/<id>.jsonl` with its subagents beside it: the folder is the transcript
-      const dir = dirname(file)
-      return none([basename(dir) === basename(file, '.jsonl') ? dir : file])
+      // a chat kept in the editor's database and as an agent transcript is one session
+      // (`otherRecords`): both go, or the next scan lists the chat again. Cursor keeps
+      // one editor database, so at most one of them is rows.
+      const [own, ...others] = [file, ...(meta.otherRecords ?? [])].map(cursorDisposal)
+      return others.reduce<Disposal>((a, b) => {
+        const rows = a.rows ?? b.rows
+        return { paths: [...a.paths, ...b.paths], ...(rows ? { rows } : {}), databases: [...a.databases, ...b.databases] }
+      }, own)
     }
     case 'cline':
       return {

@@ -45,7 +45,15 @@ import { processKey, type CleanupReady } from './cleanup-reminder-core'
 import { execText, gitRead } from './env'
 import { mapLimit } from './map-limit'
 import { isSessionProvider } from '../shared/providers'
-import { disposalBytes, disposalFiles, disposalOf, dispose, openBy, type DbHold } from './session-disposal'
+import {
+  disposalBytes,
+  disposalFiles,
+  disposalOf,
+  dispose,
+  openBy,
+  type DbHold,
+  type DisposableSession
+} from './session-disposal'
 import { isUnder, realOrSelf } from './paths'
 
 /**
@@ -153,7 +161,7 @@ export type CleanupDeps = {
 /* ---------- sessions ---------- */
 
 /** What a session occupies — measured by the same plan that removes it (session-disposal.ts). */
-function sessionBytes(meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments'>): number {
+function sessionBytes(meta: DisposableSession): number {
   return disposalBytes(disposalOf(meta))
 }
 
@@ -742,7 +750,7 @@ type LogRemoval =
  * page left behind to pose as the whole thread.
  */
 async function removeSessionLogs(
-  meta: Pick<SessionMeta, 'provider' | 'nativeId' | 'sourcePath' | 'segments'>,
+  meta: DisposableSession,
   ctx: {
     readonly roots: readonly string[]
     readonly label: string

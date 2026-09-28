@@ -1491,8 +1491,8 @@ describe('foldThread', () => {
   it('keeps the most recently updated copy of one log found under two sources', () => {
     const older = meta({ sourcePath: '/one/a', updatedAt: 5 })
     const newer = meta({ sourcePath: '/two/a', updatedAt: 9 })
-    expect(foldThread([newer, older])).toBe(newer)
-    expect(foldThread([older, newer])).toBe(newer)
+    expect(foldThread([newer, older])).toEqual({ ...newer, otherRecords: ['/one/a'] })
+    expect(foldThread([older, newer])).toEqual({ ...newer, otherRecords: ['/one/a'] })
   })
 
   it('prefers the fuller of two records of one conversation kept by different stores', () => {
@@ -1500,8 +1500,9 @@ describe('foldThread', () => {
     // and the transcript can be written a moment later
     const chat = meta({ id: 'cursor:c', provider: 'cursor', sourcePath: '/ide/state.vscdb#c', messageCount: 73, updatedAt: 5 })
     const transcript = meta({ id: 'cursor:c', provider: 'cursor', sourcePath: '/t/c.jsonl', messageCount: 19, updatedAt: 6 })
-    expect(foldThread([chat, transcript])).toBe(chat)
-    expect(foldThread([transcript, chat])).toBe(chat)
+    // the transcript rides along, so deleting the chat takes it too
+    expect(foldThread([chat, transcript])).toEqual({ ...chat, otherRecords: ['/t/c.jsonl'] })
+    expect(foldThread([transcript, chat])).toEqual({ ...chat, otherRecords: ['/t/c.jsonl'] })
   })
 
   it('chains pages oldest first, and a copy of a page is not a page of its own', () => {

@@ -118,6 +118,10 @@ export type SessionMeta = {
    *  set by the indexer when one thread spans several files. Everything that reads or
    *  removes a session's log (transcript, search, cleanup) reads these, then `sourcePath`. */
   readonly segments?: readonly SessionSegment[]
+  /** The other files the indexer found this session in and folded away (`foldThread`).
+   *  A Cursor chat kept both in the editor's database and as an agent transcript is one
+   *  session, and deleting it removes both (session-disposal.ts). */
+  readonly otherRecords?: readonly string[]
   /** Stable id of the session that started this one, as this session's own log states
    *  it — a Copilot session another session created with its `create_session` tool
    *  (the kickoff's `<copilot_tauri_workspace>` block names the creator). The tree
