@@ -1148,6 +1148,16 @@ export type RegistryServer = {
   readonly kind?: RegistryServerKind
   /** the package, or the url a remote server is reached at */
   readonly what?: string
+  /** the package release an add pins — the entry's `version` names the server, not always its package */
+  readonly release?: string
+  /**
+   * What an add writes an agent to launch, as shell words: the command and every argument
+   * the publisher fixed. Absent for a remote server, and for one already set up here —
+   * that one's own definition is what the next agent gets.
+   */
+  readonly commandLine?: string
+  /** env the publisher fixes, written as it is and never asked for — names and values */
+  readonly fixedEnv?: Readonly<Record<string, string>>
   /** what it is called in each agent's config — an existing server's name when one here runs it */
   readonly name: string
   readonly inputs: readonly RegistryInput[]

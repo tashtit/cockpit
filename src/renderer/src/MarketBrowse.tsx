@@ -3,6 +3,7 @@ import { PROVIDERS, RECOMMENDED_MARKETPLACE, agentHasIt, type PanelReport } from
 import { matchesCatalogQuery } from '../../shared/marketplace'
 import type { CatalogInstall, CatalogPlugin, MarketplaceCatalog, Provider } from '../../shared/types'
 import { api } from './api'
+import { disarmOn } from './disarm'
 import { ipcErrorText } from './ipc-error'
 import type { Notice } from './notice'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -335,6 +336,9 @@ function Plugin({
  * inert: taking something out is the owning section's job (Plugins, Marketplaces,
  * MCP servers), where it is an armed confirm — a browse surface must not be able to
  * uninstall by a mis-click on the row you were reading. Both halves of Browse use it.
+ *
+ * An add that writes code to run (a registry server launched by `npx -y` or `uvx`) asks
+ * first: `armed` is the chip in its confirm step, which backs out on blur or Escape.
  */
 export function AddChips({
   agents,
@@ -343,7 +347,10 @@ export function AddChips({
   what,
   where,
   disabledFor,
-  onAdd
+  onAdd,
+  armed = null,
+  armedSays,
+  onDisarm
 }: {
   /** agents that already have it */
   agents: readonly Provider[]
@@ -356,6 +363,11 @@ export function AddChips({
   /** why this agent can't be given it, when it can't */
   disabledFor: (agent: Provider) => string | null
   onAdd: (agent: Provider) => void
+  /** the chip key in its confirm step, if any */
+  armed?: string | null
+  /** what the armed chip asks — its screen-reader name and its tooltip */
+  armedSays?: (agent: Provider) => string
+  onDisarm?: () => void
 }): JSX.Element {
   return (
     <span className="pnl-chips">
@@ -363,17 +375,22 @@ export function AddChips({
         const had = agents.includes(p)
         const refused = had ? null : disabledFor(p)
         const key = keyFor(p)
+        const isArmed = armed === key && !had && refused === null
+        const asks = isArmed && armedSays ? armedSays(p) : null
         return (
           <button
             key={p}
-            className={`ag-chip ag-${p} ${had ? 'on' : 'off'} ${busy === key ? 'working' : ''}`}
-            aria-label={had ? `${what} is in ${PROVIDER_LABEL[p]}` : `Add ${what} to ${PROVIDER_LABEL[p]}`}
+            className={`ag-chip ag-${p} ${had ? 'on' : 'off'} ${isArmed ? 'armed' : ''} ${busy === key ? 'working' : ''}`}
+            aria-label={
+              had ? `${what} is in ${PROVIDER_LABEL[p]}` : (asks ?? `Add ${what} to ${PROVIDER_LABEL[p]}`)
+            }
             title={
               had
                 ? `already in ${PROVIDER_LABEL[p]} — switch it off under ${where}`
-                : (refused ?? `Add ${what} to ${PROVIDER_LABEL[p]}`)
+                : (refused ?? asks ?? `Add ${what} to ${PROVIDER_LABEL[p]}`)
             }
             disabled={had || refused !== null || busy !== null}
+            {...(isArmed && onDisarm ? disarmOn(onDisarm) : {})}
             onClick={() => onAdd(p)}
           >
             <ProviderLogo p={p} size={11} />

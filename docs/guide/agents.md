@@ -299,6 +299,13 @@ that is the only time this half of Browse reaches the network.
   itself from the registry's entry: an npm package runs as `npx -y <package>@<version>`, a
   PyPI one as `uvx <package>==<version>` — pinned, so [Is there a newer
   one?](#is-there-a-newer-one) covers it from then on — and a remote server by its URL.
+  An optional argument nobody can fill in is left off, its default with it.
+- **What an add writes is on the row first.** The row names the package and the release
+  it pins, which isn't always the registry entry's own version. Open it for the whole
+  command line, every argument its publisher fixed included, and any environment variable
+  the publisher sets, with its value. The first add of a package server asks: its chip
+  says *click again to add* and the row says what it downloads and runs. A second click
+  adds it; moving away or pressing Escape backs out.
 - **What it needs from you.** A server that needs an API key or a setting lists it on its
   row, one field each (a token's field is masked). They are written into each agent's own
   config as environment variables, the way every server's settings are kept. Adding it to

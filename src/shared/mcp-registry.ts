@@ -20,6 +20,9 @@ import type { McpConfig, RegistryInput, RegistryServerKind } from './types'
  *    (`runtimeArguments`) are refused rather than passed: `npx -c` runs a shell.
  *  - Package names and versions must look like package names and versions, so no entry
  *    can smuggle a flag in where the package goes.
+ *  - Only what the publisher fixes, or a required argument's default, reaches the command
+ *    line: an optional argument nobody filled in is left off. What the plan pins and fixes
+ *    is shown on the row before anything is written (`RegistryServer.commandLine`).
  *  - Env names are real env names, and none of the ones that turn a launch into a
  *    loader for other code (`isBlockedAgentEnv`, the ACP agents' rule).
  *  - A remote server is https, fully spelled out (no `{placeholders}`), and needs no
@@ -41,8 +44,10 @@ const MAX_DESCRIPTION = 400
 type RegistryArgument = {
   readonly type: 'positional' | 'named'
   readonly name?: string
-  /** the value to pass, when the registry fixes one (or offers a default) */
+  /** the value the publisher fixes: passed as it is */
   readonly value?: string
+  /** what the registry offers when nothing is given — passed only where the argument is required */
+  readonly default?: string
   readonly required: boolean
   readonly hint?: string
 }
@@ -92,6 +97,8 @@ export type RegistryPlan =
       readonly kind: RegistryServerKind
       /** the package, or the remote url */
       readonly what: string
+      /** the package release the command pins, which need not be the entry's own version */
+      readonly release?: string
       readonly inputs: readonly RegistryInput[]
       /** agents that can't run it, and why */
       readonly unsupported: Partial<Record<'codex', string>>
@@ -137,11 +144,11 @@ function argumentOf(value: unknown): RegistryArgument | null {
   if (!o) return null
   const type = o['type'] === 'named' ? 'named' : o['type'] === 'positional' ? 'positional' : null
   if (!type) return null
-  const fixed = text(o['value']) ?? text(o['default'])
   return {
     type,
     ...(text(o['name']) ? { name: text(o['name']) } : {}),
-    ...(fixed !== undefined ? { value: fixed } : {}),
+    ...(text(o['value']) !== undefined ? { value: text(o['value']) } : {}),
+    ...(text(o['default']) !== undefined ? { default: text(o['default']) } : {}),
     required: field(o, 'isRequired', 'is_required') === true,
     ...(text(field(o, 'valueHint', 'value_hint')) ? { hint: text(field(o, 'valueHint', 'value_hint')) } : {})
   }
@@ -288,23 +295,26 @@ function packageArgs(pkg: RegistryPackage): string[] | string {
   const args: string[] = []
   for (const arg of pkg.packageArguments) {
     const label = arg.name ?? arg.hint ?? 'an argument'
-    if (arg.value !== undefined && PLACEHOLDER.test(arg.value)) {
+    // an optional argument is left off, its default with it: there is no field to fill
+    // it in, so passing the default would be the publisher deciding it unseen
+    const given = arg.value ?? (arg.required ? arg.default : undefined)
+    if (given !== undefined && PLACEHOLDER.test(given)) {
       return `it needs ${label} filled in on its command line`
     }
     if (arg.type === 'named') {
       if (!arg.name || !FLAG.test(arg.name)) return 'its command line names an option Cockpit can’t read'
-      if (arg.value === undefined) {
+      if (given === undefined) {
         if (arg.required) return `it needs ${label} on its command line`
         continue
       }
-      args.push(arg.name, arg.value)
+      args.push(arg.name, given)
       continue
     }
-    if (arg.value === undefined) {
+    if (given === undefined) {
       if (arg.required) return `it needs ${label} on its command line`
       continue
     }
-    args.push(arg.value)
+    args.push(given)
   }
   return args
 }
@@ -356,6 +366,7 @@ function planPackage(pkg: RegistryPackage, version: string): RegistryPlan {
   return {
     kind,
     what: pkg.identifier,
+    release,
     inputs: env.inputs,
     unsupported: {},
     base: Object.keys(env.fixed).length > 0 ? { ...base, env: env.fixed } : base

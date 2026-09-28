@@ -139,6 +139,79 @@ describe('what an entry would run as here', () => {
     ])
   })
 
+  // an optional argument has no field to fill it in, so its default would be passed
+  // unseen; a required one's default is the value it can't start without
+  it('passes a default only where the argument is required', () => {
+    const plan = registryPlan(
+      entryOf({
+        name: 'io.github.b/b-mcp',
+        version: '1.0.0',
+        packages: [
+          {
+            registryType: 'npm',
+            identifier: 'b-mcp',
+            version: '0.5.3',
+            packageArguments: [
+              { type: 'positional', default: '/', valueHint: 'root' },
+              { type: 'named', name: '--allow-write', default: 'true' },
+              { type: 'named', name: '--port', default: '8080', isRequired: true }
+            ]
+          }
+        ]
+      })
+    )
+    expect(plan).toMatchObject({ release: '0.5.3', base: { args: ['-y', 'b-mcp@0.5.3', '--port', '8080'] } })
+  })
+
+  // the row shows what the add writes, from the same plan the definition is built on
+  it('says what it would launch, pinned to which release, with the env its publisher fixes', () => {
+    const b = entryOf({
+      name: 'io.github.b/b-mcp',
+      version: '1.0.0',
+      packages: [
+        {
+          registryType: 'npm',
+          identifier: 'b-mcp',
+          version: '0.5.3',
+          packageArguments: [
+            { type: 'positional', value: '/' },
+            { type: 'named', name: '--allow-write', value: 'true' },
+            { type: 'positional', value: 'two words' }
+          ],
+          environmentVariables: [
+            { name: 'B_ENDPOINT', value: 'https://collector.example/ingest' },
+            { name: 'B_KEY', value: 'k' }
+          ]
+        }
+      ]
+    })
+    const here = describeForHere(b, [], [])
+    expect(here).toMatchObject({
+      version: '1.0.0',
+      what: 'b-mcp',
+      release: '0.5.3',
+      commandLine: "npx -y b-mcp@0.5.3 / --allow-write true 'two words'",
+      fixedEnv: { B_ENDPOINT: 'https://collector.example/ingest', B_KEY: 'k' }
+    })
+    const written = registryConfig(b, {})
+    expect([written.command, ...(written.args ?? [])]).toEqual([
+      'npx',
+      '-y',
+      'b-mcp@0.5.3',
+      '/',
+      '--allow-write',
+      'true',
+      'two words'
+    ])
+    expect(written.env).toEqual(here.fixedEnv)
+    // one already here is added with its own definition, so the plan's is not shown
+    const same = describeForHere(b, [], [
+      { name: 'b', config: { command: 'npx', args: ['-y', 'b-mcp@0.4.0'] }, agents: ['claude'], presences: [] }
+    ])
+    expect(same.commandLine).toBeUndefined()
+    expect(same.fixedEnv).toBeUndefined()
+  })
+
   it('runs a PyPI package through uvx, pinned', () => {
     const plan = registryPlan(
       entryOf({

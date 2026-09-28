@@ -3,6 +3,7 @@ import { agentHasIt, PROVIDERS, type PanelReport } from '../../shared/library'
 import { MCP_KIND_TAG } from '../../shared/mcp-source'
 import type { Provider, RegistryAdd, RegistryInput, RegistryServer } from '../../shared/types'
 import { api } from './api'
+import { useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
 import type { Notice } from './notice'
 import { PROVIDER_LABEL } from './logos'
@@ -21,6 +22,11 @@ import { AddChips } from './MarketBrowse'
  * registry name's namespace) and links its repository, and why a server Cockpit can't
  * write faithfully — a container image, a sign-in header — says so instead of adding
  * something that won't start.
+ *
+ * What an add writes is on the row before it is written: the pinned release, the
+ * command line with every argument the publisher fixed, and the env it sets. The first
+ * add of a server that downloads and runs a package is an armed confirm naming that
+ * command, like every other click here that runs code.
  */
 
 type Search = {
@@ -38,6 +44,17 @@ let lastSearch: Search | null = null
 function listOf(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? ''
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** The chip's key, shared with the panel's busy key so the one being written pulses. */
+function chipKey(server: RegistryServer, agent: Provider): string {
+  return `registry:${server.id}|${agent}`
+}
+
+/** What the row says it is: the package and the release it pins, or the url. */
+function defOf(server: RegistryServer): string {
+  if (!server.what) return server.id
+  return server.release ? `${server.what} ${server.release}` : server.what
 }
 
 function matches(server: RegistryServer, q: string): boolean {
@@ -69,6 +86,8 @@ export function McpBrowse({
   const [open, setOpen] = useState<string | null>(null)
   /** what was typed for each server's inputs, by server id — kept in memory, never stored */
   const [values, setValues] = useState<Readonly<Record<string, Readonly<Record<string, string>>>>>({})
+  /** the chip whose add is in its confirm step */
+  const { armed, arm, disarm } = useArmedConfirm()
 
   const run = async (more: boolean): Promise<void> => {
     const q = more ? (search?.query ?? '') : typed.trim()
@@ -112,6 +131,14 @@ export function McpBrowse({
       })
       return
     }
+    // the first add of a server that downloads and runs a package asks, naming it
+    const key = chipKey(server, agent)
+    if (had.length === 0 && server.commandLine !== undefined && armed !== key) {
+      arm(key)
+      setOpen(server.id)
+      return
+    }
+    disarm()
     const filled = Object.fromEntries(Object.entries(given).filter(([, v]) => v.trim() !== ''))
     onAdd(
       { id: server.id, version: server.version, agent, values: had.length > 0 ? {} : filled },
@@ -175,6 +202,8 @@ export function McpBrowse({
               had={holders(server)}
               open={open === server.id}
               busy={busy}
+              armed={armed}
+              onDisarm={disarm}
               values={values[server.id] ?? {}}
               onToggle={() => setOpen(open === server.id ? null : server.id)}
               onType={(name, value) =>
@@ -203,6 +232,8 @@ function Server({
   had,
   open,
   busy,
+  armed,
+  onDisarm,
   values,
   onToggle,
   onType,
@@ -213,6 +244,9 @@ function Server({
   had: readonly Provider[]
   open: boolean
   busy: string | null
+  /** the chip in its confirm step, anywhere in the list */
+  armed: string | null
+  onDisarm: () => void
   values: Readonly<Record<string, string>>
   onToggle: () => void
   onType: (name: string, value: string) => void
@@ -220,6 +254,8 @@ function Server({
 }): JSX.Element {
   // once it runs somewhere its env is settled — the other agents get the same definition
   const inputs = had.length > 0 ? [] : server.inputs
+  const asking = PROVIDERS.find((p) => armed === chipKey(server, p))
+  const fixed = Object.entries(server.fixedEnv ?? {})
   return (
     <>
       <div className={`pnl-row ${open ? 'open' : ''}`}>
@@ -229,21 +265,31 @@ function Server({
           </span>
           <span className="pnl-title">{server.title}</span>
           <span className="pnl-kind">{server.kind ? MCP_KIND_TAG[server.kind] : 'can’t add'}</span>
-          <span className="pnl-def" title={server.what ?? server.id}>
-            {server.what ?? server.id}
+          <span className="pnl-def" title={defOf(server)}>
+            {defOf(server)}
           </span>
         </button>
         <AddChips
           agents={had}
           busy={busy}
-          keyFor={(agent) => `registry:${server.id}|${agent}`}
+          keyFor={(agent) => chipKey(server, agent)}
           what={server.title}
           where="MCP servers"
           disabledFor={(agent) =>
             server.refusal ? `Cockpit can’t add it — ${server.refusal}` : (server.unsupported[agent] ?? null)
           }
           onAdd={onAdd}
+          armed={armed}
+          armedSays={(agent) =>
+            `Add ${server.title} to ${PROVIDER_LABEL[agent]}? It runs ${server.commandLine ?? defOf(server)} — click again to add it`
+          }
+          onDisarm={onDisarm}
         />
+        {asking && (
+          <span className="pnl-state">
+            <em className="pnl-flag danger">click again to add</em>
+          </span>
+        )}
       </div>
       {open && (
         <div className="pnl-detail">
@@ -270,6 +316,34 @@ function Server({
                 </>
               )}
             </p>
+            {asking && server.commandLine && (
+              <p className="pnl-note">
+                <strong>
+                  Adding it to {PROVIDER_LABEL[asking]} downloads {defOf(server)} and runs it whenever{' '}
+                  {PROVIDER_LABEL[asking]} starts.
+                </strong>{' '}
+                Click {PROVIDER_LABEL[asking]} again to add it.
+              </p>
+            )}
+            {server.commandLine && (
+              <p className="pnl-note">
+                Runs <code>{server.commandLine}</code>
+              </p>
+            )}
+            {fixed.length > 0 && (
+              <p className="pnl-note">
+                Its publisher sets{' '}
+                {fixed.map(([name, value], i) => (
+                  <span key={name}>
+                    {i > 0 && ', '}
+                    <code>
+                      {name}={value}
+                    </code>
+                  </span>
+                ))}
+                .
+              </p>
+            )}
             {server.refusal && <p className="pnl-note">Cockpit can’t add it: {server.refusal}.</p>}
             {Object.entries(server.unsupported).map(([agent, why]) => (
               <p key={agent} className="pnl-note">

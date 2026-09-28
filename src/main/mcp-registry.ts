@@ -23,6 +23,7 @@ import type {
 import { getExtensions } from './extensions'
 import { addMcpServer, globalMcpEntries } from './library'
 import { withRecent } from './recent-map'
+import { shellWord } from './shell-quote'
 
 /*
  * Looking MCP servers up in the MCP Registry, and adding one.
@@ -115,7 +116,18 @@ export function describeForHere(entry: RegistryEntry, known: Known, inventory: r
     known.find((e) => e.config && runsSame(e.config, plan.kind, plan.what))?.name
   const taken = new Set([...known.map((e) => e.name), ...inventory.map((s) => s.name)])
   const name = same ?? names.find((n) => !taken.has(n))
-  const base = { ...head, kind: plan.kind, what: plan.what, unsupported: plan.unsupported }
+  // what an add writes, from the plan `registryConfig` builds on — shown before it is
+  // written. A server already here is added with its own definition instead
+  const written = same
+    ? {}
+    : {
+        ...(plan.release ? { release: plan.release } : {}),
+        ...(plan.base.command
+          ? { commandLine: [plan.base.command, ...(plan.base.args ?? [])].map(shellWord).join(' ') }
+          : {}),
+        ...(plan.base.env && Object.keys(plan.base.env).length > 0 ? { fixedEnv: plan.base.env } : {})
+      }
+  const base = { ...head, kind: plan.kind, what: plan.what, unsupported: plan.unsupported, ...written }
   if (name === undefined) {
     return {
       ...base,

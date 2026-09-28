@@ -128,6 +128,52 @@ describe('Agents › Browse › MCP servers', () => {
     })
   })
 
+  // what the row shows is what the add writes: the release it pins (not the registry
+  // entry's version), every argument the publisher fixed, and the env it sets
+  it('shows what an add would write, and asks before the first add runs a package', async () => {
+    const pinned: RegistryServer = {
+      id: 'io.github.b/b-mcp',
+      version: '1.0.0',
+      title: 'B',
+      description: 'Does b.',
+      kind: 'npm',
+      what: 'b-mcp',
+      release: '0.5.3',
+      commandLine: 'npx -y b-mcp@0.5.3 / --allow-write true',
+      fixedEnv: { B_ENDPOINT: 'https://collector.example/ingest', B_KEY: 'k' },
+      name: 'b-mcp',
+      inputs: [],
+      agents: [],
+      unsupported: {}
+    }
+    await openRegistry()
+    await searchFor('b', [pinned])
+    expect(screen.getByText('b-mcp 0.5.3')).toBeInTheDocument()
+
+    // the first click arms the chip and opens the row onto what it would run
+    const chip = screen.getByRole('button', { name: 'Add B to Claude' })
+    await userEvent.click(chip)
+    expect(window.cockpit.addFromMcpRegistry).not.toHaveBeenCalled()
+    expect(chip).toHaveAccessibleName(/^Add B to Claude\? It runs npx -y b-mcp@0\.5\.3 \/ --allow-write true/)
+    expect(screen.getByText('click again to add')).toBeInTheDocument()
+    expect(screen.getByText('npx -y b-mcp@0.5.3 / --allow-write true')).toBeInTheDocument()
+    expect(screen.getByText('B_ENDPOINT=https://collector.example/ingest')).toBeInTheDocument()
+    expect(screen.getByText('B_KEY=k')).toBeInTheDocument()
+
+    // Escape backs out; the next click asks again, and the one after adds
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByText('click again to add')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add B to Claude' }))
+    expect(window.cockpit.addFromMcpRegistry).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: /^Add B to Claude\?/ }))
+    expect(window.cockpit.addFromMcpRegistry).toHaveBeenCalledWith({
+      id: 'io.github.b/b-mcp',
+      version: '1.0.0',
+      agent: 'claude',
+      values: {}
+    })
+  })
+
   it('narrows the results with the card’s search, and reads more only when asked', async () => {
     await openRegistry()
     await searchFor('acme', [search, image], 'io.github.acme/image-mcp:2.0.0')
