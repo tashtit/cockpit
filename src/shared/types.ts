@@ -1474,6 +1474,12 @@ export type BusySession = {
 /** The sounds a landing makes: a turn done, an agent waiting on you, something gone wrong. */
 export type AttentionTone = 'finish' | 'asks' | 'fail'
 
+/** What playing a sound did — heard, or why not: the Alert volume is at zero (`muted`), the
+ *  system has no player Cockpit uses (`unsupported`, off macOS), or the player failed. */
+export type SoundPlayback =
+  | { readonly played: true }
+  | { readonly played: false; readonly why: 'muted' | 'unsupported' | 'failed'; readonly message?: string }
+
 /** Settings › Notifications — how Cockpit tells you an agent needs you. */
 export type AttentionPrefs = {
   /** A desktop notification when a turn finishes or fails, an agent waits on you, a

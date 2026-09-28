@@ -44,7 +44,10 @@ function fakeSurface(delivery: NotificationDelivery = { status: 'shown' }): {
     },
     withdraw: (ids) => seen.withdrawn.push([...ids]),
     setBadge: (n) => seen.badges.push(n),
-    play: (s) => seen.sounds.push(s),
+    play: async (s) => {
+      seen.sounds.push(s)
+      return { played: true }
+    },
     bounce: () => {
       seen.bounces++
     }

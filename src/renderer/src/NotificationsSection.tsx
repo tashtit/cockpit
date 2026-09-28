@@ -1,5 +1,5 @@
 import { useState, type JSX } from 'react'
-import type { AttentionPrefs, AttentionTone, NotificationDelivery } from '../../shared/types'
+import type { AttentionPrefs, AttentionTone, NotificationDelivery, SoundPlayback } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
 import { useLoaded } from './use-loaded'
@@ -43,6 +43,19 @@ const TONES: ReadonlyArray<{
 ]
 
 type TestState = 'idle' | 'sending' | NotificationDelivery
+
+/** What a preview key's press did, in words — never "played" for a sound nobody heard. */
+function heardLine(r: SoundPlayback, about: string): string {
+  if (r.played) return `Played the sound for ${about}`
+  switch (r.why) {
+    case 'muted':
+      return `The sound for ${about} is silent: the Alert volume in System Settings › Sound is at zero, and Cockpit’s sounds follow it`
+    case 'unsupported':
+      return 'Cockpit plays its sounds only on macOS'
+    case 'failed':
+      return `Could not play the sound: ${r.message ?? 'the player failed'}`
+  }
+}
 
 /** The test row's readout: what macOS did, and what that means here. */
 function testLine(state: TestState, packaged: boolean | null): string {
@@ -107,8 +120,7 @@ export function NotificationsSection({
 
   const hear = async (t: (typeof TONES)[number]): Promise<void> => {
     try {
-      await api.playSound(t.tone)
-      onStatus(`Played the sound for ${t.about}`)
+      onStatus(heardLine(await api.playSound(t.tone), t.about))
     } catch (err) {
       onStatus(`Could not play the sound: ${ipcErrorText(err)}`)
     }

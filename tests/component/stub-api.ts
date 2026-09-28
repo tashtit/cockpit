@@ -12,6 +12,7 @@ import type {
   RoundtableSnapshot,
   SessionHolder,
   SignInState,
+  SoundPlayback,
   UsageSnapshot
 } from '../../src/shared/types'
 
@@ -175,7 +176,7 @@ export function freshApi(): CockpitApi {
     getAttentionPrefs: vi.fn(async () => ({ notifications: true, sound: true, badge: true, cleanup: true })),
     setAttentionPrefs: vi.fn(async (prefs) => prefs),
     testNotification: vi.fn(async () => ({ status: 'shown' as const })),
-    playSound: vi.fn(async () => {}),
+    playSound: vi.fn(async (): Promise<SoundPlayback> => ({ played: true })),
     setAttentionFocus: vi.fn(async () => {}),
     getLandings: vi.fn(async () => []),
     onLandings: vi.fn(() => () => {}),

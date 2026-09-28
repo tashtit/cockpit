@@ -78,6 +78,7 @@ import type {
   SessionProvider,
   SessionQuery,
   SideChatRequest,
+  SoundPlayback,
   ShareResult,
   SourceDir,
   SourceStats,
@@ -165,7 +166,7 @@ export type CockpitApi = {
   /** Post a sample notification (with the sound, when that is on) and report what macOS did */
   readonly testNotification: () => Promise<NotificationDelivery>
   /** Play one of the notification sounds once, whatever the Sound switch says (the Settings preview) */
-  readonly playSound: (tone: AttentionTone) => Promise<void>
+  readonly playSound: (tone: AttentionTone) => Promise<SoundPlayback>
   /** Tell main what the window shows — it never notifies about that, and opening clears a landing */
   readonly setAttentionFocus: (focus: AttentionFocus) => Promise<void>
   /** Sessions that landed while nobody was looking, newest first */

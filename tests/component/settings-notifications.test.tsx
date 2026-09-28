@@ -113,6 +113,30 @@ describe('Settings notifications', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Could not play the sound: no speaker'))
   })
 
+  it('never says it played a sound nobody heard', async () => {
+    render(<Settings onClose={vi.fn()} section="notifications" />)
+    const keys = within(await switches()).getByRole('group', { name: 'Hear each sound' })
+
+    vi.mocked(window.cockpit.playSound).mockResolvedValueOnce({ played: false, why: 'muted' })
+    await userEvent.click(within(keys).getByRole('button', { name: 'Finished' }))
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(
+        /The sound for a finished turn is silent: the Alert volume in System Settings › Sound is at zero/
+      )
+    )
+    expect(screen.getByRole('status')).not.toHaveTextContent(/Played/)
+
+    vi.mocked(window.cockpit.playSound).mockResolvedValueOnce({
+      played: false,
+      why: 'failed',
+      message: 'Command failed: /usr/bin/afplay'
+    })
+    await userEvent.click(within(keys).getByRole('button', { name: 'Asks you' }))
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Could not play the sound: Command failed: /usr/bin/afplay')
+    )
+  })
+
   it('a development run says the switches start off here', async () => {
     // the stub is a development run already; say so, since that is what's under test
     expect((await window.cockpit.getAppInfo()).packaged).toBe(false)
