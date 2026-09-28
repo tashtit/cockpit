@@ -15,6 +15,7 @@ export function HoldBar({
   provider,
   busy,
   elsewhere,
+  asking = false,
   pending,
   onTakeOver,
   onRelease,
@@ -27,6 +28,9 @@ export function HoldBar({
   busy: boolean
   /** The agent is running a turn outside Cockpit — not the moment to take it over */
   elsewhere: boolean
+  /** That turn is stopped on a question the agent asked there: it waits for as long as the
+   *  question does, so it ends when the person answers it — never on its own */
+  asking?: boolean
   /** A change of hands is on its way to main */
   pending: boolean
   onTakeOver: () => void
@@ -43,7 +47,9 @@ export function HoldBar({
       ? `taken over from ${agent}, so Cockpit sends its turns. Release it to hand it back.`
       : `started here, so Cockpit sends its turns. Release it to carry on in ${agent} instead.`
     : elsewhere
-      ? `${agent} is working on it ${place ? `in ${place}` : 'outside Cockpit'} right now — take it over once that turn ends.`
+      ? asking
+        ? `${agent} is waiting for your answer ${place ? `in ${place}` : 'outside Cockpit'} — answer it there, then take it over.`
+        : `${agent} is working on it ${place ? `in ${place}` : 'outside Cockpit'} right now — take it over once that turn ends.`
       : control.how === 'released'
         ? `released from Cockpit, which only follows its log. Take it over to send from here.`
         : place
@@ -54,7 +60,9 @@ export function HoldBar({
   // a turn running would be pulled from under: Cockpit's own holds up a release, the
   // agent's a take-over, and either one a second CLI opened on the same log
   const ourTurn = 'Cockpit is running a turn in it — stop it, or let it finish, first'
-  const theirTurn = `${agent} is running a turn in it — wait for that turn to end`
+  const theirTurn = asking
+    ? `${agent} is waiting for your answer in it — answer it there first`
+    : `${agent} is running a turn in it — wait for that turn to end`
   const blocked = held ? busy : elsewhere
   const blockedWhy = held ? ourTurn : theirTurn
   const resumeBlocked = busy || elsewhere
@@ -66,7 +74,9 @@ export function HoldBar({
     ? busy
       ? 'Cockpit is running a turn in it — stop it, or let it finish, to release it.'
       : elsewhere && isDrivable(provider)
-        ? `${agent} is running a turn in it outside Cockpit — Open in Terminal waits for that turn to end.`
+        ? asking
+          ? `${agent} is waiting for your answer outside Cockpit — answer it there; Open in Terminal waits for it.`
+          : `${agent} is running a turn in it outside Cockpit — Open in Terminal waits for that turn to end.`
         : null
     : busy && isDrivable(provider)
       ? 'Cockpit is running a turn in it — Open in Terminal waits for it to end.'

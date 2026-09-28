@@ -620,6 +620,34 @@ describe('ChatView names where a session with its agent lives', () => {
     )
   })
 
+  it('says a turn stopped on its question waits for an answer there, not for the turn to end', () => {
+    setChatLog([
+      {
+        role: 'assistant',
+        kind: 'tool_call',
+        toolName: 'AskUserQuestion',
+        text: '{}',
+        asks: [{ question: 'Which org?', multiSelect: false, options: [{ label: 'acme' }, { label: 'tashtit' }] }]
+      }
+    ])
+    renderChat(vi.fn(), {
+      binding: started,
+      control: { holder: 'agent', how: 'outside', surface: 'terminal' },
+      elsewhere: true
+    })
+    const bar = screen.getByRole('region', { name: 'Who drives this session' })
+    expect(bar).toHaveTextContent(/Claude is waiting for your answer in a terminal — answer it there, then take it over/)
+    expect(bar).not.toHaveTextContent(/once that turn ends/)
+    expect(screen.getByRole('button', { name: 'Take over' })).toHaveAttribute(
+      'title',
+      expect.stringContaining('waiting for your answer in it — answer it there first')
+    )
+    expect(screen.getByRole('button', { name: 'Send' })).toHaveAttribute(
+      'title',
+      'Claude is waiting for your answer in a terminal — answer it there, then take it over'
+    )
+  })
+
   it('names a terminal', () => {
     renderChat(vi.fn(), { binding: started, control: { holder: 'agent', how: 'outside', surface: 'terminal' } })
     expect(screen.getByText('In a terminal', { selector: '.hold-chip .chip-text' })).toBeInTheDocument()

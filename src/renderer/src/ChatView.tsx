@@ -329,9 +329,13 @@ export function ChatView({
   const sendBlocked = busy || elsewhere || withAgent
   // where the turn elsewhere runs, when the log named the place it was opened in
   const where = (control && binding && placeOf(control, binding.provider)) || 'a terminal or its own app'
+  // a turn stopped on a question never ends on its own — it waits for as long as the
+  // question does — so the way on is to answer it there, not to wait
   const elsewhereHint = binding
     ? elsewhere
-      ? `${PROVIDER_LABEL[binding.provider]} is working on this session in ${where} — Send waits for that turn to finish`
+      ? pendingAsk
+        ? `${PROVIDER_LABEL[binding.provider]} is waiting for your answer in ${where} — answer it there${withAgent ? ', then take it over' : ''}`
+        : `${PROVIDER_LABEL[binding.provider]} is working on this session in ${where} — Send waits for that turn to finish`
       : withAgent
         ? `This session is with ${PROVIDER_LABEL[binding.provider]} — take it over to send from Cockpit`
         : undefined
@@ -671,6 +675,7 @@ export function ChatView({
               provider={binding.provider}
               busy={busy}
               elsewhere={elsewhere}
+              asking={!!pendingAsk}
               pending={holdPending}
               onTakeOver={() => changeHands('cockpit')}
               onRelease={() => changeHands('agent')}
