@@ -15,16 +15,20 @@ export const ACP_PROTOCOL_VERSION = 1
 
 /**
  * Agents Cockpit knows how to drive without being told. Only agents whose ACP mode is
- * native to a CLI we already index belong here: a built-in writes the provider's own
- * session store, so its conversations are indexed, resumable and live-tracked exactly
- * like the CLI's. Everything else is a user-defined agent.
+ * native to a CLI we already index belong here: a built-in writes the agent's own
+ * session store, so its conversations are indexed and resumable like the CLI's — only
+ * those that store holds, though (`acpCanReopen`). Copilot's are live-tracked from their
+ * logs too; the agents Cockpit otherwise only reads are kept out of that (liveness.ts), so
+ * a turn of theirs shows as running only while Cockpit runs it. Everything else is a
+ * user-defined agent.
  *
- * Each applies only once its CLI has answered an `initialize` handshake at startup, so a
- * machine without it — or with a release whose ACP mode is spelled differently — just
- * has one agent fewer to drive. The commands are the ones each project documents for
- * editors: Copilot and Gemini take a flag, opencode and Cursor's agent a subcommand, and
- * Cline's CLI a flag. Copilot's is the one of the three Cockpit also runs headless; for
- * the others it is the only way Cockpit can start or continue one of their sessions.
+ * Each applies only once its CLI has answered an `initialize` handshake (`BuiltinReadiness`
+ * in main), so a machine without it — or with a release whose ACP mode is spelled
+ * differently — just has one agent fewer to drive. The commands are the ones each project
+ * documents for editors: Copilot, Gemini and Cline's CLI take a flag, opencode and Cursor's
+ * agent a subcommand. Of these five, Copilot's is the only one whose CLI Cockpit also runs
+ * headless; for the other four it is the only way Cockpit can start or continue one of
+ * their sessions.
  */
 export const BUILTIN_ACP_AGENTS: readonly AcpAgent[] = [
   { id: 'builtin-copilot', label: 'Copilot (ACP)', command: 'copilot', args: ['--acp'], provider: 'copilot', builtin: true },
