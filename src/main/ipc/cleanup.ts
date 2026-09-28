@@ -7,14 +7,15 @@ import type { Services } from '../services'
 import { sendToWin } from '../window'
 import { asIdList, asProcessTargets } from './guards'
 
-const staleDays = (): number => loadConfig().staleDays ?? DEFAULT_STALE_DAYS
-
 /*
  * Cleanup: the cross-agent, cross-repo view of what has gone stale. Every input it acts
  * on is main-derived — session ids are re-looked-up in the index and their files
  * re-checked against the configured sources, and worktree paths are re-derived from git
  * before a single one is removed (see cleanup.ts).
  */
+
+const staleDays = (): number => loadConfig().staleDays ?? DEFAULT_STALE_DAYS
+
 export function registerCleanupHandlers(s: Services): void {
   const { indexer, cleanupDeps } = s
 
