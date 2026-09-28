@@ -3,7 +3,7 @@ import { basename, dirname, join } from 'node:path'
 import type { SessionMeta, SessionMessage, WorkArtifact } from '../../shared/types'
 import { fileWriteArtifact, replaceArtifact, toolArtifact } from './artifacts'
 import { checkArtifact, checkOutcome } from './checks'
-import { dbMtime, queryAll, sessionRef, snapshotCache, splitSessionRef } from './sqlite'
+import { dbMtime, queryAll, queryEach, sessionRef, snapshotCache, splitSessionRef } from './sqlite'
 import { capText, fileTimes, jsonText, readJson, toMs, TRANSCRIPT_TAIL_BYTES, truncate, usableCwd } from './util'
 
 /**
@@ -185,26 +185,46 @@ const MAX_PART_BYTES = 256 * 1024
 
 function dbTurns(db: string, id: string): { turns: Turn[]; truncated: boolean } {
   const messages = queryAll(db, 'SELECT id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created, id', id) ?? []
-  const parts = new Map<string, any[]>()
+  // newest parts first, so a long session opens on its latest turns: their sizes, stepped
+  // through until the budget is spent (octet_length reads none of a part's content), then
+  // the content of those alone — every part was read, all of it, before the budget applied
+  const window: string[] = []
   let budget = TRANSCRIPT_TAIL_BYTES
   let truncated = false
-  // newest parts first, so a long session opens on its latest turns
+  queryEach(
+    db,
+    { sql: 'SELECT id, octet_length(data) AS n FROM part WHERE session_id = ? ORDER BY message_id DESC, id DESC', params: [id] },
+    (r) => {
+      const n = Number(r['n'] ?? 0)
+      // a part too big to parse is left out, and costs nothing
+      if (n > MAX_PART_BYTES) return true
+      budget -= n
+      if (budget < 0) {
+        truncated = true
+        return false
+      }
+      window.push(String(r['id']))
+      return true
+    }
+  )
+  const read = new Map<string, Record<string, unknown>>()
   for (const r of queryAll(
     db,
-    `SELECT message_id, CASE WHEN length(data) > ${MAX_PART_BYTES} THEN NULL ELSE data END AS data
-     FROM part WHERE session_id = ? ORDER BY message_id DESC, id DESC`,
-    id
+    `SELECT id, message_id, data FROM part WHERE id IN (SELECT value FROM json_each(?)) AND octet_length(data) <= ${MAX_PART_BYTES}`,
+    JSON.stringify(window)
   ) ?? []) {
-    const raw = typeof r['data'] === 'string' ? r['data'] : null
-    if (!raw) continue
-    budget -= raw.length
-    if (budget < 0) {
-      truncated = true
-      break
-    }
+    read.set(String(r['id']), r)
+  }
+  const parts = new Map<string, any[]>()
+  for (const pid of window.reverse()) {
+    const r = read.get(pid)
+    if (typeof r?.['data'] !== 'string') continue
     try {
+      const part = JSON.parse(r['data'])
       const mid = String(r['message_id'])
-      parts.set(mid, [JSON.parse(raw), ...(parts.get(mid) ?? [])])
+      const own = parts.get(mid)
+      if (own) own.push(part)
+      else parts.set(mid, [part])
     } catch {
       /* a malformed part is skipped */
     }

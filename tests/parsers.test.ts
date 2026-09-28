@@ -2461,6 +2461,28 @@ describe('opencode parser', () => {
     // and the next read after it lets go is the database as it now stands
     expect(listOpencodeSessions(home, 'o').find((m) => m.nativeId === 'ses_two')?.title).toBe('renamed while held')
   })
+
+  it('opens a very long session on its newest turns, saying the older ones were left out', () => {
+    const long = join(root, 'opencode-long')
+    // twenty parts of ~250KB: sixteen fit the 4MB budget
+    writeOpencodeDb(join(long, 'opencode.db'), [
+      {
+        id: 'ses_long',
+        title: 'Long',
+        directory: '/Users/me/dev/web',
+        created: at,
+        updated: at,
+        turns: Array.from({ length: 20 }, (_, i) => ({
+          role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+          at: at + i,
+          parts: [{ type: 'text', text: `p${i} ${'x'.repeat(250 * 1024)}` }]
+        }))
+      }
+    ])
+    const rows = parseOpencodeMessages(listOpencodeSessions(long, 'o')[0]!.sourcePath)
+    expect(rows[0]).toEqual({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
+    expect(rows.slice(1).map((r) => r.text.split(' ')[0])).toEqual(Array.from({ length: 16 }, (_, i) => `p${i + 4}`))
+  })
 })
 
 describe('cursor parser: the editor’s own chats', () => {

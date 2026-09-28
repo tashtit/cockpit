@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
-import { SnapshotPass, dbStamp, inPass, queryAll, snapshotCache } from '../src/main/parsers/sqlite'
+import { SnapshotPass, dbStamp, inPass, queryAll, queryEach, snapshotCache } from '../src/main/parsers/sqlite'
 import { listCursorSessions } from '../src/main/parsers/cursor'
 import { writeCursorChats } from '../scripts/ui-tour/store-fixtures.mts'
 
@@ -39,6 +39,22 @@ function countingSnapshot(): { readonly rows: (file: string) => number; readonly
   }, 0)
   return { rows, reads: () => reads }
 }
+
+describe('queryEach', () => {
+  it('steps through rows until told to stop, and says when the database cannot be read', () => {
+    const db = join(root, 'each', 'state.vscdb')
+    writeCursorChats(db, [chat('c1', 'one'), chat('c2', 'two'), chat('c3', 'three')])
+    const seen: string[] = []
+    const sql = `SELECT key FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;' ORDER BY key`
+    expect(queryEach(db, { sql }, (r) => (seen.push(String(r['key'])), seen.length < 2))).toBe(true)
+    expect(seen).toEqual(['composerData:c1', 'composerData:c2'])
+    const all: unknown[] = []
+    expect(queryEach(db, { sql: 'SELECT key FROM cursorDiskKV WHERE key = ?', params: ['composerData:c3'] }, (r) => (all.push(r['key']), true))).toBe(true)
+    expect(all).toEqual(['composerData:c3'])
+    expect(queryEach(db, { sql: 'SELECT * FROM no_such_table' }, () => true)).toBe(false)
+    expect(queryEach(join(root, 'each', 'missing.db'), { sql: 'SELECT 1' }, () => true)).toBe(false)
+  })
+})
 
 describe('a pass over a database its app keeps writing', () => {
   it('reads it once, however often it is written meanwhile, and says it moved', () => {

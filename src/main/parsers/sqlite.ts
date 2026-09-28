@@ -28,6 +28,36 @@ export function queryAll(file: string, sql: string, ...params: Array<string | nu
   }
 }
 
+/**
+ * queryAll one row at a time, for a read under a budget: `take` sees each row as SQLite
+ * steps to it and returns false to stop, and the rows past that are never fetched —
+ * `.all()` would have read every one first. False when the database or the table cannot
+ * be read (rows already taken stay taken); true when the read went as far as `take` let it.
+ */
+export function queryEach(
+  file: string,
+  query: { readonly sql: string; readonly params?: ReadonlyArray<string | number> },
+  take: (row: Record<string, unknown>) => boolean
+): boolean {
+  if (!isRegularFile(file)) return false
+  let db: DatabaseSync | null = null
+  try {
+    db = new DatabaseSync(file, { readOnly: true })
+    for (const row of db.prepare(query.sql).iterate(...(query.params ?? []))) {
+      if (!take(row as Record<string, unknown>)) break
+    }
+    return true
+  } catch {
+    return false
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
 /** How a database stands on disk, looked at once (see SnapshotPass). */
 type DbLook = {
   /** its own file's mtime and size and its write-ahead log's; null when it is not there */
