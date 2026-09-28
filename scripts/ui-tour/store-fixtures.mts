@@ -137,6 +137,8 @@ export type CursorChat = {
   readonly id: string
   readonly name?: string
   readonly cwd?: string
+  /** the workspace URI's scheme: `file` unless said otherwise (`vscode-remote` for one over SSH) */
+  readonly scheme?: string
   readonly created: number
   readonly updated: number
   readonly subagents?: readonly string[]
@@ -167,7 +169,7 @@ export function writeCursorChats(file: string, chats: readonly CursorChat[]): vo
         ...(c.name ? { name: c.name } : {}),
         createdAt: c.created,
         lastUpdatedAt: c.updated,
-        ...(c.cwd ? { workspaceIdentifier: { id: 'ws', uri: { $mid: 1, fsPath: c.cwd, path: c.cwd, scheme: 'file' } } } : {}),
+        ...(c.cwd ? { workspaceIdentifier: { id: 'ws', uri: { $mid: 1, fsPath: c.cwd, path: c.cwd, scheme: c.scheme ?? 'file' } } } : {}),
         subagentComposerIds: c.subagents ?? [],
         fullConversationHeadersOnly: headers
       })

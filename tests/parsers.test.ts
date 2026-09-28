@@ -2684,6 +2684,19 @@ describe('cursor parser: the editor’s own chats', () => {
     expect(rows[3]).toMatchObject({ failed: true, artifact: { kind: 'check', checks: ['tests'] } })
   })
 
+  // a remote workspace's path names a directory on another machine: taken as this one's,
+  // it grouped the chat under whatever local checkout happened to share the path
+  it('places a chat in a remote workspace nowhere on this machine', () => {
+    const remote = join(root, 'cursor-editor-remote', 'User', 'globalStorage')
+    writeCursorChats(join(remote, 'state.vscdb'), [
+      { id: 'r', name: 'Over SSH', cwd: '/home/me/dev/web', scheme: 'vscode-remote', created: at, updated: at, bubbles: [{ type: 1, at, text: 'hi' }] },
+      { id: 'l', name: 'Here', cwd: '/Users/me/dev/web', created: at, updated: at, bubbles: [{ type: 1, at, text: 'hi' }] }
+    ])
+    const metas = listCursorSessions(remote, 'c')
+    expect(metas.find((m) => m.nativeId === 'r')?.cwd).toBeNull()
+    expect(metas.find((m) => m.nativeId === 'l')?.cwd).toBe('/Users/me/dev/web')
+  })
+
   it('falls back to the store’s own time for a chat time no chat can have', () => {
     const drifted = join(root, 'cursor-editor-drifted', 'User', 'globalStorage')
     const db = join(drifted, 'state.vscdb')

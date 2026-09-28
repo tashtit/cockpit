@@ -308,6 +308,7 @@ const composerChats = snapshotCache((db: string): Map<string, Composer> | null =
        json_extract(value, '$.fullConversationHeadersOnly[#-1].createdAt') AS last,
        json_extract(value, '$.subagentComposerIds') AS subagents,
        json_extract(value, '$.workspaceIdentifier.uri.fsPath') AS cwd,
+       json_extract(value, '$.workspaceIdentifier.uri.scheme') AS scheme,
        coalesce(json_array_length(value, '$.fullConversationHeadersOnly'), 0) AS headers,
        coalesce(json_array_length(value, '$.conversation'), 0) AS inline,
        coalesce(json_extract(value, '$.fullConversationHeadersOnly[0].grouping.textPreview'),
@@ -331,7 +332,9 @@ const composerChats = snapshotCache((db: string): Map<string, Composer> | null =
       created: plausibleTime(toMs(r['created'])),
       // the chat's own stamp can lag its last message by minutes
       updated: Math.max(plausibleTime(toMs(r['updated'])) ?? 0, plausibleTime(toMs(r['last'])) ?? 0) || null,
-      cwd: usableCwd(r['cwd']),
+      // a workspace on this machine: a remote one's path (`vscode-remote`, over SSH or in a
+      // container) names a directory somewhere else, and the chat belongs in General
+      cwd: r['scheme'] === 'file' ? usableCwd(r['cwd']) : null,
       messages,
       preview: typeof r['preview'] === 'string' && r['preview'].trim() ? r['preview'] : null,
       parent: parents.get(id) ?? null
