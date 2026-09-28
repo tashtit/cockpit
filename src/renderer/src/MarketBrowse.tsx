@@ -29,6 +29,25 @@ import { useLoaded } from './use-loaded'
  * it was made from, hands focus to its row.
  */
 
+/**
+ * The machine's own list with this visit's lookups laid over it. A re-read (every add
+ * moves the report, which re-reads) knows only the clones here, so a catalogue read from
+ * its repository would vanish with the first add. It stays in place of a row that still
+ * has no catalogue of its own — taking that row's word for who has it now — and ahead of
+ * the list when the machine doesn't know it at all. A clone read here wins once there is one.
+ */
+function withLookedUp(
+  read: readonly MarketplaceCatalog[],
+  lookedUp: readonly MarketplaceCatalog[]
+): MarketplaceCatalog[] {
+  const found = (name: string): MarketplaceCatalog | undefined => lookedUp.find((c) => c.name === name)
+  const merged = read.map((c) => {
+    const remote = c.origin === 'local' ? undefined : found(c.name)
+    return remote ? { ...remote, agents: c.agents, ...(c.source ? { source: c.source } : {}) } : c
+  })
+  return [...lookedUp.filter((f) => !read.some((c) => c.name === f.name)), ...merged]
+}
+
 export function MarketBrowse({
   report,
   query,
@@ -48,8 +67,10 @@ export function MarketBrowse({
   // read on arrival, and again whenever the panel's report moves: an install is what
   // turns a catalogue row from "add" into "already there"
   const loaded = useLoaded(() => api.listCatalogs(), [report])
-  const catalogs: readonly MarketplaceCatalog[] | null = loaded.value
-  const setCatalogs = loaded.set
+  /** catalogues read from their repositories this visit, newest first */
+  const [lookedUp, setLookedUp] = useState<readonly MarketplaceCatalog[]>([])
+  const catalogs: readonly MarketplaceCatalog[] | null =
+    loaded.value === null ? null : withLookedUp(loaded.value, lookedUp)
   /** marketplaces whose plugin list is open, by name */
   const [open, setOpen] = useState<readonly string[]>([])
   /** the source typed into the lookup line */
@@ -64,7 +85,7 @@ export function MarketBrowse({
     setNotice(null)
     try {
       const found = await api.lookupMarketplace(wanted)
-      setCatalogs((list) => [found, ...(list ?? []).filter((c) => c.name !== found.name)])
+      setLookedUp((list) => [found, ...list.filter((c) => c.name !== found.name)])
       setOpen((names) => (names.includes(found.name) ? names : [...names, found.name]))
       setSource('')
       setNotice({
