@@ -470,6 +470,25 @@ describe('CleanupView — filtering', () => {
     expect(summary()).toMatch(/1 shown of 2/)
   })
 
+  it('isolates the worktrees no session claims under No agent', async () => {
+    const user = userEvent.setup()
+    mount(
+      report({
+        worktrees: [
+          worktree({ path: '/h/.cursor/worktrees/cockpit/a1', origin: 'external', providers: ['cursor'], sessionCount: 1 }),
+          worktree({ path: '/userData/worktrees/cockpit/left-1' }),
+          worktree({ path: '/userData/worktrees/cockpit/left-2' })
+        ]
+      })
+    )
+    await openTab('Worktrees')
+    await openPill(user, /^Agent Any/)
+    await user.click(screen.getByRole('button', { name: 'No agent' }))
+    await user.keyboard('{Escape}')
+    expect(summary()).toMatch(/2 shown of 3/)
+    expect(screen.queryByTitle('/h/.cursor/worktrees/cockpit/a1')).not.toBeInTheDocument()
+  })
+
   it('only offers dimension values the rows actually carry', async () => {
     const user = userEvent.setup()
     mount(report({ sessions: [session({ provider: 'claude' })] }))

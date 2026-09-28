@@ -91,7 +91,7 @@ Every list but Processes has a filter bar. Free text on the left searches titles
 |---|---|
 | Sessions | Agent, Project, State (has a worktree, archived, blocked) |
 | Roundtables | Agent (any seat), Project, State (has a worktree, scratch room, archived, blocked) |
-| Worktrees | Agent (whose sessions ran in it), Origin, Project, State (removable, blocked, unpushed, directory gone) |
+| Worktrees | Agent (whose sessions ran in it, or **No agent** for one no session claims), Origin, Project, State (removable, blocked, unpushed, directory gone) |
 
 Click a pill to open it, then click values to include them. Every option also carries a **⊘** on hover that *excludes* it instead — so "every project except docs" is one click. Within a dimension the values are OR-ed; across dimensions they are AND-ed. The pill tells you where it stands: `Any` → `web` → `not docs` → `2 selected, 1 excluded`.
 
