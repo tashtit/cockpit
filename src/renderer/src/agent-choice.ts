@@ -10,17 +10,19 @@ import type {
 import { isDrivable, isSessionProvider } from '../../shared/providers'
 import { api } from './api'
 import { canDrive, refreshAcpReadiness, startableAgents, useDrivableAgents } from './acp-readiness'
+import { storedValue } from './stored-value'
 import { useLoaded } from './use-loaded'
 
 /**
  * Who runs a new session and how far it may go unasked: the agent, the account it runs as
  * and the permission mode. Home's composer, the New session form and the handoff form all
- * choose them, and all remember them in the same localStorage keys — one memory across
+ * choose them, and all remember them in the same keys (`storedValue`) — one memory across
  * every entry point. ChatView reads the mode back, the new-roundtable form the accounts.
  *
  * Storage is anyone's to write (a devtools console, another build, a hand edit) and can
  * refuse outright (a private window, blocked site data), so nothing read here trusts it:
- * a refused read is unset, and only a known agent or mode comes out of it.
+ * a refused read is unset, only a known agent or mode comes out of it, and a choice that
+ * could not be saved still holds for this run — never a start refused over it.
  *
  * Besides the three CLIs, a form offers every agent Cockpit otherwise only reads that an
  * ACP agent drives right now (`acp-readiness.ts`). Such an agent has no account, model or
@@ -57,26 +59,22 @@ export type StartSessionRequest = {
   readonly images?: readonly string[]
 }
 
-const PROVIDER_KEY = 'cockpit:provider'
-const MODE_KEY = 'cockpit:mode'
-const accountStorageKey = (p: SessionProvider): string => `cockpit:account:${p}`
+/** The agent last started with — Claude when what is stored is not an agent Cockpit knows. */
+const savedProviderPref = storedValue<SessionProvider>('cockpit:provider', {
+  parse: (raw) => (isSessionProvider(raw) ? raw : undefined),
+  serialize: (p) => p,
+  fallback: 'claude'
+})
 
-/** What storage holds under `key` — nothing, when it refuses to be read. */
-function readStored(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key)
-  } catch {
-    return null
+/** The account key (`AccountOption.key`) last picked for one agent, as stored — each reader checks it still resolves. */
+const accountPrefs = new Map<SessionProvider, ReturnType<typeof storedValue<string | null>>>()
+function accountPref(p: SessionProvider): ReturnType<typeof storedValue<string | null>> {
+  let pref = accountPrefs.get(p)
+  if (!pref) {
+    pref = storedValue<string | null>(`cockpit:account:${p}`, { parse: (raw) => raw, serialize: (k) => k, fallback: null })
+    accountPrefs.set(p, pref)
   }
-}
-
-/** Keep `value` under `key` — unless storage refuses, which must never stop a start. */
-function writeStored(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value)
-  } catch {
-    // not remembered: the choice still runs, the next form just opens on the default
-  }
+  return pref
 }
 
 /** Flatten the accounts snapshot into selectable options per provider (none for an agent driven over ACP). */
@@ -112,7 +110,7 @@ export function accountOptions(snap: AccountsSnapshot | null, provider: SessionP
 /** The account a form opens on for `p`: the user's saved choice, else the first configured. */
 export function savedAccount(snap: AccountsSnapshot | null, p: SessionProvider): AccountOption | undefined {
   const opts = accountOptions(snap, p)
-  const saved = readStored(accountStorageKey(p))
+  const saved = accountPref(p).get()
   return opts.find((o) => o.key === saved) ?? opts[0]
 }
 
@@ -137,28 +135,33 @@ export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = 
 ]
 
 /**
- * The permission mode the person last sent with, or the default when what is stored is
- * not one of the modes — the mode decides what an agent may do unasked.
+ * The permission mode last sent with, or the default when what is stored is not one of
+ * the modes — the mode decides what an agent may do unasked.
  */
+const savedModePref = storedValue<PermissionMode>('cockpit:mode', {
+  parse: (raw) => MODES.find((m) => m.v === raw)?.v,
+  serialize: (m) => m,
+  fallback: 'auto-edit'
+})
+
+/** The permission mode the person last sent with (`savedModePref`). */
 export function savedMode(): PermissionMode {
-  const saved = readStored(MODE_KEY)
-  return MODES.find((m) => m.v === saved)?.v ?? 'auto-edit'
+  return savedModePref.get()
 }
 
 /** The agent the person last started with, or Claude when what is stored is not one. */
 export function savedProvider(): SessionProvider {
-  const saved = readStored(PROVIDER_KEY)
-  return isSessionProvider(saved) ? saved : 'claude'
+  return savedProviderPref.get()
 }
 
 /** Remember the permission mode picked, for every form (and the next chat's composer) to open on. */
 export function rememberMode(mode: PermissionMode): void {
-  writeStored(MODE_KEY, mode)
+  savedModePref.set(mode)
 }
 
 /** Remember the account picked for `provider`, for every form to open on. */
 export function rememberAccount(provider: SessionProvider, key: string): void {
-  writeStored(accountStorageKey(provider), key)
+  accountPref(provider).set(key)
 }
 
 /** Remember what a session was started with, for the next form to open on. */
@@ -167,7 +170,7 @@ export function rememberChoice(choice: {
   readonly mode: PermissionMode
   readonly account: AccountOption | undefined
 }): void {
-  writeStored(PROVIDER_KEY, choice.provider)
+  savedProviderPref.set(choice.provider)
   rememberMode(choice.mode)
   if (choice.account) rememberAccount(choice.provider, choice.account.key)
 }
