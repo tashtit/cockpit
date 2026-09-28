@@ -62,8 +62,11 @@ export function registerEndpointHandlers(s: Services): void {
 
   /* ACP agents: CLIs the user asked Cockpit to drive over the Agent Client Protocol */
   ipcMain.handle(CH.acpGet, () => [...BUILTIN_ACP_AGENTS, ...listAcpAgents()])
-  // which agents a session can be started or continued with — asking re-probes a missing built-in
-  ipcMain.handle(CH.acpReadiness, () => s.acpReadiness({ reprobe: true }))
+  // which agents a session can be started or continued with — asking re-probes a missing
+  // built-in, and a recheck every built-in
+  ipcMain.handle(CH.acpReadiness, (_e, opts: unknown) =>
+    s.acpReadiness({ recheck: (opts as { recheck?: unknown } | undefined)?.recheck === true })
+  )
   ipcMain.handle(CH.acpAdd, (_e, input: unknown) => {
     const agent = sanitizeAcpAgent(input, randomUUID())
     if (!agent) {

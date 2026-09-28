@@ -2114,7 +2114,7 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .usage-num { color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* the fold: the button that opens an add form sits under the list it extends */
-.source-add-open { display: flex; }
+.source-add-open { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .source-add { display: flex; flex-direction: column; gap: var(--s2); }
 .source-add input { min-width: 0; }
 /* the path is a machine identifier — mono, like .ns-branch-row input */

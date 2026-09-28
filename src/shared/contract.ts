@@ -345,8 +345,11 @@ export type CockpitApi = {
   readonly removeAcpAgent: (id: string) => Promise<AcpAgent[]>
   /** Run the `initialize` handshake against a definition to prove it speaks ACP */
   readonly probeAcpAgent: (agent: NewAcpAgent) => Promise<AcpAgentProbe>
-  /** Which agents a session can be started or continued with — asking re-probes a missing built-in */
-  readonly getAcpReadiness: () => Promise<AcpReadiness>
+  /**
+   * Which agents a session can be started or continued with — asking re-probes a missing
+   * built-in (at most once a minute), and `recheck` every built-in, one that stopped answering too
+   */
+  readonly getAcpReadiness: (opts?: { readonly recheck?: boolean }) => Promise<AcpReadiness>
   /** Pushed when that changes: a built-in's CLI answered, or an ACP agent was added or removed */
   readonly onAcpReadiness: (cb: (readiness: AcpReadiness) => void) => () => void
 

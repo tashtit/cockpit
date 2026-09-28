@@ -210,7 +210,11 @@ seventh.
   logo: an ACP agent is a *way of running* one of the three agents, not a fourth agent,
   and the row has to say so at a glance. **Built-ins have no remove control** and read
   `built in` — they are defined in code, not config, so their `.source-health` states
-  what is true of them ("used when this CLI supports it") rather than offering an action.
+  what is true of them (whether its CLI answered, and the agent the person defined for
+  that CLI when one is used instead) rather than offering an action. The one action on
+  them is section-wide, **Check the built-ins again**, a `.btn-ghost.small` in the fold
+  row before `Add an ACP agent…`: it re-probes every built-in, so one whose CLI has gone
+  stops reading as answered.
   The add form's **Test** button runs the real ACP handshake and reports what answered
   (name, version, protocol, whether it can resume, how to sign in), so a command is never
   stored on faith; a failure shows the agent's own reason in an `alert`. Field validation

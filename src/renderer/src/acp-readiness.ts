@@ -27,8 +27,8 @@ function set(next: AcpReadiness): void {
 /**
  * Seed from main and follow its pushes; returns the unsubscribe (App's mount effect).
  * Asking also has main re-probe a built-in that has not answered yet (at most once a
- * minute), so a CLI installed since launch is found — the forms that pick an agent ask
- * again when they open (`refreshAcpReadiness`).
+ * minute), so a CLI installed since launch is found — the forms that pick an agent, and
+ * Settings' list of ACP agents, ask again when they open (`refreshAcpReadiness`).
  */
 export function initAcpReadiness(): () => void {
   // optional calls: a preload from before these methods must not take a view down (dev HMR)
@@ -36,10 +36,14 @@ export function initAcpReadiness(): () => void {
   return seedThenFollow(api.getAcpReadiness, api.onAcpReadiness, set)
 }
 
-/** Ask again — a form that picks an agent, on opening. The answer, or a probe it starts, arrives as usual. */
-export function refreshAcpReadiness(): void {
+/**
+ * Ask again — a form that picks an agent, on opening. The answer, or a probe it starts,
+ * arrives as usual. `recheck` re-probes every built-in, so one whose CLI has gone stops
+ * being offered (Settings' Check again).
+ */
+export function refreshAcpReadiness(opts?: { readonly recheck?: boolean }): void {
   void api
-    .getAcpReadiness?.()
+    .getAcpReadiness?.(opts)
     .then(set)
     .catch(() => {})
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { AcpPermissionOption, ChatEvent } from '../src/shared/types'
+import type { AcpAgent, AcpAgentProbe, AcpPermissionOption, ChatEvent } from '../src/shared/types'
 import {
   acpAgentRefusal,
   acpCanReopen,
@@ -13,6 +13,7 @@ import {
 } from '../src/shared/acp'
 import {
   acpUpdateToEvents,
+  BuiltinReadiness,
   decidePermission,
   initializeParams,
   modeIdFor,
@@ -20,6 +21,7 @@ import {
   permissionDetail,
   permissionOptions,
   promptResultEvents,
+  REPROBE_EVERY_MS,
   unattendedOutcome
 } from '../src/main/acp-core'
 
@@ -505,5 +507,95 @@ describe('an agent update nested too deep to serialise', () => {
     const events = acpUpdateToEvents('t1', { sessionUpdate: 'tool_call', toolCallId: 'c1', title: 'ls', rawInput: deep }, new Set())
     expect(events[0]).toMatchObject({ type: 'tool' })
     expect((events[0] as Extract<ChatEvent, { type: 'tool' }>).detail).toContain('nested too deeply')
+  })
+})
+
+describe('BuiltinReadiness', () => {
+  const agents: AcpAgent[] = [
+    { id: 'b-gemini', label: 'Gemini', command: 'gemini', args: ['--acp'], provider: 'gemini', builtin: true },
+    { id: 'b-cline', label: 'Cline', command: 'cline', args: ['--acp'], provider: 'cline', builtin: true }
+  ]
+
+  /** A probe per agent id the test settles by hand, and a clock it moves. */
+  function harness(): {
+    readonly readiness: BuiltinReadiness
+    readonly asked: string[]
+    readonly answer: (id: string, ok: boolean) => Promise<void>
+    readonly changes: () => number
+    readonly tick: (ms: number) => void
+  } {
+    const pending = new Map<string, (probe: AcpAgentProbe) => void>()
+    const asked: string[] = []
+    let changes = 0
+    let now = 1_000_000
+    const readiness = new BuiltinReadiness(
+      {
+        probe: (agent) =>
+          new Promise((resolve) => {
+            asked.push(agent.id)
+            pending.set(agent.id, resolve)
+          }),
+        onChange: () => changes++,
+        now: () => now
+      },
+      agents
+    )
+    return {
+      readiness,
+      asked,
+      answer: async (id, ok) => {
+        pending.get(id)?.(ok ? { ok: true } : { ok: false, error: 'not found' })
+        pending.delete(id)
+        // the settle, and the bookkeeping after it, run a few microtasks later
+        for (let i = 0; i < 5; i++) await Promise.resolve()
+      },
+      changes: () => changes,
+      tick: (ms) => {
+        now += ms
+      }
+    }
+  }
+
+  it('probes every built-in at launch, and uses the ones that answer', async () => {
+    const h = harness()
+    h.readiness.probe('missing')
+    expect(h.asked).toEqual(['b-gemini', 'b-cline'])
+    await h.answer('b-gemini', true)
+    await h.answer('b-cline', false)
+    expect(h.readiness.ready()).toEqual(['b-gemini'])
+    expect(h.readiness.isReady('b-cline')).toBe(false)
+    expect(h.changes()).toBe(1)
+  })
+
+  it('asks again for the missing ones at most once a minute, and never twice at once', async () => {
+    const h = harness()
+    h.readiness.probe('missing')
+    await h.answer('b-gemini', true)
+    h.tick(REPROBE_EVERY_MS)
+    // cline's first probe is still out: it is not started again
+    h.readiness.probe('missing')
+    expect(h.asked).toEqual(['b-gemini', 'b-cline'])
+    await h.answer('b-cline', false)
+    h.readiness.probe('missing')
+    expect(h.asked).toEqual(['b-gemini', 'b-cline'])
+    h.tick(REPROBE_EVERY_MS)
+    h.readiness.probe('missing')
+    // the one that answered is not asked again; the missing one is
+    expect(h.asked).toEqual(['b-gemini', 'b-cline', 'b-cline'])
+  })
+
+  // a CLI removed, or broken by an update, used to stay "answered" until a restart
+  it('rechecks every built-in on request, and stops using one that no longer answers', async () => {
+    const h = harness()
+    h.readiness.probe('missing')
+    await h.answer('b-gemini', true)
+    await h.answer('b-cline', true)
+    expect(h.readiness.ready()).toEqual(['b-gemini', 'b-cline'])
+    h.readiness.probe('all')
+    expect(h.asked).toEqual(['b-gemini', 'b-cline', 'b-gemini', 'b-cline'])
+    await h.answer('b-gemini', false)
+    await h.answer('b-cline', true)
+    expect(h.readiness.ready()).toEqual(['b-cline'])
+    expect(h.changes()).toBe(3)
   })
 })

@@ -1,9 +1,9 @@
-import { useRef, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { AcpAgent, AcpAgentProbe, SessionProvider } from '../../shared/types'
 import { acpAgentRefusal } from '../../shared/acp'
 import { isDrivable, SESSION_PROVIDERS } from '../../shared/providers'
 import { api } from './api'
-import { useAcpReadiness } from './acp-readiness'
+import { refreshAcpReadiness, useAcpReadiness } from './acp-readiness'
 import { ConfirmRemove, useArmedConfirm } from './ConfirmRemove'
 import { ipcErrorText } from './ipc-error'
 import { ProviderMark, PROVIDER_LABEL } from './logos'
@@ -27,6 +27,8 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
   const [label, setLabel] = useState('')
   const [provider, setProvider] = useState<SessionProvider>('claude')
   const { builtinsReady } = useAcpReadiness()
+  // a built-in's CLI installed since launch is found here too, not only by the start forms
+  useEffect(() => refreshAcpReadiness(), [])
   const [command, setCommand] = useState('')
   const [args, setArgs] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -136,11 +138,9 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
             </div>
             {agent.builtin ? (
               <div className="source-health">
-                {/* the handshake at launch is the only test: a CLI that is missing, or
-                    too old to speak ACP, simply never answers */}
-                <span className="source-note">
-                  {builtinsReady.includes(agent.id) ? 'answered — in use' : 'used once its CLI answers'}
-                </span>
+                {/* the handshake is the only test: a CLI that is missing, or too old to
+                    speak ACP, simply never answers */}
+                <span className="source-note">{builtinNote(agent, builtinsReady.includes(agent.id), agents)}</span>
               </div>
             ) : (
               <ConfirmRemove
@@ -166,6 +166,17 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
       {notice && !error && <p className="ns-hint">{notice}</p>}
       {!addOpen && (
         <div className="source-add-open">
+          {/* every built-in, now: one installed since is found, and one whose CLI has
+              gone or broken stops being used */}
+          <button
+            className="btn-ghost small"
+            onClick={() => {
+              refreshAcpReadiness({ recheck: true })
+              say('Checking the built-in agents again — each row updates as its CLI answers.')
+            }}
+          >
+            Check the built-ins again
+          </button>
           <button className="btn-ghost small" onClick={() => setAddOpen(true)}>
             Add an ACP agent…
           </button>
@@ -234,16 +245,15 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
               />
             </div>
           </div>
-          {probe && (
-            <p className={probe.ok ? 'ns-hint' : 'new-error'} role={probe.ok ? undefined : 'alert'}>
-              {probe.ok
-                ? `Answered: ${probe.name ?? 'an ACP agent'}${probe.version ? ` ${probe.version}` : ''}` +
-                  ` · ACP v${probe.protocolVersion ?? '?'}` +
-                  ` · ${probe.loadSession ? 'can resume sessions' : 'cannot resume sessions'}` +
-                  (probe.authMethods?.length ? ` · sign in with: ${probe.authMethods.join(', ')}` : '')
-                : probe.error}
+          {probe?.ok && (
+            <p className="ns-hint">
+              {`Answered: ${probe.name ?? 'an ACP agent'}${probe.version ? ` ${probe.version}` : ''}` +
+                ` · ACP v${probe.protocolVersion ?? '?'}` +
+                ` · ${probe.loadSession ? 'can resume sessions' : 'cannot resume sessions'}` +
+                (probe.authMethods?.length ? ` · sign in with: ${probe.authMethods.join(', ')}` : '')}
             </p>
           )}
+          {probe && !probe.ok && <ErrorAlert>{probe.error}</ErrorAlert>}
           {error && <ErrorAlert>{error}</ErrorAlert>}
           <div className="ns-actions">
             <button type="button" className="btn-ghost" onClick={() => void runProbe()} disabled={probing}>
@@ -268,4 +278,15 @@ export function AcpAgents({ onStatus }: { onStatus: (msg: string) => void }): JS
       )}
     </>
   )
+}
+
+/**
+ * What a built-in's row says: whether its CLI answered, and which transport that agent's
+ * turns take — an agent the person defined for the same CLI wins over the built-in, the
+ * way main's `acpAgentFor` picks.
+ */
+function builtinNote(agent: AcpAgent, ready: boolean, agents: readonly AcpAgent[]): string {
+  const defined = agents.find((a) => !a.builtin && a.provider === agent.provider)
+  if (defined) return `${ready ? 'answered — ' : ''}${defined.label} is used instead`
+  return ready ? 'answered — in use' : 'used once its CLI answers'
 }

@@ -8,6 +8,7 @@ import { SessionIndexer } from './indexer'
 import { TranscriptSearcher } from './transcript-search'
 import { ChatManager } from './chat'
 import { probeAcpAgent } from './acp'
+import { BuiltinReadiness } from './acp-core'
 import { loginPathReady } from './env'
 import { mergeBusy } from './liveness-core'
 import {
@@ -72,8 +73,11 @@ export type Services = {
    * answer to "can this agent be sent a turn" for an agent Cockpit otherwise only reads
    */
   readonly acpAgentFor: (provider: SessionProvider) => AcpAgent | undefined
-  /** Which agents a session can be started or continued with; asking re-probes a missing built-in */
-  readonly acpReadiness: (opts?: { readonly reprobe?: boolean }) => AcpReadiness
+  /**
+   * Which agents a session can be started or continued with. Asking re-probes a missing
+   * built-in, at most once a minute; `recheck` re-probes every built-in now
+   */
+  readonly acpReadiness: (opts?: { readonly recheck?: boolean }) => AcpReadiness
   /** Tell the window what `acpReadiness` now says — an ACP agent was added or removed */
   readonly pushAcpReadiness: () => void
 }
@@ -218,52 +222,34 @@ export function startServices(): Services {
   void indexer.whenScanned().then(() => theDesk.recheckAsks((id) => indexer.getSession(id)))
 
   /**
-   * Built-in ACP agents this machine's CLIs turned out to support, by id — probed in the
-   * background at startup, and again for any still missing when the window asks, at most
-   * once a minute, so a CLI installed while Cockpit runs is picked up without a restart.
-   *
-   * The handshake is the only honest test — a `--acp` flag in `--help` says the flag
-   * parses, not that the protocol answers. It costs one process launch per agent and
-   * creates no session. Until a probe lands, Copilot's turns take its CLI path, and an
-   * agent Cockpit otherwise only reads stays read-only: the worst case of a slow or
-   * missing CLI is the behaviour Cockpit had before ACP existed.
+   * Built-in ACP agents this machine's CLIs answer for (`BuiltinReadiness`) — probed in
+   * the background at startup, again for any still missing when the window asks, and all
+   * of them when Settings asks to check again. Until a probe lands, Copilot's turns take
+   * its CLI path, and an agent Cockpit otherwise only reads stays read-only: the worst case
+   * of a slow or missing CLI is the behaviour Cockpit had before ACP existed.
    */
-  const acpReady = new Set<string>()
-  const acpProbing = new Set<string>()
-  let acpProbedAt = 0
+  const builtins = new BuiltinReadiness({
+    // after the login shell's PATH: an npm-installed CLI is on no other
+    probe: (agent) => loginPathReady().then(() => probeAcpAgent(agent, homedir())),
+    onChange: () => pushAcpReadiness()
+  })
   const acpAgentFor = (provider: SessionProvider): AcpAgent | undefined => {
     // one the person defined for this agent is a deliberate choice and wins over the built-in
     const defined = listAcpAgents().find((a) => a.provider === provider)
     if (defined) return defined
     const builtin = builtinAgentFor(provider)
-    return builtin && acpReady.has(builtin.id) ? builtin : undefined
+    return builtin && builtins.isReady(builtin.id) ? builtin : undefined
   }
   const currentAcpReadiness = (): AcpReadiness => ({
     drivable: SESSION_PROVIDERS.filter((p) => isDrivable(p) || acpAgentFor(p) !== undefined),
-    builtinsReady: BUILTIN_ACP_AGENTS.filter((a) => acpReady.has(a.id)).map((a) => a.id)
+    builtinsReady: builtins.ready()
   })
   const pushAcpReadiness = (): void => sendToWin(PUSH.acpReadiness, currentAcpReadiness())
-  const probeAcpBuiltins = (): void => {
-    acpProbedAt = Date.now()
-    for (const builtin of BUILTIN_ACP_AGENTS) {
-      if (acpReady.has(builtin.id) || acpProbing.has(builtin.id)) continue
-      acpProbing.add(builtin.id)
-      // after the login shell's PATH: an npm-installed CLI is on no other
-      void loginPathReady()
-        .then(() => probeAcpAgent(builtin, homedir()))
-        .then((probe) => {
-          if (!probe.ok) return
-          acpReady.add(builtin.id)
-          pushAcpReadiness()
-        })
-        .finally(() => acpProbing.delete(builtin.id))
-    }
-  }
-  const acpReadiness = (opts: { readonly reprobe?: boolean } = {}): AcpReadiness => {
-    if (opts.reprobe && Date.now() - acpProbedAt > 60_000) probeAcpBuiltins()
+  const acpReadiness = (opts: { readonly recheck?: boolean } = {}): AcpReadiness => {
+    builtins.probe(opts.recheck ? 'all' : 'missing')
     return currentAcpReadiness()
   }
-  probeAcpBuiltins()
+  builtins.probe('missing')
 
   const theChat = new ChatManager(
     (ev) => {

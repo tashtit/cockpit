@@ -141,7 +141,7 @@ const api: CockpitApi = {
   addAcpAgent: (agent) => ipcRenderer.invoke(CH.acpAdd, agent),
   removeAcpAgent: (id) => ipcRenderer.invoke(CH.acpRemove, id),
   probeAcpAgent: (agent) => ipcRenderer.invoke(CH.acpProbe, agent),
-  getAcpReadiness: () => ipcRenderer.invoke(CH.acpReadiness),
+  getAcpReadiness: (opts) => ipcRenderer.invoke(CH.acpReadiness, opts),
   onAcpReadiness: subscribe(PUSH.acpReadiness),
   exportBackup: (passphrase) => ipcRenderer.invoke(CH.backupExport, passphrase),
   openBackup: () => ipcRenderer.invoke(CH.backupOpen),

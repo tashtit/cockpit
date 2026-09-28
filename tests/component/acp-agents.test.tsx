@@ -68,6 +68,34 @@ describe('ACP agents settings', () => {
     expect(within(row('Copilot (ACP)')).getByText('used once its CLI answers')).toBeTruthy()
   })
 
+  // main's acpAgentFor: an agent the person defined for a CLI wins over its built-in
+  it('says which agent is used when one the person defined overrides a built-in', async () => {
+    const gemini: AcpAgent = { ...builtin, id: 'builtin-gemini', label: 'Gemini CLI (ACP)', command: 'gemini', provider: 'gemini' }
+    const mine: AcpAgent = { id: 'g1', label: 'My Gemini', command: 'gemini-next', provider: 'gemini' }
+    vi.mocked(api().getAcpAgents).mockResolvedValue([builtin, gemini, mine])
+    vi.mocked(api().getAcpReadiness).mockResolvedValue({
+      drivable: ['claude', 'codex', 'copilot', 'gemini'],
+      builtinsReady: ['builtin-gemini']
+    })
+    await act(async () => {
+      initAcpReadiness()
+    })
+    render(<AcpAgents onStatus={() => {}} />)
+    const row = (await screen.findByText('Gemini CLI (ACP)')).closest('li') as HTMLElement
+    expect(within(row).getByText('answered — My Gemini is used instead')).toBeTruthy()
+  })
+
+  it('asks main again on opening, and rechecks every built-in when asked to', async () => {
+    const say = vi.fn()
+    render(<AcpAgents onStatus={say} />)
+    await screen.findByText('Copilot (ACP)')
+    // opening re-probes the ones still missing, as the start forms do
+    await waitFor(() => expect(api().getAcpReadiness).toHaveBeenCalledTimes(1))
+    await userEvent.click(screen.getByRole('button', { name: 'Check the built-ins again' }))
+    expect(api().getAcpReadiness).toHaveBeenLastCalledWith({ recheck: true })
+    expect(say).toHaveBeenCalledWith(expect.stringMatching(/^Checking the built-in agents again/))
+  })
+
   it('lets an agent drive any agent Cockpit knows, one it only reads included', async () => {
     const say = vi.fn()
     vi.mocked(api().addAcpAgent).mockResolvedValue([builtin])

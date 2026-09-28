@@ -42,7 +42,7 @@ For Gemini CLI, Cursor, Cline and opencode, ACP is the only way Cockpit runs the
 
 Once one answers, that agent appears in the New session form, in Home's composer and in **Continue in…**, and its sessions open with a composer. It has no Account, Model or Thinking to pick. It runs as whoever it is signed in as, with its own settings, since Cockpit never learns them.
 
-A CLI installed while Cockpit is running is found without a restart. Opening the New session or Continue in… form checks again, at most once a minute. **Settings › Providers** shows which built-ins answered. If your version uses another command, add your own definition for that agent (see below).
+A CLI installed while Cockpit is running is found without a restart. Opening the New session or Continue in… form, or **Settings › Providers**, checks again, at most once a minute. **Settings › Providers** shows which built-ins answered, and names the agent used instead when you defined your own for the same CLI. **Check the built-ins again** there checks every one at once, so one whose CLI you removed, or an update broke, stops being offered. If your version uses another command, add your own definition for that agent (see below).
 
 Continuing one of these sessions reopens the conversation in its agent. If the agent can't do that, because it can't load a past session over ACP or no longer knows this one, the turn fails and says so. It never starts a fresh conversation without the history you are looking at. **Continue in…** still works either way.
 
