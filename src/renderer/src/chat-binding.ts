@@ -23,9 +23,13 @@ export type PendingPermission = {
   readonly toolName: string
   /** The agent's own one-line headline for what it wants to do */
   readonly preview: string
-  /** The raw tool input behind the headline — the tooltip, so a click is informed */
+  /** What would run behind the headline — the command, else the tool's input — shown on the card */
   readonly detail: string
   readonly options: readonly AcpPermissionOption[]
+  /** Why the agent asks, the path that made it, a command asking to run unsandboxed (ChatEvent) */
+  readonly reason?: string
+  readonly blockedPath?: string
+  readonly sandboxBypass?: true
 }
 
 /**

@@ -1280,11 +1280,11 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .perm-what { font-size: var(--fs-sm); color: var(--fg); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .perm-actions { display: flex; gap: var(--s2); flex: none; }
-/* a command asking to run: the command is the card's content, the agent's title the lesser
-   line above it, and the answers take their own row at the right */
-.perm-exec .perm-what { color: var(--fg-dim); }
-.perm-exec .perm-actions { margin-left: auto; }
-.perm-command { flex-basis: 100%; min-width: 0; max-height: 220px; overflow-y: auto; margin: 0;
+/* what is being allowed — a command, or any other tool's input — is the card's content,
+   the agent's title the lesser line above it, and the answers take their own row at the right */
+.perm-detailed .perm-what { color: var(--fg-dim); }
+.perm-detailed .perm-actions { margin-left: auto; }
+.perm-detail { flex-basis: 100%; min-width: 0; max-height: 220px; overflow-y: auto; margin: 0;
   padding: var(--s3) var(--s4); background: var(--bg-deep); border: 1px solid var(--border);
   border-radius: var(--radius-sm); font-family: var(--mono); font-size: var(--fs-base);
   line-height: 1.5; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere;
@@ -1292,6 +1292,15 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .perm-ctl { font-size: var(--fs-xs); color: var(--warn); padding: 0 var(--s1); margin-inline: 1px;
   border: 1px solid rgba(var(--warn-rgb), 0.5); border-radius: var(--radius-sm); }
 .perm-cut { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); color: var(--warn); }
+/* what the request says of itself: why it asks, the path that made it */
+.perm-note { flex-basis: 100%; min-width: 0; margin: 0; font-size: var(--fs-sm); color: var(--fg-dim);
+  overflow-wrap: anywhere; user-select: text; }
+.perm-note-k { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: 0.9px; text-transform: uppercase; margin-right: var(--s2); }
+/* a command asking to run with the sandbox off: the edge and a line in the danger colour,
+   and the line says it in words */
+.perm-unsandboxed { border-color: rgba(var(--danger-rgb), 0.6); }
+.perm-flag { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--danger); }
 /* who drives the session and the way to change it, docked where the permission card
    is: always there for a session with its agent (Take over), on the chip's say-so for
    one Cockpit holds (Release, Open in Terminal) */

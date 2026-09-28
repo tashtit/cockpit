@@ -11,6 +11,11 @@ import { PROVIDER_LABEL } from './logos'
  * It carries the agent's livery (`.tint-*`) because "this one needs you" is the same
  * signal the sidebar's asks-mark gives, in the same colour.
  *
+ * What is being allowed is on the card itself, never only in a tooltip a keyboard or a
+ * screen reader can't reach: the command whole, or any other tool's input, and what the
+ * request says of itself — why it asks, the path that made it, and, in the danger colour
+ * and in words, a command asking to run with the sandbox off.
+ *
  * Sibling of `AskPicker`, deliberately not merged with it: that one answers a question
  * *read out of a transcript* by composing the next message, which is how a session in
  * someone's terminal gets answered. This one holds the process open and answers it
@@ -25,31 +30,54 @@ export function PermissionAsk({
   provider: SessionProvider
   onAnswer: (optionId: string) => void
 }): JSX.Element {
-  // a command is what is being allowed, so it is what the card shows; the agent's title
-  // is its own account of the command, and sits beside it as the lesser line
-  const command = commandOf(ask)
+  // what is being allowed is what the card shows — a command whole, else the tool's input;
+  // the agent's title is its own account of it, and sits above as the lesser line
+  const shown = shownOf(ask)
+  const exec = ask.toolName === 'shell'
+  const unsandboxed = ask.sandboxBypass === true
   return (
     <div
-      className={`perm-card tint-${provider}${command ? ' perm-exec' : ''}`}
+      className={`perm-card tint-${provider}${shown ? ' perm-detailed' : ''}${unsandboxed ? ' perm-unsandboxed' : ''}`}
       role="group"
-      aria-label={`${PROVIDER_LABEL[provider]} needs permission: ${ask.preview}`}
+      aria-label={`${PROVIDER_LABEL[provider]} needs permission${unsandboxed ? ' to run outside the sandbox' : ''}: ${ask.preview}`}
     >
       <div className="perm-body">
         <span className="perm-tool">{ask.toolName}</span>
-        <span className="perm-what" title={command ? ask.preview : ask.detail}>
+        <span className="perm-what" title={ask.preview}>
           {ask.preview}
         </span>
       </div>
-      {command && (
+      {/* in words as well as the colour: the sandbox is what keeps a command to the
+          workspace, and this one asks to run without it */}
+      {unsandboxed && <p className="perm-flag">Outside the sandbox — it asks to run this command with the sandbox off.</p>}
+      {ask.reason && (
+        <p className="perm-note">
+          <span className="perm-note-k">Why it asks</span>{' '}
+          <Visible text={ask.reason} />
+        </p>
+      )}
+      {ask.blockedPath && (
+        <p className="perm-note">
+          <span className="perm-note-k">Path</span>{' '}
+          <Visible text={ask.blockedPath} />
+        </p>
+      )}
+      {shown && (
         <>
           {/* scrolls in itself, so it takes focus: a keyboard reader must reach the end
               of what they are allowing. Wrapped, never cut at the edge */}
-          <pre className="perm-command" tabIndex={0} role="region" aria-label="The command it wants to run" dir="ltr">
-            <Visible text={command.text} />
+          <pre
+            className="perm-detail"
+            tabIndex={0}
+            role="region"
+            aria-label={exec ? 'The command it wants to run' : 'What the tool would be given'}
+            dir="ltr"
+          >
+            <Visible text={shown.text} />
           </pre>
-          {command.cut > 0 && (
+          {shown.cut > 0 && (
             <p className="perm-cut">
-              Truncated — {command.cut.toLocaleString()} more {command.cut === 1 ? 'character' : 'characters'} not
+              Truncated — {shown.cut.toLocaleString()} more {shown.cut === 1 ? 'character' : 'characters'} not
               shown
             </p>
           )}
@@ -78,11 +106,18 @@ export function PermissionAsk({
 /** The note main's `capText` ends a cut text with: how many characters did not come. */
 const CUT_NOTE = /\n… \((\d+) more chars\)$/
 
-/** The command a shell permission carries — main sends it whole, up to its bound. */
-function commandOf(ask: PendingPermission): { readonly text: string; readonly cut: number } | null {
-  if (ask.toolName !== 'shell') return null
-  const cut = CUT_NOTE.exec(ask.detail)
-  return cut ? { text: ask.detail.slice(0, cut.index), cut: Number(cut[1]) } : { text: ask.detail, cut: 0 }
+/**
+ * What the card shows of what would run: a command as main sends it whole, up to its
+ * bound, and any other tool's input the same way. Null when another tool has nothing past
+ * the headline — an agent that named no input sends its title back as the detail. A command
+ * is always shown whole, even one its own title repeats: the headline is cut to one line.
+ */
+function shownOf(ask: PendingPermission): { readonly text: string; readonly cut: number } | null {
+  const detail = ask.detail
+  if (!detail.trim()) return null
+  if (ask.toolName !== 'shell' && (detail === ask.preview || detail === JSON.stringify(ask.preview))) return null
+  const cut = CUT_NOTE.exec(detail)
+  return cut ? { text: detail.slice(0, cut.index), cut: Number(cut[1]) } : { text: detail, cut: 0 }
 }
 
 /**

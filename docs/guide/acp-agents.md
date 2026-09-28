@@ -72,6 +72,11 @@ it (a right-to-left override, a carriage return, a zero-width space) are shown a
 code, such as `U+202E`, rather than passed through. Only *Allow once* is highlighted:
 *Always allow* lets every later call of that kind through without asking.
 
+Any other tool shows what it would be given the same way — a file edit's path and change,
+an MCP tool's arguments — since a tool's name alone rarely says what it would do. When
+Claude says why it asks, or which path made it ask, the card says so too. A command that
+asks to run with the sandbox off is marked in red on the card, and says so in words.
+
 This is also what finally makes the **Auto-edit** permission mode mean what it says: file
 work goes ahead without asking, and anything that *executes* still stops for you. Safe
 asks about everything; Yolo asks about nothing. Claude Code sessions get the same card

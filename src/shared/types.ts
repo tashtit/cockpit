@@ -1588,9 +1588,16 @@ export type ChatEvent =
       readonly type: 'permission'
       readonly requestId: string
       readonly toolName: string
+      /** What would run: a command whole, else the tool's input — bounded in main */
       readonly detail: string
       readonly preview?: string
       readonly options: readonly AcpPermissionOption[]
+      /** Why the agent's own rules put this to the person, when it says (Claude's `decision_reason`) */
+      readonly reason?: string
+      /** The path outside what the turn may touch that made it ask (Claude's `blocked_path`) */
+      readonly blockedPath?: string
+      /** The command asks to run with the sandbox off (Claude's Bash `dangerouslyDisableSandbox`) */
+      readonly sandboxBypass?: true
     }
 
 /**

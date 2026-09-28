@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatView } from '../../src/renderer/src/ChatView'
 import type { ChatBinding, PendingPermission } from '../../src/renderer/src/chat-binding'
@@ -108,10 +108,59 @@ describe('permission prompt', () => {
     expect(screen.getByText(/Truncated — 5,321 more characters not shown/)).toBeInTheDocument()
   })
 
-  it('keeps the raw input of anything that does not run a command as the tooltip', () => {
-    renderChat([{ ...ask, toolName: 'edit', preview: 'Edit src/a.ts', detail: '{"path":"src/a.ts"}' }])
-    expect(screen.getByTitle('{"path":"src/a.ts"}')).toHaveTextContent('Edit src/a.ts')
-    expect(screen.queryByRole('region', { name: 'The command it wants to run' })).toBeNull()
+  it('shows the input of anything that does not run a command on the card, not in a tooltip', () => {
+    // an MCP tool's name alone says nothing of what it would do; a keyboard or screen
+    // reader never reaches a hover title
+    const input = '{\n  "repo": "acme/rocket",\n  "title": "Ship\u202Eit"\n}'
+    renderChat([{ ...ask, toolName: 'mcp__github__create_issue', preview: 'mcp__github__create_issue', detail: input }])
+    const group = screen.getByRole('group', { name: /needs permission/i })
+    const shown = within(group).getByRole('region', { name: 'What the tool would be given' })
+    expect(shown).toHaveAttribute('tabindex', '0')
+    expect(shown.textContent).toBe('{\n  "repo": "acme/rocket",\n  "title": "ShipU+202Eit"\n}')
+    expect(within(group).queryByTitle(input)).toBeNull()
+    expect(within(group).queryByRole('region', { name: 'The command it wants to run' })).toBeNull()
+  })
+
+  it('shows no input block when an agent named nothing past its title', () => {
+    renderChat([{ ...ask, toolName: 'edit', preview: 'Edit src/a.ts', detail: '"Edit src/a.ts"' }])
+    expect(screen.getByText('Edit src/a.ts')).toBeInTheDocument()
+    expect(screen.queryByRole('region')).toBeNull()
+    // a command is shown whole even when its title repeats it: the headline is one cut line
+    cleanup()
+    renderChat([{ ...ask, preview: 'npm test', detail: 'npm test' }])
+    expect(screen.getByRole('region', { name: 'The command it wants to run' }).textContent).toBe('npm test')
+  })
+
+  it('says why the agent asks and which path made it, invisible characters drawn', () => {
+    renderChat([
+      {
+        ...ask,
+        toolName: 'Read',
+        preview: 'Read ~/.ssh/config',
+        detail: '{\n  "file_path": "/home/dev/.ssh/config"\n}',
+        reason: 'Path is outside allowed working directories',
+        blockedPath: '/home/dev/.ssh\u200B/config'
+      }
+    ])
+    const group = screen.getByRole('group', { name: /needs permission/i })
+    expect(within(group).getByText('Why it asks').parentElement?.textContent).toBe(
+      'Why it asks Path is outside allowed working directories'
+    )
+    expect(within(group).getByText('Path').parentElement?.textContent).toBe('Path /home/dev/.sshU+200B/config')
+  })
+
+  it('flags a command that asks to run with the sandbox off, in words and not only in colour', () => {
+    renderChat([{ ...ask, sandboxBypass: true }])
+    const group = screen.getByRole('group', {
+      name: 'Copilot needs permission to run outside the sandbox: Run the test suite'
+    })
+    expect(group.className).toContain('perm-unsandboxed')
+    expect(within(group).getByText(/Outside the sandbox/)).toHaveClass('perm-flag')
+    // an ordinary command carries neither
+    cleanup()
+    renderChat([ask])
+    expect(screen.queryByText(/Outside the sandbox/)).toBeNull()
+    expect(screen.getByRole('group', { name: /needs permission/i }).className).not.toContain('perm-unsandboxed')
   })
 
   it('announces the question over the generic working line', () => {

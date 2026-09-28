@@ -86,7 +86,10 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
         toolName: ev.toolName,
         preview: ev.preview ?? ev.detail,
         detail: ev.detail,
-        options: ev.options
+        options: ev.options,
+        ...(ev.reason ? { reason: ev.reason } : {}),
+        ...(ev.blockedPath ? { blockedPath: ev.blockedPath } : {}),
+        ...(ev.sandboxBypass ? { sandboxBypass: true as const } : {})
       }
     ])
   }, [])
