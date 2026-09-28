@@ -12,6 +12,7 @@ import {
   promptWithImages,
   withTurnFlags,
   CLAUDE_NO_HOOKS,
+  CLAUDE_SEAT_TOOLS,
   CLAUDE_SIDE_TOOLS,
   CODEX_REVIEWED_ARGS,
   CODEX_SIDE_ARGS,
@@ -67,11 +68,19 @@ describe('buildCommand', () => {
       buildCommand({ provider: 'claude', cwd: '/x', prompt: 'hi', permissionMode, ...(research ? { research } : {}) }).args
     const safe = seat('safe')
     expect(safe[safe.indexOf('--allowedTools') + 1]).toBe('WebSearch,WebFetch')
+    // the tools themselves, not just an allowance: the person's or the repo's default mode
+    // and allow rules otherwise reached a seat told it has no shell
+    expect(safe[safe.indexOf('--tools') + 1]).toBe(CLAUDE_SEAT_TOOLS.join(','))
+    expect(CLAUDE_SEAT_TOOLS).toEqual(['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'])
+    // and no hooks, which run whatever they say — a SessionStart one that syncs the checkout
+    expect(safe.slice(safe.indexOf('--settings'), safe.indexOf('--settings') + 2)).toEqual([...CLAUDE_NO_HOOKS])
     expect(safe.join(' ')).not.toMatch(/Bash|Edit|Write/)
     // only a seat, and only in safe mode: the other modes already say what they allow
-    expect(seat('safe', false)).not.toContain('--allowedTools')
-    expect(seat('auto-edit')).not.toContain('--allowedTools')
-    expect(seat('yolo')).not.toContain('--allowedTools')
+    for (const other of [seat('safe', false), seat('auto-edit'), seat('yolo')]) {
+      expect(other).not.toContain('--allowedTools')
+      expect(other).not.toContain('--tools')
+      expect(other).not.toContain('--settings')
+    }
     // the flag is Claude's alone
     const codex = buildCommand({ provider: 'codex', cwd: '/x', prompt: 'hi', permissionMode: 'safe', research: true }).args
     expect(codex).not.toContain('--allowedTools')

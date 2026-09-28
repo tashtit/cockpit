@@ -119,8 +119,9 @@ export function withTurnFlags(agent: AcpAgent | undefined, req: CliRequest): Acp
 
 /**
  * What a safe-mode Claude seat may use without an approval nobody is there to give (as
- * `--allowedTools`): web search and page fetches. Research only — reading the workspace needs no allowance, and
- * the shell stays refused because no rule can keep a command read-only.
+ * `--allowedTools`): web search and page fetches. Research only — reading the workspace
+ * needs no allowance, and the shell is not in a seat's tools at all (`CLAUDE_SEAT_TOOLS`)
+ * because no rule can keep a command read-only.
  */
 export const CLAUDE_RESEARCH_TOOLS: readonly string[] = ['WebSearch', 'WebFetch']
 
@@ -150,12 +151,21 @@ export const CODEX_RESEARCH_ARGS: readonly string[] = [
 export const CLAUDE_SIDE_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob']
 
 /**
- * No hooks at all — the person's, the repo's or a plugin's — for a turn that may only read.
- * `--tools` and `--strict-mcp-config` leave them on, and `claude -p` fires SessionStart: a
- * hook that syncs the checkout when a session starts (a `git fetch` and a fast-forward
- * merge, say) moved the session's worktree for a question that was never to change a file.
- * Verified: a project SessionStart hook fires under `-p --no-session-persistence --tools
- * Read --strict-mcp-config`, and not once these settings are added.
+ * A safe-mode Claude seat's whole tool set: reading the workspace, and the research tools
+ * (`CLAUDE_RESEARCH_TOOLS`). As `--tools` it is the built-in set itself, not a pre-approval:
+ * the person's or the repo's default mode (`acceptEdits`, `bypassPermissions`) and allow
+ * rules such as `Bash(git:*)` otherwise reached a seat that was told it has no shell.
+ */
+export const CLAUDE_SEAT_TOOLS: readonly string[] = [...CLAUDE_SIDE_TOOLS, ...CLAUDE_RESEARCH_TOOLS]
+
+/**
+ * No hooks at all — the person's, the repo's or a plugin's — for a turn that may only read:
+ * a side question's copy, a roundtable seat. `--tools` and `--strict-mcp-config` leave them
+ * on, and `claude -p` fires SessionStart: a hook that syncs the checkout when a session
+ * starts (a `git fetch` and a fast-forward merge, say) moved the session's worktree for a
+ * question that was never to change a file. Verified: a project SessionStart hook fires
+ * under `-p --no-session-persistence --tools Read --strict-mcp-config`, and not once these
+ * settings are added.
  */
 export const CLAUDE_NO_HOOKS: readonly string[] = ['--settings', JSON.stringify({ disableAllHooks: true })]
 
@@ -226,7 +236,12 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
       if (effort) args.push('--effort', effort)
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
-      if (req.research && req.permissionMode === 'safe') args.push('--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
+      // a roundtable seat reads and looks things up, nothing more: the tools it may use at
+      // all, the web pre-approved among them, and no hooks, which run whatever they say
+      if (req.research && req.permissionMode === 'safe' && !fork) {
+        args.push('--tools', CLAUDE_SEAT_TOOLS.join(','), '--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
+        args.push(...CLAUDE_NO_HOOKS)
+      }
       // no MCP servers either: a copy answering a question needs none, and starts faster
       if (fork) args.push('--tools', CLAUDE_SIDE_TOOLS.join(','), '--strict-mcp-config', ...CLAUDE_NO_HOOKS)
       if (req.resumeNativeId) args.push('--resume', req.resumeNativeId)
