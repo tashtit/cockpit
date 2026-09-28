@@ -51,6 +51,11 @@ function rowDomId(server: RegistryServer): string {
   return `registry-row-${server.id}@${server.version}`.replace(/[^A-Za-z0-9_-]/g, '-')
 }
 
+/** The id of one input's field, so a chip clicked before it was filled can focus it. */
+function fieldDomId(server: RegistryServer, input: RegistryInput): string {
+  return `registry-${server.id}-${input.name}`.replace(/[^A-Za-z0-9_-]/g, '-')
+}
+
 /** The chip's key, shared with the panel's busy key so the one being written pulses. */
 function chipKey(server: RegistryServer, agent: Provider): string {
   return `registry:${server.id}|${agent}`
@@ -104,14 +109,19 @@ export function McpBrowse({
   const [values, setValues] = useState<Readonly<Record<string, Readonly<Record<string, string>>>>>({})
   /** the chip whose add is in its confirm step */
   const { armed, arm, disarm } = useArmedConfirm()
-  /** the row to focus once the next page is on screen — More results goes away on the last */
+  /**
+   * What to focus once it is on screen: the first row of the next page (More results goes
+   * away on the last one), or the field an add is waiting on in a row that just opened
+   */
   const focusNext = useRef<string | null>(null)
 
   useEffect(() => {
     if (focusNext.current === null) return
-    document.getElementById(focusNext.current)?.focus()
+    const el = document.getElementById(focusNext.current)
+    if (!el) return
+    el.focus()
     focusNext.current = null
-  }, [search])
+  })
 
   const run = async (more: boolean): Promise<void> => {
     const q = more ? (search?.query ?? '') : typed.trim()
@@ -151,6 +161,8 @@ export function McpBrowse({
       had.length > 0 ? [] : server.inputs.filter((i) => i.required && (given[i.name] ?? '').trim() === '')
     if (missing.length > 0) {
       setOpen(server.id)
+      // the row opens onto the field: the notice above may be scrolled out of sight
+      focusNext.current = fieldDomId(server, missing[0])
       setNotice({
         text: `${server.title} needs ${listOf(missing.map((i) => i.name))} before it can be added — fill ${missing.length === 1 ? 'it' : 'them'} in on its row.`,
         kind: 'error'
@@ -420,7 +432,7 @@ function Field({
   value: string
   onType: (name: string, value: string) => void
 }): JSX.Element {
-  const id = `registry-${server.id}-${input.name}`.replace(/[^A-Za-z0-9_-]/g, '-')
+  const id = fieldDomId(server, input)
   return (
     <div className="registry-input">
       <label className="ns-label" htmlFor={id}>

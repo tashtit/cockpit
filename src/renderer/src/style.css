@@ -2296,9 +2296,13 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .cl-empty { padding: var(--s3) 0; }
 
 /* ---------- extensions ---------- */
-.ext-notice { background: var(--surface); border: 1px solid var(--border);
+/* what the last click did — often far down a long list (Browse, a section of fifty
+   rows), so it holds at the top of the scrolled card instead of scrolling away above
+   the tabs; the surface tint is laid over the card's own paper to hide what passes under */
+.ext-notice { background: linear-gradient(var(--surface), var(--surface)), var(--bg2);
+  border: 1px solid var(--border);
   border-radius: var(--radius); padding: var(--s2) var(--s3); font-size: var(--fs-sm);
-  color: var(--accent); }
+  color: var(--accent); position: sticky; top: var(--s3); z-index: 2; box-shadow: var(--shadow-pop); }
 .ext-notice.error { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.4); }
 .ext-list { list-style: none; display: flex; flex-direction: column; gap: var(--s1); }
 .ext-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3);

@@ -94,6 +94,8 @@ describe('Agents › Browse › MCP servers', () => {
     expect(screen.getByText(/needs ACME_TOKEN before it can be added/)).toBeInTheDocument()
     const token = screen.getByLabelText('ACME_TOKEN')
     expect(token).toHaveAttribute('type', 'password')
+    // the notice may be scrolled out of sight: the field it names takes focus
+    await vi.waitFor(() => expect(document.activeElement).toBe(token))
 
     await userEvent.type(token, 'sk-1')
     await userEvent.click(screen.getByRole('button', { name: 'Add Acme Search to Claude' }))
