@@ -15,6 +15,13 @@ if (mode === 'relaunch') {
   writeFileSync(process.env.STUB_PIDFILE, String(child.pid))
   process.on('SIGTERM', () => {})
 }
+// 'linger': like Cursor's agent, it answers the turn and then keeps running past EOF, until
+// a signal ends it; 'linger-hard' ignores SIGTERM too. Its own pid goes to STUB_PIDFILE
+if (mode === 'linger' || mode === 'linger-hard') {
+  writeFileSync(process.env.STUB_PIDFILE, String(process.pid))
+  setInterval(() => {}, 1000)
+  if (mode === 'linger-hard') process.on('SIGTERM', () => {})
+}
 let sid = 'sess-1'
 let nextId = 1000
 let signedIn = false

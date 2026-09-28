@@ -35,7 +35,8 @@ import { LineSplitter, MAX_STREAM_LINE_CHARS, truncate } from './parsers/util'
  * which reuses the CLI's own login and never opens a browser), and otherwise the turn says
  * what to run (`signIn`). Every process Cockpit starts here — a turn's, and the launch-time
  * `probeAcpAgent` — runs in its own group and is ended as a group, since some agents
- * re-launch themselves as a child and some ignore EOF.
+ * re-launch themselves as a child and some ignore EOF: SIGTERM, then SIGKILL for whatever
+ * in the group still ignores it (`endGroup`).
  */
 
 type TurnOptions = {
@@ -68,6 +69,9 @@ type TurnOptions = {
 
 /** How long an agent has to exit on its own once its turn is over */
 const EXIT_GRACE_MS = 2_000
+
+/** How long a group sent SIGTERM has before SIGKILL — ChatManager.cancel's wait */
+const KILL_AFTER_MS = 3_000
 
 /** How long signing in with an agent's own method may take before the turn says how to sign in */
 const AUTHENTICATE_MS = 15_000
@@ -208,6 +212,11 @@ type OpenPermission = {
 
 export class AcpTurn {
   readonly child: ChildProcess
+  /**
+   * Settles once the agent's own process is gone — exited, or never started. The turn
+   * can be over well before: an agent may keep running past EOF until `reap` stops it.
+   */
+  readonly exited: Promise<void>
   private readonly rpc: JsonRpc
   private readonly opts: TurnOptions
   private readonly seenToolCalls = new Set<string>()
@@ -233,6 +242,11 @@ export class AcpTurn {
       shell: false,
       // own process group, so cancelling reaches the tools the agent spawned
       detached: true
+    })
+    // 'exit' is the process; a spawn that failed emits only 'close'
+    this.exited = new Promise((resolve) => {
+      this.child.once('exit', () => resolve())
+      this.child.once('close', () => resolve())
     })
     this.child.stderr!.setEncoding('utf8')
     this.child.stderr!.on('data', (c: string) => {
@@ -377,19 +391,14 @@ export class AcpTurn {
   /**
    * The turn is over and the agent has been sent EOF, which a well-behaved one exits
    * on. One that doesn't — it failed mid-turn and is still working, or it just keeps
-   * running — is stopped, its group with it, rather than left editing a worktree
-   * where nothing shows it and nothing will ever cancel it.
+   * running (Cursor's waits past EOF) — is stopped, its group with it, rather than left
+   * editing a worktree where nothing shows it and nothing will ever cancel it. Until it
+   * has gone, ChatManager keeps the turn (`exited`), so quitting stops it too.
    */
   private reap(): void {
     const pid = this.child.pid
     if (!pid || this.child.exitCode !== null || this.child.signalCode !== null) return
-    const timer = setTimeout(() => {
-      try {
-        process.kill(-pid, 'SIGTERM')
-      } catch {
-        /* the group has gone */
-      }
-    }, EXIT_GRACE_MS)
+    const timer = setTimeout(() => endGroup(this.child), EXIT_GRACE_MS)
     timer.unref()
     this.child.once('close', () => clearTimeout(timer))
   }
@@ -482,14 +491,37 @@ export class AcpTurn {
    * Stop the turn. Open questions are answered first — an agent left holding one would
    * sit waiting through its own cancellation — and answered `cancelled`, which the spec
    * requires of a client that cancels. Never with an option: a refusal the agent offers
-   * may be a standing one, kept in its own config long after this turn.
+   * may be a standing one, kept in its own config long after this turn. A turn already
+   * over has told the agent all it will: only its process is left, which the caller ends.
    */
   cancel(): void {
+    if (this.finished) return
     const cancelled: PermissionOutcome = { outcome: 'cancelled' }
     for (const [, open] of this.open) this.rpc.respond(open.rpcId, { outcome: cancelled })
     this.open.clear()
     if (this.sessionId) this.rpc.notify('session/cancel', { sessionId: this.sessionId })
   }
+}
+
+/** Signal a child's whole process group (each is spawned `detached`), or the child alone without a pid. */
+function signalGroup(child: ChildProcess, sig: NodeJS.Signals): void {
+  try {
+    if (child.pid) process.kill(-child.pid, sig)
+    else child.kill(sig)
+  } catch {
+    /* the group has gone */
+  }
+}
+
+/**
+ * SIGTERM to the group now, and SIGKILL to it once `KILL_AFTER_MS` pass, whether or not
+ * the agent itself has gone by then: it usually exits on SIGTERM at once, while a tool it
+ * started that ignores the signal is still in the group (the lesson ChatManager.cancel
+ * records). For a group that is already empty the SIGKILL is a no-op.
+ */
+function endGroup(child: ChildProcess): void {
+  signalGroup(child, 'SIGTERM')
+  setTimeout(() => signalGroup(child, 'SIGKILL'), KILL_AFTER_MS).unref()
 }
 
 /**

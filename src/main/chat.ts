@@ -519,6 +519,8 @@ export class ChatManager {
       (a.turnId === null) !== (b.turnId === null) ? a.turnId !== null : a.startedAt < b.startedAt
     const byId = new Map<string, Entry>()
     for (const [turnId, t] of this.turns) {
+      // an ACP turn that said done is over: its agent is only being reaped (startAcpTurn)
+      if (t.acp && t.doneSent) continue
       const entry: Entry = { startedAt: t.startedAt, turnId: t.doneSent ? null : turnId }
       for (const nativeId of t.sessionIds) {
         const id = `${t.provider}:${nativeId}`
@@ -812,7 +814,12 @@ export class ChatManager {
     this.emit(ev)
   }
 
-  /** Spawn and run an ACP turn, with the same busy/cancel bookkeeping as a CLI turn. */
+  /**
+   * Spawn and run an ACP turn, with the same busy/cancel bookkeeping as a CLI turn. The
+   * turn is over, and off the busy board, once `run()` resolves — but its agent may keep
+   * running past EOF (Cursor's does) until `reap` stops it. The entry stays, marked done,
+   * until that process has gone (`exited`), so quitting (`cancelAll`) still reaches it.
+   */
   private startAcpTurn(
     turnId: string,
     req: ChatRequest,
@@ -829,9 +836,8 @@ export class ChatManager {
       // an agent Cockpit only reads continues the conversation the person opened, or not at all
       mustResume: !isDrivable(req.provider),
       emit: (ev) => {
-        const turn = this.turns.get(turnId)
         // a cancelled turn is already off the board; its trailing events are the kill
-        if (turn) this.deliver(turn, ev)
+        if (this.turns.get(turnId) === turn) this.deliver(turn, ev)
       }
     })
     const turn: RunningTurn = {
@@ -844,12 +850,14 @@ export class ChatManager {
     }
     this.turns.set(turnId, turn)
     this.notifyBusy()
-    void acp.run(promptWithImages(req), req.resumeNativeId).then(() => {
+    const over = acp.run(promptWithImages(req), req.resumeNativeId).then(() => {
       // run() reports every outcome as events and never rejects, so reaching here means
-      // the turn is over one way or another
+      // the turn is over one way or another — a cancelled one's done is the kill's
       if (!turn.doneSent) this.emit({ turnId, type: 'done' })
-      this.turns.delete(turnId)
-      this.notifyBusy()
+    })
+    // settled, not resolved: a listener that throws on the done must not keep the entry
+    void Promise.allSettled([over, acp.exited]).then(() => {
+      if (this.turns.get(turnId) === turn) this.turns.delete(turnId)
     })
   }
 

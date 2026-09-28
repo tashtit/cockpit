@@ -672,11 +672,9 @@ describe('ChatManager: one turn per session', () => {
 
     chat.respondPermission(turnId, ask.requestId, 'allow_once')
     // once the turn says done there is nothing to rejoin and nothing for a follow-up to
-    // wait on, though its process may take a moment more to exit
-    expect(await atDone).toEqual({
-      busy: [{ id: 'copilot:sess-7', startedAt: expect.any(Number), source: 'spawned', turnId: null }],
-      running: null
-    })
+    // wait on, and an ACP turn is off the busy board, though its process may take a
+    // moment more to exit (chat-acp.test.ts)
+    expect(await atDone).toEqual({ busy: [], running: null })
     expect(() => chat.assertNotRunning(resume('sess-7'))).not.toThrow()
     await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
   })
