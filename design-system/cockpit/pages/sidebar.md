@@ -55,15 +55,18 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   "this one creates"; keep it off the app-name row, which stays purely the
   wordmark. Everything else that starts a session is hover-revealed or keyboard.
 - The eye's popover (`.repo-filter-pop`, "What the tree shows") holds two groups: **Sessions**
-  — a radio group, *All sessions* / *In Cockpit* / *Outside Cockpit*, each with its count —
-  then the projects' checkboxes under a hairline (`.repo-filter-divided`). The holder choice
+  — a radio group, *All sessions* / *In Cockpit* / *Outside Cockpit*, each with what it would
+  leave in the tree, hidden agents still hidden (`shownSessions`) — then the projects'
+  checkboxes under a hairline (`.repo-filter-divided`). Its height stops 8px short of the
+  window's bottom edge (`min(340px, 100vh − 116px)`), so the floor never clips it. The holder choice
   is a per-machine view preference (`hold.ts`, localStorage, like the folds): it narrows every
   page and search to `SessionQuery.holder`, drops projects with no session on that side
   (`heldSessions`; a project's tables count as Cockpit's), and the repo pills show the
-  narrowed count. An archived toggle under a filter says *Archived* with no number — its
-  count is every archived session's, and a wrong number is worse than none. Because the
-  choice survives a restart, `.tree-scope` says it in words under the search row while it
-  lasts — an accent-tinted strip, the side's glyph, *Only sessions in Cockpit*, and a
+  narrowed count. An archived toggle under a filter (a holder, or an agent hidden) says
+  *Archived* with no number — its count is every archived session's, and a wrong number is
+  worse than none. Because the choice survives a restart, `.tree-scope` says it in words under the search row while it
+  lasts — an accent-tinted strip, the side's glyph, *Only sessions in Cockpit* (the whole
+  sentence in its tooltip, since a narrow rail ellipsizes it), and a
   **Show all** link — and the eye lights (`.filter-active` + `.filter-dot`) for it as for a
   hidden project.
 - `.search` input, 250ms debounce (⌘K belongs to the palette, not this field —

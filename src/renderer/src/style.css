@@ -349,10 +349,11 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
   border-radius: var(--radius-pill); background: var(--accent); }
 /* fixed so it can't overflow the window edge — the sidebar hugs the left.
    no-drag: the popover hangs off .tree-top (a drag region); without the opt-out its
-   checkbox rows would start a window drag instead of receiving clicks */
+   checkbox rows would start a window drag instead of receiving clicks. Its height
+   stops 8px short of the bottom edge: 108 + 340 ran past the 420px floor */
 .repo-filter-pop { position: fixed; top: 108px; left: 10px; z-index: 20;
   -webkit-app-region: no-drag;
-  width: 260px; max-height: 340px; overflow-y: auto;
+  width: 260px; max-height: min(340px, calc(100vh - 116px)); overflow-y: auto;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow-pop); padding: var(--s2); }
 .repo-filter-head { font-size: var(--fs-xs); font-weight: 700; text-transform: lowercase;

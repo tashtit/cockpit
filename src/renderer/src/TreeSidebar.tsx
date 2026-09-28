@@ -332,7 +332,10 @@ export function TreeSidebar({
       {filtered && (
         <div className="tree-scope">
           {holder === 'cockpit' ? <HeldIcon size={10} /> : holder === 'agent' ? <ProcessIcon size={10} /> : <ChatIcon size={10} />}
-          <span className="tree-scope-text">{scopeSentence(holder, hidden)}</span>
+          {/* it ellipsizes in a narrow rail: the whole sentence in the tooltip */}
+          <span className="tree-scope-text" title={scopeSentence(holder, hidden)}>
+            {scopeSentence(holder, hidden)}
+          </span>
           <button
             className="link-btn"
             onClick={() => {

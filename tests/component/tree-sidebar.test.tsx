@@ -866,6 +866,27 @@ describe('TreeSidebar — which agents it shows', () => {
     expect(await screen.findByRole('treeitem', { name: /a cline task/ })).toBeInTheDocument()
   })
 
+  it('counts each holder choice without the hidden agents, as the tree does', async () => {
+    window.localStorage.setItem('cockpit:hidden-agents', JSON.stringify(['cline']))
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [claude] })
+    renderSidebar({
+      ...mixed,
+      sessionCount: 5,
+      heldCount: 2,
+      byProvider: { claude: { sessions: 2, held: 1 }, cline: { sessions: 3, held: 1 } }
+    })
+    await screen.findByRole('treeitem', { name: /a claude task/ })
+    // the scope line ellipsizes in a narrow rail: the whole sentence is its tooltip
+    expect(screen.getByText('Only sessions not Cline')).toHaveAttribute('title', 'Only sessions not Cline')
+    expect(screen.getByRole('treeitem', { name: /acme\/rocket/ })).toHaveTextContent(/2$/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose what the tree shows' }))
+    const sessions = screen.getByRole('radiogroup', { name: 'Sessions' })
+    expect(within(sessions).getByRole('radio', { name: /All sessions/ }).closest('label')).toHaveTextContent(/2$/)
+    expect(within(sessions).getByRole('radio', { name: /In Cockpit/ }).closest('label')).toHaveTextContent(/1$/)
+    expect(within(sessions).getByRole('radio', { name: /Outside Cockpit/ }).closest('label')).toHaveTextContent(/1$/)
+  })
+
   it('drops the archived count while an agent is hidden — it counts every agent', async () => {
     window.localStorage.setItem('cockpit:hidden-agents', JSON.stringify(['cline']))
     vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [claude] })

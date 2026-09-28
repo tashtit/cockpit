@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import type { RepoGroup, SessionHolder } from '../../shared/types'
 import { api } from './api'
 import { HOLDER_FILTER_LABEL, setHolderFilter, useHolderFilter } from './hold'
-import { agentCounts, setAgentShown, useHiddenAgents } from './agent-filter'
+import { agentCounts, setAgentShown, shownSessions, useHiddenAgents } from './agent-filter'
 import { ChatIcon, EyeIcon, HeldIcon, ProcessIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { plural } from './format'
 
@@ -27,10 +27,14 @@ export function ProjectFilter({
   const holder = useHolderFilter()
   const hiddenAgents = useHiddenAgents()
   const shown = repos.filter((r) => !r.hidden)
+  // what each choice would leave in the tree — with the hidden agents still hidden, as the
+  // agents' own counts below follow the holder chosen
+  const count = (h: SessionHolder | null): number =>
+    shown.reduce((n, r) => n + shownSessions(r, { holder: h, hidden: hiddenAgents }), 0)
   const counts: Record<'all' | SessionHolder, number> = {
-    all: shown.reduce((n, r) => n + r.sessionCount, 0),
-    cockpit: shown.reduce((n, r) => n + r.heldCount, 0),
-    agent: shown.reduce((n, r) => n + r.sessionCount - r.heldCount, 0)
+    all: count(null),
+    cockpit: count('cockpit'),
+    agent: count('agent')
   }
   // every agent with a session here, and any hidden one that has none right now — so an
   // agent can always be switched back on
