@@ -381,6 +381,8 @@ export function startServices(): Services {
   if (archiveWatchOn()) {
     const watch = new ArchiveWatch({
       listed: () => indexer.allSessions(),
+      // what was thrown away before the watch started is not news when it flickers back
+      held: () => indexer.ownSessions(),
       thrownAway: (id) => indexer.thrownAway(id),
       session: (id) => indexer.getSession(id),
       stop: (sessions) => stopLeftBehind(cleanupDeps(), sessions)
