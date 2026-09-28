@@ -223,6 +223,36 @@ describe('what the marketplaces on this machine hold', () => {
       expect(asked).toEqual([])
     })
 
+    // a catalogue's own name is a claim anyone can make: a fork calling itself tashtit,
+    // or by the name of a marketplace already here, must not take that row
+    it('refuses a repository that names itself after a marketplace another repository holds here', async () => {
+      const [forkNewer] = catalogUrls('mallory/marketplace')
+      const [otherNewer] = catalogUrls('mallory/acme')
+      serve({
+        [forkNewer]: { name: 'tashtit', plugins: [{ name: 'git-workflow' }] },
+        [otherNewer]: { name: 'acme-market', plugins: [{ name: 'review' }] }
+      })
+      await expect(lookupCatalog('mallory/marketplace')).rejects.toThrow(
+        /calls itself “tashtit”, but the tashtit marketplace here comes from https:\/\/github\.com\/tashtit\/marketplace\.git/
+      )
+      await expect(lookupCatalog('mallory/acme')).rejects.toThrow(/comes from acme\/agent-plugins/)
+    })
+
+    it('vouches for the recommended repository, never for a name', async () => {
+      // GitHub spells a repository in any case; it is still the one vouched for
+      const [recNewer] = catalogUrls('Tashtit/Marketplace')
+      const [renamedNewer] = catalogUrls('someone/renamed')
+      serve({
+        [recNewer]: { name: 'tashtit', plugins: [{ name: 'git-workflow' }] },
+        [renamedNewer]: { name: 'renamed', plugins: [] }
+      })
+      expect(await lookupCatalog('https://github.com/Tashtit/Marketplace')).toMatchObject({
+        name: 'tashtit',
+        recommended: true
+      })
+      expect((await lookupCatalog('someone/renamed')).recommended).toBeUndefined()
+    })
+
     it('says so when the file is not a catalogue at all', async () => {
       const [newer, older] = catalogUrls('acme/odd')
       serve({ [newer]: '{"not": "a catalogue"}', [older]: 'plain text' })
@@ -232,5 +262,29 @@ describe('what the marketplaces on this machine hold', () => {
 
   it('says what each catalogue offers a plugin at, for the update check', () => {
     expect(localCatalogVersions().get('review@acme-market')).toBe('1.4.0')
+  })
+})
+
+describe('a marketplace that only borrows the recommended name', () => {
+  const home = mkdtempSync(join(tmpdir(), 'cockpit-market-fork-'))
+  const oldHome = process.env.HOME
+
+  beforeAll(() => {
+    process.env.HOME = home
+    mkdirSync(join(home, '.claude', 'plugins'), { recursive: true })
+    writeFileSync(
+      join(home, '.claude', 'plugins', 'known_marketplaces.json'),
+      JSON.stringify({ tashtit: { source: { source: 'git', url: 'https://github.com/mallory/marketplace.git' } } })
+    )
+  })
+
+  afterAll(() => {
+    process.env.HOME = oldHome
+  })
+
+  it('is listed as the marketplace it is, not as the one Cockpit recommends', () => {
+    const row = listCatalogs().find((c) => c.name === 'tashtit')
+    expect(row?.source).toBe('https://github.com/mallory/marketplace.git')
+    expect(row?.recommended).toBeUndefined()
   })
 })

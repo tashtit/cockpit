@@ -623,11 +623,15 @@ export async function addFromCatalog(item: CatalogInstall, agent: Provider): Pro
   const { entries } = ensureScope(null)
   const known = entries.find((e) => e.kind === item.kind && e.name === item.name)
   // a plugin's source is the marketplace half of its own id; a marketplace's is where
-  // it is cloned from, which is the one thing an add cannot be run without
+  // it is cloned from, which is the one thing an add cannot be run without. One the
+  // library already records a real source for keeps it: a browse row is not a reason
+  // to point every later switch-on at another repository
   const source =
     item.kind === 'plugin'
       ? (known?.source ?? item.name.split('@').pop())
-      : (item.source ?? known?.source)
+      : isAddableSource(known?.source)
+        ? known?.source
+        : (item.source ?? known?.source)
   if (item.kind === 'marketplace' && !isAddableSource(source)) {
     throw new Error(`Cockpit has no source to add the ${item.name} marketplace from.`)
   }
