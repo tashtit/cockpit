@@ -1255,6 +1255,10 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .pulse-claude { background: var(--claude); }
 .pulse-codex { background: var(--codex); }
 .pulse-copilot { background: var(--copilot); }
+/* the agents driven over ACP pulse in their own livery too: Gemini in its blue, the
+   monochrome brands in the one shared mark — never the accent, which is nobody's */
+.pulse-gemini { background: var(--gemini); }
+.pulse-cursor, .pulse-cline, .pulse-roo, .pulse-opencode, .pulse-antigravity { background: var(--mono-mark); }
 /* the sidebar's running mark (Spinner) is neutral: the row's logo already carries the
    agent, and a rail of several at work lit up in three liveries at once. A turning ring
    is shape and motion, never color; under reduced motion it holds still, one quarter lit */
@@ -1794,7 +1798,8 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .composer-agent.active.plogo-gemini { background: rgba(var(--gemini-rgb), 0.16);
   box-shadow: inset 0 0 0 1.5px var(--gemini); }
 .composer-agent.active.plogo-cursor, .composer-agent.active.plogo-cline,
-.composer-agent.active.plogo-opencode { background: rgba(var(--mono-mark-rgb), 0.12);
+.composer-agent.active.plogo-roo, .composer-agent.active.plogo-opencode,
+.composer-agent.active.plogo-antigravity { background: rgba(var(--mono-mark-rgb), 0.12);
   box-shadow: inset 0 0 0 1.5px var(--mono-mark); }
 .composer-agent.no-acct::after { content: ''; position: absolute; top: 2px; right: 2px;
   width: 5px; height: 5px; border-radius: 50%; background: var(--danger); }
@@ -1846,6 +1851,9 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .board-row.flying .board-agent-claude { color: var(--claude); }
 .board-row.flying .board-agent-codex { color: var(--codex); }
 .board-row.flying .board-agent-copilot { color: var(--copilot); }
+.board-row.flying .board-agent-gemini { color: var(--gemini); }
+.board-row.flying :is(.board-agent-cursor, .board-agent-cline, .board-agent-roo, .board-agent-opencode,
+  .board-agent-antigravity) { color: var(--mono-mark); }
 .board-dot-idle { width: 7px; height: 7px; border-radius: 50%;
   background: var(--fg-dim); opacity: 0.35; flex-shrink: 0; }
 /* needs you, the two marks beside the landed dot: the question glyph in the agent's
@@ -1977,7 +1985,8 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 /* the agents driven over ACP: Gemini in its blue, the monochrome brands in the shared mark */
 .ns-provider.ns-gemini.active { border-color: var(--gemini);
   background: rgba(var(--gemini-rgb), 0.1); box-shadow: 0 0 16px rgba(var(--gemini-rgb), 0.15); }
-.ns-provider.ns-cursor.active, .ns-provider.ns-cline.active, .ns-provider.ns-opencode.active {
+.ns-provider.ns-cursor.active, .ns-provider.ns-cline.active, .ns-provider.ns-roo.active,
+.ns-provider.ns-opencode.active, .ns-provider.ns-antigravity.active {
   border-color: var(--mono-mark); background: rgba(var(--mono-mark-rgb), 0.08); }
 .ns-provider-name { font-weight: 700; }
 .ns-provider-blurb { font-size: var(--fs-xs); color: var(--fg-dim); text-align: center; }
@@ -2801,11 +2810,20 @@ button.pnl-flag:hover { text-decoration: underline; }
   background: linear-gradient(90deg, rgba(var(--codex-rgb), 0.08), transparent 55%); }
 .board-row.flying:has(.pulse-copilot) {
   background: linear-gradient(90deg, rgba(var(--copilot-rgb), 0.09), transparent 55%); }
+.board-row.flying:has(.pulse-gemini) {
+  background: linear-gradient(90deg, rgba(var(--gemini-rgb), 0.09), transparent 55%); }
+/* the shared mark is near-white: a step quieter, or its wash reads as a highlight */
+.board-row.flying:is(:has(.pulse-cursor), :has(.pulse-cline), :has(.pulse-roo), :has(.pulse-opencode),
+  :has(.pulse-antigravity)) {
+  background: linear-gradient(90deg, rgba(var(--mono-mark-rgb), 0.07), transparent 55%); }
 /* landed rows carry the same livery, one step quieter than flying: an inset bar
    instead of a wash, so the group reads as arrivals without shouting over them */
 .board-row.landed:has(.plogo-claude), .board-row.asks:has(.plogo-claude) { box-shadow: inset 2px 0 0 var(--claude); }
 .board-row.landed:has(.plogo-codex), .board-row.asks:has(.plogo-codex) { box-shadow: inset 2px 0 0 var(--codex); }
 .board-row.landed:has(.plogo-copilot), .board-row.asks:has(.plogo-copilot) { box-shadow: inset 2px 0 0 var(--copilot); }
+.board-row.landed:has(.plogo-gemini), .board-row.asks:has(.plogo-gemini) { box-shadow: inset 2px 0 0 var(--gemini); }
+.board-row:is(.landed, .asks):is(:has(.plogo-cursor), :has(.plogo-cline), :has(.plogo-roo), :has(.plogo-opencode),
+  :has(.plogo-antigravity)) { box-shadow: inset 2px 0 0 var(--mono-mark); }
 /* a red PR wears GitHub's red, not the agent's livery: it is the branch that needs you */
 .board-row.fix { box-shadow: inset 2px 0 0 var(--danger); }
 /* :has beats .board-row:hover on specificity, so restate hover feedback */
