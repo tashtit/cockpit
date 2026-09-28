@@ -180,7 +180,7 @@ function mostSpecific<T>(candidates: ReadonlyArray<{ readonly root: string; read
 
 const DEFAULT_PAGE_SIZE = 30
 /** Bump when meta-parser output changes so stale disk caches get re-parsed. */
-const CACHE_VERSION = 11
+const CACHE_VERSION = 12
 /** Yield to the event loop after this much scanning so scans never starve IPC (a frame). */
 const SCAN_SLICE_MS = 16
 /** Publish partial results during a cold scan so the tree fills in progressively. */

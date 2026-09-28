@@ -1857,6 +1857,39 @@ describe('gemini parser', () => {
     const rows = parseGeminiMessages(join(home, 'tmp', 'other', 'chats', 'session-2026-08-01T09-00-legacy01.json'))
     expect(rows.map((r) => r.text)).toEqual(['explain the build', 'It uses vite.'])
   })
+
+  // a document is cut at the meta read's 256KB like any log, and a cut document does not
+  // parse: every older session longer than that was left out of the index
+  it('lists an older one-document log longer than the meta head', () => {
+    const big = join(root, 'gemini-big')
+    const dir = join(big, 'tmp', 'bigrepo', 'chats')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(big, 'tmp', 'bigrepo', '.project_root'), '/Users/me/dev/bigrepo\n')
+    const file = join(dir, 'session-2026-08-03T09-00-bigdoc01.json')
+    writeFileSync(
+      file,
+      JSON.stringify({
+        sessionId: 'bigdoc-0001',
+        projectHash: 'h3',
+        startTime: '2026-08-03T09:00:00.000Z',
+        lastUpdated: '2026-08-03T09:30:00.000Z',
+        messages: [
+          { id: 'a', timestamp: '2026-08-03T09:00:00.000Z', type: 'user', content: 'summarize this log' },
+          { id: 'b', timestamp: '2026-08-03T09:01:00.000Z', type: 'gemini', content: [{ text: 'x'.repeat(400 * 1024) }] },
+          { id: 'c', timestamp: '2026-08-03T09:02:00.000Z', type: 'user', content: 'and the errors?' }
+        ]
+      })
+    )
+    expect(parseGeminiMeta(file, 'gemini-default')).toMatchObject({
+      id: 'gemini:bigdoc-0001',
+      title: 'summarize this log',
+      cwd: '/Users/me/dev/bigrepo',
+      startedAt: Date.parse('2026-08-03T09:00:00.000Z'),
+      updatedAt: Date.parse('2026-08-03T09:30:00.000Z'),
+      messageCount: 3
+    })
+    expect(listGeminiSessions(big, 'gemini-default').map((m) => m.id)).toEqual(['gemini:bigdoc-0001'])
+  })
 })
 
 describe('cline family parser', () => {
