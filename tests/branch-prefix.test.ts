@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   BRANCH_PREFIX_MAX,
   DEFAULT_BRANCH_PREFIX,
+  branchPrefixClash,
   branchPrefixOf,
+  branchPrefixParents,
   branchPrefixRefusal,
   normalizeBranchPrefix
 } from '../src/shared/branch-prefix'
@@ -38,6 +40,35 @@ describe('branchPrefixRefusal', () => {
     expect(branchPrefixRefusal('a/.b/')).toMatch(/starts with \./)
     expect(branchPrefixRefusal('team.lock/')).toMatch(/\.lock/)
     expect(branchPrefixRefusal(`${'a'.repeat(BRANCH_PREFIX_MAX)}/`)).toMatch(/40 characters/)
+  })
+
+  it('refuses a ref’s full name, a ref namespace and a remote as the first part', () => {
+    // all pass git check-ref-format, and each makes a branch git reads as something else
+    for (const p of ['refs/heads/', 'refs/', 'heads/', 'remotes/origin/', 'tags/', 'Refs/heads/']) {
+      expect(branchPrefixRefusal(p), p).toMatch(/full name/)
+    }
+    for (const p of ['origin/', 'upstream/', 'Origin/', 'origin/titan/']) {
+      expect(branchPrefixRefusal(p), p).toMatch(/names a remote/)
+    }
+    // only as a part of its own: a name that merely starts with one is fine
+    for (const p of ['origins/', 'refsmith/', 'tagsy/', 'titan/origin/', 'origin-']) {
+      expect(branchPrefixRefusal(p), p).toBeNull()
+    }
+  })
+})
+
+describe('branchPrefixParents', () => {
+  it('names each branch the prefix would put new branches inside', () => {
+    expect(branchPrefixParents('main/')).toEqual(['main'])
+    expect(branchPrefixParents('users/titan/')).toEqual(['users', 'users/titan'])
+    // what follows the last slash starts the new branch's own name
+    expect(branchPrefixParents('users/titan-')).toEqual(['users'])
+    expect(branchPrefixParents('feat-')).toEqual([])
+    expect(branchPrefixParents('')).toEqual([])
+  })
+
+  it('says which repository and which branch are in the way', () => {
+    expect(branchPrefixClash('main/', 'main', 'rocket')).toMatch(/^main\/ can't be used in rocket: it has a branch named main/)
   })
 })
 

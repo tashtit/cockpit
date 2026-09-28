@@ -18,6 +18,8 @@ Your working copy stays untouched no matter what the agent does. Uncommitted wor
 
 If your team names branches its own way — `titan/…`, `users/titan/…` — set the prefix in **Settings › Accounts**, under GitHub. Type `titan` and branches become `titan/add-changelog-entry-retry-fix`; leave it empty to go back to `cockpit/`. It applies to every branch Cockpit cuts from then on: new sessions, roundtables with a project, and shared-instructions pull requests. Branches already made keep their names. An agent told to work only on branches with your prefix can then commit and push without renaming the branch first.
 
+A few prefixes are refused because git would read the branches as something else: one starting with `refs/`, `heads/`, `remotes/` or `tags/`, or with a remote's name such as `origin/` or `upstream/`. So is one that a branch in a repository Cockpit knows is already named for — `main/` beside a `main` branch — since git can't keep a branch inside another branch's name; Settings says which repository and branch are in the way.
+
 If the repository has a `post-checkout` hook that fails (husky is the usual one, when it can't find `node`), the task still starts: git has finished the checkout before the hook runs. The chat opens with what the hook printed, since whatever it sets up is missing from that worktree. Any other failure removes the half-made worktree and its branch, so trying again doesn't leave extra branches behind.
 
 ## Reviewing before you ship
