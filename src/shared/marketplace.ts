@@ -42,8 +42,11 @@ export function githubRepoOf(source: string | undefined): string | null {
   const url = s.match(
     /^(?:https?:\/\/(?:www\.)?github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/i
   )
-  if (url) return url[1]
-  return OWNER_REPO.test(s) ? s : null
+  const repo = url ? url[1] : OWNER_REPO.test(s) ? s : null
+  // `./tmp` or `../x` is a path, not a repository; `-c/x` would read as a flag
+  return repo !== null && repo.split('/').every((part) => !/^\.+$/.test(part) && !part.startsWith('-'))
+    ? repo
+    : null
 }
 
 /** Where the catalogue of `owner/repo` can be read, in the order to try them. */

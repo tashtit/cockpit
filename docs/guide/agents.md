@@ -252,8 +252,9 @@ marketplace can't be given the plugin. Some marketplaces ship inside an agent â€
 could be pointed at. Cockpit doesn't offer a switch it knows would fail: those agents get
 a dashed *not available* chip, the row reads **Codex only**, and opening it spells out why.
 
-A marketplace that *is* addable (a git remote, or a GitHub `owner/repo`) stays switchable
-everywhere. It does have to be added to an agent before that agent can install anything
+A marketplace that *is* addable (a git remote over https or ssh, or a GitHub `owner/repo`)
+stays switchable everywhere. A plain `http://` or `git://` source, which anyone along the
+way can answer for, and a relative path such as `./plugins` are not offered to another agent. It does have to be added to an agent before that agent can install anything
 from it â€” if it isn't yet, the switch says which marketplace to turn on first rather than
 handing you the CLI's own error.
 

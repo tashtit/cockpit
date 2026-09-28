@@ -7,6 +7,7 @@ import type { MarketplaceCatalog, Provider } from '../shared/types'
 import { throttledBy } from './cache'
 import { getExtensions } from './extensions'
 import { parseJsonc } from './parsers/util'
+import { withRecent } from './recent-map'
 
 /*
  * Looking a marketplace up: what it offers, and where that answer came from.
@@ -24,6 +25,10 @@ import { parseJsonc } from './parsers/util'
  * itself `tashtit`, or by the name of a marketplace this machine already has: the
  * repository is what is vouched for (`recommended`), and a looked-up name another
  * repository already holds here is refused rather than listed in its place.
+ *
+ * An add names its source from the renderer, and that source becomes an agent's command
+ * line: it is taken only when this module offered it (`isOfferedSource`) — the source a
+ * marketplace here records, or one a lookup this session handed back.
  */
 
 /** A catalogue is JSON a person wrote; the head of it is the whole file in practice. */
@@ -31,6 +36,14 @@ const MAX_CATALOG_BYTES = 512 * 1024
 const FETCH_TIMEOUT_MS = 8000
 /** Fetched catalogues are cached for the session's afternoon, never polled. */
 const REMOTE_TTL_MS = 6 * 60 * 60 * 1000
+
+/**
+ * The source each lookup this session named its marketplace with, by name — what an add
+ * may be pointed at besides the marketplaces already here. A process-lifetime record
+ * (it mutates), capped to the newest.
+ */
+let lookedUp: Readonly<Record<string, string>> = {}
+const MAX_LOOKED_UP = 200
 
 /** A marketplace name becomes a path segment — dots-only would escape the plugins dir. */
 const NAME_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/
@@ -197,12 +210,25 @@ export async function lookupCatalog(source: string): Promise<MarketplaceCatalog>
   // one an install by `<plugin>@<name>` reaches in the agents that have it
   const here = sameRepo ?? byName
   const plugins = catalog.plugins.map((p) => ({ ...p, id: `${p.name}@${name}` }))
+  const from = sameRepo?.source ?? `https://github.com/${repo}.git`
+  lookedUp = withRecent(lookedUp, { id: name, value: from, cap: MAX_LOOKED_UP })
   return {
     name,
-    source: sameRepo?.source ?? `https://github.com/${repo}.git`,
+    source: from,
     agents: PROVIDERS.filter((p) => here?.agents.includes(p)),
     plugins,
     origin: 'remote',
     ...(isRecommendedSource(repo) ? { recommended: true as const } : {})
   }
+}
+
+/**
+ * Did Cockpit offer this source for this marketplace — the one a marketplace here
+ * records, or the one a lookup this session handed back? Anything else arriving with an
+ * add is the renderer's word alone, and never reaches an agent's command line.
+ */
+export function isOfferedSource(name: string, source: string): boolean {
+  if (!isAddableSource(source)) return false
+  if (Object.hasOwn(lookedUp, name) && lookedUp[name] === source) return true
+  return knownMarketplaces().some((m) => m.name === name && m.source === source)
 }

@@ -8,7 +8,7 @@ import {
   matchesCatalogQuery,
   parseCatalog
 } from '../src/shared/marketplace'
-import { listCatalogs, localCatalogVersions, lookupCatalog } from '../src/main/marketplace'
+import { isOfferedSource, listCatalogs, localCatalogVersions, lookupCatalog } from '../src/main/marketplace'
 import { RECOMMENDED_MARKETPLACE } from '../src/shared/library'
 
 /**
@@ -97,6 +97,11 @@ describe('the repository a source names', () => {
     expect(githubRepoOf('https://git.example.com/acme/x.git')).toBeNull()
     // a deeper path is not a repository, and must never become one
     expect(githubRepoOf('https://github.com/tashtit/marketplace/tree/main')).toBeNull()
+    // nor is a path that walks, or a word that reads as a flag
+    expect(githubRepoOf('./tmp')).toBeNull()
+    expect(githubRepoOf('../..')).toBeNull()
+    expect(githubRepoOf('https://github.com/../x')).toBeNull()
+    expect(githubRepoOf('-c/x')).toBeNull()
   })
 
   it('reads the catalogue from the repository head, newest spelling first', () => {
@@ -251,6 +256,20 @@ describe('what the marketplaces on this machine hold', () => {
         recommended: true
       })
       expect((await lookupCatalog('someone/renamed')).recommended).toBeUndefined()
+    })
+
+    // an add's source arrives from the renderer on its way into an agent's command line
+    it('takes an add’s source only when a listing or a lookup offered it for that marketplace', async () => {
+      expect(isOfferedSource('acme-market', 'acme/agent-plugins')).toBe(true)
+      expect(isOfferedSource('acme-market', 'mallory/agent-plugins')).toBe(false)
+      expect(isOfferedSource('tashtit', RECOMMENDED_MARKETPLACE.source)).toBe(true)
+      expect(isOfferedSource('offered', 'https://github.com/acme/offered.git')).toBe(false)
+      const [newer] = catalogUrls('acme/offered')
+      serve({ [newer]: { name: 'offered', plugins: [] } })
+      await lookupCatalog('acme/offered')
+      expect(isOfferedSource('offered', 'https://github.com/acme/offered.git')).toBe(true)
+      expect(isOfferedSource('acme-market', 'https://github.com/acme/offered.git')).toBe(false)
+      expect(isOfferedSource('offered', './tmp')).toBe(false)
     })
 
     it('says so when the file is not a catalogue at all', async () => {
