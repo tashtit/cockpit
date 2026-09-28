@@ -74,12 +74,15 @@ describe('buildCommand', () => {
     expect(CLAUDE_SEAT_TOOLS).toEqual(['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'])
     // and no hooks, which run whatever they say — a SessionStart one that syncs the checkout
     expect(safe.slice(safe.indexOf('--settings'), safe.indexOf('--settings') + 2)).toEqual([...CLAUDE_NO_HOOKS])
+    // nor an MCP server's tools, which --tools does not name
+    expect(safe).toContain('--strict-mcp-config')
     expect(safe.join(' ')).not.toMatch(/Bash|Edit|Write/)
     // only a seat, and only in safe mode: the other modes already say what they allow
     for (const other of [seat('safe', false), seat('auto-edit'), seat('yolo')]) {
       expect(other).not.toContain('--allowedTools')
       expect(other).not.toContain('--tools')
       expect(other).not.toContain('--settings')
+      expect(other).not.toContain('--strict-mcp-config')
     }
     // the flag is Claude's alone
     const codex = buildCommand({ provider: 'codex', cwd: '/x', prompt: 'hi', permissionMode: 'safe', research: true }).args

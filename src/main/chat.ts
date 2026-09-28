@@ -237,10 +237,12 @@ export function buildCommand(req: CliRequest, opts: BuildOptions = {}): BuiltCom
       if (req.permissionMode === 'auto-edit') args.push('--permission-mode', 'acceptEdits')
       if (req.permissionMode === 'yolo') args.push('--dangerously-skip-permissions')
       // a roundtable seat reads and looks things up, nothing more: the tools it may use at
-      // all, the web pre-approved among them, and no hooks, which run whatever they say
+      // all, the web pre-approved among them, and no hooks, which run whatever they say.
+      // No MCP servers either — `--tools` names built-ins only, so a server's tools stayed
+      // within reach of a default mode that bypasses permissions, or of an allow rule
       if (req.research && req.permissionMode === 'safe' && !fork) {
         args.push('--tools', CLAUDE_SEAT_TOOLS.join(','), '--allowedTools', CLAUDE_RESEARCH_TOOLS.join(','))
-        args.push(...CLAUDE_NO_HOOKS)
+        args.push('--strict-mcp-config', ...CLAUDE_NO_HOOKS)
       }
       // no MCP servers either: a copy answering a question needs none, and starts faster
       if (fork) args.push('--tools', CLAUDE_SIDE_TOOLS.join(','), '--strict-mcp-config', ...CLAUDE_NO_HOOKS)
