@@ -195,8 +195,15 @@ export const CODEX_SIDE_ARGS: readonly string[] = [
  * sandbox once approved. Headless, nobody can approve, so each escalation goes to Codex's
  * own approvals reviewer — what `codex exec --approve-for-me` sets, in the `-c` form that
  * `exec resume` also takes. Verified on 0.157: without it a commit in a linked worktree is
- * refused, with it the commit is reviewed and lands. Deliberately not a writable `.git`:
- * a sandboxed agent that can write hooks or objects can run code outside the sandbox.
+ * refused, with it the commit is reviewed and lands.
+ *
+ * What the reviewer can approve, plainly: an approved escalation re-runs the command
+ * outside the sandbox, with the person's own access, and whatever code that command runs
+ * goes with it — code the agent wrote included, such as a hook the repository's hooks path
+ * points into (husky's) or a package script behind `npm test`. So an approval reaches as
+ * far as that code does, not only as far as the command reads. A writable `.git` was not
+ * the alternative taken because it is no smaller: a sandboxed agent that can write hooks
+ * or objects runs code outside the sandbox with no review at all.
  */
 export const CODEX_REVIEWED_ARGS: readonly string[] = [
   '-c',
