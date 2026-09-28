@@ -372,6 +372,16 @@ export function setAttentionPrefs(next: AttentionPrefs): AttentionPrefs {
   return attentionPrefs()
 }
 
+/**
+ * Whether archiving a session stops what it left running (`archive-watch.ts`): in an
+ * installed app, as the attention switches are on. A dev run indexes the real HOME, so
+ * every one running would otherwise act on every archive — the providers' own apps'
+ * included — unless COCKPIT_ARCHIVE_WATCH=1 asks for it.
+ */
+export function archiveWatchOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return app?.isPackaged === true || env['COCKPIT_ARCHIVE_WATCH'] === '1'
+}
+
 const UPDATE_KEYS = ['download', 'install'] as const
 
 /**

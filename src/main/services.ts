@@ -11,6 +11,7 @@ import { probeAcpAgent } from './acp'
 import { loginPathReady } from './env'
 import { mergeBusy } from './liveness-core'
 import {
+  archiveWatchOn,
   attentionPrefs,
   listAcpAgents,
   listModelEndpoints,
@@ -390,15 +391,17 @@ export function startServices(): Services {
   })
   void indexer.whenScanned().then(() => reminder.start())
   // archiving a session ends its work: the dev server it left running in its worktree
-  // is stopped with it, whichever app it was archived in
-  const watch = new ArchiveWatch({
-    listed: () => indexer.allSessions(),
-    thrownAway: (id) => indexer.thrownAway(id),
-    session: (id) => indexer.getSession(id),
-    stop: (sessions) => stopLeftBehind(cleanupDeps(), sessions)
-  })
-  archiveWatch = watch
-  void indexer.whenScanned().then(() => watch.start())
+  // is stopped with it, whichever app it was archived in — by an installed app only
+  if (archiveWatchOn()) {
+    const watch = new ArchiveWatch({
+      listed: () => indexer.allSessions(),
+      thrownAway: (id) => indexer.thrownAway(id),
+      session: (id) => indexer.getSession(id),
+      stop: (sessions) => stopLeftBehind(cleanupDeps(), sessions)
+    })
+    archiveWatch = watch
+    void indexer.whenScanned().then(() => watch.start())
+  }
 
   return {
     indexer,

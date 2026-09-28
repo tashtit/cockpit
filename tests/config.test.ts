@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   adoptDetectedSources,
+  archiveWatchOn,
   addModelEndpoint,
   attentionPrefs,
   bindSessionControl,
@@ -322,6 +323,15 @@ describe('attention prefs', () => {
       typeof setAttentionPrefs
     >[0])
     expect(saved).toEqual({ notifications: false, sound: false, badge: false, cleanup: false })
+  })
+})
+
+describe('stopping what an archived session left running', () => {
+  // a dev run indexes the real HOME: each one running would signal processes on every archive
+  it('is off outside an installed app, unless asked for', () => {
+    expect(archiveWatchOn({})).toBe(false)
+    expect(archiveWatchOn({ COCKPIT_ARCHIVE_WATCH: '1' })).toBe(true)
+    expect(archiveWatchOn({ COCKPIT_ARCHIVE_WATCH: 'yes' })).toBe(false)
   })
 })
 
