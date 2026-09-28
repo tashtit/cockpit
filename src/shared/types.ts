@@ -1599,6 +1599,12 @@ export type ChatEvent =
       /** The command asks to run with the sandbox off (Claude's Bash `dangerouslyDisableSandbox`) */
       readonly sandboxBypass?: true
     }
+  /**
+   * The agent gave up on a question it had put to the person (Claude's
+   * `control_cancel_request`: the call was aborted). Nothing is left to answer, so its
+   * card goes — an answer clicked on it would land in the transcript though nothing ran.
+   */
+  | { readonly turnId: string; readonly type: 'permission-withdrawn'; readonly requestId: string }
 
 /**
  * A question a live turn is blocked on. Main keeps each turn's open ones until they are

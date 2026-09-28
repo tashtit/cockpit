@@ -73,8 +73,8 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
    * A question a turn is now blocked on. A card belongs to the turn that asked: the chat
    * shows only the active turn's (`turnPermissions`), so an answer can never land in
    * another conversation's transcript, and one asked by a turn off screen waits for its
-   * own chat — a rejoined turn must still find it. It goes when its turn ends or is
-   * stopped. Request ids are the agent's own counter, so only turn and id together name
+   * own chat — a rejoined turn must still find it. It goes when it is answered, when its
+   * agent withdraws it, and when its turn ends or is stopped. Request ids are the agent's own counter, so only turn and id together name
    * one; a repeat replaces the earlier copy.
    */
   const askPermission = useCallback((ev: ChatPermission) => {
@@ -92,6 +92,11 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
         ...(ev.sandboxBypass ? { sandboxBypass: true as const } : {})
       }
     ])
+  }, [])
+
+  /** A question its agent gave up on: nothing is left to answer, so its card goes. */
+  const withdrawPermission = useCallback((turnId: string, requestId: string) => {
+    setPermissions((list) => list.filter((a) => a.turnId !== turnId || a.requestId !== requestId))
   }, [])
 
   const answerPermission = useCallback((ask: PendingPermission, optionId: string) => {
@@ -127,6 +132,9 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
         // the prompt is not a transcript row, but it must land after what came before it
         endChatStream({ keepText: true })
         askPermission(ev)
+      } else if (ev.type === 'permission-withdrawn') {
+        // the call was aborted: an answer clicked now would be recorded though nothing ran
+        withdrawPermission(ev.turnId, ev.requestId)
       } else if (ev.type === 'error') {
         // said as it happens, even mid-turn: an error nobody hears is the bug
         turnFailedRef.current = true
@@ -145,7 +153,7 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
         )
       }
     },
-    [speaker, askPermission, onSession, onSettled]
+    [speaker, askPermission, withdrawPermission, onSession, onSettled]
   )
 
   useEffect(() => {
@@ -154,6 +162,7 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
         // a question is the one thing a turn off screen can't be allowed to lose: it
         // waits for its conversation, and goes when the turn does
         if (ev.type === 'permission') askPermission(ev)
+        else if (ev.type === 'permission-withdrawn') withdrawPermission(ev.turnId, ev.requestId)
         else if (ev.type === 'done')
           setPermissions((list) => list.filter((a) => a.turnId !== ev.turnId))
         // spawn failures can emit before sendChat() resolves with the turn id
@@ -166,7 +175,7 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
       const rejoin = rejoinRef.current
       for (const e of rejoin?.turnId === ev.turnId ? rejoin.offer(ev) : [ev]) applyEvent(e)
     })
-  }, [applyEvent, askPermission])
+  }, [applyEvent, askPermission, withdrawPermission])
 
   /**
    * Adopt a turn id and replay any events that arrived before we knew it.

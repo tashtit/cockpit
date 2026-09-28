@@ -941,3 +941,64 @@ describe('ChatManager: Claude asks Cockpit before what its mode does not allow',
     }
   })
 })
+
+describe('ChatManager: a question Claude withdraws', () => {
+  // a stub `claude` that asks, then aborts the call itself before anyone answers — as the
+  // CLI does when the tool call is cancelled — and ends the turn a moment later
+  const bin = mkdtempSync(join(tmpdir(), 'cockpit-chat-withdraw-'))
+  writeFileSync(
+    join(bin, 'stub.mjs'),
+    [
+      `import { createInterface } from 'node:readline'`,
+      `const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n')`,
+      `const got = []`,
+      `createInterface({ input: process.stdin }).on('line', (line) => {`,
+      `  got.push(JSON.parse(line))`,
+      `  if (got.length > 1) return`,
+      `  out({ type: 'system', subtype: 'init', session_id: 'stub-withdraw' })`,
+      `  out({ type: 'control_request', request_id: 'p-1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'rm -rf build' } } })`,
+      `  setTimeout(() => out({ type: 'control_cancel_request', request_id: 'p-1' }), 50)`,
+      `  setTimeout(() => {`,
+      `    out({ type: 'assistant', message: { content: [{ type: 'text', text: JSON.stringify({ got }) }] } })`,
+      `    out({ type: 'result', session_id: 'stub-withdraw' })`,
+      `  }, 300)`,
+      `}).on('close', () => process.exit(0))`
+    ].join('\n')
+  )
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}" "$@"\n`)
+  chmodSync(join(bin, 'claude'), 0o755)
+
+  it('takes the card down, and an answer clicked after it writes nothing', async () => {
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const events: ChatEvent[] = []
+      let pendingAfter: string[] | null = null
+      let finish: () => void = () => {}
+      const finished = new Promise<void>((r) => (finish = r))
+      const chat: ChatManager = new ChatManager(
+        (ev) => {
+          events.push(ev)
+          if (ev.type === 'permission-withdrawn') {
+            pendingAfter = chat.pendingPermissions(ev.turnId).map((a) => a.requestId)
+            // the click that raced the withdrawal: nothing is left for it to answer
+            chat.respondPermission(ev.turnId, ev.requestId, 'allow')
+          }
+          if (ev.type === 'done') finish()
+        },
+        { asksPermissions: () => true }
+      )
+      chat.send({ provider: 'claude', cwd: tmpdir(), prompt: 'clean up', permissionMode: 'auto-edit' })
+      await finished
+      expect(events.map((e) => e.type)).toEqual(['session', 'permission', 'permission-withdrawn', 'text', 'session', 'done'])
+      expect(events[2]).toMatchObject({ type: 'permission-withdrawn', requestId: 'p-1' })
+      expect(pendingAfter).toEqual([])
+      // only the prompt ever reached the CLI: no answer to a call it had already dropped
+      const report = events.find((e): e is Extract<ChatEvent, { type: 'text' }> => e.type === 'text')
+      expect(JSON.parse(report?.text ?? '{}').got).toHaveLength(1)
+      await vi.waitFor(() => expect(chat.runningTurns()).toBe(0))
+    } finally {
+      process.env.PATH = path
+    }
+  })
+})

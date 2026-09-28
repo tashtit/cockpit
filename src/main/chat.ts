@@ -916,7 +916,9 @@ export class ChatManager {
       writeLine(turn.child, control.line)
     } else {
       turn.claudeAsks?.delete(control.requestId)
-      turn.openAsks?.delete(control.requestId)
+      // a question the person was shown has a card to take down; one already answered,
+      // or never shown (a question the chat offers as picks), has none
+      if (turn.openAsks?.delete(control.requestId)) this.deliver(turn, control.event)
     }
   }
 

@@ -245,6 +245,44 @@ describe('App rejoins a turn of its own that is still running when its session o
     expect(screen.queryByRole('group', { name: /needs permission/ })).not.toBeInTheDocument()
   })
 
+  it('takes a card down when its agent withdraws the question, on screen or off', async () => {
+    const pushes = wire(undefined, [session('a', 'fix the login flake'), session('b', 'add pagination')])
+    await mount()
+    act(() => pushes.busy([running('turn-9')]))
+    const ask = (requestId: string): ChatEvent => ({
+      turnId: 'turn-9',
+      type: 'permission',
+      requestId,
+      toolName: 'shell',
+      detail: 'rm -rf build',
+      preview: `Clean the build ${requestId}`,
+      options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }]
+    })
+    const card = (requestId: string): HTMLElement | null =>
+      screen.queryByRole('group', { name: `Claude needs permission: Clean the build ${requestId}` })
+    await userEvent.click(await boardRow(/fix the login flake/))
+    await screen.findByText('hello transcript')
+    act(() => pushes.chat(ask('1')))
+    await waitFor(() => expect(card('1')).toBeInTheDocument())
+    act(() => pushes.chat({ turnId: 'turn-9', type: 'permission-withdrawn', requestId: '1' }))
+    await waitFor(() => expect(card('1')).not.toBeInTheDocument())
+
+    // withdrawn while its conversation was off screen: not there when it is opened again
+    cmd('n')
+    await userEvent.click(await boardRow(/add pagination/))
+    await screen.findByText('hello transcript')
+    act(() => {
+      pushes.chat(ask('2'))
+      pushes.chat({ turnId: 'turn-9', type: 'permission-withdrawn', requestId: '2' })
+    })
+    cmd('n')
+    await userEvent.click(await boardRow(/fix the login flake/))
+    await screen.findByText('hello transcript')
+    await act(async () => {})
+    expect(card('2')).not.toBeInTheDocument()
+    expect(window.cockpit.respondPermission).not.toHaveBeenCalled()
+  })
+
   it('frees Send when the rejoined turn ends, and the next message resumes the session', async () => {
     const pushes = wire()
     await mount()

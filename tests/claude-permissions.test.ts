@@ -128,10 +128,11 @@ describe('claudeControl', () => {
     })
   })
 
-  it('notes a request the CLI withdrew', () => {
+  it('notes a request the CLI withdrew, with the event that takes its card down', () => {
     expect(claudeControl('t1', { type: 'control_cancel_request', request_id: 'r-1' })).toEqual({
       kind: 'withdrawn',
-      requestId: 'r-1'
+      requestId: 'r-1',
+      event: { turnId: 't1', type: 'permission-withdrawn', requestId: 'r-1' }
     })
   })
 

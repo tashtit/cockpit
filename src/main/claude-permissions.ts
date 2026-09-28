@@ -83,8 +83,13 @@ export type ClaudeControl =
     }
   /** Answered without the person: write `line` to stdin */
   | { readonly kind: 'reply'; readonly line: string }
-  /** The CLI gave up on a request (the call was aborted) — its card has nothing left to answer */
-  | { readonly kind: 'withdrawn'; readonly requestId: string }
+  /** The CLI gave up on a request (the call was aborted) — its card has nothing left to
+   *  answer, and `event` takes it down */
+  | {
+      readonly kind: 'withdrawn'
+      readonly requestId: string
+      readonly event: Extract<ChatEvent, { type: 'permission-withdrawn' }>
+    }
 
 /**
  * The control message a stdout line carries, or null for an ordinary stream event.
@@ -94,7 +99,9 @@ export function claudeControl(turnId: string, line: unknown): ClaudeControl | nu
   const msg = asRecord(line)
   if (msg?.['type'] === 'control_cancel_request') {
     const requestId = msg['request_id']
-    return typeof requestId === 'string' && REQUEST_ID.test(requestId) ? { kind: 'withdrawn', requestId } : null
+    return typeof requestId === 'string' && REQUEST_ID.test(requestId)
+      ? { kind: 'withdrawn', requestId, event: { turnId, type: 'permission-withdrawn', requestId } }
+      : null
   }
   if (msg?.['type'] !== 'control_request') return null
   const requestId = msg['request_id']

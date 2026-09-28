@@ -63,7 +63,9 @@ Each agent signs in on its own; Cockpit never handles the credentials. When an a
 Over ACP an agent can stop mid-turn and ask before it runs something. The question appears
 just above the composer with the agent's own options — *Allow once*, *Always allow*,
 *Deny* — and the turn stays stopped until you pick one. The answer is recorded in the
-transcript, since it is what the rest of the turn was conditioned on.
+transcript, since it is what the rest of the turn was conditioned on. If the agent drops
+the request itself before you answer — Claude does when the call is cancelled — the card
+goes with it.
 
 When what it wants to run is a command, the card shows the command itself — every line,
 exactly as it would run — with the agent's own description of it above. A command too long
