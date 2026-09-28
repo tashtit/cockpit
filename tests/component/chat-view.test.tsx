@@ -524,6 +524,21 @@ describe('ChatView and who drives the session', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Released to Claude/))
   })
 
+  it('says a change of hands even after a step through your messages spoke', async () => {
+    const onSetHolder = vi.fn(async () => true)
+    setChatLog([
+      { role: 'user', kind: 'text', text: 'first' },
+      { role: 'assistant', kind: 'text', text: 'done' },
+      { role: 'user', kind: 'text', text: 'second' }
+    ])
+    renderChat(vi.fn(), { binding: started, control: held, onSetHolder })
+    fireEvent.keyDown(window, { key: 'ArrowUp', altKey: true, metaKey: true })
+    expect(screen.getByRole('status')).toHaveTextContent(/message/)
+    await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Release to Claude' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Released to Claude/))
+  })
+
   it('will not release under a turn Cockpit is running', async () => {
     renderChat(vi.fn(), { binding: started, control: held, busy: true })
     await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))

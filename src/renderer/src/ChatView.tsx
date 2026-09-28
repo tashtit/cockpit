@@ -6,7 +6,7 @@ import { AskPicker } from './AskPicker'
 import type { ChatBinding, PendingPermission, TranscriptAnchor } from './chat-binding'
 import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
-import { useChatKeys, useChatLog, useChatStatus } from './chat-log'
+import { announceChat, useChatKeys, useChatLog, useChatStatus } from './chat-log'
 import { CopyPath } from './CopyPath'
 import { MODES, rememberMode, savedMode } from './agent-choice'
 import { cwdLabel } from '../../shared/library'
@@ -149,18 +149,14 @@ export function ChatView({
   }, [binding?.cwd, binding?.nativeSessionId === null])
 
   /** The hold bar opened from the header chip on a session Cockpit holds (one with its
-   *  agent always shows it), and what the last change of hands said, for the status line */
+   *  agent always shows it). What a change of hands says goes to the status line as any
+   *  other announcement does (`announceChat`): kept beside it, an earlier announcement —
+   *  a ⌥⌘↑ step — outranked it for good, and the live region never spoke */
   const [holdOpen, setHoldOpen] = useState(false)
   const [holdPending, setHoldPending] = useState(false)
-  const [holdSaid, setHoldSaid] = useState('')
   useEffect(() => {
     setHoldOpen(false)
-    setHoldSaid('')
   }, [conversation])
-  // a turn's own announcements take the status line back
-  useEffect(() => {
-    if (busy) setHoldSaid('')
-  }, [busy])
 
   // a freshly opened session always starts pinned to the bottom — per conversation,
   // not per binding object: App re-makes the binding mid-turn (the native id from the
@@ -322,7 +318,6 @@ export function ChatView({
   const withAgent = control?.holder === 'agent' && !binding?.readOnly
   const status =
     (permissions.length ? `Permission needed: ${permissions[0].preview}` : announced) ||
-    holdSaid ||
     (busy && binding ? `${PROVIDER_LABEL[binding.provider]} is working…` : '') ||
     (elsewhere && binding
       ? `${PROVIDER_LABEL[binding.provider]} is ${pendingAsk ? 'waiting for your answer' : 'working'} elsewhere…`
@@ -357,10 +352,10 @@ export function ChatView({
       .then((ok) => {
         if (!ok) return
         if (to === 'cockpit') {
-          setHoldSaid('Taken over — Cockpit sends this session’s turns now')
+          announceChat('Taken over — Cockpit sends this session’s turns now')
           composerRef.current?.focus()
         } else {
-          setHoldSaid(`Released to ${PROVIDER_LABEL[binding.provider]} — Cockpit only follows its log now`)
+          announceChat(`Released to ${PROVIDER_LABEL[binding.provider]} — Cockpit only follows its log now`)
           setHoldOpen(false)
         }
       })
@@ -371,7 +366,7 @@ export function ChatView({
     setHoldPending(true)
     void onResumeInTerminal()
       .then((ok) => {
-        if (ok) setHoldSaid(`Released and resumed in Terminal — continue it with ${PROVIDER_LABEL[binding.provider]} there`)
+        if (ok) announceChat(`Released and resumed in Terminal — continue it with ${PROVIDER_LABEL[binding.provider]} there`)
       })
       .finally(() => setHoldPending(false))
   }
