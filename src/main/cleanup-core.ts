@@ -566,7 +566,9 @@ function startedDuring(startedAt: number, run: ArchivedRun): boolean {
  * one of those worktrees too: a server the agent is still running, a shell a terminal
  * or an app still holds, or a turn Cockpit runs have a live parent elsewhere, and
  * answer to it. A tree that also works outside those worktrees — a multiplexer whose
- * other windows sit elsewhere — is left whole.
+ * other windows sit elsewhere — is left whole, and so is one with a member whose cwd
+ * is unknown (lsof could not read it, it sits at `/`, it is Cockpit's own): nothing
+ * proves that one works only there.
  *
  * And only what the session could have started: the top of the tree must have begun
  * during the life of a session archived in its worktree (`startedDuring`). Daemons
@@ -581,6 +583,8 @@ export function leftBehind(input: {
   readonly inUse: readonly string[]
   /** Every process with a known cwd, outside those worktrees too — how a tree working elsewhere is seen */
   readonly processes: readonly ProcessFacts[]
+  /** Every process `ps` listed, whatever lsof said of its cwd — whose children a tree has */
+  readonly table: readonly Pick<ProcessFacts, 'pid' | 'ppid'>[]
   readonly worktrees: readonly PlacedWorktree[]
   readonly homes: readonly WorktreeHome[]
   readonly exists: (path: string) => boolean
@@ -598,7 +602,7 @@ export function leftBehind(input: {
     if (at && over.has(at.path)) inside.set(p.pid, judged(p, at))
   }
   const children = new Map<number, number[]>()
-  for (const p of input.processes) children.set(p.ppid, [...(children.get(p.ppid) ?? []), p.pid])
+  for (const p of input.table) children.set(p.ppid, [...(children.get(p.ppid) ?? []), p.pid])
   /** The top of the tree this process is in, when that tree was left to launchd */
   const orphanRoot = (p: JudgedProcess): number | null => {
     const seen = new Set<number>()
@@ -609,7 +613,7 @@ export function leftBehind(input: {
     }
     return top.ppid === 1 ? top.pid : null
   }
-  /** Every member of the tree `processes` knows is in one of those worktrees */
+  /** Every member of the tree is known to be in one of those worktrees */
   const whollyInside = (root: number): boolean => {
     const queue = [root]
     const seen = new Set(queue)

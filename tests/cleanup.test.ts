@@ -1083,6 +1083,38 @@ describe('processes left in old worktrees', () => {
     expect(alive(server)).toBe(true)
   }, PROCESS_TIMEOUT_MS)
 
+  it.runIf(hasLsof)('stops nothing on a process table lsof could not give whole', async (ctx) => {
+    const tree = join(cockpitWorktrees, 'app', 'unchecked-server')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'cockpit/unchecked-server', tree])
+    const startedAt = Date.now()
+    const server = await orphanIn(tree)
+    if (parentOf(server) !== 1) ctx.skip()
+    const s = session({
+      id: 'claude:unchecked-server',
+      sourcePath: join(sourceDir, 'unchecked-server.jsonl'),
+      cwd: tree,
+      startedAt,
+      updatedAt: Date.now(),
+      repo: { key: 'app', name: 'app', fullName: null, root: mainRepo }
+    })
+    // an lsof that gives up without an answer, first on PATH
+    const bin = mkdtempSync(join(tmpdir(), 'cockpit-lsof-'))
+    writeFileSync(join(bin, 'lsof'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const res = await stopLeftBehind(deps, { archived: [s], listed: [] })
+      expect(res.cleaned).toBe(0)
+      expect(res.failed).toEqual([{ target: realpathSync(tree), reason: expect.stringMatching(/couldn’t check/) }])
+      expect(alive(server)).toBe(true)
+    } finally {
+      process.env.PATH = path
+      rmSync(bin, { recursive: true, force: true })
+    }
+    // with the real one, it goes
+    expect(await stopLeftBehind(deps, { archived: [s], listed: [] })).toMatchObject({ cleaned: 1, failed: [] })
+  }, PROCESS_TIMEOUT_MS)
+
   it.runIf(hasLsof)('refuses a pid that is not left in an old worktree', async () => {
     const res = await stopProcesses(
       deps,

@@ -481,6 +481,7 @@ describe('leftBehind', () => {
       archived: (where.archived ?? ['/wt/app/fix']).map(run),
       inUse: where.inUse ?? [],
       processes,
+      table: processes,
       worktrees,
       homes,
       exists: (p) => onDisk.has(p)
@@ -518,6 +519,7 @@ describe('leftBehind', () => {
       archived: [run(gone)],
       inUse: [],
       processes: [proc(10, `${gone}/web`)],
+      table: [proc(10, `${gone}/web`)],
       worktrees,
       homes,
       exists: (p) => onDisk.has(p)
@@ -528,6 +530,21 @@ describe('leftBehind', () => {
   it('leaves a tree that also works outside the worktree whole', () => {
     // a multiplexer started there, with a window in another checkout
     expect(left([proc(10, '/wt/app/fix'), proc(11, '/wt/app/fix', 10), proc(12, '/wt/app/other', 10)])).toEqual([])
+  })
+
+  it('leaves a tree whole when a member’s cwd is unknown', () => {
+    // lsof read no cwd for pid 12 (or it sits at `/`): only ps lists it
+    const known = [proc(10, '/wt/app/fix'), proc(11, '/wt/app/fix', 10)]
+    const found = leftBehind({
+      archived: [run('/wt/app/fix')],
+      inUse: [],
+      processes: known,
+      table: [...known, { pid: 12, ppid: 11 }],
+      worktrees,
+      homes,
+      exists: (p) => onDisk.has(p)
+    })
+    expect(found).toEqual([])
   })
 
   it('takes nothing when no session was archived in a worktree', () => {
@@ -568,6 +585,7 @@ describe('leftBehind', () => {
       archived: [{ cwd: '/wt/app/fix', startedAt: 0, updatedAt: T1 }],
       inUse: [],
       processes: [proc(10, '/wt/app/fix')],
+      table: [proc(10, '/wt/app/fix')],
       worktrees,
       homes,
       exists: (p) => onDisk.has(p)
@@ -581,6 +599,7 @@ describe('leftBehind', () => {
       archived: [earlier, run('/wt/app/fix/web')],
       inUse: [],
       processes: [proc(10, '/wt/app/fix', 1, T0 - 85_000_000), proc(11, '/wt/app/fix', 1, T0 - 40_000_000)],
+      table: [proc(10, '/wt/app/fix'), proc(11, '/wt/app/fix')],
       worktrees,
       homes,
       exists: (p) => onDisk.has(p)

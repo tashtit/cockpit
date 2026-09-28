@@ -37,6 +37,7 @@ import {
   type JudgedProcess,
   type PlacedWorktree,
   type ProcessFacts,
+  type PsRow,
   type WorktreeEntry,
   type WorktreeHome
 } from './cleanup-core'
@@ -166,6 +167,8 @@ const STOP_GRACE_MS = 2_000
 
 type ProcessSnapshot = {
   readonly procs: ProcessFacts[]
+  /** Every row ps gave — Cockpit's own tree and the processes with no readable cwd too */
+  readonly rows: readonly PsRow[]
   /**
    * False when lsof or ps did not give a full answer — lsof missing, or cut short by
    * its timeout or its buffer, which leaves the processes it never reached out of the
@@ -177,6 +180,9 @@ type ProcessSnapshot = {
 
 /** Why a removal was held back when the process check came back partial. */
 const UNCHECKED = 'couldn’t check for processes running in it — try again'
+
+/** Why nothing an archived session left running was stopped: the process check came back partial. */
+const UNCHECKED_LEFT = 'couldn’t check what is running in it — nothing was stopped'
 
 /**
  * Every process the user owns that has a working directory, minus Cockpit's own
@@ -198,7 +204,7 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessSnapshot> {
   // lsof exits 1 when some process could not be read, with the readable ones on
   // stdout — the output is what counts, not the status. Unless it was cut short.
   const complete = ps.ok && !lsof.cutShort && lsof.stdout !== ''
-  if (!lsof.stdout || !ps.ok) return { procs: [], complete }
+  if (!lsof.stdout || !ps.ok) return { procs: [], rows: [], complete }
   const cwds = parseLsofCwds(lsof.stdout)
   const rows = parsePs(ps.stdout, Date.now())
   const own = ownProcessTree(rows, deps.selfPid)
@@ -208,7 +214,7 @@ async function processSnapshot(deps: CleanupDeps): Promise<ProcessSnapshot> {
     if (!cwd || own.has(r.pid) || cwd === '/') continue
     out.push({ ...r, cwd })
   }
-  return { procs: out, complete }
+  return { procs: out, rows, complete }
 }
 
 /* ---------- worktrees ---------- */
@@ -1236,11 +1242,19 @@ export const stopLeftBehind = retiringSurveys(async function stopLeftBehind(
   // only the repositories the archived sessions ran in: one `git worktree list` each
   const roots = new Set(sessions.archived.flatMap((s) => (s.repo?.root ? [s.repo.root] : [])))
   const scoped: CleanupDeps = { ...deps, repoRoots: () => deps.repoRoots().filter((r) => roots.has(r)) }
-  const [{ procs }, listed] = await Promise.all([processSnapshot(deps), listWorktrees(scoped, resolve)])
+  // the listing first, so the process table is read as close to the signal as it can be
+  const listed = await listWorktrees(scoped, resolve)
+  const snapshot = await processSnapshot(deps)
+  // a partial table hides the members of a tree that work elsewhere: stop nothing on it
+  if (!snapshot.complete) {
+    const where = [...new Set(archived.map((a) => a.cwd))]
+    return { cleaned: 0, freedBytes: 0, failed: where.map((target) => ({ target, reason: UNCHECKED_LEFT })) }
+  }
   const left = leftBehind({
     archived,
     inUse,
-    processes: procs,
+    processes: snapshot.procs,
+    table: snapshot.rows,
     worktrees: listed.map(placed),
     homes: worktreeHomes(deps),
     exists: existsSync
