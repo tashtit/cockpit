@@ -26,6 +26,7 @@ function world(ids: string[]) {
   const stops: { archived: string[]; listed: string[] }[] = []
   const watch = new ArchiveWatch({
     listed: () => [...held.values()].filter((s) => !away.has(s.id)),
+    held: () => [...held.values()],
     thrownAway: (id) => held.has(id) && away.has(id),
     session: (id) => held.get(id) ?? null,
     stop: async ({ archived, listed }) => {
@@ -68,7 +69,52 @@ describe('ArchiveWatch', () => {
     expect(w.stops).toEqual([])
   })
 
-  it('hands over a session archived again after it was brought back', async () => {
+  it('hands over a session archived again after it was brought back and worked in', async () => {
+    const w = world(['a'])
+    w.watch.start()
+    w.away.add('a')
+    w.watch.update()
+    w.away.delete('a')
+    w.watch.update()
+    // a turn in it since it came back
+    w.held.set('a', { ...session('a'), updatedAt: 1_000 })
+    w.watch.update()
+    w.away.add('a')
+    w.watch.update()
+    await w.watch.settled()
+    expect(w.stops.map((s) => s.archived)).toEqual([['a'], ['a']])
+  })
+
+  it('counts a return with work in it even when it was worked in while thrown away', async () => {
+    const w = world(['a'])
+    w.watch.start()
+    w.away.add('a')
+    w.watch.update()
+    // resumed in a terminal while archived here, then brought back
+    w.held.set('a', { ...session('a'), updatedAt: 1_000 })
+    w.away.delete('a')
+    w.watch.update()
+    w.away.add('a')
+    w.watch.update()
+    await w.watch.settled()
+    expect(w.stops.map((s) => s.archived)).toEqual([['a'], ['a']])
+  })
+
+  it('takes a session thrown away before the watch started that flickers back for no archive', async () => {
+    const w = world(['a', 'b'])
+    w.away.add('a')
+    w.watch.start()
+    // a read of the provider's archive that missed it, then one that did not
+    w.away.delete('a')
+    w.watch.update()
+    w.watch.update()
+    w.away.add('a')
+    w.watch.update()
+    await w.watch.settled()
+    expect(w.stops).toEqual([])
+  })
+
+  it('takes a session brought back and thrown away again with nothing new in it for no news', async () => {
     const w = world(['a'])
     w.watch.start()
     w.away.add('a')
@@ -78,7 +124,7 @@ describe('ArchiveWatch', () => {
     w.away.add('a')
     w.watch.update()
     await w.watch.settled()
-    expect(w.stops.map((s) => s.archived)).toEqual([['a'], ['a']])
+    expect(w.stops.map((s) => s.archived)).toEqual([['a']])
   })
 
   it('reads what is still listed when the stop runs, not when it was queued', async () => {
