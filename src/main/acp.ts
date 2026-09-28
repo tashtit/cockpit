@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 import type {
   AcpAgent,
   AcpAgentProbe,
@@ -614,13 +615,24 @@ function messageFor(err: unknown): string {
  * Run just the handshake against a definition, so the settings form can say "this is
  * Copilot 1.0.86 and it can resume sessions" instead of accepting a command on faith.
  * Never throws: a failure is a probe result with the reason in it.
+ *
+ * The agent starts in `dir`, created when missing: an empty folder of Cockpit's own,
+ * never the home folder. Gemini CLI and Cursor's agent read the whole tree they start
+ * in, handshake or not, and from home that walk reaches the Music and Photos libraries
+ * — macOS then asks the person to let Cockpit into both, for a check that reads nothing.
  */
-export function probeAcpAgent(agent: AcpAgent, cwd: string): Promise<AcpAgentProbe> {
+export function probeAcpAgent(agent: AcpAgent, dir: string): Promise<AcpAgentProbe> {
   return new Promise((resolve) => {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch (err) {
+      resolve({ ok: false, error: `could not make the folder the check runs in: ${messageFor(err)}` })
+      return
+    }
     let child: ChildProcess
     try {
       child = spawn(agent.command, [...(agent.args ?? [])], {
-        cwd,
+        cwd: dir,
         env: { ...cliEnv(), ...(agent.env ?? {}) },
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: false,

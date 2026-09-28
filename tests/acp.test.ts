@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -369,6 +369,16 @@ describe('probeAcpAgent', () => {
     } finally {
       if (alive(pid)) process.kill(pid, 'SIGKILL')
     }
+  })
+
+  // Gemini CLI and Cursor's agent read the whole tree they start in: a probe from home
+  // walks into ~/Music and ~/Pictures, and macOS asks for both on Cockpit's behalf
+  it('runs the agent in the folder it is given, making it first', async () => {
+    const dir = join(cwd, `probe-dir-${Date.now()}`, 'nested')
+    const cwdFile = join(cwd, `probe-${Date.now()}.cwd`)
+    const probe = await probeAcpAgent({ ...stubAgent('basic'), env: { STUB_MODE: 'basic', STUB_CWDFILE: cwdFile } }, dir)
+    expect(probe.ok).toBe(true)
+    expect(readFileSync(cwdFile, 'utf8')).toBe(realpathSync(dir))
   })
 
   it('reports what the agent said about itself and what it can do', async () => {

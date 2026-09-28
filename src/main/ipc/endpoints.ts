@@ -1,6 +1,5 @@
 import { ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
 import { CH } from '../../shared/contract'
 import { endpointUrlRefusal, sanitizeEndpoint } from '../../shared/endpoints'
 import { BUILTIN_ACP_AGENTS, sanitizeAcpAgent } from '../../shared/acp'
@@ -15,7 +14,6 @@ import {
 } from '../config'
 import { deleteEndpointKey, getEndpointKey, setEndpointKey } from '../secrets'
 import { fetchEndpointModels } from '../endpoint-models'
-import { probeAcpAgent } from '../acp'
 import type { Services } from '../services'
 
 /** An API key as the renderer typed it — trimmed, and refused if it could not be one. */
@@ -91,8 +89,8 @@ export function registerEndpointHandlers(s: Services): void {
   ipcMain.handle(CH.acpProbe, (_e, input: unknown) => {
     const agent = sanitizeAcpAgent(input, 'probe')
     if (!agent) return { ok: false, error: 'Fill in a name and a command first.' }
-    // the probe runs in the user's home, never in a repository: a definition being
-    // tested must not be handed a checkout to read before it is trusted enough to store
-    return probeAcpAgent(agent, homedir())
+    // never in a repository: a definition being tested must not be handed a checkout
+    // to read before it is trusted enough to store
+    return s.probeAcp(agent)
   })
 }

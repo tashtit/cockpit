@@ -6,6 +6,8 @@ import { spawn } from 'node:child_process'
 import { existsSync, writeFileSync } from 'node:fs'
 
 const mode = process.env.STUB_MODE ?? 'basic'
+// the folder the agent was started in, for a test that cares where that is
+if (process.env.STUB_CWDFILE) writeFileSync(process.env.STUB_CWDFILE, process.cwd())
 // 'relaunch': like Gemini's launcher, the agent runs a child of its own that outlives a
 // signal to the parent alone. The launcher exits on SIGTERM and its child ignores it, so
 // only a SIGKILL to the group that outlasts the launcher ends the child. The child writes
