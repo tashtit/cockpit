@@ -517,8 +517,12 @@ function acpStoreFiles(home: string): string[] {
 const MAX_ACP_BLOB_BYTES = 1024 * 1024
 /** The messages a meta read looks through for the person's first prompt */
 const ACP_PROMPT_SCAN = 24
-/** What a message's head must hold to be told apart by role, without reading it whole */
-const ACP_HEAD_BYTES = 64
+/** What a meta read loads of a conversation's messages — the 256KB a log's head is read within */
+const ACP_META_BYTES = 256 * 1024
+/** A message bigger than this is passed over by a meta read — a tool result holding a file, as a rule */
+const ACP_META_BLOB_BYTES = 64 * 1024
+/** Opening messages bigger than that, read whole when none of the rest was the person's prompt */
+const ACP_BIG_OPENINGS = 2
 
 type AcpStore = {
   readonly id: string
@@ -548,26 +552,35 @@ function acpStore(file: string): AcpStore | null {
 }
 
 /**
- * Some of a conversation's blobs by id, with their sizes: `data` whole up to `maxBytes`,
- * else only its first `ACP_HEAD_BYTES` (`whole: false`).
+ * The sizes of some of a conversation's blobs, by id — none of their content: `length()`
+ * of a blob is read from the record's header, where any other use of the value (a
+ * `substr` of its first bytes included) loads the whole of it.
  */
+function acpSizes(file: string, ids: readonly string[]): Map<string, number> {
+  const out = new Map<string, number>()
+  if (ids.length === 0) return out
+  for (const r of queryAll(file, 'SELECT id, length(data) AS n FROM blobs WHERE id IN (SELECT value FROM json_each(?))', JSON.stringify(ids)) ?? []) {
+    out.set(String(r['id']), Number(r['n'] ?? 0))
+  }
+  return out
+}
+
+/** Some of a conversation's blobs by id: `data` whole up to `maxBytes`, else not read (`whole: false`). */
 function acpBlobs(
   file: string,
   ids: readonly string[],
   maxBytes: number
-): Map<string, { readonly size: number; readonly data: Uint8Array | null; readonly whole: boolean }> {
-  const out = new Map<string, { size: number; data: Uint8Array | null; whole: boolean }>()
+): Map<string, { readonly data: Uint8Array | null; readonly whole: boolean }> {
+  const out = new Map<string, { data: Uint8Array | null; whole: boolean }>()
   if (ids.length === 0) return out
   for (const r of queryAll(
     file,
-    `SELECT id, length(data) AS n,
-       CASE WHEN length(data) > ${maxBytes} THEN substr(data, 1, ${ACP_HEAD_BYTES}) ELSE data END AS d
+    `SELECT id, length(data) AS n, CASE WHEN length(data) > ${maxBytes} THEN NULL ELSE data END AS d
      FROM blobs WHERE id IN (SELECT value FROM json_each(?))`,
     JSON.stringify(ids)
   ) ?? []) {
     const d = r['d']
-    const size = Number(r['n'] ?? 0)
-    out.set(String(r['id']), { size, data: d instanceof Uint8Array ? d : null, whole: size <= maxBytes })
+    out.set(String(r['id']), { data: d instanceof Uint8Array ? d : null, whole: Number(r['n'] ?? 0) <= maxBytes })
   }
   return out
 }
@@ -595,30 +608,62 @@ function acpWorkspace(file: string, store: AcpStore): string | null {
   }
 }
 
+/** A message the person wrote, with words in it — not the context Cursor opens with. */
+function isAcpPrompt(m: any): boolean {
+  return m?.role === 'user' && !isAcpContext(m) && queryText(m.content) !== ''
+}
+
+/**
+ * A conversation's meta, within the 256KB every parser reads a log's head in. Its
+ * messages' sizes first, none of their content; then, in order, the ones small enough to
+ * read whole until the budget is spent — a bigger one, a tool result holding a file as a
+ * rule, is passed over uncounted — their roles counted and the count carried over the
+ * rest. The person's first prompt is among them; failing that, one of the first few big
+ * ones read whole.
+ */
 function acpStoreMeta(file: string, sourceLabel: string): SessionMeta | null {
   const store = acpStore(file)
   if (!store || store.order.length === 0) return null
-  // role by each message's head; the person's first prompt by reading the first few whole
-  const heads = acpBlobs(file, store.order, 0)
-  let messageCount = 0
-  for (const id of store.order) {
-    const head = heads.get(id)?.data
-    const text = head ? Buffer.from(head).toString('utf8') : ''
-    const role = /^\{"role":"(user|assistant)"/.exec(text)?.[1]
-    if (role === 'assistant' || (role === 'user' && !text.includes('"content":"<user_info>'))) messageCount++
+  const sizes = acpSizes(file, store.order)
+  const present = store.order.filter((id) => sizes.has(id))
+  let budget = ACP_META_BYTES
+  let considered = 0
+  const scan: string[] = []
+  for (const id of present) {
+    const n = sizes.get(id)!
+    if (n <= ACP_META_BLOB_BYTES) {
+      if (n > budget) break
+      budget -= n
+      scan.push(id)
+    }
+    considered++
   }
-  let firstPrompt = ''
-  let startedAt: number | null = null
-  const opening = acpBlobs(file, store.order.slice(0, ACP_PROMPT_SCAN), MAX_ACP_BLOB_BYTES)
-  for (const id of store.order.slice(0, ACP_PROMPT_SCAN)) {
-    const b = opening.get(id)
-    const m = b?.whole ? acpMessage(b.data) : null
-    if (m?.role !== 'user' || isAcpContext(m)) continue
-    firstPrompt = queryText(m.content)
-    startedAt = cursorQueryTime(blocksText(m.content))
-    if (firstPrompt) break
+  const blobs = acpBlobs(file, scan, ACP_META_BLOB_BYTES)
+  const opening = new Set(store.order.slice(0, ACP_PROMPT_SCAN))
+  let counted = 0
+  let prompt: any = null
+  for (const id of scan) {
+    const m = acpMessage(blobs.get(id)?.data)
+    if (m?.role === 'assistant' || (m?.role === 'user' && !isAcpContext(m))) counted++
+    if (!prompt && opening.has(id) && isAcpPrompt(m)) prompt = m
   }
-  if (messageCount === 0 || !firstPrompt) return null
+  let messageCount = considered > 0 && considered < present.length ? Math.round((counted * present.length) / considered) : counted
+  if (!prompt) {
+    const big = store.order.slice(0, ACP_PROMPT_SCAN).filter((id) => sizes.has(id) && !blobs.has(id)).slice(0, ACP_BIG_OPENINGS)
+    const read = acpBlobs(file, big, MAX_ACP_BLOB_BYTES)
+    for (const id of big) {
+      const b = read.get(id)
+      const m = b?.whole ? acpMessage(b.data) : null
+      if (!isAcpPrompt(m)) continue
+      prompt = m
+      // passed over uncounted above
+      messageCount++
+      break
+    }
+  }
+  if (messageCount === 0 || !prompt) return null
+  const firstPrompt = queryText(prompt.content)
+  const startedAt = cursorQueryTime(blocksText(prompt.content))
   const at = dbMtime(file)
   return {
     id: `cursor:${store.id}`,
@@ -645,11 +690,11 @@ function acpStoreMessages(file: string): SessionMessage[] {
   const store = acpStore(file)
   if (!store) return []
   // the newest messages that fit the transcript budget, each read only if it is not huge
-  const sizes = acpBlobs(file, store.order, 0)
+  const sizes = acpSizes(file, store.order)
   let budget = TRANSCRIPT_TAIL_BYTES
   let from = store.order.length
   while (from > 0) {
-    const size = Math.min(sizes.get(store.order[from - 1]!)?.size ?? 0, MAX_ACP_BLOB_BYTES)
+    const size = Math.min(sizes.get(store.order[from - 1]!) ?? 0, MAX_ACP_BLOB_BYTES)
     if (budget - size < 0) break
     budget -= size
     from--
