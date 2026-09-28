@@ -1838,10 +1838,15 @@ body.sash-dragging { cursor: col-resize; user-select: none; }
 .board-row:hover { background: var(--bg3); }
 /* the lead column (placard, or a table's seat cluster) and the branch slot are both
    fixed-width, so every task title starts on one grid line — a ragged title edge
-   made the list read as a pile instead of a board. The lead asks for its 68px and
+   made the list read as a pile instead of a board. The lead asks for the longest
+   agent's name in placard characters (`--board-lead-ch`, from HomeView: a mono `ch`
+   plus the placard's 0.7px tracking each — 68px cut ANTIGRAVITY to ANTIGRAV…) and
    gives them back rather than clipping: past the floor a row's reason ("#57 checks
-   failing") no longer fits beside it, and the placard is the part that can afford to. */
-.board-lead { flex: 0 1 68px; min-width: 0; overflow: hidden;
+   failing") no longer fits beside it, and the placard is the part that can afford to.
+   The placard's face is set on the column itself, so a table's seat cluster measures
+   the same `ch` and its titles start on the same line. */
+.board-lead { flex: 0 1 calc(var(--board-lead-ch, 7) * (1ch + 0.7px)); min-width: 0; overflow: hidden;
+  font-family: var(--mono); font-size: var(--fs-xs);
   text-overflow: ellipsis; white-space: nowrap; }
 .board-branch { flex: 0 0 150px; min-width: 0; display: flex; }
 .board-branch .branch-chip { max-width: 100%; }
