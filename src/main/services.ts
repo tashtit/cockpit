@@ -11,11 +11,11 @@ import { probeAcpAgent } from './acp'
 import { loginPathReady } from './env'
 import { mergeBusy } from './liveness-core'
 import {
-  adoptDetectedSources,
   attentionPrefs,
   listAcpAgents,
   listModelEndpoints,
   loadConfig,
+  tryAdoptDetectedSources,
   userDataDir,
   type AppConfig
 } from './config'
@@ -172,7 +172,7 @@ export function startServices(): Services {
   const ledger = new TurnLedger(indexer, {
     onReadOnlyTurnDone: () => {
       const known = loadConfig().sources.length
-      const cfg = adoptDetectedSources()
+      const cfg = tryAdoptDetectedSources()
       if (cfg.sources.length !== known) void indexer.setSources(cfg.sources)
     }
   })
@@ -180,7 +180,7 @@ export function startServices(): Services {
   const transcripts = new TranscriptSearcher(indexer)
   // an agent installed, or an editor that gained Cline, since the last launch is indexed
   // from this one on — a source the person removed is never added back
-  applyConfig(indexer, adoptDetectedSources())
+  applyConfig(indexer, tryAdoptDetectedSources())
 
   const republishConfig = (): void => {
     applyConfig(indexer, loadConfig())

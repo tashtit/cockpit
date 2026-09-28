@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -22,6 +22,7 @@ import {
   setUpdatePrefs,
   setWindowPlacement,
   setZoom,
+  tryAdoptDetectedSources,
   updateModelEndpoint,
   updatePrefs
 } from '../src/main/config'
@@ -390,6 +391,32 @@ describe('adoptDetectedSources', () => {
       })
       expect(adoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude'])
     } finally {
+      process.env['HOME'] = prevHome
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  // startup, and a turn's end in the stream handler: a throw there left an app with no
+  // window, or kept the turn's done from everything after it
+  it('carries on with the config as it stands when the new home cannot be saved', () => {
+    const home = mkdtempSync(join(tmpdir(), 'cockpit-config-home-'))
+    const prevHome = process.env['HOME']
+    process.env['HOME'] = home
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      mkdirSync(join(home, '.claude'))
+      mkdirSync(join(home, '.gemini', 'tmp'), { recursive: true })
+      saveConfig({ sources: [{ path: join(home, '.claude'), provider: 'claude', label: 'claude-default' }] })
+      chmodSync(dir, 0o500)
+      expect(() => adoptDetectedSources()).toThrow()
+      expect(tryAdoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude'])
+      expect(errors).toHaveBeenCalled()
+      // and adopts it once the config can be written again
+      chmodSync(dir, 0o700)
+      expect(tryAdoptDetectedSources().sources.map((s) => s.provider)).toEqual(['claude', 'gemini'])
+    } finally {
+      chmodSync(dir, 0o700)
+      errors.mockRestore()
       process.env['HOME'] = prevHome
       rmSync(home, { recursive: true, force: true })
     }

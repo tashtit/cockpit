@@ -149,6 +149,21 @@ export function adoptDetectedSources(): AppConfig {
   return updated
 }
 
+/**
+ * `adoptDetectedSources` for a caller that must carry on whatever happens: startup, where
+ * a throw leaves an app in the Dock with no window, and the end of a turn, inside the
+ * stream handler. A home that could not be saved is logged and adopted on a later try;
+ * the config as it stands runs meanwhile.
+ */
+export function tryAdoptDetectedSources(): AppConfig {
+  try {
+    return adoptDetectedSources()
+  } catch (err) {
+    console.error('[config] could not save the agent homes found since the last launch:', err)
+    return loadConfig()
+  }
+}
+
 /** The one parse both readers share, so "valid config" can never mean two things. */
 function parseConfig(raw: string): AppConfig {
   const cfg = JSON.parse(raw) as AppConfig

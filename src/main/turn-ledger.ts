@@ -107,7 +107,14 @@ export class TurnLedger {
       this.byokTurns.delete(ev.turnId)
       this.handoffTurns.delete(ev.turnId)
       this.heldTurns.delete(ev.turnId)
-      if (this.readOnlyTurns.delete(ev.turnId)) this.opts.onReadOnlyTurnDone?.()
+      if (this.readOnlyTurns.delete(ev.turnId)) {
+        try {
+          this.opts.onReadOnlyTurnDone?.()
+        } catch (err) {
+          // it saves config too: a throw here would keep the done from the desk and the window
+          console.error('[chat] failed to adopt an agent home after a turn:', err)
+        }
+      }
     }
   }
 

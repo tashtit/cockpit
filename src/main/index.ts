@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, shell } from 'electron'
 import { join, resolve } from 'node:path'
 import { stopAcpProbes } from './acp'
 import { appMenuTemplate } from './app-menu'
@@ -10,7 +10,7 @@ import { createWindow } from './window'
 /*
  * Main's entry: build the services (services.ts), register every IPC handler (ipc/),
  * set the menu bar (app-menu.ts), open the window (window.ts), and stop what Cockpit
- * started when it quits.
+ * started when it quits. Services that fail to start are said in a dialog before quitting.
  */
 
 // e2e/dev isolation only — a packaged app must never honor a data-dir override
@@ -45,8 +45,17 @@ void loadLoginShellPath()
 app.whenReady().then(() => {
   // every handler is registered before the window exists, so nothing the renderer asks
   // can arrive before main can answer it
-  services = startServices()
-  registerIpc(services)
+  try {
+    services = startServices()
+    registerIpc(services)
+  } catch (err) {
+    // A throw here left Cockpit in the Dock with no window and no word of why. A window
+    // without the services behind it could do nothing, so the reason is shown, and it quits.
+    console.error('[main] startup failed:', err)
+    dialog.showErrorBox('Cockpit could not start', err instanceof Error ? err.message : String(err))
+    app.quit()
+    return
+  }
 
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
