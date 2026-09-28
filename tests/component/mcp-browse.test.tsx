@@ -174,6 +174,29 @@ describe('Agents › Browse › MCP servers', () => {
     })
   })
 
+  it('names a remote server by the host it connects to, and gives the whole address opened', async () => {
+    const remote: RegistryServer = {
+      id: 'com.acme/remote',
+      version: '1.0.0',
+      title: 'Acme Remote',
+      description: 'Hosted.',
+      kind: 'remote',
+      what: 'https://mcp.acme.dev/v1/mcp',
+      name: 'remote',
+      inputs: [],
+      agents: [],
+      unsupported: {}
+    }
+    await openRegistry()
+    await searchFor('acme', [remote])
+    expect(screen.getByText('mcp.acme.dev')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^Acme Remote/ }))
+    expect(screen.getByText('https://mcp.acme.dev/v1/mcp')).toBeInTheDocument()
+    // a remote server downloads nothing: its first add is one click
+    await userEvent.click(screen.getByRole('button', { name: 'Add Acme Remote to Claude' }))
+    expect(window.cockpit.addFromMcpRegistry).toHaveBeenCalled()
+  })
+
   it('narrows the results with the card’s search, and reads more only when asked', async () => {
     await openRegistry()
     await searchFor('acme', [search, image], 'io.github.acme/image-mcp:2.0.0')

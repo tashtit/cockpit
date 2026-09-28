@@ -51,9 +51,19 @@ function chipKey(server: RegistryServer, agent: Provider): string {
   return `registry:${server.id}|${agent}`
 }
 
-/** What the row says it is: the package and the release it pins, or the url. */
+/**
+ * What the row says it is: the package and the release it pins, or the host a remote
+ * server is reached at — the part of a url that says where it connects.
+ */
 function defOf(server: RegistryServer): string {
   if (!server.what) return server.id
+  if (server.kind === 'remote') {
+    try {
+      return new URL(server.what).host
+    } catch {
+      return server.what
+    }
+  }
   return server.release ? `${server.what} ${server.release}` : server.what
 }
 
@@ -328,6 +338,11 @@ function Server({
             {server.commandLine && (
               <p className="pnl-note">
                 Runs <code>{server.commandLine}</code>
+              </p>
+            )}
+            {server.kind === 'remote' && server.what && (
+              <p className="pnl-note">
+                Connects to <code>{server.what}</code>
               </p>
             )}
             {fixed.length > 0 && (

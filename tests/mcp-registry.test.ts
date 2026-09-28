@@ -314,6 +314,14 @@ describe('what it refuses, and says why', () => {
     expect(remote({ type: 'streamable-http', url: 'https://{tenant}.acme.dev/mcp' })).toContain('https')
   })
 
+  // what reads as github.com before the @ is a user name; the host is evil.example
+  it('a remote whose address names a user before its host', () => {
+    const remote = (url: string): string =>
+      refusalOf({ name: 'com.acme/r', version: '1.0.0', remotes: [{ type: 'streamable-http', url }] })
+    expect(remote('https://github.com@evil.example/mcp')).toContain('user name before the host')
+    expect(remote('https://user:pass@mcp.acme.dev/mcp')).toContain('user name before the host')
+  })
+
   it('an entry that lists no way to run it at all', () => {
     expect(refusalOf({ name: 'com.acme/empty', version: '1.0.0' })).toContain('no way to run it')
   })

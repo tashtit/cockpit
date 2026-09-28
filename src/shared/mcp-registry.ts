@@ -25,8 +25,9 @@ import type { McpConfig, RegistryInput, RegistryServerKind } from './types'
  *    is shown on the row before anything is written (`RegistryServer.commandLine`).
  *  - Env names are real env names, and none of the ones that turn a launch into a
  *    loader for other code (`isBlockedAgentEnv`, the ACP agents' rule).
- *  - A remote server is https, fully spelled out (no `{placeholders}`), and needs no
- *    header to start — headers are a sign-in Cockpit has no place to keep yet.
+ *  - A remote server is https, fully spelled out (no `{placeholders}`), names no user
+ *    before its host (`https://github.com@evil.example` connects to evil.example), and
+ *    needs no header to start — headers are a sign-in Cockpit has no place to keep yet.
  *
  * Pure, like the session parsers: the registry's shape drifts, so anything unreadable
  * is left out rather than failing the page. Nothing here does IO.
@@ -379,10 +380,15 @@ function planRemote(remote: RegistryRemote): RegistryPlan {
   if (!remote.url.startsWith('https://') || PLACEHOLDER.test(remote.url) || remote.url.length > 2048) {
     return { refusal: 'its address isn’t a plain https URL' }
   }
+  let url: URL
   try {
-    new URL(remote.url)
+    url = new URL(remote.url)
   } catch {
     return { refusal: 'its address isn’t a plain https URL' }
+  }
+  // `https://github.com@evil.example/mcp` reads as GitHub and connects to evil.example
+  if (url.username !== '' || url.password !== '') {
+    return { refusal: 'its address carries a user name before the host, which hides where it really connects' }
   }
   if (remote.requiredHeaders.length > 0) {
     return {
