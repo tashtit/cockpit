@@ -233,6 +233,9 @@ Everything between them stays quiet.
 - Agent picker: `.composer-agent` logo buttons, `aria-pressed` + `aria-label`; active =
   agent-tinted background + 1.5px inset ring in the agent color. Signed-out agents get the
   `.no-acct` red dot — never disable them (clicking reveals the "not signed in" chip).
+  After the three CLIs come the agents an ACP agent drives right now (`useAgentChoice`'s
+  `agents`); Cockpit never learns who one is signed in as, so it gets no dot and the
+  account slot reads `over ACP`.
 - ⌘Enter submits; the button label is the action: "Start with Claude Code", or "Starting…"
   while busy. Errors render in `.new-error` directly under the card, never a toast.
 - Mode options and hints come from the shared `MODES` table (`agent-choice.ts`);
