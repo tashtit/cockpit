@@ -28,9 +28,10 @@ images as `initialImages`) or the sidebar repo-row "+".
   one line. An ACP-driven card's blurb and chip say how it runs ("over ACP"), never an
   account: Cockpit doesn't learn who that agent is signed in as, so picking one hides
   Account, Model and Thinking, and a hint says its model and account are its own.
-- Account: single account renders as static `.ns-account-single` (mono); multiple render
-  a mono `<select>`. Same `savedAccount` resolution rule as Home — saved choice, else
-  first configured.
+- Account: single account renders as static `.ns-account-single` (mono, an `<output>` named
+  by its label); multiple render a mono `Select` — never a native `<select>`. Both are
+  `AccountField` (`agent-options.tsx`), shared with the handoff form. Same `savedAccount`
+  resolution rule as Home — saved choice, else first configured.
 - Model is a mono `Select` of every model the agent offers under the chosen account
   (`listAgentModels`, the list roundtable seats pick from; each option's hint is its
   description, or its id when the label differs), or of the BYOK provider's catalog when
