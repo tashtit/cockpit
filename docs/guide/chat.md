@@ -37,7 +37,8 @@ A turn Cockpit started keeps running while you look elsewhere — another sessio
 board, ⌘[ back through your history, even a reload of the window. Open its session again
 and you are back in the turn: the transcript is read from the log, the reply streams in
 from there without repeating a line, and **Stop** stands where **Send** was. A permission
-question the agent asked while you were in another chat is waiting for you.
+question the agent is still waiting on is waiting for you too — one it asked while you were
+in another chat, and one whose card was up when the window reloaded.
 
 A session runs one turn at a time. Cockpit won't start a second one beside a turn that is
 still going; stop it, or wait for it to finish.

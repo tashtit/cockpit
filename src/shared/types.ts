@@ -1593,6 +1593,13 @@ export type ChatEvent =
       readonly options: readonly AcpPermissionOption[]
     }
 
+/**
+ * A question a live turn is blocked on. Main keeps each turn's open ones until they are
+ * answered, so a window that reloads while a card is up is handed them again as it
+ * rejoins the turn (`getPendingPermissions`) — the stream says each only once.
+ */
+export type ChatPermission = Extract<ChatEvent, { readonly type: 'permission' }>
+
 /* ---------- roundtable (multi-agent shared discussion) ---------- */
 
 /** Who wrote a roundtable entry: the moderating user, or one of the agent seats. */

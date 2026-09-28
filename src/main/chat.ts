@@ -5,6 +5,7 @@ import type {
   AcpAgent,
   BusySession,
   ChatEvent,
+  ChatPermission,
   ChatRequest,
   ModelEndpoint,
   Provider,
@@ -47,7 +48,8 @@ import { AGENT_LABEL, CONFIG_HOME_VAR, isDrivable } from '../shared/providers'
  * One session, one turn: `send` refuses to resume a session whose turn is still in flight
  * (`assertNotRunning`), and every spawned `BusySession` carries its live `turnId`, so a
  * window that opens the session mid-turn rejoins it (`rejoin.ts` in the renderer) rather
- * than showing it idle.
+ * than showing it idle — and is handed back the questions the turn is still blocked on
+ * (`pendingPermissions`), which no log holds and the stream said only once.
  */
 
 type Emit = (ev: ChatEvent) => void
@@ -471,6 +473,11 @@ type RunningTurn = {
    *  waiting on, by request id, with the input an allow hands back — mutated as they
    *  are asked and answered */
   readonly claudeAsks?: Map<string, unknown>
+  /** The questions the person has been shown and not yet answered, ACP's and Claude's
+   *  alike, by request id: what a window that reloaded while a card was up is handed back
+   *  (`pendingPermissions`). Made with the first one — assigned once and then mutated as
+   *  they are asked, answered and withdrawn, so not readonly */
+  openAsks?: Map<string, ChatPermission>
 }
 
 /** Optional collaborators wired by services.ts (busy board, attention, BYOK endpoint/keychain store). */
@@ -798,11 +805,12 @@ export class ChatManager {
 
   /**
    * Emit one event and keep the turn's bookkeeping with it: a session id the stream
-   * announces is a new id this turn is busy under, and a `done` is what stops the close
-   * handler from reporting a failure on top of it — and leaves nothing to rejoin while
-   * the process exits.
+   * announces is a new id this turn is busy under, a question is one the turn now waits
+   * on, and a `done` is what stops the close handler from reporting a failure on top of
+   * it — and leaves nothing to rejoin while the process exits.
    */
   private deliver(turn: RunningTurn, ev: ChatEvent): void {
+    if (ev.type === 'permission') (turn.openAsks ??= new Map()).set(ev.requestId, ev)
     if (ev.type === 'done' && !turn.doneSent) {
       turn.doneSent = true
       this.notifyBusy()
@@ -870,7 +878,20 @@ export class ChatManager {
       writeLine(turn.child, control.line)
     } else {
       turn.claudeAsks?.delete(control.requestId)
+      turn.openAsks?.delete(control.requestId)
     }
+  }
+
+  /**
+   * The questions a turn is blocked on now. A window keeps its cards in its own state and
+   * the stream says each one once, so a window that reloaded while one was up — ⌘R, or
+   * the reload after a renderer crash — asks for them as it rejoins the turn; without
+   * them it showed "working…" while the agent waited on an answer nobody could give.
+   * Empty once the turn has said it is done.
+   */
+  pendingPermissions(turnId: string): ChatPermission[] {
+    const turn = this.turns.get(turnId)
+    return turn && !turn.doneSent ? [...(turn.openAsks?.values() ?? [])] : []
   }
 
   /**
@@ -880,6 +901,10 @@ export class ChatManager {
    */
   respondPermission(turnId: string, requestId: string, optionId: string): void {
     const turn = this.turns.get(turnId)
+    // one of the card's own options answers it, whichever transport then carries it
+    if (turn?.openAsks?.get(requestId)?.options.some((o) => o.optionId === optionId)) {
+      turn.openAsks.delete(requestId)
+    }
     turn?.acp?.respondPermission(requestId, optionId)
     const asks = turn?.claudeAsks
     if (!turn || !asks?.has(requestId)) return

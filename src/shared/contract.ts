@@ -35,6 +35,7 @@ import type {
   BusySession,
   CatalogInstall,
   ChatEvent,
+  ChatPermission,
   ChatRequest,
   CleanupNotice,
   CleanupReport,
@@ -103,6 +104,8 @@ export type CockpitApi = {
   readonly onChatEvent: (cb: (ev: ChatEvent) => void) => () => void
   /** Answer a 'permission' chat event; the agent stays blocked until this lands */
   readonly respondPermission: (turnId: string, requestId: string, optionId: string) => Promise<void>
+  /** The questions a running turn is blocked on now — asked again by a window rejoining it */
+  readonly getPendingPermissions: (turnId: string) => Promise<readonly ChatPermission[]>
   /** Persist a pasted image in main's image dir; resolves to the absolute file path */
   readonly saveChatImage: (data: Uint8Array, mime: string) => Promise<string>
 
@@ -470,6 +473,7 @@ export const CH = {
   backupUndoRestore: 'backup:undo-restore',
 
   chatCancel: 'chat:cancel',
+  chatPendingPermissions: 'chat:pending-permissions',
   chatRespondPermission: 'chat:respond-permission',
   chatSaveImage: 'chat:save-image',
   chatSend: 'chat:send',

@@ -217,6 +217,34 @@ describe('App rejoins a turn of its own that is still running when its session o
     expect(sendButton()).toBeInTheDocument()
   })
 
+  it('after a reload: the question the turn still waits on is back on its card', async () => {
+    wire()
+    // a new window: the old one's card went with it, and main's turn still waits on the answer
+    vi.mocked(window.cockpit.getBusySessions).mockResolvedValue([running('turn-9')])
+    vi.mocked(window.cockpit.getPendingPermissions).mockImplementation(async (turnId) =>
+      turnId === 'turn-9'
+        ? [
+            {
+              turnId: 'turn-9',
+              type: 'permission',
+              requestId: '3',
+              toolName: 'shell',
+              detail: 'npm test',
+              preview: 'Run the test suite',
+              options: [{ optionId: 'allow_once', kind: 'allow_once', name: 'Allow once' }]
+            }
+          ]
+        : []
+    )
+    render(<App />)
+    await userEvent.click(await boardRow(/fix the login flake/))
+    const card = await screen.findByRole('group', { name: 'Claude needs permission: Run the test suite' })
+    expect(window.cockpit.getPendingPermissions).toHaveBeenCalledWith('turn-9')
+    await userEvent.click(within(card).getByRole('button', { name: 'Allow once' }))
+    expect(window.cockpit.respondPermission).toHaveBeenCalledWith('turn-9', '3', 'allow_once')
+    expect(screen.queryByRole('group', { name: /needs permission/ })).not.toBeInTheDocument()
+  })
+
   it('frees Send when the rejoined turn ends, and the next message resumes the session', async () => {
     const pushes = wire()
     await mount()

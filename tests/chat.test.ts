@@ -679,6 +679,20 @@ describe('ChatManager: one turn per session', () => {
     await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
   })
 
+  it('keeps the question the turn is blocked on for a window that comes back, until it is answered', async () => {
+    // a window that reloads while the card is up has lost it; the stream said it once
+    const { chat, turnId, ask, atDone } = await midTurn('sess-11')
+    expect(chat.pendingPermissions(turnId)).toEqual([ask])
+    expect(chat.pendingPermissions('no-such-turn')).toEqual([])
+    // a click naming an option the card never offered answers nothing
+    chat.respondPermission(turnId, ask.requestId, 'allow_always')
+    expect(chat.pendingPermissions(turnId)).toEqual([ask])
+    chat.respondPermission(turnId, ask.requestId, 'allow_once')
+    expect(chat.pendingPermissions(turnId)).toEqual([])
+    await atDone
+    await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
+  })
+
   it('frees the session the moment its turn is stopped', async () => {
     const { chat, turnId } = await midTurn('sess-9')
     chat.cancel(turnId)
@@ -851,16 +865,22 @@ describe('ChatManager: Claude asks Cockpit before what its mode does not allow',
     process.env.PATH = `${bin}:${path}`
     try {
       const events: ChatEvent[] = []
+      // what main would hand a window rejoining the turn, as each question is shown and answered
+      const pending: string[][] = []
       let finish: () => void = () => {}
       const finished = new Promise<void>((r) => (finish = r))
       const chat: ChatManager = new ChatManager(
         (ev) => {
           events.push(ev)
           if (ev.type === 'permission') {
+            const open = (): string[] => chat.pendingPermissions(ev.turnId).map((a) => a.requestId)
+            pending.push(open())
             // a click on an option the card never had, and on a request it is not waiting on, do nothing
             chat.respondPermission(ev.turnId, ev.requestId, 'allow_always')
             chat.respondPermission(ev.turnId, 'p-404', 'allow')
+            pending.push(open())
             chat.respondPermission(ev.turnId, ev.requestId, ev.requestId === 'p-1' ? 'allow' : 'deny')
+            pending.push(open())
           }
           if (ev.type === 'done') finish()
         },
@@ -887,6 +907,7 @@ describe('ChatManager: Claude asks Cockpit before what its mode does not allow',
         ['p-2', 'deny']
       ])
       expect(got[3].response.response.updatedInput).toEqual({ command: 'npm test', description: 'Run the tests' })
+      expect(pending).toEqual([['p-1'], ['p-1'], [], ['p-2'], ['p-2'], []])
       expect(events.filter((e) => e.type === 'error')).toEqual([])
       // stdin closed after the result, so the CLI exited and nothing is left running
       await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))

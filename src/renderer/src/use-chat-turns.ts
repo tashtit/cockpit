@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatEvent, ChatRequest, SessionMessage } from '../../shared/types'
+import type { ChatEvent, ChatPermission, ChatRequest, SessionMessage } from '../../shared/types'
 import { api } from './api'
 import type { PendingPermission } from './chat-binding'
 import { addChatMessage, addChatNotice, announceChat, endChatStream, streamChatText } from './chat-log'
@@ -64,7 +64,8 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
   /**
    * Permission questions an ACP or Claude turn is blocked on. Kept out of the transcript on
    * purpose: this is a thing that is true *now*, not a thing that happened, and the
-   * agent does not move again until one of them is answered.
+   * agent does not move again until one of them is answered. Main keeps them too, and
+   * hands them back to a window that rejoins the turn (see `beginTurn`).
    */
   const [permissions, setPermissions] = useState<PendingPermission[]>([])
 
@@ -76,7 +77,7 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
    * stopped. Request ids are the agent's own counter, so only turn and id together name
    * one; a repeat replaces the earlier copy.
    */
-  const askPermission = useCallback((ev: Extract<ChatEvent, { type: 'permission' }>) => {
+  const askPermission = useCallback((ev: ChatPermission) => {
     setPermissions((list) => [
       ...list.filter((a) => a.turnId !== ev.turnId || a.requestId !== ev.requestId),
       {
@@ -187,12 +188,22 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
         const joined = rejoinStream(turnId)
         for (const ev of buffered) if (ev.type !== 'text' && ev.type !== 'tool') joined.offer(ev)
         rejoinRef.current = joined
+        // the cards are this window's own state, and the stream says each question once:
+        // after a reload they are gone while the turn still waits on them, so main hands
+        // back what it is blocked on. Only while this is still the turn on screen — a
+        // conversation left before the answer came asks again when it is opened again
+        void api.getPendingPermissions(turnId).then(
+          (asks) => {
+            if (activeTurnRef.current === turnId) for (const ask of asks) askPermission(ask)
+          },
+          () => {}
+        )
         return
       }
       announceChat(`${speaker()} is working…`)
       for (const ev of buffered) applyEvent(ev)
     },
-    [applyEvent, speaker]
+    [applyEvent, askPermission, speaker]
   )
 
   const run = useCallback(
