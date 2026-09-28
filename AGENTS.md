@@ -74,7 +74,7 @@ Work fold, shared with the handoff briefing) · `cleanup.ts` (how cleanup speaks
 Invariants, all deliberate:
 
 - The full index is never shipped to or rendered by the UI. Always paginate.
-- Meta parsing reads at most 256KB per log file (a database is queried through `parsers/sqlite.ts` — read-only, never held open), and parsers are failure-tolerant: provider log formats drift between releases, so skip anything unreadable rather than fail the scan (the `add-session-parser` skill). A parser reports only what its log states (`logBranch`); everything derived from the checkout is the indexer's `annotate()`, recomputed on every scan.
+- Meta parsing reads at most 256KB per log file — an older Gemini session kept as one JSON document is read whole, up to the transcript cap — and a database is queried through `parsers/sqlite.ts`: read-only, never held open, at most once per indexer pass (`SnapshotPass`). Parsers are failure-tolerant: provider log formats drift between releases, so skip anything unreadable rather than fail the scan (the `add-session-parser` skill). A parser reports only what its log states (`logBranch`); everything derived from the checkout is the indexer's `annotate()`, recomputed on every scan.
 - A session can span several files (Codex paginates long threads): read or remove a session's log through `sessionLogFiles`, never `sourcePath` alone. Bump `CACHE_VERSION` when parser output changes.
 - Only the agents' session roots are walked and watched, recursively with `fs.watch` (`watchIgnored` drops the logs, blobs and databases under them); a session kept in a database is watched through that database (`SHARED_DBS` / `OWN_DBS` in `indexer.ts`) and keyed `<db>#<id>` (`sessionRef`).
 - A session's `provider` is a `SessionProvider` — a CLI Cockpit runs (`Provider`) or an agent it only reads (`ReadOnlyProvider`, found on every launch by `agent-homes.ts`); `shared/providers.ts` says which, and why the split is typed.
@@ -119,6 +119,9 @@ loopback port (`scripts/ui-tour/registry.mts`, `COCKPIT_MCP_REGISTRY`), and
 `tests/ui-tour-world.test.ts` parses both with the real parsers, so format drift fails a test
 instead of emptying the screenshots.
 
+`tests/agents-map.test.ts` holds this file to its word: it fails on a module the maps above
+don't name, and on a main, shared or preload module without a header comment.
+
 ## Packaging & releases
 
 The mechanics are in CONTRIBUTING.md and `electron-builder.config.js`. The rules:
@@ -144,7 +147,7 @@ add the reason to that test.
 A file with one component is PascalCase; a module whose main export is one hook is `use-<name>.ts`.
 
 - **Shell**: `App.tsx` (views and navigation; `use-chat-turns`, `use-nav-history` + `nav-history.ts`, `use-zoom`), `main.tsx`, `api.ts`, `ErrorBoundary`, `DevBanner`
-- **Rail**: `TreeSidebar` → `SessionList`, `RoundtableNode`, `ProjectFilter`, `agent-filter.ts` (which agents the tree, the palette's transcript search and cleanup show), `hold.ts` (who drives a session, in words, and the tree's filter on it), `families.ts` (the families folded in the tree); `RailResizer` + `rail.ts`, `UsageMeters`, `UpdateBar` + `update-prompt.ts`, `use-cleanup-notice`
+- **Rail**: `TreeSidebar` → `SessionList`, `RoundtableNode`, `ProjectFilter`, `agent-filter.ts` (which agents the tree and the palette's transcript search show), `hold.ts` (who drives a session, in words, and the tree's filter on it), `families.ts` (the families folded in the tree); `RailResizer` + `rail.ts`, `UsageMeters`, `UpdateBar` + `update-prompt.ts`, `use-cleanup-notice`
 - **Starting work**: `HomeView` → `HomeUpdates` (what is out of date), `NewSession`, `HandoffView`, all choosing through `agent-choice.ts` (agent, account, mode and their storage) and `agent-options.tsx`, over the agents `acp-readiness.ts` says an ACP agent drives; `attachments.tsx`, `task-names.ts`, `branch-prefix.ts`
 - **Chat**: `ChatView` → `Message`, `HoldBar`, `PermissionAsk`, `AskPicker`, `ReviewPanel`, `PrStrip`, `SideChat` + `side-chat-log.ts`, `PromptRail` + `prompt-nav.ts` (the rail of your own messages, ⌥⌘↑/⌥⌘↓), `follow-up.ts` (where a suggested follow-up starts); the side panel (`SidePanel`, `Sash`, `panel.ts`) holding `WorkPanel` and its `Work*Tab` files (`work-tab.ts`, `use-work-panel`); the transcript's own modules `chat-log.ts`, `transcript-rows.ts`, `transcript-window.tsx`, `transcript-anchor.ts` + `use-transcript-anchor`, `rejoin.ts`, `chat-binding.ts`, `Markdown` + `MarkdownPipeline`
 - **Roundtables**: `RoundtableView` → `RoundtableTable`, `use-roundtable-stream`, `RoundtableLimitFields`, `roundtable-seats.ts`, `SeatEvidencePanel` + `evidence.ts`; `NewRoundtable`, `use-roundtables`

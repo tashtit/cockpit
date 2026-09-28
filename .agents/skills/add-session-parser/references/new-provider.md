@@ -49,7 +49,7 @@ The steps follow a session from the disk to the screen.
 
 ## 8. Put it in the tour
 
-- `scripts/ui-tour/world.mts` — a home and sessions for it in `populate`, landing in one of the world's repositories (databases through `store-fixtures.mts`, which the tests share). When it is driven or has a built-in ACP agent, its CLI name in `writeStubs` and an answer in `stub-cli.mjs`: main always adds the common install dirs to PATH (`cliPath` in `env.ts`), so a copy installed on this machine would otherwise answer the launch-time probe and the tour would screenshot a different app.
+- `scripts/ui-tour/world.mts` — a home and sessions for it in `populate`, landing in one of the world's repositories (databases through `store-fixtures.mts`, which the tests share). When it is driven, its CLI name in `writeStubs` and an answer in `stub-cli.mjs`; when it only has a built-in ACP agent the world does not run, its CLI name in `ABSENT_CLIS` (a stub that is not there) — `tests/ui-tour-world.test.ts` fails on a built-in ACP agent with neither: main always adds the common install dirs to PATH (`cliPath` in `env.ts`), so a copy installed on this machine would otherwise answer the launch-time probe and the tour would screenshot a different app.
 - `tests/ui-tour-world.test.ts` — parses the world with the real parsers and lists the read-only agents' detected homes and sessions by name; add the new ones.
 
 ## 9. Tell the person
