@@ -388,14 +388,49 @@ function composerToolPreview(params: Record<string, unknown>): string | null {
   )
 }
 
+/**
+ * The newest of a chat's messages that fit the transcript budget, as the other parsers
+ * read a log's tail: the last ones counted back until the next would overspend it. A
+ * message too big to read counts at the most one is read at.
+ */
+function newestWithin(sizes: readonly number[]): number {
+  let budget = TRANSCRIPT_TAIL_BYTES
+  let from = sizes.length
+  while (from > 0) {
+    const size = Math.min(sizes[from - 1]!, MAX_BUBBLE_BYTES)
+    if (budget - size < 0) break
+    budget -= size
+    from--
+  }
+  return from
+}
+
+/**
+ * A chat's messages. Its document lists them in order (`fullConversationHeadersOnly`);
+ * each is a `bubbleId:<chat id>:<message id>` row, asked for as a key range (`:` is
+ * followed by `;`) that the key's index answers — a `LIKE` prefix scanned the table. The
+ * sizes come first, none of the content, so only the newest that fit the transcript
+ * budget are read.
+ */
 function composerMessages(db: string, id: string): SessionMessage[] {
   const doc = parseJson(queryAll(db, `SELECT value FROM cursorDiskKV WHERE key = ?`, `composerData:${id}`)?.[0]?.['value'])
   if (!doc) return []
   const headers: any[] = Array.isArray(doc.fullConversationHeadersOnly) ? doc.fullConversationHeadersOnly : []
   // older chats kept every message inside the chat's own document
   const inline: any[] = Array.isArray(doc.conversation) ? doc.conversation : []
-  const bubbles = new Map<string, any>()
+  let order: any[]
+  let from: number
   if (headers.length > 0) {
+    const prefix = `bubbleId:${id}:`
+    const range = [prefix, `bubbleId:${id};`] as const
+    // octet_length reads a value's size without its content
+    const sizes = new Map<string, number>()
+    for (const r of queryAll(db, `SELECT key, octet_length(value) AS n FROM cursorDiskKV WHERE key >= ? AND key < ?`, ...range) ?? []) {
+      sizes.set(String(r['key']).slice(prefix.length), Number(r['n'] ?? 0))
+    }
+    from = newestWithin(headers.map((h) => sizes.get(String(h?.bubbleId)) ?? 0))
+    const window = headers.slice(from).map((h) => `${prefix}${String(h?.bubbleId)}`)
+    const bubbles = new Map<string, any>()
     for (const r of queryAll(
       db,
       `SELECT key,
@@ -404,13 +439,16 @@ function composerMessages(db: string, id: string): SessionMessage[] {
          json_extract(value, '$.createdAt') AS created,
          json_extract(value, '$.thinking.text') AS thinking,
          json_extract(value, '$.toolFormerData') AS tool
-       FROM cursorDiskKV WHERE key LIKE ? AND length(value) <= ${MAX_BUBBLE_BYTES}`,
-      `bubbleId:${id}:%`
+       FROM cursorDiskKV WHERE key IN (SELECT value FROM json_each(?)) AND octet_length(value) <= ${MAX_BUBBLE_BYTES}`,
+      JSON.stringify(window)
     ) ?? []) {
-      bubbles.set(String(r['key']).slice(`bubbleId:${id}:`.length), r)
+      bubbles.set(String(r['key']).slice(prefix.length), r)
     }
+    order = headers.slice(from).map((h) => bubbles.get(String(h?.bubbleId)) ?? null)
+  } else {
+    from = newestWithin(inline.map((m) => JSON.stringify(m ?? null).length))
+    order = inline.slice(from)
   }
-  const order = headers.length > 0 ? headers.map((h) => bubbles.get(String(h?.bubbleId)) ?? null) : inline
   const out: SessionMessage[] = []
   for (const b of order) {
     if (!b) continue
@@ -441,7 +479,9 @@ function composerMessages(db: string, id: string): SessionMessage[] {
       })
     }
   }
-  return out
+  return from > 0
+    ? [{ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' }, ...out]
+    : out
 }
 
 /* ---------- the ACP server's sessions (acp-sessions/<id>/store.db) ---------- */

@@ -2485,6 +2485,29 @@ describe('cursor parser: the editor’s own chats', () => {
     expect(rows[2]!.preview).toBe('src/auth.ts')
     expect(rows[3]).toMatchObject({ failed: true, artifact: { kind: 'check', checks: ['tests'] } })
   })
+
+  // every other store opens a long conversation on its newest messages within the
+  // transcript budget; a chat's messages were all read, however many megabytes they held
+  it('opens a very long chat on its newest messages, saying the older ones were left out', () => {
+    const big = join(root, 'cursor-editor-long', 'User', 'globalStorage')
+    const text = (i: number): string => `m${i} ${'x'.repeat(500 * 1024)}`
+    writeCursorChats(join(big, 'state.vscdb'), [
+      {
+        id: 'long',
+        name: 'A long one',
+        cwd: '/Users/me/dev/web',
+        created: at,
+        updated: at,
+        bubbles: Array.from({ length: 9 }, (_, i) => ({ type: (i % 2 === 0 ? 1 : 2) as 1 | 2, at: at + i, text: text(i) }))
+      }
+    ])
+    const chat = listCursorSessions(big, 'c').find((m) => m.nativeId === 'long')!
+    expect(chat.messageCount).toBe(9)
+    const rows = parseCursorMessages(chat.sourcePath)
+    expect(rows[0]).toEqual({ role: 'system', kind: 'system', text: '(older messages omitted — transcript is very large)' })
+    // eight of ~512KB fit the 4MB budget: the newest eight, in order
+    expect(rows.slice(1).map((r) => r.text.split(' ')[0])).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8'])
+  })
 })
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))
