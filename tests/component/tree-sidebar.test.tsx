@@ -866,6 +866,20 @@ describe('TreeSidebar — which agents it shows', () => {
     expect(await screen.findByRole('treeitem', { name: /a cline task/ })).toBeInTheDocument()
   })
 
+  it('drops the archived count while an agent is hidden — it counts every agent', async () => {
+    window.localStorage.setItem('cockpit:hidden-agents', JSON.stringify(['cline']))
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [claude] })
+    // all five archived sessions are Cline's, which the tree leaves out
+    renderSidebar({ ...mixed, archivedCount: 5 })
+    await screen.findByRole('treeitem', { name: /a claude task/ })
+    expect(screen.getByRole('treeitem', { name: 'Archived' })).toBeInTheDocument()
+    expect(screen.queryByRole('treeitem', { name: /Archived \(5\)/ })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose what the tree shows' }))
+    await userEvent.click(within(screen.getByRole('group', { name: 'Agents' })).getByRole('checkbox', { name: /Cline/ }))
+    expect(await screen.findByRole('treeitem', { name: /Archived \(5\)/ })).toBeInTheDocument()
+  })
+
   it('takes a project out when every agent it has is hidden, and keeps the agent to switch back on', async () => {
     window.localStorage.setItem('cockpit:hidden-agents', JSON.stringify(['claude', 'cline']))
     vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })

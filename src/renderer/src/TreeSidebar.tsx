@@ -810,9 +810,9 @@ function GroupChildren({
             onClick={onToggleArchived}
           >
             <span className={`chev ${showArchived ? 'open' : ''}`} aria-hidden="true">▸</span>
-            {/* the count is every archived session's: under a holder filter the list
-                is narrower than it, so no number rather than a wrong one */}
-            {holder ? 'Archived' : `Archived (${repo.archivedCount + archivedTables.length})`}
+            {/* the count is every archived session's: under a holder filter or with an
+                agent hidden the list is narrower than it, so no number rather than a wrong one */}
+            {holder || hidden.length > 0 ? 'Archived' : `Archived (${repo.archivedCount + archivedTables.length})`}
           </button>
           {showArchived &&
             archivedTables.map((t) => (
