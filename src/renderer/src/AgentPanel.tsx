@@ -35,7 +35,7 @@ import type { Notice } from './notice'
 import { answerRecommendation } from './recommended'
 import { offerFor, Recommendation, RECOMMENDED_PITCH } from './Recommendation'
 import { TabList, TabPanel, type TabDef } from './Tabs'
-import { plural } from './format'
+import { listOf, plural } from './format'
 import { useLoaded } from './use-loaded'
 
 /**
@@ -67,12 +67,6 @@ function cellWord(cell: PanelCell): string | undefined {
 const CONFIRM_OFF: readonly PanelKind[] = ['plugin', 'marketplace']
 
 type Section = PanelKind | 'attention' | 'browse' | 'removed'
-
-/** "Claude and Codex", "Claude, Codex and Copilot" — never "A and B and C". */
-function listOf(names: readonly string[]): string {
-  if (names.length < 3) return names.join(' and ')
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
-}
 
 /**
  * Who can run this at all, when not everyone can — "Codex only" for a plugin from a

@@ -283,7 +283,9 @@ its top picks between two catalogues: **Plugins**, what each marketplace offers,
   Clicking one adds the marketplace (`plugin marketplace add`) or installs the plugin
   (`plugin install <name>@<marketplace>`) in that agent, one agent at a time. A chip for
   an agent that already has it is lit and inert — taking something out belongs to
-  **Plugins** and **Marketplaces**, where it asks first.
+  **Plugins** and **Marketplaces**, where it asks first. A plugin installs only from a
+  marketplace that agent already has, so an opened marketplace names the agents that need
+  it added first, and their plugin chips wait until it is.
 - **Searching.** The card's search box searches the catalogues while Browse is open —
   plugin names, descriptions, categories and keywords — instead of the panel's own rows.
 

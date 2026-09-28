@@ -4,7 +4,7 @@ import { MCP_KIND_TAG } from '../../shared/mcp-source'
 import type { Provider, RegistryAdd, RegistryInput, RegistryServer } from '../../shared/types'
 import { api } from './api'
 import { useArmedConfirm } from './ConfirmRemove'
-import { plural } from './format'
+import { listOf, plural } from './format'
 import { ipcErrorText } from './ipc-error'
 import type { Notice } from './notice'
 import { PROVIDER_LABEL } from './logos'
@@ -45,11 +45,6 @@ type Search = {
  * leaving the panel, must not throw away an answer that took the network to get.
  */
 let lastSearch: Search | null = null
-
-function listOf(names: readonly string[]): string {
-  if (names.length <= 1) return names[0] ?? ''
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
-}
 
 /** The id of a row's toggle — where focus goes when the control it was on goes away. */
 function rowDomId(server: RegistryServer): string {

@@ -100,6 +100,15 @@ describe('Agents › Browse', () => {
     const codex = screen.getByRole('button', { name: 'Add secure-ci to Codex' })
     expect(codex).toBeDisabled()
     expect(codex.getAttribute('title')).toContain('hasn’t got the acme-market marketplace yet')
+    // a title is out of a keyboard's reach: the row says it once, in words
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === 'P' &&
+          el.textContent ===
+            'Codex and Copilot need the acme-market marketplace before they can install its plugins — add it with the chips on the row above.'
+      )
+    ).toBeInTheDocument()
   })
 
   it('shows a plugin an agent already has as lit and inert — uninstalling is elsewhere', async () => {

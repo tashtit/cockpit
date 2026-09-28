@@ -4,6 +4,7 @@ import { matchesCatalogQuery } from '../../shared/marketplace'
 import type { CatalogInstall, CatalogPlugin, MarketplaceCatalog, Provider } from '../../shared/types'
 import { api } from './api'
 import { disarmOn } from './disarm'
+import { listOf } from './format'
 import { ipcErrorText } from './ipc-error'
 import type { Notice } from './notice'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
@@ -218,6 +219,9 @@ function Market({
   }
   /** where focus lands once the control it was on goes away — a lit chip, a read catalogue */
   const toggle = useRef<HTMLButtonElement>(null)
+  // a plugin goes only to an agent that has its marketplace: the chips say so one at a
+  // time in a tooltip, and the row says it once in words
+  const without = PROVIDERS.filter((p) => !catalog.agents.includes(p))
   return (
     <>
       <div className={`pnl-row ${open ? 'open' : ''}`}>
@@ -283,6 +287,14 @@ function Market({
                   )}
                 </div>
               </div>
+            )}
+            {plugins.length > 0 && without.length > 0 && (
+              <p className="pnl-note">
+                {listOf(without.map((p) => PROVIDER_LABEL[p]))} {without.length === 1 ? 'needs' : 'need'} the{' '}
+                <strong>{catalog.name}</strong> marketplace before {without.length === 1 ? 'it' : 'they'} can
+                install its plugins —{' '}
+                {catalog.source ? 'add it with the chips on the row above.' : 'Cockpit has no source to add it from.'}
+              </p>
             )}
             {plugins.length > 0 && (
               <ul className="market-plugins">
