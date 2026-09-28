@@ -100,9 +100,13 @@ describe('side chat', () => {
     expect(within(panel).getByText('Claude is looking: Read src/login.ts')).toBeInTheDocument()
     act(() => {
       emitSide({ turnId: 'side-turn-1', type: 'text', text: 'Two retries still flaked under load.' })
+    })
+    // a reply still coming wears no mark of its own: the line under it says it is live
+    expect(await within(panel).findByText('Two retries still flaked under load.')).toBeInTheDocument()
+    expect(panel.querySelector('.msg-assistant')).not.toHaveClass('streaming')
+    act(() => {
       emitSide({ turnId: 'side-turn-1', type: 'done' })
     })
-    expect(await within(panel).findByText('Two retries still flaked under load.')).toBeInTheDocument()
     expect(within(panel).getByText('1 step · Read')).toBeInTheDocument()
     // the conversation never heard of it
     const transcript = document.querySelector('.messages') as HTMLElement

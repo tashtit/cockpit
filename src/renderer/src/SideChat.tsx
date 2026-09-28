@@ -191,7 +191,8 @@ const Exchange = memo(function Exchange({
         </div>
       </div>
       {entry.answer && (
-        <div className={`msg msg-assistant${asking ? ' streaming' : ''}`}>
+        // a reply still coming wears no mark of its own (MASTER): the `.thinking` line under it says so
+        <div className="msg msg-assistant">
           <ProviderMark p={provider} size={14} box="avatar" decorative />
           <div className="assistant-body markdown">
             <Markdown text={entry.answer} />

@@ -270,6 +270,22 @@ describe('ChatView review', () => {
     expect(screen.queryByRole('region', { name: 'Changes to review' })).not.toBeInTheDocument()
   })
 
+  it('leaves Ctrl+D to the composer, where macOS deletes forward with it', () => {
+    renderChat(vi.fn(), { binding: { ...binding, nativeSessionId: 'abc-123' } })
+    const composer = screen.getByRole('textbox', { name: 'Message Claude' })
+    composer.focus()
+    const d = new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true, cancelable: true })
+    composer.dispatchEvent(d)
+    expect(d.defaultPrevented).toBe(false)
+    expect(screen.queryByRole('region', { name: 'Changes to review' })).not.toBeInTheDocument()
+    // and Ctrl+L to the field too: the side chat is ⌘L
+    const l = new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, bubbles: true, cancelable: true })
+    composer.dispatchEvent(l)
+    expect(l.defaultPrevented).toBe(false)
+    expect(screen.queryByRole('complementary', { name: 'Side chat' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(composer)
+  })
+
   it('has nothing to review outside a repository or on a seat session', () => {
     renderChat(vi.fn(), { binding: { ...binding, repoRoot: null } })
     expect(screen.queryByRole('button', { name: 'Changes' })).not.toBeInTheDocument()
