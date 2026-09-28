@@ -33,7 +33,7 @@ describe('HandoffView', () => {
     })
     render(
       <HandoffView
-        source={{ ...source, cwd: '/Users/dev/code/rocket' }}
+        source={{ ...source, cwd: '/Users/dev/code/rocket', repoRoot: '/Users/dev/code/rocket' }}
         busy={false}
         onStart={vi.fn(async () => null)}
         onCancel={vi.fn()}
@@ -45,6 +45,20 @@ describe('HandoffView', () => {
     expect(document.querySelector('.handoff-cwd')).toHaveAttribute('title', '/Users/dev/code/rocket')
     // the agent reads an absolute path, never a ~
     expect(await screen.findByLabelText('Briefing')).toHaveValue('- Directory: /Users/dev/code/rocket')
+  })
+
+  it('names a worktree it continues in rather than spelling out its path', async () => {
+    const cwd = '/Users/dev/Library/Application Support/cockpit/worktrees/rocket/login-flake'
+    render(
+      <HandoffView
+        source={{ ...source, cwd, repoRoot: '/Users/dev/code/rocket', branch: 'cockpit/fix-login' }}
+        busy={false}
+        onStart={vi.fn(async () => null)}
+        onCancel={vi.fn()}
+      />
+    )
+    await waitFor(() => expect(document.querySelector('.handoff-cwd')).toHaveTextContent('worktree · login-flake'))
+    expect(document.querySelector('.handoff-cwd')).toHaveAttribute('title', cwd)
   })
 
   it('loads the briefing into the editor and defaults to a different agent', async () => {

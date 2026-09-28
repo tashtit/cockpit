@@ -2,7 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { AgentOptions, PermissionMode, SessionProvider } from '../../shared/types'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
-import { PROVIDERS, shortPath } from '../../shared/library'
+import { PROVIDERS, cwdLabel } from '../../shared/library'
 import { isDrivable } from '../../shared/providers'
 import { rememberChoice, useAgentChoice, type AccountChoice } from './agent-choice'
 import {
@@ -143,7 +143,7 @@ export function HandoffView({
         </div>
         <div className="ns-hint">
           Same worktree, same branch — the new session starts in{' '}
-          <span className="handoff-cwd" title={source.cwd}>{shortPath(source.cwd)}</span>. No new workspace is created.
+          <span className="handoff-cwd" title={source.cwd}>{cwdLabel(source.cwd, source.repoRoot, source.branch)}</span>. No new workspace is created.
         </div>
 
         <label className="ns-label">Continue with</label>
