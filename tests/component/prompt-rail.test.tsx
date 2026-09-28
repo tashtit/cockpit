@@ -186,6 +186,15 @@ describe('the rail of your own messages', () => {
     expect(peek()).toBeNull()
   })
 
+  it('says what it is and names the keys that step through it from anywhere', () => {
+    renderChat(logWith(6, [0, 3]))
+    const bar = screen.getByRole('toolbar')
+    expect(bar).toHaveAttribute('aria-orientation', 'vertical')
+    expect(bar.querySelectorAll('button')).toHaveLength(2)
+    expect(mark(1, 2)).toHaveAttribute('aria-keyshortcuts', 'Alt+Meta+ArrowUp Alt+Meta+ArrowDown')
+    expect(mark(2, 2)).toHaveAttribute('aria-keyshortcuts', 'Alt+Meta+ArrowUp Alt+Meta+ArrowDown')
+  })
+
   it('is one tab stop whose arrow keys walk the messages from the one being read', async () => {
     const messages = renderChat(logWith(12, [0, 4, 8]))
     const { end } = layOut(messages, 12)

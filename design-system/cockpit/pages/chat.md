@@ -196,7 +196,9 @@ Header min-height is 52px — it's the drag region, keep it a real grab target.
   most, aria-hidden since the button's name already carries it. A click scrolls the
   message to 16px under the transcript's top edge — where the first row sits — so its
   answer reads under it. The rail is one tab stop (roving `tabIndex`; ↑ ↓ walk and jump,
-  Home/End). **⌥⌘↑ / ⌥⌘↓** (Copilot's own keys for this) step from wherever the reader
+  Home/End — `roveIndex`), and its list says so: a `toolbar` with
+  `aria-orientation="vertical"`, each mark naming ⌥⌘↑ / ⌥⌘↓ in `aria-keyshortcuts`, since
+  the peek that shows them is aria-hidden. **⌥⌘↑ / ⌥⌘↓** (Copilot's own keys for this) step from wherever the reader
   is; part-way through an answer, up goes to its own message first. After a jump, steps
   go on from it while the transcript stays where the jump put it: near the end a message
   cannot reach the top, and reading positions back would land on it again. Each step says
