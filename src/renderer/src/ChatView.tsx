@@ -154,6 +154,7 @@ export function ChatView({
    *  a ⌥⌘↑ step — outranked it for good, and the live region never spoke */
   const [holdOpen, setHoldOpen] = useState(false)
   const [holdPending, setHoldPending] = useState(false)
+  const holdChipRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     setHoldOpen(false)
   }, [conversation])
@@ -430,6 +431,7 @@ export function ChatView({
               !binding.readOnly &&
               (control.holder === 'cockpit' ? (
                 <button
+                  ref={holdChipRef}
                   className="acct-chip hold-chip held"
                   aria-expanded={holdOpen}
                   aria-controls={holdOpen ? 'hold-bar' : undefined}
@@ -673,7 +675,11 @@ export function ChatView({
               onTakeOver={() => changeHands('cockpit')}
               onRelease={() => changeHands('agent')}
               onResume={resumeThere}
-              onClose={() => setHoldOpen(false)}
+              onClose={() => {
+                // the × goes with the bar: focus goes back to the chip that opened it
+                setHoldOpen(false)
+                holdChipRef.current?.focus()
+              }}
             />
           )}
 

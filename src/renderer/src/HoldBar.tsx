@@ -2,7 +2,7 @@ import type { JSX } from 'react'
 import type { SessionControl, SessionProvider } from '../../shared/types'
 import { isDrivable } from '../../shared/providers'
 import { holderName, placeOf } from './hold'
-import { HeldIcon, ProcessIcon, ProviderLogo, PROVIDER_LABEL } from './logos'
+import { HeldIcon, ProcessIcon, ProviderLogo, PROVIDER_LABEL, XIcon } from './logos'
 
 /**
  * Who drives the session, and the way to change it — docked above the composer like a
@@ -32,6 +32,7 @@ export function HoldBar({
   onTakeOver: () => void
   onRelease: () => void
   onResume: () => void
+  /** Hide the bar (a session Cockpit holds) — the caller hands focus back to its chip */
   onClose: () => void
 }): JSX.Element {
   const agent = PROVIDER_LABEL[provider]
@@ -58,6 +59,18 @@ export function HoldBar({
   const blockedWhy = held ? ourTurn : theirTurn
   const resumeBlocked = busy || elsewhere
   const resumeWhy = busy ? ourTurn : theirTurn
+  // a disabled key can't take focus, so its title reaches neither the keyboard nor a
+  // screen reader: what holds one back is said in the sentence everyone reads too. A
+  // session with its agent already says it — the turn elsewhere is what it waits on
+  const holdup = held
+    ? busy
+      ? 'Cockpit is running a turn in it — stop it, or let it finish, to release it.'
+      : elsewhere && isDrivable(provider)
+        ? `${agent} is running a turn in it outside Cockpit — Open in Terminal waits for that turn to end.`
+        : null
+    : busy && isDrivable(provider)
+      ? 'Cockpit is running a turn in it — Open in Terminal waits for it to end.'
+      : null
   return (
     <div
       className={`hold-bar ${held ? 'held' : `acct-${provider}`}`}
@@ -70,6 +83,7 @@ export function HoldBar({
       </span>
       <p className="hold-text">
         <strong>{holderName(control, provider)}</strong> — {why}
+        {holdup && ` ${holdup}`}
       </p>
       <div className="hold-actions">
         {/* only a CLI Cockpit runs has a resume command to hand a terminal; one driven
@@ -98,8 +112,8 @@ export function HoldBar({
             >
               Release to {agent}
             </button>
-            <button className="icon-btn small" aria-label="Hide" title="Hide" onClick={onClose}>
-              ×
+            <button className="icon-btn small" aria-label="Hide this bar" title="Hide" onClick={onClose}>
+              <XIcon />
             </button>
           </>
         ) : (

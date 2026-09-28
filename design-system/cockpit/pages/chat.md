@@ -513,10 +513,12 @@ filled key, **Take over**, is `.btn-primary.hold-take` at that height (one heigh
   elsewhere grammar. An open question card says to answer it in the agent or take it over.
 - **A session Cockpit holds** shows it only from its `.hold-chip` (`aria-expanded`,
   `aria-controls`): **Open in Terminal** (releases it too), **Release to Claude**, and a 24px
-  × to hide it.
+  × (`XIcon`, named "Hide this bar") to hide it, which hands focus back to the chip.
 - A change waits for the other side's turn — Take over while the agent runs one elsewhere,
   Release and Open in Terminal while Cockpit's own turn runs — disabled, with why in the
-  title. Main re-judges both (`holdRefusal`), and a refusal lands as a chat notice.
+  title **and in the bar's sentence**: a disabled key can't be focused, so a title alone
+  reaches no keyboard or screen reader. Main re-judges both (`holdRefusal`), and a refusal
+  lands as a chat notice.
 - What happened is said once in the chat's status region ("Taken over — Cockpit sends this
   session's turns now"). A seat session gets neither chip nor bar: its table drives it.
 

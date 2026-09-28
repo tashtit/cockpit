@@ -539,11 +539,27 @@ describe('ChatView and who drives the session', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Released to Claude/))
   })
 
-  it('will not release under a turn Cockpit is running', async () => {
+  it('will not release under a turn Cockpit is running, and says so where everyone reads it', async () => {
     renderChat(vi.fn(), { binding: started, control: held, busy: true })
     await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))
     expect(screen.getByRole('button', { name: 'Release to Claude' })).toBeDisabled()
     expect(screen.getByRole('button', { name: /Open in Terminal/ })).toBeDisabled()
+    // a disabled key can't be focused, so its title alone reaches no keyboard
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(
+      /Cockpit is running a turn in it — stop it, or let it finish, to release it/
+    )
+  })
+
+  it('hides the bar from its ×, handing focus back to the chip that opened it', async () => {
+    renderChat(vi.fn(), { binding: started, control: held })
+    const chip = screen.getByRole('button', { name: 'In Cockpit' })
+    await userEvent.click(chip)
+    const hide = screen.getByRole('button', { name: 'Hide this bar' })
+    expect(hide.querySelector('svg')).not.toBeNull()
+    expect(hide).not.toHaveTextContent('×')
+    await userEvent.click(hide)
+    expect(screen.queryByRole('region', { name: 'Who drives this session' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(chip)
   })
 
   it('resumes it in Terminal from the bar', async () => {
@@ -570,6 +586,9 @@ describe('ChatView hold bar under a turn in a terminal', () => {
     })
     await userEvent.click(screen.getByRole('button', { name: 'In Cockpit' }))
     expect(screen.getByRole('button', { name: /Open in Terminal/ })).toBeDisabled()
+    expect(screen.getByRole('region', { name: 'Who drives this session' })).toHaveTextContent(
+      /Open in Terminal waits for that turn to end/
+    )
     // handing it back to where it is running is exactly right, though
     expect(screen.getByRole('button', { name: 'Release to Claude' })).toBeEnabled()
   })
