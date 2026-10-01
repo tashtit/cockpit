@@ -39,7 +39,10 @@ function home(): string {
  * A `copilot` first on PATH, so no test reaches the real one: its server mode answers
  * from `stub-server.json` in the COPILOT_HOME it runs under, speaking the framed
  * JSON-RPC the real server does, and logs every request to `stub-calls.log`. A home
- * without that file is a CLI from before the server — it prints and exits.
+ * without that file is a CLI from before the server — it prints and exits. The world
+ * can make it misbehave: `chatty` sends a notification and a reply nobody asked for
+ * before each answer, `garbage` writes something that is not the protocol, and
+ * `ignoreEof` keeps it running after its stdin closes (its pid is in `stub-pid`).
  */
 const STUB = `
 import { appendFileSync, readFileSync } from 'node:fs'
@@ -49,6 +52,9 @@ let world = null
 try { world = JSON.parse(readFileSync(join(home, 'stub-server.json'), 'utf8')) } catch {}
 appendFileSync(join(home, 'stub-argv.log'), JSON.stringify([process.cwd(), ...process.argv.slice(2)]) + '\\n')
 if (!world || process.argv[2] !== '--headless') { console.log('ok'); process.exit(0) }
+appendFileSync(join(home, 'stub-pid'), String(process.pid))
+if (world.ignoreEof) setInterval(() => {}, 1000)
+if (world.garbage) process.stdout.write('Content-Type: text/plain\\r\\n\\r\\nhello')
 const send = (msg) => {
   const body = JSON.stringify(msg)
   process.stdout.write('Content-Length: ' + Buffer.byteLength(body) + '\\r\\n\\r\\n' + body)
@@ -69,12 +75,16 @@ process.stdin.on('data', (chunk) => {
       : req.method === 'account.getAllUsers' ? world.users
       : req.method === 'models.list' ? world.models[req.params?.selectionId ?? 'current']
       : undefined
+    if (world.chatty) {
+      send({ jsonrpc: '2.0', method: 'session.lifecycle', params: {} })
+      send({ jsonrpc: '2.0', id: 999, result: { models: [{ id: 'not-asked-for' }] } })
+    }
     if (answer === undefined || answer.error)
       send({ jsonrpc: '2.0', id: req.id, error: answer?.error ?? { code: -32601, message: 'unknown method' } })
     else send({ jsonrpc: '2.0', id: req.id, result: answer })
   }
 })
-process.stdin.on('end', () => process.exit(0))
+process.stdin.on('end', () => world.ignoreEof || process.exit(0))
 `
 const savedPath = process.env.PATH
 const savedUserData = process.env.COCKPIT_USER_DATA
@@ -96,7 +106,15 @@ afterAll(() => {
 })
 
 /** A Copilot home whose server answers as `world` says. */
-function copilotHome(world: { users: unknown; models: Record<string, unknown> }): string {
+type StubWorld = {
+  readonly users?: unknown
+  readonly models?: Record<string, unknown>
+  readonly chatty?: boolean
+  readonly garbage?: boolean
+  readonly ignoreEof?: boolean
+}
+
+function copilotHome(world: StubWorld): string {
   const h = home()
   writeFileSync(join(h, 'stub-server.json'), JSON.stringify(world))
   return h
@@ -340,6 +358,53 @@ describe('listAgentModels', () => {
       'auto',
       'gpt-5.6-sol'
     ])
+  })
+
+  it('copilot: notifications and replies nobody asked for are passed over', async () => {
+    const h = copilotHome({
+      chatty: true,
+      users: [{ authInfo: { type: 'user', login: 'octo' }, selectionId: 'sel-octo' }],
+      models: { 'sel-octo': { models: [{ id: 'gpt-5-mini', name: 'GPT-5 mini' }] } }
+    })
+    expect((await listAgentModels('copilot', { configDir: h, copilotUser: 'octo' })).map((m) => m.id)).toEqual([
+      'auto',
+      'gpt-5-mini'
+    ])
+  })
+
+  it('copilot: a server that talks past the protocol, or outstays its stdin, falls back and is stopped', async () => {
+    const h = copilotHome({ garbage: true, ignoreEof: true, models: {} })
+    mkdirSync(join(h, 'session-state', 'a'), { recursive: true })
+    writeFileSync(join(h, 'session-state', 'a', 'events.jsonl'), '{"data":{"model":"gpt-5.6-sol"}}\n')
+    expect((await listAgentModels('copilot', { configDir: h })).map((m) => m.id)).toEqual(['auto', 'gpt-5.6-sol'])
+    // it ignored its stdin closing, so it gets SIGTERM — never left running
+    const pid = Number(readFileSync(join(h, 'stub-pid'), 'utf8'))
+    const alive = (): boolean => {
+      try {
+        process.kill(pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    expect(alive()).toBe(true)
+    await new Promise((r) => setTimeout(r, 3_000))
+    expect(alive()).toBe(false)
+  })
+
+  it('copilot: with nowhere of its own to start in, it is never started in home — the logs answer', async () => {
+    const h = copilotHome({ models: { current: { models: [{ id: 'gpt-5-mini' }] } } })
+    mkdirSync(join(h, 'session-state', 'a'), { recursive: true })
+    writeFileSync(join(h, 'session-state', 'a', 'events.jsonl'), '{"data":{"model":"gpt-5.6-sol"}}\n')
+    const blocked = home()
+    writeFileSync(join(blocked, 'acp-probe'), 'a file where the folder would be')
+    process.env.COCKPIT_USER_DATA = blocked
+    try {
+      expect((await listAgentModels('copilot', { configDir: h })).map((m) => m.id)).toEqual(['auto', 'gpt-5.6-sol'])
+    } finally {
+      process.env.COCKPIT_USER_DATA = userData
+    }
+    expect(existsSync(join(h, 'stub-argv.log'))).toBe(false)
   })
 
   it('copilot without its server: auto, then every model its session logs show it serving', async () => {
