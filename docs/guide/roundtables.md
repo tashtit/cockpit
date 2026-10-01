@@ -35,9 +35,9 @@ Add seats with the **+ Claude / + Codex / + Copilot** buttons beside the Seats h
 - **Model** — picked from every model that agent offers under the seat's account, never typed:
   - **Claude Code**: its aliases (`fable`, `opus`, `sonnet`, `haiku` — each the latest of its line) and the current full model names. The CLI keeps no catalog of its own.
   - **Codex**: the models Codex's own picker lists, read from its cached catalog, plus the default in its `config.toml`.
-  - **Copilot**: `auto`, plus every model your recent Copilot sessions show it serving. Copilot keeps no catalog on disk, so a model you have never run through it won't appear until you have.
+  - **Copilot**: `auto`, plus the models Copilot itself says the seat's GitHub login may pick — its plan and its organization's policy decide, so two logins can list different models, and one a policy turns off isn't offered. Each model brings its own thinking levels. When Copilot can't say (an older CLI, or no network), the list falls back to the models your recent Copilot sessions show it serving.
   - On a custom provider, that provider's own model list.
-- **Thinking** — how hard the seat reasons: Claude `low`–`max`, Copilot `none`–`max`, and for Codex the levels the chosen model takes (up to `ultra` on some), with that model's default shown.
+- **Thinking** — how hard the seat reasons: Claude `low`–`max`; for Codex and Copilot the levels the chosen model takes (up to `ultra` on some Codex models), with that model's default shown where its agent names one, and Copilot `none`–`max` when the model names none.
 - **Account** — which signed-in identity the seat runs as (a read-only field when there is only one).
 - **Model provider** — the agent's own backend, or one of your [custom providers](./custom-providers.md). Only providers that agent can use are offered: Codex has none, Claude takes anthropic-type providers. A Copilot seat on a custom provider needs an explicit model.
 - **fast** (Codex only) — a checkbox on the card for the priority tier, about twice the speed and twice the usage, on models that offer it.

@@ -75,8 +75,48 @@ describe('NewSession model picker', () => {
     await screen.findByRole('button', { name: /^Account/ })
     await choose('Account', /me@work\.dev/)
     await waitFor(() =>
-      expect(window.cockpit.listAgentModels).toHaveBeenCalledWith('claude', '/home/dev/.claude-work')
+      expect(window.cockpit.listAgentModels).toHaveBeenCalledWith('claude', { configDir: '/home/dev/.claude-work' })
     )
+  })
+
+  it('asks for the chosen Copilot login’s models — logins in one home each have their own', async () => {
+    window.localStorage.setItem('cockpit:provider', 'copilot')
+    vi.mocked(window.cockpit.getAccounts).mockResolvedValue({
+      accounts: [
+        {
+          provider: 'copilot',
+          path: '/home/dev/.copilot',
+          label: 'default',
+          identity: 'octo',
+          users: ['octo', 'octo_work'],
+          activeUser: 'octo',
+          isDefault: true
+        }
+      ],
+      githubUser: null
+    })
+    vi.mocked(window.cockpit.listAgentModels).mockImplementation(async (_provider, account) =>
+      account?.copilotUser === 'octo_work'
+        ? [
+            { id: 'auto', label: 'auto', description: 'Copilot picks the model' },
+            { id: 'claude-opus-5.5', label: 'Claude Opus 5.5', description: 'powerful' }
+          ]
+        : [{ id: 'auto', label: 'auto', description: 'Copilot picks the model' }]
+    )
+    const onStart = renderNew()
+    await screen.findByRole('button', { name: /^Account/ })
+    await choose('Account', /@octo_work/)
+    await waitFor(() =>
+      // the default home goes unnamed, as a turn's does; main resolves it
+      expect(window.cockpit.listAgentModels).toHaveBeenCalledWith('copilot', { copilotUser: 'octo_work' })
+    )
+    await choose('Model', /^Claude Opus 5\.5/)
+    // the other login can't run it: the pick is dropped, never run behind a picker showing default
+    await choose('Account', /^@octo$/)
+    await waitFor(() => expect(screen.getByLabelText('Model')).toHaveTextContent('default'))
+    const req = await start(onStart)
+    expect(req.account.copilotUser).toBe('octo')
+    expect(req.options.model).toBeUndefined()
   })
 
   it('drops a model and level the new agent doesn’t have', async () => {

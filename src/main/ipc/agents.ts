@@ -12,6 +12,7 @@ import { listAgentModels } from '../agent-models'
 import { getUsage } from '../usage'
 import { getProfile } from '../profile'
 import type { Services } from '../services'
+import { asRecord } from '../../shared/guards'
 import { asProvider, optionalConfigDir } from './guards'
 import { openInTerminal } from './terminal'
 
@@ -35,9 +36,15 @@ export function registerAgentHandlers(s: Services): void {
     const provider = asProvider(agent)
     return signInState(provider, optionalConfigDir(configDir, provider))
   })
-  ipcMain.handle(CH.accountsModels, (_e, agent: unknown, configDir: unknown) => {
+  ipcMain.handle(CH.accountsModels, (_e, agent: unknown, account: unknown) => {
     const provider = asProvider(agent)
-    return listAgentModels(provider, optionalConfigDir(configDir, provider))
+    const a = asRecord(account)
+    // the login is only ever matched against the logins Copilot itself names
+    const login = a?.copilotUser
+    return listAgentModels(provider, {
+      configDir: optionalConfigDir(a?.configDir, provider),
+      copilotUser: typeof login === 'string' && login && login.length <= 100 ? login : undefined
+    })
   })
 
   ipcMain.handle(CH.cliStatus, (_e, force: unknown) => listCliStatus({ force: force === true }))

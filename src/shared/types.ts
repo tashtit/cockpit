@@ -723,6 +723,14 @@ export type AgentOptions = {
 }
 
 /** One model an agent CLI can run, as the model picker lists it. */
+/** Who an agent runs as: a config home, and in Copilot's one of the logins signed in there */
+export type AgentAccount = {
+  /** Config home (CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME); unset = the provider default */
+  readonly configDir?: string
+  /** Copilot: which logged-in GitHub user; unset = whoever Copilot runs as now */
+  readonly copilotUser?: string
+}
+
 export type AgentModel = {
   /** What goes to the CLI's --model */
   readonly id: string

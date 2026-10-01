@@ -62,7 +62,7 @@ export function HandoffView({
   // point of a handoff is usually the switch
   const choice = useAgentChoice(() => PROVIDERS.find((p) => p !== source.provider) ?? 'claude')
   const { provider, mode } = choice
-  const agent = useAgentOptions(provider, choice.account?.configDir)
+  const agent = useAgentOptions(provider, choice.account)
   const [briefing, setBriefing] = useState('')
   const [cwdExists, setCwdExists] = useState(true)
   const [warnings, setWarnings] = useState<string[]>([])

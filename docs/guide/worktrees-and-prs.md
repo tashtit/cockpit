@@ -73,7 +73,7 @@ YOLO disables the agent's approval gates entirely. Use it only on repositories y
 
 The New session and Handoff forms also expose per-agent session options, validated in the main process before they ever reach a command line:
 
-- **Model** — picked from every model the agent offers under the chosen account, the same list a [roundtable seat](./roundtables.md#seats) picks from: Claude Code's aliases (`fable`, `opus`, `sonnet`, `haiku`) and current full names, Codex's own cached catalog, Copilot's `auto` plus the models your recent Copilot sessions have run. On a [custom provider](./custom-providers.md) it is that provider's own list; one that lists nothing (an Azure deployment) takes a typed name instead. Leave it on **default** for the CLI's own choice.
+- **Model** — picked from every model the agent offers under the chosen account, the same list a [roundtable seat](./roundtables.md#seats) picks from: Claude Code's aliases (`fable`, `opus`, `sonnet`, `haiku`) and current full names, Codex's own cached catalog, Copilot's `auto` plus the models Copilot says the chosen GitHub login may pick (each login its own list). On a [custom provider](./custom-providers.md) it is that provider's own list; one that lists nothing (an Azure deployment) takes a typed name instead. Leave it on **default** for the CLI's own choice.
 - **Thinking** — how hard the agent reasons: the levels the chosen model takes, with its default shown where the agent says (Codex does, per model).
 - **Sandbox mode** — Codex.
 

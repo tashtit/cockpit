@@ -130,8 +130,7 @@ const api: CockpitApi = {
   openCliUpdateHomebrew: (providers) => ipcRenderer.invoke(CH.cliUpdateHomebrew, providers),
   openCliChannelRefresh: (provider) => ipcRenderer.invoke(CH.cliRefreshChannel, provider),
   signInState: (provider, configDir) => ipcRenderer.invoke(CH.accountsSignIn, provider, configDir),
-  listAgentModels: (provider, configDir) =>
-    ipcRenderer.invoke(CH.accountsModels, provider, configDir),
+  listAgentModels: (provider, account) => ipcRenderer.invoke(CH.accountsModels, provider, account),
   getUsage: () => ipcRenderer.invoke(CH.usageGet),
   getModelEndpoints: () => ipcRenderer.invoke(CH.endpointsGet),
   addModelEndpoint: (ep) => ipcRenderer.invoke(CH.endpointsAdd, ep),

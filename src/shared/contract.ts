@@ -23,6 +23,7 @@ import type {
   AcpAgent,
   AcpAgentProbe,
   AcpReadiness,
+  AgentAccount,
   AgentModel,
   CliStatus,
   AppInfo,
@@ -327,8 +328,8 @@ export type CockpitApi = {
   /** Open Terminal on `brew update` — refreshes what Homebrew knows, for a CLI whose
    *  channel is behind the release. Only for a Homebrew install. */
   readonly openCliChannelRefresh: (provider: Provider) => Promise<void>
-  /** Every model an agent offers under one config home — the model pickers list these */
-  readonly listAgentModels: (provider: Provider, configDir?: string) => Promise<AgentModel[]>
+  /** Every model an agent offers under one account (in Copilot's, one signed-in login) — the model pickers list these */
+  readonly listAgentModels: (provider: Provider, account?: AgentAccount) => Promise<AgentModel[]>
   /** Current subscription usage per configured provider account */
   readonly getUsage: () => Promise<UsageSnapshot>
   /** Aggregate cross-agent work profile (heatmap, per-agent totals, languages) */

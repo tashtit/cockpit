@@ -130,6 +130,16 @@ export function userDataDir(): string {
   return app.getPath('userData')
 }
 
+/**
+ * The empty folder of Cockpit's own an agent CLI starts in when it needs no project —
+ * an ACP handshake, Copilot's model listing: never home, whose tree some agents read on
+ * start (from home that walk reaches the Music and Photos libraries, and macOS asks),
+ * and never a repository. Each caller creates it when missing.
+ */
+export function agentProbeDir(): string {
+  return join(userDataDir(), 'acp-probe')
+}
+
 function configPath(): string {
   return join(userDataDir(), 'cockpit-config.json')
 }
