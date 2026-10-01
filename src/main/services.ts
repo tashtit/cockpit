@@ -1,6 +1,5 @@
-import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import type { AcpAgent, AcpReadiness, BusySession, ChatRequest, PrStatus, SessionMeta, SessionProvider } from '../shared/types'
+import type { AcpAgent, AcpAgentProbe, AcpReadiness, BusySession, ChatRequest, PrStatus, SessionMeta, SessionProvider } from '../shared/types'
 import { PUSH } from '../shared/contract'
 import { acpCanReopen, acpStoreRefusal, BUILTIN_ACP_AGENTS, builtinAgentFor } from '../shared/acp'
 import { AGENT_LABEL, isDrivable, SESSION_PROVIDERS } from '../shared/providers'
@@ -81,6 +80,8 @@ export type Services = {
   readonly acpReadiness: (opts?: { readonly recheck?: boolean }) => AcpReadiness
   /** Tell the window what `acpReadiness` now says — an ACP agent was added or removed */
   readonly pushAcpReadiness: () => void
+  /** An agent's handshake, run in Cockpit's own empty folder — see `probeAcpAgent` */
+  readonly probeAcp: (agent: AcpAgent) => Promise<AcpAgentProbe>
 }
 
 /** The index's view of the config — applied at startup and again after a restore. */
@@ -229,9 +230,12 @@ export function startServices(): Services {
    * its CLI path, and an agent Cockpit otherwise only reads stays read-only: the worst case
    * of a slow or missing CLI is the behaviour Cockpit had before ACP existed.
    */
+  // the one folder every handshake runs in: never home, whose tree some agents read on
+  // start, and never a repository, which a definition still being tested must not be handed
+  const probeAcp = (agent: AcpAgent): Promise<AcpAgentProbe> => probeAcpAgent(agent, join(userDataDir(), 'acp-probe'))
   const builtins = new BuiltinReadiness({
     // after the login shell's PATH: an npm-installed CLI is on no other
-    probe: (agent) => loginPathReady().then(() => probeAcpAgent(agent, homedir())),
+    probe: (agent) => loginPathReady().then(() => probeAcp(agent)),
     onChange: () => pushAcpReadiness()
   })
   const acpAgentFor = (provider: SessionProvider): AcpAgent | undefined => {
@@ -411,6 +415,7 @@ export function startServices(): Services {
     cleanupDeps,
     acpAgentFor,
     acpReadiness,
-    pushAcpReadiness
+    pushAcpReadiness,
+    probeAcp
   }
 }

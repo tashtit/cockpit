@@ -20,6 +20,10 @@ Cockpit runs one ACP handshake per agent at startup. If your CLI answers it, new
 for that agent go over the protocol; if it doesn't — an older CLI, or one that never
 supported it — nothing changes and sessions run exactly as they did before.
 
+The handshake runs in an empty folder of Cockpit's own, never your home folder: some
+agents read every file under the folder they start in, and started from home that walk
+would have macOS ask you to let Cockpit into your Music and Photos libraries.
+
 Nothing about your session history changes either. An ACP session is written to the same
 place that CLI always wrote to, so it appears in the sidebar, resumes, and reports live
 status like any other.
