@@ -49,7 +49,7 @@ Cockpit installs updates itself: it downloads the release zip, checks it against
 
 The sidebar's update bar then reads **Update failed**, and clicking it opens **Settings › About**, which says why, verbatim, and nothing downloads on its own until you press **Check for updates** (which is also how you retry: the build stays downloaded, so it costs no second fetch).
 
-Two causes are worth knowing:
+Three causes are worth knowing:
 
 - **"Could not move /Applications/Cockpit.app aside"** — the folder holding the app is not writable by you. Move Cockpit somewhere you own, or install it with an admin account.
 - **"the download does not match the checksum the release publishes"** — the fetch was corrupted or intercepted. Retrying is safe; nothing from a mismatched download is ever unpacked.
@@ -66,8 +66,10 @@ Whatever the cause, replacing the app by hand always works: download the disk im
 Work through these in order:
 
 1. **History window** — if **Settings › View** has a history window set, sessions idle longer than N days are hidden (not deleted). Widen or clear the window.
-2. **Archived in the provider's own app** — sessions archived or deleted in Copilot (`data.db`), Codex (`archived_sessions/`), or the Claude desktop app are hidden entirely, by design.
-3. **Copilot specifically** — its session format is the least documented, and the parser is best-effort. If your Copilot sessions don't appear, report it with **Settings › About › Sessions missing or wrong** and attach one file from `~/.copilot` if you can (redact anything sensitive); the parser lives in `src/main/parsers/copilot.ts`.
+2. **The sidebar's filter** — the eye button beside the search field can hide an agent (unticked under *Agents*) or one side (**In Cockpit** or **Outside Cockpit**). While it does, a strip under the search field says *Only sessions …*; **Show all** there clears it. See [Filtering by agent](/guide/sessions#filtering-by-agent).
+3. **Archived in the provider's own app** — sessions archived or deleted in Copilot (`data.db`), Codex (`archived_sessions/`), or the Claude desktop app are hidden entirely, by design.
+4. **A home you removed** — a folder removed in **Settings › Accounts**, such as one under *Other agents · read only*, stays removed: detection never adds it back. Add it again with **Add a config home…** there. See [Agents Cockpit reads](/guide/sessions#agents-cockpit-reads).
+5. **Copilot specifically** — its session format is the least documented, and the parser is best-effort. If your Copilot sessions don't appear, report it with **Settings › About › Sessions missing or wrong** and attach one file from `~/.copilot` if you can (redact anything sensitive); the parser lives in `src/main/parsers/copilot.ts`.
 
 Session log formats are provider-internal and drift between releases — Cockpit's parsers deliberately skip what they can't read rather than fail the whole scan, so a parser gap shows up as missing sessions, never a broken app. Still missing, or listed with the wrong title, project, branch or time? **Sessions missing or wrong** is for that too, whichever agent the session came from.
 

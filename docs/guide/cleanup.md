@@ -89,7 +89,7 @@ Every list but Processes has a filter bar. Free text on the left searches titles
 
 | | |
 |---|---|
-| Sessions | Agent, Project, State (has a worktree, archived, blocked) |
+| Sessions | Agent, Project, State (has a worktree, no worktree, archived, blocked) |
 | Roundtables | Agent (any seat), Project, State (has a worktree, scratch room, archived, blocked) |
 | Worktrees | Agent (whose sessions ran in it, or **No agent** for one no session claims), Origin, Project, State (removable, blocked, unpushed, directory gone) |
 

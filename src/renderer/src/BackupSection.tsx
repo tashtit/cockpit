@@ -177,7 +177,7 @@ export function BackupSection({
             <div className="source-note">
               {preview
                 ? `From ${new Date(preview.createdAt).toLocaleString()} · ${preview.counts.entries} library entries · ${preview.counts.skills} skills · ${preview.counts.endpoints} providers`
-                : 'Nothing already here is replaced or deleted — a restore only adds what is missing.'}
+                : 'A restore adds what is missing and deletes nothing. It takes four settings from the backup: the history window, idle threshold, time format and branch prefix.'}
             </div>
             {preview && preview.commands.length > 0 && (
               <div className="source-note">

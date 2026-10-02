@@ -25,8 +25,10 @@ agents read every file under the folder they start in, and started from home tha
 would have macOS ask you to let Cockpit into your Music and Photos libraries.
 
 Nothing about your session history changes either. An ACP session is written to the same
-place that CLI always wrote to, so it appears in the sidebar, resumes, and reports live
-status like any other.
+place that CLI always wrote to, so it appears in the sidebar and resumes like any other.
+It shows as running while Cockpit runs its turn. Copilot's sessions also show as running
+when you run them elsewhere; those of Gemini CLI, Cursor, Cline and opencode don't — one
+you run in a terminal never shows as busy.
 
 An agent that starts but never answers, because it is stuck or waiting for input only a
 terminal could give it, doesn't leave the turn spinning until you stop it. The turn fails

@@ -48,11 +48,13 @@ Claude Code and Copilot send a provider's key the same way, and so does the mode
 - **Gateways set to Bearer**: Claude Code gets `ANTHROPIC_AUTH_TOKEN`, Copilot gets `COPILOT_PROVIDER_BEARER_TOKEN`.
 - **OpenAI-compatible and Azure**: Copilot gets `COPILOT_PROVIDER_API_KEY`, sent as that API's own header.
 
-A session on a provider carries that provider's key and no other. Every other credential variable the agent reads is set to empty, so a key exported in your shell never reaches the provider. A provider with no key (a local Ollama, a keyless gateway) is sent the placeholder `cockpit-no-key` in the same header: left with no key at all, Claude Code would fall back to your own Claude sign-in and send its token to the provider. A provider added before this choice existed keeps working as it did. The one change is Claude against `api.anthropic.com`, which now gets `x-api-key`: that API never accepted the bearer token Claude used to send it.
+A session on a provider carries that provider's key and no other. Every other credential variable the agent reads is set to empty, so a key exported in your shell never reaches the provider. A provider with no key (a local Ollama, a keyless gateway) gets no key from Copilot or from the model listing. Claude Code sends the placeholder `cockpit-no-key` in the same header instead: left with no key at all, it would fall back to your own Claude sign-in and send its token to the provider. A provider added before this choice existed keeps working as it did. The one change is Claude against `api.anthropic.com`, which now gets `x-api-key`: that API never accepted the bearer token Claude used to send it.
 
 ## Where the key lives
 
 The API key is **not** part of the provider definition and never lands in Cockpit's config file. It's encrypted with the OS keychain (Electron `safeStorage`) into a separate store, decrypted only at spawn time, and injected into the agent's environment for that one turn.
+
+A provider without a key reads **no key** in its row, with an **Add key** button beside it. That is how a provider restored from a [backup](/guide/backup) made without a passphrase gets its key back, without removing and re-adding it.
 
 ## Sessions remember their provider
 

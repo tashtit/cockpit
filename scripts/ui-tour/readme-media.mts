@@ -258,7 +258,7 @@ async function socialCard(): Promise<void> {
       <img class="logo" src="${file('resources/icon-original.webp')}">
       <h1>Cockpit</h1>
       <p>Every agent session, in every repo — <b>one window</b>.</p>
-      <div class="chips">${chip('Claude Code', '#d97757')}${chip('Codex', '#10a37f')}${chip('Copilot CLI', '#9a7bff')}</div>
+      <div class="chips">${chip('Claude Code', '#d97757')}${chip('Codex', '#10a37f')}${chip('Copilot CLI', '#9a7bff')}${chip('+ 6 more', '#96a5b4')}</div>
     </div>
     <div class="meta">macOS · open source · github.com/tashtit/cockpit</div>
   </body></html>`

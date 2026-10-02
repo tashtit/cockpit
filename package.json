@@ -2,7 +2,7 @@
   "name": "cockpit",
   "productName": "Cockpit",
   "version": "0.0.0",
-  "description": "Unified desktop hub for Claude Code, Codex, and GitHub Copilot sessions",
+  "description": "Unified desktop hub for coding-agent sessions: Claude Code, Codex and GitHub Copilot, plus Gemini CLI, Cursor, Cline, Roo Code, opencode and Antigravity",
   "author": "tashtit",
   "main": "./out/main/index.js",
   "private": true,

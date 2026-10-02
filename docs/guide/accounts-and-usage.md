@@ -4,7 +4,7 @@ Cockpit knows who each agent CLI is signed in as, supports multiple accounts per
 
 ## Agent accounts
 
-Each provider records its signed-in identity in its config home, and Cockpit reads (never writes) it:
+Each provider records its signed-in identity in its config home, and Cockpit reads it:
 
 | Provider | Where identity lives |
 | --- | --- |
@@ -13,9 +13,11 @@ Each provider records its signed-in identity in its config home, and Cockpit rea
 | Copilot CLI | `config.json` (native multi-account) |
 | GitHub CLI | `gh` signed-in user — used for PR operations |
 
+The one identity Cockpit changes is Copilot's. Before a Copilot turn under a login you picked, it sets `lastLoggedInUser` in Copilot's `config.json` to that login, which is what `copilot` itself does when you switch accounts. A `copilot` you start yourself afterwards runs as that login too.
+
 Under GitHub, **Branch prefix** sets what the branches Cockpit cuts for new work start with — `cockpit/` unless your team's rules ask for something else. See [Branch prefix](/guide/worktrees-and-prs#branch-prefix).
 
-Identity chips appear throughout the app, so it's always visible which account a session ran under — and when a provider has several config homes, starting a task lets you pick the account.
+Identity chips appear throughout the app, so it's always visible which account a session ran under — and when a provider has several config homes, starting a task lets you pick the account. For Copilot, each GitHub login signed in to a home is an account of its own, and the model picker lists the models Copilot offers that login.
 
 ## Sources: multiple config homes
 
@@ -37,6 +39,10 @@ The same rows in **Settings › Accounts** show what each subscription is consum
 Cockpit never proxies your accounts and never holds tokens for them — it observes what the CLIs record locally, plus public APIs where available. Your authentication stays exactly where the providers put it.
 :::
 
+### In the sidebar
+
+The same numbers sit at the foot of the sidebar, one cell per agent, so you can pick who gets the next task without opening Settings. A cell shows how much of its tightest limit is used, or a count when the agent reports no limit (Claude's local measurement, Copilot's requests). It carries a warning mark from 80%, or once Copilot bills requests beyond your plan. When an agent has several config homes, its cell shows the one closest to its limit. Hover a cell for each window's detail and when it resets; click to open **Settings › Accounts**. An agent gets a cell only once it has numbers to show.
+
 ## Signing in from Cockpit
 
 Each config home's row checks, with the agent's own CLI, whether it is actually signed in — the email Cockpit shows is what the config file remembers, and that outlives an expired session. A home that is **signed out** (or has nobody signed in) says so, with the command that fixes it and a **Sign in…** button. The button opens Terminal on that agent's own sign-in (`claude auth login`, `codex login`, `copilot login`, with the home's `CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `COPILOT_HOME` when it isn't the default); you finish it there — in the browser, or with a device code — and the row updates by itself when you come back. Cockpit never sees your credentials.
@@ -49,9 +55,9 @@ Cockpit runs the agents' command-line tools. The Codex app and the `codex` CLI s
 
 ## Agent CLIs
 
-The **Agent CLIs** group lists each CLI Cockpit runs: the version installed, where it lives, and where it gets updates — "via Homebrew", "via npm", or "via its own updater". Checked when the tab opens, at most once an hour; **Check for updates** asks again.
+The **Agent CLIs** group lists each CLI Cockpit runs: the version installed, where it lives, and where it gets updates — "via Homebrew", "via npm", "via its own installer" for a native Claude or Codex install, or "via its own updater" for Copilot. Checked when the tab opens, at most once an hour; **Check for updates** asks again.
 
-A CLI is compared against **the channel it can actually update from**, not against the newest release anywhere: a Homebrew install can only get what Homebrew has packaged. So the row offers an **Update…** only when that channel really has something newer, and hovering the button shows the exact command (`brew update && brew upgrade --cask claude-code`, `npm install -g @openai/codex@latest`, or `copilot update`, since Copilot updates itself in place). The row picks up the new version by itself once the update finishes.
+A CLI is compared against **the channel it can actually update from**, not against the newest release anywhere: a Homebrew install can only get what Homebrew has packaged. So the row offers an **Update…** only when that channel really has something newer, and hovering the button shows the exact command (`brew update && brew upgrade --cask claude-code`, `npm install -g @openai/codex@latest`, `claude update` for a native Claude install, or `copilot update`, since Copilot updates itself in place). The row picks up the new version by itself once the update finishes.
 
 When a newer version exists that your channel hasn't packaged yet, the row says so — "2.1.278 is out, but Homebrew hasn't packaged it yet" — and stays **up to date**, because there is nothing to run.
 

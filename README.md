@@ -23,7 +23,7 @@
 ## Why Cockpit
 
 - **Your history is already there.** Cockpit reads the session logs Claude Code, Codex and Copilot CLI already write, so the first launch lists every session you have run — in a terminal, an editor or the agents' own apps — grouped by repository and branch, and it stays live as you work.
-- **Every agent's work in one place.** Sessions from Gemini CLI, Cursor, Cline, Roo Code, opencode and Antigravity, found wherever they are installed, sit beside the rest to read and search, and any of them continues in Claude Code, Codex or Copilot with one click.
+- **Every agent's work in one place.** Sessions from Gemini CLI, Cursor, Cline, Roo Code, opencode and Antigravity, found wherever they are installed, sit beside the rest to read and search. Gemini CLI, Cursor, Cline and opencode take new turns of their own over ACP, and any of the six continues in Claude Code, Codex or Copilot with one click.
 - **It tells you when an agent needs you.** The board shows what is flying, what has landed and what is waiting on your answer. A notification and a Dock badge arrive when a turn ends, fails or asks you a question, and when a pull request on your branch goes red.
 - **Work lands as a pull request.** A new task runs on its own branch in its own git worktree, never in your checkout. Review the diff, open the PR, and when checks fail or a reviewer asks for changes, **Fix with Claude** turns all of it into one prompt.
 
@@ -65,9 +65,9 @@ Either one installs the latest release for your Mac, checked against the SHA-256
 
 Prefer the disk image? It is on the [latest release](https://github.com/tashtit/cockpit/releases/latest). Releases are not signed with an Apple Developer ID yet, so macOS blocks a browser download's first launch once — [Getting started](https://tashtit.github.io/cockpit/guide/getting-started) walks through it.
 
-**Needs** macOS 13 or later (Apple silicon or Intel) and at least one of Claude Code, Codex or Copilot CLI. The pull request features use the GitHub CLI (`gh`).
+**Needs** macOS 13 or later (Apple silicon or Intel) and at least one of the agents above. The pull request features use the GitHub CLI (`gh`).
 
-**Privacy.** No account and no telemetry. Everything Cockpit shows comes from files on your Mac and stays there. It goes online only for update checks and your pull requests (GitHub), to see whether your agent CLIs are current (the npm registry), and to reach any model provider you add yourself.
+**Privacy.** No account and no telemetry. Everything Cockpit shows comes from files on your Mac and stays there. It goes online only for update checks, your pull requests and the marketplace catalogues you look up (GitHub); to see whether your agent CLIs and MCP servers are current (the npm registry, PyPI); to search the MCP Registry when you do; to check that an MCP server you set up answers; and to reach any model provider you add yourself.
 
 ## Feedback
 

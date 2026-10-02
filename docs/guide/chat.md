@@ -10,9 +10,10 @@ When you send a message, Cockpit launches the provider CLI in the session's work
 | --- | --- |
 | Claude Code | `claude -p --output-format stream-json` |
 | Codex | `codex exec --json` |
-| Copilot CLI | `copilot -p` |
+| Copilot CLI | `copilot --acp`, or `copilot -p` if the CLI doesn't answer Cockpit's ACP handshake |
+| Gemini CLI, Cursor, Cline, opencode | the agent's own ACP server; see [ACP agents](/guide/acp-agents#agents-cockpit-otherwise-only-reads) |
 
-The structured event stream (where the provider has one) is parsed into messages, tool calls, and results. Multi-turn conversation works through each provider's native resume (`--resume` for Claude, `exec resume` for Codex), so a chat started in Cockpit is a normal session you could equally continue from a terminal — and vice versa.
+The structured event stream (where the provider has one) is parsed into messages, tool calls, and results. Multi-turn conversation works through each provider's native resume (`--resume` for Claude, `exec resume` for Codex, reopening the session over [ACP](/guide/acp-agents)), so a chat started in Cockpit is a normal session you could equally continue from a terminal — and vice versa.
 
 ## Continuing an indexed session
 
@@ -51,10 +52,12 @@ the transcript follows the log — every write the index notices re-reads it, so
 conversation grows on screen as the agent works — and the chat carries the same pulsing
 line the board does, *Claude is working elsewhere…*.
 
-**Send waits for it.** Cockpit cannot stop a turn it did not start, and resuming a session
-under one would run a second turn on the same log (Claude forks the conversation; Codex
-and Copilot append to the same file). The button lifts on its own once the log goes
-quiet — the windows are the ones in [Flying and landed](/guide/sessions#flying-and-landed):
+**Take over waits for it.** **Send** stays off until you take the session over, and
+**Take over** waits while the turn runs. Cockpit cannot stop a turn it did not start, and
+resuming a session under one would run a second turn on the same log (Claude forks the
+conversation; Codex and Copilot append to the same file). On a session Cockpit already
+holds, **Send** waits the same way if a turn starts in a terminal anyway. The wait ends on
+its own once the log goes quiet — the windows are the ones in [Flying and landed](/guide/sessions#flying-and-landed):
 a minute and a half after the last write, ten minutes while a tool call is still waiting
 for its result, and for as long as the agent is still waiting there on a question it asked.
 Your draft stays in the composer meanwhile.
@@ -239,8 +242,9 @@ is answered by a throwaway copy of the conversation as it stands, so:
 | Claude Code | `claude -p --resume <id> --fork-session --no-session-persistence`, with only the Read, Grep and Glob tools, no MCP servers and no hooks — yours, the repo's or a plugin's |
 | Codex | `codex exec fork <id> --ephemeral`, in a read-only sandbox that never asks to leave it, whatever permission profile your own Codex config sets |
 
-Copilot CLI can't copy a session or run without saving one, so its sessions have no side
-chat. A roundtable seat's session doesn't have one either. The copy runs as the session's
+Only Claude Code and Codex have a side chat. Copilot CLI can't copy a session or run
+without saving one, and no copy can be asked for over ACP, so Copilot's sessions and those
+of the agents Cockpit reads have none. A roundtable seat's session doesn't have one either. The copy runs as the session's
 account, and on its custom provider if it has one.
 
 Follow-up questions build on each other: every answer so far goes along with the next
@@ -267,10 +271,10 @@ asks the original agent to write the briefing itself instead.
 
 Cockpit smooths over the differences it can, and is honest about the ones it can't:
 
-- **Copilot streams plain text** — no structured events. A *new* Copilot chat can't learn its session id mid-conversation, so the session appears in the sidebar after the first turn; click it there to continue with proper resume. (Claude and Codex bind their session id from the first response.)
+- **Copilot without ACP streams plain text** — Copilot turns run over `copilot --acp`, which reports typed events and the session id as the session starts. If the CLI doesn't answer Cockpit's ACP handshake, the turn falls back to `copilot -p`: no structured events, and a *new* chat can't learn its session id mid-conversation, so the session appears in the sidebar after the first turn; click it there to continue with proper resume. (Claude and Codex bind their session id from the first response.)
 - **Codex event shapes changed between releases** — both the old (`msg.type`) and new (`thread.started` / `item.completed`) stream formats are handled, so old and new CLI versions both work.
 - **Newer Codex runs its tools from a script** — rather than calling tools one at a time, it writes a short JavaScript cell that calls them. A transcript shows what the cell ran, one row per command, MCP call, web search or viewed image, with each command's exit status: the same rows a live turn streams, not the script itself. A session whose log records no individual runs shows each script as one `exec` row instead, named after the first tool it calls (`git status (+2 more)`).
-- **Safe mode can block tools** — in headless mode, provider defaults may refuse tool use entirely. If an agent reports it can't run tools, that's the permission mode, not a bug; see [permission modes](/guide/worktrees-and-prs#permission-modes).
+- **Not every agent can ask for permission** — in Safe mode, a Claude or ACP turn stops and asks you in the chat before anything its mode doesn't allow. Codex can't ask while Cockpit runs it, and neither can Copilot without ACP, so they refuse it instead. If one of them reports it can't run a tool, that's the permission mode, not a bug; see [permission modes](/guide/worktrees-and-prs#permission-modes).
 
 ::: tip Which model?
 **New session**'s per-agent options pick the model and thinking level for any agent, from the models that agent offers under your account — and if you've configured [custom providers](/guide/custom-providers), the model picker lists their catalogs too.

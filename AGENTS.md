@@ -17,6 +17,7 @@ release mechanics for people are in [CONTRIBUTING.md](CONTRIBUTING.md).
 - `npm run sounds` — rewrites the notification sounds in `resources/sounds/` from their definitions in `scripts/sounds-core.mts`
 - `npm run package` — macOS dmg + zip into `dist/` (unsigned without Apple credentials; version `0.0.0` outside a release); `npm run test:packaged` — opt-in smoke test of that `.app`, on the real userData dir
 - `npm run ui:tour` — builds, then screenshots every view and state against a hermetic fixture world into `test-results/ui-tour/index.html`; `-- --only chat,settings` narrows it, `-- --no-live` skips the live turns
+- `npm run ui:readme` — builds, then records the README hero, stills and social card from the same fixture world into `docs/public/readme/`; `-- --only stills,card,hero` narrows it (the hero needs `ffmpeg`)
 - `npm run docs:dev` — the user guide (VitePress, `docs/`); `docs:build` / `docs:preview` for the built site
 - `npm run stats` — adoption numbers from read-only `gh api` calls, no telemetry
 

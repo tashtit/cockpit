@@ -28,8 +28,10 @@ import { capRecent } from './recent-map'
  * A bundle holds everything of Cockpit's own worth keeping — sources, instruction
  * baselines, library entries and the skills behind them, provider definitions, the
  * session maps — and never session logs, worktrees or the index (rebuildable or
- * machine-local). Restore is a merge that only ever adds: re-running a file is a no-op,
- * and restored library entries land `pending`, never written into agent configs.
+ * machine-local). Restore is a merge that adds and never deletes: re-running a file is a
+ * no-op, and restored library entries land `pending`, never written into agent configs.
+ * Four settings are the exception and take the backup's value — the history window, the
+ * stale threshold, the time format and the branch prefix — so the UI and the guide say so.
  */
 
 export const BUNDLE_FORMAT = 'cockpit-backup'
