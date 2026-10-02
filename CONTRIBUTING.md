@@ -2,11 +2,11 @@
 
 ## Prerequisites
 
-- **macOS** — the primary target (the app indexes `~/.claude`, `~/.codex`, `~/.copilot` and is dark-mode-only). Linux works for development and CI.
+- **macOS** — the primary target (the app indexes `~/.claude`, `~/.codex`, `~/.copilot`, and the homes of the agents it only reads — `~/.gemini`, `~/.cursor`, `~/.cline/data`, `~/.local/share/opencode` and the editors' storage — and is dark-mode-only). Linux works for development and CI.
 - **Node 24** — pinned in [`.nvmrc`](.nvmrc); run `nvm use` (or your version manager's equivalent) before installing.
 - **npm 11** — the one Node 24 bundles, pinned as `packageManager` in `package.json`. It is also the npm Dependabot regenerates the lockfile with, so CI, the bot and your machine all write the same lockfile shape (npm 10 reads that shape as out of sync). The repo ships a `package-lock.json`; install with `npm ci` to match CI exactly.
 - **git**, and the **GitHub CLI (`gh`)** if you want the PR features to work at runtime (not needed to build or test).
-- Optional: the `claude` / `codex` / `copilot` CLIs. Without them the app runs with an empty session index; tests don't need them — they run against fixtures written to a tmpdir.
+- Optional: the `claude` / `codex` / `copilot` CLIs. Without them the app indexes only the sessions of the agents it reads but does not run (an empty index if there are none); tests don't need them — they run against fixtures written to a tmpdir.
 
 ## Setup
 
@@ -76,13 +76,13 @@ A dev run has no bundle of its own: `npm run dev` launches the stock `Electron.a
 
 - **Conventional Commits** (`feat(indexer): …`, `fix(parser): …`, `docs: …`), matching existing history.
 - **UI work**: read `design-system/cockpit/MASTER.md` first. Components use the design tokens from the `:root` block of `src/renderer/src/style.css` — never raw hex. Dark mode only.
-- Session log parsers must stay failure-tolerant and bounded (≤256 KB per file read) — provider formats drift between releases; skip what you can't read rather than fail the scan.
+- Session log parsers must stay failure-tolerant and bounded (every read capped: 256 KB of a log for a session's metadata, a few MB for its transcript) — provider formats drift between releases; skip what you can't read rather than fail the scan.
 
 ## Where the code lives
 
 [AGENTS.md](AGENTS.md) has the map of the code and the rules that span modules. It is written for AI agents, and reads fine for people. Each module's own header comment is its spec: read it before changing the module, and keep it true in the same change.
 
-The Copilot parser is the most best-effort of the three (its log format is the least documented). Reports of sessions that don't show up arrive through the **Sessions missing or wrong** issue form, with the agent and its CLI version; the fix usually lives in `src/main/parsers/copilot.ts`.
+Of the three agents Cockpit runs, Copilot's parser is the most best-effort (its log format is the least documented); the six it only reads keep stores just as internal, some of them protobuf with no published schema. Reports of sessions that don't show up arrive through the **Sessions missing or wrong** issue form, with the agent and its CLI version; the fix usually lives in that agent's parser under `src/main/parsers/`.
 
 ## Runtime dependencies
 
@@ -99,7 +99,7 @@ Adding a runtime dependency means adding a row here in the same pull request, wi
 
 ## Packaging
 
-`npm run package` builds `out/` and then runs electron-builder (`electron-builder.config.js`) for macOS: a `.dmg` and a `.zip` for each of arm64 and x64 land in `dist/`, plus `latest-mac.yml`, the manifest the in-app updater reads. Locally the result is unsigned — macOS asks you to clear the quarantine flag (README, "Install") — and versioned `0.0.0`: the real version is stamped at release time and never committed, which is why `package.json` says `0.0.0`.
+`npm run package` builds `out/` and then runs electron-builder (`electron-builder.config.js`) for macOS: a `.dmg` and a `.zip` for each of arm64 and x64 land in `dist/`, plus `latest-mac.yml`, the manifest the in-app updater reads. Locally the result is unsigned — macOS asks you to clear the quarantine flag ([Getting started](https://tashtit.github.io/cockpit/guide/getting-started)) — and versioned `0.0.0`: the real version is stamped at release time and never committed, which is why `package.json` says `0.0.0`.
 
 `npm run test:packaged` launches the bundle for your architecture under Playwright and checks that it boots as an installed app with the updater wired to GitHub Releases. Unlike the other e2e specs it uses your real userData directory and provider homes, because a packaged build refuses the `COCKPIT_USER_DATA` override by design.
 
@@ -124,7 +124,7 @@ Versions start at `0.1.0`: semantic-release only ever bumps from an existing tag
 
 ### Signing and notarization
 
-The package job reads its Apple credentials from the `release` [environment](https://github.com/tashtit/cockpit/settings/environments). Without them the build is ad-hoc signed and the README tells users how to open it; with them electron-builder signs with the hardened runtime (`build/entitlements.mac.plist`), notarizes and staples, Gatekeeper opens the app without a prompt, and the in-app updater can complete installs.
+The package job reads its Apple credentials from the `release` [environment](https://github.com/tashtit/cockpit/settings/environments). Without them the build is ad-hoc signed and [Getting started](https://tashtit.github.io/cockpit/guide/getting-started) tells users how to open it; with them electron-builder signs with the hardened runtime (`build/entitlements.mac.plist`), notarizes and staples, Gatekeeper opens the app without a prompt, and the in-app updater can complete installs.
 
 | Secret | What |
 | --- | --- |
