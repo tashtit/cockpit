@@ -17,6 +17,12 @@ body:
         - Claude Code
         - Codex
         - Copilot CLI
+        - Gemini CLI
+        - Cursor
+        - Cline
+        - Roo Code
+        - opencode
+        - Antigravity
         - Another agent over ACP
     validations:
       required: true
