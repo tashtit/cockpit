@@ -64,6 +64,22 @@ gh attestation verify ~/Downloads/Cockpit-<version>-arm64.dmg --owner tashtit
 The installer ends by printing the same check for the zip it installed.
 :::
 
+## First run
+
+On first launch Cockpit auto-detects `~/.claude`, `~/.codex`, and `~/.copilot` and indexes every session it finds there, grouped by git repository. There's nothing to configure: if you've used any of the three CLIs before, your history appears immediately, and the index updates live as you keep working in any terminal.
+
+It finds the sessions of Gemini CLI, Cursor, Cline, Roo Code, opencode and Antigravity the same way. It looks again on every launch, so an agent you install later shows up without a trip to Settings; see [Agents Cockpit reads](/guide/sessions#agents-cockpit-reads).
+
+If there is nothing to start work with yet — no agent signed in, or no repository indexed — Home shows a checklist, **Three things and you fly**, where the task composer would be:
+
+1. **Sign in to an agent** — run `claude`, `codex` or `copilot` once in a terminal and sign in. Cockpit never asks for credentials.
+2. **Point Cockpit at your work** — start a session in any git repository, or **Add a config home** if yours lives somewhere else.
+3. **Connect GitHub for pull requests** — run `gh auth login` so finished work can ship as a PR. Sessions run fine without it.
+
+Each step ticks itself off once it's done. The composer takes the checklist's place as soon as an agent is signed in and a repository is indexed.
+
+You can add further config homes — for example an isolated one for a second account — in **Settings › Accounts**; see [Accounts & usage](/guide/accounts-and-usage).
+
 ## Updating
 
 After the first launch, updating takes nothing. Cockpit checks GitHub Releases on launch and every few hours, fetches a newer build in the background, and swaps it in the next time you quit — so the launch after that is the new version. Nothing is ever replaced under a running session.
@@ -119,13 +135,7 @@ npm run dev
 That message means the first-run binary download failed — usually a proxy, firewall, or a corrupt cached download. See [Troubleshooting](/guide/troubleshooting#electron-failed-to-install-correctly) for the fix.
 :::
 
-### First run
-
-On first launch Cockpit auto-detects `~/.claude`, `~/.codex`, and `~/.copilot` and indexes every session it finds there, grouped by git repository. There's nothing to configure: if you've used any of the three CLIs before, your history appears immediately, and the index updates live as you keep working in any terminal.
-
-It finds the sessions of Gemini CLI, Cursor, Cline, Roo Code, opencode and Antigravity the same way. It looks again on every launch, so an agent you install later shows up without a trip to Settings; see [Agents Cockpit reads](/guide/sessions#agents-cockpit-reads).
-
-If a provider directory doesn't exist yet, Cockpit simply shows an empty state for it. You can add further config homes — for example an isolated one for a second account — in **Settings**; see [Accounts & usage](/guide/accounts-and-usage).
+On first launch, see [First run](#first-run).
 
 ### Everyday commands
 

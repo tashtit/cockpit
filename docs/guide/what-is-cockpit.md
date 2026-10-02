@@ -22,7 +22,7 @@ It also reads the sessions of **Gemini CLI**, **Cursor**, **Cline**, **Roo Code*
 
 Cockpit organizes around repositories, not providers:
 
-- The sidebar shows one **`owner/repo` row per repository**, with that repo's sessions from every provider underneath, ordered by last activity. Sessions in linked worktrees group under their main repo; the `owner/repo` identity comes from the origin remote.
+- The sidebar shows one **`owner/repo` row per repository**, A→Z or in the order you dragged them into, with that repo's sessions from every provider underneath, most recent first. Sessions in linked worktrees group under their main repo; the `owner/repo` identity comes from the origin remote.
 - New work follows an **always-worktrees, always-PRs** model: every task gets its own branch in an isolated git worktree, and finished work ships as a pull request via the GitHub CLI. Your checkout is never touched. See [Worktrees & PRs](/guide/worktrees-and-prs).
 - PR state badges (open, draft, merged, closed) appear on sessions, straight from `gh pr list`.
 
@@ -34,7 +34,11 @@ Sessions that don't belong to any repository land in a flat **Chats** section at
 - **Sessions.** Click any session for a parsed transcript — messages, tool calls, results. Type in an indexed session to continue it. See [Sessions & the index](/guide/sessions).
 - **Chat.** Cockpit spawns the provider CLI headless and streams replies and tool activity live. See [Chat](/guide/chat).
 - **Agents.** Shared instructions with drift detection, MCP/skills/plugins inventory, one-click sharing across the three agents, and **Browse** — what the marketplaces and the MCP Registry offer, added by the same click. See [The Agents view](/guide/agents).
-- **Settings.** Accounts and config-home sources, subscription usage, history window, GitHub identity. See [Accounts & usage](/guide/accounts-and-usage).
+- **Roundtables.** Several agents in one transcript, answering you and then each other. Start one from Home's **Start a roundtable** link. See [Roundtables](/guide/roundtables).
+- **Profile.** Your work across Claude Code, Codex and Copilot: when you work, which agent did it, and what it touched. The graph icon in the sidebar header opens it. See [Profile](/guide/profile).
+- **Cleanup.** Stale sessions, leftover processes, old roundtables and worktrees, ready to throw away. The trash icon in the sidebar header opens it. See [Cleanup](/guide/cleanup).
+- **⌘K.** The command palette: jump to any session or view, or search inside every transcript. See [Searching inside transcripts](/guide/sessions#searching-inside-transcripts).
+- **Settings.** Six tabs: **Accounts** — accounts and config homes, subscription usage, GitHub identity ([Accounts & usage](/guide/accounts-and-usage)); **View** — the [history window](/guide/sessions#the-history-window), time format and chat width; **Notifications** ([Notifications](/guide/notifications)); **Providers** — [custom providers](/guide/custom-providers) and [ACP agents](/guide/acp-agents); **Backup** ([Backup](/guide/backup)); **About** — updates and feedback ([Updating](/guide/getting-started#updating)).
 
 ## What's out of date
 

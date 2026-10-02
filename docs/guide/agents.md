@@ -85,7 +85,7 @@ that's out of step with it is simply out of date, whatever the other agents are 
 | Instructions | Writes the shared baseline into that agent's own file |
 | MCP servers | Writes the definition into the agent's config, translated to its format |
 | Skills | Copies Cockpit's copy of the skill folder into the agent |
-| Plugins, marketplaces | Runs the agent's own CLI (`plugin install`, `plugin marketplace add`) — only it can clone and register them properly |
+| Plugins, marketplaces | Runs the agent's own CLI (`plugin install`, `plugin add` for Codex, `plugin marketplace add`) — only it can clone and register them properly |
 
 ::: tip Nothing to set up
 The first time you open a scope, everything your agents already have is picked up
@@ -211,7 +211,7 @@ when it reports *needs login* you can run the agent's own OAuth flow from there.
 
 All three agents read personal skills from the same `SKILL.md` format — `~/.claude/skills`, `~/.codex/skills` and `~/.copilot/skills` — so a skill copies to any other agent as-is.
 
-Plugins and marketplaces are read from wherever each agent keeps them (`installed_plugins.json` and `known_marketplaces.json` for Claude Code, `[plugins]` / `[marketplaces]` sections in `~/.codex/config.toml` for Codex, the `~/.copilot/installed-plugins/<marketplace>/<plugin>` tree and the marketplaces listed in `~/.copilot/settings.json` for Copilot) and keyed by the `<name>@<marketplace>` id all three use — so the same plugin lines up across agents in Compare.
+Plugins and marketplaces are read from wherever each agent keeps them (`installed_plugins.json` and `known_marketplaces.json` for Claude Code, `[plugins]` / `[marketplaces]` sections in `~/.codex/config.toml` for Codex, the `~/.copilot/installed-plugins/<marketplace>/<plugin>` tree and the marketplaces listed in `~/.copilot/settings.json` for Copilot) and keyed by the `<name>@<marketplace>` id all three use — so the same plugin is one row under **Plugins**, and opening it shows each agent's copy side by side.
 
 A marketplace's source counts as the same when only its spelling differs. Claude Code and Codex record `https://github.com/tashtit/marketplace.git`, Copilot drops the `.git`, and any agent may keep `tashtit/marketplace`. All of these are one repository, so the row doesn't read *differs*.
 

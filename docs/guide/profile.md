@@ -1,6 +1,6 @@
 # Profile
 
-The **Profile** is your work across the agents Cockpit runs — Claude Code, Codex and Copilot — side by side: when you work, which agent did it, and what it touched. Open it from the chart icon in the sidebar rail, or with ⌘K → "Profile".
+The **Profile** is your work across Claude Code, Codex and Copilot, side by side: when you work, which agent did it, and what it touched. The other agents Cockpit reads are left out; see [What it covers](#what-it-covers). Open it from the chart icon in the sidebar rail, or with ⌘K → "Profile".
 
 Everything on it is computed on your machine from the session logs already on disk. Nothing is published, exported or fetched. The first time you open it, Cockpit reads every log once, which can take a few seconds; after that it only re-reads logs that have changed, even across restarts.
 
@@ -18,6 +18,7 @@ Under them, one bar splits your sessions by agent — Claude, Codex and Copilot,
 ## Agents
 
 - **By agent** — a table with one column per agent and one row per measure, so reading across a row compares them:
+  - **Sessions** and **Active days** — the headline's counts, for that agent alone.
   - **Prompts per session** — the messages you sent, counted the same way for every agent. Tool results, context the CLI adds to a turn and its own notes don't count; slash commands do.
   - **Tool calls per prompt** — how much an agent does for each thing you ask.
   - **Lines edited** and **Files edited** — counted from each agent's own edit tools. They measure edits made, not the diff that ended up in a commit: rewriting a file twice counts twice. An agent that edits through shell commands leaves nothing countable, and shows **none measured** rather than a zero.
@@ -35,8 +36,10 @@ The Code tab is hidden until something has been edited or a session has run in a
 
 ## What it covers
 
-The profile covers your **whole history**. Settings › View › History only shortens the sidebar; it doesn't trim the profile.
+The profile counts **Claude Code, Codex and Copilot** only. Sessions of Gemini CLI, Cursor, Cline, Roo Code, opencode and Antigravity are left out, even ones Cockpit started over [ACP](/guide/acp-agents).
+
+It covers your **whole history**. Settings › View › History only shortens the sidebar; it doesn't trim the profile.
 
 **Archived sessions are counted.** That covers sessions archived in Cockpit, in the Claude desktop app (which archives a session when its pull request closes), in the Copilot app and in Codex. Archiving is how a session ends, and the work in it still happened. Only sessions deleted in the agent's own app are left out.
 
-If Cockpit can't read an agent's logs, the table says **logs unreadable** in that agent's column. Its session counts come from the index, so they stay correct either way.
+If Cockpit can't read any of an agent's logs, that agent's column says **logs unreadable** under Lines edited and shows a dash for the other measures read from the logs; hover a dash for the reason. Its Sessions and Active days come from the index, so they stay correct either way.

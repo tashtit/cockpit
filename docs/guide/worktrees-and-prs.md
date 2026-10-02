@@ -26,7 +26,7 @@ If the repository has a `post-checkout` hook that fails (husky is the usual one,
 
 **Changes** in the chat header (⌘D) swaps the transcript for the worktree's diff, so you read what the agent did before it becomes a pull request:
 
-- **Branch** — everything since the base branch (commits plus the working tree): what the PR would carry. The summary says how many commits the branch is ahead of and behind `origin/main`, and flags uncommitted changes, which Create PR refuses.
+- **Branch** — everything since the base branch (commits plus the working tree): what the PR would carry. The summary says how many commits the branch is ahead of and behind the base: the branch `origin/HEAD` points at, else the first of `origin/main`, `origin/master`, `main` and `master` that exists. It also flags uncommitted changes, which Create PR refuses.
 - **Staged** / **Unstaged** — the two sides of the index. Untracked files the agent created appear under Unstaged and Branch, marked *untracked*.
 
 Files read the way GitHub shows them — unified or side by side, both line numbers, renames and binaries called out. Hover a line and press **+** to pin a note to it; **Send notes to &lt;Agent&gt;** drops them into the composer as one message (path, line, the line itself, your note), so the agent's next turn answers your review. The view reloads by itself once the turn finishes.
@@ -75,6 +75,6 @@ The New session and Handoff forms also expose per-agent session options, validat
 
 - **Model** — picked from every model the agent offers under the chosen account, the same list a [roundtable seat](./roundtables.md#seats) picks from: Claude Code's aliases (`fable`, `opus`, `sonnet`, `haiku`) and current full names, Codex's own cached catalog, Copilot's `auto` plus the models Copilot says the chosen GitHub login may pick (each login its own list). On a [custom provider](./custom-providers.md) it is that provider's own list; one that lists nothing (an Azure deployment) takes a typed name instead. Leave it on **default** for the CLI's own choice.
 - **Thinking** — how hard the agent reasons: the levels the chosen model takes, with its default shown where the agent says (Codex does, per model).
-- **Sandbox mode** — Codex.
+- **Sandbox** — Codex.
 
 The choices ride every later turn of the session.

@@ -6,7 +6,7 @@ Roundtables are discussion-only by design. A table **decides**; a normal session
 
 ## How a table runs
 
-Open one from the home composer ("Start a roundtable") or the sidebar. Write the topic, then seat two to eight agents, optionally attach a project, and set what the table may spend. The form comes back with the seating you last used, so a table like the last one is a topic and ⌘↵.
+Open the form from Home's **Start a roundtable** link; the sidebar lists the tables you already have. Write the topic, then seat two to eight agents, optionally attach a project, and set what the table may spend. The form comes back with the seating you last used, so a table like the last one is a topic and ⌘↵.
 
 - **Your message opens a wave.** Every seat receives it at once and streams simultaneously, each in its own attributed block — the seats think in parallel, not in a queue.
 - **"One more round" is the discussion pass.** It runs a sequential round with no new message from you: each seat sees what the earlier seats just said, so they push back, agree, or build on it.
@@ -19,7 +19,7 @@ The table at the top of the view shows each seat's live state: thinking, agrees,
 
 ## Reaching an understanding
 
-Set the goal to **Reach an understanding** and the table drives itself: it keeps running discussion rounds until every seat ends its reply with an agreement line, or the round cap is reached. The cap you can pick (up to 5) is held to what one message may spend — see [Spending limits](#spending-limits).
+Set the goal to **Reach an understanding** and the table drives itself: it keeps running discussion rounds until every seat ends its reply with an agreement line, or the round cap is reached. The form offers a cap of up to 5 rounds, and an open table's limits up to 8; either way it is held to what one message may spend — see [Spending limits](#spending-limits).
 
 The conclusion is assembled by Cockpit, not written by an agent — no seat speaks for the table. Each seat's own closing line is laid out side by side, headed **Shared understanding** when everyone agreed, or **No full agreement** when the cap closed a split table. A split is never dressed up as agreement, and the open points stay on the record.
 
@@ -31,7 +31,7 @@ If a seat's turn fails — a lapsed sign-in, say — the table stops running rou
 
 Add seats with the **+ Claude / + Codex / + Copilot** buttons beside the Seats heading. Each seat is a card in its agent's colour, with its own choices all visible:
 
-- **Agent** — the card's title: Claude Code, Codex or Copilot. Change it there; switching resets that seat's other choices, which are all per agent.
+- **Agent** — the card's title: Claude, Codex or Copilot. Change it there; switching resets that seat's other choices, which are all per agent.
 - **Model** — picked from every model that agent offers under the seat's account, never typed:
   - **Claude Code**: its aliases (`fable`, `opus`, `sonnet`, `haiku` — each the latest of its line) and the current full model names. The CLI keeps no catalog of its own.
   - **Codex**: the models Codex's own picker lists, read from its cached catalog, plus the default in its `config.toml`.

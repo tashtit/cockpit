@@ -7,7 +7,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Cockpit',
   description:
-    'Unified desktop hub for Claude Code, Codex, and GitHub Copilot CLI — every session, one window.',
+    'Unified desktop hub for Claude Code, Codex, GitHub Copilot CLI and six more coding agents — every session, one window.',
   // published by .github/workflows/docs.yml to GitHub Pages, which serves a project
   // site under the repository's name; `npm run docs:dev` serves it there too
   base: '/cockpit/',

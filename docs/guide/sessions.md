@@ -12,13 +12,16 @@ Each session's working directory is resolved to its **git repository**, worktree
 
 ## The sidebar
 
-One row per repository, ordered by last activity, with that repo's sessions underneath:
+One row per repository, with that repo's sessions underneath, most recent first. Projects list A→Z, and never move because one got busy:
 
+- **Order** — drag a project row to put it where you want it, or focus it and press <kbd>⌥↑</kbd> / <kbd>⌥↓</kbd>. A project indexed later joins A→Z after the ones you placed. **sort A→Z** in the eye popover's *Projects* section forgets your order.
+- **Hiding a project** — the eye button beside the search field lists every project under *Projects*, each with a checkbox; untick one to take it out of the tree.
+- **Project actions** — hover a project row for **Open on GitHub**, **Agent setup** (that repository's [project setup](/guide/agents#global-or-project) in the Agents view) and **+**, a new session in that repository.
 - **Width** — drag the sidebar's right edge, or focus it and use the arrow keys; double-click it to reset. See [Resizing and zoom](/guide/what-is-cockpit#resizing-and-zoom).
 - **Pagination** — long histories load behind a "more…" row; the full index is never shipped to the UI at once.
 - **Search** — global, across all providers and repos, by title, branch, path or id.
 - **Names** — sessions carry their agent-generated titles where the provider records one.
-- **PR badges** — sessions on a Cockpit-created branch show their pull request state (open, draft, merged, closed) in GitHub's colors.
+- **PR badges** — a session whose branch has a pull request shows its state (open, draft, merged, closed) in GitHub's colors.
 - **Child sessions** — a session that another session started sits under that session, indented one step per level. Copilot's app does this when a session creates new sessions for pieces of its work, each in its own workspace. Open a child to get a **by &lt;parent&gt;** chip in its chat header that takes you back to the session that started it.
   Fold a family with the **▾ N** button after the parent's title (or <kbd>←</kbd> / <kbd>→</kbd> on the parent's row); Cockpit remembers the fold. A folded parent still shows when a session inside it is running, finished or waiting for you, and the session you have open is never folded away.
 
@@ -78,7 +81,7 @@ Backing into the conversation that's currently running just flips the view — t
 
 ### Flying and landed
 
-A session whose agent is running right now is **flying**: a small turning ring on its row in the sidebar and the ⌘K palette, and a pulsing dot in the agent's color on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot (blue in the sidebar and the palette, the agent's color on the board) and `landed <time>` — until you open it, or archive it here or in the agent's own app. Two more states say a session **needs you**: an agent that has stopped to ask a question or for a permission shows a question glyph and `asks you`, on top of the board whatever else is true of it — in place of the flying ring, and for as long as the question stays open, even after you have opened the session — and an open pull request on the session's branch that has failing checks or changes requested shows GitHub's red x and `#57 checks failing`. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
+A session whose agent is running right now is **flying**: a small turning ring on its row in the sidebar and the ⌘K palette, and a pulsing dot in the agent's color on the home board. When the turn ends and you haven't opened the session since, it has **landed** — a solid dot (blue in the sidebar and the palette, the agent's color on the board) and `landed <time>` — until you open it, or archive it here or in the agent's own app. Two more states say a session **needs you**: an agent that has stopped to ask a question or for a permission shows a question glyph and `asks you` (or `needs permission`, for a permission), on top of the board whatever else is true of it — in place of the flying ring, and for as long as the question stays open, even after you have opened the session — and an open pull request on the session's branch that has failing checks or changes requested shows GitHub's red x and `#57 checks failing`. The same set is what the Dock badge counts; see [Notifications](/guide/notifications).
 
 A session you run in a terminal or the provider's own app counts as flying while its log keeps growing — Cockpit reads the tail of the log on every write. When the log goes quiet for a minute and a half it drops back to the ground without landing; while the last thing written is a tool call still waiting for its result (a test suite, a build), Cockpit waits ten minutes instead, since those write nothing until they finish. An agent stopped on a question writes nothing until you answer, however long that takes, so it keeps its `asks you` mark for as long as the terminal or app that asked is still open and waiting, and drops only once that process has gone.
 
