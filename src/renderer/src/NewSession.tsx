@@ -49,7 +49,7 @@ export function NewSession({
 
   const choice = useAgentChoice()
   const { provider, mode } = choice
-  const agent = useAgentOptions(provider, choice.account?.configDir)
+  const agent = useAgentOptions(provider, choice.account)
 
   // keyboard users land in the task field instead of tabbing through the sidebar
   useEffect(() => {

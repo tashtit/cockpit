@@ -45,8 +45,8 @@ describe('NewRoundtable', () => {
     await userEvent.keyboard('{Escape}')
     await choose(control('Claude', 'model'), /^opus/)
     expect(control('Claude', 'model')).toHaveTextContent('opus')
-    // the listing is asked for per agent and account home
-    expect(window.cockpit.listAgentModels).toHaveBeenCalledWith('codex', undefined)
+    // the listing is asked for per agent and account
+    expect(window.cockpit.listAgentModels).toHaveBeenCalledWith('codex', {})
     // the account stays a read-only field when there is one — same shape as a Select
     await waitFor(() => expect(within(seat('Claude')).getByText('not signed in')).toHaveClass('ns-account-single'))
   })

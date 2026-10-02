@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type {
   AccountsSnapshot,
+  AgentAccount,
   AgentOptions,
   PermissionMode,
   Provider,
@@ -30,11 +31,15 @@ import { useLoaded } from './use-loaded'
  * agent has since gone falls back to Claude rather than a card that is not there.
  */
 
-export type AccountChoice = {
-  readonly configDir?: string
-  readonly copilotUser?: string
+export type AccountChoice = AgentAccount & {
   /** Human-readable identity, carried onto the session binding for display */
   readonly display?: string
+}
+
+/** Just who an agent runs as — no display fields, nothing unset — for asking main about that account. */
+export function accountRef(account: AgentAccount | undefined): AgentAccount {
+  const { configDir, copilotUser } = account ?? {}
+  return { ...(configDir ? { configDir } : {}), ...(copilotUser ? { copilotUser } : {}) }
 }
 
 export type AccountOption = AccountChoice & {

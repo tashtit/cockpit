@@ -12,6 +12,7 @@ import { loginPathReady } from './env'
 import { probeSeatFence } from './seat-fence'
 import { mergeBusy } from './liveness-core'
 import {
+  agentProbeDir,
   archiveWatchOn,
   attentionPrefs,
   listAcpAgents,
@@ -232,7 +233,7 @@ export function startServices(): Services {
    */
   // the one folder every handshake runs in: never home, whose tree some agents read on
   // start, and never a repository, which a definition still being tested must not be handed
-  const probeAcp = (agent: AcpAgent): Promise<AcpAgentProbe> => probeAcpAgent(agent, join(userDataDir(), 'acp-probe'))
+  const probeAcp = (agent: AcpAgent): Promise<AcpAgentProbe> => probeAcpAgent(agent, agentProbeDir())
   const builtins = new BuiltinReadiness({
     // after the login shell's PATH: an npm-installed CLI is on no other
     probe: (agent) => loginPathReady().then(() => probeAcp(agent)),

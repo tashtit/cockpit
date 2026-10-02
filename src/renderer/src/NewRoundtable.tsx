@@ -21,7 +21,7 @@ import {
 } from '../../shared/roundtable'
 import { api } from './api'
 import { ipcErrorText } from './ipc-error'
-import { accountOptions, AGENT_BLURB, chosenAccount, type AccountOption } from './agent-choice'
+import { accountOptions, accountRef, AGENT_BLURB, chosenAccount, type AccountOption } from './agent-choice'
 import { ProviderMark, PROVIDER_LABEL } from './logos'
 import { RoundtableLimitFields } from './RoundtableLimitFields'
 import { Select } from './Select'
@@ -128,7 +128,7 @@ export function NewRoundtable({
   })
   /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
-  /** Every model each agent offers, per config home (`agentKey`) — main reads the CLIs' own lists */
+  /** Every model each agent offers, per account (`modelsKey`) — main asks the CLIs themselves */
   const [agentModels, setAgentModels] = useState<Record<string, AgentModel[]>>({})
   /** Whether each agent is signed in, per config home (`agentKey`) — asked of the CLI */
   const [signIns, setSignIns] = useState<Record<string, SignInState | 'checking'>>({})
@@ -159,18 +159,20 @@ export function NewRoundtable({
     chosenAccount(accounts, seat.provider, seat.account)
   const agentKey = (seat: SeatDraft): string =>
     `${seat.provider}|${seatAccount(seat)?.configDir ?? ''}`
-  // one listing per agent and account home the table uses, fetched once
   const agentKeys = [...new Set(seats.map(agentKey))]
+  /** A seat's model listing: its home, and in Copilot's the login — each lists its own */
+  const modelsKey = (seat: SeatDraft): string => `${agentKey(seat)}|${seatAccount(seat)?.copilotUser ?? ''}`
+  // one listing per agent and account the table uses, fetched once
+  const modelSeats = new Map(seats.map((seat) => [modelsKey(seat), seat]))
   useEffect(() => {
-    for (const key of agentKeys) {
+    for (const [key, seat] of modelSeats) {
       if (agentModels[key]) continue
-      const [provider, configDir] = key.split('|') as [Provider, string]
       void api
-        .listAgentModels?.(provider, configDir || undefined)
+        .listAgentModels?.(seat.provider, accountRef(seatAccount(seat)))
         .then((m) => setAgentModels((prev) => ({ ...prev, [key]: m })))
         .catch(() => setAgentModels((prev) => ({ ...prev, [key]: [] })))
     }
-  }, [agentKeys.join('\n')])
+  }, [[...modelSeats.keys()].join('\n')])
 
   /** Ask the CLI whether it is signed in under this agent and home; Recheck asks again. */
   const checkSignIn = (key: string): void => {
@@ -223,7 +225,7 @@ export function NewRoundtable({
   const seatCatalog = (seat: SeatDraft): AgentModel[] | null => {
     const ep = seatEndpoint(seat)
     if (ep) return (endpointModels[ep.id] ?? ep.models ?? []).map((id) => ({ id, label: id }))
-    return agentModels[agentKey(seat)] ?? null
+    return agentModels[modelsKey(seat)] ?? null
   }
   /** The model this seat would run — only ever one its current list offers. */
   const seatModel = (seat: SeatDraft): string => {

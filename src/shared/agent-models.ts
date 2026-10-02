@@ -23,8 +23,9 @@ export const BUILTIN_MODELS: Record<Provider, readonly AgentModel[]> = {
 
 /**
  * Thinking levels each CLI accepts, from its own `--help` (claude `--effort`, copilot
- * `--reasoning-effort`). Codex lists the levels per model in its catalog; this is the
- * set its config accepts at all, the fallback when a model's own list is unknown.
+ * `--reasoning-effort`). Codex lists the levels per model in its catalog and Copilot's
+ * server per model it lists; this is the set each accepts at all, the fallback when a
+ * model's own list is unknown.
  */
 export const EFFORT_LEVELS: Record<Provider, readonly string[]> = {
   claude: ['low', 'medium', 'high', 'xhigh', 'max'],

@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 import type {
+  AgentAccount,
   AgentModel,
   AgentOptions,
   CodexSandbox,
@@ -10,7 +11,7 @@ import type {
 import { effortsFor } from '../../shared/agent-models'
 import { endpointSupports } from '../../shared/endpoints'
 import { isDrivable } from '../../shared/providers'
-import { agentBlurb, MODES, type AccountOption, type AgentChoice } from './agent-choice'
+import { accountRef, agentBlurb, MODES, type AccountOption, type AgentChoice } from './agent-choice'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -52,11 +53,11 @@ type AgentOptionsState = {
 }
 
 /**
- * `configDir` is the chosen account's home: each one lists its own models. An agent
- * driven over ACP has none of these knobs — its model and account are its own settings
- * — so for one the state is empty and its options are `{}`.
+ * `account` is the chosen account — its home, and in Copilot's the login — and each one
+ * lists its own models. An agent driven over ACP has none of these knobs — its model and
+ * account are its own settings — so for one the state is empty and its options are `{}`.
  */
-export function useAgentOptions(provider: SessionProvider, configDir: string | undefined): AgentOptionsState {
+export function useAgentOptions(provider: SessionProvider, account: AgentAccount | undefined): AgentOptionsState {
   const cli = isDrivable(provider) ? provider : null
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
@@ -68,7 +69,7 @@ export function useAgentOptions(provider: SessionProvider, configDir: string | u
   const [endpointId, setEndpointId] = useState('')
   /** Live model listings per provider id — cached `endpoint.models` until the fetch lands */
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({})
-  /** Every model each agent offers, per config home (`agentKey`) — main reads the CLIs' own lists */
+  /** Every model each agent offers, per account (`agentKey`) — main asks the CLIs themselves */
   const [agentModels, setAgentModels] = useState<Record<string, AgentModel[]>>({})
 
 
@@ -92,12 +93,12 @@ export function useAgentOptions(provider: SessionProvider, configDir: string | u
       .catch(() => {}) // unreachable provider → its cached list, or free text, still works
   }, [endpoint?.id])
 
-  // one listing per agent and account home, fetched once
-  const agentKey = `${provider}|${configDir ?? ''}`
+  // one listing per agent and account, fetched once
+  const agentKey = `${provider}|${account?.configDir ?? ''}|${account?.copilotUser ?? ''}`
   useEffect(() => {
     if (agentModels[agentKey] || !cli) return
     const key = agentKey
-    void Promise.resolve(api.listAgentModels?.(cli, configDir) ?? [])
+    void Promise.resolve(api.listAgentModels?.(cli, accountRef(account)) ?? [])
       .then((m) => setAgentModels((prev) => ({ ...prev, [key]: m })))
       .catch(() => setAgentModels((prev) => ({ ...prev, [key]: [] })))
   }, [agentKey])
