@@ -9,7 +9,7 @@ Cockpit's own state — the config homes it indexes, your shared instructions, t
 | Config homes (sources) | Session transcripts — those stay where each agent keeps them |
 | Shared instruction baselines, global and per repo | The session index (rebuilt on first scan) |
 | Library entries and the skills behind them | Worktrees and their branches |
-| Custom provider definitions | Roundtable transcripts |
+| Custom provider definitions | Roundtables — the tables, their transcripts, and which ones you archived |
 | Archived sessions, provider bindings, handoff lineage, who drives each session | Chat images |
 | History window, idle threshold, time format, branch prefix, hidden repos, the sidebar's project order | ACP agent definitions |
 | | Notification and update settings, and zoom |

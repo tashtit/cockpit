@@ -29,10 +29,10 @@ features:
   - icon: 🧩
     title: One AI setup for all three agents
     details: Write shared instructions once and fan them out to each agent's own format. Share MCP servers across configs, copy skills between agents, and see drift at a glance.
+  - icon: 🗣️
+    title: Roundtables
+    details: Seat Claude Code, Codex and Copilot at one table. Each answers your question, then they answer each other — and, asked to reach an understanding, keep going until they agree or hit the limits you set. A disagreement shows instead of hiding behind whichever model you asked.
   - icon: 👤
-    title: Accounts & usage, credential-free
-    details: See who each CLI is signed in as, juggle multiple config homes per provider, and watch subscription usage — without Cockpit ever touching your credentials.
-  - icon: 🔌
-    title: Custom model providers
-    details: Point Claude Code and Copilot at your own endpoints — LiteLLM, Ollama, LM Studio, enterprise gateways. API keys live encrypted in the OS keychain.
+    title: Accounts, usage and your own models
+    details: See who each CLI is signed in as, juggle several config homes per agent, and watch subscription usage, without Cockpit ever touching your credentials. Point Claude Code and Copilot at your own endpoints — LiteLLM, Ollama, LM Studio, a gateway — with keys kept encrypted in the keychain.
 ---
