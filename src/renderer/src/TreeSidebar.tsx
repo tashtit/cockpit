@@ -9,9 +9,11 @@ import type {
   SessionProvider
 } from '../../shared/types'
 import { cleanupCounts, cleanupHeadline } from '../../shared/cleanup'
+import { AGENT_NAME, PROVIDERS, SESSION_PROVIDERS } from '../../shared/providers'
 import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
 import { useCleanupNotice } from './use-cleanup-notice'
+import { listOf } from './format'
 import { setHolderFilter, useHolderFilter } from './hold'
 import { showAllAgents, shownProviders, shownSessions, useHiddenAgents } from './agent-filter'
 import { ProjectFilter } from './ProjectFilter'
@@ -273,7 +275,7 @@ export function TreeSidebar({
           </button>
           <button
             className={`icon-btn nav-btn ${activeView === 'profile' ? 'active' : ''}`}
-            title="Profile — your work across every agent"
+            title={`Profile — your work across ${listOf(PROVIDERS.map((p) => PROVIDER_LABEL[p]))}`}
             onClick={() => onNav('profile')}
             aria-label="Profile"
             aria-current={activeView === 'profile' ? 'page' : undefined}
@@ -422,7 +424,7 @@ export function TreeSidebar({
         )}
         {repos.length === 0 && (
           <div className="empty-item">
-            <p>No sessions indexed yet — Cockpit reads Claude Code, Codex, and Copilot logs.</p>
+            <p>No sessions indexed yet — Cockpit reads the logs of {listOf(SESSION_PROVIDERS.map((p) => AGENT_NAME[p]))}.</p>
             <button className="btn-ghost small" onClick={() => onOpenSettings()}>
               Add a config home
             </button>

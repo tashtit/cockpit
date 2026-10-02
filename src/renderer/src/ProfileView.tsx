@@ -6,8 +6,9 @@ import type {
   Provider,
   ProviderProfile
 } from '../../shared/types'
+import { AGENT_NAME, PROVIDERS } from '../../shared/providers'
 import { api } from './api'
-import { fmtAgo } from './format'
+import { fmtAgo, listOf } from './format'
 import { ChatIcon, ProviderMark, PROVIDER_LABEL, RepoIcon } from './logos'
 import { TabList, TabPanel } from './Tabs'
 import { useLoaded } from './use-loaded'
@@ -730,8 +731,8 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
       ) : (
         <>
           <p className="ns-hint ns-prose">
-            {profile.login ? <strong>{profile.login}</strong> : 'Your work'} across every agent
-            Cockpit indexes
+            {profile.login ? <strong>{profile.login}</strong> : 'Your work'} across{' '}
+            {listOf(PROVIDERS.map((p) => AGENT_NAME[p]))}
             {profile.since ? <> — since {fmtSince(profile.since)}</> : null}.
           </p>
 

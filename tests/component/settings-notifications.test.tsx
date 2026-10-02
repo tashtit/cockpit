@@ -137,6 +137,21 @@ describe('Settings notifications', () => {
     )
   })
 
+  it('says on screen, not only to a screen reader, why a sound stayed silent', async () => {
+    render(<Settings onClose={vi.fn()} section="notifications" />)
+    const keys = within(await switches()).getByRole('group', { name: 'Hear each sound' })
+    const row = keys.closest('li') as HTMLElement
+    expect(row).toHaveTextContent('Plays it once, whether Sound is on or not.')
+
+    vi.mocked(window.cockpit.playSound).mockResolvedValueOnce({ played: false, why: 'muted' })
+    await userEvent.click(within(keys).getByRole('button', { name: 'Finished' }))
+    await waitFor(() => expect(row).toHaveTextContent(/The sound for a finished turn is silent/))
+
+    // a sound that played needs no words: the row goes back to saying what the keys do
+    await userEvent.click(within(keys).getByRole('button', { name: 'Asks you' }))
+    await waitFor(() => expect(row).toHaveTextContent('Plays it once, whether Sound is on or not.'))
+  })
+
   it('a development run says the switches start off here', async () => {
     // the stub is a development run already; say so, since that is what's under test
     expect((await window.cockpit.getAppInfo()).packaged).toBe(false)

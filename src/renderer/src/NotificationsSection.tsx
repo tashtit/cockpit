@@ -91,6 +91,8 @@ export function NotificationsSection({
 }): JSX.Element {
   const { value: prefs, set: setPrefs } = useLoaded(() => api.getAttentionPrefs(), [])
   const [test, setTest] = useState<TestState>('idle')
+  // what the last preview key did when nobody heard it — a sound that played needs no words
+  const [unheard, setUnheard] = useState<string | null>(null)
 
   const flip = async (key: keyof AttentionPrefs, on: boolean): Promise<void> => {
     if (!prefs) return
@@ -119,11 +121,17 @@ export function NotificationsSection({
   }
 
   const hear = async (t: (typeof TONES)[number]): Promise<void> => {
+    let line: string
+    let played = false
     try {
-      onStatus(heardLine(await api.playSound(t.tone), t.about))
+      const r = await api.playSound(t.tone)
+      played = r.played
+      line = heardLine(r, t.about)
     } catch (err) {
-      onStatus(`Could not play the sound: ${ipcErrorText(err)}`)
+      line = `Could not play the sound: ${ipcErrorText(err)}`
     }
+    setUnheard(played ? null : line)
+    onStatus(line)
   }
 
   return (
@@ -185,7 +193,7 @@ export function NotificationsSection({
             <div className="source-label" id="attn-hear-label">
               Hear each sound
             </div>
-            <div className="source-note">Plays it once, whether Sound is on or not.</div>
+            <div className="source-note">{unheard ?? 'Plays it once, whether Sound is on or not.'}</div>
           </div>
           {/* the group lends each key its context: "Hear each sound, Asks you" */}
           <div className="source-health" role="group" aria-labelledby="attn-hear-label">
