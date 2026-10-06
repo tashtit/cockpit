@@ -1,6 +1,6 @@
 # Profile
 
-The **Profile** is your work across Claude Code, Codex and Copilot, side by side: when you work, which agent did it, and what it touched. The other agents Cockpit reads are left out; see [What it covers](#what-it-covers). Open it from the chart icon in the sidebar rail, or with ⌘K → "Profile".
+The **Profile** is your work across Claude Code, Codex and Copilot, side by side: when you work, which agent did it, the skills it used, and what it touched. The other agents Cockpit reads are left out; see [What it covers](#what-it-covers). Open it from the chart icon in the sidebar rail, or with ⌘K → "Profile".
 
 Everything on it is computed on your machine from the session logs already on disk. Nothing is published, exported or fetched. The first time you open it, Cockpit reads every log once, which can take a few seconds; after that it only re-reads logs that have changed, even across restarts.
 
@@ -25,8 +25,13 @@ Under them, one bar splits your sessions by agent — Claude, Codex and Copilot,
   - **Top tools** — its three most-used tools; hover for the rest.
 - **Roundtables** — how many [roundtables](/guide/roundtables) ran, and how many seat sessions they used. Seats are counted apart and left out of every other number on the page: a seat is prompted by its table, not by you.
 - **Models** — assistant messages per model, each bar split by the agent that served it. The same model can come from more than one agent (Copilot serves Claude models, for example), so this and the table answer different questions.
-- **Skills** — the skills your agents took up most, each bar split by agent. A skill counts each time its instructions were loaded into a conversation, whether you called it (a slash command, or `$name` in Codex) or the agent chose it. Codex has no skill call, so there a skill counts when Codex reads its `SKILL.md`, at most once per turn. A plugin's skill is listed under its own name, so one skill used from several agents is one row.
 - **Accounts** — each [config home](/guide/accounts-and-usage) that has sessions, with the account it is signed in as, when you last used it, and its session count.
+
+## Skills
+
+- **Most used** — the skills your agents took up most, each bar split by agent. A skill counts each time its instructions were loaded into a conversation, whether you called it (a slash command, or `$name` in Codex) or the agent chose it. Codex has no skill call, so there a skill counts when Codex reads its `SKILL.md`, at most once per turn. A plugin's skill is listed under its own name, so one skill used from several agents is one row.
+
+The Skills tab is hidden until an agent has used a skill.
 
 ## Code
 

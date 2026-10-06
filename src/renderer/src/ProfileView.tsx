@@ -53,14 +53,15 @@ const TAIL_WEEKS = 4
 const HOUR_MARKS = [0, 6, 12, 18]
 
 /**
- * The card's tabs, under the headline numbers: when you work, which agent did it,
- * and what it touched. Each is its own page — seven sections in one scroll was a
- * readout nobody could take in at once. A group with no data is dropped, and a tab
- * left with none is dropped with it.
+ * The card's tabs, under the headline numbers: when you work, which agent did it, the
+ * skills it took up, and what it touched. Each is its own page — seven sections in one
+ * scroll was a readout nobody could take in at once. A group with no data is dropped,
+ * and a tab left with none is dropped with it.
  */
 const PROFILE_TABS = [
   { id: 'activity', label: 'Activity' },
   { id: 'agents', label: 'Agents' },
+  { id: 'skills', label: 'Skills' },
   { id: 'code', label: 'Code' }
 ] as const
 type ProfileTab = (typeof PROFILE_TABS)[number]['id']
@@ -559,6 +560,14 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
   const linesAdded = providers.reduce((n, p) => n + p.linesAdded, 0)
   const linesRemoved = providers.reduce((n, p) => n + p.linesRemoved, 0)
 
+  /** Which tabs have anything to show: one left with nothing is dropped (see PROFILE_TABS). */
+  const filled: Record<ProfileTab, boolean> | null = profile && {
+    activity: true,
+    agents: true,
+    skills: profile.skills.length > 0,
+    code: profile.languages.length > 0 || profile.repos.length > 0
+  }
+
   /** One page per tab: a `Record` will not compile with a tab that has no page behind it. */
   const panels: Record<ProfileTab, JSX.Element> | null = profile && {
     activity: (
@@ -632,29 +641,6 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
           </>
         )}
 
-        {profile.skills.length > 0 && (
-          <>
-            <h3 className="ns-label">Skills</h3>
-            <p className="ns-hint ns-prose">
-              Each time an agent took a skill up — you called it, or the agent chose it — split
-              by the agent. Codex has no skill call: a skill counts when it reads the
-              skill&apos;s SKILL.md, once a turn.
-            </p>
-            <BarList
-              mono
-              order={order}
-              rows={profile.skills.map((sk) => ({
-                key: sk.name,
-                name: sk.name,
-                title: reading(sk.name, counted(sk.count, 'use'), splitText(sk.byProvider, order)),
-                split: sk.byProvider,
-                value: sk.count,
-                label: counted(sk.count, 'use')
-              }))}
-            />
-          </>
-        )}
-
         {profile.accounts.length > 0 && (
           <>
             <h3 className="ns-label">Accounts</h3>
@@ -683,6 +669,28 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
             </ul>
           </>
         )}
+      </>
+    ),
+    skills: (
+      <>
+        <h3 className="ns-label">Most used</h3>
+        <p className="ns-hint ns-prose">
+          Each time an agent took a skill up — you called it, or the agent chose it — split by
+          the agent. Codex has no skill call: a skill counts when it reads the skill&apos;s
+          SKILL.md, once a turn.
+        </p>
+        <BarList
+          mono
+          order={order}
+          rows={profile.skills.map((sk) => ({
+            key: sk.name,
+            name: sk.name,
+            title: reading(sk.name, counted(sk.count, 'use'), splitText(sk.byProvider, order)),
+            split: sk.byProvider,
+            value: sk.count,
+            label: counted(sk.count, 'use')
+          }))}
+        />
       </>
     ),
     code: (
@@ -779,9 +787,7 @@ export function ProfileView({ onClose }: { onClose: () => void }): JSX.Element {
           <TabList
             id="profile"
             label="Profile sections"
-            tabs={PROFILE_TABS.filter(
-              (t) => t.id !== 'code' || profile.languages.length > 0 || profile.repos.length > 0
-            )}
+            tabs={PROFILE_TABS.filter((t) => filled?.[t.id])}
             selected={tab}
             onSelect={setTab}
           />

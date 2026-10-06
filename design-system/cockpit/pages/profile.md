@@ -23,14 +23,15 @@ which every tab keeps — then the card tabs (`tablist` "Profile sections") over
 Tabs and order are fixed:
 
 - **Activity** — By day (the heatmap + legend) → By hour (rhythm): *when* you work.
-- **Agents** — By agent (the comparison table) → Roundtables → Models → Skills → Accounts: *who*
-  did it, on what, with which skills, as whom.
+- **Agents** — By agent (the comparison table) → Roundtables → Models → Accounts: *who* did it,
+  on what, as whom.
+- **Skills** — Most used: *which skills* the agents took up.
 - **Code** — Languages → Top repos: *what* it touched.
 
 The tab is the panel's name, so no group heading repeats it ("Activity" under Activity
-read as noise — hence By day / By hour / By agent). Each group is dropped entirely when it
-has no data, and a tab left with none (Code, with no languages and no repos) is dropped
-with it; the identity line and `.pv-stats` are unconditional. A group's explanation is
+read as noise — hence By day / By hour / By agent / Most used). Each group is dropped entirely
+when it has no data, and a tab left with none (Skills, with no skill taken up; Code, with no
+languages and no repos) is dropped with it; the identity line and `.pv-stats` are unconditional. A group's explanation is
 `.ns-hint.ns-prose` (body size, MASTER's rule for a section's explanation); only the
 peak-hour line under the rhythm strip is a plain `.ns-hint` readout note.
 

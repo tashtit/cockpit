@@ -168,11 +168,12 @@ describe('ProfileView', () => {
     expect(screen.getByText('day streak')).toBeInTheDocument()
   })
 
-  it('ranks the skills taken up, each split by the agent that took it up', async () => {
+  it('ranks the skills taken up on their own tab, each split by the agent that took it up', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
     render(<ProfileView onClose={() => {}} />)
-    await openTab('Agents')
-    expect(screen.getByRole('heading', { name: 'Skills' })).toBeInTheDocument()
+    await openTab('Skills')
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName('Skills')
+    expect(screen.getByRole('heading', { name: 'Most used' })).toBeInTheDocument()
     const list = screen.getByText('release-notes').closest('ul')!
     expect([...list.querySelectorAll('li')].map((li) => li.getAttribute('title'))).toEqual([
       'release-notes — 9\u00a0uses (Claude 6 · Codex 3)',
@@ -180,19 +181,18 @@ describe('ProfileView', () => {
     ])
   })
 
-  it('leaves the Skills group out when no agent took a skill up', async () => {
+  it('drops the Skills tab when no agent took a skill up', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile({ skills: [] }))
     render(<ProfileView onClose={() => {}} />)
-    await openTab('Agents')
-    expect(screen.queryByRole('heading', { name: 'Skills' })).toBeNull()
-    expect(screen.getByRole('heading', { name: 'Models' })).toBeInTheDocument()
+    await screen.findByText('octocat')
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Activity', 'Agents', 'Code'])
   })
 
   it('drops the Code tab when nothing edited or indexed can fill it', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile({ languages: [], repos: [] }))
     render(<ProfileView onClose={() => {}} />)
     await screen.findByText('octocat')
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Activity', 'Agents'])
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Activity', 'Agents', 'Skills'])
   })
 
   it('labels the heatmap and gives every day a readable tooltip', async () => {
