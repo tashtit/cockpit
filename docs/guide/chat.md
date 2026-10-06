@@ -57,9 +57,10 @@ line the board does, *Claude is working elsewhere…*.
 resuming a session under one would run a second turn on the same log (Claude forks the
 conversation; Codex and Copilot append to the same file). On a session Cockpit already
 holds, **Send** waits the same way if a turn starts in a terminal anyway. The wait ends on
-its own once the log goes quiet — the windows are the ones in [Flying and landed](/guide/sessions#flying-and-landed):
-a minute and a half after the last write, ten minutes while a tool call is still waiting
-for its result, and for as long as the agent is still waiting there on a question it asked.
+its own once the turn is over, by the rule in [Flying and landed](/guide/sessions#flying-and-landed):
+a quiet turn still counts for as long as the terminal or app running it is working on it,
+and where Cockpit can't see that process, a minute and a half after the last write, or ten
+minutes while a tool call is still waiting for its result.
 Your draft stays in the composer meanwhile.
 
 Once you take it over and send from Cockpit, the turn streams in as usual and the

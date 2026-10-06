@@ -18,6 +18,7 @@ import {
 } from '../scripts/ui-tour/store-fixtures.mts'
 import type { BusySession, SessionMeta } from '../src/shared/types'
 import { clearRepoCache } from '../src/main/repos'
+import { mergeBusy } from '../src/main/liveness-core'
 
 const root = mkdtempSync(join(tmpdir(), 'cockpit-indexer-fixtures-'))
 const claudeDir = join(root, 'claude')
@@ -1446,6 +1447,106 @@ describe('live status from logs', () => {
     idx.stopWatchers()
     expect(idx.liveSessions()).toEqual([])
     expect(pushes.at(-1)).toEqual([])
+  })
+})
+
+describe('session order while turns run', () => {
+  const orderDir = join(root, 'order-claude')
+  const projDir = join(orderDir, 'projects', 'p')
+  const secondsAgo = (n: number): string => new Date(Date.now() - n * 1000).toISOString()
+  const hoursAgo = (n: number): string => new Date(Date.now() - n * 3_600_000).toISOString()
+  const finished = (id: string, ts: string): unknown[] => [
+    { type: 'user', message: { role: 'user', content: `task ${id}` }, timestamp: ts, sessionId: id, cwd: repoA },
+    {
+      type: 'assistant',
+      message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }] },
+      timestamp: ts
+    }
+  ]
+  const prompt = (ts: string): unknown => ({ type: 'user', message: { role: 'user', content: 'again' }, timestamp: ts })
+  const toolCall = (ts: string): unknown => ({
+    type: 'assistant',
+    message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Bash', input: {} }] },
+    timestamp: ts
+  })
+  const answer = (ts: string): unknown => ({
+    type: 'assistant',
+    message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done again.' }] },
+    timestamp: ts
+  })
+  let idx: SessionIndexer
+  let spawned: BusySession[] = []
+  let updates = 0
+
+  const order = (): string[] => idx.page({}).items.map((s) => s.nativeId)
+  const updatedAt = (id: string): number | undefined => idx.getSession(`claude:${id}`)?.updatedAt
+  /** Append to a session's log and wait until the index has read that write. */
+  const write = async (id: string, records: unknown[], ts: string): Promise<void> => {
+    const file = join(projDir, `${id}.jsonl`)
+    appendFileSync(file, jsonl(records))
+    ;(idx as any).markDirty('change', file)
+    await vi.waitFor(() => expect(updatedAt(id)).toBe(Date.parse(ts)), { timeout: 5000, interval: 50 })
+  }
+
+  beforeAll(async () => {
+    mkdirSync(projDir, { recursive: true })
+    writeFileSync(join(projDir, 'early.jsonl'), jsonl(finished('early', hoursAgo(2))))
+    writeFileSync(join(projDir, 'late.jsonl'), jsonl(finished('late', hoursAgo(1))))
+    idx = new SessionIndexer(() => updates++, { claudeStoreDir: null })
+    // as services merges it: Cockpit's own entry wins over what the log says
+    idx.setBusyResolver(() => mergeBusy(spawned, idx.liveSessions()))
+    await idx.setSources([{ path: orderDir, provider: 'claude', label: 'order' }])
+  })
+  afterAll(() => idx?.stopWatchers())
+
+  it('a turn seen in its log keeps the session where it was until the turn ends', async () => {
+    expect(order()).toEqual(['late', 'early'])
+    const sent = secondsAgo(6)
+    await write('early', [prompt(sent)], sent)
+    expect(idx.liveSessions().map((s) => s.id)).toEqual(['claude:early'])
+    expect(order()).toEqual(['late', 'early'])
+    const working = secondsAgo(4)
+    await write('early', [toolCall(working)], working)
+    expect(order()).toEqual(['late', 'early'])
+
+    const done = secondsAgo(2)
+    await write('early', [answer(done)], done)
+    expect(idx.liveSessions()).toEqual([])
+    expect(order()).toEqual(['early', 'late'])
+  })
+
+  it("Cockpit's own turn holds its place too, and goes to the top once its process ends", async () => {
+    spawned = [{ id: 'claude:late', startedAt: Date.now(), source: 'spawned', turnId: 't1' }]
+    idx.busyChanged()
+    const done = secondsAgo(1)
+    await write('late', [prompt(done), answer(done)], done)
+    // the log says the turn ended, but the process is still exiting: it holds
+    expect(order()).toEqual(['early', 'late'])
+
+    const before = updates
+    spawned = []
+    idx.busyChanged()
+    expect(order()).toEqual(['late', 'early'])
+    // the tree is told, though no log changed
+    await vi.waitFor(() => expect(updates).toBeGreaterThan(before), { timeout: 5000, interval: 50 })
+  })
+
+  it('a turn that stops to ask goes to the top, and holds there once answered', async () => {
+    spawned = [{ id: 'claude:early', startedAt: Date.now(), source: 'spawned', turnId: 't2' }]
+    idx.busyChanged()
+    const asked = new Date().toISOString()
+    await write('early', [prompt(asked)], asked)
+    expect(order()).toEqual(['late', 'early'])
+
+    spawned = [
+      { id: 'claude:early', startedAt: Date.now(), source: 'observed', asks: { kind: 'question', detail: 'Which one?' } }
+    ]
+    idx.busyChanged()
+    expect(order()).toEqual(['early', 'late'])
+    // answered: running again, from where the question put it
+    spawned = [{ id: 'claude:early', startedAt: Date.now(), source: 'observed' }]
+    idx.busyChanged()
+    expect(order()).toEqual(['early', 'late'])
   })
 })
 

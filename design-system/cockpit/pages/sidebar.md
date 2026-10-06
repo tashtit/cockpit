@@ -4,7 +4,8 @@
 
 **Pattern:** GitHub-first navigation tree, flattened: one **`owner/repo` row per
 repository** (dimmed owner prefix, no separate org header level) with its sessions
-directly under it, ordered by last activity. The repo rows themselves **never move on
+directly under it, newest first — but a session mid-turn holds its row, and only a
+turn that ends (or stops to ask) moves it to the top (the indexer's `holdingAt`). The repo rows themselves **never move on
 activity** — a busy repo jumping to the top shifts every row under the cursor: they sort
 A→Z by `owner/repo` (`src/shared/repo-order.ts`) or in the order the user dragged them
 into. Sessions with no repo don't get a faux
