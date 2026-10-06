@@ -25,6 +25,7 @@ Under them, one bar splits your sessions by agent — Claude, Codex and Copilot,
   - **Top tools** — its three most-used tools; hover for the rest.
 - **Roundtables** — how many [roundtables](/guide/roundtables) ran, and how many seat sessions they used. Seats are counted apart and left out of every other number on the page: a seat is prompted by its table, not by you.
 - **Models** — assistant messages per model, each bar split by the agent that served it. The same model can come from more than one agent (Copilot serves Claude models, for example), so this and the table answer different questions.
+- **Skills** — the skills your agents took up most, each bar split by agent. A skill counts each time its instructions were loaded into a conversation, whether you called it (a slash command, or `$name` in Codex) or the agent chose it. Codex has no skill call, so there a skill counts when Codex reads its `SKILL.md`, at most once per turn. A plugin's skill is listed under its own name, so one skill used from several agents is one row.
 - **Accounts** — each [config home](/guide/accounts-and-usage) that has sessions, with the account it is signed in as, when you last used it, and its session count.
 
 ## Code

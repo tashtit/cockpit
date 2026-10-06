@@ -1384,6 +1384,18 @@ export type ModelStat = {
   readonly byProvider: AgentSplit
 }
 
+/**
+ * One skill across every agent: the times its instructions were taken up — the person
+ * called it, or the agent chose it — split by the agent that took it up. Claude names a
+ * plugin's skill `plugin:skill`; it is counted under the bare name Codex and Copilot
+ * use, so a skill installed for every agent is one row.
+ */
+export type SkillStat = {
+  readonly name: string
+  readonly count: number
+  readonly byProvider: AgentSplit
+}
+
 /** Sessions attributed to one signed-in account (config home), for multi-account setups. */
 export type AccountStat = {
   readonly provider: Provider
@@ -1441,6 +1453,8 @@ export type ProfileStats = {
   readonly repos: RepoStat[]
   /** Models across every agent, most-used first */
   readonly models: ModelStat[]
+  /** Skills across every agent, most-used first */
+  readonly skills: SkillStat[]
   /** Signed-in accounts with their session share, most-used first */
   readonly accounts: AccountStat[]
   /** Prompts sent per local hour of day — 24 buckets, index 0 = midnight */

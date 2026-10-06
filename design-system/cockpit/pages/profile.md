@@ -23,8 +23,8 @@ which every tab keeps — then the card tabs (`tablist` "Profile sections") over
 Tabs and order are fixed:
 
 - **Activity** — By day (the heatmap + legend) → By hour (rhythm): *when* you work.
-- **Agents** — By agent (the comparison table) → Roundtables → Models → Accounts: *who* did it,
-  on what, as whom.
+- **Agents** — By agent (the comparison table) → Roundtables → Models → Skills → Accounts: *who*
+  did it, on what, with which skills, as whom.
 - **Code** — Languages → Top repos: *what* it touched.
 
 The tab is the panel's name, so no group heading repeats it ("Activity" under Activity
@@ -37,7 +37,7 @@ peak-hour line under the rhythm strip is a plain `.ns-hint` readout note.
 ## One color grammar
 
 Every split on the page — the headline's mix bar, the heatmap squares, the rhythm's stacked
-bars, the model, language and repo bars — paints the three agent colors
+bars, the model, skill, language and repo bars — paints the three agent colors
 (`rgba(var(--{agent}-rgb), α)`, inline) **in one order: most sessions first**, the order main
 ranks `providers` in. That is what lets the headline's key (`.pv-mix`) explain all of them,
 so no list below carries a legend of its own. Every split is also said in words — a `title`
@@ -137,9 +137,9 @@ right under the comparison they would distort: one `.ns-hint.ns-prose` line with
 the seat sessions and the split in words (`ProfileStats.roundtables`), and the group is
 dropped when no table has run a seat.
 
-## Bar lists (`.pv-bars`) — Models, Languages, Top repos
+## Bar lists (`.pv-bars`) — Models, Skills, Languages, Top repos
 
-One grammar for all three: name | `SplitBar` | count. The `ul` is a grid and each `li` a
+One grammar for all four: name | `SplitBar` | count. The `ul` is a grid and each `li` a
 `subgrid` row, so every track starts and ends at the same x whatever its count says (they
 were ragged). Both text columns are `fit-content()` — a name takes up to 45% then truncates
 (its `title` keeps it), a count up to 35% then wraps at its "·" (counts join number and noun
@@ -150,6 +150,13 @@ The fill's length is the row's share of the longest row; its segments are the ag
   proxy for use, never "requests" or "tokens". Split by agent because model families cross
   agent boundaries: Copilot serves claude-opus, Claude serves fable. The `<synthetic>`
   placeholder Claude writes for injected turns is filtered in main, not here.
+- **Skills** — mono names, counted in uses ("1 use", "9 uses"): each time a skill's instructions
+  were taken up, called by the person or chosen by the agent. Claude's `Skill` calls and the
+  slash commands it expands into instructions (never a built-in like /model); Copilot's
+  `skill.invoked` events; Codex, which has no skill call, its `<skill>` mentions and the shell
+  commands that print a SKILL.md (`cat`, `sed -n`, `head`… — never prettier, `git add` or
+  `sed -i` on one), once per skill per turn, so a file read in pieces is one use. Claude's
+  `plugin:skill` is counted as `skill`, the name the other two record, so one skill is one row.
 - **Languages** — mono `.ext`, lines added · files.
 - **Top repos** — `owner/`**name** like the sidebar (`.repo-owner`), `Chats` for the no-repo
   bucket, and the count as the `.repo-count` pill (MASTER: a bordered pill is a session

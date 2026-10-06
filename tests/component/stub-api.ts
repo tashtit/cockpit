@@ -348,6 +348,7 @@ export function freshApi(): CockpitApi {
       languages: [],
       repos: [],
       models: [],
+      skills: [],
       accounts: [],
       hours: Array.from({ length: 24 }, () => ({ prompts: 0, byProvider: {} })),
       roundtables: null

@@ -415,8 +415,8 @@ function populate(world: World): void {
       }
     ]
   })
-  claude({ cwd: wt('atlas', 'billing-webhook-retries'), branch: 'cockpit/billing-webhook-retries', title: 'Retry failed billing webhooks with idempotency keys', hoursAgo: 1.4, turns: [{ user: 'Retry webhooks with idempotency keys.' }, { say: 'Implemented a retry queue keyed by event id.' }] })
-  claude({ cwd: code('lumen-docs'), branch: 'main', title: 'Rewrite the quickstart for the v3 SDK', hoursAgo: 30, turns: [{ user: 'Rewrite the quickstart for v3.' }, { say: 'Rewrote it around the new client constructor.' }] })
+  claude({ cwd: wt('atlas', 'billing-webhook-retries'), branch: 'cockpit/billing-webhook-retries', title: 'Retry failed billing webhooks with idempotency keys', hoursAgo: 1.4, turns: [{ user: 'Retry webhooks with idempotency keys.', tools: [{ name: 'Skill', input: { skill: 'db-migrations' } }] }, { say: 'Implemented a retry queue keyed by event id.' }] })
+  claude({ cwd: code('lumen-docs'), branch: 'main', title: 'Rewrite the quickstart for the v3 SDK', hoursAgo: 30, turns: [{ user: 'Rewrite the quickstart for v3.', tools: [{ name: 'Skill', input: { skill: 'release-notes' } }] }, { say: 'Rewrote it around the new client constructor.' }] })
   claude({ cwd: code('scratchpad-local'), branch: 'main', title: 'Sketch a CLI for tailing logs', hoursAgo: 70, turns: [{ user: 'Sketch a CLI to tail JSON logs.' }, { say: 'Here is a 40-line Node script.' }] })
   mkdirSync(join(world.home, 'notes'), { recursive: true })
   claude({ cwd: join(world.home, 'notes'), branch: null, title: 'Explain the difference between OAuth device flow and PKCE', hoursAgo: 8, turns: [{ user: 'Device flow vs PKCE?' }, { say: 'Device flow is for input-constrained devices; PKCE protects public clients.' }] })
@@ -436,7 +436,7 @@ function populate(world: World): void {
   // stale work, for Cleanup
   claude({ cwd: wt('atlas', 'old-spike-graphql'), branch: 'cockpit/old-spike-graphql', title: 'Spike: GraphQL gateway in front of the REST API', hoursAgo: 95 * 24, turns: [{ user: 'Spike a GraphQL gateway.' }, { say: 'N+1 is the blocker.' }] })
   claude({ cwd: wt('infra-tools', 'abandoned-terraform-bump'), branch: 'cockpit/abandoned-terraform-bump', title: 'Bump terraform to 1.9 across modules', hoursAgo: 48 * 24, turns: [{ user: 'Bump terraform to 1.9.' }, { say: 'Started with the network module.' }] })
-  claude({ cwd: code('lumen-docs'), branch: 'main', title: 'Convert the changelog to keep-a-changelog format', hoursAgo: 210 * 24, turns: [{ user: 'Convert CHANGELOG.md.' }, { say: 'Converted 14 releases.' }] })
+  claude({ cwd: code('lumen-docs'), branch: 'main', title: 'Convert the changelog to keep-a-changelog format', hoursAgo: 210 * 24, turns: [{ user: 'Convert CHANGELOG.md.', tools: [{ name: 'Skill', input: { skill: 'release-notes' } }] }, { say: 'Converted 14 releases.' }] })
 
   // ---------- Codex sessions ----------
   const codex = (o: { readonly cwd: string; readonly branch?: string | null; readonly hoursAgo: number; readonly items: readonly object[] }): void => {
@@ -480,8 +480,10 @@ function populate(world: World): void {
     ]
   })
   codex({ cwd: wt('lumen-docs', 'api-reference-refresh'), branch: 'cockpit/api-reference-refresh', hoursAgo: 2.2, items: [message('user', 'Regenerate the API reference and fix broken anchors.'), message('assistant', 'Regenerated. 7 anchors were broken.')] })
-  codex({ cwd: code('atlas'), branch: 'main', hoursAgo: 20, items: [message('user', 'Backfill the tenant_id column.'), message('assistant', 'Migration 0042 backfills in batches of 5k.')] })
-  codex({ cwd: code('infra-tools'), branch: 'main', hoursAgo: 38 * 24, items: [message('user', 'List unused IAM roles.'), message('assistant', 'Found 11 roles unused for 90+ days.')] })
+  // Codex takes a skill up by reading its SKILL.md: the profile's Skills list counts these
+  const readSkill = (callId: string, path: string): object => ({ type: 'function_call', name: 'shell', call_id: callId, arguments: JSON.stringify({ command: ['bash', '-lc', `sed -n '1,120p' ${path}`] }) })
+  codex({ cwd: code('atlas'), branch: 'main', hoursAgo: 20, items: [message('user', 'Backfill the tenant_id column.'), readSkill('s1', '.agents/skills/db-migrations/SKILL.md'), message('assistant', 'Migration 0042 backfills in batches of 5k.')] })
+  codex({ cwd: code('infra-tools'), branch: 'main', hoursAgo: 38 * 24, items: [message('user', 'List unused IAM roles.'), readSkill('s2', join(world.home, '.codex', 'skills', 'incident-review', 'SKILL.md')), message('assistant', 'Found 11 roles unused for 90+ days.')] })
 
   // ---------- Copilot sessions ----------
   // `workspace` replaces the one-line name file, for a name Copilot writes another way
@@ -523,7 +525,7 @@ function populate(world: World): void {
       "INSERT INTO todos (id, title, status) VALUES ('lint', 'Lint the usage panel', 'done'), ('gap', 'Widen the grid gap', 'done'), ('shot', 'Screenshot for the design review', 'blocked');"
   )
   todos.close()
-  const spans = copilot({ cwd: code('atlas'), repository: 'acme/atlas', title: 'Add OpenTelemetry spans to the job runner', hoursAgo: 7, events: [['user.message', { content: 'Add spans around each job.' }], ['assistant.message', { content: 'Wrapped runJob in a span.' }]] })
+  const spans = copilot({ cwd: code('atlas'), repository: 'acme/atlas', title: 'Add OpenTelemetry spans to the job runner', hoursAgo: 7, events: [['user.message', { content: 'Add spans around each job.' }], ['skill.invoked', { name: 'incident-review', trigger: 'agent-invoked' }], ['assistant.message', { content: 'Wrapped runJob in a span.' }]] })
   // a session that one started for a piece of its work: the Copilot app names it after
   // its kickoff prompt, as a block scalar, and the kickoff states who created it — the
   // tree hangs it under the session above
