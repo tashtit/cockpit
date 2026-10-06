@@ -506,14 +506,15 @@ export function copilotLockPids(names: readonly string[]): number[] {
   return pids
 }
 
-/* ---------- who still holds a session that asked ---------- */
+/* ---------- who still holds a quiet session ---------- */
 
 /*
- * A turn stopped on a question writes nothing until it is answered — for minutes or
- * hours — so its log alone cannot tell a person thinking from a CLI killed mid-question.
- * Claude and Codex each leave a sign of the process that holds a session, as Copilot's
- * lock does; the tracker keeps an asking entry past its window while that sign says the
- * process is still there. As with Copilot, the process is the evidence, never the file.
+ * A turn can write nothing for minutes and still be running — the model thinking hard,
+ * a long tool call, a question waiting to be answered — so its log alone cannot tell
+ * any of those from a CLI killed mid-turn. Claude and Codex each leave a sign of the
+ * process that holds a session, as Copilot's lock does; the tracker keeps a running
+ * entry past its window while that sign says the process is still there. As with
+ * Copilot, the process is the evidence, never the file.
  */
 
 /** `<pid>.json`, as Claude Code names the file it keeps per running process. */

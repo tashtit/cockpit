@@ -25,16 +25,16 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
  * but every provider streams its log as it works, so the indexer's watcher is the
  * signal: on each write the tracker reads a bounded tail (never the file), asks
  * liveness-core what it says, and keeps the session in the busy set while the log
- * keeps growing. Silence ends it — a killed CLI leaves a mid-turn tail forever — so
- * an entry without a write for LIVE_WINDOW_MS expires on a timer; while the newest
- * record is a tool call waiting for its result (a test suite, a build — minutes with
- * nothing written) the entry gets LIVE_TOOL_WINDOW_MS instead. Copilot is the one
- * provider that says so itself: it holds an `inuse.<pid>.lock` beside the log for as
- * long as its CLI runs, so a Copilot entry past either window is kept while that pid
- * is one of ours and still running, and expires once it is not. A turn stopped on a
- * question is kept the same way whoever asked it, because it writes nothing for as
- * long as the person takes to answer: Claude keeps a `sessions/<pid>.json` per running
- * process naming its session, Codex holds a writer lock on the thread. Best-effort by
+ * keeps growing. A turn can go quiet for minutes and still be running — the model
+ * thinking hard, a tool call (a test suite, a build) that writes nothing until it ends,
+ * a question waiting on the person — but a killed CLI leaves a mid-turn tail forever
+ * too, and only the process can tell those apart. So past its window an entry is kept
+ * while the process running the turn says it still is: Copilot holds an
+ * `inuse.<pid>.lock` beside the log for as long as its CLI runs, Claude keeps a
+ * `sessions/<pid>.json` per running process naming its session and whether it is idle,
+ * Codex holds a writer lock on the thread. Without that sign — a home of another shape,
+ * an older CLI — silence ends it on a timer: LIVE_WINDOW_MS, or LIVE_TOOL_WINDOW_MS
+ * while the newest record is a tool call waiting for its result. Best-effort by
  * design: an unreadable or unrecognised tail — or lock — is idle, never an error.
  *
  * The transitions are news too (`onTurn`, for the attention desk): a turn seen
@@ -43,7 +43,7 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
  * newest record is a question or a permission prompt *asks*, until the log moves on.
  */
 
-/** No write for this long and an observed turn is over, whatever its tail says. */
+/** No write for this long and an observed turn is over, whatever its tail says — unless its process says otherwise (`holds`). */
 export const LIVE_WINDOW_MS = 90_000
 /**
  * …unless that tail is a tool call still running: those write nothing until they
@@ -371,19 +371,19 @@ export class LivenessTracker {
   }
 
   /**
-   * Inside its window — or a copilot turn whose CLI still holds the session's lock, or a
-   * turn stopped on a question whose process is still there to be answered: a question
-   * waits as long as the person does, and writes nothing while it does.
+   * Inside its window — or past it, while the process running the turn is still there
+   * and still at it: a long think, a long tool call and a question all write nothing for
+   * as long as they take. Only ever asked of a turn seen running, so a holder alone never
+   * starts one (the arrival gate in observe()).
    */
   private holds(e: LiveEntry, now: number): boolean {
     if (now - e.lastWriteAt <= e.windowMs) return true
     if (e.provider === 'copilot') return copilotHolderAlive(e.file)
-    if (!e.asks) return false
     return e.provider === 'claude' ? claudeHolderAlive(e.file, e.nativeId) : this.codexHeld(e)
   }
 
   /**
-   * Whether a Codex process still holds an asking thread, as lsof last said. lsof is a
+   * Whether a Codex process still holds a quiet thread, as lsof last said. lsof is a
    * process, not a read, so it is never waited on here: each sweep asks again and the
    * answer decides the sweep after it, which keeps the entry one sweep past its holder
    * at most. Until the first answer the entry is kept — a wait, not a verdict.

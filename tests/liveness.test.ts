@@ -615,7 +615,7 @@ describe("LivenessTracker — copilot's own lock", () => {
   })
 })
 
-describe('LivenessTracker — a question waits for whoever asked it', () => {
+describe('LivenessTracker — a quiet turn is kept by the process running it', () => {
   const question = {
     type: 'assistant',
     message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: { questions: [{ question: 'Ship it?' }] } }] },
@@ -663,12 +663,19 @@ describe('LivenessTracker — a question waits for whoever asked it', () => {
     await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
   })
 
-  it('claude: the process keeps a question, never a long tool call — that is the tool window\'s', async () => {
+  it('claude: a busy process keeps a quiet turn past both windows — a long think, a long tool call', async () => {
     const t = tracker(() => {}, opts)
-    const { file, sessions } = claudeHome('q-tool', FIXTURES.claude.midTurn)
-    processFile(sessions, process.pid, { sessionId: 'q-tool', status: 'busy' })
-    t.observe(file, meta('claude', 'q-tool', file), Date.now())
-    expect(ids(t)).toEqual(['claude:q-tool'])
+    const thinking = claudeHome('q-think', SILENCE.claude.thinking)
+    processFile(thinking.sessions, process.pid, { sessionId: 'q-think', status: 'busy' })
+    const tool = claudeHome('q-tool', FIXTURES.claude.midTurn)
+    processFile(tool.sessions, process.pid, { sessionId: 'q-tool', status: 'busy' })
+    t.observe(thinking.file, meta('claude', 'q-think', thinking.file), Date.now())
+    t.observe(tool.file, meta('claude', 'q-tool', tool.file), Date.now())
+    await new Promise((r) => setTimeout(r, 600)) // several sweeps past both windows
+    expect(ids(t).sort()).toEqual(['claude:q-think', 'claude:q-tool'])
+    // the process says it is idle (an Esc that wrote nothing): the windows decide again
+    processFile(thinking.sessions, process.pid, { sessionId: 'q-think', status: 'idle' })
+    processFile(tool.sessions, process.pid, { sessionId: 'q-tool', status: 'idle' })
     await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
   })
 
@@ -711,18 +718,32 @@ describe('LivenessTracker — a question waits for whoever asked it', () => {
     await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
   })
 
-  it('codex: a turn that is not asking never costs a lock check', async () => {
+  it("codex: a quiet turn that is not asking stays live while the thread's writer lock is held", async () => {
+    let held = true
+    const t = tracker(() => {}, { ...opts, codexLockHeld: async () => held })
+    const { file } = codexHome('thinking', SILENCE.codex.thinking)
+    t.observe(file, meta('codex', THREAD, file), Date.now())
+    await new Promise((r) => setTimeout(r, 600))
+    expect(t.sessions()).toEqual([expect.objectContaining({ id: `codex:${THREAD}` })])
+    expect(t.sessions()[0]).not.toHaveProperty('asks')
+    held = false
+    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+  })
+
+  it('codex: a turn inside its window never costs a lock check', async () => {
     const locks: string[] = []
     const t = tracker(() => {}, {
       ...opts,
+      windowMs: 60_000,
       codexLockHeld: async (lock) => {
         locks.push(lock)
         return true
       }
     })
-    const { file } = codexHome('working', [...FIXTURES.codex.midTurn, SILENCE.codex.inTool])
+    const { file } = codexHome('fresh', SILENCE.codex.thinking)
     t.observe(file, meta('codex', THREAD, file), Date.now())
-    await vi.waitFor(() => expect(t.sessions()).toEqual([]), { timeout: 3000, interval: 25 })
+    await new Promise((r) => setTimeout(r, 200)) // a few sweeps, all inside the window
+    expect(ids(t)).toEqual([`codex:${THREAD}`])
     expect(locks).toEqual([])
   })
 })
