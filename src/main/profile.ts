@@ -16,13 +16,14 @@ import type {
   RoundtableTally,
   SessionMeta,
   SessionTally,
+  SkillStat,
   SourceDir
 } from '../shared/types'
 import { claudeIdentity, codexIdentity, copilotUsers, ghUser } from './accounts'
 import { parseUnifiedDiff } from './parsers/artifacts'
 import { cellToolCalls } from './parsers/code-mode'
 import { toolItemFor, toolItemName, toolRecords } from './parsers/codex'
-import { contentToText, sessionLogFiles, streamJsonl, timeSlicer, toMs } from './parsers/util'
+import { contentToText, sessionLogFiles, shellScript, streamJsonl, timeSlicer, toMs } from './parsers/util'
 import { writeFileAtomicAsync } from './replace-file'
 import { isDrivable } from '../shared/providers'
 
@@ -36,8 +37,9 @@ import { isDrivable } from '../shared/providers'
  *   cheap — session, repo and account counts, straight off the index (no file IO)
  *   deep  — everything read from the transcripts themselves: prompts and when they
  *           were sent (so the activity grid, the streaks and the hours), lines
- *           edited, languages, tool mix and models; cached on (mtime,size) so a rescan
- *           re-reads only what changed, mirroring usage.ts and the indexer's own cache
+ *           edited, languages, tool mix, models and the skills taken up; cached on
+ *           (mtime,size) so a rescan re-reads only what changed, mirroring usage.ts and
+ *           the indexer's own cache
  *
  * The deep pass streams each log whole (up to DEEP_READ_BYTES), and is failure-tolerant
  * by design: provider log formats are internal and drift between releases, so an
@@ -153,6 +155,8 @@ type DeepStats = {
   files: Set<string>
   tools: Map<string, number>
   models: Map<string, number>
+  /** Skill name (`skillName`) → the times it was taken up */
+  skills: Map<string, number>
   /** ext → [files, linesAdded] */
   languages: Map<string, { files: Set<string>; linesAdded: number }>
 }
@@ -166,6 +170,7 @@ function emptyDeep(): DeepStats {
     files: new Set(),
     tools: new Map(),
     models: new Map(),
+    skills: new Map(),
     languages: new Map()
   }
 }
@@ -191,6 +196,42 @@ function recordFile(d: DeepStats, path: unknown, added: number): void {
   if (!lang) d.languages.set(ext, (lang = { files: new Set(), linesAdded: 0 }))
   lang.files.add(path)
   lang.linesAdded += added
+}
+
+/**
+ * The name a skill is counted under, alike for every agent: Claude names a plugin's
+ * skill `plugin:skill` where Codex and Copilot say `skill`, and a slash command carries
+ * its `/` (a Codex mention its `$`). Null for anything that is no skill's name — an MCP
+ * server's prompt runs as a slash command too.
+ */
+function skillName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const name = raw.trim().replace(/^[/$]/, '').split(':').pop()?.trim() ?? ''
+  return /^\w[\w.-]*$/.test(name) && !name.startsWith('mcp__') ? name : null
+}
+
+/** Commands that print a file: how Codex takes a skill up is reading its SKILL.md. */
+const FILE_READERS = new Set(['cat', 'sed', 'head', 'tail', 'nl', 'less', 'more', 'bat', 'awk'])
+
+/**
+ * The skills a shell script reads the SKILL.md of, named by the folder it sits in —
+ * `cat .agents/skills/x/SKILL.md`, `sed -n '1,80p' …/x/SKILL.md`. Only a command that
+ * prints the file counts: formatting, staging or searching one is work on a skill rather
+ * than use of it, and `sed -i` edits it.
+ */
+function skillReads(script: string | null): string[] {
+  const names = new Set<string>()
+  for (const part of (script ?? '').split(/&&|\|\||[;|\n]/)) {
+    const words = part.trim().split(/\s+/).map((w) => w.replace(/^['"]+|['"]+$/g, ''))
+    const verb = words[0]?.split('/').pop() ?? ''
+    if (!FILE_READERS.has(verb)) continue
+    if (verb === 'sed' && words.some((w) => w.startsWith('-i') || w.startsWith('--in-place'))) continue
+    for (const w of words) {
+      const name = skillName(/([^/]+)\/SKILL\.md$/.exec(w)?.[1])
+      if (name) names.add(name)
+    }
+  }
+  return [...names]
 }
 
 /**
@@ -225,11 +266,36 @@ type DeepReader = {
 
 /**
  * Claude transcripts: assistant entries carry `message.content[]` with `tool_use`
- * blocks. Edit inputs hold old_string/new_string, Write holds the whole content.
+ * blocks. Edit inputs hold old_string/new_string, Write holds the whole content. A skill
+ * is taken up by a `Skill` call, or by the person's slash command (`claudeCommand`).
  */
 function claudeReader(): DeepReader {
   const d = emptyDeep()
-  return { line: (entry) => claudeLine(d, entry), done: () => d }
+  let command: string | null = null
+  return {
+    line: (entry) => {
+      command = claudeCommand(d, entry, command)
+      claudeLine(d, entry)
+    },
+    done: () => d
+  }
+}
+
+/**
+ * A slash command that ran a skill. Its entry names it (`<command-name>/review`), and a
+ * skill's — like any command Claude expands into a prompt, which it counts as a skill
+ * itself — is followed by its instructions as an `isMeta` entry, where a built-in such as
+ * /model or /compact answers with its output. Takes the command still waiting on the entry
+ * after it, and returns the one waiting after this entry.
+ */
+function claudeCommand(d: DeepStats, entry: any, waiting: string | null): string | null {
+  if (entry?.type === 'assistant') return null
+  if (entry?.type !== 'user') return waiting // attachments and snapshots sit between the two
+  if (entry.isMeta) {
+    if (waiting) bump(d.skills, waiting)
+    return null
+  }
+  return skillName(/<command-name>([^<]+)<\/command-name>/.exec(contentToText(entry.message?.content))?.[1])
 }
 
 function claudeLine(d: DeepStats, entry: any): void {
@@ -242,7 +308,9 @@ function claudeLine(d: DeepStats, entry: any): void {
     if (c?.type !== 'tool_use' || typeof c.name !== 'string') continue
     bump(d.tools, c.name)
     const input = c.input ?? {}
-    if (c.name === 'Edit' || c.name === 'MultiEdit') {
+    if (c.name === 'Skill') {
+      bump(d.skills, skillName(input.skill))
+    } else if (c.name === 'Edit' || c.name === 'MultiEdit') {
       // MultiEdit carries an `edits` array; Edit is the single-edit shape
       const edits = Array.isArray(input.edits) ? input.edits : [input]
       let added = 0
@@ -272,29 +340,46 @@ function claudeLine(d: DeepStats, entry: any): void {
  * rollout without them has only its `message` items, where the user role also holds
  * the context Codex injects (`<environment_context>`, AGENTS.md) — skipped the way
  * the parser skips it for a title.
+ *
+ * Codex has no skill call. A skill the person names (`$x`) arrives as a `<skill>` user
+ * item carrying its instructions, and one the model picks it reads itself — a shell
+ * command printing its SKILL.md (`skillReads`), often in pieces. Either is counted once a
+ * turn, so `sed -n '1,80p'` and then `'81,200p'` of one file is one skill taken up.
  */
 function deepCodex(lines: readonly any[]): DeepStats {
   const d = emptyDeep()
   const records = toolRecords(lines)
   const typed: unknown[] = []
   const userItems: unknown[] = []
+  const turnSkills = new Set<string>()
+  const took = (names: Iterable<string>): void => {
+    for (const name of names) {
+      if (turnSkills.has(name)) continue
+      turnSkills.add(name)
+      bump(d.skills, name)
+    }
+  }
   for (const entry of lines) {
     const p = entry?.payload ?? entry
+    if (entry?.type === 'turn_context') turnSkills.clear()
     if (typeof p?.model === 'string') bump(d.models, p.model)
     if (entry?.type === 'event_msg' && p?.type === 'user_message') typed.push(entry.timestamp)
     else if (entry?.type !== 'event_msg' && p?.type === 'message' && p.role === 'user') {
       const t = contentToText(p.content).trimStart()
       if (t && !t.startsWith('<') && !t.startsWith('# AGENTS.md')) userItems.push(entry.timestamp)
+      took(mentionedSkills(t))
     }
     const item = toolItemFor(entry, records)
     if (item?.type === 'FileChange') {
       if (countFileChange(d, item)) bump(d.tools, 'apply_patch')
     } else if (item) {
       bump(d.tools, toolItemName(item))
+      if (item.type === 'CommandExecution') took(skillReads(shellScript(item.command)))
     } else if (p?.type === 'function_call' && typeof p.name === 'string') {
       bump(d.tools, p.name)
       const args = typeof p.arguments === 'string' ? p.arguments : ''
       if (args.includes('apply_patch')) countPatch(d, args)
+      if (SHELL_TOOLS.has(p.name)) took(skillReads(shellArgs(args)))
     } else if (p?.type === 'custom_tool_call' && typeof p.name === 'string' && typeof p.input === 'string') {
       if (p.name !== 'exec') {
         bump(d.tools, p.name)
@@ -304,12 +389,38 @@ function deepCodex(lines: readonly any[]): DeepStats {
         for (const call of cellToolCalls(p.input)) {
           bump(d.tools, call.name)
           if (call.name === 'apply_patch' && typeof call.input === 'string') countPatch(d, call.input)
+          else if (SHELL_TOOLS.has(call.name) && call.input && typeof call.input === 'object') {
+            took(skillReads(shellScript(call.input.cmd ?? call.input.command)))
+          }
         }
       }
     }
   }
   for (const at of typed.length > 0 ? typed : userItems) prompted(d, at)
   return d
+}
+
+/** The tools Codex runs a command with, called directly or from a code-mode cell */
+const SHELL_TOOLS = new Set(['shell', 'shell_command', 'exec_command', 'local_shell'])
+
+/** The script a direct shell call's JSON arguments run (`{cmd}`, or `{command}` as an array or a string). */
+function shellArgs(args: string): string | null {
+  try {
+    const a = JSON.parse(args)
+    return shellScript(a?.cmd ?? a?.command)
+  } catch {
+    return null
+  }
+}
+
+/** The skills a `<skill>` user item hands the model: `<skill>\n<name>x</name>\n<path>…`, one per block. */
+function mentionedSkills(text: string): string[] {
+  const names: string[] = []
+  for (const m of text.matchAll(/(?:^|\n)<skill>\s*<name>([^<\n]+)<\/name>/g)) {
+    const name = skillName(m[1])
+    if (name) names.push(name)
+  }
+  return names
 }
 
 /** Codex's tool records pair calls across the whole file (`toolRecords`), so its lines are kept. */
@@ -385,7 +496,9 @@ function countPatch(d: DeepStats, args: string): void {
 /**
  * Copilot sessions: `tool.execution_start` events with `data.toolName` and
  * `data.arguments`. `create` writes `file_text`; `edit` carries old/new strings.
- * Every `user.message` is a prompt: Copilot logs its injected context elsewhere.
+ * Every `user.message` is a prompt: Copilot logs its injected context elsewhere. A skill
+ * taken up is an event of its own, whether the person or the model asked for it
+ * (`skill.invoked`, or `skill.invoked_ref` where its instructions are stored apart).
  */
 function copilotReader(): DeepReader {
   const d = emptyDeep()
@@ -395,6 +508,7 @@ function copilotReader(): DeepReader {
 function copilotLine(d: DeepStats, entry: any): void {
   if (typeof entry?.data?.model === 'string') bump(d.models, entry.data.model)
   if (entry?.type === 'user.message') prompted(d, entry.timestamp)
+  if (entry?.type === 'skill.invoked' || entry?.type === 'skill.invoked_ref') bump(d.skills, skillName(entry.data?.name))
   if (entry?.type !== 'tool.execution_start') return
   const data = entry.data ?? {}
   const name = typeof data.toolName === 'string' ? data.toolName : null
@@ -448,7 +562,7 @@ let deepLoadedFrom: string | null = null
 let deepSaving: Promise<void> = Promise.resolve()
 
 /** Bumped whenever a reader changes what it counts: an older cache is then read fresh. */
-const DEEP_CACHE_VERSION = 1
+const DEEP_CACHE_VERSION = 2
 
 /** DeepStats as JSON has it: Sets and Maps as arrays. */
 type StoredStats = {
@@ -459,6 +573,7 @@ type StoredStats = {
   readonly files: string[]
   readonly tools: [string, number][]
   readonly models: [string, number][]
+  readonly skills: [string, number][]
   readonly languages: [string, { readonly files: string[]; readonly linesAdded: number }][]
 }
 
@@ -471,6 +586,7 @@ function storeStats(d: DeepStats): StoredStats {
     files: [...d.files],
     tools: [...d.tools],
     models: [...d.models],
+    skills: [...d.skills],
     languages: [...d.languages].map(([ext, l]) => [ext, { files: [...l.files], linesAdded: l.linesAdded }])
   }
 }
@@ -488,6 +604,7 @@ function reviveStats(v: any): DeepStats | null {
     !Array.isArray(v.files) ||
     !pairs(v.tools) ||
     !pairs(v.models) ||
+    !pairs(v.skills) ||
     !Array.isArray(v.languages)
   ) {
     return null
@@ -505,6 +622,7 @@ function reviveStats(v: any): DeepStats | null {
     files: new Set(v.files),
     tools: new Map(v.tools),
     models: new Map(v.models),
+    skills: new Map(v.skills),
     languages
   }
 }
@@ -591,6 +709,7 @@ function mergeDeep(into: DeepStats, from: DeepStats): void {
   for (const f of from.files) into.files.add(f)
   for (const [k, v] of from.tools) bump(into.tools, k, v)
   for (const [k, v] of from.models) bump(into.models, k, v)
+  for (const [k, v] of from.skills) bump(into.skills, k, v)
   for (const [ext, lang] of from.languages) {
     let cur = into.languages.get(ext)
     if (!cur) into.languages.set(ext, (cur = { files: new Set(), linesAdded: 0 }))
@@ -692,6 +811,7 @@ async function assemble(sessions: DrivenSession[], opts: ProfileOptions): Promis
       languages: [],
       repos: [],
       models: [],
+      skills: [],
       accounts: [],
       hours: Array.from({ length: 24 }, () => ({ prompts: 0, byProvider: {} })),
       roundtables
@@ -861,6 +981,21 @@ async function assemble(sessions: DrivenSession[], opts: ProfileOptions): Promis
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
     .slice(0, 8)
 
+  // Skills merged the same way: the person's own skills are often installed for every
+  // agent, and which agent takes one up is the comparison
+  const allSkills = new Map<string, Mutable<SkillStat>>()
+  for (const [provider, deep] of perProviderDeep) {
+    for (const [name, count] of deep.skills) {
+      let sk = allSkills.get(name)
+      if (!sk) allSkills.set(name, (sk = { name, count: 0, byProvider: {} }))
+      sk.count += count
+      split(sk.byProvider, provider, count)
+    }
+  }
+  const skills: SkillStat[] = [...allSkills.values()]
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, 8)
+
   // Accounts: join each source's session tally with its signed-in identity
   const identityOf = new Map(
     (opts.identities ?? []).map((a) => [`${a.provider}:${a.label}`, a.identity])
@@ -883,6 +1018,7 @@ async function assemble(sessions: DrivenSession[], opts: ProfileOptions): Promis
     languages,
     repos: [...repos.values()].sort((a, b) => b.sessions - a.sessions).slice(0, 8),
     models,
+    skills,
     accounts,
     hours,
     roundtables

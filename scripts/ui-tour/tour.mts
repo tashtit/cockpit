@@ -328,7 +328,7 @@ const STATIC: readonly Shot[] = [
     }
   },
   { view: 'profile', name: 'profile', tall: 1100, go: (w) => nav(w, 'Profile') },
-  ...['Agents', 'Code'].map(
+  ...['Agents', 'Skills', 'Code'].map(
     (t): Shot => ({
       view: 'profile',
       name: `profile-${t.toLowerCase()}`,
@@ -714,7 +714,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'agents-browse-mcp', 'profile', 'profile-agents', 'cleanup', 'new-session', 'new-session-acp', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'agents-browse-mcp', 'profile', 'profile-agents', 'profile-skills', 'cleanup', 'new-session', 'new-session-acp', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

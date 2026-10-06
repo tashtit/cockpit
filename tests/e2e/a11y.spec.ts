@@ -257,7 +257,7 @@ test('agents, every section', async () => {
 test('profile, every section', async () => {
   await nav('Profile')
   await audit()
-  for (const section of ['Activity', 'Agents', 'Code']) {
+  for (const section of ['Activity', 'Agents', 'Skills', 'Code']) {
     await win.getByRole('tab', { name: section }).click()
     await expect(win.getByRole('tab', { name: section })).toHaveAttribute('aria-selected', 'true')
     await audit()

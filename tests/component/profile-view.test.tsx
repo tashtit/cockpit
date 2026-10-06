@@ -63,6 +63,10 @@ function profile(over: Partial<ProfileStats> = {}): ProfileStats {
       { name: 'claude-opus-5', count: 30, byProvider: { claude: 22, copilot: 8 } },
       { name: 'gpt-5.6-sol', count: 12, byProvider: { codex: 12 } }
     ],
+    skills: [
+      { name: 'release-notes', count: 9, byProvider: { claude: 6, codex: 3 } },
+      { name: 'db-migrations', count: 1, byProvider: { claude: 1 } }
+    ],
     accounts: [
       { provider: 'claude', label: 'claude', identity: 'dev@example.com', sessions: 30, lastActivity: Date.now() },
       { provider: 'codex', label: 'codex', identity: null, sessions: 12, lastActivity: Date.now() }
@@ -164,11 +168,31 @@ describe('ProfileView', () => {
     expect(screen.getByText('day streak')).toBeInTheDocument()
   })
 
+  it('ranks the skills taken up on their own tab, each split by the agent that took it up', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
+    render(<ProfileView onClose={() => {}} />)
+    await openTab('Skills')
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName('Skills')
+    expect(screen.getByRole('heading', { name: 'Most used' })).toBeInTheDocument()
+    const list = screen.getByText('release-notes').closest('ul')!
+    expect([...list.querySelectorAll('li')].map((li) => li.getAttribute('title'))).toEqual([
+      'release-notes — 9\u00a0uses (Claude 6 · Codex 3)',
+      'db-migrations — 1\u00a0use (Claude 1)'
+    ])
+  })
+
+  it('drops the Skills tab when no agent took a skill up', async () => {
+    vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile({ skills: [] }))
+    render(<ProfileView onClose={() => {}} />)
+    await screen.findByText('octocat')
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Activity', 'Agents', 'Code'])
+  })
+
   it('drops the Code tab when nothing edited or indexed can fill it', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile({ languages: [], repos: [] }))
     render(<ProfileView onClose={() => {}} />)
     await screen.findByText('octocat')
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Activity', 'Agents'])
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Activity', 'Agents', 'Skills'])
   })
 
   it('labels the heatmap and gives every day a readable tooltip', async () => {
@@ -271,9 +295,9 @@ describe('ProfileView', () => {
 
   it('renders model bars split by the agents that served each model', async () => {
     vi.mocked(window.cockpit.getProfile).mockResolvedValue(profile())
-    const { container } = render(<ProfileView onClose={() => {}} />)
+    render(<ProfileView onClose={() => {}} />)
     await openTab('Agents')
-    const rows = [...container.querySelectorAll('.pv-bars li')]
+    const rows = [...screen.getByText('gpt-5.6-sol').closest('ul')!.querySelectorAll('li')]
     expect(rows.map((li) => li.querySelector('.pv-bar-name')?.textContent)).toEqual([
       'claude-opus-5',
       'gpt-5.6-sol'
