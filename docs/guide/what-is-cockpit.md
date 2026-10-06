@@ -22,7 +22,7 @@ It also reads the sessions of **Gemini CLI**, **Cursor**, **Cline**, **Roo Code*
 
 Cockpit organizes around repositories, not providers:
 
-- The sidebar shows one **`owner/repo` row per repository**, A→Z or in the order you dragged them into, with that repo's sessions from every provider underneath, most recent first. Sessions in linked worktrees group under their main repo; the `owner/repo` identity comes from the origin remote.
+- The sidebar shows one **`owner/repo` row per repository**, A→Z or in the order you dragged them into, with that repo's sessions from every provider underneath, most recent first. A running session holds its place; it moves to the top when it finishes or asks you something. Sessions in linked worktrees group under their main repo; the `owner/repo` identity comes from the origin remote.
 - New work follows an **always-worktrees, always-PRs** model: every task gets its own branch in an isolated git worktree, and finished work ships as a pull request via the GitHub CLI. Your checkout is never touched. See [Worktrees & PRs](/guide/worktrees-and-prs).
 - PR state badges (open, draft, merged, closed) appear on sessions, straight from `gh pr list`.
 

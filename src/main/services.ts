@@ -175,6 +175,8 @@ export function startServices(): Services {
       }
     }
   )
+  // a session holds its place in the tree while a turn runs — Cockpit's own turns too
+  indexer.setBusyResolver(busySessions)
   // the first turn of an agent Cockpit only reads may write into a home that did not
   // exist at launch — adopted the way launch adopts one, so the session it wrote is listed
   const ledger = new TurnLedger(indexer, {
@@ -268,7 +270,10 @@ export function startServices(): Services {
       sendToWin(PUSH.chatEvent, ev)
     },
     {
-      onBusyChange: () => pushBusy(),
+      onBusyChange: () => {
+        indexer.busyChanged()
+        pushBusy()
+      },
       // a seat's turn has no chat to put a permission question in: it keeps the refusal
       // a headless CLI gives anything it would have asked
       asksPermissions: (req) => !tables?.tableIdForCwd(req.cwd),

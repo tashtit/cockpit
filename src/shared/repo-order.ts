@@ -3,8 +3,8 @@
  * jumping to the top moves every row under the cursor. Projects sort A→Z by the name
  * the tree shows, unless the user dragged them into their own order: those keys come
  * first, as saved, and anything not in the saved order (a repo indexed since) follows
- * A→Z. The repo-less `general` group is always last. Sessions *inside* a project keep
- * sorting by activity; that is the indexer's `page()`, not this.
+ * A→Z. The repo-less `general` group is always last. Sessions *inside* a project sort
+ * newest first, but only a turn ending moves one up — that is the indexer's `page()`, not this.
  */
 
 type Orderable = {

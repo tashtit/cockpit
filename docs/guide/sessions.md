@@ -12,7 +12,7 @@ Each session's working directory is resolved to its **git repository**, worktree
 
 ## The sidebar
 
-One row per repository, with that repo's sessions underneath, most recent first. Projects list A→Z, and never move because one got busy:
+One row per repository, with that repo's sessions underneath, most recent first. A session keeps its place while its agent works; it moves to the top only when its turn ends, or when the agent stops to ask you something. Projects list A→Z, and never move because one got busy:
 
 - **Order** — drag a project row to put it where you want it, or focus it and press <kbd>⌥↑</kbd> / <kbd>⌥↓</kbd>. A project indexed later joins A→Z after the ones you placed. **sort A→Z** in the eye popover's *Projects* section forgets your order.
 - **Hiding a project** — the eye button beside the search field lists every project under *Projects*, each with a checkbox; untick one to take it out of the tree.

@@ -397,6 +397,9 @@ type PageScope = {
  *   (`provider-archived.ts`), roundtable seat sessions (`roundtableForCwd`), and anything idle
  *   past the history window (`historyDays`). `ownSessions()`, the profile's reader, still
  *   counts archived ones: archiving is how work ends.
+ * - Pages list newest first, but a session mid-turn holds the place it had when the turn
+ *   began (`holdingAt`, fed the merged busy set): only a turn that ends or stops to ask
+ *   moves a session to the top, never the writes it makes while it works.
  * - A parser reports only what its log states (`logBranch`). What the checkout says —
  *   `repo`, `isWorktree`, `gitBranch` — is `annotate()`'s, recomputed on every scan and
  *   stripped before the stat-cache is written, so a renamed remote or a moved worktree can
@@ -495,6 +498,15 @@ export class SessionIndexer {
    * are its pacing too; it reads a bounded tail of fresh files only.
    */
   private liveness: LivenessTracker
+  /**
+   * Where a running session sorts (session id → ms): its `updatedAt` as the turn began,
+   * kept until the turn ends or stops to ask the person something (`busyChanged`). Every
+   * write a turn makes moves `updatedAt`, and sorting on that reshuffled the tree on
+   * every tool call; a session goes to the top when it is waiting on you, not while it works.
+   */
+  private holdingAt = new Map<string, number>()
+  /** The whole busy set — services merges Cockpit's own turns in; alone, the index sees only its logs */
+  private busyNow: () => readonly BusySession[] = () => this.liveness.sessions()
   /** knownRepoRoots(), until the next emitUpdate */
   private repoRoots: ReadonlySet<string> | null = null
 
@@ -519,10 +531,13 @@ export class SessionIndexer {
     this.watchRetryMs = opts?.watchRetryMs ?? WATCH_RETRY_INTERVAL_MS
     this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
     this.archivedReader = new ProviderArchivedReader(this.claudeStoreDir)
-    this.liveness = new LivenessTracker(opts?.onLiveChange ?? (() => {}), {
-      windowMs: opts?.liveWindowMs,
-      onTurn: opts?.onLiveTurn
-    })
+    this.liveness = new LivenessTracker(
+      (sessions) => {
+        this.busyChanged()
+        opts?.onLiveChange?.(sessions)
+      },
+      { windowMs: opts?.liveWindowMs, onTurn: opts?.onLiveTurn }
+    )
     this.firstScan = new Promise((resolve) => (this.markScanned = resolve))
     this.loadCache()
   }
@@ -539,6 +554,35 @@ export class SessionIndexer {
   /** Sessions whose logs show a turn in progress right now — the observed half of the busy set. */
   liveSessions(): BusySession[] {
     return this.liveness.sessions()
+  }
+
+  /** Wired by services.ts to the merged busy set, so Cockpit's own turns hold their place too. */
+  setBusyResolver(fn: () => readonly BusySession[]): void {
+    this.busyNow = fn
+    this.busyChanged()
+  }
+
+  /**
+   * The busy set changed: a turn started, ended, or stopped to ask. A session that just
+   * started running keeps the place it stood in (`holdingAt`) — read here, inside the
+   * parse that saw the turn open and before the index takes that write, so `sessions`
+   * still holds the write before it; a session new to the index holds at its turn's
+   * start. One that is waiting on the person again lets go, and the tree is told: its
+   * newest write is the ending or the question, and it goes to the top.
+   */
+  busyChanged(): void {
+    const running = new Map<string, number>()
+    for (const b of this.busyNow()) if (!('asks' in b && b.asks)) running.set(b.id, b.startedAt)
+    let released = false
+    for (const id of this.holdingAt.keys()) {
+      if (running.has(id)) continue
+      this.holdingAt.delete(id)
+      released = true
+    }
+    for (const [id, startedAt] of running) {
+      if (!this.holdingAt.has(id)) this.holdingAt.set(id, this.sessions.get(id)?.updatedAt ?? startedAt)
+    }
+    if (released) this.emitUpdate()
   }
 
   /** Applied at query time so toggling archive never re-parses anything. */
@@ -1411,7 +1455,9 @@ export class SessionIndexer {
           s.nativeId.toLowerCase().includes(q)
       )
     }
-    all.sort((a, b) => b.updatedAt - a.updatedAt)
+    // newest first — except a running session, which stays where its turn found it
+    const at = (s: SessionMeta): number => this.holdingAt.get(s.id) ?? s.updatedAt
+    all.sort((a, b) => at(b) - at(a))
     all = this.groupChains(groupFamilies(all))
     const offset = Math.max(0, query.offset ?? 0)
     const limit = Math.max(1, Math.min(1000, query.limit ?? DEFAULT_PAGE_SIZE))
