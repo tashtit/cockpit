@@ -250,6 +250,21 @@ describe('restore', () => {
     expect(second.added).toEqual({ entries: 0, skills: 0, endpoints: 0, sources: 0, instructions: 0 })
   })
 
+  it('takes Cockpit-only mode from the backup, on or off', async () => {
+    saveConfig(config({ cockpitOnly: true }))
+    const on = writeBackup(join(fileDir, 'on.json'), exportDeps(memoryKeys())).path
+    saveConfig(config())
+    const off = writeBackup(join(fileDir, 'off.json'), exportDeps(memoryKeys())).path
+
+    useMachine('machine-b')
+    saveConfig(config())
+    await restoreBackup(readBackup(on), restoreDeps(memoryKeys()))
+    expect(loadConfig().cockpitOnly).toBe(true)
+    await restoreBackup(readBackup(off), restoreDeps(memoryKeys()))
+    // off is the default, saved as nothing at all
+    expect('cockpitOnly' in loadConfig()).toBe(false)
+  })
+
   it('keeps local instructions and reports them, rather than replacing them', async () => {
     saveConfig(config())
     saveBaseline(null, '# theirs')

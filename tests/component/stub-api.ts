@@ -190,6 +190,8 @@ export function freshApi(): CockpitApi {
     setRepoOrder: vi.fn(async () => {}),
     getHistoryDays: vi.fn(async () => 0),
     setHistoryDays: vi.fn(async () => {}),
+    getCockpitOnly: vi.fn(async () => false),
+    setCockpitOnly: vi.fn(async () => {}),
     getTimeFormat: vi.fn(async () => '24h' as const),
     setTimeFormat: vi.fn(async () => {}),
     getStaleDays: vi.fn(async () => 30),

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
@@ -1974,5 +1974,136 @@ describe('who drives a session (control)', () => {
     expect(idx.getSession('claude:hc-out')?.control).toEqual({ holder: 'cockpit', how: 'taken-over', since: 3_000 })
     // the entries it no longer holds fall back to where each session runs
     expect(idx.getSession('claude:hc-rel')?.control).toEqual({ holder: 'cockpit', how: 'started' })
+  })
+})
+
+describe('Cockpit-only mode (setCockpitOnly)', () => {
+  const home = join(root, 'claude-cockpit-only')
+  const worktrees = join(root, 'cockpit-only-userdata', 'worktrees')
+  let idx: SessionIndexer
+
+  function writeSession(name: string, cwd: string, ts: string): void {
+    const dir = join(home, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, `${name}.jsonl`),
+      jsonl([
+        { type: 'user', message: { role: 'user', content: `only ${name}` }, timestamp: ts, sessionId: name, cwd },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: ts }
+      ])
+    )
+  }
+
+  const ids = (q: Parameters<SessionIndexer['page']>[0] = {}): string[] =>
+    idx.page(q).items.map((s) => s.nativeId).sort()
+
+  beforeAll(async () => {
+    // a terminal session in a real repo · one in Cockpit's own worktree · one taken over ·
+    // one started here and released · a roundtable seat, which no record says Cockpit holds
+    writeSession('co-out', repoA, '2026-08-01T10:00:00Z')
+    writeSession('co-wt', join(worktrees, 'rocket', 'task'), '2026-08-02T10:00:00Z')
+    writeSession('co-took', '/nowhere/only', '2026-08-03T10:00:00Z')
+    writeSession('co-rel', join(worktrees, 'rocket', 'old'), '2026-08-04T10:00:00Z')
+    writeSession('co-seat', '/nowhere/table/seat', '2026-08-05T10:00:00Z')
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null, cockpitWorktrees: worktrees })
+    idx.setRoundtableResolver((cwd) => (cwd.startsWith('/nowhere/table') ? 't1' : null))
+    await idx.setSources([{ path: home, provider: 'claude', label: 'only' }])
+    idx.stopWatchers()
+    idx.setControl({
+      'claude:co-took': { how: 'taken-over', at: 1_000 },
+      'claude:co-rel': { how: 'released', at: 2_000 }
+    })
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('lists every session while it is off', () => {
+    idx.setCockpitOnly(false)
+    expect(ids()).toEqual(['co-out', 'co-rel', 'co-took', 'co-wt'])
+    expect(idx.hiddenByMode('claude:co-out')).toBe(false)
+  })
+
+  it('pages and searches only the sessions Cockpit holds while it is on', () => {
+    idx.setCockpitOnly(true)
+    expect(ids()).toEqual(['co-took', 'co-wt'])
+    expect(ids({ search: 'only co' })).toEqual(['co-took', 'co-wt'])
+    expect(idx.transcriptCandidates({}).map((s) => s.nativeId).sort()).toEqual(['co-took', 'co-wt'])
+    expect(idx.hiddenByMode('claude:co-out')).toBe(true)
+    expect(idx.hiddenByMode('claude:co-rel')).toBe(true)
+    expect(idx.hiddenByMode('claude:co-took')).toBe(false)
+    // an id the index doesn't hold may just not be read yet
+    expect(idx.hiddenByMode('claude:not-read-yet')).toBe(false)
+    // opening one by id still answers: a lineage chip or a landing can name it
+    expect(idx.getSession('claude:co-out')?.control?.holder).toBe('agent')
+  })
+
+  it('keeps a project with none of its sessions listed, empty, so work can still start there', () => {
+    idx.setCockpitOnly(true)
+    const repos = idx.listRepos()
+    const a = repos.find((r) => r.key === 'gh:acme/repo-a')
+    expect(a).toMatchObject({ sessionCount: 0, archivedCount: 0, heldCount: 0, providers: [], byProvider: {} })
+    expect(a?.root).toBe(repoA)
+    expect(idx.knownRepoRoots().has(repoA)).toBe(true)
+    const general = repos.find((r) => r.key === 'general')
+    expect(general).toMatchObject({ sessionCount: 2, heldCount: 2 })
+    expect(general?.byProvider.claude).toEqual({ sessions: 2, held: 2 })
+  })
+
+  it('counts and pages archived sessions by the same rule', () => {
+    idx.setCockpitOnly(true)
+    idx.setArchived(['claude:co-took', 'claude:co-out'])
+    expect(ids({ archived: true })).toEqual(['co-took'])
+    expect(idx.listRepos().find((r) => r.key === 'general')?.archivedCount).toBe(1)
+    expect(idx.listRepos().find((r) => r.key === 'gh:acme/repo-a')?.archivedCount).toBe(0)
+    idx.setArchived([])
+  })
+
+  it("leaves a roundtable's seats under their table", () => {
+    idx.setCockpitOnly(true)
+    expect(ids({ roundtableId: 't1' })).toEqual(['co-seat'])
+  })
+
+  it('brings everything back when it is switched off, with nothing re-parsed', () => {
+    idx.setCockpitOnly(false)
+    expect(ids()).toEqual(['co-out', 'co-rel', 'co-took', 'co-wt'])
+    expect(idx.listRepos().find((r) => r.key === 'gh:acme/repo-a')?.sessionCount).toBe(1)
+  })
+})
+
+describe("Cockpit's worktrees, however their case was written", () => {
+  // the packaged app names userData `Cockpit`, a dev run `cockpit`, and an agent records
+  // the cwd its process reports — on a volume that ignores case, all one folder
+  const data = join(root, 'Cockpit-Case')
+  const home = join(root, 'claude-case')
+  let idx: SessionIndexer
+  let foldsCase: boolean
+
+  beforeAll(async () => {
+    mkdirSync(join(data, 'worktrees', 'rocket'), { recursive: true })
+    foldsCase = existsSync(join(root, 'COCKPIT-CASE'))
+    const dir = join(home, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    // its worktree was removed after the PR merged: only the folders above it are left
+    const cwd = join(root, 'cockpit-case', 'worktrees', 'rocket', 'merged-task')
+    const ts = '2026-08-06T10:00:00Z'
+    writeFileSync(
+      join(dir, 'cc-lower.jsonl'),
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'task' }, timestamp: ts, sessionId: 'cc-lower', cwd },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: ts }
+      ])
+    )
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null, cockpitWorktrees: join(data, 'worktrees') })
+    await idx.setSources([{ path: home, provider: 'claude', label: 'case' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('counts a session in them as started by Cockpit where the volume ignores case', () => {
+    // on a case-sensitive volume `cockpit-case` is another folder, so outside is right there
+    expect(idx.getSession('claude:cc-lower')?.control).toEqual(
+      foldsCase ? { holder: 'cockpit', how: 'started' } : { holder: 'agent', how: 'outside' }
+    )
   })
 })

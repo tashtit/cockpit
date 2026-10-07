@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { resolve } from 'node:path'
 import { CH } from '../../shared/contract'
 import { branchPrefix, setBranchPrefix } from '../config'
-import { isUnder } from '../paths'
+import { isUnder, spelledOnDisk } from '../paths'
 import { getDefaultBranch, getPrs } from '../github'
 import { branchPrefixClashAmong, createPr, createWorkspace, worktreesDir } from '../workspace'
 import { DEFAULT_BRANCH_PREFIX, branchPrefixRefusal, normalizeBranchPrefix } from '../../shared/branch-prefix'
@@ -54,8 +54,12 @@ export function registerGithubHandlers(s: Services): void {
   })
   ipcMain.handle(CH.workspacePr, (_e, cwd: string) => {
     const c = resolve(String(cwd))
-    // the worktrees dir itself is not a workspace — only something cut inside it
-    const underWorktrees = c !== worktreesDir() && isUnder(c, worktreesDir())
+    // the worktrees dir itself is not a workspace — only something cut inside it. Both as
+    // the disk spells them: a session's agent may have written the folder in another case
+    // than Cockpit made it in, and on macOS that is the same folder
+    const root = spelledOnDisk(worktreesDir())
+    const at = spelledOnDisk(c)
+    const underWorktrees = at !== root && isUnder(at, root)
     const underKnownRoot = [...indexer.knownRepoRoots()].some((r) => isUnder(c, r))
     if (!underWorktrees && !underKnownRoot) throw new Error(`unknown workspace: ${c}`)
     return createPr(c)

@@ -163,6 +163,24 @@ const STATIC: readonly Shot[] = [
     },
     after: (w) => w.getByRole('button', { name: 'Show all' }).click()
   },
+  // Cockpit-only mode, set where it lives: the View tab's row, beside a tree that holds only
+  // Cockpit's sessions — and no strip, since it is a setting rather than the tree's filter
+  {
+    view: 'sidebar',
+    name: 'sidebar-cockpit-only',
+    go: async (w) => {
+      await nav(w, 'Settings')
+      await w.getByRole('tab', { name: 'View' }).click()
+      await w.getByRole('button', { name: /^Sessions outside Cockpit/ }).click()
+      await w.getByRole('option', { name: /Hide them/ }).click()
+      await pause(w, 800)
+    },
+    after: async (w) => {
+      await w.getByRole('button', { name: /^Sessions outside Cockpit/ }).click()
+      await w.getByRole('option', { name: /Show them/ }).click()
+      await pause(w, 400)
+    }
+  },
   // the rail dragged out to its ceiling — a width no window size reaches on its own,
   // with the deck reflowing behind it; the sash itself is the lit hairline on the border
   {
@@ -714,7 +732,7 @@ const STATIC: readonly Shot[] = [
  * serves every narrow pass, so there is no second hand-curated set to drift out of
  * step with this one.
  */
-const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'agents-browse-mcp', 'profile', 'profile-agents', 'profile-skills', 'cleanup', 'new-session', 'new-session-acp', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
+const AT_FLOOR = new Set(['home', 'sidebar-update', 'palette-empty', 'palette-transcripts', 'settings', 'settings-branch-prefix', 'agents', 'agents-browse-mcp', 'profile', 'profile-agents', 'profile-skills', 'cleanup', 'new-session', 'new-session-acp', 'chat-claude', 'chat-held', 'chat-outside', 'sidebar-in-cockpit', 'sidebar-cockpit-only', 'chat-asks', 'chat-work-edits', 'chat-work-checks', 'chat-work-files', 'chat-side', 'roundtable-evidence', 'chat-plan', 'new-roundtable-seats', 'new-roundtable-signed-out', 'roundtable-consensus'])
 
 const LIVE: readonly Shot[] = [
   // a table mid-round: each seat still at it with its time and skip, and a follow-up

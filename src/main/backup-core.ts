@@ -30,8 +30,9 @@ import { capRecent } from './recent-map'
  * session maps — and never session logs, worktrees or the index (rebuildable or
  * machine-local). Restore is a merge that adds and never deletes: re-running a file is a
  * no-op, and restored library entries land `pending`, never written into agent configs.
- * Four settings are the exception and take the backup's value — the history window, the
- * stale threshold, the time format and the branch prefix — so the UI and the guide say so.
+ * Five settings are the exception and take the backup's value — the history window,
+ * Cockpit-only mode, the stale threshold, the time format and the branch prefix — so the
+ * UI and the guide say so.
  */
 
 export const BUNDLE_FORMAT = 'cockpit-backup'
@@ -84,6 +85,8 @@ export type Bundle = {
   readonly home: string
   readonly settings: {
     readonly historyDays?: number
+    /** written either way, so a restore takes the backup's choice; absent in older files */
+    readonly cockpitOnly?: boolean
     readonly staleDays?: number
     readonly timeFormat?: TimeFormat
     /** absent in files written before it existed, and when it was the default */
@@ -369,6 +372,7 @@ export function sanitizeBundle(input: unknown): Bundle {
       ...(typeof settings['historyDays'] === 'number'
         ? { historyDays: Math.max(0, Math.floor(settings['historyDays'])) }
         : {}),
+      ...(typeof settings['cockpitOnly'] === 'boolean' ? { cockpitOnly: settings['cockpitOnly'] } : {}),
       ...(typeof settings['staleDays'] === 'number'
         ? { staleDays: clampStaleDays(settings['staleDays']) }
         : {}),
@@ -586,6 +590,8 @@ export function planRestore(local: AppConfig, bundle: Bundle, ctx: RestoreContex
       ? { repoOrder: [...(bundle.settings.repoOrder ?? [])] }
       : {}),
     ...(bundle.settings.historyDays !== undefined ? { historyDays: bundle.settings.historyDays } : {}),
+    // saved only while on, as setCockpitOnly does
+    ...(bundle.settings.cockpitOnly !== undefined ? { cockpitOnly: bundle.settings.cockpitOnly || undefined } : {}),
     ...(bundle.settings.staleDays !== undefined ? { staleDays: bundle.settings.staleDays } : {}),
     ...(bundle.settings.timeFormat !== undefined ? { timeFormat: bundle.settings.timeFormat } : {}),
     ...(bundle.settings.branchPrefix !== undefined ? { branchPrefix: bundle.settings.branchPrefix } : {})

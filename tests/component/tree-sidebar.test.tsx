@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TreeSidebar } from '../../src/renderer/src/TreeSidebar'
@@ -6,6 +6,7 @@ import type { PrStatus, RepoGroup, RoundtableMeta, SessionMeta } from '../../src
 import { openPr, usageFixture } from './stub-api'
 import { initBusySessions, useSessionBusy } from '../../src/renderer/src/busy'
 import { clearLanded, initLanded } from '../../src/renderer/src/landed'
+import { initCockpitOnly } from '../../src/renderer/src/hold'
 
 // counted, not changed: every session row asks once per render whether its agent is
 // running, so the calls say how many rows an index push redrew
@@ -838,6 +839,47 @@ describe('who drives a session', () => {
     expect(screen.getByText(/Cockpit holds no sessions yet/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Show all sessions' }))
     expect(await screen.findByRole('treeitem', { name: /acme\/rocket/ })).toBeInTheDocument()
+  })
+})
+
+describe('Cockpit-only mode', () => {
+  const held = session({ id: 'claude:held', title: 'started here', control: { holder: 'cockpit', how: 'started' } })
+
+  beforeEach(async () => {
+    vi.mocked(window.cockpit.getCockpitOnly).mockResolvedValue(true)
+    await act(() => initCockpitOnly())
+  })
+  // a module store, like the clock format: the tests after these start with it off
+  afterEach(async () => {
+    vi.mocked(window.cockpit.getCockpitOnly).mockResolvedValue(false)
+    await act(() => initCockpitOnly())
+  })
+
+  it('leaves out a project main kept empty, and offers the sessions outside Cockpit back', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 0, items: [] })
+    // main keeps the project so New session can start there, with none of its sessions counted
+    renderSidebar({ sessionCount: 0, heldCount: 0, providers: [] })
+    expect(screen.queryByRole('treeitem', { name: /acme\/rocket/ })).toBeNull()
+    expect(screen.getByText(/No sessions in Cockpit to show/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Show sessions outside Cockpit' }))
+    expect(window.cockpit.setCockpitOnly).toHaveBeenCalledWith(false)
+    await waitFor(() => expect(screen.queryByText(/No sessions in Cockpit to show/)).toBeNull())
+  })
+
+  it('stands the eye’s holder filter down: no strip, no narrowing, and says where the rest went', async () => {
+    // a filter left on from before the mode would narrow to an empty side
+    window.localStorage.setItem('cockpit:holder-filter', 'agent')
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [held] })
+    renderSidebar({ sessionCount: 1, heldCount: 1 })
+    expect(await screen.findByRole('treeitem', { name: /started here/ })).toBeInTheDocument()
+    expect(screen.queryByText(/^Only sessions/)).toBeNull()
+    expect(window.cockpit.pageSessions).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ holder: expect.anything() })
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose what the tree shows' }))
+    expect(screen.queryByRole('radiogroup', { name: 'Sessions' })).toBeNull()
+    expect(screen.getByText(/Only those in Cockpit/)).toBeInTheDocument()
   })
 })
 

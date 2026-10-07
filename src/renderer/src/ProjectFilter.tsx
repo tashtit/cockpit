@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { RepoGroup, SessionHolder } from '../../shared/types'
 import { api } from './api'
-import { HOLDER_FILTER_LABEL, setHolderFilter, useHolderFilter } from './hold'
+import { HOLDER_FILTER_LABEL, setHolderFilter, useCockpitOnly, useHolderFilter } from './hold'
 import { agentCounts, setAgentShown, shownSessions, useHiddenAgents } from './agent-filter'
 import { ChatIcon, EyeIcon, HeldIcon, ProcessIcon, ProviderLogo, PROVIDER_LABEL, RepoIcon } from './logos'
 import { plural } from './format'
@@ -9,7 +9,8 @@ import { plural } from './format'
 /**
  * Eye popover: what the tree shows — sessions by who drives them (every one, only
  * Cockpit's, or only those with their agent), then by agent (`agent-filter.ts`), then
- * every indexed project with a visibility checkbox (all on by default).
+ * every indexed project with a visibility checkbox (all on by default). In Cockpit-only
+ * mode the first group has no choice left to offer, so it says where the rest went.
  */
 export function ProjectFilter({
   repos,
@@ -25,6 +26,7 @@ export function ProjectFilter({
   const popRef = useRef<HTMLDivElement>(null)
   const hiddenCount = repos.filter((r) => r.hidden).length
   const holder = useHolderFilter()
+  const cockpitOnly = useCockpitOnly()
   const hiddenAgents = useHiddenAgents()
   const shown = repos.filter((r) => !r.hidden)
   // what each choice would leave in the tree — with the hidden agents still hidden, as the
@@ -98,33 +100,37 @@ export function ProjectFilter({
           <div className="repo-filter-head" id="holder-filter-head">
             <span>Sessions</span>
           </div>
-          <div role="radiogroup" aria-labelledby="holder-filter-head">
-            {([null, 'cockpit', 'agent'] as const).map((h) => (
-              <label
-                key={h ?? 'all'}
-                className="repo-filter-row"
-                title={
-                  h === null
-                    ? 'Every session, whoever drives it'
-                    : h === 'cockpit'
-                      ? 'Sessions Cockpit started or took over — it sends their turns'
-                      : 'Sessions from a terminal or an agent’s own app, or released back there — Cockpit only follows their logs'
-                }
-              >
-                <input
-                  type="radio"
-                  name="holder-filter"
-                  checked={holder === h}
-                  onChange={() => setHolderFilter(h)}
-                />
-                <span className="repo-icon">
-                  {h === 'cockpit' ? <HeldIcon size={12} /> : h === 'agent' ? <ProcessIcon size={12} /> : <ChatIcon size={12} />}
-                </span>
-                <span className="repo-filter-name">{h === null ? 'All sessions' : HOLDER_FILTER_LABEL[h]}</span>
-                <span className="repo-count">{counts[h ?? 'all']}</span>
-              </label>
-            ))}
-          </div>
+          {cockpitOnly ? (
+            <div className="tree-empty">Only those in Cockpit — Settings › View hides the rest</div>
+          ) : (
+            <div role="radiogroup" aria-labelledby="holder-filter-head">
+              {([null, 'cockpit', 'agent'] as const).map((h) => (
+                <label
+                  key={h ?? 'all'}
+                  className="repo-filter-row"
+                  title={
+                    h === null
+                      ? 'Every session, whoever drives it'
+                      : h === 'cockpit'
+                        ? 'Sessions Cockpit started or took over — it sends their turns'
+                        : 'Sessions from a terminal or an agent’s own app, or released back there — Cockpit only follows their logs'
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="holder-filter"
+                    checked={holder === h}
+                    onChange={() => setHolderFilter(h)}
+                  />
+                  <span className="repo-icon">
+                    {h === 'cockpit' ? <HeldIcon size={12} /> : h === 'agent' ? <ProcessIcon size={12} /> : <ChatIcon size={12} />}
+                  </span>
+                  <span className="repo-filter-name">{h === null ? 'All sessions' : HOLDER_FILTER_LABEL[h]}</span>
+                  <span className="repo-count">{counts[h ?? 'all']}</span>
+                </label>
+              ))}
+            </div>
+          )}
           {agents.length > 1 || hiddenAgents.length > 0 ? (
             <>
               <div className="repo-filter-head repo-filter-divided" id="agent-filter-head">

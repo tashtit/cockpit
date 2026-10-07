@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Settings, SETTINGS_SECTIONS } from '../../src/renderer/src/Settings'
+import { saveCockpitOnly } from '../../src/renderer/src/hold'
 import type { SourceStats } from '../../src/shared/types'
 
 const sources: SourceStats[] = [
@@ -74,6 +75,37 @@ describe('Settings tabs', () => {
     expect(day).toBeInTheDocument()
     await userEvent.click(day)
     expect(window.cockpit.setHistoryDays).toHaveBeenCalledWith(1)
+  })
+
+  it('hides the sessions outside Cockpit, and saves it', async () => {
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByText('claude-default')
+    await userEvent.click(tab('View'))
+
+    const outside = await screen.findByRole('button', { name: /^Sessions outside Cockpit/ })
+    expect(outside).toHaveTextContent('Show them')
+    await userEvent.click(outside)
+    await userEvent.click(await screen.findByRole('option', { name: /Hide them/ }))
+    expect(window.cockpit.setCockpitOnly).toHaveBeenCalledWith(true)
+    await waitFor(() => expect(outside).toHaveTextContent('Hide them'))
+    expect(screen.getByRole('status')).toHaveTextContent('Showing only the sessions in Cockpit')
+    // the mode is a module store: leave it off for the tests after this one
+    await act(() => saveCockpitOnly(false))
+  })
+
+  it('keeps the mode as it was when main refuses to save it', async () => {
+    vi.mocked(window.cockpit.setCockpitOnly).mockRejectedValue(
+      new Error("Error invoking remote method 'sessions:set-cockpit-only': Error: config unreadable")
+    )
+    render(<Settings onClose={vi.fn()} />)
+    await screen.findByText('claude-default')
+    await userEvent.click(tab('View'))
+
+    const outside = await screen.findByRole('button', { name: /^Sessions outside Cockpit/ })
+    await userEvent.click(outside)
+    await userEvent.click(await screen.findByRole('option', { name: /Hide them/ }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Couldn’t save that: config unreadable'))
+    expect(outside).toHaveTextContent('Show them')
   })
 
   it('opens on the tab a deep link names', async () => {

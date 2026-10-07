@@ -196,6 +196,10 @@ export type CockpitApi = {
   /** Days of history to display — sessions idle longer are hidden; 0 = all */
   readonly getHistoryDays: () => Promise<number>
   readonly setHistoryDays: (days: number) => Promise<void>
+  /** Cockpit-only mode: the tree, search and the home board list only the sessions
+   *  Cockpit holds (started here or taken over), and only those notify; false = every one */
+  readonly getCockpitOnly: () => Promise<boolean>
+  readonly setCockpitOnly: (on: boolean) => Promise<void>
   /** Clock format for session times (sidebar, home); default 24h */
   readonly getTimeFormat: () => Promise<TimeFormat>
   readonly setTimeFormat: (format: TimeFormat) => Promise<void>
@@ -557,12 +561,14 @@ export const CH = {
 
   sessionsArchive: 'sessions:archive',
   sessionsBusy: 'sessions:busy',
+  sessionsCockpitOnly: 'sessions:cockpit-only',
   sessionsFile: 'sessions:file',
   sessionsGet: 'sessions:get',
   sessionsMessages: 'sessions:messages',
   sessionsOpenFile: 'sessions:open-file',
   sessionsPage: 'sessions:page',
   sessionsResumeInTerminal: 'sessions:resume-in-terminal',
+  sessionsSetCockpitOnly: 'sessions:set-cockpit-only',
   sessionsSetHolder: 'sessions:set-holder',
 
   shellOpen: 'shell:open',

@@ -15,6 +15,7 @@ import {
   bindSessionControl,
   loadConfig,
   saveConfig,
+  setCockpitOnly,
   setHistoryDays,
   setRepoHidden,
   setRepoOrder,
@@ -95,6 +96,10 @@ export function registerSessionHandlers(s: Services): void {
   ipcMain.handle(CH.historyGet, () => loadConfig().historyDays ?? 0)
   ipcMain.handle(CH.historySet, (_e, days: number) => {
     indexer.setHistoryDays(setHistoryDays(Number(days)))
+  })
+  ipcMain.handle(CH.sessionsCockpitOnly, () => loadConfig().cockpitOnly === true)
+  ipcMain.handle(CH.sessionsSetCockpitOnly, (_e, on: unknown) => {
+    indexer.setCockpitOnly(setCockpitOnly(on === true))
   })
   ipcMain.handle(CH.timeFormatGet, () => loadConfig().timeFormat ?? '24h')
   ipcMain.handle(CH.timeFormatSet, (_e, format: TimeFormat) => {

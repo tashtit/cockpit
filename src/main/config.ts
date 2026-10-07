@@ -70,6 +70,12 @@ export type AppConfig = {
   readonly repoOrder?: string[]
   /** Days of history to display — sessions idle longer are hidden; 0/absent = all */
   readonly historyDays?: number
+  /**
+   * Cockpit-only mode: list only the sessions Cockpit holds — it started them, or the
+   * person took them over — in the tree, search and the home board, and notify only for
+   * those. Absent = every session the agents keep, wherever it was opened.
+   */
+  readonly cockpitOnly?: boolean
   /** Idle threshold the cleanup view calls stale, in days; absent = 30 */
   readonly staleDays?: number
   /** Clock format for session times in the UI; absent = 24h */
@@ -316,6 +322,12 @@ export function setHistoryDays(days: number): number {
   const d = Number.isFinite(days) && days > 0 ? Math.floor(days) : 0
   saveConfig({ ...cfg, historyDays: d })
   return d
+}
+
+/** Saved only while on: absent is the default, every session. */
+export function setCockpitOnly(on: boolean): boolean {
+  saveConfig({ ...loadConfig(), cockpitOnly: on || undefined })
+  return on
 }
 
 export function setStaleDays(days: number): number {

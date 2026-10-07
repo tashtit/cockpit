@@ -1,11 +1,12 @@
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, sep } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import type { Provider } from '../shared/types'
 
 /**
  * Path questions main asks everywhere, each answered once: containment, where a
- * symlinked path really leads, and where each agent keeps its config by default.
+ * symlinked path really leads, how the disk spells a path, and where each agent keeps
+ * its config by default.
  *
  * Containment matters most. "Is this path inside that directory?" is the question
  * every destructive and every spawn-shaped operation in main asks before it acts:
@@ -37,6 +38,27 @@ export function realOrSelf(path: string): string {
     return realpathSync(path)
   } catch {
     return path
+  }
+}
+
+/**
+ * `path` (absolute, resolved) as the disk spells it: symlinks followed and, on a volume
+ * that ignores case (macOS's default), each existing part in the case it was made in —
+ * `realpathSync.native`, the one that corrects case; `realOrSelf` echoes whatever
+ * spelling it was handed. A tail that doesn't exist (yet, or any more) keeps its spelling
+ * under its nearest ancestor that does, so a deleted worktree is still placed by the
+ * folder it was in. Compare paths from different writers through this: Electron names
+ * userData after the product (`Cockpit`), a dev run after the package (`cockpit`), and an
+ * agent records the cwd its process reports — one folder, three spellings.
+ */
+export function spelledOnDisk(path: string): string {
+  for (let existing = path; ; existing = dirname(existing)) {
+    try {
+      const real = realpathSync.native(existing)
+      return existing === path ? real : join(real, relative(existing, path))
+    } catch {
+      if (dirname(existing) === existing) return path
+    }
   }
 }
 

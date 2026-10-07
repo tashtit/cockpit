@@ -202,6 +202,7 @@ function buildBundle(
     home: homedir(),
     settings: {
       ...(cfg.historyDays !== undefined ? { historyDays: cfg.historyDays } : {}),
+      cockpitOnly: cfg.cockpitOnly === true,
       ...(cfg.staleDays !== undefined ? { staleDays: cfg.staleDays } : {}),
       ...(cfg.timeFormat !== undefined ? { timeFormat: cfg.timeFormat } : {}),
       ...(cfg.branchPrefix !== undefined ? { branchPrefix: cfg.branchPrefix } : {}),
