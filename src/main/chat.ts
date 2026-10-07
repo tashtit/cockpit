@@ -516,8 +516,10 @@ type ChatManagerHooks = {
   readonly onBusyChange?: (sessions: BusySession[]) => void
   /** Every turn, before any of its events — fast failures included */
   readonly onTurnStart?: (turnId: string, req: ChatRequest) => void
-  /** cancel() was called: the error and done that follow are the kill, not a failure */
-  readonly onTurnCancel?: (turnId: string) => void
+  /** cancel() was called: the error and done that follow are the kill, not a failure.
+   *  `sessions` are the ones it ran on, as busySessions() names them — their logs are
+   *  left mid-turn, which is the kill too, not a turn still running */
+  readonly onTurnCancel?: (turnId: string, sessions: readonly string[]) => void
   readonly resolveEndpoint?: ResolveEndpoint
   readonly resolveKey?: ResolveKey
   /** The ACP agent to drive this request with, or undefined for the CLI's own flags */
@@ -951,7 +953,7 @@ export class ChatManager {
   cancel(turnId: string): void {
     const t = this.turns.get(turnId)
     if (!t) return
-    this.hooks.onTurnCancel?.(turnId)
+    this.hooks.onTurnCancel?.(turnId, [...t.sessionIds].map((nativeId) => `${t.provider}:${nativeId}`))
     // over ACP the agent can be told to stop, and anything it is waiting on refused,
     // before the process group is signalled
     t.acp?.cancel()

@@ -42,7 +42,10 @@ question the agent is still waiting on is waiting for you too — one it asked w
 in another chat, and one whose card was up when the window reloaded.
 
 A session runs one turn at a time. Cockpit won't start a second one beside a turn that is
-still going; stop it, or wait for it to finish.
+still going; stop it, or wait for it to finish. **Stop** ends the turn there and then, with
+the tools it started: the session stops flying and **Send** is back at once, even though
+the agent's log is left mid-turn — a tool call with no result reads like one still running,
+but Cockpit knows it stopped it.
 
 ### A session that is running somewhere else
 
