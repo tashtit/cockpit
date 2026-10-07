@@ -19,6 +19,7 @@ import {
   sessionLineageFor,
   setAttentionPrefs,
   setBranchPrefix,
+  setCockpitOnly,
   setHistoryDays,
   setUpdatePrefs,
   setWindowPlacement,
@@ -169,6 +170,23 @@ describe('branch prefix', () => {
   it('a hand-edited prefix git would refuse is read as the default, not used', () => {
     writeFileSync(cfgPath(), JSON.stringify({ sources: [], branchPrefix: 'a..b/' }))
     expect(branchPrefix()).toBe('cockpit/')
+  })
+})
+
+describe('Cockpit-only mode', () => {
+  it('saves the mode while it is on, and nothing at all once it is off again', () => {
+    saveConfig({ sources: [], archived: ['keep-me'] })
+    expect(setCockpitOnly(true)).toBe(true)
+    expect(loadConfig()).toMatchObject({ cockpitOnly: true, archived: ['keep-me'] })
+    expect(setCockpitOnly(false)).toBe(false)
+    // off is the default: the key leaves the file rather than sitting there as false
+    expect(JSON.parse(readFileSync(cfgPath(), 'utf8'))).not.toHaveProperty('cockpitOnly')
+  })
+
+  it('refuses to write over a config it cannot read', () => {
+    writeFileSync(cfgPath(), '{ "sources": [ half a file')
+    expect(() => setCockpitOnly(true)).toThrow(/unreadable/)
+    expect(readFileSync(cfgPath(), 'utf8')).toBe('{ "sources": [ half a file')
   })
 })
 
