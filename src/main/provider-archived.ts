@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SourceDir } from '../shared/types'
 import { execText } from './env'
+import { parseCopilotMeta } from './parsers/copilot'
 
 /**
  * Sessions archived — or deleted — inside the provider's own app must never show up in
@@ -22,9 +23,10 @@ import { execText } from './env'
  *     timestamp and the session row keeps none. See COPILOT_HIDDEN_WHEN.
  *   - deleted: a session row is removed outright (the db has a session_deletion_intents
  *     table and no deleted_at column), leaving session-state/<id>/events.jsonl behind.
- *     A row-less dir is treated as deleted only when its events.jsonl mtime falls
- *     inside the era the db demonstrably covers — see copilotDeletedIds. Deleting a
- *     project chat's workspace removes the workspace row and keeps the session's.
+ *     A row-less dir is treated as deleted only when the app opened it and its
+ *     events.jsonl mtime falls inside the era the db demonstrably covers — see
+ *     copilotDeletedIds. Deleting a project chat's workspace removes the workspace row
+ *     and keeps the session's.
  * - codex: archiving physically moves the rollout file to <home>/archived_sessions/.
  *   The indexer walks that dir as a session root and hides what is in it by its path
  *   (`isArchivedRollout` in parsers/codex.ts) — nothing extra to read here.
@@ -155,6 +157,8 @@ type RecordVerdict = {
 export class ProviderArchivedReader {
   private records = new Map<string, RecordVerdict>()
   private dbs = new Map<string, { readonly stamp: string; readonly rows: CopilotRow[] }>()
+  /** Whether the Copilot app opened a row-less session, by its events.jsonl and that file's stamp */
+  private openedByApp = new Map<string, { readonly stamp: string; readonly app: boolean }>()
   private readonly claudeStoreDir: string | null
 
   /** undefined → the real desktop-app store; null → disabled (tests). */
@@ -181,7 +185,7 @@ export class ProviderArchivedReader {
           if (r.hidden) out.add(`copilot:${r.id}`)
           if (r.deleted) deleted.add(`copilot:${r.id}`)
         }
-        for (const id of copilotDeletedIds(s.path, rows)) {
+        for (const id of copilotDeletedIds(s.path, rows, (log) => this.appOpened(log))) {
           out.add(`copilot:${id}`)
           deleted.add(`copilot:${id}`)
         }
@@ -277,6 +281,18 @@ export class ProviderArchivedReader {
     if (stamp !== null) this.dbs.set(db, { stamp, rows })
     return rows
   }
+
+  /**
+   * Whether the Copilot app opened the session this log is — by the parser's own reading
+   * of where a session was opened (`surface`), re-read only once the log has moved.
+   */
+  private appOpened(log: RowlessLog): boolean {
+    const hit = this.openedByApp.get(log.file)
+    if (hit && hit.stamp === log.stamp) return hit.app
+    const app = parseCopilotMeta(log.file, 'copilot')?.surface === 'app'
+    this.openedByApp.set(log.file, { stamp: log.stamp, app })
+    return app
+  }
 }
 
 /** One read-only query's output lines, or null (logged) when sqlite3 could not answer. */
@@ -338,8 +354,18 @@ function dbStamp(db: string): string | null {
  * recorded yet) stay visible. Deliberately derived from mtimes, not the db's
  * created_at/updated_at columns: it needs no schema beyond the id column the archive
  * read already requires, and it compares mtime against mtime rather than mixing clocks.
+ *
+ * The era alone is not enough: the app records only the sessions it opened. One the CLI
+ * ran — in a terminal, headless, or over ACP, as every Copilot turn Cockpit starts is —
+ * never gets a row, so while the app is in use every such session fell inside the era
+ * and was called deleted minutes after it started. So a row-less dir also has to be one
+ * the app opened (`openedByApp`, the parser's `surface`) before its absence says anything.
  */
-function copilotDeletedIds(sourceDir: string, rows: CopilotRow[]): string[] {
+function copilotDeletedIds(
+  sourceDir: string,
+  rows: CopilotRow[],
+  openedByApp: (log: RowlessLog) => boolean
+): string[] {
   if (rows.length === 0) return []
   const known = new Set(rows.map((r) => r.id))
   const stateRoot = join(sourceDir, 'session-state')
@@ -351,20 +377,25 @@ function copilotDeletedIds(sourceDir: string, rows: CopilotRow[]): string[] {
   }
   let min = Infinity
   let max = -Infinity
-  const candidates: { id: string; mtime: number }[] = []
+  const candidates: (RowlessLog & { readonly id: string; readonly mtime: number })[] = []
   for (const d of dirs) {
-    let mtime: number
+    const file = join(stateRoot, d, 'events.jsonl')
+    let st
     try {
-      mtime = statSync(join(stateRoot, d, 'events.jsonl')).mtimeMs
+      st = statSync(file)
     } catch {
       continue
     }
+    const mtime = st.mtimeMs
     if (known.has(d)) {
       if (mtime < min) min = mtime
       if (mtime > max) max = mtime
     } else {
-      candidates.push({ id: d, mtime })
+      candidates.push({ id: d, mtime, file, stamp: `${mtime}:${st.size}` })
     }
   }
-  return candidates.filter((c) => c.mtime >= min && c.mtime <= max).map((c) => c.id)
+  return candidates.filter((c) => c.mtime >= min && c.mtime <= max && openedByApp(c)).map((c) => c.id)
 }
+
+/** A session's events.jsonl the app's db has no row for, and the stamp it was read at. */
+type RowlessLog = { readonly file: string; readonly stamp: string }

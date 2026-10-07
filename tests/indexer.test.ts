@@ -1124,9 +1124,25 @@ describe('branch fallback (log first, then the checkout itself)', () => {
 
 describe.skipIf(!hasSqlite3())('provider-deleted sessions (copilot data.db)', () => {
   // Deletion removes the sessions row but leaves session-state/<id>/events.jsonl on disk.
-  // A row-less dir is hidden only when its mtime falls inside the mtime span of the dirs
-  // the db does know (here 08-02 … 08-06).
+  // A row-less dir is hidden only when the app opened it and its mtime falls inside the
+  // mtime span of the dirs the db does know (here 08-02 … 08-06).
   const dir = join(root, 'copilot-deleted')
+  /** The app frames a session's kickoff in its workspace block — the CLI's never are */
+  const openedByApp = (id: string, ts: string): void => {
+    const file = join(dir, 'session-state', id, 'events.jsonl')
+    writeFileSync(
+      file,
+      jsonl([
+        { type: 'session.start', timestamp: ts, data: { sessionId: id, context: { cwd: '/nowhere/d' } } },
+        {
+          type: 'user.message',
+          timestamp: ts,
+          data: { content: 'tidy up', transformedContent: '<copilot_tauri_workspace>\nproject_name: d\n</copilot_tauri_workspace>\n\ntidy up' }
+        }
+      ])
+    )
+    utimesSync(file, new Date(ts), new Date(ts))
+  }
   let idx: SessionIndexer
 
   const visible = (): string[] => idx.page({}).items.map((s) => s.nativeId).sort()
@@ -1136,7 +1152,10 @@ describe.skipIf(!hasSqlite3())('provider-deleted sessions (copilot data.db)', ()
     writeCopilotSession(dir, 'k-new', '/nowhere/b', 'newest kept session', '2026-08-06T10:00:00Z')
     writeCopilotSession(dir, 'pre-db', '/nowhere/c', 'history from before the db', '2026-07-01T10:00:00Z')
     writeCopilotSession(dir, 'gone', '/nowhere/d', 'deleted in the copilot app', '2026-08-04T10:00:00Z')
+    openedByApp('gone', '2026-08-04T10:00:00Z')
     writeCopilotSession(dir, 'unrecorded', '/nowhere/e', 'newer than anything in the db', '2026-08-08T10:00:00Z')
+    // the CLI's own, in the db's era: the app never had a row for it to lose
+    writeCopilotSession(dir, 'from-cli', '/nowhere/h', 'run by the copilot cli', '2026-08-05T10:00:00Z')
     execFileSync('sqlite3', [
       join(dir, 'data.db'),
       "CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL, archived_at TEXT);" +
@@ -1149,18 +1168,18 @@ describe.skipIf(!hasSqlite3())('provider-deleted sessions (copilot data.db)', ()
 
   afterAll(() => idx?.stopWatchers())
 
-  it('hides row-less dirs inside the db era, keeps pre-db history and unrecorded new dirs', () => {
-    expect(visible()).toEqual(['k-new', 'k-old', 'pre-db', 'unrecorded'])
+  it('hides row-less dirs the app opened inside the db era, keeps pre-db history, unrecorded new dirs and the CLI’s own', () => {
+    expect(visible()).toEqual(['from-cli', 'k-new', 'k-old', 'pre-db', 'unrecorded'])
     // deleted sessions are not surfaced under Cockpit's own archived view either
     expect(idx.page({ archived: true }).total).toBe(0)
     const total = idx.listRepos().reduce((n, r) => n + r.sessionCount + r.archivedCount, 0)
-    expect(total).toBe(4)
+    expect(total).toBe(5)
   })
 
   it('keeps the previous hidden set when the db read fails (no flapping)', async () => {
     writeFileSync(join(dir, 'data.db'), 'this is not a sqlite database')
     await idx.rescan()
-    expect(visible()).toEqual(['k-new', 'k-old', 'pre-db', 'unrecorded'])
+    expect(visible()).toEqual(['from-cli', 'k-new', 'k-old', 'pre-db', 'unrecorded'])
   })
 })
 
