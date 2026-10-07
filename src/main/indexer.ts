@@ -394,9 +394,11 @@ type PageScope = {
  * `RepoGroup`s and paged `SessionPage`s: the full index never crosses IPC.
  *
  * - Listings hide sessions archived or deleted in the provider's own app
- *   (`provider-archived.ts`), roundtable seat sessions (`roundtableForCwd`), and anything idle
- *   past the history window (`historyDays`). `ownSessions()`, the profile's reader, still
- *   counts archived ones: archiving is how work ends.
+ *   (`provider-archived.ts`), roundtable seat sessions (`roundtableForCwd`), anything idle
+ *   past the history window (`historyDays`), and in Cockpit-only mode (`cockpitOnly`) every
+ *   session Cockpit doesn't hold — its project stays listed, empty, so work can still start
+ *   there. `ownSessions()`, the profile's reader, still counts archived ones: archiving is
+ *   how work ends, and ignores both display filters.
  * - Pages list newest first, but a session mid-turn holds the place it had when the turn
  *   began (`holdingAt`, fed the merged busy set): only a turn that ends or stops to ask
  *   moves a session to the top, never the writes it makes while it works.
@@ -486,6 +488,8 @@ export class SessionIndexer {
   private repoOrder: string[] = []
   /** Days of history to display — sessions idle longer are hidden; 0 = all */
   private historyDays = 0
+  /** Cockpit-only mode: the listings keep only the sessions Cockpit holds (`hiddenByMode`) */
+  private cockpitOnly = false
   private onUpdate: () => void
   private cacheFile: string | null
   /** undefined → the real desktop-app store; null → disabled (tests) */
@@ -631,6 +635,27 @@ export class SessionIndexer {
   /** Epoch ms floor for displayed sessions; 0 = no floor (all history). */
   private historyCutoff(): number {
     return this.historyDays > 0 ? Date.now() - this.historyDays * 86_400_000 : 0
+  }
+
+  /** Applied at query time like the history window: who holds a session is already known. */
+  setCockpitOnly(on: boolean): void {
+    this.cockpitOnly = on
+    this.emitUpdate()
+  }
+
+  /**
+   * Out of the listings because Cockpit-only mode is on and Cockpit does not hold it —
+   * it was opened in a terminal, an editor or an agent's own app, or released back
+   * there. Takes an id so the attention desk can ask too; an id the index doesn't hold
+   * is not hidden, since it may just not be read yet.
+   */
+  hiddenByMode(id: string): boolean {
+    const s = this.sessions.get(id)
+    return s !== undefined && this.outsideMode(s)
+  }
+
+  private outsideMode(s: SessionMeta): boolean {
+    return this.cockpitOnly && this.controlOf(s).holder !== 'cockpit'
   }
 
   /**
@@ -1316,9 +1341,17 @@ export class SessionIndexer {
         }
         groups.set(info.key, g)
       }
+      // Prefer a visible checkout (e.g. ~/dev/foo) over a provider-internal clone (~/.copilot/repos/foo)
+      if (info.root && (!g.root || (isHiddenPath(g.root) && !isHiddenPath(info.root)))) {
+        g.root = info.root
+      }
+      const held = this.controlOf(s).holder === 'cockpit'
+      // Cockpit-only mode: the project stays listed — New session can still start there,
+      // and its root stays one the app may run git in — but it counts only the sessions
+      // Cockpit holds, so a project with none of them is empty and leaves the tree
+      if (this.cockpitOnly && !held) continue
       if (this.archived.has(s.id)) g.archivedCount++
       else {
-        const held = this.controlOf(s).holder === 'cockpit'
         g.sessionCount++
         if (held) g.heldCount++
         if (s.updatedAt > g.lastActivity) g.lastActivity = s.updatedAt
@@ -1328,10 +1361,6 @@ export class SessionIndexer {
         if (held) c.held++
       }
       if (!g.providers.includes(s.provider)) g.providers.push(s.provider)
-      // Prefer a visible checkout (e.g. ~/dev/foo) over a provider-internal clone (~/.copilot/repos/foo)
-      if (info.root && (!g.root || (isHiddenPath(g.root) && !isHiddenPath(info.root)))) {
-        g.root = info.root
-      }
     }
     // projects hold still: A→Z or the user's own order, never by activity
     return orderRepos([...groups.values()], this.repoOrder)
@@ -1395,13 +1424,16 @@ export class SessionIndexer {
    * search share: provider-archived sessions and those past the history window are out,
    * archived ones only on an archived page, roundtable seats only under their own table
    * (they are not independent work, so they stay out of the tree, the board and search),
-   * and repos the user hid only out of unscoped (global) queries.
+   * and repos the user hid only out of unscoped (global) queries. While Cockpit-only mode
+   * is on, the sessions Cockpit doesn't hold are out too.
    */
   private inScope(s: SessionMeta, scope: PageScope): boolean {
     if (this.hiddenByProvider(s) || s.updatedAt < scope.cutoff) return false
     if (this.archived.has(s.id) !== scope.archived) return false
     const table = this.tableOf(s)
     if (scope.roundtableId ? table !== scope.roundtableId : table !== null) return false
+    // a table's seats are Cockpit's own work, whoever the mode would say holds them
+    if (!scope.roundtableId && this.outsideMode(s)) return false
     const key = s.repo?.key ?? 'general'
     if (scope.repoKey ? key !== scope.repoKey : this.hiddenRepos.has(key)) return false
     return scope.providers === null || scope.providers.has(s.provider)

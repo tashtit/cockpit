@@ -14,7 +14,7 @@ import { isAlphabetical, moveRepo, orderRepos } from '../../shared/repo-order'
 import { api } from './api'
 import { useCleanupNotice } from './use-cleanup-notice'
 import { listOf } from './format'
-import { setHolderFilter, useHolderFilter } from './hold'
+import { saveCockpitOnly, setHolderFilter, useCockpitOnly, useHolderFilter } from './hold'
 import { showAllAgents, shownProviders, shownSessions, useHiddenAgents } from './agent-filter'
 import { ProjectFilter } from './ProjectFilter'
 import { RailResizer } from './RailResizer'
@@ -152,15 +152,17 @@ export function TreeSidebar({
   // and to the agents it shows: a project with no session of a shown agent leaves too
   const hidden = useHiddenAgents()
   const filtered = holder !== null || hidden.length > 0
+  // Cockpit-only mode: main keeps every project (New session starts there) but counts only
+  // Cockpit's sessions, so one with none of them stays out — unless it has a table
+  const cockpitOnly = useCockpitOnly()
   const repoList = useMemo(
     () =>
-      visibleRepos.filter(
-        (r) =>
-          r.key !== 'general' &&
-          (!filtered ||
-            shownSessions(r, { holder, hidden }) > 0 ||
-            (holder === 'cockpit' && r.root !== null && tables.some((t) => t.repoRoot === r.root)))
-      ),
+      visibleRepos.filter((r) => {
+        if (r.key === 'general') return false
+        const hasTable = r.root !== null && tables.some((t) => t.repoRoot === r.root)
+        if (filtered) return shownSessions(r, { holder, hidden }) > 0 || (holder === 'cockpit' && hasTable)
+        return listsAny(r) || hasTable
+      }),
     [visibleRepos, holder, hidden, filtered, tables]
   )
   const chatTables = useMemo(() => tables.filter((t) => t.repoRoot === null), [tables])
@@ -178,7 +180,8 @@ export function TreeSidebar({
     // a table is Cockpit's own work: out of the tree while it shows only the agents'
     const tablesShown = holder === 'agent' ? 0 : chatTables.length
     const real = visibleRepos.find((r) => r.key === 'general')
-    if (real && (!filtered || shownSessions(real, { holder, hidden }) > 0 || tablesShown > 0)) return real
+    const shown = real && (filtered ? shownSessions(real, { holder, hidden }) > 0 : listsAny(real))
+    if (real && (shown || tablesShown > 0)) return real
     if (tablesShown === 0) return null
     return {
       key: 'general',
@@ -433,6 +436,15 @@ export function TreeSidebar({
         {repos.length > 0 && visibleRepos.length === 0 && !debounced && (
           <div className="empty-item">
             <p>All projects are hidden — the eye button above brings them back.</p>
+          </div>
+        )}
+        {cockpitOnly && !filtered && visibleRepos.length > 0 && repoList.length === 0 && !general && !debounced && (
+          <div className="empty-item">
+            <p>No sessions in Cockpit to show — New task starts one. Sessions outside Cockpit are hidden (Settings › View).</p>
+            {/* a refused save leaves the mode on, and this button with it */}
+            <button className="btn-ghost small" onClick={() => void saveCockpitOnly(false).catch(() => {})}>
+              Show sessions outside Cockpit
+            </button>
           </div>
         )}
         {filtered && visibleRepos.length > 0 && repoList.length === 0 && !general && !debounced && (
@@ -715,6 +727,12 @@ function expandKeys(open: boolean, onToggle: () => void) {
     } else if (e.key === 'ArrowRight' && !open) onToggle()
     else if (e.key === 'ArrowLeft' && open) onToggle()
   }
+}
+
+/** Whether a project lists any session, archived ones included. Outside Cockpit-only mode
+ *  every project does; in it, main keeps one with none of Cockpit's sessions as an empty one. */
+function listsAny(r: RepoGroup): boolean {
+  return r.sessionCount + r.archivedCount > 0
 }
 
 /** The tree's filters in words — while one is on, the tree says so above its rows. */

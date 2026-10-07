@@ -91,6 +91,7 @@ function applyConfig(indexer: SessionIndexer, cfg: AppConfig): void {
   indexer.setHiddenRepos(cfg.hiddenRepos ?? [])
   indexer.setRepoOrder(cfg.repoOrder ?? [])
   indexer.setHistoryDays(cfg.historyDays ?? 0)
+  indexer.setCockpitOnly(cfg.cockpitOnly === true)
   indexer.setLineage(cfg.continuedFrom ?? {})
   indexer.setControl(cfg.sessionControl ?? {})
   void indexer.setSources(cfg.sources)
@@ -117,8 +118,9 @@ export function startServices(): Services {
   /**
    * The session whose row carries a pull request: the newest one working on the PR's
    * head branch in that repo (linked worktrees group under the main root, so a session
-   * in a worktree matches its repo). Seats belong to their table, never to a PR; a
-   * branch no session is on has no row, and the PR waits until one appears.
+   * in a worktree matches its repo). Seats belong to their table, never to a PR, and
+   * in Cockpit-only mode a session the tree doesn't list carries nothing; a branch no
+   * session is on has no row, and the PR waits until one appears.
    */
   const prCarrier = (repoRoot: string, pr: PrStatus): string | null => {
     if (!pr.headRefName) return null
@@ -128,7 +130,8 @@ export function startServices(): Services {
         (s) =>
           s.repo?.root === repoRoot &&
           s.gitBranch === pr.headRefName &&
-          !(s.cwd !== null && tables?.tableIdForCwd(s.cwd))
+          !(s.cwd !== null && tables?.tableIdForCwd(s.cwd)) &&
+          !indexer.hiddenByMode(s.id)
       )
       .sort((a, b) => b.updatedAt - a.updatedAt)[0]
     return match?.id ?? null
@@ -148,9 +151,11 @@ export function startServices(): Services {
     })
   }
 
+  // and, in Cockpit-only mode, what a session Cockpit doesn't hold had raised before the
+  // mode was switched on: its row is gone, so the news has nowhere to land
   const forgetThrownAway = (): void => {
     desk?.forget({
-      session: (id) => indexer.thrownAway(id),
+      session: (id) => indexer.thrownAway(id) || indexer.hiddenByMode(id),
       table: (id) => tables?.isArchived(id) ?? false
     })
   }
@@ -168,9 +173,11 @@ export function startServices(): Services {
       cockpitWorktrees: worktreesDir(),
       onLiveChange: () => pushBusy(),
       // a turn in a terminal or the provider's own app ended, or stopped to ask — news
-      // the way a spawned turn's ending is; a seat's turn is its table's business
+      // the way a spawned turn's ending is; a seat's turn is its table's business, and
+      // in Cockpit-only mode a session Cockpit doesn't hold is nobody's here
       onLiveTurn: (ev) => {
         if (ev.cwd !== null && tables?.tableIdForCwd(ev.cwd)) return
+        if (indexer.hiddenByMode(ev.id)) return
         desk?.observedTurn(ev)
       }
     }

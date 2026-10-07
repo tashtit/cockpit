@@ -38,6 +38,12 @@ Rows on the home board and in the <kbd>⌘K</kbd> palette carry the same hexagon
 
 To see only one side, open the eye button beside the search field and pick **In Cockpit** or **Outside Cockpit** under *Sessions*. The tree keeps only the projects with sessions on that side, the counts follow, and search stays inside the filter. The choice outlives a restart, so while it's on a strip under the search field says *Only sessions in Cockpit* — **Show all** there puts every session back.
 
+### Keeping Cockpit to its own sessions
+
+The eye's filter only narrows the sidebar. To keep Cockpit separate from wherever else you run your agents, set **Settings › View › Outside Cockpit** to **Hide them**. Cockpit then shows only the sessions it started or you took over. That applies everywhere sessions appear: the sidebar and its search, the <kbd>⌘K</kbd> palette and transcript search, the home board, the counts, and notifications. A session that is still running in a terminal or in the agent's own app no longer notifies you. A project that has none of Cockpit's sessions leaves the sidebar, but **New task** can still start one there. The eye's *Sessions* group stands down while this is on, since there is nothing left on the other side.
+
+Nothing is deleted or moved. Set it back to **Show them**, or use **Show sessions outside Cockpit** in the empty sidebar, and every session returns. [Cleanup](/guide/cleanup) and your [Profile](/guide/profile) still cover every session. Cleanup has to, because it judges whether a worktree is abandoned by every session that works in it. A session you release back to its agent leaves the sidebar while this is on, and a session you take over joins it.
+
 ### Filtering by agent
 
 The same eye button lists every agent with sessions under *Agents*, each with its count. Untick one to take its sessions out of the tree: projects with no session of a shown agent leave it, the counts follow, and search stays inside the filter. It combines with *Sessions* above, and is remembered the same way. The strip says what is hidden (*Only sessions not Cline*), and **Show all** clears both filters. An agent Cockpit starts reading later shows up ticked, and a hidden agent stays in the list to be ticked again even when it has no sessions right now.

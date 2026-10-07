@@ -1,9 +1,12 @@
+import { useSyncExternalStore } from 'react'
 import type { RepoGroup, SessionControl, SessionHolder, SessionProvider } from '../../shared/types'
+import { api } from './api'
 import { PROVIDER_LABEL } from './logos'
 import { storedValue } from './stored-value'
+import { subscribers } from './subscribers'
 
 /**
- * Who drives a session, in words — and the tree's filter on it.
+ * Who drives a session, in words — and the tree's filter on it, and Cockpit-only mode.
  *
  * A session is either held by Cockpit (it started it, or the person took it over) or
  * with its agent (it came from a terminal or the provider's own app, or was released
@@ -71,9 +74,14 @@ const holderFilter = storedValue<SessionHolder | null>('cockpit:holder-filter', 
   fallback: null
 })
 
-/** The holder the tree is narrowed to, or null for every session. */
+/**
+ * The holder the tree is narrowed to, or null for every session — and null in
+ * Cockpit-only mode, where main already lists nothing outside Cockpit: a filter left on
+ * from before would narrow an empty side, or say so in a strip that its Show all can't clear.
+ */
 export function useHolderFilter(): SessionHolder | null {
-  return holderFilter.use()
+  const holder = holderFilter.use()
+  return useCockpitOnly() ? null : holder
 }
 
 export function setHolderFilter(holder: SessionHolder | null): void {
@@ -91,4 +99,31 @@ export function heldSessions(repo: RepoGroup, holder: SessionHolder | null): num
 export const HOLDER_FILTER_LABEL: Record<SessionHolder, string> = {
   cockpit: 'In Cockpit',
   agent: 'Outside Cockpit'
+}
+
+/**
+ * Cockpit-only mode (Settings › View): main lists only the sessions Cockpit holds — in
+ * the tree, both searches and the home board — and only their turns notify. Main owns
+ * the value (config `cockpitOnly`) and applies it; this mirrors it so the tree can stand
+ * its own holder filter down and say why it is empty. Off until the first read lands.
+ */
+let cockpitOnly = false
+const modeChanges = subscribers()
+
+/** Pull the saved mode once at startup (App's mount effect), and again after a restore. */
+export async function initCockpitOnly(): Promise<void> {
+  cockpitOnly = await api.getCockpitOnly()
+  modeChanges.notify()
+}
+
+export function useCockpitOnly(): boolean {
+  return useSyncExternalStore(modeChanges.subscribe, () => cockpitOnly)
+}
+
+/** Switch it — main re-lists, and the index push that follows redraws the tree. A
+ *  refused save leaves the mode as it was. */
+export async function saveCockpitOnly(on: boolean): Promise<void> {
+  await api.setCockpitOnly(on)
+  cockpitOnly = on
+  modeChanges.notify()
 }

@@ -76,6 +76,14 @@ header with the sessions directly under it. The sidebar is the exhaustive sessio
   (`.filter-active` + `.filter-dot`) for them as for a hidden project, its tooltip saying how
   many agents and projects are hidden. The ⌘K palette's transcript search follows the hidden agents too (see
   `pages/palette.md`).
+- Cockpit-only mode (Settings › View › *Outside Cockpit: Hide them*, `hold.ts`) is
+  main's, not the tree's: every page, search and count already leaves out what Cockpit
+  doesn't hold. So the holder filter reads as off while it lasts (`useHolderFilter` → null —
+  no strip, no narrowing, the eye unlit for it), the popover's *Sessions* radios give way to
+  one `.tree-empty` line saying where the rest went, and a project main keeps empty (kept so
+  New session can still start there) stays out of the tree unless it has a table. A tree
+  left with nothing says so in an `.empty-item` whose **Show sessions outside Cockpit** turns
+  the mode off — the mode's own way back, like the filter's **Show all sessions**.
 - `.search` input, 250ms debounce (⌘K belongs to the palette, not this field —
   the search filters the tree in place; the palette jumps). Non-empty search swaps the
   whole tree for `SearchResults` grouped by repo name.

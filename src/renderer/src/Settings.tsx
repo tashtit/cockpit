@@ -13,6 +13,8 @@ import { Select } from './Select'
 import { TabList, TabPanel } from './Tabs'
 import { initTimeFormat, setTimeFormat, useTimeFormat } from './time'
 import { initBranchPrefix } from './branch-prefix'
+import { initCockpitOnly, saveCockpitOnly, useCockpitOnly } from './hold'
+import { ipcErrorText } from './ipc-error'
 import { useLoaded } from './use-loaded'
 import { ViewCard } from './ViewCard'
 import { plural } from './format'
@@ -27,6 +29,12 @@ const HISTORY_OPTIONS = [
   { value: '30', label: 'Last 30 days' },
   { value: '90', label: 'Last 90 days' },
   { value: '365', label: 'Last year' }
+]
+
+/** Cockpit-only mode, as the choice it is: whether the sessions Cockpit doesn't hold are listed. */
+const OUTSIDE_OPTIONS = [
+  { value: 'show', label: 'Show them' },
+  { value: 'hide', label: 'Hide them', hint: 'Cockpit’s own only' }
 ]
 
 const TIME_FORMAT_OPTIONS = [
@@ -59,7 +67,7 @@ function updateAnnouncement(u: UpdateState): string | null {
  * A deep link (the sidebar's usage meters land on `accounts`) names the tab to open on.
  *
  * The pill row must hold in two rows at the 560px window floor — it wrapped to three
- * when every old section got its own tab, which is why History and Display share the
+ * when every old section got its own tab, which is why Sessions and Display share the
  * one tab they were always two halves of. Check the floor before adding another.
  */
 export const SETTINGS_SECTIONS = [
@@ -118,7 +126,7 @@ export function Settings({
     accounts: <AccountsSection onStatus={setStatus} />,
     view: (
       <>
-        <HistoryPanel onStatus={setStatus} />
+        <SessionsPanel onStatus={setStatus} />
         <DisplayPanel onStatus={setStatus} />
       </>
     ),
@@ -144,6 +152,7 @@ export function Settings({
           // are re-initialised here.
           void initTimeFormat()
           void initBranchPrefix()
+          void initCockpitOnly()
         }}
       />
     ),
@@ -171,10 +180,24 @@ export function Settings({
   )
 }
 
-/** How far back sessions are listed — a view filter, never anything on disk. */
-function HistoryPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
+/**
+ * Which sessions are listed, and how far back — view filters, never anything on disk.
+ * Hiding the ones outside Cockpit is Cockpit-only mode (`hold.ts`): a mirror of main's
+ * config every view reads, where the window is this panel's own read.
+ */
+function SessionsPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Element {
   /** null until loaded — the Select only renders with a real value */
   const { value: historyDays, set: setHistoryDays } = useLoaded(() => api.getHistoryDays(), [])
+  const cockpitOnly = useCockpitOnly()
+
+  const changeOutside = async (hide: boolean): Promise<void> => {
+    try {
+      await saveCockpitOnly(hide)
+      onStatus(hide ? 'Showing only the sessions in Cockpit' : 'Showing the sessions outside Cockpit too')
+    } catch (err) {
+      onStatus(`Couldn’t save that: ${ipcErrorText(err)}`)
+    }
+  }
 
   const change = async (days: number): Promise<void> => {
     setHistoryDays(days)
@@ -193,12 +216,25 @@ function HistoryPanel({ onStatus }: { onStatus: (s: string) => void }): JSX.Elem
 
   return (
     <>
-      <h3 className="ns-label">History</h3>
+      <h3 className="ns-label">Sessions</h3>
       <p className="ns-hint ns-prose">
-        How far back sessions appear in the sidebar, search and counts. Older sessions are only
-        hidden from view — nothing on disk is touched, and all history brings them back.
+        Which sessions appear in the sidebar, search, the home board and counts, and how far
+        back. Hiding the ones outside Cockpit — opened in a terminal, an editor or an agent’s own
+        app — also keeps their turns from notifying you; nothing on disk is touched either way.
       </p>
       <div className="ns-options">
+        <div className="ns-opt">
+          {/* short enough not to wrap at the window floor: the group's heading says "Sessions",
+              and the control's own name says it whole */}
+          <label className="ns-label" htmlFor="outside-sessions">Outside Cockpit</label>
+          <Select
+            id="outside-sessions"
+            ariaLabel="Sessions outside Cockpit"
+            value={cockpitOnly ? 'hide' : 'show'}
+            options={OUTSIDE_OPTIONS}
+            onChange={(v) => void changeOutside(v === 'hide')}
+          />
+        </div>
         <div className="ns-opt">
           <label className="ns-label" htmlFor="history-days">Sessions to show</label>
           {historyDays === null ? (

@@ -9,7 +9,7 @@ new setting group joins the tab whose question it answers before it ever gets a 
 its own (current tabs, in order: Accounts · View · Notifications · Providers · Backup ·
 About — the accounts first, then what the app shows, then the occasional tasks). **The pill row must hold in two rows at the 560×420 floor** — every
 old section as its own tab wrapped it to three, a fifth of the window spent on
-navigation. History and Display share the View tab for that reason, and Model providers
+navigation. Sessions and Display share the View tab for that reason, and Model providers
 and ACP agents share Providers — both answer "what backs my agents", one as an endpoint
 you bring a key for and one as a CLI that speaks ACP. Measure the floor before adding a
 seventh.
@@ -28,7 +28,7 @@ seventh.
 - **The selected tab is the panel's heading.** A panel holding one group carries no
   leading `<h3>` — repeating the pill directly under it is noise, and the panel is already
   named by its tab (`aria-labelledby`). A panel holding more than one group keeps an `h3`
-  per group (Accounts: "Agent accounts & usage", then "GitHub"; View: "History", then
+  per group (Accounts: "Agent accounts & usage", then "GitHub"; View: "Sessions", then
   "Display"; Providers: "Model providers", then "ACP agents"; About: "Updates", then
   "Feedback").
 - **The tab row is one tab stop.** Roving `tabIndex` (0 on the selected tab, -1 on the
@@ -103,9 +103,12 @@ seventh.
   defaults are only auto-detected on first run). After removal an `.ns-hint` Undo line
   offers one-click restore. Adds/removes announce via the card's `sr-only`
   `role="status"` region (ChatView's pattern).
-- View tab, History section: one labeled `Select` ("Sessions to show" — preset day windows plus
-  "All history"). The `.ns-hint` must keep saying that older sessions are only hidden,
-  never touched on disk — this is a view filter, not a destructive setting.
+- View tab, Sessions section: two labeled `Select`s. "Outside Cockpit" (*Show them* / *Hide them*,
+  named "Sessions outside Cockpit" for a screen reader; the shorter label holds one line at
+  the floor) is Cockpit-only mode — main's config, mirrored by the `hold.ts` store every
+  view reads, so it saves before it shows. "Sessions to show" holds preset day windows plus
+  "All history". The `.ns-hint` must keep saying that hidden sessions are never touched on
+  disk — both are view filters, not destructive settings.
 - View tab, Display section: two labeled `Select`s. "Time format" (24-hour default vs 12-hour,
   each option shows a concrete example like `14:30`) applies live to session times in
   the sidebar and home view via the shared `time.ts` store. "Chat width" (narrow /
