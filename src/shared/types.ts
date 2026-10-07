@@ -1623,6 +1623,12 @@ export type ChatEvent =
   | { readonly turnId: string; readonly type: 'done'; readonly costUsd?: number }
   | { readonly turnId: string; readonly type: 'error'; readonly message: string }
   /**
+   * Cockpit stopped the turn — Stop, its session archived, its table stopped, the app
+   * quitting — and said so before signalling it: the error and done that follow are the
+   * kill, not a failure. A window showing the turn ends it here, as its own Stop does.
+   */
+  | { readonly turnId: string; readonly type: 'stopped' }
+  /**
    * An ACP agent's, or Claude's (claude-permissions.ts): the agent is blocked until the
    * user picks an option. Nothing else about the turn moves until `respondPermission`
    * answers it — an unanswered request is exactly the "agent is waiting for you" state

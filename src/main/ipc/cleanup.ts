@@ -33,6 +33,8 @@ export function registerCleanupHandlers(s: Services): void {
     // the reversible tier: config only, nothing on disk is touched
     const known = new Set(indexer.cleanupSessions().map((x) => x.id))
     const wanted = asIdList(ids).filter((id) => known.has(id))
+    // one taken up again since the scan may be running: archiving it ends that too
+    s.stopTurnsIn(wanted)
     indexer.setArchived(setSessionsArchived(wanted, true))
     return { cleaned: wanted.length, freedBytes: 0, failed: [] }
   })
