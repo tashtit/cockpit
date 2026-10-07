@@ -107,6 +107,14 @@ describe('NewSession remembered choice', () => {
     expect(screen.getByRole('button', { pressed: true })).toHaveAccessibleName(/Claude/)
   })
 
+  it('warns in the danger colour, in the agent’s own words, when Full access is picked', async () => {
+    renderForm()
+    await userEvent.click(screen.getByRole('button', { name: /^Permissions/ }))
+    await userEvent.click(screen.getByRole('option', { name: 'Full access' }))
+    const hint = screen.getByText(/Claude Code’s bypass permissions\. Trusted repos only\./)
+    expect(hint.className).toBe('ns-hint danger')
+  })
+
   // a private window or blocked site data makes every storage call throw — the form
   // opens on its defaults rather than failing to render
   it('opens on its defaults when storage refuses to be read', () => {

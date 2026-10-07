@@ -4,6 +4,7 @@ import {
   CLAUDE_DENY,
   claudeAnswer,
   claudeControl,
+  claudeModeLine,
   userMessageLine
 } from '../src/main/claude-permissions'
 
@@ -176,5 +177,29 @@ describe('userMessageLine', () => {
       parent_tool_use_id: null,
       session_id: ''
     })
+  })
+})
+
+describe('claudeModeLine', () => {
+  const requested = (line: string): unknown => {
+    expect(line.endsWith('\n')).toBe(true)
+    return JSON.parse(line)
+  }
+
+  it('moves a running turn into the CLI’s own name for each mode', () => {
+    expect(requested(claudeModeLine('safe', false, 'm-1'))).toEqual({
+      type: 'control_request',
+      request_id: 'm-1',
+      request: { subtype: 'set_permission_mode', mode: 'default' }
+    })
+    expect(requested(claudeModeLine('auto-edit', false, 'm-2'))).toMatchObject({ request: { mode: 'acceptEdits' } })
+    // back down from a Full access launch works too
+    expect(requested(claudeModeLine('safe', true, 'm-3'))).toMatchObject({ request: { mode: 'default' } })
+  })
+
+  it('asks for bypass only of a turn launched with it — the CLI refuses it otherwise', () => {
+    expect(requested(claudeModeLine('yolo', true, 'm-4'))).toMatchObject({ request: { mode: 'bypassPermissions' } })
+    // Cockpit allows what it still asks instead (chat.ts)
+    expect(requested(claudeModeLine('yolo', false, 'm-5'))).toMatchObject({ request: { mode: 'acceptEdits' } })
   })
 })
