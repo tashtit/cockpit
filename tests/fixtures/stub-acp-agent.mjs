@@ -3,7 +3,7 @@
  * JSON-RPC on stdio exactly as `copilot --acp` does; STUB_MODE picks the behaviour.
  */
 import { spawn } from 'node:child_process'
-import { existsSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 
 const mode = process.env.STUB_MODE ?? 'basic'
 // the folder the agent was started in, for a test that cares where that is
@@ -37,6 +37,11 @@ if (mode === 'linger' || mode === 'linger-hard') {
 }
 let sid = 'sess-1'
 let nextId = 1000
+const AGENT_MODE = 'https://agentclientprotocol.com/protocol/session-modes#agent'
+const AUTOPILOT = 'https://agentclientprotocol.com/protocol/session-modes#autopilot'
+const MODES = [{ id: AGENT_MODE }, { id: AUTOPILOT }]
+// the mode a reopened session was last left in, as Copilot keeps it (STUB_LOAD_MODE)
+let currentMode = process.env.STUB_LOAD_MODE === 'autopilot' ? AUTOPILOT : AGENT_MODE
 let signedIn = false
 const waiting = new Map()
 
@@ -114,20 +119,8 @@ function handle(m) {
         send({ jsonrpc: '2.0', id: m.id, error: { code: -32000, message: 'Authentication required' } })
         return
       }
-      send({
-        jsonrpc: '2.0',
-        id: m.id,
-        result: {
-          sessionId: sid,
-          modes: {
-            availableModes: [
-              { id: 'https://agentclientprotocol.com/protocol/session-modes#agent' },
-              { id: 'https://agentclientprotocol.com/protocol/session-modes#autopilot' }
-            ],
-            currentModeId: 'https://agentclientprotocol.com/protocol/session-modes#agent'
-          }
-        }
-      })
+      currentMode = AGENT_MODE
+      send({ jsonrpc: '2.0', id: m.id, result: { sessionId: sid, modes: { availableModes: MODES, currentModeId: currentMode } } })
       return
     case 'session/load':
       if (mode === 'noload-error') {
@@ -137,11 +130,14 @@ function handle(m) {
       sid = m.params.sessionId
       // the spec requires the whole conversation be replayed before the load resolves
       notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'REPLAYED-HISTORY' } })
-      send({ jsonrpc: '2.0', id: m.id, result: {} })
+      send({ jsonrpc: '2.0', id: m.id, result: { modes: { availableModes: MODES, currentModeId: currentMode } } })
       return
     case 'session/set_mode':
-      process.stderr.write(`set_mode:${m.params.modeId}\n`)
+      // every switch the client asks for, in order, for a test to read back (STUB_MODEFILE)
+      if (process.env.STUB_MODEFILE) appendFileSync(process.env.STUB_MODEFILE, `${m.params.modeId}\n`)
+      currentMode = m.params.modeId
       send({ jsonrpc: '2.0', id: m.id, result: {} })
+      notify({ sessionUpdate: 'current_mode_update', currentModeId: currentMode })
       return
     case 'session/prompt':
       void runTurn(m.id, m.params)
@@ -182,6 +178,23 @@ async function runTurn(id, params) {
     // an option picked, or the outcome itself when none was (`cancelled`)
     const answer = outcome?.outcome?.optionId ?? outcome?.outcome?.outcome
     notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `answered:${answer}` } })
+  }
+  // 'permission-pair': two calls made at once, as Copilot runs commands side by side —
+  // each asked about on its own, the second call's question first, as Copilot sends them
+  if (mode === 'permission-pair') {
+    const ask = (id, command) =>
+      request('session/request_permission', {
+        sessionId: sid,
+        toolCall: { toolCallId: id, title: `Run ${command}`, kind: 'execute', rawInput: { command } },
+        options: [
+          { optionId: 'allow_once', kind: 'allow_once', name: 'Allow once' },
+          { optionId: 'allow_always', kind: 'allow_always', name: 'Always allow' },
+          { optionId: 'reject_once', kind: 'reject_once', name: 'Deny' }
+        ]
+      })
+    const answers = await Promise.all([ask('c2', 'echo beta'), ask('c1', 'echo alpha')])
+    const said = answers.map((a) => a?.outcome?.optionId ?? a?.outcome?.outcome).join(',')
+    notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `answered:${said}` } })
   }
   if (mode === 'fs-probe') {
     const res = await request('fs/read_text_file', { path: '/etc/hosts' }).catch(() => null)

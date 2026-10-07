@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   accountOptions,
   chosenAccount,
+  MODES,
+  modeHint,
   rememberAccount,
   rememberChoice,
   rememberMode,
@@ -38,6 +40,20 @@ const snap: AccountsSnapshot = {
   ],
   githubUser: 'octo'
 }
+
+describe('permission modes', () => {
+  it('reads the same for every agent, and names each agent’s own setting in the hint', () => {
+    expect(MODES.map((m) => m.label)).toEqual(['Ask first', 'Accept edits', 'Full access'])
+    expect(modeHint('yolo', 'claude')).toMatch(/bypass permissions/)
+    expect(modeHint('yolo', 'codex')).toMatch(/full access/)
+    expect(modeHint('yolo', 'copilot')).toMatch(/Autopilot/)
+    expect(modeHint('auto-edit', 'claude')).toMatch(/accept edits/)
+    // an agent with no word of its own for it still says what the mode does
+    expect(modeHint('yolo', 'gemini')).toMatch(/^Nothing asks/)
+    // and Full access always warns
+    for (const p of ['claude', 'codex', 'copilot', 'opencode'] as const) expect(modeHint('yolo', p)).toMatch(/Trusted repos only/)
+  })
+})
 
 describe('accountOptions', () => {
   it('returns nothing before the snapshot loads', () => {

@@ -474,14 +474,14 @@ describe('ChatView transcript window', () => {
 describe('the permission mode it remembers', () => {
   const composer = (): HTMLElement => screen.getByRole('textbox', { name: 'Message Claude' })
 
-  it('sends with Auto-edit when what storage holds is not a mode', async () => {
+  it('sends with Accept edits when what storage holds is not a mode', async () => {
     window.localStorage.setItem('cockpit:mode', 'bypassPermissions')
     const { onSend } = renderChat()
     await userEvent.type(composer(), 'go{Enter}')
     expect(onSend).toHaveBeenCalledWith('go', 'auto-edit', undefined)
   })
 
-  it('sends with a remembered mode that is one — Yolo included', async () => {
+  it('sends with a remembered mode that is one — Full access included', async () => {
     window.localStorage.setItem('cockpit:mode', 'yolo')
     const { onSend } = renderChat()
     await userEvent.type(composer(), 'go{Enter}')

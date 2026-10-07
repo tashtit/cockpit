@@ -1,4 +1,4 @@
-import type { AcpPermissionOption, ChatEvent } from '../shared/types'
+import type { AcpPermissionOption, ChatEvent, PermissionMode } from '../shared/types'
 import { parseAsks } from '../shared/asks'
 import { asRecord } from '../shared/guards'
 import { clip } from '../shared/text'
@@ -17,6 +17,9 @@ import { capText, jsonText, toolPreview, truncate } from './parsers/util'
  * the request on the card an ACP agent's request gets, with what the request says of
  * itself: the command whole or the tool's input, why the CLI asks (`decision_reason`), the
  * path that made it ask (`blocked_path`), and a command asking to run outside the sandbox.
+ *
+ * The same channel carries a change of mode mid-turn (`claudeModeLine`): the person picks
+ * another one while the turn runs, and the CLI is moved into it at once.
  *
  * IO-free: chat.ts owns the process and its pipes; this is what the unit tests drive.
  */
@@ -164,6 +167,24 @@ export function claudeAnswer(requestId: string, optionId: string, input: unknown
     return response({ subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput: input } })
   }
   return optionId === CLAUDE_DENY ? deny(requestId, DECLINED) : null
+}
+
+/**
+ * The CLI's own name for each mode, for `set_permission_mode`. Claude enters
+ * `bypassPermissions` only in a session launched with `--dangerously-skip-permissions`
+ * (2.1.285 answers `bypass_not_launched` otherwise), so Full access picked mid-turn in a
+ * turn started in another mode moves the CLI to `acceptEdits`, and Cockpit allows the
+ * calls it still asks about (chat.ts).
+ */
+function claudeModeName(mode: PermissionMode, launchedBypass: boolean): string {
+  if (mode === 'yolo') return launchedBypass ? 'bypassPermissions' : 'acceptEdits'
+  return mode === 'auto-edit' ? 'acceptEdits' : 'default'
+}
+
+/** The stdin line that moves a running turn's CLI into another mode. `launchedBypass`: it was started in Full access. */
+export function claudeModeLine(mode: PermissionMode, launchedBypass: boolean, requestId: string): string {
+  const request = { subtype: 'set_permission_mode', mode: claudeModeName(mode, launchedBypass) }
+  return `${JSON.stringify({ type: 'control_request', request_id: requestId, request })}\n`
 }
 
 function deny(requestId: string, message: string): string {

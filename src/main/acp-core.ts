@@ -257,18 +257,42 @@ export function promptResultEvents(turnId: string, result: unknown): ChatEvent[]
   return out
 }
 
+/** The session modes an agent offers, and the one a session is in now. */
+export type AcpModes = {
+  readonly availableModes: readonly { readonly id: string }[]
+  readonly currentModeId: string | null
+}
+
 /**
- * Which ACP session mode a permission mode asks for, out of the ones this agent offers.
- * Mode ids are URLs in the spec's own namespace; match on the fragment so an agent that
- * spells the base differently still lines up. Null means "leave the agent's default".
+ * Which ACP session mode a permission mode asks for, out of the ones this agent offers —
+ * or null when the session is already where the mode wants it. Full access (`yolo`) is
+ * Autopilot, where Copilot asks about nothing; every other mode is out of it, back to the
+ * agent's own default, because a session keeps its mode: Copilot reopens one in the mode
+ * it was last left in, so a session that once ran in Full access went on running
+ * everything unasked after the person chose Ask first. Any other mode the session is in
+ * (a plan mode someone else chose) is left alone. Mode ids are URLs in the spec's own
+ * namespace; match on the fragment so an agent that spells the base differently still
+ * lines up.
  */
-export function modeIdFor(
-  mode: PermissionMode,
-  availableModes: readonly { readonly id: string }[]
-): string | null {
-  if (mode !== 'yolo') return null
-  const autopilot = availableModes.find((m) => m.id.endsWith('#autopilot'))
-  return autopilot?.id ?? null
+export function modeIdFor(mode: PermissionMode, modes: AcpModes): string | null {
+  const fragment = (id: string | null, name: string): boolean => id !== null && id.endsWith(`#${name}`)
+  const offered = (name: string): string | null => modes.availableModes.find((m) => fragment(m.id, name))?.id ?? null
+  const inAutopilot = fragment(modes.currentModeId, 'autopilot')
+  if (mode === 'yolo') return inAutopilot ? null : offered('autopilot')
+  return inAutopilot ? offered('agent') : null
+}
+
+/** The modes a `session/new` or `session/load` answer states, if it states any. */
+export function acpModesOf(result: unknown): AcpModes | null {
+  const raw = (result as { modes?: unknown } | null)?.modes as
+    | { availableModes?: unknown; currentModeId?: unknown }
+    | null
+    | undefined
+  if (!raw || !Array.isArray(raw.availableModes)) return null
+  const availableModes = raw.availableModes.flatMap((m) =>
+    m && typeof (m as { id?: unknown }).id === 'string' ? [{ id: (m as { id: string }).id }] : []
+  )
+  return { availableModes, currentModeId: typeof raw.currentModeId === 'string' ? raw.currentModeId : null }
 }
 
 /** How often asking may re-probe the built-ins not answering yet — every start form asks */

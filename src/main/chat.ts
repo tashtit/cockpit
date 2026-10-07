@@ -8,8 +8,10 @@ import type {
   ChatPermission,
   ChatRequest,
   ModelEndpoint,
+  PermissionMode,
   Provider,
-  SessionProvider
+  SessionProvider,
+  TurnModeChange
 } from '../shared/types'
 import { AcpTurn } from './acp'
 import {
@@ -25,9 +27,11 @@ import { commandItemCheck } from './parsers/checks'
 import { cliEnv } from './env'
 import { codexSeatArgs, seatFence } from './seat-fence'
 import {
+  CLAUDE_ALLOW,
   CLAUDE_HOST_ARGS,
   claudeAnswer,
   claudeControl,
+  claudeModeLine,
   userMessageLine,
   type ClaudeControl
 } from './claude-permissions'
@@ -51,6 +55,12 @@ import { AGENT_LABEL, CONFIG_HOME_VAR, isDrivable } from '../shared/providers'
  * window that opens the session mid-turn rejoins it (`rejoin.ts` in the renderer) rather
  * than showing it idle — and is handed back the questions the turn is still blocked on
  * (`pendingPermissions`), which no log holds and the stream said only once.
+ *
+ * A turn's permission mode can change while it runs (`setTurnMode`) where someone answers
+ * its questions — an ACP turn, a Claude turn Cockpit answers for: what it asks from then
+ * on is decided by the new mode, and the questions still open that the new mode allows
+ * are answered. A headless CLI was handed its mode as flags at launch, so for one the
+ * new mode starts with the next message.
  */
 
 type Emit = (ev: ChatEvent) => void
@@ -172,7 +182,7 @@ export const CODEX_SIDE_ARGS: readonly string[] = [
 ]
 
 /**
- * Auto-edit's "anything more still asks", for Codex. Its workspace sandbox keeps `.git`
+ * Accept edits' "anything more still asks", for Codex. Its workspace sandbox keeps `.git`
  * read-only — and a Cockpit worktree's git data lives in the main checkout besides — so
  * even `git add` failed there, along with anything that needs the network (`npm ci`,
  * `git push`, `gh`). Codex's answer is escalation: the command runs again outside the
@@ -504,6 +514,12 @@ type RunningTurn = {
    *  waiting on, by request id, with the input an allow hands back — mutated as they
    *  are asked and answered */
   readonly claudeAsks?: Map<string, unknown>
+  /** The mode a Claude turn Cockpit answers for runs in now: the one it was launched in
+   *  until the person picks another mid-turn (`setTurnMode`) — so not readonly */
+  claudeMode?: PermissionMode
+  /** A Claude turn launched in Full access (`--dangerously-skip-permissions`): the only kind
+   *  the CLI will move back into `bypassPermissions` mid-turn */
+  readonly claudeBypass?: boolean
   /** The questions the person has been shown and not yet answered, ACP's and Claude's
    *  alike, by request id: what a window that reloaded while a card was up is handed back
    *  (`pendingPermissions`). Made with the first one — assigned once and then mutated as
@@ -710,7 +726,13 @@ export class ChatManager {
       provider: req.provider,
       startedAt: Date.now(),
       sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : []),
-      ...(stdin === undefined ? {} : { claudeAsks: new Map<string, unknown>() })
+      ...(stdin === undefined
+        ? {}
+        : {
+            claudeAsks: new Map<string, unknown>(),
+            claudeMode: req.permissionMode,
+            claudeBypass: req.permissionMode === 'yolo'
+          })
     }
     this.turns.set(turnId, turn)
     this.notifyBusy()
@@ -906,6 +928,12 @@ export class ChatManager {
   /** What one of Claude's control messages asks of the turn (claude-permissions.ts). */
   private onClaudeControl(turn: RunningTurn, control: ClaudeControl): void {
     if (control.kind === 'ask') {
+      // Full access picked mid-turn in a turn the CLI won't bypass for: still asked, and allowed here
+      const allow = turn.claudeMode === 'yolo' ? claudeAnswer(control.requestId, CLAUDE_ALLOW, control.input) : null
+      if (allow !== null) {
+        writeLine(turn.child, allow)
+        return
+      }
       turn.claudeAsks?.set(control.requestId, control.input)
       this.deliver(turn, control.event)
     } else if (control.kind === 'reply') {
@@ -948,6 +976,42 @@ export class ChatManager {
     if (line === null) return
     asks.delete(requestId)
     writeLine(turn.child, line)
+  }
+
+  /**
+   * The person picked another permission mode while this turn runs. An ACP turn takes it
+   * at once (`AcpTurn.setPermissionMode`), and so does a Claude turn Cockpit answers for:
+   * its CLI is moved into the mode (`claudeModeLine`), and in Full access every question
+   * still open is allowed — once, as any Cockpit answers by itself. A question answered
+   * this way loses its card. A headless turn was launched with its mode, so it says
+   * not live, and the new mode starts with the next message.
+   */
+  setTurnMode(turnId: string, mode: PermissionMode): TurnModeChange {
+    const turn = this.turns.get(turnId)
+    if (!turn || turn.doneSent) return { live: false, allowed: 0 }
+    let answered: string[]
+    if (turn.acp) answered = turn.acp.setPermissionMode(mode)
+    else if (turn.claudeAsks && turn.claudeMode !== undefined) answered = this.setClaudeMode(turn, mode)
+    else return { live: false, allowed: 0 }
+    for (const requestId of answered) {
+      if (turn.openAsks?.delete(requestId)) this.deliver(turn, { turnId, type: 'permission-withdrawn', requestId })
+    }
+    return { live: true, allowed: answered.length }
+  }
+
+  /** A Claude turn's half of `setTurnMode`: the request ids it answered. */
+  private setClaudeMode(turn: RunningTurn, mode: PermissionMode): string[] {
+    const asks = turn.claudeAsks!
+    turn.claudeMode = mode
+    writeLine(turn.child, claudeModeLine(mode, turn.claudeBypass === true, `cockpit-mode-${randomUUID()}`))
+    if (mode !== 'yolo') return []
+    const answered = [...asks.keys()]
+    for (const requestId of answered) {
+      const line = claudeAnswer(requestId, CLAUDE_ALLOW, asks.get(requestId))
+      asks.delete(requestId)
+      if (line !== null) writeLine(turn.child, line)
+    }
+    return answered
   }
 
   cancel(turnId: string): void {

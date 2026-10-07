@@ -116,7 +116,7 @@ describe('NewSession remembered choice', () => {
     try {
       renderForm()
       expect(screen.getByRole('button', { pressed: true })).toHaveAccessibleName(/Claude/)
-      expect(screen.getByRole('button', { name: /^Permissions/ })).toHaveTextContent('Auto-edit')
+      expect(screen.getByRole('button', { name: /^Permissions/ })).toHaveTextContent('Accept edits')
     } finally {
       read.mockRestore()
     }

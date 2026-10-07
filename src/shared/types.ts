@@ -573,7 +573,20 @@ export type PrFixBriefing = {
   readonly warnings: readonly string[]
 }
 
+/**
+ * What an agent may do without asking. The ids are what storage and config keep, so they
+ * stay as they are; the words a person reads — Ask first, Accept edits, Full access — are
+ * the renderer's `MODES` table.
+ */
 export type PermissionMode = 'safe' | 'auto-edit' | 'yolo'
+
+/**
+ * What picking another permission mode did to the turn running at the time: `live` when
+ * the turn took it at once (an ACP agent's, or a Claude turn Cockpit answers for) —
+ * `allowed` of its open questions were answered by it — and not when the turn's CLI was
+ * handed its mode at launch, so it waits for the next message.
+ */
+export type TurnModeChange = { readonly live: boolean; readonly allowed: number }
 
 export type CodexSandbox = 'read-only' | 'workspace-write' | 'danger-full-access'
 

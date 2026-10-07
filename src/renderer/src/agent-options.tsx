@@ -11,7 +11,7 @@ import type {
 import { effortsFor } from '../../shared/agent-models'
 import { endpointSupports } from '../../shared/endpoints'
 import { isDrivable } from '../../shared/providers'
-import { accountRef, agentBlurb, MODES, type AccountOption, type AgentChoice } from './agent-choice'
+import { accountRef, agentBlurb, modeHint, modeOptions, type AccountOption, type AgentChoice } from './agent-choice'
 import { api } from './api'
 import { ProviderLogo, PROVIDER_LABEL } from './logos'
 import { Select } from './Select'
@@ -331,9 +331,11 @@ export function AgentOptionsFields({
 /** The Permissions `.ns-opt` cell, over the shared `MODES` table. */
 export function ModeField({
   mode,
+  provider,
   onChange
 }: {
   mode: PermissionMode
+  provider: SessionProvider
   onChange: (m: PermissionMode) => void
 }): JSX.Element {
   return (
@@ -343,20 +345,16 @@ export function ModeField({
         id="ns-mode"
         ariaLabel="Permissions"
         value={mode}
-        options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+        options={modeOptions(provider)}
         onChange={(v) => onChange(v as PermissionMode)}
       />
     </div>
   )
 }
 
-/** What the chosen mode lets the agent do, under the option grid — in danger color for YOLO. */
-export function ModeHint({ mode }: { mode: PermissionMode }): JSX.Element {
-  return (
-    <div className={mode === 'yolo' ? 'ns-hint yolo' : 'ns-hint'}>
-      {MODES.find((m) => m.v === mode)?.hint}
-    </div>
-  )
+/** What the chosen mode lets this agent do, under the option grid — in danger color for Full access. */
+export function ModeHint({ mode, provider }: { mode: PermissionMode; provider: SessionProvider }): JSX.Element {
+  return <div className={mode === 'yolo' ? 'ns-hint danger' : 'ns-hint'}>{modeHint(mode, provider)}</div>
 }
 
 /** Endpoint hints shown under the option grid — why a provider is (un)available. */

@@ -429,6 +429,11 @@ placed in the transcript. Same livery, different mechanism; keep both.
   in the card's accessible name — never by the colour alone.
 - It never autofocuses. A question that arrives while someone is typing must not steal
   the caret out of the composer.
+- **Two or more cards say they are separate.** An agent that makes calls together asks
+  about each one (Copilot runs commands side by side), and two cards of near-identical
+  commands read as one question sent twice. A `.perm-stack` line above them — `--fs-sm`,
+  `--fg-dim`, in the cards' column — says how many are waiting and that each needs its
+  own answer.
 - The `aria-live` status announces the question over the generic working line — a blocked
   agent is the most important thing on the screen.
 - ≤620px the headline takes its own row and the answers split the next one evenly.
@@ -545,8 +550,11 @@ filled key, **Take over**, is `.btn-primary.hold-take` at that height (one heigh
   placeholder wrapping to five lines.
 - The permission mode `Select` sits between the textarea and the action button — it
   governs the *next* turn, so it lives beside the button that sends it (Home's composer
-  bar grammar). Persists to `cockpit:mode`; hints in `title`, labels one word. A
-  read-only seat session renders neither.
+  bar grammar). Persists to `cockpit:mode`; hints (`modeHint`, in the agent's own words)
+  in `title`, labels two words at most. Picked while a turn runs, it reaches that turn too
+  where the agent can take it (`setTurnMode`): the transcript gets one `.sys-row` saying
+  so — "Full access from here on — allowed the 2 requests waiting" — or that it starts
+  with the next message. A read-only seat session renders neither.
 - A session started from a typed task shows that task as its title (`taskTitle`) until
   the index catches up, and its worktree branch is cut from it (`branchHint` in
   `task-names.ts`: first meaningful words → `cockpit/add-changelog-entry-retry-fix`,

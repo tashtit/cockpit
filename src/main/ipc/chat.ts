@@ -9,14 +9,14 @@ import { assertChatImages, saveChatImage } from '../chat-images'
 import { holderOf } from '../session-control-core'
 import { sideTurnRequest } from '../side-chat'
 import { activateCopilotUser, type Services } from '../services'
-import { assertKnownConfigDir, assertKnownCwd } from './guards'
+import { asPermissionMode, assertKnownConfigDir, assertKnownCwd } from './guards'
 
 /** Where pasted chat images live — the only root chat:send accepts image paths from. */
 function chatImagesDir(): string {
   return join(userDataDir(), 'chat-images')
 }
 
-/** A conversation's turns: sending one, stopping it, answering its permission prompts; side questions. */
+/** A conversation's turns: sending one, stopping it, answering its permission prompts, changing its mode; side questions. */
 export function registerChatHandlers(s: Services): void {
   const { indexer, chat, tables } = s
 
@@ -101,6 +101,9 @@ export function registerChatHandlers(s: Services): void {
       chat.respondPermission(String(turnId), String(requestId), String(optionId))
   )
   ipcMain.handle(CH.chatPendingPermissions, (_e, turnId: string) => chat.pendingPermissions(String(turnId)))
+  ipcMain.handle(CH.chatSetMode, (_e, turnId: string, mode: unknown) =>
+    chat.setTurnMode(String(turnId), asPermissionMode(mode))
+  )
 
   // side chat: questions asked of a throwaway copy of a session, on a ChatManager of its own
   ipcMain.handle(CH.sideChatAsk, (_e, raw: SideChatRequest) => {

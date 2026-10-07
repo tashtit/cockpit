@@ -49,7 +49,7 @@ Everything between them stays quiet.
   min-content) collapses to a sliver on short windows.
 - Order, always: **stack** — the updates strip (`.home-news`, when there is news) then
   the fleet (`.board`, which carries sessions and roundtables alike); **dock** —
-  `.composer-card` → `.home-more` → YOLO hint → error line. The board renders whenever it
+  `.composer-card` → `.home-more` → Full access hint → error line. The board renders whenever it
   has a row; what is happening changes the rows and their order, never either region's
   place on the page.
 - **There is no page-level hero.** A centred greeting used to open the view, and once
@@ -238,9 +238,9 @@ Everything between them stays quiet.
   account slot reads `over ACP`.
 - ⌘Enter submits; the button label is the action: "Start with Claude Code", or "Starting…"
   while busy. Errors render in `.new-error` directly under the card, never a toast.
-- Mode options and hints come from the shared `MODES` table (`agent-choice.ts`);
-  choosing YOLO shows the `.ns-hint.yolo` warning line under the card — the bypass mode is
-  never silent.
+- Mode options come from the shared `MODES` table and their hints from `modeHint`
+  (`agent-choice.ts`); choosing Full access shows the `.ns-hint.danger` warning line under
+  the card, in the chosen agent's own words — the bypass mode is never silent.
 - Prompt textarea autofocuses when the composer appears, unless focus is already
   elsewhere or a surface is layered over the view (see First run) — on a normal first
   paint the user should be able to type immediately.

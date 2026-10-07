@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatEvent, ChatPermission, ChatRequest, SessionMessage } from '../../shared/types'
+import type { ChatEvent, ChatPermission, ChatRequest, PermissionMode, SessionMessage, TurnModeChange } from '../../shared/types'
 import { api } from './api'
+import { modeLabel } from './agent-choice'
 import type { PendingPermission } from './chat-binding'
 import { addChatMessage, addChatNotice, announceChat, endChatStream, streamChatText } from './chat-log'
+import { ipcErrorText } from './ipc-error'
 import { rejoinStream, type Rejoin } from './rejoin'
 
 /**
@@ -42,6 +44,18 @@ type ChatTurns = {
   readonly logLanded: (messages: readonly SessionMessage[]) => boolean
   /** Stop the turn on screen */
   readonly cancel: () => void
+  /** Another permission mode was picked: the turn on screen runs the rest of its way in
+   *  it where it can, and the transcript says which it did */
+  readonly changeMode: (mode: PermissionMode) => void
+}
+
+/** What the transcript says of a mode picked while a turn runs, `agent` being who runs it. */
+export function modeChangeNotice(mode: PermissionMode, change: TurnModeChange, agent: string): string {
+  const label = modeLabel(mode)
+  if (!change.live) return `${label} starts with your next message — ${agent} can’t change mode mid-turn.`
+  if (change.allowed === 0) return `${label} from here on.`
+  const n = change.allowed
+  return `${label} from here on — allowed the ${n === 1 ? 'request' : `${n} requests`} waiting.`
 }
 
 /**
@@ -248,6 +262,21 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
     [applyEvent, speaker]
   )
 
+  const changeMode = useCallback(
+    (mode: PermissionMode) => {
+      const turnId = activeTurnRef.current
+      // idle, the mode simply goes with the next message
+      if (turnId === null) return
+      api.setTurnMode(turnId, mode).then(
+        (change) => {
+          if (activeTurnRef.current === turnId) addChatNotice(modeChangeNotice(mode, change, speaker()))
+        },
+        (err) => addChatNotice(`Couldn’t change the running turn’s mode: ${ipcErrorText(err)}`)
+      )
+    },
+    [speaker]
+  )
+
   const cancel = useCallback(() => {
     if (activeTurn) {
       void api.cancelChat(activeTurn)
@@ -279,6 +308,7 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
     run,
     join,
     logLanded,
-    cancel
+    cancel,
+    changeMode
   }
 }

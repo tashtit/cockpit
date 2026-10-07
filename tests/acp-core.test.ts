@@ -12,6 +12,7 @@ import {
   sanitizeAcpAgent
 } from '../src/shared/acp'
 import {
+  acpModesOf,
   acpUpdateToEvents,
   BuiltinReadiness,
   decidePermission,
@@ -483,20 +484,44 @@ describe('promptResultEvents', () => {
 })
 
 describe('modeIdFor', () => {
-  const modes = [
-    { id: 'https://agentclientprotocol.com/protocol/session-modes#agent' },
-    { id: 'https://agentclientprotocol.com/protocol/session-modes#autopilot' }
-  ]
+  const AGENT = 'https://agentclientprotocol.com/protocol/session-modes#agent'
+  const PLAN = 'https://agentclientprotocol.com/protocol/session-modes#plan'
+  const AUTOPILOT = 'https://agentclientprotocol.com/protocol/session-modes#autopilot'
+  const availableModes = [{ id: AGENT }, { id: PLAN }, { id: AUTOPILOT }]
+  const inMode = (currentModeId: string | null) => ({ availableModes, currentModeId })
 
   it('asks for autopilot only in yolo', () => {
-    expect(modeIdFor('yolo', modes)).toBe('https://agentclientprotocol.com/protocol/session-modes#autopilot')
-    expect(modeIdFor('safe', modes)).toBeNull()
-    expect(modeIdFor('auto-edit', modes)).toBeNull()
+    expect(modeIdFor('yolo', inMode(AGENT))).toBe(AUTOPILOT)
+    expect(modeIdFor('safe', inMode(AGENT))).toBeNull()
+    expect(modeIdFor('auto-edit', inMode(AGENT))).toBeNull()
+  })
+
+  it('takes a session out of autopilot for every other mode — a reopened one keeps its last', () => {
+    expect(modeIdFor('safe', inMode(AUTOPILOT))).toBe(AGENT)
+    expect(modeIdFor('auto-edit', inMode(AUTOPILOT))).toBe(AGENT)
+    // already there: nothing to ask
+    expect(modeIdFor('yolo', inMode(AUTOPILOT))).toBeNull()
+    // a plan mode someone else chose is theirs; yolo still means autopilot
+    expect(modeIdFor('safe', inMode(PLAN))).toBeNull()
+    expect(modeIdFor('yolo', inMode(PLAN))).toBe(AUTOPILOT)
   })
 
   it('leaves the agent’s default when it has no such mode', () => {
-    expect(modeIdFor('yolo', [{ id: 'x#agent' }])).toBeNull()
-    expect(modeIdFor('yolo', [])).toBeNull()
+    expect(modeIdFor('yolo', { availableModes: [{ id: 'x#agent' }], currentModeId: 'x#agent' })).toBeNull()
+    expect(modeIdFor('yolo', { availableModes: [], currentModeId: null })).toBeNull()
+    expect(modeIdFor('safe', { availableModes: [{ id: AUTOPILOT }], currentModeId: AUTOPILOT })).toBeNull()
+  })
+})
+
+describe('acpModesOf', () => {
+  it('reads the modes a session answer states, and nothing from one that states none', () => {
+    expect(acpModesOf({ modes: { availableModes: [{ id: 'a#agent' }, { nope: 1 }], currentModeId: 'a#agent' } })).toEqual({
+      availableModes: [{ id: 'a#agent' }],
+      currentModeId: 'a#agent'
+    })
+    expect(acpModesOf({ modes: { availableModes: [] } })).toEqual({ availableModes: [], currentModeId: null })
+    expect(acpModesOf({})).toBeNull()
+    expect(acpModesOf(null)).toBeNull()
   })
 })
 

@@ -168,6 +168,90 @@ describe('AcpTurn', () => {
     expect(texts(events)).toContain('answered:cancelled')
   })
 
+  it('asks about each of two calls made at once, on a card apiece', async () => {
+    const { events, done } = start('permission-pair', {
+      onEvent: (ev, turn) => {
+        if (ev.type === 'permission') turn.respondPermission(ev.requestId, 'allow_once')
+      }
+    })
+    await done
+    // two commands, not one asked twice
+    const asked = events.filter((e): e is Extract<ChatEvent, { type: 'permission' }> => e.type === 'permission')
+    expect(asked.map((e) => e.detail)).toEqual(['echo beta', 'echo alpha'])
+    expect(texts(events)).toContain('answered:allow_once,allow_once')
+  })
+
+  describe('the mode, picked again while the turn runs', () => {
+    /** The session modes the turn asked the agent for, in order */
+    const modeLog = (): { readonly file: string; readonly read: () => string[] } => {
+      const file = join(mkdtempSync(join(tmpdir(), 'cockpit-acp-mode-')), 'modes')
+      return {
+        file,
+        read: () => (existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').map((id) => id.split('#')[1]) : [])
+      }
+    }
+
+    it('answers the questions still open that the new mode allows, and moves the session into autopilot', async () => {
+      const modes = modeLog()
+      let answered: string[] = []
+      let asked = 0
+      const { events, done } = start('permission-pair', {
+        env: { STUB_MODEFILE: modes.file },
+        onEvent: (ev, turn) => {
+          // both cards up, then the person picks Full access
+          if (ev.type === 'permission' && ++asked === 2) answered = turn.setPermissionMode('yolo')
+        }
+      })
+      await done
+      const cards = events.flatMap((e) => (e.type === 'permission' ? [e.requestId] : []))
+      expect(cards).toHaveLength(2)
+      expect([...answered].sort()).toEqual([...cards].sort())
+      expect(texts(events)).toContain('answered:allow_once,allow_once')
+      expect(modes.read()).toEqual(['autopilot'])
+    })
+
+    it('leaves a command asking under Accept edits', async () => {
+      let answered: string[] = ['unset']
+      const { events, done } = start('permission-pair', {
+        onEvent: (ev, turn) => {
+          if (ev.type !== 'permission') return
+          answered = turn.setPermissionMode('auto-edit')
+          turn.respondPermission(ev.requestId, 'reject_once')
+        }
+      })
+      await done
+      expect(answered).toEqual([])
+      expect(texts(events)).toContain('answered:reject_once,reject_once')
+    })
+
+    it('takes a reopened session out of the autopilot it was left in, for a turn that is not Full access', async () => {
+      const modes = modeLog()
+      const { done } = start('basic', { resume: 'sess-old', env: { STUB_LOAD_MODE: 'autopilot', STUB_MODEFILE: modes.file } })
+      await done
+      expect(modes.read()).toEqual(['agent'])
+    })
+
+    it('puts a Full access turn in autopilot, new or reopened, and asks nothing of one already there', async () => {
+      const fresh = modeLog()
+      await start('basic', { permissionMode: 'yolo', env: { STUB_MODEFILE: fresh.file } }).done
+      expect(fresh.read()).toEqual(['autopilot'])
+      const reopened = modeLog()
+      await start('basic', { permissionMode: 'yolo', resume: 'sess-old', env: { STUB_MODEFILE: reopened.file } }).done
+      expect(reopened.read()).toEqual(['autopilot'])
+      const already = modeLog()
+      await start('basic', {
+        permissionMode: 'yolo',
+        resume: 'sess-old',
+        env: { STUB_LOAD_MODE: 'autopilot', STUB_MODEFILE: already.file }
+      }).done
+      expect(already.read()).toEqual([])
+      // and a turn that is not Full access leaves a session in the agent's default alone
+      const plain = modeLog()
+      await start('basic', { resume: 'sess-old', env: { STUB_MODEFILE: plain.file } }).done
+      expect(plain.read()).toEqual([])
+    })
+  })
+
   it('resumes a session and never replays its history into the chat', async () => {
     const { events, done } = start('basic', { resume: 'sess-old' })
     await done

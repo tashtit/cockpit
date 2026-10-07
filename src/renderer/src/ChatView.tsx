@@ -8,7 +8,7 @@ import { AttachRow, useImageAttachments } from './attachments'
 import { CHAT_WIDTH_CSS, useChatWidth } from './chat-width'
 import { announceChat, useChatKeys, useChatLog, useChatStatus } from './chat-log'
 import { CopyPath } from './CopyPath'
-import { MODES, rememberMode, savedMode } from './agent-choice'
+import { modeOptions, rememberMode, savedMode } from './agent-choice'
 import { cwdLabel } from '../../shared/library'
 import { holdSentence, holderName, placeOf } from './hold'
 import { isDrivable } from '../../shared/providers'
@@ -61,6 +61,7 @@ export function ChatView({
   onOpenLineage,
   permissions,
   onAnswerPermission,
+  onModeChange,
   control = null,
   onSetHolder,
   onResumeInTerminal,
@@ -84,6 +85,8 @@ export function ChatView({
   onOpenLineage: (sourceId: string) => void
   permissions: readonly PendingPermission[]
   onAnswerPermission: (ask: PendingPermission, optionId: string) => void
+  /** Another permission mode was picked — the turn running now, if any, is told */
+  onModeChange?: (mode: PermissionMode) => void
   /** Who drives this session — Cockpit, or its agent outside it (main's record); null
    *  while unknown, and for a seat, which its table drives */
   control?: SessionControl | null
@@ -666,6 +669,14 @@ export function ChatView({
             {status}
           </div>
 
+          {/* calls an agent makes at once are asked about one by one: say so, or two cards
+              for two near-identical commands read as one question sent twice */}
+          {permissions.length > 1 && (
+            <p className="perm-stack">
+              {permissions.length} requests waiting — {PROVIDER_LABEL[binding.provider]} made these calls
+              together, and each needs its own answer.
+            </p>
+          )}
           {permissions.map((ask) => (
             <PermissionAsk
               key={ask.requestId}
@@ -737,16 +748,18 @@ export function ChatView({
                     }
                   }}
                 />
-                {/* the mode governs the next turn, so it sits beside the button that sends
-                    it — the same grammar as Home's composer bar, and the header stays identity */}
+                {/* the mode governs the next turn — and the rest of a running one, where it
+                    can take it — so it sits beside the button that sends it: the same grammar
+                    as Home's composer bar, and the header stays identity */}
                 <Select
                   className="mode-select-wrap"
                   value={mode}
                   ariaLabel="Permission mode"
-                  options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+                  options={modeOptions(binding.provider)}
                   onChange={(v) => {
                     setMode(v as PermissionMode)
                     rememberMode(v as PermissionMode)
+                    onModeChange?.(v as PermissionMode)
                   }}
                 />
                 {busy ? (

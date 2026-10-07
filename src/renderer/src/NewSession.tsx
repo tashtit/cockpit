@@ -120,9 +120,9 @@ export function NewSession({
             />
           )}
           <AgentOptionsFields provider={provider} o={agent} />
-          <ModeField mode={mode} onChange={choice.setMode} />
+          <ModeField mode={mode} provider={provider} onChange={choice.setMode} />
         </div>
-        <ModeHint mode={mode} />
+        <ModeHint mode={mode} provider={provider} />
         <AgentOptionsHints provider={provider} o={agent} />
 
         <label className="ns-label" htmlFor="ns-branch">Branch</label>

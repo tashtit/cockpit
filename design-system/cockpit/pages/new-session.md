@@ -57,8 +57,10 @@ images as `initialImages`) or the sidebar repo-row "+".
   worktree branch naming is visible, not hidden (product rule: always worktrees + PRs). A
   long prefix gives way (ellipsis, 45% at most) before the name field does.
   Left empty, the task's words name it (see above).
-- Hints are `.ns-hint`; the YOLO warning uses `.ns-hint.yolo` (danger color). Permission
-  mode labels/hints come from the shared `MODES` table — identical wording in ChatView.
+- Hints are `.ns-hint`; the Full access warning uses `.ns-hint.danger` (danger color).
+  Permission mode labels come from the shared `MODES` table — Ask first · Accept edits ·
+  Full access, one vocabulary for every agent — and each hint from `modeHint`, which says
+  what the chosen agent itself calls the setting. Identical wording in ChatView.
 - Errors: `.new-error` inline under the actions. Actions right-align: ghost Cancel,
   primary Start.
 - Pasting an image into Task attaches it (shared `useImageAttachments` + `AttachRow`):
