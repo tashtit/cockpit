@@ -317,7 +317,10 @@ export function startServices(): Services {
           resumeNativeId: req.resumeNativeId
         })
       },
-      onTurnCancel: (turnId) => theDesk.turnCancelled(turnId),
+      onTurnCancel: (turnId, sessions) => {
+        theDesk.turnCancelled(turnId)
+        indexer.turnsStopped(sessions)
+      },
       resolveEndpoint: (id) => listModelEndpoints().find((e) => e.id === id),
       resolveKey: (ep) => getEndpointKey(ep.id)
     }

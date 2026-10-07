@@ -37,6 +37,13 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
  * while the newest record is a tool call waiting for its result. Best-effort by
  * design: an unreadable or unrecognised tail — or lock — is idle, never an error.
  *
+ * A turn Cockpit stopped itself is the one case where the tracker is told rather than
+ * left to read (`stopped`). The kill leaves the log mid-turn — a tool call with no
+ * result, a prompt with no answer — and the CLI writes a few bookkeeping records as it
+ * exits, so the tail reads exactly like a turn still running, for a whole window: ten
+ * minutes inside a tool call, with Send held and no Stop to press. So the turn is over
+ * the moment it is stopped, and stays over until the log opens a new one or ends.
+ *
  * The transitions are news too (`onTurn`, for the attention desk): a turn seen
  * running whose log then writes its ending record has *ended* — an expiry is not
  * that, a killed CLI or a long tool call must never chime — and a running turn whose
@@ -61,6 +68,8 @@ export const LIVE_TOOL_WINDOW_MS = 10 * 60_000
  */
 export const LIVE_TAIL_STEPS: readonly number[] = [64 * 1024, 1024 * 1024, TRANSCRIPT_TAIL_BYTES]
 const SWEEP_MS = 10_000
+/** Stopped turns remembered at once — the newest; one whose log never moves again is forgotten in time */
+const STOPPED_KEEP = 64
 
 /**
  * What the tail of one session log says right now: a verdict, or null when nothing in
@@ -217,6 +226,8 @@ export class LivenessTracker {
   private readonly codexLockHeld: (lock: string) => Promise<boolean>
   /** An asking Codex entry's lock, as last checked (see codexHeld) */
   private readonly codexLocks = new Map<string, { held: boolean; checking: boolean }>()
+  /** Sessions whose turn Cockpit stopped, each with when — oldest first (see `stopped`) */
+  private readonly stoppedAt = new Map<string, number>()
 
   constructor(onChange: (sessions: BusySession[]) => void, opts: LivenessOptions = {}) {
     this.onChange = onChange
@@ -260,6 +271,13 @@ export class LivenessTracker {
       // its end always writes a small decisive record — and one that wasn't is not invented
       if (prev) prev.lastWriteAt = Math.max(prev.lastWriteAt, written)
       return
+    }
+    const stoppedAt = this.stoppedAt.get(meta.id)
+    if (stoppedAt !== undefined) {
+      // the turn Cockpit stopped, still mid-turn in its log: that is the kill. A new
+      // turn opens after the stop; one whose start the tail can't say is the old one
+      if (verdict.live && !(verdict.startedAt !== null && verdict.startedAt > stoppedAt)) return
+      this.stoppedAt.delete(meta.id)
     }
     const session: ObservedSession = { id: meta.id, provider: meta.provider, cwd: meta.cwd }
     if (!verdict.live) {
@@ -341,7 +359,24 @@ export class LivenessTracker {
     }))
   }
 
-  /** Forget everything: no more writes will arrive once the watchers are down. */
+  /**
+   * Cockpit stopped the turn running in this session: it is over now, whatever its log
+   * says (the header). An entry for it goes at once — not an ending, which is news only
+   * when the log writes one — and what the log says of that turn from here on is the
+   * kill: a live tail is passed over until it names a turn opened after this moment.
+   */
+  stopped(id: string): void {
+    this.stoppedAt.delete(id)
+    this.stoppedAt.set(id, this.now())
+    while (this.stoppedAt.size > STOPPED_KEEP) this.stoppedAt.delete(this.stoppedAt.keys().next().value as string)
+    this.drop(id)
+  }
+
+  /**
+   * Forget everything running: no more writes will arrive once the watchers are down.
+   * What Cockpit stopped stays stopped — a new source rescans every fresh log, the
+   * stopped turn's mid-turn tail among them.
+   */
   stop(): void {
     this.stopSweep()
     this.codexLocks.clear()

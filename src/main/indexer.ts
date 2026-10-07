@@ -563,6 +563,11 @@ export class SessionIndexer {
     return this.liveness.sessions()
   }
 
+  /** Cockpit stopped the turns running in these sessions: what their logs still say is the kill (liveness.ts `stopped`). */
+  turnsStopped(ids: readonly string[]): void {
+    for (const id of ids) this.liveness.stopped(id)
+  }
+
   /** Wired by services.ts to the merged busy set, so Cockpit's own turns hold their place too. */
   setBusyResolver(fn: () => readonly BusySession[]): void {
     this.busyNow = fn

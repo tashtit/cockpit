@@ -662,6 +662,8 @@ describe('ChatManager: one turn per session', () => {
     readonly ask: Ask
     /** What main answered at the moment the turn said done, and when it did */
     readonly atDone: Promise<{ readonly busy: BusySession[]; readonly running: string | null }>
+    /** The sessions each stop named, in order */
+    readonly stopped: (readonly string[])[]
   }> {
     let onAsk!: (ev: Ask) => void
     const asked = new Promise<Ask>((r) => (onAsk = r))
@@ -672,10 +674,15 @@ describe('ChatManager: one turn per session', () => {
         if (ev.type === 'permission') onAsk(ev)
         if (ev.type === 'done') onDone({ busy: chat.busySessions(), running: chat.turnFor('copilot', id) })
       },
-      { resolveAcpAgent: () => stub, asksPermissions: () => true }
+      {
+        resolveAcpAgent: () => stub,
+        asksPermissions: () => true,
+        onTurnCancel: (_turnId, sessions) => stopped.push(sessions)
+      }
     )
+    const stopped: (readonly string[])[] = []
     const turnId = chat.send(resume(id))
-    return { chat, turnId, ask: await asked, atDone }
+    return { chat, turnId, ask: await asked, atDone, stopped }
   }
 
   it('refuses to resume a session it is already running, and names the turn to rejoin', async () => {
@@ -718,8 +725,10 @@ describe('ChatManager: one turn per session', () => {
   })
 
   it('frees the session the moment its turn is stopped', async () => {
-    const { chat, turnId } = await midTurn('sess-9')
+    const { chat, turnId, stopped } = await midTurn('sess-9')
     chat.cancel(turnId)
+    // named, so the log the kill leaves mid-turn is not read as a turn still running
+    expect(stopped).toEqual([['copilot:sess-9']])
     expect(chat.turnFor('copilot', 'sess-9')).toBeNull()
     expect(chat.busySessions()).toEqual([])
     expect(() => chat.assertNotRunning(resume('sess-9'))).not.toThrow()

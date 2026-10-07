@@ -545,6 +545,98 @@ describe('LivenessTracker — the tool window', () => {
   })
 })
 
+describe('LivenessTracker — a turn Cockpit stopped', () => {
+  // the stop lands after every fixture's turn opened (codex's at 11:07) and before the next one
+  const STOP = Date.parse('2026-09-16T12:00:00.000Z')
+  const T2 = '2026-09-16T12:05:00.000Z'
+  /** Per provider: the record that opens a new turn at T2 */
+  const NEXT_TURN: Record<Provider, unknown> = {
+    claude: { type: 'user', message: { role: 'user', content: 'and now this' }, timestamp: T2 },
+    codex: { timestamp: T2, type: 'event_msg', payload: { type: 'task_started', turn_id: 't2', started_at: Date.parse(T2) / 1000 } },
+    copilot: { type: 'user.message', data: { content: 'and now this' }, timestamp: T2 }
+  }
+  /** What a killed CLI still writes on its way out (Claude: `last-prompt`, `cost-state`) */
+  const EXIT_RECORDS = [{ type: 'last-prompt' }, { type: 'attachment' }]
+
+  for (const provider of ['claude', 'codex', 'copilot'] as const) {
+    const sil = SILENCE[provider]
+    const nativeId = NATIVE[provider]
+    const id = `${provider}:${nativeId}`
+
+    it(`${provider}: is over at once, though its log is left mid-tool and written to as the CLI exits`, () => {
+      const pushes: BusySession[][] = []
+      const events: import('../src/main/liveness').ObservedTurn[] = []
+      const t = tracker((s) => pushes.push(s), { now: () => STOP, onTurn: (ev) => events.push(ev) })
+      const file = writeFixture(provider, [...sil.thinking, sil.inTool])
+      t.observe(file, meta(provider, nativeId, file), justWritten())
+      expect(t.sessions().map((s) => s.id)).toEqual([id])
+
+      t.stopped(id)
+      expect(t.sessions()).toEqual([])
+      expect(pushes.at(-1)).toEqual([])
+      appendFileSync(file, jsonl(EXIT_RECORDS))
+      t.observe(file, meta(provider, nativeId, file), justWritten())
+      expect(t.sessions()).toEqual([])
+      expect(pushes).toHaveLength(2)
+      // the person stopped it: not an ending to announce
+      expect(events.map((e) => e.type)).toEqual(['running'])
+    })
+
+    it(`${provider}: a stop the log had not been read before still holds once it is`, () => {
+      const t = tracker(() => {}, { now: () => STOP })
+      t.stopped(id)
+      const file = writeFixture(provider, [...sil.thinking, sil.inTool, ...EXIT_RECORDS])
+      t.observe(file, meta(provider, nativeId, file), justWritten())
+      expect(t.sessions()).toEqual([])
+    })
+
+    it(`${provider}: a turn opened after the stop is running again`, () => {
+      const t = tracker(() => {}, { now: () => STOP })
+      const file = writeFixture(provider, [...sil.thinking, sil.inTool])
+      t.observe(file, meta(provider, nativeId, file), justWritten())
+      t.stopped(id)
+      appendFileSync(file, jsonl([NEXT_TURN[provider]]))
+      t.observe(file, meta(provider, nativeId, file), justWritten())
+      expect(t.sessions()).toEqual([{ id, startedAt: Date.parse(T2), source: 'observed' }])
+    })
+  }
+
+  it('an ending written after the stop settles it: the next mid-turn tail is believed', () => {
+    const t = tracker(() => {}, { now: () => STOP })
+    const fx = FIXTURES.claude
+    const file = writeFixture('claude', fx.midTurn)
+    t.stopped('claude:c1')
+    appendFileSync(file, jsonl([fx.final]))
+    t.observe(file, meta('claude', 'c1', file), justWritten())
+    // a turn whose prompt has scrolled out: no start to weigh against the stop, and none needed
+    const [prompt, toolUse] = fx.midTurn
+    writeFileSync(file, jsonl([prompt, ...padding(LIVE_TAIL_STEPS[0] * 2), toolUse]))
+    t.observe(file, meta('claude', 'c1', file), justWritten())
+    expect(t.sessions().map((s) => s.id)).toEqual(['claude:c1'])
+  })
+
+  it('stays stopped when the watchers restart and the log is read again (a source added)', () => {
+    const t = tracker(() => {}, { now: () => STOP })
+    const file = writeFixture('claude', FIXTURES.claude.midTurn)
+    t.observe(file, meta('claude', 'c1', file), justWritten())
+    t.stopped('claude:c1')
+    t.stop()
+    t.observe(file, meta('claude', 'c1', file), justWritten())
+    expect(t.sessions()).toEqual([])
+  })
+
+  it('stopping one session leaves another running', () => {
+    const t = tracker(() => {}, { now: () => STOP })
+    const claude = writeFixture('claude', FIXTURES.claude.midTurn)
+    const codex = writeFixture('codex', FIXTURES.codex.midTurn)
+    t.observe(claude, meta('claude', 'c1', claude), justWritten())
+    t.observe(codex, meta('codex', 'x1', codex), justWritten())
+    t.stopped('claude:c1')
+    t.stopped('claude:never-seen')
+    expect(t.sessions().map((s) => s.id)).toEqual(['codex:x1'])
+  })
+})
+
 describe("LivenessTracker — copilot's own lock", () => {
   /** A copilot session directory of its own, so a lock in it reaches no other test. */
   function session(name: string, records: readonly unknown[]): string {
