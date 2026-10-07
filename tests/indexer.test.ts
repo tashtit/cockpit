@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
@@ -2067,5 +2067,43 @@ describe('Cockpit-only mode (setCockpitOnly)', () => {
     idx.setCockpitOnly(false)
     expect(ids()).toEqual(['co-out', 'co-rel', 'co-took', 'co-wt'])
     expect(idx.listRepos().find((r) => r.key === 'gh:acme/repo-a')?.sessionCount).toBe(1)
+  })
+})
+
+describe("Cockpit's worktrees, however their case was written", () => {
+  // the packaged app names userData `Cockpit`, a dev run `cockpit`, and an agent records
+  // the cwd its process reports — on a volume that ignores case, all one folder
+  const data = join(root, 'Cockpit-Case')
+  const home = join(root, 'claude-case')
+  let idx: SessionIndexer
+  let foldsCase: boolean
+
+  beforeAll(async () => {
+    mkdirSync(join(data, 'worktrees', 'rocket'), { recursive: true })
+    foldsCase = existsSync(join(root, 'COCKPIT-CASE'))
+    const dir = join(home, 'projects', 'p')
+    mkdirSync(dir, { recursive: true })
+    // its worktree was removed after the PR merged: only the folders above it are left
+    const cwd = join(root, 'cockpit-case', 'worktrees', 'rocket', 'merged-task')
+    const ts = '2026-08-06T10:00:00Z'
+    writeFileSync(
+      join(dir, 'cc-lower.jsonl'),
+      jsonl([
+        { type: 'user', message: { role: 'user', content: 'task' }, timestamp: ts, sessionId: 'cc-lower', cwd },
+        { type: 'assistant', message: { role: 'assistant', content: 'ok' }, timestamp: ts }
+      ])
+    )
+    idx = new SessionIndexer(() => {}, { claudeStoreDir: null, cockpitWorktrees: join(data, 'worktrees') })
+    await idx.setSources([{ path: home, provider: 'claude', label: 'case' }])
+    idx.stopWatchers()
+  })
+
+  afterAll(() => idx?.stopWatchers())
+
+  it('counts a session in them as started by Cockpit where the volume ignores case', () => {
+    // on a case-sensitive volume `cockpit-case` is another folder, so outside is right there
+    expect(idx.getSession('claude:cc-lower')?.control).toEqual(
+      foldsCase ? { holder: 'cockpit', how: 'started' } : { holder: 'agent', how: 'outside' }
+    )
   })
 })

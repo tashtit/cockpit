@@ -54,7 +54,7 @@ import {
   type DbHold,
   type DisposableSession
 } from './session-disposal'
-import { isUnder, realOrSelf } from './paths'
+import { isUnder, realOrSelf, spelledOnDisk } from './paths'
 
 /**
  * Cross-agent cleanup: the one place that answers "what has gone stale, across
@@ -430,7 +430,7 @@ async function judgeWorktree(
     repoRootForGit: w.root,
     repoName: basename(w.root),
     branch: w.entry.branch,
-    origin: worktreeOrigin(w.path, cockpitRoot),
+    origin: worktreeOrigin(spelledOnDisk(w.path), cockpitRoot),
     lastActivity: w.lastActivity,
     sessionCount: w.sessionIds.length,
     providers: [...new Set(w.sessionIds.map((id) => id.slice(0, id.indexOf(':'))))].filter(isSessionProvider),
@@ -586,7 +586,9 @@ async function runSurvey(deps: CleanupDeps, days: number): Promise<CleanupSurvey
   const aged = await mapLimit(listed, (w) => ageWorktree(w, { groups, cutoff }), GIT_PARALLEL)
   const linked = aged.filter((w) => !w.isMain)
   const ctx = inspectContext(deps, { resolve, sessions: all, busy, listed, procs })
-  const cockpitRoot = resolve(deps.cockpitWorktreeRoot)
+  // as the disk spells it, and each worktree's path too (`judgeWorktree`): one git
+  // registered as `…/cockpit/worktrees` is Cockpit's on a volume that ignores case
+  const cockpitRoot = spelledOnDisk(resolve(deps.cockpitWorktreeRoot))
   const staleTrees = (
     await mapLimit(
       linked.filter((w) => isStale(w.lastActivity, cutoff)),

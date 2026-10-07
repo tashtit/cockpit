@@ -31,7 +31,7 @@ import type {
   SourceStats
 } from '../shared/types'
 import { orderRepos } from '../shared/repo-order'
-import { isUnder } from './paths'
+import { isUnder, spelledOnDisk } from './paths'
 import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos'
 import { isRegularFile, timeSlicer } from './parsers/util'
 import { SnapshotPass, dbStamp, inPass, readFailed, splitSessionRef } from './parsers/sqlite'
@@ -475,8 +475,11 @@ export class SessionIndexer {
   private lineage = new Map<string, string>()
   /** Sessions that changed hands (session id → change) from cockpit config */
   private control = new Map<string, ControlEntry>()
-  /** Where Cockpit cuts its own worktrees: a session there was started by Cockpit */
+  /** Where Cockpit cuts its own worktrees: a session there was started by Cockpit.
+   *  As the disk spells it, like every cwd compared with it (`spelledCwd`). */
   private cockpitWorktrees: string | null
+  /** Each session cwd as the disk spells it — asked once per cwd, forgotten each scan */
+  private spelledCwds = new Map<string, string>()
   /** Archived or deleted in the provider's own app — out of every listing (see provider-archived.ts) */
   private providerArchived = new Set<string>()
   /** The deleted part of `providerArchived`: the rest is archived, finished work the profile counts */
@@ -530,7 +533,7 @@ export class SessionIndexer {
     }
   ) {
     this.onUpdate = onUpdate
-    this.cockpitWorktrees = opts?.cockpitWorktrees ?? null
+    this.cockpitWorktrees = opts?.cockpitWorktrees ? spelledOnDisk(resolve(opts.cockpitWorktrees)) : null
     this.cacheFile = opts?.cacheFile ?? null
     this.watchRetryMs = opts?.watchRetryMs ?? WATCH_RETRY_INTERVAL_MS
     this.claudeStoreDir = opts?.claudeStoreDir === undefined ? defaultClaudeStoreDir() : opts.claudeStoreDir
@@ -610,8 +613,24 @@ export class SessionIndexer {
   /** Who drives this session: its recorded change of hands, else where it runs — and
    *  where its log says it was opened, so "in its agent" can name the place. */
   controlOf(s: SessionMeta): SessionControl {
-    const control = controlOf(this.control.get(s.id), s.cwd, this.cockpitWorktrees)
+    const cwd = s.cwd === null || this.cockpitWorktrees === null ? s.cwd : this.spelledCwd(s.cwd)
+    const control = controlOf(this.control.get(s.id), cwd, this.cockpitWorktrees)
     return s.surface ? { ...control, surface: s.surface } : control
+  }
+
+  /**
+   * A cwd as the disk spells it, so one in Cockpit's worktrees is found there however its
+   * agent wrote it down: on macOS `…/cockpit/worktrees` (a dev run's userData, or the case
+   * the folder was first made in) and `…/Cockpit/worktrees` are one folder, and a string
+   * compare called Cockpit's own sessions outside.
+   */
+  private spelledCwd(cwd: string): string {
+    let spelled = this.spelledCwds.get(cwd)
+    if (spelled === undefined) {
+      spelled = spelledOnDisk(resolve(cwd))
+      this.spelledCwds.set(cwd, spelled)
+    }
+    return spelled
   }
 
   /** Applied at query time; repo groups stay listed (flagged hidden) for the chooser UI. */
@@ -1117,6 +1136,8 @@ export class SessionIndexer {
       await this.refreshProviderArchived()
       // repo remotes can change between scans — resolution is cheap cached fs reads
       clearRepoCache()
+      // and so can the folders a cwd runs through: one made or removed since is spelled afresh
+      this.spelledCwds.clear()
       const next = new Map<string, SessionMeta>()
       const nextFiles = new Map<string, SessionMeta[]>()
       const nextSource = new Map<string, SourceDir>()
