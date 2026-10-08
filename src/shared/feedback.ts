@@ -62,7 +62,8 @@ const INSTALL_LABEL: Record<CliInstall, string> = {
   'brew-cask': 'Homebrew cask',
   'brew-formula': 'Homebrew formula',
   npm: 'npm',
-  native: 'native install'
+  native: 'native install',
+  desktop: 'desktop app'
 }
 
 /** "0.30.0", or "0.0.0 (development run)" — a dev build's version says nothing on its own. */
