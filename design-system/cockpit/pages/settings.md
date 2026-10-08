@@ -301,6 +301,9 @@ seventh.
   the row is narrow (the roundtable seat uses the same line). While it is pending the line says
   to finish in Terminal, and the row re-asks every few seconds and on window focus
   (`useWatchUntil`) — nothing to press when the person comes back.
+- Desktop-owned CLI rows name their app in the origin and say **updated by desktop app**
+  in the health column, with a tooltip directing the person to that app. They never
+  show a standalone Update or an "up to date" claim based on the npm release.
 - **Agent CLIs** is its own group (`h3`) between the accounts and GitHub: one
   `.source-row.tint-{agent}` per CLI — name, version chip, "via Homebrew / npm / its own
   updater", the real path (`shortPath`), and on the right *up to date*, *couldn't check

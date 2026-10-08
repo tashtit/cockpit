@@ -1,9 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
+import { desktopAppOf } from '../shared/agent-cli'
+import { desktopCliDirs, desktopCliEnv } from './desktop-cli'
 
-/** GUI apps on macOS get a minimal PATH; make sure common CLI install dirs are present. */
+/** GUI apps get a minimal PATH; add CLI install dirs and desktop-owned CLI fallbacks. */
 export function cliEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, PATH: cliPath(process.env.PATH) }
+  const PATH = cliPath(process.env.PATH)
+
+  return { ...process.env, PATH, ...desktopCliEnv(PATH) }
 }
 
 /**
@@ -25,18 +29,28 @@ let loginPathLoad: Promise<void> | null = null
  * world's stub CLIs, the `nvm use` of the terminal `npm run dev` ran in — then the login
  * shell's PATH in its own order, then the common install dirs. A Finder launch inherits
  * only system dirs the login shell also has, so it gets exactly what a terminal gets.
+ * Desktop-owned CLI directories are fallbacks after every standalone install directory.
  */
-export function cliPath(inherited: string | undefined, login: string | null = loginPath): string {
+export function cliPath(
+  inherited: string | undefined,
+  login: string | null = loginPath,
+  desktop: string[] = desktopCliDirs()
+): string {
   const own = (inherited ?? '').split(':')
   const shell = (login ?? '').split(':')
   const fromShell = new Set(shell)
+  // An inherited desktop path can name an engine its app just replaced. Rediscover
+  // it below, after standalone installs, rather than keeping an old version first.
+  const standalone = (dir: string): boolean =>
+    !desktopAppOf(`${dir}/codex`) && !desktopAppOf(`${dir}/claude`)
   const entries = [
-    ...own.filter((p) => !fromShell.has(p)),
-    ...shell,
+    ...own.filter((p) => !fromShell.has(p) && standalone(p)),
+    ...shell.filter(standalone),
     '/opt/homebrew/bin',
     '/usr/local/bin',
     `${homedir()}/.local/bin`,
-    `${homedir()}/bin`
+    `${homedir()}/bin`,
+    ...desktop
   ]
   return [...new Set(entries.filter((p) => p.startsWith('/')))].join(':')
 }

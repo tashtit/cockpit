@@ -200,6 +200,23 @@ describe('Settings › Accounts sign-in and CLI updates', () => {
     expect(within(row).getByText(/Finish signing in in the Terminal window/)).toBeInTheDocument()
   })
 
+  it('identifies desktop-owned tools and offers no standalone update for them', async () => {
+    vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
+      {
+        provider: 'claude', installed: true, version: '2.1.284',
+        path: '/Users/dev/Library/Application Support/Claude/claude-code/2.1.284/claude.app/Contents/MacOS/claude',
+        install: 'desktop', latest: null, upstream: null, channel: 'Claude desktop',
+        updateAvailable: false, updateCommand: null
+      }
+    ])
+    render(<Settings onClose={vi.fn()} />)
+    const row = (await screen.findByText('2.1.284')).closest('li')!
+    expect(within(row).getByText('via Claude desktop')).toBeInTheDocument()
+    expect(within(row).getByText('updated by desktop app')).toHaveAttribute('title', 'Open Claude desktop to check for updates')
+    expect(within(row).queryByRole('button', { name: 'Update…' })).not.toBeInTheDocument()
+    expect(within(row).queryByText(/couldn’t check|up to date/)).not.toBeInTheDocument()
+  })
+
   it('lists each CLI against its latest release and updates the one behind', async () => {
     vi.mocked(window.cockpit.listCliStatus).mockResolvedValue([
       {

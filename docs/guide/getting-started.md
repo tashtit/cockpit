@@ -119,6 +119,8 @@ Cockpit is an Electron app: clone, install, run.
 - **git**, and the **GitHub CLI (`gh`)** if you want the PR features to work at runtime (not needed to build).
 - Optional: the agents themselves — the `claude` / `codex` / `copilot` CLIs, or Gemini CLI, Cursor, Cline, Roo Code, opencode or Antigravity. Cockpit lists the sessions of whichever it finds; with none, the index is empty.
 
+You do not need a separate Claude Code or Codex CLI installation if you already use their desktop apps on macOS: Cockpit can [reuse the desktop-managed tools](/guide/accounts-and-usage#agent-clis). Claude desktop must have downloaded its Code engine first. Standalone CLI installations keep priority when present.
+
 ### Install and run
 
 ```bash

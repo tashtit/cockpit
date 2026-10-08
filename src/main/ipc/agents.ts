@@ -53,6 +53,9 @@ export function registerAgentHandlers(s: Services): void {
     // the command comes from main's own reading of how the CLI is installed, never
     // from the renderer
     const status = await cliStatus(provider)
+    if (status.install === 'desktop') {
+      throw new Error(`Updates for ${AGENT_NAME[provider]} are managed by ${status.channel}. Open that app to check for updates.`)
+    }
     if (!status.installed || !status.updateCommand) {
       throw new Error(`${AGENT_NAME[provider]} isn't installed, so there is nothing to update.`)
     }

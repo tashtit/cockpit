@@ -1,26 +1,29 @@
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, afterEach, vi } from 'vitest'
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   compareVersions,
+  desktopAppOf,
   homebrewUpdateCommand,
   installMethodOf,
   parseVersion,
   runsHomebrew,
   updateCommandFor
 } from '../src/shared/agent-cli'
-import { brewVersion, loginLine, terminalScript } from '../src/main/agent-cli-core'
+import { brewVersion, loginLine, terminalScript, withCliEnvironment } from '../src/main/agent-cli-core'
 import { shQuote } from '../src/main/shell-quote'
-import { writeTerminalScript } from '../src/main/agent-cli'
+import { cliStatus, writeTerminalScript } from '../src/main/agent-cli'
+import { resumeScript } from '../src/main/session-control-core'
 
 /** The scripts are zsh, and wait on macOS's `lockf` — the platform they run on. CI's
  *  unit tier is Linux, so running them for real skips there. */
 const onMac = process.platform === 'darwin'
 
 const dirs: string[] = []
+afterEach(() => vi.unstubAllEnvs())
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true })
 })
@@ -45,6 +48,10 @@ describe('reading a CLI’s version and how it was installed', () => {
     expect(installMethodOf('/opt/homebrew/Cellar/codex/0.154.0/bin/codex')).toBe('brew-formula')
     expect(installMethodOf('/Users/me/.nvm/versions/node/v22/lib/node_modules/@openai/codex/bin/codex.js')).toBe('npm')
     expect(installMethodOf('/Users/me/.local/share/claude/versions/2.1.278')).toBe('native')
+    expect(installMethodOf('/Applications/Codex.app/Contents/Resources/codex')).toBe('desktop')
+    expect(installMethodOf('/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex')).toBe('desktop')
+    expect(installMethodOf('/Users/me/Library/Application Support/Claude/claude-code/2.1.284/claude.app/Contents/MacOS/claude')).toBe('desktop')
+    expect(desktopAppOf('/Applications/Claude.app/Contents/MacOS/claude')).toBeNull()
   })
 
   it('updates each the way it was installed; copilot always updates itself', () => {
@@ -53,6 +60,8 @@ describe('reading a CLI’s version and how it was installed', () => {
     expect(updateCommandFor('claude', 'native')).toBe('claude update')
     // its cask auto-updates; `brew upgrade` could roll a self-updated copilot back
     expect(updateCommandFor('copilot', 'brew-cask')).toBe('copilot update')
+    expect(updateCommandFor('claude', 'desktop')).toBeNull()
+    expect(updateCommandFor('codex', 'desktop')).toBeNull()
   })
 
   it('knows which of those commands run Homebrew', () => {
@@ -93,6 +102,27 @@ describe('reading a CLI’s version and how it was installed', () => {
   })
 })
 
+describe('desktop-owned CLI status', () => {
+  it('runs the selected desktop CLI and leaves version checks and updates to its app', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'cockpit-desktop-status-'))
+    dirs.push(d)
+    const bin = join(d, 'Applications/Codex.app/Contents/Resources/codex')
+    mkdirSync(dirname(bin), { recursive: true })
+    writeFileSync(bin, '#!/bin/sh\necho codex-cli 0.160.0\n', { mode: 0o755 })
+    const commands = join(d, 'bin')
+    mkdirSync(commands)
+    symlinkSync(bin, join(commands, 'codex'))
+    vi.stubEnv('PATH', `${commands}:/usr/bin:/bin`)
+    vi.stubEnv('COCKPIT_DESKTOP_APPLICATIONS', '')
+    vi.stubEnv('COCKPIT_CLI_LATEST', '{"codex":"9.9.9"}')
+    expect(await cliStatus('codex', { force: true })).toEqual({
+      provider: 'codex', installed: true, version: '0.160.0', path: realpathSync(bin),
+      install: 'desktop', latest: null, upstream: null, channel: 'Codex desktop',
+      updateAvailable: false, updateCommand: null
+    })
+  })
+})
+
 describe('what Homebrew has packaged', () => {
   it('reads a cask’s version and a formula’s stable one', () => {
     expect(brewVersion('{"casks":[{"version":"2.1.267"}]}')).toBe('2.1.267')
@@ -106,6 +136,18 @@ describe('what Homebrew has packaged', () => {
 })
 
 describe('the Terminal hand-off', () => {
+  it('carries desktop paths and updater controls into both sign-in and resume, quoted as data', () => {
+    const PATH = "/app's tools/$(echo injected):/usr/bin:/bin"
+    const env = { PATH, DISABLE_UPDATES: '1', DISABLE_AUTOUPDATER: '1', SECRET: 'never-export-this' }
+    for (const original of [terminalScript('sign in', 'true'), resumeScript('resume', '/tmp', 'true')]) {
+      const script = withCliEnvironment(original, env)
+      expect(script.startsWith('#!/bin/zsh -l\nexport PATH=')).toBe(true)
+      expect(script).not.toContain(env.SECRET)
+    }
+    const probe = withCliEnvironment('#!/bin/sh\nprintf "%s|%s|%s" "$PATH" "$DISABLE_UPDATES" "$DISABLE_AUTOUPDATER"\n', env)
+    expect(execFileSync('/bin/sh', ['-c', probe], { encoding: 'utf8' })).toBe(`${PATH}|1|1`)
+  })
+
   it('single-quotes a config home, whatever it contains', () => {
     expect(shQuote("/Users/me/it's here")).toBe(`'/Users/me/it'\\''s here'`)
     expect(loginLine('claude')).toBe('claude auth login')
@@ -214,8 +256,8 @@ describe.skipIf(!onMac)('the Terminal hand-off, run', () => {
 
   it('two Homebrew updates opened together take turns instead of the second failing', async () => {
     const w = world()
-    const claude = script(w, 'update-claude', updateCommandFor('claude', 'brew-cask'))
-    const codex = script(w, 'update-codex', updateCommandFor('codex', 'brew-cask'))
+    const claude = script(w, 'update-claude', updateCommandFor('claude', 'brew-cask')!)
+    const codex = script(w, 'update-codex', updateCommandFor('codex', 'brew-cask')!)
     const outs = await Promise.all([run(claude, w.env), run(codex, w.env)])
     for (const out of outs) {
       expect(out).not.toContain('already running')
