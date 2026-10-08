@@ -76,7 +76,11 @@ describe('desktop-owned CLI discovery', () => {
     const desktop = executable(claudePath(w.home, '2.1.284'), 'echo "desktop|$DISABLE_UPDATES|$DISABLE_AUTOUPDATER"')
     const standalone = executable(join(w.home, 'bin/claude'), 'echo standalone')
     const fallback = desktopCliDirs(w)
-    const PATH = cliPath(`${dirname(standalone)}:/usr/bin:/bin`, null, fallback)
+    const ordered = cliPath(`${dirname(standalone)}:/usr/bin:/bin`, null, fallback).split(':')
+    expect(ordered.indexOf(dirname(standalone))).toBeLessThan(ordered.indexOf(dirname(desktop)))
+    // Keep only fixture tools for execution: a real Homebrew CLI would otherwise
+    // replace the removed standalone fixture below and could start a real session.
+    const PATH = ordered.filter((dir) => dir === dirname(standalone) || fallback.includes(dir)).join(':')
     expect(execFileSync('claude', [], { env: { PATH, ...desktopCliEnv(PATH) }, encoding: 'utf8' })).toBe('standalone\n')
     expect(desktopCliEnv(PATH)).toEqual({})
 
