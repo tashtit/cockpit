@@ -55,7 +55,7 @@ export function Select({
   const selectedIdx = Math.max(0, options.findIndex((o) => o.value === value))
   const selected = options[selectedIdx]
   // an aria-label on the trigger would *replace* its contents, so the chosen option
-  // would never be announced ("Permission mode", never "Auto-edit"). Name the trigger
+  // would never be announced ("Permission mode", never "Accept edits"). Name the trigger
   // from label + value instead, the way a native <select> reads.
   const nameId = `${listId}-name`
   const valueId = `${listId}-value`

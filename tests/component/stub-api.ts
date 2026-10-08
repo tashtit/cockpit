@@ -136,6 +136,7 @@ export function freshApi(): CockpitApi {
     cancelChat: vi.fn(async () => {}),
     respondPermission: vi.fn(async () => {}),
     getPendingPermissions: vi.fn(async () => []),
+    setTurnMode: vi.fn(async () => ({ live: true, allowed: 0 })),
     onChatEvent: vi.fn(() => () => {}),
     askSideChat: vi.fn(async () => 'side-turn-1'),
     cancelSideChat: vi.fn(async () => {}),

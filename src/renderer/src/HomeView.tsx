@@ -8,7 +8,7 @@ import { holdSentence } from './hold'
 import { HomeUpdates } from './HomeUpdates'
 import type { SettingsSection } from './Settings'
 import { useLandedMap } from './landed'
-import { MODES, rememberAccount, rememberChoice, useAgentChoice, type StartSessionRequest } from './agent-choice'
+import { modeHint, modeOptions, rememberAccount, rememberChoice, useAgentChoice, type StartSessionRequest } from './agent-choice'
 import { isDrivable } from '../../shared/providers'
 import {
   BranchChip,
@@ -348,7 +348,7 @@ export function HomeView({
                 <Select
                   ariaLabel="Permission mode"
                   value={mode}
-                  options={MODES.map((m) => ({ value: m.v, label: m.label, title: m.hint }))}
+                  options={modeOptions(provider)}
                   onChange={(v) => choice.setMode(v as PermissionMode)}
                 />
                 <button
@@ -382,9 +382,7 @@ export function HomeView({
               </button>
             )}
           </div>
-          {mode === 'yolo' && (
-            <div className="ns-hint yolo">{MODES.find((m) => m.v === 'yolo')?.hint}</div>
-          )}
+          {mode === 'yolo' && <div className="ns-hint danger">{modeHint(mode, provider)}</div>}
           {error && <ErrorAlert>{error}</ErrorAlert>}
         </div>
       </div>

@@ -159,9 +159,9 @@ export function HandoffView({
             />
           )}
           <AgentOptionsFields provider={provider} o={agent} />
-          <ModeField mode={mode} onChange={choice.setMode} />
+          <ModeField mode={mode} provider={provider} onChange={choice.setMode} />
         </div>
-        <ModeHint mode={mode} />
+        <ModeHint mode={mode} provider={provider} />
         <AgentOptionsHints provider={provider} o={agent} />
 
         <div className="handoff-brief-head">

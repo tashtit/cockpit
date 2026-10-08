@@ -28,6 +28,7 @@ const api: CockpitApi = {
   respondPermission: (turnId, requestId, optionId) =>
     ipcRenderer.invoke(CH.chatRespondPermission, turnId, requestId, optionId),
   getPendingPermissions: (turnId) => ipcRenderer.invoke(CH.chatPendingPermissions, turnId),
+  setTurnMode: (turnId, mode) => ipcRenderer.invoke(CH.chatSetMode, turnId, mode),
   saveChatImage: (data, mime) => ipcRenderer.invoke(CH.chatSaveImage, data, mime),
   onChatEvent: subscribe(PUSH.chatEvent),
   askSideChat: (req) => ipcRenderer.invoke(CH.sideChatAsk, req),

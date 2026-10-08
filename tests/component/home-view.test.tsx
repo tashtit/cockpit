@@ -80,7 +80,7 @@ describe('HomeView composer', () => {
     })
   })
 
-  it('starts with Auto-edit when the remembered mode is not one', async () => {
+  it('starts with Accept edits when the remembered mode is not one', async () => {
     window.localStorage.setItem('cockpit:mode', '"yolo"')
     vi.mocked(window.cockpit.getAccounts).mockResolvedValue(claudeSnapshot)
     const { onStart } = renderHome()

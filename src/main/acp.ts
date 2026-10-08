@@ -8,6 +8,7 @@ import type {
   PermissionMode
 } from '../shared/types'
 import {
+  acpModesOf,
   acpUpdateToEvents,
   decidePermission,
   initializeParams,
@@ -16,6 +17,7 @@ import {
   permissionOptions,
   promptResultEvents,
   unattendedOutcome,
+  type AcpModes,
   type PermissionOutcome
 } from './acp-core'
 import { cliEnv } from './env'
@@ -225,6 +227,8 @@ function authMethodIds(init: Record<string, unknown> | undefined): string[] {
 type OpenPermission = {
   readonly rpcId: number | string
   readonly options: readonly AcpPermissionOption[]
+  /** The call's ACP kind, which a change of mode decides it by (`setPermissionMode`) */
+  readonly kind?: string
 }
 
 export class AcpTurn {
@@ -239,6 +243,13 @@ export class AcpTurn {
   private readonly seenToolCalls = new Set<string>()
   private readonly open = new Map<string, OpenPermission>()
   private sessionId: string | null = null
+  /**
+   * The permission mode the turn runs in now: the one it started with until the person
+   * picks another mid-turn (`setPermissionMode`) — so not readonly
+   */
+  private mode: PermissionMode
+  /** The session modes the agent offers and the one the session is in, once it is open */
+  private modes: AcpModes | null = null
   /** `session/load` replays the whole conversation; none of it is new to the user */
   private replaying = false
   private finished = false
@@ -250,6 +261,7 @@ export class AcpTurn {
 
   constructor(agent: AcpAgent, opts: TurnOptions) {
     this.opts = opts
+    this.mode = opts.permissionMode
     this.agentLabel = agent.label
     this.auth = { authMethod: agent.authMethod, signIn: agent.signIn }
     this.child = spawn(agent.command, [...(agent.args ?? [])], {
@@ -285,8 +297,14 @@ export class AcpTurn {
   }
 
   private onNotify(method: string, params: unknown): void {
-    if (method !== 'session/update' || this.replaying || this.finished) return
+    if (method !== 'session/update') return
     const update = (params as { update?: unknown } | null)?.update
+    // the mode the session is in, replayed or not: what the next change of mode starts from
+    const u = (update ?? {}) as { sessionUpdate?: unknown; currentModeId?: unknown }
+    if (u.sessionUpdate === 'current_mode_update' && typeof u.currentModeId === 'string' && this.modes) {
+      this.modes = { ...this.modes, currentModeId: u.currentModeId }
+    }
+    if (this.replaying || this.finished) return
     for (const ev of acpUpdateToEvents(this.opts.turnId, update, this.seenToolCalls)) this.emit(ev)
   }
 
@@ -305,7 +323,7 @@ export class AcpTurn {
     const call = (p.toolCall ?? {}) as Record<string, unknown>
     const options = permissionOptions(p.options)
     const kind = typeof call.kind === 'string' ? call.kind : undefined
-    const auto = decidePermission(this.opts.permissionMode, options, kind)
+    const auto = decidePermission(this.mode, options, kind)
     if (auto) {
       this.rpc.respond(rpcId, { outcome: { outcome: 'selected', optionId: auto } })
       return
@@ -321,7 +339,7 @@ export class AcpTurn {
       return
     }
     const requestId = String(rpcId)
-    this.open.set(requestId, { rpcId, options })
+    this.open.set(requestId, { rpcId, options, ...(kind ? { kind } : {}) })
     const title = typeof call.title === 'string' ? call.title : 'the agent wants permission'
     this.emit({
       turnId: this.opts.turnId,
@@ -333,6 +351,28 @@ export class AcpTurn {
       preview: truncate(title, 200),
       options
     })
+  }
+
+  /**
+   * The person picked another mode while the turn runs: what the agent asks from here is
+   * decided by it, every question still open that it now answers is answered — allowed
+   * once, as any it answers by itself — and the session is moved into or out of its
+   * Autopilot to match (`applyMode`). Returns the request ids it answered, whose cards
+   * the caller takes down.
+   */
+  setPermissionMode(mode: PermissionMode): string[] {
+    this.mode = mode
+    const answered: string[] = []
+    for (const [requestId, open] of this.open) {
+      const auto = decidePermission(mode, open.options, open.kind)
+      if (!auto) continue
+      this.open.delete(requestId)
+      this.rpc.respond(open.rpcId, { outcome: { outcome: 'selected', optionId: auto } })
+      answered.push(requestId)
+    }
+    // before the session is open there is nothing to move: opening it applies the mode
+    if (this.sessionId && !this.finished) void this.applyMode(this.sessionId)
+    return answered
   }
 
   /** Answer a question the user was asked. Unknown ids are stale clicks — ignored. */
@@ -466,13 +506,15 @@ export class AcpTurn {
     }
     if (resumeNativeId && canLoad) {
       this.replaying = true
+      let loaded: { readonly result: unknown } | null = null
       try {
-        await this.rpc.request('session/load', {
-          sessionId: resumeNativeId,
-          cwd: this.opts.cwd,
-          mcpServers: []
-        })
-        return resumeNativeId
+        loaded = {
+          result: await this.rpc.request('session/load', {
+            sessionId: resumeNativeId,
+            cwd: this.opts.cwd,
+            mcpServers: []
+          })
+        }
       } catch (err) {
         // signed out is not forgotten: that is the person's to fix, and says so (signedIn)
         if (isAuthRequired(err)) throw err
@@ -484,6 +526,12 @@ export class AcpTurn {
       } finally {
         this.replaying = false
       }
+      // a reopened session is in whatever mode it was last left in — this turn's applies
+      if (loaded) {
+        this.modes = acpModesOf(loaded.result)
+        await this.applyMode(resumeNativeId)
+        return resumeNativeId
+      }
     }
     const res = (await this.rpc.request('session/new', {
       cwd: this.opts.cwd,
@@ -491,20 +539,25 @@ export class AcpTurn {
     })) as Record<string, unknown> | undefined
     const id = res?.sessionId
     if (typeof id !== 'string' || !id) throw new Error('the agent did not return a session id')
-    await this.applyMode(id, res)
+    this.modes = acpModesOf(res)
+    await this.applyMode(id)
     return id
   }
 
-  /** Ask for the session mode that matches the turn's permission mode, if it has one. */
-  private async applyMode(sessionId: string, session: Record<string, unknown> | undefined): Promise<void> {
-    const modes = (session?.modes ?? {}) as { availableModes?: { id: string }[] }
-    const wanted = modeIdFor(this.opts.permissionMode, modes.availableModes ?? [])
+  /**
+   * Put the session in the mode the turn's permission mode asks for (`modeIdFor`), when
+   * it is not there already — on every turn, since a session keeps its mode, and again
+   * whenever the person picks another one mid-turn.
+   */
+  private async applyMode(sessionId: string): Promise<void> {
+    const wanted = this.modes ? modeIdFor(this.mode, this.modes) : null
     if (!wanted) return
     try {
       await this.rpc.request('session/set_mode', { sessionId, modeId: wanted })
+      if (this.modes) this.modes = { ...this.modes, currentModeId: wanted }
     } catch {
       // an agent may list a mode and refuse to switch to it; the turn still runs in the
-      // default, and permission requests still gate everything either way
+      // one it is in, and permission requests are still decided by the turn's mode
     }
   }
 

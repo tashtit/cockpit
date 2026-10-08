@@ -55,6 +55,7 @@ import type {
   NewRoundtableRequest,
   NotificationDelivery,
   PanelTarget,
+  PermissionMode,
   PrFeedback,
   PrFixBriefing,
   PrStatus,
@@ -87,6 +88,7 @@ import type {
   TimeFormat,
   TranscriptSearchQuery,
   TranscriptSearchResult,
+  TurnModeChange,
   UpdateInstallOutcome,
   UpdateInstallRequest,
   UpdatePrefs,
@@ -107,6 +109,8 @@ export type CockpitApi = {
   readonly respondPermission: (turnId: string, requestId: string, optionId: string) => Promise<void>
   /** The questions a running turn is blocked on now — asked again by a window rejoining it */
   readonly getPendingPermissions: (turnId: string) => Promise<readonly ChatPermission[]>
+  /** Run the rest of a turn in another permission mode, where the turn can take one mid-way */
+  readonly setTurnMode: (turnId: string, mode: PermissionMode) => Promise<TurnModeChange>
   /** Persist a pasted image in main's image dir; resolves to the absolute file path */
   readonly saveChatImage: (data: Uint8Array, mime: string) => Promise<string>
 
@@ -482,6 +486,7 @@ export const CH = {
   chatRespondPermission: 'chat:respond-permission',
   chatSaveImage: 'chat:save-image',
   chatSend: 'chat:send',
+  chatSetMode: 'chat:set-mode',
 
   cleanupArchiveSessions: 'cleanup:archive-sessions',
   cleanupDeleteRoundtables: 'cleanup:delete-roundtables',

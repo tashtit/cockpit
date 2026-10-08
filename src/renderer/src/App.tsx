@@ -183,7 +183,8 @@ export function App(): JSX.Element {
     run: runTurn,
     join: joinTurn,
     logLanded,
-    cancel
+    cancel,
+    changeMode
   } = useChatTurns({ speaker, onSession: followSession, onSettled: settleLog })
 
   useEffect(() => initBusySessions(), [])
@@ -887,6 +888,7 @@ export function App(): JSX.Element {
           onOpenLineage={(id) => void openLineage(id)}
           permissions={permissions}
           onAnswerPermission={answerPermission}
+          onModeChange={changeMode}
           control={control}
           onSetHolder={setHolder}
           onResumeInTerminal={resumeInTerminal}

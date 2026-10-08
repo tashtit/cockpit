@@ -20,7 +20,7 @@ import {
 } from '../src/main/chat'
 import { codexSeatArgs } from '../src/main/seat-fence'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
-import type { AcpAgent, BusySession, ChatEvent, ChatRequest } from '../src/shared/types'
+import type { AcpAgent, BusySession, ChatEvent, ChatRequest, TurnModeChange } from '../src/shared/types'
 
 describe('buildCommand', () => {
   it('claude new chat, auto-edit', () => {
@@ -1006,6 +1006,79 @@ describe('ChatManager: a question Claude withdraws', () => {
       const report = events.find((e): e is Extract<ChatEvent, { type: 'text' }> => e.type === 'text')
       expect(JSON.parse(report?.text ?? '{}').got).toHaveLength(1)
       await vi.waitFor(() => expect(chat.runningTurns()).toBe(0))
+    } finally {
+      process.env.PATH = path
+    }
+  })
+})
+
+describe('ChatManager: the mode picked again while a Claude turn runs', () => {
+  // a stub `claude` that asks about two commands at once, waits for both answers, then asks
+  // about a third: what the host writes back is its report
+  const bin = mkdtempSync(join(tmpdir(), 'cockpit-chat-mode-'))
+  writeFileSync(
+    join(bin, 'stub.mjs'),
+    [
+      `import { createInterface } from 'node:readline'`,
+      `const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n')`,
+      `const got = []`,
+      `const ask = (request_id, command) => out({ type: 'control_request', request_id, request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command } } })`,
+      `const answered = (id) => got.some((m) => m.type === 'control_response' && m.response?.request_id === id)`,
+      `createInterface({ input: process.stdin }).on('line', (line) => {`,
+      `  got.push(JSON.parse(line))`,
+      `  if (got.length === 1) {`,
+      `    out({ type: 'system', subtype: 'init', session_id: 'stub-mode' })`,
+      `    ask('p-1', 'npm test')`,
+      `    ask('p-2', 'git push')`,
+      `  } else if (answered('p-1') && answered('p-2') && !got.some((m) => m.asked3)) {`,
+      `    got.push({ asked3: true })`,
+      `    ask('p-3', 'gh pr create')`,
+      `  } else if (answered('p-3')) {`,
+      `    out({ type: 'assistant', message: { content: [{ type: 'text', text: JSON.stringify({ got }) }] } })`,
+      `    out({ type: 'result', session_id: 'stub-mode' })`,
+      `  }`,
+      `}).on('close', () => process.exit(0))`
+    ].join('\n')
+  )
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}" "$@"\n`)
+  chmodSync(join(bin, 'claude'), 0o755)
+
+  it('moves the CLI into the mode, allows what is open in Full access, and what it asks next', async () => {
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const events: ChatEvent[] = []
+      let change: TurnModeChange | null = null
+      let finish: () => void = () => {}
+      const finished = new Promise<void>((r) => (finish = r))
+      const chat: ChatManager = new ChatManager(
+        (ev) => {
+          events.push(ev)
+          // both cards up, then the person picks Full access
+          if (ev.type === 'permission' && ev.requestId === 'p-2') change = chat.setTurnMode(ev.turnId, 'yolo')
+          if (ev.type === 'done') finish()
+        },
+        { asksPermissions: () => true }
+      )
+      chat.send({ provider: 'claude', cwd: tmpdir(), prompt: 'ship it', permissionMode: 'auto-edit' })
+      await finished
+
+      expect(change).toEqual({ live: true, allowed: 2 })
+      // two cards, both taken down by the change, and none for what it asked after
+      expect(events.filter((e) => e.type === 'permission').map((e) => (e as { requestId: string }).requestId)).toEqual(['p-1', 'p-2'])
+      expect(events.filter((e) => e.type === 'permission-withdrawn').map((e) => (e as { requestId: string }).requestId)).toEqual(['p-1', 'p-2'])
+      const report = events.find((e): e is Extract<ChatEvent, { type: 'text' }> => e.type === 'text' && e.text.startsWith('{"got"'))
+      const got = JSON.parse(report?.text ?? '{}').got as any[]
+      // launched in Accept edits, the CLI won't bypass: it is moved to acceptEdits, and Cockpit allows the rest
+      expect(got.find((m) => m.type === 'control_request')?.request).toEqual({ subtype: 'set_permission_mode', mode: 'acceptEdits' })
+      const answers = got.filter((m) => m.type === 'control_response').map((m) => [m.response.request_id, m.response.response.behavior])
+      expect(answers).toEqual([
+        ['p-1', 'allow'],
+        ['p-2', 'allow'],
+        ['p-3', 'allow']
+      ])
+      // over, it takes nothing
+      expect(chat.setTurnMode('no-such-turn', 'safe')).toEqual({ live: false, allowed: 0 })
     } finally {
       process.env.PATH = path
     }

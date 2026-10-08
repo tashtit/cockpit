@@ -63,6 +63,13 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Electron 44 fetches its binary the first time something requires it, not at
+      # install. Two unit-test workers requiring it at once both unpacked it into
+      # node_modules/electron/dist, and one failed its whole file ("File exists").
+      # Fetched once here instead — from the cache above when it holds this version.
+      - name: ⚡ Electron binary
+        run: npx --no install-electron
+
       - name: 🔎 Typecheck
         run: npm run typecheck
 

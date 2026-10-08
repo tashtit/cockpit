@@ -51,22 +51,26 @@ Checks from external CI have no log `gh` can read; the prompt links to them inst
 
 ## Permission modes
 
-Every chat runs under one of three permission modes, mapped to each provider's own flags:
+Every chat runs under one of three permission modes. They have the same names whatever the agent, and the hint under the picker says what the agent you chose calls that setting itself:
 
 | Mode | What it means | Under the hood |
 | --- | --- | --- |
-| **Safe** | Provider defaults: anything that needs approval asks you first. Codex, which can't ask when it runs headless, refuses it instead. | no extra flags |
-| **Auto-edit** | File edits proceed without asking; anything that runs a command asks you first. Codex runs commands inside its workspace sandbox instead, and hands what the sandbox refuses to its own reviewer (below). | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` + `approvals_reviewer="auto_review"` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
-| **YOLO** | All approvals bypassed. | provider bypass flags |
+| **Ask first** | Anything that needs approval asks you first. Codex, which can't ask when it runs headless, refuses it instead. | no extra flags — Claude Code's default mode, Copilot's Agent mode |
+| **Accept edits** | File edits proceed without asking; anything that runs a command asks you first. Codex runs commands inside its workspace sandbox instead, and hands what the sandbox refuses to its own reviewer (below). | `--permission-mode acceptEdits` (Claude) / `--sandbox workspace-write` + `approvals_reviewer="auto_review"` (Codex) / `--allow-all-tools --deny-tool shell` (Copilot without ACP) |
+| **Full access** | Nothing asks. | `--dangerously-skip-permissions`, Claude Code's *bypass permissions* / `--dangerously-bypass-approvals-and-sandbox`, Codex's *full access* / Copilot's *Autopilot*, its allow-all (`--allow-all-tools` without ACP) / any other ACP agent: Cockpit allows each request once |
 
 When Claude or an [ACP agent](./acp-agents.md#answering-a-permission-request) wants to do something its mode doesn't already allow — `npm test`, `git commit`, a file outside the worktree — the turn stops and the request appears just above the composer, with the command itself. **Allow** lets that one call run; **Deny** tells the agent you said no, and it carries on without it. If you're not looking at that session, the request is also a [notification](./notifications.md). A roundtable seat never asks: seats only read.
 
-Codex can't put a question to you while Cockpit runs it, so in **Auto-edit** its sandbox has the final say on most things: file edits and ordinary commands in the worktree just run. What the sandbox refuses — every git write (Codex keeps `.git` read-only, and a worktree's git data lives in your main checkout), and anything that needs the network, like `npm ci`, `git push` or `gh pr create` — is re-run outside the sandbox only once Codex's own approvals reviewer agrees, the same reviewer `codex exec --approve-for-me` uses. That is what lets a Codex session commit and open its pull request; a reviewer that says no ends that step, not the session.
+Codex can't put a question to you while Cockpit runs it, so in **Accept edits** its sandbox has the final say on most things: file edits and ordinary commands in the worktree just run. What the sandbox refuses — every git write (Codex keeps `.git` read-only, and a worktree's git data lives in your main checkout), and anything that needs the network, like `npm ci`, `git push` or `gh pr create` — is re-run outside the sandbox only once Codex's own approvals reviewer agrees, the same reviewer `codex exec --approve-for-me` uses. That is what lets a Codex session commit and open its pull request; a reviewer that says no ends that step, not the session.
+
+The mode beside **Send** goes with your next message — and with the turn running now, when its agent can change mid-turn: Claude, and every agent Cockpit runs over ACP, Copilot included. Pick **Full access** while a request is waiting and the request is allowed, along with everything the turn asks after it; pick **Ask first** and what comes next asks again. Codex, and Copilot without ACP, are handed their mode when the turn starts, so for them a new mode starts with your next message. The transcript says which happened.
+
+Copilot keeps a session in the mode it was last in, so Cockpit sets the mode on every turn: a session that once ran in **Full access** asks again once you pick **Ask first**.
 
 Agents run with your own `PATH`, as your terminal has it: Cockpit reads it from your login shell when it starts, so `node`, `npm` and whatever else your shell sets up (nvm, Homebrew, asdf) are there for the agent's commands too.
 
-::: warning YOLO means it
-YOLO disables the agent's approval gates entirely. Use it only on repositories you trust — the worktree isolation protects your checkout, not the wider machine.
+::: warning Full access means it
+Full access disables the agent's approval gates entirely. Use it only on repositories you trust — the worktree isolation protects your checkout, not the wider machine.
 :::
 
 ## Per-agent options

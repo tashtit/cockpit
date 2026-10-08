@@ -132,12 +132,51 @@ export function chosenAccount(
   return accountOptions(snap, p).find((o) => o.key === key) ?? savedAccount(snap, p)
 }
 
-/** The one permission-mode table — every form and ChatView read it, so wording never drifts. */
-export const MODES: Array<{ v: PermissionMode; label: string; hint: string }> = [
-  { v: 'safe', label: 'Safe', hint: 'asks you before any tool that needs approval (Codex: blocked headless)' },
-  { v: 'auto-edit', label: 'Auto-edit', hint: 'file edits go ahead; commands ask you first (Codex: sandboxed, its reviewer decides the rest)' },
-  { v: 'yolo', label: 'YOLO', hint: 'bypass all approvals — trusted repos only' }
+/**
+ * The one permission-mode table — every form and ChatView read it, so wording never
+ * drifts. One vocabulary for every agent, since a roundtable mixes them and the same
+ * setting must not read differently when the agent changes; what each agent calls it
+ * is in the hint (`modeHint`).
+ */
+export const MODES: Array<{ v: PermissionMode; label: string }> = [
+  { v: 'safe', label: 'Ask first' },
+  { v: 'auto-edit', label: 'Accept edits' },
+  { v: 'yolo', label: 'Full access' }
 ]
+
+/** A mode's label (`MODES`). */
+export function modeLabel(mode: PermissionMode): string {
+  return MODES.find((m) => m.v === mode)?.label ?? mode
+}
+
+/**
+ * What a mode lets this agent do unasked, and what the agent itself calls that setting
+ * where it has a name for it — so someone who knows Claude Code's "bypass permissions"
+ * or Copilot's Autopilot finds it under Full access.
+ */
+export function modeHint(mode: PermissionMode, provider: SessionProvider): string {
+  if (mode === 'safe') {
+    if (provider === 'codex') return 'Codex can’t ask while Cockpit runs it, so anything that needs approval is refused instead.'
+    if (provider === 'claude') return 'Anything that needs approval asks you first — Claude Code’s default mode.'
+    if (provider === 'copilot') return 'Anything that needs approval asks you first — Copilot’s Agent mode.'
+    return 'Anything that needs approval asks you first.'
+  }
+  if (mode === 'auto-edit') {
+    if (provider === 'codex')
+      return 'Commands run in Codex’s workspace sandbox, and its own reviewer decides what the sandbox refuses.'
+    if (provider === 'claude') return 'File edits go ahead; commands ask you first — Claude Code’s accept edits.'
+    return 'File edits go ahead; commands ask you first.'
+  }
+  if (provider === 'claude') return 'Nothing asks — Claude Code’s bypass permissions. Trusted repos only.'
+  if (provider === 'codex') return 'Nothing asks, no sandbox — Codex’s full access. Trusted repos only.'
+  if (provider === 'copilot') return 'Nothing asks — Copilot runs in Autopilot, its allow-all. Trusted repos only.'
+  return 'Nothing asks — Cockpit allows each request it makes. Trusted repos only.'
+}
+
+/** The mode picker's options, each with what it means for this agent as its tooltip. */
+export function modeOptions(provider: SessionProvider): { value: PermissionMode; label: string; title: string }[] {
+  return MODES.map((m) => ({ value: m.v, label: m.label, title: modeHint(m.v, provider) }))
+}
 
 /**
  * The permission mode last sent with, or the default when what is stored is not one of

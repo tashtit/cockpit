@@ -28,7 +28,7 @@ const ask: PendingPermission = {
   ]
 }
 
-function renderChat(permissions: PendingPermission[]): ReturnType<typeof vi.fn> {
+function renderChat(permissions: PendingPermission[], onModeChange = vi.fn()): ReturnType<typeof vi.fn> {
   stubObjectUrls()
   const onAnswerPermission = vi.fn()
   render(
@@ -46,6 +46,7 @@ function renderChat(permissions: PendingPermission[]): ReturnType<typeof vi.fn> 
       onOpenLineage={vi.fn()}
       permissions={permissions}
       onAnswerPermission={onAnswerPermission}
+      onModeChange={onModeChange}
     />
   )
   return onAnswerPermission
@@ -53,6 +54,25 @@ function renderChat(permissions: PendingPermission[]): ReturnType<typeof vi.fn> 
 
 /** The docked prompt an ACP agent is blocked on — see `PermissionAsk` in ChatView. */
 describe('permission prompt', () => {
+  it('says two cards are two calls made together, not one question sent twice', () => {
+    renderChat([ask, { ...ask, requestId: '8', preview: 'Push the branch', detail: 'git push' }])
+    expect(screen.getAllByRole('group', { name: /needs permission/i })).toHaveLength(2)
+    expect(screen.getByText(/2 requests waiting — Copilot made these calls together, and each needs its own answer/)).toBeTruthy()
+    cleanup()
+    renderChat([ask])
+    expect(screen.queryByText(/requests waiting/)).toBeNull()
+  })
+
+  it('tells the running turn when another mode is picked, each named in the agent’s own words', async () => {
+    const onModeChange = vi.fn()
+    renderChat([ask], onModeChange)
+    await userEvent.click(screen.getByRole('button', { name: /Permission mode/ }))
+    const full = screen.getByRole('option', { name: 'Full access' })
+    expect(full.getAttribute('title')).toMatch(/Copilot runs in Autopilot/)
+    await userEvent.click(full)
+    expect(onModeChange).toHaveBeenCalledWith('yolo')
+  })
+
   it('shows what the agent wants to do and every answer it will take', () => {
     renderChat([ask])
     const group = screen.getByRole('group', { name: /needs permission: Run the test suite/i })

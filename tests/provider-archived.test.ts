@@ -219,10 +219,16 @@ describe('ProviderArchivedReader', () => {
     // deletion drops the db row and leaves the transcript: a row-less dir inside the era
     // the db covers was deleted; an archived row is finished work the profile still counts
     const home = join(root, 'copilot-deleting')
-    const log = (id: string, day: number): void => {
+    /** A session the app opened — its kickoff framed by the app's workspace block — or the CLI ran */
+    const log = (id: string, day: number, by: 'app' | 'cli' = 'app'): void => {
       const dir = join(home, 'session-state', id)
       mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, 'events.jsonl'), '{}\n')
+      const prompt = by === 'app' ? '<copilot_tauri_workspace>\nproject_name: x\n</copilot_tauri_workspace>\n\nhi' : 'hi'
+      const events = [
+        { type: 'session.start', data: { sessionId: id, copilotVersion: '1.0.94-1', context: { cwd: home } } },
+        { type: 'user.message', data: { content: 'hi', transformedContent: prompt } }
+      ]
+      writeFileSync(join(dir, 'events.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n')
       const t = new Date(2026, 8, day).getTime() / 1000
       utimesSync(join(dir, 'events.jsonl'), t, t)
     }
@@ -239,9 +245,16 @@ describe('ProviderArchivedReader', () => {
     log('dropped', 12) // no row, and inside the db's era: deleted
     log('older', 1) // no row, but the db cannot speak for the day before its first session
     utimesSync(join(home, 'session-state', 'older', 'events.jsonl'), 0, 0)
-    const got = await new ProviderArchivedReader(null).list([{ path: home, provider: 'copilot', label: 'd' }], NONE)
+    // the CLI's own — a terminal's, or a turn Cockpit ran over ACP — never had a row to lose
+    log('from-the-cli', 15, 'cli')
+    const reader = new ProviderArchivedReader(null)
+    const got = await reader.list([{ path: home, provider: 'copilot', label: 'd' }], NONE)
     expect([...got.hidden].sort()).toEqual(['copilot:dropped', 'copilot:shelved'])
     expect([...got.deleted]).toEqual(['copilot:dropped'])
+    // the verdict is remembered against the log's stamp: a log written since is read again
+    log('from-the-cli', 16, 'app')
+    const again = await reader.list([{ path: home, provider: 'copilot', label: 'd' }], NONE)
+    expect([...again.deleted].sort()).toEqual(['copilot:dropped', 'copilot:from-the-cli'])
   })
 
   it.runIf(hasSqlite3())('keeps what it knew when the db cannot be read at all', async () => {

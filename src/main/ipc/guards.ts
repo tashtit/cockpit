@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import type {
   AttentionFocus,
   PanelKind,
+  PermissionMode,
   ProcessTarget,
   Provider,
   SessionMeta
@@ -30,6 +31,15 @@ const PANEL_KINDS: readonly PanelKind[] = ['mcp', 'skill', 'plugin', 'marketplac
 export function asPanelKind(kind: unknown): PanelKind {
   const found = PANEL_KINDS.find((k) => k === kind)
   if (!found) throw new Error('unknown panel kind')
+  return found
+}
+
+const PERMISSION_MODES: readonly PermissionMode[] = ['safe', 'auto-edit', 'yolo']
+
+/** A permission mode: it decides what an agent may do unasked, so nothing else passes. */
+export function asPermissionMode(mode: unknown): PermissionMode {
+  const found = PERMISSION_MODES.find((m) => m === mode)
+  if (!found) throw new Error('unknown permission mode')
   return found
 }
 

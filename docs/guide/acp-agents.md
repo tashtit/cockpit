@@ -73,6 +73,10 @@ transcript, since it is what the rest of the turn was conditioned on. If the age
 the request itself before you answer — Claude does when the call is cancelled — the card
 goes with it.
 
+An agent that makes several calls at once asks about each of them on a card of its own —
+Copilot often runs two commands side by side — and a line above the cards says how many are
+waiting. They are separate commands, each needing its own answer, not one request sent twice.
+
 When what it wants to run is a command, the card shows the command itself — every line,
 exactly as it would run — with the agent's own description of it above. A command too long
 to show whole says how much is missing, and characters that would hide or reorder part of
@@ -85,15 +89,16 @@ an MCP tool's arguments — since a tool's name alone rarely says what it would 
 Claude says why it asks, or which path made it ask, the card says so too. A command that
 asks to run with the sandbox off is marked in red on the card, and says so in words.
 
-This is also what finally makes the **Auto-edit** permission mode mean what it says: file
-work goes ahead without asking, and anything that *executes* still stops for you. Safe
-asks about everything; Yolo asks about nothing. Claude Code sessions get the same card
+This is also what finally makes the **Accept edits** permission mode mean what it says: file
+work goes ahead without asking, and anything that *executes* still stops for you. **Ask
+first** asks about everything; **Full access** asks about nothing, and puts Copilot in its
+Autopilot mode. Claude Code sessions get the same card
 without ACP — Cockpit answers the CLI's own permission prompts — with *Allow* and *Deny*.
 
-Whatever Cockpit approves on its own, in Auto-edit or Yolo, it allows once, for that call.
+Whatever Cockpit approves on its own, in Accept edits or Full access, it allows once, for that call.
 It never picks *Always allow*: that would stay in the agent's own settings and let the same
 calls through in your own sessions too, long after the turn. An agent that offers nothing
-but *Always allow* is asked about, even in Yolo, so that choice stays yours. And stopping
+but *Always allow* is asked about, even in Full access, so that choice stays yours. And stopping
 a turn while a question is open answers it as cancelled, never with one of its options.
 
 A [roundtable](./roundtables.md) seat has no composer to put the card above, so its
