@@ -111,6 +111,8 @@ export function registerSessionHandlers(s: Services): void {
   ipcMain.handle(CH.sessionsMessages, (_e, id: string) => indexer.getMessages(id))
   ipcMain.handle(CH.sessionsBusy, () => s.busySessions())
   ipcMain.handle(CH.sessionsArchive, (_e, id: string, archived: boolean) => {
+    // first, so the archive sees no turn running in it (archive-watch.ts)
+    if (archived === true) s.stopTurnsIn([String(id)])
     indexer.setArchived(setSessionArchived(id, archived))
   })
   // a file an agent shared: only one the session's own log names (assertSharedFile)

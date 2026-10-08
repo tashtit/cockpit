@@ -1,6 +1,6 @@
 import { existsSync, opendirSync, type Dir } from 'node:fs'
-import { basename, dirname, join, sep } from 'node:path'
-import type { AttentionAsk, BusySession, Provider, SessionMeta } from '../shared/types'
+import { basename, dirname, join, resolve, sep } from 'node:path'
+import type { AttentionAsk, BusySession, Provider, SessionMeta, SessionProvider } from '../shared/types'
 import { TRANSCRIPT_TAIL_BYTES, judgeJsonlTail, readJson } from './parsers/util'
 import { execText } from './env'
 import { isDrivable } from '../shared/providers'
@@ -42,7 +42,9 @@ export type { ObservedSession, ObservedTurn } from './liveness-core'
  * result, a prompt with no answer — and the CLI writes a few bookkeeping records as it
  * exits, so the tail reads exactly like a turn still running, for a whole window: ten
  * minutes inside a tool call, with Send held and no Stop to press. So the turn is over
- * the moment it is stopped, and stays over until the log opens a new one or ends.
+ * the moment it is stopped, and stays over until the log opens a new one or ends. A turn
+ * that never named its session (`copilot -p` never does) names it by where and when it
+ * ran instead (`stoppedIn`): the session of that agent begun in that folder since.
  *
  * The transitions are news too (`onTurn`, for the attention desk): a turn seen
  * running whose log then writes its ending record has *ended* — an expiry is not
@@ -70,6 +72,34 @@ export const LIVE_TAIL_STEPS: readonly number[] = [64 * 1024, 1024 * 1024, TRANS
 const SWEEP_MS = 10_000
 /** Stopped turns remembered at once — the newest; one whose log never moves again is forgotten in time */
 const STOPPED_KEEP = 64
+/** …and stopped turns still waiting for the session they never named to be read */
+const STOPPED_UNNAMED_KEEP = 8
+/** How much earlier than its turn's spawn a session's first record may seem to be: logs stamp to the second at worst */
+const STOPPED_START_SLACK_MS = 2_000
+
+/** A stopped turn that never named its session: where it ran, and when (see `stoppedIn`). */
+type StoppedWhere = {
+  readonly provider: SessionProvider
+  /** Resolved, as a session's own cwd is compared */
+  readonly cwd: string
+  /** When the turn was spawned: its session began then or after */
+  readonly since: number
+  /** When it was stopped */
+  readonly at: number
+}
+
+/** Is this the session the stopped turn ran in — that agent's, in that folder, begun while the turn ran? */
+function stoppedThere(
+  mark: StoppedWhere,
+  s: { readonly provider: SessionProvider; readonly cwd: string | null; readonly sessionStart: number }
+): boolean {
+  return (
+    s.provider === mark.provider &&
+    s.cwd === mark.cwd &&
+    s.sessionStart >= mark.since - STOPPED_START_SLACK_MS &&
+    s.sessionStart <= mark.at
+  )
+}
 
 /**
  * What the tail of one session log says right now: a verdict, or null when nothing in
@@ -189,6 +219,10 @@ type LiveEntry = {
   readonly file: string
   /** Whose log this is — copilot's expiry also consults its lock */
   readonly provider: Provider
+  /** Where the session runs (resolved) and when it began — how a stopped turn that never
+   *  named its session finds it (`stoppedIn`) */
+  readonly cwd: string | null
+  readonly sessionStart: number
   /** Tracker state, mutated in place: the turn's start (kept once known) and its newest write */
   startedAt: number
   lastWriteAt: number
@@ -228,6 +262,8 @@ export class LivenessTracker {
   private readonly codexLocks = new Map<string, { held: boolean; checking: boolean }>()
   /** Sessions whose turn Cockpit stopped, each with when — oldest first (see `stopped`) */
   private readonly stoppedAt = new Map<string, number>()
+  /** Stopped turns that never named their session, until it is read — oldest first (see `stoppedIn`) */
+  private readonly stoppedUnnamed: StoppedWhere[] = []
 
   constructor(onChange: (sessions: BusySession[]) => void, opts: LivenessOptions = {}) {
     this.onChange = onChange
@@ -272,6 +308,7 @@ export class LivenessTracker {
       if (prev) prev.lastWriteAt = Math.max(prev.lastWriteAt, written)
       return
     }
+    if (this.stoppedUnnamed.length > 0 && !this.stoppedAt.has(meta.id)) this.claimStopped(meta)
     const stoppedAt = this.stoppedAt.get(meta.id)
     if (stoppedAt !== undefined) {
       // the turn Cockpit stopped, still mid-turn in its log: that is the kill. A new
@@ -321,6 +358,8 @@ export class LivenessTracker {
         nativeId: meta.nativeId,
         file,
         provider: meta.provider,
+        cwd: meta.cwd ? resolve(meta.cwd) : null,
+        sessionStart: meta.startedAt,
         startedAt,
         lastWriteAt: written,
         asks,
@@ -365,11 +404,34 @@ export class LivenessTracker {
    * when the log writes one — and what the log says of that turn from here on is the
    * kill: a live tail is passed over until it names a turn opened after this moment.
    */
-  stopped(id: string): void {
+  stopped(id: string, at = this.now()): void {
     this.stoppedAt.delete(id)
-    this.stoppedAt.set(id, this.now())
+    this.stoppedAt.set(id, at)
     while (this.stoppedAt.size > STOPPED_KEEP) this.stoppedAt.delete(this.stoppedAt.keys().next().value as string)
     this.drop(id)
+  }
+
+  /**
+   * Cockpit stopped a turn that never named its session — `copilot -p` never does. Its
+   * session is that agent's, in that folder, begun while the turn ran: one already seen
+   * running is stopped now, and one not read yet takes the stop when it first is.
+   */
+  stoppedIn(where: { readonly provider: SessionProvider; readonly cwd: string; readonly since: number }): void {
+    const mark: StoppedWhere = { ...where, cwd: resolve(where.cwd), at: this.now() }
+    const running = [...this.entries.values()].filter((e) => stoppedThere(mark, e))
+    for (const e of running) this.stopped(e.id, mark.at)
+    if (running.length > 0) return
+    this.stoppedUnnamed.push(mark)
+    if (this.stoppedUnnamed.length > STOPPED_UNNAMED_KEEP) this.stoppedUnnamed.shift()
+  }
+
+  /** A session read for the first time since a turn that never named it was stopped: the stop is its own. */
+  private claimStopped(meta: SessionMeta): void {
+    const session = { provider: meta.provider, cwd: meta.cwd ? resolve(meta.cwd) : null, sessionStart: meta.startedAt }
+    const i = this.stoppedUnnamed.findIndex((mark) => stoppedThere(mark, session))
+    if (i < 0) return
+    const [mark] = this.stoppedUnnamed.splice(i, 1)
+    this.stopped(meta.id, mark.at)
   }
 
   /**
