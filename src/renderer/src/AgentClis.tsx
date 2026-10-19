@@ -10,7 +10,8 @@ import { api } from './api'
 /**
  * The agent CLIs themselves — what Cockpit actually runs: the version here against the
  * latest release, how it was installed, and the update, run in Terminal the way that
- * install expects (Homebrew, npm, or the CLI's own updater). Checked when the tab opens
+ * install expects (Homebrew, npm, or the CLI's own updater). Desktop-owned tools show
+ * their app as the update owner and offer no independent update. Checked when the tab opens
  * (the latest release is cached for an hour), and watched after an update until the
  * new version shows (`useCliUpdates`, which the home's updates list shares).
  */
@@ -48,8 +49,8 @@ export function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.
     <>
       <h3 className="ns-label">Agent CLIs</h3>
       <p className="ns-hint ns-prose">
-        The command-line tools Cockpit runs for every session and roundtable seat — separate
-        from the agents’ own apps, which keep their own copies and sign-ins.{' '}
+        The command-line tools Cockpit runs for sessions and roundtables. It can reuse the
+        desktop apps’ copies, which update through those apps.{' '}
         <button className="link-btn" disabled={checking} onClick={() => load(true)}>
           {checking ? 'Checking…' : 'Check for updates'}
         </button>
@@ -120,6 +121,8 @@ export function AgentClis({ onStatus }: { onStatus: (s: string) => void }): JSX.
               <div className="source-health">
                 {!c.installed ? (
                   <span className="source-warn">not installed</span>
+                ) : c.install === 'desktop' ? (
+                  <span title={`Open ${c.channel} to check for updates`}>updated by desktop app</span>
                 ) : c.updateAvailable ? (
                   <>
                     <span className="source-warn">{c.latest} available</span>

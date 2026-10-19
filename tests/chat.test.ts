@@ -16,7 +16,8 @@ import {
   CLAUDE_SIDE_TOOLS,
   CODEX_REVIEWED_ARGS,
   CODEX_SIDE_ARGS,
-  type CliRequest
+  type CliRequest,
+  type StoppedTurn
 } from '../src/main/chat'
 import { codexSeatArgs } from '../src/main/seat-fence'
 import { BUILTIN_ACP_AGENTS } from '../src/shared/acp'
@@ -662,8 +663,10 @@ describe('ChatManager: one turn per session', () => {
     readonly ask: Ask
     /** What main answered at the moment the turn said done, and when it did */
     readonly atDone: Promise<{ readonly busy: BusySession[]; readonly running: string | null }>
-    /** The sessions each stop named, in order */
-    readonly stopped: (readonly string[])[]
+    /** What each stop told the log watcher, in order */
+    readonly stopped: StoppedTurn[]
+    /** Every event the turn emitted */
+    readonly events: ChatEvent[]
   }> {
     let onAsk!: (ev: Ask) => void
     const asked = new Promise<Ask>((r) => (onAsk = r))
@@ -671,18 +674,20 @@ describe('ChatManager: one turn per session', () => {
     const atDone = new Promise<{ busy: BusySession[]; running: string | null }>((r) => (onDone = r))
     const chat: ChatManager = new ChatManager(
       (ev) => {
+        events.push(ev)
         if (ev.type === 'permission') onAsk(ev)
         if (ev.type === 'done') onDone({ busy: chat.busySessions(), running: chat.turnFor('copilot', id) })
       },
       {
         resolveAcpAgent: () => stub,
         asksPermissions: () => true,
-        onTurnCancel: (_turnId, sessions) => stopped.push(sessions)
+        onTurnCancel: (_turnId, turn) => stopped.push(turn)
       }
     )
-    const stopped: (readonly string[])[] = []
+    const stopped: StoppedTurn[] = []
+    const events: ChatEvent[] = []
     const turnId = chat.send(resume(id))
-    return { chat, turnId, ask: await asked, atDone, stopped }
+    return { chat, turnId, ask: await asked, atDone, stopped, events }
   }
 
   it('refuses to resume a session it is already running, and names the turn to rejoin', async () => {
@@ -725,13 +730,28 @@ describe('ChatManager: one turn per session', () => {
   })
 
   it('frees the session the moment its turn is stopped', async () => {
-    const { chat, turnId, stopped } = await midTurn('sess-9')
+    const { chat, turnId, stopped, events, atDone } = await midTurn('sess-9')
     chat.cancel(turnId)
     // named, so the log the kill leaves mid-turn is not read as a turn still running
-    expect(stopped).toEqual([['copilot:sess-9']])
+    expect(stopped).toEqual([{ sessions: ['copilot:sess-9'], provider: 'copilot', cwd, startedAt: expect.any(Number) }])
     expect(chat.turnFor('copilot', 'sess-9')).toBeNull()
     expect(chat.busySessions()).toEqual([])
     expect(() => chat.assertNotRunning(resume('sess-9'))).not.toThrow()
+    // said before anything the kill brings, so a window ends the turn rather than fail it
+    await atDone
+    const types = events.map((e) => e.type)
+    expect(types.indexOf('stopped')).toBeGreaterThan(types.indexOf('permission'))
+    expect(types.indexOf('stopped')).toBeLessThan(types.indexOf('done'))
+  })
+
+  it('stops the turn running in a session it is asked to — an archive — and nothing when none is', async () => {
+    const { chat, stopped } = await midTurn('sess-12')
+    expect(chat.stopSession('copilot', 'sess-13')).toBe(false)
+    expect(chat.stopSession('claude', 'sess-12')).toBe(false)
+    expect(stopped).toEqual([])
+    expect(chat.stopSession('copilot', 'sess-12')).toBe(true)
+    expect(stopped.map((t) => t.sessions)).toEqual([['copilot:sess-12']])
+    expect(chat.busySessions()).toEqual([])
   })
 })
 
@@ -763,6 +783,66 @@ describe('ChatManager: an ACP turn nobody can answer', () => {
     const said = events.filter((e): e is Extract<ChatEvent, { type: 'text' }> => e.type === 'text').map((e) => e.text)
     expect(said.join('')).toContain('answered:reject_once')
     await vi.waitFor(() => expect(chat.busySessions()).toEqual([]))
+  })
+})
+
+describe('ChatManager: a CLI turn stopped mid-turn', () => {
+  // stub CLIs that start a turn and never finish it: claude names its session, copilot -p never does
+  const bin = mkdtempSync(join(tmpdir(), 'cockpit-chat-stop-'))
+  writeFileSync(
+    join(bin, 'stub.mjs'),
+    [
+      `if (process.argv[2] === 'claude') process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'stop-1' }) + '\\n')`,
+      `else process.stdout.write('working on it')`,
+      `setInterval(() => {}, 1000)`
+    ].join('\n')
+  )
+  for (const cli of ['claude', 'copilot']) {
+    writeFileSync(join(bin, cli), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'stub.mjs')}" ${cli}\n`)
+    chmodSync(join(bin, cli), 0o755)
+  }
+  const cwd = mkdtempSync(join(tmpdir(), 'cockpit-chat-stop-cwd-'))
+
+  async function stopped(provider: 'claude' | 'copilot'): Promise<{ readonly types: string[]; readonly turn: StoppedTurn }> {
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const events: ChatEvent[] = []
+      const turns: StoppedTurn[] = []
+      let finish: () => void = () => {}
+      const finished = new Promise<void>((r) => (finish = r))
+      const chat = new ChatManager(
+        (ev) => {
+          events.push(ev)
+          if (ev.type === 'done') finish()
+        },
+        { onTurnCancel: (_turnId, turn) => turns.push(turn) }
+      )
+      const turnId = chat.send({ provider, cwd, prompt: 'hi', permissionMode: 'safe' })
+      // a node process starting under a loaded suite can take past waitFor's 1s default
+      await vi.waitFor(() => expect(events.length).toBeGreaterThan(0), { timeout: 10_000 })
+      chat.cancel(turnId)
+      await finished
+      return { types: events.map((e) => e.type), turn: turns[0] }
+    } finally {
+      process.env.PATH = path
+    }
+  }
+
+  it('says stopped before the exit error the kill brings', async () => {
+    const { types, turn } = await stopped('claude')
+    expect(types).toEqual(['session', 'stopped', 'error', 'done'])
+    expect(turn).toEqual({ sessions: ['claude:stop-1'], provider: 'claude', cwd, startedAt: expect.any(Number) })
+  })
+
+  it('names where and when a turn that never named its session ran', async () => {
+    const before = Date.now()
+    const { types, turn } = await stopped('copilot')
+    expect(types[0]).toBe('text')
+    expect(types.slice(1)).toEqual(['stopped', 'error', 'done'])
+    expect(turn.sessions).toEqual([])
+    expect(turn).toMatchObject({ provider: 'copilot', cwd })
+    expect(turn.startedAt).toBeGreaterThanOrEqual(before)
   })
 })
 

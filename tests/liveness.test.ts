@@ -625,6 +625,45 @@ describe('LivenessTracker — a turn Cockpit stopped', () => {
     expect(t.sessions()).toEqual([])
   })
 
+  describe('a turn that never named its session (copilot -p)', () => {
+    const SINCE = STOP - 60_000
+    /** A copilot log of its own, begun at `startedAt`, in `cwd` */
+    function copilotLog(name: string, over: { readonly cwd?: string; readonly startedAt?: number } = {}) {
+      const file = join(root, 'copilot-stopped', name, 'events.jsonl')
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, jsonl([...SILENCE.copilot.thinking, SILENCE.copilot.inTool]))
+      const m: SessionMeta = { ...meta('copilot', name, file), cwd: over.cwd ?? '/x', startedAt: over.startedAt ?? SINCE + 1_000 }
+      return { file, meta: m }
+    }
+
+    it('stops the one already running that began in that folder while the turn ran', () => {
+      const t = tracker(() => {}, { now: () => STOP })
+      const mine = copilotLog('u-mine')
+      const before = copilotLog('u-before', { startedAt: SINCE - 60_000 })
+      const elsewhere = copilotLog('u-elsewhere', { cwd: '/y' })
+      for (const l of [mine, before, elsewhere]) t.observe(l.file, l.meta, justWritten())
+      t.stoppedIn({ provider: 'copilot', cwd: '/x/', since: SINCE })
+      expect(t.sessions().map((s) => s.id).sort()).toEqual(['copilot:u-before', 'copilot:u-elsewhere'])
+      appendFileSync(mine.file, jsonl(EXIT_RECORDS))
+      t.observe(mine.file, mine.meta, justWritten())
+      expect(t.sessions().map((s) => s.id)).not.toContain('copilot:u-mine')
+    })
+
+    it('one not read yet takes the stop when it first is — and its next turn runs', () => {
+      const t = tracker(() => {}, { now: () => STOP })
+      t.stoppedIn({ provider: 'copilot', cwd: '/x', since: SINCE })
+      // another agent in the folder is not it, and does not use the stop up
+      const claude = writeFixture('claude', FIXTURES.claude.midTurn)
+      t.observe(claude, { ...meta('claude', 'c1', claude), startedAt: SINCE + 1_000 }, justWritten())
+      const mine = copilotLog('u-late')
+      t.observe(mine.file, mine.meta, justWritten())
+      expect(t.sessions().map((s) => s.id)).toEqual(['claude:c1'])
+      appendFileSync(mine.file, jsonl([NEXT_TURN.copilot]))
+      t.observe(mine.file, mine.meta, justWritten())
+      expect(t.sessions().map((s) => s.id).sort()).toEqual(['claude:c1', 'copilot:u-late'])
+    })
+  })
+
   it('stopping one session leaves another running', () => {
     const t = tracker(() => {}, { now: () => STOP })
     const claude = writeFixture('claude', FIXTURES.claude.midTurn)

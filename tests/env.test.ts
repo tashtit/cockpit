@@ -102,6 +102,15 @@ describe('cliPath', () => {
     expect(cliPath(undefined).split(':')).toContain('/usr/local/bin')
   })
 
+  it('rediscovers inherited desktop engines after standalone installs, without pinning the old version', () => {
+    const old = '/Users/me/Library/Application Support/Claude/claude-code/2.1.9/claude.app/Contents/MacOS'
+    const current = '/Users/me/Library/Application Support/Claude/claude-code/2.1.10/claude.app/Contents/MacOS'
+    const path = cliPath(`${old}:/usr/bin`, `${old}:/terminal/bin:/usr/bin`, [current]).split(':')
+    expect(path).not.toContain(old)
+    expect(path.indexOf('/terminal/bin')).toBeLessThan(path.indexOf(current))
+    expect(path.indexOf('/opt/homebrew/bin')).toBeLessThan(path.indexOf(current))
+  })
+
   const NVM = '/Users/dev/.nvm/versions/node/v24.19.0/bin'
   const LOGIN = `${NVM}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`
 

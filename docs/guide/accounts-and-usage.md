@@ -55,7 +55,11 @@ Cockpit runs the agents' command-line tools. The Codex app and the `codex` CLI s
 
 ## Agent CLIs
 
-The **Agent CLIs** group lists each CLI Cockpit runs: the version installed, where it lives, and where it gets updates — "via Homebrew", "via npm", "via its own installer" for a native Claude or Codex install, or "via its own updater" for Copilot. Checked when the tab opens, at most once an hour; **Check for updates** asks again.
+The **Agent CLIs** group lists each CLI Cockpit runs: the version installed, where it lives, and where it gets updates — "via Homebrew", "via npm", "via its own installer" for a native Claude or Codex install, "via its own updater" for Copilot, or the desktop app that owns it. Checked when the tab opens, at most once an hour; **Check for updates** asks again.
+
+On macOS, Cockpit can reuse the CLI included with **Codex / ChatGPT desktop** or the engine downloaded by **Claude desktop**, without installing another copy. Your terminal's existing installations keep priority; desktop tools are fallbacks. Apps in `/Applications` and `~/Applications` are detected. Claude desktop must have downloaded its Code engine first (open Code in the app if it has not).
+
+A desktop-owned tool says **updated by desktop app**. Check for updates in that app: Cockpit neither compares its bundled engine with standalone CLI releases nor offers a command that installs or updates a separate CLI. For a desktop-owned Claude engine, its background and manual CLI updaters are disabled in Cockpit's launches, leaving the desktop app in charge. New launches discover the updated engine automatically. Sign-in and **Resume in Terminal** use the same tools; your shell startup files are not changed.
 
 A CLI is compared against **the channel it can actually update from**, not against the newest release anywhere: a Homebrew install can only get what Homebrew has packaged. So the row offers an **Update…** only when that channel really has something newer, and hovering the button shows the exact command (`brew update && brew upgrade --cask claude-code`, `npm install -g @openai/codex@latest`, `claude update` for a native Claude install, or `copilot update`, since Copilot updates itself in place). The row picks up the new version by itself once the update finishes.
 

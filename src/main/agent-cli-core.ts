@@ -7,7 +7,8 @@ import { shQuote, withConfigHome } from './shell-quote'
  * need the person — a browser to approve, sometimes a password — so Cockpit writes a
  * one-off script and opens it in Terminal rather than driving the CLI blind. Every
  * word in it comes from fixed tables; the only variable part is a config home the
- * caller has already validated, and it is single-quoted.
+ * caller has already validated, and it is single-quoted. Terminal launches carry only
+ * the CLI search path and updater controls from Cockpit, never its credentials.
  */
 
 /** The sign-in command line for one agent and home, as the script runs it. */
@@ -78,6 +79,20 @@ export function terminalScript(
     'fi',
     ''
   ].join('\n')
+}
+
+/** Give every Terminal hand-off the same tools and desktop updater policy as Cockpit. */
+export function withCliEnvironment(
+  script: string,
+  env: { readonly PATH?: string; readonly DISABLE_UPDATES?: string; readonly DISABLE_AUTOUPDATER?: string }
+): string {
+  const [header, ...body] = script.split('\n')
+  const values = { PATH: env.PATH, DISABLE_UPDATES: env.DISABLE_UPDATES, DISABLE_AUTOUPDATER: env.DISABLE_AUTOUPDATER }
+  const exports = Object.entries(values).flatMap(([key, value]) =>
+    value === undefined ? [] : [`export ${key}=${shQuote(value)}`]
+  )
+
+  return [header, ...exports, ...body].join('\n')
 }
 
 /**

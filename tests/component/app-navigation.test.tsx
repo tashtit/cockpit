@@ -196,6 +196,38 @@ describe('App back/forward navigation (⌘[ / ⌘])', () => {
   })
 })
 
+describe('App: a turn stopped in main', () => {
+  it('ends on screen as Stop does when its session is archived, and the kill is not a failure', async () => {
+    vi.mocked(window.cockpit.pageSessions).mockResolvedValue({ total: 1, items: [session('a', 'fix the login flake')] })
+    let emit: ((ev: ChatEvent) => void) | undefined
+    vi.mocked(window.cockpit.onChatEvent).mockImplementation((cb) => {
+      emit = cb
+      return () => {}
+    })
+    render(<App />)
+
+    await userEvent.click(await boardRow(/fix the login flake/))
+    await userEvent.type(chatComposer(), 'hi{Enter}')
+    await waitFor(() => expect(window.cockpit.sendChat).toHaveBeenCalledTimes(1))
+    act(() => emit?.({ turnId: 'turn-1', type: 'text', text: 'Running the suite' }))
+    expect(await screen.findByRole('button', { name: 'Stop' })).toBeInTheDocument()
+
+    // main stopped it (the row's Archive) and says so before the kill's exit error and done
+    act(() => {
+      emit?.({ turnId: 'turn-1', type: 'stopped' })
+      emit?.({ turnId: 'turn-1', type: 'error', message: 'claude exited with code null' })
+      emit?.({ turnId: 'turn-1', type: 'done' })
+    })
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
+    expect(screen.queryByText(/exited with code null/)).not.toBeInTheDocument()
+    const said = screen.getAllByRole('status', { hidden: true }).map((e) => e.textContent ?? '').join(' | ')
+    expect(said).toMatch(/Claude stopped/)
+    expect(said).not.toMatch(/finished/)
+    expect(window.cockpit.cancelChat).not.toHaveBeenCalled()
+  })
+})
+
 describe('App child sessions', () => {
   it('names the parent of a session another one started, and opens it from the chip', async () => {
     const parent = session('p', 'Free plan limits')

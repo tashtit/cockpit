@@ -61,6 +61,11 @@ import { AGENT_LABEL, CONFIG_HOME_VAR, isDrivable } from '../shared/providers'
  * on is decided by the new mode, and the questions still open that the new mode allows
  * are answered. A headless CLI was handed its mode as flags at launch, so for one the
  * new mode starts with the next message.
+ *
+ * A stopped turn is over the moment `cancel()` runs, whoever stopped it — Stop, an
+ * archive (`stopSession`), a table, quitting: it says `stopped` before the signal, so the
+ * kill's exit error is never read as the turn failing, and `onTurnCancel` tells the log
+ * watcher, so the mid-turn tail the kill leaves is never read as a turn still running.
  */
 
 type Emit = (ev: ChatEvent) => void
@@ -502,6 +507,8 @@ type RunningTurn = {
   /** Flipped when the CLI emits its done event — mutable turn state on purpose */
   doneSent: boolean
   readonly provider: SessionProvider
+  /** Where it runs — what names a stopped turn's session when the turn never did */
+  readonly cwd: string
   /** Epoch ms this turn was spawned — surfaces as elapsed time on the board */
   readonly startedAt: number
   /** Native session ids this turn is known under — the resumed id plus any the
@@ -527,15 +534,26 @@ type RunningTurn = {
   openAsks?: Map<string, ChatPermission>
 }
 
+/**
+ * A turn cancel() stopped, as the log watcher needs it: the sessions it ran on, named as
+ * busySessions() names them — and, for one that never named its session (`copilot -p`
+ * does not), the agent, the folder and the moment it started in.
+ */
+export type StoppedTurn = {
+  readonly sessions: readonly string[]
+  readonly provider: SessionProvider
+  readonly cwd: string
+  readonly startedAt: number
+}
+
 /** Optional collaborators wired by services.ts (busy board, attention, BYOK endpoint/keychain store). */
 type ChatManagerHooks = {
   readonly onBusyChange?: (sessions: BusySession[]) => void
   /** Every turn, before any of its events — fast failures included */
   readonly onTurnStart?: (turnId: string, req: ChatRequest) => void
-  /** cancel() was called: the error and done that follow are the kill, not a failure.
-   *  `sessions` are the ones it ran on, as busySessions() names them — their logs are
-   *  left mid-turn, which is the kill too, not a turn still running */
-  readonly onTurnCancel?: (turnId: string, sessions: readonly string[]) => void
+  /** cancel() was called: the error and done that follow are the kill, not a failure —
+   *  and so is the mid-turn tail it leaves in the log of each session it ran on */
+  readonly onTurnCancel?: (turnId: string, turn: StoppedTurn) => void
   readonly resolveEndpoint?: ResolveEndpoint
   readonly resolveKey?: ResolveKey
   /** The ACP agent to drive this request with, or undefined for the CLI's own flags */
@@ -724,6 +742,7 @@ export class ChatManager {
       child,
       doneSent: false,
       provider: req.provider,
+      cwd: req.cwd,
       startedAt: Date.now(),
       sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : []),
       ...(stdin === undefined
@@ -908,6 +927,7 @@ export class ChatManager {
       child: acp.child,
       doneSent: false,
       provider: req.provider,
+      cwd: req.cwd,
       startedAt: Date.now(),
       sessionIds: new Set(req.resumeNativeId ? [req.resumeNativeId] : []),
       acp
@@ -1017,7 +1037,15 @@ export class ChatManager {
   cancel(turnId: string): void {
     const t = this.turns.get(turnId)
     if (!t) return
-    this.hooks.onTurnCancel?.(turnId, [...t.sessionIds].map((nativeId) => `${t.provider}:${nativeId}`))
+    this.hooks.onTurnCancel?.(turnId, {
+      sessions: [...t.sessionIds].map((nativeId) => `${t.provider}:${nativeId}`),
+      provider: t.provider,
+      cwd: t.cwd,
+      startedAt: t.startedAt
+    })
+    // said before the signal: a window showing this turn ends it now, as its own Stop
+    // does, rather than read the kill's exit error as the turn failing
+    this.emit({ turnId, type: 'stopped' })
     // over ACP the agent can be told to stop, and anything it is waiting on refused,
     // before the process group is signalled
     t.acp?.cancel()
@@ -1040,6 +1068,17 @@ export class ChatManager {
     // leader's exit, the SIGKILL was cancelled and that tool kept running, orphaned.
     // A group that is already empty makes this a no-op.
     setTimeout(() => signal('SIGKILL'), 3000).unref()
+  }
+
+  /**
+   * Stop the turn running in this session, if Cockpit is running one — its session was
+   * archived, and archiving a session ends its work. False when there was none.
+   */
+  stopSession(provider: SessionProvider, nativeId: string): boolean {
+    const turnId = this.turnFor(provider, nativeId)
+    if (turnId === null) return false
+    this.cancel(turnId)
+    return true
   }
 
   cancelAll(): void {

@@ -830,6 +830,7 @@ const FIRST_RUN: readonly Shot[] = [
  */
 const PINNED = {
   COCKPIT_DEV_BACKGROUND: '1',
+  COCKPIT_DESKTOP_APPLICATIONS: '',
   // the agent-CLI update check's "latest" releases, so the tour never reaches the
   // network — and shows one CLI behind (the stubs report 2.1.236 / 0.155.1 / 1.0.87)
   COCKPIT_CLI_LATEST: JSON.stringify({ claude: '2.1.278', codex: '0.155.1', copilot: '1.0.87' })

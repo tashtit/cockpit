@@ -2,7 +2,8 @@ import type { CliInstall, Provider } from './types'
 
 /**
  * The agent CLIs as packages: where their releases are published and what Homebrew
- * calls them. Pure data plus the version and install-method rules both processes use.
+ * calls them. Desktop-owned engines are identified separately: only their app may
+ * update them. Pure data plus the version and install-method rules both processes use.
  */
 export const CLI_PACKAGE: Record<Provider, { readonly npm: string; readonly brew: string }> = {
   claude: { npm: '@anthropic-ai/claude-code', brew: 'claude-code' },
@@ -15,7 +16,8 @@ export const CHANNEL_LABEL: Record<CliInstall, string> = {
   'brew-cask': 'Homebrew',
   'brew-formula': 'Homebrew',
   npm: 'npm',
-  native: 'its own installer'
+  native: 'its own installer',
+  desktop: 'desktop app'
 }
 
 /** The first x.y.z in a `--version` line ("codex-cli 0.154.0", "2.1.236 (Claude Code)"). */
@@ -33,10 +35,24 @@ export function compareVersions(a: string, b: string): number {
 
 /** How a CLI was installed, read off where its binary really lives. */
 export function installMethodOf(realPath: string): CliInstall {
+  if (desktopAppOf(realPath)) return 'desktop'
   if (/\/Caskroom\//.test(realPath)) return 'brew-cask'
   if (/\/Cellar\//.test(realPath)) return 'brew-formula'
   if (/\/node_modules\//.test(realPath)) return 'npm'
   return 'native'
+}
+
+/** The app that owns a known bundled CLI, never the desktop GUI executable itself. */
+export function desktopAppOf(realPath: string): string | null {
+  const codex = /\/(Codex|ChatGPT)\.app\/Contents\/Resources\/(?:codex|codex-cli\/(?:bin\/codex|CodexCLI\.app\/Contents\/MacOS\/codex))$/.exec(realPath)
+  if (codex) {
+    return `${codex[1]} desktop`
+  }
+  if (/\/Library\/Application Support\/Claude\/claude-code\/\d+\.\d+\.\d+\/claude\.app\/Contents\/MacOS\/claude$/.test(realPath)) {
+    return 'Claude desktop'
+  }
+
+  return null
 }
 
 /**
@@ -44,8 +60,8 @@ export function installMethodOf(realPath: string): CliInstall {
  * refuses a second `brew update` outright, so these take turns: main queues their
  * scripts on one lock, and a row says when its run is taking turns with another's.
  */
-export function runsHomebrew(line: string): boolean {
-  return /^brew\s/.test(line)
+export function runsHomebrew(line: string | null): boolean {
+  return line !== null && /^brew\s/.test(line)
 }
 
 /**
@@ -79,7 +95,10 @@ export function homebrewUpdateCommand(
  * roll it back), so it always gets its own `copilot update`. Homebrew refreshes its
  * package list first: without that, it doesn't know a release exists.
  */
-export function updateCommandFor(provider: Provider, install: CliInstall): string {
+export function updateCommandFor(provider: Provider, install: CliInstall): string | null {
+  if (install === 'desktop') {
+    return null
+  }
   if (provider === 'copilot') return 'copilot update'
   const pkg = CLI_PACKAGE[provider]
   switch (install) {

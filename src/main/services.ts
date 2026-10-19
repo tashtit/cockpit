@@ -63,6 +63,8 @@ export type Services = {
   readonly busySessions: () => BusySession[]
   /** Archived or deleted, here or in the provider's own app: nothing about it is news any more. */
   readonly forgetThrownAway: () => void
+  /** Archiving a session ends its work: the turn Cockpit is running in each of these is stopped, as Stop would */
+  readonly stopTurnsIn: (ids: readonly string[]) => void
   /** The session whose row carries a pull request, if any (see `prCarrier`). */
   readonly prCarrier: (repoRoot: string, pr: PrStatus) => string | null
   /** A config replaced wholesale (a restore) only reaches the tree once the indexer is told. */
@@ -317,9 +319,9 @@ export function startServices(): Services {
           resumeNativeId: req.resumeNativeId
         })
       },
-      onTurnCancel: (turnId, sessions) => {
+      onTurnCancel: (turnId, turn) => {
         theDesk.turnCancelled(turnId)
-        indexer.turnsStopped(sessions)
+        indexer.turnStopped(turn)
       },
       resolveEndpoint: (id) => listModelEndpoints().find((e) => e.id === id),
       resolveKey: (ep) => getEndpointKey(ep.id)
@@ -414,6 +416,13 @@ export function startServices(): Services {
     void indexer.whenScanned().then(() => watch.start())
   }
 
+  const stopTurnsIn = (ids: readonly string[]): void => {
+    for (const id of ids) {
+      const s = indexer.getSession(id)
+      if (s) theChat.stopSession(s.provider, s.nativeId)
+    }
+  }
+
   return {
     indexer,
     transcripts,
@@ -426,6 +435,7 @@ export function startServices(): Services {
     ledger,
     busySessions,
     forgetThrownAway,
+    stopTurnsIn,
     prCarrier,
     republishConfig,
     cleanupDeps,

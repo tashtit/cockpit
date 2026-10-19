@@ -36,6 +36,7 @@ import { GENERAL_REPO, branchForCwd, clearRepoCache, resolveRepo } from './repos
 import { isRegularFile, timeSlicer } from './parsers/util'
 import { SnapshotPass, dbStamp, inPass, readFailed, splitSessionRef } from './parsers/sqlite'
 import { LivenessTracker, type ObservedTurn } from './liveness'
+import type { StoppedTurn } from './chat'
 import { ProviderArchivedReader, defaultClaudeStoreDir } from './provider-archived'
 import { controlOf, type ControlEntry } from './session-control-core'
 import { isTempFileOf, writeFileAtomic, writeFileAtomicAsync } from './replace-file'
@@ -563,9 +564,12 @@ export class SessionIndexer {
     return this.liveness.sessions()
   }
 
-  /** Cockpit stopped the turns running in these sessions: what their logs still say is the kill (liveness.ts `stopped`). */
-  turnsStopped(ids: readonly string[]): void {
-    for (const id of ids) this.liveness.stopped(id)
+  /** Cockpit stopped a turn: what its session's log still says of it is the kill (liveness.ts `stopped`, `stoppedIn`). */
+  turnStopped(turn: StoppedTurn): void {
+    for (const id of turn.sessions) this.liveness.stopped(id)
+    if (turn.sessions.length === 0) {
+      this.liveness.stoppedIn({ provider: turn.provider, cwd: turn.cwd, since: turn.startedAt })
+    }
   }
 
   /** Wired by services.ts to the merged busy set, so Cockpit's own turns hold their place too. */

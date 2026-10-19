@@ -45,7 +45,7 @@ A session runs one turn at a time. Cockpit won't start a second one beside a tur
 still going; stop it, or wait for it to finish. **Stop** ends the turn there and then, with
 the tools it started: the session stops flying and **Send** is back at once, even though
 the agent's log is left mid-turn — a tool call with no result reads like one still running,
-but Cockpit knows it stopped it.
+but Cockpit knows it stopped it. Archiving the session stops its turn the same way.
 
 ### A session that is running somewhere else
 

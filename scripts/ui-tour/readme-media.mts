@@ -72,6 +72,7 @@ async function launch(world: World, opts: Launch = {}): Promise<{ app: ElectronA
     env: {
       ...process.env,
       COCKPIT_DEV_BACKGROUND: '1',
+      COCKPIT_DESKTOP_APPLICATIONS: '',
       COCKPIT_CLI_LATEST: JSON.stringify({ claude: '2.1.236', codex: '0.155.1', copilot: '1.0.87' }),
       HOME: world.home,
       COCKPIT_USER_DATA: world.userData,

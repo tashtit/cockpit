@@ -170,14 +170,40 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
     [speaker, askPermission, withdrawPermission, onSession, onSettled]
   )
 
+  /**
+   * The turn on screen was stopped — by its Stop, or in main (its session archived): it
+   * ends here, and the kill's trailing error and done no longer match the active turn.
+   * Synchronously, so they cannot land before the next render.
+   */
+  const stopLocally = useCallback(
+    (turnId: string) => {
+      activeTurnRef.current = null
+      setActiveTurn(null)
+      rejoinRef.current = null
+      setPermissions((list) => list.filter((a) => a.turnId !== turnId))
+      // drop any not-yet-flushed text: the shimmer stops with the turn
+      endChatStream({ keepText: false })
+      // as a turn's own end does: the log on disk is the conversation again, or the
+      // transcript stops following it until the session is reopened
+      onSettled()
+      announceChat(`${speaker()} stopped`)
+    },
+    [speaker, onSettled]
+  )
+
   useEffect(() => {
     return api.onChatEvent((ev: ChatEvent) => {
+      // ahead of a rejoin's wait on the log: a stopped turn is over now, not once it is read
+      if (ev.type === 'stopped' && ev.turnId === activeTurnRef.current) {
+        stopLocally(ev.turnId)
+        return
+      }
       if (ev.turnId !== activeTurnRef.current) {
         // a question is the one thing a turn off screen can't be allowed to lose: it
         // waits for its conversation, and goes when the turn does
         if (ev.type === 'permission') askPermission(ev)
         else if (ev.type === 'permission-withdrawn') withdrawPermission(ev.turnId, ev.requestId)
-        else if (ev.type === 'done')
+        else if (ev.type === 'done' || ev.type === 'stopped')
           setPermissions((list) => list.filter((a) => a.turnId !== ev.turnId))
         // spawn failures can emit before sendChat() resolves with the turn id
         if (activeTurnRef.current === null) {
@@ -189,7 +215,7 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
       const rejoin = rejoinRef.current
       for (const e of rejoin?.turnId === ev.turnId ? rejoin.offer(ev) : [ev]) applyEvent(e)
     })
-  }, [applyEvent, askPermission, withdrawPermission])
+  }, [applyEvent, askPermission, withdrawPermission, stopLocally])
 
   /**
    * Adopt a turn id and replay any events that arrived before we knew it.
@@ -280,18 +306,10 @@ export function useChatTurns({ speaker, onSession, onSettled }: TurnHandlers): C
   const cancel = useCallback(() => {
     if (activeTurn) {
       void api.cancelChat(activeTurn)
-      // the killed turn's terminal `done` no longer matches activeTurnRef, so do
-      // its cleanup locally: stop the shimmer and drop any not-yet-flushed text
-      setActiveTurn(null)
-      rejoinRef.current = null
-      setPermissions((list) => list.filter((a) => a.turnId !== activeTurn))
-      endChatStream({ keepText: false })
-      // as a turn's own end does: the log on disk is the conversation again, or the
-      // transcript stops following it until the session is reopened
-      onSettled()
-      announceChat(`${speaker()} stopped`)
+      // main's `stopped` will not match the active turn by the time it arrives
+      stopLocally(activeTurn)
     }
-  }, [activeTurn, speaker, onSettled])
+  }, [activeTurn, stopLocally])
 
   // the questions the turn on screen is blocked on; another conversation's turn keeps
   // its own, for when that conversation is opened and its turn rejoined

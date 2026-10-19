@@ -32,6 +32,8 @@ import { join } from 'node:path'
  */
 const PINNED: Readonly<Record<string, string>> = {
   COCKPIT_DEV_BACKGROUND: '1',
+  // System desktop bundles must not supply real CLIs to a fixture HOME.
+  COCKPIT_DESKTOP_APPLICATIONS: '',
   // the agent-CLI update check names its "latest" releases here instead of asking the
   // npm registry — a spec never reaches the network (Settings › Accounts runs the check)
   COCKPIT_CLI_LATEST: JSON.stringify({ claude: '9.9.9', codex: '9.9.9', copilot: '9.9.9' })

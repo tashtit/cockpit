@@ -844,7 +844,7 @@ export type AccountInfo = {
 export type SignInState = 'signed-in' | 'signed-out' | 'missing' | 'unknown'
 
 /** How an agent CLI got onto this Mac — it decides the command that updates it. */
-export type CliInstall = 'brew-cask' | 'brew-formula' | 'npm' | 'native'
+export type CliInstall = 'brew-cask' | 'brew-formula' | 'npm' | 'native' | 'desktop'
 
 /** One agent CLI as installed here, against its latest release. */
 export type CliStatus = {
@@ -858,7 +858,8 @@ export type CliStatus = {
   readonly install: CliInstall | null
   /**
    * The newest version this install can actually get — what Homebrew has packaged for
-   * a brew install, the newest release otherwise. null when it couldn't be read.
+   * a brew install, the newest release otherwise. null when it couldn't be read or
+   * the desktop app owns updates (its engine is not a separately updatable release).
    */
   readonly latest: string | null
   /** The newest release anywhere. Ahead of `latest` while a channel lags behind it. */
@@ -867,7 +868,7 @@ export type CliStatus = {
   readonly channel: string | null
   /** `latest` is newer than what is installed — the only case with something to run */
   readonly updateAvailable: boolean
-  /** What Update runs in a terminal — shown before it is run */
+  /** What Update runs in a terminal; null for a desktop-owned CLI */
   readonly updateCommand: string | null
 }
 
@@ -1622,6 +1623,12 @@ export type ChatEvent =
     }
   | { readonly turnId: string; readonly type: 'done'; readonly costUsd?: number }
   | { readonly turnId: string; readonly type: 'error'; readonly message: string }
+  /**
+   * Cockpit stopped the turn — Stop, its session archived, its table stopped, the app
+   * quitting — and said so before signalling it: the error and done that follow are the
+   * kill, not a failure. A window showing the turn ends it here, as its own Stop does.
+   */
+  | { readonly turnId: string; readonly type: 'stopped' }
   /**
    * An ACP agent's, or Claude's (claude-permissions.ts): the agent is blocked until the
    * user picks an option. Nothing else about the turn moves until `respondPermission`

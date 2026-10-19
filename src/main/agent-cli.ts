@@ -5,6 +5,7 @@ import {
   CHANNEL_LABEL,
   CLI_PACKAGE,
   compareVersions,
+  desktopAppOf,
   installMethodOf,
   parseVersion,
   updateCommandFor
@@ -18,7 +19,8 @@ import { execText, loginPathReady } from './env'
  * The agent CLIs as installed: the version off `--version`, the install method off the
  * binary's real path, and two versions to compare it with — the channel the install can
  * actually update from (Homebrew's own answer for a brew install) and the newest release
- * anywhere (the npm registry). Updating and signing in both need the person, so they run
+ * anywhere (the npm registry). Desktop-owned engines defer updates to their app and
+ * are never compared with standalone releases. Updating and signing in need the person, so they run
  * as one-off Terminal scripts (`writeTerminalScript`); Cockpit never handles credentials.
  */
 
@@ -91,8 +93,8 @@ export async function cliStatus(provider: Provider, opts: { readonly force?: boo
   const found = await execText('/usr/bin/which', [provider], { timeoutMs: 5_000 })
   const bin = found.ok ? found.stdout.trim().split('\n')[0] : ''
   const force = opts.force === true
-  const upstream = await latestRelease(provider, force)
   if (!bin) {
+    const upstream = await latestRelease(provider, force)
     return {
       provider,
       installed: false,
@@ -115,6 +117,21 @@ export async function cliStatus(provider: Provider, opts: { readonly force?: boo
   const out = await execText(provider, ['--version'], { timeoutMs: 10_000 })
   const version = parseVersion(`${out.stdout}\n${out.stderr}`)
   const install = installMethodOf(real)
+  if (install === 'desktop') {
+    return {
+      provider,
+      installed: true,
+      version,
+      path: real,
+      install,
+      latest: null,
+      upstream: null,
+      channel: desktopAppOf(real),
+      updateAvailable: false,
+      updateCommand: null
+    }
+  }
+  const upstream = await latestRelease(provider, force)
   // what this install can actually get: Homebrew packages releases on its own schedule,
   // so comparing a brew install against the newest release would offer an update that
   // `brew upgrade` cannot deliver. Copilot updates itself whatever installed it.
